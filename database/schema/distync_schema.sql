@@ -132,6 +132,9 @@ CREATE TABLE sectors (
     code VARCHAR(50) NOT NULL UNIQUE,
     name VARCHAR(100) NOT NULL UNIQUE,
     description TEXT,
+    sector_group VARCHAR(50),
+    is_barangay_visible BOOLEAN NOT NULL DEFAULT FALSE,
+    is_mswdo_visible BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
