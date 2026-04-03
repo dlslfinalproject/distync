@@ -1,5 +1,6 @@
 const express = require("express");
 const pool = require("../config/db");
+const disasterEventRoutes = require("./disasterEvent.routes");
 const sectorRoutes = require("./sector.routes");
 
 const router = express.Router();
@@ -39,6 +40,7 @@ router.get("/barangays", async (req, res) => {
   }
 });
 
+router.use("/disaster-events", disasterEventRoutes);
 router.use("/sectors", sectorRoutes);
 
 module.exports = router;
