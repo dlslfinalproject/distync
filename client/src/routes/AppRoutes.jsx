@@ -12,6 +12,7 @@ import StubVerificationPage from "../pages/barangay/StubVerificationPage";
 import InventoryBatchesPage from "../pages/inventory/InventoryBatchesPage";
 import InventoryItemsPage from "../pages/inventory/InventoryItemsPage";
 import InventoryTransactionsPage from "../pages/inventory/InventoryTransactionsPage";
+import SuppliersPage from "../pages/inventory/SuppliersPage";
 
 const AppRoutes = () => {
   return (
@@ -30,6 +31,7 @@ const AppRoutes = () => {
             path="inventory-transactions"
             element={<InventoryTransactionsPage />}
           />
+          <Route path="suppliers" element={<SuppliersPage />} />
           <Route
             path="stub-verification"
             element={<StubVerificationPage />}
