@@ -9,6 +9,7 @@ import BarangayLayout from "../components/layout/BarangayLayout";
 import BarangayMasterlistPage from "../pages/barangay/BarangayMasterlistPage";
 import DistributionTransactionPage from "../pages/barangay/DistributionTransactionPage";
 import StubVerificationPage from "../pages/barangay/StubVerificationPage";
+import InventoryItemsPage from "../pages/inventory/InventoryItemsPage";
 
 const AppRoutes = () => {
   return (
@@ -21,6 +22,7 @@ const AppRoutes = () => {
             path="distribution-transaction"
             element={<DistributionTransactionPage />}
           />
+          <Route path="inventory-items" element={<InventoryItemsPage />} />
           <Route
             path="stub-verification"
             element={<StubVerificationPage />}
