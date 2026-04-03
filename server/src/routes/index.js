@@ -3,6 +3,7 @@ const pool = require("../config/db");
 const disasterEventRoutes = require("./disasterEvent.routes");
 const distributionTransactionRoutes = require("./distributionTransaction.routes");
 const householdRegistrationRoutes = require("./householdRegistration.routes");
+const inventoryItemRoutes = require("./inventoryItem.routes");
 const masterlistRoutes = require("./masterlist.routes");
 const sectorRoutes = require("./sector.routes");
 const stubRoutes = require("./stub.routes");
@@ -47,6 +48,7 @@ router.get("/barangays", async (req, res) => {
 router.use("/disaster-events", disasterEventRoutes);
 router.use("/distribution-transactions", distributionTransactionRoutes);
 router.use("/households", householdRegistrationRoutes);
+router.use("/inventory-items", inventoryItemRoutes);
 router.use("/masterlist", masterlistRoutes);
 router.use("/sectors", sectorRoutes);
 router.use("/stubs", stubRoutes);
