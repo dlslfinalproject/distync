@@ -7,6 +7,7 @@ import {
 } from "react-router-dom";
 import BarangayLayout from "../components/layout/BarangayLayout";
 import BarangayMasterlistPage from "../pages/barangay/BarangayMasterlistPage";
+import DescriptiveAnalyticsPage from "../pages/dashboard/DescriptiveAnalyticsPage";
 import DistributionTransactionPage from "../pages/barangay/DistributionTransactionPage";
 import StubVerificationPage from "../pages/barangay/StubVerificationPage";
 import InventoryBatchesPage from "../pages/inventory/InventoryBatchesPage";
@@ -21,6 +22,10 @@ const AppRoutes = () => {
       <Routes>
         <Route path="/" element={<Navigate to="/barangay/masterlist" replace />} />
         <Route path="/barangay" element={<BarangayLayout />}>
+          <Route
+            path="descriptive-analytics"
+            element={<DescriptiveAnalyticsPage />}
+          />
           <Route path="masterlist" element={<BarangayMasterlistPage />} />
           <Route
             path="distribution-transaction"
