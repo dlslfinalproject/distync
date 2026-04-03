@@ -8,6 +8,7 @@ const inventoryItemRoutes = require("./inventoryItem.routes");
 const masterlistRoutes = require("./masterlist.routes");
 const sectorRoutes = require("./sector.routes");
 const stubRoutes = require("./stub.routes");
+const supplierRoutes = require("./supplier.routes");
 
 const router = express.Router();
 
@@ -54,5 +55,6 @@ router.use("/inventory-items", inventoryItemRoutes);
 router.use("/masterlist", masterlistRoutes);
 router.use("/sectors", sectorRoutes);
 router.use("/stubs", stubRoutes);
+router.use("/suppliers", supplierRoutes);
 
 module.exports = router;
