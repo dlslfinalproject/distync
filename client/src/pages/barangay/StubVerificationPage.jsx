@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import StubSearchBar from "../../components/stubs/StubSearchBar";
@@ -48,6 +48,7 @@ const getNextActionText = (verificationResult, selectedStub) => {
 };
 
 const StubVerificationPage = () => {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState([]);
@@ -131,6 +132,28 @@ const StubVerificationPage = () => {
   const householdSummary = getHouseholdSummaryText(selectedStub);
   const nextAction = getNextActionText(verificationResult, selectedStub);
 
+  const handleProceedToDistribution = () => {
+    if (!selectedStub || !verificationResult?.is_claimable) {
+      return;
+    }
+
+    navigate("/barangay/distribution-transaction", {
+      state: {
+        stubContext: {
+          stub_id: selectedStub.id,
+          household_id: selectedStub.household.id,
+          disaster_event_id: selectedStub.disaster_event.id,
+          stub_no: selectedStub.stub_no,
+          serial_no: selectedStub.serial_no,
+          status: selectedStub.status,
+          family_head_name: selectedStub.household.family_head_name,
+          barangay_name: selectedStub.household.barangay?.name || "--",
+          household_size: selectedStub.household.household_size,
+        },
+      },
+    });
+  };
+
   return (
     <>
       <PageHeader
@@ -196,6 +219,48 @@ const StubVerificationPage = () => {
         result={verificationResult}
         selectedStub={selectedStub}
       />
+
+      {verificationResult?.is_claimable ? (
+        <section style={shellStyles.card}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: "16px",
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <h3 style={{ margin: 0, color: "#17324d" }}>
+                Ready for Distribution
+              </h3>
+              <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
+                This stub is claimable. Continue to the release form to record
+                the actual items claimed.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleProceedToDistribution}
+              style={{
+                border: "none",
+                borderRadius: "14px",
+                padding: "12px 18px",
+                background:
+                  "linear-gradient(135deg, #2f6499 0%, #4c86be 100%)",
+                color: "#ffffff",
+                fontSize: "14px",
+                fontWeight: 700,
+                cursor: "pointer",
+                boxShadow: "0 12px 24px rgba(58, 97, 141, 0.18)",
+              }}
+            >
+              Proceed to Distribution
+            </button>
+          </div>
+        </section>
+      ) : null}
     </>
   );
 };

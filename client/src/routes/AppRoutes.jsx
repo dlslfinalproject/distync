@@ -7,6 +7,7 @@ import {
 } from "react-router-dom";
 import BarangayLayout from "../components/layout/BarangayLayout";
 import BarangayMasterlistPage from "../pages/barangay/BarangayMasterlistPage";
+import DistributionTransactionPage from "../pages/barangay/DistributionTransactionPage";
 import StubVerificationPage from "../pages/barangay/StubVerificationPage";
 
 const AppRoutes = () => {
@@ -16,6 +17,10 @@ const AppRoutes = () => {
         <Route path="/" element={<Navigate to="/barangay/masterlist" replace />} />
         <Route path="/barangay" element={<BarangayLayout />}>
           <Route path="masterlist" element={<BarangayMasterlistPage />} />
+          <Route
+            path="distribution-transaction"
+            element={<DistributionTransactionPage />}
+          />
           <Route
             path="stub-verification"
             element={<StubVerificationPage />}
