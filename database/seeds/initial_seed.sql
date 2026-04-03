@@ -293,11 +293,11 @@ INSERT INTO sectors (code, name, description, sector_group, is_barangay_visible,
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO sectors (code, name, description, sector_group, is_barangay_visible, is_mswdo_visible) VALUES
-('INDIGENOUS', 'Indigenous People', 'Members of indigenous communities', 'VULNERABLE', FALSE, TRUE)
+('INDIGENOUS', 'Indigenous People', 'Members of indigenous communities', 'VULNERABLE', TRUE, TRUE)
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO sectors (code, name, description, sector_group, is_barangay_visible, is_mswdo_visible) VALUES
-('FOUR_PS', '4Ps Beneficiaries', 'Pantawid Pamilyang Pilipino Program beneficiaries', 'VULNERABLE', FALSE, TRUE)
+('FOUR_PS', '4Ps Beneficiaries', 'Pantawid Pamilyang Pilipino Program beneficiaries', 'VULNERABLE', TRUE, TRUE)
 ON CONFLICT (code) DO NOTHING;
 
 -- =========================
@@ -305,9 +305,9 @@ ON CONFLICT (code) DO NOTHING;
 -- =========================
 
 INSERT INTO sectors (code, name, description, sector_group, is_barangay_visible, is_mswdo_visible) VALUES
-('CHILD_HEADED', 'Child-Headed Family', 'Households headed by minors', 'HOUSEHOLD', FALSE, TRUE)
+('CHILD_HEADED', 'Child-Headed Family', 'Households headed by minors', 'HOUSEHOLD', TRUE, TRUE)
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO sectors (code, name, description, sector_group, is_barangay_visible, is_mswdo_visible) VALUES
-('SINGLE_HEADED', 'Single-Headed Family', 'Households with a single parent or guardian', 'HOUSEHOLD', FALSE, TRUE)
+('SINGLE_HEADED', 'Single-Headed Family', 'Households with a single parent or guardian', 'HOUSEHOLD', TRUE, TRUE)
 ON CONFLICT (code) DO NOTHING;
