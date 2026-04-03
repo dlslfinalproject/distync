@@ -12,6 +12,7 @@ import StubVerificationPage from "../pages/barangay/StubVerificationPage";
 import InventoryBatchesPage from "../pages/inventory/InventoryBatchesPage";
 import InventoryItemsPage from "../pages/inventory/InventoryItemsPage";
 import InventoryTransactionsPage from "../pages/inventory/InventoryTransactionsPage";
+import ReliefPackTemplatesPage from "../pages/inventory/ReliefPackTemplatesPage";
 import SuppliersPage from "../pages/inventory/SuppliersPage";
 
 const AppRoutes = () => {
@@ -27,6 +28,10 @@ const AppRoutes = () => {
           />
           <Route path="inventory-batches" element={<InventoryBatchesPage />} />
           <Route path="inventory-items" element={<InventoryItemsPage />} />
+          <Route
+            path="relief-pack-templates"
+            element={<ReliefPackTemplatesPage />}
+          />
           <Route
             path="inventory-transactions"
             element={<InventoryTransactionsPage />}
