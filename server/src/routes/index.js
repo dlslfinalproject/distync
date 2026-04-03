@@ -4,6 +4,7 @@ const disasterEventRoutes = require("./disasterEvent.routes");
 const householdRegistrationRoutes = require("./householdRegistration.routes");
 const masterlistRoutes = require("./masterlist.routes");
 const sectorRoutes = require("./sector.routes");
+const stubRoutes = require("./stub.routes");
 
 const router = express.Router();
 
@@ -46,5 +47,6 @@ router.use("/disaster-events", disasterEventRoutes);
 router.use("/households", householdRegistrationRoutes);
 router.use("/masterlist", masterlistRoutes);
 router.use("/sectors", sectorRoutes);
+router.use("/stubs", stubRoutes);
 
 module.exports = router;
