@@ -1,6 +1,11 @@
-import React from "react";
+import React, { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
+import StubSearchBar from "../../components/stubs/StubSearchBar";
+import StubResultsTable from "../../components/stubs/StubResultsTable";
+import StubVerificationResult from "../../components/stubs/StubVerificationResult";
+import { searchStubs, verifyStub } from "../../features/stubs/stubService";
 
 const infoCardStyles = {
   label: {
@@ -18,57 +23,128 @@ const infoCardStyles = {
   },
 };
 
+const getHouseholdSummaryText = (selectedStub) => {
+  if (!selectedStub) {
+    return "No stub selected";
+  }
+
+  return `${selectedStub.household.family_head_name} (${selectedStub.household.members_count} members)`;
+};
+
+const getNextActionText = (verificationResult, selectedStub) => {
+  if (verificationResult?.is_claimable) {
+    return "Ready to proceed";
+  }
+
+  if (verificationResult && !verificationResult.is_claimable) {
+    return "Review verification result";
+  }
+
+  if (selectedStub) {
+    return "Ready for verification";
+  }
+
+  return "Select a stub";
+};
+
 const StubVerificationPage = () => {
+  const [searchParams] = useSearchParams();
+  const [searchTerm, setSearchTerm] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [selectedStub, setSelectedStub] = useState(null);
+  const [verificationResult, setVerificationResult] = useState(null);
+  const [searchError, setSearchError] = useState("");
+  const [isSearching, setIsSearching] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+
+  const disasterEventId = searchParams.get("disaster_event_id");
+  const barangayId = searchParams.get("barangay_id");
+
+  const handleSearch = async () => {
+    if (!searchTerm.trim()) {
+      setSearchError("Enter a stub number, serial number, or family head to search.");
+      setSearchResults([]);
+      setSelectedStub(null);
+      setVerificationResult(null);
+      setHasSearched(false);
+      return;
+    }
+
+    setIsSearching(true);
+    setSearchError("");
+    setVerificationResult(null);
+
+    try {
+      const response = await searchStubs({
+        query: searchTerm,
+        disasterEventId,
+        barangayId,
+      });
+
+      setSearchResults(response.data || []);
+      setSelectedStub(response.data?.[0] || null);
+      setHasSearched(true);
+    } catch (error) {
+      setSearchError(error.message);
+      setSearchResults([]);
+      setSelectedStub(null);
+      setHasSearched(true);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleVerifySelected = async () => {
+    if (!selectedStub) {
+      return;
+    }
+
+    setIsVerifying(true);
+    setSearchError("");
+
+    try {
+      const response = await verifyStub({
+        stubNo: selectedStub.stub_no,
+        serialNo: null,
+      });
+
+      setVerificationResult({
+        message: response.message,
+        ...response.data,
+      });
+    } catch (error) {
+      setVerificationResult({
+        is_valid: false,
+        is_claimable: false,
+        message: error.message,
+        reason: error.message,
+        stub: null,
+        household: null,
+      });
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  const selectedStatus = selectedStub?.status || "Waiting for input";
+  const householdSummary = getHouseholdSummaryText(selectedStub);
+  const nextAction = getNextActionText(verificationResult, selectedStub);
+
   return (
     <>
       <PageHeader
         eyebrow="Barangay Workspace"
-        title="Stub Verification"
-        description="Shared verification screen shell for searching a stub, checking household details, and preparing the next claim flow. The layout is ready for API integration once the frontend wiring starts."
-        actions={[
-          { label: "Scan Barcode" },
-          { label: "Manual Search", variant: "secondary" },
-        ]}
+        title="STUB VERIFICATION"
+        description="Search issued stubs, select one result, and verify whether it is valid and claimable before release."
       />
 
-      <section style={shellStyles.card}>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(260px, 1.2fr) minmax(220px, 0.8fr)",
-            gap: "16px",
-          }}
-        >
-          <div
-            style={{
-              border: "1px solid #d9e4ef",
-              borderRadius: "16px",
-              padding: "16px",
-              backgroundColor: "#f7fbfe",
-              color: "#6b8197",
-              fontSize: "14px",
-            }}
-          >
-            Search by stub number, serial number, contact number, or family head
-            name
-          </div>
-          <button
-            type="button"
-            style={{
-              border: "none",
-              borderRadius: "16px",
-              background: "linear-gradient(135deg, #2f6499 0%, #4c86be 100%)",
-              color: "#ffffff",
-              fontWeight: 700,
-              fontSize: "15px",
-              cursor: "pointer",
-              minHeight: "56px",
-            }}
-          >
-            Verify Stub
-          </button>
-        </div>
-      </section>
+      <StubSearchBar
+        searchValue={searchTerm}
+        onSearchChange={setSearchTerm}
+        onSearchSubmit={handleSearch}
+        isSearching={isSearching}
+      />
 
       <section
         style={{
@@ -78,31 +154,48 @@ const StubVerificationPage = () => {
         }}
       >
         <div style={shellStyles.card}>
-          <p style={infoCardStyles.label}>Stub status</p>
-          <p style={infoCardStyles.value}>Waiting for input</p>
+          <p style={infoCardStyles.label}>Stub Status</p>
+          <p style={infoCardStyles.value}>{selectedStatus}</p>
           <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
-            This card can display `ISSUED`, `CLAIMED`, `VOID`, or
-            `CANCELLED`.
+            Current stub state from the search result list.
           </p>
         </div>
 
         <div style={shellStyles.card}>
-          <p style={infoCardStyles.label}>Household summary</p>
-          <p style={infoCardStyles.value}>No stub selected</p>
+          <p style={infoCardStyles.label}>Household Summary</p>
+          <p style={infoCardStyles.value}>{householdSummary}</p>
           <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
-            Placeholder area for linked household and family head details.
+            Family head and member count for the selected stub.
           </p>
         </div>
 
         <div style={shellStyles.card}>
-          <p style={infoCardStyles.label}>Next action</p>
-          <p style={infoCardStyles.value}>Ready for claim flow</p>
+          <p style={infoCardStyles.label}>Next Action</p>
+          <p style={infoCardStyles.value}>{nextAction}</p>
           <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
-            This panel can later connect to distribution verification and claim
-            release steps.
+            Use Verify Selected Stub to check if the claim can proceed.
           </p>
         </div>
       </section>
+
+      <StubResultsTable
+        rows={searchResults}
+        isLoading={isSearching}
+        errorMessage={searchError}
+        hasSearched={hasSearched}
+        selectedStubId={selectedStub?.id || null}
+        onSelectStub={(stub) => {
+          setSelectedStub(stub);
+          setVerificationResult(null);
+        }}
+        onVerifySelected={handleVerifySelected}
+        isVerifying={isVerifying}
+      />
+
+      <StubVerificationResult
+        result={verificationResult}
+        selectedStub={selectedStub}
+      />
     </>
   );
 };
