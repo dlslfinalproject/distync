@@ -133,7 +133,7 @@ CREATE TABLE sectors (
     name VARCHAR(100) NOT NULL UNIQUE,
     description TEXT,
     sector_group VARCHAR(50),
-    is_barangay_visible BOOLEAN NOT NULL DEFAULT FALSE,
+    is_barangay_visible BOOLEAN NOT NULL DEFAULT TRUE,
     is_mswdo_visible BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -197,12 +197,27 @@ CREATE TABLE evacuees (
         CHECK (sex IN ('MALE', 'FEMALE', 'OTHER'))
 );
 
+ALTER TABLE households
+ADD COLUMN family_head_evacuee_id UUID,
+ADD CONSTRAINT fk_households_family_head_evacuee
+    FOREIGN KEY (family_head_evacuee_id)
+    REFERENCES evacuees(id)
+    ON DELETE SET NULL;
+
 CREATE TABLE evacuee_sectors (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     evacuee_id UUID NOT NULL REFERENCES evacuees(id) ON DELETE CASCADE,
     sector_id UUID NOT NULL REFERENCES sectors(id) ON DELETE RESTRICT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_evacuee_sector UNIQUE (evacuee_id, sector_id)
+);
+
+CREATE TABLE household_sectors (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+    sector_id UUID NOT NULL REFERENCES sectors(id) ON DELETE RESTRICT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_household_sector UNIQUE (household_id, sector_id)
 );
 
 CREATE TABLE stubs (
@@ -560,6 +575,7 @@ CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_households_disaster_event_id ON households(disaster_event_id);
 CREATE INDEX idx_households_barangay_id ON households(barangay_id);
 CREATE INDEX idx_evacuees_household_id ON evacuees(household_id);
+CREATE INDEX idx_household_sectors_household_id ON household_sectors(household_id);
 CREATE INDEX idx_stubs_disaster_event_id ON stubs(disaster_event_id);
 CREATE INDEX idx_stubs_household_id ON stubs(household_id);
 CREATE INDEX idx_evacuation_logs_disaster_event_id ON evacuation_logs(disaster_event_id);
