@@ -6,6 +6,7 @@ const distributionTransactionRoutes = require("./distributionTransaction.routes"
 const householdRegistrationRoutes = require("./householdRegistration.routes");
 const inventoryItemRoutes = require("./inventoryItem.routes");
 const masterlistRoutes = require("./masterlist.routes");
+const reliefPackTemplateRoutes = require("./reliefPackTemplate.routes");
 const sectorRoutes = require("./sector.routes");
 const stubRoutes = require("./stub.routes");
 const supplierRoutes = require("./supplier.routes");
@@ -53,6 +54,7 @@ router.use("/distribution-transactions", distributionTransactionRoutes);
 router.use("/households", householdRegistrationRoutes);
 router.use("/inventory-items", inventoryItemRoutes);
 router.use("/masterlist", masterlistRoutes);
+router.use("/relief-pack-templates", reliefPackTemplateRoutes);
 router.use("/sectors", sectorRoutes);
 router.use("/stubs", stubRoutes);
 router.use("/suppliers", supplierRoutes);
