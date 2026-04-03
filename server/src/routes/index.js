@@ -2,6 +2,7 @@ const express = require("express");
 const pool = require("../config/db");
 const disasterEventRoutes = require("./disasterEvent.routes");
 const inventoryBatchRoutes = require("./inventoryBatch.routes");
+const inventoryTransactionRoutes = require("./inventoryTransaction.routes");
 const distributionTransactionRoutes = require("./distributionTransaction.routes");
 const householdRegistrationRoutes = require("./householdRegistration.routes");
 const inventoryItemRoutes = require("./inventoryItem.routes");
@@ -50,6 +51,7 @@ router.get("/barangays", async (req, res) => {
 
 router.use("/disaster-events", disasterEventRoutes);
 router.use("/inventory-batches", inventoryBatchRoutes);
+router.use("/inventory-transactions", inventoryTransactionRoutes);
 router.use("/distribution-transactions", distributionTransactionRoutes);
 router.use("/households", householdRegistrationRoutes);
 router.use("/inventory-items", inventoryItemRoutes);
