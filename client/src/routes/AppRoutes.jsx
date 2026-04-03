@@ -11,6 +11,7 @@ import DistributionTransactionPage from "../pages/barangay/DistributionTransacti
 import StubVerificationPage from "../pages/barangay/StubVerificationPage";
 import InventoryBatchesPage from "../pages/inventory/InventoryBatchesPage";
 import InventoryItemsPage from "../pages/inventory/InventoryItemsPage";
+import InventoryTransactionsPage from "../pages/inventory/InventoryTransactionsPage";
 
 const AppRoutes = () => {
   return (
@@ -25,6 +26,10 @@ const AppRoutes = () => {
           />
           <Route path="inventory-batches" element={<InventoryBatchesPage />} />
           <Route path="inventory-items" element={<InventoryItemsPage />} />
+          <Route
+            path="inventory-transactions"
+            element={<InventoryTransactionsPage />}
+          />
           <Route
             path="stub-verification"
             element={<StubVerificationPage />}
