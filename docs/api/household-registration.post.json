@@ -1,0 +1,75 @@
+{
+  "disaster_event_id": "REPLACE_WITH_REAL_DISASTER_EVENT_UUID",
+  "barangay_id": "REPLACE_WITH_REAL_BARANGAY_UUID",
+  "evacuation_center_id": null,
+  "family_head": {
+    "first_name": "Juan",
+    "middle_name": "Santos",
+    "last_name": "Dela Cruz",
+    "suffix": null,
+    "sex": "MALE",
+    "birth_date": "1985-06-15",
+    "contact_number": "09123456789"
+  },
+  "current_stay_type": "EVAC_CENTER",
+  "current_address_details": "Malvar Central School",
+  "household_size": 3,
+  "registered_by": null,
+  "members": [
+    {
+      "first_name": "Juan",
+      "middle_name": "Santos",
+      "last_name": "Dela Cruz",
+      "suffix": null,
+      "sex": "MALE",
+      "birth_date": "1985-06-15",
+      "age": 40,
+      "civil_status": "MARRIED",
+      "relationship_to_head": "HEAD",
+      "is_family_head": true,
+      "is_pregnant": false,
+      "is_lactating": false,
+      "has_disability": false,
+      "sector_ids": [
+        "REPLACE_WITH_REAL_PERSON_SECTOR_UUID_1"
+      ]
+    },
+    {
+      "first_name": "Maria",
+      "middle_name": null,
+      "last_name": "Dela Cruz",
+      "suffix": null,
+      "sex": "FEMALE",
+      "birth_date": "1988-09-01",
+      "age": 37,
+      "civil_status": "MARRIED",
+      "relationship_to_head": "SPOUSE",
+      "is_family_head": false,
+      "is_pregnant": false,
+      "is_lactating": false,
+      "has_disability": false,
+      "sector_ids": [
+        "REPLACE_WITH_REAL_PERSON_SECTOR_UUID_2"
+      ]
+    },
+    {
+      "first_name": "Ana",
+      "middle_name": null,
+      "last_name": "Dela Cruz",
+      "suffix": null,
+      "sex": "FEMALE",
+      "birth_date": "2018-02-11",
+      "age": 8,
+      "civil_status": null,
+      "relationship_to_head": "CHILD",
+      "is_family_head": false,
+      "is_pregnant": false,
+      "is_lactating": false,
+      "has_disability": false,
+      "sector_ids": []
+    }
+  ],
+  "household_sector_ids": [
+    "REPLACE_WITH_REAL_HOUSEHOLD_SECTOR_UUID"
+  ]
+}
