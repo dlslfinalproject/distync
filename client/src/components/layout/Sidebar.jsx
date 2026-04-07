@@ -86,6 +86,11 @@ const Sidebar = () => {
   const navItems = isMswdoView
     ? [
         {
+          label: "Consolidated Masterlist",
+          description: "Monitor household and evacuee records across barangays.",
+          to: "/mswdo/consolidated-masterlist",
+        },
+        {
           label: "Disaster Events",
           description: "Create events, review active incidents, and inspect affected barangays.",
           to: "/mswdo/disaster-events",
