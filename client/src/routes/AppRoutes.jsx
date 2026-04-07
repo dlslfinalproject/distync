@@ -14,6 +14,7 @@ import InventoryBatchesPage from "../pages/inventory/InventoryBatchesPage";
 import InventoryItemsPage from "../pages/inventory/InventoryItemsPage";
 import InventoryTransactionsPage from "../pages/inventory/InventoryTransactionsPage";
 import ReliefPackTemplatesPage from "../pages/inventory/ReliefPackTemplatesPage";
+import DisasterEventsPage from "../pages/mswdo/DisasterEventsPage";
 import SuppliersPage from "../pages/inventory/SuppliersPage";
 
 const AppRoutes = () => {
@@ -46,6 +47,9 @@ const AppRoutes = () => {
             path="stub-verification"
             element={<StubVerificationPage />}
           />
+        </Route>
+        <Route path="/mswdo" element={<BarangayLayout />}>
+          <Route path="disaster-events" element={<DisasterEventsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/barangay/masterlist" replace />} />
       </Routes>

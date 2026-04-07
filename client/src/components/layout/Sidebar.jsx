@@ -1,5 +1,5 @@
 import React from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 
 const sidebarStyles = {
   wrapper: {
@@ -74,29 +74,42 @@ const sidebarStyles = {
   },
 };
 
-const navItems = [
-  {
-    label: "Evacuee Registration",
-    description: "Household summaries, encoded evacuees, and barangay records.",
-    to: "/barangay/masterlist",
-  },
-  {
-    label: "Stub Verification",
-    description: "Search and validate issued stubs before claiming.",
-    to: "/barangay/stub-verification",
-  },
-];
-
 const Sidebar = () => {
+  const location = useLocation();
+  const isMswdoView = location.pathname.startsWith("/mswdo");
+
+  const brandTag = isMswdoView ? "MSWDO Panel" : "Barangay Panel";
+  const brandText = isMswdoView
+    ? "Planning and monitoring workspace for disaster events and later MSWDO dashboards."
+    : "Shared shell for barangay workflows, verification, and frontline encoding.";
+
+  const navItems = isMswdoView
+    ? [
+        {
+          label: "Disaster Events",
+          description: "Create events, review active incidents, and inspect affected barangays.",
+          to: "/mswdo/disaster-events",
+        },
+      ]
+    : [
+        {
+          label: "Evacuee Registration",
+          description: "Household summaries, encoded evacuees, and barangay records.",
+          to: "/barangay/masterlist",
+        },
+        {
+          label: "Stub Verification",
+          description: "Search and validate issued stubs before claiming.",
+          to: "/barangay/stub-verification",
+        },
+      ];
+
   return (
     <aside style={sidebarStyles.wrapper}>
       <div style={sidebarStyles.brand}>
-        <span style={sidebarStyles.brandTag}>Barangay Panel</span>
+        <span style={sidebarStyles.brandTag}>{brandTag}</span>
         <h1 style={sidebarStyles.brandTitle}>DISTYNC</h1>
-        <p style={sidebarStyles.brandText}>
-          Shared shell for barangay workflows, verification, and frontline
-          encoding.
-        </p>
+        <p style={sidebarStyles.brandText}>{brandText}</p>
       </div>
 
       <nav style={sidebarStyles.nav}>
