@@ -86,6 +86,11 @@ const Sidebar = () => {
   const navItems = isMswdoView
     ? [
         {
+          label: "Analytics Dashboard",
+          description: "Review summary metrics and visual trends for active incidents.",
+          to: "/mswdo/analytics-dashboard",
+        },
+        {
           label: "Consolidated Masterlist",
           description: "Monitor household and evacuee records across barangays.",
           to: "/mswdo/consolidated-masterlist",

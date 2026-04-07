@@ -14,6 +14,7 @@ import InventoryBatchesPage from "../pages/inventory/InventoryBatchesPage";
 import InventoryItemsPage from "../pages/inventory/InventoryItemsPage";
 import InventoryTransactionsPage from "../pages/inventory/InventoryTransactionsPage";
 import ReliefPackTemplatesPage from "../pages/inventory/ReliefPackTemplatesPage";
+import AnalyticsDashboardPage from "../pages/mswdo/AnalyticsDashboardPage";
 import ConsolidatedMasterlistPage from "../pages/mswdo/ConsolidatedMasterlistPage";
 import DisasterEventsPage from "../pages/mswdo/DisasterEventsPage";
 import SuppliersPage from "../pages/inventory/SuppliersPage";
@@ -50,6 +51,10 @@ const AppRoutes = () => {
           />
         </Route>
         <Route path="/mswdo" element={<BarangayLayout />}>
+          <Route
+            path="analytics-dashboard"
+            element={<AnalyticsDashboardPage />}
+          />
           <Route
             path="consolidated-masterlist"
             element={<ConsolidatedMasterlistPage />}
