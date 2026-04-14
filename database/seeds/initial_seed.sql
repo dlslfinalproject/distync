@@ -311,3 +311,84 @@ ON CONFLICT (code) DO NOTHING;
 INSERT INTO sectors (code, name, description, sector_group, is_barangay_visible, is_mswdo_visible) VALUES
 ('SINGLE_HEADED', 'Single-Headed Family', 'Households with a single parent or guardian', 'HOUSEHOLD', TRUE, TRUE)
 ON CONFLICT (code) DO NOTHING;
+
+
+-- =========================================================
+-- 6) EVACUATION CENTERS
+-- =========================================================
+
+
+INSERT INTO evacuation_centers (barangay_id, name, individual_capacity)
+SELECT b.id, 'San Isidro Barangay Hall', 160
+FROM barangays b WHERE b.code = 'SAN_ISIDRO_EAST'
+ON CONFLICT (barangay_id, name) DO NOTHING;
+
+INSERT INTO evacuation_centers (barangay_id, name, individual_capacity)
+SELECT b.id, 'Malvar Cultural Center', 2400
+FROM barangays b WHERE b.code = 'POBLACION'
+ON CONFLICT (barangay_id, name) DO NOTHING;
+
+INSERT INTO evacuation_centers (barangay_id, name, individual_capacity)
+SELECT b.id, 'San Gregorio Evacuation Center', 40
+FROM barangays b WHERE b.code = 'SAN_GREGORIO'
+ON CONFLICT (barangay_id, name) DO NOTHING;
+
+INSERT INTO evacuation_centers (barangay_id, name, individual_capacity)
+SELECT b.id, 'Luta Sur Covered Court', 400
+FROM barangays b WHERE b.code = 'LUTA_DEL_SUR'
+ON CONFLICT (barangay_id, name) DO NOTHING;
+
+INSERT INTO evacuation_centers (barangay_id, name, individual_capacity)
+SELECT b.id, 'Bulihan Evacuation Center', 20
+FROM barangays b WHERE b.code = 'BULIHAN'
+ON CONFLICT (barangay_id, name) DO NOTHING;
+
+INSERT INTO evacuation_centers (barangay_id, name, individual_capacity)
+SELECT b.id, 'Santiago Evacuation Center', 48
+FROM barangays b WHERE b.code = 'SANTIAGO'
+ON CONFLICT (barangay_id, name) DO NOTHING;
+
+INSERT INTO evacuation_centers (barangay_id, name, individual_capacity)
+SELECT b.id, 'San Fernando Covered Court', 60
+FROM barangays b WHERE b.code = 'SAN_FERNANDO'
+ON CONFLICT (barangay_id, name) DO NOTHING;
+
+INSERT INTO evacuation_centers (barangay_id, name, individual_capacity)
+SELECT b.id, 'San Pedro II Elementary School', 72
+FROM barangays b WHERE b.code = 'SAN_PEDRO_II'
+ON CONFLICT (barangay_id, name) DO NOTHING;
+
+INSERT INTO evacuation_centers (barangay_id, name, individual_capacity)
+SELECT b.id, 'Luta Del Norte Evacuation Center', 56
+FROM barangays b WHERE b.code = 'LUTA_DEL_NORTE'
+ON CONFLICT (barangay_id, name) DO NOTHING;
+
+INSERT INTO evacuation_centers (barangay_id, name, individual_capacity)
+SELECT b.id, 'San Juan Covered Court', 120
+FROM barangays b WHERE b.code = 'SAN_JUAN'
+ON CONFLICT (barangay_id, name) DO NOTHING;
+
+INSERT INTO evacuation_centers (barangay_id, name, individual_capacity)
+SELECT b.id, 'San Pioquinto Covered Court', 100
+FROM barangays b WHERE b.code = 'SAN_PIOQUINTO'
+ON CONFLICT (barangay_id, name) DO NOTHING;
+
+INSERT INTO evacuation_centers (barangay_id, name, individual_capacity)
+SELECT b.id, 'Bagong Pook New Barangay Hall', 160
+FROM barangays b WHERE b.code = 'BAGONG_POOK'
+ON CONFLICT (barangay_id, name) DO NOTHING;
+
+INSERT INTO evacuation_centers (barangay_id, name, individual_capacity)
+SELECT b.id, 'Bagong Pook Old Barangay Hall', 40
+FROM barangays b WHERE b.code = 'BAGONG_POOK'
+ON CONFLICT (barangay_id, name) DO NOTHING;
+
+INSERT INTO evacuation_centers (barangay_id, name, individual_capacity)
+SELECT b.id, 'San Pedro I Barangay Hall 3rd Floor', 40
+FROM barangays b WHERE b.code = 'SAN_PEDRO_I'
+ON CONFLICT (barangay_id, name) DO NOTHING;
+
+INSERT INTO evacuation_centers (barangay_id, name, individual_capacity)
+SELECT b.id, 'San Andres Evacuation Center', 80
+FROM barangays b WHERE b.code = 'SAN_ANDRES'
+ON CONFLICT (barangay_id, name) DO NOTHING;
