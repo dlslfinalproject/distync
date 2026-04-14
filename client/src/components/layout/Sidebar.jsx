@@ -133,7 +133,7 @@ const Sidebar = () => {
         {
           label: "Analytics Dashboard",
           description: "Review summary metrics and visual trends for active incidents.",
-          to: "/mswdo/analytics-dashboard",
+          to: "/mswdo/analytics",
         },
         {
           label: "Consolidated Masterlist",

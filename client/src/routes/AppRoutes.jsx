@@ -77,6 +77,10 @@ const AppRoutes = () => {
           }
         >
           <Route
+            path="analytics"
+            element={<AnalyticsDashboardPage />}
+          />
+          <Route
             path="analytics-dashboard"
             element={<AnalyticsDashboardPage />}
           />
