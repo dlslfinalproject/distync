@@ -1,6 +1,16 @@
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
+const parseJsonResponse = async (response, fallbackMessage) => {
+  const payload = await response.json();
+
+  if (!response.ok) {
+    throw new Error(payload.message || fallbackMessage);
+  }
+
+  return payload;
+};
+
 const formatDateTime = (value) => {
   if (!value) {
     return "—";
@@ -43,6 +53,16 @@ const mapMasterlistRow = (household) => {
   };
 };
 
+export const fetchActiveDisasterEvents = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/disaster-events/active`);
+  return parseJsonResponse(response, "Failed to fetch active disaster events");
+};
+
+export const fetchBarangays = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/barangays`);
+  return parseJsonResponse(response, "Failed to fetch barangays");
+};
+
 export const fetchMasterlist = async ({ disasterEventId, barangayId }) => {
   if (!disasterEventId) {
     return {
@@ -67,12 +87,7 @@ export const fetchMasterlist = async ({ disasterEventId, barangayId }) => {
   const response = await fetch(
     `${API_BASE_URL}/api/v1/masterlist?${searchParams.toString()}`,
   );
-
-  const payload = await response.json();
-
-  if (!response.ok) {
-    throw new Error(payload.message || "Failed to fetch masterlist");
-  }
+  const payload = await parseJsonResponse(response, "Failed to fetch masterlist");
 
   const rows = (payload.data || []).map(mapMasterlistRow);
   const totalMembers = (payload.data || []).reduce((total, household) => {

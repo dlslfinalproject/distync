@@ -58,6 +58,22 @@ const HouseholdFormSection = ({ form }) => {
         </label>
 
         <label style={fieldStyles.field}>
+          <span style={fieldStyles.label}>Barangay</span>
+          <select
+            value={form.selectedBarangayId}
+            onChange={(event) => form.setSelectedBarangayId(event.target.value)}
+            style={fieldStyles.input}
+          >
+            <option value="">Select barangay</option>
+            {form.barangays.map((barangay) => (
+              <option key={barangay.id} value={barangay.id}>
+                {barangay.name}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label style={fieldStyles.field}>
           <span style={fieldStyles.label}>Current Stay Type</span>
           <select
             value={form.household.current_stay_type}

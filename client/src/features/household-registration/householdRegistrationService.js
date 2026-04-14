@@ -1,5 +1,5 @@
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
 const parseJsonResponse = async (response) => {
   const payload = await response.json();
@@ -18,6 +18,11 @@ export const fetchActiveDisasterEvents = async () => {
 
 export const fetchSectors = async () => {
   const response = await fetch(`${API_BASE_URL}/api/v1/sectors`);
+  return parseJsonResponse(response);
+};
+
+export const fetchBarangays = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/barangays`);
   return parseJsonResponse(response);
 };
 

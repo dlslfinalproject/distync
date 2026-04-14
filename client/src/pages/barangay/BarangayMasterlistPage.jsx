@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
@@ -6,6 +6,10 @@ import MasterlistTable from "../../components/masterlist/MasterlistTable";
 import MasterlistToolbar from "../../components/masterlist/MasterlistToolbar";
 import StatusCard from "../../components/shared/StatusCard";
 import { useMasterlist } from "../../features/masterlist/masterlistHooks";
+import {
+  fetchActiveDisasterEvents,
+  fetchBarangays,
+} from "../../features/masterlist/masterlistService";
 import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
 import { useHouseholdRegistrationForm } from "../../features/household-registration/useHouseholdRegistrationForm";
 
@@ -36,12 +40,69 @@ const formatSummaryValue = (value) => {
 };
 
 const BarangayMasterlistPage = () => {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [searchTerm, setSearchTerm] = useState("");
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
+  const [activeDisasterEvents, setActiveDisasterEvents] = useState([]);
+  const [barangays, setBarangays] = useState([]);
+  const [isLoadingFilters, setIsLoadingFilters] = useState(true);
+  const [filterErrorMessage, setFilterErrorMessage] = useState("");
+  const [registrationSuccessMessage, setRegistrationSuccessMessage] = useState("");
 
   const disasterEventId = searchParams.get("disaster_event_id");
   const barangayId = searchParams.get("barangay_id");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadFilterOptions = async () => {
+      setIsLoadingFilters(true);
+      setFilterErrorMessage("");
+
+      try {
+        const [disasterEventsPayload, barangaysPayload] = await Promise.all([
+          fetchActiveDisasterEvents(),
+          fetchBarangays(),
+        ]);
+
+        if (!isMounted) {
+          return;
+        }
+
+        const disasterEvents = Array.isArray(disasterEventsPayload)
+          ? disasterEventsPayload
+          : [];
+        const availableBarangays = Array.isArray(barangaysPayload)
+          ? barangaysPayload
+          : [];
+
+        setActiveDisasterEvents(disasterEvents);
+        setBarangays(availableBarangays);
+
+        if (!searchParams.get("disaster_event_id") && disasterEvents.length > 0) {
+          const nextParams = new URLSearchParams(searchParams);
+          nextParams.set("disaster_event_id", disasterEvents[0].id);
+          setSearchParams(nextParams, { replace: true });
+        }
+      } catch (error) {
+        if (isMounted) {
+          setFilterErrorMessage(
+            error.message || "Failed to load barangay masterlist filters",
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingFilters(false);
+        }
+      }
+    };
+
+    loadFilterOptions();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [searchParams, setSearchParams]);
 
   const { data, isLoading, errorMessage, reloadMasterlist } = useMasterlist({
     disasterEventId,
@@ -52,7 +113,10 @@ const BarangayMasterlistPage = () => {
     isOpen: isRegisterModalOpen,
     defaultBarangayId: barangayId,
     defaultDisasterEventId: disasterEventId,
-    onSuccess: () => {
+    onSuccess: (response) => {
+      setRegistrationSuccessMessage(
+        response?.message || "Household registered successfully",
+      );
       reloadMasterlist();
     },
   });
@@ -82,6 +146,30 @@ const BarangayMasterlistPage = () => {
       helperText: "Households that already have latest attendance data.",
     },
   ];
+
+  const handleDisasterEventChange = (value) => {
+    const nextParams = new URLSearchParams(searchParams);
+
+    if (value) {
+      nextParams.set("disaster_event_id", value);
+    } else {
+      nextParams.delete("disaster_event_id");
+    }
+
+    setSearchParams(nextParams, { replace: true });
+  };
+
+  const handleBarangayChange = (value) => {
+    const nextParams = new URLSearchParams(searchParams);
+
+    if (value) {
+      nextParams.set("barangay_id", value);
+    } else {
+      nextParams.delete("barangay_id");
+    }
+
+    setSearchParams(nextParams, { replace: true });
+  };
 
   return (
     <>
@@ -132,21 +220,79 @@ const BarangayMasterlistPage = () => {
           </div>
           <div
             style={{
-              border: "1px solid #d6e2ef",
-              borderRadius: "14px",
-              padding: "12px 14px",
-              backgroundColor: "#f8fbfe",
-              color: "#64809a",
-              fontSize: "14px",
-              minWidth: "220px",
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: "12px",
+              minWidth: "320px",
             }}
           >
-            {barangayId
-              ? `Barangay filter applied: ${barangayId}`
-              : "No barangay filter applied"}
+            <select
+              value={disasterEventId || ""}
+              onChange={(event) => handleDisasterEventChange(event.target.value)}
+              disabled={isLoadingFilters}
+              style={{
+                minHeight: "46px",
+                borderRadius: "12px",
+                border: "1px solid #d6e2ef",
+                padding: "10px 12px",
+                backgroundColor: "#f8fbfe",
+                color: "#21405f",
+                fontSize: "14px",
+              }}
+            >
+              <option value="">Select active disaster event</option>
+              {activeDisasterEvents.map((eventItem) => (
+                <option key={eventItem.id} value={eventItem.id}>
+                  {eventItem.event_code} - {eventItem.title}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={barangayId || ""}
+              onChange={(event) => handleBarangayChange(event.target.value)}
+              disabled={isLoadingFilters}
+              style={{
+                minHeight: "46px",
+                borderRadius: "12px",
+                border: "1px solid #d6e2ef",
+                padding: "10px 12px",
+                backgroundColor: "#f8fbfe",
+                color: "#21405f",
+                fontSize: "14px",
+              }}
+            >
+              <option value="">All barangays</option>
+              {barangays.map((barangayItem) => (
+                <option key={barangayItem.id} value={barangayItem.id}>
+                  {barangayItem.name}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
+
+        {filterErrorMessage ? (
+          <p style={{ ...shellStyles.mutedText, marginTop: "16px", color: "#a14d58" }}>
+            {filterErrorMessage}
+          </p>
+        ) : null}
       </section>
+
+      {registrationSuccessMessage ? (
+        <section style={shellStyles.card}>
+          <p
+            style={{
+              margin: 0,
+              color: "#2f6c47",
+              fontSize: "14px",
+              fontWeight: 700,
+            }}
+          >
+            {registrationSuccessMessage}
+          </p>
+        </section>
+      ) : null}
 
       <section style={shellStyles.statGrid}>
         {summaryCards.map((card) => (

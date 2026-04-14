@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   fetchActiveDisasterEvents,
+  fetchBarangays,
   fetchEvacuationCentersByBarangay,
   fetchSectors,
   registerHousehold,
@@ -77,8 +78,12 @@ export const useHouseholdRegistrationForm = ({
   const [members, setMembers] = useState([createMember(true)]);
   const [householdSectorIds, setHouseholdSectorIds] = useState([]);
   const [activeDisasterEvents, setActiveDisasterEvents] = useState([]);
+  const [barangays, setBarangays] = useState([]);
   const [selectedDisasterEventId, setSelectedDisasterEventId] = useState(
     defaultDisasterEventId || "",
+  );
+  const [selectedBarangayId, setSelectedBarangayId] = useState(
+    defaultBarangayId || "",
   );
   const [personSectors, setPersonSectors] = useState([]);
   const [householdSectors, setHouseholdSectors] = useState([]);
@@ -93,6 +98,10 @@ export const useHouseholdRegistrationForm = ({
   }, [defaultDisasterEventId]);
 
   useEffect(() => {
+    setSelectedBarangayId(defaultBarangayId || "");
+  }, [defaultBarangayId]);
+
+  useEffect(() => {
     if (!isOpen) {
       return;
     }
@@ -104,9 +113,10 @@ export const useHouseholdRegistrationForm = ({
       setErrorMessage("");
 
       try {
-        const [disasterEventsPayload, sectorsPayload] = await Promise.all([
+        const [disasterEventsPayload, sectorsPayload, barangaysPayload] = await Promise.all([
           fetchActiveDisasterEvents(),
           fetchSectors(),
+          fetchBarangays(),
         ]);
 
         if (!isMounted) {
@@ -119,11 +129,19 @@ export const useHouseholdRegistrationForm = ({
         const sectors = Array.isArray(sectorsPayload.data)
           ? sectorsPayload.data
           : [];
+        const availableBarangays = Array.isArray(barangaysPayload)
+          ? barangaysPayload
+          : [];
 
         setActiveDisasterEvents(disasterEvents);
+        setBarangays(availableBarangays);
 
         if (!defaultDisasterEventId && disasterEvents.length > 0) {
           setSelectedDisasterEventId(disasterEvents[0].id);
+        }
+
+        if (!defaultBarangayId && availableBarangays.length > 0) {
+          setSelectedBarangayId(availableBarangays[0].id);
         }
 
         setPersonSectors(
@@ -148,20 +166,29 @@ export const useHouseholdRegistrationForm = ({
     return () => {
       isMounted = false;
     };
-  }, [defaultDisasterEventId, isOpen]);
+  }, [defaultBarangayId, defaultDisasterEventId, isOpen]);
 
   useEffect(() => {
-    if (!isOpen || !defaultBarangayId) {
+    if (!isOpen || !selectedBarangayId) {
+      setEvacuationCenters([]);
+      setHousehold((currentValue) => ({
+        ...currentValue,
+        evacuation_center_id: "",
+      }));
       return;
     }
 
     let isMounted = true;
 
     const loadEvacuationCenters = async () => {
-      const centers = await fetchEvacuationCentersByBarangay(defaultBarangayId);
+      const centers = await fetchEvacuationCentersByBarangay(selectedBarangayId);
 
       if (isMounted) {
         setEvacuationCenters(Array.isArray(centers) ? centers : []);
+        setHousehold((currentValue) => ({
+          ...currentValue,
+          evacuation_center_id: "",
+        }));
       }
     };
 
@@ -170,7 +197,7 @@ export const useHouseholdRegistrationForm = ({
     return () => {
       isMounted = false;
     };
-  }, [defaultBarangayId, isOpen]);
+  }, [isOpen, selectedBarangayId]);
 
   const memberCount = members.length;
 
@@ -275,6 +302,7 @@ export const useHouseholdRegistrationForm = ({
     setMembers([createMember(true)]);
     setHouseholdSectorIds([]);
     setEvacuationCenters([]);
+    setSelectedBarangayId(defaultBarangayId || "");
     setErrorMessage("");
     setSuccessMessage("");
   };
@@ -284,8 +312,8 @@ export const useHouseholdRegistrationForm = ({
       return "Please select an active disaster event";
     }
 
-    if (!defaultBarangayId) {
-      return "barangay_id is missing from the current page context";
+    if (!selectedBarangayId) {
+      return "Please select a barangay";
     }
 
     const familyHeadCount = members.filter(
@@ -324,7 +352,7 @@ export const useHouseholdRegistrationForm = ({
   const buildPayload = () => {
     return {
       disaster_event_id: selectedDisasterEventId,
-      barangay_id: defaultBarangayId,
+      barangay_id: selectedBarangayId,
       evacuation_center_id: household.evacuation_center_id || null,
       family_head: {
         first_name: trimValue(familyHead.first_name),
@@ -400,8 +428,11 @@ export const useHouseholdRegistrationForm = ({
     memberCount,
     householdSectorIds,
     activeDisasterEvents,
+    barangays,
     selectedDisasterEventId,
     setSelectedDisasterEventId,
+    selectedBarangayId,
+    setSelectedBarangayId,
     groupedPersonSectors,
     householdSectors,
     evacuationCenters,
