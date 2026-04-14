@@ -6,6 +6,7 @@ import {
   Routes,
 } from "react-router-dom";
 import BarangayLayout from "../components/layout/BarangayLayout";
+import RoleProtectedRoute from "./RoleProtectedRoute";
 import BarangayMasterlistPage from "../pages/barangay/BarangayMasterlistPage";
 import DescriptiveAnalyticsPage from "../pages/dashboard/DescriptiveAnalyticsPage";
 import DistributionTransactionPage from "../pages/barangay/DistributionTransactionPage";
@@ -14,17 +15,41 @@ import InventoryBatchesPage from "../pages/inventory/InventoryBatchesPage";
 import InventoryItemsPage from "../pages/inventory/InventoryItemsPage";
 import InventoryTransactionsPage from "../pages/inventory/InventoryTransactionsPage";
 import ReliefPackTemplatesPage from "../pages/inventory/ReliefPackTemplatesPage";
+import DonationInformationPage from "../pages/donor/DonationInformationPage";
 import AnalyticsDashboardPage from "../pages/mswdo/AnalyticsDashboardPage";
 import ConsolidatedMasterlistPage from "../pages/mswdo/ConsolidatedMasterlistPage";
 import DisasterEventsPage from "../pages/mswdo/DisasterEventsPage";
+import RoleSwitcherPage from "../pages/RoleSwitcherPage";
 import SuppliersPage from "../pages/inventory/SuppliersPage";
+import {
+  getCurrentRole,
+  getDefaultRouteForRole,
+} from "../utils/roleSession";
+
+const DefaultAppRedirect = () => {
+  const currentRole = getCurrentRole();
+
+  if (!currentRole) {
+    return <Navigate to="/role-switcher" replace />;
+  }
+
+  return <Navigate to={getDefaultRouteForRole(currentRole)} replace />;
+};
 
 const AppRoutes = () => {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Navigate to="/barangay/masterlist" replace />} />
-        <Route path="/barangay" element={<BarangayLayout />}>
+        <Route path="/" element={<DefaultAppRedirect />} />
+        <Route path="/role-switcher" element={<RoleSwitcherPage />} />
+        <Route
+          path="/barangay"
+          element={
+            <RoleProtectedRoute>
+              <BarangayLayout />
+            </RoleProtectedRoute>
+          }
+        >
           <Route
             path="descriptive-analytics"
             element={<DescriptiveAnalyticsPage />}
@@ -34,23 +59,19 @@ const AppRoutes = () => {
             path="distribution-transaction"
             element={<DistributionTransactionPage />}
           />
-          <Route path="inventory-batches" element={<InventoryBatchesPage />} />
-          <Route path="inventory-items" element={<InventoryItemsPage />} />
-          <Route
-            path="relief-pack-templates"
-            element={<ReliefPackTemplatesPage />}
-          />
-          <Route
-            path="inventory-transactions"
-            element={<InventoryTransactionsPage />}
-          />
-          <Route path="suppliers" element={<SuppliersPage />} />
           <Route
             path="stub-verification"
             element={<StubVerificationPage />}
           />
         </Route>
-        <Route path="/mswdo" element={<BarangayLayout />}>
+        <Route
+          path="/mswdo"
+          element={
+            <RoleProtectedRoute>
+              <BarangayLayout />
+            </RoleProtectedRoute>
+          }
+        >
           <Route
             path="analytics-dashboard"
             element={<AnalyticsDashboardPage />}
@@ -61,7 +82,47 @@ const AppRoutes = () => {
           />
           <Route path="disaster-events" element={<DisasterEventsPage />} />
         </Route>
-        <Route path="*" element={<Navigate to="/barangay/masterlist" replace />} />
+        <Route
+          path="/inventory"
+          element={
+            <RoleProtectedRoute>
+              <BarangayLayout />
+            </RoleProtectedRoute>
+          }
+        >
+          <Route path="items" element={<InventoryItemsPage />} />
+          <Route path="batches" element={<InventoryBatchesPage />} />
+          <Route
+            path="transactions"
+            element={<InventoryTransactionsPage />}
+          />
+          <Route path="suppliers" element={<SuppliersPage />} />
+          <Route
+            path="relief-pack-templates"
+            element={<ReliefPackTemplatesPage />}
+          />
+        </Route>
+        <Route
+          path="/donations"
+          element={
+            <RoleProtectedRoute>
+              <BarangayLayout />
+            </RoleProtectedRoute>
+          }
+        >
+          <Route index element={<DonationInformationPage />} />
+        </Route>
+        <Route
+          path="/donor"
+          element={
+            <RoleProtectedRoute>
+              <BarangayLayout />
+            </RoleProtectedRoute>
+          }
+        >
+          <Route path="information" element={<DonationInformationPage />} />
+        </Route>
+        <Route path="*" element={<DefaultAppRedirect />} />
       </Routes>
     </BrowserRouter>
   );
