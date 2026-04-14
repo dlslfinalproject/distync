@@ -1,5 +1,6 @@
 import React from "react";
 import { Navigate, useLocation } from "react-router-dom";
+import { getAccessMode, getEntryRouteForMode } from "../utils/accessMode";
 import {
   getCurrentRole,
   getDefaultRouteForRole,
@@ -9,9 +10,10 @@ import {
 const RoleProtectedRoute = ({ children }) => {
   const location = useLocation();
   const currentRole = getCurrentRole();
+  const accessMode = getAccessMode();
 
   if (!currentRole) {
-    return <Navigate to="/role-switcher" replace />;
+    return <Navigate to={getEntryRouteForMode(accessMode)} replace />;
   }
 
   if (!isRouteAllowedForRole(currentRole, location.pathname)) {

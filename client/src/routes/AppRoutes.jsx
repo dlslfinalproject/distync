@@ -7,6 +7,7 @@ import {
 } from "react-router-dom";
 import BarangayLayout from "../components/layout/BarangayLayout";
 import RoleProtectedRoute from "./RoleProtectedRoute";
+import AccessPage from "../pages/AccessPage";
 import BarangayMasterlistPage from "../pages/barangay/BarangayMasterlistPage";
 import DescriptiveAnalyticsPage from "../pages/dashboard/DescriptiveAnalyticsPage";
 import DistributionTransactionPage from "../pages/barangay/DistributionTransactionPage";
@@ -21,6 +22,7 @@ import ConsolidatedMasterlistPage from "../pages/mswdo/ConsolidatedMasterlistPag
 import DisasterEventsPage from "../pages/mswdo/DisasterEventsPage";
 import RoleSwitcherPage from "../pages/RoleSwitcherPage";
 import SuppliersPage from "../pages/inventory/SuppliersPage";
+import { getAccessMode, getEntryRouteForMode } from "../utils/accessMode";
 import {
   getCurrentRole,
   getDefaultRouteForRole,
@@ -28,9 +30,10 @@ import {
 
 const DefaultAppRedirect = () => {
   const currentRole = getCurrentRole();
+  const accessMode = getAccessMode();
 
   if (!currentRole) {
-    return <Navigate to="/role-switcher" replace />;
+    return <Navigate to={getEntryRouteForMode(accessMode)} replace />;
   }
 
   return <Navigate to={getDefaultRouteForRole(currentRole)} replace />;
@@ -41,6 +44,7 @@ const AppRoutes = () => {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<DefaultAppRedirect />} />
+        <Route path="/access" element={<AccessPage />} />
         <Route path="/role-switcher" element={<RoleSwitcherPage />} />
         <Route
           path="/barangay"

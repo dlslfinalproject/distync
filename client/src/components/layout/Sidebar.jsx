@@ -1,5 +1,6 @@
 import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
+import { getAccessMode, getEntryRouteForMode } from "../../utils/accessMode";
 import {
   clearCurrentRole,
   getCurrentRole,
@@ -100,6 +101,8 @@ const sidebarStyles = {
 const Sidebar = () => {
   const navigate = useNavigate();
   const currentRole = getCurrentRole();
+  const accessMode = getAccessMode();
+  const entryRoute = getEntryRouteForMode(accessMode);
 
   const roleMeta = {
     [ROLE_CODES.BARANGAY]: {
@@ -251,10 +254,34 @@ const Sidebar = () => {
             {currentRole || "Not selected"}
           </p>
         </div>
+        <div
+          style={{
+            padding: "14px 16px",
+            borderRadius: "14px",
+            backgroundColor: "#ffffff",
+            border: "1px solid #dce7f3",
+            color: "#365472",
+          }}
+        >
+          <p
+            style={{
+              margin: 0,
+              fontSize: "12px",
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+            }}
+          >
+            Current Mode
+          </p>
+          <p style={{ margin: "8px 0 0", fontSize: "16px", fontWeight: 700 }}>
+            {accessMode}
+          </p>
+        </div>
 
         <button
           type="button"
-          onClick={() => navigate("/role-switcher")}
+          onClick={() => navigate(entryRoute)}
           style={sidebarStyles.roleButton}
         >
           Switch Role
@@ -263,7 +290,7 @@ const Sidebar = () => {
           type="button"
           onClick={() => {
             clearCurrentRole();
-            navigate("/role-switcher", { replace: true });
+            navigate(entryRoute, { replace: true });
           }}
           style={sidebarStyles.roleButton}
         >
