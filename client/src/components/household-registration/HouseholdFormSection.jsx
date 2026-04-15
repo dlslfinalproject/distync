@@ -31,34 +31,40 @@ const fieldStyles = {
 };
 
 const HouseholdFormSection = ({ form }) => {
+  const selectedEvent = form.activeDisasterEvents.find(
+    (eventItem) => eventItem.id === form.selectedDisasterEventId,
+  );
+
   return (
     <section style={shellStyles.card}>
       <div style={{ marginBottom: "18px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>Household Info</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-          Set the active event, stay type, address details, and optional
-          evacuation center.
+          The current disaster event comes from the selected Barangay context.
+          Set the stay type, address details, and optional evacuation center.
+        </p>
+      </div>
+
+      <div
+        style={{
+          marginBottom: "16px",
+          padding: "14px 16px",
+          borderRadius: "14px",
+          border: "1px solid #d7e2ef",
+          backgroundColor: "#f8fbfe",
+        }}
+      >
+        <p style={{ margin: 0, color: "#60738a", fontSize: "12px", fontWeight: 700 }}>
+          ACTIVE DISASTER EVENT
+        </p>
+        <p style={{ margin: "8px 0 0", color: "#17324d", fontSize: "14px", fontWeight: 700 }}>
+          {selectedEvent
+            ? `${selectedEvent.event_code} - ${selectedEvent.title}`
+            : "Select an active disaster event from the masterlist page first."}
         </p>
       </div>
 
       <div style={fieldStyles.grid}>
-        <label style={fieldStyles.field}>
-          <span style={fieldStyles.label}>Active Disaster Event</span>
-          <select
-            value={form.selectedDisasterEventId}
-            onChange={(event) => form.setSelectedDisasterEventId(event.target.value)}
-            disabled={form.isDisasterEventLocked}
-            style={fieldStyles.input}
-          >
-            <option value="">Select active disaster event</option>
-            {form.activeDisasterEvents.map((eventItem) => (
-              <option key={eventItem.id} value={eventItem.id}>
-                {eventItem.event_code} - {eventItem.title}
-              </option>
-            ))}
-          </select>
-        </label>
-
         <label style={fieldStyles.field}>
           <span style={fieldStyles.label}>Barangay</span>
           <select
@@ -91,18 +97,6 @@ const HouseholdFormSection = ({ form }) => {
               </option>
             ))}
           </select>
-        </label>
-
-        <label style={fieldStyles.field}>
-          <span style={fieldStyles.label}>Contact Number</span>
-          <input
-            type="text"
-            value={form.familyHead.contact_number}
-            onChange={(event) =>
-              form.updateFamilyHeadField("contact_number", event.target.value)
-            }
-            style={fieldStyles.input}
-          />
         </label>
 
         <label style={fieldStyles.field}>

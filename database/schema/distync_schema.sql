@@ -203,13 +203,13 @@ CREATE TABLE evacuees (
     CONSTRAINT chk_evacuee_age_group
         CHECK (
           age_group IS NULL OR age_group IN (
-            'INFANT',
-            'TODDLER',
-            'PRESCHOOL',
-            'CHILD',
-            'TEEN',
-            'ADULT',
-            'SENIOR'
+            'INFANT_0_6_MONTHS',
+            'TODDLER_7M_2Y',
+            'PRESCHOOL_3_5',
+            'CHILD_6_12',
+            'TEEN_13_17',
+            'ADULT_18_59',
+            'SENIOR_60_ABOVE'
           )
         )
 

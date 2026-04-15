@@ -1,5 +1,10 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
+import {
+  AGE_UNIT_OPTIONS,
+  deriveAgeGroup,
+  formatAgeGroupLabel,
+} from "../../utils/ageGroup";
 
 const fieldStyles = {
   grid: {
@@ -30,6 +35,11 @@ const fieldStyles = {
 };
 
 const FamilyHeadSection = ({ form }) => {
+  const derivedFamilyHeadAgeGroup = deriveAgeGroup(
+    Number.isInteger(form.familyHead.age_value) ? form.familyHead.age_value : null,
+    form.familyHead.age_unit,
+  );
+
   return (
     <section style={shellStyles.card}>
       <div style={{ marginBottom: "18px" }}>
@@ -100,19 +110,50 @@ const FamilyHeadSection = ({ form }) => {
           >
             <option value="MALE">MALE</option>
             <option value="FEMALE">FEMALE</option>
-            <option value="OTHER">OTHER</option>
           </select>
         </label>
 
         <label style={fieldStyles.field}>
-          <span style={fieldStyles.label}>Birth Date</span>
+          <span style={fieldStyles.label}>Age Value</span>
           <input
-            type="date"
-            value={form.familyHead.birth_date}
+            type="number"
+            min="0"
+            value={form.familyHead.age_value}
             onChange={(event) =>
-              form.updateFamilyHeadField("birth_date", event.target.value)
+              form.updateFamilyHeadField("age_value", event.target.value)
             }
             style={fieldStyles.input}
+          />
+        </label>
+
+        <label style={fieldStyles.field}>
+          <span style={fieldStyles.label}>Age Unit</span>
+          <select
+            value={form.familyHead.age_unit}
+            onChange={(event) =>
+              form.updateFamilyHeadField("age_unit", event.target.value)
+            }
+            style={fieldStyles.input}
+          >
+            {AGE_UNIT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label style={fieldStyles.field}>
+          <span style={fieldStyles.label}>Derived Age Group</span>
+          <input
+            type="text"
+            value={formatAgeGroupLabel(derivedFamilyHeadAgeGroup)}
+            disabled
+            style={{
+              ...fieldStyles.input,
+              backgroundColor: "#f4f8fc",
+              color: "#48627e",
+            }}
           />
         </label>
       </div>

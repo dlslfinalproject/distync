@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const householdRegistrationRepository = require("../repositories/householdRegistration.repository");
+const { deriveAgeGroup } = require("../utils/ageGroup");
 
 const normalizeText = (value) => {
   if (value === undefined || value === null) {
@@ -29,7 +30,8 @@ const validateFamilyHeadMatch = (familyHead, headMember) => {
     ["last_name", familyHead.last_name, headMember.last_name],
     ["suffix", familyHead.suffix, headMember.suffix],
     ["sex", familyHead.sex, headMember.sex],
-    ["birth_date", familyHead.birth_date, headMember.birth_date],
+    ["age_value", familyHead.age_value, headMember.age_value],
+    ["age_unit", familyHead.age_unit, headMember.age_unit],
   ];
 
   const hasMismatch = fieldsToCompare.some(([, householdValue, memberValue]) => {
@@ -174,14 +176,50 @@ const registerHousehold = async (requestData) => {
   const familyHeadMember = familyHeadMembers[0];
   validateFamilyHeadMatch(requestData.family_head, familyHeadMember);
 
+  const membersWithDerivedAgeGroups = requestData.members.map((member) => {
+    const derivedAgeGroup = deriveAgeGroup(member.age_value, member.age_unit);
+
+    if (!derivedAgeGroup) {
+      const error = new Error(
+        `Invalid age_value and age_unit combination for member ${member.first_name} ${member.last_name}`,
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    return {
+      ...member,
+      age_group: derivedAgeGroup,
+      age: member.age_unit === "YEARS" ? member.age_value : null,
+      birth_date: null,
+      civil_status: null,
+    };
+  });
+
+  const requestDataWithDerivedAgeGroups = {
+    ...requestData,
+    family_head: {
+      ...requestData.family_head,
+      birth_date: null,
+      contact_number: null,
+    },
+    members: membersWithDerivedAgeGroups,
+  };
+
   const householdSectors = await householdRegistrationRepository.getSectorsByIds(
-    deduplicateIds(requestData.household_sector_ids),
+    deduplicateIds(requestDataWithDerivedAgeGroups.household_sector_ids),
   );
   const personSectors = await householdRegistrationRepository.getSectorsByIds(
-    deduplicateIds(requestData.members.flatMap((member) => member.sector_ids)),
+    deduplicateIds(
+      requestDataWithDerivedAgeGroups.members.flatMap((member) => member.sector_ids),
+    ),
   );
 
-  validateSectorUsage(householdSectors, personSectors, requestData);
+  validateSectorUsage(
+    householdSectors,
+    personSectors,
+    requestDataWithDerivedAgeGroups,
+  );
 
   const client = await pool.connect();
 
@@ -190,14 +228,14 @@ const registerHousehold = async (requestData) => {
 
     const createdHousehold =
       await householdRegistrationRepository.insertHousehold(
-        requestData,
+        requestDataWithDerivedAgeGroups,
         client,
       );
 
     const createdMembers = [];
     let familyHeadEvacueeId = null;
 
-    for (const member of requestData.members) {
+    for (const member of requestDataWithDerivedAgeGroups.members) {
       const createdMember = await householdRegistrationRepository.insertEvacuee(
         createdHousehold.id,
         member,
@@ -225,10 +263,10 @@ const registerHousehold = async (requestData) => {
       client,
     );
 
-    if (requestData.household_sector_ids.length > 0) {
+    if (requestDataWithDerivedAgeGroups.household_sector_ids.length > 0) {
       await householdRegistrationRepository.insertHouseholdSectors(
         createdHousehold.id,
-        deduplicateIds(requestData.household_sector_ids),
+        deduplicateIds(requestDataWithDerivedAgeGroups.household_sector_ids),
         client,
       );
     }
@@ -243,12 +281,12 @@ const registerHousehold = async (requestData) => {
 
     await householdRegistrationRepository.insertStub(
       {
-        disaster_event_id: requestData.disaster_event_id,
+        disaster_event_id: requestDataWithDerivedAgeGroups.disaster_event_id,
         household_id: createdHousehold.id,
         stub_no: stubNumbers.stub_no,
         serial_no: stubNumbers.serial_no,
         status: "ISSUED",
-        issued_by: requestData.registered_by,
+        issued_by: requestDataWithDerivedAgeGroups.registered_by,
       },
       client,
     );
