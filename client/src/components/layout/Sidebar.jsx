@@ -1,9 +1,8 @@
 import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext";
 import { getAccessMode, getEntryRouteForMode } from "../../utils/accessMode";
 import {
-  clearCurrentRole,
-  getCurrentRole,
   ROLE_CODES,
 } from "../../utils/roleSession";
 
@@ -100,9 +99,9 @@ const sidebarStyles = {
 
 const Sidebar = () => {
   const navigate = useNavigate();
-  const currentRole = getCurrentRole();
-  const accessMode = getAccessMode();
-  const entryRoute = getEntryRouteForMode(accessMode);
+  const { accessMode, clearSession, currentRole, isAuthenticated } = useAuth();
+  const resolvedAccessMode = accessMode || getAccessMode();
+  const entryRoute = getEntryRouteForMode(resolvedAccessMode);
 
   const roleMeta = {
     [ROLE_CODES.BARANGAY]: {
@@ -275,26 +274,31 @@ const Sidebar = () => {
             Current Mode
           </p>
           <p style={{ margin: "8px 0 0", fontSize: "16px", fontWeight: 700 }}>
-            {accessMode}
+            {resolvedAccessMode}
           </p>
         </div>
 
         <button
           type="button"
-          onClick={() => navigate(entryRoute)}
-          style={sidebarStyles.roleButton}
-        >
-          Switch Role
-        </button>
-        <button
-          type="button"
           onClick={() => {
-            clearCurrentRole();
+            clearSession();
             navigate(entryRoute, { replace: true });
           }}
           style={sidebarStyles.roleButton}
         >
-          Clear Role
+          {resolvedAccessMode === "DEMO" && isAuthenticated
+            ? "Switch Account"
+            : "Switch Role"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            clearSession();
+            navigate(entryRoute, { replace: true });
+          }}
+          style={sidebarStyles.roleButton}
+        >
+          {resolvedAccessMode === "DEMO" ? "Sign Out" : "Clear Role"}
         </button>
       </div>
     </aside>

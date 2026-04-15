@@ -25,7 +25,9 @@ try {
 }
 
 const databaseHost = parsedDatabaseUrl.hostname || "unknown";
-const isSupabaseHost = databaseHost.endsWith(".supabase.co");
+const isSupabaseHost =
+  databaseHost.endsWith(".supabase.co") ||
+  databaseHost.endsWith(".supabase.com");
 const sslEnabled = isSupabaseHost;
 
 console.log(
