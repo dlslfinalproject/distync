@@ -69,7 +69,6 @@ const DisasterEventsPage = () => {
     */
     <div style={{ flex: 1, minWidth: 0, maxWidth: "100%", overflowX: "hidden" }}>
       <PageHeader
-        eyebrow="MSWDO Workspace"
         title="DISASTER EVENT MANAGEMENT"
         actions={[
           {

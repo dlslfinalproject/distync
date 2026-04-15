@@ -44,6 +44,8 @@ const getAttendanceBadgeStyles = (status) => {
 const tableStyles = {
   table: {
     width: "100%",
+    maxWidth: "100%",
+    tableLayout: "fixed",
     borderCollapse: "collapse",
   },
   headerCell: {
@@ -84,7 +86,7 @@ const MswdoMasterlistTable = ({
 }) => {
   if (!hasSelectedEvent) {
     return (
-      <section style={shellStyles.card}>
+      <section style={{ ...shellStyles.card, width: "100%", minWidth: 0 }}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Monitoring Table</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
           Select a disaster event to load consolidated household records across
@@ -96,7 +98,7 @@ const MswdoMasterlistTable = ({
 
   if (isLoading) {
     return (
-      <section style={shellStyles.card}>
+      <section style={{ ...shellStyles.card, width: "100%", minWidth: 0 }}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Monitoring Table</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
           Loading consolidated masterlist...
@@ -107,7 +109,7 @@ const MswdoMasterlistTable = ({
 
   if (errorMessage) {
     return (
-      <section style={shellStyles.card}>
+      <section style={{ ...shellStyles.card, width: "100%", minWidth: 0 }}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Monitoring Table</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px", color: "#a14d58" }}>
           {errorMessage}
@@ -118,7 +120,7 @@ const MswdoMasterlistTable = ({
 
   if (rows.length === 0) {
     return (
-      <section style={shellStyles.card}>
+      <section style={{ ...shellStyles.card, width: "100%", minWidth: 0 }}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Monitoring Table</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
           No household records were found for the selected disaster event and
@@ -129,7 +131,7 @@ const MswdoMasterlistTable = ({
   }
 
   return (
-    <section style={shellStyles.card}>
+    <section style={{ ...shellStyles.card, width: "100%", minWidth: 0 }}>
       <div style={{ marginBottom: "18px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>Monitoring Table</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
@@ -137,7 +139,7 @@ const MswdoMasterlistTable = ({
         </p>
       </div>
 
-      <div style={{ overflowX: "auto" }}>
+      <div style={{ width: "100%", overflowX: "auto" }}>
         <table style={tableStyles.table}>
           <thead>
             <tr>

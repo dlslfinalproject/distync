@@ -112,12 +112,11 @@ const Sidebar = () => {
     },
     [ROLE_CODES.MSWDO]: {
       navItems: [
-        { label: "Analytics Dashboard", to: "/mswdo/analytics" },
-        {
-          label: "Consolidated Masterlist",
-          to: "/mswdo/consolidated-masterlist",
-        },
         { label: "Disaster Events", to: "/mswdo/disaster-events" },
+        {
+          label: "Evacuee Masterlist", to: "/mswdo/consolidated-masterlist",
+        },
+        { label: "Analytics Dashboard", to: "/mswdo/analytics" },
       ],
     },
     [ROLE_CODES.MAYOR]: {

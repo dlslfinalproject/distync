@@ -35,11 +35,7 @@ const ConsolidatedMasterlistPage = () => {
 
   return (
     <>
-      <PageHeader
-        eyebrow="MSWDO Workspace"
-        title="CONSOLIDATED MASTERLIST"
-        description="Monitor household records across barangays, review stub and attendance summaries, and inspect household-level details for the selected disaster event."
-      />
+      <PageHeader title="EVACUEE MASTERLIST MANAGEMENT" />
 
       <section style={shellStyles.card}>
         <div
@@ -106,13 +102,17 @@ const ConsolidatedMasterlistPage = () => {
 
       <MswdoSummaryCards summary={summary} />
 
-      <MswdoMasterlistTable
-        rows={displayedRows}
-        hasSelectedEvent={Boolean(selectedDisasterEventId)}
-        isLoading={isLoadingFilters || isLoadingMasterlist}
-        errorMessage={errorMessage}
-        onViewHousehold={openHouseholdDetail}
-      />
+      <section style={{ ...shellStyles.card, overflow: "hidden" }}>
+        <div style={{ width: "100%", overflowX: "auto" }}>
+          <MswdoMasterlistTable
+            rows={displayedRows}
+            hasSelectedEvent={Boolean(selectedDisasterEventId)}
+            isLoading={isLoadingFilters || isLoadingMasterlist}
+            errorMessage={errorMessage}
+            onViewHousehold={openHouseholdDetail}
+          />
+        </div>
+      </section>
 
       <MswdoHouseholdDetailModal
         isOpen={isDetailOpen}
