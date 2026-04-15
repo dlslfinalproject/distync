@@ -67,9 +67,7 @@ const DisasterEventsPage = () => {
   return (
     <>
       <PageHeader
-        eyebrow="MSWDO Workspace"
-        title="DISASTER EVENTS"
-        description="Create, review, and inspect disaster events with affected barangays for later monitoring, dashboards, and masterlist filtering."
+        title="DISASTER EVENT MANAGEMENT"
         actions={[
           {
             label: "Create Disaster Event",
