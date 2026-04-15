@@ -104,6 +104,10 @@ const Sidebar = () => {
   const accessMode = getAccessMode();
   const entryRoute = getEntryRouteForMode(accessMode);
 
+  if (currentRole === ROLE_CODES.DONOR) {
+  return null;
+}
+
   const roleMeta = {
     [ROLE_CODES.BARANGAY]: {
       tag: "Barangay Panel",
@@ -175,17 +179,6 @@ const Sidebar = () => {
           label: "Relief Pack Templates",
           description: "Manage reusable relief pack compositions for planning.",
           to: "/inventory/relief-pack-templates",
-        },
-      ],
-    },
-    [ROLE_CODES.DONOR]: {
-      tag: "Donor Panel",
-      text: "Temporary donor-facing navigation for development and demos.",
-      navItems: [
-        {
-          label: "Donation Information",
-          description: "Review the temporary donor-facing landing page.",
-          to: "/donations",
         },
       ],
     },
