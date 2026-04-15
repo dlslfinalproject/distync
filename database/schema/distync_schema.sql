@@ -205,6 +205,7 @@ CREATE TABLE evacuees (
           age_group IS NULL OR age_group IN (
             'INFANT',
             'TODDLER',
+            'PRESCHOOL',
             'CHILD',
             'TEEN',
             'ADULT',
