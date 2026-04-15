@@ -3,24 +3,26 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { getAccessMode, getEntryRouteForMode } from "../../utils/accessMode";
 import { ROLE_CODES } from "../../utils/roleSession";
-import distyncLogo from "../../assets/distync-logo.png"; 
+import distyncLogo from "../../assets/distync-logo.png";
 
 const sidebarStyles = {
   wrapper: {
     width: "280px",
     minHeight: "100vh",
     // Remove top padding so the brand can touch the top edge
-    padding: "0 18px 24px", 
+    padding: "0 18px 24px",
     boxSizing: "border-box",
     backgroundColor: "#f7fbff",
     borderRight: "1px solid #d6e2ef",
     display: "flex",
     flexDirection: "column",
     gap: "24px",
+    minWidth: "280px", // Force it to stay at 280px
+    flexShrink: 0,
   },
   brand: {
     // Negative margin to pull the background to the edges of the 280px sidebar
-    margin: "0 -18px", 
+    margin: "0 -18px",
     //padding: "32px 24px", // Internal padding for content
     background: "#f7fbff",
     color: "#ffffff",
@@ -42,7 +44,7 @@ const sidebarStyles = {
   },
   brandTitle: {
     margin: 0,
-    fontSize: "28px", 
+    fontSize: "28px",
     fontWeight: 700,
     letterSpacing: "-0.02em",
     color: "#2F3B55", // Changed to white for better contrast on blue
@@ -111,7 +113,10 @@ const Sidebar = () => {
     [ROLE_CODES.MSWDO]: {
       navItems: [
         { label: "Analytics Dashboard", to: "/mswdo/analytics" },
-        { label: "Consolidated Masterlist", to: "/mswdo/consolidated-masterlist" },
+        {
+          label: "Consolidated Masterlist",
+          to: "/mswdo/consolidated-masterlist",
+        },
         { label: "Disaster Events", to: "/mswdo/disaster-events" },
       ],
     },
@@ -121,12 +126,18 @@ const Sidebar = () => {
         { label: "Inventory Batches", to: "/inventory/batches" },
         { label: "Inventory Transactions", to: "/inventory/transactions" },
         { label: "Suppliers", to: "/inventory/suppliers" },
-        { label: "Relief Pack Templates", to: "/inventory/relief-pack-templates" },
+        {
+          label: "Relief Pack Templates",
+          to: "/inventory/relief-pack-templates",
+        },
       ],
     },
   };
 
-  const activeRoleMeta = roleMeta[currentRole] || { tag: "Guest", navItems: [] };
+  const activeRoleMeta = roleMeta[currentRole] || {
+    tag: "Guest",
+    navItems: [],
+  };
 
   return (
     <aside style={sidebarStyles.wrapper}>
@@ -140,18 +151,26 @@ const Sidebar = () => {
 
       <nav style={sidebarStyles.nav}>
         {activeRoleMeta.navItems.map((item) => (
-          <NavLink key={item.to} to={item.to} style={{ textDecoration: 'none' }}>
+          <NavLink
+            key={item.to}
+            to={item.to}
+            style={{ textDecoration: "none" }}
+          >
             {({ isActive }) => (
-              <div style={{
+              <div
+                style={{
                   backgroundColor: isActive ? "#e1eef9" : "#ffffff",
                   color: isActive ? "#1f4f7d" : "#26435f",
                   border: `1px solid ${isActive ? "#b8d0e7" : "#dce7f3"}`,
                   borderRadius: "14px",
                   padding: "14px 16px",
-                  boxShadow: isActive ? "0 10px 24px rgba(66, 108, 154, 0.12)" : "0 4px 12px rgba(72, 95, 122, 0.04)",
+                  boxShadow: isActive
+                    ? "0 10px 24px rgba(66, 108, 154, 0.12)"
+                    : "0 4px 12px rgba(72, 95, 122, 0.04)",
                   transition: "all 0.2s ease",
-                  marginBottom: '10px'
-                }}>
+                  marginBottom: "10px",
+                }}
+              >
                 <span style={sidebarStyles.navTitle}>{item.label}</span>
               </div>
             )}
@@ -160,11 +179,38 @@ const Sidebar = () => {
       </nav>
 
       <div style={sidebarStyles.roleActions}>
-        <div style={{ padding: "14px 16px", borderRadius: "14px", backgroundColor: "#ffffff", border: "1px solid #dce7f3", color: "#365472" }}>
-          <p style={{ margin: 0, fontSize: "12px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>Current Role</p>
-          <p style={{ margin: "8px 0 0", fontSize: "16px", fontWeight: 700 }}>{currentRole || "Not selected"}</p>
+        <div
+          style={{
+            padding: "14px 16px",
+            borderRadius: "14px",
+            backgroundColor: "#ffffff",
+            border: "1px solid #dce7f3",
+            color: "#365472",
+          }}
+        >
+          <p
+            style={{
+              margin: 0,
+              fontSize: "12px",
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+            }}
+          >
+            Current Role
+          </p>
+          <p style={{ margin: "8px 0 0", fontSize: "16px", fontWeight: 700 }}>
+            {currentRole || "Not selected"}
+          </p>
         </div>
-        <button type="button" onClick={() => { clearSession(); navigate(entryRoute, { replace: true }); }} style={sidebarStyles.roleButton}>
+        <button
+          type="button"
+          onClick={() => {
+            clearSession();
+            navigate(entryRoute, { replace: true });
+          }}
+          style={sidebarStyles.roleButton}
+        >
           Switch Role
         </button>
       </div>

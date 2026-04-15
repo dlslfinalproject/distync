@@ -44,7 +44,6 @@ const DisasterEventsPage = () => {
     await endEvent(eventId);
   };
 
-  // Helper for Tab Styling
   const getTabStyle = (filterKey) => ({
     padding: "12px 24px",
     border: "none",
@@ -57,6 +56,7 @@ const DisasterEventsPage = () => {
     borderBottom: selectedFilter === filterKey ? "3px solid #17324d" : "3px solid transparent",
     cursor: "pointer",
     transition: "all 0.2s ease",
+    whiteSpace: "nowrap", // Prevents tabs from wrapping and breaking height
   });
 
   const selectedFilterLabel = 
@@ -64,8 +64,12 @@ const DisasterEventsPage = () => {
     selectedFilter === filterOptions.closed ? "Ended Events" : "All Disaster Events";
 
   return (
-    <>
+    /* CRITICAL FIX: Use flex: 1 and minWidth 0 to prevent the container 
+       from ever being wider than the available space next to the sidebar.
+    */
+    <div style={{ flex: 1, minWidth: 0, maxWidth: "100%", overflowX: "hidden" }}>
       <PageHeader
+        eyebrow="MSWDO Workspace"
         title="DISASTER EVENT MANAGEMENT"
         actions={[
           {
@@ -75,27 +79,21 @@ const DisasterEventsPage = () => {
         ]}
       />
 
-      <section style={shellStyles.card}>
-        {/* Tab Selection Logic */}
-        <div style={{ display: "flex", borderBottom: "1px solid #d6e2ef", marginBottom: "24px", gap: "8px" }}>
-          <button 
-            onClick={() => setSelectedFilter(filterOptions.active)} 
-            style={getTabStyle(filterOptions.active)}
-          >
-            Active Events
-          </button>
-          <button 
-            onClick={() => setSelectedFilter(filterOptions.closed)} 
-            style={getTabStyle(filterOptions.closed)}
-          >
-            Ended Events
-          </button>
-          <button 
-            onClick={() => setSelectedFilter(filterOptions.all)} 
-            style={getTabStyle(filterOptions.all)}
-          >
-            All Events
-          </button>
+      {/* FILTER & TAB CARD */}
+      <section style={{ ...shellStyles.card, boxSizing: "border-box" }}>
+        <div style={{ 
+          display: "flex", 
+          borderBottom: "1px solid #d6e2ef", 
+          marginBottom: "24px", 
+          flexWrap: "wrap",
+          gap: "8px", 
+          overflowX: "auto",
+          msOverflowStyle: "none", // Hide scrollbar for IE/Edge
+          scrollbarWidth: "none"   // Hide scrollbar for Firefox
+        }}>
+          <button onClick={() => setSelectedFilter(filterOptions.active)} style={getTabStyle(filterOptions.active)}>Active Events</button>
+          <button onClick={() => setSelectedFilter(filterOptions.closed)} style={getTabStyle(filterOptions.closed)}>Ended Events</button>
+          <button onClick={() => setSelectedFilter(filterOptions.all)} style={getTabStyle(filterOptions.all)}>All Events</button>
         </div>
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
@@ -105,39 +103,31 @@ const DisasterEventsPage = () => {
             </p>
             <h3 style={{ margin: "10px 0 0", color: "#17324d", fontSize: "24px" }}>
               {selectedFilterLabel}
+              {selectedFilter === filterOptions.active && (
+                 <span style={{ marginLeft: "12px", fontSize: "12px", backgroundColor: "#e3f9e5", color: "#2f6c47", padding: "4px 8px", borderRadius: "6px", verticalAlign: "middle" }}>LIVE</span>
+              )}
             </h3>
           </div>
 
-          <div
-            style={{
-              padding: "12px 18px",
-              borderRadius: "14px",
-              backgroundColor: "#f8fbfe",
-              border: "1px solid #d7e2ef",
-              color: "#60738a",
-              fontSize: "14px",
-              fontWeight: 600,
-            }}
-          >
+          <div style={{ padding: "12px 18px", borderRadius: "14px", backgroundColor: "#f8fbfe", border: "1px solid #d7e2ef", color: "#60738a", fontSize: "14px", fontWeight: 600 }}>
             Total Count: {events.length.toString().padStart(2, "0")}
           </div>
         </div>
-
-        {successMessage && (
-          <div style={{ marginTop: "18px", padding: "14px 16px", borderRadius: "14px", backgroundColor: "#edf8f1", border: "1px solid #cfe8d7", color: "#2f6c47", fontSize: "14px", fontWeight: 600 }}>
-            {successMessage}
-          </div>
-        )}
       </section>
 
-      <DisasterEventsTable
-        rows={events}
-        isLoading={isLoading}
-        errorMessage={errorMessage}
-        onViewEvent={openDetailModal}
-        onExtendEvent={handleExtendEvent}
-        onEndEvent={handleEndEvent}
-      />
+      {/* TABLE CARD - Tightened container with forced internal scroll */}
+      <section style={{ ...shellStyles.card, marginTop: "24px", padding: "24px", boxSizing: "border-box", overflow: "hidden"  }}>
+        <div style={{ width: "100%", maxWidth: "100%", overflowX: "auto" }}>
+          <DisasterEventsTable
+            rows={events}
+            isLoading={isLoading}
+            errorMessage={errorMessage}
+            onViewEvent={openDetailModal}
+            onExtendEvent={handleExtendEvent}
+            onEndEvent={handleEndEvent}
+          />
+        </div>
+      </section>
 
       <DisasterEventFormModal
         isOpen={isCreateModalOpen}
@@ -155,7 +145,7 @@ const DisasterEventsPage = () => {
         errorMessage={detailErrorMessage}
         onClose={closeDetailModal}
       />
-    </>
+    </div>
   );
 };
 
