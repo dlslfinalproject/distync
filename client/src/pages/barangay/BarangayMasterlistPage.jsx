@@ -101,13 +101,43 @@ const BarangayMasterlistPage = () => {
     barangayId,
   });
 
+  const syncFiltersToRegisteredHousehold = (response) => {
+    const savedHousehold = response?.data?.household;
+    const savedDisasterEventId = savedHousehold?.disaster_event_id;
+    const savedBarangayId = savedHousehold?.barangay_id;
+
+    if (!savedDisasterEventId) {
+      reloadMasterlist();
+      return;
+    }
+
+    setActiveTab("active");
+
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("disaster_event_id", savedDisasterEventId);
+
+    if (savedBarangayId) {
+      nextParams.set("barangay_id", savedBarangayId);
+    } else {
+      nextParams.delete("barangay_id");
+    }
+
+    const hasSameFilters = nextParams.toString() === searchParams.toString();
+
+    setSearchParams(nextParams, { replace: true });
+
+    if (hasSameFilters) {
+      reloadMasterlist();
+    }
+  };
+
   const registrationForm = useHouseholdRegistrationForm({
     isOpen: isRegisterModalOpen,
     defaultBarangayId: barangayId,
     defaultDisasterEventId: disasterEventId,
     onSuccess: (response) => {
       setRegistrationSuccessMessage(response?.message || "Household registered successfully");
-      reloadMasterlist();
+      syncFiltersToRegisteredHousehold(response);
     },
   });
 
