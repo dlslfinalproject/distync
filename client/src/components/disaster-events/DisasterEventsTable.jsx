@@ -164,7 +164,12 @@ const DisasterEventsTable = ({
                         {/* EXTEND */}
                         <button
                           type="button"
-                          onClick={() => onExtendEvent(row.id)}
+                          onClick={() => {
+                            const newDate = prompt("Enter new end date (YYYY-MM-DD)");
+                            if (newDate) {
+                              onExtendEvent(row.id, newDate);
+                            }
+                          }}
                           style={{
                             ...pageHeaderStyles.secondaryButton,
                             backgroundColor: "#f0f6ff",
@@ -178,7 +183,12 @@ const DisasterEventsTable = ({
                         {/* END */}
                         <button
                           type="button"
-                          onClick={() => onEndEvent(row.id)}
+                          onClick={() => {
+                            const confirmEnd = window.confirm("End this disaster event?");
+                            if (confirmEnd) {
+                              onEndEvent(row.id);
+                            }
+                          }}
                           style={{
                             ...pageHeaderStyles.secondaryButton,
                             backgroundColor: "#fdf2f2",
