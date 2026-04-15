@@ -60,8 +60,8 @@ const MembersSection = ({ form }) => {
         <div>
           <h3 style={{ margin: 0, color: "#17324d" }}>Household Members</h3>
           <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-            Add or remove member rows dynamically. Exactly one member must be
-            marked as family head.
+            Household Member 1 starts as the family head. You can keep it synced
+            with the Family Head Info section for faster encoding.
           </p>
         </div>
         <button
@@ -69,7 +69,7 @@ const MembersSection = ({ form }) => {
           onClick={form.addMember}
           style={pageHeaderStyles.secondaryButton}
         >
-          Add Member
+          Add Household Member
         </button>
       </div>
 
@@ -97,18 +97,50 @@ const MembersSection = ({ form }) => {
               <h4 style={{ margin: 0, color: "#234260" }}>
                 Member {index + 1}
               </h4>
-              <button
-                type="button"
-                onClick={() => form.removeMember(index)}
-                disabled={form.members.length === 1}
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                {index === 0 && !form.isPrimaryMemberSynced ? (
+                  <button
+                    type="button"
+                    onClick={form.resetPrimaryMemberFromFamilyHead}
+                    style={pageHeaderStyles.secondaryButton}
+                  >
+                    Reset from Family Head
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => form.removeMember(index)}
+                  disabled={form.members.length === 1}
+                  style={{
+                    ...pageHeaderStyles.secondaryButton,
+                    opacity: form.members.length === 1 ? 0.6 : 1,
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+
+            {index === 0 ? (
+              <div
                 style={{
-                  ...pageHeaderStyles.secondaryButton,
-                  opacity: form.members.length === 1 ? 0.6 : 1,
+                  marginBottom: "14px",
+                  padding: "12px 14px",
+                  borderRadius: "14px",
+                  backgroundColor: form.isPrimaryMemberSynced ? "#edf6ff" : "#fff8ea",
+                  border: form.isPrimaryMemberSynced
+                    ? "1px solid #d1e4f6"
+                    : "1px solid #f0dfb7",
+                  color: form.isPrimaryMemberSynced ? "#345d84" : "#8a621f",
+                  fontSize: "13px",
+                  fontWeight: 600,
                 }}
               >
-                Remove
-              </button>
-            </div>
+                {form.isPrimaryMemberSynced
+                  ? "Member 1 is auto-filled from Family Head Info."
+                  : "Member 1 was edited manually, so it will no longer be overwritten by Family Head Info."}
+              </div>
+            ) : null}
 
             <div style={fieldStyles.grid}>
               <label style={fieldStyles.field}>

@@ -5,6 +5,7 @@ import {
   fetchDisasterEvents,
   fetchMasterlistAnalyticsSource,
 } from "./mswdoAnalyticsService";
+import { formatStayTypeLabel } from "../../utils/stayType";
 
 const emptyPayload = {
   disaster_event: null,
@@ -98,7 +99,9 @@ const getSectorDistribution = (households) => {
 
 const getStayTypeDistribution = (households) => {
   const countsByStayType = households.reduce((groups, household) => {
-    const stayType = household.current_stay_type || "UNSPECIFIED";
+    const stayType = household.current_stay_type
+      ? formatStayTypeLabel(household.current_stay_type)
+      : "Unspecified";
     groups[stayType] = (groups[stayType] || 0) + 1;
     return groups;
   }, {});

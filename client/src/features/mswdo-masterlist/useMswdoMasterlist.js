@@ -5,6 +5,7 @@ import {
   fetchConsolidatedMasterlist,
   fetchDisasterEvents,
 } from "./mswdoMasterlistService";
+import { formatStayTypeLabel } from "../../utils/stayType";
 
 const emptyMasterlistPayload = {
   disaster_event: null,
@@ -21,13 +22,18 @@ const formatSearchValue = (value) => {
 };
 
 const getDisplayedRows = (households, searchTerm) => {
+  const normalizedRows = households.map((household) => ({
+    ...household,
+    current_stay_type: formatStayTypeLabel(household.current_stay_type),
+  }));
+
   if (!searchTerm.trim()) {
-    return households;
+    return normalizedRows;
   }
 
   const normalizedSearchTerm = searchTerm.trim().toLowerCase();
 
-  return households.filter((household) => {
+  return normalizedRows.filter((household) => {
     const searchableValues = [
       household.family_head_name,
       household.barangay?.name,

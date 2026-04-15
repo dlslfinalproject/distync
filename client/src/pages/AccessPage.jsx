@@ -104,6 +104,12 @@ const AccessPage = () => {
     navigate(getDefaultRouteForRole(ROLE_CODES.DONOR), { replace: true });
   };
 
+  const handleDevelopmentStaffAccess = () => {
+    clearAuthError();
+    setPageError("");
+    navigate("/role-switcher", { replace: true });
+  };
+
   return (
     <div
       style={{
@@ -183,18 +189,41 @@ const AccessPage = () => {
                 Staff Login Path
               </h2>
               <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-                Sign in with the authorized Google account linked to your
-                DISTYNC user record. Your role will be loaded from the database.
+                {isDemoMode
+                  ? "Sign in with the authorized Google account linked to your DISTYNC user record. Your role will be loaded from the database."
+                  : "Development Mode uses the role switcher for fast testing instead of Google sign-in."}
               </p>
-              <div
-                ref={googleButtonRef}
-                style={{ marginTop: "18px", minHeight: "44px" }}
-              />
-              {isAuthLoading ? (
-                <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
-                  Verifying Google sign-in...
-                </p>
-              ) : null}
+              {isDemoMode ? (
+                <>
+                  <div
+                    ref={googleButtonRef}
+                    style={{ marginTop: "18px", minHeight: "44px" }}
+                  />
+                  {isAuthLoading ? (
+                    <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
+                      Verifying Google sign-in...
+                    </p>
+                  ) : null}
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleDevelopmentStaffAccess}
+                  style={{
+                    marginTop: "18px",
+                    border: "1px solid #c7d7e8",
+                    borderRadius: "999px",
+                    backgroundColor: "#ffffff",
+                    color: "#24496e",
+                    padding: "12px 18px",
+                    fontSize: "14px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Continue to Role Switcher
+                </button>
+              )}
             </div>
 
             <button

@@ -1,5 +1,6 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
+import { STAY_TYPE_OPTIONS } from "../../utils/stayType";
 
 const fieldStyles = {
   grid: {
@@ -84,9 +85,11 @@ const HouseholdFormSection = ({ form }) => {
             }
             style={fieldStyles.input}
           >
-            <option value="EVAC_CENTER">EVAC_CENTER</option>
-            <option value="RELATIVES">RELATIVES</option>
-            <option value="OTHER_SAFE_PLACE">OTHER_SAFE_PLACE</option>
+            {STAY_TYPE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </select>
         </label>
 

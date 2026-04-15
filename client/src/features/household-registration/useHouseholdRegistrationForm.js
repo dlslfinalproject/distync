@@ -67,6 +67,21 @@ const calculateAgeFromBirthDate = (birthDate) => {
 
 const trimValue = (value) => value.trim();
 
+const getPrimaryMemberFromFamilyHead = (familyHead, currentMember) => {
+  return {
+    ...currentMember,
+    first_name: familyHead.first_name,
+    middle_name: familyHead.middle_name,
+    last_name: familyHead.last_name,
+    suffix: familyHead.suffix,
+    sex: familyHead.sex,
+    birth_date: familyHead.birth_date,
+    age: calculateAgeFromBirthDate(familyHead.birth_date),
+    relationship_to_head: "HEAD",
+    is_family_head: true,
+  };
+};
+
 export const useHouseholdRegistrationForm = ({
   isOpen,
   defaultBarangayId,
@@ -88,6 +103,7 @@ export const useHouseholdRegistrationForm = ({
   const [personSectors, setPersonSectors] = useState([]);
   const [householdSectors, setHouseholdSectors] = useState([]);
   const [evacuationCenters, setEvacuationCenters] = useState([]);
+  const [isPrimaryMemberSynced, setIsPrimaryMemberSynced] = useState(true);
   const [isLoadingOptions, setIsLoadingOptions] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -199,6 +215,26 @@ export const useHouseholdRegistrationForm = ({
     };
   }, [isOpen, selectedBarangayId]);
 
+  useEffect(() => {
+    if (!isOpen || !isPrimaryMemberSynced) {
+      return;
+    }
+
+    setMembers((currentMembers) => {
+      if (currentMembers.length === 0) {
+        return [getPrimaryMemberFromFamilyHead(familyHead, createMember(true))];
+      }
+
+      return currentMembers.map((member, memberIndex) => {
+        if (memberIndex !== 0) {
+          return member;
+        }
+
+        return getPrimaryMemberFromFamilyHead(familyHead, member);
+      });
+    });
+  }, [familyHead, isOpen, isPrimaryMemberSynced]);
+
   const memberCount = members.length;
 
   const groupedPersonSectors = useMemo(() => {
@@ -229,6 +265,30 @@ export const useHouseholdRegistrationForm = ({
   };
 
   const updateMemberField = (index, fieldName, value) => {
+    if (
+      index === 0 &&
+      [
+        "first_name",
+        "middle_name",
+        "last_name",
+        "suffix",
+        "sex",
+        "birth_date",
+        "age",
+        "relationship_to_head",
+        "is_family_head",
+      ].includes(fieldName)
+    ) {
+      const syncedMember = getPrimaryMemberFromFamilyHead(
+        familyHead,
+        members[0] || createMember(true),
+      );
+
+      if (syncedMember[fieldName] !== value) {
+        setIsPrimaryMemberSynced(false);
+      }
+    }
+
     setMembers((currentMembers) =>
       currentMembers.map((member, memberIndex) => {
         if (memberIndex !== index) {
@@ -302,10 +362,28 @@ export const useHouseholdRegistrationForm = ({
     setMembers([createMember(true)]);
     setHouseholdSectorIds([]);
     setEvacuationCenters([]);
+    setIsPrimaryMemberSynced(true);
     setSelectedDisasterEventId(defaultDisasterEventId || "");
     setSelectedBarangayId(defaultBarangayId || "");
     setErrorMessage("");
     setSuccessMessage("");
+  };
+
+  const resetPrimaryMemberFromFamilyHead = () => {
+    setIsPrimaryMemberSynced(true);
+    setMembers((currentMembers) => {
+      if (currentMembers.length === 0) {
+        return [getPrimaryMemberFromFamilyHead(familyHead, createMember(true))];
+      }
+
+      return currentMembers.map((member, memberIndex) => {
+        if (memberIndex !== 0) {
+          return member;
+        }
+
+        return getPrimaryMemberFromFamilyHead(familyHead, member);
+      });
+    });
   };
 
   const validateForm = () => {
@@ -436,6 +514,7 @@ export const useHouseholdRegistrationForm = ({
     selectedBarangayId,
     setSelectedBarangayId,
     isBarangayLocked: Boolean(defaultBarangayId),
+    isPrimaryMemberSynced,
     groupedPersonSectors,
     householdSectors,
     evacuationCenters,
@@ -450,6 +529,7 @@ export const useHouseholdRegistrationForm = ({
     toggleHouseholdSector,
     addMember,
     removeMember,
+    resetPrimaryMemberFromFamilyHead,
     resetForm,
     submitRegistration,
   };
