@@ -83,14 +83,9 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
       <div style={modalStyles.modal}>
         <div style={modalStyles.topBar}>
           <div>
-            <div style={pageHeaderStyles.eyebrow}>Barangay Encoding</div>
             <h2 style={{ ...pageHeaderStyles.title, fontSize: "30px" }}>
               Register Family
             </h2>
-            <p style={pageHeaderStyles.description}>
-              Encode household information, family head details, members, and
-              household conditions in one guided flow.
-            </p>
           </div>
           <button type="button" onClick={handleClose} style={modalStyles.closeButton}>
             Close

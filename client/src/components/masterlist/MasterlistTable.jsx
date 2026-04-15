@@ -90,9 +90,6 @@ const MasterlistTable = ({
     <section style={shellStyles.card}>
       <div style={{ marginBottom: "18px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>Registered Family</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-          Review registered families and attendance for the selected disaster event.
-        </p>
       </div>
 
       <div style={{ overflowX: "auto" }}>
