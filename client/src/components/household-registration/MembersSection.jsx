@@ -1,6 +1,10 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
 import { pageHeaderStyles } from "../layout/PageHeader";
+import {
+  AGE_UNIT_OPTIONS,
+  formatAgeGroupLabel,
+} from "../../utils/ageGroup";
 
 const fieldStyles = {
   grid: {
@@ -198,41 +202,47 @@ const MembersSection = ({ form }) => {
                 >
                   <option value="MALE">MALE</option>
                   <option value="FEMALE">FEMALE</option>
-                  <option value="OTHER">OTHER</option>
                 </select>
               </label>
               <label style={fieldStyles.field}>
-                <span style={fieldStyles.label}>Birth Date</span>
-                <input
-                  type="date"
-                  value={member.birth_date}
-                  onChange={(event) =>
-                    form.updateMemberField(index, "birth_date", event.target.value)
-                  }
-                  style={fieldStyles.input}
-                />
-              </label>
-              <label style={fieldStyles.field}>
-                <span style={fieldStyles.label}>Age</span>
+                <span style={fieldStyles.label}>Age Value</span>
                 <input
                   type="number"
                   min="0"
-                  value={member.age}
+                  value={member.age_value}
                   onChange={(event) =>
-                    form.updateMemberField(index, "age", event.target.value)
+                    form.updateMemberField(index, "age_value", event.target.value)
                   }
                   style={fieldStyles.input}
                 />
               </label>
               <label style={fieldStyles.field}>
-                <span style={fieldStyles.label}>Civil Status</span>
-                <input
-                  type="text"
-                  value={member.civil_status}
+                <span style={fieldStyles.label}>Age Unit</span>
+                <select
+                  value={member.age_unit}
                   onChange={(event) =>
-                    form.updateMemberField(index, "civil_status", event.target.value)
+                    form.updateMemberField(index, "age_unit", event.target.value)
                   }
                   style={fieldStyles.input}
+                >
+                  {AGE_UNIT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={fieldStyles.field}>
+                <span style={fieldStyles.label}>Derived Age Group</span>
+                <input
+                  type="text"
+                  value={formatAgeGroupLabel(member.age_group)}
+                  disabled
+                  style={{
+                    ...fieldStyles.input,
+                    backgroundColor: "#f4f8fc",
+                    color: "#48627e",
+                  }}
                 />
               </label>
               <label style={fieldStyles.field}>

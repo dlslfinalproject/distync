@@ -1,20 +1,12 @@
 const allowedStayTypes = ["EVAC_CENTER", "RELATIVES", "OTHER_SAFE_PLACE"];
-const allowedSexValues = ["MALE", "FEMALE", "OTHER"];
+const allowedSexValues = ["MALE", "FEMALE"];
+const { ALLOWED_AGE_UNITS } = require("../utils/ageGroup");
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const isValidUuid = (value) => {
   return typeof value === "string" && uuidPattern.test(value);
-};
-
-const isValidDateString = (value) => {
-  if (typeof value !== "string") {
-    return false;
-  }
-
-  const date = new Date(value);
-  return !Number.isNaN(date.getTime());
 };
 
 const validateUuidArray = (values) => {
@@ -98,22 +90,23 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
 
     if (!allowedSexValues.includes(family_head.sex)) {
       return res.status(400).json({
-        message: "family_head.sex must be MALE, FEMALE, or OTHER",
-      });
-    }
-
-    if (!isValidDateString(family_head.birth_date)) {
-      return res.status(400).json({
-        message: "family_head.birth_date is required and must be a valid date",
+        message: "family_head.sex must be MALE or FEMALE",
       });
     }
 
     if (
-      !family_head.contact_number ||
-      typeof family_head.contact_number !== "string"
+      !Number.isInteger(family_head.age_value) ||
+      family_head.age_value < 0
     ) {
       return res.status(400).json({
-        message: "family_head.contact_number is required and must be a string",
+        message:
+          "family_head.age_value is required and must be a non-negative integer",
+      });
+    }
+
+    if (!ALLOWED_AGE_UNITS.includes(family_head.age_unit)) {
+      return res.status(400).json({
+        message: "family_head.age_unit must be MONTHS or YEARS",
       });
     }
 
@@ -191,29 +184,20 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
 
       if (!allowedSexValues.includes(member.sex)) {
         return res.status(400).json({
-          message: "Each member.sex must be MALE, FEMALE, or OTHER",
+          message: "Each member.sex must be MALE or FEMALE",
         });
       }
 
-      if (!isValidDateString(member.birth_date)) {
+      if (!Number.isInteger(member.age_value) || member.age_value < 0) {
         return res.status(400).json({
-          message: "Each member.birth_date must be a valid date",
+          message:
+            "Each member.age_value is required and must be a non-negative integer",
         });
       }
 
-      if (!Number.isInteger(member.age) || member.age < 0) {
+      if (!ALLOWED_AGE_UNITS.includes(member.age_unit)) {
         return res.status(400).json({
-          message: "Each member.age must be a non-negative integer",
-        });
-      }
-
-      if (
-        member.civil_status !== undefined &&
-        member.civil_status !== null &&
-        typeof member.civil_status !== "string"
-      ) {
-        return res.status(400).json({
-          message: "Each member.civil_status must be a string or null",
+          message: "Each member.age_unit must be MONTHS or YEARS",
         });
       }
 
@@ -295,8 +279,8 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
         last_name: family_head.last_name.trim(),
         suffix: family_head.suffix ?? null,
         sex: family_head.sex,
-        birth_date: family_head.birth_date,
-        contact_number: family_head.contact_number.trim(),
+        age_value: family_head.age_value,
+        age_unit: family_head.age_unit,
       },
       current_stay_type,
       current_address_details: current_address_details ?? null,
@@ -308,9 +292,9 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
         last_name: member.last_name.trim(),
         suffix: member.suffix ?? null,
         sex: member.sex,
-        birth_date: member.birth_date,
-        age: member.age,
-        civil_status: member.civil_status ?? null,
+        age_value: member.age_value,
+        age_unit: member.age_unit,
+        age_group: member.age_group ?? null,
         relationship_to_head: member.relationship_to_head.trim(),
         is_family_head: member.is_family_head,
         is_pregnant: member.is_pregnant,

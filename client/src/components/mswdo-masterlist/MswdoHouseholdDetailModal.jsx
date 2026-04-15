@@ -1,4 +1,9 @@
 import React from "react";
+import { formatStayTypeLabel } from "../../utils/stayType";
+import {
+  formatAgeGroupLabel,
+  formatAgeValueLabel,
+} from "../../utils/ageGroup";
 
 const overlayStyles = {
   position: "fixed",
@@ -73,6 +78,22 @@ const getSectorNames = (sectors) => {
   }
 
   return sectors.map((sector) => sector.name).join(", ");
+};
+
+const formatMemberAge = (member) => {
+  if (
+    Number.isInteger(member.age_value) &&
+    member.age_value >= 0 &&
+    member.age_unit
+  ) {
+    return `${formatAgeValueLabel(member.age_value, member.age_unit)} (${formatAgeGroupLabel(member.age_group)})`;
+  }
+
+  if (member.age !== null && member.age !== undefined) {
+    return String(member.age);
+  }
+
+  return "—";
 };
 
 const MswdoHouseholdDetailModal = ({ isOpen, household, onClose }) => {
@@ -150,7 +171,9 @@ const MswdoHouseholdDetailModal = ({ isOpen, household, onClose }) => {
           </div>
           <div style={sectionStyles.card}>
             <p style={sectionStyles.label}>Stay Type</p>
-            <p style={sectionStyles.value}>{household.current_stay_type || "—"}</p>
+            <p style={sectionStyles.value}>
+              {formatStayTypeLabel(household.current_stay_type)}
+            </p>
           </div>
           <div style={sectionStyles.card}>
             <p style={sectionStyles.label}>Contact Number</p>
@@ -353,7 +376,7 @@ const MswdoHouseholdDetailModal = ({ isOpen, household, onClose }) => {
                           fontSize: "14px",
                         }}
                       >
-                        {member.age ?? "—"}
+                        {formatMemberAge(member)}
                       </td>
                       <td
                         style={{

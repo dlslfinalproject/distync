@@ -124,8 +124,8 @@ const insertHousehold = async (householdData, dbClient) => {
     householdData.family_head.last_name,
     householdData.family_head.suffix,
     householdData.family_head.sex,
-    householdData.family_head.birth_date,
-    householdData.family_head.contact_number,
+    householdData.family_head.birth_date ?? null,
+    householdData.family_head.contact_number ?? null,
     householdData.current_stay_type,
     householdData.current_address_details,
     householdData.household_size,
@@ -148,6 +148,9 @@ const insertEvacuee = async (householdId, member, dbClient) => {
       sex,
       birth_date,
       age,
+      age_value,
+      age_unit,
+      age_group,
       civil_status,
       relationship_to_head,
       is_family_head,
@@ -159,7 +162,7 @@ const insertEvacuee = async (householdId, member, dbClient) => {
       updated_at
     )
     VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW()
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW(), NOW()
     )
     RETURNING
       id,
@@ -171,6 +174,9 @@ const insertEvacuee = async (householdId, member, dbClient) => {
       sex,
       birth_date,
       age,
+      age_value,
+      age_unit,
+      age_group,
       civil_status,
       relationship_to_head,
       is_family_head,
@@ -189,9 +195,12 @@ const insertEvacuee = async (householdId, member, dbClient) => {
     member.last_name,
     member.suffix,
     member.sex,
-    member.birth_date,
-    member.age,
-    member.civil_status,
+    member.birth_date ?? null,
+    member.age ?? null,
+    member.age_value,
+    member.age_unit,
+    member.age_group,
+    member.civil_status ?? null,
     member.relationship_to_head,
     member.is_family_head,
     member.is_pregnant,
@@ -358,6 +367,9 @@ const getEvacueesByHouseholdId = async (householdId) => {
       sex,
       birth_date,
       age,
+      age_value,
+      age_unit,
+      age_group,
       civil_status,
       relationship_to_head,
       is_family_head,

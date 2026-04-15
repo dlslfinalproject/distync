@@ -129,6 +129,9 @@ const getMembersByHouseholdIds = async (householdIds) => {
       suffix,
       sex,
       age,
+      age_value,
+      age_unit,
+      age_group,
       relationship_to_head,
       is_family_head
     FROM evacuees

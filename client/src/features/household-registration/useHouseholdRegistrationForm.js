@@ -6,6 +6,7 @@ import {
   fetchSectors,
   registerHousehold,
 } from "./householdRegistrationService";
+import { deriveAgeGroup } from "../../utils/ageGroup";
 
 const createMember = (isFamilyHead = false) => ({
   first_name: "",
@@ -13,9 +14,9 @@ const createMember = (isFamilyHead = false) => ({
   last_name: "",
   suffix: "",
   sex: "MALE",
-  birth_date: "",
-  age: "",
-  civil_status: "",
+  age_value: "",
+  age_unit: "YEARS",
+  age_group: null,
   relationship_to_head: isFamilyHead ? "HEAD" : "",
   is_family_head: isFamilyHead,
   is_pregnant: false,
@@ -30,8 +31,8 @@ const initialFamilyHead = {
   last_name: "",
   suffix: "",
   sex: "MALE",
-  birth_date: "",
-  contact_number: "",
+  age_value: "",
+  age_unit: "YEARS",
 };
 
 const initialHousehold = {
@@ -40,34 +41,36 @@ const initialHousehold = {
   evacuation_center_id: "",
 };
 
-const calculateAgeFromBirthDate = (birthDate) => {
-  if (!birthDate) {
+const trimValue = (value) => String(value || "").trim();
+
+const normalizeAgeValue = (value) => {
+  if (value === "" || value === null || value === undefined) {
     return "";
   }
 
-  const today = new Date();
-  const birthDateValue = new Date(birthDate);
-
-  if (Number.isNaN(birthDateValue.getTime())) {
-    return "";
-  }
-
-  let age = today.getFullYear() - birthDateValue.getFullYear();
-  const monthDifference = today.getMonth() - birthDateValue.getMonth();
-
-  if (
-    monthDifference < 0 ||
-    (monthDifference === 0 && today.getDate() < birthDateValue.getDate())
-  ) {
-    age -= 1;
-  }
-
-  return age >= 0 ? age : "";
+  const parsedValue = Number.parseInt(value, 10);
+  return Number.isInteger(parsedValue) && parsedValue >= 0 ? parsedValue : "";
 };
 
-const trimValue = (value) => value.trim();
+const buildMemberAgeDetails = (ageValue, ageUnit) => {
+  const normalizedAgeValue = normalizeAgeValue(ageValue);
+
+  return {
+    age_value: normalizedAgeValue,
+    age_unit: ageUnit,
+    age_group:
+      normalizedAgeValue === ""
+        ? null
+        : deriveAgeGroup(normalizedAgeValue, ageUnit),
+  };
+};
 
 const getPrimaryMemberFromFamilyHead = (familyHead, currentMember) => {
+  const ageDetails = buildMemberAgeDetails(
+    familyHead.age_value,
+    familyHead.age_unit,
+  );
+
   return {
     ...currentMember,
     first_name: familyHead.first_name,
@@ -75,8 +78,7 @@ const getPrimaryMemberFromFamilyHead = (familyHead, currentMember) => {
     last_name: familyHead.last_name,
     suffix: familyHead.suffix,
     sex: familyHead.sex,
-    birth_date: familyHead.birth_date,
-    age: calculateAgeFromBirthDate(familyHead.birth_date),
+    ...ageDetails,
     relationship_to_head: "HEAD",
     is_family_head: true,
   };
@@ -161,7 +163,11 @@ export const useHouseholdRegistrationForm = ({
         }
 
         setPersonSectors(
-          sectors.filter((sector) => sector.sector_group !== "HOUSEHOLD"),
+          sectors.filter(
+            (sector) =>
+              sector.sector_group !== "HOUSEHOLD" &&
+              sector.sector_group !== "AGE_GROUP",
+          ),
         );
         setHouseholdSectors(
           sectors.filter((sector) => sector.sector_group === "HOUSEHOLD"),
@@ -258,10 +264,19 @@ export const useHouseholdRegistrationForm = ({
   };
 
   const updateFamilyHeadField = (fieldName, value) => {
-    setFamilyHead((currentValue) => ({
-      ...currentValue,
-      [fieldName]: value,
-    }));
+    setFamilyHead((currentValue) => {
+      if (fieldName === "age_value") {
+        return {
+          ...currentValue,
+          age_value: normalizeAgeValue(value),
+        };
+      }
+
+      return {
+        ...currentValue,
+        [fieldName]: value,
+      };
+    });
   };
 
   const updateMemberField = (index, fieldName, value) => {
@@ -273,8 +288,9 @@ export const useHouseholdRegistrationForm = ({
         "last_name",
         "suffix",
         "sex",
-        "birth_date",
-        "age",
+        "age_value",
+        "age_unit",
+        "age_group",
         "relationship_to_head",
         "is_family_head",
       ].includes(fieldName)
@@ -283,8 +299,16 @@ export const useHouseholdRegistrationForm = ({
         familyHead,
         members[0] || createMember(true),
       );
+      const comparableValue = fieldName === "age_value"
+        ? normalizeAgeValue(value)
+        : fieldName === "age_group"
+          ? buildMemberAgeDetails(
+              fieldName === "age_value" ? value : members[0]?.age_value,
+              fieldName === "age_unit" ? value : members[0]?.age_unit,
+            ).age_group
+          : value;
 
-      if (syncedMember[fieldName] !== value) {
+      if (syncedMember[fieldName] !== comparableValue) {
         setIsPrimaryMemberSynced(false);
       }
     }
@@ -295,11 +319,21 @@ export const useHouseholdRegistrationForm = ({
           return member;
         }
 
-        if (fieldName === "birth_date") {
+        if (fieldName === "age_value") {
+          const ageDetails = buildMemberAgeDetails(value, member.age_unit);
+
           return {
             ...member,
-            birth_date: value,
-            age: calculateAgeFromBirthDate(value),
+            ...ageDetails,
+          };
+        }
+
+        if (fieldName === "age_unit") {
+          const ageDetails = buildMemberAgeDetails(member.age_value, value);
+
+          return {
+            ...member,
+            ...ageDetails,
           };
         }
 
@@ -419,10 +453,26 @@ export const useHouseholdRegistrationForm = ({
       trimValue(familyHead.last_name) === trimValue(selectedFamilyHeadMember.last_name) &&
       trimValue(familyHead.suffix) === trimValue(selectedFamilyHeadMember.suffix) &&
       familyHead.sex === selectedFamilyHeadMember.sex &&
-      familyHead.birth_date === selectedFamilyHeadMember.birth_date;
+      normalizeAgeValue(familyHead.age_value) ===
+        normalizeAgeValue(selectedFamilyHeadMember.age_value) &&
+      familyHead.age_unit === selectedFamilyHeadMember.age_unit;
 
     if (!familyHeadFieldsMatch) {
       return "The selected family head member must match the family head info section";
+    }
+
+    const hasInvalidAgeGroup = members.some((member) => {
+      const normalizedAgeValue = normalizeAgeValue(member.age_value);
+
+      if (normalizedAgeValue === "") {
+        return true;
+      }
+
+      return !deriveAgeGroup(normalizedAgeValue, member.age_unit);
+    });
+
+    if (hasInvalidAgeGroup) {
+      return "Each household member needs a valid age value and age unit";
     }
 
     return "";
@@ -439,8 +489,8 @@ export const useHouseholdRegistrationForm = ({
         last_name: trimValue(familyHead.last_name),
         suffix: trimValue(familyHead.suffix) || null,
         sex: familyHead.sex,
-        birth_date: familyHead.birth_date,
-        contact_number: trimValue(familyHead.contact_number),
+        age_value: normalizeAgeValue(familyHead.age_value),
+        age_unit: familyHead.age_unit,
       },
       current_stay_type: household.current_stay_type,
       current_address_details: trimValue(household.current_address_details) || null,
@@ -452,9 +502,12 @@ export const useHouseholdRegistrationForm = ({
         last_name: trimValue(member.last_name),
         suffix: trimValue(member.suffix) || null,
         sex: member.sex,
-        birth_date: member.birth_date,
-        age: Number(member.age),
-        civil_status: trimValue(member.civil_status) || null,
+        age_value: normalizeAgeValue(member.age_value),
+        age_unit: member.age_unit,
+        age_group: deriveAgeGroup(
+          normalizeAgeValue(member.age_value),
+          member.age_unit,
+        ),
         relationship_to_head: trimValue(member.relationship_to_head),
         is_family_head: member.is_family_head,
         is_pregnant: member.is_pregnant,
