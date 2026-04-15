@@ -67,6 +67,8 @@ const DisasterEventsTable = ({
   isLoading,
   errorMessage,
   onViewEvent,
+  onExtendEvent,
+  onEndEvent
 }) => {
   if (isLoading) {
     return (
@@ -140,13 +142,55 @@ const DisasterEventsTable = ({
                   {row.affected_barangays?.length || 0}
                 </td>
                 <td style={tableStyles.bodyCell}>
-                  <button
-                    type="button"
-                    onClick={() => onViewEvent(row.id)}
-                    style={pageHeaderStyles.secondaryButton}
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "8px",
+                      alignItems: "center",
+                    }}
                   >
-                    View
-                  </button>
+                    {/* VIEW (PRIMARY ACTION) */}
+                    <button
+                      type="button"
+                      onClick={() => onViewEvent(row.id)}
+                      style={pageHeaderStyles.secondaryButton}
+                    >
+                      View
+                    </button>
+
+                    {/* ONLY SHOW IF ACTIVE */}
+                    {row.status === "ACTIVE" && (
+                      <>
+                        {/* EXTEND */}
+                        <button
+                          type="button"
+                          onClick={() => onExtendEvent(row.id)}
+                          style={{
+                            ...pageHeaderStyles.secondaryButton,
+                            backgroundColor: "#f0f6ff",
+                            color: "#2f5bd3",
+                            border: "1px solid #d6e4ff",
+                          }}
+                        >
+                          Extend
+                        </button>
+
+                        {/* END */}
+                        <button
+                          type="button"
+                          onClick={() => onEndEvent(row.id)}
+                          style={{
+                            ...pageHeaderStyles.secondaryButton,
+                            backgroundColor: "#fdf2f2",
+                            color: "#c0392b",
+                            border: "1px solid #f5c6cb",
+                          }}
+                        >
+                          End
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
