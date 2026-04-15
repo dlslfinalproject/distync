@@ -12,11 +12,17 @@ import {
 const filterOptions = {
   all: "all",
   active: "active",
+  ended: "ended",
 };
 
 const loadEventListByFilter = async (selectedFilter) => {
-  if (selectedFilter === filterOptions.active) {
+  if (selectedFilter === "active") {
     return fetchActiveDisasterEvents();
+  }
+
+  if (selectedFilter === "ended") {
+    const all = await fetchAllDisasterEvents();
+    return all.filter((event) => event.status === "ended");
   }
 
   return fetchAllDisasterEvents();
