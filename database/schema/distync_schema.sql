@@ -162,7 +162,7 @@ CREATE TABLE households (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     CONSTRAINT chk_household_sex
-        CHECK (sex IN ('MALE', 'FEMALE', 'OTHER')),
+        CHECK (sex IN ('MALE', 'FEMALE')),
     CONSTRAINT chk_household_stay_type
         CHECK (current_stay_type IN ('EVAC_CENTER', 'RELATIVES', 'OTHER_SAFE_PLACE'))
 );
@@ -179,6 +179,11 @@ CREATE TABLE evacuees (
     sex VARCHAR(20) NOT NULL,
     birth_date DATE,
     age INTEGER CHECK (age IS NULL OR age >= 0),
+
+    age_value INTEGER CHECK (age_value IS NULL OR age_value >= 0),
+    age_unit VARCHAR(10),
+    age_group VARCHAR(30),
+
     civil_status VARCHAR(50),
     relationship_to_head VARCHAR(100) NOT NULL,
 
@@ -192,7 +197,21 @@ CREATE TABLE evacuees (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     CONSTRAINT chk_evacuee_sex
-        CHECK (sex IN ('MALE', 'FEMALE', 'OTHER'))
+        CHECK (sex IN ('MALE', 'FEMALE')),
+            CONSTRAINT chk_evacuee_age_unit
+        CHECK (age_unit IS NULL OR age_unit IN ('MONTHS', 'YEARS')),
+    CONSTRAINT chk_evacuee_age_group
+        CHECK (
+          age_group IS NULL OR age_group IN (
+            'INFANT',
+            'TODDLER',
+            'CHILD',
+            'TEEN',
+            'ADULT',
+            'SENIOR'
+          )
+        )
+
 );
 
 ALTER TABLE households
