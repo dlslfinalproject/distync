@@ -1,47 +1,106 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { shellStyles } from "../components/layout/BarangayLayout";
+import { useAuth } from "../context/AuthContext";
+import { renderGoogleSignInButton } from "../features/auth/authService";
 import { ACCESS_MODES, getAccessMode } from "../utils/accessMode";
 import {
   ROLE_CODES,
   getDefaultRouteForRole,
-  setCurrentRole,
 } from "../utils/roleSession";
-
-const authorizedRoles = [
-  {
-    code: ROLE_CODES.BARANGAY,
-    title: "Barangay",
-    description: "Open the frontline registration, verification, and distribution workflow.",
-  },
-  {
-    code: ROLE_CODES.MSWDO,
-    title: "MSWDO",
-    description: "Open disaster event management, monitoring, and analytics pages.",
-  },
-  {
-    code: ROLE_CODES.MAYOR,
-    title: "Office of the Mayor",
-    description: "Open inventory, supplier, and relief pack management pages.",
-  },
-];
 
 const AccessPage = () => {
   const navigate = useNavigate();
-  const [showAuthorizedRoles, setShowAuthorizedRoles] = useState(false);
+  const googleButtonRef = useRef(null);
+  const [pageError, setPageError] = useState("");
   const accessMode = getAccessMode();
+  const {
+    authError,
+    clearAuthError,
+    continueAsDonor,
+    isAuthLoading,
+    signInWithGoogleCredential,
+  } = useAuth();
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
   const isDemoMode = useMemo(() => {
     return accessMode === ACCESS_MODES.DEMO;
   }, [accessMode]);
 
-  const handleAuthorizedRoleSelect = (role) => {
-    setCurrentRole(role);
-    navigate(getDefaultRouteForRole(role), { replace: true });
-  };
+  const handleGoogleCredential = useCallback(
+    async (credential) => {
+      clearAuthError();
+      setPageError("");
+
+      if (!credential) {
+        setPageError("Google sign-in did not return a credential");
+        return;
+      }
+
+      try {
+        const sessionPayload = await signInWithGoogleCredential(credential);
+
+        navigate(getDefaultRouteForRole(sessionPayload.user.role), {
+          replace: true,
+        });
+      } catch (error) {
+        setPageError(error.message || "Google sign-in failed");
+      }
+    },
+    [clearAuthError, navigate, signInWithGoogleCredential],
+  );
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const setupGoogleButton = async () => {
+      if (!isDemoMode || !googleButtonRef.current) {
+        return;
+      }
+
+      if (!googleClientId) {
+        setPageError("VITE_GOOGLE_CLIENT_ID is missing");
+        return;
+      }
+
+      try {
+        await renderGoogleSignInButton({
+          element: googleButtonRef.current,
+          clientId: googleClientId,
+          onCredential: (credential) => {
+            if (isMounted) {
+              handleGoogleCredential(credential);
+            }
+          },
+        });
+      } catch (error) {
+        if (isMounted) {
+          setPageError(error.message || "Failed to load Google Sign-In");
+        }
+      }
+    };
+
+    setupGoogleButton();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [
+    googleClientId,
+    handleGoogleCredential,
+    isDemoMode,
+  ]);
+
+  useEffect(() => {
+    if (isDemoMode && authError) {
+      setPageError(authError);
+    }
+  }, [authError, isDemoMode]);
 
   const handleDonorAccess = () => {
-    setCurrentRole(ROLE_CODES.DONOR);
+    clearAuthError();
+    setPageError("");
+    continueAsDonor();
     navigate(getDefaultRouteForRole(ROLE_CODES.DONOR), { replace: true });
   };
 
@@ -100,14 +159,11 @@ const AccessPage = () => {
               marginTop: "6px",
             }}
           >
-            <button
-              type="button"
-              onClick={() => setShowAuthorizedRoles((current) => !current)}
+            <div
               style={{
                 ...shellStyles.card,
                 padding: "18px",
                 textAlign: "left",
-                cursor: "pointer",
                 backgroundColor: "#ffffff",
               }}
             >
@@ -127,10 +183,19 @@ const AccessPage = () => {
                 Staff Login Path
               </h2>
               <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-                Use this to simulate the staff login flow for Barangay, MSWDO,
-                and Mayor pages until Google sign-in is connected.
+                Sign in with the authorized Google account linked to your
+                DISTYNC user record. Your role will be loaded from the database.
               </p>
-            </button>
+              <div
+                ref={googleButtonRef}
+                style={{ marginTop: "18px", minHeight: "44px" }}
+              />
+              {isAuthLoading ? (
+                <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
+                  Verifying Google sign-in...
+                </p>
+              ) : null}
+            </div>
 
             <button
               type="button"
@@ -165,78 +230,30 @@ const AccessPage = () => {
             </button>
           </div>
 
-          {showAuthorizedRoles ? (
+          {pageError || authError ? (
             <section
               style={{
-                border: "1px solid #d7e2ef",
+                border: "1px solid #efc7ca",
                 borderRadius: "18px",
                 padding: "18px",
-                backgroundColor: "#ffffff",
+                backgroundColor: "#fff6f7",
               }}
             >
               <p
                 style={{
                   margin: 0,
-                  color: "#60738a",
+                  color: "#9f4652",
                   fontSize: "12px",
                   fontWeight: 700,
                   letterSpacing: "0.08em",
                   textTransform: "uppercase",
                 }}
               >
-                Temporary Role Selection
+                Sign-In Error
               </p>
-              <h3 style={{ margin: "10px 0 0", color: "#17324d" }}>
-                Choose an authorized role
-              </h3>
-              <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-                This section is the temporary handoff point where future Google
-                login can pass the authenticated user role into the same redirect flow.
+              <p style={{ ...shellStyles.mutedText, marginTop: "10px", color: "#8f4c55" }}>
+                {pageError || authError}
               </p>
-
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                  gap: "14px",
-                  marginTop: "16px",
-                }}
-              >
-                {authorizedRoles.map((role) => (
-                  <button
-                    key={role.code}
-                    type="button"
-                    onClick={() => handleAuthorizedRoleSelect(role.code)}
-                    style={{
-                      border: "1px solid #d7e2ef",
-                      borderRadius: "16px",
-                      padding: "16px",
-                      backgroundColor: "#f8fbff",
-                      textAlign: "left",
-                      cursor: "pointer",
-                    }}
-                  >
-                    <p
-                      style={{
-                        margin: 0,
-                        color: "#6a8097",
-                        fontSize: "12px",
-                        fontWeight: 700,
-                        letterSpacing: "0.08em",
-                        textTransform: "uppercase",
-                      }}
-                    >
-                      {role.code}
-                    </p>
-                    <h4 style={{ margin: "10px 0 0", color: "#17324d", fontSize: "20px" }}>
-                      {role.title}
-                    </h4>
-                    <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-                      {role.description}
-                    </p>
-                  </button>
-                ))}
-              </div>
             </section>
           ) : null}
         </section>
@@ -279,9 +296,9 @@ const AccessPage = () => {
               Future auth hook point
             </h3>
             <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-              The authorized-user branch is intentionally separated from the role
-              session and redirect utilities, so we can replace the temporary role
-              selector with real Google sign-in later.
+              Authorized users now go through backend verification, while donor
+              access stays public and the development role switcher stays available
+              in Development Mode.
             </p>
           </div>
 

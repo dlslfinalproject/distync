@@ -1,19 +1,27 @@
 import React from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { getAccessMode, getEntryRouteForMode } from "../utils/accessMode";
+import { useAuth } from "../context/AuthContext";
 import {
-  getCurrentRole,
   getDefaultRouteForRole,
   isRouteAllowedForRole,
 } from "../utils/roleSession";
 
 const RoleProtectedRoute = ({ children }) => {
   const location = useLocation();
-  const currentRole = getCurrentRole();
-  const accessMode = getAccessMode();
+  const { accessMode, currentRole, isAuthenticated } = useAuth();
+  const resolvedAccessMode = accessMode || getAccessMode();
 
   if (!currentRole) {
-    return <Navigate to={getEntryRouteForMode(accessMode)} replace />;
+    return <Navigate to={getEntryRouteForMode(resolvedAccessMode)} replace />;
+  }
+
+  if (
+    resolvedAccessMode === "DEMO" &&
+    currentRole !== "DONOR" &&
+    !isAuthenticated
+  ) {
+    return <Navigate to={getEntryRouteForMode(resolvedAccessMode)} replace />;
   }
 
   if (!isRouteAllowedForRole(currentRole, location.pathname)) {

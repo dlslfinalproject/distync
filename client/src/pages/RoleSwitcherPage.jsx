@@ -1,10 +1,10 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { shellStyles } from "../components/layout/BarangayLayout";
+import { useAuth } from "../context/AuthContext";
 import {
   ROLE_CODES,
   getDefaultRouteForRole,
-  setCurrentRole,
 } from "../utils/roleSession";
 
 const roles = [
@@ -32,9 +32,10 @@ const roles = [
 
 const RoleSwitcherPage = () => {
   const navigate = useNavigate();
+  const { selectDevelopmentRole } = useAuth();
 
   const handleSelectRole = (role) => {
-    setCurrentRole(role);
+    selectDevelopmentRole(role);
     navigate(getDefaultRouteForRole(role), { replace: true });
   };
 

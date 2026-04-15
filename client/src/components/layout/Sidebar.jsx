@@ -1,9 +1,8 @@
 import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext";
 import { getAccessMode, getEntryRouteForMode } from "../../utils/accessMode";
 import {
-  clearCurrentRole,
-  getCurrentRole,
   ROLE_CODES,
 } from "../../utils/roleSession";
 
@@ -100,9 +99,9 @@ const sidebarStyles = {
 
 const Sidebar = () => {
   const navigate = useNavigate();
-  const currentRole = getCurrentRole();
-  const accessMode = getAccessMode();
-  const entryRoute = getEntryRouteForMode(accessMode);
+  const { accessMode, clearSession, currentRole, isAuthenticated } = useAuth();
+  const resolvedAccessMode = accessMode || getAccessMode();
+  const entryRoute = getEntryRouteForMode(resolvedAccessMode);
 
    if (currentRole === ROLE_CODES.DONOR) {
     return null;
@@ -255,23 +254,52 @@ const Sidebar = () => {
             {currentRole || "Not selected"}
           </p>
         </div>
-        
-        <button
-          type="button"
-          onClick={() => navigate(entryRoute)}
-          style={sidebarStyles.roleButton}
+        <div
+          style={{
+            padding: "14px 16px",
+            borderRadius: "14px",
+            backgroundColor: "#ffffff",
+            border: "1px solid #dce7f3",
+            color: "#365472",
+          }}
         >
-          Switch Role
-        </button>
+          <p
+            style={{
+              margin: 0,
+              fontSize: "12px",
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+            }}
+          >
+            Current Mode
+          </p>
+          <p style={{ margin: "8px 0 0", fontSize: "16px", fontWeight: 700 }}>
+            {resolvedAccessMode}
+          </p>
+        </div>
+
         <button
           type="button"
           onClick={() => {
-            clearCurrentRole();
+            clearSession();
             navigate(entryRoute, { replace: true });
           }}
           style={sidebarStyles.roleButton}
         >
-          Clear Role
+          {resolvedAccessMode === "DEMO" && isAuthenticated
+            ? "Switch Account"
+            : "Switch Role"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            clearSession();
+            navigate(entryRoute, { replace: true });
+          }}
+          style={sidebarStyles.roleButton}
+        >
+          {resolvedAccessMode === "DEMO" ? "Sign Out" : "Clear Role"}
         </button>
       </div>
     </aside>

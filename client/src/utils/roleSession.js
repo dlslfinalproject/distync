@@ -1,4 +1,7 @@
+import { ACCESS_MODES, getAccessMode } from "./accessMode";
+
 const ROLE_STORAGE_KEY = "distync_selected_role";
+const AUTH_SESSION_STORAGE_KEY = "distync_auth_session";
 
 export const ROLE_CODES = {
   BARANGAY: "BARANGAY",
@@ -9,7 +12,7 @@ export const ROLE_CODES = {
 
 const validRoles = Object.values(ROLE_CODES);
 
-export const getCurrentRole = () => {
+const getStoredRole = () => {
   const storedRole = window.localStorage.getItem(ROLE_STORAGE_KEY);
   return validRoles.includes(storedRole) ? storedRole : null;
 };
@@ -26,6 +29,53 @@ export const clearCurrentRole = () => {
   window.localStorage.removeItem(ROLE_STORAGE_KEY);
 };
 
+export const getAuthenticatedSession = () => {
+  const storedValue = window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY);
+
+  if (!storedValue) {
+    return null;
+  }
+
+  try {
+    const parsedValue = JSON.parse(storedValue);
+    const authenticatedRole = parsedValue?.user?.role;
+
+    if (!validRoles.includes(authenticatedRole)) {
+      return null;
+    }
+
+    return parsedValue;
+  } catch (error) {
+    return null;
+  }
+};
+
+export const getAuthenticatedUser = () => {
+  return getAuthenticatedSession()?.user || null;
+};
+
+export const setAuthenticatedSession = (sessionPayload) => {
+  const authenticatedRole = sessionPayload?.user?.role;
+
+  if (!validRoles.includes(authenticatedRole)) {
+    return;
+  }
+
+  window.localStorage.setItem(
+    AUTH_SESSION_STORAGE_KEY,
+    JSON.stringify(sessionPayload),
+  );
+};
+
+export const clearAuthenticatedSession = () => {
+  window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+};
+
+export const clearAllAccessSessions = () => {
+  clearCurrentRole();
+  clearAuthenticatedSession();
+};
+
 export const getDefaultRouteForRole = (role) => {
   const defaultRoutes = {
     BARANGAY: "/barangay/masterlist",
@@ -35,6 +85,25 @@ export const getDefaultRouteForRole = (role) => {
   };
 
   return defaultRoutes[role] || "/role-switcher";
+};
+
+export const getRoleForAccessMode = (mode = getAccessMode()) => {
+  const authenticatedRole = getAuthenticatedSession()?.user?.role || null;
+  const storedRole = getStoredRole();
+
+  if (mode === ACCESS_MODES.DEMO) {
+    if (authenticatedRole) {
+      return authenticatedRole;
+    }
+
+    return storedRole === ROLE_CODES.DONOR ? ROLE_CODES.DONOR : null;
+  }
+
+  return storedRole;
+};
+
+export const getCurrentRole = () => {
+  return getRoleForAccessMode(getAccessMode());
 };
 
 export const isRouteAllowedForRole = (role, pathname) => {

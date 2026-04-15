@@ -133,6 +133,33 @@ const insertDisasterEventBarangays = async (
   return insertedRows;
 };
 
+const updateDisasterEventById = async (id, updates, dbClient = pool) => {
+  const query = `
+    UPDATE disaster_events
+    SET
+      end_date = COALESCE($2, end_date),
+      status = COALESCE($3, status),
+      updated_at = NOW()
+    WHERE id = $1
+    RETURNING
+      id,
+      event_code,
+      title,
+      disaster_type,
+      description,
+      start_date,
+      end_date,
+      status,
+      created_by,
+      created_at,
+      updated_at
+  `;
+
+  const values = [id, updates.end_date ?? null, updates.status ?? null];
+  const result = await dbClient.query(query, values);
+  return result.rows[0] || null;
+};
+
 module.exports = {
   getAllDisasterEvents,
   getActiveDisasterEvents,
@@ -140,4 +167,5 @@ module.exports = {
   getAffectedBarangaysByDisasterEventId,
   insertDisasterEvent,
   insertDisasterEventBarangays,
+  updateDisasterEventById,
 };

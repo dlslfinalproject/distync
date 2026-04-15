@@ -22,18 +22,18 @@ import ConsolidatedMasterlistPage from "../pages/mswdo/ConsolidatedMasterlistPag
 import DisasterEventsPage from "../pages/mswdo/DisasterEventsPage";
 import RoleSwitcherPage from "../pages/RoleSwitcherPage";
 import SuppliersPage from "../pages/inventory/SuppliersPage";
+import { useAuth } from "../context/AuthContext";
 import { getAccessMode, getEntryRouteForMode } from "../utils/accessMode";
 import {
-  getCurrentRole,
   getDefaultRouteForRole,
 } from "../utils/roleSession";
 
 const DefaultAppRedirect = () => {
-  const currentRole = getCurrentRole();
-  const accessMode = getAccessMode();
+  const { accessMode, currentRole } = useAuth();
+  const resolvedAccessMode = accessMode || getAccessMode();
 
   if (!currentRole) {
-    return <Navigate to={getEntryRouteForMode(accessMode)} replace />;
+    return <Navigate to={getEntryRouteForMode(resolvedAccessMode)} replace />;
   }
 
   return <Navigate to={getDefaultRouteForRole(currentRole)} replace />;
