@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import PageHeader from "../../components/layout/PageHeader";
 
 /* ================= SVG ICONS ================= */
@@ -32,6 +33,7 @@ const LocationIcon = () => (
 /* ================= MAIN ================= */
 
 const DonationInformationPage = () => {
+  const navigate = useNavigate();
   const [filter, setFilter] = useState("CRITICAL");
 
   const items = [
@@ -47,6 +49,14 @@ const DonationInformationPage = () => {
 
   return (
     <>
+      <div style={styles.backWrapper}>
+        <button
+          onClick={() => navigate("/access")}
+          style={styles.backButton}
+        >
+          ← Back to Role Selection
+        </button>
+      </div>
       <PageHeader
         eyebrow="Donor Workspace"
         title="Donation Portal"
@@ -177,6 +187,23 @@ const styles = {
     fontSize: "14px",
   },
 
+  backWrapper: {
+    padding: "15px 20px 0",
+    textAlign: "left",
+  },
+
+  backButton: {
+    background: "#0f2a44",
+    border: "none",
+    padding: "10px 16px",
+    borderRadius: "10px",
+    cursor: "pointer",
+    fontWeight: "600",
+    color: "#ffffff",
+    transition: "all 0.2s ease",
+    boxShadow: "0 4px 12px rgba(15, 42, 68, 0.25)",
+  },
+
   donateText: {
     marginTop: "20px",
     fontWeight: "700",
@@ -243,7 +270,7 @@ const styles = {
 
   footerBar: {
     marginTop: "40px",
-    background: "#d9e1ec", 
+    background: "#d9e1ec",
     padding: "20px",
     display: "flex",
     justifyContent: "space-between",
