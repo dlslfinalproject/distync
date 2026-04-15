@@ -140,9 +140,7 @@ const StubDistributionPage = () => {
   return (
     <>
       <PageHeader
-        eyebrow="Barangay Workspace"
         title="STUB DISTRIBUTION"
-        description="Search, verify, and release relief items in one synchronized workflow."
       />
 
       {/* Main Filter Section */}

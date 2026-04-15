@@ -2,15 +2,15 @@ import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { getAccessMode, getEntryRouteForMode } from "../../utils/accessMode";
-import {
-  ROLE_CODES,
-} from "../../utils/roleSession";
+import { ROLE_CODES } from "../../utils/roleSession";
+import distyncLogo from "../../assets/distync-logo.png"; 
 
 const sidebarStyles = {
   wrapper: {
     width: "280px",
     minHeight: "100vh",
-    padding: "24px 18px",
+    // Remove top padding so the brand can touch the top edge
+    padding: "0 18px 24px", 
     boxSizing: "border-box",
     backgroundColor: "#f7fbff",
     borderRight: "1px solid #d6e2ef",
@@ -19,46 +19,42 @@ const sidebarStyles = {
     gap: "24px",
   },
   brand: {
-    padding: "18px",
-    borderRadius: "18px",
-    background: "linear-gradient(135deg, #2c5f93 0%, #4f85bc 100%)",
+    // Negative margin to pull the background to the edges of the 280px sidebar
+    margin: "0 -18px", 
+    //padding: "32px 24px", // Internal padding for content
+    background: "#f7fbff",
     color: "#ffffff",
-    boxShadow: "0 14px 26px rgba(41, 84, 132, 0.18)",
+    boxShadow: "0 4px 20px rgba(115, 146, 214, 0.15)",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-start", // Center logo and text
+    justifyContent: "center",
   },
-  brandTag: {
-    display: "inline-block",
-    marginBottom: "10px",
-    padding: "6px 10px",
-    borderRadius: "999px",
-    backgroundColor: "rgba(255, 255, 255, 0.16)",
-    fontSize: "12px",
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
+  brandHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-start",
+  },
+  brandLogo: {
+    height: "90px", // Adjusted size for better fit
+    width: "auto",
+    display: "block",
   },
   brandTitle: {
     margin: 0,
-    fontSize: "26px",
+    fontSize: "28px", 
     fontWeight: 700,
+    letterSpacing: "-0.02em",
+    color: "#2F3B55", // Changed to white for better contrast on blue
   },
-  brandText: {
-    margin: "8px 0 0",
-    color: "rgba(255, 255, 255, 0.84)",
-    fontSize: "14px",
-    lineHeight: 1.5,
-  },
+
   nav: {
     display: "flex",
     flexDirection: "column",
     gap: "10px",
+    marginTop: "10px", // Space after the brand header
   },
-  navLabel: {
-    margin: "0 10px 6px",
-    color: "#688097",
-    fontSize: "12px",
-    fontWeight: 700,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
-  },
+  // ... rest of your styles (navTitle, navText, roleActions, roleButton) remain the same
   navLink: {
     textDecoration: "none",
     borderRadius: "14px",
@@ -103,134 +99,60 @@ const Sidebar = () => {
   const resolvedAccessMode = accessMode || getAccessMode();
   const entryRoute = getEntryRouteForMode(resolvedAccessMode);
 
-   if (currentRole === ROLE_CODES.DONOR) {
-    return null;
-  }
+  if (currentRole === ROLE_CODES.DONOR) return null;
 
   const roleMeta = {
     [ROLE_CODES.BARANGAY]: {
-      tag: "Barangay Panel",
-      text: "Frontline registration and distribution workflow.",
       navItems: [
-        {
-          label: "Masterlist",
-          description: "Household summaries and encoded evacuee records.",
-          to: "/barangay/masterlist",
-        },
-        {
-          label: "Stub Distribution", // Consolidated name
-          description: "Verify stubs and record released relief items.",
-          to: "/barangay/stub-distribution",
-        },
+        { label: "Evacuee Masterlist", to: "/barangay/masterlist" },
+        { label: "Stub Distribution", to: "/barangay/stub-distribution" },
       ],
     },
     [ROLE_CODES.MSWDO]: {
-      tag: "MSWDO Panel",
-      text: "Workspace for disaster planning and monitoring.",
       navItems: [
-        {
-          label: "Analytics Dashboard",
-          description: "Review summary metrics and visual trends.",
-          to: "/mswdo/analytics",
-        },
-        {
-          label: "Consolidated Masterlist",
-          description: "Monitor records across all affected barangays.",
-          to: "/mswdo/consolidated-masterlist",
-        },
-        {
-          label: "Disaster Events",
-          description: "Manage incidents and affected locations.",
-          to: "/mswdo/disaster-events",
-        },
+        { label: "Analytics Dashboard", to: "/mswdo/analytics" },
+        { label: "Consolidated Masterlist", to: "/mswdo/consolidated-masterlist" },
+        { label: "Disaster Events", to: "/mswdo/disaster-events" },
       ],
     },
     [ROLE_CODES.MAYOR]: {
-      tag: "Mayor Panel",
-      text: "Inventory oversight and supply-chain monitoring.",
       navItems: [
-        {
-          label: "Inventory Items",
-          description: "Review and manage item definitions.",
-          to: "/inventory/items",
-        },
-        {
-          label: "Inventory Batches",
-          description: "Monitor stock intake and available quantities.",
-          to: "/inventory/batches",
-        },
-        {
-          label: "Inventory Transactions",
-          description: "Track movement history and adjustments.",
-          to: "/inventory/transactions",
-        },
-        {
-          label: "Suppliers",
-          description: "Maintain records for stock sources.",
-          to: "/inventory/suppliers",
-        },
-        {
-          label: "Relief Pack Templates",
-          description: "Manage pack compositions for planning.",
-          to: "/inventory/relief-pack-templates",
-        },
-      ],
-    },
-    [ROLE_CODES.DONOR]: {
-      tag: "Donor Panel",
-      text: "Donor-facing dashboard for contributions.",
-      navItems: [
-        {
-          label: "Donation Information",
-          description: "Review landing page and contributions.",
-          to: "/donations",
-        },
+        { label: "Inventory Items", to: "/inventory/items" },
+        { label: "Inventory Batches", to: "/inventory/batches" },
+        { label: "Inventory Transactions", to: "/inventory/transactions" },
+        { label: "Suppliers", to: "/inventory/suppliers" },
+        { label: "Relief Pack Templates", to: "/inventory/relief-pack-templates" },
       ],
     },
   };
 
-  const activeRoleMeta = roleMeta[currentRole] || {
-    tag: "Role Not Set",
-    text: "Choose a role to begin exploring the app.",
-    navItems: [],
-  };
+  const activeRoleMeta = roleMeta[currentRole] || { tag: "Guest", navItems: [] };
 
   return (
     <aside style={sidebarStyles.wrapper}>
       <div style={sidebarStyles.brand}>
         <span style={sidebarStyles.brandTag}>{activeRoleMeta.tag}</span>
-        <h1 style={sidebarStyles.brandTitle}>DISTYNC</h1>
-        <p style={sidebarStyles.brandText}>{activeRoleMeta.text}</p>
+        <div style={sidebarStyles.brandHeader}>
+          <img src={distyncLogo} alt="Logo" style={sidebarStyles.brandLogo} />
+          <h1 style={sidebarStyles.brandTitle}>DISTYNC</h1>
+        </div>
       </div>
 
       <nav style={sidebarStyles.nav}>
-        <p style={sidebarStyles.navLabel}>Navigation</p>
         {activeRoleMeta.navItems.map((item) => (
           <NavLink key={item.to} to={item.to} style={{ textDecoration: 'none' }}>
             {({ isActive }) => (
-              <div
-                style={{
+              <div style={{
                   backgroundColor: isActive ? "#e1eef9" : "#ffffff",
                   color: isActive ? "#1f4f7d" : "#26435f",
                   border: `1px solid ${isActive ? "#b8d0e7" : "#dce7f3"}`,
                   borderRadius: "14px",
                   padding: "14px 16px",
-                  boxShadow: isActive
-                    ? "0 10px 24px rgba(66, 108, 154, 0.12)"
-                    : "0 4px 12px rgba(72, 95, 122, 0.04)",
+                  boxShadow: isActive ? "0 10px 24px rgba(66, 108, 154, 0.12)" : "0 4px 12px rgba(72, 95, 122, 0.04)",
                   transition: "all 0.2s ease",
                   marginBottom: '10px'
-                }}
-              >
+                }}>
                 <span style={sidebarStyles.navTitle}>{item.label}</span>
-                <span
-                  style={{
-                    ...sidebarStyles.navText,
-                    color: isActive ? "#476b90" : "#6f8091",
-                  }}
-                >
-                  {item.description}
-                </span>
               </div>
             )}
           </NavLink>
@@ -238,68 +160,12 @@ const Sidebar = () => {
       </nav>
 
       <div style={sidebarStyles.roleActions}>
-        <div
-          style={{
-            padding: "14px 16px",
-            borderRadius: "14px",
-            backgroundColor: "#ffffff",
-            border: "1px solid #dce7f3",
-            color: "#365472",
-          }}
-        >
-          <p style={{ margin: 0, fontSize: "12px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-            Current Role
-          </p>
-          <p style={{ margin: "8px 0 0", fontSize: "16px", fontWeight: 700 }}>
-            {currentRole || "Not selected"}
-          </p>
+        <div style={{ padding: "14px 16px", borderRadius: "14px", backgroundColor: "#ffffff", border: "1px solid #dce7f3", color: "#365472" }}>
+          <p style={{ margin: 0, fontSize: "12px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>Current Role</p>
+          <p style={{ margin: "8px 0 0", fontSize: "16px", fontWeight: 700 }}>{currentRole || "Not selected"}</p>
         </div>
-        <div
-          style={{
-            padding: "14px 16px",
-            borderRadius: "14px",
-            backgroundColor: "#ffffff",
-            border: "1px solid #dce7f3",
-            color: "#365472",
-          }}
-        >
-          <p
-            style={{
-              margin: 0,
-              fontSize: "12px",
-              fontWeight: 700,
-              textTransform: "uppercase",
-              letterSpacing: "0.08em",
-            }}
-          >
-            Current Mode
-          </p>
-          <p style={{ margin: "8px 0 0", fontSize: "16px", fontWeight: 700 }}>
-            {resolvedAccessMode}
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => {
-            clearSession();
-            navigate(entryRoute, { replace: true });
-          }}
-          style={sidebarStyles.roleButton}
-        >
-          {resolvedAccessMode === "DEMO" && isAuthenticated
-            ? "Switch Account"
-            : "Switch Role"}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            clearSession();
-            navigate(entryRoute, { replace: true });
-          }}
-          style={sidebarStyles.roleButton}
-        >
-          {resolvedAccessMode === "DEMO" ? "Sign Out" : "Clear Role"}
+        <button type="button" onClick={() => { clearSession(); navigate(entryRoute, { replace: true }); }} style={sidebarStyles.roleButton}>
+          Switch Role
         </button>
       </div>
     </aside>

@@ -154,9 +154,7 @@ const BarangayMasterlistPage = () => {
   return (
     <>
       <PageHeader
-        eyebrow="Barangay Workspace"
         title="EVACUEE MASTERLIST"
-        description="Review registered families, household sectors, and attendance summaries."
         actions={[]} // Header button removed as per request
       />
 
