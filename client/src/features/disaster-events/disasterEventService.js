@@ -55,6 +55,17 @@ export const extendDisasterEvent = async (eventId, newEndDate) => {
   return handleJsonResponse(response, "Failed to extend disaster event");
 };
 
+export const endDisasterEvent = async (eventId) => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/disaster-events/${eventId}/end`,
+    {
+      method: "PATCH",
+    }
+  );
+
+  return handleJsonResponse(response, "Failed to end disaster event");
+};
+
 export const fetchBarangays = async () => {
   const response = await fetch(`${API_BASE_URL}/api/v1/barangays`);
   return handleJsonResponse(response, "Failed to fetch barangays");
