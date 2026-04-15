@@ -12,7 +12,12 @@ import {
 const filterOptions = {
   all: "all",
   active: "active",
-  ended: "ended",
+  closed: "closed",
+};
+
+const DISASTER_EVENT_STATUSES = {
+  ACTIVE: "ACTIVE",
+  CLOSED: "CLOSED",
 };
 
 const loadEventListByFilter = async (selectedFilter) => {
@@ -20,9 +25,9 @@ const loadEventListByFilter = async (selectedFilter) => {
     return fetchActiveDisasterEvents();
   }
 
-  if (selectedFilter === "ended") {
+  if (selectedFilter === "closed") {
     const all = await fetchAllDisasterEvents();
-    return all.filter((event) => event.status === "ended");
+    return all.filter((event) => event.status === DISASTER_EVENT_STATUSES.CLOSED);
   }
 
   return fetchAllDisasterEvents();
@@ -148,50 +153,50 @@ export const useDisasterEvents = () => {
   };
 
   const extendEvent = async (id, newEndDate) => {
-  setIsSubmitting(true);
-  setFormErrorMessage("");
-  setSuccessMessage("");
+    setIsSubmitting(true);
+    setFormErrorMessage("");
+    setSuccessMessage("");
 
-  try {
-    const response = await extendDisasterEvent(id, newEndDate);
+    try {
+      const response = await extendDisasterEvent(id, newEndDate);
 
-    setSuccessMessage(response.message || "Event extended successfully");
+      setSuccessMessage(response.message || "Event extended successfully");
 
-    await loadEvents(selectedFilter);
+      await loadEvents(selectedFilter);
 
-    if (selectedEvent?.id === id) {
-      const updated = await fetchDisasterEventById(id);
-      setSelectedEvent(updated);
+      if (selectedEvent?.id === id) {
+        const updated = await fetchDisasterEventById(id);
+        setSelectedEvent(updated);
+      }
+    } catch (error) {
+      setFormErrorMessage(error.message);
+    } finally {
+      setIsSubmitting(false);
     }
-  } catch (error) {
-    setFormErrorMessage(error.message);
-  } finally {
-    setIsSubmitting(false);
-  }
-};
+  };
 
-const endEvent = async (id) => {
-  setIsSubmitting(true);
-  setFormErrorMessage("");
-  setSuccessMessage("");
+  const endEvent = async (id) => {
+    setIsSubmitting(true);
+    setFormErrorMessage("");
+    setSuccessMessage("");
 
-  try {
-    const response = await endDisasterEvent(id);
+    try {
+      const response = await endDisasterEvent(id);
 
-    setSuccessMessage(response.message || "Event ended successfully");
+      setSuccessMessage(response.message || "Event ended successfully");
 
-    await loadEvents(selectedFilter);
+      await loadEvents(selectedFilter);
 
-    if (selectedEvent?.id === id) {
-      const updated = await fetchDisasterEventById(id);
-      setSelectedEvent(updated);
+      if (selectedEvent?.id === id) {
+        const updated = await fetchDisasterEventById(id);
+        setSelectedEvent(updated);
+      }
+    } catch (error) {
+      setFormErrorMessage(error.message);
+    } finally {
+      setIsSubmitting(false);
     }
-  } catch (error) {
-    setFormErrorMessage(error.message);
-  } finally {
-    setIsSubmitting(false);
-  }
-};
+  };
 
   return {
     selectedFilter,
@@ -215,6 +220,7 @@ const endEvent = async (id) => {
     submitCreateEvent,
     extendEvent,
     endEvent,
+    filterOptions,
     refreshEvents: () => loadEvents(selectedFilter),
   };
 };

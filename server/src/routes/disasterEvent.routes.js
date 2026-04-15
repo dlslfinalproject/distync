@@ -3,6 +3,7 @@ const express = require("express");
 const disasterEventService = require("../services/disasterEvent.service");
 const {
   validateCreateDisasterEvent,
+  validateExtendDisasterEvent,
 } = require("../validators/disasterEvent.validator");
 
 const router = express.Router();
@@ -70,6 +71,45 @@ router.post("/", validateCreateDisasterEvent, async (req, res) => {
 
     return res.status(statusCode).json({
       message: error.message || "Failed to create disaster event",
+    });
+  }
+});
+
+router.patch("/:id", validateExtendDisasterEvent, async (req, res) => {
+  try {
+    const disasterEvent = await disasterEventService.extendDisasterEvent(
+      req.params.id,
+      req.validatedBody.end_date,
+    );
+
+    return res.status(200).json({
+      message: "Disaster event extended successfully",
+      data: disasterEvent,
+    });
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+
+    return res.status(statusCode).json({
+      message: error.message || "Failed to extend disaster event",
+    });
+  }
+});
+
+router.patch("/:id/end", async (req, res) => {
+  try {
+    const disasterEvent = await disasterEventService.endDisasterEvent(
+      req.params.id,
+    );
+
+    return res.status(200).json({
+      message: "Disaster event ended successfully",
+      data: disasterEvent,
+    });
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+
+    return res.status(statusCode).json({
+      message: error.message || "Failed to end disaster event",
     });
   }
 });
