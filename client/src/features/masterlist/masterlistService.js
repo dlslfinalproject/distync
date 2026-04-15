@@ -58,6 +58,11 @@ export const fetchActiveDisasterEvents = async () => {
   return parseJsonResponse(response, "Failed to fetch active disaster events");
 };
 
+export const fetchEndedDisasterEvents = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/disaster-events/ended`);
+  return parseJsonResponse(response, "Failed to fetch ended disaster events");
+};
+
 export const fetchBarangays = async () => {
   const response = await fetch(`${API_BASE_URL}/api/v1/barangays`);
   return parseJsonResponse(response, "Failed to fetch barangays");
