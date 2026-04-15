@@ -28,6 +28,8 @@ const DisasterEventsPage = () => {
     openDetailModal,
     closeDetailModal,
     submitCreateEvent,
+    extendEvent,
+    endEvent,
   } = useDisasterEvents();
 
   return (
@@ -70,7 +72,13 @@ const DisasterEventsPage = () => {
               fontWeight: 600,
             }}
           >
-            Showing: {selectedFilter === "active" ? "Active Events" : "All Events"}
+            Showing: {
+              selectedFilter === "active"
+                ? "Active Events"
+                : selectedFilter === "ended"
+                  ? "Ended Events"
+                  : "All Events"
+            }
           </div>
         </div>
 
@@ -97,6 +105,8 @@ const DisasterEventsPage = () => {
         isLoading={isLoading}
         errorMessage={errorMessage}
         onViewEvent={openDetailModal}
+        onExtendEvent={extendEvent}
+        onEndEvent={endEvent}
       />
 
       <DisasterEventFormModal
