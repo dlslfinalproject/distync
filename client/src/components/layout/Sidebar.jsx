@@ -104,6 +104,10 @@ const Sidebar = () => {
   const accessMode = getAccessMode();
   const entryRoute = getEntryRouteForMode(accessMode);
 
+   if (currentRole === ROLE_CODES.DONOR) {
+    return null;
+  }
+
   const roleMeta = {
     [ROLE_CODES.BARANGAY]: {
       tag: "Barangay Panel",
