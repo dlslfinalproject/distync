@@ -277,7 +277,7 @@ const DistributionTransactionPage = () => {
           {
             label: "Back to Verification",
             variant: "secondary",
-            onClick: () => navigate("/barangay/stub-verification"),
+            onClick: () => navigate("/barangay/stub-distribution"),
           },
         ]}
       />

@@ -53,7 +53,7 @@ const createDefaultForm = () => ({
   description: "",
   start_date: "",
   end_date: "",
-  status: "PLANNED",
+  status: "ACTIVE",
   barangay_ids: [],
 });
 

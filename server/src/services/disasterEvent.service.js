@@ -11,6 +11,10 @@ const getActiveDisasterEvents = async () => {
   return disasterEventRepository.getActiveDisasterEvents();
 };
 
+const getClosedDisasterEvents = async () => {
+  return disasterEventRepository.getClosedDisasterEvents();
+};
+
 const getDisasterEventById = async (id) => {
   const disasterEvent = await disasterEventRepository.getDisasterEventById(id);
 
@@ -79,9 +83,80 @@ const createDisasterEvent = async (disasterEventData) => {
   }
 };
 
+const extendDisasterEvent = async (id, endDate) => {
+  const disasterEvent = await disasterEventRepository.getDisasterEventById(id);
+
+  if (!disasterEvent) {
+    const error = new Error("Disaster event not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (disasterEvent.status !== "ACTIVE") {
+    const error = new Error("Only active disaster events can be extended");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const nextEndDate = new Date(endDate);
+  const startDate = new Date(disasterEvent.start_date);
+
+  if (nextEndDate < startDate) {
+    const error = new Error("end_date must not be earlier than start_date");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (disasterEvent.end_date) {
+    const currentEndDate = new Date(disasterEvent.end_date);
+
+    if (nextEndDate < currentEndDate) {
+      const error = new Error(
+        "end_date must not be earlier than the current end_date",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+
+  await disasterEventRepository.updateDisasterEventById(id, {
+    end_date: endDate,
+  });
+
+  return getDisasterEventById(id);
+};
+
+const endDisasterEvent = async (id) => {
+  const disasterEvent = await disasterEventRepository.getDisasterEventById(id);
+
+  if (!disasterEvent) {
+    const error = new Error("Disaster event not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (disasterEvent.status !== "ACTIVE") {
+    const error = new Error("Only active disaster events can be ended");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  await disasterEventRepository.updateDisasterEventById(id, {
+    end_date: today,
+    status: "CLOSED",
+  });
+
+  return getDisasterEventById(id);
+};
+
 module.exports = {
   getAllDisasterEvents,
   getActiveDisasterEvents,
+  getClosedDisasterEvents,
   getDisasterEventById,
   createDisasterEvent,
+  extendDisasterEvent,
+  endDisasterEvent,
 };

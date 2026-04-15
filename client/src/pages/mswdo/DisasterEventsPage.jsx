@@ -11,6 +11,7 @@ const DisasterEventsPage = () => {
   const {
     selectedFilter,
     setSelectedFilter,
+    filterOptions,
     events,
     barangays,
     selectedEvent,
@@ -28,7 +29,40 @@ const DisasterEventsPage = () => {
     openDetailModal,
     closeDetailModal,
     submitCreateEvent,
+    extendEvent,
+    endEvent,
   } = useDisasterEvents();
+
+  const handleExtendEvent = async (eventId) => {
+    const nextEndDate = window.prompt(
+      "Enter a new end date for this event (YYYY-MM-DD):",
+    );
+
+    if (!nextEndDate) {
+      return;
+    }
+
+    await extendEvent(eventId, nextEndDate);
+  };
+
+  const handleEndEvent = async (eventId) => {
+    const confirmed = window.confirm(
+      "End this disaster event and mark it as CLOSED?",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    await endEvent(eventId);
+  };
+
+  const selectedFilterLabel =
+    selectedFilter === filterOptions.active
+      ? "Active Events"
+      : selectedFilter === filterOptions.closed
+        ? "Closed Events"
+        : "All Events";
 
   return (
     <>
@@ -70,7 +104,7 @@ const DisasterEventsPage = () => {
               fontWeight: 600,
             }}
           >
-            Showing: {selectedFilter === "active" ? "Active Events" : "All Events"}
+            Showing: {selectedFilterLabel}
           </div>
         </div>
 
@@ -97,6 +131,8 @@ const DisasterEventsPage = () => {
         isLoading={isLoading}
         errorMessage={errorMessage}
         onViewEvent={openDetailModal}
+        onExtendEvent={handleExtendEvent}
+        onEndEvent={handleEndEvent}
       />
 
       <DisasterEventFormModal

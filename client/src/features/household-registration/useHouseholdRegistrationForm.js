@@ -302,6 +302,7 @@ export const useHouseholdRegistrationForm = ({
     setMembers([createMember(true)]);
     setHouseholdSectorIds([]);
     setEvacuationCenters([]);
+    setSelectedDisasterEventId(defaultDisasterEventId || "");
     setSelectedBarangayId(defaultBarangayId || "");
     setErrorMessage("");
     setSuccessMessage("");
@@ -431,8 +432,10 @@ export const useHouseholdRegistrationForm = ({
     barangays,
     selectedDisasterEventId,
     setSelectedDisasterEventId,
+    isDisasterEventLocked: Boolean(defaultDisasterEventId),
     selectedBarangayId,
     setSelectedBarangayId,
+    isBarangayLocked: Boolean(defaultBarangayId),
     groupedPersonSectors,
     householdSectors,
     evacuationCenters,

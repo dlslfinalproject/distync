@@ -46,6 +46,7 @@ const HouseholdFormSection = ({ form }) => {
           <select
             value={form.selectedDisasterEventId}
             onChange={(event) => form.setSelectedDisasterEventId(event.target.value)}
+            disabled={form.isDisasterEventLocked}
             style={fieldStyles.input}
           >
             <option value="">Select active disaster event</option>
@@ -62,6 +63,7 @@ const HouseholdFormSection = ({ form }) => {
           <select
             value={form.selectedBarangayId}
             onChange={(event) => form.setSelectedBarangayId(event.target.value)}
+            disabled={form.isBarangayLocked}
             style={fieldStyles.input}
           >
             <option value="">Select barangay</option>

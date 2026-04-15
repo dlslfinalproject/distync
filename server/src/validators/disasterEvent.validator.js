@@ -110,6 +110,30 @@ const validateCreateDisasterEvent = (req, res, next) => {
   }
 };
 
+const validateExtendDisasterEvent = (req, res, next) => {
+  try {
+    const { end_date } = req.body;
+
+    if (!end_date || !isValidDateString(end_date)) {
+      return res.status(400).json({
+        message: "end_date is required and must be a valid date",
+      });
+    }
+
+    req.validatedBody = {
+      end_date,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate disaster event extension request",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   validateCreateDisasterEvent,
+  validateExtendDisasterEvent,
 };

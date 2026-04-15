@@ -29,6 +29,13 @@ const DisasterEventFilters = ({ selectedFilter, onSelectFilter }) => {
       >
         Active Events
       </button>
+      <button
+        type="button"
+        onClick={() => onSelectFilter("closed")}
+        style={getFilterButtonStyles(selectedFilter === "closed")}
+      >
+        Closed Events
+      </button>
     </div>
   );
 };
