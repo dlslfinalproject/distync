@@ -50,6 +50,8 @@ const mapMasterlistRow = (household) => {
     sectors_text: buildSectorsText(household),
     arrival_time_text: formatDateTime(household.latest_attendance?.time_in),
     departure_time_text: formatDateTime(household.latest_attendance?.time_out),
+    attendance_status_text: household.latest_attendance?.status || "â€”",
+    can_mark_departed: household.latest_attendance?.status === "PRESENT",
   };
 };
 
@@ -111,4 +113,25 @@ export const fetchMasterlist = async ({ disasterEventId, barangayId }) => {
     },
     rows,
   };
+};
+
+export const departHousehold = async ({ householdId, remarks = null }) => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/households/${householdId}/depart`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        remarks,
+        recorded_by: null,
+      }),
+    },
+  );
+
+  return parseJsonResponse(
+    response,
+    "Failed to record household departure",
+  );
 };

@@ -7,6 +7,7 @@ import MasterlistToolbar from "../../components/masterlist/MasterlistToolbar";
 import StatusCard from "../../components/shared/StatusCard";
 import { useMasterlist } from "../../features/masterlist/masterlistHooks";
 import {
+  departHousehold,
   fetchActiveDisasterEvents,
   fetchEndedDisasterEvents,
   fetchBarangays,
@@ -23,6 +24,7 @@ const getFilteredRows = (rows, searchTerm) => {
       row.family_head_name,
       row.address,
       row.sectors_text,
+      row.attendance_status_text,
       row.arrival_time_text,
       row.departure_time_text,
     ];
@@ -51,6 +53,7 @@ const BarangayMasterlistPage = () => {
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
   const [filterErrorMessage, setFilterErrorMessage] = useState("");
   const [registrationSuccessMessage, setRegistrationSuccessMessage] = useState("");
+  const [attendanceActionMessage, setAttendanceActionMessage] = useState("");
 
   const disasterEventId = searchParams.get("disaster_event_id");
   const barangayId = searchParams.get("barangay_id");
@@ -159,6 +162,28 @@ const BarangayMasterlistPage = () => {
     setSearchParams(nextParams, { replace: true });
   };
 
+  const handleMarkDeparted = async (householdId) => {
+    const confirmed = window.confirm(
+      "Mark this registered family as departed and record the current departure time?",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const response = await departHousehold({ householdId });
+      setAttendanceActionMessage(
+        response.message || "Household departure recorded successfully",
+      );
+      reloadMasterlist();
+    } catch (error) {
+      setAttendanceActionMessage(
+        error.message || "Failed to record household departure",
+      );
+    }
+  };
+
   const activeEventLabel = data.disasterEvent
     ? `${data.disasterEvent.event_code} - ${data.disasterEvent.title}`
     : "No disaster event selected";
@@ -259,6 +284,14 @@ const BarangayMasterlistPage = () => {
         </section>
       )}
 
+      {attendanceActionMessage && (
+        <section style={shellStyles.card}>
+          <p style={{ margin: 0, color: "#24496e", fontWeight: 700 }}>
+            {attendanceActionMessage}
+          </p>
+        </section>
+      )}
+
       <section style={shellStyles.statGrid}>
         {summaryCards.map((card) => (
           <StatusCard key={card.label} {...card} />
@@ -277,6 +310,7 @@ const BarangayMasterlistPage = () => {
         isLoading={isLoading}
         errorMessage={errorMessage}
         hasSelectedEvent={Boolean(disasterEventId)}
+        onMarkDeparted={handleMarkDeparted}
       />
 
       <RegisterFamilyModal
