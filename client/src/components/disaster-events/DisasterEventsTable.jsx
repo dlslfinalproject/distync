@@ -6,6 +6,7 @@ const tableStyles = {
   table: {
     width: "100%",
     borderCollapse: "collapse",
+     tableLayout: "fixed",
   },
   headerCell: {
     padding: "14px 16px",
