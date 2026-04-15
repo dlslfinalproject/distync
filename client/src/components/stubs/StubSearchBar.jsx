@@ -6,7 +6,6 @@ const StubSearchBar = ({
   searchValue,
   onSearchChange,
   onSearchSubmit,
-  isSearching,
 }) => {
   return (
     <section
@@ -18,28 +17,26 @@ const StubSearchBar = ({
         flexWrap: "wrap",
       }}
     >
-      <div style={{ flex: "1 1 420px", display: "flex", gap: "12px", flexWrap: "wrap" }}>
+      {/* Search Input Container */}
+      <div style={{ flex: "1" }}>
         <SearchBar
           value={searchValue}
           onChange={onSearchChange}
+          onKeyPress={(e) => {
+            if (e.key === "Enter") {
+              onSearchSubmit();
+            }
+          }}
           placeholder="Search stub number, serial number, or family head"
         />
-        <button
-          type="button"
-          onClick={onSearchSubmit}
-          disabled={isSearching}
-          style={{
-            ...pageHeaderStyles.primaryButton,
-            opacity: isSearching ? 0.75 : 1,
-          }}
-        >
-          {isSearching ? "Searching..." : "Search"}
-        </button>
       </div>
 
-      <button type="button" style={pageHeaderStyles.secondaryButton}>
-        Filter
-      </button>
+      {/* Action Buttons */}
+      <div style={{ display: "flex", gap: "12px" }}>
+        <button type="button" style={pageHeaderStyles.secondaryButton}>
+          Filter
+        </button>
+      </div>
     </section>
   );
 };
