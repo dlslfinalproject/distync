@@ -47,8 +47,7 @@ const MasterlistTable = ({
       <section style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Registered Family</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          Add `?disaster_event_id=&lt;uuid&gt;` to the URL to load the masterlist
-          for a selected disaster event.
+          Please select a disaster event to load the masterlist.
         </p>
       </section>
     );
@@ -92,7 +91,7 @@ const MasterlistTable = ({
       <div style={{ marginBottom: "18px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>Registered Family</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-          Household records fetched from the barangay masterlist endpoint.
+          Review registered families and attendance for the selected disaster event.
         </p>
       </div>
 

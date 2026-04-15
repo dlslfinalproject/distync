@@ -8,6 +8,7 @@ import StatusCard from "../../components/shared/StatusCard";
 import { useMasterlist } from "../../features/masterlist/masterlistHooks";
 import {
   fetchActiveDisasterEvents,
+  fetchEndedDisasterEvents,
   fetchBarangays,
 } from "../../features/masterlist/masterlistService";
 import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
@@ -44,10 +45,13 @@ const BarangayMasterlistPage = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [activeDisasterEvents, setActiveDisasterEvents] = useState([]);
+  const [endedDisasterEvents, setEndedDisasterEvents] = useState([]);
+  const [activeTab, setActiveTab] = useState("active");
   const [barangays, setBarangays] = useState([]);
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
   const [filterErrorMessage, setFilterErrorMessage] = useState("");
-  const [registrationSuccessMessage, setRegistrationSuccessMessage] = useState("");
+  const [registrationSuccessMessage, setRegistrationSuccessMessage] =
+    useState("");
 
   const disasterEventId = searchParams.get("disaster_event_id");
   const barangayId = searchParams.get("barangay_id");
@@ -60,28 +64,31 @@ const BarangayMasterlistPage = () => {
       setFilterErrorMessage("");
 
       try {
-        const [disasterEventsPayload, barangaysPayload] = await Promise.all([
-          fetchActiveDisasterEvents(),
-          fetchBarangays(),
-        ]);
+        const [activePayload, endedPayload, barangaysPayload] =
+          await Promise.all([
+            fetchActiveDisasterEvents(),
+            fetchEndedDisasterEvents(),
+            fetchBarangays(),
+          ]);
 
         if (!isMounted) {
           return;
         }
 
-        const disasterEvents = Array.isArray(disasterEventsPayload)
-          ? disasterEventsPayload
-          : [];
+        const activeEvents = Array.isArray(activePayload) ? activePayload : [];
+        const endedEvents = Array.isArray(endedPayload) ? endedPayload : [];
         const availableBarangays = Array.isArray(barangaysPayload)
           ? barangaysPayload
           : [];
 
-        setActiveDisasterEvents(disasterEvents);
+        setActiveDisasterEvents(activeEvents);
+        setEndedDisasterEvents(endedEvents);
         setBarangays(availableBarangays);
 
-        if (!searchParams.get("disaster_event_id") && disasterEvents.length > 0) {
+        // Auto-select the first active event if none is selected
+        if (!searchParams.get("disaster_event_id") && activeEvents.length > 0) {
           const nextParams = new URLSearchParams(searchParams);
-          nextParams.set("disaster_event_id", disasterEvents[0].id);
+          nextParams.set("disaster_event_id", activeEvents[0].id);
           setSearchParams(nextParams, { replace: true });
         }
       } catch (error) {
@@ -177,15 +184,71 @@ const BarangayMasterlistPage = () => {
         eyebrow="Barangay Workspace"
         title="EVACUEE MASTERLIST"
         description="Review registered families, household sectors, and attendance summaries for the selected disaster event."
-        actions={[
-          {
-            label: "Register Family",
-            onClick: () => setIsRegisterModalOpen(true),
-          },
-        ]}
+        actions={
+          activeTab === "active"
+            ? [
+                {
+                  label: "Register Family",
+                  onClick: () => setIsRegisterModalOpen(true),
+                },
+              ]
+            : []
+        }
       />
 
       <section style={shellStyles.card}>
+        <div
+          style={{
+            display: "flex",
+            borderBottom: "1px solid #d6e2ef",
+            marginBottom: "24px",
+            gap: "8px",
+          }}
+        >
+          <button
+            onClick={() => setActiveTab("active")}
+            style={{
+              padding: "12px 24px",
+              border: "none",
+              background: "none",
+              fontSize: "14px",
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+              color: activeTab === "active" ? "#17324d" : "#6b8298",
+              borderBottom:
+                activeTab === "active"
+                  ? "3px solid #17324d"
+                  : "3px solid transparent",
+              cursor: "pointer",
+              transition: "all 0.2s ease",
+            }}
+          >
+            Active Event
+          </button>
+          <button
+            onClick={() => setActiveTab("ended")}
+            style={{
+              padding: "12px 24px",
+              border: "none",
+              background: "none",
+              fontSize: "14px",
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+              color: activeTab === "ended" ? "#17324d" : "#6b8298",
+              borderBottom:
+                activeTab === "ended"
+                  ? "3px solid #17324d"
+                  : "3px solid transparent",
+              cursor: "pointer",
+              transition: "all 0.2s ease",
+            }}
+          >
+            Ended Event
+          </button>
+        </div>
+
         <div
           style={{
             display: "flex",
@@ -206,7 +269,7 @@ const BarangayMasterlistPage = () => {
                 textTransform: "uppercase",
               }}
             >
-              Active Disaster Event
+              {activeTab === "active" ? "Active" : "Completed"} Disaster Event
             </p>
             <h3
               style={{
@@ -216,6 +279,21 @@ const BarangayMasterlistPage = () => {
               }}
             >
               {activeEventLabel}
+              {activeTab === "active" && data.disasterEvent && (
+                <span
+                  style={{
+                    marginLeft: "12px",
+                    fontSize: "12px",
+                    backgroundColor: "#e3f9e5",
+                    color: "#2f6c47",
+                    padding: "4px 8px",
+                    borderRadius: "6px",
+                    verticalAlign: "middle",
+                  }}
+                >
+                  ACTIVE
+                </span>
+              )}
             </h3>
           </div>
           <div
@@ -228,7 +306,9 @@ const BarangayMasterlistPage = () => {
           >
             <select
               value={disasterEventId || ""}
-              onChange={(event) => handleDisasterEventChange(event.target.value)}
+              onChange={(event) =>
+                handleDisasterEventChange(event.target.value)
+              }
               disabled={isLoadingFilters}
               style={{
                 minHeight: "46px",
@@ -240,8 +320,11 @@ const BarangayMasterlistPage = () => {
                 fontSize: "14px",
               }}
             >
-              <option value="">Select active disaster event</option>
-              {activeDisasterEvents.map((eventItem) => (
+              <option value="">Select {activeTab} disaster event</option>
+              {(activeTab === "active"
+                ? activeDisasterEvents
+                : endedDisasterEvents
+              ).map((eventItem) => (
                 <option key={eventItem.id} value={eventItem.id}>
                   {eventItem.event_code} - {eventItem.title}
                 </option>
@@ -273,7 +356,13 @@ const BarangayMasterlistPage = () => {
         </div>
 
         {filterErrorMessage ? (
-          <p style={{ ...shellStyles.mutedText, marginTop: "16px", color: "#a14d58" }}>
+          <p
+            style={{
+              ...shellStyles.mutedText,
+              marginTop: "16px",
+              color: "#a14d58",
+            }}
+          >
             {filterErrorMessage}
           </p>
         ) : null}
@@ -309,6 +398,7 @@ const BarangayMasterlistPage = () => {
         searchValue={searchTerm}
         onSearchChange={setSearchTerm}
         onOpenRegisterFamily={() => setIsRegisterModalOpen(true)}
+        hideRegisterButton={activeTab === "ended"}
       />
 
       <MasterlistTable
