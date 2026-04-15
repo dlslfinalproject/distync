@@ -103,87 +103,86 @@ const Sidebar = () => {
   const resolvedAccessMode = accessMode || getAccessMode();
   const entryRoute = getEntryRouteForMode(resolvedAccessMode);
 
+   if (currentRole === ROLE_CODES.DONOR) {
+    return null;
+  }
+
   const roleMeta = {
     [ROLE_CODES.BARANGAY]: {
       tag: "Barangay Panel",
-      text: "Frontline registration, verification, and distribution workflow.",
+      text: "Frontline registration and distribution workflow.",
       navItems: [
         {
           label: "Masterlist",
-          description: "Household summaries, encoded evacuees, and barangay records.",
+          description: "Household summaries and encoded evacuee records.",
           to: "/barangay/masterlist",
         },
         {
-          label: "Stub Verification",
-          description: "Search and validate issued stubs before claiming.",
-          to: "/barangay/stub-verification",
-        },
-        {
-          label: "Distribution",
-          description: "Record released relief items after stub verification.",
-          to: "/barangay/distribution-transaction",
+          label: "Stub Distribution", // Consolidated name
+          description: "Verify stubs and record released relief items.",
+          to: "/barangay/stub-distribution",
         },
       ],
     },
     [ROLE_CODES.MSWDO]: {
       tag: "MSWDO Panel",
-      text: "Planning and monitoring workspace for disaster events and dashboards.",
+      text: "Workspace for disaster planning and monitoring.",
       navItems: [
         {
           label: "Analytics Dashboard",
-          description: "Review summary metrics and visual trends for active incidents.",
+          description: "Review summary metrics and visual trends.",
           to: "/mswdo/analytics",
         },
         {
           label: "Consolidated Masterlist",
-          description: "Monitor household and evacuee records across barangays.",
+          description: "Monitor records across all affected barangays.",
           to: "/mswdo/consolidated-masterlist",
         },
         {
           label: "Disaster Events",
-          description: "Create events, review active incidents, and inspect affected barangays.",
+          description: "Manage incidents and affected locations.",
           to: "/mswdo/disaster-events",
         },
       ],
     },
     [ROLE_CODES.MAYOR]: {
       tag: "Mayor Panel",
-      text: "Inventory oversight, templates, and supply-related monitoring pages.",
+      text: "Inventory oversight and supply-chain monitoring.",
       navItems: [
         {
           label: "Inventory Items",
-          description: "Review and manage item definitions used across inventory modules.",
+          description: "Review and manage item definitions.",
           to: "/inventory/items",
         },
         {
           label: "Inventory Batches",
-          description: "Monitor stock intake and available quantities per batch.",
+          description: "Monitor stock intake and available quantities.",
           to: "/inventory/batches",
         },
         {
           label: "Inventory Transactions",
-          description: "Track stock movement history and adjustments.",
+          description: "Track movement history and adjustments.",
           to: "/inventory/transactions",
         },
         {
           label: "Suppliers",
-          description: "Maintain supplier records linked to stock intake.",
+          description: "Maintain records for stock sources.",
           to: "/inventory/suppliers",
         },
         {
           label: "Relief Pack Templates",
-          description: "Manage reusable relief pack compositions for planning.",
+          description: "Manage pack compositions for planning.",
           to: "/inventory/relief-pack-templates",
         },
       ],
     },
     [ROLE_CODES.DONOR]: {
       tag: "Donor Panel",
-      text: "Temporary donor-facing navigation for development and demos.",
+      text: "Donor-facing dashboard for contributions.",
       navItems: [
         {
           label: "Donation Information",
-          description: "Review the temporary donor-facing landing page.",
+          description: "Review landing page and contributions.",
           to: "/donations",
         },
       ],
@@ -207,7 +206,7 @@ const Sidebar = () => {
       <nav style={sidebarStyles.nav}>
         <p style={sidebarStyles.navLabel}>Navigation</p>
         {activeRoleMeta.navItems.map((item) => (
-          <NavLink key={item.to} to={item.to} style={sidebarStyles.navLink}>
+          <NavLink key={item.to} to={item.to} style={{ textDecoration: 'none' }}>
             {({ isActive }) => (
               <div
                 style={{
@@ -219,6 +218,8 @@ const Sidebar = () => {
                   boxShadow: isActive
                     ? "0 10px 24px rgba(66, 108, 154, 0.12)"
                     : "0 4px 12px rgba(72, 95, 122, 0.04)",
+                  transition: "all 0.2s ease",
+                  marginBottom: '10px'
                 }}
               >
                 <span style={sidebarStyles.navTitle}>{item.label}</span>

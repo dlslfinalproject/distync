@@ -11,7 +11,7 @@ import AccessPage from "../pages/AccessPage";
 import BarangayMasterlistPage from "../pages/barangay/BarangayMasterlistPage";
 import DescriptiveAnalyticsPage from "../pages/dashboard/DescriptiveAnalyticsPage";
 import DistributionTransactionPage from "../pages/barangay/DistributionTransactionPage";
-import StubVerificationPage from "../pages/barangay/StubVerificationPage";
+import StubDistributionPage from "../pages/barangay/StubDistributionPage";
 import InventoryBatchesPage from "../pages/inventory/InventoryBatchesPage";
 import InventoryItemsPage from "../pages/inventory/InventoryItemsPage";
 import InventoryTransactionsPage from "../pages/inventory/InventoryTransactionsPage";
@@ -64,8 +64,8 @@ const AppRoutes = () => {
             element={<DistributionTransactionPage />}
           />
           <Route
-            path="stub-verification"
-            element={<StubVerificationPage />}
+            path="stub-distribution"
+            element={<StubDistributionPage />}
           />
         </Route>
         <Route

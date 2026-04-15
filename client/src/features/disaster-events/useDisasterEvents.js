@@ -5,16 +5,24 @@ import {
   fetchAllDisasterEvents,
   fetchBarangays,
   fetchDisasterEventById,
+  extendDisasterEvent,
+  endDisasterEvent,
 } from "./disasterEventService";
 
 const filterOptions = {
   all: "all",
   active: "active",
+  ended: "ended",
 };
 
 const loadEventListByFilter = async (selectedFilter) => {
-  if (selectedFilter === filterOptions.active) {
+  if (selectedFilter === "active") {
     return fetchActiveDisasterEvents();
+  }
+
+  if (selectedFilter === "ended") {
+    const all = await fetchAllDisasterEvents();
+    return all.filter((event) => event.status === "ended");
   }
 
   return fetchAllDisasterEvents();
@@ -139,6 +147,52 @@ export const useDisasterEvents = () => {
     }
   };
 
+  const extendEvent = async (id, newEndDate) => {
+  setIsSubmitting(true);
+  setFormErrorMessage("");
+  setSuccessMessage("");
+
+  try {
+    const response = await extendDisasterEvent(id, newEndDate);
+
+    setSuccessMessage(response.message || "Event extended successfully");
+
+    await loadEvents(selectedFilter);
+
+    if (selectedEvent?.id === id) {
+      const updated = await fetchDisasterEventById(id);
+      setSelectedEvent(updated);
+    }
+  } catch (error) {
+    setFormErrorMessage(error.message);
+  } finally {
+    setIsSubmitting(false);
+  }
+};
+
+const endEvent = async (id) => {
+  setIsSubmitting(true);
+  setFormErrorMessage("");
+  setSuccessMessage("");
+
+  try {
+    const response = await endDisasterEvent(id);
+
+    setSuccessMessage(response.message || "Event ended successfully");
+
+    await loadEvents(selectedFilter);
+
+    if (selectedEvent?.id === id) {
+      const updated = await fetchDisasterEventById(id);
+      setSelectedEvent(updated);
+    }
+  } catch (error) {
+    setFormErrorMessage(error.message);
+  } finally {
+    setIsSubmitting(false);
+  }
+};
+
   return {
     selectedFilter,
     setSelectedFilter,
@@ -159,6 +213,8 @@ export const useDisasterEvents = () => {
     openDetailModal,
     closeDetailModal,
     submitCreateEvent,
+    extendEvent,
+    endEvent,
     refreshEvents: () => loadEvents(selectedFilter),
   };
 };
