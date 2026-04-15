@@ -35,7 +35,8 @@ const FamilyHeadSection = ({ form }) => {
       <div style={{ marginBottom: "18px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>Family Head Info</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-          Keep this section aligned with the one member marked as family head.
+          This information auto-fills Household Member 1 so you do not need to
+          type the same family head details twice.
         </p>
       </div>
 
