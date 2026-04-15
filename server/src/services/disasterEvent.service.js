@@ -11,6 +11,10 @@ const getActiveDisasterEvents = async () => {
   return disasterEventRepository.getActiveDisasterEvents();
 };
 
+const getClosedDisasterEvents = async () => {
+  return disasterEventRepository.getClosedDisasterEvents();
+};
+
 const getDisasterEventById = async (id) => {
   const disasterEvent = await disasterEventRepository.getDisasterEventById(id);
 
@@ -150,6 +154,7 @@ const endDisasterEvent = async (id) => {
 module.exports = {
   getAllDisasterEvents,
   getActiveDisasterEvents,
+  getClosedDisasterEvents,
   getDisasterEventById,
   createDisasterEvent,
   extendDisasterEvent,

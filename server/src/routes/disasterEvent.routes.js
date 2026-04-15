@@ -35,6 +35,20 @@ router.get("/active", async (req, res) => {
   }
 });
 
+router.get("/ended", async (req, res) => {
+  try {
+    const closedDisasterEvents =
+      await disasterEventService.getClosedDisasterEvents();
+
+    return res.status(200).json(closedDisasterEvents);
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to fetch ended disaster events",
+      error: error.message,
+    });
+  }
+});
+
 router.get("/:id", async (req, res) => {
   try {
     const disasterEvent = await disasterEventService.getDisasterEventById(

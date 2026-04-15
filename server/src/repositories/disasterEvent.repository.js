@@ -37,6 +37,17 @@ const getActiveDisasterEvents = async () => {
   return result.rows;
 };
 
+const getClosedDisasterEvents = async () => {
+  const query = `
+    ${selectDisasterEventColumns}
+    WHERE status = $1
+    ORDER BY updated_at DESC, created_at DESC
+  `;
+
+  const result = await pool.query(query, ["CLOSED"]);
+  return result.rows;
+};
+
 const getDisasterEventById = async (id) => {
   const query = `
     ${selectDisasterEventColumns}
@@ -163,6 +174,7 @@ const updateDisasterEventById = async (id, updates, dbClient = pool) => {
 module.exports = {
   getAllDisasterEvents,
   getActiveDisasterEvents,
+  getClosedDisasterEvents,
   getDisasterEventById,
   getAffectedBarangaysByDisasterEventId,
   insertDisasterEvent,
