@@ -1,14 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   fetchActiveDisasterEvents,
   fetchBarangays,
+  fetchEvacuationCenters,
   fetchEvacuationCentersByBarangay,
   fetchSectors,
   registerHousehold,
 } from "./householdRegistrationService";
 import { deriveAgeGroup } from "../../utils/ageGroup";
+import {
+  DISPLAY_MEMBER_SECTOR_CODES,
+  HOUSEHOLD_CONDITION_CODES,
+  getCanonicalMemberSectorCode,
+} from "../../utils/registrationOptions";
 
-const createMember = (isFamilyHead = false) => ({
+const createMember = () => ({
   first_name: "",
   middle_name: "",
   last_name: "",
@@ -16,12 +22,9 @@ const createMember = (isFamilyHead = false) => ({
   sex: "MALE",
   age_value: "",
   age_unit: "YEARS",
-  age_group: null,
-  relationship_to_head: isFamilyHead ? "HEAD" : "",
-  is_family_head: isFamilyHead,
-  is_pregnant: false,
-  is_lactating: false,
-  has_disability: false,
+  relationship_option: "",
+  relationship_to_head: "",
+  custom_relationship: "",
   sector_ids: [],
 });
 
@@ -33,11 +36,11 @@ const initialFamilyHead = {
   sex: "MALE",
   age_value: "",
   age_unit: "YEARS",
+  sector_ids: [],
 };
 
 const initialHousehold = {
   current_stay_type: "EVAC_CENTER",
-  current_address_details: "",
   evacuation_center_id: "",
 };
 
@@ -52,37 +55,28 @@ const normalizeAgeValue = (value) => {
   return Number.isInteger(parsedValue) && parsedValue >= 0 ? parsedValue : "";
 };
 
-const buildMemberAgeDetails = (ageValue, ageUnit) => {
+const buildAgeDetails = (ageValue, ageUnit) => {
   const normalizedAgeValue = normalizeAgeValue(ageValue);
 
   return {
     age_value: normalizedAgeValue,
     age_unit: ageUnit,
-    age_group:
+    derived_age_sector_code:
       normalizedAgeValue === ""
         ? null
         : deriveAgeGroup(normalizedAgeValue, ageUnit),
   };
 };
 
-const getPrimaryMemberFromFamilyHead = (familyHead, currentMember) => {
-  const ageDetails = buildMemberAgeDetails(
-    familyHead.age_value,
-    familyHead.age_unit,
-  );
+const getFinalRelationship = (member) => {
+  if (member.relationship_option === "OTHERS") {
+    return trimValue(member.custom_relationship);
+  }
 
-  return {
-    ...currentMember,
-    first_name: familyHead.first_name,
-    middle_name: familyHead.middle_name,
-    last_name: familyHead.last_name,
-    suffix: familyHead.suffix,
-    sex: familyHead.sex,
-    ...ageDetails,
-    relationship_to_head: "HEAD",
-    is_family_head: true,
-  };
+  return trimValue(member.relationship_option);
 };
+
+const NON_RESIDENT_BARANGAY_CODE = "NON_RESIDENT_OUTSIDE_MALVAR";
 
 export const useHouseholdRegistrationForm = ({
   isOpen,
@@ -92,7 +86,7 @@ export const useHouseholdRegistrationForm = ({
 }) => {
   const [household, setHousehold] = useState(initialHousehold);
   const [familyHead, setFamilyHead] = useState(initialFamilyHead);
-  const [members, setMembers] = useState([createMember(true)]);
+  const [members, setMembers] = useState([]);
   const [householdSectorIds, setHouseholdSectorIds] = useState([]);
   const [activeDisasterEvents, setActiveDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
@@ -102,10 +96,9 @@ export const useHouseholdRegistrationForm = ({
   const [selectedBarangayId, setSelectedBarangayId] = useState(
     defaultBarangayId || "",
   );
-  const [personSectors, setPersonSectors] = useState([]);
+  const [memberSectorOptions, setMemberSectorOptions] = useState([]);
   const [householdSectors, setHouseholdSectors] = useState([]);
   const [evacuationCenters, setEvacuationCenters] = useState([]);
-  const [isPrimaryMemberSynced, setIsPrimaryMemberSynced] = useState(true);
   const [isLoadingOptions, setIsLoadingOptions] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -162,15 +155,22 @@ export const useHouseholdRegistrationForm = ({
           setSelectedBarangayId(availableBarangays[0].id);
         }
 
-        setPersonSectors(
-          sectors.filter(
-            (sector) =>
-              sector.sector_group !== "HOUSEHOLD" &&
-              sector.sector_group !== "AGE_GROUP",
-          ),
+        const availableMemberSectorsByCanonicalCode = new Map(
+          sectors.map((sector) => [
+            getCanonicalMemberSectorCode(sector.code),
+            sector,
+          ]),
+        );
+
+        setMemberSectorOptions(
+          DISPLAY_MEMBER_SECTOR_CODES.map((sectorCode) =>
+            availableMemberSectorsByCanonicalCode.get(sectorCode),
+          ).filter(Boolean),
         );
         setHouseholdSectors(
-          sectors.filter((sector) => sector.sector_group === "HOUSEHOLD"),
+          sectors.filter((sector) =>
+            HOUSEHOLD_CONDITION_CODES.includes(sector.code),
+          ),
         );
       } catch (error) {
         if (isMounted) {
@@ -203,7 +203,14 @@ export const useHouseholdRegistrationForm = ({
     let isMounted = true;
 
     const loadEvacuationCenters = async () => {
-      const centers = await fetchEvacuationCentersByBarangay(selectedBarangayId);
+      const selectedBarangay = barangays.find(
+        (barangay) => barangay.id === selectedBarangayId,
+      );
+      const isNonResidentBarangay =
+        selectedBarangay?.code === NON_RESIDENT_BARANGAY_CODE;
+      const centers = isNonResidentBarangay
+        ? await fetchEvacuationCenters()
+        : await fetchEvacuationCentersByBarangay(selectedBarangayId);
 
       if (isMounted) {
         setEvacuationCenters(Array.isArray(centers) ? centers : []);
@@ -219,42 +226,9 @@ export const useHouseholdRegistrationForm = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, selectedBarangayId]);
+  }, [barangays, isOpen, selectedBarangayId]);
 
-  useEffect(() => {
-    if (!isOpen || !isPrimaryMemberSynced) {
-      return;
-    }
-
-    setMembers((currentMembers) => {
-      if (currentMembers.length === 0) {
-        return [getPrimaryMemberFromFamilyHead(familyHead, createMember(true))];
-      }
-
-      return currentMembers.map((member, memberIndex) => {
-        if (memberIndex !== 0) {
-          return member;
-        }
-
-        return getPrimaryMemberFromFamilyHead(familyHead, member);
-      });
-    });
-  }, [familyHead, isOpen, isPrimaryMemberSynced]);
-
-  const memberCount = members.length;
-
-  const groupedPersonSectors = useMemo(() => {
-    return personSectors.reduce((groups, sector) => {
-      const groupName = sector.sector_group || "OTHER";
-
-      if (!groups[groupName]) {
-        groups[groupName] = [];
-      }
-
-      groups[groupName].push(sector);
-      return groups;
-    }, {});
-  }, [personSectors]);
+  const memberCount = members.length + 1;
 
   const updateHouseholdField = (fieldName, value) => {
     setHousehold((currentValue) => ({
@@ -268,8 +242,12 @@ export const useHouseholdRegistrationForm = ({
       if (fieldName === "age_value") {
         return {
           ...currentValue,
-          age_value: normalizeAgeValue(value),
+          ...buildAgeDetails(value, "YEARS"),
         };
+      }
+
+      if (fieldName === "age_unit") {
+        return currentValue;
       }
 
       return {
@@ -279,40 +257,16 @@ export const useHouseholdRegistrationForm = ({
     });
   };
 
+  const toggleFamilyHeadSector = (sectorId) => {
+    setFamilyHead((currentValue) => ({
+      ...currentValue,
+      sector_ids: currentValue.sector_ids.includes(sectorId)
+        ? currentValue.sector_ids.filter((id) => id !== sectorId)
+        : [...currentValue.sector_ids, sectorId],
+    }));
+  };
+
   const updateMemberField = (index, fieldName, value) => {
-    if (
-      index === 0 &&
-      [
-        "first_name",
-        "middle_name",
-        "last_name",
-        "suffix",
-        "sex",
-        "age_value",
-        "age_unit",
-        "age_group",
-        "relationship_to_head",
-        "is_family_head",
-      ].includes(fieldName)
-    ) {
-      const syncedMember = getPrimaryMemberFromFamilyHead(
-        familyHead,
-        members[0] || createMember(true),
-      );
-      const comparableValue = fieldName === "age_value"
-        ? normalizeAgeValue(value)
-        : fieldName === "age_group"
-          ? buildMemberAgeDetails(
-              fieldName === "age_value" ? value : members[0]?.age_value,
-              fieldName === "age_unit" ? value : members[0]?.age_unit,
-            ).age_group
-          : value;
-
-      if (syncedMember[fieldName] !== comparableValue) {
-        setIsPrimaryMemberSynced(false);
-      }
-    }
-
     setMembers((currentMembers) =>
       currentMembers.map((member, memberIndex) => {
         if (memberIndex !== index) {
@@ -320,28 +274,26 @@ export const useHouseholdRegistrationForm = ({
         }
 
         if (fieldName === "age_value") {
-          const ageDetails = buildMemberAgeDetails(value, member.age_unit);
-
           return {
             ...member,
-            ...ageDetails,
+            ...buildAgeDetails(value, member.age_unit),
           };
         }
 
         if (fieldName === "age_unit") {
-          const ageDetails = buildMemberAgeDetails(member.age_value, value);
-
           return {
             ...member,
-            ...ageDetails,
+            ...buildAgeDetails(member.age_value, value),
           };
         }
 
-        if (fieldName === "is_family_head") {
+        if (fieldName === "relationship_option") {
           return {
             ...member,
-            is_family_head: value,
-            relationship_to_head: value ? "HEAD" : member.relationship_to_head,
+            relationship_option: value,
+            relationship_to_head: value === "OTHERS" ? "" : value,
+            custom_relationship:
+              value === "OTHERS" ? member.custom_relationship : "",
           };
         }
 
@@ -381,7 +333,7 @@ export const useHouseholdRegistrationForm = ({
   };
 
   const addMember = () => {
-    setMembers((currentMembers) => [...currentMembers, createMember(false)]);
+    setMembers((currentMembers) => [...currentMembers, createMember()]);
   };
 
   const removeMember = (index) => {
@@ -393,86 +345,63 @@ export const useHouseholdRegistrationForm = ({
   const resetForm = () => {
     setHousehold(initialHousehold);
     setFamilyHead(initialFamilyHead);
-    setMembers([createMember(true)]);
+    setMembers([]);
     setHouseholdSectorIds([]);
     setEvacuationCenters([]);
-    setIsPrimaryMemberSynced(true);
     setSelectedDisasterEventId(defaultDisasterEventId || "");
     setSelectedBarangayId(defaultBarangayId || "");
     setErrorMessage("");
     setSuccessMessage("");
   };
 
-  const resetPrimaryMemberFromFamilyHead = () => {
-    setIsPrimaryMemberSynced(true);
-    setMembers((currentMembers) => {
-      if (currentMembers.length === 0) {
-        return [getPrimaryMemberFromFamilyHead(familyHead, createMember(true))];
-      }
-
-      return currentMembers.map((member, memberIndex) => {
-        if (memberIndex !== 0) {
-          return member;
-        }
-
-        return getPrimaryMemberFromFamilyHead(familyHead, member);
-      });
-    });
-  };
-
   const validateForm = () => {
     if (!selectedDisasterEventId) {
-      return "Please select an active disaster event";
+      return "Please select an active disaster event from the Barangay masterlist page";
     }
 
     if (!selectedBarangayId) {
       return "Please select a barangay";
     }
 
-    const familyHeadCount = members.filter(
-      (member) => member.is_family_head,
-    ).length;
-
-    if (familyHeadCount !== 1) {
-      return "Exactly one household member must be marked as family head";
+    if (!trimValue(familyHead.first_name) || !trimValue(familyHead.last_name)) {
+      return "Family head first name and last name are required";
     }
 
-    if (memberCount <= 0) {
-      return "At least one household member is required";
+    const normalizedFamilyHeadAgeValue = normalizeAgeValue(familyHead.age_value);
+
+    if (normalizedFamilyHeadAgeValue === "") {
+      return "Family head age is required";
     }
 
-    const selectedFamilyHeadMember = members.find((member) => member.is_family_head);
-
-    if (!selectedFamilyHeadMember) {
-      return "Please mark one member as the family head";
+    if (familyHead.age_unit !== "YEARS") {
+      return "Family head age must be encoded in years";
     }
 
-    const familyHeadFieldsMatch =
-      trimValue(familyHead.first_name) === trimValue(selectedFamilyHeadMember.first_name) &&
-      trimValue(familyHead.middle_name) === trimValue(selectedFamilyHeadMember.middle_name) &&
-      trimValue(familyHead.last_name) === trimValue(selectedFamilyHeadMember.last_name) &&
-      trimValue(familyHead.suffix) === trimValue(selectedFamilyHeadMember.suffix) &&
-      familyHead.sex === selectedFamilyHeadMember.sex &&
-      normalizeAgeValue(familyHead.age_value) ===
-        normalizeAgeValue(selectedFamilyHeadMember.age_value) &&
-      familyHead.age_unit === selectedFamilyHeadMember.age_unit;
-
-    if (!familyHeadFieldsMatch) {
-      return "The selected family head member must match the family head info section";
+    if (!deriveAgeGroup(normalizedFamilyHeadAgeValue, "YEARS")) {
+      return "Family head age must map to a valid age-based sector";
     }
 
-    const hasInvalidAgeGroup = members.some((member) => {
-      const normalizedAgeValue = normalizeAgeValue(member.age_value);
-
-      if (normalizedAgeValue === "") {
-        return true;
+    for (const member of members) {
+      if (!trimValue(member.first_name) || !trimValue(member.last_name)) {
+        return "Each additional member needs a first name and last name";
       }
 
-      return !deriveAgeGroup(normalizedAgeValue, member.age_unit);
-    });
+      const normalizedAgeValue = normalizeAgeValue(member.age_value);
 
-    if (hasInvalidAgeGroup) {
-      return "Each household member needs a valid age value and age unit";
+      if (normalizedAgeValue === "" || !deriveAgeGroup(normalizedAgeValue, member.age_unit)) {
+        return "Each additional member needs a valid age value and age unit";
+      }
+
+      if (!trimValue(member.relationship_option)) {
+        return "Please choose the relationship to head for each additional member";
+      }
+
+      if (
+        member.relationship_option === "OTHERS" &&
+        !trimValue(member.custom_relationship)
+      ) {
+        return "Please enter the custom relationship when Others is selected";
+      }
     }
 
     return "";
@@ -482,7 +411,10 @@ export const useHouseholdRegistrationForm = ({
     return {
       disaster_event_id: selectedDisasterEventId,
       barangay_id: selectedBarangayId,
-      evacuation_center_id: household.evacuation_center_id || null,
+      evacuation_center_id:
+        household.current_stay_type === "EVAC_CENTER"
+          ? household.evacuation_center_id || null
+          : null,
       family_head: {
         first_name: trimValue(familyHead.first_name),
         middle_name: trimValue(familyHead.middle_name) || null,
@@ -490,10 +422,10 @@ export const useHouseholdRegistrationForm = ({
         suffix: trimValue(familyHead.suffix) || null,
         sex: familyHead.sex,
         age_value: normalizeAgeValue(familyHead.age_value),
-        age_unit: familyHead.age_unit,
+        age_unit: "YEARS",
+        sector_ids: familyHead.sector_ids,
       },
       current_stay_type: household.current_stay_type,
-      current_address_details: trimValue(household.current_address_details) || null,
       household_size: memberCount,
       registered_by: null,
       members: members.map((member) => ({
@@ -504,15 +436,7 @@ export const useHouseholdRegistrationForm = ({
         sex: member.sex,
         age_value: normalizeAgeValue(member.age_value),
         age_unit: member.age_unit,
-        age_group: deriveAgeGroup(
-          normalizeAgeValue(member.age_value),
-          member.age_unit,
-        ),
-        relationship_to_head: trimValue(member.relationship_to_head),
-        is_family_head: member.is_family_head,
-        is_pregnant: member.is_pregnant,
-        is_lactating: member.is_lactating,
-        has_disability: member.has_disability,
+        relationship_to_head: getFinalRelationship(member),
         sector_ids: member.sector_ids,
       })),
       household_sector_ids: householdSectorIds,
@@ -566,9 +490,8 @@ export const useHouseholdRegistrationForm = ({
     isDisasterEventLocked: Boolean(defaultDisasterEventId),
     selectedBarangayId,
     setSelectedBarangayId,
-    isBarangayLocked: Boolean(defaultBarangayId),
-    isPrimaryMemberSynced,
-    groupedPersonSectors,
+    isBarangayLocked: false,
+    memberSectorOptions,
     householdSectors,
     evacuationCenters,
     isLoadingOptions,
@@ -577,12 +500,12 @@ export const useHouseholdRegistrationForm = ({
     successMessage,
     updateHouseholdField,
     updateFamilyHeadField,
+    toggleFamilyHeadSector,
     updateMemberField,
     toggleMemberSector,
     toggleHouseholdSector,
     addMember,
     removeMember,
-    resetPrimaryMemberFromFamilyHead,
     resetForm,
     submitRegistration,
   };

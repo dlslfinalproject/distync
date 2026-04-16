@@ -1,13 +1,13 @@
 const ALLOWED_AGE_UNITS = ["MONTHS", "YEARS"];
 
 const ALLOWED_AGE_GROUPS = [
-  "INFANT_0_6_MONTHS",
-  "TODDLER_7M_2Y",
-  "PRESCHOOL_3_5",
-  "CHILD_6_12",
-  "TEEN_13_17",
-  "ADULT_18_59",
-  "SENIOR_60_ABOVE",
+  "INFANT",
+  "TODDLER",
+  "PRE_SCHOOLER",
+  "SCHOOL_AGE",
+  "TEENAGE",
+  "ADULT",
+  "SENIOR_CITIZEN",
 ];
 
 const normalizeAgeValue = (value) => {
@@ -27,11 +27,11 @@ const deriveAgeGroup = (ageValue, ageUnit) => {
 
   if (ageUnit === "MONTHS") {
     if (normalizedAgeValue <= 6) {
-      return "INFANT_0_6_MONTHS";
+      return "INFANT";
     }
 
     if (normalizedAgeValue <= 24) {
-      return "TODDLER_7M_2Y";
+      return "TODDLER";
     }
 
     return null;
@@ -39,26 +39,26 @@ const deriveAgeGroup = (ageValue, ageUnit) => {
 
   if (ageUnit === "YEARS") {
     if (normalizedAgeValue <= 2) {
-      return "TODDLER_7M_2Y";
+      return "TODDLER";
     }
 
     if (normalizedAgeValue <= 5) {
-      return "PRESCHOOL_3_5";
+      return "PRE_SCHOOLER";
     }
 
     if (normalizedAgeValue <= 12) {
-      return "CHILD_6_12";
+      return "SCHOOL_AGE";
     }
 
     if (normalizedAgeValue <= 17) {
-      return "TEEN_13_17";
+      return "TEENAGE";
     }
 
     if (normalizedAgeValue <= 59) {
-      return "ADULT_18_59";
+      return "ADULT";
     }
 
-    return "SENIOR_60_ABOVE";
+    return "SENIOR_CITIZEN";
   }
 
   return null;

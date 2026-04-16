@@ -21,7 +21,6 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
       evacuation_center_id,
       family_head,
       current_stay_type,
-      current_address_details,
       household_size,
       registered_by,
       members,
@@ -106,7 +105,31 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
 
     if (!ALLOWED_AGE_UNITS.includes(family_head.age_unit)) {
       return res.status(400).json({
-        message: "family_head.age_unit must be MONTHS or YEARS",
+        message: "family_head.age_unit must be YEARS",
+      });
+    }
+
+    if (family_head.age_unit !== "YEARS") {
+      return res.status(400).json({
+        message: "family_head.age_unit must be YEARS",
+      });
+    }
+
+    if (
+      family_head.sector_ids !== undefined &&
+      !Array.isArray(family_head.sector_ids)
+    ) {
+      return res.status(400).json({
+        message: "family_head.sector_ids must be an array when provided",
+      });
+    }
+
+    if (
+      Array.isArray(family_head.sector_ids) &&
+      !validateUuidArray(family_head.sector_ids)
+    ) {
+      return res.status(400).json({
+        message: "Each family_head.sector_ids value must be a valid UUID",
       });
     }
 
@@ -114,16 +137,6 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
       return res.status(400).json({
         message:
           "current_stay_type must be EVAC_CENTER, RELATIVES, or OTHER_SAFE_PLACE",
-      });
-    }
-
-    if (
-      current_address_details !== undefined &&
-      current_address_details !== null &&
-      typeof current_address_details !== "string"
-    ) {
-      return res.status(400).json({
-        message: "current_address_details must be a string or null",
       });
     }
 
@@ -143,9 +156,9 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
       });
     }
 
-    if (!Array.isArray(members) || members.length === 0) {
+    if (!Array.isArray(members)) {
       return res.status(400).json({
-        message: "members must be a non-empty array",
+        message: "members must be an array",
       });
     }
 
@@ -211,30 +224,6 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
         });
       }
 
-      if (typeof member.is_family_head !== "boolean") {
-        return res.status(400).json({
-          message: "Each member.is_family_head must be a boolean",
-        });
-      }
-
-      if (typeof member.is_pregnant !== "boolean") {
-        return res.status(400).json({
-          message: "Each member.is_pregnant must be a boolean",
-        });
-      }
-
-      if (typeof member.is_lactating !== "boolean") {
-        return res.status(400).json({
-          message: "Each member.is_lactating must be a boolean",
-        });
-      }
-
-      if (typeof member.has_disability !== "boolean") {
-        return res.status(400).json({
-          message: "Each member.has_disability must be a boolean",
-        });
-      }
-
       if (member.sector_ids !== undefined && !Array.isArray(member.sector_ids)) {
         return res.status(400).json({
           message: "Each member.sector_ids must be an array when provided",
@@ -281,9 +270,9 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
         sex: family_head.sex,
         age_value: family_head.age_value,
         age_unit: family_head.age_unit,
+        sector_ids: family_head.sector_ids ?? [],
       },
       current_stay_type,
-      current_address_details: current_address_details ?? null,
       household_size,
       registered_by: registered_by ?? null,
       members: members.map((member) => ({
@@ -294,16 +283,31 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
         sex: member.sex,
         age_value: member.age_value,
         age_unit: member.age_unit,
-        age_group: member.age_group ?? null,
         relationship_to_head: member.relationship_to_head.trim(),
-        is_family_head: member.is_family_head,
-        is_pregnant: member.is_pregnant,
-        is_lactating: member.is_lactating,
-        has_disability: member.has_disability,
         sector_ids: member.sector_ids ?? [],
       })),
       household_sector_ids: household_sector_ids ?? [],
     };
+
+    const hasInvalidFamilyHeadManualSector =
+      Array.isArray(req.validatedBody.family_head.sector_ids) &&
+      req.validatedBody.family_head.sector_ids.some((value) => !isValidUuid(value));
+
+    if (hasInvalidFamilyHeadManualSector) {
+      return res.status(400).json({
+        message: "Each family_head.sector_ids value must be a valid UUID",
+      });
+    }
+
+    const hasInvalidMemberSectorShape = req.validatedBody.members.some((member) =>
+      member.sector_ids.some((value) => !isValidUuid(value)),
+    );
+
+    if (hasInvalidMemberSectorShape) {
+      return res.status(400).json({
+        message: "Each member.sector_ids value must be a valid UUID",
+      });
+    }
 
     return next();
   } catch (error) {

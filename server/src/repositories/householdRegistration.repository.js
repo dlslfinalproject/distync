@@ -32,6 +32,25 @@ const getBarangayById = async (id) => {
   return result.rows[0] || null;
 };
 
+const getEvacuationCenterById = async (id) => {
+  const query = `
+    SELECT
+      ec.id,
+      ec.barangay_id,
+      ec.name,
+      ec.individual_capacity,
+      ec.is_active,
+      b.code AS barangay_code,
+      b.name AS barangay_name
+    FROM evacuation_centers ec
+    INNER JOIN barangays b ON b.id = ec.barangay_id
+    WHERE ec.id = $1
+  `;
+
+  const result = await pool.query(query, [id]);
+  return result.rows[0] || null;
+};
+
 const getSectorsByIds = async (sectorIds) => {
   if (sectorIds.length === 0) {
     return [];
@@ -53,6 +72,30 @@ const getSectorsByIds = async (sectorIds) => {
   `;
 
   const result = await pool.query(query, [sectorIds]);
+  return result.rows;
+};
+
+const getSectorsByCodes = async (sectorCodes) => {
+  if (sectorCodes.length === 0) {
+    return [];
+  }
+
+  const query = `
+    SELECT
+      id,
+      code,
+      name,
+      description,
+      sector_group,
+      is_barangay_visible,
+      is_mswdo_visible,
+      created_at
+    FROM sectors
+    WHERE code = ANY($1::text[])
+    ORDER BY sector_group ASC, name ASC
+  `;
+
+  const result = await pool.query(query, [sectorCodes]);
   return result.rows;
 };
 
@@ -150,7 +193,6 @@ const insertEvacuee = async (householdId, member, dbClient) => {
       age,
       age_value,
       age_unit,
-      age_group,
       civil_status,
       relationship_to_head,
       is_family_head,
@@ -162,7 +204,7 @@ const insertEvacuee = async (householdId, member, dbClient) => {
       updated_at
     )
     VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW(), NOW()
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW(), NOW()
     )
     RETURNING
       id,
@@ -176,7 +218,6 @@ const insertEvacuee = async (householdId, member, dbClient) => {
       age,
       age_value,
       age_unit,
-      age_group,
       civil_status,
       relationship_to_head,
       is_family_head,
@@ -199,7 +240,6 @@ const insertEvacuee = async (householdId, member, dbClient) => {
     member.age ?? null,
     member.age_value,
     member.age_unit,
-    member.age_group,
     member.civil_status ?? null,
     member.relationship_to_head,
     member.is_family_head,
@@ -478,7 +518,6 @@ const getEvacueesByHouseholdId = async (householdId) => {
       age,
       age_value,
       age_unit,
-      age_group,
       civil_status,
       relationship_to_head,
       is_family_head,
@@ -561,7 +600,9 @@ const getStubByHouseholdId = async (householdId) => {
 module.exports = {
   getDisasterEventById,
   getBarangayById,
+  getEvacuationCenterById,
   getSectorsByIds,
+  getSectorsByCodes,
   getNextStubSequence,
   insertHousehold,
   insertEvacuee,
