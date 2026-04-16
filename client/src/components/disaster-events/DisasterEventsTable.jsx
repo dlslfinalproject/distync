@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { shellStyles } from "../layout/BarangayLayout";
 import { pageHeaderStyles } from "../layout/PageHeader";
 
@@ -6,11 +6,11 @@ const tableStyles = {
   table: {
     width: "100%",
     borderCollapse: "collapse",
-     tableLayout: "fixed",
+    tableLayout: "fixed",
   },
   headerCell: {
     padding: "14px 16px",
-    textAlign: "left",
+    textAlign: "center",
     fontSize: "12px",
     letterSpacing: "0.08em",
     textTransform: "uppercase",
@@ -23,7 +23,8 @@ const tableStyles = {
     color: "#21405f",
     borderBottom: "1px solid #edf3f8",
     fontSize: "14px",
-    verticalAlign: "top",
+    verticalAlign: "middle",
+    textAlign: "center",
   },
 };
 
@@ -71,6 +72,7 @@ const DisasterEventsTable = ({
   onExtendEvent,
   onEndEvent
 }) => {
+  const [activeMenu, setActiveMenu] = useState(null);
   if (isLoading) {
     return (
       <section style={shellStyles.card}>
@@ -118,90 +120,116 @@ const DisasterEventsTable = ({
         <table style={tableStyles.table}>
           <thead>
             <tr>
-              <th style={tableStyles.headerCell}>Event Code</th>
               <th style={tableStyles.headerCell}>Title</th>
               <th style={tableStyles.headerCell}>Disaster Type</th>
-              <th style={tableStyles.headerCell}>Status</th>
+              <th style={tableStyles.headerCell}>Affected Barangays</th>
               <th style={tableStyles.headerCell}>Start Date</th>
               <th style={tableStyles.headerCell}>End Date</th>
-              <th style={tableStyles.headerCell}>Affected Barangays</th>
+              <th style={tableStyles.headerCell}>Status</th>
               <th style={tableStyles.headerCell}>Action</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.id}>
-                <td style={tableStyles.bodyCell}>{row.event_code}</td>
+              <tr key={row.id} style={{borderBottom: "1px solid #edf3f8",}}>
+
                 <td style={tableStyles.bodyCell}>{row.title}</td>
                 <td style={tableStyles.bodyCell}>{row.disaster_type}</td>
                 <td style={tableStyles.bodyCell}>
-                  <span style={getStatusBadgeStyles(row.status)}>{row.status}</span>
+                  {row.affected_barangays?.length ? (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: "6px",
+                        maxWidth: "220px", // ✅ LIMIT WIDTH (important!)
+                      }}
+                    >
+                      {row.affected_barangays.map((brgy, index) => (
+                        <span
+                          key={index}
+                          style={{
+                            background: "#eef4ff",
+                            color: "#2f5bd3",
+                            padding: "4px 8px",
+                            borderRadius: "6px",
+                            fontSize: "12px",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {brgy.name || brgy}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span style={{ color: "#9aa9b8" }}>—</span>
+                  )}
                 </td>
                 <td style={tableStyles.bodyCell}>{formatDate(row.start_date)}</td>
                 <td style={tableStyles.bodyCell}>{formatDate(row.end_date)}</td>
                 <td style={tableStyles.bodyCell}>
-                  {row.affected_barangays?.length || 0}
+                  <span style={getStatusBadgeStyles(row.status)}>{row.status}</span>
                 </td>
                 <td style={tableStyles.bodyCell}>
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "8px",
-                      alignItems: "center",
-                    }}
-                  >
-                    {/* VIEW (PRIMARY ACTION) */}
-                    <button
-                      type="button"
-                      onClick={() => onViewEvent(row.id)}
-                      style={pageHeaderStyles.secondaryButton}
-                    >
-                      View
-                    </button>
+                  {row.status === "ACTIVE" ? (
+                    <div style={{ position: "relative" }}>
+                      {/* THREE DOT BUTTON */}
+                      <button
+                        onClick={() =>
+                          setActiveMenu(activeMenu === row.id ? null : row.id)
+                        }
+                        style={{
+                          background: "none",
+                          border: "none",
+                          fontSize: "20px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        •••
+                      </button>
 
-                    {/* ONLY SHOW IF ACTIVE */}
-                    {row.status === "ACTIVE" && (
-                      <>
-                        {/* EXTEND */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const newDate = prompt("Enter new end date (YYYY-MM-DD)");
-                            if (newDate) {
-                              onExtendEvent(row.id, newDate);
-                            }
-                          }}
+                      {/* DROPDOWN */}
+                      {activeMenu === row.id && (
+                        <div
                           style={{
-                            ...pageHeaderStyles.secondaryButton,
-                            backgroundColor: "#f0f6ff",
-                            color: "#2f5bd3",
-                            border: "1px solid #d6e4ff",
+                            position: "absolute",
+                            top: "30px",
+                            right: 0,
+                            background: "#fff",
+                            borderRadius: "10px",
+                            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                            padding: "10px",
+                            zIndex: 10,
+                            minWidth: "160px",
                           }}
                         >
-                          Extend
-                        </button>
+                          <div
+                            style={{ padding: "8px", cursor: "pointer" }}
+                            onClick={() => {
+                              onExtendEvent(row);
+                              setActiveMenu(null);
+                            }}
+                          >
+                            Extend Period
+                          </div>
 
-                        {/* END */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const confirmEnd = window.confirm("End this disaster event?");
-                            if (confirmEnd) {
-                              onEndEvent(row.id);
-                            }
-                          }}
-                          style={{
-                            ...pageHeaderStyles.secondaryButton,
-                            backgroundColor: "#fdf2f2",
-                            color: "#c0392b",
-                            border: "1px solid #f5c6cb",
-                          }}
-                        >
-                          End
-                        </button>
-                      </>
-                    )}
-                  </div>
+                          <div
+                            style={{ padding: "8px", cursor: "pointer" }}
+                            onClick={() => {
+                              onEndEvent(row);
+                              setActiveMenu(null);
+                            }}
+                          >
+                            Mark as Completed
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <span style={{ color: "#9aa9b8", fontSize: "13px" }}>
+                      —
+                    </span>
+                  )}
                 </td>
               </tr>
             ))}
