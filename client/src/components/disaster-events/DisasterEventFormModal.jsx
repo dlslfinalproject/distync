@@ -188,17 +188,6 @@ const DisasterEventFormModal = ({
               gap: "18px",
             }}
           >
-            <div>
-              <input
-                id="event_code"
-                type="text"
-                value={formValues.event_code}
-                onChange={(event) =>
-                  handleChange("event_code", event.target.value)
-                }
-                style={inputStyles}
-              />
-            </div>
 
             <div>
               <label htmlFor="title" style={labelStyles}>

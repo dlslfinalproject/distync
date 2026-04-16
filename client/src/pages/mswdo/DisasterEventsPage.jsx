@@ -37,6 +37,7 @@ const DisasterEventsPage = () => {
   const [extendModalOpen, setExtendModalOpen] = useState(false);
   const [endModalOpen, setEndModalOpen] = useState(false);
   const [selectedRow, setSelectedRow] = useState(null);
+  const [exportOpen, setExportOpen] = useState(false);
 
   const handleOpenExtend = (row) => {
     setSelectedRow(row);
@@ -96,11 +97,58 @@ const DisasterEventsPage = () => {
         <div
           style={{
             display: "flex",
+            justifyContent: "flex-end", // ✅ RIGHT ALIGN
             alignItems: "center",
             gap: "12px",
             flexWrap: "wrap",
+            position: "relative", // needed for dropdown positioning
           }}
         >
+          {/* EXPORT BUTTON */}
+          <div style={{ position: "relative" }}>
+            <button
+              onClick={() => setExportOpen(!exportOpen)}
+              style={{
+                padding: "10px 18px",
+                borderRadius: "10px",
+                backgroundColor: "#f0f4f8",
+                color: "#17324d",
+                border: "1px solid #d6e2ef",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Export ▾
+            </button>
+
+            {/* DROPDOWN */}
+            {exportOpen && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "42px",
+                  right: 0,
+                  background: "#fff",
+                  borderRadius: "10px",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                  padding: "10px",
+                  zIndex: 100,
+                  minWidth: "160px",
+                }}
+              >
+                <div style={{ padding: "8px", cursor: "pointer" }}>
+                  Export as PDF
+                </div>
+                <div style={{ padding: "8px", cursor: "pointer" }}>
+                  Export as Excel
+                </div>
+                <div style={{ padding: "8px", cursor: "pointer" }}>
+                  Export as CSV
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* CREATE BUTTON */}
           <button
             onClick={openCreateModal}
