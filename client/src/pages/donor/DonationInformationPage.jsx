@@ -1,297 +1,238 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import PageHeader from "../../components/layout/PageHeader";
 
-/* ================= SVG ICONS ================= */
+/* ================= ICONS (Refined to match image) ================= */
 
-const HeartIcon = () => (
-  <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-    <path
-      d="M12 21s-6-4.35-9-7.5C-1 9 2 3 7 5c2 1 3 3 5 5 2-2 3-4 5-5 5-2 8 4 4 8.5C18 16.65 12 21 12 21z"
-      stroke="#0f2a44"
-      strokeWidth="1.5"
-    />
-  </svg>
+const LogoIcon = () => (
+  <div style={{ backgroundColor: '#f1c40f', padding: '10px', borderRadius: '50%', display: 'flex' }}>
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+      <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+      <line x1="12" y1="22.08" x2="12" y2="12" />
+    </svg>
+  </div>
 );
 
-const BoxIcon = () => (
-  <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-    <rect x="3" y="3" width="18" height="18" rx="2" stroke="#0f2a44" strokeWidth="1.5" />
-  </svg>
+const HomeIcon = () => (
+  <svg width="40" height="40" viewBox="0 0 24 24" fill="#1e3a5f"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" /></svg>
 );
 
-const LocationIcon = () => (
-  <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-    <path
-      d="M12 21s-6-5.5-6-10a6 6 0 1112 0c0 4.5-6 10-6 10z"
-      stroke="#0f2a44"
-      strokeWidth="1.5"
-    />
-  </svg>
+const GroupIcon = () => (
+  <svg width="40" height="40" viewBox="0 0 24 24" fill="#1e3a5f"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" /></svg>
 );
 
-/* ================= MAIN ================= */
+const BoxIconFlat = () => (
+  <svg width="40" height="40" viewBox="0 0 24 24" fill="#1e3a5f"><path d="M20 4.58L13.5 2.33c-.96-.33-2.04-.33-3 0L4 4.58c-.6.21-1 .78-1 1.42V18c0 .64.4 1.21 1 1.42l6.5 2.25c.96.33 2.04.33 3 0l6.5-2.25c.6-.21 1-.78 1-1.42V6c0-.64-.4-1.21-1-1.42zM12 4.07l5.42 1.87L12 7.82 6.58 5.94 12 4.07z" /></svg>
+);
+
+const PinIcon = () => (
+  <svg width="50" height="50" viewBox="0 0 24 24" fill="#1e3a5f"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" /></svg>
+);
+
+/* ================= MAIN COMPONENT ================= */
 
 const DonationInformationPage = () => {
   const navigate = useNavigate();
-  const [filter, setFilter] = useState("CRITICAL");
 
+  // Mock data representing the visual states in the images
   const items = [
-    { name: "Canned Goods", count: 245, level: "CRITICAL" },
-    { name: "Water", count: 180, level: "HIGH" },
-    { name: "Noodles", count: 150, level: "MEDIUM" },
-    { name: "Rice", count: 200, level: "CRITICAL" },
-    { name: "Blankets", count: 80, level: "HIGH" },
-    { name: "Hygiene Kits", count: 95, level: "MEDIUM" },
+    { name: "Canned Goods", count: 245, level: "CRITICAL", bg: "#f3d1d1", badge: "#c0392b" },
+    { name: "Canned Goods", count: 245, level: "HIGH", bg: "#fce3cf", badge: "#e67e22" },
+    { name: "Canned Goods", count: 245, level: "MEDIUM", bg: "#f0e4bc", badge: "#b7950b" },
+    { name: "Canned Goods", count: 245, level: "CRITICAL", bg: "#f3d1d1", badge: "#c0392b" },
+    { name: "Canned Goods", count: 245, level: "HIGH", bg: "#fce3cf", badge: "#e67e22" },
+    { name: "Canned Goods", count: 245, level: "MEDIUM", bg: "#f0e4bc", badge: "#b7950b" },
   ];
 
-  const filteredItems = items.filter((item) => item.level === filter);
-
   return (
-    <>
+    <div style={styles.pageContainer}>
+     
+
+      {/* BACK BUTTON */}
       <div style={styles.backWrapper}>
-        <button
-          onClick={() => navigate("/access")}
-          style={styles.backButton}
-        >
+        <button onClick={() => navigate("/access")} style={styles.backButton}>
           ← Back to Role Selection
         </button>
       </div>
-      <PageHeader
-        eyebrow="Donor Workspace"
-        title="Donation Portal"
-        description=""
-      />
 
-      {/* ================= PART 1: HERO ================= */}
+      {/* HERO SECTION */}
       <section style={styles.section}>
-        <div style={styles.hero}>
-          <h1 style={styles.heroTitle}>YOUR DONATION CAN SAVE LIVES!</h1>
-
-          <p style={styles.heroText}>
-            We are facing a disaster crisis and urgently need community support
-            to help displaced families get through this challenging time.
-          </p>
-
-          <div style={styles.donateText}>DONATE NOW!</div>
+        <h1 style={styles.heroTitle}>YOUR DONATION CAN SAVE LIVES!</h1>
+        <p style={styles.heroText}>
+          We are facing a disaster crisis and urgently need community support to <br />
+          help displaced families get through this challenging time.
+        </p>
+        <div style={styles.donateCta}>
+          <strong>DONATE NOW!</strong>
+          <div style={{ fontSize: '20px', marginTop: '5px' }}></div>
         </div>
 
-        {/* ICONS BELOW HERO */}
-        <div style={styles.quickActions}>
-          <div style={styles.actionCard} onClick={() => alert("Donate")}>
-            <HeartIcon />
-            <p>Donate</p>
-          </div>
-
-          <div style={styles.actionCard} onClick={() => alert("Items")}>
-            <BoxIcon />
-            <p>Needed Items</p>
-          </div>
-
-          <div style={styles.actionCard} onClick={() => alert("Location")}>
-            <LocationIcon />
-            <p>Drop-off</p>
-          </div>
+        <div style={styles.heroGrid}>
+          <button style={styles.heroBtn} onClick={() => alert("Navigate Home")}><HomeIcon /></button>
+          <button style={styles.heroBtn} onClick={() => alert("Navigate Groups")}><GroupIcon /></button>
+          <button style={styles.heroBtn} onClick={() => alert("Navigate Items")}><BoxIconFlat /></button>
         </div>
       </section>
 
-      {/* ================= PART 2: ITEMS ================= */}
+      {/* INVENTORY SECTION */}
       <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>CRITICALLY NEEDED ITEMS</h2>
-
-        {/* FILTER TABS */}
-        <div style={styles.tabs}>
-          {["CRITICAL", "HIGH", "MEDIUM"].map((lvl) => (
-            <button
-              key={lvl}
-              onClick={() => setFilter(lvl)}
-              style={{
-                ...styles.tab,
-                backgroundColor: filter === lvl ? "#0f2a44" : "#e5e7eb",
-                color: filter === lvl ? "#fff" : "#000",
-              }}
-            >
-              {lvl}
-            </button>
-          ))}
-        </div>
-
-        <div style={styles.grid}>
-          {filteredItems.map((item, i) => (
-            <div key={i} style={styles.card}>
-              <div style={styles.level}>{item.level}</div>
-              <h3>{item.name}</h3>
-              <p>{item.count} items needed</p>
+        <h2 style={styles.sectionHeading}>CRITICALLY NEEDED ITEMS</h2>
+        <div style={styles.inventoryGrid}>
+          {items.map((item, i) => (
+            <div key={i} style={{ ...styles.itemCard, backgroundColor: item.bg }}>
+              <span style={{ ...styles.badge, backgroundColor: item.badge }}>{item.level}</span>
+              <p style={styles.itemLabel}>{item.name}</p>
+              <h3 style={styles.itemCount}>{item.count}</h3>
+              <p style={styles.itemSubtext}>cans needed</p>
             </div>
           ))}
         </div>
       </section>
 
-      {/* ================= PART 3: DROP-OFF ================= */}
+      {/* DROP-OFF SECTION */}
+      <section style={styles.section}>
+        <h2 style={styles.sectionHeading}>DROP-OFF LOCATION</h2>
+        <div style={styles.locationContainer}>
+          <div style={styles.locationCard}>
+            <PinIcon />
+            <div style={{ textAlign: 'left' }}>
+              <h3 style={styles.locationTitle}>Malvar Municipal Hall</h3>
+              <p style={styles.locationSub}>Brgy. San Pioquinto, Malvar, Batangas</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* FOOTER BAR */}
       <footer style={styles.footerBar}>
         <div style={styles.footerItem}>
-          <span style={styles.footerIcon}>📞</span>
+          <span>📞</span>
           <div>
-            <p style={styles.footerLabel}>Telephone No:</p>
-            <p>+63 43 778 5101</p>
-            <p>+63 917 825 0356</p>
+            <strong>Telephone No:</strong> +63 43 778 5101 <br />
+            <strong>Mobile No:</strong> +63 917 825 0356 / +63 917 805 7711
           </div>
         </div>
-
         <div style={styles.footerItem}>
-          <span style={styles.footerIcon}>📧</span>
+          <span>📧</span>
           <div>
-            <p style={styles.footerLabel}>Emails:</p>
-            <p>lgumalvarbatangas@gmail.com</p>
-            <p>info@malvarbatangas.gov.ph</p>
+            <strong>Emails:</strong> lgumalvarbatangas@gmail.com <br />
+            info@malvarbatangas.gov.ph
           </div>
         </div>
-
         <div style={styles.footerItem}>
-          <span style={styles.footerIcon}>🌐</span>
+          <span>🌐</span>
           <div>
-            <p style={styles.footerLabel}>Website:</p>
-            <p>www.malvarbatangas.gov.ph</p>
+            <strong>Website:</strong> www.malvarbatangas.gov.ph
           </div>
         </div>
       </footer>
-    </>
+    </div>
   );
 };
-
-export default DonationInformationPage;
 
 /* ================= STYLES ================= */
 
 const styles = {
-  section: {
-    marginBottom: "25px",
-    textAlign: "center",
+  pageContainer: {
+    fontFamily: "'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+    backgroundColor: "#f8fafd",
+    minHeight: "100vh",
   },
-
-  hero: {
-    background: "linear-gradient(180deg, #0f2a44, #1b4f72)",
-    color: "#fff",
-    padding: "50px 20px",
-    borderRadius: "10px",
-    textAlign: "center",
+  navBar: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "10px 40px",
+    backgroundColor: "#d9e1ec",
+    borderBottom: "1px solid #c8d1db",
   },
-
-  heroTitle: {
-    fontSize: "26px",
-    fontWeight: "700",
-  },
-
-  heroText: {
-    marginTop: "10px",
+  navLeft: { display: "flex", alignItems: "center", gap: "12px" },
+  brandName: { fontWeight: "bold", fontSize: "18px", color: "#1e3a5f", lineHeight: "1" },
+  brandSub: { fontSize: "11px", color: "#555" },
+  navRight: { color: "#1e3a5f", fontSize: "14px", fontWeight: "500" },
+  
+  backWrapper: { padding: "20px 40px 0" },
+  backButton: {
+    background: "none",
+    border: "none",
+    color: "#1e3a5f",
+    cursor: "pointer",
+    fontWeight: "bold",
     fontSize: "14px",
   },
 
-  backWrapper: {
-    padding: "15px 20px 0",
-    textAlign: "left",
-  },
-
-  backButton: {
-    background: "#0f2a44",
-    border: "none",
-    padding: "10px 16px",
-    borderRadius: "10px",
-    cursor: "pointer",
-    fontWeight: "600",
-    color: "#ffffff",
-    transition: "all 0.2s ease",
-    boxShadow: "0 4px 12px rgba(15, 42, 68, 0.25)",
-  },
-
-  donateText: {
-    marginTop: "20px",
-    fontWeight: "700",
-  },
-
-  quickActions: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, 1fr)",
-    gap: "15px",
-    marginTop: "20px",
-  },
-
-  actionCard: {
-    background: "#fff",
-    padding: "20px",
-    borderRadius: "10px",
-    textAlign: "center",
-    cursor: "pointer",
-    border: "1px solid #e5e7eb",
-  },
-
-  sectionTitle: {
-    marginBottom: "15px",
-    color: "#0f2a44",
-  },
-
-  tabs: {
-    display: "flex",
-    gap: "10px",
-    marginBottom: "15px",
-  },
-
-  tab: {
-    padding: "8px 15px",
-    borderRadius: "6px",
-    border: "none",
-    cursor: "pointer",
-  },
-
-  grid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, 1fr)",
-    gap: "15px",
-  },
-
-  card: {
-    background: "#f7f9fb",
-    padding: "15px",
+  section: { padding: "40px 10%", textAlign: "center" },
+  heroTitle: { fontSize: "32px", fontWeight: "900", color: "#1e3a5f", margin: "0 0 10px 0" },
+  heroText: { color: "#555", fontSize: "16px", lineHeight: "1.4" },
+  donateCta: { margin: "20px 0", color: "#1e3a5f" },
+  
+  heroGrid: { display: "flex", justifyContent: "center", gap: "25px", marginTop: "30px" },
+  heroBtn: {
+    width: "180px",
+    height: "130px",
+    backgroundColor: "#fff",
+    border: "1px solid #ddd",
     borderRadius: "8px",
-    textAlign: "center",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    transition: "transform 0.1s",
+    boxShadow: "0 2px 5px rgba(0,0,0,0.05)"
   },
 
-  level: {
-    fontSize: "11px",
-    fontWeight: "700",
-    color: "#d32f2f",
+  sectionHeading: { fontSize: "24px", color: "#1e3a5f", fontWeight: "bold", marginBottom: "30px" },
+  
+  inventoryGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, 1fr)",
+    gap: "20px",
   },
-
-  locationCard: {
-    background: "#f7f9fb",
+  itemCard: {
     padding: "20px",
+    borderRadius: "8px",
+    position: "relative",
+    textAlign: "left",
+    border: "1px solid rgba(0,0,0,0.05)",
+  },
+  badge: {
+    position: "absolute",
+    top: "12px",
+    right: "12px",
+    color: "#fff",
+    fontSize: "9px",
+    fontWeight: "bold",
+    padding: "2px 8px",
     borderRadius: "10px",
   },
+  itemLabel: { margin: 0, fontSize: "13px", color: "#444" },
+  itemCount: { margin: "8px 0", fontSize: "36px", color: "#333", fontWeight: "600" },
+  itemSubtext: { margin: 0, fontSize: "12px", color: "#666" },
+
+  locationContainer: { display: "flex", justifyContent: "center" },
+  locationCard: {
+    backgroundColor: "#fff",
+    padding: "25px 50px",
+    borderRadius: "10px",
+    border: "1px solid #ccc",
+    display: "flex",
+    alignItems: "center",
+    gap: "20px",
+    minWidth: "400px"
+  },
+  locationTitle: { margin: 0, color: "#1e3a5f", fontSize: "22px" },
+  locationSub: { margin: 0, color: "#777", fontSize: "13px" },
 
   footerBar: {
-    marginTop: "40px",
-    background: "#d9e1ec",
-    padding: "20px",
+    backgroundColor: "#d9e1ec",
+    padding: "20px 40px",
     display: "flex",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    borderRadius: "8px",
-    flexWrap: "wrap",
+    fontSize: "12px",
+    color: "#1e3a5f",
+    marginTop: "40px"
   },
-
-  footerItem: {
-    display: "flex",
-    alignItems: "flex-start",
-    gap: "10px",
-    minWidth: "220px",
-  },
-
-  footerIcon: {
-    fontSize: "20px",
-  },
-
-  footerLabel: {
-    fontWeight: "600",
-    marginBottom: "3px",
-  },
+  footerItem: { display: "flex", gap: "10px", alignItems: "flex-start", flex: 1 }
 };
+
+export default DonationInformationPage;
