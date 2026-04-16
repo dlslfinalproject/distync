@@ -74,12 +74,6 @@ const DisasterEventsPage = () => {
     <div style={{ flex: 1, minWidth: 0, maxWidth: "100%", overflowX: "hidden" }}>
       <PageHeader
         title="DISASTER EVENT MANAGEMENT"
-        actions={[
-          {
-            label: "Create Disaster Event",
-            onClick: openCreateModal,
-          },
-        ]}
       />
 
       {/* FILTER & TAB CARD */}
@@ -99,22 +93,29 @@ const DisasterEventsPage = () => {
           <button onClick={() => setSelectedFilter(filterOptions.all)} style={getTabStyle(filterOptions.all)}>All Events</button>
         </div>
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
-          <div>
-            <p style={{ margin: 0, color: "#6b8298", fontSize: "12px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-              Event Workspace
-            </p>
-            <h3 style={{ margin: "10px 0 0", color: "#17324d", fontSize: "24px" }}>
-              {selectedFilterLabel}
-              {selectedFilter === filterOptions.active && (
-                <span style={{ marginLeft: "12px", fontSize: "12px", backgroundColor: "#e3f9e5", color: "#2f6c47", padding: "4px 8px", borderRadius: "6px", verticalAlign: "middle" }}>LIVE</span>
-              )}
-            </h3>
-          </div>
-
-          <div style={{ padding: "12px 18px", borderRadius: "14px", backgroundColor: "#f8fbfe", border: "1px solid #d7e2ef", color: "#60738a", fontSize: "14px", fontWeight: 600 }}>
-            Total Count: {events.length.toString().padStart(2, "0")}
-          </div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            flexWrap: "wrap",
+          }}
+        >
+          {/* CREATE BUTTON */}
+          <button
+            onClick={openCreateModal}
+            style={{
+              padding: "10px 18px",
+              borderRadius: "10px",
+              backgroundColor: "#2f5bd3",
+              color: "#fff",
+              border: "none",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            Create Disaster Event
+          </button>
         </div>
       </section>
 
