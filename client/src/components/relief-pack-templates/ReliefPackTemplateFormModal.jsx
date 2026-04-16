@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from "react";
-import { pageHeaderStyles } from "../layout/PageHeader";
+import React, { useState } from "react";
 
+// --- Shared Styles ---
 const overlayStyles = {
   position: "fixed",
   inset: 0,
-  backgroundColor: "rgba(21, 40, 63, 0.48)",
+  backgroundColor: "rgba(0, 0, 0, 0.3)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -13,305 +13,209 @@ const overlayStyles = {
 };
 
 const modalStyles = {
-  width: "min(760px, 100%)",
+  width: "min(650px, 100%)",
   maxHeight: "90vh",
-  overflowY: "auto",
   backgroundColor: "#ffffff",
   borderRadius: "22px",
-  border: "1px solid #d7e2ef",
-  boxShadow: "0 24px 60px rgba(23, 50, 77, 0.18)",
-  padding: "24px",
+  boxShadow: "0 10px 40px rgba(0,0,0,0.18)",
+  padding: "40px",
   boxSizing: "border-box",
+  display: "flex",
+  flexDirection: "column",
+};
+
+const scrollContainerStyles = {
+  flex: 1,
+  overflowY: "auto",
+  margin: "10px 0",
+  paddingRight: "8px",
 };
 
 const inputStyles = {
   width: "100%",
-  minHeight: "48px",
-  padding: "12px 14px",
-  borderRadius: "14px",
-  border: "1px solid #d2deea",
+  height: "40px",
+  padding: "8px 16px",
+  borderRadius: "20px",
+  border: "none",
+  backgroundColor: "#e9ecef",
   boxSizing: "border-box",
   fontSize: "14px",
-  color: "#21405f",
-  backgroundColor: "#ffffff",
+  color: "#333",
 };
 
 const labelStyles = {
   display: "block",
-  marginBottom: "8px",
-  color: "#4f677f",
-  fontSize: "13px",
-  fontWeight: 700,
+  marginBottom: "10px",
+  color: "#2d3748",
+  fontSize: "16px",
+  fontWeight: "700",
 };
 
-const createDefaultForm = () => ({
-  name: "",
-  description: "",
-  based_on_family_size: false,
-  based_on_sector: false,
-  is_active: true,
+const eventCardStyles = (isSelected) => ({
+  display: "flex",
+  alignItems: "center",
+  gap: "15px",
+  padding: "16px 20px",
+  borderRadius: "14px",
+  border: "1px solid #dcdde1",
+  backgroundColor: isSelected ? "#f8f9fa" : "#ffffff",
+  marginBottom: "12px",
+  cursor: "pointer",
+  transition: "all 0.2s ease",
 });
 
-const ReliefPackTemplateFormModal = ({
-  isOpen,
-  mode,
-  templateData,
-  isSubmitting,
-  errorMessage,
-  onClose,
-  onSubmit,
-}) => {
-  const [formValues, setFormValues] = useState(createDefaultForm());
+const primaryBtnStyle = {
+  backgroundColor: "#34495e",
+  color: "white",
+  border: "none",
+  borderRadius: "20px",
+  padding: "10px 24px",
+  fontWeight: "600",
+  cursor: "pointer",
+};
 
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
+const secondaryBtnStyle = {
+  backgroundColor: "#dcdde1",
+  color: "#2f3640",
+  border: "none",
+  borderRadius: "20px",
+  padding: "10px 40px",
+  fontWeight: "600",
+  cursor: "pointer",
+};
 
-    if (templateData) {
-      setFormValues({
-        name: templateData.name || "",
-        description: templateData.description || "",
-        based_on_family_size: Boolean(templateData.based_on_family_size),
-        based_on_sector: Boolean(templateData.based_on_sector),
-        is_active:
-          typeof templateData.is_active === "boolean"
-            ? templateData.is_active
-            : true,
-      });
-      return;
-    }
+const ReliefPackTemplateFormModal = ({ isOpen, onClose, onSubmit, isSubmitting }) => {
+  const [step, setStep] = useState(1);
+  const [formValues, setFormValues] = useState({
+    packName: "",
+    selectedItem: "",
+    quantity: "",
+    familyPerPack: "",
+  });
+  
+  const [selectedEvents, setSelectedEvents] = useState([1, 2]);
+  const [events] = useState([
+    { id: 1, name: "Typhoon Kristine", families: "1250 families" },
+    { id: 2, name: "Earthquake 5.2", families: "40 families" },
+    { id: 3, name: "Landslide (Bagong Pook)", families: "40 families" },
+    { id: 4, name: "Flood Zone B", families: "300 families" },
+  ]);
 
-    setFormValues(createDefaultForm());
-  }, [isOpen, templateData]);
+  if (!isOpen) return null;
 
-  if (!isOpen) {
-    return null;
-  }
-
-  const handleChange = (fieldName, value) => {
-    setFormValues((currentValues) => ({
-      ...currentValues,
-      [fieldName]: value,
-    }));
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormValues((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleSubmit = (event) => {
-    event.preventDefault();
+  const toggleEvent = (id) => {
+    setSelectedEvents((prev) =>
+      prev.includes(id) ? prev.filter((e) => e !== id) : [...prev, id]
+    );
+  };
 
-    onSubmit({
-      name: formValues.name.trim(),
-      description: formValues.description.trim() || null,
-      based_on_family_size: formValues.based_on_family_size,
-      based_on_sector: formValues.based_on_sector,
-      created_by: null,
-      is_active: formValues.is_active,
-      items: [],
-    });
+  const handleNext = () => setStep(2);
+  const handlePrevious = () => setStep(1);
+
+  const handleFinalSubmit = (e) => {
+    e.preventDefault();
+    onSubmit({ ...formValues, disasterEvents: selectedEvents });
   };
 
   return (
     <div style={overlayStyles}>
       <div style={modalStyles}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            gap: "16px",
-            marginBottom: "20px",
-          }}
-        >
-          <div>
-            <h3 style={{ margin: 0, color: "#17324d", fontSize: "26px" }}>
-              {mode === "edit"
-                ? "Edit Relief Pack Template"
-                : "Create Relief Pack Template"}
-            </h3>
-            <p
-              style={{
-                margin: "8px 0 0",
-                color: "#60738a",
-                fontSize: "14px",
-                lineHeight: 1.6,
-              }}
-            >
-              Update template header details first, then manage the full item list
-              in the template detail panel.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            style={pageHeaderStyles.secondaryButton}
-          >
-            Close
-          </button>
+        {/* Header - Stays fixed */}
+        <h2 style={{ margin: "0 0 8px 0", color: "#2c3e50", fontSize: "28px" }}>
+          Add Relief Pack
+        </h2>
+        <h4 style={{ margin: "0 0 10px 0", color: "#34495e", fontSize: "18px", fontWeight: "700" }}>
+          Pack Information
+        </h4>
+
+        <div style={scrollContainerStyles} className="custom-scrollbar">
+          {step === 1 ? (
+            /* --- STEP 1: Pack Details --- */
+            <div style={{ padding: "10px 2px" }}>
+              <div style={{ marginBottom: "25px", display: "flex", alignItems: "center", gap: "20px" }}>
+                <label style={{ ...labelStyles, marginBottom: 0, minWidth: "120px" }}>Pack Name</label>
+                <input
+                  name="packName"
+                  style={inputStyles}
+                  value={formValues.packName}
+                  onChange={handleInputChange}
+                  placeholder="e.g. Standard Food Pack"
+                />
+              </div>
+
+              <div style={{ display: "flex", gap: "15px", marginBottom: "25px", alignItems: "flex-end" }}>
+                <div style={{ flex: 2 }}>
+                  <label style={labelStyles}>Add Item to Pack</label>
+                  <select name="selectedItem" style={{ ...inputStyles, appearance: "none" }} value={formValues.selectedItem} onChange={handleInputChange}>
+                    <option value="">Select Item</option>
+                    <option value="rice">Rice (5kg)</option>
+                    <option value="canned">Canned Goods</option>
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={labelStyles}>Quantity</label>
+                  <input name="quantity" type="number" style={inputStyles} value={formValues.quantity} onChange={handleInputChange} />
+                </div>
+                <button type="button" style={{ ...primaryBtnStyle, height: "40px" }}>+ Add Item</button>
+              </div>
+
+              <div style={{ marginBottom: "20px" }}>
+                <label style={labelStyles}>Family per Pack</label>
+                <input name="familyPerPack" style={inputStyles} value={formValues.familyPerPack} onChange={handleInputChange} />
+              </div>
+            </div>
+          ) : (
+            /* --- STEP 2: Disaster Events --- */
+            <div>
+              <p style={{ margin: "0 0 15px 0", color: "#2c3e50", fontWeight: "600", fontSize: "16px" }}>
+                Select Disaster Events
+              </p>
+              {events.map((event) => (
+                <div key={event.id} style={eventCardStyles(selectedEvents.includes(event.id))} onClick={() => toggleEvent(event.id)}>
+                  <input
+                    type="checkbox"
+                    checked={selectedEvents.includes(event.id)}
+                    onChange={() => {}} 
+                    style={{ width: "20px", height: "20px", cursor: "pointer" }}
+                  />
+                  <div>
+                    <div style={{ fontWeight: "700", color: "#2c3e50", fontSize: "16px" }}>{event.name}</div>
+                    <div style={{ fontSize: "13px", color: "#7f8c8d" }}>{event.families}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: "18px",
-            }}
-          >
-            <div style={{ gridColumn: "1 / -1" }}>
-              <label htmlFor="template_name" style={labelStyles}>
-                Name
-              </label>
-              <input
-                id="template_name"
-                type="text"
-                value={formValues.name}
-                onChange={(event) => handleChange("name", event.target.value)}
-                style={inputStyles}
-              />
-            </div>
-
-            <div style={{ gridColumn: "1 / -1" }}>
-              <label htmlFor="template_description" style={labelStyles}>
-                Description
-              </label>
-              <textarea
-                id="template_description"
-                value={formValues.description}
-                onChange={(event) =>
-                  handleChange("description", event.target.value)
-                }
-                style={{ ...inputStyles, minHeight: "110px", resize: "vertical" }}
-              />
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: "18px",
-              marginTop: "20px",
-            }}
-          >
-            <label
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                padding: "14px 16px",
-                borderRadius: "14px",
-                border: "1px solid #d7e2ef",
-                color: "#21405f",
-                fontWeight: 600,
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={formValues.based_on_family_size}
-                onChange={(event) =>
-                  handleChange("based_on_family_size", event.target.checked)
-                }
-              />
-              Based on Family Size
-            </label>
-
-            <label
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                padding: "14px 16px",
-                borderRadius: "14px",
-                border: "1px solid #d7e2ef",
-                color: "#21405f",
-                fontWeight: 600,
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={formValues.based_on_sector}
-                onChange={(event) =>
-                  handleChange("based_on_sector", event.target.checked)
-                }
-              />
-              Based on Sector
-            </label>
-
-            <label
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                padding: "14px 16px",
-                borderRadius: "14px",
-                border: "1px solid #d7e2ef",
-                color: "#21405f",
-                fontWeight: 600,
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={formValues.is_active}
-                onChange={(event) =>
-                  handleChange("is_active", event.target.checked)
-                }
-              />
-              Active
-            </label>
-          </div>
-
-          {errorMessage ? (
-            <div
-              style={{
-                marginTop: "18px",
-                padding: "14px 16px",
-                borderRadius: "14px",
-                backgroundColor: "#fff3f1",
-                border: "1px solid #f1d2cc",
-                color: "#9d4d58",
-                fontSize: "14px",
-                fontWeight: 600,
-              }}
-            >
-              {errorMessage}
-            </div>
-          ) : null}
-
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "flex-end",
-              gap: "12px",
-              flexWrap: "wrap",
-              marginTop: "24px",
-            }}
-          >
-            <button
-              type="button"
-              onClick={onClose}
-              style={pageHeaderStyles.secondaryButton}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              style={{
-                ...pageHeaderStyles.primaryButton,
-                opacity: isSubmitting ? 0.7 : 1,
-              }}
-            >
-              {isSubmitting
-                ? mode === "edit"
-                  ? "Saving..."
-                  : "Creating..."
-                : mode === "edit"
-                  ? "Save Changes"
-                  : "Create Template"}
-            </button>
-          </div>
-        </form>
+        {/* Footer Buttons */}
+        <div style={{ display: "flex", justifyContent: "center", gap: "20px", marginTop: "20px" }}>
+          {step === 1 ? (
+            <>
+              <button type="button" onClick={onClose} style={secondaryBtnStyle}>Cancel</button>
+              <button type="button" onClick={handleNext} style={{ ...primaryBtnStyle, padding: "10px 60px" }}>Next</button>
+            </>
+          ) : (
+            <>
+              <button type="button" onClick={handlePrevious} style={secondaryBtnStyle}>Previous</button>
+              <button type="button" onClick={handleFinalSubmit} disabled={isSubmitting} style={{ ...primaryBtnStyle, padding: "10px 50px" }}>
+                {isSubmitting ? "Creating..." : "Create Pack"}
+              </button>
+            </>
+          )}
+        </div>
       </div>
+
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #ccc; border-radius: 10px; }
+      `}</style>
     </div>
   );
 };
