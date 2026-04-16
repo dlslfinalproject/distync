@@ -10,13 +10,20 @@ export const AGE_UNIT_OPTIONS = [
 ];
 
 export const AGE_GROUP_LABELS = {
-  INFANT_0_6_MONTHS: "Infant (0-6 months)",
-  TODDLER_7M_2Y: "Toddler (7 months-2 years)",
-  PRESCHOOL_3_5: "Preschool (3-5 years)",
-  CHILD_6_12: "Child (6-12 years)",
-  TEEN_13_17: "Teen (13-17 years)",
-  ADULT_18_59: "Adult (18-59 years)",
-  SENIOR_60_ABOVE: "Senior (60+ years)",
+  INFANT: "Infant",
+  TODDLER: "Toddler",
+  PRE_SCHOOLER: "Pre-Schooler",
+  SCHOOL_AGE: "School Age",
+  TEENAGE: "Teenage",
+  ADULT: "Adult",
+  SENIOR_CITIZEN: "Senior Citizen",
+  INFANT_0_6_MONTHS: "Infant",
+  TODDLER_7M_2Y: "Toddler",
+  PRESCHOOL_3_5: "Pre-Schooler",
+  CHILD_6_12: "School Age",
+  TEEN_13_17: "Teenage",
+  ADULT_18_59: "Adult",
+  SENIOR_60_ABOVE: "Senior Citizen",
 };
 
 export const deriveAgeGroup = (ageValue, ageUnit) => {
@@ -26,11 +33,11 @@ export const deriveAgeGroup = (ageValue, ageUnit) => {
 
   if (ageUnit === "MONTHS") {
     if (ageValue <= 6) {
-      return "INFANT_0_6_MONTHS";
+      return "INFANT";
     }
 
     if (ageValue <= 24) {
-      return "TODDLER_7M_2Y";
+      return "TODDLER";
     }
 
     return null;
@@ -38,26 +45,26 @@ export const deriveAgeGroup = (ageValue, ageUnit) => {
 
   if (ageUnit === "YEARS") {
     if (ageValue <= 2) {
-      return "TODDLER_7M_2Y";
+      return "TODDLER";
     }
 
     if (ageValue <= 5) {
-      return "PRESCHOOL_3_5";
+      return "PRE_SCHOOLER";
     }
 
     if (ageValue <= 12) {
-      return "CHILD_6_12";
+      return "SCHOOL_AGE";
     }
 
     if (ageValue <= 17) {
-      return "TEEN_13_17";
+      return "TEENAGE";
     }
 
     if (ageValue <= 59) {
-      return "ADULT_18_59";
+      return "ADULT";
     }
 
-    return "SENIOR_60_ABOVE";
+    return "SENIOR_CITIZEN";
   }
 
   return null;

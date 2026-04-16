@@ -102,7 +102,6 @@ const getMasterlist = async (filters) => {
         age: member.age,
         age_value: member.age_value,
         age_unit: member.age_unit,
-        age_group: member.age_group,
         relationship_to_head: member.relationship_to_head,
         is_family_head: member.is_family_head,
         sectors: (memberSectorsByEvacueeId[member.evacuee_id] || []).map(

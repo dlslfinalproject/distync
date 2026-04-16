@@ -1,10 +1,11 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
+import { deriveAgeGroup } from "../../utils/ageGroup";
 import {
-  AGE_UNIT_OPTIONS,
-  deriveAgeGroup,
-  formatAgeGroupLabel,
-} from "../../utils/ageGroup";
+  formatMemberSectorLabel,
+  getCanonicalMemberSectorCode,
+  isAgeBasedMemberSectorCode,
+} from "../../utils/registrationOptions";
 
 const fieldStyles = {
   grid: {
@@ -35,9 +36,9 @@ const fieldStyles = {
 };
 
 const FamilyHeadSection = ({ form }) => {
-  const derivedFamilyHeadAgeGroup = deriveAgeGroup(
+  const derivedFamilyHeadAgeSector = deriveAgeGroup(
     Number.isInteger(form.familyHead.age_value) ? form.familyHead.age_value : null,
-    form.familyHead.age_unit,
+    "YEARS",
   );
 
   return (
@@ -45,8 +46,9 @@ const FamilyHeadSection = ({ form }) => {
       <div style={{ marginBottom: "18px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>Family Head Info</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-          This information auto-fills Household Member 1 so you do not need to
-          type the same family head details twice.
+          The family head is already counted as one household member. Enter the
+          family head here once, then add only the other household members in
+          the next section.
         </p>
       </div>
 
@@ -128,26 +130,9 @@ const FamilyHeadSection = ({ form }) => {
 
         <label style={fieldStyles.field}>
           <span style={fieldStyles.label}>Age Unit</span>
-          <select
-            value={form.familyHead.age_unit}
-            onChange={(event) =>
-              form.updateFamilyHeadField("age_unit", event.target.value)
-            }
-            style={fieldStyles.input}
-          >
-            {AGE_UNIT_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label style={fieldStyles.field}>
-          <span style={fieldStyles.label}>Derived Age Group</span>
           <input
             type="text"
-            value={formatAgeGroupLabel(derivedFamilyHeadAgeGroup)}
+            value="Years"
             disabled
             style={{
               ...fieldStyles.input,
@@ -156,6 +141,49 @@ const FamilyHeadSection = ({ form }) => {
             }}
           />
         </label>
+
+      </div>
+
+      <div style={{ marginTop: "18px" }}>
+        <p style={{ ...shellStyles.mutedText, margin: "0 0 10px", fontWeight: 700 }}>
+          Member Sectors
+        </p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+          {form.memberSectorOptions.map((sector) => {
+            const sectorCode = getCanonicalMemberSectorCode(sector.code);
+            const isAgeBasedSector = isAgeBasedMemberSectorCode(sectorCode);
+            const isChecked = isAgeBasedSector
+              ? sectorCode === derivedFamilyHeadAgeSector
+              : form.familyHead.sector_ids.includes(sector.id);
+
+            return (
+            <label
+              key={sector.id}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                border: "1px solid #d4dfeb",
+                borderRadius: "999px",
+                padding: "10px 14px",
+                backgroundColor: "#f8fbfe",
+                color: "#385a7b",
+                fontSize: "13px",
+                fontWeight: 600,
+                opacity: isAgeBasedSector && !isChecked ? 0.8 : 1,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={isChecked}
+                disabled={isAgeBasedSector}
+                onChange={() => form.toggleFamilyHeadSector(sector.id)}
+              />
+              {formatMemberSectorLabel(sector)}
+            </label>
+            );
+          })}
+        </div>
       </div>
     </section>
   );

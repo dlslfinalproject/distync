@@ -1,14 +1,13 @@
 const pool = require("../config/db");
 const householdRegistrationRepository = require("../repositories/householdRegistration.repository");
 const { deriveAgeGroup } = require("../utils/ageGroup");
+const {
+  HOUSEHOLD_CONDITION_CODES,
+  MANUAL_MEMBER_SECTOR_CODES,
+  getMemberFlagsFromSectorCodes,
+} = require("../utils/registrationOptions");
 
-const normalizeText = (value) => {
-  if (value === undefined || value === null) {
-    return "";
-  }
-
-  return String(value).trim().toLowerCase();
-};
+const NON_RESIDENT_BARANGAY_CODE = "NON_RESIDENT_OUTSIDE_MALVAR";
 
 const deduplicateIds = (ids) => {
   return [...new Set(ids)];
@@ -23,35 +22,17 @@ const createStubNumbers = (sequenceNumber, currentYear) => {
   };
 };
 
-const validateFamilyHeadMatch = (familyHead, headMember) => {
-  const fieldsToCompare = [
-    ["first_name", familyHead.first_name, headMember.first_name],
-    ["middle_name", familyHead.middle_name, headMember.middle_name],
-    ["last_name", familyHead.last_name, headMember.last_name],
-    ["suffix", familyHead.suffix, headMember.suffix],
-    ["sex", familyHead.sex, headMember.sex],
-    ["age_value", familyHead.age_value, headMember.age_value],
-    ["age_unit", familyHead.age_unit, headMember.age_unit],
-  ];
-
-  const hasMismatch = fieldsToCompare.some(([, householdValue, memberValue]) => {
-    return normalizeText(householdValue) !== normalizeText(memberValue);
-  });
-
-  if (hasMismatch) {
-    const error = new Error(
-      "family_head fields must match the submitted member marked as family head",
-    );
-    error.statusCode = 400;
-    throw error;
-  }
-};
-
-const validateSectorUsage = (householdSectors, personSectors, requestData) => {
-  const householdSectorIds = deduplicateIds(requestData.household_sector_ids);
-  const memberSectorIds = deduplicateIds(
-    requestData.members.flatMap((member) => member.sector_ids),
-  );
+const validateSectorUsage = (
+  householdSectors,
+  memberSectors,
+  requestData,
+) => {
+  const householdSectorIds = deduplicateIds(requestData.household_sector_ids || []);
+  const familyHeadSectorIds = deduplicateIds(requestData.family_head.sector_ids || []);
+  const memberSectorIds = deduplicateIds([
+    ...familyHeadSectorIds,
+    ...requestData.members.flatMap((member) => member.sector_ids || []),
+  ]);
 
   if (householdSectorIds.length !== householdSectors.length) {
     const error = new Error("One or more household sector IDs are invalid");
@@ -59,35 +40,74 @@ const validateSectorUsage = (householdSectors, personSectors, requestData) => {
     throw error;
   }
 
-  if (memberSectorIds.length !== personSectors.length) {
+  if (memberSectorIds.length !== memberSectors.length) {
     const error = new Error("One or more member sector IDs are invalid");
     error.statusCode = 400;
     throw error;
   }
 
   const hasInvalidHouseholdSector = householdSectors.some(
-    (sector) => sector.sector_group !== "HOUSEHOLD",
+    (sector) => !HOUSEHOLD_CONDITION_CODES.includes(sector.code),
   );
 
   if (hasInvalidHouseholdSector) {
     const error = new Error(
-      "household_sector_ids must only contain sectors with sector_group = HOUSEHOLD",
+      "household_sector_ids must only contain allowed household conditions",
     );
     error.statusCode = 400;
     throw error;
   }
 
-  const hasInvalidPersonSector = personSectors.some(
-    (sector) => sector.sector_group === "HOUSEHOLD",
+  const hasInvalidPersonSector = memberSectors.some(
+    (sector) => !MANUAL_MEMBER_SECTOR_CODES.includes(sector.code),
   );
 
   if (hasInvalidPersonSector) {
     const error = new Error(
-      "member sector_ids must not contain sectors with sector_group = HOUSEHOLD",
+      "Member sector_ids must only contain allowed manual member sectors",
     );
     error.statusCode = 400;
     throw error;
   }
+};
+
+const buildPersonRecord = ({
+  first_name,
+  middle_name,
+  last_name,
+  suffix,
+  sex,
+  age_value,
+  age_unit,
+  relationship_to_head,
+  sector_ids,
+}) => {
+  const derivedAgeSectorCode = deriveAgeGroup(age_value, age_unit);
+
+  if (!derivedAgeSectorCode) {
+    const error = new Error(
+      `Invalid age_value and age_unit combination for ${first_name} ${last_name}`,
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return {
+    first_name,
+    middle_name,
+    last_name,
+    suffix,
+    sex,
+    age_value,
+    age_unit,
+    age: age_unit === "YEARS" ? age_value : null,
+    birth_date: null,
+    civil_status: null,
+    relationship_to_head,
+    sector_ids: deduplicateIds(sector_ids || []),
+    derived_age_sector_code: derivedAgeSectorCode,
+    ...getMemberFlagsFromSectorCodes([]),
+  };
 };
 
 const buildRegistrationResponse = async (householdId) => {
@@ -155,71 +175,112 @@ const registerHousehold = async (requestData) => {
     throw error;
   }
 
-  if (requestData.household_size !== requestData.members.length) {
+  if (requestData.evacuation_center_id) {
+    const evacuationCenter =
+      await householdRegistrationRepository.getEvacuationCenterById(
+        requestData.evacuation_center_id,
+      );
+
+    if (!evacuationCenter || !evacuationCenter.is_active) {
+      const error = new Error("evacuation_center_id is invalid");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const isNonResidentBarangay =
+      barangay.code === NON_RESIDENT_BARANGAY_CODE;
+
+    if (
+      !isNonResidentBarangay &&
+      evacuationCenter.barangay_id !== requestData.barangay_id
+    ) {
+      const error = new Error(
+        "Selected evacuation center must belong to the chosen barangay",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+
+  if (requestData.household_size !== requestData.members.length + 1) {
     const error = new Error(
-      "household_size must match the number of submitted members",
+      "household_size must match the family head plus the submitted additional members",
     );
     error.statusCode = 400;
     throw error;
   }
 
-  const familyHeadMembers = requestData.members.filter(
-    (member) => member.is_family_head === true,
-  );
-
-  if (familyHeadMembers.length !== 1) {
-    const error = new Error("Exactly one member must be marked as family head");
+  if (requestData.family_head.age_unit !== "YEARS") {
+    const error = new Error("Family head age must be encoded in years");
     error.statusCode = 400;
     throw error;
   }
 
-  const familyHeadMember = familyHeadMembers[0];
-  validateFamilyHeadMatch(requestData.family_head, familyHeadMember);
-
-  const membersWithDerivedAgeGroups = requestData.members.map((member) => {
-    const derivedAgeGroup = deriveAgeGroup(member.age_value, member.age_unit);
-
-    if (!derivedAgeGroup) {
-      const error = new Error(
-        `Invalid age_value and age_unit combination for member ${member.first_name} ${member.last_name}`,
-      );
-      error.statusCode = 400;
-      throw error;
-    }
-
-    return {
-      ...member,
-      age_group: derivedAgeGroup,
-      age: member.age_unit === "YEARS" ? member.age_value : null,
-      birth_date: null,
-      civil_status: null,
-    };
+  const normalizedFamilyHead = buildPersonRecord({
+    ...requestData.family_head,
+    relationship_to_head: "HEAD",
   });
+
+  const normalizedMembers = requestData.members.map((member) =>
+    buildPersonRecord(member),
+  );
 
   const requestDataWithDerivedAgeGroups = {
     ...requestData,
     family_head: {
-      ...requestData.family_head,
+      ...normalizedFamilyHead,
       birth_date: null,
       contact_number: null,
     },
-    members: membersWithDerivedAgeGroups,
+    members: normalizedMembers,
+    current_address_details: null,
   };
 
   const householdSectors = await householdRegistrationRepository.getSectorsByIds(
     deduplicateIds(requestDataWithDerivedAgeGroups.household_sector_ids),
   );
-  const personSectors = await householdRegistrationRepository.getSectorsByIds(
-    deduplicateIds(
-      requestDataWithDerivedAgeGroups.members.flatMap((member) => member.sector_ids),
-    ),
+  const memberSectors = await householdRegistrationRepository.getSectorsByIds(
+    deduplicateIds([
+      ...(requestDataWithDerivedAgeGroups.family_head.sector_ids || []),
+      ...requestDataWithDerivedAgeGroups.members.flatMap(
+        (member) => member.sector_ids,
+      ),
+    ]),
   );
+
+  const ageSectorRows = await householdRegistrationRepository.getSectorsByCodes(
+    deduplicateIds([
+      requestDataWithDerivedAgeGroups.family_head.derived_age_sector_code,
+      ...requestDataWithDerivedAgeGroups.members.map(
+        (member) => member.derived_age_sector_code,
+      ),
+    ]),
+  );
+
+  const expectedAgeSectorCodes = deduplicateIds([
+    requestDataWithDerivedAgeGroups.family_head.derived_age_sector_code,
+    ...requestDataWithDerivedAgeGroups.members.map(
+      (member) => member.derived_age_sector_code,
+    ),
+  ]);
 
   validateSectorUsage(
     householdSectors,
-    personSectors,
+    memberSectors,
     requestDataWithDerivedAgeGroups,
   );
+
+  const ageSectorIdsByCode = Object.fromEntries(
+    ageSectorRows.map((sector) => [sector.code, sector.id]),
+  );
+
+  if (ageSectorRows.length !== expectedAgeSectorCodes.length) {
+    const error = new Error(
+      "One or more derived age-based sectors are missing from the sector master list",
+    );
+    error.statusCode = 500;
+    throw error;
+  }
 
   const client = await pool.connect();
 
@@ -235,23 +296,80 @@ const registerHousehold = async (requestData) => {
     const createdMembers = [];
     let familyHeadEvacueeId = null;
 
+    const familyHeadSectorRows = memberSectors.filter((sector) =>
+      requestDataWithDerivedAgeGroups.family_head.sector_ids.includes(sector.id),
+    );
+    const familyHeadSectorCodes = familyHeadSectorRows.map((sector) => sector.code);
+    const preparedFamilyHead = {
+      ...requestDataWithDerivedAgeGroups.family_head,
+      is_family_head: true,
+      ...getMemberFlagsFromSectorCodes(familyHeadSectorCodes),
+    };
+
+    const createdFamilyHead =
+      await householdRegistrationRepository.insertEvacuee(
+        createdHousehold.id,
+        preparedFamilyHead,
+        client,
+      );
+
+    createdMembers.push(createdFamilyHead);
+    familyHeadEvacueeId = createdFamilyHead.id;
+
+    const familyHeadSectorIds = deduplicateIds([
+      ageSectorIdsByCode[preparedFamilyHead.derived_age_sector_code],
+      ...preparedFamilyHead.sector_ids,
+    ]).filter(Boolean);
+
+    if (familyHeadSectorIds.length > 0) {
+      await householdRegistrationRepository.insertEvacueeSectors(
+        createdFamilyHead.id,
+        familyHeadSectorIds,
+        client,
+      );
+    }
+
+    await householdRegistrationRepository.insertEvacuationLog(
+      {
+        disaster_event_id: requestDataWithDerivedAgeGroups.disaster_event_id,
+        household_id: createdHousehold.id,
+        evacuee_id: createdFamilyHead.id,
+        evacuation_center_id: requestDataWithDerivedAgeGroups.evacuation_center_id,
+        status: "PRESENT",
+        recorded_by: requestDataWithDerivedAgeGroups.registered_by,
+        remarks: "Automatic arrival recorded during household registration",
+      },
+      client,
+    );
+
     for (const member of requestDataWithDerivedAgeGroups.members) {
+      const memberSectorRows = memberSectors.filter((sector) =>
+        member.sector_ids.includes(sector.id),
+      );
+      const memberSectorCodes = memberSectorRows.map((sector) => sector.code);
+      const preparedMember = {
+        ...member,
+        is_family_head: false,
+        ...getMemberFlagsFromSectorCodes(memberSectorCodes),
+      };
+
       const createdMember = await householdRegistrationRepository.insertEvacuee(
         createdHousehold.id,
-        member,
+        preparedMember,
         client,
       );
 
       createdMembers.push(createdMember);
 
-      if (member.is_family_head) {
-        familyHeadEvacueeId = createdMember.id;
-      }
+      const assignedSectorIds = deduplicateIds([
+        ageSectorIdsByCode[preparedMember.derived_age_sector_code],
+        ...preparedMember.sector_ids,
+      ]).filter(Boolean);
 
-      if (member.sector_ids.length > 0) {
+      if (assignedSectorIds.length > 0) {
         await householdRegistrationRepository.insertEvacueeSectors(
           createdMember.id,
-          deduplicateIds(member.sector_ids),
+          assignedSectorIds,
           client,
         );
       }

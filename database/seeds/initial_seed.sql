@@ -236,6 +236,9 @@ ON CONFLICT (code) DO NOTHING;
 INSERT INTO barangays (code, name) VALUES ('SANTIAGO', 'Santiago')
 ON CONFLICT (code) DO NOTHING;
 
+INSERT INTO barangays (code, name) VALUES ('NON_RESIDENT_OUTSIDE_MALVAR', 'Non-Resident (Outside Malvar)')
+ON CONFLICT (code) DO NOTHING;
+
 -- =========================================================
 -- 5) SECTORS (DROMIC-ALIGNED MASTER LIST)
 -- =========================================================
@@ -245,31 +248,31 @@ ON CONFLICT (code) DO NOTHING;
 -- =========================
 
 INSERT INTO sectors (code, name, description, sector_group, is_barangay_visible, is_mswdo_visible) VALUES
-('INFANT_0_6_MONTHS', 'Infant (0-6 months)', 'Infants aged 0 to 6 months', 'AGE_GROUP', FALSE, TRUE)
+('INFANT', 'Infant', 'Infants aged 0 to 6 months', 'AGE_GROUP', TRUE, TRUE)
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO sectors (code, name, description, sector_group, is_barangay_visible, is_mswdo_visible) VALUES
-('TODDLER_7M_2Y', 'Toddlers (7 months - 2 years)', 'Toddlers aged 7 months to 2 years', 'AGE_GROUP', FALSE, TRUE)
+('TODDLER', 'Toddler', 'Children aged 7 months to 2 years', 'AGE_GROUP', TRUE, TRUE)
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO sectors (code, name, description, sector_group, is_barangay_visible, is_mswdo_visible) VALUES
-('PRESCHOOL_3_5', 'Preschoolers (3-5 years)', 'Children aged 3 to 5 years', 'AGE_GROUP', FALSE, TRUE)
+('PRE_SCHOOLER', 'Pre-Schooler', 'Children aged 3 to 5 years', 'AGE_GROUP', TRUE, TRUE)
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO sectors (code, name, description, sector_group, is_barangay_visible, is_mswdo_visible) VALUES
-('CHILD_6_12', 'Children (6-12 years)', 'Children aged 6 to 12 years', 'AGE_GROUP', TRUE, TRUE)
+('SCHOOL_AGE', 'School Age', 'Children aged 6 to 12 years', 'AGE_GROUP', TRUE, TRUE)
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO sectors (code, name, description, sector_group, is_barangay_visible, is_mswdo_visible) VALUES
-('TEEN_13_17', 'Teenagers (13-17 years)', 'Individuals aged 13 to 17 years', 'AGE_GROUP', FALSE, TRUE)
+('TEENAGE', 'Teenage', 'Individuals aged 13 to 17 years', 'AGE_GROUP', TRUE, TRUE)
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO sectors (code, name, description, sector_group, is_barangay_visible, is_mswdo_visible) VALUES
-('ADULT_18_59', 'Adults (18-59 years)', 'Individuals aged 18 to 59 years', 'AGE_GROUP', FALSE, TRUE)
+('ADULT', 'Adult', 'Individuals aged 18 to 59 years', 'AGE_GROUP', TRUE, TRUE)
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO sectors (code, name, description, sector_group, is_barangay_visible, is_mswdo_visible) VALUES
-('SENIOR_60_ABOVE', 'Senior Citizens (60+)', 'Individuals aged 60 and above', 'AGE_GROUP', TRUE, TRUE)
+('SENIOR_CITIZEN', 'Senior Citizen', 'Individuals aged 60 and above', 'AGE_GROUP', TRUE, TRUE)
 ON CONFLICT (code) DO NOTHING;
 
 -- =========================
@@ -281,7 +284,7 @@ INSERT INTO sectors (code, name, description, sector_group, is_barangay_visible,
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO sectors (code, name, description, sector_group, is_barangay_visible, is_mswdo_visible) VALUES
-('LACTATING', 'Lactating Mothers', 'Lactating evacuees', 'VULNERABLE', TRUE, TRUE)
+('LACTATING_MOTHER', 'Lactating Mother', 'Lactating evacuees', 'VULNERABLE', TRUE, TRUE)
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO sectors (code, name, description, sector_group, is_barangay_visible, is_mswdo_visible) VALUES
@@ -289,11 +292,7 @@ INSERT INTO sectors (code, name, description, sector_group, is_barangay_visible,
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO sectors (code, name, description, sector_group, is_barangay_visible, is_mswdo_visible) VALUES
-('SOLO_PARENT', 'Solo Parents', 'Evacuees identified as solo parents', 'VULNERABLE', TRUE, TRUE)
-ON CONFLICT (code) DO NOTHING;
-
-INSERT INTO sectors (code, name, description, sector_group, is_barangay_visible, is_mswdo_visible) VALUES
-('INDIGENOUS', 'Indigenous People', 'Members of indigenous communities', 'VULNERABLE', TRUE, TRUE)
+('INDIGENOUS', 'Indigenous', 'Indigenous peoples and communities', 'VULNERABLE', TRUE, TRUE)
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO sectors (code, name, description, sector_group, is_barangay_visible, is_mswdo_visible) VALUES
@@ -310,6 +309,10 @@ ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO sectors (code, name, description, sector_group, is_barangay_visible, is_mswdo_visible) VALUES
 ('SINGLE_HEADED', 'Single-Headed Family', 'Households with a single parent or guardian', 'HOUSEHOLD', TRUE, TRUE)
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO sectors (code, name, description, sector_group, is_barangay_visible, is_mswdo_visible) VALUES
+('SOLO_PARENT', 'Solo Parent Household', 'Households identified as solo parent households', 'HOUSEHOLD', TRUE, TRUE)
 ON CONFLICT (code) DO NOTHING;
 
 

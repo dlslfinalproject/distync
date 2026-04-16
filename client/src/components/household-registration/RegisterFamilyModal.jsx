@@ -135,8 +135,8 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
               }}
             >
               <p style={shellStyles.mutedText}>
-                Household size will be submitted automatically from the member
-                count: <strong>{form.memberCount}</strong>
+                Household size is submitted automatically from the family head
+                plus any additional members: <strong>{form.memberCount}</strong>
               </p>
               <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
                 <button
