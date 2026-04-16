@@ -255,6 +255,19 @@ const registerHousehold = async (requestData) => {
           client,
         );
       }
+
+      await householdRegistrationRepository.insertEvacuationLog(
+        {
+          disaster_event_id: requestDataWithDerivedAgeGroups.disaster_event_id,
+          household_id: createdHousehold.id,
+          evacuee_id: createdMember.id,
+          evacuation_center_id: requestDataWithDerivedAgeGroups.evacuation_center_id,
+          status: "PRESENT",
+          recorded_by: requestDataWithDerivedAgeGroups.registered_by,
+          remarks: "Automatic arrival recorded during household registration",
+        },
+        client,
+      );
     }
 
     await householdRegistrationRepository.updateHouseholdFamilyHeadEvacueeId(
@@ -302,6 +315,43 @@ const registerHousehold = async (requestData) => {
   }
 };
 
+const departHousehold = async (householdId, departureDetails) => {
+  const household =
+    await householdRegistrationRepository.getHouseholdSummaryById(householdId);
+
+  if (!household) {
+    const error = new Error("Household not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const activeEvacuationLogs =
+    await householdRegistrationRepository.getActiveEvacuationLogsByHouseholdId(
+      householdId,
+    );
+
+  if (activeEvacuationLogs.length === 0) {
+    const error = new Error(
+      "This household has no active arrival record to mark as departed",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const updatedLogs = await householdRegistrationRepository.markHouseholdDeparture(
+    householdId,
+    departureDetails,
+  );
+
+  return {
+    household_id: householdId,
+    affected_logs_count: updatedLogs.length,
+    latest_departure_time: updatedLogs[0]?.time_out || null,
+    status: "LEFT",
+  };
+};
+
 module.exports = {
   registerHousehold,
+  departHousehold,
 };

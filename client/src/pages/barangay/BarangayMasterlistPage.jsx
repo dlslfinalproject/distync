@@ -7,6 +7,7 @@ import MasterlistToolbar from "../../components/masterlist/MasterlistToolbar";
 import StatusCard from "../../components/shared/StatusCard";
 import { useMasterlist } from "../../features/masterlist/masterlistHooks";
 import {
+  departHousehold,
   fetchActiveDisasterEvents,
   fetchEndedDisasterEvents,
   fetchBarangays,
@@ -23,6 +24,7 @@ const getFilteredRows = (rows, searchTerm) => {
       row.family_head_name,
       row.address,
       row.sectors_text,
+      row.attendance_status_text,
       row.arrival_time_text,
       row.departure_time_text,
     ];
@@ -51,9 +53,12 @@ const BarangayMasterlistPage = () => {
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
   const [filterErrorMessage, setFilterErrorMessage] = useState("");
   const [registrationSuccessMessage, setRegistrationSuccessMessage] = useState("");
+  const [attendanceActionMessage, setAttendanceActionMessage] = useState("");
 
   const disasterEventId = searchParams.get("disaster_event_id");
   const barangayId = searchParams.get("barangay_id");
+  const currentEventOptions =
+    activeTab === "active" ? activeDisasterEvents : endedDisasterEvents;
 
   useEffect(() => {
     let isMounted = true;
@@ -95,6 +100,40 @@ const BarangayMasterlistPage = () => {
     loadFilterOptions();
     return () => { isMounted = false; };
   }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (isLoadingFilters) {
+      return;
+    }
+
+    const hasValidSelectedEvent = currentEventOptions.some(
+      (event) => event.id === disasterEventId,
+    );
+
+    if (hasValidSelectedEvent) {
+      return;
+    }
+
+    const fallbackEventId = currentEventOptions[0]?.id || "";
+    const nextParams = new URLSearchParams(searchParams);
+
+    if (fallbackEventId) {
+      nextParams.set("disaster_event_id", fallbackEventId);
+    } else {
+      nextParams.delete("disaster_event_id");
+    }
+
+    if (nextParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [
+    activeTab,
+    currentEventOptions,
+    disasterEventId,
+    isLoadingFilters,
+    searchParams,
+    setSearchParams,
+  ]);
 
   const { data, isLoading, errorMessage, reloadMasterlist } = useMasterlist({
     disasterEventId,
@@ -157,6 +196,28 @@ const BarangayMasterlistPage = () => {
     if (value) nextParams.set("barangay_id", value);
     else nextParams.delete("barangay_id");
     setSearchParams(nextParams, { replace: true });
+  };
+
+  const handleMarkDeparted = async (householdId) => {
+    const confirmed = window.confirm(
+      "Mark this registered family as departed and record the current departure time?",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const response = await departHousehold({ householdId });
+      setAttendanceActionMessage(
+        response.message || "Household departure recorded successfully",
+      );
+      reloadMasterlist();
+    } catch (error) {
+      setAttendanceActionMessage(
+        error.message || "Failed to record household departure",
+      );
+    }
   };
 
   const activeEventLabel = data.disasterEvent
@@ -259,6 +320,14 @@ const BarangayMasterlistPage = () => {
         </section>
       )}
 
+      {attendanceActionMessage && (
+        <section style={shellStyles.card}>
+          <p style={{ margin: 0, color: "#24496e", fontWeight: 700 }}>
+            {attendanceActionMessage}
+          </p>
+        </section>
+      )}
+
       <section style={shellStyles.statGrid}>
         {summaryCards.map((card) => (
           <StatusCard key={card.label} {...card} />
@@ -277,6 +346,7 @@ const BarangayMasterlistPage = () => {
         isLoading={isLoading}
         errorMessage={errorMessage}
         hasSelectedEvent={Boolean(disasterEventId)}
+        onMarkDeparted={handleMarkDeparted}
       />
 
       <RegisterFamilyModal
