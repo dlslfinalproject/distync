@@ -189,9 +189,6 @@ const DisasterEventFormModal = ({
             }}
           >
             <div>
-              <label htmlFor="event_code" style={labelStyles}>
-                Event Code
-              </label>
               <input
                 id="event_code"
                 type="text"

@@ -118,10 +118,6 @@ const DisasterEventDetailModal = ({
               }}
             >
               <div>
-                <p style={detailLabelStyles}>Event Code</p>
-                <p style={detailValueStyles}>{eventData.event_code}</p>
-              </div>
-              <div>
                 <p style={detailLabelStyles}>Title</p>
                 <p style={detailValueStyles}>{eventData.title}</p>
               </div>
