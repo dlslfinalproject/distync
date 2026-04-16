@@ -10,7 +10,7 @@ const tableStyles = {
   },
   headerCell: {
     padding: "14px 16px",
-    textAlign: "left",
+    textAlign: "center",
     fontSize: "12px",
     letterSpacing: "0.08em",
     textTransform: "uppercase",
@@ -23,7 +23,8 @@ const tableStyles = {
     color: "#21405f",
     borderBottom: "1px solid #edf3f8",
     fontSize: "14px",
-    verticalAlign: "top",
+    verticalAlign: "middle",
+    textAlign: "center",
   },
 };
 
@@ -130,11 +131,39 @@ const DisasterEventsTable = ({
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.id}>
+              <tr key={row.id} style={{borderBottom: "1px solid #edf3f8",}}>
+
                 <td style={tableStyles.bodyCell}>{row.title}</td>
                 <td style={tableStyles.bodyCell}>{row.disaster_type}</td>
                 <td style={tableStyles.bodyCell}>
-                  {row.affected_barangays?.length || 0}
+                  {row.affected_barangays?.length ? (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: "6px",
+                        maxWidth: "220px", // ✅ LIMIT WIDTH (important!)
+                      }}
+                    >
+                      {row.affected_barangays.map((brgy, index) => (
+                        <span
+                          key={index}
+                          style={{
+                            background: "#eef4ff",
+                            color: "#2f5bd3",
+                            padding: "4px 8px",
+                            borderRadius: "6px",
+                            fontSize: "12px",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {brgy.name || brgy}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span style={{ color: "#9aa9b8" }}>—</span>
+                  )}
                 </td>
                 <td style={tableStyles.bodyCell}>{formatDate(row.start_date)}</td>
                 <td style={tableStyles.bodyCell}>{formatDate(row.end_date)}</td>
