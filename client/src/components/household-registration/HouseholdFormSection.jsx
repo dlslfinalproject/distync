@@ -34,6 +34,11 @@ const HouseholdFormSection = ({ form }) => {
   const selectedEvent = form.activeDisasterEvents.find(
     (eventItem) => eventItem.id === form.selectedDisasterEventId,
   );
+  const selectedBarangay = form.barangays.find(
+    (barangay) => barangay.id === form.selectedBarangayId,
+  );
+  const isNonResidentBarangay =
+    selectedBarangay?.code === "NON_RESIDENT_OUTSIDE_MALVAR";
 
   return (
     <section style={shellStyles.card}>
@@ -41,7 +46,7 @@ const HouseholdFormSection = ({ form }) => {
         <h3 style={{ margin: 0, color: "#17324d" }}>Household Info</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
           The current disaster event comes from the selected Barangay context.
-          Set the stay type, address details, and optional evacuation center.
+          Set the barangay, current stay type, and optional evacuation center.
         </p>
       </div>
 
@@ -116,20 +121,15 @@ const HouseholdFormSection = ({ form }) => {
               </option>
             ))}
           </select>
+          {form.household.current_stay_type === "EVAC_CENTER" &&
+          isNonResidentBarangay ? (
+            <span style={{ color: "#60738a", fontSize: "12px" }}>
+              Non-resident families may still stay in any registered evacuation
+              center.
+            </span>
+          ) : null}
         </label>
       </div>
-
-      <label style={{ ...fieldStyles.field, marginTop: "16px" }}>
-        <span style={fieldStyles.label}>Current Address Details</span>
-        <textarea
-          value={form.household.current_address_details}
-          onChange={(event) =>
-            form.updateHouseholdField("current_address_details", event.target.value)
-          }
-          rows={3}
-          style={{ ...fieldStyles.input, minHeight: "96px", resize: "vertical" }}
-        />
-      </label>
     </section>
   );
 };

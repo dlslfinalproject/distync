@@ -182,7 +182,6 @@ CREATE TABLE evacuees (
 
     age_value INTEGER CHECK (age_value IS NULL OR age_value >= 0),
     age_unit VARCHAR(10),
-    age_group VARCHAR(30),
 
     civil_status VARCHAR(50),
     relationship_to_head VARCHAR(100) NOT NULL,
@@ -198,20 +197,8 @@ CREATE TABLE evacuees (
 
     CONSTRAINT chk_evacuee_sex
         CHECK (sex IN ('MALE', 'FEMALE')),
-            CONSTRAINT chk_evacuee_age_unit
-        CHECK (age_unit IS NULL OR age_unit IN ('MONTHS', 'YEARS')),
-    CONSTRAINT chk_evacuee_age_group
-        CHECK (
-          age_group IS NULL OR age_group IN (
-            'INFANT_0_6_MONTHS',
-            'TODDLER_7M_2Y',
-            'PRESCHOOL_3_5',
-            'CHILD_6_12',
-            'TEEN_13_17',
-            'ADULT_18_59',
-            'SENIOR_60_ABOVE'
-          )
-        )
+    CONSTRAINT chk_evacuee_age_unit
+        CHECK (age_unit IS NULL OR age_unit IN ('MONTHS', 'YEARS'))
 
 );
 

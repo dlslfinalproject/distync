@@ -18,6 +18,7 @@ const baseSelectQuery = `
 const getEvacuationCenters = async () => {
   const query = `
     ${baseSelectQuery}
+    WHERE ec.is_active = TRUE
     ORDER BY b.name ASC, ec.name ASC
   `;
 
@@ -29,6 +30,7 @@ const getEvacuationCentersByBarangayId = async (barangayId) => {
   const query = `
     ${baseSelectQuery}
     WHERE ec.barangay_id = $1
+      AND ec.is_active = TRUE
     ORDER BY ec.name ASC
   `;
 

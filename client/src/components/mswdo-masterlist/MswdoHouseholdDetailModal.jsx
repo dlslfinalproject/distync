@@ -1,9 +1,6 @@
 import React from "react";
 import { formatStayTypeLabel } from "../../utils/stayType";
-import {
-  formatAgeGroupLabel,
-  formatAgeValueLabel,
-} from "../../utils/ageGroup";
+import { formatAgeValueLabel } from "../../utils/ageGroup";
 
 const overlayStyles = {
   position: "fixed",
@@ -86,7 +83,7 @@ const formatMemberAge = (member) => {
     member.age_value >= 0 &&
     member.age_unit
   ) {
-    return `${formatAgeValueLabel(member.age_value, member.age_unit)} (${formatAgeGroupLabel(member.age_group)})`;
+    return formatAgeValueLabel(member.age_value, member.age_unit);
   }
 
   if (member.age !== null && member.age !== undefined) {

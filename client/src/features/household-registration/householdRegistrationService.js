@@ -26,6 +26,21 @@ export const fetchBarangays = async () => {
   return parseJsonResponse(response);
 };
 
+export const fetchEvacuationCenters = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/evacuation-centers`);
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const payload = await response.json();
+    return Array.isArray(payload.data) ? payload.data : payload;
+  } catch (error) {
+    return [];
+  }
+};
+
 export const fetchEvacuationCentersByBarangay = async (barangayId) => {
   if (!barangayId) {
     return [];
