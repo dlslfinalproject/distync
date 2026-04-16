@@ -319,6 +319,115 @@ const insertStub = async (stubData, dbClient) => {
   return result.rows[0];
 };
 
+const insertEvacuationLog = async (logData, dbClient) => {
+  const query = `
+    INSERT INTO evacuation_logs (
+      disaster_event_id,
+      household_id,
+      evacuee_id,
+      evacuation_center_id,
+      time_in,
+      time_out,
+      status,
+      recorded_by,
+      remarks,
+      created_at,
+      updated_at
+    )
+    VALUES ($1, $2, $3, $4, NOW(), NULL, $5, $6, $7, NOW(), NOW())
+    RETURNING
+      id,
+      disaster_event_id,
+      household_id,
+      evacuee_id,
+      evacuation_center_id,
+      time_in,
+      time_out,
+      status,
+      recorded_by,
+      remarks,
+      created_at,
+      updated_at
+  `;
+
+  const values = [
+    logData.disaster_event_id,
+    logData.household_id,
+    logData.evacuee_id,
+    logData.evacuation_center_id,
+    logData.status,
+    logData.recorded_by,
+    logData.remarks,
+  ];
+
+  const result = await dbClient.query(query, values);
+  return result.rows[0];
+};
+
+const getActiveEvacuationLogsByHouseholdId = async (householdId, dbClient = pool) => {
+  const query = `
+    SELECT
+      id,
+      disaster_event_id,
+      household_id,
+      evacuee_id,
+      evacuation_center_id,
+      time_in,
+      time_out,
+      status,
+      recorded_by,
+      remarks,
+      created_at,
+      updated_at
+    FROM evacuation_logs
+    WHERE household_id = $1
+      AND status = 'PRESENT'
+      AND time_out IS NULL
+    ORDER BY time_in DESC, created_at DESC
+  `;
+
+  const result = await dbClient.query(query, [householdId]);
+  return result.rows;
+};
+
+const markHouseholdDeparture = async (
+  householdId,
+  departureDetails,
+  dbClient = pool,
+) => {
+  const query = `
+    UPDATE evacuation_logs
+    SET
+      time_out = NOW(),
+      status = 'LEFT',
+      remarks = COALESCE($2, remarks),
+      updated_at = NOW()
+    WHERE household_id = $1
+      AND status = 'PRESENT'
+      AND time_out IS NULL
+    RETURNING
+      id,
+      disaster_event_id,
+      household_id,
+      evacuee_id,
+      evacuation_center_id,
+      time_in,
+      time_out,
+      status,
+      recorded_by,
+      remarks,
+      created_at,
+      updated_at
+  `;
+
+  const result = await dbClient.query(query, [
+    householdId,
+    departureDetails.remarks ?? null,
+  ]);
+
+  return result.rows;
+};
+
 const getHouseholdSummaryById = async (id) => {
   const query = `
     SELECT
@@ -460,6 +569,9 @@ module.exports = {
   insertEvacueeSectors,
   insertHouseholdSectors,
   insertStub,
+  insertEvacuationLog,
+  getActiveEvacuationLogsByHouseholdId,
+  markHouseholdDeparture,
   getHouseholdSummaryById,
   getEvacueesByHouseholdId,
   getEvacueeSectorAssignmentsByHouseholdId,

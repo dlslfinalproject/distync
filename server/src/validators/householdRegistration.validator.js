@@ -314,6 +314,56 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
   }
 };
 
+const validateDepartHousehold = (req, res, next) => {
+  try {
+    const { householdId } = req.params;
+    const { remarks, recorded_by } = req.body || {};
+
+    if (!isValidUuid(householdId)) {
+      return res.status(400).json({
+        message: "householdId must be a valid UUID",
+      });
+    }
+
+    if (
+      remarks !== undefined &&
+      remarks !== null &&
+      typeof remarks !== "string"
+    ) {
+      return res.status(400).json({
+        message: "remarks must be a string or null",
+      });
+    }
+
+    if (
+      recorded_by !== undefined &&
+      recorded_by !== null &&
+      !isValidUuid(recorded_by)
+    ) {
+      return res.status(400).json({
+        message: "recorded_by must be a valid UUID or null",
+      });
+    }
+
+    req.validatedParams = {
+      householdId,
+    };
+
+    req.validatedBody = {
+      remarks: remarks ?? null,
+      recorded_by: recorded_by ?? null,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate household departure request",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   validateCreateHouseholdRegistration,
+  validateDepartHousehold,
 };

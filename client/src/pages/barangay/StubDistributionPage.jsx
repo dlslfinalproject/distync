@@ -48,6 +48,8 @@ const StubDistributionPage = () => {
 
   const disasterEventId = searchParams.get("disaster_event_id");
   const barangayId = searchParams.get("barangay_id");
+  const currentEventOptions =
+    activeTab === "active" ? activeDisasterEvents : endedDisasterEvents;
 
   useEffect(() => {
     let isMounted = true;
@@ -75,6 +77,40 @@ const StubDistributionPage = () => {
     loadFilters();
     return () => { isMounted = false; };
   }, []);
+
+  useEffect(() => {
+    if (isLoadingFilters) {
+      return;
+    }
+
+    const hasValidSelectedEvent = currentEventOptions.some(
+      (event) => event.id === disasterEventId,
+    );
+
+    if (hasValidSelectedEvent) {
+      return;
+    }
+
+    const fallbackEventId = currentEventOptions[0]?.id || "";
+    const nextParams = new URLSearchParams(searchParams);
+
+    if (fallbackEventId) {
+      nextParams.set("disaster_event_id", fallbackEventId);
+    } else {
+      nextParams.delete("disaster_event_id");
+    }
+
+    if (nextParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [
+    activeTab,
+    currentEventOptions,
+    disasterEventId,
+    isLoadingFilters,
+    searchParams,
+    setSearchParams,
+  ]);
 
   const handleDisasterEventChange = (value) => {
     const nextParams = new URLSearchParams(searchParams);
