@@ -1,4 +1,5 @@
 import React from "react";
+import { FiSearch } from "react-icons/fi";
 
 const searchBarStyles = {
   wrapper: {
@@ -30,7 +31,9 @@ const searchBarStyles = {
 const SearchBar = ({ value, onChange, placeholder }) => {
   return (
     <label style={searchBarStyles.wrapper}>
-      <span style={searchBarStyles.icon}>Search</span>
+      <span style={searchBarStyles.icon}>
+        <FiSearch />
+      </span>
       <input
         type="text"
         value={value}
