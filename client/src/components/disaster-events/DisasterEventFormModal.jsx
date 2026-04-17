@@ -77,6 +77,13 @@ const DisasterEventFormModal = ({
     return null;
   }
 
+  const allBarangayIds = barangays.map((barangay) => barangay.id);
+  const areAllBarangaysSelected =
+    allBarangayIds.length > 0 &&
+    allBarangayIds.every((barangayId) =>
+      formValues.barangay_ids.includes(barangayId),
+    );
+
   const handleChange = (fieldName, value) => {
     setFormValues((currentValues) => ({
       ...currentValues,
@@ -90,6 +97,13 @@ const DisasterEventFormModal = ({
       barangay_ids: isChecked
         ? [...currentValues.barangay_ids, barangayId]
         : currentValues.barangay_ids.filter((id) => id !== barangayId),
+    }));
+  };
+
+  const handleToggleAllBarangays = () => {
+    setFormValues((currentValues) => ({
+      ...currentValues,
+      barangay_ids: areAllBarangaysSelected ? [] : allBarangayIds,
     }));
   };
 
@@ -268,6 +282,22 @@ const DisasterEventFormModal = ({
             <h3 style={{ marginBottom: "16px", color: "#17324d" }}>
               Affected Barangays
             </h3>
+
+            <div style={{ marginBottom: "16px" }}>
+              <button
+                type="button"
+                onClick={handleToggleAllBarangays}
+                style={
+                  areAllBarangaysSelected
+                    ? pageHeaderStyles.primaryButton
+                    : pageHeaderStyles.secondaryButton
+                }
+              >
+                {areAllBarangaysSelected
+                  ? "Unselect All Barangays"
+                  : "Select All Barangays"}
+              </button>
+            </div>
 
             <div style={{
               display: "grid",
