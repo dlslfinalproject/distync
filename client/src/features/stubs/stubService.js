@@ -21,10 +21,36 @@ const handleJsonResponse = async (response, fallbackMessage) => {
   const responseData = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(responseData?.message || fallbackMessage);
+    const error = new Error(responseData?.message || fallbackMessage);
+    error.code = responseData?.error || "";
+    throw error;
   }
 
   return responseData;
+};
+
+export const fetchBarangayStubDashboard = async ({
+  userId,
+  disasterEventId,
+  overrideBarangayId,
+}) => {
+  const searchParams = new URLSearchParams({
+    disaster_event_id: disasterEventId,
+  });
+
+  if (userId) {
+    searchParams.set("user_id", userId);
+  }
+
+  if (overrideBarangayId) {
+    searchParams.set("override_barangay_id", overrideBarangayId);
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/stubs/barangay-dashboard?${searchParams.toString()}`,
+  );
+
+  return handleJsonResponse(response, "Failed to fetch stub dashboard");
 };
 
 export const searchStubs = async ({ query, disasterEventId, barangayId }) => {
@@ -48,4 +74,19 @@ export const verifyStub = async ({ stubNo, serialNo }) => {
   });
 
   return handleJsonResponse(response, "Failed to verify stub");
+};
+
+export const claimStub = async ({ stubId, userId, overrideBarangayId }) => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/stubs/${stubId}/claim`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      user_id: userId || null,
+      override_barangay_id: overrideBarangayId || null,
+    }),
+  });
+
+  return handleJsonResponse(response, "Failed to mark the stub as claimed");
 };

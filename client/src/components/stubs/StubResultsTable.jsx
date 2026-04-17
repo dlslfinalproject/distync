@@ -1,6 +1,5 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
-import { pageHeaderStyles } from "../layout/PageHeader";
 
 const tableStyles = {
   table: {
@@ -24,8 +23,11 @@ const tableStyles = {
     fontSize: "14px",
     verticalAlign: "top",
   },
-  selectedRow: {
-    backgroundColor: "#eef6fd",
+  statusButton: {
+    border: "none",
+    background: "transparent",
+    padding: 0,
+    cursor: "pointer",
   },
 };
 
@@ -64,22 +66,44 @@ const getStatusChipStyles = (status) => {
   };
 };
 
+const getStatusLabel = (status) => {
+  if (status === "CLAIMED") {
+    return "Claimed";
+  }
+
+  if (status === "ISSUED") {
+    return "Unclaimed";
+  }
+
+  return status || "-";
+};
+
 const StubResultsTable = ({
   rows,
   isLoading,
   errorMessage,
-  hasSearched,
-  selectedStubId,
-  onSelectStub,
-  onVerifySelected,
-  isVerifying,
+  hasSelectedEvent,
+  claimingStubId,
+  claimErrorMessage,
+  onClaimStub,
 }) => {
+  if (!hasSelectedEvent) {
+    return (
+      <section style={shellStyles.card}>
+        <h3 style={{ marginTop: 0, color: "#17324d" }}>Stub Information</h3>
+        <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
+          Please select a disaster event to load the stub information table.
+        </p>
+      </section>
+    );
+  }
+
   if (isLoading) {
     return (
       <section style={shellStyles.card}>
-        <h3 style={{ marginTop: 0, color: "#17324d" }}>Search Results</h3>
+        <h3 style={{ marginTop: 0, color: "#17324d" }}>Stub Information</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          Searching stubs...
+          Loading stub information...
         </p>
       </section>
     );
@@ -88,20 +112,9 @@ const StubResultsTable = ({
   if (errorMessage) {
     return (
       <section style={shellStyles.card}>
-        <h3 style={{ marginTop: 0, color: "#17324d" }}>Search Results</h3>
+        <h3 style={{ marginTop: 0, color: "#17324d" }}>Stub Information</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px", color: "#a14d58" }}>
           {errorMessage}
-        </p>
-      </section>
-    );
-  }
-
-  if (!hasSearched) {
-    return (
-      <section style={shellStyles.card}>
-        <h3 style={{ marginTop: 0, color: "#17324d" }}>Search Results</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          Search by stub number, serial number, or family head to load results.
         </p>
       </section>
     );
@@ -110,9 +123,9 @@ const StubResultsTable = ({
   if (rows.length === 0) {
     return (
       <section style={shellStyles.card}>
-        <h3 style={{ marginTop: 0, color: "#17324d" }}>Search Results</h3>
+        <h3 style={{ marginTop: 0, color: "#17324d" }}>Stub Information</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          No matching stubs were found for the current search.
+          No stub records were found for the selected disaster event and barangay.
         </p>
       </section>
     );
@@ -120,36 +133,27 @@ const StubResultsTable = ({
 
   return (
     <section style={shellStyles.card}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: "16px",
-          flexWrap: "wrap",
-          marginBottom: "18px",
-        }}
-      >
+      <div style={{ marginBottom: "18px" }}>
         <div>
-          <h3 style={{ margin: 0, color: "#17324d" }}>Search Results</h3>
+          <h3 style={{ margin: 0, color: "#17324d" }}>Stub Information</h3>
           <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-            Select one stub result, then run verification.
+            Click an unclaimed status to mark the stub as claimed.
           </p>
         </div>
+      </div>
 
-        <button
-          type="button"
-          onClick={onVerifySelected}
-          disabled={!selectedStubId || isVerifying}
+      {claimErrorMessage ? (
+        <p
           style={{
-            ...pageHeaderStyles.primaryButton,
-            opacity: !selectedStubId || isVerifying ? 0.7 : 1,
-            cursor: !selectedStubId || isVerifying ? "not-allowed" : "pointer",
+            ...shellStyles.mutedText,
+            marginTop: 0,
+            marginBottom: "16px",
+            color: "#a14d58",
           }}
         >
-          {isVerifying ? "Verifying..." : "Verify Selected Stub"}
-        </button>
-      </div>
+          {claimErrorMessage}
+        </p>
+      ) : null}
 
       <div style={{ overflowX: "auto" }}>
         <table style={tableStyles.table}>
@@ -157,35 +161,48 @@ const StubResultsTable = ({
             <tr>
               <th style={tableStyles.headerCell}>Family Head</th>
               <th style={tableStyles.headerCell}>Stub Number</th>
-              <th style={tableStyles.headerCell}>Affected By</th>
               <th style={tableStyles.headerCell}>Sectors</th>
               <th style={tableStyles.headerCell}>Status</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr
-                key={row.id}
-                onClick={() => onSelectStub(row)}
-                style={row.id === selectedStubId ? tableStyles.selectedRow : undefined}
-              >
-                <td style={{ ...tableStyles.bodyCell, cursor: "pointer" }}>
+              <tr key={row.id}>
+                <td style={tableStyles.bodyCell}>
                   <strong style={{ display: "block", marginBottom: "4px" }}>
                     {row.household.family_head_name}
                   </strong>
-                  <span style={{ color: "#69839c" }}>{row.serial_no}</span>
+                  <span style={{ color: "#69839c" }}>
+                    {row.household.members_count || 0} members
+                  </span>
                 </td>
-                <td style={{ ...tableStyles.bodyCell, cursor: "pointer" }}>
-                  {row.stub_no}
+                <td style={tableStyles.bodyCell}>
+                  {row.stub_sequence_no}
                 </td>
-                <td style={{ ...tableStyles.bodyCell, cursor: "pointer" }}>
-                  {row.disaster_event?.title || "--"}
+                <td style={tableStyles.bodyCell}>
+                  {row.sectors_text}
                 </td>
-                <td style={{ ...tableStyles.bodyCell, cursor: "pointer" }}>
-                  --
-                </td>
-                <td style={{ ...tableStyles.bodyCell, cursor: "pointer" }}>
-                  <span style={getStatusChipStyles(row.status)}>{row.status}</span>
+                <td style={tableStyles.bodyCell}>
+                  {row.status === "ISSUED" ? (
+                    <button
+                      type="button"
+                      onClick={() => onClaimStub(row.id)}
+                      disabled={claimingStubId === row.id}
+                      style={{
+                        ...tableStyles.statusButton,
+                        opacity: claimingStubId === row.id ? 0.7 : 1,
+                        cursor: claimingStubId === row.id ? "wait" : "pointer",
+                      }}
+                    >
+                      <span style={getStatusChipStyles(row.status)}>
+                        {claimingStubId === row.id ? "Claiming..." : getStatusLabel(row.status)}
+                      </span>
+                    </button>
+                  ) : (
+                    <span style={getStatusChipStyles(row.status)}>
+                      {getStatusLabel(row.status)}
+                    </span>
+                  )}
                 </td>
               </tr>
             ))}

@@ -1,7 +1,37 @@
+const masterlistRepository = require("../repositories/masterlist.repository");
 const stubRepository = require("../repositories/stub.repository");
+
+const isOverrideAllowed = process.env.NODE_ENV !== "production";
 
 const buildFullName = (firstName, middleName, lastName, suffix) => {
   return [firstName, middleName, lastName, suffix].filter(Boolean).join(" ");
+};
+
+const buildSectorsText = (householdId, householdSectorsByHouseholdId, memberSectorsByHouseholdId) => {
+  const householdSectorNames = (householdSectorsByHouseholdId[householdId] || []).map(
+    (sector) => sector.name,
+  );
+  const memberSectorNames = (memberSectorsByHouseholdId[householdId] || []).map(
+    (sector) => sector.name,
+  );
+  const uniqueSectorNames = [
+    ...new Set([...householdSectorNames, ...memberSectorNames]),
+  ];
+
+  return uniqueSectorNames.length > 0 ? uniqueSectorNames.join(", ") : "-";
+};
+
+const groupByKey = (items, keyName) => {
+  return items.reduce((groups, item) => {
+    const key = item[keyName];
+
+    if (!groups[key]) {
+      groups[key] = [];
+    }
+
+    groups[key].push(item);
+    return groups;
+  }, {});
 };
 
 const formatSearchResult = (stub) => {
@@ -47,6 +77,180 @@ const getSearchResults = async (filters) => {
     filters,
     count: stubs.length,
     data: stubs.map(formatSearchResult),
+  };
+};
+
+const resolveEffectiveBarangay = async (filters) => {
+  const userScope = filters.user_id
+    ? await masterlistRepository.getBarangayUserScopeById(filters.user_id)
+    : null;
+
+  if (filters.user_id && !userScope) {
+    const error = new Error("Barangay user not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (
+    userScope &&
+    userScope.role_code !== masterlistRepository.BARANGAY_ROLE_CODE
+  ) {
+    const error = new Error("Only Barangay users can access this dashboard");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  let effectiveBarangay = null;
+
+  if (filters.override_barangay_id) {
+    if (!isOverrideAllowed) {
+      const error = new Error("Barangay override is only available outside production");
+      error.statusCode = 403;
+      error.code = "BARANGAY_OVERRIDE_NOT_ALLOWED";
+      throw error;
+    }
+
+    effectiveBarangay = await masterlistRepository.getBarangaySummaryById(
+      filters.override_barangay_id,
+    );
+
+    if (!effectiveBarangay || effectiveBarangay.is_active === false) {
+      const error = new Error("override_barangay_id is invalid");
+      error.statusCode = 400;
+      error.code = "INVALID_OVERRIDE_BARANGAY";
+      throw error;
+    }
+  } else if (userScope?.default_barangay_id) {
+    effectiveBarangay = await masterlistRepository.getBarangaySummaryById(
+      userScope.default_barangay_id,
+    );
+  }
+
+  if (!effectiveBarangay) {
+    const error = new Error("No assigned barangay. Please contact administrator.");
+    error.statusCode = 400;
+    error.code = "NO_ASSIGNED_BARANGAY";
+    throw error;
+  }
+
+  return {
+    userScope,
+    effectiveBarangay,
+  };
+};
+
+const getBarangayStubDashboard = async (filters) => {
+  const { userScope, effectiveBarangay } =
+    await resolveEffectiveBarangay(filters);
+
+  const scopedDisasterEvent =
+    await masterlistRepository.getBarangayScopedDisasterEventById(
+      filters.disaster_event_id,
+      effectiveBarangay.id,
+    );
+
+  if (!scopedDisasterEvent) {
+    const error = new Error(
+      "No data available for this barangay and selected disaster event.",
+    );
+    error.statusCode = 404;
+    error.code = "NO_STUB_EVENT_DATA";
+    throw error;
+  }
+
+  const metrics = await stubRepository.getStubDashboardMetrics(
+    filters.disaster_event_id,
+    effectiveBarangay.id,
+  );
+  const rows = await stubRepository.getBarangayStubDashboardRows(
+    filters.disaster_event_id,
+    effectiveBarangay.id,
+  );
+  const householdIds = rows.map((row) => row.household_id);
+  const householdSectors =
+    await stubRepository.getHouseholdSectorsByHouseholdIds(householdIds);
+  const memberSectors =
+    await stubRepository.getMemberSectorsByHouseholdIds(householdIds);
+  const householdSectorsByHouseholdId = groupByKey(
+    householdSectors,
+    "household_id",
+  );
+  const memberSectorsByHouseholdId = groupByKey(
+    memberSectors,
+    "household_id",
+  );
+
+  return {
+    assigned_barangay: {
+      id: effectiveBarangay.id,
+      code: effectiveBarangay.code,
+      name: effectiveBarangay.name,
+    },
+    assigned_barangay_id: userScope?.default_barangay_id || null,
+    is_dev_override: Boolean(
+      filters.override_barangay_id &&
+      effectiveBarangay.id === filters.override_barangay_id,
+    ),
+    disaster_event: scopedDisasterEvent,
+    metrics,
+    count: rows.length,
+    data: rows.map((row) => ({
+      id: row.id,
+      stub_no: row.stub_no,
+      serial_no: row.serial_no,
+      stub_sequence_no: row.stub_sequence_no,
+      status: row.status,
+      issued_at: row.issued_at,
+      household: {
+        id: row.household_id,
+        family_head_name: buildFullName(
+          row.family_head_first_name,
+          row.family_head_middle_name,
+          row.family_head_last_name,
+          row.family_head_suffix,
+        ),
+        members_count: row.members_count,
+      },
+      sectors_text: buildSectorsText(
+        row.household_id,
+        householdSectorsByHouseholdId,
+        memberSectorsByHouseholdId,
+      ),
+    })),
+  };
+};
+
+const claimBarangayStub = async (params) => {
+  const { effectiveBarangay } = await resolveEffectiveBarangay(params);
+  const scopedStub = await stubRepository.getScopedStubById(
+    params.id,
+    effectiveBarangay.id,
+  );
+
+  if (!scopedStub) {
+    const error = new Error("Stub not found for this barangay");
+    error.statusCode = 404;
+    error.code = "STUB_NOT_FOUND";
+    throw error;
+  }
+
+  if (scopedStub.status !== "ISSUED") {
+    const error = new Error("Only unclaimed stubs can be marked as claimed.");
+    error.statusCode = 409;
+    error.code = "STUB_ALREADY_CLAIMED";
+    throw error;
+  }
+
+  const updatedStub = await stubRepository.markStubAsClaimed(params.id);
+
+  return {
+    message: "Stub marked as claimed successfully.",
+    data: {
+      id: updatedStub.id,
+      status: updatedStub.status,
+      claimed_at: updatedStub.claimed_at,
+      updated_at: updatedStub.updated_at,
+    },
   };
 };
 
@@ -166,7 +370,9 @@ const verifyStub = async (identifier) => {
 };
 
 module.exports = {
+  getBarangayStubDashboard,
   getSearchResults,
   getStubDetails,
   verifyStub,
+  claimBarangayStub,
 };

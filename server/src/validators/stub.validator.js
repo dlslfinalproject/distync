@@ -42,6 +42,60 @@ const validateStubSearch = (req, res, next) => {
   }
 };
 
+const validateGetBarangayStubDashboard = (req, res, next) => {
+  try {
+    const { user_id, disaster_event_id, override_barangay_id } = req.query;
+
+    const hasUserId =
+      user_id !== undefined &&
+      user_id !== null &&
+      user_id !== "";
+
+    if (hasUserId && !isValidUuid(user_id)) {
+      return res.status(400).json({
+        message: "user_id must be a valid UUID when provided",
+      });
+    }
+
+    if (!isValidUuid(disaster_event_id)) {
+      return res.status(400).json({
+        message: "disaster_event_id is required and must be a valid UUID",
+      });
+    }
+
+    if (
+      override_barangay_id !== undefined &&
+      override_barangay_id !== null &&
+      override_barangay_id !== "" &&
+      !isValidUuid(override_barangay_id)
+    ) {
+      return res.status(400).json({
+        message: "override_barangay_id must be a valid UUID when provided",
+      });
+    }
+
+    if (!hasUserId && !override_barangay_id) {
+      return res.status(400).json({
+        error: "NO_ASSIGNED_BARANGAY",
+        message: "No assigned barangay. Please contact administrator.",
+      });
+    }
+
+    req.validatedQuery = {
+      user_id: hasUserId ? user_id : null,
+      disaster_event_id,
+      override_barangay_id: override_barangay_id || null,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate stub dashboard request",
+      error: error.message,
+    });
+  }
+};
+
 const validateStubId = (req, res, next) => {
   try {
     const { id } = req.params;
@@ -89,8 +143,65 @@ const validateStubVerify = (req, res, next) => {
   }
 };
 
+const validateClaimBarangayStub = (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { user_id, override_barangay_id } = req.body;
+
+    const hasUserId =
+      user_id !== undefined &&
+      user_id !== null &&
+      user_id !== "";
+
+    if (!isValidUuid(id)) {
+      return res.status(400).json({
+        message: "id must be a valid UUID",
+      });
+    }
+
+    if (hasUserId && !isValidUuid(user_id)) {
+      return res.status(400).json({
+        message: "user_id must be a valid UUID when provided",
+      });
+    }
+
+    if (
+      override_barangay_id !== undefined &&
+      override_barangay_id !== null &&
+      override_barangay_id !== "" &&
+      !isValidUuid(override_barangay_id)
+    ) {
+      return res.status(400).json({
+        message: "override_barangay_id must be a valid UUID when provided",
+      });
+    }
+
+    if (!hasUserId && !override_barangay_id) {
+      return res.status(400).json({
+        error: "NO_ASSIGNED_BARANGAY",
+        message: "No assigned barangay. Please contact administrator.",
+      });
+    }
+
+    req.validatedBody = {
+      id,
+      user_id: hasUserId ? user_id : null,
+      override_barangay_id: override_barangay_id || null,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate stub claim request",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
+  validateGetBarangayStubDashboard,
   validateStubSearch,
   validateStubId,
   validateStubVerify,
+  validateClaimBarangayStub,
 };
