@@ -1,10 +1,27 @@
 import React, { useEffect, useState } from "react";
-import { pageHeaderStyles } from "../layout/PageHeader";
+
+const COLORS = {
+  primary: "#17324d",
+  secondary: "#334155",
+  muted: "#6b8298",
+  label: "#475569",
+  border: "#dce7f3",
+  borderSoft: "#e2e8f0",
+  bg: "#ffffff",
+  bgSoft: "#f8fbff",
+  bgInput: "#f8fafc",
+  overlay: "rgba(15, 23, 42, 0.42)",
+  dangerBg: "#fff1f2",
+  dangerText: "#e11d48",
+  dangerBorder: "#ffe4e6",
+  primaryBtn: "#3d4f78",
+  secondaryBtn: "#e5e7eb",
+};
 
 const overlayStyles = {
   position: "fixed",
   inset: 0,
-  backgroundColor: "rgba(21, 40, 63, 0.48)",
+  backgroundColor: COLORS.overlay,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -17,36 +34,104 @@ const modalStyles = {
   width: "min(780px, 100%)",
   maxHeight: "90vh",
   overflowY: "auto",
-  backgroundColor: "#ffffff",
-  borderRadius: "24px",
-  border: "1px solid #d7e2ef",
+  backgroundColor: COLORS.bg,
+  borderRadius: "20px",
+  border: `1px solid ${COLORS.border}`,
   boxShadow: "0 24px 60px rgba(23, 50, 77, 0.22)",
-  padding: "32px",
+  padding: "28px 28px 24px",
   boxSizing: "border-box",
 };
 
 const inputStyles = {
   width: "100%",
-  minHeight: "48px",
-  padding: "12px 16px",
+  minHeight: "46px",
+  padding: "12px 14px",
   borderRadius: "12px",
-  border: "1.5px solid #e2e8f0",
+  border: `1px solid ${COLORS.borderSoft}`,
   boxSizing: "border-box",
-  fontSize: "15px",
-  color: "#1e293b",
-  backgroundColor: "#f8fafc",
-  transition: "border-color 0.2s ease",
+  fontSize: "14px",
+  fontWeight: 500,
+  color: COLORS.secondary,
+  backgroundColor: COLORS.bgInput,
   outline: "none",
+  transition: "border-color 0.2s ease, box-shadow 0.2s ease",
 };
 
 const labelStyles = {
   display: "block",
   marginBottom: "8px",
-  color: "#475569",
-  fontSize: "13px",
-  fontWeight: 600,
+  color: COLORS.label,
+  fontSize: "12px",
+  fontWeight: 700,
   textTransform: "uppercase",
-  letterSpacing: "0.025em",
+  letterSpacing: "0.04em",
+};
+
+const sectionHeaderStyles = {
+  marginBottom: "28px",
+  borderBottom: "1px solid #edf2f7",
+  paddingBottom: "18px",
+};
+
+const titleStyles = {
+  margin: 0,
+  color: COLORS.primary,
+  fontSize: "24px",
+  fontWeight: 700,
+  lineHeight: 1.2,
+};
+
+const subtitleStyles = {
+  margin: "6px 0 0",
+  color: COLORS.muted,
+  fontSize: "14px",
+  fontWeight: 500,
+};
+
+const footerStyles = {
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: "12px",
+  marginTop: "36px",
+  borderTop: "1px solid #edf2f7",
+  paddingTop: "22px",
+  flexWrap: "wrap",
+};
+
+const cancelButtonStyles = {
+  border: "none",
+  borderRadius: "999px",
+  padding: "12px 22px",
+  backgroundColor: COLORS.secondaryBtn,
+  color: COLORS.secondary,
+  fontSize: "14px",
+  fontWeight: 600,
+  cursor: "pointer",
+  minWidth: "120px",
+};
+
+const submitButtonStyles = (isSubmitting) => ({
+  border: "none",
+  borderRadius: "999px",
+  padding: "12px 24px",
+  backgroundColor: COLORS.primaryBtn,
+  color: "#ffffff",
+  fontSize: "14px",
+  fontWeight: 600,
+  cursor: isSubmitting ? "not-allowed" : "pointer",
+  opacity: isSubmitting ? 0.7 : 1,
+  minWidth: "160px",
+});
+
+const errorBoxStyles = {
+  marginTop: "22px",
+  padding: "12px 14px",
+  borderRadius: "10px",
+  backgroundColor: COLORS.dangerBg,
+  color: COLORS.dangerText,
+  fontSize: "13px",
+  fontWeight: 500,
+  border: `1px solid ${COLORS.dangerBorder}`,
 };
 
 const createDefaultForm = () => ({
@@ -71,13 +156,14 @@ const InventoryItemFormModal = ({
 
   useEffect(() => {
     if (!isOpen) return;
+
     if (itemData) {
       setFormValues({
-        item_name: itemData.item_name || "",
+        item_name: itemData.item_name || itemData.name || "",
         quantity: itemData.quantity || "",
-        unit_of_measure: itemData.unit_of_measure || "",
+        unit_of_measure: itemData.unit_of_measure || itemData.unit || "",
         category: itemData.category || "perishable",
-        expiration_date: itemData.expiration_date || "",
+        expiration_date: itemData.expiration_date || itemData.expiryDate || "",
         reorder_level: itemData.reorder_level || "",
       });
     } else {
@@ -99,22 +185,19 @@ const InventoryItemFormModal = ({
   return (
     <div style={overlayStyles} onClick={onClose}>
       <div style={modalStyles} onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div style={{ marginBottom: "32px", borderBottom: "1px solid #f1f5f9", paddingBottom: "20px" }}>
-          <h3 style={{ margin: 0, color: "#0f172a", fontSize: "24px", fontWeight: 700 }}>
+        <div style={sectionHeaderStyles}>
+          <h3 style={titleStyles}>
             {mode === "edit" ? "Edit Inventory Item" : "Add Item"}
           </h3>
-          <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: "14px" }}>
-            Item Information
-          </p>
+          <p style={subtitleStyles}>Item Information</p>
         </div>
 
         <form onSubmit={handleSubmit}>
-          <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-            
-            {/* Row 1: Item Name */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "22px" }}>
             <div>
-              <label htmlFor="item_name" style={labelStyles}>Item Name</label>
+              <label htmlFor="item_name" style={labelStyles}>
+                Item Name
+              </label>
               <input
                 id="item_name"
                 placeholder="e.g. Canned Goods"
@@ -125,10 +208,17 @@ const InventoryItemFormModal = ({
               />
             </div>
 
-            {/* Row 2: Quantity, UOM, Reorder Level */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px" }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                gap: "16px",
+              }}
+            >
               <div>
-                <label htmlFor="quantity" style={labelStyles}>Quantity</label>
+                <label htmlFor="quantity" style={labelStyles}>
+                  Quantity
+                </label>
                 <input
                   id="quantity"
                   type="number"
@@ -139,33 +229,50 @@ const InventoryItemFormModal = ({
                   required
                 />
               </div>
+
               <div>
-                <label htmlFor="unit_of_measure" style={labelStyles}>Unit (UOM)</label>
+                <label htmlFor="unit_of_measure" style={labelStyles}>
+                  Unit (UOM)
+                </label>
                 <input
                   id="unit_of_measure"
                   placeholder="pcs, kg, etc."
                   value={formValues.unit_of_measure}
-                  onChange={(e) => handleChange("unit_of_measure", e.target.value)}
+                  onChange={(e) =>
+                    handleChange("unit_of_measure", e.target.value)
+                  }
                   style={inputStyles}
                 />
               </div>
+
               <div>
-                <label htmlFor="reorder_level" style={labelStyles}>Reorder Level</label>
+                <label htmlFor="reorder_level" style={labelStyles}>
+                  Reorder Level
+                </label>
                 <input
                   id="reorder_level"
                   type="number"
                   placeholder="Low stock alert"
                   value={formValues.reorder_level}
-                  onChange={(e) => handleChange("reorder_level", e.target.value)}
+                  onChange={(e) =>
+                    handleChange("reorder_level", e.target.value)
+                  }
                   style={inputStyles}
                 />
               </div>
             </div>
 
-            {/* Row 3: Category & Expiration Date */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                gap: "16px",
+              }}
+            >
               <div>
-                <label htmlFor="category" style={labelStyles}>Category</label>
+                <label htmlFor="category" style={labelStyles}>
+                  Category
+                </label>
                 <select
                   id="category"
                   value={formValues.category}
@@ -176,55 +283,44 @@ const InventoryItemFormModal = ({
                   <option value="non-perishable">Non-Perishable</option>
                 </select>
               </div>
+
               <div>
-                <label htmlFor="expiration_date" style={labelStyles}>Expiration Date</label>
+                <label htmlFor="expiration_date" style={labelStyles}>
+                  Expiration Date
+                </label>
                 <input
                   id="expiration_date"
                   type="date"
                   value={formValues.expiration_date}
-                  onChange={(e) => handleChange("expiration_date", e.target.value)}
+                  onChange={(e) =>
+                    handleChange("expiration_date", e.target.value)
+                  }
                   style={inputStyles}
                 />
               </div>
             </div>
           </div>
 
-          {errorMessage && (
-            <div style={{ marginTop: "24px", padding: "12px", borderRadius: "8px", backgroundColor: "#fff1f2", color: "#e11d48", fontSize: "14px", border: "1px solid #ffe4e6" }}>
-              {errorMessage}
-            </div>
-          )}
+          {errorMessage && <div style={errorBoxStyles}>{errorMessage}</div>}
 
-          {/* Footer Actions */}
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px", marginTop: "40px", borderTop: "1px solid #f1f5f9", paddingTop: "24px" }}>
+          <div style={footerStyles}>
             <button
               type="button"
               onClick={onClose}
-              style={{
-                ...pageHeaderStyles.secondaryButton,
-                padding: "12px 24px",
-                borderRadius: "12px",
-                fontWeight: 600,
-              }}
+              style={cancelButtonStyles}
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              style={{
-                ...pageHeaderStyles.primaryButton,
-                padding: "12px 32px",
-                borderRadius: "12px",
-                fontWeight: 600,
-                backgroundColor: "#2563eb",
-                color: "#fff",
-                border: "none",
-                cursor: isSubmitting ? "not-allowed" : "pointer",
-                opacity: isSubmitting ? 0.7 : 1,
-              }}
+              style={submitButtonStyles(isSubmitting)}
             >
-              {isSubmitting ? "Processing..." : mode === "edit" ? "Save Changes" : "Add to Inventory"}
+              {isSubmitting
+                ? "Processing..."
+                : mode === "edit"
+                ? "Save Changes"
+                : "Add to Inventory"}
             </button>
           </div>
         </form>
@@ -233,4 +329,4 @@ const InventoryItemFormModal = ({
   );
 };
 
-export default InventoryItemFormModal;
+export default InventoryItemFormModal; 
