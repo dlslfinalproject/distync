@@ -27,7 +27,7 @@ const StubSearchBar = ({
               onSearchSubmit();
             }
           }}
-          placeholder="Search stub number, serial number, or family head"
+          placeholder="Search stub number or family head"
         />
       </div>
 
