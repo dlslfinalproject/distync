@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import PageHeader from "../../components/layout/PageHeader";
 import BarangayDashboardOverview from "../../components/barangay-dashboard/BarangayDashboardOverview";
 import { shellStyles } from "../../components/layout/BarangayLayout";
+import MasterlistDepartureConfirmModal from "../../components/masterlist/MasterlistDepartureConfirmModal";
 import MasterlistTable from "../../components/masterlist/MasterlistTable";
 import MasterlistToolbar from "../../components/masterlist/MasterlistToolbar";
 import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
@@ -36,6 +37,8 @@ const BarangayMasterlistPage = () => {
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [registrationSuccessMessage, setRegistrationSuccessMessage] = useState("");
   const [attendanceActionMessage, setAttendanceActionMessage] = useState("");
+  const [pendingDepartureHouseholdId, setPendingDepartureHouseholdId] = useState("");
+  const [isRecordingDeparture, setIsRecordingDeparture] = useState(false);
 
   const {
     accessMode,
@@ -84,25 +87,45 @@ const BarangayMasterlistPage = () => {
     return getFilteredRows(data.rows, searchTerm);
   }, [data.rows, searchTerm]);
 
-  const handleMarkDeparted = async (householdId) => {
-    const confirmed = window.confirm(
-      "Mark this registered family as departed and record the current departure time?",
-    );
-
-    if (!confirmed) {
+  const handleOpenDepartureConfirmation = (householdId) => {
+    if (isRecordingDeparture) {
       return;
     }
 
+    setPendingDepartureHouseholdId(householdId);
+  };
+
+  const handleCancelDeparture = () => {
+    if (isRecordingDeparture) {
+      return;
+    }
+
+    setPendingDepartureHouseholdId("");
+  };
+
+  const handleConfirmDeparture = async () => {
+    if (!pendingDepartureHouseholdId || isRecordingDeparture) {
+      return;
+    }
+
+    setIsRecordingDeparture(true);
+
     try {
-      const response = await departHousehold({ householdId });
+      const response = await departHousehold({
+        householdId: pendingDepartureHouseholdId,
+      });
       setAttendanceActionMessage(
         response.message || "Household departure recorded successfully",
       );
       reloadMasterlist();
+      setPendingDepartureHouseholdId("");
     } catch (error) {
       setAttendanceActionMessage(
         error.message || "Failed to record household departure",
       );
+    }
+    finally {
+      setIsRecordingDeparture(false);
     }
   };
 
@@ -162,13 +185,20 @@ const BarangayMasterlistPage = () => {
         isLoading={isLoading}
         errorMessage={errorMessage}
         hasSelectedEvent={hasSelectedEvent}
-        onMarkDeparted={handleMarkDeparted}
+        onMarkDeparted={handleOpenDepartureConfirmation}
       />
 
       <RegisterFamilyModal
         isOpen={isRegisterModalOpen}
         onClose={() => setIsRegisterModalOpen(false)}
         form={registrationForm}
+      />
+
+      <MasterlistDepartureConfirmModal
+        isOpen={Boolean(pendingDepartureHouseholdId)}
+        isSubmitting={isRecordingDeparture}
+        onCancel={handleCancelDeparture}
+        onConfirm={handleConfirmDeparture}
       />
     </>
   );
