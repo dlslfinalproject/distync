@@ -119,42 +119,63 @@ const MembersSection = ({ form }) => {
               </button>
             </div>
 
-            <div style={fieldStyles.grid}>
+            {/* NAME ROW */}
+            <div
+              style={{
+                ...fieldStyles.grid,
+                gridTemplateColumns: "repeat(4, 1fr)",
+              }}
+            >
               <label style={fieldStyles.field}>
                 <span style={fieldStyles.label}>First Name</span>
                 <input
                   type="text"
                   value={member.first_name}
                   onChange={(event) =>
-                    form.updateMemberField(index, "first_name", event.target.value)
+                    form.updateMemberField(
+                      index,
+                      "first_name",
+                      event.target.value,
+                    )
                   }
                   style={fieldStyles.input}
                 />
               </label>
+
               <label style={fieldStyles.field}>
                 <span style={fieldStyles.label}>Middle Name</span>
                 <input
                   type="text"
                   value={member.middle_name}
                   onChange={(event) =>
-                    form.updateMemberField(index, "middle_name", event.target.value)
+                    form.updateMemberField(
+                      index,
+                      "middle_name",
+                      event.target.value,
+                    )
                   }
                   style={fieldStyles.input}
                 />
               </label>
+
               <label style={fieldStyles.field}>
                 <span style={fieldStyles.label}>Last Name</span>
                 <input
                   type="text"
                   value={member.last_name}
                   onChange={(event) =>
-                    form.updateMemberField(index, "last_name", event.target.value)
+                    form.updateMemberField(
+                      index,
+                      "last_name",
+                      event.target.value,
+                    )
                   }
                   style={fieldStyles.input}
                 />
               </label>
+
               <label style={fieldStyles.field}>
-                <span style={fieldStyles.label}>Suffix (If Applicable) </span>
+                <span style={fieldStyles.label}>Suffix (If Applicable)</span>
                 <input
                   type="text"
                   value={member.suffix}
@@ -164,6 +185,54 @@ const MembersSection = ({ form }) => {
                   style={fieldStyles.input}
                 />
               </label>
+            </div>
+
+            {/* AGE + DETAILS ROW */}
+            <div
+              style={{
+                ...fieldStyles.grid,
+                marginTop: "14px",
+                gridTemplateColumns: "repeat(4, minmax(140px, 1fr))",
+              }}
+            >
+              <label style={fieldStyles.field}>
+                <span style={fieldStyles.label}>Age</span>
+                <input
+                  type="number"
+                  min="0"
+                  value={member.age_value}
+                  onChange={(event) =>
+                    form.updateMemberField(
+                      index,
+                      "age_value",
+                      event.target.value,
+                    )
+                  }
+                  style={fieldStyles.input}
+                />
+              </label>
+
+              <label style={fieldStyles.field}>
+                <span style={fieldStyles.label}>Age Unit</span>
+                <select
+                  value={member.age_unit}
+                  onChange={(event) =>
+                    form.updateMemberField(
+                      index,
+                      "age_unit",
+                      event.target.value,
+                    )
+                  }
+                  style={fieldStyles.input}
+                >
+                  {AGE_UNIT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
               <label style={fieldStyles.field}>
                 <span style={fieldStyles.label}>Sex</span>
                 <select
@@ -177,34 +246,7 @@ const MembersSection = ({ form }) => {
                   <option value="FEMALE">FEMALE</option>
                 </select>
               </label>
-              <label style={fieldStyles.field}>
-                <span style={fieldStyles.label}>Age</span>
-                <input
-                  type="number"
-                  min="0"
-                  value={member.age_value}
-                  onChange={(event) =>
-                    form.updateMemberField(index, "age_value", event.target.value)
-                  }
-                  style={fieldStyles.input}
-                />
-              </label>
-              <label style={fieldStyles.field}>
-                <span style={fieldStyles.label}>Age Unit</span>
-                <select
-                  value={member.age_unit}
-                  onChange={(event) =>
-                    form.updateMemberField(index, "age_unit", event.target.value)
-                  }
-                  style={fieldStyles.input}
-                >
-                  {AGE_UNIT_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+
               <label style={fieldStyles.field}>
                 <span style={fieldStyles.label}>Relationship to Head</span>
                 <select
@@ -226,9 +268,13 @@ const MembersSection = ({ form }) => {
                   ))}
                 </select>
               </label>
-              {member.relationship_option === "OTHERS" ? (
+            </div>
+
+            {/* CUSTOM RELATIONSHIP */}
+            {member.relationship_option === "OTHERS" ? (
+              <div style={{ marginTop: "14px", maxWidth: "320px" }}>
                 <label style={fieldStyles.field}>
-                  <span style={fieldStyles.label}>Custom Relationship</span>
+                  <span style={fieldStyles.label}>Relationship</span>
                   <input
                     type="text"
                     value={member.custom_relationship}
@@ -242,8 +288,8 @@ const MembersSection = ({ form }) => {
                     style={fieldStyles.input}
                   />
                 </label>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
 
             <div style={{ marginTop: "16px" }}>
               <p style={{ ...shellStyles.mutedText, fontWeight: 700 }}>
@@ -259,27 +305,30 @@ const MembersSection = ({ form }) => {
               >
                 {form.memberSectorOptions.map((sector) => {
                   const sectorCode = getCanonicalMemberSectorCode(sector.code);
-                  const isAgeBasedSector = isAgeBasedMemberSectorCode(sectorCode);
+                  const isAgeBasedSector =
+                    isAgeBasedMemberSectorCode(sectorCode);
                   const isChecked = isAgeBasedSector
                     ? sectorCode === member.derived_age_sector_code
                     : member.sector_ids.includes(sector.id);
 
                   return (
-                  <label
-                    key={sector.id}
-                    style={{
-                      ...fieldStyles.checkboxLabel,
-                      opacity: isAgeBasedSector && !isChecked ? 0.8 : 1,
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      disabled={isAgeBasedSector}
-                      onChange={() => form.toggleMemberSector(index, sector.id)}
-                    />
-                    {formatMemberSectorLabel(sector)}
-                  </label>
+                    <label
+                      key={sector.id}
+                      style={{
+                        ...fieldStyles.checkboxLabel,
+                        opacity: isAgeBasedSector && !isChecked ? 0.8 : 1,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        disabled={isAgeBasedSector}
+                        onChange={() =>
+                          form.toggleMemberSector(index, sector.id)
+                        }
+                      />
+                      {formatMemberSectorLabel(sector)}
+                    </label>
                   );
                 })}
               </div>

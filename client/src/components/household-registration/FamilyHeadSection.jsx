@@ -45,6 +45,14 @@ const fieldStyles = {
     boxSizing: "border-box",
     width: "100%",
   },
+  checkboxLabel: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "8px",
+    color: "#4a6480",
+    fontSize: "13px",
+    fontWeight: 600,
+  },
 };
 
 const FamilyHeadSection = ({ form }) => {
@@ -154,16 +162,7 @@ const FamilyHeadSection = ({ form }) => {
               <label
                 key={sector.id}
                 style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  border: "1px solid #d4dfeb",
-                  borderRadius: "999px",
-                  padding: "10px 14px",
-                  backgroundColor: "#f8fbfe",
-                  color: "#385a7b",
-                  fontSize: "13px",
-                  fontWeight: 600,
+                  ...fieldStyles.checkboxLabel,
                   opacity: isAgeBasedSector && !isChecked ? 0.8 : 1,
                 }}
               >
