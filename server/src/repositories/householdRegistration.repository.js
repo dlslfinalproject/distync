@@ -99,17 +99,16 @@ const getSectorsByCodes = async (sectorCodes) => {
   return result.rows;
 };
 
-const getNextStubSequence = async (year, dbClient) => {
-  const stubPrefix = `STUB-${year}-%`;
-
+const generateStubNumbers = async (dbClient) => {
   const query = `
-    SELECT COUNT(*)::int AS total
-    FROM stubs
-    WHERE stub_no LIKE $1
+    SELECT
+      stub_no,
+      serial_no
+    FROM generate_stub_numbers_safe()
   `;
 
-  const result = await dbClient.query(query, [stubPrefix]);
-  return result.rows[0].total + 1;
+  const result = await dbClient.query(query);
+  return result.rows[0] || null;
 };
 
 const insertHousehold = async (householdData, dbClient) => {
@@ -603,7 +602,7 @@ module.exports = {
   getEvacuationCenterById,
   getSectorsByIds,
   getSectorsByCodes,
-  getNextStubSequence,
+  generateStubNumbers,
   insertHousehold,
   insertEvacuee,
   updateHouseholdFamilyHeadEvacueeId,

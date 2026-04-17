@@ -46,7 +46,6 @@ const labelStyles = {
 };
 
 const createDefaultForm = () => ({
-  event_code: "",
   event_name: "",
   disaster_type: "",
   start_date: "",
@@ -97,11 +96,6 @@ const DisasterEventFormModal = ({
   const handleSubmit = (event) => {
     event.preventDefault();
 
-    if (!formValues.event_code.trim()) {
-      setValidationMessage("event_code is required.");
-      return;
-    }
-
     if (!formValues.event_name.trim()) {
       setValidationMessage("event_name is required.");
       return;
@@ -128,11 +122,12 @@ const DisasterEventFormModal = ({
     setValidationMessage("");
 
     onSubmit({
-      event_code: formValues.event_code.trim(),
-      event_name: formValues.event_name.trim(),
+      title: formValues.event_name.trim(),
       disaster_type: formValues.disaster_type.trim(),
+      description: null,
       start_date: formValues.start_date,
       end_date: formValues.end_date || null,
+      status: "ACTIVE",
       created_by: null,
       barangay_ids: formValues.barangay_ids,
     });
