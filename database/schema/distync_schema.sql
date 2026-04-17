@@ -121,6 +121,79 @@ CREATE TABLE disaster_event_barangays (
     CONSTRAINT uq_disaster_event_barangay UNIQUE (disaster_event_id, barangay_id)
 );
 
+CREATE TABLE disaster_event_code_counters (
+    event_year INTEGER PRIMARY KEY,
+    last_number INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE OR REPLACE FUNCTION generate_disaster_event_code_safe(p_start_date DATE)
+RETURNS VARCHAR(100)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_event_year INTEGER := EXTRACT(YEAR FROM COALESCE(p_start_date, CURRENT_DATE));
+    v_next_number INTEGER;
+BEGIN
+    LOOP
+        UPDATE disaster_event_code_counters
+        SET
+            last_number = last_number + 1,
+            updated_at = NOW()
+        WHERE event_year = v_event_year
+        RETURNING last_number INTO v_next_number;
+
+        IF FOUND THEN
+            EXIT;
+        END IF;
+
+        BEGIN
+            INSERT INTO disaster_event_code_counters (
+                event_year,
+                last_number,
+                updated_at
+            )
+            VALUES (
+                v_event_year,
+                1,
+                NOW()
+            )
+            RETURNING last_number INTO v_next_number;
+
+            EXIT;
+        EXCEPTION
+            WHEN unique_violation THEN
+                NULL;
+        END;
+    END LOOP;
+
+    RETURN FORMAT(
+        'DE-%s-%s',
+        v_event_year,
+        LPAD(v_next_number::TEXT, 4, '0')
+    );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION trg_set_disaster_event_code_safe()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF NEW.event_code IS NULL OR BTRIM(NEW.event_code) = '' THEN
+        NEW.event_code := generate_disaster_event_code_safe(NEW.start_date);
+    END IF;
+
+    NEW.updated_at := NOW();
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER before_insert_disaster_event_code_safe
+BEFORE INSERT ON disaster_events
+FOR EACH ROW
+EXECUTE FUNCTION trg_set_disaster_event_code_safe();
+
 -- =========================================================
 -- 3) BENEFICIARY / EVACUEE TABLES
 -- =========================================================
@@ -240,6 +313,76 @@ CREATE TABLE stubs (
         CHECK (status IN ('ISSUED', 'CLAIMED', 'CANCELLED', 'VOID')),
     CONSTRAINT uq_stub_household_event UNIQUE (disaster_event_id, household_id)
 );
+
+CREATE TABLE stub_code_counters (
+    stub_year INTEGER PRIMARY KEY,
+    last_number INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE OR REPLACE FUNCTION reserve_next_stub_sequence_safe(p_reference_date DATE DEFAULT CURRENT_DATE)
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_stub_year INTEGER := EXTRACT(YEAR FROM COALESCE(p_reference_date, CURRENT_DATE));
+    v_next_number INTEGER;
+BEGIN
+    LOOP
+        UPDATE stub_code_counters
+        SET
+            last_number = last_number + 1,
+            updated_at = NOW()
+        WHERE stub_year = v_stub_year
+        RETURNING last_number INTO v_next_number;
+
+        IF FOUND THEN
+            EXIT;
+        END IF;
+
+        BEGIN
+            INSERT INTO stub_code_counters (
+                stub_year,
+                last_number,
+                updated_at
+            )
+            VALUES (
+                v_stub_year,
+                1,
+                NOW()
+            )
+            RETURNING last_number INTO v_next_number;
+
+            EXIT;
+        EXCEPTION
+            WHEN unique_violation THEN
+                NULL;
+        END;
+    END LOOP;
+
+    RETURN v_next_number;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION generate_stub_numbers_safe(p_reference_date DATE DEFAULT CURRENT_DATE)
+RETURNS TABLE (
+    stub_no VARCHAR(100),
+    serial_no VARCHAR(100)
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_stub_year INTEGER := EXTRACT(YEAR FROM COALESCE(p_reference_date, CURRENT_DATE));
+    v_next_number INTEGER;
+BEGIN
+    v_next_number := reserve_next_stub_sequence_safe(p_reference_date);
+
+    RETURN QUERY
+    SELECT
+        FORMAT('STUB-%s-%s', v_stub_year, LPAD(v_next_number::TEXT, 6, '0'))::VARCHAR(100),
+        FORMAT('SER-%s-%s', v_stub_year, LPAD(v_next_number::TEXT, 6, '0'))::VARCHAR(100);
+END;
+$$;
 
 CREATE TABLE evacuation_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

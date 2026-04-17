@@ -102,7 +102,7 @@ const insertDisasterEvent = async (disasterEventData, dbClient) => {
   `;
 
   const values = [
-    disasterEventData.event_code,
+    disasterEventData.event_code || null,
     disasterEventData.title,
     disasterEventData.disaster_type,
     disasterEventData.description,
