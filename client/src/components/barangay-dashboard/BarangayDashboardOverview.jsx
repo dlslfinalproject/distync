@@ -38,14 +38,14 @@ const tabButtonStyles = (isActive) => ({
 
 const formatStatusLabel = (status) => {
   if (status === "ACTIVE") {
-    return "Active";
+    return "ACTIVE";
   }
 
   if (status === "CLOSED" || status === "ARCHIVED") {
-    return "Ended";
+    return "COMPLETED";
   }
 
-  return status || "Unknown";
+  return status || "UNKNOWN";
 };
 
 const formatDisplayDate = (value) => {
@@ -54,8 +54,8 @@ const formatDisplayDate = (value) => {
   }
 
   return new Intl.DateTimeFormat("en-PH", {
-    month: "short",
-    day: "numeric",
+    month: "2-digit",
+    day: "2-digit",
     year: "numeric",
   }).format(new Date(value));
 };
@@ -106,8 +106,7 @@ const BarangayDashboardOverview = ({
   setOverrideBarangayId,
 }) => {
   const scopeLabel = eventScope === "active" ? "Active" : "Ended";
-  const showFallbackOverride =
-    allowFallback && !hasAssignedBarangay;
+  const showFallbackOverride = allowFallback && !hasAssignedBarangay;
 
   let stateMessage = "";
 
@@ -135,6 +134,7 @@ const BarangayDashboardOverview = ({
             borderBottom: "1px solid #d6e2ef",
             marginBottom: "24px",
             gap: "8px",
+            flexWrap: "wrap",
           }}
         >
           <button
@@ -230,72 +230,91 @@ const BarangayDashboardOverview = ({
       <section style={shellStyles.card}>
         <div
           style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: "16px",
+            border: "1px solid #d6e2ef",
+            borderRadius: "16px",
+            padding: "18px 20px",
+            backgroundColor: "#f8fbfe",
           }}
         >
-          <div
+          <p
             style={{
-              border: "1px solid #d6e2ef",
-              borderRadius: "14px",
-              padding: "16px",
-              backgroundColor: "#f8fbfe",
+              margin: 0,
+              color: "#17324d",
+              fontSize: "18px",
+              fontWeight: 800,
+              lineHeight: 1.3,
             }}
           >
-            <p style={shellStyles.mutedText}>Disaster Name</p>
-            <p
-              style={{
-                margin: "8px 0 0",
-                color: "#17324d",
-                fontSize: "20px",
-                fontWeight: 700,
-              }}
-            >
-              {selectedEvent
-                ? `${selectedEvent.event_code} - ${selectedEvent.title}`
-                : "No disaster event selected"}
-            </p>
-          </div>
+            {selectedEvent
+              ? `${selectedEvent.event_code} - ${selectedEvent.title}`
+              : "No disaster event selected"}
+          </p>
+
           <div
             style={{
-              border: "1px solid #d6e2ef",
-              borderRadius: "14px",
-              padding: "16px",
-              backgroundColor: "#f8fbfe",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "24px 48px",
+              marginTop: "14px",
+              alignItems: "center",
             }}
           >
-            <p style={shellStyles.mutedText}>Status</p>
-            <p
+            <div
               style={{
-                margin: "8px 0 0",
-                color: "#17324d",
-                fontSize: "20px",
-                fontWeight: 700,
+                display: "flex",
+                alignItems: "baseline",
+                gap: "8px",
+                flexWrap: "wrap",
               }}
             >
-              {selectedEvent ? formatStatusLabel(selectedEvent.status) : "-"}
-            </p>
-          </div>
-          <div
-            style={{
-              border: "1px solid #d6e2ef",
-              borderRadius: "14px",
-              padding: "16px",
-              backgroundColor: "#f8fbfe",
-            }}
-          >
-            <p style={shellStyles.mutedText}>Relief Period</p>
-            <p
+              <span
+                style={{
+                  color: "#5f7892",
+                  fontSize: "14px",
+                  fontWeight: 500,
+                }}
+              >
+                Period:
+              </span>
+              <span
+                style={{
+                  color: "#17324d",
+                  fontSize: "16px",
+                  fontWeight: 700,
+                }}
+              >
+                {formatReliefPeriod(selectedEvent)}
+              </span>
+            </div>
+
+            <div
               style={{
-                margin: "8px 0 0",
-                color: "#17324d",
-                fontSize: "20px",
-                fontWeight: 700,
+                display: "flex",
+                alignItems: "baseline",
+                gap: "8px",
+                flexWrap: "wrap",
               }}
             >
-              {formatReliefPeriod(selectedEvent)}
-            </p>
+              <span
+                style={{
+                  color: "#5f7892",
+                  fontSize: "14px",
+                  fontWeight: 500,
+                }}
+              >
+                Status:
+              </span>
+              <span
+                style={{
+                  color: "#17324d",
+                  fontSize: "16px",
+                  fontWeight: 800,
+                  letterSpacing: "0.02em",
+                }}
+              >
+                {selectedEvent ? formatStatusLabel(selectedEvent.status) : "-"}
+              </span>
+            </div>
           </div>
         </div>
 

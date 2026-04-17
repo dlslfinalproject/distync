@@ -13,7 +13,7 @@ const parseJsonResponse = async (response, fallbackMessage) => {
 
 const formatDateTime = (value) => {
   if (!value) {
-    return "—";
+    return "-";
   }
 
   return new Intl.DateTimeFormat("en-PH", {
@@ -33,25 +33,29 @@ const buildSectorsText = (household) => {
     (member.sectors || []).map((sector) => sector.name),
   );
 
-  const uniqueSectorNames = [...new Set([...householdSectorNames, ...memberSectorNames])];
+  const uniqueSectorNames = [
+    ...new Set([...householdSectorNames, ...memberSectorNames]),
+  ];
 
-  return uniqueSectorNames.length > 0 ? uniqueSectorNames.join(", ") : "—";
+  return uniqueSectorNames.length > 0 ? uniqueSectorNames.join(", ") : "-";
 };
 
 const mapMasterlistRow = (household) => {
+  const departureTimeValue = household.latest_attendance?.time_out || null;
+
   return {
     household_id: household.household_id,
-    family_head_name: household.family_head_name || "—",
+    family_head_name: household.family_head_name || "-",
     address:
       household.current_address_details ||
       household.barangay?.name ||
-      "—",
+      "-",
     members_count: household.members?.length || 0,
     sectors_text: buildSectorsText(household),
     arrival_time_text: formatDateTime(household.latest_attendance?.time_in),
-    departure_time_text: formatDateTime(household.latest_attendance?.time_out),
-    attendance_status_text: household.latest_attendance?.status || "â€”",
-    can_mark_departed: household.latest_attendance?.status === "PRESENT",
+    departure_time_value: departureTimeValue,
+    departure_time_text: formatDateTime(departureTimeValue),
+    can_record_departure: household.latest_attendance?.status === "PRESENT",
   };
 };
 
