@@ -100,15 +100,34 @@ const getSectorsByCodes = async (sectorCodes) => {
 };
 
 const generateStubNumbers = async (dbClient) => {
-  const query = `
+  const currentYear = new Date().getFullYear();
+  const stubPrefix = `STUB-${currentYear}-`;
+  const serialPrefix = `SER-${currentYear}-`;
+  const advisoryLockNamespace = 4107;
+
+  await dbClient.query(
+    "SELECT pg_advisory_xact_lock($1, $2)",
+    [advisoryLockNamespace, currentYear],
+  );
+
+  const sequenceQuery = `
     SELECT
-      stub_no,
-      serial_no
-    FROM generate_stub_numbers_safe()
+      COALESCE(
+        MAX(CAST(SUBSTRING(stub_no FROM '^STUB-\\d{4}-(\\d{6})$') AS INTEGER)),
+        0
+      ) + 1 AS next_sequence
+    FROM stubs
+    WHERE stub_no LIKE $1
   `;
 
-  const result = await dbClient.query(query);
-  return result.rows[0] || null;
+  const sequenceResult = await dbClient.query(sequenceQuery, [`${stubPrefix}%`]);
+  const nextSequence = Number(sequenceResult.rows[0]?.next_sequence || 1);
+  const paddedSequence = String(nextSequence).padStart(6, "0");
+
+  return {
+    stub_no: `${stubPrefix}${paddedSequence}`,
+    serial_no: `${serialPrefix}${paddedSequence}`,
+  };
 };
 
 const insertHousehold = async (householdData, dbClient) => {
