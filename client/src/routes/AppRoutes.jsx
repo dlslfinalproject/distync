@@ -9,7 +9,6 @@ import BarangayLayout from "../components/layout/BarangayLayout";
 import RoleProtectedRoute from "./RoleProtectedRoute";
 import AccessPage from "../pages/AccessPage";
 import BarangayMasterlistPage from "../pages/barangay/BarangayMasterlistPage";
-import DescriptiveAnalyticsPage from "../pages/dashboard/DescriptiveAnalyticsPage";
 import DistributionTransactionPage from "../pages/barangay/DistributionTransactionPage";
 import StubDistributionPage from "../pages/barangay/StubDistributionPage";
 import InventoryBatchesPage from "../pages/inventory/InventoryBatchesPage";
@@ -54,10 +53,6 @@ const AppRoutes = () => {
             </RoleProtectedRoute>
           }
         >
-          <Route
-            path="descriptive-analytics"
-            element={<DescriptiveAnalyticsPage />}
-          />
           <Route path="masterlist" element={<BarangayMasterlistPage />} />
           <Route
             path="distribution-transaction"
