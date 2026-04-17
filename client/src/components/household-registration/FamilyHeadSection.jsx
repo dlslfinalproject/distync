@@ -44,12 +44,8 @@ const FamilyHeadSection = ({ form }) => {
   return (
     <section style={shellStyles.card}>
       <div style={{ marginBottom: "18px" }}>
-        <h3 style={{ margin: 0, color: "#17324d" }}>Family Head Info</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-          The family head is already counted as one household member. Enter the
-          family head here once, then add only the other household members in
-          the next section.
-        </p>
+        <h3 style={{ margin: 0, color: "#17324d" }}>Family Head Information</h3>
+        
       </div>
 
       <div style={fieldStyles.grid}>
@@ -90,7 +86,7 @@ const FamilyHeadSection = ({ form }) => {
         </label>
 
         <label style={fieldStyles.field}>
-          <span style={fieldStyles.label}>Suffix</span>
+          <span style={fieldStyles.label}>Suffix (If Applicable) </span>
           <input
             type="text"
             value={form.familyHead.suffix}
@@ -116,7 +112,7 @@ const FamilyHeadSection = ({ form }) => {
         </label>
 
         <label style={fieldStyles.field}>
-          <span style={fieldStyles.label}>Age Value</span>
+          <span style={fieldStyles.label}>Age</span>
           <input
             type="number"
             min="0"

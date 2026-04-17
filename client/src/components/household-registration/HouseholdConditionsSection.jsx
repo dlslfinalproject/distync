@@ -6,10 +6,6 @@ const HouseholdConditionsSection = ({ form }) => {
     <section style={shellStyles.card}>
       <div style={{ marginBottom: "18px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>Household Conditions</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-          These are household-level conditions. They are saved separately from
-          the manual member sectors above.
-        </p>
       </div>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>

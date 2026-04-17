@@ -5,6 +5,7 @@ import HouseholdFormSection from "./HouseholdFormSection";
 import FamilyHeadSection from "./FamilyHeadSection";
 import MembersSection from "./MembersSection";
 import HouseholdConditionsSection from "./HouseholdConditionsSection";
+import { FiX } from "react-icons/fi";
 
 const modalStyles = {
   backdrop: {
@@ -87,8 +88,12 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
               Register Family
             </h2>
           </div>
-          <button type="button" onClick={handleClose} style={modalStyles.closeButton}>
-            Close
+          <button
+            type="button"
+            onClick={handleClose}
+            style={modalStyles.closeButton}
+          >
+            <FiX />
           </button>
         </div>
 
@@ -135,8 +140,7 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
               }}
             >
               <p style={shellStyles.mutedText}>
-                Household size is submitted automatically from the family head
-                plus any additional members: <strong>{form.memberCount}</strong>
+                Household Size: <strong>{form.memberCount}</strong>
               </p>
               <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
                 <button
@@ -155,7 +159,7 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
                       form.isSubmitting || form.isLoadingOptions ? 0.7 : 1,
                   }}
                 >
-                  {form.isSubmitting ? "Saving..." : "Submit Registration"}
+                  {form.isSubmitting ? "Saving..." : "Register"}
                 </button>
               </div>
             </div>

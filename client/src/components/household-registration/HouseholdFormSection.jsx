@@ -43,11 +43,7 @@ const HouseholdFormSection = ({ form }) => {
   return (
     <section style={shellStyles.card}>
       <div style={{ marginBottom: "18px" }}>
-        <h3 style={{ margin: 0, color: "#17324d" }}>Household Info</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-          The current disaster event comes from the selected Barangay context.
-          Set the barangay, current stay type, and optional evacuation center.
-        </p>
+        <h3 style={{ margin: 0, color: "#17324d" }}>Household Information</h3>
       </div>
 
       <div

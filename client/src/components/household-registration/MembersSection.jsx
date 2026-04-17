@@ -60,17 +60,13 @@ const MembersSection = ({ form }) => {
       >
         <div>
           <h3 style={{ margin: 0, color: "#17324d" }}>Household Members</h3>
-          <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-            Add only the other household members here. The family head is
-            already counted from the Family Head Info section.
-          </p>
         </div>
         <button
           type="button"
           onClick={form.addMember}
           style={pageHeaderStyles.secondaryButton}
         >
-          Add Household Member
+          Add Member
         </button>
       </div>
 
@@ -112,7 +108,7 @@ const MembersSection = ({ form }) => {
               }}
             >
               <h4 style={{ margin: 0, color: "#234260" }}>
-                Additional Member {index + 1}
+                Member {index + 1}
               </h4>
               <button
                 type="button"
@@ -158,7 +154,7 @@ const MembersSection = ({ form }) => {
                 />
               </label>
               <label style={fieldStyles.field}>
-                <span style={fieldStyles.label}>Suffix</span>
+                <span style={fieldStyles.label}>Suffix (If Applicable) </span>
                 <input
                   type="text"
                   value={member.suffix}
@@ -182,7 +178,7 @@ const MembersSection = ({ form }) => {
                 </select>
               </label>
               <label style={fieldStyles.field}>
-                <span style={fieldStyles.label}>Age Value</span>
+                <span style={fieldStyles.label}>Age</span>
                 <input
                   type="number"
                   min="0"
