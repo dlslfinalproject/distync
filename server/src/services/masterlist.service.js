@@ -1,4 +1,9 @@
 const masterlistRepository = require("../repositories/masterlist.repository");
+const BARANGAY_EVENT_STATUSES = {
+  active: ["ACTIVE"],
+  ended: ["CLOSED", "ARCHIVED"],
+};
+const isOverrideAllowed = process.env.NODE_ENV !== "production";
 
 const buildFullName = (firstName, middleName, lastName, suffix) => {
   return [firstName, middleName, lastName, suffix].filter(Boolean).join(" ");
@@ -178,6 +183,126 @@ const getMasterlist = async (filters) => {
   };
 };
 
+const getBarangayDashboard = async (filters) => {
+  const userScope = filters.user_id
+    ? await masterlistRepository.getBarangayUserScopeById(filters.user_id)
+    : null;
+
+  if (filters.user_id && !userScope) {
+    const error = new Error("Barangay user not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (
+    userScope &&
+    userScope.role_code !== masterlistRepository.BARANGAY_ROLE_CODE
+  ) {
+    const error = new Error("Only Barangay users can access this dashboard");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  let effectiveBarangay = null;
+
+  if (filters.override_barangay_id) {
+    if (!isOverrideAllowed) {
+      const error = new Error("Barangay override is only available outside production");
+      error.statusCode = 403;
+      error.code = "BARANGAY_OVERRIDE_NOT_ALLOWED";
+      throw error;
+    }
+
+    effectiveBarangay = await masterlistRepository.getBarangaySummaryById(
+      filters.override_barangay_id,
+    );
+
+    if (!effectiveBarangay || effectiveBarangay.is_active === false) {
+      const error = new Error("override_barangay_id is invalid");
+      error.statusCode = 400;
+      error.code = "INVALID_OVERRIDE_BARANGAY";
+      throw error;
+    }
+  } else if (userScope?.default_barangay_id) {
+    effectiveBarangay = await masterlistRepository.getBarangaySummaryById(
+      userScope.default_barangay_id,
+    );
+  }
+
+  if (!effectiveBarangay) {
+    const error = new Error("No assigned barangay. Please contact administrator.");
+    error.statusCode = 400;
+    error.code = "NO_ASSIGNED_BARANGAY";
+    throw error;
+  }
+
+  const scopedStatuses =
+    BARANGAY_EVENT_STATUSES[filters.event_scope] || BARANGAY_EVENT_STATUSES.active;
+  const scopedEvents =
+    await masterlistRepository.getBarangayScopedDisasterEventsByStatuses(
+      effectiveBarangay.id,
+      scopedStatuses,
+    );
+
+  let selectedDisasterEvent = null;
+
+  if (filters.disaster_event_id) {
+    selectedDisasterEvent =
+      await masterlistRepository.getBarangayScopedDisasterEventById(
+        filters.disaster_event_id,
+        effectiveBarangay.id,
+      );
+  }
+
+  if (
+    selectedDisasterEvent &&
+    !scopedStatuses.includes(selectedDisasterEvent.status)
+  ) {
+    selectedDisasterEvent = null;
+  }
+
+  if (!selectedDisasterEvent && scopedEvents.length > 0) {
+    selectedDisasterEvent = scopedEvents[0];
+  }
+
+  const metrics = selectedDisasterEvent
+    ? await masterlistRepository.getBarangayDashboardMetrics(
+        selectedDisasterEvent.id,
+        effectiveBarangay.id,
+      )
+    : {
+        total_evacuees_individuals: 0,
+        total_families: 0,
+        currently_admitted_evacuees: 0,
+        total_departed_evacuees: 0,
+      };
+
+  const hasData =
+    Number(metrics.total_evacuees_individuals || 0) > 0 ||
+    Number(metrics.total_families || 0) > 0 ||
+    Number(metrics.currently_admitted_evacuees || 0) > 0 ||
+    Number(metrics.total_departed_evacuees || 0) > 0;
+
+  return {
+    assigned_barangay: {
+      id: effectiveBarangay.id,
+      code: effectiveBarangay.code,
+      name: effectiveBarangay.name,
+    },
+    assigned_barangay_id: userScope?.default_barangay_id || null,
+    is_dev_override: Boolean(
+      filters.override_barangay_id &&
+      effectiveBarangay.id === filters.override_barangay_id,
+    ),
+    event_scope: filters.event_scope,
+    available_events: scopedEvents,
+    selected_event: selectedDisasterEvent,
+    metrics,
+    has_data: hasData,
+  };
+};
+
 module.exports = {
+  getBarangayDashboard,
   getMasterlist,
 };

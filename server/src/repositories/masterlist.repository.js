@@ -1,4 +1,5 @@
 const pool = require("../config/db");
+const BARANGAY_ROLE_CODE = "BARANGAY";
 
 const getDisasterEventSummaryById = async (id) => {
   const query = `
@@ -31,6 +32,163 @@ const getBarangaySummaryById = async (id) => {
 
   const result = await pool.query(query, [id]);
   return result.rows[0] || null;
+};
+
+const getBarangayUserScopeById = async (userId) => {
+  const query = `
+    SELECT
+      u.id,
+      u.default_barangay_id,
+      b.code AS barangay_code,
+      b.name AS barangay_name,
+      r.code AS role_code
+    FROM users u
+    LEFT JOIN barangays b ON b.id = u.default_barangay_id
+    LEFT JOIN user_roles ur ON ur.user_id = u.id
+    LEFT JOIN roles r ON r.id = ur.role_id
+    WHERE u.id = $1
+    ORDER BY ur.assigned_at ASC NULLS LAST
+    LIMIT 1
+  `;
+
+  const result = await pool.query(query, [userId]);
+  return result.rows[0] || null;
+};
+
+const getBarangayScopedDisasterEventsByStatuses = async (
+  barangayId,
+  statuses,
+) => {
+  const query = `
+    SELECT
+      scoped.id,
+      scoped.event_code,
+      scoped.title,
+      scoped.disaster_type,
+      scoped.description,
+      scoped.start_date,
+      scoped.end_date,
+      scoped.status,
+      scoped.created_at,
+      scoped.updated_at
+    FROM (
+      SELECT DISTINCT
+        de.id,
+        de.event_code,
+        de.title,
+        de.disaster_type,
+        de.description,
+        de.start_date,
+        de.end_date,
+        de.status,
+        de.created_at,
+        de.updated_at,
+        COALESCE(de.end_date, de.start_date) AS sort_date
+      FROM disaster_events de
+      LEFT JOIN disaster_event_barangays deb
+        ON deb.disaster_event_id = de.id
+        AND deb.barangay_id = $1
+      LEFT JOIN households h
+        ON h.disaster_event_id = de.id
+        AND h.barangay_id = $1
+        AND h.is_active = TRUE
+      WHERE (deb.barangay_id IS NOT NULL OR h.id IS NOT NULL)
+        AND de.status = ANY($2::text[])
+    ) scoped
+    ORDER BY
+      scoped.sort_date DESC,
+      scoped.created_at DESC
+  `;
+
+  const result = await pool.query(query, [barangayId, statuses]);
+  return result.rows;
+};
+
+const getBarangayScopedDisasterEventById = async (
+  disasterEventId,
+  barangayId,
+) => {
+  const query = `
+    SELECT
+      de.id,
+      de.event_code,
+      de.title,
+      de.disaster_type,
+      de.description,
+      de.start_date,
+      de.end_date,
+      de.status
+    FROM disaster_events de
+    LEFT JOIN disaster_event_barangays deb
+      ON deb.disaster_event_id = de.id
+      AND deb.barangay_id = $2
+    LEFT JOIN households h
+      ON h.disaster_event_id = de.id
+      AND h.barangay_id = $2
+      AND h.is_active = TRUE
+    WHERE de.id = $1
+      AND (deb.barangay_id IS NOT NULL OR h.id IS NOT NULL)
+    LIMIT 1
+  `;
+
+  const result = await pool.query(query, [disasterEventId, barangayId]);
+  return result.rows[0] || null;
+};
+
+const getBarangayDashboardMetrics = async (disasterEventId, barangayId) => {
+  const query = `
+    WITH scoped_households AS (
+      SELECT h.id
+      FROM households h
+      WHERE h.disaster_event_id = $1
+        AND h.barangay_id = $2
+        AND h.is_active = TRUE
+    ),
+    scoped_evacuees AS (
+      SELECT e.id
+      FROM evacuees e
+      JOIN scoped_households sh ON sh.id = e.household_id
+      WHERE e.is_active = TRUE
+    ),
+    latest_logs AS (
+      SELECT DISTINCT ON (el.evacuee_id)
+        el.evacuee_id,
+        el.status,
+        el.time_in,
+        el.time_out
+      FROM evacuation_logs el
+      JOIN scoped_households sh ON sh.id = el.household_id
+      WHERE el.disaster_event_id = $1
+      ORDER BY
+        el.evacuee_id,
+        COALESCE(el.time_out, el.time_in) DESC,
+        el.updated_at DESC,
+        el.created_at DESC
+    )
+    SELECT
+      (SELECT COUNT(*)::int FROM scoped_evacuees) AS total_evacuees_individuals,
+      (SELECT COUNT(*)::int FROM scoped_households) AS total_families,
+      (
+        SELECT COUNT(*)::int
+        FROM latest_logs ll
+        WHERE ll.status = 'PRESENT'
+          AND ll.time_out IS NULL
+      ) AS currently_admitted_evacuees,
+      (
+        SELECT COUNT(*)::int
+        FROM latest_logs ll
+        WHERE ll.status IN ('LEFT', 'TRANSFERRED')
+          AND ll.time_out IS NOT NULL
+      ) AS total_departed_evacuees
+  `;
+
+  const result = await pool.query(query, [disasterEventId, barangayId]);
+  return result.rows[0] || {
+    total_evacuees_individuals: 0,
+    total_families: 0,
+    currently_admitted_evacuees: 0,
+    total_departed_evacuees: 0,
+  };
 };
 
 const getHouseholdsByFilters = async (disasterEventId, barangayId = null) => {
@@ -199,8 +357,13 @@ const getLatestAttendanceByHouseholdIds = async (householdIds) => {
 };
 
 module.exports = {
+  BARANGAY_ROLE_CODE,
   getDisasterEventSummaryById,
   getBarangaySummaryById,
+  getBarangayUserScopeById,
+  getBarangayScopedDisasterEventsByStatuses,
+  getBarangayScopedDisasterEventById,
+  getBarangayDashboardMetrics,
   getHouseholdsByFilters,
   getStubsByHouseholdIds,
   getHouseholdSectorsByHouseholdIds,
