@@ -55,7 +55,7 @@ const StubClaimConfirmModal = ({
       <div style={modalStyles.modal}>
         <h3 style={modalStyles.title}>Confirm Stub Claim</h3>
         <p style={modalStyles.message}>
-          Are you sure you want to mark this stub as claimed?
+          Are you sure this stub has been claimed?
         </p>
 
         <div style={modalStyles.actions}>

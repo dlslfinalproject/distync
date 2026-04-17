@@ -55,7 +55,7 @@ const MasterlistDepartureConfirmModal = ({
       <div style={modalStyles.modal}>
         <h3 style={modalStyles.title}>Confirm Departure</h3>
         <p style={modalStyles.message}>
-          Are you sure this stub has been claimed?
+          Are you sure this family has departed?
         </p>
 
         <div style={modalStyles.actions}>
