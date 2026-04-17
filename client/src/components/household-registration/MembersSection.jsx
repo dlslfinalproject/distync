@@ -87,205 +87,276 @@ const MembersSection = ({ form }) => {
           </div>
         ) : null}
 
-        {form.members.map((member, index) => (
-          <div
-            key={`member-${index}`}
-            style={{
-              border: "1px solid #d9e4ef",
-              borderRadius: "18px",
-              padding: "18px",
-              backgroundColor: "#f9fbfe",
-            }}
-          >
+        {form.members.map((member, index) => {
+          const ageBasedSectors = form.memberSectorOptions.filter((sector) =>
+            isAgeBasedMemberSectorCode(getCanonicalMemberSectorCode(sector.code)),
+          );
+
+          const nonAgeBasedSectors = form.memberSectorOptions.filter(
+            (sector) =>
+              !isAgeBasedMemberSectorCode(getCanonicalMemberSectorCode(sector.code)),
+          );
+
+          return (
             <div
+              key={`member-${index}`}
               style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: "12px",
-                flexWrap: "wrap",
-                marginBottom: "14px",
+                border: "1px solid #d9e4ef",
+                borderRadius: "18px",
+                padding: "18px",
+                backgroundColor: "#f9fbfe",
               }}
             >
-              <h4 style={{ margin: 0, color: "#234260" }}>
-                Member {index + 1}
-              </h4>
-              <button
-                type="button"
-                onClick={() => form.removeMember(index)}
-                style={pageHeaderStyles.secondaryButton}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: "12px",
+                  flexWrap: "wrap",
+                  marginBottom: "14px",
+                }}
               >
-                Remove
-              </button>
-            </div>
+                <h4 style={{ margin: 0, color: "#234260" }}>
+                  Member {index + 1}
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => form.removeMember(index)}
+                  style={pageHeaderStyles.secondaryButton}
+                >
+                  Remove
+                </button>
+              </div>
 
-            <div style={fieldStyles.grid}>
-              <label style={fieldStyles.field}>
-                <span style={fieldStyles.label}>First Name</span>
-                <input
-                  type="text"
-                  value={member.first_name}
-                  onChange={(event) =>
-                    form.updateMemberField(index, "first_name", event.target.value)
-                  }
-                  style={fieldStyles.input}
-                />
-              </label>
-              <label style={fieldStyles.field}>
-                <span style={fieldStyles.label}>Middle Name</span>
-                <input
-                  type="text"
-                  value={member.middle_name}
-                  onChange={(event) =>
-                    form.updateMemberField(index, "middle_name", event.target.value)
-                  }
-                  style={fieldStyles.input}
-                />
-              </label>
-              <label style={fieldStyles.field}>
-                <span style={fieldStyles.label}>Last Name</span>
-                <input
-                  type="text"
-                  value={member.last_name}
-                  onChange={(event) =>
-                    form.updateMemberField(index, "last_name", event.target.value)
-                  }
-                  style={fieldStyles.input}
-                />
-              </label>
-              <label style={fieldStyles.field}>
-                <span style={fieldStyles.label}>Suffix (If Applicable) </span>
-                <input
-                  type="text"
-                  value={member.suffix}
-                  onChange={(event) =>
-                    form.updateMemberField(index, "suffix", event.target.value)
-                  }
-                  style={fieldStyles.input}
-                />
-              </label>
-              <label style={fieldStyles.field}>
-                <span style={fieldStyles.label}>Sex</span>
-                <select
-                  value={member.sex}
-                  onChange={(event) =>
-                    form.updateMemberField(index, "sex", event.target.value)
-                  }
-                  style={fieldStyles.input}
-                >
-                  <option value="MALE">MALE</option>
-                  <option value="FEMALE">FEMALE</option>
-                </select>
-              </label>
-              <label style={fieldStyles.field}>
-                <span style={fieldStyles.label}>Age</span>
-                <input
-                  type="number"
-                  min="0"
-                  value={member.age_value}
-                  onChange={(event) =>
-                    form.updateMemberField(index, "age_value", event.target.value)
-                  }
-                  style={fieldStyles.input}
-                />
-              </label>
-              <label style={fieldStyles.field}>
-                <span style={fieldStyles.label}>Age Unit</span>
-                <select
-                  value={member.age_unit}
-                  onChange={(event) =>
-                    form.updateMemberField(index, "age_unit", event.target.value)
-                  }
-                  style={fieldStyles.input}
-                >
-                  {AGE_UNIT_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label style={fieldStyles.field}>
-                <span style={fieldStyles.label}>Relationship to Head</span>
-                <select
-                  value={member.relationship_option}
-                  onChange={(event) =>
-                    form.updateMemberField(
-                      index,
-                      "relationship_option",
-                      event.target.value,
-                    )
-                  }
-                  style={fieldStyles.input}
-                >
-                  <option value="">Select relationship</option>
-                  {RELATIONSHIP_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {member.relationship_option === "OTHERS" ? (
+              <div
+                style={{
+                  ...fieldStyles.grid,
+                  gridTemplateColumns: "repeat(4, 1fr)",
+                }}
+              >
                 <label style={fieldStyles.field}>
-                  <span style={fieldStyles.label}>Custom Relationship</span>
+                  <span style={fieldStyles.label}>First Name</span>
                   <input
                     type="text"
-                    value={member.custom_relationship}
+                    value={member.first_name}
                     onChange={(event) =>
                       form.updateMemberField(
                         index,
-                        "custom_relationship",
+                        "first_name",
                         event.target.value,
                       )
                     }
                     style={fieldStyles.input}
                   />
                 </label>
-              ) : null}
-            </div>
 
-            <div style={{ marginTop: "16px" }}>
-              <p style={{ ...shellStyles.mutedText, fontWeight: 700 }}>
-                Member Sectors
-              </p>
+                <label style={fieldStyles.field}>
+                  <span style={fieldStyles.label}>Middle Name</span>
+                  <input
+                    type="text"
+                    value={member.middle_name}
+                    onChange={(event) =>
+                      form.updateMemberField(
+                        index,
+                        "middle_name",
+                        event.target.value,
+                      )
+                    }
+                    style={fieldStyles.input}
+                  />
+                </label>
+
+                <label style={fieldStyles.field}>
+                  <span style={fieldStyles.label}>Last Name</span>
+                  <input
+                    type="text"
+                    value={member.last_name}
+                    onChange={(event) =>
+                      form.updateMemberField(
+                        index,
+                        "last_name",
+                        event.target.value,
+                      )
+                    }
+                    style={fieldStyles.input}
+                  />
+                </label>
+
+                <label style={fieldStyles.field}>
+                  <span style={fieldStyles.label}>Suffix (If Applicable)</span>
+                  <input
+                    type="text"
+                    value={member.suffix}
+                    onChange={(event) =>
+                      form.updateMemberField(index, "suffix", event.target.value)
+                    }
+                    style={fieldStyles.input}
+                  />
+                </label>
+              </div>
+
               <div
                 style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: "10px",
-                  marginTop: "10px",
+                  ...fieldStyles.grid,
+                  marginTop: "14px",
+                  gridTemplateColumns: "repeat(4, minmax(140px, 1fr))",
                 }}
               >
-                {form.memberSectorOptions.map((sector) => {
-                  const sectorCode = getCanonicalMemberSectorCode(sector.code);
-                  const isAgeBasedSector = isAgeBasedMemberSectorCode(sectorCode);
-                  const isChecked = isAgeBasedSector
-                    ? sectorCode === member.derived_age_sector_code
-                    : member.sector_ids.includes(sector.id);
+                <label style={fieldStyles.field}>
+                  <span style={fieldStyles.label}>Age</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={member.age_value}
+                    onChange={(event) =>
+                      form.updateMemberField(
+                        index,
+                        "age_value",
+                        event.target.value,
+                      )
+                    }
+                    style={fieldStyles.input}
+                  />
+                </label>
 
-                  return (
-                  <label
-                    key={sector.id}
-                    style={{
-                      ...fieldStyles.checkboxLabel,
-                      opacity: isAgeBasedSector && !isChecked ? 0.8 : 1,
-                    }}
+                <label style={fieldStyles.field}>
+                  <span style={fieldStyles.label}>Age Unit</span>
+                  <select
+                    value={member.age_unit}
+                    onChange={(event) =>
+                      form.updateMemberField(
+                        index,
+                        "age_unit",
+                        event.target.value,
+                      )
+                    }
+                    style={fieldStyles.input}
                   >
+                    {AGE_UNIT_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label style={fieldStyles.field}>
+                  <span style={fieldStyles.label}>Sex</span>
+                  <select
+                    value={member.sex}
+                    onChange={(event) =>
+                      form.updateMemberField(index, "sex", event.target.value)
+                    }
+                    style={fieldStyles.input}
+                  >
+                    <option value="MALE">MALE</option>
+                    <option value="FEMALE">FEMALE</option>
+                  </select>
+                </label>
+
+                <label style={fieldStyles.field}>
+                  <span style={fieldStyles.label}>Relationship to Head</span>
+                  <select
+                    value={member.relationship_option}
+                    onChange={(event) =>
+                      form.updateMemberField(
+                        index,
+                        "relationship_option",
+                        event.target.value,
+                      )
+                    }
+                    style={fieldStyles.input}
+                  >
+                    <option value="">Select relationship</option>
+                    {RELATIONSHIP_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              {member.relationship_option === "OTHERS" ? (
+                <div style={{ marginTop: "14px", maxWidth: "320px" }}>
+                  <label style={fieldStyles.field}>
+                    <span style={fieldStyles.label}>Relationship</span>
                     <input
-                      type="checkbox"
-                      checked={isChecked}
-                      disabled={isAgeBasedSector}
-                      onChange={() => form.toggleMemberSector(index, sector.id)}
+                      type="text"
+                      value={member.custom_relationship}
+                      onChange={(event) =>
+                        form.updateMemberField(
+                          index,
+                          "custom_relationship",
+                          event.target.value,
+                        )
+                      }
+                      style={fieldStyles.input}
                     />
-                    {formatMemberSectorLabel(sector)}
                   </label>
-                  );
-                })}
+                </div>
+              ) : null}
+
+              <div style={{ marginTop: "16px" }}>
+                <p style={{ ...shellStyles.mutedText, fontWeight: 700 }}>
+                  Member Sectors
+                </p>
+
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "10px",
+                    marginTop: "10px",
+                  }}
+                >
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+                    {ageBasedSectors.map((sector) => {
+                      const sectorCode = getCanonicalMemberSectorCode(sector.code);
+                      const isChecked = sectorCode === member.derived_age_sector_code;
+
+                      return (
+                        <label
+                          key={sector.id}
+                          style={{
+                            ...fieldStyles.checkboxLabel,
+                            opacity: isChecked ? 1 : 0.8,
+                          }}
+                        >
+                          <input type="checkbox" checked={isChecked} disabled />
+                          {formatMemberSectorLabel(sector)}
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+                    {nonAgeBasedSectors.map((sector) => {
+                      const isChecked = member.sector_ids.includes(sector.id);
+
+                      return (
+                        <label
+                          key={sector.id}
+                          style={fieldStyles.checkboxLabel}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() =>
+                              form.toggleMemberSector(index, sector.id)
+                            }
+                          />
+                          {formatMemberSectorLabel(sector)}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

@@ -1,4 +1,5 @@
 import React from "react";
+import { FiPackage } from "react-icons/fi";
 import { shellStyles } from "../layout/BarangayLayout";
 
 const tableStyles = {
@@ -31,38 +32,48 @@ const tableStyles = {
   },
 };
 
-const getStatusChipStyles = (status) => {
+const getStatusChipStyles = (status, isActionable = false) => {
   const paletteByStatus = {
     ISSUED: {
-      backgroundColor: "#e6f1fb",
+      backgroundColor: "#eef5fc",
       color: "#295f92",
+      border: "1px solid #c8dbee",
     },
     CLAIMED: {
       backgroundColor: "#e6f5ec",
       color: "#2d7a4f",
+      border: "1px solid transparent",
     },
     VOID: {
       backgroundColor: "#f6ebeb",
       color: "#9d4d58",
+      border: "1px solid transparent",
     },
     CANCELLED: {
       backgroundColor: "#f6ebeb",
       color: "#9d4d58",
+      border: "1px solid transparent",
     },
+  };
+
+  const palette = paletteByStatus[status] || {
+    backgroundColor: "#eef2f6",
+    color: "#5f7288",
+    border: "1px solid transparent",
   };
 
   return {
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-    padding: "6px 10px",
+    gap: "6px",
+    padding: "7px 12px",
     borderRadius: "999px",
     fontSize: "12px",
     fontWeight: 700,
-    ...(paletteByStatus[status] || {
-      backgroundColor: "#eef2f6",
-      color: "#5f7288",
-    }),
+    lineHeight: 1,
+    ...palette,
+    boxShadow: isActionable ? "0 2px 8px rgba(75, 101, 132, 0.06)" : "none",
   };
 };
 
@@ -176,25 +187,23 @@ const StubResultsTable = ({
                     {row.household.members_count || 0} members
                   </span>
                 </td>
-                <td style={tableStyles.bodyCell}>
-                  {row.stub_sequence_no}
-                </td>
-                <td style={tableStyles.bodyCell}>
-                  {row.sectors_text}
-                </td>
+                <td style={tableStyles.bodyCell}>{row.stub_sequence_no}</td>
+                <td style={tableStyles.bodyCell}>{row.sectors_text}</td>
                 <td style={tableStyles.bodyCell}>
                   {row.status === "ISSUED" ? (
                     <button
                       type="button"
                       onClick={() => onClaimStub(row.id)}
                       disabled={claimingStubId === row.id}
+                      title="Mark as Claimed"
                       style={{
                         ...tableStyles.statusButton,
                         opacity: claimingStubId === row.id ? 0.7 : 1,
                         cursor: claimingStubId === row.id ? "wait" : "pointer",
                       }}
                     >
-                      <span style={getStatusChipStyles(row.status)}>
+                      <span style={getStatusChipStyles(row.status, true)}>
+                        <FiPackage size={14} />
                         {claimingStubId === row.id ? "Claiming..." : getStatusLabel(row.status)}
                       </span>
                     </button>

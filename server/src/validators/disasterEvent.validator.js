@@ -13,6 +13,7 @@ const validateCreateDisasterEvent = (req, res, next) => {
   try {
     const {
       event_code,
+      event_name,
       title,
       disaster_type,
       description,
@@ -23,13 +24,9 @@ const validateCreateDisasterEvent = (req, res, next) => {
       barangay_ids,
     } = req.body;
 
-    if (!event_code || typeof event_code !== "string") {
-      return res.status(400).json({
-        message: "event_code is required and must be a string",
-      });
-    }
+    const normalizedTitle = title ?? event_name;
 
-    if (!title || typeof title !== "string") {
+    if (!normalizedTitle || typeof normalizedTitle !== "string") {
       return res.status(400).json({
         message: "title is required and must be a string",
       });
@@ -59,7 +56,7 @@ const validateCreateDisasterEvent = (req, res, next) => {
       });
     }
 
-    if (!status || !allowedStatuses.includes(status)) {
+    if (status !== undefined && !allowedStatuses.includes(status)) {
       return res.status(400).json({
         message: "status must be one of: PLANNED, ACTIVE, CLOSED, ARCHIVED",
       });
@@ -90,13 +87,16 @@ const validateCreateDisasterEvent = (req, res, next) => {
     }
 
     req.validatedBody = {
-      event_code: event_code.trim(),
-      title: title.trim(),
+      event_code:
+        typeof event_code === "string" && event_code.trim()
+          ? event_code.trim()
+          : null,
+      title: normalizedTitle.trim(),
       disaster_type: disaster_type.trim(),
       description: description ?? null,
       start_date,
       end_date: end_date ?? null,
-      status,
+      status: status ?? "ACTIVE",
       created_by: created_by ?? null,
       barangay_ids: barangay_ids ?? [],
     };

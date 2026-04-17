@@ -13,15 +13,6 @@ const deduplicateIds = (ids) => {
   return [...new Set(ids)];
 };
 
-const createStubNumbers = (sequenceNumber, currentYear) => {
-  const paddedSequence = String(sequenceNumber).padStart(6, "0");
-
-  return {
-    stub_no: `STUB-${currentYear}-${paddedSequence}`,
-    serial_no: `SER-${currentYear}-${paddedSequence}`,
-  };
-};
-
 const validateSectorUsage = (
   householdSectors,
   memberSectors,
@@ -402,13 +393,8 @@ const registerHousehold = async (requestData) => {
       );
     }
 
-    const currentYear = new Date().getFullYear();
-    const nextStubSequence =
-      await householdRegistrationRepository.getNextStubSequence(
-        currentYear,
-        client,
-      );
-    const stubNumbers = createStubNumbers(nextStubSequence, currentYear);
+    const stubNumbers =
+      await householdRegistrationRepository.generateStubNumbers(client);
 
     await householdRegistrationRepository.insertStub(
       {

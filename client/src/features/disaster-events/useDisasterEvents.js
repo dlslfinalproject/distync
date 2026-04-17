@@ -9,6 +9,8 @@ import {
   endDisasterEvent,
 } from "./disasterEventService";
 
+const NON_RESIDENT_BARANGAY_CODE = "NON_RESIDENT_OUTSIDE_MALVAR";
+
 const filterOptions = {
   all: "all",
   active: "active",
@@ -84,7 +86,10 @@ export const useDisasterEvents = () => {
   const loadBarangays = async () => {
     try {
       const barangayRows = await fetchBarangays();
-      setBarangays(barangayRows || []);
+      const validAffectedBarangays = (barangayRows || []).filter(
+        (barangay) => barangay.code !== NON_RESIDENT_BARANGAY_CODE,
+      );
+      setBarangays(validAffectedBarangays);
     } catch (error) {
       setFormErrorMessage(error.message);
     }

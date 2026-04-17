@@ -8,8 +8,7 @@ import distyncLogo from "../../assets/distync-logo.png";
 const sidebarStyles = {
   wrapper: {
     width: "280px",
-    minHeight: "100vh",
-    // Remove top padding so the brand can touch the top edge
+    height: "100vh",
     padding: "0 18px 24px",
     boxSizing: "border-box",
     backgroundColor: "#f7fbff",
@@ -17,19 +16,21 @@ const sidebarStyles = {
     display: "flex",
     flexDirection: "column",
     gap: "24px",
-    minWidth: "280px", // Force it to stay at 280px
+    minWidth: "280px",
     flexShrink: 0,
+    position: "sticky",
+    top: 0,
+    alignSelf: "flex-start",
+    overflowY: "auto",
   },
   brand: {
-    // Negative margin to pull the background to the edges of the 280px sidebar
     margin: "0 -18px",
-    //padding: "32px 24px", // Internal padding for content
     background: "#f7fbff",
     color: "#ffffff",
     boxShadow: "0 4px 20px rgba(115, 146, 214, 0.15)",
     display: "flex",
     flexDirection: "column",
-    alignItems: "flex-start", // Center logo and text
+    alignItems: "flex-start",
     justifyContent: "center",
   },
   brandHeader: {
@@ -38,7 +39,7 @@ const sidebarStyles = {
     justifyContent: "flex-start",
   },
   brandLogo: {
-    height: "90px", // Adjusted size for better fit
+    height: "90px",
     width: "auto",
     display: "block",
   },
@@ -47,16 +48,14 @@ const sidebarStyles = {
     fontSize: "28px",
     fontWeight: 700,
     letterSpacing: "-0.02em",
-    color: "#2F3B55", // Changed to white for better contrast on blue
+    color: "#2F3B55",
   },
-
   nav: {
     display: "flex",
     flexDirection: "column",
     gap: "10px",
-    marginTop: "10px", // Space after the brand header
+    marginTop: "10px",
   },
-  // ... rest of your styles (navTitle, navText, roleActions, roleButton) remain the same
   navLink: {
     textDecoration: "none",
     borderRadius: "14px",

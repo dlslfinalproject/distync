@@ -1,5 +1,6 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
+import { FiLogOut } from "react-icons/fi";
 
 const tableStyles = {
   table: {
@@ -79,7 +80,13 @@ const MasterlistTable = ({
     return (
       <section style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Registered Family</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "10px", color: "#a14d58" }}>
+        <p
+          style={{
+            ...shellStyles.mutedText,
+            marginTop: "10px",
+            color: "#a14d58",
+          }}
+        >
           {errorMessage}
         </p>
       </section>
@@ -121,7 +128,9 @@ const MasterlistTable = ({
                 <td style={tableStyles.bodyCell}>{row.family_head_name}</td>
                 <td style={tableStyles.bodyCell}>{row.address}</td>
                 <td style={tableStyles.bodyCell}>
-                  <span style={tableStyles.membersBadge}>{row.members_count}</span>
+                  <span style={tableStyles.membersBadge}>
+                    {row.members_count}
+                  </span>
                 </td>
                 <td style={tableStyles.bodyCell}>{row.sectors_text}</td>
                 <td style={tableStyles.bodyCell}>{row.arrival_time_text}</td>
@@ -133,8 +142,9 @@ const MasterlistTable = ({
                       type="button"
                       onClick={() => onMarkDeparted(row.household_id)}
                       style={tableStyles.departureButton}
+                      title="Mark Departed"
                     >
-                      Mark as Departed
+                      <FiLogOut />
                     </button>
                   ) : (
                     "-"
