@@ -13,6 +13,17 @@ const fieldStyles = {
     gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
     gap: "16px",
   },
+  nameGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gap: "16px",
+  },
+  detailGrid: {
+    display: "grid",
+    gridTemplateColumns: "minmax(180px, 220px) minmax(180px, 220px)",
+    gap: "16px",
+    marginTop: "18px",
+  },
   field: {
     display: "flex",
     flexDirection: "column",
@@ -32,6 +43,7 @@ const fieldStyles = {
     color: "#1f405f",
     backgroundColor: "#ffffff",
     boxSizing: "border-box",
+    width: "100%",
   },
 };
 
@@ -45,10 +57,9 @@ const FamilyHeadSection = ({ form }) => {
     <section style={shellStyles.card}>
       <div style={{ marginBottom: "18px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>Family Head Information</h3>
-        
       </div>
 
-      <div style={fieldStyles.grid}>
+      <div style={fieldStyles.nameGrid}>
         <label style={fieldStyles.field}>
           <span style={fieldStyles.label}>First Name</span>
           <input
@@ -86,12 +97,27 @@ const FamilyHeadSection = ({ form }) => {
         </label>
 
         <label style={fieldStyles.field}>
-          <span style={fieldStyles.label}>Suffix (If Applicable) </span>
+          <span style={fieldStyles.label}>Suffix (If Applicable)</span>
           <input
             type="text"
             value={form.familyHead.suffix}
             onChange={(event) =>
               form.updateFamilyHeadField("suffix", event.target.value)
+            }
+            style={fieldStyles.input}
+          />
+        </label>
+      </div>
+
+      <div style={fieldStyles.detailGrid}>
+        <label style={fieldStyles.field}>
+          <span style={fieldStyles.label}>Age</span>
+          <input
+            type="number"
+            min="0"
+            value={form.familyHead.age_value}
+            onChange={(event) =>
+              form.updateFamilyHeadField("age_value", event.target.value)
             }
             style={fieldStyles.input}
           />
@@ -110,34 +136,6 @@ const FamilyHeadSection = ({ form }) => {
             <option value="FEMALE">FEMALE</option>
           </select>
         </label>
-
-        <label style={fieldStyles.field}>
-          <span style={fieldStyles.label}>Age</span>
-          <input
-            type="number"
-            min="0"
-            value={form.familyHead.age_value}
-            onChange={(event) =>
-              form.updateFamilyHeadField("age_value", event.target.value)
-            }
-            style={fieldStyles.input}
-          />
-        </label>
-
-        <label style={fieldStyles.field}>
-          <span style={fieldStyles.label}>Age Unit</span>
-          <input
-            type="text"
-            value="Years"
-            disabled
-            style={{
-              ...fieldStyles.input,
-              backgroundColor: "#f4f8fc",
-              color: "#48627e",
-            }}
-          />
-        </label>
-
       </div>
 
       <div style={{ marginTop: "18px" }}>
@@ -153,30 +151,30 @@ const FamilyHeadSection = ({ form }) => {
               : form.familyHead.sector_ids.includes(sector.id);
 
             return (
-            <label
-              key={sector.id}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "8px",
-                border: "1px solid #d4dfeb",
-                borderRadius: "999px",
-                padding: "10px 14px",
-                backgroundColor: "#f8fbfe",
-                color: "#385a7b",
-                fontSize: "13px",
-                fontWeight: 600,
-                opacity: isAgeBasedSector && !isChecked ? 0.8 : 1,
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={isChecked}
-                disabled={isAgeBasedSector}
-                onChange={() => form.toggleFamilyHeadSector(sector.id)}
-              />
-              {formatMemberSectorLabel(sector)}
-            </label>
+              <label
+                key={sector.id}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  border: "1px solid #d4dfeb",
+                  borderRadius: "999px",
+                  padding: "10px 14px",
+                  backgroundColor: "#f8fbfe",
+                  color: "#385a7b",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  opacity: isAgeBasedSector && !isChecked ? 0.8 : 1,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={isChecked}
+                  disabled={isAgeBasedSector}
+                  onChange={() => form.toggleFamilyHeadSector(sector.id)}
+                />
+                {formatMemberSectorLabel(sector)}
+              </label>
             );
           })}
         </div>
