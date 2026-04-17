@@ -24,6 +24,32 @@ const actionBtn = {
   transition: "all 0.2s ease",
 };
 
+const primaryModalBtn = {
+  border: "none",
+  borderRadius: "999px",
+  padding: "12px 24px",
+  background: "#3d4f78",
+  color: "#fff",
+  fontSize: "16px",
+  fontWeight: 600,
+  cursor: "pointer",
+  minWidth: "120px",
+  transition: "all 0.2s ease",
+};
+
+const secondaryModalBtn = {
+  border: "none",
+  borderRadius: "999px",
+  padding: "12px 24px",
+  background: "#d9d9d9",
+  color: "#3f4d63",
+  fontSize: "16px",
+  fontWeight: 500,
+  cursor: "pointer",
+  minWidth: "120px",
+  transition: "all 0.2s ease",
+};
+
 const cardStyle = {
   background: "#f8fbff",
   border: "1px solid #dce7f3",
@@ -58,6 +84,45 @@ const getChipStyle = (isActive) => ({
   transition: "all 0.2s",
 });
 
+const scanModalOverlayStyle = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(15, 23, 42, 0.42)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "24px",
+  zIndex: 1200,
+};
+
+const scanModalStyle = {
+  width: "100%",
+  maxWidth: "640px",
+  background: "#f8fafc",
+  borderRadius: "18px",
+  padding: "28px 24px 18px",
+  boxShadow: "0 24px 60px rgba(15, 23, 42, 0.22)",
+};
+
+const scanModalInputStyle = {
+  width: "100%",
+  height: "42px",
+  border: "none",
+  borderRadius: "10px",
+  background: "#eef2f7",
+  padding: "1px",
+  fontSize: "15px",
+  color: "#334155",
+  outline: "none",
+};
+
+const scanModalLabelStyle = {
+  fontSize: "14px",
+  fontWeight: 700,
+  color: "#334155",
+  marginBottom: "8px",
+};
+
 /* ================= HELPERS ================= */
 
 const getUniqueCategories = (rows) =>
@@ -85,6 +150,12 @@ const InventoryItemsPage = () => {
   const [selectedItemData, setSelectedItemData] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [modalErrorMessage, setModalErrorMessage] = useState("");
+
+  const [isScanModalOpen, setIsScanModalOpen] = useState(false);
+  const [scanForm, setScanForm] = useState({
+    barcodeNumber: "",
+    reorderLevel: "",
+  });
 
   /* ================= DATA LOADING ================= */
 
@@ -159,6 +230,33 @@ const InventoryItemsPage = () => {
     }
   };
 
+  /* ================= SCAN ITEM MODAL ================= */
+
+  const handleOpenScanModal = () => {
+    setScanForm({
+      barcodeNumber: "",
+      reorderLevel: "",
+    });
+    setIsScanModalOpen(true);
+  };
+
+  const handleCloseScanModal = () => {
+    setIsScanModalOpen(false);
+  };
+
+  const handleScanInputChange = (field, value) => {
+    setScanForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const handleSubmitScanModal = () => {
+    // Placeholder submit logic for now
+    console.log("Scan item submitted:", scanForm);
+    setIsScanModalOpen(false);
+  };
+
   /* ================= UI ================= */
 
   return (
@@ -181,8 +279,10 @@ const InventoryItemsPage = () => {
             gap: "12px",
           }}
         >
-          <div style={{ display: "flex", gap: "10px" }}>
-            <button style={actionBtn}>Scan Item</button>
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+            <button style={actionBtn} onClick={handleOpenScanModal}>
+              Scan Item
+            </button>
             <button style={actionBtn} onClick={handleOpenCreateModal}>
               Add Item
             </button>
@@ -196,7 +296,7 @@ const InventoryItemsPage = () => {
             display: "grid",
             gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
             gap: "16px",
-            marginBottom: "24px"
+            marginBottom: "24px",
           }}
         >
           <div style={cardStyle}>
@@ -269,8 +369,7 @@ const InventoryItemsPage = () => {
               fontWeight: 700,
               textTransform: "uppercase",
             }}
-          >
-          </p>
+          ></p>
 
           <h3 style={{ margin: "10px 0 0", color: "#17324d", fontSize: "24px" }}>
             {activeTab === "overview"
@@ -333,124 +432,123 @@ const InventoryItemsPage = () => {
         {/* CONTENT */}
         {activeTab === "overview" ? (
           <div style={{ marginTop: "12px", overflowX: "auto" }}>
-  <table
-    style={{
-      width: "100%",
-      borderCollapse: "collapse",
-      background: "#fff",
-      borderRadius: "12px",
-      overflow: "hidden",
-      border: "1px solid #dce7f3",
-    }}
-  >
-    {/* HEADER */}
-    <thead>
-      <tr style={{ background: "#f1f6fb", textAlign: "left" }}>
-        {[
-          "Item Name",
-          "Category",
-          "Quantity",
-          "Expiry Date",
-          "Status",
-          "Actions",
-        ].map((header) => (
-          <th
-            key={header}
-            style={{
-              padding: "12px",
-              fontSize: "13px",
-              color: "#334155",
-              fontWeight: 700,
-              borderBottom: "1px solid #dce7f3",
-            }}
-          >
-            {header}
-          </th>
-        ))}
-      </tr>
-    </thead>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                background: "#fff",
+                borderRadius: "12px",
+                overflow: "hidden",
+                border: "1px solid #dce7f3",
+              }}
+            >
+              <thead>
+                <tr style={{ background: "#f1f6fb", textAlign: "left" }}>
+                  {[
+                    "Item Name",
+                    "Category",
+                    "Quantity",
+                    "Expiry Date",
+                    "Status",
+                    "Actions",
+                  ].map((header) => (
+                    <th
+                      key={header}
+                      style={{
+                        padding: "12px",
+                        fontSize: "13px",
+                        color: "#334155",
+                        fontWeight: 700,
+                        borderBottom: "1px solid #dce7f3",
+                      }}
+                    >
+                      {header}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
 
-    {/* BODY */}
-    <tbody>
-      {isLoading ? (
-        <tr>
-          <td colSpan="6" style={{ padding: "16px" }}>
-            Loading...
-          </td>
-        </tr>
-      ) : errorMessage ? (
-        <tr>
-          <td colSpan="6" style={{ padding: "16px", color: "red" }}>
-            {errorMessage}
-          </td>
-        </tr>
-      ) : inventoryItems.length === 0 ? (
-        <tr>
-          <td colSpan="6" style={{ padding: "16px" }}>
-            No items found
-          </td>
-        </tr>
-      ) : (
-        inventoryItems.map((item, index) => (
-          <tr key={item.id || index} style={{ borderBottom: "1px solid #eef2f7" }}>
-            <td style={{ padding: "12px" }}>{item.name}</td>
-            <td style={{ padding: "12px" }}>{item.category}</td>
-            <td style={{ padding: "12px" }}>{item.quantity}</td>
-            <td style={{ padding: "12px" }}>
-              {item.expiryDate
-                ? new Date(item.expiryDate).toLocaleDateString()
-                : "—"}
-            </td>
+              <tbody>
+                {isLoading ? (
+                  <tr>
+                    <td colSpan="6" style={{ padding: "16px" }}>
+                      Loading...
+                    </td>
+                  </tr>
+                ) : errorMessage ? (
+                  <tr>
+                    <td colSpan="6" style={{ padding: "16px", color: "red" }}>
+                      {errorMessage}
+                    </td>
+                  </tr>
+                ) : inventoryItems.length === 0 ? (
+                  <tr>
+                    <td colSpan="6" style={{ padding: "16px" }}>
+                      No items found
+                    </td>
+                  </tr>
+                ) : (
+                  inventoryItems.map((item, index) => (
+                    <tr
+                      key={item.id || index}
+                      style={{ borderBottom: "1px solid #eef2f7" }}
+                    >
+                      <td style={{ padding: "12px" }}>{item.name}</td>
+                      <td style={{ padding: "12px" }}>{item.category}</td>
+                      <td style={{ padding: "12px" }}>{item.quantity}</td>
+                      <td style={{ padding: "12px" }}>
+                        {item.expiryDate
+                          ? new Date(item.expiryDate).toLocaleDateString()
+                          : "—"}
+                      </td>
 
-            {/* STATUS */}
-            <td style={{ padding: "12px" }}>
-              <span
-                style={{
-                  padding: "4px 10px",
-                  borderRadius: "8px",
-                  fontSize: "12px",
-                  fontWeight: 600,
-                  background:
-                    item.status === "Critical"
-                      ? "#fee2e2"
-                      : item.status === "Low"
-                      ? "#fef3c7"
-                      : "#e0f2fe",
-                  color:
-                    item.status === "Critical"
-                      ? "#b91c1c"
-                      : item.status === "Low"
-                      ? "#92400e"
-                      : "#075985",
-                }}
-              >
-                {item.status || "Normal"}
-              </span>
-            </td>
+                      <td style={{ padding: "12px" }}>
+                        <span
+                          style={{
+                            padding: "4px 10px",
+                            borderRadius: "8px",
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            background:
+                              item.status === "Critical"
+                                ? "#fee2e2"
+                                : item.status === "Low"
+                                ? "#fef3c7"
+                                : "#e0f2fe",
+                            color:
+                              item.status === "Critical"
+                                ? "#b91c1c"
+                                : item.status === "Low"
+                                ? "#92400e"
+                                : "#075985",
+                          }}
+                        >
+                          {item.status || "Normal"}
+                        </span>
+                      </td>
 
-            {/* ACTIONS */}
-            <td style={{ padding: "12px" }}>
-              <button
-                style={{
-                  border: "none",
-                  background: "#e2e8f0",
-                  padding: "6px 10px",
-                  borderRadius: "8px",
-                  cursor: "pointer",
-                  fontSize: "12px",
-                  fontWeight: 600,
-                }}
-                onClick={() => handleOpenEditModal(item.id)}
-              >
-                Edit
-              </button>
-            </td>
-          </tr>
-        ))
-      )}
-    </tbody>
-  </table>
-</div>
+                      <td style={{ padding: "12px" }}>
+                        <button
+                          style={{
+                            border: "none",
+                            background: "#e2e8f0",
+                            padding: "6px 10px",
+                            borderRadius: "8px",
+                            cursor: "pointer",
+                            fontSize: "12px",
+                            fontWeight: 600,
+                          }}
+                          onClick={() => handleOpenEditModal(item.id)}
+                        >
+                          Edit
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <div
             style={{
@@ -475,7 +573,7 @@ const InventoryItemsPage = () => {
         )}
       </section>
 
-      {/* MODAL */}
+      {/* EXISTING ITEM FORM MODAL - KEPT INTACT */}
       <InventoryItemFormModal
         isOpen={isModalOpen}
         mode={modalMode}
@@ -485,6 +583,87 @@ const InventoryItemsPage = () => {
         onClose={() => setIsModalOpen(false)}
         onSubmit={handleSubmitModal}
       />
+
+      {/* SCAN ITEM MODAL */}
+      {isScanModalOpen && (
+        <div style={scanModalOverlayStyle} onClick={handleCloseScanModal}>
+          <div
+            style={scanModalStyle}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              style={{
+                margin: 0,
+                color: "#2f3f5d",
+                fontSize: "24px",
+                fontWeight: 800,
+                lineHeight: 1.2,
+              }}
+            >
+              Barcode Scanner
+            </h2>
+
+            <p
+              style={{
+                margin: "2px 0 8px",
+                color: "#2f3f5d",
+                fontSize: "17px",
+                fontWeight: 700,
+              }}
+            >
+              Start Scanning
+            </p>
+
+            <div style={{ marginBottom: "14px" }}>
+              <label style={scanModalLabelStyle}>Input Barcode Number</label>
+              <input
+                type="text"
+                value={scanForm.barcodeNumber}
+                onChange={(e) =>
+                  handleScanInputChange("barcodeNumber", e.target.value)
+                }
+                style={scanModalInputStyle}
+              />
+            </div>
+
+            <div style={{ marginBottom: "22px" }}>
+              <label style={scanModalLabelStyle}>Reorder Level</label>
+              <input
+                type="text"
+                value={scanForm.reorderLevel}
+                onChange={(e) =>
+                  handleScanInputChange("reorderLevel", e.target.value)
+                }
+                style={scanModalInputStyle}
+              />
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "12px",
+                flexWrap: "wrap",
+              }}
+            >
+              <button
+                type="button"
+                style={primaryModalBtn}
+                onClick={handleSubmitScanModal}
+              >
+                Add Item
+              </button>
+              <button
+                type="button"
+                style={secondaryModalBtn}
+                onClick={handleCloseScanModal}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };
