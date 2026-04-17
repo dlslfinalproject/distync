@@ -111,12 +111,17 @@ const DisasterEventFormModal = ({
     event.preventDefault();
 
     if (!formValues.event_name.trim()) {
-      setValidationMessage("event_name is required.");
+      setValidationMessage("Event name is required.");
       return;
     }
 
     if (!formValues.disaster_type.trim()) {
       setValidationMessage("disaster_type is required.");
+      return;
+    }
+
+    if (formValues.disaster_type === "Other" && !formValues.custom_disaster_type?.trim()) {
+      setValidationMessage("Please specify the disaster type.");
       return;
     }
 
@@ -135,13 +140,17 @@ const DisasterEventFormModal = ({
 
     setValidationMessage("");
 
+    const finalDisasterType =
+      formValues.disaster_type === "Other"
+        ? formValues.custom_disaster_type.trim()
+        : formValues.disaster_type.trim();
+
     onSubmit({
-      title: formValues.event_name.trim(),
-      disaster_type: formValues.disaster_type.trim(),
-      description: null,
+      event_name: formValues.event_name.trim(),
+      disaster_type: finalDisasterType,
       start_date: formValues.start_date,
       end_date: formValues.end_date || null,
-      status: "ACTIVE",
+      status: formValues.status,
       created_by: null,
       barangay_ids: formValues.barangay_ids,
     });
