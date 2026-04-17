@@ -81,7 +81,7 @@ const StubClaimConfirmModal = ({
               cursor: isSubmitting ? "wait" : "pointer",
             }}
           >
-            {isSubmitting ? "Marking as Claimed..." : "Yes, Mark as Claimed"}
+            {isSubmitting ? "Marking as Claimed..." : "Mark Claimed"}
           </button>
         </div>
       </div>

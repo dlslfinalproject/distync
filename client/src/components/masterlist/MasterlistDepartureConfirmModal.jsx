@@ -55,8 +55,7 @@ const MasterlistDepartureConfirmModal = ({
       <div style={modalStyles.modal}>
         <h3 style={modalStyles.title}>Confirm Departure</h3>
         <p style={modalStyles.message}>
-          Are you sure you want to mark this registered family as departed and
-          record the current departure time?
+          Are you sure this stub has been claimed?
         </p>
 
         <div style={modalStyles.actions}>
@@ -82,7 +81,7 @@ const MasterlistDepartureConfirmModal = ({
               cursor: isSubmitting ? "wait" : "pointer",
             }}
           >
-            {isSubmitting ? "Recording Departure..." : "Yes, Mark Departed"}
+            {isSubmitting ? "Recording Departure..." : "Mark Departed"}
           </button>
         </div>
       </div>
