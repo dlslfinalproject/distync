@@ -124,20 +124,6 @@ const FamilyHeadSection = ({ form }) => {
           />
         </label>
 
-        <label style={fieldStyles.field}>
-          <span style={fieldStyles.label}>Age Unit</span>
-          <input
-            type="text"
-            value="Years"
-            disabled
-            style={{
-              ...fieldStyles.input,
-              backgroundColor: "#f4f8fc",
-              color: "#48627e",
-            }}
-          />
-        </label>
-
       </div>
 
       <div style={{ marginTop: "18px" }}>
