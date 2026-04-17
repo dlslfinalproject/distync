@@ -172,17 +172,6 @@ const DisasterEventFormModal = ({
             <h3 style={{ margin: 0, color: "#17324d", fontSize: "26px" }}>
               Create Disaster Event
             </h3>
-            <p
-              style={{
-                margin: "8px 0 0",
-                color: "#60738a",
-                fontSize: "14px",
-                lineHeight: 1.6,
-              }}
-            >
-              Create a new disaster event and optionally assign affected barangays
-              for later masterlist filtering and monitoring.
-            </p>
           </div>
           <button
             type="button"
