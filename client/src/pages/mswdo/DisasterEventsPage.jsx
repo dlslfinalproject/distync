@@ -69,13 +69,103 @@ const DisasterEventsPage = () => {
       selectedFilter === filterOptions.closed ? "Ended Events" : "All Disaster Events";
 
   return (
-    /* CRITICAL FIX: Use flex: 1 and minWidth 0 to prevent the container 
-       from ever being wider than the available space next to the sidebar.
-    */
     <div style={{ flex: 1, minWidth: 0, maxWidth: "100%", overflowX: "hidden" }}>
       <PageHeader
         title="DISASTER EVENT MANAGEMENT"
       />
+
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "flex-end",
+          alignItems: "center",
+          gap: "12px",
+          margin: "16px 0 24px",
+        }}
+      >
+        {/* CREATE BUTTON */}
+        <button
+          onClick={openCreateModal}
+          style={{
+            padding: "10px 16px",
+            borderRadius: "10px",
+            backgroundColor: "#2f5bd3",
+            color: "#fff",
+            border: "none",
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          Create Disaster Event
+        </button>
+
+        {/* EXPORT DROPDOWN */}
+        <div style={{ position: "relative" }}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setExportOpen(!exportOpen);
+            }}
+            style={{
+              padding: "10px 16px",
+              borderRadius: "10px",
+              backgroundColor: "#eef2f6",
+              color: "#17324d",
+              border: "1px solid #d6e2ef",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            Export ▾
+          </button>
+
+          {exportOpen && (
+            <div
+              style={{
+                position: "absolute",
+                right: 0,
+                top: "45px",
+                background: "#fff",
+                borderRadius: "10px",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                padding: "8px",
+                minWidth: "160px",
+                zIndex: 20,
+              }}
+            >
+              <div
+                style={{ padding: "8px", cursor: "pointer" }}
+                onClick={() => {
+                  console.log("Export CSV");
+                  setExportOpen(false);
+                }}
+              >
+                Export as CSV
+              </div>
+
+              <div
+                style={{ padding: "8px", cursor: "pointer" }}
+                onClick={() => {
+                  console.log("Export PDF");
+                  setExportOpen(false);
+                }}
+              >
+                Export as PDF
+              </div>
+
+              <div
+                style={{ padding: "8px", cursor: "pointer" }}
+                onClick={() => {
+                  console.log("Export Excel");
+                  setExportOpen(false);
+                }}
+              >
+                Export as PDF
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* FILTER & TAB CARD */}
       <section style={{ ...shellStyles.card, boxSizing: "border-box" }}>
@@ -93,83 +183,11 @@ const DisasterEventsPage = () => {
           <button onClick={() => setSelectedFilter(filterOptions.closed)} style={getTabStyle(filterOptions.closed)}>Ended Events</button>
           <button onClick={() => setSelectedFilter(filterOptions.all)} style={getTabStyle(filterOptions.all)}>All Events</button>
         </div>
-
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "flex-end", // ✅ RIGHT ALIGN
-            alignItems: "center",
-            gap: "12px",
-            flexWrap: "wrap",
-            position: "relative", // needed for dropdown positioning
-          }}
-        >
-          {/* EXPORT BUTTON */}
-          <div style={{ position: "relative" }}>
-            <button
-              onClick={() => setExportOpen(!exportOpen)}
-              style={{
-                padding: "10px 18px",
-                borderRadius: "10px",
-                backgroundColor: "#f0f4f8",
-                color: "#17324d",
-                border: "1px solid #d6e2ef",
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              Export ▾
-            </button>
-
-            {/* DROPDOWN */}
-            {exportOpen && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: "42px",
-                  right: 0,
-                  background: "#fff",
-                  borderRadius: "10px",
-                  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-                  padding: "10px",
-                  zIndex: 100,
-                  minWidth: "160px",
-                }}
-              >
-                <div style={{ padding: "8px", cursor: "pointer" }}>
-                  Export as PDF
-                </div>
-                <div style={{ padding: "8px", cursor: "pointer" }}>
-                  Export as Excel
-                </div>
-                <div style={{ padding: "8px", cursor: "pointer" }}>
-                  Export as CSV
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* CREATE BUTTON */}
-          <button
-            onClick={openCreateModal}
-            style={{
-              padding: "10px 18px",
-              borderRadius: "10px",
-              backgroundColor: "#2f5bd3",
-              color: "#fff",
-              border: "none",
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            Create Disaster Event
-          </button>
-        </div>
       </section>
 
       {/* TABLE CARD - Tightened container with forced internal scroll */}
-      <section style={{ ...shellStyles.card, marginTop: "24px", padding: "24px", boxSizing: "border-box", overflow: "hidden" }}>
-        <div style={{ width: "100%", maxWidth: "100%", overflowX: "auto" }}>
+      <section style={{ ...shellStyles.card, marginTop: "24px", padding: "24px", boxSizing: "border-box", overflow: "visible" }}>
+        <div style={{ width: "100%" }}>
           <DisasterEventsTable
             rows={events}
             isLoading={isLoading}

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { pageHeaderStyles } from "../layout/PageHeader";
+import { shellStyles } from "../layout/BarangayLayout";
 
 const overlayStyles = {
   position: "fixed",
@@ -44,16 +45,12 @@ const labelStyles = {
   fontWeight: 700,
 };
 
-const allowedStatuses = ["PLANNED", "ACTIVE", "CLOSED", "ARCHIVED"];
-
 const createDefaultForm = () => ({
   event_code: "",
-  title: "",
+  event_name: "",
   disaster_type: "",
-  description: "",
   start_date: "",
   end_date: "",
-  status: "ACTIVE",
   barangay_ids: [],
 });
 
@@ -105,8 +102,8 @@ const DisasterEventFormModal = ({
       return;
     }
 
-    if (!formValues.title.trim()) {
-      setValidationMessage("title is required.");
+    if (!formValues.event_name.trim()) {
+      setValidationMessage("event_name is required.");
       return;
     }
 
@@ -132,12 +129,10 @@ const DisasterEventFormModal = ({
 
     onSubmit({
       event_code: formValues.event_code.trim(),
-      title: formValues.title.trim(),
+      event_name: formValues.event_name.trim(),
       disaster_type: formValues.disaster_type.trim(),
-      description: formValues.description.trim() || null,
       start_date: formValues.start_date,
       end_date: formValues.end_date || null,
-      status: formValues.status,
       created_by: null,
       barangay_ids: formValues.barangay_ids,
     });
@@ -181,114 +176,109 @@ const DisasterEventFormModal = ({
         </div>
 
         <form onSubmit={handleSubmit}>
-          <div
-            style={{
+
+          {/* ================= SECTION 1: EVENT DETAILS ================= */}
+          <section style={shellStyles.card}>
+            <h3 style={{ marginBottom: "16px", color: "#17324d" }}>
+              Event Details
+            </h3>
+
+            <div style={{
               display: "grid",
               gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
               gap: "18px",
-            }}
-          >
+            }}>
+              {/* EVENT NAME */}
+              <div>
+                <label style={labelStyles}>Event Name</label>
+                <input
+                  type="text"
+                  value={formValues.event_name}
+                  onChange={(e) => handleChange("event_name", e.target.value)}
+                  style={inputStyles}
+                />
+              </div>
 
-            <div>
-              <label htmlFor="title" style={labelStyles}>
-                Title
-              </label>
-              <input
-                id="title"
-                type="text"
-                value={formValues.title}
-                onChange={(event) => handleChange("title", event.target.value)}
-                style={inputStyles}
-              />
+              {/* DISASTER TYPE */}
+              <div>
+                <label style={labelStyles}>Disaster Type</label>
+                <select
+                  value={formValues.disaster_type}
+                  onChange={(e) => handleChange("disaster_type", e.target.value)}
+                  style={inputStyles}
+                >
+                  <option value="">Select Disaster Type</option>
+                  <option value="Typhoon">Typhoon</option>
+                  <option value="Flood">Flood</option>
+                  <option value="Earthquake">Earthquake</option>
+                  <option value="Landslide">Landslide</option>
+                  <option value="Volcanic Eruption">Volcanic Eruption</option>
+                  <option value="Storm Surge">Storm Surge</option>
+                  <option value="Drought / El Niño">Drought / El Niño</option>
+                  <option value="Tsunami">Tsunami</option>
+                  <option value="Fire">Fire</option>
+                  <option value="Other">Other</option>
+                </select>
+
+                {formValues.disaster_type === "Other" && (
+                  <input
+                    type="text"
+                    placeholder="Specify disaster type"
+                    value={formValues.custom_disaster_type || ""}
+                    onChange={(e) =>
+                      handleChange("custom_disaster_type", e.target.value)
+                    }
+                    style={{ ...inputStyles, marginTop: "10px" }}
+                  />
+                )}
+              </div>
             </div>
+          </section>
 
-            <div>
-              <label htmlFor="disaster_type" style={labelStyles}>
-                Disaster Type
-              </label>
-              <input
-                id="disaster_type"
-                type="text"
-                value={formValues.disaster_type}
-                onChange={(event) =>
-                  handleChange("disaster_type", event.target.value)
-                }
-                style={inputStyles}
-              />
+          {/* ================= SECTION 2: RELIEF PERIOD ================= */}
+          <section style={{ ...shellStyles.card, marginTop: "16px" }}>
+            <h3 style={{ marginBottom: "16px", color: "#17324d" }}>
+              Relief Period
+            </h3>
+
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: "18px",
+            }}>
+              <div>
+                <label style={labelStyles}>Start Date</label>
+                <input
+                  type="date"
+                  value={formValues.start_date}
+                  onChange={(e) => handleChange("start_date", e.target.value)}
+                  style={inputStyles}
+                />
+              </div>
+
+              <div>
+                <label style={labelStyles}>End Date</label>
+                <input
+                  type="date"
+                  value={formValues.end_date}
+                  onChange={(e) => handleChange("end_date", e.target.value)}
+                  style={inputStyles}
+                />
+              </div>
             </div>
+          </section>
 
-            <div>
-              <label htmlFor="status" style={labelStyles}>
-                Status
-              </label>
-              <select
-                id="status"
-                value={formValues.status}
-                onChange={(event) => handleChange("status", event.target.value)}
-                style={inputStyles}
-              >
-                {allowedStatuses.map((status) => (
-                  <option key={status} value={status}>
-                    {status}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="start_date" style={labelStyles}>
-                Start Date
-              </label>
-              <input
-                id="start_date"
-                type="date"
-                value={formValues.start_date}
-                onChange={(event) =>
-                  handleChange("start_date", event.target.value)
-                }
-                style={inputStyles}
-              />
-            </div>
-
-            <div>
-              <label htmlFor="end_date" style={labelStyles}>
-                End Date
-              </label>
-              <input
-                id="end_date"
-                type="date"
-                value={formValues.end_date}
-                onChange={(event) => handleChange("end_date", event.target.value)}
-                style={inputStyles}
-              />
-            </div>
-
-            <div style={{ gridColumn: "1 / -1" }}>
-              <label htmlFor="description" style={labelStyles}>
-                Description
-              </label>
-              <textarea
-                id="description"
-                value={formValues.description}
-                onChange={(event) =>
-                  handleChange("description", event.target.value)
-                }
-                style={{ ...inputStyles, minHeight: "110px", resize: "vertical" }}
-              />
-            </div>
-          </div>
-
-          <div style={{ marginTop: "20px" }}>
-            <p style={{ ...labelStyles, marginBottom: "12px" }}>
+          {/* ================= SECTION 3: AFFECTED BARANGAYS ================= */}
+          <section style={{ ...shellStyles.card, marginTop: "16px" }}>
+            <h3 style={{ marginBottom: "16px", color: "#17324d" }}>
               Affected Barangays
-            </p>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: "12px",
-              }}
-            >
+            </h3>
+
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: "12px",
+            }}>
               {barangays.map((barangay) => (
                 <label
                   key={barangay.id}
@@ -299,22 +289,20 @@ const DisasterEventFormModal = ({
                     padding: "12px 14px",
                     borderRadius: "14px",
                     border: "1px solid #d7e2ef",
-                    color: "#21405f",
-                    fontSize: "14px",
                   }}
                 >
                   <input
                     type="checkbox"
                     checked={formValues.barangay_ids.includes(barangay.id)}
-                    onChange={(event) =>
-                      handleBarangayToggle(barangay.id, event.target.checked)
+                    onChange={(e) =>
+                      handleBarangayToggle(barangay.id, e.target.checked)
                     }
                   />
                   {barangay.name}
                 </label>
               ))}
             </div>
-          </div>
+          </section>
 
           {validationMessage ? (
             <div
@@ -378,8 +366,8 @@ const DisasterEventFormModal = ({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </div >
+    </div >
   );
 };
 
