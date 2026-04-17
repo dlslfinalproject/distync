@@ -23,6 +23,16 @@ const tableStyles = {
     fontSize: "14px",
     verticalAlign: "top",
   },
+  departureButton: {
+    border: "1px solid #c6d8ea",
+    borderRadius: "12px",
+    padding: "10px 14px",
+    backgroundColor: "#f7fbfe",
+    color: "#24496e",
+    fontSize: "13px",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
   membersBadge: {
     display: "inline-block",
     minWidth: "36px",
@@ -103,8 +113,6 @@ const MasterlistTable = ({
               <th style={tableStyles.headerCell}>Sectors</th>
               <th style={tableStyles.headerCell}>Arrival Time</th>
               <th style={tableStyles.headerCell}>Departure Time</th>
-              <th style={tableStyles.headerCell}>Status</th>
-              <th style={tableStyles.headerCell}>Action</th>
             </tr>
           </thead>
           <tbody>
@@ -117,26 +125,20 @@ const MasterlistTable = ({
                 </td>
                 <td style={tableStyles.bodyCell}>{row.sectors_text}</td>
                 <td style={tableStyles.bodyCell}>{row.arrival_time_text}</td>
-                <td style={tableStyles.bodyCell}>{row.departure_time_text}</td>
-                <td style={tableStyles.bodyCell}>{row.attendance_status_text}</td>
                 <td style={tableStyles.bodyCell}>
-                  <button
-                    type="button"
-                    onClick={() => onMarkDeparted(row.household_id)}
-                    disabled={!row.can_mark_departed}
-                    style={{
-                      border: "1px solid #c6d8ea",
-                      borderRadius: "12px",
-                      padding: "10px 14px",
-                      backgroundColor: row.can_mark_departed ? "#f7fbfe" : "#eef3f8",
-                      color: row.can_mark_departed ? "#24496e" : "#8aa0b5",
-                      fontSize: "13px",
-                      fontWeight: 700,
-                      cursor: row.can_mark_departed ? "pointer" : "not-allowed",
-                    }}
-                  >
-                    {row.can_mark_departed ? "Mark as Departed" : "No Active Stay"}
-                  </button>
+                  {row.departure_time_value ? (
+                    row.departure_time_text
+                  ) : row.can_record_departure ? (
+                    <button
+                      type="button"
+                      onClick={() => onMarkDeparted(row.household_id)}
+                      style={tableStyles.departureButton}
+                    >
+                      Mark as Departed
+                    </button>
+                  ) : (
+                    "-"
+                  )}
                 </td>
               </tr>
             ))}
