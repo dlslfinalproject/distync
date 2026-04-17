@@ -61,6 +61,15 @@ const FamilyHeadSection = ({ form }) => {
     "YEARS",
   );
 
+  const ageBasedSectors = form.memberSectorOptions.filter((sector) =>
+    isAgeBasedMemberSectorCode(getCanonicalMemberSectorCode(sector.code)),
+  );
+
+  const nonAgeBasedSectors = form.memberSectorOptions.filter(
+    (sector) =>
+      !isAgeBasedMemberSectorCode(getCanonicalMemberSectorCode(sector.code)),
+  );
+
   return (
     <section style={shellStyles.card}>
       <div style={{ marginBottom: "18px" }}>
@@ -150,32 +159,47 @@ const FamilyHeadSection = ({ form }) => {
         <p style={{ ...shellStyles.mutedText, margin: "0 0 10px", fontWeight: 700 }}>
           Member Sectors
         </p>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
-          {form.memberSectorOptions.map((sector) => {
-            const sectorCode = getCanonicalMemberSectorCode(sector.code);
-            const isAgeBasedSector = isAgeBasedMemberSectorCode(sectorCode);
-            const isChecked = isAgeBasedSector
-              ? sectorCode === derivedFamilyHeadAgeSector
-              : form.familyHead.sector_ids.includes(sector.id);
 
-            return (
-              <label
-                key={sector.id}
-                style={{
-                  ...fieldStyles.checkboxLabel,
-                  opacity: isAgeBasedSector && !isChecked ? 0.8 : 1,
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={isChecked}
-                  disabled={isAgeBasedSector}
-                  onChange={() => form.toggleFamilyHeadSector(sector.id)}
-                />
-                {formatMemberSectorLabel(sector)}
-              </label>
-            );
-          })}
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+            {ageBasedSectors.map((sector) => {
+              const sectorCode = getCanonicalMemberSectorCode(sector.code);
+              const isChecked = sectorCode === derivedFamilyHeadAgeSector;
+
+              return (
+                <label
+                  key={sector.id}
+                  style={{
+                    ...fieldStyles.checkboxLabel,
+                    opacity: isChecked ? 1 : 0.8,
+                  }}
+                >
+                  <input type="checkbox" checked={isChecked} disabled />
+                  {formatMemberSectorLabel(sector)}
+                </label>
+              );
+            })}
+          </div>
+
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+            {nonAgeBasedSectors.map((sector) => {
+              const isChecked = form.familyHead.sector_ids.includes(sector.id);
+
+              return (
+                <label
+                  key={sector.id}
+                  style={fieldStyles.checkboxLabel}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => form.toggleFamilyHeadSector(sector.id)}
+                  />
+                  {formatMemberSectorLabel(sector)}
+                </label>
+              );
+            })}
+          </div>
         </div>
       </div>
     </section>
