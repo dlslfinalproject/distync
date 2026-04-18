@@ -125,10 +125,10 @@ const ConsolidatedEvacueeMasterlist = () => {
         >
           {selectedBarangayId
             ? barangays.find((b) => b.id === selectedBarangayId)?.name
-            : "All Barangays"}
+            : "All Barangays (Consolidated)"}
         </div>
 
-        {/* Development Fallback Barangay Dropdown */}
+        {/* Barangay Filter Dropdown */}
         <select
           value={selectedBarangayId || ""}
           onChange={(e) => setSelectedBarangayId(e.target.value)}
@@ -141,7 +141,7 @@ const ConsolidatedEvacueeMasterlist = () => {
             fontSize: "14px",
           }}
         >
-          <option value="">-- Select Fallback Barangay --</option>
+          <option value="">All Barangays</option>
           {barangays.map((b) => (
             <option key={b.id} value={b.id}>
               {b.name}
