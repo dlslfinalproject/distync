@@ -5,7 +5,7 @@ import {
   fetchConsolidatedMasterlist,
   fetchDisasterEvents,
 } from "./mswdoMasterlistService";
-import { formatStayTypeLabel } from "../../utils/stayType";
+import { mapMasterlistRow } from "../masterlist/masterlistService";
 
 const emptyMasterlistPayload = {
   disaster_event: null,
@@ -21,27 +21,30 @@ const formatSearchValue = (value) => {
   return value ? String(value).toLowerCase() : "";
 };
 
-const getDisplayedRows = (households, searchTerm) => {
-  const normalizedRows = households.map((household) => ({
-    ...household,
-    current_stay_type: formatStayTypeLabel(household.current_stay_type),
+const getMappedRows = (households) => {
+  return households.map((household) => ({
+    ...mapMasterlistRow(household),
+    barangay_id: household.barangay?.id || null,
+    barangay_name: household.barangay?.name || "",
+    has_stub_issued: Boolean(household.stub),
   }));
+};
 
+const getDisplayedRows = (rows, searchTerm) => {
   if (!searchTerm.trim()) {
-    return normalizedRows;
+    return rows;
   }
 
   const normalizedSearchTerm = searchTerm.trim().toLowerCase();
 
-  return normalizedRows.filter((household) => {
+  return rows.filter((household) => {
     const searchableValues = [
       household.family_head_name,
-      household.barangay?.name,
-      household.current_stay_type,
-      household.contact_number,
-      household.stub?.stub_no,
-      household.latest_attendance?.status,
-      household.current_address_details,
+      household.address,
+      household.sectors_text,
+      household.arrival_time_text,
+      household.departure_time_text,
+      household.barangay_name,
     ];
 
     return searchableValues.some((value) =>
@@ -50,19 +53,19 @@ const getDisplayedRows = (households, searchTerm) => {
   });
 };
 
-const getSummary = (households) => {
-  const totalEvacuees = households.reduce((total, household) => {
-    return total + (household.household_size || household.members?.length || 0);
+const getSummary = (rows) => {
+  const totalEvacuees = rows.reduce((total, household) => {
+    return total + (household.members_count || 0);
   }, 0);
 
   const barangayIds = new Set(
-    households.map((household) => household.barangay?.id).filter(Boolean),
+    rows.map((household) => household.barangay_id).filter(Boolean),
   );
 
-  const withStubIssued = households.filter((household) => household.stub).length;
+  const withStubIssued = rows.filter((household) => household.has_stub_issued).length;
 
   return {
-    totalHouseholds: households.length,
+    totalHouseholds: rows.length,
     totalEvacuees,
     barangaysCovered: barangayIds.size,
     withStubIssued,
@@ -76,8 +79,6 @@ export const useMswdoMasterlist = () => {
   const [selectedBarangayId, setSelectedBarangayId] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [masterlistPayload, setMasterlistPayload] = useState(emptyMasterlistPayload);
-  const [selectedHousehold, setSelectedHousehold] = useState(null);
-  const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
   const [isLoadingMasterlist, setIsLoadingMasterlist] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -171,9 +172,13 @@ export const useMswdoMasterlist = () => {
     };
   }, [reloadKey, selectedBarangayId, selectedDisasterEventId]);
 
+  const mappedRows = useMemo(() => {
+    return getMappedRows(masterlistPayload.data || []);
+  }, [masterlistPayload.data]);
+
   const displayedRows = useMemo(() => {
-    return getDisplayedRows(masterlistPayload.data || [], searchTerm);
-  }, [masterlistPayload.data, searchTerm]);
+    return getDisplayedRows(mappedRows, searchTerm);
+  }, [mappedRows, searchTerm]);
 
   const summary = useMemo(() => {
     return getSummary(displayedRows);
@@ -194,22 +199,12 @@ export const useMswdoMasterlist = () => {
     searchTerm,
     displayedRows,
     summary,
-    selectedHousehold,
-    isDetailOpen,
     isLoadingFilters,
     isLoadingMasterlist,
     errorMessage,
     setSelectedDisasterEventId,
     setSelectedBarangayId,
     setSearchTerm,
-    openHouseholdDetail: (household) => {
-      setSelectedHousehold(household);
-      setIsDetailOpen(true);
-    },
-    closeHouseholdDetail: () => {
-      setSelectedHousehold(null);
-      setIsDetailOpen(false);
-    },
     reloadMasterlist: () => {
       setReloadKey((currentValue) => currentValue + 1);
     },

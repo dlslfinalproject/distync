@@ -1,10 +1,10 @@
 import React, { useState } from "react";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
-import MswdoHouseholdDetailModal from "../../components/mswdo-masterlist/MswdoHouseholdDetailModal";
-import MswdoMasterlistTable from "../../components/mswdo-masterlist/MswdoMasterlistTable";
-import MswdoMasterlistToolbar from "../../components/mswdo-masterlist/MswdoMasterlistToolbar";
+import MasterlistDepartureConfirmModal from "../../components/masterlist/MasterlistDepartureConfirmModal";
+import MasterlistTable from "../../components/masterlist/MasterlistTable";
 import MswdoSummaryCards from "../../components/mswdo-masterlist/MswdoSummaryCards";
+import { departHousehold } from "../../features/masterlist/masterlistService";
 import { useMswdoMasterlist } from "../../features/mswdo-masterlist/useMswdoMasterlist";
 
 const ConsolidatedEvacueeMasterlist = () => {
@@ -17,23 +17,52 @@ const ConsolidatedEvacueeMasterlist = () => {
     searchTerm,
     displayedRows,
     summary,
-    selectedHousehold,
-    isDetailOpen,
     isLoadingFilters,
     isLoadingMasterlist,
     errorMessage,
     setSelectedDisasterEventId,
     setSelectedBarangayId,
     setSearchTerm,
-    openHouseholdDetail,
-    closeHouseholdDetail,
+    reloadMasterlist,
   } = useMswdoMasterlist();
 
   const [activeTab, setActiveTab] = useState("active"); // 'active' | 'ended'
+  const [pendingDepartureHouseholdId, setPendingDepartureHouseholdId] = useState(null);
+  const [isRecordingDeparture, setIsRecordingDeparture] = useState(false);
 
   const activeEventLabel = selectedDisasterEvent
     ? `${selectedDisasterEvent.event_code} - ${selectedDisasterEvent.title}`
     : "No disaster event selected";
+
+  const handleOpenDepartureConfirmation = (householdId) => {
+    setPendingDepartureHouseholdId(householdId);
+  };
+
+  const handleCloseDepartureConfirmation = () => {
+    if (isRecordingDeparture) {
+      return;
+    }
+
+    setPendingDepartureHouseholdId(null);
+  };
+
+  const handleConfirmDeparture = async () => {
+    if (!pendingDepartureHouseholdId) {
+      return;
+    }
+
+    setIsRecordingDeparture(true);
+
+    try {
+      await departHousehold({ householdId: pendingDepartureHouseholdId });
+      setPendingDepartureHouseholdId(null);
+      reloadMasterlist();
+    } catch (error) {
+      window.alert(error.message || "Failed to record household departure.");
+    } finally {
+      setIsRecordingDeparture(false);
+    }
+  };
 
   return (
     <>
@@ -198,21 +227,21 @@ const ConsolidatedEvacueeMasterlist = () => {
       <section style={{ ...shellStyles.card, overflow: "hidden" }}>
         <h4 style={{ marginBottom: "12px", fontWeight: 700 }}>Registered Family</h4>
         <div style={{ width: "100%", overflowX: "auto" }}>
-          <MswdoMasterlistTable
+          <MasterlistTable
             rows={displayedRows}
             hasSelectedEvent={Boolean(selectedDisasterEventId)}
             isLoading={isLoadingFilters || isLoadingMasterlist}
             errorMessage={errorMessage}
-            onViewHousehold={openHouseholdDetail}
+            onMarkDeparted={handleOpenDepartureConfirmation}
           />
         </div>
       </section>
 
-      {/* Household Detail Modal */}
-      <MswdoHouseholdDetailModal
-        isOpen={isDetailOpen}
-        household={selectedHousehold}
-        onClose={closeHouseholdDetail}
+      <MasterlistDepartureConfirmModal
+        isOpen={Boolean(pendingDepartureHouseholdId)}
+        isSubmitting={isRecordingDeparture}
+        onCancel={handleCloseDepartureConfirmation}
+        onConfirm={handleConfirmDeparture}
       />
     </>
   );
