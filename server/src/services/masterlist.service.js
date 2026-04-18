@@ -6,6 +6,7 @@ const {
   buildExportFilename,
   buildExportTitleLines,
   buildPdfBuffer,
+  buildPdfFilename,
   filterExportRows,
   mapHouseholdToExportRow,
 } = require("../utils/masterlistExport");
@@ -269,10 +270,16 @@ const getMswdoMasterlistDashboard = async (filters) => {
 };
 
 const exportMswdoMasterlist = async (filters) => {
-  const masterlist = await getMasterlist({
-    disaster_event_id: filters.disaster_event_id,
-    barangay_id: filters.barangay_id,
-  });
+  const [masterlist, dashboard] = await Promise.all([
+    getMasterlist({
+      disaster_event_id: filters.disaster_event_id,
+      barangay_id: filters.barangay_id,
+    }),
+    getMswdoMasterlistDashboard({
+      disaster_event_id: filters.disaster_event_id,
+      barangay_id: filters.barangay_id,
+    }),
+  ]);
 
   const exportRows = filterExportRows(
     (masterlist.data || []).map(mapHouseholdToExportRow),
@@ -332,11 +339,19 @@ const exportMswdoMasterlist = async (filters) => {
   }
 
   return {
-    filename,
+    filename: buildPdfFilename({
+      eventCode: masterlist.disaster_event?.event_code,
+      barangayName: barangayLabel,
+    }),
     contentType: "application/pdf",
     buffer: buildPdfBuffer({
-      titleLines,
       rows: exportRows,
+      summaryMetrics: dashboard.summary_metrics,
+      eventLabel,
+      eventCode: masterlist.disaster_event?.event_code,
+      barangayLabel,
+      searchTerm: filters.search,
+      includeBarangayColumn: !filters.barangay_id,
     }),
   };
 };

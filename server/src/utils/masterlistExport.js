@@ -1,3 +1,7 @@
+const fs = require("fs");
+const path = require("path");
+const zlib = require("zlib");
+
 const formatDateTime = (value) => {
   if (!value) {
     return "-";
@@ -80,6 +84,25 @@ const getExportColumns = () => {
     { key: "arrival_time_text", label: "Arrival Time" },
     { key: "departure_time_text", label: "Departure Time" },
   ];
+};
+
+const getPdfExportColumns = (includeBarangayColumn) => {
+  const columns = [];
+
+  if (includeBarangayColumn) {
+    columns.push({ key: "barangay_name", label: "Barangay", width: 88 });
+  }
+
+  columns.push(
+    { key: "family_head_name", label: "Family Head", width: 110 },
+    { key: "address", label: "Address", width: 145 },
+    { key: "members_count", label: "Members", width: 42 },
+    { key: "sectors_text", label: "Sectors", width: 115 },
+    { key: "arrival_time_text", label: "Arrival Time", width: 70 },
+    { key: "departure_time_text", label: "Departure Time", width: 70 },
+  );
+
+  return columns;
 };
 
 const escapeCsvValue = (value) => {
@@ -173,6 +196,27 @@ const buildExcelBuffer = ({ worksheetName, titleLines, columns, rows }) => {
   return Buffer.from(xml, "utf8");
 };
 
+const PDF_COLORS = {
+  navy: "0.09 0.20 0.34",
+  blue: "0.31 0.53 0.75",
+  lightBlue: "0.93 0.96 0.99",
+  border: "0.82 0.88 0.93",
+  grayText: "0.38 0.46 0.54",
+  bodyText: "0.10 0.20 0.32",
+  white: "1 1 1",
+};
+
+const PNG_COLOR_TYPE_RGBA = 6;
+const PNG_FILTER_NONE = 0;
+const PNG_FILTER_SUB = 1;
+const PNG_FILTER_UP = 2;
+const PNG_FILTER_AVERAGE = 3;
+const PNG_FILTER_PAETH = 4;
+const DISTYNC_LOGO_PATH = path.resolve(
+  __dirname,
+  "../../../client/src/assets/distync-logo.png",
+);
+
 const escapePdfText = (value) => {
   return String(value ?? "")
     .replace(/\\/g, "\\\\")
@@ -180,20 +224,37 @@ const escapePdfText = (value) => {
     .replace(/\)/g, "\\)");
 };
 
-const wrapText = (text, maxLength) => {
-  const words = String(text || "").split(/\s+/).filter(Boolean);
+const splitLongToken = (word, maxChars) => {
+  return word.match(new RegExp(`.{1,${maxChars}}`, "g")) || [word];
+};
 
-  if (words.length === 0) {
+const wrapPdfText = (text, maxChars) => {
+  const normalized = String(text ?? "").trim();
+
+  if (!normalized) {
     return [""];
   }
 
+  const words = normalized.split(/\s+/);
   const lines = [];
   let currentLine = "";
 
   words.forEach((word) => {
+    if (word.length > maxChars) {
+      if (currentLine) {
+        lines.push(currentLine);
+        currentLine = "";
+      }
+
+      const chunks = splitLongToken(word, maxChars);
+      lines.push(...chunks.slice(0, -1));
+      currentLine = chunks[chunks.length - 1];
+      return;
+    }
+
     const candidate = currentLine ? `${currentLine} ${word}` : word;
 
-    if (candidate.length <= maxLength) {
+    if (candidate.length <= maxChars) {
       currentLine = candidate;
       return;
     }
@@ -202,14 +263,7 @@ const wrapText = (text, maxLength) => {
       lines.push(currentLine);
     }
 
-    if (word.length <= maxLength) {
-      currentLine = word;
-      return;
-    }
-
-    const chunks = word.match(new RegExp(`.{1,${maxLength}}`, "g")) || [word];
-    lines.push(...chunks.slice(0, -1));
-    currentLine = chunks[chunks.length - 1];
+    currentLine = word;
   });
 
   if (currentLine) {
@@ -219,52 +273,241 @@ const wrapText = (text, maxLength) => {
   return lines;
 };
 
-const buildPdfPages = ({ titleLines, rows }) => {
-  const pages = [];
-  let currentPage = [];
-  let remainingLines = 42;
-
-  const pushLine = (line = "") => {
-    if (remainingLines === 0) {
-      pages.push(currentPage);
-      currentPage = [];
-      remainingLines = 42;
-    }
-
-    currentPage.push(line);
-    remainingLines -= 1;
-  };
-
-  titleLines.forEach((line) => pushLine(line));
-  pushLine("");
-
-  if (rows.length === 0) {
-    pushLine("No masterlist rows are available for the selected export filters.");
-  }
-
-  rows.forEach((row, index) => {
-    const rowLines = [
-      `#${index + 1}  ${row.family_head_name}`,
-      `Address: ${row.address}`,
-      `Members: ${row.members_count} | Sectors: ${row.sectors_text}`,
-      `Arrival: ${row.arrival_time_text} | Departure: ${row.departure_time_text}`,
-      "",
-    ];
-
-    rowLines.forEach((line) => {
-      wrapText(line, 96).forEach((wrappedLine) => pushLine(wrappedLine));
-    });
-  });
-
-  if (currentPage.length > 0) {
-    pages.push(currentPage);
-  }
-
-  return pages;
+const estimateMaxChars = (width, fontSize) => {
+  return Math.max(4, Math.floor(width / (fontSize * 0.52)));
 };
 
-const buildPdfBuffer = ({ titleLines, rows }) => {
-  const pages = buildPdfPages({ titleLines, rows });
+const paethPredictor = (left, up, upLeft) => {
+  const estimate = left + up - upLeft;
+  const leftDistance = Math.abs(estimate - left);
+  const upDistance = Math.abs(estimate - up);
+  const upLeftDistance = Math.abs(estimate - upLeft);
+
+  if (leftDistance <= upDistance && leftDistance <= upLeftDistance) {
+    return left;
+  }
+
+  if (upDistance <= upLeftDistance) {
+    return up;
+  }
+
+  return upLeft;
+};
+
+const parsePngChunks = (buffer) => {
+  const signature = buffer.slice(0, 8).toString("hex");
+
+  if (signature !== "89504e470d0a1a0a") {
+    throw new Error("Invalid PNG signature");
+  }
+
+  const chunks = [];
+  let offset = 8;
+
+  while (offset < buffer.length) {
+    const length = buffer.readUInt32BE(offset);
+    offset += 4;
+
+    const type = buffer.slice(offset, offset + 4).toString("ascii");
+    offset += 4;
+
+    const data = buffer.slice(offset, offset + length);
+    offset += length;
+    offset += 4;
+
+    chunks.push({ type, data });
+
+    if (type === "IEND") {
+      break;
+    }
+  }
+
+  return chunks;
+};
+
+const decodePngImage = (filePath) => {
+  const pngBuffer = fs.readFileSync(filePath);
+  const chunks = parsePngChunks(pngBuffer);
+  const headerChunk = chunks.find((chunk) => chunk.type === "IHDR");
+
+  if (!headerChunk) {
+    throw new Error("PNG header chunk is missing");
+  }
+
+  const width = headerChunk.data.readUInt32BE(0);
+  const height = headerChunk.data.readUInt32BE(4);
+  const bitDepth = headerChunk.data.readUInt8(8);
+  const colorType = headerChunk.data.readUInt8(9);
+  const interlaceMethod = headerChunk.data.readUInt8(12);
+
+  if (bitDepth !== 8 || colorType !== PNG_COLOR_TYPE_RGBA || interlaceMethod !== 0) {
+    throw new Error("Only 8-bit RGBA non-interlaced PNG images are supported");
+  }
+
+  const imageData = Buffer.concat(
+    chunks
+      .filter((chunk) => chunk.type === "IDAT")
+      .map((chunk) => chunk.data),
+  );
+  const inflatedData = zlib.inflateSync(imageData);
+  const bytesPerPixel = 4;
+  const bytesPerRow = width * bytesPerPixel;
+  const rgbaPixels = Buffer.alloc(width * height * bytesPerPixel);
+
+  let inputOffset = 0;
+  let outputOffset = 0;
+
+  for (let rowIndex = 0; rowIndex < height; rowIndex += 1) {
+    const filterType = inflatedData.readUInt8(inputOffset);
+    inputOffset += 1;
+
+    for (let columnIndex = 0; columnIndex < bytesPerRow; columnIndex += 1) {
+      const encodedByte = inflatedData.readUInt8(inputOffset);
+      inputOffset += 1;
+
+      const left =
+        columnIndex >= bytesPerPixel
+          ? rgbaPixels.readUInt8(outputOffset + columnIndex - bytesPerPixel)
+          : 0;
+      const up =
+        rowIndex > 0
+          ? rgbaPixels.readUInt8(outputOffset + columnIndex - bytesPerRow)
+          : 0;
+      const upLeft =
+        rowIndex > 0 && columnIndex >= bytesPerPixel
+          ? rgbaPixels.readUInt8(
+              outputOffset + columnIndex - bytesPerRow - bytesPerPixel,
+            )
+          : 0;
+
+      let decodedByte = encodedByte;
+
+      if (filterType === PNG_FILTER_SUB) {
+        decodedByte = (encodedByte + left) & 0xff;
+      } else if (filterType === PNG_FILTER_UP) {
+        decodedByte = (encodedByte + up) & 0xff;
+      } else if (filterType === PNG_FILTER_AVERAGE) {
+        decodedByte = (encodedByte + Math.floor((left + up) / 2)) & 0xff;
+      } else if (filterType === PNG_FILTER_PAETH) {
+        decodedByte = (encodedByte + paethPredictor(left, up, upLeft)) & 0xff;
+      } else if (filterType !== PNG_FILTER_NONE) {
+        throw new Error(`Unsupported PNG filter type: ${filterType}`);
+      }
+
+      rgbaPixels.writeUInt8(decodedByte, outputOffset + columnIndex);
+    }
+
+    outputOffset += bytesPerRow;
+  }
+
+  const rgbPixels = Buffer.alloc(width * height * 3);
+  const alphaPixels = Buffer.alloc(width * height);
+
+  for (let pixelIndex = 0; pixelIndex < width * height; pixelIndex += 1) {
+    const rgbaOffset = pixelIndex * 4;
+    const rgbOffset = pixelIndex * 3;
+
+    rgbPixels.writeUInt8(rgbaPixels.readUInt8(rgbaOffset), rgbOffset);
+    rgbPixels.writeUInt8(rgbaPixels.readUInt8(rgbaOffset + 1), rgbOffset + 1);
+    rgbPixels.writeUInt8(rgbaPixels.readUInt8(rgbaOffset + 2), rgbOffset + 2);
+    alphaPixels.writeUInt8(rgbaPixels.readUInt8(rgbaOffset + 3), pixelIndex);
+  }
+
+  return {
+    width,
+    height,
+    rgbData: zlib.deflateSync(rgbPixels),
+    alphaData: zlib.deflateSync(alphaPixels),
+  };
+};
+
+const loadPdfImageRegistry = () => {
+  try {
+    return {
+      distyncLogo: decodePngImage(DISTYNC_LOGO_PATH),
+    };
+  } catch (_error) {
+    return {};
+  }
+};
+
+const PDF_IMAGE_REGISTRY = loadPdfImageRegistry();
+
+const createPdfBuilder = ({ width, height }) => {
+  const operations = [];
+  const images = new Set();
+
+  const add = (line) => {
+    operations.push(line);
+  };
+
+  const fillRect = (x, y, rectWidth, rectHeight, color) => {
+    add("q");
+    add(`${color} rg`);
+    add(`${x.toFixed(2)} ${y.toFixed(2)} ${rectWidth.toFixed(2)} ${rectHeight.toFixed(2)} re f`);
+    add("Q");
+  };
+
+  const strokeRect = (x, y, rectWidth, rectHeight, color, lineWidth = 1) => {
+    add("q");
+    add(`${color} RG`);
+    add(`${lineWidth.toFixed(2)} w`);
+    add(`${x.toFixed(2)} ${y.toFixed(2)} ${rectWidth.toFixed(2)} ${rectHeight.toFixed(2)} re S`);
+    add("Q");
+  };
+
+  const drawLine = (x1, y1, x2, y2, color, lineWidth = 1) => {
+    add("q");
+    add(`${color} RG`);
+    add(`${lineWidth.toFixed(2)} w`);
+    add(`${x1.toFixed(2)} ${y1.toFixed(2)} m ${x2.toFixed(2)} ${y2.toFixed(2)} l S`);
+    add("Q");
+  };
+
+  const drawText = (text, x, y, options = {}) => {
+    const {
+      font = "F1",
+      size = 10,
+      color = PDF_COLORS.bodyText,
+    } = options;
+
+    add("BT");
+    add(`/${font} ${size} Tf`);
+    add(`${color} rg`);
+    add(`1 0 0 1 ${x.toFixed(2)} ${y.toFixed(2)} Tm`);
+    add(`(${escapePdfText(text)}) Tj`);
+    add("ET");
+  };
+
+  const drawImage = (imageName, x, y, imageWidth, imageHeight) => {
+    images.add(imageName);
+    add("q");
+    add(
+      `${imageWidth.toFixed(2)} 0 0 ${imageHeight.toFixed(2)} ${x.toFixed(
+        2,
+      )} ${y.toFixed(2)} cm`,
+    );
+    add(`/${imageName} Do`);
+    add("Q");
+  };
+
+  const getStream = () => operations.join("\n");
+
+  return {
+    add,
+    drawLine,
+    drawImage,
+    drawText,
+    fillRect,
+    getStream,
+    height,
+    images,
+    strokeRect,
+    width,
+  };
+};
+
+const createPdfDocument = (pages, imageRegistry = {}) => {
   const objects = [];
 
   const addObject = (content) => {
@@ -272,30 +515,48 @@ const buildPdfBuffer = ({ titleLines, rows }) => {
     return objects.length;
   };
 
-  const fontId = addObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  const fontRegularId = addObject(
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  );
+  const fontBoldId = addObject(
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
+  );
+  const imageObjectMap = {};
+
+  Object.entries(imageRegistry).forEach(([imageName, image]) => {
+    const alphaObjectId = addObject(
+      `<< /Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height} /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /Length ${image.alphaData.length} >>\nstream\n${image.alphaData.toString(
+        "binary",
+      )}\nendstream`,
+    );
+    const imageObjectId = addObject(
+      `<< /Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /SMask ${alphaObjectId} 0 R /Length ${image.rgbData.length} >>\nstream\n${image.rgbData.toString(
+        "binary",
+      )}\nendstream`,
+    );
+
+    imageObjectMap[imageName] = imageObjectId;
+  });
+
   const pageIds = [];
 
-  pages.forEach((lines) => {
-    const contentLines = ["BT", "/F1 10 Tf", "14 TL", "50 790 Td"];
-
-    lines.forEach((line, index) => {
-      if (index === 0) {
-        contentLines.push(`(${escapePdfText(line)}) Tj`);
-      } else {
-        contentLines.push("T*");
-        contentLines.push(`(${escapePdfText(line)}) Tj`);
-      }
-    });
-
-    contentLines.push("ET");
-    const stream = contentLines.join("\n");
+  pages.forEach((page) => {
+    const stream = page.getStream();
     const contentId = addObject(
-      `<< /Length ${Buffer.byteLength(stream, "utf8")} >>\nstream\n${stream}\nendstream`,
+      `<< /Length ${Buffer.byteLength(stream, "latin1")} >>\nstream\n${stream}\nendstream`,
     );
+
+    const imageResources = [...page.images]
+      .filter((imageName) => imageObjectMap[imageName])
+      .map((imageName) => `/${imageName} ${imageObjectMap[imageName]} 0 R`)
+      .join(" ");
+    const xObjectDictionary = imageResources
+      ? `/XObject << ${imageResources} >> `
+      : "";
 
     pageIds.push(
       addObject(
-        `<< /Type /Page /Parent PAGES_ID 0 R /MediaBox [0 0 612 842] /Contents ${contentId} 0 R /Resources << /Font << /F1 ${fontId} 0 R >> >> >>`,
+        `<< /Type /Page /Parent PAGES_ID 0 R /MediaBox [0 0 ${page.width} ${page.height}] /Contents ${contentId} 0 R /Resources << /Font << /F1 ${fontRegularId} 0 R /F2 ${fontBoldId} 0 R >> ${xObjectDictionary}>> >>`,
       ),
     );
   });
@@ -316,11 +577,11 @@ const buildPdfBuffer = ({ titleLines, rows }) => {
   const offsets = [0];
 
   objects.forEach((objectContent, index) => {
-    offsets.push(Buffer.byteLength(output, "utf8"));
+    offsets.push(Buffer.byteLength(output, "latin1"));
     output += `${index + 1} 0 obj\n${objectContent}\nendobj\n`;
   });
 
-  const xrefOffset = Buffer.byteLength(output, "utf8");
+  const xrefOffset = Buffer.byteLength(output, "latin1");
   output += `xref\n0 ${objects.length + 1}\n`;
   output += "0000000000 65535 f \n";
 
@@ -331,7 +592,342 @@ const buildPdfBuffer = ({ titleLines, rows }) => {
   output += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\n`;
   output += `startxref\n${xrefOffset}\n%%EOF`;
 
-  return Buffer.from(output, "utf8");
+  return Buffer.from(output, "latin1");
+};
+
+const drawSummaryGrid = (page, items, layout) => {
+  const cardWidth = (layout.contentWidth - layout.cardGap) / 2;
+  const cardHeight = 58;
+  const startX = layout.marginX;
+  let currentY = layout.cursorY;
+
+  items.forEach((item, index) => {
+    const columnIndex = index % 2;
+    const rowIndex = Math.floor(index / 2);
+    const x = startX + columnIndex * (cardWidth + layout.cardGap);
+    const y = currentY - rowIndex * (cardHeight + layout.cardGap);
+
+    page.fillRect(x, y - cardHeight, cardWidth, cardHeight, PDF_COLORS.lightBlue);
+    page.strokeRect(x, y - cardHeight, cardWidth, cardHeight, PDF_COLORS.border, 0.8);
+    page.drawText(item.label, x + 10, y - 18, {
+      font: "F2",
+      size: 9,
+      color: PDF_COLORS.grayText,
+    });
+    page.drawText(String(item.value), x + 10, y - 40, {
+      font: "F2",
+      size: 16,
+      color: PDF_COLORS.navy,
+    });
+  });
+
+  layout.cursorY =
+    currentY -
+    Math.ceil(items.length / 2) * cardHeight -
+    Math.max(Math.ceil(items.length / 2) - 1, 0) * layout.cardGap -
+    18;
+};
+
+const drawHeader = (page, context, layout) => {
+  page.fillRect(layout.marginX, layout.cursorY - 72, layout.contentWidth, 72, PDF_COLORS.navy);
+  page.fillRect(layout.marginX + 18, layout.cursorY - 58, 44, 44, PDF_COLORS.white);
+
+  if (context.logoImageName) {
+    page.drawImage(context.logoImageName, layout.marginX + 20, layout.cursorY - 56, 40, 40);
+  }
+
+  page.drawText("DISTYNC", layout.marginX + 74, layout.cursorY - 24, {
+    font: "F2",
+    size: 18,
+    color: PDF_COLORS.white,
+  });
+  page.drawText("MSWDO Evacuee Masterlist Report", layout.marginX + 74, layout.cursorY - 46, {
+    font: "F2",
+    size: 16,
+    color: PDF_COLORS.white,
+  });
+
+  let infoY = layout.cursorY - 95;
+  const metaRows = [
+    `Disaster Event: ${context.eventLabel}`,
+    `Barangay Filter: ${context.barangayLabel}`,
+    `Generated: ${context.generatedAtLabel}`,
+    `Total Rows Exported: ${context.totalRows}`,
+  ];
+
+  if (context.searchTerm) {
+    metaRows.splice(2, 0, `Search Filter: ${context.searchTerm}`);
+  }
+
+  metaRows.forEach((line) => {
+    page.drawText(line, layout.marginX, infoY, {
+      size: 10,
+      color: PDF_COLORS.bodyText,
+    });
+    infoY -= 14;
+  });
+
+  layout.cursorY = infoY - 12;
+};
+
+const drawSummarySection = (page, summaryMetrics, layout) => {
+  page.drawText("Summary", layout.marginX, layout.cursorY, {
+    font: "F2",
+    size: 13,
+    color: PDF_COLORS.navy,
+  });
+  layout.cursorY -= 12;
+  page.drawLine(layout.marginX, layout.cursorY, layout.marginX + layout.contentWidth, layout.cursorY, PDF_COLORS.border, 1);
+  layout.cursorY -= 12;
+
+  drawSummaryGrid(
+    page,
+    [
+      {
+        label: "Total Number of Evacuees (Individuals)",
+        value: summaryMetrics.total_number_of_evacuees_individuals,
+      },
+      {
+        label: "Total Number of Families",
+        value: summaryMetrics.total_number_of_families,
+      },
+      {
+        label: "Average Household Size",
+        value: Number(summaryMetrics.average_household_size || 0).toFixed(1),
+      },
+      {
+        label: "Currently Admitted Evacuees",
+        value: summaryMetrics.currently_admitted_evacuees,
+      },
+      {
+        label: "Total Departed Evacuees",
+        value: summaryMetrics.total_departed_evacuees,
+      },
+      {
+        label: "Total Barangays Covered",
+        value: summaryMetrics.total_barangays_covered,
+      },
+    ],
+    layout,
+  );
+};
+
+const drawTableHeader = (page, columns, layout) => {
+  const headerHeight = 24;
+  page.fillRect(layout.marginX, layout.cursorY - headerHeight, layout.contentWidth, headerHeight, PDF_COLORS.blue);
+  page.strokeRect(layout.marginX, layout.cursorY - headerHeight, layout.contentWidth, headerHeight, PDF_COLORS.border, 0.8);
+
+  let columnX = layout.marginX;
+  columns.forEach((column, index) => {
+    page.drawText(column.label, columnX + 6, layout.cursorY - 16, {
+      font: "F2",
+      size: 8,
+      color: PDF_COLORS.white,
+    });
+
+    if (index < columns.length - 1) {
+      page.drawLine(
+        columnX + column.width,
+        layout.cursorY,
+        columnX + column.width,
+        layout.cursorY - headerHeight,
+        PDF_COLORS.border,
+        0.6,
+      );
+    }
+
+    columnX += column.width;
+  });
+
+  layout.cursorY -= headerHeight;
+};
+
+const calculateRowLayout = (row, columns) => {
+  const lineHeight = 10;
+  const cellLines = columns.map((column) => {
+    const value = row[column.key] === null || row[column.key] === undefined
+      ? "-"
+      : row[column.key];
+    const wrappedLines = wrapPdfText(
+      String(value),
+      estimateMaxChars(column.width - 12, 8),
+    );
+
+    return wrappedLines;
+  });
+
+  const maxLines = Math.max(...cellLines.map((lines) => lines.length), 1);
+  const rowHeight = Math.max(24, maxLines * lineHeight + 8);
+
+  return {
+    cellLines,
+    lineHeight,
+    rowHeight,
+  };
+};
+
+const drawTableRow = (page, row, columns, layout, rowIndex) => {
+  const { cellLines, lineHeight, rowHeight } = calculateRowLayout(row, columns);
+  const backgroundColor = rowIndex % 2 === 0 ? PDF_COLORS.white : "0.97 0.98 0.99";
+
+  page.fillRect(layout.marginX, layout.cursorY - rowHeight, layout.contentWidth, rowHeight, backgroundColor);
+  page.strokeRect(layout.marginX, layout.cursorY - rowHeight, layout.contentWidth, rowHeight, PDF_COLORS.border, 0.6);
+
+  let columnX = layout.marginX;
+  columns.forEach((column, index) => {
+    if (index < columns.length - 1) {
+      page.drawLine(
+        columnX + column.width,
+        layout.cursorY,
+        columnX + column.width,
+        layout.cursorY - rowHeight,
+        PDF_COLORS.border,
+        0.5,
+      );
+    }
+
+    cellLines[index].forEach((line, lineIndex) => {
+      page.drawText(line, columnX + 6, layout.cursorY - 14 - lineIndex * lineHeight, {
+        size: 8,
+        color: PDF_COLORS.bodyText,
+      });
+    });
+
+    columnX += column.width;
+  });
+
+  layout.cursorY -= rowHeight;
+};
+
+const drawFooter = (page, context, pageNumber, totalPages, layout) => {
+  page.drawLine(layout.marginX, 34, layout.marginX + layout.contentWidth, 34, PDF_COLORS.border, 0.8);
+  page.drawText(
+    `${context.eventCode || "EVENT"} | ${context.barangayLabel}`,
+    layout.marginX,
+    20,
+    {
+      size: 8,
+      color: PDF_COLORS.grayText,
+    },
+  );
+  page.drawText(
+    `Page ${pageNumber} of ${totalPages}`,
+    layout.marginX + layout.contentWidth - 60,
+    20,
+    {
+      size: 8,
+      color: PDF_COLORS.grayText,
+    },
+  );
+};
+
+const buildPdfPages = ({ rows, summaryMetrics, context, columns }) => {
+  const pageWidth = 842;
+  const pageHeight = 595;
+  const layout = {
+    marginX: 36,
+    topY: pageHeight - 36,
+    bottomY: 48,
+    contentWidth: pageWidth - 72,
+    cardGap: 12,
+  };
+
+  const pages = [];
+  let page = createPdfBuilder({ width: pageWidth, height: pageHeight });
+  let pageLayout = {
+    ...layout,
+    cursorY: layout.topY,
+  };
+  let rowIndex = 0;
+
+  const startNewPage = () => {
+    page = createPdfBuilder({ width: pageWidth, height: pageHeight });
+    pageLayout = {
+      ...layout,
+      cursorY: layout.topY,
+    };
+    pages.push(page);
+  };
+
+  startNewPage();
+  drawHeader(page, context, pageLayout);
+  drawSummarySection(page, summaryMetrics, pageLayout);
+  page.drawText("Registered Family Masterlist", layout.marginX, pageLayout.cursorY, {
+    font: "F2",
+    size: 13,
+    color: PDF_COLORS.navy,
+  });
+  pageLayout.cursorY -= 12;
+  drawTableHeader(page, columns, pageLayout);
+
+  if (rows.length === 0) {
+    page.drawText("No data available for the selected filters.", layout.marginX, pageLayout.cursorY - 18, {
+      size: 10,
+      color: PDF_COLORS.grayText,
+    });
+    pageLayout.cursorY -= 36;
+  }
+
+  rows.forEach((row) => {
+    const projectedRow = calculateRowLayout(row, columns);
+
+    if (pageLayout.cursorY - projectedRow.rowHeight < layout.bottomY) {
+      startNewPage();
+      drawHeader(page, context, pageLayout);
+      page.drawText("Registered Family Masterlist", layout.marginX, pageLayout.cursorY, {
+        font: "F2",
+        size: 13,
+        color: PDF_COLORS.navy,
+      });
+      pageLayout.cursorY -= 12;
+      drawTableHeader(page, columns, pageLayout);
+    }
+
+    drawTableRow(page, row, columns, pageLayout, rowIndex);
+    rowIndex += 1;
+  });
+
+  pages.forEach((currentPage, index) => {
+    drawFooter(currentPage, context, index + 1, pages.length, layout);
+  });
+
+  return pages;
+};
+
+const buildPdfBuffer = ({
+  rows,
+  summaryMetrics,
+  eventLabel,
+  eventCode,
+  barangayLabel,
+  searchTerm,
+  includeBarangayColumn,
+}) => {
+  const generatedAtLabel = new Intl.DateTimeFormat("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date());
+
+  const columns = getPdfExportColumns(includeBarangayColumn);
+  const pages = buildPdfPages({
+    rows,
+    summaryMetrics,
+    context: {
+      eventCode,
+      eventLabel,
+      barangayLabel,
+      generatedAtLabel,
+      logoImageName: PDF_IMAGE_REGISTRY.distyncLogo ? "distyncLogo" : null,
+      searchTerm,
+      totalRows: rows.length,
+    },
+    columns,
+  });
+
+  return createPdfDocument(pages, PDF_IMAGE_REGISTRY);
 };
 
 const slugifyFilePart = (value, fallback) => {
@@ -353,6 +949,21 @@ const buildExportFilename = ({ eventCode, barangayName, format }) => {
   };
 
   return `mswdo-evacuee-masterlist-${normalizedEvent}-${normalizedBarangay}.${extensionMap[format]}`;
+};
+
+const buildPdfFilename = ({ eventCode, barangayName }) => {
+  const dateStamp = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .format(new Date())
+    .replace(/-/g, "");
+
+  return `mswdo_evacuee_masterlist_${slugifyFilePart(
+    eventCode,
+    "masterlist",
+  )}_${slugifyFilePart(barangayName, "all-barangays")}_${dateStamp}.pdf`;
 };
 
 const buildExportTitleLines = ({ eventLabel, barangayLabel, searchTerm }) => {
@@ -386,6 +997,7 @@ module.exports = {
   buildExportFilename,
   buildExportTitleLines,
   buildPdfBuffer,
+  buildPdfFilename,
   filterExportRows,
   mapHouseholdToExportRow,
 };
