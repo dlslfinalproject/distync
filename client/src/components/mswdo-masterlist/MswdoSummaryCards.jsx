@@ -21,24 +21,34 @@ const cardStyles = {
 const MswdoSummaryCards = ({ summary }) => {
   const cards = [
     {
-      label: "Total Households",
-      value: summary.totalHouseholds,
-      helperText: "Household records visible in the monitoring table.",
+      label: "Total Evacuees",
+      value: summary.totalNumberOfEvacueesIndividuals,
+      helperText: "Active evacuee individuals under the selected event and barangay scope.",
     },
     {
-      label: "Total Evacuees",
-      value: summary.totalEvacuees,
-      helperText: "Combined household size across the displayed rows.",
+      label: "Total Families",
+      value: summary.totalNumberOfFamilies,
+      helperText: "Active household records under the current filter context.",
+    },
+    {
+      label: "Average Household Size",
+      value: summary.averageHouseholdSize,
+      helperText: "Average `household_size` value for the filtered households.",
+    },
+    {
+      label: "Currently Admitted",
+      value: summary.currentlyAdmittedEvacuees,
+      helperText: "Evacuees whose latest log still shows them present in the evacuation center.",
+    },
+    {
+      label: "Total Departed",
+      value: summary.totalDepartedEvacuees,
+      helperText: "Evacuees whose latest log shows they already left or were transferred.",
     },
     {
       label: "Barangays Covered",
-      value: summary.barangaysCovered,
-      helperText: "Barangays represented by the current filter set.",
-    },
-    {
-      label: "With Stub Issued",
-      value: summary.withStubIssued,
-      helperText: "Households that already have an issued stub record.",
+      value: summary.totalBarangaysCovered,
+      helperText: "Distinct barangays represented by the filtered household dataset.",
     },
   ];
 

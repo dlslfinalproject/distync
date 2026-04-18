@@ -3,6 +3,9 @@ import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import MasterlistDepartureConfirmModal from "../../components/masterlist/MasterlistDepartureConfirmModal";
 import MasterlistTable from "../../components/masterlist/MasterlistTable";
+import BarangayBarChart from "../../components/mswdo-analytics/BarangayBarChart";
+import BarangayStatusBreakdownChart from "../../components/mswdo-analytics/BarangayStatusBreakdownChart";
+import DistributionPieChart from "../../components/mswdo-analytics/DistributionPieChart";
 import MswdoSummaryCards from "../../components/mswdo-masterlist/MswdoSummaryCards";
 import { departHousehold } from "../../features/masterlist/masterlistService";
 import { useMswdoMasterlist } from "../../features/mswdo-masterlist/useMswdoMasterlist";
@@ -16,10 +19,17 @@ const ConsolidatedEvacueeMasterlist = () => {
     selectedDisasterEvent,
     searchTerm,
     displayedRows,
-    summary,
+    summaryMetrics,
+    evacueesPerBarangay,
+    familiesPerBarangay,
+    admittedVsDepartedDistribution,
+    barangayBreakdown,
     isLoadingFilters,
     isLoadingMasterlist,
+    isLoadingDashboard,
     errorMessage,
+    dashboardErrorMessage,
+    hasDashboardData,
     setSelectedDisasterEventId,
     setSelectedBarangayId,
     setSearchTerm,
@@ -168,8 +178,9 @@ const ConsolidatedEvacueeMasterlist = () => {
         </div>
       )}
 
-      {/* Analytics Cards Section */}
-      <MswdoSummaryCards summary={summary} />
+      {selectedDisasterEvent && !isLoadingDashboard && !dashboardErrorMessage ? (
+        <MswdoSummaryCards summary={summaryMetrics} />
+      ) : null}
 
       {/* Search and Actions Row */}
       <div
@@ -236,6 +247,70 @@ const ConsolidatedEvacueeMasterlist = () => {
           />
         </div>
       </section>
+
+      {!selectedDisasterEvent ? null : isLoadingDashboard ? (
+        <section style={shellStyles.card}>
+          <h3 style={{ marginTop: 0, color: "#17324d" }}>Loading Descriptive Analytics</h3>
+          <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
+            Preparing the MSWDO descriptive analytics and chart breakdowns...
+          </p>
+        </section>
+      ) : dashboardErrorMessage ? (
+        <section style={shellStyles.card}>
+          <h3 style={{ marginTop: 0, color: "#17324d" }}>Analytics Error</h3>
+          <p style={{ ...shellStyles.mutedText, marginTop: "10px", color: "#a14d58" }}>
+            {dashboardErrorMessage}
+          </p>
+        </section>
+      ) : !hasDashboardData ? (
+        <section style={shellStyles.card}>
+          <h3 style={{ marginTop: 0, color: "#17324d" }}>No Descriptive Analytics Data</h3>
+          <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
+            No analytics data is available for the selected disaster event and barangay filter.
+          </p>
+        </section>
+      ) : (
+        <>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+              gap: "20px",
+            }}
+          >
+            <BarangayBarChart
+              title="Evacuees per Barangay"
+              description="Active evacuee individuals grouped by barangay for the current MSWDO filter scope."
+              data={evacueesPerBarangay}
+              dataKey="value"
+              color="#4f86be"
+            />
+            <BarangayBarChart
+              title="Families per Barangay"
+              description="Active household counts by barangay for the selected disaster event view."
+              data={familiesPerBarangay}
+              dataKey="value"
+              color="#7ea7cf"
+            />
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+              gap: "20px",
+            }}
+          >
+            <DistributionPieChart
+              title="Admitted vs Departed Distribution"
+              description="Latest-log-per-evacuee distribution of currently admitted versus departed evacuees."
+              data={admittedVsDepartedDistribution}
+              emptyMessage="No admitted or departed breakdown is available for this view."
+            />
+            <BarangayStatusBreakdownChart data={barangayBreakdown} />
+          </div>
+        </>
+      )}
 
       <MasterlistDepartureConfirmModal
         isOpen={Boolean(pendingDepartureHouseholdId)}

@@ -29,6 +29,22 @@ router.get(
   },
 );
 
+router.get("/mswdo-dashboard", validateGetMasterlist, async (req, res) => {
+  try {
+    const dashboard = await masterlistService.getMswdoMasterlistDashboard(
+      req.validatedQuery,
+    );
+
+    return res.status(200).json(dashboard);
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+
+    return res.status(statusCode).json({
+      message: error.message || "Failed to fetch MSWDO masterlist dashboard",
+    });
+  }
+});
+
 router.get("/", validateGetMasterlist, async (req, res) => {
   try {
     const masterlist = await masterlistService.getMasterlist(req.validatedQuery);

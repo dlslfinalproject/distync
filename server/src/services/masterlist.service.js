@@ -183,6 +183,81 @@ const getMasterlist = async (filters) => {
   };
 };
 
+const getMswdoMasterlistDashboard = async (filters) => {
+  const disasterEvent =
+    await masterlistRepository.getDisasterEventSummaryById(
+      filters.disaster_event_id,
+    );
+
+  if (!disasterEvent) {
+    const error = new Error("Disaster event not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (filters.barangay_id) {
+    const barangay = await masterlistRepository.getBarangaySummaryById(
+      filters.barangay_id,
+    );
+
+    if (!barangay) {
+      const error = new Error("Barangay not found");
+      error.statusCode = 404;
+      throw error;
+    }
+  }
+
+  const metrics = await masterlistRepository.getMswdoMasterlistAnalytics(
+    filters.disaster_event_id,
+    filters.barangay_id,
+  );
+
+  const perBarangayChartDataset = Array.isArray(metrics.per_barangay_chart_dataset)
+    ? metrics.per_barangay_chart_dataset
+    : [];
+
+  return {
+    disaster_event: {
+      id: disasterEvent.id,
+      event_code: disasterEvent.event_code,
+      title: disasterEvent.title,
+      disaster_type: disasterEvent.disaster_type,
+      status: disasterEvent.status,
+    },
+    filters: {
+      disaster_event_id: filters.disaster_event_id,
+      barangay_id: filters.barangay_id,
+    },
+    summary_metrics: {
+      total_number_of_evacuees_individuals: Number(
+        metrics.total_number_of_evacuees_individuals || 0,
+      ),
+      total_number_of_families: Number(metrics.total_number_of_families || 0),
+      average_household_size: Number(metrics.average_household_size || 0),
+      currently_admitted_evacuees: Number(
+        metrics.currently_admitted_evacuees || 0,
+      ),
+      total_departed_evacuees: Number(metrics.total_departed_evacuees || 0),
+      total_barangays_covered: Number(metrics.total_barangays_covered || 0),
+    },
+    charts: {
+      per_barangay: perBarangayChartDataset.map((item) => ({
+        barangay_id: item.barangay_id,
+        barangay_name: item.barangay_name,
+        families_count: Number(item.families_count || 0),
+        evacuees_count: Number(item.evacuees_count || 0),
+        admitted_evacuees_count: Number(item.admitted_evacuees_count || 0),
+        departed_evacuees_count: Number(item.departed_evacuees_count || 0),
+      })),
+    },
+    has_data:
+      Number(metrics.total_number_of_evacuees_individuals || 0) > 0 ||
+      Number(metrics.total_number_of_families || 0) > 0 ||
+      Number(metrics.currently_admitted_evacuees || 0) > 0 ||
+      Number(metrics.total_departed_evacuees || 0) > 0,
+  };
+};
+
 const getBarangayDashboard = async (filters) => {
   const userScope = filters.user_id
     ? await masterlistRepository.getBarangayUserScopeById(filters.user_id)
@@ -305,4 +380,5 @@ const getBarangayDashboard = async (filters) => {
 module.exports = {
   getBarangayDashboard,
   getMasterlist,
+  getMswdoMasterlistDashboard,
 };

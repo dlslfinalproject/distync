@@ -191,6 +191,138 @@ const getBarangayDashboardMetrics = async (disasterEventId, barangayId) => {
   };
 };
 
+const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) => {
+  const query = `
+    WITH filtered_households AS (
+      SELECT
+        h.id,
+        h.barangay_id,
+        h.household_size
+      FROM households h
+      WHERE h.disaster_event_id = $1
+        AND h.is_active = TRUE
+        AND ($2::uuid IS NULL OR h.barangay_id = $2)
+    ),
+    filtered_evacuees AS (
+      SELECT
+        e.id,
+        e.household_id,
+        fh.barangay_id
+      FROM evacuees e
+      INNER JOIN filtered_households fh ON fh.id = e.household_id
+      WHERE e.is_active = TRUE
+    ),
+    latest_logs AS (
+      SELECT DISTINCT ON (el.evacuee_id)
+        el.evacuee_id,
+        el.status,
+        el.time_out
+      FROM evacuation_logs el
+      INNER JOIN filtered_evacuees fe ON fe.id = el.evacuee_id
+      WHERE el.disaster_event_id = $1
+      ORDER BY
+        el.evacuee_id,
+        COALESCE(el.time_out, el.time_in) DESC,
+        el.updated_at DESC,
+        el.created_at DESC
+    ),
+    summary AS (
+      SELECT
+        (SELECT COUNT(*)::int FROM filtered_evacuees)
+          AS total_number_of_evacuees_individuals,
+        (SELECT COUNT(*)::int FROM filtered_households)
+          AS total_number_of_families,
+        COALESCE(
+          (
+            SELECT ROUND(AVG(fh.household_size)::numeric, 1)
+            FROM filtered_households fh
+          ),
+          0
+        ) AS average_household_size,
+        (
+          SELECT COUNT(*)::int
+          FROM latest_logs ll
+          WHERE ll.status = 'PRESENT'
+            AND ll.time_out IS NULL
+        ) AS currently_admitted_evacuees,
+        (
+          SELECT COUNT(*)::int
+          FROM latest_logs ll
+          WHERE ll.status IN ('LEFT', 'TRANSFERRED')
+            AND ll.time_out IS NOT NULL
+        ) AS total_departed_evacuees,
+        (
+          SELECT COUNT(DISTINCT fh.barangay_id)::int
+          FROM filtered_households fh
+        ) AS total_barangays_covered
+    ),
+    per_barangay AS (
+      SELECT
+        b.id AS barangay_id,
+        b.name AS barangay_name,
+        COUNT(DISTINCT fh.id)::int AS families_count,
+        COUNT(DISTINCT fe.id)::int AS evacuees_count,
+        COUNT(DISTINCT fe.id) FILTER (
+          WHERE ll.status = 'PRESENT'
+            AND ll.time_out IS NULL
+        )::int AS admitted_evacuees_count,
+        COUNT(DISTINCT fe.id) FILTER (
+          WHERE ll.status IN ('LEFT', 'TRANSFERRED')
+            AND ll.time_out IS NOT NULL
+        )::int AS departed_evacuees_count
+      FROM filtered_households fh
+      INNER JOIN barangays b ON b.id = fh.barangay_id
+      LEFT JOIN filtered_evacuees fe ON fe.household_id = fh.id
+      LEFT JOIN latest_logs ll ON ll.evacuee_id = fe.id
+      GROUP BY b.id, b.name
+      ORDER BY b.name ASC
+    )
+    SELECT
+      summary.total_number_of_evacuees_individuals,
+      summary.total_number_of_families,
+      summary.average_household_size,
+      summary.currently_admitted_evacuees,
+      summary.total_departed_evacuees,
+      summary.total_barangays_covered,
+      COALESCE(
+        json_agg(
+          json_build_object(
+            'barangay_id', per_barangay.barangay_id,
+            'barangay_name', per_barangay.barangay_name,
+            'families_count', per_barangay.families_count,
+            'evacuees_count', per_barangay.evacuees_count,
+            'admitted_evacuees_count', per_barangay.admitted_evacuees_count,
+            'departed_evacuees_count', per_barangay.departed_evacuees_count
+          )
+          ORDER BY per_barangay.barangay_name ASC
+        ) FILTER (WHERE per_barangay.barangay_id IS NOT NULL),
+        '[]'::json
+      ) AS per_barangay_chart_dataset
+    FROM summary
+    LEFT JOIN per_barangay ON TRUE
+    GROUP BY
+      summary.total_number_of_evacuees_individuals,
+      summary.total_number_of_families,
+      summary.average_household_size,
+      summary.currently_admitted_evacuees,
+      summary.total_departed_evacuees,
+      summary.total_barangays_covered
+  `;
+
+  const result = await pool.query(query, [disasterEventId, barangayId]);
+  return (
+    result.rows[0] || {
+      total_number_of_evacuees_individuals: 0,
+      total_number_of_families: 0,
+      average_household_size: 0,
+      currently_admitted_evacuees: 0,
+      total_departed_evacuees: 0,
+      total_barangays_covered: 0,
+      per_barangay_chart_dataset: [],
+    }
+  );
+};
+
 const getHouseholdsByFilters = async (disasterEventId, barangayId = null) => {
   const values = [disasterEventId];
   let barangayFilterClause = "";
@@ -364,6 +496,7 @@ module.exports = {
   getBarangayScopedDisasterEventsByStatuses,
   getBarangayScopedDisasterEventById,
   getBarangayDashboardMetrics,
+  getMswdoMasterlistAnalytics,
   getHouseholdsByFilters,
   getStubsByHouseholdIds,
   getHouseholdSectorsByHouseholdIds,
