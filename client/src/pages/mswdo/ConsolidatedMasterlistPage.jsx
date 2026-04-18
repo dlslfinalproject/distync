@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { FiChevronDown, FiDownload } from "react-icons/fi";
+import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import MasterlistDepartureConfirmModal from "../../components/masterlist/MasterlistDepartureConfirmModal";
@@ -8,6 +9,7 @@ import BarangayBarChart from "../../components/mswdo-analytics/BarangayBarChart"
 import BarangayStatusBreakdownChart from "../../components/mswdo-analytics/BarangayStatusBreakdownChart";
 import DistributionPieChart from "../../components/mswdo-analytics/DistributionPieChart";
 import MswdoSummaryCards from "../../components/mswdo-masterlist/MswdoSummaryCards";
+import { useHouseholdRegistrationForm } from "../../features/household-registration/useHouseholdRegistrationForm";
 import { departHousehold } from "../../features/masterlist/masterlistService";
 import { exportConsolidatedMasterlist } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { useMswdoMasterlist } from "../../features/mswdo-masterlist/useMswdoMasterlist";
@@ -43,11 +45,26 @@ const ConsolidatedEvacueeMasterlist = () => {
   const [isRecordingDeparture, setIsRecordingDeparture] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState("");
+  const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
+  const [registrationSuccessMessage, setRegistrationSuccessMessage] = useState("");
 
   const activeEventLabel = selectedDisasterEvent
     ? `${selectedDisasterEvent.event_code} - ${selectedDisasterEvent.title}`
     : "No disaster event selected";
   const hasRowsToExport = displayedRows.length > 0;
+  const isAllBarangaysMode = !selectedBarangayId;
+
+  const registrationForm = useHouseholdRegistrationForm({
+    isOpen: isRegisterModalOpen,
+    defaultBarangayId: selectedBarangayId || "",
+    defaultDisasterEventId: selectedDisasterEventId || "",
+    onSuccess: (response) => {
+      setRegistrationSuccessMessage(
+        response?.message || "Household registered successfully",
+      );
+      reloadMasterlist();
+    },
+  });
 
   const handleOpenDepartureConfirmation = (householdId) => {
     setPendingDepartureHouseholdId(householdId);
@@ -77,6 +94,16 @@ const ConsolidatedEvacueeMasterlist = () => {
     } finally {
       setIsRecordingDeparture(false);
     }
+  };
+
+  const handleOpenRegisterModal = () => {
+    if (!selectedDisasterEventId) {
+      window.alert("Select a disaster event before registering a family.");
+      return;
+    }
+
+    setRegistrationSuccessMessage("");
+    setIsRegisterModalOpen(true);
   };
 
   const handleExport = async (format) => {
@@ -230,6 +257,14 @@ const ConsolidatedEvacueeMasterlist = () => {
         <MswdoSummaryCards summary={summaryMetrics} />
       ) : null}
 
+      {registrationSuccessMessage ? (
+        <section style={shellStyles.card}>
+          <p style={{ margin: 0, color: "#2f6c47", fontWeight: 700 }}>
+            {registrationSuccessMessage}
+          </p>
+        </section>
+      ) : null}
+
       {/* Search and Actions Row */}
       <div
         style={{
@@ -337,6 +372,8 @@ const ConsolidatedEvacueeMasterlist = () => {
             ) : null}
           </div>
           <button
+            type="button"
+            onClick={handleOpenRegisterModal}
             style={{
               background: "#0c4a6e",
               color: "#fff",
@@ -346,7 +383,7 @@ const ConsolidatedEvacueeMasterlist = () => {
               cursor: "pointer",
             }}
           >
-            Register Family
+            {isAllBarangaysMode ? "Register Family" : "Register Family"}
           </button>
         </div>
       </div>
@@ -434,6 +471,12 @@ const ConsolidatedEvacueeMasterlist = () => {
         isSubmitting={isRecordingDeparture}
         onCancel={handleCloseDepartureConfirmation}
         onConfirm={handleConfirmDeparture}
+      />
+
+      <RegisterFamilyModal
+        isOpen={isRegisterModalOpen}
+        onClose={() => setIsRegisterModalOpen(false)}
+        form={registrationForm}
       />
     </>
   );
