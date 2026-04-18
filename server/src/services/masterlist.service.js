@@ -1,4 +1,14 @@
 const masterlistRepository = require("../repositories/masterlist.repository");
+const {
+  buildCsvBuffer,
+  buildExcelBuffer,
+  buildExportColumns,
+  buildExportFilename,
+  buildExportTitleLines,
+  buildPdfBuffer,
+  filterExportRows,
+  mapHouseholdToExportRow,
+} = require("../utils/masterlistExport");
 const BARANGAY_EVENT_STATUSES = {
   active: ["ACTIVE"],
   ended: ["CLOSED", "ARCHIVED"],
@@ -258,6 +268,79 @@ const getMswdoMasterlistDashboard = async (filters) => {
   };
 };
 
+const exportMswdoMasterlist = async (filters) => {
+  const masterlist = await getMasterlist({
+    disaster_event_id: filters.disaster_event_id,
+    barangay_id: filters.barangay_id,
+  });
+
+  const exportRows = filterExportRows(
+    (masterlist.data || []).map(mapHouseholdToExportRow),
+    filters.search || "",
+  );
+
+  if (exportRows.length === 0) {
+    const error = new Error("No masterlist data available for export.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const columns = buildExportColumns();
+  const eventLabel = masterlist.disaster_event
+    ? `${masterlist.disaster_event.event_code} - ${masterlist.disaster_event.title}`
+    : "No disaster event selected";
+
+  const barangayLabel = filters.barangay_id
+    ? exportRows[0]?.barangay_name || "Selected barangay"
+    : "All Barangays";
+
+  const titleLines = buildExportTitleLines({
+    eventLabel,
+    barangayLabel,
+    searchTerm: filters.search,
+  });
+
+  const filename = buildExportFilename({
+    eventCode: masterlist.disaster_event?.event_code,
+    barangayName: barangayLabel,
+    format: filters.format,
+  });
+
+  if (filters.format === "csv") {
+    return {
+      filename,
+      contentType: "text/csv; charset=utf-8",
+      buffer: buildCsvBuffer({
+        titleLines,
+        columns,
+        rows: exportRows,
+      }),
+    };
+  }
+
+  if (filters.format === "excel") {
+    return {
+      filename,
+      contentType: "application/vnd.ms-excel",
+      buffer: buildExcelBuffer({
+        worksheetName: "Evacuee Masterlist",
+        titleLines,
+        columns,
+        rows: exportRows,
+      }),
+    };
+  }
+
+  return {
+    filename,
+    contentType: "application/pdf",
+    buffer: buildPdfBuffer({
+      titleLines,
+      rows: exportRows,
+    }),
+  };
+};
+
 const getBarangayDashboard = async (filters) => {
   const userScope = filters.user_id
     ? await masterlistRepository.getBarangayUserScopeById(filters.user_id)
@@ -378,6 +461,7 @@ const getBarangayDashboard = async (filters) => {
 };
 
 module.exports = {
+  exportMswdoMasterlist,
   getBarangayDashboard,
   getMasterlist,
   getMswdoMasterlistDashboard,

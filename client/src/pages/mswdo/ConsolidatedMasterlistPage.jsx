@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { FiChevronDown, FiDownload } from "react-icons/fi";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import MasterlistDepartureConfirmModal from "../../components/masterlist/MasterlistDepartureConfirmModal";
@@ -8,6 +9,7 @@ import BarangayStatusBreakdownChart from "../../components/mswdo-analytics/Baran
 import DistributionPieChart from "../../components/mswdo-analytics/DistributionPieChart";
 import MswdoSummaryCards from "../../components/mswdo-masterlist/MswdoSummaryCards";
 import { departHousehold } from "../../features/masterlist/masterlistService";
+import { exportConsolidatedMasterlist } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { useMswdoMasterlist } from "../../features/mswdo-masterlist/useMswdoMasterlist";
 
 const ConsolidatedEvacueeMasterlist = () => {
@@ -39,10 +41,13 @@ const ConsolidatedEvacueeMasterlist = () => {
   const [activeTab, setActiveTab] = useState("active"); // 'active' | 'ended'
   const [pendingDepartureHouseholdId, setPendingDepartureHouseholdId] = useState(null);
   const [isRecordingDeparture, setIsRecordingDeparture] = useState(false);
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState("");
 
   const activeEventLabel = selectedDisasterEvent
     ? `${selectedDisasterEvent.event_code} - ${selectedDisasterEvent.title}`
     : "No disaster event selected";
+  const hasRowsToExport = displayedRows.length > 0;
 
   const handleOpenDepartureConfirmation = (householdId) => {
     setPendingDepartureHouseholdId(householdId);
@@ -71,6 +76,49 @@ const ConsolidatedEvacueeMasterlist = () => {
       window.alert(error.message || "Failed to record household departure.");
     } finally {
       setIsRecordingDeparture(false);
+    }
+  };
+
+  const handleExport = async (format) => {
+    if (!selectedDisasterEventId) {
+      window.alert("Select a disaster event before exporting the masterlist.");
+      return;
+    }
+
+    if (!hasRowsToExport) {
+      window.alert("No masterlist data is available to export for the current filters.");
+      return;
+    }
+
+    setExportingFormat(format);
+    setIsExportMenuOpen(false);
+
+    try {
+      const file = await exportConsolidatedMasterlist({
+        disasterEventId: selectedDisasterEventId,
+        barangayId: selectedBarangayId || null,
+        search: searchTerm,
+        format,
+      });
+
+      const downloadUrl = window.URL.createObjectURL(file.blob);
+      const anchor = document.createElement("a");
+      anchor.href = downloadUrl;
+      anchor.download = file.filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (_error) {
+      window.alert(
+        format === "pdf"
+          ? "Unable to export the masterlist as PDF."
+          : format === "excel"
+            ? "Unable to export the masterlist as Excel."
+            : "Unable to export the masterlist as CSV.",
+      );
+    } finally {
+      setExportingFormat("");
     }
   };
 
@@ -219,6 +267,75 @@ const ConsolidatedEvacueeMasterlist = () => {
           >
             Filter
           </button>
+          <div style={{ position: "relative" }}>
+            <button
+              type="button"
+              onClick={() => setIsExportMenuOpen((currentValue) => !currentValue)}
+              disabled={!selectedDisasterEventId || Boolean(exportingFormat)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                border: "1px solid #c9d8e8",
+                background: "#f8fbfe",
+                color: "#24496e",
+                fontWeight: 700,
+                padding: "10px 14px",
+                borderRadius: "10px",
+                cursor:
+                  !selectedDisasterEventId || exportingFormat ? "not-allowed" : "pointer",
+                opacity: !selectedDisasterEventId || exportingFormat ? 0.7 : 1,
+              }}
+            >
+              <FiDownload size={16} />
+              {exportingFormat
+                ? `Exporting ${exportingFormat.toUpperCase()}...`
+                : "Export"}
+              <FiChevronDown size={16} />
+            </button>
+
+            {isExportMenuOpen && !exportingFormat ? (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 8px)",
+                  right: 0,
+                  minWidth: "180px",
+                  backgroundColor: "#ffffff",
+                  border: "1px solid #d6e2ef",
+                  borderRadius: "14px",
+                  boxShadow: "0 18px 36px rgba(27, 50, 77, 0.16)",
+                  padding: "8px",
+                  zIndex: 20,
+                }}
+              >
+                {[
+                  { key: "pdf", label: "Export PDF" },
+                  { key: "excel", label: "Export Excel" },
+                  { key: "csv", label: "Export CSV" },
+                ].map((option) => (
+                  <button
+                    key={option.key}
+                    type="button"
+                    onClick={() => handleExport(option.key)}
+                    style={{
+                      width: "100%",
+                      textAlign: "left",
+                      border: "none",
+                      background: "transparent",
+                      color: "#1f3b57",
+                      fontSize: "14px",
+                      padding: "10px 12px",
+                      borderRadius: "10px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
           <button
             style={{
               background: "#0c4a6e",
