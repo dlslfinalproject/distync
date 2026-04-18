@@ -35,6 +35,44 @@ const validateGetMasterlist = (req, res, next) => {
   }
 };
 
+const validateExportMswdoMasterlist = (req, res, next) => {
+  try {
+    const { disaster_event_id, barangay_id, format, search } = req.query;
+
+    if (!isValidUuid(disaster_event_id)) {
+      return res.status(400).json({
+        message: "disaster_event_id is required and must be a valid UUID",
+      });
+    }
+
+    if (barangay_id !== undefined && barangay_id !== "" && !isValidUuid(barangay_id)) {
+      return res.status(400).json({
+        message: "barangay_id must be a valid UUID when provided",
+      });
+    }
+
+    if (!["pdf", "excel", "csv"].includes(String(format || "").toLowerCase())) {
+      return res.status(400).json({
+        message: "format must be one of: pdf, excel, csv",
+      });
+    }
+
+    req.validatedQuery = {
+      disaster_event_id,
+      barangay_id: barangay_id || null,
+      format: String(format).toLowerCase(),
+      search: typeof search === "string" ? search : "",
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate masterlist export request",
+      error: error.message,
+    });
+  }
+};
+
 const validateGetBarangayDashboard = (req, res, next) => {
   try {
     const { user_id, disaster_event_id, event_scope, override_barangay_id } =
@@ -106,6 +144,7 @@ const validateGetBarangayDashboard = (req, res, next) => {
 };
 
 module.exports = {
+  validateExportMswdoMasterlist,
   validateGetMasterlist,
   validateGetBarangayDashboard,
 };

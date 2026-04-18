@@ -11,7 +11,7 @@ const parseJsonResponse = async (response, fallbackMessage) => {
   return payload;
 };
 
-const formatDateTime = (value) => {
+export const formatDateTime = (value) => {
   if (!value) {
     return "-";
   }
@@ -25,7 +25,7 @@ const formatDateTime = (value) => {
   }).format(new Date(value));
 };
 
-const buildSectorsText = (household) => {
+export const buildSectorsText = (household) => {
   const householdSectorNames = (household.household_sectors || []).map(
     (sector) => sector.name,
   );
@@ -40,7 +40,7 @@ const buildSectorsText = (household) => {
   return uniqueSectorNames.length > 0 ? uniqueSectorNames.join(", ") : "-";
 };
 
-const mapMasterlistRow = (household) => {
+export const mapMasterlistRow = (household) => {
   const departureTimeValue = household.latest_attendance?.time_out || null;
 
   return {

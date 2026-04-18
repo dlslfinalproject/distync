@@ -21,24 +21,28 @@ const cardStyles = {
 const MswdoSummaryCards = ({ summary }) => {
   const cards = [
     {
-      label: "Total Households",
-      value: summary.totalHouseholds,
-      helperText: "Household records visible in the monitoring table.",
+      label: "Total Evacuees",
+      value: summary.totalNumberOfEvacueesIndividuals,
     },
     {
-      label: "Total Evacuees",
-      value: summary.totalEvacuees,
-      helperText: "Combined household size across the displayed rows.",
+      label: "Total Families",
+      value: summary.totalNumberOfFamilies,
+    },
+    {
+      label: "Average Household Size",
+      value: summary.averageHouseholdSize,
+    },
+    {
+      label: "Currently Admitted",
+      value: summary.currentlyAdmittedEvacuees,
+    },
+    {
+      label: "Total Departed",
+      value: summary.totalDepartedEvacuees,
     },
     {
       label: "Barangays Covered",
-      value: summary.barangaysCovered,
-      helperText: "Barangays represented by the current filter set.",
-    },
-    {
-      label: "With Stub Issued",
-      value: summary.withStubIssued,
-      helperText: "Households that already have an issued stub record.",
+      value: summary.totalBarangaysCovered,
     },
   ];
 

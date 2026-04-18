@@ -1,4 +1,16 @@
 const masterlistRepository = require("../repositories/masterlist.repository");
+const {
+  buildCsvBuffer,
+  buildExcelBuffer,
+  buildExportColumns,
+  buildExcelFilename,
+  buildExportFilename,
+  buildExportTitleLines,
+  buildPdfBuffer,
+  buildPdfFilename,
+  filterExportRows,
+  mapHouseholdToExportRow,
+} = require("../utils/masterlistExport");
 const BARANGAY_EVENT_STATUSES = {
   active: ["ACTIVE"],
   ended: ["CLOSED", "ARCHIVED"],
@@ -183,6 +195,175 @@ const getMasterlist = async (filters) => {
   };
 };
 
+const getMswdoMasterlistDashboard = async (filters) => {
+  const disasterEvent =
+    await masterlistRepository.getDisasterEventSummaryById(
+      filters.disaster_event_id,
+    );
+
+  if (!disasterEvent) {
+    const error = new Error("Disaster event not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (filters.barangay_id) {
+    const barangay = await masterlistRepository.getBarangaySummaryById(
+      filters.barangay_id,
+    );
+
+    if (!barangay) {
+      const error = new Error("Barangay not found");
+      error.statusCode = 404;
+      throw error;
+    }
+  }
+
+  const metrics = await masterlistRepository.getMswdoMasterlistAnalytics(
+    filters.disaster_event_id,
+    filters.barangay_id,
+  );
+
+  const perBarangayChartDataset = Array.isArray(metrics.per_barangay_chart_dataset)
+    ? metrics.per_barangay_chart_dataset
+    : [];
+
+  return {
+    disaster_event: {
+      id: disasterEvent.id,
+      event_code: disasterEvent.event_code,
+      title: disasterEvent.title,
+      disaster_type: disasterEvent.disaster_type,
+      status: disasterEvent.status,
+    },
+    filters: {
+      disaster_event_id: filters.disaster_event_id,
+      barangay_id: filters.barangay_id,
+    },
+    summary_metrics: {
+      total_number_of_evacuees_individuals: Number(
+        metrics.total_number_of_evacuees_individuals || 0,
+      ),
+      total_number_of_families: Number(metrics.total_number_of_families || 0),
+      average_household_size: Number(metrics.average_household_size || 0),
+      currently_admitted_evacuees: Number(
+        metrics.currently_admitted_evacuees || 0,
+      ),
+      total_departed_evacuees: Number(metrics.total_departed_evacuees || 0),
+      total_barangays_covered: Number(metrics.total_barangays_covered || 0),
+    },
+    charts: {
+      per_barangay: perBarangayChartDataset.map((item) => ({
+        barangay_id: item.barangay_id,
+        barangay_name: item.barangay_name,
+        families_count: Number(item.families_count || 0),
+        evacuees_count: Number(item.evacuees_count || 0),
+        admitted_evacuees_count: Number(item.admitted_evacuees_count || 0),
+        departed_evacuees_count: Number(item.departed_evacuees_count || 0),
+      })),
+    },
+    has_data:
+      Number(metrics.total_number_of_evacuees_individuals || 0) > 0 ||
+      Number(metrics.total_number_of_families || 0) > 0 ||
+      Number(metrics.currently_admitted_evacuees || 0) > 0 ||
+      Number(metrics.total_departed_evacuees || 0) > 0,
+  };
+};
+
+const exportMswdoMasterlist = async (filters) => {
+  const [masterlist, dashboard] = await Promise.all([
+    getMasterlist({
+      disaster_event_id: filters.disaster_event_id,
+      barangay_id: filters.barangay_id,
+    }),
+    getMswdoMasterlistDashboard({
+      disaster_event_id: filters.disaster_event_id,
+      barangay_id: filters.barangay_id,
+    }),
+  ]);
+
+  const exportRows = filterExportRows(
+    (masterlist.data || []).map(mapHouseholdToExportRow),
+    filters.search || "",
+  );
+
+  if (exportRows.length === 0) {
+    const error = new Error("No masterlist data available for export.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const columns = buildExportColumns();
+  const eventLabel = masterlist.disaster_event
+    ? `${masterlist.disaster_event.event_code} - ${masterlist.disaster_event.title}`
+    : "No disaster event selected";
+
+  const barangayLabel = filters.barangay_id
+    ? exportRows[0]?.barangay_name || "Selected barangay"
+    : "All Barangays";
+
+  const titleLines = buildExportTitleLines({
+    eventLabel,
+    barangayLabel,
+    searchTerm: filters.search,
+  });
+
+  const filename = buildExportFilename({
+    eventCode: masterlist.disaster_event?.event_code,
+    barangayName: barangayLabel,
+    format: filters.format,
+  });
+
+  if (filters.format === "csv") {
+    return {
+      filename,
+      contentType: "text/csv; charset=utf-8",
+      buffer: buildCsvBuffer({
+        titleLines,
+        columns,
+        rows: exportRows,
+      }),
+    };
+  }
+
+  if (filters.format === "excel") {
+    return {
+      filename: buildExcelFilename({
+        eventCode: masterlist.disaster_event?.event_code,
+        barangayName: barangayLabel,
+      }),
+      contentType:
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      buffer: await buildExcelBuffer({
+        worksheetName: "Evacuee Masterlist",
+        rows: exportRows,
+        summaryMetrics: dashboard.summary_metrics,
+        eventLabel,
+        barangayLabel,
+        searchTerm: filters.search,
+        includeBarangayColumn: !filters.barangay_id,
+      }),
+    };
+  }
+
+  return {
+    filename: buildPdfFilename({
+      eventCode: masterlist.disaster_event?.event_code,
+      barangayName: barangayLabel,
+    }),
+    contentType: "application/pdf",
+    buffer: buildPdfBuffer({
+      rows: exportRows,
+      summaryMetrics: dashboard.summary_metrics,
+      eventLabel,
+      eventCode: masterlist.disaster_event?.event_code,
+      barangayLabel,
+      searchTerm: filters.search,
+      includeBarangayColumn: !filters.barangay_id,
+    }),
+  };
+};
+
 const getBarangayDashboard = async (filters) => {
   const userScope = filters.user_id
     ? await masterlistRepository.getBarangayUserScopeById(filters.user_id)
@@ -303,6 +484,8 @@ const getBarangayDashboard = async (filters) => {
 };
 
 module.exports = {
+  exportMswdoMasterlist,
   getBarangayDashboard,
   getMasterlist,
+  getMswdoMasterlistDashboard,
 };

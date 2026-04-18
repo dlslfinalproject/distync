@@ -2,6 +2,7 @@ const express = require("express");
 
 const masterlistService = require("../services/masterlist.service");
 const {
+  validateExportMswdoMasterlist,
   validateGetBarangayDashboard,
   validateGetMasterlist,
 } = require("../validators/masterlist.validator");
@@ -28,6 +29,44 @@ router.get(
     }
   },
 );
+
+router.get("/mswdo-dashboard", validateGetMasterlist, async (req, res) => {
+  try {
+    const dashboard = await masterlistService.getMswdoMasterlistDashboard(
+      req.validatedQuery,
+    );
+
+    return res.status(200).json(dashboard);
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+
+    return res.status(statusCode).json({
+      message: error.message || "Failed to fetch MSWDO masterlist dashboard",
+    });
+  }
+});
+
+router.get("/export", validateExportMswdoMasterlist, async (req, res) => {
+  try {
+    const file = await masterlistService.exportMswdoMasterlist(
+      req.validatedQuery,
+    );
+
+    res.setHeader("Content-Type", file.contentType);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${file.filename}"`,
+    );
+
+    return res.status(200).send(file.buffer);
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+
+    return res.status(statusCode).json({
+      message: error.message || "Failed to export MSWDO masterlist",
+    });
+  }
+});
 
 router.get("/", validateGetMasterlist, async (req, res) => {
   try {
