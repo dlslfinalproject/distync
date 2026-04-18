@@ -11,6 +11,18 @@ const handleJsonResponse = async (response, fallbackMessage) => {
   return payload;
 };
 
+const getFallbackExportFilename = (format) => {
+  if (format === "excel") {
+    return "mswdo-masterlist.xlsx";
+  }
+
+  if (format === "pdf") {
+    return "mswdo-masterlist.pdf";
+  }
+
+  return "mswdo-masterlist.csv";
+};
+
 export const fetchDisasterEvents = async () => {
   const response = await fetch(`${API_BASE_URL}/api/v1/disaster-events`);
   return handleJsonResponse(response, "Failed to fetch disaster events");
@@ -143,6 +155,6 @@ export const exportConsolidatedMasterlist = async ({
 
   return {
     blob,
-    filename: fileNameMatch?.[1] || `mswdo-masterlist.${format}`,
+    filename: fileNameMatch?.[1] || getFallbackExportFilename(format),
   };
 };
