@@ -3,6 +3,7 @@ const {
   buildCsvBuffer,
   buildExcelBuffer,
   buildExportColumns,
+  buildExcelFilename,
   buildExportFilename,
   buildExportTitleLines,
   buildPdfBuffer,
@@ -327,13 +328,20 @@ const exportMswdoMasterlist = async (filters) => {
 
   if (filters.format === "excel") {
     return {
-      filename,
-      contentType: "application/vnd.ms-excel",
-      buffer: buildExcelBuffer({
+      filename: buildExcelFilename({
+        eventCode: masterlist.disaster_event?.event_code,
+        barangayName: barangayLabel,
+      }),
+      contentType:
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      buffer: await buildExcelBuffer({
         worksheetName: "Evacuee Masterlist",
-        titleLines,
-        columns,
         rows: exportRows,
+        summaryMetrics: dashboard.summary_metrics,
+        eventLabel,
+        barangayLabel,
+        searchTerm: filters.search,
+        includeBarangayColumn: !filters.barangay_id,
       }),
     };
   }

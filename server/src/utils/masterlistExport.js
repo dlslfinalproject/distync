@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const zlib = require("zlib");
+const ExcelJS = require("exceljs");
 
 const formatDateTime = (value) => {
   if (!value) {
@@ -86,6 +87,60 @@ const getExportColumns = () => {
   ];
 };
 
+const getExcelExportColumns = (includeBarangayColumn) => {
+  const columns = [];
+
+  if (includeBarangayColumn) {
+    columns.push({
+      key: "barangay_name",
+      label: "Barangay",
+      width: 22,
+      alignment: { vertical: "middle", horizontal: "left" },
+    });
+  }
+
+  columns.push(
+    {
+      key: "family_head_name",
+      label: "Family Head",
+      width: 28,
+      alignment: { vertical: "middle", horizontal: "left" },
+    },
+    {
+      key: "address",
+      label: "Address",
+      width: 34,
+      alignment: { vertical: "top", horizontal: "left", wrapText: true },
+    },
+    {
+      key: "members_count",
+      label: "Members",
+      width: 12,
+      alignment: { vertical: "middle", horizontal: "center" },
+    },
+    {
+      key: "sectors_text",
+      label: "Sectors",
+      width: 30,
+      alignment: { vertical: "top", horizontal: "left", wrapText: true },
+    },
+    {
+      key: "arrival_time_text",
+      label: "Arrival Time",
+      width: 22,
+      alignment: { vertical: "middle", horizontal: "center", wrapText: true },
+    },
+    {
+      key: "departure_time_text",
+      label: "Departure Time",
+      width: 22,
+      alignment: { vertical: "middle", horizontal: "center", wrapText: true },
+    },
+  );
+
+  return columns;
+};
+
 const getPdfExportColumns = (includeBarangayColumn) => {
   const columns = [];
 
@@ -154,46 +209,433 @@ const buildSpreadsheetCell = (value) => {
   return `<Cell><Data ss:Type="String">${escapeXml(normalizedValue)}</Data></Cell>`;
 };
 
-const buildExcelBuffer = ({ worksheetName, titleLines, columns, rows }) => {
-  const titleRows = titleLines
-    .map(
-      (line) =>
-        `<Row>${buildSpreadsheetCell(line)}${"<Cell/>".repeat(
-          Math.max(columns.length - 1, 0),
-        )}</Row>`,
-    )
-    .join("");
+const applyExcelCellBorder = (cell) => {
+  cell.border = {
+    top: { style: "thin", color: { argb: "FFD9E3F0" } },
+    left: { style: "thin", color: { argb: "FFD9E3F0" } },
+    bottom: { style: "thin", color: { argb: "FFD9E3F0" } },
+    right: { style: "thin", color: { argb: "FFD9E3F0" } },
+  };
+};
 
-  const headerRow = `<Row>${columns
-    .map((column) => buildSpreadsheetCell(column.label))
-    .join("")}</Row>`;
+const styleSummaryCard = (worksheet, rowNumber, startColumnNumber, label, value) => {
+  const labelCell = worksheet.getCell(rowNumber, startColumnNumber);
+  const valueCell = worksheet.getCell(rowNumber + 1, startColumnNumber);
+  const mergedEndColumn = startColumnNumber + 2;
 
-  const dataRows = rows
-    .map(
-      (row) =>
-        `<Row>${columns
-          .map((column) => buildSpreadsheetCell(row[column.key]))
-          .join("")}</Row>`,
-    )
-    .join("");
+  worksheet.mergeCells(rowNumber, startColumnNumber, rowNumber, mergedEndColumn);
+  worksheet.mergeCells(
+    rowNumber + 1,
+    startColumnNumber,
+    rowNumber + 1,
+    mergedEndColumn,
+  );
 
-  const xml = `<?xml version="1.0"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:o="urn:schemas-microsoft-com:office:office"
- xmlns:x="urn:schemas-microsoft-com:office:excel"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
-  <Worksheet ss:Name="${escapeXml(worksheetName)}">
-    <Table>
-      ${titleRows}
-      <Row></Row>
-      ${headerRow}
-      ${dataRows}
-    </Table>
-  </Worksheet>
-</Workbook>`;
+  labelCell.value = label;
+  labelCell.font = { bold: true, size: 10, color: { argb: "FF4F6478" } };
+  labelCell.fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FFF0F6FC" },
+  };
+  labelCell.alignment = { vertical: "middle", horizontal: "left", wrapText: true };
+  applyExcelCellBorder(labelCell);
 
-  return Buffer.from(xml, "utf8");
+  valueCell.value = value;
+  valueCell.font = { bold: true, size: 14, color: { argb: "FF17324D" } };
+  valueCell.fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FFF0F6FC" },
+  };
+  valueCell.alignment = { vertical: "middle", horizontal: "left" };
+  applyExcelCellBorder(valueCell);
+
+  for (let currentColumn = startColumnNumber + 1; currentColumn <= mergedEndColumn; currentColumn += 1) {
+    applyExcelCellBorder(worksheet.getCell(rowNumber, currentColumn));
+    applyExcelCellBorder(worksheet.getCell(rowNumber + 1, currentColumn));
+  }
+};
+
+const setWorksheetMargins = (worksheet) => {
+  worksheet.pageSetup = {
+    orientation: "landscape",
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,
+    margins: {
+      left: 0.35,
+      right: 0.35,
+      top: 0.5,
+      bottom: 0.5,
+      header: 0.25,
+      footer: 0.25,
+    },
+  };
+};
+
+const addWorkbookLogo = (workbook, worksheet) => {
+  if (!fs.existsSync(DISTYNC_LOGO_PATH)) {
+    return;
+  }
+
+  const logoImageId = workbook.addImage({
+    filename: DISTYNC_LOGO_PATH,
+    extension: "png",
+  });
+
+  worksheet.addImage(logoImageId, {
+    tl: { col: 0.2, row: 0.25 },
+    ext: { width: 56, height: 56 },
+  });
+};
+
+const buildExcelHeaderSection = ({
+  worksheet,
+  lastColumnLetter,
+  eventLabel,
+  barangayLabel,
+  searchTerm,
+  generatedAtLabel,
+  totalRows,
+}) => {
+  worksheet.mergeCells(`B1:${lastColumnLetter}1`);
+  worksheet.getCell("B1").value = "DISTYNC";
+  worksheet.getCell("B1").font = {
+    bold: true,
+    size: 18,
+    color: { argb: "FFFFFFFF" },
+  };
+  worksheet.getCell("B1").fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FF17324D" },
+  };
+  worksheet.getCell("B1").alignment = {
+    vertical: "middle",
+    horizontal: "left",
+  };
+
+  worksheet.mergeCells(`B2:${lastColumnLetter}2`);
+  worksheet.getCell("B2").value = "MSWDO Evacuee Masterlist Report";
+  worksheet.getCell("B2").font = {
+    bold: true,
+    size: 14,
+    color: { argb: "FFFFFFFF" },
+  };
+  worksheet.getCell("B2").fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FF17324D" },
+  };
+  worksheet.getCell("B2").alignment = {
+    vertical: "middle",
+    horizontal: "left",
+  };
+
+  worksheet.getRow(1).height = 28;
+  worksheet.getRow(2).height = 24;
+
+  const contextRows = [
+    ["Disaster Event", eventLabel],
+    ["Barangay Filter", barangayLabel],
+    ["Generated", generatedAtLabel],
+    ["Total Rows Exported", totalRows],
+  ];
+
+  if (searchTerm && searchTerm.trim()) {
+    contextRows.splice(2, 0, ["Search Filter", searchTerm.trim()]);
+  }
+
+  let currentRowNumber = 4;
+  contextRows.forEach(([label, value]) => {
+    worksheet.getCell(`A${currentRowNumber}`).value = label;
+    worksheet.getCell(`A${currentRowNumber}`).font = {
+      bold: true,
+      color: { argb: "FF4F6478" },
+    };
+    worksheet.mergeCells(`B${currentRowNumber}:${lastColumnLetter}${currentRowNumber}`);
+    worksheet.getCell(`B${currentRowNumber}`).value = value;
+    worksheet.getCell(`B${currentRowNumber}`).alignment = {
+      vertical: "middle",
+      horizontal: "left",
+      wrapText: true,
+    };
+    currentRowNumber += 1;
+  });
+
+  return currentRowNumber;
+};
+
+const populateMasterlistSheetRows = ({
+  worksheet,
+  columns,
+  tableHeaderRowNumber,
+  rows,
+  lastColumnLetter,
+}) => {
+  const tableHeaderRow = worksheet.getRow(tableHeaderRowNumber);
+  columns.forEach((column, index) => {
+    const cell = tableHeaderRow.getCell(index + 1);
+    cell.value = column.label;
+    cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF4F86BE" },
+    };
+    cell.alignment = {
+      vertical: "middle",
+      horizontal: "center",
+      wrapText: true,
+    };
+    applyExcelCellBorder(cell);
+  });
+  tableHeaderRow.height = 24;
+
+  let tableEndRowNumber = tableHeaderRowNumber;
+
+  if (rows.length === 0) {
+    worksheet.mergeCells(
+      `A${tableHeaderRowNumber + 1}:${lastColumnLetter}${tableHeaderRowNumber + 1}`,
+    );
+    const emptyStateCell = worksheet.getCell(`A${tableHeaderRowNumber + 1}`);
+    emptyStateCell.value = "No data available for the selected filters.";
+    emptyStateCell.alignment = {
+      vertical: "middle",
+      horizontal: "center",
+    };
+    emptyStateCell.font = {
+      italic: true,
+      color: { argb: "FF6B7E90" },
+    };
+    applyExcelCellBorder(emptyStateCell);
+    tableEndRowNumber = tableHeaderRowNumber + 1;
+  } else {
+    rows.forEach((row, rowIndex) => {
+      const worksheetRowNumber = tableHeaderRowNumber + 1 + rowIndex;
+      const worksheetRow = worksheet.getRow(worksheetRowNumber);
+
+      columns.forEach((column, columnIndex) => {
+        worksheetRow.getCell(columnIndex + 1).value = row[column.key];
+      });
+
+      worksheetRow.eachCell((cell, columnNumber) => {
+        cell.alignment = columns[columnNumber - 1].alignment;
+        applyExcelCellBorder(cell);
+        if (rowIndex % 2 === 1) {
+          cell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FFF8FBFE" },
+          };
+        }
+      });
+
+      const estimatedHeight = columns.reduce((maxHeight, column) => {
+        const cellValue = String(row[column.key] ?? "");
+        if (!column.alignment?.wrapText) {
+          return maxHeight;
+        }
+
+        const charactersPerLine = Math.max(
+          12,
+          Math.floor((column.width || 20) * 1.15),
+        );
+        const lineCount = Math.max(1, Math.ceil(cellValue.length / charactersPerLine));
+        return Math.max(maxHeight, lineCount * 15);
+      }, 22);
+
+      worksheetRow.height = Math.min(Math.max(estimatedHeight, 22), 60);
+      worksheetRow.commit();
+    });
+
+    tableEndRowNumber = tableHeaderRowNumber + rows.length;
+    worksheet.autoFilter = {
+      from: {
+        row: tableHeaderRowNumber,
+        column: 1,
+      },
+      to: {
+        row: tableEndRowNumber,
+        column: columns.length,
+      },
+    };
+  }
+
+  return tableEndRowNumber;
+};
+
+const buildExcelBuffer = async ({
+  worksheetName,
+  rows,
+  summaryMetrics,
+  eventLabel,
+  barangayLabel,
+  searchTerm,
+  includeBarangayColumn,
+}) => {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "DISTYNC";
+  workbook.company = "DISTYNC";
+  workbook.created = new Date();
+  workbook.modified = new Date();
+  const summaryWorksheet = workbook.addWorksheet("Summary", {
+    properties: {
+      defaultRowHeight: 20,
+    },
+  });
+  const masterlistWorksheet = workbook.addWorksheet(worksheetName, {
+    properties: {
+      defaultRowHeight: 20,
+    },
+  });
+  const columns = getExcelExportColumns(includeBarangayColumn);
+  summaryWorksheet.columns = [
+    { width: 20 },
+    { width: 22 },
+    { width: 22 },
+    { width: 22 },
+    { width: 22 },
+    { width: 22 },
+  ];
+  masterlistWorksheet.columns = columns.map((column) => ({
+    key: column.key,
+    width: column.width,
+    style: {
+      alignment: column.alignment,
+    },
+  }));
+
+  const generatedAtLabel = new Intl.DateTimeFormat("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date());
+
+  setWorksheetMargins(summaryWorksheet);
+  setWorksheetMargins(masterlistWorksheet);
+  addWorkbookLogo(workbook, summaryWorksheet);
+  addWorkbookLogo(workbook, masterlistWorksheet);
+
+  const summaryLastColumnLetter = summaryWorksheet.getColumn(6).letter;
+  let currentRowNumber = buildExcelHeaderSection({
+    worksheet: summaryWorksheet,
+    lastColumnLetter: summaryLastColumnLetter,
+    eventLabel,
+    barangayLabel,
+    searchTerm,
+    generatedAtLabel,
+    totalRows: rows.length,
+  });
+
+  currentRowNumber += 1;
+  summaryWorksheet.mergeCells(
+    `A${currentRowNumber}:${summaryLastColumnLetter}${currentRowNumber}`,
+  );
+  summaryWorksheet.getCell(`A${currentRowNumber}`).value = "Summary";
+  summaryWorksheet.getCell(`A${currentRowNumber}`).font = {
+    bold: true,
+    size: 13,
+    color: { argb: "FF17324D" },
+  };
+  currentRowNumber += 1;
+
+  const summaryCards = [
+    [
+      "Total Number of Evacuees (Individuals)",
+      Number(summaryMetrics.total_number_of_evacuees_individuals || 0),
+    ],
+    [
+      "Total Number of Families",
+      Number(summaryMetrics.total_number_of_families || 0),
+    ],
+    [
+      "Average Household Size",
+      Number(summaryMetrics.average_household_size || 0).toFixed(1),
+    ],
+    [
+      "Currently Admitted Evacuees",
+      Number(summaryMetrics.currently_admitted_evacuees || 0),
+    ],
+    [
+      "Total Departed Evacuees",
+      Number(summaryMetrics.total_departed_evacuees || 0),
+    ],
+    [
+      "Total Barangays Covered",
+      Number(summaryMetrics.total_barangays_covered || 0),
+    ],
+  ];
+
+  const summaryStartRow = currentRowNumber;
+  summaryCards.forEach((card, index) => {
+    const rowOffset = Math.floor(index / 2) * 3;
+    const startColumnNumber = index % 2 === 0 ? 1 : 4;
+
+    styleSummaryCard(
+      summaryWorksheet,
+      summaryStartRow + rowOffset,
+      startColumnNumber,
+      card[0],
+      card[1],
+    );
+  });
+
+  summaryWorksheet.views = [
+    {
+      state: "frozen",
+      ySplit: 3,
+    },
+  ];
+  summaryWorksheet.headerFooter.oddFooter =
+    "&LDISTYNC MSWDO Summary&RPage &P of &N";
+
+  const masterlistLastColumnLetter =
+    masterlistWorksheet.getColumn(columns.length).letter;
+  buildExcelHeaderSection({
+    worksheet: masterlistWorksheet,
+    lastColumnLetter: masterlistLastColumnLetter,
+    eventLabel,
+    barangayLabel,
+    searchTerm,
+    generatedAtLabel,
+    totalRows: rows.length,
+  });
+
+  const tableTitleRowNumber = 9;
+  masterlistWorksheet.mergeCells(
+    `A${tableTitleRowNumber}:${masterlistLastColumnLetter}${tableTitleRowNumber}`,
+  );
+  masterlistWorksheet.getCell(`A${tableTitleRowNumber}`).value =
+    "Registered Family Masterlist";
+  masterlistWorksheet.getCell(`A${tableTitleRowNumber}`).font = {
+    bold: true,
+    size: 13,
+    color: { argb: "FF17324D" },
+  };
+  const tableHeaderRowNumber = tableTitleRowNumber + 1;
+  populateMasterlistSheetRows({
+    worksheet: masterlistWorksheet,
+    columns,
+    tableHeaderRowNumber,
+    rows,
+    lastColumnLetter: masterlistLastColumnLetter,
+  });
+
+  masterlistWorksheet.views = [
+    {
+      state: "frozen",
+      ySplit: tableHeaderRowNumber,
+    },
+  ];
+  masterlistWorksheet.headerFooter.oddFooter =
+    "&LMSWDO Registered Family Masterlist&RPage &P of &N";
+
+  const excelBuffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(excelBuffer);
 };
 
 const PDF_COLORS = {
@@ -966,6 +1408,21 @@ const buildPdfFilename = ({ eventCode, barangayName }) => {
   )}_${slugifyFilePart(barangayName, "all-barangays")}_${dateStamp}.pdf`;
 };
 
+const buildExcelFilename = ({ eventCode, barangayName }) => {
+  const dateStamp = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .format(new Date())
+    .replace(/-/g, "");
+
+  return `mswdo_evacuee_masterlist_${slugifyFilePart(
+    eventCode,
+    "masterlist",
+  )}_${slugifyFilePart(barangayName, "all-barangays")}_${dateStamp}.xlsx`;
+};
+
 const buildExportTitleLines = ({ eventLabel, barangayLabel, searchTerm }) => {
   const titleLines = [
     "DISTYNC MSWDO Evacuee Masterlist Report",
@@ -996,6 +1453,7 @@ module.exports = {
   buildExportColumns: getExportColumns,
   buildExportFilename,
   buildExportTitleLines,
+  buildExcelFilename,
   buildPdfBuffer,
   buildPdfFilename,
   filterExportRows,

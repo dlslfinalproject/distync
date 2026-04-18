@@ -7,7 +7,11 @@ const routes = require("./routes");
 
 const app = express();
 
-app.use(cors());
+app.use(
+  cors({
+    exposedHeaders: ["Content-Disposition", "Content-Type"],
+  }),
+);
 app.use(helmet());
 app.use(morgan("dev"));
 app.use(express.json());
