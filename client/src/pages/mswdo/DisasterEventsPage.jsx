@@ -8,7 +8,8 @@ import { useDisasterEvents } from "../../features/disaster-events/useDisasterEve
 import DisasterEventExtendModal from "../../components/disaster-events/DisasterEventExtendModal";
 import DisasterEventEndModal from "../../components/disaster-events/DisasterEventEndModal";
 import SearchBar from "../../components/shared/SearchBar";
-import { FiFileText } from "react-icons/fi";
+import { pageHeaderStyles } from "../../components/layout/PageHeader";
+import { FiFileText, FiFilter } from "react-icons/fi";
 
 const DisasterEventsPage = () => {
   const {
@@ -231,12 +232,11 @@ const DisasterEventsPage = () => {
       <div
         style={{
           display: "flex",
-          justifyContent: "space-between",
           alignItems: "center",
+          gap: "12px",
           marginTop: "16px",
           marginBottom: "20px",
           flexWrap: "wrap",
-          gap: "12px",
         }}
       >
         <div style={{ flex: 1 }}>
@@ -246,6 +246,11 @@ const DisasterEventsPage = () => {
             placeholder="Search disaster events name, type, or affected barangays"
           />
         </div>
+
+        <button type="button" style={pageHeaderStyles.secondaryButton}>
+          <FiFilter size={16} />
+          Filter
+        </button>
       </div>
 
       <section
