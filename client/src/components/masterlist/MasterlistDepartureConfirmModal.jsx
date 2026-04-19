@@ -81,7 +81,7 @@ const MasterlistDepartureConfirmModal = ({
               cursor: isSubmitting ? "wait" : "pointer",
             }}
           >
-            {isSubmitting ? "Recording Departure..." : "Yes, Mark Departed"}
+            {isSubmitting ? "Recording Departure..." : "Confirm"}
           </button>
         </div>
       </div>

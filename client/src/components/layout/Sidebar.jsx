@@ -106,7 +106,7 @@ const Sidebar = () => {
     [ROLE_CODES.BARANGAY]: {
       navItems: [
         { label: "Evacuee Masterlist", to: "/barangay/masterlist" },
-        { label: "Stub Distribution", to: "/barangay/stub-distribution" },
+        { label: "Relief Goods Distribution", to: "/barangay/stub-distribution" },
       ],
     },
     [ROLE_CODES.MSWDO]: {

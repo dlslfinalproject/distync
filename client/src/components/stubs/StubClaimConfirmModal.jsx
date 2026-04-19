@@ -53,7 +53,7 @@ const StubClaimConfirmModal = ({
   return (
     <div style={modalStyles.overlay}>
       <div style={modalStyles.modal}>
-        <h3 style={modalStyles.title}>Confirm Stub Claim</h3>
+        <h3 style={modalStyles.title}>Confirm Relief Distribution</h3>
         <p style={modalStyles.message}>
           Are you sure this stub has been claimed?
         </p>
@@ -81,7 +81,7 @@ const StubClaimConfirmModal = ({
               cursor: isSubmitting ? "wait" : "pointer",
             }}
           >
-            {isSubmitting ? "Marking as Claimed..." : "Mark Claimed"}
+            {isSubmitting ? "Marking as Claimed..." : "Confirm"}
           </button>
         </div>
       </div>

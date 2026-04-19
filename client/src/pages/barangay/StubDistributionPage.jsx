@@ -126,7 +126,7 @@ const StubDistributionPage = () => {
 
   return (
     <>
-      <PageHeader title="STUB DISTRIBUTION" />
+      <PageHeader title="RELIEF GOODS DISTRIBUTION" />
 
       <BarangayDashboardOverview
         accessMode={accessMode}
