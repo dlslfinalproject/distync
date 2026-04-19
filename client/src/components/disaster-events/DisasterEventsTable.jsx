@@ -153,18 +153,22 @@ const DisasterEventsTable = ({
                         flexWrap: "wrap",
                         gap: "6px",
                         maxWidth: "220px",
-                        justifyContent: "center", 
+                        justifyContent: "center",
                       }}
                     >
                       {row.affected_barangays.map((brgy, index) => (
                         <span
                           key={index}
                           style={{
-                            background: "#eef4ff",
-                            color: "#2f5bd3",
-                            padding: "4px 8px",
-                            borderRadius: "6px",
+                            display: "inline-block",
+                            minWidth: "36px",
+                            textAlign: "center",
+                            padding: "6px 10px",
+                            borderRadius: "999px",
+                            backgroundColor: "#e5f1fb",
+                            color: "#356592",
                             fontSize: "12px",
+                            fontWeight: 700,
                             whiteSpace: "nowrap",
                           }}
                         >
