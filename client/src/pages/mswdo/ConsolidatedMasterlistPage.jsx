@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { FiChevronDown, FiDownload, FiFilter, FiUserPlus } from "react-icons/fi";
+import { FiFileText, FiFilter, FiUserPlus } from "react-icons/fi";
 import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
@@ -457,41 +457,47 @@ const ConsolidatedEvacueeMasterlist = () => {
               onClick={() => setIsExportMenuOpen((currentValue) => !currentValue)}
               disabled={!selectedDisasterEventId || Boolean(exportingFormat)}
               style={{
-                ...pageHeaderStyles.secondaryButton,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "8px",
+                border: "1px solid #c6d8ea",
+                borderRadius: "14px",
+                padding: "12px 18px",
+                backgroundColor: "#f8fbfe",
+                color: "#2a4c6f",
+                fontSize: "14px",
+                fontWeight: 700,
                 cursor:
                   !selectedDisasterEventId || exportingFormat ? "not-allowed" : "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
                 opacity: !selectedDisasterEventId || exportingFormat ? 0.7 : 1,
               }}
             >
-              <FiDownload size={16} />
+              <span style={{ display: "flex", alignItems: "center", gap: "2px" }}>
+                <FiFileText size={16} />
+              </span>
               {exportingFormat
                 ? `Exporting ${exportingFormat.toUpperCase()}...`
                 : "Export"}
-              <FiChevronDown size={16} />
             </button>
 
             {isExportMenuOpen && !exportingFormat ? (
               <div
                 style={{
                   position: "absolute",
-                  top: "calc(100% + 8px)",
                   right: 0,
-                  minWidth: "180px",
-                  backgroundColor: "#ffffff",
-                  border: "1px solid #d6e2ef",
-                  borderRadius: "14px",
-                  boxShadow: "0 18px 36px rgba(27, 50, 77, 0.16)",
+                  top: "45px",
+                  background: "#fff",
+                  borderRadius: "10px",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
                   padding: "8px",
+                  minWidth: "160px",
                   zIndex: 20,
                 }}
               >
                 {[
-                  { key: "pdf", label: "Export PDF" },
-                  { key: "excel", label: "Export Excel" },
-                  { key: "csv", label: "Export CSV" },
+                  { key: "csv", label: "Export as CSV" },
+                  { key: "pdf", label: "Export as PDF" },
+                  { key: "excel", label: "Export as Excel" },
                 ].map((option) => (
                   <button
                     key={option.key}
@@ -499,14 +505,13 @@ const ConsolidatedEvacueeMasterlist = () => {
                     onClick={() => handleExport(option.key)}
                     style={{
                       width: "100%",
-                      textAlign: "left",
                       border: "none",
                       background: "transparent",
+                      textAlign: "left",
+                      padding: "8px",
+                      cursor: "pointer",
                       color: "#1f3b57",
                       fontSize: "14px",
-                      padding: "10px 12px",
-                      borderRadius: "10px",
-                      cursor: "pointer",
                     }}
                   >
                     {option.label}
