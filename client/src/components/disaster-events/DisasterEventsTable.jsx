@@ -52,18 +52,18 @@ const DisasterEventsTable = ({
   const [activeMenu, setActiveMenu] = useState(null);
   if (isLoading) {
     return (
-      <section style={shellStyles.card}>
+      <div style={{ width: "100%" }}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Disaster Events</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
           Loading disaster events...
         </p>
-      </section>
+      </div>
     );
   }
 
   if (errorMessage) {
     return (
-      <section style={shellStyles.card}>
+      <div style={{ width: "100%" }}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Disaster Events</h3>
         <p
           style={{
@@ -74,23 +74,23 @@ const DisasterEventsTable = ({
         >
           {errorMessage}
         </p>
-      </section>
+      </div>
     );
   }
 
   if (rows.length === 0) {
     return (
-      <section style={shellStyles.card}>
+      <div style={{ width: "100%" }}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Disaster Events</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
           No disaster events were found for the current filter.
         </p>
-      </section>
+      </div>
     );
   }
 
   return (
-    <section style={shellStyles.card}>
+    <div style={{ width: "100%" }}>
       <div style={{ marginBottom: "18px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>Disaster Events</h3>
       </div>
@@ -260,7 +260,7 @@ const DisasterEventsTable = ({
           </tbody>
         </table>
       </div>
-    </section>
+    </div>
   );
 };
 
