@@ -17,7 +17,7 @@ const modalStyles = {
   width: "min(860px, 100%)",
   maxHeight: "90vh",
   overflowY: "auto",
-  backgroundColor: "#ffffff",
+  backgroundColor: "#eef5fb",
   borderRadius: "22px",
   border: "1px solid #d7e2ef",
   boxShadow: "0 24px 60px rgba(23, 50, 77, 0.18)",
