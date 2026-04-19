@@ -1,82 +1,103 @@
 import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
+import { FiMenu } from "react-icons/fi";
 import { useAuth } from "../../context/AuthContext";
 import { getAccessMode, getEntryRouteForMode } from "../../utils/accessMode";
 import { ROLE_CODES } from "../../utils/roleSession";
 import distyncLogo from "../../assets/distync-logo.png";
 
-const sidebarStyles = {
+const getSidebarStyles = (isCollapsed) => ({
   wrapper: {
-    width: "280px",
-    height: "100vh",
+    width: isCollapsed ? "100%" : "280px",
+    minWidth: isCollapsed ? "100%" : "280px",
+    height: isCollapsed ? "auto" : "100vh",
     padding: "0 18px 24px",
     boxSizing: "border-box",
     backgroundColor: "#f7fbff",
-    borderRight: "1px solid #d6e2ef",
+    borderRight: isCollapsed ? "none" : "1px solid #d6e2ef",
+    borderBottom: isCollapsed ? "1px solid #d6e2ef" : "none",
     display: "flex",
     flexDirection: "column",
     gap: "24px",
-    minWidth: "280px",
     flexShrink: 0,
-    position: "sticky",
+    position: isCollapsed ? "relative" : "sticky",
     top: 0,
     alignSelf: "flex-start",
-    overflowY: "auto",
+    overflowY: isCollapsed ? "visible" : "auto",
+    transition: "width 0.2s ease, min-width 0.2s ease",
+  },
+  topBar: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: "10px",
+    paddingTop: "14px",
+    minWidth: 0,
+  },
+  menuButton: {
+    border: "1px solid #c7d7e8",
+    borderRadius: "12px",
+    backgroundColor: "#ffffff",
+    color: "#24496e",
+    width: "40px",
+    height: "40px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    flexShrink: 0,
   },
   brand: {
-    margin: "0 -18px",
-    background: "#f7fbff",
-    color: "#ffffff",
-    boxShadow: "0 4px 20px rgba(115, 146, 214, 0.15)",
+    margin: 0,
+    padding: 0,
+    background: "transparent",
+    boxShadow: "none",
     display: "flex",
-    flexDirection: "column",
-    alignItems: "flex-start",
-    justifyContent: "center",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    flex: 1,
+    minWidth: 0,
   },
   brandHeader: {
     display: "flex",
     alignItems: "center",
     justifyContent: "flex-start",
+    gap: "6px",
+    width: "100%",
+    minWidth: 0,
   },
   brandLogo: {
-    height: "90px",
-    width: "auto",
+    height: "56px",
+    width: "56px",
+    objectFit: "contain",
     display: "block",
+    flexShrink: 0,
   },
   brandTitle: {
     margin: 0,
-    fontSize: "28px",
+    fontSize: "18px",
     fontWeight: 700,
     letterSpacing: "-0.02em",
     color: "#2F3B55",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    maxWidth: "120px",
   },
   nav: {
-    display: "flex",
+    display: isCollapsed ? "none" : "flex",
     flexDirection: "column",
     gap: "10px",
     marginTop: "10px",
-  },
-  navLink: {
-    textDecoration: "none",
-    borderRadius: "14px",
-    padding: "14px 16px",
-    display: "block",
-    transition: "all 0.2s ease",
   },
   navTitle: {
     display: "block",
     fontSize: "15px",
     fontWeight: 700,
   },
-  navText: {
-    display: "block",
-    marginTop: "4px",
-    fontSize: "13px",
-    lineHeight: 1.5,
-  },
   roleActions: {
     marginTop: "auto",
-    display: "flex",
+    display: isCollapsed ? "none" : "flex",
     flexDirection: "column",
     gap: "12px",
   },
@@ -92,15 +113,17 @@ const sidebarStyles = {
     cursor: "pointer",
     textAlign: "left",
   },
-};
+});
 
-const Sidebar = () => {
+const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
   const navigate = useNavigate();
-  const { accessMode, clearSession, currentRole, isAuthenticated } = useAuth();
+  const { accessMode, clearSession, currentRole } = useAuth();
   const resolvedAccessMode = accessMode || getAccessMode();
   const entryRoute = getEntryRouteForMode(resolvedAccessMode);
 
   if (currentRole === ROLE_CODES.DONOR) return null;
+
+  const sidebarStyles = getSidebarStyles(isCollapsed);
 
   const roleMeta = {
     [ROLE_CODES.BARANGAY]: {
@@ -112,9 +135,7 @@ const Sidebar = () => {
     [ROLE_CODES.MSWDO]: {
       navItems: [
         { label: "Disaster Events", to: "/mswdo/disaster-events" },
-        {
-          label: "Evacuee Masterlist", to: "/mswdo/consolidated-masterlist",
-        },
+        { label: "Evacuee Masterlist", to: "/mswdo/consolidated-masterlist" },
         { label: "Analytics Dashboard", to: "/mswdo/analytics" },
       ],
     },
@@ -124,26 +145,32 @@ const Sidebar = () => {
         { label: "Inventory Batches", to: "/inventory/batches" },
         { label: "Inventory Transactions", to: "/inventory/transactions" },
         { label: "Suppliers", to: "/inventory/suppliers" },
-        {
-          label: "Relief Pack Templates",
-          to: "/inventory/relief-pack-templates",
-        },
+        { label: "Relief Pack Templates", to: "/inventory/relief-pack-templates" },
       ],
     },
   };
 
   const activeRoleMeta = roleMeta[currentRole] || {
-    tag: "Guest",
     navItems: [],
   };
 
   return (
     <aside style={sidebarStyles.wrapper}>
-      <div style={sidebarStyles.brand}>
-        <span style={sidebarStyles.brandTag}>{activeRoleMeta.tag}</span>
-        <div style={sidebarStyles.brandHeader}>
-          <img src={distyncLogo} alt="Logo" style={sidebarStyles.brandLogo} />
-          <h1 style={sidebarStyles.brandTitle}>DISTYNC</h1>
+      <div style={sidebarStyles.topBar}>
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          style={sidebarStyles.menuButton}
+          title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          <FiMenu size={20} />
+        </button>
+
+        <div style={sidebarStyles.brand}>
+          <div style={sidebarStyles.brandHeader}>
+            <img src={distyncLogo} alt="Logo" style={sidebarStyles.brandLogo} />
+            <h1 style={sidebarStyles.brandTitle}>DISTYNC</h1>
+          </div>
         </div>
       </div>
 
@@ -201,6 +228,7 @@ const Sidebar = () => {
             {currentRole || "Not selected"}
           </p>
         </div>
+
         <button
           type="button"
           onClick={() => {

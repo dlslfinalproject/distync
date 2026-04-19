@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Outlet } from "react-router-dom";
 import Sidebar from "./Sidebar";
 
@@ -15,6 +15,7 @@ export const shellStyles = {
     flex: 1,
     padding: "28px 32px",
     boxSizing: "border-box",
+    width: "100%",
   },
   content: {
     maxWidth: "1180px",
@@ -50,9 +51,20 @@ export const shellStyles = {
 };
 
 const BarangayLayout = () => {
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
   return (
-    <div style={shellStyles.page}>
-      <Sidebar />
+    <div
+      style={{
+        ...shellStyles.page,
+        flexDirection: isSidebarCollapsed ? "column" : "row",
+      }}
+    >
+      <Sidebar
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
+      />
+
       <main style={shellStyles.main}>
         <div style={shellStyles.content}>
           <Outlet />
