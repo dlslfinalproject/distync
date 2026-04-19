@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
+import { FiX, FiCheckSquare, FiSquare } from "react-icons/fi";
 
 const overlayStyles = {
   position: "fixed",
@@ -65,17 +66,12 @@ const DisasterEventFormModal = ({
   const [validationMessage, setValidationMessage] = useState("");
 
   useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
+    if (!isOpen) return;
     setFormValues(createDefaultForm());
     setValidationMessage("");
   }, [isOpen]);
 
-  if (!isOpen) {
-    return null;
-  }
+  if (!isOpen) return null;
 
   const allBarangayIds = barangays.map((barangay) => barangay.id);
   const areAllBarangaysSelected =
@@ -120,7 +116,10 @@ const DisasterEventFormModal = ({
       return;
     }
 
-    if (formValues.disaster_type === "Other" && !formValues.custom_disaster_type?.trim()) {
+    if (
+      formValues.disaster_type === "Other" &&
+      !formValues.custom_disaster_type?.trim()
+    ) {
       setValidationMessage("Please specify the disaster type.");
       return;
     }
@@ -178,24 +177,31 @@ const DisasterEventFormModal = ({
             onClick={onClose}
             style={pageHeaderStyles.secondaryButton}
           >
-            Close
+            <FiX />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit}>
-
-          {/* ================= SECTION 1: EVENT DETAILS ================= */}
-          <section style={shellStyles.card}>
-            <h3 style={{ marginBottom: "16px", color: "#17324d" }}>
+        <form
+          onSubmit={handleSubmit}
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "18px",
+          }}
+        >
+          {/* SECTION 1 */}
+          <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
+            <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
               Event Details
             </h3>
 
-            <div style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: "18px",
-            }}>
-              {/* EVENT NAME */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "18px",
+              }}
+            >
               <div>
                 <label style={labelStyles}>Event Name</label>
                 <input
@@ -206,12 +212,13 @@ const DisasterEventFormModal = ({
                 />
               </div>
 
-              {/* DISASTER TYPE */}
               <div>
                 <label style={labelStyles}>Disaster Type</label>
                 <select
                   value={formValues.disaster_type}
-                  onChange={(e) => handleChange("disaster_type", e.target.value)}
+                  onChange={(e) =>
+                    handleChange("disaster_type", e.target.value)
+                  }
                   style={inputStyles}
                 >
                   <option value="">Select Disaster Type</option>
@@ -242,17 +249,19 @@ const DisasterEventFormModal = ({
             </div>
           </section>
 
-          {/* ================= SECTION 2: RELIEF PERIOD ================= */}
-          <section style={{ ...shellStyles.card, marginTop: "16px" }}>
-            <h3 style={{ marginBottom: "16px", color: "#17324d" }}>
+          {/* SECTION 2 */}
+          <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
+            <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
               Relief Period
             </h3>
 
-            <div style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: "18px",
-            }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "18px",
+              }}
+            >
               <div>
                 <label style={labelStyles}>Start Date</label>
                 <input
@@ -275,43 +284,72 @@ const DisasterEventFormModal = ({
             </div>
           </section>
 
-          {/* ================= SECTION 3: AFFECTED BARANGAYS ================= */}
-          <section style={{ ...shellStyles.card, marginTop: "16px" }}>
-            <h3 style={{ marginBottom: "16px", color: "#17324d" }}>
+          {/* SECTION 3 */}
+          <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
+            <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
               Affected Barangays
             </h3>
 
-            <div style={{ marginBottom: "16px" }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                marginBottom: "12px",
+              }}
+            >
               <button
                 type="button"
                 onClick={handleToggleAllBarangays}
-                style={
-                  areAllBarangaysSelected
-                    ? pageHeaderStyles.primaryButton
-                    : pageHeaderStyles.secondaryButton
-                }
+                style={{
+                  border: areAllBarangaysSelected
+                    ? "none"
+                    : "1px solid #c6d8ea",
+                  borderRadius: "12px",
+                  padding: "8px 14px",
+                  background: areAllBarangaysSelected
+                    ? "linear-gradient(135deg, #2f6499 0%, #4c86be 100%)"
+                    : "#f8fbfe",
+                  color: areAllBarangaysSelected ? "#ffffff" : "#2a4c6f",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
               >
-                {areAllBarangaysSelected
-                  ? "Unselect All Barangays"
-                  : "Select All Barangays"}
+                {areAllBarangaysSelected ? (
+                  <FiCheckSquare size={14} />
+                ) : (
+                  <FiSquare size={14} />
+                )}
+
+                {areAllBarangaysSelected ? "Unselect All" : "Select All"}
               </button>
             </div>
 
-            <div style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: "12px",
-            }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "12px",
+              }}
+            >
               {barangays.map((barangay) => (
                 <label
                   key={barangay.id}
                   style={{
-                    display: "flex",
+                    display: "inline-flex",
                     alignItems: "center",
-                    gap: "10px",
-                    padding: "12px 14px",
-                    borderRadius: "14px",
-                    border: "1px solid #d7e2ef",
+                    gap: "8px",
+                    border: "1px solid #d4dfeb",
+                    borderRadius: "999px",
+                    padding: "10px 14px",
+                    backgroundColor: "#f8fbfe",
+                    color: "#385a7b",
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    cursor: "pointer",
                   }}
                 >
                   <input
@@ -327,47 +365,13 @@ const DisasterEventFormModal = ({
             </div>
           </section>
 
-          {validationMessage ? (
-            <div
-              style={{
-                marginTop: "18px",
-                padding: "14px 16px",
-                borderRadius: "14px",
-                backgroundColor: "#fff3f1",
-                border: "1px solid #f1d2cc",
-                color: "#9d4d58",
-                fontSize: "14px",
-                fontWeight: 600,
-              }}
-            >
-              {validationMessage}
-            </div>
-          ) : null}
-
-          {errorMessage ? (
-            <div
-              style={{
-                marginTop: "18px",
-                padding: "14px 16px",
-                borderRadius: "14px",
-                backgroundColor: "#fff3f1",
-                border: "1px solid #f1d2cc",
-                color: "#9d4d58",
-                fontSize: "14px",
-                fontWeight: 600,
-              }}
-            >
-              {errorMessage}
-            </div>
-          ) : null}
-
+          {/* ACTIONS */}
           <div
             style={{
               display: "flex",
               justifyContent: "flex-end",
               gap: "12px",
-              flexWrap: "wrap",
-              marginTop: "24px",
+              marginTop: "10px",
             }}
           >
             <button
@@ -385,12 +389,12 @@ const DisasterEventFormModal = ({
                 opacity: isSubmitting ? 0.7 : 1,
               }}
             >
-              {isSubmitting ? "Creating..." : "Create Event"}
+              {isSubmitting ? "Creating..." : "Create"}
             </button>
           </div>
         </form>
-      </div >
-    </div >
+      </div>
+    </div>
   );
 };
 
