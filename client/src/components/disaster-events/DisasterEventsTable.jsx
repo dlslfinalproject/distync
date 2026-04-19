@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { shellStyles } from "../layout/BarangayLayout";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import StatusPill from "../shared/StatusPill";
-import { FiCalendar, FiCheckCircle } from "react-icons/fi";
+import { FiCalendar, FiCheckCircle, FiMoreHorizontal } from "react-icons/fi";
 
 const tableStyles = {
   table: {
@@ -176,11 +176,14 @@ const DisasterEventsTable = ({
                         style={{
                           background: "none",
                           border: "none",
-                          fontSize: "20px",
                           cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#24496e",
                         }}
                       >
-                        •••
+                        <FiMoreHorizontal size={18} />
                       </button>
 
                       {/* DROPDOWN */}
@@ -196,8 +199,8 @@ const DisasterEventsTable = ({
                             padding: "10px",
                             zIndex: 10,
                             minWidth: "160px",
-                            display: "flex", 
-                            gap: "20px", 
+                            display: "flex",
+                            gap: "20px",
                             justifyContent: "center",
                           }}
                         >
