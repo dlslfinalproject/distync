@@ -109,17 +109,13 @@ const DisasterEventsTable = ({
     <section style={shellStyles.card}>
       <div style={{ marginBottom: "18px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>Disaster Events</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-          MSWDO event registry with lifecycle status and affected barangay
-          coverage.
-        </p>
       </div>
 
       <div>
         <table style={tableStyles.table}>
           <thead>
             <tr>
-              <th style={tableStyles.headerCell}>Title</th>
+              <th style={tableStyles.headerCell}>Name</th>
               <th style={tableStyles.headerCell}>Disaster Type</th>
               <th style={tableStyles.headerCell}>Affected Barangays</th>
               <th style={tableStyles.headerCell}>Start Date</th>
