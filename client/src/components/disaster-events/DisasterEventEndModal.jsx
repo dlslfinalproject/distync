@@ -9,29 +9,27 @@ const DisasterEventEndModal = ({ isOpen, onClose, onConfirm, event }) => {
         <h2 style={title}>End Relief Period</h2>
         <p style={subtitle}>{event.title}</p>
 
-        {/* CURRENT PERIOD */}
         <div style={infoBox}>
-          <p style={label}>Current Relief Period</p>
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <span>Start: {event.start_date?.slice(0, 10)}</span>
-            <span>End: {event.end_date?.slice(0, 10)}</span>
+          <p style={infoTitle}>Current Relief Period</p>
+          <div style={periodRow}>
+            <span style={periodText}>Start: {event.start_date?.slice(0, 10)}</span>
+            <span style={periodText}>End: {event.end_date?.slice(0, 10)}</span>
           </div>
         </div>
 
-        {/* ACTIONS */}
         <div style={actions}>
+          <button style={secondaryBtn} onClick={onClose}>
+            Cancel
+          </button>
+
           <button
-            style={dangerBtn}
+            style={primaryBtn}
             onClick={() => {
               onConfirm(event.id);
               onClose();
             }}
           >
             End
-          </button>
-
-          <button style={secondaryBtn} onClick={onClose}>
-            Cancel
           </button>
         </div>
       </div>
@@ -41,72 +39,99 @@ const DisasterEventEndModal = ({ isOpen, onClose, onConfirm, event }) => {
 
 export default DisasterEventEndModal;
 
-
 /* ===== STYLES ===== */
 const overlay = {
   position: "fixed",
-  top: 0,
-  left: 0,
-  width: "100%",
-  height: "100%",
-  background: "rgba(0,0,0,0.4)",
+  inset: 0,
+  background: "rgba(15, 23, 42, 0.28)",
   display: "flex",
   justifyContent: "center",
   alignItems: "center",
+  padding: "24px",
   zIndex: 999,
 };
 
 const modal = {
-  background: "#fff",
-  borderRadius: "20px",
-  padding: "28px",
-  width: "420px",
+  background: "#ffffff",
+  borderRadius: "28px",
+  padding: "36px 42px",
+  width: "100%",
+  maxWidth: "720px",
+  boxSizing: "border-box",
+  boxShadow: "0 18px 40px rgba(31, 57, 87, 0.16)",
 };
 
 const title = {
   margin: 0,
-  fontSize: "22px",
-  color: "#2d3e50",
+  fontSize: "34px",
+  fontWeight: 800,
+  lineHeight: 1.15,
+  color: "#183b63",
 };
 
 const subtitle = {
-  margin: "6px 0 16px",
-  color: "#5a6b7b",
-  fontWeight: 600,
+  margin: "10px 0 28px",
+  fontSize: "20px",
+  fontWeight: 500,
+  lineHeight: 1.4,
+  color: "#486685",
 };
 
 const infoBox = {
-  background: "#f4f6f8",
-  borderRadius: "12px",
-  padding: "12px",
-  fontSize: "14px",
+  background: "#f2f5f8",
+  borderRadius: "20px",
+  padding: "22px 18px",
+  marginBottom: "28px",
 };
 
-const label = {
-  margin: "0 0 6px",
-  fontWeight: 600,
+const infoTitle = {
+  margin: "0 0 14px",
+  fontSize: "16px",
+  fontWeight: 700,
+  color: "#183b63",
+};
+
+const periodRow = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "16px",
+  flexWrap: "wrap",
+};
+
+const periodText = {
+  fontSize: "16px",
+  color: "#183b63",
+  fontWeight: 500,
 };
 
 const actions = {
   display: "flex",
   justifyContent: "flex-end",
-  gap: "10px",
-  marginTop: "20px",
+  alignItems: "center",
+  gap: "14px",
+  flexWrap: "wrap",
 };
 
-const dangerBtn = {
-  background: "#3d4f6b",
-  color: "#fff",
+const primaryBtn = {
   border: "none",
-  padding: "10px 20px",
-  borderRadius: "20px",
+  borderRadius: "14px",
+  padding: "12px 18px",
+  background: "linear-gradient(135deg, #2f6499 0%, #4c86be 100%)",
+  color: "#ffffff",
+  fontSize: "14px",
+  fontWeight: 700,
   cursor: "pointer",
+  boxShadow: "0 12px 24px rgba(58, 97, 141, 0.18)",
 };
 
 const secondaryBtn = {
-  background: "#ddd",
-  border: "none",
-  padding: "10px 20px",
-  borderRadius: "20px",
+  border: "1px solid #c6d8ea",
+  borderRadius: "14px",
+  padding: "12px 18px",
+  backgroundColor: "#f8fbfe",
+  color: "#2a4c6f",
+  fontSize: "14px",
+  fontWeight: 700,
   cursor: "pointer",
 };
