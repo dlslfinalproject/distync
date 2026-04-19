@@ -69,7 +69,7 @@ const DisasterEventsTable = ({
   errorMessage,
   onViewEvent,
   onExtendEvent,
-  onEndEvent
+  onEndEvent,
 }) => {
   const [activeMenu, setActiveMenu] = useState(null);
   if (isLoading) {
@@ -87,7 +87,13 @@ const DisasterEventsTable = ({
     return (
       <section style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Disaster Events</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "10px", color: "#a14d58" }}>
+        <p
+          style={{
+            ...shellStyles.mutedText,
+            marginTop: "10px",
+            color: "#a14d58",
+          }}
+        >
           {errorMessage}
         </p>
       </section>
@@ -115,8 +121,12 @@ const DisasterEventsTable = ({
         <table style={tableStyles.table}>
           <thead>
             <tr>
-              <th style={tableStyles.headerCell}>Name</th>
-              <th style={tableStyles.headerCell}>Disaster Type</th>
+              <th style={{ ...tableStyles.headerCell, textAlign: "left" }}>
+                Name
+              </th>
+              <th style={{ ...tableStyles.headerCell, textAlign: "left" }}>
+                Disaster Type
+              </th>
               <th style={tableStyles.headerCell}>Affected Barangays</th>
               <th style={tableStyles.headerCell}>Start Date</th>
               <th style={tableStyles.headerCell}>End Date</th>
@@ -126,10 +136,15 @@ const DisasterEventsTable = ({
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.id} style={{borderBottom: "1px solid #edf3f8",}}>
+              <tr key={row.id} style={{ borderBottom: "1px solid #edf3f8" }}>
+                <td style={{ ...tableStyles.bodyCell, textAlign: "left" }}>
+                  {row.title}
+                </td>
 
-                <td style={tableStyles.bodyCell}>{row.title}</td>
-                <td style={tableStyles.bodyCell}>{row.disaster_type}</td>
+                <td style={{ ...tableStyles.bodyCell, textAlign: "left" }}>
+                  {row.disaster_type}
+                </td>
+
                 <td style={tableStyles.bodyCell}>
                   {row.affected_barangays?.length ? (
                     <div
@@ -137,7 +152,8 @@ const DisasterEventsTable = ({
                         display: "flex",
                         flexWrap: "wrap",
                         gap: "6px",
-                        maxWidth: "220px", // ✅ LIMIT WIDTH (important!)
+                        maxWidth: "220px",
+                        justifyContent: "center", 
                       }}
                     >
                       {row.affected_barangays.map((brgy, index) => (
@@ -160,10 +176,14 @@ const DisasterEventsTable = ({
                     <span style={{ color: "#9aa9b8" }}>—</span>
                   )}
                 </td>
-                <td style={tableStyles.bodyCell}>{formatDate(row.start_date)}</td>
+                <td style={tableStyles.bodyCell}>
+                  {formatDate(row.start_date)}
+                </td>
                 <td style={tableStyles.bodyCell}>{formatDate(row.end_date)}</td>
                 <td style={tableStyles.bodyCell}>
-                  <span style={getStatusBadgeStyles(row.status)}>{row.status}</span>
+                  <span style={getStatusBadgeStyles(row.status)}>
+                    {row.status}
+                  </span>
                 </td>
                 <td style={tableStyles.bodyCell}>
                   {row.status === "ACTIVE" ? (
