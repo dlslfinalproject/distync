@@ -152,6 +152,7 @@ export const useDisasterEvents = () => {
       await loadEvents(selectedFilter);
     } catch (error) {
       setFormErrorMessage(error.message);
+      throw error;
     } finally {
       setIsSubmitting(false);
     }
@@ -175,6 +176,7 @@ export const useDisasterEvents = () => {
       }
     } catch (error) {
       setFormErrorMessage(error.message);
+      throw error;
     } finally {
       setIsSubmitting(false);
     }

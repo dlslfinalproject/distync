@@ -1,9 +1,84 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
-const DisasterEventExtendModal = ({ isOpen, onClose, onSubmit, event }) => {
+const getDateOnly = (value) => {
+  if (!value) {
+    return "";
+  }
+
+  return String(value).slice(0, 10);
+};
+
+const getLatestMinimumDate = (startDate, endDate) => {
+  const dateValues = [getDateOnly(startDate), getDateOnly(endDate)].filter(Boolean);
+
+  if (dateValues.length === 0) {
+    return "";
+  }
+
+  return dateValues.sort().at(-1);
+};
+
+const DisasterEventExtendModal = ({
+  isOpen,
+  onClose,
+  onSubmit,
+  event,
+  isSubmitting = false,
+}) => {
   const [newDate, setNewDate] = useState("");
+  const [validationMessage, setValidationMessage] = useState("");
+
+  const startDate = getDateOnly(event?.start_date);
+  const currentEndDate = getDateOnly(event?.end_date);
+  const minimumDate = useMemo(
+    () => getLatestMinimumDate(event?.start_date, event?.end_date),
+    [event?.start_date, event?.end_date],
+  );
+
+  useEffect(() => {
+    if (isOpen) {
+      setNewDate("");
+      setValidationMessage("");
+    }
+  }, [event?.id, isOpen]);
 
   if (!isOpen || !event) return null;
+
+  const validateNewEndDate = () => {
+    if (!newDate) {
+      return "Choose a new end date before extending the relief period.";
+    }
+
+    if (startDate && newDate < startDate) {
+      return `New end date must not be earlier than the event start date (${startDate}).`;
+    }
+
+    if (currentEndDate && newDate < currentEndDate) {
+      return `New end date must not be earlier than the current end date (${currentEndDate}).`;
+    }
+
+    return "";
+  };
+
+  const handleSubmit = async () => {
+    const nextValidationMessage = validateNewEndDate();
+
+    if (nextValidationMessage) {
+      setValidationMessage(nextValidationMessage);
+      return;
+    }
+
+    setValidationMessage("");
+
+    try {
+      await onSubmit(event.id, newDate);
+      onClose();
+    } catch (error) {
+      setValidationMessage(
+        error.message || "Unable to extend this disaster event. Please try again.",
+      );
+    }
+  };
 
   return (
     <div style={overlay}>
@@ -14,8 +89,8 @@ const DisasterEventExtendModal = ({ isOpen, onClose, onSubmit, event }) => {
         <div style={infoBox}>
           <p style={infoTitle}>Current Relief Period</p>
           <div style={periodRow}>
-            <span style={periodText}>Start: {event.start_date?.slice(0, 10)}</span>
-            <span style={periodText}>End: {event.end_date?.slice(0, 10)}</span>
+            <span style={periodText}>Start: {startDate || "--"}</span>
+            <span style={periodText}>End: {currentEndDate || "--"}</span>
           </div>
         </div>
 
@@ -23,23 +98,38 @@ const DisasterEventExtendModal = ({ isOpen, onClose, onSubmit, event }) => {
         <input
           type="date"
           value={newDate}
-          onChange={(e) => setNewDate(e.target.value)}
-          style={input}
+          min={minimumDate || undefined}
+          disabled={isSubmitting}
+          onChange={(e) => {
+            setNewDate(e.target.value);
+            setValidationMessage("");
+          }}
+          style={{
+            ...input,
+            borderColor: validationMessage ? "#d99090" : "#cfd9e3",
+            marginBottom: validationMessage ? "10px" : "30px",
+          }}
         />
 
+        {validationMessage ? (
+          <p style={errorText}>{validationMessage}</p>
+        ) : null}
+
         <div style={actions}>
-          <button style={secondaryBtn} onClick={onClose}>
+          <button style={secondaryBtn} onClick={onClose} disabled={isSubmitting}>
             Cancel
           </button>
 
           <button
-            style={primaryBtn}
-            onClick={() => {
-              onSubmit(event.id, newDate);
-              onClose();
+            style={{
+              ...primaryBtn,
+              opacity: isSubmitting ? 0.7 : 1,
+              cursor: isSubmitting ? "not-allowed" : "pointer",
             }}
+            disabled={isSubmitting}
+            onClick={handleSubmit}
           >
-            Extend
+            {isSubmitting ? "Extending..." : "Extend"}
           </button>
         </div>
       </div>
@@ -134,6 +224,19 @@ const input = {
   color: "#183b63",
   outline: "none",
   marginBottom: "30px",
+};
+
+const helperText = {
+  margin: "0 0 10px",
+  fontSize: "13px",
+  color: "#5f7892",
+};
+
+const errorText = {
+  margin: "0 0 20px",
+  fontSize: "14px",
+  color: "#a14d58",
+  fontWeight: 700,
 };
 
 const actions = {

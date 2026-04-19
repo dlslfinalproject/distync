@@ -329,6 +329,7 @@ const DisasterEventsPage = () => {
         onClose={() => setExtendModalOpen(false)}
         onSubmit={extendEvent}
         event={selectedRow}
+        isSubmitting={isSubmitting}
       />
 
       <DisasterEventEndModal
@@ -336,6 +337,7 @@ const DisasterEventsPage = () => {
         onClose={() => setEndModalOpen(false)}
         onConfirm={endEvent}
         event={selectedRow}
+        isSubmitting={isSubmitting}
       />
     </div>
   );

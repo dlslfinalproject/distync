@@ -156,6 +156,15 @@ const endDisasterEvent = async (id) => {
   }
 
   const today = new Date().toISOString().slice(0, 10);
+  const startDate = new Date(disasterEvent.start_date).toISOString().slice(0, 10);
+
+  if (today < startDate) {
+    const error = new Error(
+      "Disaster event cannot be completed before its start date",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
 
   await disasterEventRepository.updateDisasterEventById(id, {
     end_date: today,
