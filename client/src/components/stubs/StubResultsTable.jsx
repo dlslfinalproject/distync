@@ -1,5 +1,5 @@
 import React from "react";
-import { FiPackage } from "react-icons/fi";
+import { FaHandHolding } from "react-icons/fa6";
 import { shellStyles } from "../layout/BarangayLayout";
 
 const tableStyles = {
@@ -25,10 +25,27 @@ const tableStyles = {
     verticalAlign: "top",
   },
   statusButton: {
-    border: "none",
-    background: "transparent",
-    padding: 0,
+    border: "1px solid #c6d8ea",
+    borderRadius: "12px",
+    width: "40px",
+    height: "40px",
+    backgroundColor: "#f7fbfe",
+    color: "#24496e",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
     cursor: "pointer",
+  },
+  membersBadge: {
+    display: "inline-block",
+    minWidth: "36px",
+    textAlign: "center",
+    padding: "6px 10px",
+    borderRadius: "999px",
+    backgroundColor: "#e5f1fb",
+    color: "#356592",
+    fontSize: "12px",
+    fontWeight: 700,
   },
 };
 
@@ -124,7 +141,13 @@ const StubResultsTable = ({
     return (
       <section style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Stub Information</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "10px", color: "#a14d58" }}>
+        <p
+          style={{
+            ...shellStyles.mutedText,
+            marginTop: "10px",
+            color: "#a14d58",
+          }}
+        >
           {errorMessage}
         </p>
       </section>
@@ -136,7 +159,8 @@ const StubResultsTable = ({
       <section style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Stub Information</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          No stub records were found for the selected disaster event and barangay.
+          No stub records were found for the selected disaster event and
+          barangay.
         </p>
       </section>
     );
@@ -168,9 +192,23 @@ const StubResultsTable = ({
           <thead>
             <tr>
               <th style={tableStyles.headerCell}>Family Head</th>
-              <th style={tableStyles.headerCell}>Stub Number</th>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  textAlign: "center",
+                }}
+              >
+                Stub Number
+              </th>
               <th style={tableStyles.headerCell}>Sectors</th>
-              <th style={tableStyles.headerCell}>Status</th>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  textAlign: "center",
+                }}
+              >
+                Status
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -184,9 +222,24 @@ const StubResultsTable = ({
                     {row.household.members_count || 0} members
                   </span>
                 </td>
-                <td style={tableStyles.bodyCell}>{row.stub_sequence_no}</td>
+                <td
+                  style={{
+                    ...tableStyles.bodyCell,
+                    textAlign: "center",
+                  }}
+                >
+                  <span style={tableStyles.membersBadge}>
+                    {row.stub_sequence_no}
+                  </span>
+                </td>
                 <td style={tableStyles.bodyCell}>{row.sectors_text}</td>
-                <td style={tableStyles.bodyCell}>
+                <td
+                  style={{
+                    ...tableStyles.bodyCell,
+                    textAlign: "center",
+                    verticalAlign: "middle",
+                  }}
+                >
                   {row.status === "ISSUED" ? (
                     <button
                       type="button"
@@ -199,10 +252,7 @@ const StubResultsTable = ({
                         cursor: claimingStubId === row.id ? "wait" : "pointer",
                       }}
                     >
-                      <span style={getStatusChipStyles(row.status, true)}>
-                        <FiPackage size={14} />
-                        {claimingStubId === row.id ? "Claiming..." : getStatusLabel(row.status)}
-                      </span>
+                      <FaHandHolding size={18} />
                     </button>
                   ) : (
                     <span style={getStatusChipStyles(row.status)}>

@@ -22,16 +22,18 @@ const tableStyles = {
     color: "#21405f",
     borderBottom: "1px solid #edf3f8",
     fontSize: "14px",
-    verticalAlign: "top",
+    verticalAlign: "middle",
   },
   departureButton: {
     border: "1px solid #c6d8ea",
     borderRadius: "12px",
-    padding: "10px 14px",
+    width: "40px",
+    height: "40px",
     backgroundColor: "#f7fbfe",
     color: "#24496e",
-    fontSize: "13px",
-    fontWeight: 700,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
     cursor: "pointer",
   },
   membersBadge: {
@@ -118,8 +120,22 @@ const MasterlistTable = ({
               <th style={tableStyles.headerCell}>Address</th>
               <th style={tableStyles.headerCell}>Members</th>
               <th style={tableStyles.headerCell}>Sectors</th>
-              <th style={tableStyles.headerCell}>Arrival Time</th>
-              <th style={tableStyles.headerCell}>Departure Time</th>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  textAlign: "center",
+                }}
+              >
+                Arrival Time
+              </th>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  textAlign: "center",
+                }}
+              >
+                Departure Time
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -133,8 +149,20 @@ const MasterlistTable = ({
                   </span>
                 </td>
                 <td style={tableStyles.bodyCell}>{row.sectors_text}</td>
-                <td style={tableStyles.bodyCell}>{row.arrival_time_text}</td>
-                <td style={tableStyles.bodyCell}>
+                <td
+                  style={{
+                    ...tableStyles.bodyCell,
+                    textAlign: "center",
+                  }}
+                >
+                  {row.arrival_time_text}
+                </td>
+                <td
+                  style={{
+                    ...tableStyles.bodyCell,
+                    textAlign: "center",
+                  }}
+                >
                   {row.departure_time_value ? (
                     row.departure_time_text
                   ) : row.can_record_departure ? (
