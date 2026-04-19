@@ -109,9 +109,11 @@ const BarangayDashboardOverview = ({
   } else if (!hasEvents) {
     stateMessage = `No ${scopeLabel.toLowerCase()} disaster events are available for this barangay yet.`;
   } else if (!hasSelectedEvent) {
-    stateMessage = "Select a disaster event to load the disaster information and analytics.";
+    stateMessage =
+      "Select a disaster event to load the disaster information and analytics.";
   } else if (!hasData) {
-    stateMessage = "No data available for this barangay and selected disaster event.";
+    stateMessage =
+      "No data available for this barangay and selected disaster event.";
   }
 
   return (
@@ -151,13 +153,18 @@ const BarangayDashboardOverview = ({
           }}
         >
           <div>
-            <label htmlFor="barangay-dashboard-event" style={filterStyles.label}>
+            <label
+              htmlFor="barangay-dashboard-event"
+              style={filterStyles.label}
+            >
               {scopeLabel} Disaster Event
             </label>
             <select
               id="barangay-dashboard-event"
               value={selectedDisasterEventId}
-              onChange={(event) => setSelectedDisasterEventId(event.target.value)}
+              onChange={(event) =>
+                setSelectedDisasterEventId(event.target.value)
+              }
               disabled={isLoading || !hasEvents}
               style={filterStyles.field}
             >
@@ -170,32 +177,30 @@ const BarangayDashboardOverview = ({
             </select>
           </div>
 
-          <div
-            style={{
-              border: "1px solid #d6e2ef",
-              borderRadius: "14px",
-              padding: "12px 14px",
-              backgroundColor: "#f8fbfe",
-            }}
-          >
-            <p style={filterStyles.label}>
-              {isDevOverride ? "Effective Barangay" : "Assigned Barangay"}
-            </p>
-            <p
+          <div>
+            <label style={filterStyles.label}>
+              {isDevOverride ? "Barangay" : "Barangay"}
+            </label>
+            <div
               style={{
-                margin: 0,
-                color: "#17324d",
-                fontSize: "15px",
+                ...filterStyles.field,
+                display: "flex",
+                alignItems: "center",
+                minHeight: "48px",
                 fontWeight: 700,
+                color: "#17324d",
               }}
             >
               {assignedBarangay?.name || "No assigned barangay"}
-            </p>
+            </div>
           </div>
 
           {showFallbackOverride ? (
             <div>
-              <label htmlFor="barangay-dashboard-override" style={filterStyles.label}>
+              <label
+                htmlFor="barangay-dashboard-override"
+                style={filterStyles.label}
+              >
                 {accessMode} Fallback Barangay
               </label>
               <select
