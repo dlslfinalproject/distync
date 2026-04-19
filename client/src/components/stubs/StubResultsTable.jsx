@@ -147,9 +147,6 @@ const StubResultsTable = ({
       <div style={{ marginBottom: "18px" }}>
         <div>
           <h3 style={{ margin: 0, color: "#17324d" }}>Stub Information</h3>
-          <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-            Click an unclaimed status to mark the stub as claimed.
-          </p>
         </div>
       </div>
 

@@ -8,6 +8,7 @@ import {
   getCanonicalMemberSectorCode,
   isAgeBasedMemberSectorCode,
 } from "../../utils/registrationOptions";
+import { FiUserPlus, FiUserMinus } from "react-icons/fi";
 
 const fieldStyles = {
   grid: {
@@ -64,8 +65,14 @@ const MembersSection = ({ form }) => {
         <button
           type="button"
           onClick={form.addMember}
-          style={pageHeaderStyles.secondaryButton}
+          style={{
+            ...pageHeaderStyles.secondaryButton,
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+          }}
         >
+          <FiUserPlus size={16} />
           Add Member
         </button>
       </div>
@@ -89,12 +96,16 @@ const MembersSection = ({ form }) => {
 
         {form.members.map((member, index) => {
           const ageBasedSectors = form.memberSectorOptions.filter((sector) =>
-            isAgeBasedMemberSectorCode(getCanonicalMemberSectorCode(sector.code)),
+            isAgeBasedMemberSectorCode(
+              getCanonicalMemberSectorCode(sector.code),
+            ),
           );
 
           const nonAgeBasedSectors = form.memberSectorOptions.filter(
             (sector) =>
-              !isAgeBasedMemberSectorCode(getCanonicalMemberSectorCode(sector.code)),
+              !isAgeBasedMemberSectorCode(
+                getCanonicalMemberSectorCode(sector.code),
+              ),
           );
 
           return (
@@ -123,8 +134,14 @@ const MembersSection = ({ form }) => {
                 <button
                   type="button"
                   onClick={() => form.removeMember(index)}
-                  style={pageHeaderStyles.secondaryButton}
+                  style={{
+                    ...pageHeaderStyles.secondaryButton,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
                 >
+                  <FiUserMinus size={14} />
                   Remove
                 </button>
               </div>
@@ -189,7 +206,11 @@ const MembersSection = ({ form }) => {
                     type="text"
                     value={member.suffix}
                     onChange={(event) =>
-                      form.updateMemberField(index, "suffix", event.target.value)
+                      form.updateMemberField(
+                        index,
+                        "suffix",
+                        event.target.value,
+                      )
                     }
                     style={fieldStyles.input}
                   />
@@ -311,10 +332,15 @@ const MembersSection = ({ form }) => {
                     marginTop: "10px",
                   }}
                 >
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+                  <div
+                    style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}
+                  >
                     {ageBasedSectors.map((sector) => {
-                      const sectorCode = getCanonicalMemberSectorCode(sector.code);
-                      const isChecked = sectorCode === member.derived_age_sector_code;
+                      const sectorCode = getCanonicalMemberSectorCode(
+                        sector.code,
+                      );
+                      const isChecked =
+                        sectorCode === member.derived_age_sector_code;
 
                       return (
                         <label
@@ -331,7 +357,9 @@ const MembersSection = ({ form }) => {
                     })}
                   </div>
 
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+                  <div
+                    style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}
+                  >
                     {nonAgeBasedSectors.map((sector) => {
                       const isChecked = member.sector_ids.includes(sector.id);
 

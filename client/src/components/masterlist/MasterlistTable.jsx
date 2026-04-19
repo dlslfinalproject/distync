@@ -1,6 +1,6 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
-import { FiLogOut } from "react-icons/fi";
+import { MdDoorFront } from "react-icons/md";
 
 const tableStyles = {
   table: {
@@ -144,7 +144,7 @@ const MasterlistTable = ({
                       style={tableStyles.departureButton}
                       title="Mark Departed"
                     >
-                      <FiLogOut />
+                      <MdDoorFront size={18} />
                     </button>
                   ) : (
                     "-"
