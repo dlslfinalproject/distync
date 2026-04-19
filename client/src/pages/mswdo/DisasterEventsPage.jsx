@@ -7,6 +7,7 @@ import DisasterEventsTable from "../../components/disaster-events/DisasterEvents
 import { useDisasterEvents } from "../../features/disaster-events/useDisasterEvents";
 import DisasterEventExtendModal from "../../components/disaster-events/DisasterEventExtendModal";
 import DisasterEventEndModal from "../../components/disaster-events/DisasterEventEndModal";
+import { FiFileText } from "react-icons/fi";
 
 const CreateEventIcon = () => (
   <svg
@@ -131,20 +132,28 @@ const DisasterEventsPage = () => {
 
         <div style={{ position: "relative" }}>
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               setExportOpen(!exportOpen);
             }}
             style={{
-              padding: "10px 16px",
-              borderRadius: "10px",
-              backgroundColor: "#eef2f6",
-              color: "#17324d",
-              border: "1px solid #d6e2ef",
-              fontWeight: 600,
+              border: "1px solid #c6d8ea",
+              borderRadius: "14px",
+              padding: "12px 18px",
+              backgroundColor: "#f8fbfe",
+              color: "#2a4c6f",
+              fontSize: "14px",
+              fontWeight: 700,
               cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
             }}
           >
+            <span style={{ display: "flex", alignItems: "center", gap: "2px" }}>
+              <FiFileText size={16} />
+            </span>
             Export
           </button>
 
