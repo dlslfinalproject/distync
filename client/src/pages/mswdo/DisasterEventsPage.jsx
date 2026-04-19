@@ -7,6 +7,7 @@ import DisasterEventsTable from "../../components/disaster-events/DisasterEvents
 import { useDisasterEvents } from "../../features/disaster-events/useDisasterEvents";
 import DisasterEventExtendModal from "../../components/disaster-events/DisasterEventExtendModal";
 import DisasterEventEndModal from "../../components/disaster-events/DisasterEventEndModal";
+import SearchBar from "../../components/shared/SearchBar";
 import { FiFileText } from "react-icons/fi";
 
 const DisasterEventsPage = () => {
@@ -39,6 +40,19 @@ const DisasterEventsPage = () => {
   const [endModalOpen, setEndModalOpen] = useState(false);
   const [selectedRow, setSelectedRow] = useState(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [searchValue, setSearchValue] = useState("");
+
+  const filteredEvents = events.filter((event) => {
+    const search = searchValue.toLowerCase();
+
+    return (
+      event.title?.toLowerCase().includes(search) ||
+      event.disaster_type?.toLowerCase().includes(search) ||
+      event.affected_barangays?.some((b) =>
+        (b.name || b).toLowerCase().includes(search),
+      )
+    );
+  });
 
   const handleOpenExtend = (row) => {
     setSelectedRow(row);
@@ -214,10 +228,30 @@ const DisasterEventsPage = () => {
         </div>
       </section>
 
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginTop: "16px",
+          marginBottom: "20px",
+          flexWrap: "wrap",
+          gap: "12px",
+        }}
+      >
+        <div style={{ flex: 1 }}>
+          <SearchBar
+            value={searchValue}
+            onChange={setSearchValue}
+            placeholder="Search disaster events name, type, or affected barangays"
+          />
+        </div>
+      </div>
+
       <section
         style={{
           ...shellStyles.card,
-          marginTop: "24px",
+          marginTop: "0",
           padding: "24px",
           boxSizing: "border-box",
           overflow: "visible",
@@ -225,7 +259,7 @@ const DisasterEventsPage = () => {
       >
         <div style={{ width: "100%" }}>
           <DisasterEventsTable
-            rows={events}
+            rows={filteredEvents}
             isLoading={isLoading}
             errorMessage={errorMessage}
             onViewEvent={openDetailModal}
