@@ -270,6 +270,7 @@ const DisasterEventsPage = () => {
             onViewEvent={openDetailModal}
             onExtendEvent={handleOpenExtend}
             onEndEvent={handleOpenEnd}
+            validBarangayCount={barangays.length}
           />
         </div>
       </section>

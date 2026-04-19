@@ -29,6 +29,9 @@ const tableStyles = {
   },
 };
 
+const NON_RESIDENT_BARANGAY_CODE = "NON_RESIDENT_OUTSIDE_MALVAR";
+const NON_RESIDENT_BARANGAY_NAME = "Non-Resident (Outside Malvar)";
+
 const formatDate = (value) => {
   if (!value) {
     return "--";
@@ -41,6 +44,45 @@ const formatDate = (value) => {
   });
 };
 
+const isValidAffectedBarangay = (barangay) => {
+  if (!barangay) {
+    return false;
+  }
+
+  if (barangay.code === NON_RESIDENT_BARANGAY_CODE) {
+    return false;
+  }
+
+  if ((barangay.name || barangay) === NON_RESIDENT_BARANGAY_NAME) {
+    return false;
+  }
+
+  return true;
+};
+
+const getAffectedBarangayDisplayItems = (
+  affectedBarangays,
+  validBarangayCount,
+) => {
+  const validAffectedBarangays = (affectedBarangays || []).filter(
+    isValidAffectedBarangay,
+  );
+  const uniqueAffectedBarangayIds = new Set(
+    validAffectedBarangays.map(
+      (barangay) => barangay.id || barangay.name || barangay,
+    ),
+  );
+
+  if (
+    validBarangayCount > 0 &&
+    uniqueAffectedBarangayIds.size === validBarangayCount
+  ) {
+    return ["All Barangays"];
+  }
+
+  return validAffectedBarangays;
+};
+
 const DisasterEventsTable = ({
   rows,
   isLoading,
@@ -48,6 +90,7 @@ const DisasterEventsTable = ({
   onViewEvent,
   onExtendEvent,
   onEndEvent,
+  validBarangayCount = 0,
 }) => {
   const [activeMenu, setActiveMenu] = useState(null);
   if (isLoading) {
@@ -113,7 +156,13 @@ const DisasterEventsTable = ({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
+            {rows.map((row) => {
+              const affectedBarangayDisplayItems = getAffectedBarangayDisplayItems(
+                row.affected_barangays,
+                validBarangayCount,
+              );
+
+              return (
               <tr key={row.id} style={{ borderBottom: "1px solid #edf3f8" }}>
                 <td style={{ ...tableStyles.bodyCell, textAlign: "left" }}>
                   {row.title}
@@ -124,7 +173,7 @@ const DisasterEventsTable = ({
                 </td>
 
                 <td style={tableStyles.bodyCell}>
-                  {row.affected_barangays?.length ? (
+                  {affectedBarangayDisplayItems.length ? (
                     <div
                       style={{
                         display: "flex",
@@ -134,9 +183,9 @@ const DisasterEventsTable = ({
                         justifyContent: "center",
                       }}
                     >
-                      {row.affected_barangays.map((brgy, index) => (
+                      {affectedBarangayDisplayItems.map((brgy, index) => (
                         <span
-                          key={index}
+                          key={brgy.id || brgy.name || brgy || index}
                           style={{
                             display: "inline-block",
                             minWidth: "36px",
@@ -259,7 +308,8 @@ const DisasterEventsTable = ({
                   )}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
