@@ -1,8 +1,11 @@
 import React, { useState } from "react";
 import { shellStyles } from "../layout/BarangayLayout";
-import { pageHeaderStyles } from "../layout/PageHeader";
 import StatusPill from "../shared/StatusPill";
 import { FiCalendar, FiCheckCircle, FiMoreHorizontal } from "react-icons/fi";
+import {
+  formatDisasterEventDate,
+  getAffectedBarangayDisplayItems,
+} from "../../features/disaster-events/disasterEventFormatters";
 
 const tableStyles = {
   table: {
@@ -27,60 +30,6 @@ const tableStyles = {
     verticalAlign: "middle",
     textAlign: "center",
   },
-};
-
-const NON_RESIDENT_BARANGAY_CODE = "NON_RESIDENT_OUTSIDE_MALVAR";
-const NON_RESIDENT_BARANGAY_NAME = "Non-Resident (Outside Malvar)";
-
-const formatDate = (value) => {
-  if (!value) {
-    return "--";
-  }
-
-  return new Date(value).toLocaleDateString("en-PH", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-};
-
-const isValidAffectedBarangay = (barangay) => {
-  if (!barangay) {
-    return false;
-  }
-
-  if (barangay.code === NON_RESIDENT_BARANGAY_CODE) {
-    return false;
-  }
-
-  if ((barangay.name || barangay) === NON_RESIDENT_BARANGAY_NAME) {
-    return false;
-  }
-
-  return true;
-};
-
-const getAffectedBarangayDisplayItems = (
-  affectedBarangays,
-  validBarangayCount,
-) => {
-  const validAffectedBarangays = (affectedBarangays || []).filter(
-    isValidAffectedBarangay,
-  );
-  const uniqueAffectedBarangayIds = new Set(
-    validAffectedBarangays.map(
-      (barangay) => barangay.id || barangay.name || barangay,
-    ),
-  );
-
-  if (
-    validBarangayCount > 0 &&
-    uniqueAffectedBarangayIds.size === validBarangayCount
-  ) {
-    return ["All Barangays"];
-  }
-
-  return validAffectedBarangays;
 };
 
 const DisasterEventsTable = ({
@@ -208,9 +157,11 @@ const DisasterEventsTable = ({
                   )}
                 </td>
                 <td style={tableStyles.bodyCell}>
-                  {formatDate(row.start_date)}
+                  {formatDisasterEventDate(row.start_date)}
                 </td>
-                <td style={tableStyles.bodyCell}>{formatDate(row.end_date)}</td>
+                <td style={tableStyles.bodyCell}>
+                  {formatDisasterEventDate(row.end_date)}
+                </td>
                 <td style={tableStyles.bodyCell}>
                   <StatusPill status={row.status} />
                 </td>

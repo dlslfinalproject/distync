@@ -10,6 +10,7 @@ import DisasterEventEndModal from "../../components/disaster-events/DisasterEven
 import SearchBar from "../../components/shared/SearchBar";
 import { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { FiFileText, FiFilter } from "react-icons/fi";
+import { exportDisasterEvents } from "../../features/disaster-events/disasterEventService";
 
 const DisasterEventsPage = () => {
   const {
@@ -41,6 +42,7 @@ const DisasterEventsPage = () => {
   const [endModalOpen, setEndModalOpen] = useState(false);
   const [selectedRow, setSelectedRow] = useState(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState("");
   const [searchValue, setSearchValue] = useState("");
 
   const filteredEvents = events.filter((event) => {
@@ -63,6 +65,38 @@ const DisasterEventsPage = () => {
   const handleOpenEnd = (row) => {
     setSelectedRow(row);
     setEndModalOpen(true);
+  };
+
+  const handleExport = async (format) => {
+    if (filteredEvents.length === 0) {
+      window.alert("No disaster events are available to export for the current filters.");
+      setExportOpen(false);
+      return;
+    }
+
+    setExportingFormat(format);
+    setExportOpen(false);
+
+    try {
+      const file = await exportDisasterEvents({
+        selectedFilter,
+        search: searchValue,
+        format,
+      });
+      const downloadUrl = window.URL.createObjectURL(file.blob);
+      const anchor = document.createElement("a");
+
+      anchor.href = downloadUrl;
+      anchor.download = file.filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (_error) {
+      window.alert("Unable to export disaster events. Please try again.");
+    } finally {
+      setExportingFormat("");
+    }
   };
 
   const getTabStyle = (filterKey) => ({
@@ -127,6 +161,7 @@ const DisasterEventsPage = () => {
               e.stopPropagation();
               setExportOpen(!exportOpen);
             }}
+            disabled={Boolean(exportingFormat)}
             style={{
               border: "1px solid #c6d8ea",
               borderRadius: "14px",
@@ -135,16 +170,19 @@ const DisasterEventsPage = () => {
               color: "#2a4c6f",
               fontSize: "14px",
               fontWeight: 700,
-              cursor: "pointer",
+              cursor: exportingFormat ? "not-allowed" : "pointer",
               display: "flex",
               alignItems: "center",
               gap: "8px",
+              opacity: exportingFormat ? 0.7 : 1,
             }}
           >
             <span style={{ display: "flex", alignItems: "center", gap: "2px" }}>
               <FiFileText size={16} />
             </span>
-            Export
+            {exportingFormat
+              ? `Exporting ${exportingFormat.toUpperCase()}...`
+              : "Export"}
           </button>
 
           {exportOpen && (
@@ -161,35 +199,29 @@ const DisasterEventsPage = () => {
                 zIndex: 20,
               }}
             >
-              <div
-                style={{ padding: "8px", cursor: "pointer" }}
-                onClick={() => {
-                  console.log("Export CSV");
-                  setExportOpen(false);
-                }}
-              >
-                Export as CSV
-              </div>
-
-              <div
-                style={{ padding: "8px", cursor: "pointer" }}
-                onClick={() => {
-                  console.log("Export PDF");
-                  setExportOpen(false);
-                }}
-              >
-                Export as PDF
-              </div>
-
-              <div
-                style={{ padding: "8px", cursor: "pointer" }}
-                onClick={() => {
-                  console.log("Export Excel");
-                  setExportOpen(false);
-                }}
-              >
-                Export as Excel
-              </div>
+              {[
+                { key: "csv", label: "Export as CSV" },
+                { key: "pdf", label: "Export as PDF" },
+                { key: "excel", label: "Export as Excel" },
+              ].map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  onClick={() => handleExport(option.key)}
+                  style={{
+                    width: "100%",
+                    border: "none",
+                    background: "transparent",
+                    textAlign: "left",
+                    padding: "8px",
+                    cursor: "pointer",
+                    color: "#1f3b57",
+                    fontSize: "14px",
+                  }}
+                >
+                  {option.label}
+                </button>
+              ))}
             </div>
           )}
         </div>

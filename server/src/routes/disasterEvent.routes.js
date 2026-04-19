@@ -3,6 +3,7 @@ const express = require("express");
 const disasterEventService = require("../services/disasterEvent.service");
 const {
   validateCreateDisasterEvent,
+  validateExportDisasterEvents,
   validateExtendDisasterEvent,
 } = require("../validators/disasterEvent.validator");
 
@@ -45,6 +46,28 @@ router.get("/ended", async (req, res) => {
     return res.status(500).json({
       message: "Failed to fetch ended disaster events",
       error: error.message,
+    });
+  }
+});
+
+router.get("/export", validateExportDisasterEvents, async (req, res) => {
+  try {
+    const file = await disasterEventService.exportDisasterEvents(
+      req.validatedQuery,
+    );
+
+    res.setHeader("Content-Type", file.contentType);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${file.filename}"`,
+    );
+
+    return res.status(200).send(file.buffer);
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+
+    return res.status(statusCode).json({
+      message: error.message || "Failed to export disaster events",
     });
   }
 });

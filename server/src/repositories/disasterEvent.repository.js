@@ -74,6 +74,38 @@ const getAffectedBarangaysByDisasterEventId = async (disasterEventId) => {
   return result.rows;
 };
 
+const getValidBarangayCount = async () => {
+  const query = `
+    SELECT COUNT(*)::INTEGER AS count
+    FROM barangays
+    WHERE code <> $1
+  `;
+
+  const result = await pool.query(query, ["NON_RESIDENT_OUTSIDE_MALVAR"]);
+  return result.rows[0]?.count || 0;
+};
+
+const getAffectedBarangaysByDisasterEventIds = async (disasterEventIds) => {
+  if (!Array.isArray(disasterEventIds) || disasterEventIds.length === 0) {
+    return [];
+  }
+
+  const query = `
+    SELECT
+      deb.disaster_event_id,
+      b.id,
+      b.code,
+      b.name
+    FROM disaster_event_barangays deb
+    INNER JOIN barangays b ON b.id = deb.barangay_id
+    WHERE deb.disaster_event_id = ANY($1::UUID[])
+    ORDER BY b.name ASC
+  `;
+
+  const result = await pool.query(query, [disasterEventIds]);
+  return result.rows;
+};
+
 const insertDisasterEvent = async (disasterEventData, dbClient) => {
   const query = `
     INSERT INTO disaster_events (
@@ -177,6 +209,8 @@ module.exports = {
   getClosedDisasterEvents,
   getDisasterEventById,
   getAffectedBarangaysByDisasterEventId,
+  getAffectedBarangaysByDisasterEventIds,
+  getValidBarangayCount,
   insertDisasterEvent,
   insertDisasterEventBarangays,
   updateDisasterEventById,
