@@ -31,7 +31,7 @@ const getSidebarStyles = (isCollapsed) => ({
     alignItems: "center",
     justifyContent: "flex-start",
     gap: "10px",
-    paddingTop: "14px",
+    paddingTop: "20px",
     minWidth: 0,
   },
   menuButton: {
