@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { shellStyles } from "../layout/BarangayLayout";
 import { pageHeaderStyles } from "../layout/PageHeader";
+import StatusPill from "../shared/StatusPill";
 
 const tableStyles = {
   table: {
@@ -37,30 +38,6 @@ const formatDate = (value) => {
     month: "short",
     day: "numeric",
   });
-};
-
-const getStatusBadgeStyles = (status) => {
-  const paletteByStatus = {
-    PLANNED: { backgroundColor: "#eef2f6", color: "#60738a" },
-    ACTIVE: { backgroundColor: "#e6f5ec", color: "#2d7a4f" },
-    CLOSED: { backgroundColor: "#fff4df", color: "#9a6c11" },
-    ARCHIVED: { backgroundColor: "#f6ebeb", color: "#9d4d58" },
-  };
-
-  return {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: "84px",
-    padding: "6px 10px",
-    borderRadius: "999px",
-    fontSize: "12px",
-    fontWeight: 700,
-    ...(paletteByStatus[status] || {
-      backgroundColor: "#eef2f6",
-      color: "#60738a",
-    }),
-  };
 };
 
 const DisasterEventsTable = ({
@@ -185,9 +162,7 @@ const DisasterEventsTable = ({
                 </td>
                 <td style={tableStyles.bodyCell}>{formatDate(row.end_date)}</td>
                 <td style={tableStyles.bodyCell}>
-                  <span style={getStatusBadgeStyles(row.status)}>
-                    {row.status}
-                  </span>
+                  <StatusPill status={row.status} />
                 </td>
                 <td style={tableStyles.bodyCell}>
                   {row.status === "ACTIVE" ? (
