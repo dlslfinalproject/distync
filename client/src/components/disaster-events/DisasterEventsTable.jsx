@@ -196,41 +196,56 @@ const DisasterEventsTable = ({
                             padding: "10px",
                             zIndex: 10,
                             minWidth: "160px",
+                            display: "flex", 
+                            gap: "20px", 
+                            justifyContent: "center",
                           }}
                         >
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "8px",
-                              padding: "8px",
-                              cursor: "pointer",
-                            }}
+                          <button
+                            type="button"
                             onClick={() => {
                               onExtendEvent(row);
                               setActiveMenu(null);
                             }}
-                          >
-                            <FiCalendar size={16} />
-                            Extend Period
-                          </div>
-
-                          <div
                             style={{
-                              display: "flex",
+                              border: "1px solid #c6d8ea",
+                              borderRadius: "12px",
+                              width: "40px",
+                              height: "40px",
+                              backgroundColor: "#f7fbfe",
+                              color: "#24496e",
+                              display: "inline-flex",
                               alignItems: "center",
-                              gap: "8px",
-                              padding: "8px",
+                              justifyContent: "center",
                               cursor: "pointer",
                             }}
+                            title="Extend Period"
+                          >
+                            <FiCalendar size={18} />
+                          </button>
+
+                          <button
+                            type="button"
                             onClick={() => {
                               onEndEvent(row);
                               setActiveMenu(null);
                             }}
+                            style={{
+                              border: "1px solid #c6d8ea",
+                              borderRadius: "12px",
+                              width: "40px",
+                              height: "40px",
+                              backgroundColor: "#f7fbfe",
+                              color: "#24496e",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              cursor: "pointer",
+                            }}
+                            title="Mark as Completed"
                           >
-                            <FiCheckCircle size={16} />
-                            Mark as Completed
-                          </div>
+                            <FiCheckCircle size={18} />
+                          </button>
                         </div>
                       )}
                     </div>
