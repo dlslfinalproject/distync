@@ -1,7 +1,7 @@
-import React, { useState } from "react";
-import { FiChevronDown, FiDownload } from "react-icons/fi";
+import React, { useEffect, useMemo, useState } from "react";
+import { FiChevronDown, FiDownload, FiFilter, FiUserPlus } from "react-icons/fi";
 import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
-import PageHeader from "../../components/layout/PageHeader";
+import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import MasterlistDepartureConfirmModal from "../../components/masterlist/MasterlistDepartureConfirmModal";
 import MasterlistTable from "../../components/masterlist/MasterlistTable";
@@ -9,10 +9,71 @@ import BarangayBarChart from "../../components/mswdo-analytics/BarangayBarChart"
 import BarangayStatusBreakdownChart from "../../components/mswdo-analytics/BarangayStatusBreakdownChart";
 import DistributionPieChart from "../../components/mswdo-analytics/DistributionPieChart";
 import MswdoSummaryCards from "../../components/mswdo-masterlist/MswdoSummaryCards";
+import SearchBar from "../../components/shared/SearchBar";
+import StatusPill from "../../components/shared/StatusPill";
 import { useHouseholdRegistrationForm } from "../../features/household-registration/useHouseholdRegistrationForm";
 import { departHousehold } from "../../features/masterlist/masterlistService";
 import { exportConsolidatedMasterlist } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { useMswdoMasterlist } from "../../features/mswdo-masterlist/useMswdoMasterlist";
+
+const filterStyles = {
+  field: {
+    width: "100%",
+    padding: "12px 14px",
+    borderRadius: "12px",
+    border: "1px solid #cfddeb",
+    backgroundColor: "#f8fbfe",
+    color: "#1f3b57",
+    fontSize: "14px",
+    boxSizing: "border-box",
+  },
+  label: {
+    display: "block",
+    marginBottom: "8px",
+    color: "#5f7892",
+    fontSize: "12px",
+    fontWeight: 700,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+  },
+};
+
+const tabButtonStyles = (isActive) => ({
+  padding: "12px 24px",
+  border: "none",
+  background: "none",
+  fontSize: "14px",
+  fontWeight: 700,
+  textTransform: "uppercase",
+  color: isActive ? "#17324d" : "#6b8298",
+  borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
+  cursor: "pointer",
+});
+
+const formatDisplayDate = (value) => {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("en-PH", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+  }).format(new Date(value));
+};
+
+const formatReliefPeriod = (event) => {
+  if (!event) return "-";
+
+  const start = formatDisplayDate(event.start_date);
+
+  if (!event.end_date && event.status === "ACTIVE") {
+    return `${start} - Ongoing`;
+  }
+
+  if (event.end_date) {
+    return `${start} - ${formatDisplayDate(event.end_date)}`;
+  }
+
+  return start;
+};
 
 const ConsolidatedEvacueeMasterlist = () => {
   const {
@@ -47,12 +108,22 @@ const ConsolidatedEvacueeMasterlist = () => {
   const [exportingFormat, setExportingFormat] = useState("");
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [registrationSuccessMessage, setRegistrationSuccessMessage] = useState("");
+  const [attendanceActionMessage, setAttendanceActionMessage] = useState("");
 
   const activeEventLabel = selectedDisasterEvent
     ? `${selectedDisasterEvent.event_code} - ${selectedDisasterEvent.title}`
     : "No disaster event selected";
   const hasRowsToExport = displayedRows.length > 0;
   const isAllBarangaysMode = !selectedBarangayId;
+  const scopedDisasterEvents = useMemo(() => {
+    const statusByTab = activeTab === "active" ? "ACTIVE" : "CLOSED";
+
+    return disasterEvents.filter((event) => event.status === statusByTab);
+  }, [activeTab, disasterEvents]);
+
+  const selectedBarangayLabel = selectedBarangayId
+    ? barangays.find((barangay) => barangay.id === selectedBarangayId)?.name
+    : "All Barangays";
 
   const registrationForm = useHouseholdRegistrationForm({
     isOpen: isRegisterModalOpen,
@@ -67,6 +138,10 @@ const ConsolidatedEvacueeMasterlist = () => {
   });
 
   const handleOpenDepartureConfirmation = (householdId) => {
+    if (isRecordingDeparture) {
+      return;
+    }
+
     setPendingDepartureHouseholdId(householdId);
   };
 
@@ -86,15 +161,46 @@ const ConsolidatedEvacueeMasterlist = () => {
     setIsRecordingDeparture(true);
 
     try {
-      await departHousehold({ householdId: pendingDepartureHouseholdId });
+      const response = await departHousehold({ householdId: pendingDepartureHouseholdId });
+      setAttendanceActionMessage(
+        response.message || "Household departure recorded successfully",
+      );
       setPendingDepartureHouseholdId(null);
       reloadMasterlist();
     } catch (error) {
-      window.alert(error.message || "Failed to record household departure.");
+      setAttendanceActionMessage(
+        error.message || "Failed to record household departure.",
+      );
     } finally {
       setIsRecordingDeparture(false);
     }
   };
+
+  const handleEventScopeChange = (nextTab) => {
+    setActiveTab(nextTab);
+
+    const nextStatus = nextTab === "active" ? "ACTIVE" : "CLOSED";
+    const nextEvents = disasterEvents.filter((event) => event.status === nextStatus);
+
+    if (nextEvents.length === 0) {
+      setSelectedDisasterEventId("");
+      return;
+    }
+
+    if (!nextEvents.some((event) => event.id === selectedDisasterEventId)) {
+      setSelectedDisasterEventId(nextEvents[0].id);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedDisasterEvent?.status === "ACTIVE" && activeTab !== "active") {
+      setActiveTab("active");
+    }
+
+    if (selectedDisasterEvent?.status === "CLOSED" && activeTab !== "ended") {
+      setActiveTab("ended");
+    }
+  }, [activeTab, selectedDisasterEvent?.status]);
 
   const handleOpenRegisterModal = () => {
     if (!selectedDisasterEventId) {
@@ -151,107 +257,149 @@ const ConsolidatedEvacueeMasterlist = () => {
 
   return (
     <>
-      {/* Header */}
-      <PageHeader title="EVACUEE MASTERLIST" />
+      <PageHeader title="EVACUEE MASTERLIST" actions={[]} />
 
-      {/* Tabs Section */}
-      <div style={{ display: "flex", gap: "24px", margin: "20px 0", borderBottom: "1px solid #d3dce6" }}>
-        {["active", "ended"].map((tab) => (
-          <div
-            key={tab}
-            onClick={() => setActiveTab(tab)}
+      <section style={shellStyles.card}>
+        <div
+          style={{
+            display: "flex",
+            borderBottom: "1px solid #d6e2ef",
+            marginBottom: "24px",
+            gap: "8px",
+            flexWrap: "wrap",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => handleEventScopeChange("active")}
+            style={tabButtonStyles(activeTab === "active")}
+          >
+            Active Events
+          </button>
+          <button
+            type="button"
+            onClick={() => handleEventScopeChange("ended")}
+            style={tabButtonStyles(activeTab === "ended")}
+          >
+            Ended Events
+          </button>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: "16px",
+            alignItems: "end",
+          }}
+        >
+          <div>
+            <label htmlFor="mswdo-masterlist-event" style={filterStyles.label}>
+              {activeTab === "active" ? "Active" : "Ended"} Disaster Event
+            </label>
+            <select
+              id="mswdo-masterlist-event"
+              value={selectedDisasterEventId || ""}
+              onChange={(event) => setSelectedDisasterEventId(event.target.value)}
+              disabled={isLoadingFilters || scopedDisasterEvents.length === 0}
+              style={filterStyles.field}
+            >
+              <option value="">
+                Select {activeTab === "active" ? "active" : "ended"} disaster event
+              </option>
+              {scopedDisasterEvents.map((event) => (
+                <option key={event.id} value={event.id}>
+                  {event.event_code} - {event.title}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="mswdo-masterlist-barangay" style={filterStyles.label}>
+              Barangay
+            </label>
+            <select
+              id="mswdo-masterlist-barangay"
+              value={selectedBarangayId || ""}
+              onChange={(event) => setSelectedBarangayId(event.target.value)}
+              disabled={isLoadingFilters}
+              style={filterStyles.field}
+            >
+              <option value="">All Barangays</option>
+              {barangays.map((barangay) => (
+                <option key={barangay.id} value={barangay.id}>
+                  {barangay.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label style={filterStyles.label}>Current Scope</label>
+            <div
+              style={{
+                ...filterStyles.field,
+                display: "flex",
+                alignItems: "center",
+                minHeight: "48px",
+                fontWeight: 700,
+                color: "#17324d",
+              }}
+            >
+              {isAllBarangaysMode
+                ? "All Barangays (Consolidated)"
+                : selectedBarangayLabel}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section style={shellStyles.card}>
+        <div
+          style={{
+            border: "1px solid #d6e2ef",
+            borderRadius: "16px",
+            padding: "18px 20px",
+            backgroundColor: "#f8fbfe",
+          }}
+        >
+          <p
             style={{
-              padding: "8px 0",
-              cursor: "pointer",
-              fontWeight: activeTab === tab ? 700 : 500,
-              color: activeTab === tab ? "#17324d" : "#8a9eb1",
-              borderBottom: activeTab === tab ? "3px solid #17324d" : "3px solid transparent",
+              margin: 0,
+              color: "#17324d",
+              fontSize: "18px",
+              fontWeight: 800,
             }}
           >
-            {tab === "active" ? "ACTIVE EVENTS" : "ENDED EVENTS"}
-          </div>
-        ))}
-      </div>
+            {activeEventLabel}
+          </p>
 
-      {/* Top Control Panel */}
-      <div style={{ display: "flex", gap: "16px", marginBottom: "20px", flexWrap: "wrap" }}>
-        {/* Active Disaster Event Dropdown */}
-        <select
-          value={selectedDisasterEventId || ""}
-          onChange={(e) => setSelectedDisasterEventId(e.target.value)}
-          style={{
-            flex: 1,
-            minWidth: "220px",
-            padding: "10px 12px",
-            borderRadius: "10px",
-            border: "1px solid #d3dfec",
-            fontSize: "14px",
-          }}
-        >
-          <option value="">-- Select Active Disaster Event --</option>
-          {disasterEvents.map((ev) => (
-            <option key={ev.id} value={ev.id}>
-              {ev.title}
-            </option>
-          ))}
-        </select>
-
-        {/* Effective Barangay Card */}
-        <div
-          style={{
-            flex: 1,
-            minWidth: "200px",
-            backgroundColor: "#f8fbfe",
-            borderRadius: "12px",
-            padding: "12px 16px",
-            fontSize: "14px",
-            color: "#334155",
-          }}
-        >
-          {selectedBarangayId
-            ? barangays.find((b) => b.id === selectedBarangayId)?.name
-            : "All Barangays (Consolidated)"}
-        </div>
-
-        {/* Barangay Filter Dropdown */}
-        <select
-          value={selectedBarangayId || ""}
-          onChange={(e) => setSelectedBarangayId(e.target.value)}
-          style={{
-            flex: 1,
-            minWidth: "220px",
-            padding: "10px 12px",
-            borderRadius: "10px",
-            border: "1px solid #d3dfec",
-            fontSize: "14px",
-          }}
-        >
-          <option value="">All Barangays</option>
-          {barangays.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Event Information Card */}
-      {selectedDisasterEvent && (
-        <div
-          style={{
-            borderRadius: "16px",
-            background: "#f8fafc",
-            padding: "16px 20px",
-            marginBottom: "20px",
-          }}
-        >
-          <h3 style={{ margin: "0 0 8px", fontWeight: 700 }}>{activeEventLabel}</h3>
-          <div style={{ display: "flex", gap: "16px", fontSize: "14px", color: "#334155" }}>
-            <span>{selectedDisasterEvent.start_date} - {selectedDisasterEvent.end_date}</span>
-            <span>Status: {selectedDisasterEvent.status}</span>
+          <div
+            style={{
+              display: "flex",
+              gap: "24px",
+              marginTop: "14px",
+              flexWrap: "wrap",
+              color: "#334155",
+            }}
+          >
+            <span>Period: {formatReliefPeriod(selectedDisasterEvent)}</span>
+            <span>Barangay Scope: {selectedBarangayLabel}</span>
+            <StatusPill status={selectedDisasterEvent?.status} />
           </div>
         </div>
-      )}
+
+        {isLoadingFilters ? (
+          <p style={{ ...shellStyles.mutedText, marginTop: "16px" }}>
+            Loading MSWDO masterlist filters...
+          </p>
+        ) : !selectedDisasterEvent ? (
+          <p style={{ ...shellStyles.mutedText, marginTop: "16px" }}>
+            Select a disaster event to load the consolidated masterlist.
+          </p>
+        ) : null}
+      </section>
 
       {selectedDisasterEvent && !isLoadingDashboard && !dashboardErrorMessage ? (
         <MswdoSummaryCards summary={summaryMetrics} />
@@ -265,7 +413,14 @@ const ConsolidatedEvacueeMasterlist = () => {
         </section>
       ) : null}
 
-      {/* Search and Actions Row */}
+      {attendanceActionMessage ? (
+        <section style={shellStyles.card}>
+          <p style={{ margin: 0, color: "#24496e", fontWeight: 700 }}>
+            {attendanceActionMessage}
+          </p>
+        </section>
+      ) : null}
+
       <div
         style={{
           display: "flex",
@@ -276,47 +431,36 @@ const ConsolidatedEvacueeMasterlist = () => {
           flexWrap: "wrap",
         }}
       >
-        <input
-          type="text"
-          placeholder="Search family head, address, or sectors"
+        <SearchBar
           value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          style={{
-            flex: 1,
-            minWidth: "220px",
-            padding: "10px 12px",
-            borderRadius: "10px",
-            border: "1px solid #d3dfec",
-            fontSize: "14px",
-          }}
+          onChange={setSearchTerm}
+          placeholder="Search family head, address, or sectors"
         />
-        <div style={{ display: "flex", gap: "12px" }}>
+
+        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
           <button
+            type="button"
             style={{
-              border: "1px solid #d3dfec",
-              background: "#f8fbfe",
-              padding: "10px 14px",
-              borderRadius: "10px",
-              cursor: "pointer",
+              ...pageHeaderStyles.secondaryButton,
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
             }}
           >
+            <FiFilter size={16} />
             Filter
           </button>
+
           <div style={{ position: "relative" }}>
             <button
               type="button"
               onClick={() => setIsExportMenuOpen((currentValue) => !currentValue)}
               disabled={!selectedDisasterEventId || Boolean(exportingFormat)}
               style={{
+                ...pageHeaderStyles.secondaryButton,
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "8px",
-                border: "1px solid #c9d8e8",
-                background: "#f8fbfe",
-                color: "#24496e",
-                fontWeight: 700,
-                padding: "10px 14px",
-                borderRadius: "10px",
                 cursor:
                   !selectedDisasterEventId || exportingFormat ? "not-allowed" : "pointer",
                 opacity: !selectedDisasterEventId || exportingFormat ? 0.7 : 1,
@@ -371,36 +515,30 @@ const ConsolidatedEvacueeMasterlist = () => {
               </div>
             ) : null}
           </div>
+
           <button
             type="button"
             onClick={handleOpenRegisterModal}
             style={{
-              background: "#0c4a6e",
-              color: "#fff",
-              fontWeight: 600,
-              padding: "10px 16px",
-              borderRadius: "10px",
-              cursor: "pointer",
+              ...pageHeaderStyles.primaryButton,
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
             }}
           >
-            {isAllBarangaysMode ? "Register Family" : "Register Family"}
+            <FiUserPlus size={16} />
+            Register Family
           </button>
         </div>
       </div>
 
-      {/* Table Section */}
-      <section style={{ ...shellStyles.card, overflow: "hidden" }}>
-        <h4 style={{ marginBottom: "12px", fontWeight: 700 }}>Registered Family</h4>
-        <div style={{ width: "100%", overflowX: "auto" }}>
-          <MasterlistTable
-            rows={displayedRows}
-            hasSelectedEvent={Boolean(selectedDisasterEventId)}
-            isLoading={isLoadingFilters || isLoadingMasterlist}
-            errorMessage={errorMessage}
-            onMarkDeparted={handleOpenDepartureConfirmation}
-          />
-        </div>
-      </section>
+      <MasterlistTable
+        rows={displayedRows}
+        hasSelectedEvent={Boolean(selectedDisasterEventId)}
+        isLoading={isLoadingFilters || isLoadingMasterlist}
+        errorMessage={errorMessage}
+        onMarkDeparted={handleOpenDepartureConfirmation}
+      />
 
       {!selectedDisasterEvent ? null : isLoadingDashboard ? (
         <section style={shellStyles.card}>
