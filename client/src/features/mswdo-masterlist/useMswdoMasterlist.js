@@ -74,10 +74,6 @@ const getDisplayedRows = (rows, searchTerm) => {
   });
 };
 
-const sortByValueDescending = (items) => {
-  return [...items].sort((firstItem, secondItem) => secondItem.value - firstItem.value);
-};
-
 const getSummaryMetrics = (dashboardPayload) => {
   const summary = dashboardPayload.summary_metrics || emptyDashboardPayload.summary_metrics;
 
@@ -91,60 +87,6 @@ const getSummaryMetrics = (dashboardPayload) => {
     totalDepartedEvacuees: Number(summary.total_departed_evacuees || 0),
     totalBarangaysCovered: Number(summary.total_barangays_covered || 0),
   };
-};
-
-const getPerBarangayDataset = (dashboardPayload) => {
-  const items = dashboardPayload.charts?.per_barangay || [];
-
-  return items.map((item) => ({
-    barangay_id: item.barangay_id,
-    barangay_name: item.barangay_name || "Unknown",
-    families_count: Number(item.families_count || 0),
-    evacuees_count: Number(item.evacuees_count || 0),
-    admitted_evacuees_count: Number(item.admitted_evacuees_count || 0),
-    departed_evacuees_count: Number(item.departed_evacuees_count || 0),
-  }));
-};
-
-const getEvacueesPerBarangayChart = (perBarangayDataset) => {
-  return sortByValueDescending(
-    perBarangayDataset.map((item) => ({
-      name: item.barangay_name,
-      value: item.evacuees_count,
-    })),
-  );
-};
-
-const getFamiliesPerBarangayChart = (perBarangayDataset) => {
-  return sortByValueDescending(
-    perBarangayDataset.map((item) => ({
-      name: item.barangay_name,
-      value: item.families_count,
-    })),
-  );
-};
-
-const getAdmittedVsDepartedDistribution = (dashboardPayload) => {
-  const summary = dashboardPayload.summary_metrics || emptyDashboardPayload.summary_metrics;
-
-  return [
-    {
-      name: "Currently Admitted",
-      value: Number(summary.currently_admitted_evacuees || 0),
-    },
-    {
-      name: "Departed",
-      value: Number(summary.total_departed_evacuees || 0),
-    },
-  ].filter((item) => item.value > 0);
-};
-
-const getBarangayBreakdownChart = (perBarangayDataset) => {
-  return perBarangayDataset.map((item) => ({
-    name: item.barangay_name,
-    admitted: item.admitted_evacuees_count,
-    departed: item.departed_evacuees_count,
-  }));
 };
 
 export const useMswdoMasterlist = () => {
@@ -302,26 +244,6 @@ export const useMswdoMasterlist = () => {
     return getSummaryMetrics(dashboardPayload);
   }, [dashboardPayload]);
 
-  const perBarangayDataset = useMemo(() => {
-    return getPerBarangayDataset(dashboardPayload);
-  }, [dashboardPayload]);
-
-  const evacueesPerBarangay = useMemo(() => {
-    return getEvacueesPerBarangayChart(perBarangayDataset);
-  }, [perBarangayDataset]);
-
-  const familiesPerBarangay = useMemo(() => {
-    return getFamiliesPerBarangayChart(perBarangayDataset);
-  }, [perBarangayDataset]);
-
-  const admittedVsDepartedDistribution = useMemo(() => {
-    return getAdmittedVsDepartedDistribution(dashboardPayload);
-  }, [dashboardPayload]);
-
-  const barangayBreakdown = useMemo(() => {
-    return getBarangayBreakdownChart(perBarangayDataset);
-  }, [perBarangayDataset]);
-
   const selectedDisasterEvent = useMemo(() => {
     return (
       disasterEvents.find((event) => event.id === selectedDisasterEventId) || null
@@ -337,10 +259,6 @@ export const useMswdoMasterlist = () => {
     searchTerm,
     displayedRows,
     summaryMetrics,
-    evacueesPerBarangay,
-    familiesPerBarangay,
-    admittedVsDepartedDistribution,
-    barangayBreakdown,
     isLoadingFilters,
     isLoadingMasterlist,
     isLoadingDashboard,
