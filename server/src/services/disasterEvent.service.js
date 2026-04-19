@@ -169,6 +169,16 @@ const isValidAffectedBarangay = (barangay) => {
   return barangay && barangay.code !== nonResidentBarangayCode;
 };
 
+const formatDisasterEventStatusLabel = (status) => {
+  const normalizedStatus = String(status || "").toUpperCase();
+
+  if (normalizedStatus === "CLOSED" || normalizedStatus === "ARCHIVED") {
+    return "COMPLETED";
+  }
+
+  return normalizedStatus || "UNKNOWN";
+};
+
 const formatAffectedBarangays = (affectedBarangays, validBarangayCount) => {
   const validAffectedBarangays = (affectedBarangays || []).filter(
     isValidAffectedBarangay,
@@ -247,7 +257,7 @@ const exportDisasterEvents = async ({ scope, format, search }) => {
       ),
       start_date: disasterEventExport.formatDate(event.start_date),
       end_date: disasterEventExport.formatDate(event.end_date),
-      status: event.status || "--",
+      status: formatDisasterEventStatusLabel(event.status),
     }));
 
   return disasterEventExport.buildExportFile({
