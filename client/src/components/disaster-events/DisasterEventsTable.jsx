@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { shellStyles } from "../layout/BarangayLayout";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import StatusPill from "../shared/StatusPill";
+import { FiCalendar, FiCheckCircle } from "react-icons/fi";
 
 const tableStyles = {
   table: {
@@ -198,22 +199,36 @@ const DisasterEventsTable = ({
                           }}
                         >
                           <div
-                            style={{ padding: "8px", cursor: "pointer" }}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "8px",
+                              padding: "8px",
+                              cursor: "pointer",
+                            }}
                             onClick={() => {
                               onExtendEvent(row);
                               setActiveMenu(null);
                             }}
                           >
+                            <FiCalendar size={16} />
                             Extend Period
                           </div>
 
                           <div
-                            style={{ padding: "8px", cursor: "pointer" }}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "8px",
+                              padding: "8px",
+                              cursor: "pointer",
+                            }}
                             onClick={() => {
                               onEndEvent(row);
                               setActiveMenu(null);
                             }}
                           >
+                            <FiCheckCircle size={16} />
                             Mark as Completed
                           </div>
                         </div>
