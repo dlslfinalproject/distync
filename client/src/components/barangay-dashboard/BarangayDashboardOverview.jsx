@@ -1,6 +1,7 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
 import StatusCard from "../shared/StatusCard";
+import StatusPill from "../shared/StatusPill";
 
 const filterStyles = {
   field: {
@@ -35,18 +36,6 @@ const tabButtonStyles = (isActive) => ({
   borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
   cursor: "pointer",
 });
-
-const formatStatusLabel = (status) => {
-  if (status === "ACTIVE") {
-    return "ACTIVE";
-  }
-
-  if (status === "CLOSED" || status === "ARCHIVED") {
-    return "COMPLETED";
-  }
-
-  return status || "UNKNOWN";
-};
 
 const formatDisplayDate = (value) => {
   if (!value) {
@@ -290,8 +279,8 @@ const BarangayDashboardOverview = ({
             <div
               style={{
                 display: "flex",
-                alignItems: "baseline",
-                gap: "8px",
+                alignItems: "center",
+                gap: "10px",
                 flexWrap: "wrap",
               }}
             >
@@ -304,16 +293,10 @@ const BarangayDashboardOverview = ({
               >
                 Status:
               </span>
-              <span
-                style={{
-                  color: "#17324d",
-                  fontSize: "16px",
-                  fontWeight: 800,
-                  letterSpacing: "0.02em",
-                }}
-              >
-                {selectedEvent ? formatStatusLabel(selectedEvent.status) : "-"}
-              </span>
+              <StatusPill
+                status={selectedEvent?.status}
+                label={selectedEvent ? undefined : "-"}
+              />
             </div>
           </div>
         </div>
