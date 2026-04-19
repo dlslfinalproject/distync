@@ -38,10 +38,7 @@ const tabButtonStyles = (isActive) => ({
 });
 
 const formatDisplayDate = (value) => {
-  if (!value) {
-    return "-";
-  }
-
+  if (!value) return "-";
   return new Intl.DateTimeFormat("en-PH", {
     month: "2-digit",
     day: "2-digit",
@@ -50,9 +47,7 @@ const formatDisplayDate = (value) => {
 };
 
 const formatReliefPeriod = (event) => {
-  if (!event) {
-    return "-";
-  }
+  if (!event) return "-";
 
   const start = formatDisplayDate(event.start_date);
 
@@ -144,6 +139,7 @@ const BarangayDashboardOverview = ({
           </button>
         </div>
 
+        {/* ✅ GRID (ORDER FIXED HERE) */}
         <div
           style={{
             display: "grid",
@@ -152,6 +148,7 @@ const BarangayDashboardOverview = ({
             alignItems: "end",
           }}
         >
+          {/* Event */}
           <div>
             <label
               htmlFor="barangay-dashboard-event"
@@ -168,7 +165,9 @@ const BarangayDashboardOverview = ({
               disabled={isLoading || !hasEvents}
               style={filterStyles.field}
             >
-              <option value="">{`Select ${scopeLabel.toLowerCase()} disaster event`}</option>
+              <option value="">
+                {`Select ${scopeLabel.toLowerCase()} disaster event`}
+              </option>
               {availableEvents.map((event) => (
                 <option key={event.id} value={event.id}>
                   {event.event_code} - {event.title}
@@ -177,10 +176,36 @@ const BarangayDashboardOverview = ({
             </select>
           </div>
 
+          {/* ✅ Fallback Barangay (NOW 2nd) */}
+          {showFallbackOverride ? (
+            <div>
+              <label
+                htmlFor="barangay-dashboard-override"
+                style={filterStyles.label}
+              >
+                {accessMode} Fallback Barangay
+              </label>
+              <select
+                id="barangay-dashboard-override"
+                value={overrideBarangayId}
+                onChange={(event) =>
+                  setOverrideBarangayId(event.target.value)
+                }
+                style={filterStyles.field}
+              >
+                <option value="">Select fallback barangay</option>
+                {devBarangayOptions.map((barangay) => (
+                  <option key={barangay.id} value={barangay.id}>
+                    {barangay.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+
+          {/* ✅ Barangay (NOW 3rd) */}
           <div>
-            <label style={filterStyles.label}>
-              {isDevOverride ? "Barangay" : "Barangay"}
-            </label>
+            <label style={filterStyles.label}>Barangay</label>
             <div
               style={{
                 ...filterStyles.field,
@@ -194,30 +219,6 @@ const BarangayDashboardOverview = ({
               {assignedBarangay?.name || "No assigned barangay"}
             </div>
           </div>
-
-          {showFallbackOverride ? (
-            <div>
-              <label
-                htmlFor="barangay-dashboard-override"
-                style={filterStyles.label}
-              >
-                {accessMode} Fallback Barangay
-              </label>
-              <select
-                id="barangay-dashboard-override"
-                value={overrideBarangayId}
-                onChange={(event) => setOverrideBarangayId(event.target.value)}
-                style={filterStyles.field}
-              >
-                <option value="">Select fallback barangay</option>
-                {devBarangayOptions.map((barangay) => (
-                  <option key={barangay.id} value={barangay.id}>
-                    {barangay.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : null}
         </div>
       </section>
 
@@ -236,7 +237,6 @@ const BarangayDashboardOverview = ({
               color: "#17324d",
               fontSize: "18px",
               fontWeight: 800,
-              lineHeight: 1.3,
             }}
           >
             {selectedEvent
@@ -244,99 +244,32 @@ const BarangayDashboardOverview = ({
               : "No disaster event selected"}
           </p>
 
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "24px 48px",
-              marginTop: "14px",
-              alignItems: "center",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "baseline",
-                gap: "8px",
-                flexWrap: "wrap",
-              }}
-            >
-              <span
-                style={{
-                  color: "#5f7892",
-                  fontSize: "14px",
-                  fontWeight: 500,
-                }}
-              >
-                Period:
-              </span>
-              <span
-                style={{
-                  color: "#17324d",
-                  fontSize: "16px",
-                  fontWeight: 700,
-                }}
-              >
-                {formatReliefPeriod(selectedEvent)}
-              </span>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                flexWrap: "wrap",
-              }}
-            >
-              <span
-                style={{
-                  color: "#5f7892",
-                  fontSize: "14px",
-                  fontWeight: 500,
-                }}
-              >
-                Status:
-              </span>
-              <StatusPill
-                status={selectedEvent?.status}
-                label={selectedEvent ? undefined : "-"}
-              />
-            </div>
+          <div style={{ display: "flex", gap: "24px", marginTop: "14px" }}>
+            <span>Period: {formatReliefPeriod(selectedEvent)}</span>
+            <StatusPill status={selectedEvent?.status} />
           </div>
         </div>
 
-        {isLoading ? (
+        {isLoading && (
           <p style={{ ...shellStyles.mutedText, marginTop: "16px" }}>
             Loading barangay dashboard...
           </p>
-        ) : null}
+        )}
 
-        {!isLoading && stateMessage ? (
-          <p
-            style={{
-              ...shellStyles.mutedText,
-              color: errorCode || errorMessage ? "#a14d58" : "#60738a",
-              marginTop: "16px",
-            }}
-          >
+        {!isLoading && stateMessage && (
+          <p style={{ ...shellStyles.mutedText, marginTop: "16px" }}>
             {stateMessage}
           </p>
-        ) : null}
+        )}
       </section>
 
-      {hasSelectedEvent ? (
+      {hasSelectedEvent && (
         <section style={shellStyles.statGrid}>
           {summaryCards.map((card) => (
-            <StatusCard
-              key={card.label}
-              label={card.label}
-              value={formatCardValue(card.value)}
-              helperText={card.helperText}
-            />
+            <StatusCard key={card.label} {...card} />
           ))}
         </section>
-      ) : null}
+      )}
     </>
   );
 };
