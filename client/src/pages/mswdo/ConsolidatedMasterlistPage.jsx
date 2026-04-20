@@ -173,6 +173,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     ? `${selectedDisasterEvent.event_code} - ${selectedDisasterEvent.title}`
     : "No disaster event selected";
   const hasRowsToExport = displayedRows.length > 0;
+  const canRegisterFamily = activeTab === "active";
   const scopedDisasterEvents = useMemo(() => {
     const statusByTab = activeTab === "active" ? "ACTIVE" : "CLOSED";
 
@@ -581,19 +582,21 @@ const ConsolidatedEvacueeMasterlist = () => {
             Filter
           </button>
 
-          <button
-            type="button"
-            onClick={handleOpenRegisterModal}
-            style={{
-              ...pageHeaderStyles.primaryButton,
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-            }}
-          >
-            <FiUserPlus size={16} />
-            Register Family
-          </button>
+          {canRegisterFamily ? (
+            <button
+              type="button"
+              onClick={handleOpenRegisterModal}
+              style={{
+                ...pageHeaderStyles.primaryButton,
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+              }}
+            >
+              <FiUserPlus size={16} />
+              Register Family
+            </button>
+          ) : null}
 
           <div style={{ position: "relative" }}>
             <button
