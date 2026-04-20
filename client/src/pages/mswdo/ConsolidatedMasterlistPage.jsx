@@ -170,7 +170,6 @@ const ConsolidatedEvacueeMasterlist = () => {
     ? `${selectedDisasterEvent.event_code} - ${selectedDisasterEvent.title}`
     : "No disaster event selected";
   const hasRowsToExport = displayedRows.length > 0;
-  const isAllBarangaysMode = !selectedBarangayId;
   const scopedDisasterEvents = useMemo(() => {
     const statusByTab = activeTab === "active" ? "ACTIVE" : "CLOSED";
 
@@ -392,24 +391,6 @@ const ConsolidatedEvacueeMasterlist = () => {
                 </option>
               ))}
             </select>
-          </div>
-
-          <div>
-            <label style={filterStyles.label}>Current Scope</label>
-            <div
-              style={{
-                ...filterStyles.field,
-                display: "flex",
-                alignItems: "center",
-                minHeight: "48px",
-                fontWeight: 700,
-                color: "#17324d",
-              }}
-            >
-              {isAllBarangaysMode
-                ? "All Barangays (Consolidated)"
-                : selectedBarangayLabel}
-            </div>
           </div>
         </div>
       </section>
