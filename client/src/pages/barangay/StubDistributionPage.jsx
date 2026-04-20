@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { FaHandHolding } from "react-icons/fa6";
 import BarangayDashboardOverview from "../../components/barangay-dashboard/BarangayDashboardOverview";
 import PageHeader from "../../components/layout/PageHeader";
 import StubClaimConfirmModal from "../../components/stubs/StubClaimConfirmModal";
@@ -8,6 +9,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useBarangayDashboard } from "../../features/barangay-dashboard/useBarangayDashboard";
 import { useStubDashboard } from "../../features/stubs/useStubDashboard";
 import { claimStub } from "../../features/stubs/stubService";
+import { shellStyles } from "../../components/layout/BarangayLayout";
 
 const getFilteredRows = (rows, searchTerm) => {
   if (!searchTerm.trim()) {
@@ -27,7 +29,9 @@ const getFilteredRows = (rows, searchTerm) => {
     ];
 
     return searchableValues.some((value) =>
-      String(value || "").toLowerCase().includes(normalizedSearchTerm),
+      String(value || "")
+        .toLowerCase()
+        .includes(normalizedSearchTerm),
     );
   });
 };
@@ -38,6 +42,8 @@ const StubDistributionPage = () => {
   const [claimingStubId, setClaimingStubId] = useState("");
   const [claimErrorMessage, setClaimErrorMessage] = useState("");
   const [pendingClaimStubId, setPendingClaimStubId] = useState("");
+  const [selectedStubIds, setSelectedStubIds] = useState([]);
+  const [isBulkClaimConfirmOpen, setIsBulkClaimConfirmOpen] = useState(false);
 
   const {
     accessMode,
@@ -82,6 +88,35 @@ const StubDistributionPage = () => {
     return getFilteredRows(stubRows, searchTerm);
   }, [searchTerm, stubRows]);
 
+  const handleToggleSelect = (stubId) => {
+    setSelectedStubIds((currentValues) =>
+      currentValues.includes(stubId)
+        ? currentValues.filter((id) => id !== stubId)
+        : [...currentValues, stubId],
+    );
+  };
+
+  const handleSelectAll = () => {
+    const selectableStubIds = filteredRows
+      .filter((row) => row.status === "ISSUED")
+      .map((row) => row.id);
+
+    const areAllSelected =
+      selectableStubIds.length > 0 &&
+      selectableStubIds.every((id) => selectedStubIds.includes(id));
+
+    setSelectedStubIds(areAllSelected ? [] : selectableStubIds);
+  };
+
+  const handleOpenBulkClaimConfirmation = () => {
+    if (!selectedStubIds.length || claimingStubId) {
+      return;
+    }
+
+    setClaimErrorMessage("");
+    setIsBulkClaimConfirmOpen(true);
+  };
+
   const handleOpenClaimConfirmation = (stubId) => {
     if (claimingStubId) {
       return;
@@ -97,14 +132,48 @@ const StubDistributionPage = () => {
     }
 
     setPendingClaimStubId("");
+    setIsBulkClaimConfirmOpen(false);
   };
 
   const handleConfirmClaim = async () => {
-    if (!pendingClaimStubId || claimingStubId) {
+    if (claimingStubId) {
       return;
     }
 
     setClaimErrorMessage("");
+
+    if (isBulkClaimConfirmOpen && selectedStubIds.length > 0) {
+      setClaimingStubId("bulk");
+
+      try {
+        await Promise.all(
+          selectedStubIds.map((stubId) =>
+            claimStub({
+              stubId,
+              userId: authenticatedUser?.id || "",
+              overrideBarangayId: allowFallback ? overrideBarangayId : "",
+            }),
+          ),
+        );
+
+        reloadDashboard();
+        setSelectedStubIds([]);
+        setIsBulkClaimConfirmOpen(false);
+      } catch (error) {
+        setClaimErrorMessage(
+          error.message || "Unable to mark the selected stubs as claimed.",
+        );
+      } finally {
+        setClaimingStubId("");
+      }
+
+      return;
+    }
+
+    if (!pendingClaimStubId) {
+      return;
+    }
+
     setClaimingStubId(pendingClaimStubId);
 
     try {
@@ -137,7 +206,6 @@ const StubDistributionPage = () => {
         assignedBarangay={assignedBarangay}
         availableEvents={availableEvents}
         selectedEvent={selectedEvent}
-        summaryCards={summaryCards}
         devBarangayOptions={devBarangayOptions}
         isLoading={isLoading || isLoadingStubDashboard}
         errorMessage={errorMessage}
@@ -152,7 +220,15 @@ const StubDistributionPage = () => {
         setOverrideBarangayId={setOverrideBarangayId}
       />
 
-      <section style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
+      <section
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: "16px",
+          flexWrap: "wrap",
+        }}
+      >
         <div style={{ flex: 1 }}>
           <StubSearchBar
             searchValue={searchTerm}
@@ -162,6 +238,46 @@ const StubDistributionPage = () => {
         </div>
       </section>
 
+      {selectedStubIds.length > 0 ? (
+        <section style={shellStyles.card}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: "12px",
+              flexWrap: "wrap",
+            }}
+          >
+            <p style={{ margin: 0, fontWeight: 700, color: "#24496e" }}>
+              {selectedStubIds.length} selected
+            </p>
+
+            <button
+              type="button"
+              onClick={handleOpenBulkClaimConfirmation}
+              disabled={Boolean(claimingStubId)}
+              style={{
+                border: "1px solid #c6d8ea",
+                borderRadius: "12px",
+                width: "40px",
+                height: "40px",
+                backgroundColor: "#f7fbfe",
+                color: "#24496e",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: claimingStubId ? "not-allowed" : "pointer",
+                opacity: claimingStubId ? 0.7 : 1,
+              }}
+              title="Mark Selected as Claimed"
+            >
+              <FaHandHolding size={18} />
+            </button>
+          </div>
+        </section>
+      ) : null}
+
       <StubResultsTable
         rows={filteredRows}
         isLoading={isLoadingStubDashboard}
@@ -170,13 +286,17 @@ const StubDistributionPage = () => {
         claimingStubId={claimingStubId}
         claimErrorMessage={claimErrorMessage}
         onClaimStub={handleOpenClaimConfirmation}
+        selectedStubIds={selectedStubIds}
+        onToggleSelect={handleToggleSelect}
+        onSelectAll={handleSelectAll}
       />
 
       <StubClaimConfirmModal
-        isOpen={Boolean(pendingClaimStubId)}
+        isOpen={Boolean(pendingClaimStubId) || isBulkClaimConfirmOpen}
         isSubmitting={Boolean(claimingStubId)}
         onCancel={handleCancelClaim}
         onConfirm={handleConfirmClaim}
+        selectedCount={isBulkClaimConfirmOpen ? selectedStubIds.length : 1}
       />
     </>
   );

@@ -45,18 +45,21 @@ const MasterlistDepartureConfirmModal = ({
   isSubmitting,
   onCancel,
   onConfirm,
+  selectedCount = 1, // 👈 supports bulk + single
 }) => {
-  if (!isOpen) {
-    return null;
-  }
+  if (!isOpen) return null;
+
+  const message =
+    selectedCount > 1
+      ? "Are you sure the selected families have departed?"
+      : "Are you sure this family has departed?";
 
   return (
     <div style={modalStyles.overlay}>
       <div style={modalStyles.modal}>
         <h3 style={modalStyles.title}>Confirm Departure</h3>
-        <p style={modalStyles.message}>
-          Are you sure this family has departed?
-        </p>
+
+        <p style={modalStyles.message}>{message}</p>
 
         <div style={modalStyles.actions}>
           <button
@@ -71,6 +74,7 @@ const MasterlistDepartureConfirmModal = ({
           >
             Cancel
           </button>
+
           <button
             type="button"
             onClick={onConfirm}
