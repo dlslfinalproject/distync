@@ -168,7 +168,7 @@ const BarangayDashboardOverview = ({
               <option value="">
                 {`Select ${scopeLabel.toLowerCase()} disaster event`}
               </option>
-              {availableEvents.map((event) => (
+              {(availableEvents || []).map((event) => (
                 <option key={event.id} value={event.id}>
                   {event.event_code} - {event.title}
                 </option>
@@ -194,7 +194,7 @@ const BarangayDashboardOverview = ({
                 style={filterStyles.field}
               >
                 <option value="">Select fallback barangay</option>
-                {devBarangayOptions.map((barangay) => (
+                {(devBarangayOptions || []).map((barangay) => (
                   <option key={barangay.id} value={barangay.id}>
                     {barangay.name}
                   </option>
@@ -265,7 +265,7 @@ const BarangayDashboardOverview = ({
 
       {hasSelectedEvent && (
         <section style={shellStyles.statGrid}>
-          {summaryCards.map((card) => (
+          {(summaryCards || []).map((card) => (
             <StatusCard key={card.label} {...card} />
           ))}
         </section>

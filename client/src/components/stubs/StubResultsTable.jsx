@@ -114,6 +114,9 @@ const StubResultsTable = ({
   claimingStubId,
   claimErrorMessage,
   onClaimStub,
+  selectedStubIds,
+  onToggleSelect,
+  onSelectAll,
 }) => {
   if (!hasSelectedEvent) {
     return (
@@ -166,6 +169,12 @@ const StubResultsTable = ({
     );
   }
 
+  const selectableRows = rows.filter((row) => row.status === "ISSUED");
+
+  const areAllSelected =
+    selectableRows.length > 0 &&
+    selectableRows.every((row) => selectedStubIds.includes(row.id));
+
   return (
     <section style={shellStyles.card}>
       <div style={{ marginBottom: "18px" }}>
@@ -191,6 +200,20 @@ const StubResultsTable = ({
         <table style={tableStyles.table}>
           <thead>
             <tr>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  width: "56px",
+                  textAlign: "center",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={areAllSelected}
+                  onChange={onSelectAll}
+                  disabled={!selectableRows.length}
+                />
+              </th>
               <th style={tableStyles.headerCell}>Family Head</th>
               <th
                 style={{
@@ -212,56 +235,75 @@ const StubResultsTable = ({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
-              <tr key={row.id}>
-                <td style={tableStyles.bodyCell}>
-                  <strong style={{ display: "block", marginBottom: "4px" }}>
-                    {row.household.family_head_name}
-                  </strong>
-                  <span style={{ color: "#69839c" }}>
-                    {row.household.members_count || 0} members
-                  </span>
-                </td>
-                <td
-                  style={{
-                    ...tableStyles.bodyCell,
-                    textAlign: "center",
-                  }}
-                >
-                  <span style={tableStyles.membersBadge}>
-                    {row.stub_sequence_no}
-                  </span>
-                </td>
-                <td style={tableStyles.bodyCell}>{row.sectors_text}</td>
-                <td
-                  style={{
-                    ...tableStyles.bodyCell,
-                    textAlign: "center",
-                    verticalAlign: "middle",
-                  }}
-                >
-                  {row.status === "ISSUED" ? (
-                    <button
-                      type="button"
-                      onClick={() => onClaimStub(row.id)}
-                      disabled={claimingStubId === row.id}
-                      title="Mark as Claimed"
-                      style={{
-                        ...tableStyles.statusButton,
-                        opacity: claimingStubId === row.id ? 0.7 : 1,
-                        cursor: claimingStubId === row.id ? "wait" : "pointer",
-                      }}
-                    >
-                      <FaHandHolding size={18} />
-                    </button>
-                  ) : (
-                    <span style={getStatusChipStyles(row.status)}>
-                      {getStatusLabel(row.status)}
+            {rows.map((row) => {
+              const isSelectable = row.status === "ISSUED";
+              const isSelected = selectedStubIds.includes(row.id);
+
+              return (
+                <tr key={row.id}>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      textAlign: "center",
+                      verticalAlign: "middle",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      disabled={!isSelectable}
+                      onChange={() => onToggleSelect(row.id)}
+                    />
+                  </td>
+                  <td style={tableStyles.bodyCell}>
+                    <strong style={{ display: "block", marginBottom: "4px" }}>
+                      {row.household.family_head_name}
+                    </strong>
+                    <span style={{ color: "#69839c" }}>
+                      {row.household.members_count || 0} members
                     </span>
-                  )}
-                </td>
-              </tr>
-            ))}
+                  </td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      textAlign: "center",
+                    }}
+                  >
+                    <span style={tableStyles.membersBadge}>
+                      {row.stub_sequence_no}
+                    </span>
+                  </td>
+                  <td style={tableStyles.bodyCell}>{row.sectors_text}</td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      textAlign: "center",
+                      verticalAlign: "middle",
+                    }}
+                  >
+                    {row.status === "ISSUED" ? (
+                      <button
+                        type="button"
+                        onClick={() => onClaimStub(row.id)}
+                        disabled={claimingStubId === row.id}
+                        title="Mark as Claimed"
+                        style={{
+                          ...tableStyles.statusButton,
+                          opacity: claimingStubId === row.id ? 0.7 : 1,
+                          cursor: claimingStubId === row.id ? "wait" : "pointer",
+                        }}
+                      >
+                        <FaHandHolding size={18} />
+                      </button>
+                    ) : (
+                      <span style={getStatusChipStyles(row.status)}>
+                        {getStatusLabel(row.status)}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
