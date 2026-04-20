@@ -64,9 +64,7 @@ const AnalyticsDashboardPage = () => {
   return (
     <>
       <PageHeader
-        eyebrow="MSWDO Workspace"
         title="DESCRIPTIVE ANALYTICS DASHBOARD"
-        description="Visual summaries for evacuee distribution, household counts, sectors, and stay type patterns based on the selected disaster event."
       />
 
       <section style={shellStyles.card}>
