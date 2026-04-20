@@ -14,24 +14,39 @@ import {
   updateReliefPackTemplate,
 } from "../../features/relief-pack-templates/reliefPackTemplateService";
 
-const selectStyles = {
-  minHeight: "45px",
-  padding: "0 14px",
-  borderRadius: "8px",
-  border: "1px solid #d3dfec",
-  backgroundColor: "#ffffff",
-  color: "#234260",
-  fontSize: "14px",
-  width: "100%",
+const filterStyles = {
+  field: {
+    width: "100%",
+    padding: "12px 14px",
+    borderRadius: "12px",
+    border: "1px solid #cfddeb",
+    backgroundColor: "#f8fbfe",
+    color: "#1f3b57",
+    fontSize: "14px",
+    boxSizing: "border-box",
+    outline: "none",
+  },
+  label: {
+    display: "block",
+    marginBottom: "8px",
+    color: "#5f7892",
+    fontSize: "12px",
+    fontWeight: 700,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+  },
 };
 
 const tabTextStyle = (isActive) => ({
-  fontSize: "15px",
-  fontWeight: "600",
-  padding: "10px 0",
+  padding: "12px 24px",
+  border: "none",
+  background: "none",
+  fontSize: "14px",
+  fontWeight: 700,
+  textTransform: "uppercase",
+  color: isActive ? "#17324d" : "#6b8298",
+  borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
   cursor: "pointer",
-  color: isActive ? "#234260" : "#8a9eb1",
-  borderBottom: isActive ? "3px solid #234260" : "3px solid transparent",
   transition: "all 0.2s ease",
 });
 
@@ -41,10 +56,24 @@ const summaryBoxStyle = {
   padding: "20px",
   marginBottom: "15px",
   color: "#234260",
+  border: "1px solid rgba(35, 66, 96, 0.08)",
+};
+
+const cardTitleStyle = {
+  margin: "0 0 20px",
+  fontSize: "18px",
+  fontWeight: 800,
+  color: "#17324d",
+};
+
+const helperTextStyle = {
+  margin: 0,
+  color: "#6b8298",
+  fontSize: "14px",
 };
 
 const ReliefPackTemplatesPage = () => {
-  const [activeTab, setActiveTab] = useState("relief-packs"); // 'relief-packs' or 'customization'
+  const [activeTab, setActiveTab] = useState("relief-packs");
   const [filters, setFilters] = useState({ search: "", is_active: "" });
   const [templates, setTemplates] = useState([]);
   const [inventoryItems, setInventoryItems] = useState([]);
@@ -105,7 +134,9 @@ const ReliefPackTemplatesPage = () => {
     await loadTemplateDetail(templateId);
   };
 
-  const handleCloseModal = () => { if (!isSubmitting) setIsModalOpen(false); };
+  const handleCloseModal = () => {
+    if (!isSubmitting) setIsModalOpen(false);
+  };
 
   const handleSubmitModal = async (payload) => {
     setIsSubmitting(true);
@@ -142,90 +173,266 @@ const ReliefPackTemplatesPage = () => {
       <PageHeader
         eyebrow="Inventory"
         title="RELIEF PACK MANAGEMENT"
-        actions={[{ label: "Create Relief Pack", onClick: handleOpenCreateModal }]}
+        actions={[
+          { label: "Create Relief Pack", onClick: handleOpenCreateModal },
+        ]}
       />
 
-      {/* Tabs Navigation */}
-      <div style={{ display: "flex", gap: "30px", borderBottom: "1px solid #e0e0e0", marginBottom: "2px" }}>
-        <span 
-          style={tabTextStyle(activeTab === "relief-packs")} 
-          onClick={() => setActiveTab("relief-packs")}
+      <section style={shellStyles.card}>
+        <div
+          style={{
+            display: "flex",
+            borderBottom: "1px solid #d6e2ef",
+            marginBottom: "24px",
+            gap: "8px",
+            flexWrap: "wrap",
+          }}
         >
-          RELIEF PACKS
-        </span>
-        <span 
-          style={tabTextStyle(activeTab === "customization")} 
-          onClick={() => setActiveTab("customization")}
-        >
-          PACK CUSTOMIZATION
-        </span>
-      </div>
+          <button
+            type="button"
+            style={tabTextStyle(activeTab === "relief-packs")}
+            onClick={() => setActiveTab("relief-packs")}
+          >
+            Relief Packs
+          </button>
+          <button
+            type="button"
+            style={tabTextStyle(activeTab === "customization")}
+            onClick={() => setActiveTab("customization")}
+          >
+            Pack Customization
+          </button>
+        </div>
 
-      {activeTab === "relief-packs" ? (
-        <section>
-          <div style={{ marginBottom: "20px" }}>
-            <label style={{ fontSize: "14px", color: "#555", fontWeight: "600" }}>Select Disaster Event</label>
-            <select style={selectStyles}>
-              <option>-- Select Disaster Event --</option>
-            </select>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
-            {/* Basic Relief Packs Column */}
-            <div style={shellStyles.card}>
-              <h2 style={{ fontSize: "18px", fontWeight: "700", marginBottom: "20px" }}>BASIC RELIEF PACKS</h2>
-              <div style={summaryBoxStyle}>
-                <p style={{ margin: 0, fontWeight: "600" }}>Packs We Can Create</p>
-                <h1 style={{ fontSize: "36px", margin: "5px 0" }}>1,000</h1>
-              </div>
-              <div style={summaryBoxStyle}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <p style={{ margin: 0, fontWeight: "600" }}>Needed Items</p>
-                  <h1 style={{ fontSize: "36px", margin: 0 }}>300</h1>
-                </div>
-                <div style={{ fontSize: "12px", marginTop: "10px", display: "grid", gridTemplateColumns: "1fr 1fr" }}>
-                  <span>Barangay Bagong Pook: 100</span>
-                  <span>Barangay Poblacion: 20</span>
-                </div>
+        {activeTab === "relief-packs" ? (
+          <>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "16px",
+                alignItems: "end",
+                marginBottom: "24px",
+              }}
+            >
+              <div>
+                <label style={filterStyles.label}>Active Disaster Event</label>
+                <select style={filterStyles.field}>
+                  <option>-- Select Disaster Event --</option>
+                </select>
               </div>
             </div>
 
-            {/* Hygiene Kit Column */}
-            <div style={shellStyles.card}>
-              <h2 style={{ fontSize: "18px", fontWeight: "700", marginBottom: "20px" }}>Hygiene Kit</h2>
-              <div style={summaryBoxStyle}>
-                <p style={{ margin: 0, fontWeight: "600" }}>Packs We Can Create</p>
-                <h1 style={{ fontSize: "36px", margin: "5px 0" }}>100</h1>
-              </div>
-              <div style={summaryBoxStyle}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <p style={{ margin: 0, fontWeight: "600" }}>Needed Items</p>
-                  <h1 style={{ fontSize: "36px", margin: 0 }}>200</h1>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+                gap: "20px",
+              }}
+            >
+              <div style={shellStyles.card}>
+                <h2 style={cardTitleStyle}>BASIC RELIEF PACKS</h2>
+
+                <div style={summaryBoxStyle}>
+                  <p style={{ margin: 0, fontWeight: 700, fontSize: "15px" }}>
+                    Packs We Can Create
+                  </p>
+                  <h1
+                    style={{
+                      fontSize: "36px",
+                      margin: "8px 0 0",
+                      fontWeight: 800,
+                      lineHeight: 1.1,
+                    }}
+                  >
+                    1,000
+                  </h1>
+                </div>
+
+                <div style={summaryBoxStyle}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <p style={{ margin: 0, fontWeight: 700, fontSize: "15px" }}>
+                      Needed Items
+                    </p>
+                    <h1
+                      style={{
+                        fontSize: "36px",
+                        margin: 0,
+                        fontWeight: 800,
+                        lineHeight: 1.1,
+                      }}
+                    >
+                      300
+                    </h1>
+                  </div>
+
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      marginTop: "12px",
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: "8px 12px",
+                      color: "#234260",
+                      fontWeight: 600,
+                    }}
+                  >
+                    <span>Barangay Bagong Pook: 100</span>
+                    <span>Barangay Poblacion: 20</span>
+                  </div>
                 </div>
               </div>
-              <div style={{ ...summaryBoxStyle, backgroundColor: "#f8d7da", color: "#721c24" }}>
-                <p style={{ margin: 0, fontWeight: "700" }}>Low Stocks</p>
-                <p style={{ fontSize: "12px", margin: "5px 0 0" }}>Toothpaste will drop below reorder level (50)</p>
+
+              <div style={shellStyles.card}>
+                <h2 style={cardTitleStyle}>HYGIENE KIT</h2>
+
+                <div style={summaryBoxStyle}>
+                  <p style={{ margin: 0, fontWeight: 700, fontSize: "15px" }}>
+                    Packs We Can Create
+                  </p>
+                  <h1
+                    style={{
+                      fontSize: "36px",
+                      margin: "8px 0 0",
+                      fontWeight: 800,
+                      lineHeight: 1.1,
+                    }}
+                  >
+                    100
+                  </h1>
+                </div>
+
+                <div style={summaryBoxStyle}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <p style={{ margin: 0, fontWeight: 700, fontSize: "15px" }}>
+                      Needed Items
+                    </p>
+                    <h1
+                      style={{
+                        fontSize: "36px",
+                        margin: 0,
+                        fontWeight: 800,
+                        lineHeight: 1.1,
+                      }}
+                    >
+                      200
+                    </h1>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    ...summaryBoxStyle,
+                    backgroundColor: "#f8d7da",
+                    color: "#721c24",
+                  }}
+                >
+                  <p style={{ margin: 0, fontWeight: 800, fontSize: "15px" }}>
+                    Low Stocks
+                  </p>
+                  <p
+                    style={{
+                      fontSize: "12px",
+                      margin: "8px 0 0",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Toothpaste will drop below reorder level (50)
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
-        </section>
-      ) : (
-        <>
-          <ReliefPackTemplatesTable
-            rows={templates}
-            isLoading={isLoading}
-            onSelectTemplate={loadTemplateDetail}
-            onEditTemplate={handleOpenEditModal}
-          />
-          <ReliefPackTemplateItemsEditor
-            template={selectedTemplate}
-            inventoryItems={inventoryItems}
-            isSaving={isSavingItems}
-            onSaveItems={handleSaveItems}
-          />
-        </>
-      )}
+          </>
+        ) : (
+          <>
+            <section style={{ ...shellStyles.card, marginBottom: "16px" }}>
+              <div style={{ marginBottom: "16px" }}>
+                <p
+                  style={{
+                    margin: 0,
+                    color: "#17324d",
+                    fontSize: "18px",
+                    fontWeight: 800,
+                  }}
+                >
+                  Relief Pack Templates
+                </p>
+                <p style={{ ...helperTextStyle, marginTop: "8px" }}>
+                  Manage the pack structure, included items, and customization
+                  for each relief pack template.
+                </p>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  flexWrap: "wrap",
+                }}
+              >
+                <div style={{ flex: 1, minWidth: "240px" }}>
+                  <SearchBar
+                    value={filters.search}
+                    onChange={(value) =>
+                      setFilters((prev) => ({ ...prev, search: value }))
+                    }
+                    placeholder="Search relief pack templates"
+                  />
+                </div>
+              </div>
+            </section>
+
+            <section style={{ ...shellStyles.card, marginBottom: "16px" }}>
+              <ReliefPackTemplatesTable
+                rows={templates}
+                isLoading={isLoading}
+                onSelectTemplate={loadTemplateDetail}
+                onEditTemplate={handleOpenEditModal}
+              />
+            </section>
+
+            <section style={shellStyles.card}>
+              <ReliefPackTemplateItemsEditor
+                template={selectedTemplate}
+                inventoryItems={inventoryItems}
+                isSaving={isSavingItems}
+                onSaveItems={handleSaveItems}
+              />
+
+              {errorMessage ? (
+                <p style={{ ...helperTextStyle, marginTop: "16px", color: "#b42318" }}>
+                  {errorMessage}
+                </p>
+              ) : null}
+
+              {itemsErrorMessage ? (
+                <p style={{ ...helperTextStyle, marginTop: "12px", color: "#b42318" }}>
+                  {itemsErrorMessage}
+                </p>
+              ) : null}
+
+              {successMessage ? (
+                <p style={{ ...helperTextStyle, marginTop: "12px", color: "#17663a" }}>
+                  {successMessage}
+                </p>
+              ) : null}
+            </section>
+          </>
+        )}
+      </section>
 
       <ReliefPackTemplateFormModal
         isOpen={isModalOpen}
