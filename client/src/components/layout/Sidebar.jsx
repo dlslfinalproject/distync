@@ -136,6 +136,7 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
       navItems: [
         { label: "Disaster Events", to: "/mswdo/disaster-events" },
         { label: "Evacuee Masterlist", to: "/mswdo/consolidated-masterlist" },
+        { label: "Relief Goods Distribution", to: "/mswdo/stub-distribution" },
         { label: "Analytics Dashboard", to: "/mswdo/analytics" },
       ],
     },

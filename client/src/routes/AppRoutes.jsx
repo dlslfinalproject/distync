@@ -19,6 +19,7 @@ import DonationInformationPage from "../pages/donor/DonationInformationPage";
 import AnalyticsDashboardPage from "../pages/mswdo/AnalyticsDashboardPage";
 import ConsolidatedMasterlistPage from "../pages/mswdo/ConsolidatedMasterlistPage";
 import DisasterEventsPage from "../pages/mswdo/DisasterEventsPage";
+import StubDistributionPageMswdo from "../pages/mswdo/StubDistributionPage";
 import RoleSwitcherPage from "../pages/RoleSwitcherPage";
 import SuppliersPage from "../pages/inventory/SuppliersPage";
 import { useAuth } from "../context/AuthContext";
@@ -82,6 +83,10 @@ const AppRoutes = () => {
           <Route
             path="consolidated-masterlist"
             element={<ConsolidatedMasterlistPage />}
+          />
+          <Route
+            path="stub-distribution"
+            element={<StubDistributionPageMswdo />}
           />
           <Route path="disaster-events" element={<DisasterEventsPage />} />
         </Route>
