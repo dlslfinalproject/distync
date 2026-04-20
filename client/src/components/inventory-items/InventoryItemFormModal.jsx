@@ -1,137 +1,61 @@
 import React, { useEffect, useState } from "react";
-
-const COLORS = {
-  primary: "#17324d",
-  secondary: "#334155",
-  muted: "#6b8298",
-  label: "#475569",
-  border: "#dce7f3",
-  borderSoft: "#e2e8f0",
-  bg: "#ffffff",
-  bgSoft: "#f8fbff",
-  bgInput: "#f8fafc",
-  overlay: "rgba(15, 23, 42, 0.42)",
-  dangerBg: "#fff1f2",
-  dangerText: "#e11d48",
-  dangerBorder: "#ffe4e6",
-  primaryBtn: "#3d4f78",
-  secondaryBtn: "#e5e7eb",
-};
+import { pageHeaderStyles } from "../layout/PageHeader";
+import { shellStyles } from "../layout/BarangayLayout";
+import { FiX } from "react-icons/fi";
 
 const overlayStyles = {
   position: "fixed",
   inset: 0,
-  backgroundColor: COLORS.overlay,
+  backgroundColor: "rgba(21, 40, 63, 0.48)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   padding: "24px",
   zIndex: 1000,
-  backdropFilter: "blur(4px)",
 };
 
 const modalStyles = {
-  width: "min(780px, 100%)",
+  width: "min(860px, 100%)",
   maxHeight: "90vh",
   overflowY: "auto",
-  backgroundColor: COLORS.bg,
-  borderRadius: "20px",
-  border: `1px solid ${COLORS.border}`,
-  boxShadow: "0 24px 60px rgba(23, 50, 77, 0.22)",
-  padding: "28px 28px 24px",
+  backgroundColor: "#eef5fb",
+  borderRadius: "22px",
+  border: "1px solid #d7e2ef",
+  boxShadow: "0 24px 60px rgba(23, 50, 77, 0.18)",
+  padding: "24px",
   boxSizing: "border-box",
 };
 
 const inputStyles = {
   width: "100%",
-  minHeight: "46px",
+  minHeight: "48px",
   padding: "12px 14px",
-  borderRadius: "12px",
-  border: `1px solid ${COLORS.borderSoft}`,
+  borderRadius: "14px",
+  border: "1px solid #d2deea",
   boxSizing: "border-box",
   fontSize: "14px",
-  fontWeight: 500,
-  color: COLORS.secondary,
-  backgroundColor: COLORS.bgInput,
+  color: "#21405f",
+  backgroundColor: "#ffffff",
   outline: "none",
-  transition: "border-color 0.2s ease, box-shadow 0.2s ease",
 };
 
 const labelStyles = {
   display: "block",
   marginBottom: "8px",
-  color: COLORS.label,
-  fontSize: "12px",
+  color: "#4f677f",
+  fontSize: "13px",
   fontWeight: 700,
-  textTransform: "uppercase",
-  letterSpacing: "0.04em",
 };
-
-const sectionHeaderStyles = {
-  marginBottom: "28px",
-  borderBottom: "1px solid #edf2f7",
-  paddingBottom: "18px",
-};
-
-const titleStyles = {
-  margin: 0,
-  color: COLORS.primary,
-  fontSize: "24px",
-  fontWeight: 700,
-  lineHeight: 1.2,
-};
-
-const subtitleStyles = {
-  margin: "6px 0 0",
-  color: COLORS.muted,
-  fontSize: "14px",
-  fontWeight: 500,
-};
-
-const footerStyles = {
-  display: "flex",
-  justifyContent: "flex-end",
-  gap: "12px",
-  marginTop: "36px",
-  borderTop: "1px solid #edf2f7",
-  paddingTop: "22px",
-  flexWrap: "wrap",
-};
-
-const cancelButtonStyles = {
-  border: "none",
-  borderRadius: "999px",
-  padding: "12px 22px",
-  backgroundColor: COLORS.secondaryBtn,
-  color: COLORS.secondary,
-  fontSize: "14px",
-  fontWeight: 600,
-  cursor: "pointer",
-  minWidth: "120px",
-};
-
-const submitButtonStyles = (isSubmitting) => ({
-  border: "none",
-  borderRadius: "999px",
-  padding: "12px 24px",
-  backgroundColor: COLORS.primaryBtn,
-  color: "#ffffff",
-  fontSize: "14px",
-  fontWeight: 600,
-  cursor: isSubmitting ? "not-allowed" : "pointer",
-  opacity: isSubmitting ? 0.7 : 1,
-  minWidth: "160px",
-});
 
 const errorBoxStyles = {
-  marginTop: "22px",
+  marginTop: "4px",
   padding: "12px 14px",
-  borderRadius: "10px",
-  backgroundColor: COLORS.dangerBg,
-  color: COLORS.dangerText,
+  borderRadius: "12px",
+  backgroundColor: "#fff1f2",
+  color: "#e11d48",
   fontSize: "13px",
   fontWeight: 500,
-  border: `1px solid ${COLORS.dangerBorder}`,
+  border: "1px solid #ffe4e6",
 };
 
 const createDefaultForm = () => ({
@@ -177,42 +101,118 @@ const InventoryItemFormModal = ({
     setFormValues((prev) => ({ ...prev, [fieldName]: value }));
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
+  const handleSubmit = (event) => {
+    event.preventDefault();
     onSubmit(formValues);
   };
 
   return (
-    <div style={overlayStyles} onClick={onClose}>
-      <div style={modalStyles} onClick={(e) => e.stopPropagation()}>
-        <div style={sectionHeaderStyles}>
-          <h3 style={titleStyles}>
-            {mode === "edit" ? "Edit Inventory Item" : "Add Item"}
-          </h3>
-          <p style={subtitleStyles}>Item Information</p>
+    <div style={overlayStyles}>
+      <div style={modalStyles}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: "16px",
+            marginBottom: "20px",
+          }}
+        >
+          <div>
+            <h3 style={{ margin: 0, color: "#17324d", fontSize: "26px" }}>
+              {mode === "edit" ? "Edit Inventory Item" : "Add Item"}
+            </h3>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            style={pageHeaderStyles.secondaryButton}
+          >
+            <FiX />
+          </button>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <div style={{ display: "flex", flexDirection: "column", gap: "22px" }}>
-            <div>
-              <label htmlFor="item_name" style={labelStyles}>
-                Item Name
-              </label>
-              <input
-                id="item_name"
-                placeholder="e.g. Canned Goods"
-                value={formValues.item_name}
-                onChange={(e) => handleChange("item_name", e.target.value)}
-                style={inputStyles}
-                required
-              />
-            </div>
+        <form
+          onSubmit={handleSubmit}
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "18px",
+          }}
+        >
+          {/* SECTION 1 */}
+          <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
+            <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
+              Item Information
+            </h3>
 
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-                gap: "16px",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "18px",
+              }}
+            >
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label htmlFor="item_name" style={labelStyles}>
+                  Item Name
+                </label>
+                <input
+                  id="item_name"
+                  type="text"
+                  placeholder="Enter item name"
+                  value={formValues.item_name}
+                  onChange={(e) => handleChange("item_name", e.target.value)}
+                  style={inputStyles}
+                  required
+                />
+              </div>
+
+              <div>
+                <label htmlFor="category" style={labelStyles}>
+                  Category
+                </label>
+                <select
+                  id="category"
+                  value={formValues.category}
+                  onChange={(e) => handleChange("category", e.target.value)}
+                  style={inputStyles}
+                >
+                  <option value="perishable">Perishable</option>
+                  <option value="non-perishable">Non-Perishable</option>
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="unit_of_measure" style={labelStyles}>
+                  Unit of Measure
+                </label>
+                <input
+                  id="unit_of_measure"
+                  type="text"
+                  placeholder="pcs, kg, box, etc."
+                  value={formValues.unit_of_measure}
+                  onChange={(e) =>
+                    handleChange("unit_of_measure", e.target.value)
+                  }
+                  style={inputStyles}
+                />
+              </div>
+            </div>
+          </section>
+
+          {/* SECTION 2 */}
+          <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
+            <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
+              Stock Details
+            </h3>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "18px",
               }}
             >
               <div>
@@ -231,57 +231,19 @@ const InventoryItemFormModal = ({
               </div>
 
               <div>
-                <label htmlFor="unit_of_measure" style={labelStyles}>
-                  Unit (UOM)
-                </label>
-                <input
-                  id="unit_of_measure"
-                  placeholder="pcs, kg, etc."
-                  value={formValues.unit_of_measure}
-                  onChange={(e) =>
-                    handleChange("unit_of_measure", e.target.value)
-                  }
-                  style={inputStyles}
-                />
-              </div>
-
-              <div>
                 <label htmlFor="reorder_level" style={labelStyles}>
                   Reorder Level
                 </label>
                 <input
                   id="reorder_level"
                   type="number"
-                  placeholder="Low stock alert"
+                  placeholder="Set alert threshold"
                   value={formValues.reorder_level}
                   onChange={(e) =>
                     handleChange("reorder_level", e.target.value)
                   }
                   style={inputStyles}
                 />
-              </div>
-            </div>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                gap: "16px",
-              }}
-            >
-              <div>
-                <label htmlFor="category" style={labelStyles}>
-                  Category
-                </label>
-                <select
-                  id="category"
-                  value={formValues.category}
-                  onChange={(e) => handleChange("category", e.target.value)}
-                  style={{ ...inputStyles, cursor: "pointer" }}
-                >
-                  <option value="perishable">Perishable</option>
-                  <option value="non-perishable">Non-Perishable</option>
-                </select>
               </div>
 
               <div>
@@ -299,22 +261,35 @@ const InventoryItemFormModal = ({
                 />
               </div>
             </div>
-          </div>
+          </section>
 
           {errorMessage && <div style={errorBoxStyles}>{errorMessage}</div>}
 
-          <div style={footerStyles}>
+          {/* ACTIONS */}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              gap: "12px",
+              marginTop: "10px",
+              flexWrap: "wrap",
+            }}
+          >
             <button
               type="button"
               onClick={onClose}
-              style={cancelButtonStyles}
+              style={pageHeaderStyles.secondaryButton}
             >
               Cancel
             </button>
+
             <button
               type="submit"
               disabled={isSubmitting}
-              style={submitButtonStyles(isSubmitting)}
+              style={{
+                ...pageHeaderStyles.primaryButton,
+                opacity: isSubmitting ? 0.7 : 1,
+              }}
             >
               {isSubmitting
                 ? "Processing..."
@@ -329,4 +304,4 @@ const InventoryItemFormModal = ({
   );
 };
 
-export default InventoryItemFormModal; 
+export default InventoryItemFormModal;

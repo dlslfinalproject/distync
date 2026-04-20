@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import PageHeader from "../../components/layout/PageHeader";
+import PageHeader, {
+  pageHeaderStyles,
+} from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import SearchBar from "../../components/shared/SearchBar";
 import InventoryItemFormModal from "../../components/inventory-items/InventoryItemFormModal";
@@ -10,18 +12,59 @@ import {
   fetchInventoryItems,
   updateInventoryItem,
 } from "../../features/inventory-items/inventoryItemService";
+import {
+  FiFileText,
+  FiFilter,
+  FiPackage,
+  FiPlus,
+  FiX,
+} from "react-icons/fi";
+import { MdQrCodeScanner } from "react-icons/md";
 
 /* ================= STYLES ================= */
 
-const actionBtn = {
+const COLORS = {
+  primary: "#17324d",
+  secondary: "#334155",
+  muted: "#6b8298",
+  border: "#d6e2ef",
+  borderSoft: "#e7edf5",
+  bgSoft: "#f8fbff",
+  bgHeader: "#f1f6fb",
+  chipBg: "#d7dee9",
+  tabBorder: "#9aa6b2",
+  greenCard: "#a8c1ba",
+  redCard: "#d9b8b0",
+  pinkCard: "#ccb1b7",
+};
+
+const primaryTopBtn = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "8px",
   border: "none",
-  borderRadius: "12px",
-  padding: "10px 16px",
-  background: "#eef4fb",
-  fontWeight: 600,
-  color: "#334155",
+  borderRadius: "14px",
+  padding: "12px 18px",
+  background: "linear-gradient(135deg, #2f6499 0%, #4c86be 100%)",
+  color: "#ffffff",
+  fontSize: "14px",
+  fontWeight: 700,
   cursor: "pointer",
-  transition: "all 0.2s ease",
+  boxShadow: "0 12px 24px rgba(58, 97, 141, 0.18)",
+};
+
+const secondaryTopBtn = {
+  border: "1px solid #c6d8ea",
+  borderRadius: "14px",
+  padding: "12px 18px",
+  backgroundColor: "#f8fbfe",
+  color: "#2a4c6f",
+  fontSize: "14px",
+  fontWeight: 700,
+  cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "8px",
 };
 
 const primaryModalBtn = {
@@ -30,7 +73,7 @@ const primaryModalBtn = {
   padding: "12px 24px",
   background: "#3d4f78",
   color: "#fff",
-  fontSize: "16px",
+  fontSize: "15px",
   fontWeight: 600,
   cursor: "pointer",
   minWidth: "120px",
@@ -43,51 +86,54 @@ const secondaryModalBtn = {
   padding: "12px 24px",
   background: "#d9d9d9",
   color: "#3f4d63",
-  fontSize: "16px",
+  fontSize: "15px",
   fontWeight: 500,
   cursor: "pointer",
   minWidth: "120px",
   transition: "all 0.2s ease",
 };
 
-const cardStyle = {
-  background: "#f8fbff",
-  border: "1px solid #dce7f3",
-  borderRadius: "16px",
-  padding: "16px",
+const cardBaseStyle = {
+  borderRadius: "8px",
+  padding: "16px 18px",
+  border: "1px solid rgba(47, 63, 93, 0.35)",
+  boxShadow: "0 2px 6px rgba(23, 50, 77, 0.10)",
+  minHeight: "104px",
 };
 
 const analyticsCard = {
-  background: "#f8fbff",
-  border: "1px solid #dce7f3",
-  borderRadius: "16px",
+  background: COLORS.bgSoft,
+  border: `1px solid ${COLORS.border}`,
+  borderRadius: "14px",
   padding: "16px",
 };
 
 const chipGroupStyle = {
   display: "flex",
-  background: "#cbd5e1",
-  borderRadius: "8px",
+  background: COLORS.chipBg,
+  borderRadius: "7px",
   padding: "2px",
   gap: "1px",
+  flexWrap: "wrap",
 };
 
 const getChipStyle = (isActive) => ({
   border: "none",
   borderRadius: "6px",
-  padding: "4px 12px",
-  fontSize: "12px",
-  fontWeight: "600",
+  padding: "3px 10px",
+  fontSize: "11px",
+  fontWeight: 600,
   cursor: "pointer",
-  backgroundColor: isActive ? "#334155" : "transparent",
-  color: isActive ? "#fff" : "#64748b",
+  backgroundColor: isActive ? COLORS.primary : "transparent",
+  color: isActive ? "#fff" : COLORS.muted,
   transition: "all 0.2s",
+  lineHeight: 1.2,
 });
 
 const scanModalOverlayStyle = {
   position: "fixed",
   inset: 0,
-  background: "rgba(15, 23, 42, 0.42)",
+  backgroundColor: "rgba(21, 40, 63, 0.48)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -96,31 +142,254 @@ const scanModalOverlayStyle = {
 };
 
 const scanModalStyle = {
-  width: "100%",
-  maxWidth: "640px",
-  background: "#f8fafc",
-  borderRadius: "18px",
-  padding: "28px 24px 18px",
-  boxShadow: "0 24px 60px rgba(15, 23, 42, 0.22)",
+  width: "min(860px, 100%)",
+  maxHeight: "90vh",
+  overflowY: "auto",
+  backgroundColor: "#eef5fb",
+  borderRadius: "22px",
+  border: "1px solid #d7e2ef",
+  boxShadow: "0 24px 60px rgba(23, 50, 77, 0.18)",
+  padding: "24px",
+  boxSizing: "border-box",
 };
 
 const scanModalInputStyle = {
   width: "100%",
-  height: "42px",
-  border: "none",
-  borderRadius: "10px",
-  background: "#eef2f7",
-  padding: "1px",
-  fontSize: "15px",
-  color: "#334155",
+  minHeight: "48px",
+  padding: "12px 14px",
+  borderRadius: "14px",
+  border: "1px solid #d2deea",
+  boxSizing: "border-box",
+  fontSize: "14px",
+  color: "#21405f",
+  backgroundColor: "#ffffff",
   outline: "none",
 };
 
 const scanModalLabelStyle = {
-  fontSize: "14px",
-  fontWeight: 700,
-  color: "#334155",
+  display: "block",
   marginBottom: "8px",
+  color: "#4f677f",
+  fontSize: "13px",
+  fontWeight: 700,
+};
+
+const styles = {
+  topActionsRow: {
+    display: "flex",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    marginBottom: "16px",
+    flexWrap: "wrap",
+    gap: "12px",
+  },
+
+  summaryGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(220px, 1fr))",
+    gap: "22px",
+    marginBottom: "16px",
+  },
+
+  summaryLabel: {
+    margin: 0,
+    fontSize: "13px",
+    color: "#1e3a5f",
+    fontWeight: 700,
+  },
+
+  summaryValue: {
+    fontSize: "28px",
+    margin: "8px 0 6px",
+    fontWeight: 800,
+    color: "#1e3a5f",
+    lineHeight: 1.05,
+  },
+
+  summarySubtext: {
+    fontSize: "13px",
+    color: "#1e3a5f",
+    opacity: 0.9,
+  },
+
+  tabContainer: {
+    display: "flex",
+    alignItems: "flex-end",
+    gap: "28px",
+    borderBottom: `2px solid ${COLORS.tabBorder}`,
+    marginBottom: "20px",
+  },
+
+  tab: {
+    cursor: "pointer",
+    paddingBottom: "7px",
+    fontSize: "18px",
+    color: "#1e3a5f",
+    lineHeight: 1.2,
+  },
+
+  sectionTitle: {
+    margin: "0 0 12px 0",
+    fontWeight: 800,
+    fontSize: "24px",
+    color: "#2f3f5d",
+    lineHeight: 1.1,
+  },
+
+  filterRow: {
+    display: "flex",
+    gap: "12px",
+    alignItems: "center",
+    marginBottom: "8px",
+    flexWrap: "wrap",
+  },
+
+  filterBtn: {
+    border: "1px solid #c6d8ea",
+    borderRadius: "14px",
+    padding: "12px 18px",
+    backgroundColor: "#f8fbfe",
+    color: "#2a4c6f",
+    fontSize: "14px",
+    fontWeight: 700,
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "8px",
+  },
+
+  inlineFilters: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    marginTop: "2px",
+    flexWrap: "wrap",
+    color: COLORS.primary,
+    fontSize: "13px",
+    fontWeight: 600,
+    marginBottom: "16px",
+  },
+
+  tableWrap: {
+    marginTop: "10px",
+    overflowX: "auto",
+  },
+
+  table: {
+    width: "100%",
+    borderCollapse: "collapse",
+    background: "transparent",
+  },
+
+  th: {
+    textAlign: "left",
+    padding: "10px 8px",
+    fontSize: "13px",
+    color: COLORS.primary,
+    fontWeight: 700,
+    borderBottom: "none",
+  },
+
+  tr: {
+    borderBottom: `1px solid ${COLORS.borderSoft}`,
+  },
+
+  td: {
+    padding: "10px 8px",
+    fontSize: "13px",
+    color: COLORS.secondary,
+    verticalAlign: "middle",
+  },
+
+  emptyStateCell: {
+    padding: "16px 8px",
+    fontSize: "14px",
+    color: COLORS.secondary,
+  },
+
+  actionIconBtn: {
+    border: "none",
+    background: "transparent",
+    color: COLORS.primary,
+    fontSize: "17px",
+    cursor: "pointer",
+    padding: 0,
+    lineHeight: 1,
+  },
+
+  exportMenu: {
+    position: "absolute",
+    right: 0,
+    top: "52px",
+    background: "#fff",
+    borderRadius: "10px",
+    boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+    padding: "8px",
+    minWidth: "170px",
+    zIndex: 20,
+  },
+
+  exportMenuButton: {
+    width: "100%",
+    border: "none",
+    background: "transparent",
+    textAlign: "left",
+    padding: "8px",
+    cursor: "pointer",
+    color: "#1f3b57",
+    fontSize: "14px",
+  },
+
+  addItemIconWrap: {
+    position: "relative",
+    width: "18px",
+    height: "18px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  addItemPlus: {
+    position: "absolute",
+    right: "-5px",
+    bottom: "-4px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#ffffff",
+    background: "transparent",
+    padding: 0,
+    borderRadius: 0,
+    boxShadow: "none",
+    lineHeight: 1,
+  },
+
+  scanModalHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: "16px",
+    marginBottom: "20px",
+  },
+
+  scanModalTitle: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "26px",
+  },
+
+  scanModalSectionTitle: {
+    margin: "0 0 12px",
+    color: "#17324d",
+  },
+
+  scanModalFooter: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "12px",
+    marginTop: "10px",
+    flexWrap: "wrap",
+  },
 };
 
 /* ================= HELPERS ================= */
@@ -156,6 +425,9 @@ const InventoryItemsPage = () => {
     barcodeNumber: "",
     reorderLevel: "",
   });
+
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState("");
 
   /* ================= DATA LOADING ================= */
 
@@ -252,198 +524,197 @@ const InventoryItemsPage = () => {
   };
 
   const handleSubmitScanModal = () => {
-    // Placeholder submit logic for now
     console.log("Scan item submitted:", scanForm);
     setIsScanModalOpen(false);
+  };
+
+  /* ================= EXPORT ================= */
+
+  const handleExport = async (format) => {
+    if (inventoryItems.length === 0) {
+      window.alert("No inventory items are available to export.");
+      setExportOpen(false);
+      return;
+    }
+
+    setExportingFormat(format);
+    setExportOpen(false);
+
+    try {
+      window.alert(`Exporting inventory items as ${format.toUpperCase()}...`);
+    } catch (_error) {
+      window.alert("Unable to export inventory items. Please try again.");
+    } finally {
+      setExportingFormat("");
+    }
   };
 
   /* ================= UI ================= */
 
   return (
     <>
-      <PageHeader
-        eyebrow="Inventory Workspace"
-        title="INVENTORY ITEMS"
-        description="Manage inventory items and monitor stock insights."
-      />
+      <PageHeader title="INVENTORY MANAGEMENT" />
 
       <section style={shellStyles.card}>
         {/* TOP ACTIONS */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "20px",
-            flexWrap: "wrap",
-            gap: "12px",
-          }}
-        >
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            <button style={actionBtn} onClick={handleOpenScanModal}>
-              Scan Item
+        <div style={styles.topActionsRow}>
+          <button style={primaryTopBtn} onClick={handleOpenScanModal}>
+            <MdQrCodeScanner size={16} />
+            Scan Item
+          </button>
+
+          <button style={primaryTopBtn} onClick={handleOpenCreateModal}>
+            <span style={styles.addItemIconWrap}>
+              <FiPackage size={16} />
+              <span style={styles.addItemPlus}>
+                <FiPlus size={10} strokeWidth={3} />
+              </span>
+            </span>
+            Add Item
+          </button>
+
+          <div style={{ position: "relative" }}>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setExportOpen(!exportOpen);
+              }}
+              disabled={Boolean(exportingFormat)}
+              style={{
+                ...secondaryTopBtn,
+                opacity: exportingFormat ? 0.7 : 1,
+                cursor: exportingFormat ? "not-allowed" : "pointer",
+              }}
+            >
+              <FiFileText size={16} />
+              {exportingFormat
+                ? `Exporting ${exportingFormat.toUpperCase()}...`
+                : "Export Report"}
             </button>
-            <button style={actionBtn} onClick={handleOpenCreateModal}>
-              Add Item
-            </button>
-            <button style={actionBtn}>Export Report</button>
+
+            {exportOpen && (
+              <div style={styles.exportMenu}>
+                {[
+                  { key: "csv", label: "Export as CSV" },
+                  { key: "pdf", label: "Export as PDF" },
+                  { key: "excel", label: "Export as Excel" },
+                ].map((option) => (
+                  <button
+                    key={option.key}
+                    type="button"
+                    onClick={() => handleExport(option.key)}
+                    style={styles.exportMenuButton}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
         {/* SUMMARY CARDS */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: "16px",
-            marginBottom: "24px",
-          }}
-        >
-          <div style={cardStyle}>
-            <p style={{ margin: 0, fontSize: "13px", color: "#6b8298" }}>
-              Total Items in Stock
-            </p>
-            <h2 style={{ margin: "8px 0" }}>{inventoryItems.length}</h2>
-            <small>Across {categories.length} Categories</small>
+        <div style={styles.summaryGrid}>
+          <div style={{ ...cardBaseStyle, background: COLORS.greenCard }}>
+            <p style={styles.summaryLabel}>Total Items in Stock</p>
+            <h2 style={styles.summaryValue}>5,634</h2>
+            <small style={styles.summarySubtext}>Across 2 Categories</small>
           </div>
 
-          <div style={cardStyle}>
-            <p style={{ margin: 0, fontSize: "13px", color: "#6b8298" }}>
-              Low Stock Alerts
-            </p>
-            <h2 style={{ margin: "8px 0" }}>5</h2>
-            <small>2 critical</small>
+          <div style={{ ...cardBaseStyle, background: COLORS.redCard }}>
+            <p style={styles.summaryLabel}>Low Stocks Alert</p>
+            <h2 style={styles.summaryValue}>5</h2>
+            <small style={styles.summarySubtext}>2 critical</small>
           </div>
 
-          <div style={cardStyle}>
-            <p style={{ margin: 0, fontSize: "13px", color: "#6b8298" }}>
-              Expiring Soon
-            </p>
-            <h2 style={{ margin: "8px 0" }}>5</h2>
-            <small>Across 3 Categories</small>
+          <div style={{ ...cardBaseStyle, background: COLORS.pinkCard }}>
+            <p style={styles.summaryLabel}>Expiring Soon</p>
+            <h2 style={styles.summaryValue}>5</h2>
+            <small style={styles.summarySubtext}>Across 3 Categories</small>
           </div>
         </div>
 
         {/* TABS */}
-        <div
-          style={{
-            display: "flex",
-            borderBottom: "1px solid #d6e2ef",
-            marginBottom: "24px",
-            gap: "8px",
-          }}
-        >
+        <div style={styles.tabContainer}>
           {["overview", "analytics"].map((tab) => (
-            <button
+            <span
               key={tab}
               onClick={() => setActiveTab(tab)}
               style={{
-                padding: "12px 24px",
-                border: "none",
-                background: "none",
-                fontSize: "14px",
-                fontWeight: 700,
-                textTransform: "uppercase",
-                color: activeTab === tab ? "#17324d" : "#6b8298",
+                ...styles.tab,
                 borderBottom:
-                  activeTab === tab
-                    ? "3px solid #17324d"
-                    : "3px solid transparent",
-                cursor: "pointer",
+                  activeTab === tab ? `3px solid ${COLORS.primary}` : "none",
+                fontWeight: activeTab === tab ? 700 : 500,
               }}
             >
               {tab === "overview"
                 ? "Stock Overview"
-                : "Analytics & Forecasting"}
-            </button>
+                : "Analytics and Forecasting"}
+            </span>
           ))}
         </div>
 
         {/* TITLE */}
-        <div>
-          <p
-            style={{
-              margin: 0,
-              color: "#6b8298",
-              fontSize: "12px",
-              fontWeight: 700,
-              textTransform: "uppercase",
-            }}
-          ></p>
-
-          <h3 style={{ margin: "10px 0 0", color: "#17324d", fontSize: "24px" }}>
-            {activeTab === "overview"
-              ? "Current Stock"
-              : "Analytics & Forecasting"}
-          </h3>
-        </div>
+        <h3 style={styles.sectionTitle}>
+          {activeTab === "overview"
+            ? "CURRENT STOCK"
+            : "ANALYTICS AND FORECASTING"}
+        </h3>
 
         {/* FILTERS */}
         {activeTab === "overview" && (
-          <div style={{ flexDirection: "column", gap: "12px", marginBottom: "8px" }}>
-            <SearchBar
-              value={filters.search}
-              onChange={(v) => handleFilterChange("search", v)}
-              placeholder="Search item..."
-            />
+          <>
+            <div style={styles.filterRow}>
+              <div style={{ flex: 1 }}>
+                <SearchBar
+                  value={filters.search}
+                  onChange={(v) => handleFilterChange("search", v)}
+                  placeholder="Search item..."
+                />
+              </div>
+              <button type="button" style={styles.filterBtn}>
+                <FiFilter size={16} />
+                Filter
+              </button>
+            </div>
 
-            <div
-              style={{
-                display: "flex",
-                gap: "20px",
-                flexWrap: "wrap",
-                alignItems: "center",
-                marginTop: "8px",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                Category:
-                <div style={chipGroupStyle}>
-                  {["All", "Perishable", "Non-Perishable"].map((cat) => (
-                    <button
-                      key={cat}
-                      style={getChipStyle(filters.category === cat)}
-                      onClick={() => handleFilterChange("category", cat)}
-                    >
-                      {cat}
-                    </button>
-                  ))}
-                </div>
+            <div style={styles.inlineFilters}>
+              <span>Category:</span>
+              <div style={chipGroupStyle}>
+                {["All", "Perishable", "Non-Perishable"].map((cat) => (
+                  <button
+                    key={cat}
+                    style={getChipStyle(filters.category === cat)}
+                    onClick={() => handleFilterChange("category", cat)}
+                  >
+                    {cat}
+                  </button>
+                ))}
               </div>
 
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                Status:
-                <div style={chipGroupStyle}>
-                  {["All", "Low", "Critical", "Expiring"].map((stat) => (
-                    <button
-                      key={stat}
-                      style={getChipStyle(filters.status === stat)}
-                      onClick={() => handleFilterChange("status", stat)}
-                    >
-                      {stat}
-                    </button>
-                  ))}
-                </div>
+              <span>Status:</span>
+              <div style={chipGroupStyle}>
+                {["All", "Low", "Critical", "Expiring"].map((stat) => (
+                  <button
+                    key={stat}
+                    style={getChipStyle(filters.status === stat)}
+                    onClick={() => handleFilterChange("status", stat)}
+                  >
+                    {stat}
+                  </button>
+                ))}
               </div>
             </div>
-          </div>
+          </>
         )}
 
         {/* CONTENT */}
         {activeTab === "overview" ? (
-          <div style={{ marginTop: "12px", overflowX: "auto" }}>
-            <table
-              style={{
-                width: "100%",
-                borderCollapse: "collapse",
-                background: "#fff",
-                borderRadius: "12px",
-                overflow: "hidden",
-                border: "1px solid #dce7f3",
-              }}
-            >
+          <div style={styles.tableWrap}>
+            <table style={styles.table}>
               <thead>
-                <tr style={{ background: "#f1f6fb", textAlign: "left" }}>
+                <tr>
                   {[
                     "Item Name",
                     "Category",
@@ -452,16 +723,7 @@ const InventoryItemsPage = () => {
                     "Status",
                     "Actions",
                   ].map((header) => (
-                    <th
-                      key={header}
-                      style={{
-                        padding: "12px",
-                        fontSize: "13px",
-                        color: "#334155",
-                        fontWeight: 700,
-                        borderBottom: "1px solid #dce7f3",
-                      }}
-                    >
+                    <th key={header} style={styles.th}>
                       {header}
                     </th>
                   ))}
@@ -471,38 +733,38 @@ const InventoryItemsPage = () => {
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan="6" style={{ padding: "16px" }}>
+                    <td colSpan="6" style={styles.emptyStateCell}>
                       Loading...
                     </td>
                   </tr>
                 ) : errorMessage ? (
                   <tr>
-                    <td colSpan="6" style={{ padding: "16px", color: "red" }}>
+                    <td
+                      colSpan="6"
+                      style={{ ...styles.emptyStateCell, color: "#b91c1c" }}
+                    >
                       {errorMessage}
                     </td>
                   </tr>
                 ) : inventoryItems.length === 0 ? (
                   <tr>
-                    <td colSpan="6" style={{ padding: "16px" }}>
+                    <td colSpan="6" style={styles.emptyStateCell}>
                       No items found
                     </td>
                   </tr>
                 ) : (
                   inventoryItems.map((item, index) => (
-                    <tr
-                      key={item.id || index}
-                      style={{ borderBottom: "1px solid #eef2f7" }}
-                    >
-                      <td style={{ padding: "12px" }}>{item.name}</td>
-                      <td style={{ padding: "12px" }}>{item.category}</td>
-                      <td style={{ padding: "12px" }}>{item.quantity}</td>
-                      <td style={{ padding: "12px" }}>
+                    <tr key={item.id || index} style={styles.tr}>
+                      <td style={styles.td}>{item.name}</td>
+                      <td style={styles.td}>{item.category}</td>
+                      <td style={styles.td}>{item.quantity}</td>
+                      <td style={styles.td}>
                         {item.expiryDate
                           ? new Date(item.expiryDate).toLocaleDateString()
                           : "—"}
                       </td>
 
-                      <td style={{ padding: "12px" }}>
+                      <td style={styles.td}>
                         <span
                           style={{
                             padding: "4px 10px",
@@ -527,21 +789,28 @@ const InventoryItemsPage = () => {
                         </span>
                       </td>
 
-                      <td style={{ padding: "12px" }}>
-                        <button
+                      <td style={styles.td}>
+                        <div
                           style={{
-                            border: "none",
-                            background: "#e2e8f0",
-                            padding: "6px 10px",
-                            borderRadius: "8px",
-                            cursor: "pointer",
-                            fontSize: "12px",
-                            fontWeight: 600,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "10px",
                           }}
-                          onClick={() => handleOpenEditModal(item.id)}
                         >
-                          Edit
-                        </button>
+                          <button
+                            style={styles.actionIconBtn}
+                            onClick={() => handleOpenEditModal(item.id)}
+                            title="Edit"
+                          >
+                            ✎
+                          </button>
+                          <button
+                            style={styles.actionIconBtn}
+                            title="Delete"
+                          >
+                            🗑
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -565,8 +834,25 @@ const InventoryItemsPage = () => {
               "Distribution by Category",
             ].map((title) => (
               <div key={title} style={analyticsCard}>
-                <h4>{title}</h4>
-                <p>Content goes here</p>
+                <h4
+                  style={{
+                    margin: "0 0 8px",
+                    color: COLORS.primary,
+                    fontSize: "16px",
+                    fontWeight: 700,
+                  }}
+                >
+                  {title}
+                </h4>
+                <p
+                  style={{
+                    margin: 0,
+                    color: COLORS.muted,
+                    fontSize: "14px",
+                  }}
+                >
+                  Content goes here
+                </p>
               </div>
             ))}
           </div>
@@ -586,80 +872,93 @@ const InventoryItemsPage = () => {
 
       {/* SCAN ITEM MODAL */}
       {isScanModalOpen && (
-        <div style={scanModalOverlayStyle} onClick={handleCloseScanModal}>
-          <div
-            style={scanModalStyle}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2
-              style={{
-                margin: 0,
-                color: "#2f3f5d",
-                fontSize: "24px",
-                fontWeight: 800,
-                lineHeight: 1.2,
-              }}
-            >
-              Barcode Scanner
-            </h2>
+        <div style={scanModalOverlayStyle}>
+          <div style={scanModalStyle}>
+            <div style={styles.scanModalHeader}>
+              <div>
+                <h3 style={styles.scanModalTitle}>Barcode Scanner</h3>
+              </div>
 
-            <p
-              style={{
-                margin: "2px 0 8px",
-                color: "#2f3f5d",
-                fontSize: "17px",
-                fontWeight: 700,
-              }}
-            >
-              Start Scanning
-            </p>
-
-            <div style={{ marginBottom: "14px" }}>
-              <label style={scanModalLabelStyle}>Input Barcode Number</label>
-              <input
-                type="text"
-                value={scanForm.barcodeNumber}
-                onChange={(e) =>
-                  handleScanInputChange("barcodeNumber", e.target.value)
-                }
-                style={scanModalInputStyle}
-              />
-            </div>
-
-            <div style={{ marginBottom: "22px" }}>
-              <label style={scanModalLabelStyle}>Reorder Level</label>
-              <input
-                type="text"
-                value={scanForm.reorderLevel}
-                onChange={(e) =>
-                  handleScanInputChange("reorderLevel", e.target.value)
-                }
-                style={scanModalInputStyle}
-              />
+              <button
+                type="button"
+                onClick={handleCloseScanModal}
+                style={pageHeaderStyles.secondaryButton}
+              >
+                <FiX />
+              </button>
             </div>
 
             <div
               style={{
                 display: "flex",
-                justifyContent: "flex-end",
-                gap: "12px",
-                flexWrap: "wrap",
+                flexDirection: "column",
+                gap: "18px",
               }}
             >
-              <button
-                type="button"
-                style={primaryModalBtn}
-                onClick={handleSubmitScanModal}
-              >
-                Add Item
-              </button>
-              <button
-                type="button"
-                style={secondaryModalBtn}
-                onClick={handleCloseScanModal}
-              >
-                Cancel
-              </button>
+              <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
+                <h3 style={styles.scanModalSectionTitle}>Scan Details</h3>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns:
+                      "repeat(auto-fit, minmax(220px, 1fr))",
+                    gap: "18px",
+                  }}
+                >
+                  <div style={{ gridColumn: "1 / -1" }}>
+                    <label style={scanModalLabelStyle}>
+                      Input Barcode Number
+                    </label>
+                    <input
+                      type="text"
+                      value={scanForm.barcodeNumber}
+                      onChange={(e) =>
+                        handleScanInputChange(
+                          "barcodeNumber",
+                          e.target.value
+                        )
+                      }
+                      style={scanModalInputStyle}
+                      placeholder="Enter barcode number"
+                    />
+                  </div>
+
+                  <div>
+                    <label style={scanModalLabelStyle}>Reorder Level</label>
+                    <input
+                      type="text"
+                      value={scanForm.reorderLevel}
+                      onChange={(e) =>
+                        handleScanInputChange(
+                          "reorderLevel",
+                          e.target.value
+                        )
+                      }
+                      style={scanModalInputStyle}
+                      placeholder="Set reorder level"
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <div style={styles.scanModalFooter}>
+                <button
+                  type="button"
+                  onClick={handleCloseScanModal}
+                  style={pageHeaderStyles.secondaryButton}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  style={pageHeaderStyles.primaryButton}
+                  onClick={handleSubmitScanModal}
+                >
+                  Add Item
+                </button>
+              </div>
             </div>
           </div>
         </div>
