@@ -1,18 +1,139 @@
-import React, { useState } from "react";
-import { FiChevronDown, FiDownload } from "react-icons/fi";
+import React, { useEffect, useMemo, useState } from "react";
+import { FiFileText, FiFilter, FiUserPlus } from "react-icons/fi";
 import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
-import PageHeader from "../../components/layout/PageHeader";
+import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import MasterlistDepartureConfirmModal from "../../components/masterlist/MasterlistDepartureConfirmModal";
 import MasterlistTable from "../../components/masterlist/MasterlistTable";
-import BarangayBarChart from "../../components/mswdo-analytics/BarangayBarChart";
-import BarangayStatusBreakdownChart from "../../components/mswdo-analytics/BarangayStatusBreakdownChart";
-import DistributionPieChart from "../../components/mswdo-analytics/DistributionPieChart";
 import MswdoSummaryCards from "../../components/mswdo-masterlist/MswdoSummaryCards";
+import SearchBar from "../../components/shared/SearchBar";
+import StatusPill from "../../components/shared/StatusPill";
 import { useHouseholdRegistrationForm } from "../../features/household-registration/useHouseholdRegistrationForm";
 import { departHousehold } from "../../features/masterlist/masterlistService";
 import { exportConsolidatedMasterlist } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { useMswdoMasterlist } from "../../features/mswdo-masterlist/useMswdoMasterlist";
+
+const filterStyles = {
+  field: {
+    width: "100%",
+    padding: "12px 14px",
+    borderRadius: "12px",
+    border: "1px solid #cfddeb",
+    backgroundColor: "#f8fbfe",
+    color: "#1f3b57",
+    fontSize: "14px",
+    boxSizing: "border-box",
+  },
+  label: {
+    display: "block",
+    marginBottom: "8px",
+    color: "#5f7892",
+    fontSize: "12px",
+    fontWeight: 700,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+  },
+};
+
+const noticeModalStyles = {
+  overlay: {
+    position: "fixed",
+    inset: 0,
+    backgroundColor: "rgba(18, 34, 51, 0.45)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "24px",
+    zIndex: 1200,
+  },
+  modal: {
+    width: "100%",
+    maxWidth: "440px",
+    backgroundColor: "#ffffff",
+    borderRadius: "20px",
+    padding: "28px",
+    boxShadow: "0 24px 48px rgba(20, 48, 78, 0.2)",
+  },
+  title: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "22px",
+  },
+  message: {
+    margin: "12px 0 0",
+    color: "#5d7188",
+    fontSize: "15px",
+    lineHeight: 1.6,
+  },
+  actions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "12px",
+    marginTop: "24px",
+  },
+};
+
+const tabButtonStyles = (isActive) => ({
+  padding: "12px 24px",
+  border: "none",
+  background: "none",
+  fontSize: "14px",
+  fontWeight: 700,
+  textTransform: "uppercase",
+  color: isActive ? "#17324d" : "#6b8298",
+  borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
+  cursor: "pointer",
+});
+
+const formatDisplayDate = (value) => {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("en-PH", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+  }).format(new Date(value));
+};
+
+const formatReliefPeriod = (event) => {
+  if (!event) return "-";
+
+  const start = formatDisplayDate(event.start_date);
+
+  if (!event.end_date && event.status === "ACTIVE") {
+    return `${start} - Ongoing`;
+  }
+
+  if (event.end_date) {
+    return `${start} - ${formatDisplayDate(event.end_date)}`;
+  }
+
+  return start;
+};
+
+const ExportNoticeModal = ({ isOpen, message, onClose }) => {
+  if (!isOpen) {
+    return null;
+  }
+
+  return (
+    <div style={noticeModalStyles.overlay}>
+      <div style={noticeModalStyles.modal}>
+        <h3 style={noticeModalStyles.title}>Export Unavailable</h3>
+        <p style={noticeModalStyles.message}>{message}</p>
+
+        <div style={noticeModalStyles.actions}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={pageHeaderStyles.primaryButton}
+          >
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const ConsolidatedEvacueeMasterlist = () => {
   const {
@@ -24,16 +145,11 @@ const ConsolidatedEvacueeMasterlist = () => {
     searchTerm,
     displayedRows,
     summaryMetrics,
-    evacueesPerBarangay,
-    familiesPerBarangay,
-    admittedVsDepartedDistribution,
-    barangayBreakdown,
     isLoadingFilters,
     isLoadingMasterlist,
     isLoadingDashboard,
     errorMessage,
     dashboardErrorMessage,
-    hasDashboardData,
     setSelectedDisasterEventId,
     setSelectedBarangayId,
     setSearchTerm,
@@ -47,12 +163,23 @@ const ConsolidatedEvacueeMasterlist = () => {
   const [exportingFormat, setExportingFormat] = useState("");
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [registrationSuccessMessage, setRegistrationSuccessMessage] = useState("");
+  const [attendanceActionMessage, setAttendanceActionMessage] = useState("");
+  const [exportNoticeMessage, setExportNoticeMessage] = useState("");
 
   const activeEventLabel = selectedDisasterEvent
     ? `${selectedDisasterEvent.event_code} - ${selectedDisasterEvent.title}`
     : "No disaster event selected";
   const hasRowsToExport = displayedRows.length > 0;
   const isAllBarangaysMode = !selectedBarangayId;
+  const scopedDisasterEvents = useMemo(() => {
+    const statusByTab = activeTab === "active" ? "ACTIVE" : "CLOSED";
+
+    return disasterEvents.filter((event) => event.status === statusByTab);
+  }, [activeTab, disasterEvents]);
+
+  const selectedBarangayLabel = selectedBarangayId
+    ? barangays.find((barangay) => barangay.id === selectedBarangayId)?.name
+    : "All Barangays";
 
   const registrationForm = useHouseholdRegistrationForm({
     isOpen: isRegisterModalOpen,
@@ -67,6 +194,10 @@ const ConsolidatedEvacueeMasterlist = () => {
   });
 
   const handleOpenDepartureConfirmation = (householdId) => {
+    if (isRecordingDeparture) {
+      return;
+    }
+
     setPendingDepartureHouseholdId(householdId);
   };
 
@@ -86,15 +217,46 @@ const ConsolidatedEvacueeMasterlist = () => {
     setIsRecordingDeparture(true);
 
     try {
-      await departHousehold({ householdId: pendingDepartureHouseholdId });
+      const response = await departHousehold({ householdId: pendingDepartureHouseholdId });
+      setAttendanceActionMessage(
+        response.message || "Household departure recorded successfully",
+      );
       setPendingDepartureHouseholdId(null);
       reloadMasterlist();
     } catch (error) {
-      window.alert(error.message || "Failed to record household departure.");
+      setAttendanceActionMessage(
+        error.message || "Failed to record household departure.",
+      );
     } finally {
       setIsRecordingDeparture(false);
     }
   };
+
+  const handleEventScopeChange = (nextTab) => {
+    setActiveTab(nextTab);
+
+    const nextStatus = nextTab === "active" ? "ACTIVE" : "CLOSED";
+    const nextEvents = disasterEvents.filter((event) => event.status === nextStatus);
+
+    if (nextEvents.length === 0) {
+      setSelectedDisasterEventId("");
+      return;
+    }
+
+    if (!nextEvents.some((event) => event.id === selectedDisasterEventId)) {
+      setSelectedDisasterEventId(nextEvents[0].id);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedDisasterEvent?.status === "ACTIVE" && activeTab !== "active") {
+      setActiveTab("active");
+    }
+
+    if (selectedDisasterEvent?.status === "CLOSED" && activeTab !== "ended") {
+      setActiveTab("ended");
+    }
+  }, [activeTab, selectedDisasterEvent?.status]);
 
   const handleOpenRegisterModal = () => {
     if (!selectedDisasterEventId) {
@@ -113,7 +275,10 @@ const ConsolidatedEvacueeMasterlist = () => {
     }
 
     if (!hasRowsToExport) {
-      window.alert("No masterlist data is available to export for the current filters.");
+      setIsExportMenuOpen(false);
+      setExportNoticeMessage(
+        "No masterlist data is available to export for the current filters.",
+      );
       return;
     }
 
@@ -151,107 +316,149 @@ const ConsolidatedEvacueeMasterlist = () => {
 
   return (
     <>
-      {/* Header */}
-      <PageHeader title="EVACUEE MASTERLIST" />
+      <PageHeader title="EVACUEE MASTERLIST" actions={[]} />
 
-      {/* Tabs Section */}
-      <div style={{ display: "flex", gap: "24px", margin: "20px 0", borderBottom: "1px solid #d3dce6" }}>
-        {["active", "ended"].map((tab) => (
-          <div
-            key={tab}
-            onClick={() => setActiveTab(tab)}
+      <section style={shellStyles.card}>
+        <div
+          style={{
+            display: "flex",
+            borderBottom: "1px solid #d6e2ef",
+            marginBottom: "24px",
+            gap: "8px",
+            flexWrap: "wrap",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => handleEventScopeChange("active")}
+            style={tabButtonStyles(activeTab === "active")}
+          >
+            Active Events
+          </button>
+          <button
+            type="button"
+            onClick={() => handleEventScopeChange("ended")}
+            style={tabButtonStyles(activeTab === "ended")}
+          >
+            Ended Events
+          </button>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: "16px",
+            alignItems: "end",
+          }}
+        >
+          <div>
+            <label htmlFor="mswdo-masterlist-event" style={filterStyles.label}>
+              {activeTab === "active" ? "Active" : "Ended"} Disaster Event
+            </label>
+            <select
+              id="mswdo-masterlist-event"
+              value={selectedDisasterEventId || ""}
+              onChange={(event) => setSelectedDisasterEventId(event.target.value)}
+              disabled={isLoadingFilters || scopedDisasterEvents.length === 0}
+              style={filterStyles.field}
+            >
+              <option value="">
+                Select {activeTab === "active" ? "active" : "ended"} disaster event
+              </option>
+              {scopedDisasterEvents.map((event) => (
+                <option key={event.id} value={event.id}>
+                  {event.event_code} - {event.title}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="mswdo-masterlist-barangay" style={filterStyles.label}>
+              Barangay
+            </label>
+            <select
+              id="mswdo-masterlist-barangay"
+              value={selectedBarangayId || ""}
+              onChange={(event) => setSelectedBarangayId(event.target.value)}
+              disabled={isLoadingFilters}
+              style={filterStyles.field}
+            >
+              <option value="">All Barangays</option>
+              {barangays.map((barangay) => (
+                <option key={barangay.id} value={barangay.id}>
+                  {barangay.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label style={filterStyles.label}>Current Scope</label>
+            <div
+              style={{
+                ...filterStyles.field,
+                display: "flex",
+                alignItems: "center",
+                minHeight: "48px",
+                fontWeight: 700,
+                color: "#17324d",
+              }}
+            >
+              {isAllBarangaysMode
+                ? "All Barangays (Consolidated)"
+                : selectedBarangayLabel}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section style={shellStyles.card}>
+        <div
+          style={{
+            border: "1px solid #d6e2ef",
+            borderRadius: "16px",
+            padding: "18px 20px",
+            backgroundColor: "#f8fbfe",
+          }}
+        >
+          <p
             style={{
-              padding: "8px 0",
-              cursor: "pointer",
-              fontWeight: activeTab === tab ? 700 : 500,
-              color: activeTab === tab ? "#17324d" : "#8a9eb1",
-              borderBottom: activeTab === tab ? "3px solid #17324d" : "3px solid transparent",
+              margin: 0,
+              color: "#17324d",
+              fontSize: "18px",
+              fontWeight: 800,
             }}
           >
-            {tab === "active" ? "ACTIVE EVENTS" : "ENDED EVENTS"}
-          </div>
-        ))}
-      </div>
+            {activeEventLabel}
+          </p>
 
-      {/* Top Control Panel */}
-      <div style={{ display: "flex", gap: "16px", marginBottom: "20px", flexWrap: "wrap" }}>
-        {/* Active Disaster Event Dropdown */}
-        <select
-          value={selectedDisasterEventId || ""}
-          onChange={(e) => setSelectedDisasterEventId(e.target.value)}
-          style={{
-            flex: 1,
-            minWidth: "220px",
-            padding: "10px 12px",
-            borderRadius: "10px",
-            border: "1px solid #d3dfec",
-            fontSize: "14px",
-          }}
-        >
-          <option value="">-- Select Active Disaster Event --</option>
-          {disasterEvents.map((ev) => (
-            <option key={ev.id} value={ev.id}>
-              {ev.title}
-            </option>
-          ))}
-        </select>
-
-        {/* Effective Barangay Card */}
-        <div
-          style={{
-            flex: 1,
-            minWidth: "200px",
-            backgroundColor: "#f8fbfe",
-            borderRadius: "12px",
-            padding: "12px 16px",
-            fontSize: "14px",
-            color: "#334155",
-          }}
-        >
-          {selectedBarangayId
-            ? barangays.find((b) => b.id === selectedBarangayId)?.name
-            : "All Barangays (Consolidated)"}
-        </div>
-
-        {/* Barangay Filter Dropdown */}
-        <select
-          value={selectedBarangayId || ""}
-          onChange={(e) => setSelectedBarangayId(e.target.value)}
-          style={{
-            flex: 1,
-            minWidth: "220px",
-            padding: "10px 12px",
-            borderRadius: "10px",
-            border: "1px solid #d3dfec",
-            fontSize: "14px",
-          }}
-        >
-          <option value="">All Barangays</option>
-          {barangays.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Event Information Card */}
-      {selectedDisasterEvent && (
-        <div
-          style={{
-            borderRadius: "16px",
-            background: "#f8fafc",
-            padding: "16px 20px",
-            marginBottom: "20px",
-          }}
-        >
-          <h3 style={{ margin: "0 0 8px", fontWeight: 700 }}>{activeEventLabel}</h3>
-          <div style={{ display: "flex", gap: "16px", fontSize: "14px", color: "#334155" }}>
-            <span>{selectedDisasterEvent.start_date} - {selectedDisasterEvent.end_date}</span>
-            <span>Status: {selectedDisasterEvent.status}</span>
+          <div
+            style={{
+              display: "flex",
+              gap: "24px",
+              marginTop: "14px",
+              flexWrap: "wrap",
+              color: "#334155",
+            }}
+          >
+            <span>Period: {formatReliefPeriod(selectedDisasterEvent)}</span>
+            <span>Barangay Scope: {selectedBarangayLabel}</span>
+            <StatusPill status={selectedDisasterEvent?.status} />
           </div>
         </div>
-      )}
+
+        {isLoadingFilters ? (
+          <p style={{ ...shellStyles.mutedText, marginTop: "16px" }}>
+            Loading MSWDO masterlist filters...
+          </p>
+        ) : !selectedDisasterEvent ? (
+          <p style={{ ...shellStyles.mutedText, marginTop: "16px" }}>
+            Select a disaster event to load the consolidated masterlist.
+          </p>
+        ) : null}
+      </section>
 
       {selectedDisasterEvent && !isLoadingDashboard && !dashboardErrorMessage ? (
         <MswdoSummaryCards summary={summaryMetrics} />
@@ -265,7 +472,14 @@ const ConsolidatedEvacueeMasterlist = () => {
         </section>
       ) : null}
 
-      {/* Search and Actions Row */}
+      {attendanceActionMessage ? (
+        <section style={shellStyles.card}>
+          <p style={{ margin: 0, color: "#24496e", fontWeight: 700 }}>
+            {attendanceActionMessage}
+          </p>
+        </section>
+      ) : null}
+
       <div
         style={{
           display: "flex",
@@ -276,78 +490,73 @@ const ConsolidatedEvacueeMasterlist = () => {
           flexWrap: "wrap",
         }}
       >
-        <input
-          type="text"
-          placeholder="Search family head, address, or sectors"
+        <SearchBar
           value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          style={{
-            flex: 1,
-            minWidth: "220px",
-            padding: "10px 12px",
-            borderRadius: "10px",
-            border: "1px solid #d3dfec",
-            fontSize: "14px",
-          }}
+          onChange={setSearchTerm}
+          placeholder="Search family head, address, or sectors"
         />
-        <div style={{ display: "flex", gap: "12px" }}>
+
+        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
           <button
+            type="button"
             style={{
-              border: "1px solid #d3dfec",
-              background: "#f8fbfe",
-              padding: "10px 14px",
-              borderRadius: "10px",
-              cursor: "pointer",
+              ...pageHeaderStyles.secondaryButton,
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
             }}
           >
+            <FiFilter size={16} />
             Filter
           </button>
+
           <div style={{ position: "relative" }}>
             <button
               type="button"
               onClick={() => setIsExportMenuOpen((currentValue) => !currentValue)}
               disabled={!selectedDisasterEventId || Boolean(exportingFormat)}
               style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "8px",
-                border: "1px solid #c9d8e8",
-                background: "#f8fbfe",
-                color: "#24496e",
+                border: "1px solid #c6d8ea",
+                borderRadius: "14px",
+                padding: "12px 18px",
+                backgroundColor: "#f8fbfe",
+                color: "#2a4c6f",
+                fontSize: "14px",
                 fontWeight: 700,
-                padding: "10px 14px",
-                borderRadius: "10px",
                 cursor:
                   !selectedDisasterEventId || exportingFormat ? "not-allowed" : "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
                 opacity: !selectedDisasterEventId || exportingFormat ? 0.7 : 1,
               }}
             >
-              <FiDownload size={16} />
+              <span style={{ display: "flex", alignItems: "center", gap: "2px" }}>
+                <FiFileText size={16} />
+              </span>
               {exportingFormat
                 ? `Exporting ${exportingFormat.toUpperCase()}...`
                 : "Export"}
-              <FiChevronDown size={16} />
             </button>
 
             {isExportMenuOpen && !exportingFormat ? (
               <div
                 style={{
                   position: "absolute",
-                  top: "calc(100% + 8px)",
                   right: 0,
-                  minWidth: "180px",
-                  backgroundColor: "#ffffff",
-                  border: "1px solid #d6e2ef",
-                  borderRadius: "14px",
-                  boxShadow: "0 18px 36px rgba(27, 50, 77, 0.16)",
+                  top: "45px",
+                  background: "#fff",
+                  borderRadius: "10px",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
                   padding: "8px",
+                  minWidth: "160px",
                   zIndex: 20,
                 }}
               >
                 {[
-                  { key: "pdf", label: "Export PDF" },
-                  { key: "excel", label: "Export Excel" },
-                  { key: "csv", label: "Export CSV" },
+                  { key: "csv", label: "Export as CSV" },
+                  { key: "pdf", label: "Export as PDF" },
+                  { key: "excel", label: "Export as Excel" },
                 ].map((option) => (
                   <button
                     key={option.key}
@@ -355,14 +564,13 @@ const ConsolidatedEvacueeMasterlist = () => {
                     onClick={() => handleExport(option.key)}
                     style={{
                       width: "100%",
-                      textAlign: "left",
                       border: "none",
                       background: "transparent",
+                      textAlign: "left",
+                      padding: "8px",
+                      cursor: "pointer",
                       color: "#1f3b57",
                       fontSize: "14px",
-                      padding: "10px 12px",
-                      borderRadius: "10px",
-                      cursor: "pointer",
                     }}
                   >
                     {option.label}
@@ -371,106 +579,42 @@ const ConsolidatedEvacueeMasterlist = () => {
               </div>
             ) : null}
           </div>
+
           <button
             type="button"
             onClick={handleOpenRegisterModal}
             style={{
-              background: "#0c4a6e",
-              color: "#fff",
-              fontWeight: 600,
-              padding: "10px 16px",
-              borderRadius: "10px",
-              cursor: "pointer",
+              ...pageHeaderStyles.primaryButton,
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
             }}
           >
-            {isAllBarangaysMode ? "Register Family" : "Register Family"}
+            <FiUserPlus size={16} />
+            Register Family
           </button>
         </div>
       </div>
 
-      {/* Table Section */}
-      <section style={{ ...shellStyles.card, overflow: "hidden" }}>
-        <h4 style={{ marginBottom: "12px", fontWeight: 700 }}>Registered Family</h4>
-        <div style={{ width: "100%", overflowX: "auto" }}>
-          <MasterlistTable
-            rows={displayedRows}
-            hasSelectedEvent={Boolean(selectedDisasterEventId)}
-            isLoading={isLoadingFilters || isLoadingMasterlist}
-            errorMessage={errorMessage}
-            onMarkDeparted={handleOpenDepartureConfirmation}
-          />
-        </div>
-      </section>
-
-      {!selectedDisasterEvent ? null : isLoadingDashboard ? (
-        <section style={shellStyles.card}>
-          <h3 style={{ marginTop: 0, color: "#17324d" }}>Loading Descriptive Analytics</h3>
-          <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-            Preparing the MSWDO descriptive analytics and chart breakdowns...
-          </p>
-        </section>
-      ) : dashboardErrorMessage ? (
-        <section style={shellStyles.card}>
-          <h3 style={{ marginTop: 0, color: "#17324d" }}>Analytics Error</h3>
-          <p style={{ ...shellStyles.mutedText, marginTop: "10px", color: "#a14d58" }}>
-            {dashboardErrorMessage}
-          </p>
-        </section>
-      ) : !hasDashboardData ? (
-        <section style={shellStyles.card}>
-          <h3 style={{ marginTop: 0, color: "#17324d" }}>No Descriptive Analytics Data</h3>
-          <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-            No analytics data is available for the selected disaster event and barangay filter.
-          </p>
-        </section>
-      ) : (
-        <>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-              gap: "20px",
-            }}
-          >
-            <BarangayBarChart
-              title="Evacuees per Barangay"
-              description="Active evacuee individuals grouped by barangay for the current MSWDO filter scope."
-              data={evacueesPerBarangay}
-              dataKey="value"
-              color="#4f86be"
-            />
-            <BarangayBarChart
-              title="Families per Barangay"
-              description="Active household counts by barangay for the selected disaster event view."
-              data={familiesPerBarangay}
-              dataKey="value"
-              color="#7ea7cf"
-            />
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-              gap: "20px",
-            }}
-          >
-            <DistributionPieChart
-              title="Admitted vs Departed Distribution"
-              description="Latest-log-per-evacuee distribution of currently admitted versus departed evacuees."
-              data={admittedVsDepartedDistribution}
-              emptyMessage="No admitted or departed breakdown is available for this view."
-            />
-            <BarangayStatusBreakdownChart data={barangayBreakdown} />
-          </div>
-        </>
-      )}
+      <MasterlistTable
+        rows={displayedRows}
+        hasSelectedEvent={Boolean(selectedDisasterEventId)}
+        isLoading={isLoadingFilters || isLoadingMasterlist}
+        errorMessage={errorMessage}
+        onMarkDeparted={handleOpenDepartureConfirmation}
+      />
 
       <MasterlistDepartureConfirmModal
         isOpen={Boolean(pendingDepartureHouseholdId)}
         isSubmitting={isRecordingDeparture}
         onCancel={handleCloseDepartureConfirmation}
         onConfirm={handleConfirmDeparture}
+      />
+
+      <ExportNoticeModal
+        isOpen={Boolean(exportNoticeMessage)}
+        message={exportNoticeMessage}
+        onClose={() => setExportNoticeMessage("")}
       />
 
       <RegisterFamilyModal

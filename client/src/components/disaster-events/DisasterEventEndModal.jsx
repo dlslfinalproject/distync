@@ -1,7 +1,50 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 
-const DisasterEventEndModal = ({ isOpen, onClose, onConfirm, event }) => {
+const getDateOnly = (value) => {
+  if (!value) {
+    return "";
+  }
+
+  return String(value).slice(0, 10);
+};
+
+const DisasterEventEndModal = ({
+  isOpen,
+  onClose,
+  onConfirm,
+  event,
+  isSubmitting = false,
+}) => {
+  const [validationMessage, setValidationMessage] = useState("");
+
+  useEffect(() => {
+    if (isOpen) {
+      setValidationMessage("");
+    }
+  }, [event?.id, isOpen]);
+
   if (!isOpen || !event) return null;
+
+  const startDate = getDateOnly(event.start_date);
+  const currentEndDate = getDateOnly(event.end_date);
+
+  const handleConfirm = async () => {
+    if (event.status !== "ACTIVE") {
+      setValidationMessage("Only active disaster events can be marked as completed.");
+      return;
+    }
+
+    setValidationMessage("");
+
+    try {
+      await onConfirm(event.id);
+      onClose();
+    } catch (error) {
+      setValidationMessage(
+        error.message || "Unable to complete this disaster event. Please try again.",
+      );
+    }
+  };
 
   return (
     <div style={overlay}>
@@ -12,24 +55,34 @@ const DisasterEventEndModal = ({ isOpen, onClose, onConfirm, event }) => {
         <div style={infoBox}>
           <p style={infoTitle}>Current Relief Period</p>
           <div style={periodRow}>
-            <span style={periodText}>Start: {event.start_date?.slice(0, 10)}</span>
-            <span style={periodText}>End: {event.end_date?.slice(0, 10)}</span>
+            <span style={periodText}>Start: {startDate || "--"}</span>
+            <span style={periodText}>End: {currentEndDate || "--"}</span>
           </div>
         </div>
 
+        <p style={warningText}>
+          This will mark the disaster event as completed and set the end date to today.
+        </p>
+
+        {validationMessage ? (
+          <p style={errorText}>{validationMessage}</p>
+        ) : null}
+
         <div style={actions}>
-          <button style={secondaryBtn} onClick={onClose}>
+          <button style={secondaryBtn} onClick={onClose} disabled={isSubmitting}>
             Cancel
           </button>
 
           <button
-            style={primaryBtn}
-            onClick={() => {
-              onConfirm(event.id);
-              onClose();
+            style={{
+              ...primaryBtn,
+              opacity: isSubmitting ? 0.7 : 1,
+              cursor: isSubmitting ? "not-allowed" : "pointer",
             }}
+            disabled={isSubmitting}
+            onClick={handleConfirm}
           >
-            End
+            {isSubmitting ? "Completing..." : "Complete Event"}
           </button>
         </div>
       </div>
@@ -134,4 +187,18 @@ const secondaryBtn = {
   fontSize: "14px",
   fontWeight: 700,
   cursor: "pointer",
+};
+
+const warningText = {
+  margin: "0 0 16px",
+  color: "#486685",
+  fontSize: "14px",
+  lineHeight: 1.5,
+};
+
+const errorText = {
+  margin: "0 0 16px",
+  fontSize: "14px",
+  color: "#a14d58",
+  fontWeight: 700,
 };

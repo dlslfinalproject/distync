@@ -1,8 +1,11 @@
 import React, { useState } from "react";
 import { shellStyles } from "../layout/BarangayLayout";
-import { pageHeaderStyles } from "../layout/PageHeader";
 import StatusPill from "../shared/StatusPill";
 import { FiCalendar, FiCheckCircle, FiMoreHorizontal } from "react-icons/fi";
+import {
+  formatDisasterEventDate,
+  getAffectedBarangayDisplayItems,
+} from "../../features/disaster-events/disasterEventFormatters";
 
 const tableStyles = {
   table: {
@@ -29,18 +32,6 @@ const tableStyles = {
   },
 };
 
-const formatDate = (value) => {
-  if (!value) {
-    return "--";
-  }
-
-  return new Date(value).toLocaleDateString("en-PH", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-};
-
 const DisasterEventsTable = ({
   rows,
   isLoading,
@@ -48,6 +39,7 @@ const DisasterEventsTable = ({
   onViewEvent,
   onExtendEvent,
   onEndEvent,
+  validBarangayCount = 0,
 }) => {
   const [activeMenu, setActiveMenu] = useState(null);
   if (isLoading) {
@@ -113,7 +105,13 @@ const DisasterEventsTable = ({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
+            {rows.map((row) => {
+              const affectedBarangayDisplayItems = getAffectedBarangayDisplayItems(
+                row.affected_barangays,
+                validBarangayCount,
+              );
+
+              return (
               <tr key={row.id} style={{ borderBottom: "1px solid #edf3f8" }}>
                 <td style={{ ...tableStyles.bodyCell, textAlign: "left" }}>
                   {row.title}
@@ -124,7 +122,7 @@ const DisasterEventsTable = ({
                 </td>
 
                 <td style={tableStyles.bodyCell}>
-                  {row.affected_barangays?.length ? (
+                  {affectedBarangayDisplayItems.length ? (
                     <div
                       style={{
                         display: "flex",
@@ -134,9 +132,9 @@ const DisasterEventsTable = ({
                         justifyContent: "center",
                       }}
                     >
-                      {row.affected_barangays.map((brgy, index) => (
+                      {affectedBarangayDisplayItems.map((brgy, index) => (
                         <span
-                          key={index}
+                          key={brgy.id || brgy.name || brgy || index}
                           style={{
                             display: "inline-block",
                             minWidth: "36px",
@@ -159,9 +157,11 @@ const DisasterEventsTable = ({
                   )}
                 </td>
                 <td style={tableStyles.bodyCell}>
-                  {formatDate(row.start_date)}
+                  {formatDisasterEventDate(row.start_date)}
                 </td>
-                <td style={tableStyles.bodyCell}>{formatDate(row.end_date)}</td>
+                <td style={tableStyles.bodyCell}>
+                  {formatDisasterEventDate(row.end_date)}
+                </td>
                 <td style={tableStyles.bodyCell}>
                   <StatusPill status={row.status} />
                 </td>
@@ -259,7 +259,8 @@ const DisasterEventsTable = ({
                   )}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

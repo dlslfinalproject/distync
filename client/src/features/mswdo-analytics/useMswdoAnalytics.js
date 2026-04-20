@@ -4,6 +4,7 @@ import {
   fetchBarangays,
   fetchDisasterEvents,
   fetchMasterlistAnalyticsSource,
+  fetchMasterlistOperationalAnalytics,
 } from "./mswdoAnalyticsService";
 import { formatStayTypeLabel } from "../../utils/stayType";
 
@@ -15,6 +16,26 @@ const emptyPayload = {
   },
   count: 0,
   data: [],
+};
+
+const emptyOperationalPayload = {
+  disaster_event: null,
+  filters: {
+    disaster_event_id: null,
+    barangay_id: null,
+  },
+  summary_metrics: {
+    total_number_of_evacuees_individuals: 0,
+    total_number_of_families: 0,
+    average_household_size: 0,
+    currently_admitted_evacuees: 0,
+    total_departed_evacuees: 0,
+    total_barangays_covered: 0,
+  },
+  charts: {
+    per_barangay: [],
+  },
+  has_data: false,
 };
 
 const sortByValueDescending = (items) => {
@@ -114,12 +135,67 @@ const getStayTypeDistribution = (households) => {
   );
 };
 
+const getPerBarangayDataset = (dashboardPayload) => {
+  const items = dashboardPayload.charts?.per_barangay || [];
+
+  return items.map((item) => ({
+    barangay_id: item.barangay_id,
+    barangay_name: item.barangay_name || "Unknown",
+    families_count: Number(item.families_count || 0),
+    evacuees_count: Number(item.evacuees_count || 0),
+    admitted_evacuees_count: Number(item.admitted_evacuees_count || 0),
+    departed_evacuees_count: Number(item.departed_evacuees_count || 0),
+  }));
+};
+
+const getOperationalEvacueesPerBarangay = (perBarangayDataset) => {
+  return sortByValueDescending(
+    perBarangayDataset.map((item) => ({
+      name: item.barangay_name,
+      value: item.evacuees_count,
+    })),
+  );
+};
+
+const getOperationalFamiliesPerBarangay = (perBarangayDataset) => {
+  return sortByValueDescending(
+    perBarangayDataset.map((item) => ({
+      name: item.barangay_name,
+      value: item.families_count,
+    })),
+  );
+};
+
+const getAdmittedVsDepartedDistribution = (dashboardPayload) => {
+  const summary = dashboardPayload.summary_metrics || emptyOperationalPayload.summary_metrics;
+
+  return [
+    {
+      name: "Currently Admitted",
+      value: Number(summary.currently_admitted_evacuees || 0),
+    },
+    {
+      name: "Departed",
+      value: Number(summary.total_departed_evacuees || 0),
+    },
+  ].filter((item) => item.value > 0);
+};
+
+const getBarangayStatusBreakdown = (perBarangayDataset) => {
+  return perBarangayDataset.map((item) => ({
+    name: item.barangay_name,
+    admitted: item.admitted_evacuees_count,
+    departed: item.departed_evacuees_count,
+  }));
+};
+
 export const useMswdoAnalytics = () => {
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
   const [selectedDisasterEventId, setSelectedDisasterEventId] = useState("");
   const [selectedBarangayId, setSelectedBarangayId] = useState("");
   const [masterlistPayload, setMasterlistPayload] = useState(emptyPayload);
+  const [operationalPayload, setOperationalPayload] = useState(emptyOperationalPayload);
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -178,6 +254,7 @@ export const useMswdoAnalytics = () => {
     const loadDashboardSource = async () => {
       if (!selectedDisasterEventId) {
         setMasterlistPayload(emptyPayload);
+        setOperationalPayload(emptyOperationalPayload);
         return;
       }
 
@@ -185,17 +262,25 @@ export const useMswdoAnalytics = () => {
       setErrorMessage("");
 
       try {
-        const payload = await fetchMasterlistAnalyticsSource({
-          disasterEventId: selectedDisasterEventId,
-          barangayId: selectedBarangayId || null,
-        });
+        const [payload, operationalDashboard] = await Promise.all([
+          fetchMasterlistAnalyticsSource({
+            disasterEventId: selectedDisasterEventId,
+            barangayId: selectedBarangayId || null,
+          }),
+          fetchMasterlistOperationalAnalytics({
+            disasterEventId: selectedDisasterEventId,
+            barangayId: selectedBarangayId || null,
+          }),
+        ]);
 
         if (isMounted) {
           setMasterlistPayload(payload);
+          setOperationalPayload(operationalDashboard);
         }
       } catch (error) {
         if (isMounted) {
           setMasterlistPayload(emptyPayload);
+          setOperationalPayload(emptyOperationalPayload);
           setErrorMessage(error.message || "Failed to load analytics dashboard");
         }
       } finally {
@@ -240,6 +325,26 @@ export const useMswdoAnalytics = () => {
     return getStayTypeDistribution(households);
   }, [households]);
 
+  const perBarangayOperationalDataset = useMemo(() => {
+    return getPerBarangayDataset(operationalPayload);
+  }, [operationalPayload]);
+
+  const operationalEvacueesPerBarangay = useMemo(() => {
+    return getOperationalEvacueesPerBarangay(perBarangayOperationalDataset);
+  }, [perBarangayOperationalDataset]);
+
+  const operationalFamiliesPerBarangay = useMemo(() => {
+    return getOperationalFamiliesPerBarangay(perBarangayOperationalDataset);
+  }, [perBarangayOperationalDataset]);
+
+  const admittedVsDepartedDistribution = useMemo(() => {
+    return getAdmittedVsDepartedDistribution(operationalPayload);
+  }, [operationalPayload]);
+
+  const barangayStatusBreakdown = useMemo(() => {
+    return getBarangayStatusBreakdown(perBarangayOperationalDataset);
+  }, [perBarangayOperationalDataset]);
+
   return {
     disasterEvents,
     barangays,
@@ -251,11 +356,16 @@ export const useMswdoAnalytics = () => {
     householdsPerBarangay,
     sectorDistribution,
     stayTypeDistribution,
+    operationalEvacueesPerBarangay,
+    operationalFamiliesPerBarangay,
+    admittedVsDepartedDistribution,
+    barangayStatusBreakdown,
     isLoadingFilters,
     isLoadingDashboard,
     errorMessage,
     hasSelectedEvent: Boolean(selectedDisasterEventId),
     hasData: households.length > 0,
+    hasOperationalData: Boolean(operationalPayload.has_data),
     setSelectedDisasterEventId,
     setSelectedBarangayId,
   };

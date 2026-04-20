@@ -11,6 +11,18 @@ const handleJsonResponse = async (response, fallbackMessage) => {
   return responseData;
 };
 
+const getFallbackExportFilename = (format) => {
+  if (format === "excel") {
+    return "mswdo-disaster-events.xlsx";
+  }
+
+  if (format === "pdf") {
+    return "mswdo-disaster-events.pdf";
+  }
+
+  return "mswdo-disaster-events.csv";
+};
+
 export const fetchAllDisasterEvents = async () => {
   const response = await fetch(`${API_BASE_URL}/api/v1/disaster-events`);
   return handleJsonResponse(response, "Failed to fetch disaster events");
@@ -69,4 +81,45 @@ export const endDisasterEvent = async (eventId) => {
 export const fetchBarangays = async () => {
   const response = await fetch(`${API_BASE_URL}/api/v1/barangays`);
   return handleJsonResponse(response, "Failed to fetch barangays");
+};
+
+export const exportDisasterEvents = async ({
+  selectedFilter,
+  search,
+  format,
+}) => {
+  const searchParams = new URLSearchParams({
+    scope: selectedFilter,
+    format,
+  });
+
+  if (search && search.trim()) {
+    searchParams.set("search", search.trim());
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/disaster-events/export?${searchParams.toString()}`,
+  );
+
+  if (!response.ok) {
+    let message = "Failed to export disaster events";
+
+    try {
+      const payload = await response.json();
+      message = payload.message || message;
+    } catch (_error) {
+      message = "Failed to export disaster events";
+    }
+
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const contentDisposition = response.headers.get("Content-Disposition") || "";
+  const fileNameMatch = contentDisposition.match(/filename="([^"]+)"/i);
+
+  return {
+    blob,
+    filename: fileNameMatch?.[1] || getFallbackExportFilename(format),
+  };
 };

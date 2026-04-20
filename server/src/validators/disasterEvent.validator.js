@@ -133,7 +133,41 @@ const validateExtendDisasterEvent = (req, res, next) => {
   }
 };
 
+const validateExportDisasterEvents = (req, res, next) => {
+  try {
+    const { scope, format, search } = req.query;
+    const normalizedScope = String(scope || "all").toLowerCase();
+    const normalizedFormat = String(format || "").toLowerCase();
+
+    if (!["active", "closed", "all"].includes(normalizedScope)) {
+      return res.status(400).json({
+        message: "scope must be one of: active, closed, all",
+      });
+    }
+
+    if (!["pdf", "excel", "csv"].includes(normalizedFormat)) {
+      return res.status(400).json({
+        message: "format must be one of: pdf, excel, csv",
+      });
+    }
+
+    req.validatedQuery = {
+      scope: normalizedScope,
+      format: normalizedFormat,
+      search: typeof search === "string" ? search : "",
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate disaster events export request",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   validateCreateDisasterEvent,
   validateExtendDisasterEvent,
+  validateExportDisasterEvents,
 };
