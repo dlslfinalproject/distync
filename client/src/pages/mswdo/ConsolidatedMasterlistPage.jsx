@@ -476,7 +476,6 @@ const ConsolidatedEvacueeMasterlist = () => {
             }}
           >
             <span>Period: {formatReliefPeriod(selectedDisasterEvent)}</span>
-            <span>Barangay Scope: {selectedBarangayLabel}</span>
             <StatusPill status={selectedDisasterEvent?.status} />
           </div>
         </div>

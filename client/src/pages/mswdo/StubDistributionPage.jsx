@@ -4,6 +4,7 @@ import { FiFileText, FiFilter } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import SearchBar from "../../components/shared/SearchBar";
+import StatusPill from "../../components/shared/StatusPill";
 import StubClaimConfirmModal from "../../components/stubs/StubClaimConfirmModal";
 import MswdoStubResultsTable from "../../components/stubs/MswdoStubResultsTable";
 import StubSummaryCards from "../../components/stubs/StubSummaryCards";
@@ -451,9 +452,7 @@ const StubDistributionPage = () => {
             }}
           >
             <span>Period: {formatReliefPeriod(selectedDisasterEvent)}</span>
-            <span>
-              Barangay Scope: {selectedBarangay?.name || "No barangay selected"}
-            </span>
+            <StatusPill status={selectedDisasterEvent?.status} />
           </div>
         </div>
 
