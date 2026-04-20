@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import PageHeader from "../../components/layout/PageHeader";
+import PageHeader, {
+  pageHeaderStyles,
+} from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import SearchBar from "../../components/shared/SearchBar";
 import InventoryItemFormModal from "../../components/inventory-items/InventoryItemFormModal";
@@ -10,7 +12,13 @@ import {
   fetchInventoryItems,
   updateInventoryItem,
 } from "../../features/inventory-items/inventoryItemService";
-import { FiFileText, FiFilter, FiPackage, FiPlus } from "react-icons/fi";
+import {
+  FiFileText,
+  FiFilter,
+  FiPackage,
+  FiPlus,
+  FiX,
+} from "react-icons/fi";
 import { MdQrCodeScanner } from "react-icons/md";
 
 /* ================= STYLES ================= */
@@ -125,7 +133,7 @@ const getChipStyle = (isActive) => ({
 const scanModalOverlayStyle = {
   position: "fixed",
   inset: 0,
-  background: "rgba(15, 23, 42, 0.42)",
+  backgroundColor: "rgba(21, 40, 63, 0.48)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -134,33 +142,36 @@ const scanModalOverlayStyle = {
 };
 
 const scanModalStyle = {
-  width: "100%",
-  maxWidth: "640px",
-  background: "#f8fafc",
-  borderRadius: "18px",
-  padding: "28px 24px 18px",
-  boxShadow: "0 24px 60px rgba(15, 23, 42, 0.22)",
+  width: "min(860px, 100%)",
+  maxHeight: "90vh",
+  overflowY: "auto",
+  backgroundColor: "#eef5fb",
+  borderRadius: "22px",
+  border: "1px solid #d7e2ef",
+  boxShadow: "0 24px 60px rgba(23, 50, 77, 0.18)",
+  padding: "24px",
+  boxSizing: "border-box",
 };
 
 const scanModalInputStyle = {
   width: "100%",
-  height: "42px",
-  border: "1px solid #dce7f3",
-  borderRadius: "10px",
-  background: "#eef2f7",
-  padding: "0 12px",
-  fontSize: "14px",
-  color: "#334155",
-  outline: "none",
+  minHeight: "48px",
+  padding: "12px 14px",
+  borderRadius: "14px",
+  border: "1px solid #d2deea",
   boxSizing: "border-box",
+  fontSize: "14px",
+  color: "#21405f",
+  backgroundColor: "#ffffff",
+  outline: "none",
 };
 
 const scanModalLabelStyle = {
   display: "block",
-  fontSize: "14px",
-  fontWeight: 700,
-  color: "#334155",
   marginBottom: "8px",
+  color: "#4f677f",
+  fontSize: "13px",
+  fontWeight: 700,
 };
 
 const styles = {
@@ -330,28 +341,55 @@ const styles = {
   },
 
   addItemIconWrap: {
-  position: "relative",
-  width: "18px",
-  height: "18px",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-},
+    position: "relative",
+    width: "18px",
+    height: "18px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
 
-addItemPlus: {
-  position: "absolute",
-  right: "-5px",
-  bottom: "-4px",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  color: "#ffffff",
-  background: "transparent",
-  padding: 0,
-  borderRadius: 0,
-  boxShadow: "none",
-  lineHeight: 1,
-},
+  addItemPlus: {
+    position: "absolute",
+    right: "-5px",
+    bottom: "-4px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#ffffff",
+    background: "transparent",
+    padding: 0,
+    borderRadius: 0,
+    boxShadow: "none",
+    lineHeight: 1,
+  },
+
+  scanModalHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: "16px",
+    marginBottom: "20px",
+  },
+
+  scanModalTitle: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "26px",
+  },
+
+  scanModalSectionTitle: {
+    margin: "0 0 12px",
+    color: "#17324d",
+  },
+
+  scanModalFooter: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "12px",
+    marginTop: "10px",
+    flexWrap: "wrap",
+  },
 };
 
 /* ================= HELPERS ================= */
@@ -529,7 +567,7 @@ const InventoryItemsPage = () => {
             <span style={styles.addItemIconWrap}>
               <FiPackage size={16} />
               <span style={styles.addItemPlus}>
-                <FiPlus size={10} strokeWidth={3} />              
+                <FiPlus size={10} strokeWidth={3} />
               </span>
             </span>
             Add Item
@@ -834,77 +872,93 @@ const InventoryItemsPage = () => {
 
       {/* SCAN ITEM MODAL */}
       {isScanModalOpen && (
-        <div style={scanModalOverlayStyle} onClick={handleCloseScanModal}>
-          <div style={scanModalStyle} onClick={(e) => e.stopPropagation()}>
-            <h2
-              style={{
-                margin: 0,
-                color: "#2f3f5d",
-                fontSize: "24px",
-                fontWeight: 800,
-                lineHeight: 1.2,
-              }}
-            >
-              Barcode Scanner
-            </h2>
+        <div style={scanModalOverlayStyle}>
+          <div style={scanModalStyle}>
+            <div style={styles.scanModalHeader}>
+              <div>
+                <h3 style={styles.scanModalTitle}>Barcode Scanner</h3>
+              </div>
 
-            <p
-              style={{
-                margin: "2px 0 8px",
-                color: "#2f3f5d",
-                fontSize: "17px",
-                fontWeight: 700,
-              }}
-            >
-              Start Scanning
-            </p>
-
-            <div style={{ marginBottom: "14px" }}>
-              <label style={scanModalLabelStyle}>Input Barcode Number</label>
-              <input
-                type="text"
-                value={scanForm.barcodeNumber}
-                onChange={(e) =>
-                  handleScanInputChange("barcodeNumber", e.target.value)
-                }
-                style={scanModalInputStyle}
-              />
-            </div>
-
-            <div style={{ marginBottom: "22px" }}>
-              <label style={scanModalLabelStyle}>Reorder Level</label>
-              <input
-                type="text"
-                value={scanForm.reorderLevel}
-                onChange={(e) =>
-                  handleScanInputChange("reorderLevel", e.target.value)
-                }
-                style={scanModalInputStyle}
-              />
+              <button
+                type="button"
+                onClick={handleCloseScanModal}
+                style={pageHeaderStyles.secondaryButton}
+              >
+                <FiX />
+              </button>
             </div>
 
             <div
               style={{
                 display: "flex",
-                justifyContent: "flex-end",
-                gap: "12px",
-                flexWrap: "wrap",
+                flexDirection: "column",
+                gap: "18px",
               }}
             >
-              <button
-                type="button"
-                style={primaryModalBtn}
-                onClick={handleSubmitScanModal}
-              >
-                Add Item
-              </button>
-              <button
-                type="button"
-                style={secondaryModalBtn}
-                onClick={handleCloseScanModal}
-              >
-                Cancel
-              </button>
+              <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
+                <h3 style={styles.scanModalSectionTitle}>Scan Details</h3>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns:
+                      "repeat(auto-fit, minmax(220px, 1fr))",
+                    gap: "18px",
+                  }}
+                >
+                  <div style={{ gridColumn: "1 / -1" }}>
+                    <label style={scanModalLabelStyle}>
+                      Input Barcode Number
+                    </label>
+                    <input
+                      type="text"
+                      value={scanForm.barcodeNumber}
+                      onChange={(e) =>
+                        handleScanInputChange(
+                          "barcodeNumber",
+                          e.target.value
+                        )
+                      }
+                      style={scanModalInputStyle}
+                      placeholder="Enter barcode number"
+                    />
+                  </div>
+
+                  <div>
+                    <label style={scanModalLabelStyle}>Reorder Level</label>
+                    <input
+                      type="text"
+                      value={scanForm.reorderLevel}
+                      onChange={(e) =>
+                        handleScanInputChange(
+                          "reorderLevel",
+                          e.target.value
+                        )
+                      }
+                      style={scanModalInputStyle}
+                      placeholder="Set reorder level"
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <div style={styles.scanModalFooter}>
+                <button
+                  type="button"
+                  onClick={handleCloseScanModal}
+                  style={pageHeaderStyles.secondaryButton}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  style={pageHeaderStyles.primaryButton}
+                  onClick={handleSubmitScanModal}
+                >
+                  Add Item
+                </button>
+              </div>
             </div>
           </div>
         </div>
