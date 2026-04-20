@@ -55,6 +55,9 @@ const MasterlistTable = ({
   errorMessage,
   hasSelectedEvent,
   onMarkDeparted,
+  selectedHouseholds,
+  onToggleSelect,
+  onSelectAll,
 }) => {
   if (!hasSelectedEvent) {
     return (
@@ -106,6 +109,16 @@ const MasterlistTable = ({
     );
   }
 
+  const selectableRows = rows.filter(
+    (row) => !row.departure_time_value && row.can_record_departure,
+  );
+
+  const areAllSelected =
+    selectableRows.length > 0 &&
+    selectableRows.every((row) =>
+      selectedHouseholds.includes(row.household_id),
+    );
+
   return (
     <section style={shellStyles.card}>
       <div style={{ marginBottom: "18px" }}>
@@ -116,6 +129,20 @@ const MasterlistTable = ({
         <table style={tableStyles.table}>
           <thead>
             <tr>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  width: "56px",
+                  textAlign: "center",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={areAllSelected}
+                  onChange={onSelectAll}
+                  disabled={!selectableRows.length}
+                />
+              </th>
               <th style={tableStyles.headerCell}>Family Head</th>
               <th style={tableStyles.headerCell}>Address</th>
               <th style={tableStyles.headerCell}>Members</th>
@@ -139,47 +166,66 @@ const MasterlistTable = ({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
-              <tr key={row.household_id}>
-                <td style={tableStyles.bodyCell}>{row.family_head_name}</td>
-                <td style={tableStyles.bodyCell}>{row.address}</td>
-                <td style={tableStyles.bodyCell}>
-                  <span style={tableStyles.membersBadge}>
-                    {row.members_count}
-                  </span>
-                </td>
-                <td style={tableStyles.bodyCell}>{row.sectors_text}</td>
-                <td
-                  style={{
-                    ...tableStyles.bodyCell,
-                    textAlign: "center",
-                  }}
-                >
-                  {row.arrival_time_text}
-                </td>
-                <td
-                  style={{
-                    ...tableStyles.bodyCell,
-                    textAlign: "center",
-                  }}
-                >
-                  {row.departure_time_value ? (
-                    row.departure_time_text
-                  ) : row.can_record_departure ? (
-                    <button
-                      type="button"
-                      onClick={() => onMarkDeparted(row.household_id)}
-                      style={tableStyles.departureButton}
-                      title="Mark Departed"
-                    >
-                      <MdDoorFront size={18} />
-                    </button>
-                  ) : (
-                    "-"
-                  )}
-                </td>
-              </tr>
-            ))}
+            {rows.map((row) => {
+              const isSelectable =
+                !row.departure_time_value && row.can_record_departure;
+              const isSelected = selectedHouseholds.includes(row.household_id);
+
+              return (
+                <tr key={row.household_id}>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      textAlign: "center",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      disabled={!isSelectable}
+                      onChange={() => onToggleSelect(row.household_id)}
+                    />
+                  </td>
+                  <td style={tableStyles.bodyCell}>{row.family_head_name}</td>
+                  <td style={tableStyles.bodyCell}>{row.address}</td>
+                  <td style={tableStyles.bodyCell}>
+                    <span style={tableStyles.membersBadge}>
+                      {row.members_count}
+                    </span>
+                  </td>
+                  <td style={tableStyles.bodyCell}>{row.sectors_text}</td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      textAlign: "center",
+                    }}
+                  >
+                    {row.arrival_time_text}
+                  </td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      textAlign: "center",
+                    }}
+                  >
+                    {row.departure_time_value ? (
+                      row.departure_time_text
+                    ) : row.can_record_departure ? (
+                      <button
+                        type="button"
+                        onClick={() => onMarkDeparted(row.household_id)}
+                        style={tableStyles.departureButton}
+                        title="Mark Departed"
+                      >
+                        <MdDoorFront size={18} />
+                      </button>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
