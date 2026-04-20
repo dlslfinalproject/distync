@@ -59,6 +59,12 @@ const MasterlistTable = ({
   onToggleSelect,
   onSelectAll,
 }) => {
+  const safeSelectedHouseholds = Array.isArray(selectedHouseholds)
+    ? selectedHouseholds
+    : [];
+  const canUseSelection =
+    typeof onToggleSelect === "function" && typeof onSelectAll === "function";
+
   if (!hasSelectedEvent) {
     return (
       <section style={shellStyles.card}>
@@ -116,7 +122,7 @@ const MasterlistTable = ({
   const areAllSelected =
     selectableRows.length > 0 &&
     selectableRows.every((row) =>
-      selectedHouseholds.includes(row.household_id),
+      safeSelectedHouseholds.includes(row.household_id),
     );
 
   return (
@@ -140,7 +146,7 @@ const MasterlistTable = ({
                   type="checkbox"
                   checked={areAllSelected}
                   onChange={onSelectAll}
-                  disabled={!selectableRows.length}
+                  disabled={!canUseSelection || !selectableRows.length}
                 />
               </th>
               <th style={tableStyles.headerCell}>Family Head</th>
@@ -169,7 +175,9 @@ const MasterlistTable = ({
             {rows.map((row) => {
               const isSelectable =
                 !row.departure_time_value && row.can_record_departure;
-              const isSelected = selectedHouseholds.includes(row.household_id);
+              const isSelected = safeSelectedHouseholds.includes(
+                row.household_id,
+              );
 
               return (
                 <tr key={row.household_id}>
@@ -182,7 +190,7 @@ const MasterlistTable = ({
                     <input
                       type="checkbox"
                       checked={isSelected}
-                      disabled={!isSelectable}
+                      disabled={!canUseSelection || !isSelectable}
                       onChange={() => onToggleSelect(row.household_id)}
                     />
                   </td>
