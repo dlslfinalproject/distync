@@ -491,6 +491,20 @@ const ConsolidatedEvacueeMasterlist = () => {
             Filter
           </button>
 
+          <button
+            type="button"
+            onClick={handleOpenRegisterModal}
+            style={{
+              ...pageHeaderStyles.primaryButton,
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
+            <FiUserPlus size={16} />
+            Register Family
+          </button>
+
           <div style={{ position: "relative" }}>
             <button
               type="button"
@@ -560,20 +574,6 @@ const ConsolidatedEvacueeMasterlist = () => {
               </div>
             ) : null}
           </div>
-
-          <button
-            type="button"
-            onClick={handleOpenRegisterModal}
-            style={{
-              ...pageHeaderStyles.primaryButton,
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-            }}
-          >
-            <FiUserPlus size={16} />
-            Register Family
-          </button>
         </div>
       </div>
 
