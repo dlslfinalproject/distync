@@ -106,18 +106,51 @@ const chipGroupStyle = {
   flexWrap: "wrap",
 };
 
-const getChipStyle = (isActive) => ({
+const activeChipPalette = {
+  All: {
+    backgroundColor: COLORS.primary,
+    color: "#ffffff",
+  },
+  Perishable: {
+    backgroundColor: "#fef3c7",
+    color: "#92400e",
+  },
+  "Non-Perishable": {
+    backgroundColor: "#e6f5ec",
+    color: "#2d7a4f",
+  },
+  Low: {
+    backgroundColor: "#fef3c7",
+    color: "#92400e",
+  },
+  Critical: {
+    backgroundColor: "#fee2e2",
+    color: "#b91c1c",
+  },
+  Expiring: {
+    backgroundColor: "#ede9fe",
+    color: "#6d28d9",
+  },
+};
+
+const getChipStyle = (label, isActive) => {
+  const activePalette = activeChipPalette[label] || activeChipPalette.All;
+
+  return {
   border: "none",
   borderRadius: "6px",
   padding: "3px 10px",
   fontSize: "11px",
   fontWeight: 600,
   cursor: "pointer",
-  backgroundColor: isActive ? COLORS.primary : "transparent",
-  color: isActive ? "#fff" : COLORS.muted,
+  backgroundColor: isActive
+    ? activePalette.backgroundColor
+    : "transparent",
+  color: isActive ? activePalette.color : COLORS.muted,
   transition: "all 0.2s",
   lineHeight: 1.2,
-});
+  };
+};
 
 const tabButtonStyles = (isActive) => ({
   padding: "12px 24px",
@@ -621,7 +654,7 @@ const InventoryItemsPage = () => {
                 {["All", "Perishable", "Non-Perishable"].map((cat) => (
                   <button
                     key={cat}
-                    style={getChipStyle(filters.category === cat)}
+                    style={getChipStyle(cat, filters.category === cat)}
                     onClick={() => handleFilterChange("category", cat)}
                   >
                     {cat}
@@ -634,7 +667,7 @@ const InventoryItemsPage = () => {
                 {["All", "Low", "Critical", "Expiring"].map((stat) => (
                   <button
                     key={stat}
-                    style={getChipStyle(filters.status === stat)}
+                    style={getChipStyle(stat, filters.status === stat)}
                     onClick={() => handleFilterChange("status", stat)}
                   >
                     {stat}
