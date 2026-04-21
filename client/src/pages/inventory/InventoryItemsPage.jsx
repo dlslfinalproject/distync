@@ -33,7 +33,6 @@ const COLORS = {
   bgSoft: "#f8fbff",
   bgHeader: "#f1f6fb",
   chipBg: "#d7dee9",
-  tabBorder: "#9aa6b2",
 };
 
 const primaryTopBtn = {
@@ -120,6 +119,18 @@ const getChipStyle = (isActive) => ({
   lineHeight: 1.2,
 });
 
+const tabButtonStyles = (isActive) => ({
+  padding: "12px 24px",
+  border: "none",
+  background: "none",
+  fontSize: "14px",
+  fontWeight: 700,
+  textTransform: "uppercase",
+  color: isActive ? "#17324d" : "#6b8298",
+  borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
+  cursor: "pointer",
+});
+
 const styles = {
   topActionsRow: {
     display: "flex",
@@ -132,18 +143,10 @@ const styles = {
 
   tabContainer: {
     display: "flex",
-    alignItems: "flex-end",
-    gap: "28px",
-    borderBottom: `2px solid ${COLORS.tabBorder}`,
-    marginBottom: "20px",
-  },
-
-  tab: {
-    cursor: "pointer",
-    paddingBottom: "7px",
-    fontSize: "18px",
-    color: "#1e3a5f",
-    lineHeight: 1.2,
+    borderBottom: "1px solid #d6e2ef",
+    marginBottom: "24px",
+    gap: "8px",
+    flexWrap: "wrap",
   },
 
   sectionTitle: {
@@ -577,20 +580,16 @@ const InventoryItemsPage = () => {
         {/* TABS */}
         <div style={styles.tabContainer}>
           {["overview", "analytics"].map((tab) => (
-            <span
+            <button
               key={tab}
+              type="button"
               onClick={() => setActiveTab(tab)}
-              style={{
-                ...styles.tab,
-                borderBottom:
-                  activeTab === tab ? `3px solid ${COLORS.primary}` : "none",
-                fontWeight: activeTab === tab ? 700 : 500,
-              }}
+              style={tabButtonStyles(activeTab === tab)}
             >
               {tab === "overview"
                 ? "Stock Overview"
                 : "Inventory Analytics"}
-            </span>
+            </button>
           ))}
         </div>
 
