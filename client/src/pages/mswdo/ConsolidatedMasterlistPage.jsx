@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { FiFileText, FiFilter, FiUserPlus } from "react-icons/fi";
+import { MdDoorFront } from "react-icons/md";
 import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
@@ -158,7 +159,9 @@ const ConsolidatedEvacueeMasterlist = () => {
 
   const [activeTab, setActiveTab] = useState("active"); // 'active' | 'ended'
   const [pendingDepartureHouseholdId, setPendingDepartureHouseholdId] = useState(null);
+  const [isBulkDepartureConfirmOpen, setIsBulkDepartureConfirmOpen] = useState(false);
   const [isRecordingDeparture, setIsRecordingDeparture] = useState(false);
+  const [selectedHouseholds, setSelectedHouseholds] = useState([]);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState("");
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
@@ -170,7 +173,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     ? `${selectedDisasterEvent.event_code} - ${selectedDisasterEvent.title}`
     : "No disaster event selected";
   const hasRowsToExport = displayedRows.length > 0;
-  const isAllBarangaysMode = !selectedBarangayId;
+  const canRegisterFamily = activeTab === "active";
   const scopedDisasterEvents = useMemo(() => {
     const statusByTab = activeTab === "active" ? "ACTIVE" : "CLOSED";
 
@@ -193,6 +196,34 @@ const ConsolidatedEvacueeMasterlist = () => {
     },
   });
 
+  const handleToggleSelect = (householdId) => {
+    setSelectedHouseholds((currentValues) =>
+      currentValues.includes(householdId)
+        ? currentValues.filter((id) => id !== householdId)
+        : [...currentValues, householdId],
+    );
+  };
+
+  const handleSelectAll = () => {
+    const selectableHouseholdIds = displayedRows
+      .filter((row) => !row.departure_time_value && row.can_record_departure)
+      .map((row) => row.household_id);
+
+    const areAllSelected =
+      selectableHouseholdIds.length > 0 &&
+      selectableHouseholdIds.every((id) => selectedHouseholds.includes(id));
+
+    setSelectedHouseholds(areAllSelected ? [] : selectableHouseholdIds);
+  };
+
+  const handleOpenBulkDepartureConfirmation = () => {
+    if (!selectedHouseholds.length || isRecordingDeparture) {
+      return;
+    }
+
+    setIsBulkDepartureConfirmOpen(true);
+  };
+
   const handleOpenDepartureConfirmation = (householdId) => {
     if (isRecordingDeparture) {
       return;
@@ -207,22 +238,42 @@ const ConsolidatedEvacueeMasterlist = () => {
     }
 
     setPendingDepartureHouseholdId(null);
+    setIsBulkDepartureConfirmOpen(false);
   };
 
   const handleConfirmDeparture = async () => {
-    if (!pendingDepartureHouseholdId) {
+    if (isRecordingDeparture) {
       return;
     }
 
     setIsRecordingDeparture(true);
 
     try {
-      const response = await departHousehold({ householdId: pendingDepartureHouseholdId });
-      setAttendanceActionMessage(
-        response.message || "Household departure recorded successfully",
-      );
-      setPendingDepartureHouseholdId(null);
-      reloadMasterlist();
+      if (isBulkDepartureConfirmOpen && selectedHouseholds.length > 0) {
+        await Promise.all(
+          selectedHouseholds.map((householdId) =>
+            departHousehold({ householdId }),
+          ),
+        );
+
+        setAttendanceActionMessage("Selected households marked as departed");
+        setSelectedHouseholds([]);
+        setIsBulkDepartureConfirmOpen(false);
+        reloadMasterlist();
+      } else {
+        if (!pendingDepartureHouseholdId) {
+          return;
+        }
+
+        const response = await departHousehold({
+          householdId: pendingDepartureHouseholdId,
+        });
+        setAttendanceActionMessage(
+          response.message || "Household departure recorded successfully",
+        );
+        setPendingDepartureHouseholdId(null);
+        reloadMasterlist();
+      }
     } catch (error) {
       setAttendanceActionMessage(
         error.message || "Failed to record household departure.",
@@ -316,7 +367,7 @@ const ConsolidatedEvacueeMasterlist = () => {
 
   return (
     <>
-      <PageHeader title="EVACUEE MASTERLIST" actions={[]} />
+      <PageHeader title="EVACUEE MASTERLIST MANAGEMENT" actions={[]} />
 
       <section style={shellStyles.card}>
         <div
@@ -393,24 +444,6 @@ const ConsolidatedEvacueeMasterlist = () => {
               ))}
             </select>
           </div>
-
-          <div>
-            <label style={filterStyles.label}>Current Scope</label>
-            <div
-              style={{
-                ...filterStyles.field,
-                display: "flex",
-                alignItems: "center",
-                minHeight: "48px",
-                fontWeight: 700,
-                color: "#17324d",
-              }}
-            >
-              {isAllBarangaysMode
-                ? "All Barangays (Consolidated)"
-                : selectedBarangayLabel}
-            </div>
-          </div>
         </div>
       </section>
 
@@ -444,7 +477,6 @@ const ConsolidatedEvacueeMasterlist = () => {
             }}
           >
             <span>Period: {formatReliefPeriod(selectedDisasterEvent)}</span>
-            <span>Barangay Scope: {selectedBarangayLabel}</span>
             <StatusPill status={selectedDisasterEvent?.status} />
           </div>
         </div>
@@ -457,8 +489,8 @@ const ConsolidatedEvacueeMasterlist = () => {
           <p style={{ ...shellStyles.mutedText, marginTop: "16px" }}>
             Select a disaster event to load the consolidated masterlist.
           </p>
-        ) : null}
-      </section>
+      ) : null}
+    </section>
 
       {selectedDisasterEvent && !isLoadingDashboard && !dashboardErrorMessage ? (
         <MswdoSummaryCards summary={summaryMetrics} />
@@ -477,6 +509,46 @@ const ConsolidatedEvacueeMasterlist = () => {
           <p style={{ margin: 0, color: "#24496e", fontWeight: 700 }}>
             {attendanceActionMessage}
           </p>
+        </section>
+      ) : null}
+
+      {selectedHouseholds.length > 0 ? (
+        <section style={shellStyles.card}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: "12px",
+              flexWrap: "wrap",
+            }}
+          >
+            <p style={{ margin: 0, fontWeight: 700, color: "#24496e" }}>
+              {selectedHouseholds.length} selected
+            </p>
+
+            <button
+              type="button"
+              onClick={handleOpenBulkDepartureConfirmation}
+              disabled={isRecordingDeparture}
+              style={{
+                border: "1px solid #c6d8ea",
+                borderRadius: "12px",
+                width: "40px",
+                height: "40px",
+                backgroundColor: "#f7fbfe",
+                color: "#24496e",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: isRecordingDeparture ? "not-allowed" : "pointer",
+                opacity: isRecordingDeparture ? 0.7 : 1,
+              }}
+              title="Mark Selected as Departed"
+            >
+              <MdDoorFront size={18} />
+            </button>
+          </div>
         </section>
       ) : null}
 
@@ -509,6 +581,22 @@ const ConsolidatedEvacueeMasterlist = () => {
             <FiFilter size={16} />
             Filter
           </button>
+
+          {canRegisterFamily ? (
+            <button
+              type="button"
+              onClick={handleOpenRegisterModal}
+              style={{
+                ...pageHeaderStyles.primaryButton,
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+              }}
+            >
+              <FiUserPlus size={16} />
+              Register Family
+            </button>
+          ) : null}
 
           <div style={{ position: "relative" }}>
             <button
@@ -579,20 +667,6 @@ const ConsolidatedEvacueeMasterlist = () => {
               </div>
             ) : null}
           </div>
-
-          <button
-            type="button"
-            onClick={handleOpenRegisterModal}
-            style={{
-              ...pageHeaderStyles.primaryButton,
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-            }}
-          >
-            <FiUserPlus size={16} />
-            Register Family
-          </button>
         </div>
       </div>
 
@@ -602,13 +676,17 @@ const ConsolidatedEvacueeMasterlist = () => {
         isLoading={isLoadingFilters || isLoadingMasterlist}
         errorMessage={errorMessage}
         onMarkDeparted={handleOpenDepartureConfirmation}
+        selectedHouseholds={selectedHouseholds}
+        onToggleSelect={handleToggleSelect}
+        onSelectAll={handleSelectAll}
       />
 
       <MasterlistDepartureConfirmModal
-        isOpen={Boolean(pendingDepartureHouseholdId)}
+        isOpen={Boolean(pendingDepartureHouseholdId) || isBulkDepartureConfirmOpen}
         isSubmitting={isRecordingDeparture}
         onCancel={handleCloseDepartureConfirmation}
         onConfirm={handleConfirmDeparture}
+        selectedCount={isBulkDepartureConfirmOpen ? selectedHouseholds.length : 1}
       />
 
       <ExportNoticeModal

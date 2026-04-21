@@ -1,25 +1,18 @@
 import React from "react";
-import { shellStyles } from "../layout/BarangayLayout";
+import StatusCard from "../shared/StatusCard";
 
-const cardStyles = {
-  label: {
-    margin: 0,
-    color: "#688199",
-    fontSize: "12px",
-    fontWeight: 700,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
-  },
-  helper: {
-    margin: "8px 0 0",
-    color: "#62778d",
-    fontSize: "13px",
-    lineHeight: 1.5,
-  },
+const gridStyles = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+  gap: "16px",
 };
 
 const MswdoSummaryCards = ({ summary }) => {
   const cards = [
+    {
+      label: "Barangays Covered",
+      value: summary.totalBarangaysCovered,
+    },
     {
       label: "Total Evacuees",
       value: summary.totalNumberOfEvacueesIndividuals,
@@ -40,20 +33,12 @@ const MswdoSummaryCards = ({ summary }) => {
       label: "Total Departed",
       value: summary.totalDepartedEvacuees,
     },
-    {
-      label: "Barangays Covered",
-      value: summary.totalBarangaysCovered,
-    },
   ];
 
   return (
-    <section style={shellStyles.statGrid}>
+    <section style={gridStyles}>
       {cards.map((card) => (
-        <div key={card.label} style={shellStyles.card}>
-          <p style={cardStyles.label}>{card.label}</p>
-          <p style={shellStyles.statValue}>{card.value}</p>
-          <p style={cardStyles.helper}>{card.helperText}</p>
-        </div>
+        <StatusCard key={card.label} {...card} />
       ))}
     </section>
   );
