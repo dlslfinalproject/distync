@@ -5,6 +5,7 @@ import PageHeader from "../../components/layout/PageHeader";
 import StubClaimConfirmModal from "../../components/stubs/StubClaimConfirmModal";
 import StubSearchBar from "../../components/stubs/StubSearchBar";
 import StubResultsTable from "../../components/stubs/StubResultsTable";
+import StubSummaryCards from "../../components/stubs/StubSummaryCards";
 import { useAuth } from "../../context/AuthContext";
 import { useBarangayDashboard } from "../../features/barangay-dashboard/useBarangayDashboard";
 import { useStubDashboard } from "../../features/stubs/useStubDashboard";
@@ -219,6 +220,10 @@ const StubDistributionPage = () => {
         setSelectedDisasterEventId={setSelectedDisasterEventId}
         setOverrideBarangayId={setOverrideBarangayId}
       />
+
+      {hasSelectedEvent && !isLoadingStubDashboard && !stubDashboardErrorMessage ? (
+        <StubSummaryCards cards={summaryCards} />
+      ) : null}
 
       <section
         style={{
