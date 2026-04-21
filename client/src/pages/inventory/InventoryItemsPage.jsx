@@ -5,7 +5,9 @@ import PageHeader, {
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import SearchBar from "../../components/shared/SearchBar";
 import InventoryItemFormModal from "../../components/inventory-items/InventoryItemFormModal";
+import InventoryItemScanModal from "../../components/inventory-items/InventoryItemScanModal";
 import InventoryItemsTable from "../../components/inventory-items/InventoryItemsTable";
+import StatusCard from "../../components/shared/StatusCard";
 import {
   createInventoryItem,
   fetchInventoryItemById,
@@ -17,7 +19,6 @@ import {
   FiFilter,
   FiPackage,
   FiPlus,
-  FiX,
 } from "react-icons/fi";
 import { MdQrCodeScanner } from "react-icons/md";
 
@@ -32,10 +33,6 @@ const COLORS = {
   bgSoft: "#f8fbff",
   bgHeader: "#f1f6fb",
   chipBg: "#d7dee9",
-  tabBorder: "#9aa6b2",
-  greenCard: "#a8c1ba",
-  redCard: "#d9b8b0",
-  pinkCard: "#ccb1b7",
 };
 
 const primaryTopBtn = {
@@ -93,14 +90,6 @@ const secondaryModalBtn = {
   transition: "all 0.2s ease",
 };
 
-const cardBaseStyle = {
-  borderRadius: "8px",
-  padding: "16px 18px",
-  border: "1px solid rgba(47, 63, 93, 0.35)",
-  boxShadow: "0 2px 6px rgba(23, 50, 77, 0.10)",
-  minHeight: "104px",
-};
-
 const analyticsCard = {
   background: COLORS.bgSoft,
   border: `1px solid ${COLORS.border}`,
@@ -117,115 +106,80 @@ const chipGroupStyle = {
   flexWrap: "wrap",
 };
 
-const getChipStyle = (isActive) => ({
+const activeChipPalette = {
+  All: {
+    backgroundColor: COLORS.primary,
+    color: "#ffffff",
+  },
+  Perishable: {
+    backgroundColor: "#fef3c7",
+    color: "#92400e",
+  },
+  "Non-Perishable": {
+    backgroundColor: "#e6f5ec",
+    color: "#2d7a4f",
+  },
+  Low: {
+    backgroundColor: "#fef3c7",
+    color: "#92400e",
+  },
+  Critical: {
+    backgroundColor: "#fee2e2",
+    color: "#b91c1c",
+  },
+  Expiring: {
+    backgroundColor: "#ede9fe",
+    color: "#6d28d9",
+  },
+};
+
+const getChipStyle = (label, isActive) => {
+  const activePalette = activeChipPalette[label] || activeChipPalette.All;
+
+  return {
   border: "none",
   borderRadius: "6px",
   padding: "3px 10px",
   fontSize: "11px",
   fontWeight: 600,
   cursor: "pointer",
-  backgroundColor: isActive ? COLORS.primary : "transparent",
-  color: isActive ? "#fff" : COLORS.muted,
+  backgroundColor: isActive
+    ? activePalette.backgroundColor
+    : "transparent",
+  color: isActive ? activePalette.color : COLORS.muted,
   transition: "all 0.2s",
   lineHeight: 1.2,
-});
-
-const scanModalOverlayStyle = {
-  position: "fixed",
-  inset: 0,
-  backgroundColor: "rgba(21, 40, 63, 0.48)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: "24px",
-  zIndex: 1200,
+  };
 };
 
-const scanModalStyle = {
-  width: "min(860px, 100%)",
-  maxHeight: "90vh",
-  overflowY: "auto",
-  backgroundColor: "#eef5fb",
-  borderRadius: "22px",
-  border: "1px solid #d7e2ef",
-  boxShadow: "0 24px 60px rgba(23, 50, 77, 0.18)",
-  padding: "24px",
-  boxSizing: "border-box",
-};
-
-const scanModalInputStyle = {
-  width: "100%",
-  minHeight: "48px",
-  padding: "12px 14px",
-  borderRadius: "14px",
-  border: "1px solid #d2deea",
-  boxSizing: "border-box",
+const tabButtonStyles = (isActive) => ({
+  padding: "12px 24px",
+  border: "none",
+  background: "none",
   fontSize: "14px",
-  color: "#21405f",
-  backgroundColor: "#ffffff",
-  outline: "none",
-};
-
-const scanModalLabelStyle = {
-  display: "block",
-  marginBottom: "8px",
-  color: "#4f677f",
-  fontSize: "13px",
   fontWeight: 700,
-};
+  textTransform: "uppercase",
+  color: isActive ? "#17324d" : "#6b8298",
+  borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
+  cursor: "pointer",
+});
 
 const styles = {
   topActionsRow: {
     display: "flex",
     justifyContent: "flex-end",
     alignItems: "center",
-    marginBottom: "16px",
+    margin: "16px 0 24px",
     flexWrap: "wrap",
     gap: "12px",
   },
 
-  summaryGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(220px, 1fr))",
-    gap: "22px",
-    marginBottom: "16px",
-  },
-
-  summaryLabel: {
-    margin: 0,
-    fontSize: "13px",
-    color: "#1e3a5f",
-    fontWeight: 700,
-  },
-
-  summaryValue: {
-    fontSize: "28px",
-    margin: "8px 0 6px",
-    fontWeight: 800,
-    color: "#1e3a5f",
-    lineHeight: 1.05,
-  },
-
-  summarySubtext: {
-    fontSize: "13px",
-    color: "#1e3a5f",
-    opacity: 0.9,
-  },
-
   tabContainer: {
     display: "flex",
-    alignItems: "flex-end",
-    gap: "28px",
-    borderBottom: `2px solid ${COLORS.tabBorder}`,
-    marginBottom: "20px",
-  },
-
-  tab: {
-    cursor: "pointer",
-    paddingBottom: "7px",
-    fontSize: "18px",
-    color: "#1e3a5f",
-    lineHeight: 1.2,
+    borderBottom: "1px solid #d6e2ef",
+    marginBottom: "24px",
+    gap: "8px",
+    flexWrap: "wrap",
   },
 
   sectionTitle: {
@@ -364,38 +318,20 @@ const styles = {
     lineHeight: 1,
   },
 
-  scanModalHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: "16px",
-    marginBottom: "20px",
-  },
-
-  scanModalTitle: {
-    margin: 0,
-    color: "#17324d",
-    fontSize: "26px",
-  },
-
-  scanModalSectionTitle: {
-    margin: "0 0 12px",
-    color: "#17324d",
-  },
-
-  scanModalFooter: {
-    display: "flex",
-    justifyContent: "flex-end",
-    gap: "12px",
-    marginTop: "10px",
-    flexWrap: "wrap",
-  },
 };
 
 /* ================= HELPERS ================= */
 
 const getUniqueCategories = (rows) =>
   [...new Set(rows.map((r) => r.category).filter(Boolean))].sort();
+
+const formatPercentage = (value, total) => {
+  if (!total) {
+    return "0%";
+  }
+
+  return `${Math.round((value / total) * 100)}%`;
+};
 
 /* ================= COMPONENT ================= */
 
@@ -450,6 +386,58 @@ const InventoryItemsPage = () => {
   const categories = useMemo(
     () => getUniqueCategories(inventoryItems),
     [inventoryItems]
+  );
+
+  const inventoryAnalytics = useMemo(() => {
+    const totalItems = inventoryItems.length;
+    const activeItems = inventoryItems.filter((item) => item.is_active).length;
+    const inactiveItems = totalItems - activeItems;
+    const perishableItems = inventoryItems.filter(
+      (item) => item.is_perishable
+    ).length;
+    const nonPerishableItems = totalItems - perishableItems;
+    const trackedCategories = [
+      perishableItems > 0 ? "Perishable" : null,
+      nonPerishableItems > 0 ? "Non-Perishable" : null,
+    ].filter(Boolean).length;
+
+    return {
+      totalItems,
+      activeItems,
+      inactiveItems,
+      perishableItems,
+      nonPerishableItems,
+      trackedCategories,
+      perishableShare: formatPercentage(perishableItems, totalItems),
+      nonPerishableShare: formatPercentage(nonPerishableItems, totalItems),
+    };
+  }, [inventoryItems]);
+
+  const summaryCards = useMemo(
+    () => [
+      {
+        label: "Total Registered Items",
+        value: inventoryAnalytics.totalItems,
+        description:
+          "All inventory item records currently registered in the system.",
+        accentColor: "#2f6499",
+      },
+      {
+        label: "Perishable Goods",
+        value: inventoryAnalytics.perishableItems,
+        description:
+          "Items that need closer monitoring because they are time-sensitive or spoilable.",
+        accentColor: "#c9792b",
+      },
+      {
+        label: "Non-Perishable Goods",
+        value: inventoryAnalytics.nonPerishableItems,
+        description:
+          "Items intended for longer storage and more stable stock availability.",
+        accentColor: "#2d7a4f",
+      },
+    ],
+    [inventoryAnalytics]
   );
 
   /* ================= FILTERS ================= */
@@ -552,114 +540,95 @@ const InventoryItemsPage = () => {
   /* ================= UI ================= */
 
   return (
-    <>
+    <div
+      style={{ flex: 1, minWidth: 0, maxWidth: "100%", overflowX: "hidden" }}
+    >
       <PageHeader title="INVENTORY MANAGEMENT" />
 
-      <section style={shellStyles.card}>
-        {/* TOP ACTIONS */}
-        <div style={styles.topActionsRow}>
-          <button style={primaryTopBtn} onClick={handleOpenScanModal}>
-            <MdQrCodeScanner size={16} />
-            Scan Item
-          </button>
+      <div style={styles.topActionsRow}>
+        <button style={primaryTopBtn} onClick={handleOpenScanModal}>
+          <MdQrCodeScanner size={16} />
+          Scan Item
+        </button>
 
-          <button style={primaryTopBtn} onClick={handleOpenCreateModal}>
-            <span style={styles.addItemIconWrap}>
-              <FiPackage size={16} />
-              <span style={styles.addItemPlus}>
-                <FiPlus size={10} strokeWidth={3} />
-              </span>
+        <button style={primaryTopBtn} onClick={handleOpenCreateModal}>
+          <span style={styles.addItemIconWrap}>
+            <FiPackage size={16} />
+            <span style={styles.addItemPlus}>
+              <FiPlus size={10} strokeWidth={3} />
             </span>
-            Add Item
+          </span>
+          Add Item
+        </button>
+
+        <div style={{ position: "relative" }}>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setExportOpen(!exportOpen);
+            }}
+            disabled={Boolean(exportingFormat)}
+            style={{
+              ...secondaryTopBtn,
+              opacity: exportingFormat ? 0.7 : 1,
+              cursor: exportingFormat ? "not-allowed" : "pointer",
+            }}
+          >
+            <FiFileText size={16} />
+            {exportingFormat
+              ? `Exporting ${exportingFormat.toUpperCase()}...`
+              : "Export"}
           </button>
 
-          <div style={{ position: "relative" }}>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setExportOpen(!exportOpen);
-              }}
-              disabled={Boolean(exportingFormat)}
-              style={{
-                ...secondaryTopBtn,
-                opacity: exportingFormat ? 0.7 : 1,
-                cursor: exportingFormat ? "not-allowed" : "pointer",
-              }}
-            >
-              <FiFileText size={16} />
-              {exportingFormat
-                ? `Exporting ${exportingFormat.toUpperCase()}...`
-                : "Export Report"}
-            </button>
-
-            {exportOpen && (
-              <div style={styles.exportMenu}>
-                {[
-                  { key: "csv", label: "Export as CSV" },
-                  { key: "pdf", label: "Export as PDF" },
-                  { key: "excel", label: "Export as Excel" },
-                ].map((option) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    onClick={() => handleExport(option.key)}
-                    style={styles.exportMenuButton}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          {exportOpen && (
+            <div style={styles.exportMenu}>
+              {[
+                { key: "csv", label: "Export as CSV" },
+                { key: "pdf", label: "Export as PDF" },
+                { key: "excel", label: "Export as Excel" },
+              ].map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  onClick={() => handleExport(option.key)}
+                  style={styles.exportMenuButton}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
+      </div>
 
-        {/* SUMMARY CARDS */}
-        <div style={styles.summaryGrid}>
-          <div style={{ ...cardBaseStyle, background: COLORS.greenCard }}>
-            <p style={styles.summaryLabel}>Total Items in Stock</p>
-            <h2 style={styles.summaryValue}>5,634</h2>
-            <small style={styles.summarySubtext}>Across 2 Categories</small>
-          </div>
+      <section style={{ ...shellStyles.statGrid, marginBottom: "16px" }}>
+        {summaryCards.map((card) => (
+          <StatusCard key={card.label} {...card} />
+        ))}
+      </section>
 
-          <div style={{ ...cardBaseStyle, background: COLORS.redCard }}>
-            <p style={styles.summaryLabel}>Low Stocks Alert</p>
-            <h2 style={styles.summaryValue}>5</h2>
-            <small style={styles.summarySubtext}>2 critical</small>
-          </div>
-
-          <div style={{ ...cardBaseStyle, background: COLORS.pinkCard }}>
-            <p style={styles.summaryLabel}>Expiring Soon</p>
-            <h2 style={styles.summaryValue}>5</h2>
-            <small style={styles.summarySubtext}>Across 3 Categories</small>
-          </div>
-        </div>
+      <section style={shellStyles.card}>
 
         {/* TABS */}
         <div style={styles.tabContainer}>
           {["overview", "analytics"].map((tab) => (
-            <span
+            <button
               key={tab}
+              type="button"
               onClick={() => setActiveTab(tab)}
-              style={{
-                ...styles.tab,
-                borderBottom:
-                  activeTab === tab ? `3px solid ${COLORS.primary}` : "none",
-                fontWeight: activeTab === tab ? 700 : 500,
-              }}
+              style={tabButtonStyles(activeTab === tab)}
             >
               {tab === "overview"
                 ? "Stock Overview"
-                : "Analytics and Forecasting"}
-            </span>
+                : "Inventory Analytics"}
+            </button>
           ))}
         </div>
 
         {/* TITLE */}
         <h3 style={styles.sectionTitle}>
-          {activeTab === "overview"
-            ? "CURRENT STOCK"
-            : "ANALYTICS AND FORECASTING"}
+          {activeTab === "overview" ? "CURRENT STOCK" : "INVENTORY ANALYTICS"}
         </h3>
 
         {/* FILTERS */}
@@ -685,7 +654,7 @@ const InventoryItemsPage = () => {
                 {["All", "Perishable", "Non-Perishable"].map((cat) => (
                   <button
                     key={cat}
-                    style={getChipStyle(filters.category === cat)}
+                    style={getChipStyle(cat, filters.category === cat)}
                     onClick={() => handleFilterChange("category", cat)}
                   >
                     {cat}
@@ -698,7 +667,7 @@ const InventoryItemsPage = () => {
                 {["All", "Low", "Critical", "Expiring"].map((stat) => (
                   <button
                     key={stat}
-                    style={getChipStyle(filters.status === stat)}
+                    style={getChipStyle(stat, filters.status === stat)}
                     onClick={() => handleFilterChange("status", stat)}
                   >
                     {stat}
@@ -827,13 +796,33 @@ const InventoryItemsPage = () => {
             }}
           >
             {[
-              "Stock Levels by Category",
-              "Stock Trend & Forecast",
-              "Low Stock Alerts",
-              "Expiry Monitoring",
-              "Distribution by Category",
-            ].map((title) => (
-              <div key={title} style={analyticsCard}>
+              {
+                title: "Perishable Goods",
+                value: inventoryAnalytics.perishableItems,
+                detail: `${inventoryAnalytics.perishableShare} of all registered items are marked as perishable.`,
+              },
+              {
+                title: "Non-Perishable Goods",
+                value: inventoryAnalytics.nonPerishableItems,
+                detail: `${inventoryAnalytics.nonPerishableShare} of all registered items are marked as non-perishable.`,
+              },
+              {
+                title: "Active Item Records",
+                value: inventoryAnalytics.activeItems,
+                detail: "Items currently available for use in the inventory masterlist.",
+              },
+              {
+                title: "Inactive Item Records",
+                value: inventoryAnalytics.inactiveItems,
+                detail: "Items kept in the masterlist but currently marked inactive.",
+              },
+              {
+                title: "Goods Categories Tracked",
+                value: inventoryAnalytics.trackedCategories,
+                detail: "The system currently tracks perishable and non-perishable goods only.",
+              },
+            ].map((card) => (
+              <div key={card.title} style={analyticsCard}>
                 <h4
                   style={{
                     margin: "0 0 8px",
@@ -842,8 +831,19 @@ const InventoryItemsPage = () => {
                     fontWeight: 700,
                   }}
                 >
-                  {title}
+                  {card.title}
                 </h4>
+                <p
+                  style={{
+                    margin: "0 0 12px",
+                    color: COLORS.primary,
+                    fontSize: "32px",
+                    fontWeight: 800,
+                    lineHeight: 1,
+                  }}
+                >
+                  {card.value}
+                </p>
                 <p
                   style={{
                     margin: 0,
@@ -851,7 +851,7 @@ const InventoryItemsPage = () => {
                     fontSize: "14px",
                   }}
                 >
-                  Content goes here
+                  {card.detail}
                 </p>
               </div>
             ))}
@@ -870,100 +870,14 @@ const InventoryItemsPage = () => {
         onSubmit={handleSubmitModal}
       />
 
-      {/* SCAN ITEM MODAL */}
-      {isScanModalOpen && (
-        <div style={scanModalOverlayStyle}>
-          <div style={scanModalStyle}>
-            <div style={styles.scanModalHeader}>
-              <div>
-                <h3 style={styles.scanModalTitle}>Barcode Scanner</h3>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleCloseScanModal}
-                style={pageHeaderStyles.secondaryButton}
-              >
-                <FiX />
-              </button>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "18px",
-              }}
-            >
-              <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
-                <h3 style={styles.scanModalSectionTitle}>Scan Details</h3>
-
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns:
-                      "repeat(auto-fit, minmax(220px, 1fr))",
-                    gap: "18px",
-                  }}
-                >
-                  <div style={{ gridColumn: "1 / -1" }}>
-                    <label style={scanModalLabelStyle}>
-                      Input Barcode Number
-                    </label>
-                    <input
-                      type="text"
-                      value={scanForm.barcodeNumber}
-                      onChange={(e) =>
-                        handleScanInputChange(
-                          "barcodeNumber",
-                          e.target.value
-                        )
-                      }
-                      style={scanModalInputStyle}
-                      placeholder="Enter barcode number"
-                    />
-                  </div>
-
-                  <div>
-                    <label style={scanModalLabelStyle}>Reorder Level</label>
-                    <input
-                      type="text"
-                      value={scanForm.reorderLevel}
-                      onChange={(e) =>
-                        handleScanInputChange(
-                          "reorderLevel",
-                          e.target.value
-                        )
-                      }
-                      style={scanModalInputStyle}
-                      placeholder="Set reorder level"
-                    />
-                  </div>
-                </div>
-              </section>
-
-              <div style={styles.scanModalFooter}>
-                <button
-                  type="button"
-                  onClick={handleCloseScanModal}
-                  style={pageHeaderStyles.secondaryButton}
-                >
-                  Cancel
-                </button>
-
-                <button
-                  type="button"
-                  style={pageHeaderStyles.primaryButton}
-                  onClick={handleSubmitScanModal}
-                >
-                  Add Item
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
+      <InventoryItemScanModal
+        isOpen={isScanModalOpen}
+        scanForm={scanForm}
+        onClose={handleCloseScanModal}
+        onSubmit={handleSubmitScanModal}
+        onInputChange={handleScanInputChange}
+      />
+    </div>
   );
 };
 

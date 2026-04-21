@@ -107,23 +107,18 @@ export const useStubDashboard = ({
       {
         label: "Total Number of Issued Stubs",
         value: dashboard.metrics.total_issued_stubs || 0,
-        helperText: "All issued stubs for the selected disaster event and scoped barangay.",
+      },
+      {
+        label: "Number of Beneficiaries Family",
+        value: dashboard.metrics.beneficiary_families || 0,
       },
       {
         label: "Number of Claimed Stubs",
         value: dashboard.metrics.claimed_stubs || 0,
-        helperText: "Stubs with a status of CLAIMED.",
       },
       {
         label: "Number of Unclaimed Stubs",
         value: dashboard.metrics.unclaimed_stubs || 0,
-        helperText: "Stubs with a status of ISSUED.",
-      },
-      {
-        label: "Number of Beneficiary Families",
-        value: dashboard.metrics.beneficiary_families || 0,
-        helperText:
-          "Distinct stubbed households that are still staying in the evacuation center.",
       },
     ];
   }, [dashboard.metrics]);
