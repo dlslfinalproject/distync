@@ -7,6 +7,7 @@ import SearchBar from "../../components/shared/SearchBar";
 import InventoryItemFormModal from "../../components/inventory-items/InventoryItemFormModal";
 import InventoryItemScanModal from "../../components/inventory-items/InventoryItemScanModal";
 import InventoryItemsTable from "../../components/inventory-items/InventoryItemsTable";
+import StatusCard from "../../components/shared/StatusCard";
 import {
   createInventoryItem,
   fetchInventoryItemById,
@@ -33,9 +34,6 @@ const COLORS = {
   bgHeader: "#f1f6fb",
   chipBg: "#d7dee9",
   tabBorder: "#9aa6b2",
-  greenCard: "#a8c1ba",
-  redCard: "#d9b8b0",
-  pinkCard: "#ccb1b7",
 };
 
 const primaryTopBtn = {
@@ -93,14 +91,6 @@ const secondaryModalBtn = {
   transition: "all 0.2s ease",
 };
 
-const cardBaseStyle = {
-  borderRadius: "8px",
-  padding: "16px 18px",
-  border: "1px solid rgba(47, 63, 93, 0.35)",
-  boxShadow: "0 2px 6px rgba(23, 50, 77, 0.10)",
-  minHeight: "104px",
-};
-
 const analyticsCard = {
   background: COLORS.bgSoft,
   border: `1px solid ${COLORS.border}`,
@@ -138,34 +128,6 @@ const styles = {
     margin: "16px 0 24px",
     flexWrap: "wrap",
     gap: "12px",
-  },
-
-  summaryGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(220px, 1fr))",
-    gap: "22px",
-    marginBottom: "16px",
-  },
-
-  summaryLabel: {
-    margin: 0,
-    fontSize: "13px",
-    color: "#1e3a5f",
-    fontWeight: 700,
-  },
-
-  summaryValue: {
-    fontSize: "28px",
-    margin: "8px 0 6px",
-    fontWeight: 800,
-    color: "#1e3a5f",
-    lineHeight: 1.05,
-  },
-
-  summarySubtext: {
-    fontSize: "13px",
-    color: "#1e3a5f",
-    opacity: 0.9,
   },
 
   tabContainer: {
@@ -327,6 +289,14 @@ const styles = {
 const getUniqueCategories = (rows) =>
   [...new Set(rows.map((r) => r.category).filter(Boolean))].sort();
 
+const formatPercentage = (value, total) => {
+  if (!total) {
+    return "0%";
+  }
+
+  return `${Math.round((value / total) * 100)}%`;
+};
+
 /* ================= COMPONENT ================= */
 
 const InventoryItemsPage = () => {
@@ -380,6 +350,58 @@ const InventoryItemsPage = () => {
   const categories = useMemo(
     () => getUniqueCategories(inventoryItems),
     [inventoryItems]
+  );
+
+  const inventoryAnalytics = useMemo(() => {
+    const totalItems = inventoryItems.length;
+    const activeItems = inventoryItems.filter((item) => item.is_active).length;
+    const inactiveItems = totalItems - activeItems;
+    const perishableItems = inventoryItems.filter(
+      (item) => item.is_perishable
+    ).length;
+    const nonPerishableItems = totalItems - perishableItems;
+    const trackedCategories = [
+      perishableItems > 0 ? "Perishable" : null,
+      nonPerishableItems > 0 ? "Non-Perishable" : null,
+    ].filter(Boolean).length;
+
+    return {
+      totalItems,
+      activeItems,
+      inactiveItems,
+      perishableItems,
+      nonPerishableItems,
+      trackedCategories,
+      perishableShare: formatPercentage(perishableItems, totalItems),
+      nonPerishableShare: formatPercentage(nonPerishableItems, totalItems),
+    };
+  }, [inventoryItems]);
+
+  const summaryCards = useMemo(
+    () => [
+      {
+        label: "Total Registered Items",
+        value: inventoryAnalytics.totalItems,
+        description:
+          "All inventory item records currently registered in the system.",
+        accentColor: "#2f6499",
+      },
+      {
+        label: "Perishable Goods",
+        value: inventoryAnalytics.perishableItems,
+        description:
+          "Items that need closer monitoring because they are time-sensitive or spoilable.",
+        accentColor: "#c9792b",
+      },
+      {
+        label: "Non-Perishable Goods",
+        value: inventoryAnalytics.nonPerishableItems,
+        description:
+          "Items intended for longer storage and more stable stock availability.",
+        accentColor: "#2d7a4f",
+      },
+    ],
+    [inventoryAnalytics]
   );
 
   /* ================= FILTERS ================= */
@@ -544,28 +566,13 @@ const InventoryItemsPage = () => {
         </div>
       </div>
 
+      <section style={{ ...shellStyles.statGrid, marginBottom: "16px" }}>
+        {summaryCards.map((card) => (
+          <StatusCard key={card.label} {...card} />
+        ))}
+      </section>
+
       <section style={shellStyles.card}>
-
-        {/* SUMMARY CARDS */}
-        <div style={styles.summaryGrid}>
-          <div style={{ ...cardBaseStyle, background: COLORS.greenCard }}>
-            <p style={styles.summaryLabel}>Total Items in Stock</p>
-            <h2 style={styles.summaryValue}>5,634</h2>
-            <small style={styles.summarySubtext}>Across 2 Categories</small>
-          </div>
-
-          <div style={{ ...cardBaseStyle, background: COLORS.redCard }}>
-            <p style={styles.summaryLabel}>Low Stocks Alert</p>
-            <h2 style={styles.summaryValue}>5</h2>
-            <small style={styles.summarySubtext}>2 critical</small>
-          </div>
-
-          <div style={{ ...cardBaseStyle, background: COLORS.pinkCard }}>
-            <p style={styles.summaryLabel}>Expiring Soon</p>
-            <h2 style={styles.summaryValue}>5</h2>
-            <small style={styles.summarySubtext}>Across 3 Categories</small>
-          </div>
-        </div>
 
         {/* TABS */}
         <div style={styles.tabContainer}>
@@ -582,16 +589,14 @@ const InventoryItemsPage = () => {
             >
               {tab === "overview"
                 ? "Stock Overview"
-                : "Analytics and Forecasting"}
+                : "Inventory Analytics"}
             </span>
           ))}
         </div>
 
         {/* TITLE */}
         <h3 style={styles.sectionTitle}>
-          {activeTab === "overview"
-            ? "CURRENT STOCK"
-            : "ANALYTICS AND FORECASTING"}
+          {activeTab === "overview" ? "CURRENT STOCK" : "INVENTORY ANALYTICS"}
         </h3>
 
         {/* FILTERS */}
@@ -759,13 +764,33 @@ const InventoryItemsPage = () => {
             }}
           >
             {[
-              "Stock Levels by Category",
-              "Stock Trend & Forecast",
-              "Low Stock Alerts",
-              "Expiry Monitoring",
-              "Distribution by Category",
-            ].map((title) => (
-              <div key={title} style={analyticsCard}>
+              {
+                title: "Perishable Goods",
+                value: inventoryAnalytics.perishableItems,
+                detail: `${inventoryAnalytics.perishableShare} of all registered items are marked as perishable.`,
+              },
+              {
+                title: "Non-Perishable Goods",
+                value: inventoryAnalytics.nonPerishableItems,
+                detail: `${inventoryAnalytics.nonPerishableShare} of all registered items are marked as non-perishable.`,
+              },
+              {
+                title: "Active Item Records",
+                value: inventoryAnalytics.activeItems,
+                detail: "Items currently available for use in the inventory masterlist.",
+              },
+              {
+                title: "Inactive Item Records",
+                value: inventoryAnalytics.inactiveItems,
+                detail: "Items kept in the masterlist but currently marked inactive.",
+              },
+              {
+                title: "Goods Categories Tracked",
+                value: inventoryAnalytics.trackedCategories,
+                detail: "The system currently tracks perishable and non-perishable goods only.",
+              },
+            ].map((card) => (
+              <div key={card.title} style={analyticsCard}>
                 <h4
                   style={{
                     margin: "0 0 8px",
@@ -774,8 +799,19 @@ const InventoryItemsPage = () => {
                     fontWeight: 700,
                   }}
                 >
-                  {title}
+                  {card.title}
                 </h4>
+                <p
+                  style={{
+                    margin: "0 0 12px",
+                    color: COLORS.primary,
+                    fontSize: "32px",
+                    fontWeight: 800,
+                    lineHeight: 1,
+                  }}
+                >
+                  {card.value}
+                </p>
                 <p
                   style={{
                     margin: 0,
@@ -783,7 +819,7 @@ const InventoryItemsPage = () => {
                     fontSize: "14px",
                   }}
                 >
-                  Content goes here
+                  {card.detail}
                 </p>
               </div>
             ))}
