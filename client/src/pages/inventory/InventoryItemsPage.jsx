@@ -179,7 +179,7 @@ const styles = {
     display: "flex",
     justifyContent: "flex-end",
     alignItems: "center",
-    marginBottom: "16px",
+    margin: "16px 0 24px",
     flexWrap: "wrap",
     gap: "12px",
   },
@@ -552,67 +552,69 @@ const InventoryItemsPage = () => {
   /* ================= UI ================= */
 
   return (
-    <>
+    <div
+      style={{ flex: 1, minWidth: 0, maxWidth: "100%", overflowX: "hidden" }}
+    >
       <PageHeader title="INVENTORY MANAGEMENT" />
 
-      <section style={shellStyles.card}>
-        {/* TOP ACTIONS */}
-        <div style={styles.topActionsRow}>
-          <button style={primaryTopBtn} onClick={handleOpenScanModal}>
-            <MdQrCodeScanner size={16} />
-            Scan Item
-          </button>
+      <div style={styles.topActionsRow}>
+        <button style={primaryTopBtn} onClick={handleOpenScanModal}>
+          <MdQrCodeScanner size={16} />
+          Scan Item
+        </button>
 
-          <button style={primaryTopBtn} onClick={handleOpenCreateModal}>
-            <span style={styles.addItemIconWrap}>
-              <FiPackage size={16} />
-              <span style={styles.addItemPlus}>
-                <FiPlus size={10} strokeWidth={3} />
-              </span>
+        <button style={primaryTopBtn} onClick={handleOpenCreateModal}>
+          <span style={styles.addItemIconWrap}>
+            <FiPackage size={16} />
+            <span style={styles.addItemPlus}>
+              <FiPlus size={10} strokeWidth={3} />
             </span>
-            Add Item
+          </span>
+          Add Item
+        </button>
+
+        <div style={{ position: "relative" }}>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setExportOpen(!exportOpen);
+            }}
+            disabled={Boolean(exportingFormat)}
+            style={{
+              ...secondaryTopBtn,
+              opacity: exportingFormat ? 0.7 : 1,
+              cursor: exportingFormat ? "not-allowed" : "pointer",
+            }}
+          >
+            <FiFileText size={16} />
+            {exportingFormat
+              ? `Exporting ${exportingFormat.toUpperCase()}...`
+              : "Export"}
           </button>
 
-          <div style={{ position: "relative" }}>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setExportOpen(!exportOpen);
-              }}
-              disabled={Boolean(exportingFormat)}
-              style={{
-                ...secondaryTopBtn,
-                opacity: exportingFormat ? 0.7 : 1,
-                cursor: exportingFormat ? "not-allowed" : "pointer",
-              }}
-            >
-              <FiFileText size={16} />
-              {exportingFormat
-                ? `Exporting ${exportingFormat.toUpperCase()}...`
-                : "Export Report"}
-            </button>
-
-            {exportOpen && (
-              <div style={styles.exportMenu}>
-                {[
-                  { key: "csv", label: "Export as CSV" },
-                  { key: "pdf", label: "Export as PDF" },
-                  { key: "excel", label: "Export as Excel" },
-                ].map((option) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    onClick={() => handleExport(option.key)}
-                    style={styles.exportMenuButton}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          {exportOpen && (
+            <div style={styles.exportMenu}>
+              {[
+                { key: "csv", label: "Export as CSV" },
+                { key: "pdf", label: "Export as PDF" },
+                { key: "excel", label: "Export as Excel" },
+              ].map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  onClick={() => handleExport(option.key)}
+                  style={styles.exportMenuButton}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
+      </div>
+
+      <section style={shellStyles.card}>
 
         {/* SUMMARY CARDS */}
         <div style={styles.summaryGrid}>
@@ -963,7 +965,7 @@ const InventoryItemsPage = () => {
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 };
 
