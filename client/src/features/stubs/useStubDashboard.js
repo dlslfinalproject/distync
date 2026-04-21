@@ -109,16 +109,16 @@ export const useStubDashboard = ({
         value: dashboard.metrics.total_issued_stubs || 0,
       },
       {
+        label: "Number of Beneficiaries Family",
+        value: dashboard.metrics.beneficiary_families || 0,
+      },
+      {
         label: "Number of Claimed Stubs",
         value: dashboard.metrics.claimed_stubs || 0,
       },
       {
         label: "Number of Unclaimed Stubs",
         value: dashboard.metrics.unclaimed_stubs || 0,
-      },
-      {
-        label: "Number of Beneficiaries Family",
-        value: dashboard.metrics.beneficiary_families || 0,
       },
     ];
   }, [dashboard.metrics]);
