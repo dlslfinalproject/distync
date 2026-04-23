@@ -1,453 +1,931 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import {
+  FiAlertCircle,
+  FiArrowLeft,
+  FiCheckCircle,
+  FiHome,
+  FiMail,
+  FiMapPin,
+  FiPackage,
+  FiPhone,
+  FiUsers,
+} from "react-icons/fi";
+import { fetchActiveDisasterEvents } from "../../features/disaster-events/disasterEventService";
+import { fetchInventoryBatches } from "../../features/inventory-batches/inventoryBatchService";
+import { fetchInventoryTransactions } from "../../features/inventory-transactions/inventoryTransactionService";
+import { fetchMasterlistOperationalAnalytics } from "../../features/mswdo-analytics/mswdoAnalyticsService";
 
-/* ================= ICONS ================= */
+const COLORS = {
+  pageBg: "#f4f8fc",
+  cardBg: "#ffffff",
+  softBg: "#eef5fb",
+  border: "#d6e2ef",
+  text: "#17324d",
+  subtext: "#6b8298",
+  primary: "#2f6499",
+  danger: "#c94b4b",
+  dangerSoft: "#fdecec",
+  warning: "#d48a1f",
+  warningSoft: "#fff4df",
+  success: "#2e7d5b",
+  successSoft: "#eaf7f0",
+};
 
-const LogoIcon = () => (
-  <div
-    style={{
-      backgroundColor: "#f4c542",
-      padding: "10px",
-      borderRadius: "50%",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      boxShadow: "0 4px 12px rgba(23, 50, 77, 0.12)",
-    }}
-  >
-    <svg
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="#ffffff"
-      strokeWidth="2"
-    >
-      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-      <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-      <line x1="12" y1="22.08" x2="12" y2="12" />
-    </svg>
-  </div>
-);
+const LGU_CONTACT = {
+  address: "Malvar Municipal Hall, Malvar, Batangas",
+  phone: "(043) 778-1234",
+  email: "malvarlgu@gmail.com",
+};
 
-const HomeIcon = () => (
-  <svg width="40" height="40" viewBox="0 0 24 24" fill="#17324d">
-    <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" />
-  </svg>
-);
+const EMPTY_OPERATIONAL_PAYLOAD = {
+  summary_metrics: {
+    total_number_of_evacuees_individuals: 0,
+    total_number_of_families: 0,
+    total_barangays_covered: 0,
+  },
+  charts: {
+    per_barangay: [],
+  },
+};
 
-const GroupIcon = () => (
-  <svg width="40" height="40" viewBox="0 0 24 24" fill="#17324d">
-    <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" />
-  </svg>
-);
+const LOW_STOCK_THRESHOLD = 10;
+const CRITICAL_STOCK_THRESHOLD = 5;
 
-const BoxIconFlat = () => (
-  <svg width="40" height="40" viewBox="0 0 24 24" fill="#17324d">
-    <path d="M20 4.58L13.5 2.33c-.96-.33-2.04-.33-3 0L4 4.58c-.6.21-1 .78-1 1.42V18c0 .64.4 1.21 1 1.42l6.5 2.25c.96.33 2.04.33 3 0l6.5-2.25c.6-.21 1-.78 1-1.42V6c0-.64-.4-1.21-1-1.42zM12 4.07l5.42 1.87L12 7.82 6.58 5.94 12 4.07z" />
-  </svg>
-);
+const styles = {
+  page: {
+    minHeight: "100vh",
+    background: COLORS.pageBg,
+    padding: "32px",
+    boxSizing: "border-box",
+    fontFamily: "Inter, Segoe UI, sans-serif",
+    color: COLORS.text,
+  },
+  pageInner: {
+    maxWidth: "1280px",
+    margin: "0 auto",
+    display: "flex",
+    flexDirection: "column",
+    gap: "20px",
+  },
+  backButtonWrap: {
+    display: "flex",
+    justifyContent: "flex-start",
+  },
+  backButton: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "8px",
+    border: "1px solid #c6d8ea",
+    borderRadius: "14px",
+    padding: "12px 18px",
+    backgroundColor: "#f8fbfe",
+    color: "#2a4c6f",
+    fontSize: "14px",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  heroCard: {
+    background: COLORS.cardBg,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "20px",
+    padding: "24px",
+    boxShadow: "0 10px 30px rgba(23, 50, 77, 0.06)",
+  },
+  heroTop: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: "16px",
+    flexWrap: "wrap",
+  },
+  eyebrow: {
+    margin: 0,
+    fontSize: "12px",
+    fontWeight: 700,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    color: COLORS.subtext,
+  },
+  title: {
+    margin: "8px 0 6px",
+    fontSize: "32px",
+    fontWeight: 800,
+    color: COLORS.text,
+  },
+  subtitle: {
+    margin: 0,
+    fontSize: "15px",
+    color: COLORS.subtext,
+    lineHeight: 1.6,
+    maxWidth: "820px",
+  },
+  statusWrap: {
+    display: "flex",
+    gap: "10px",
+    flexWrap: "wrap",
+    alignItems: "center",
+  },
+  badge: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "10px 14px",
+    borderRadius: "999px",
+    fontSize: "13px",
+    fontWeight: 700,
+  },
+  contactGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: "12px",
+    marginTop: "20px",
+  },
+  contactCard: {
+    background: COLORS.softBg,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "14px",
+    padding: "14px 16px",
+    display: "flex",
+    alignItems: "flex-start",
+    gap: "10px",
+  },
+  contactTitle: {
+    margin: 0,
+    fontSize: "12px",
+    fontWeight: 700,
+    textTransform: "uppercase",
+    color: COLORS.subtext,
+    letterSpacing: "0.04em",
+  },
+  contactText: {
+    margin: "4px 0 0",
+    fontSize: "14px",
+    color: COLORS.text,
+    lineHeight: 1.5,
+  },
+  disasterCard: {
+    background: COLORS.cardBg,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "18px",
+    padding: "22px",
+    boxShadow: "0 10px 24px rgba(23, 50, 77, 0.04)",
+  },
+  sectionHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "12px",
+    marginBottom: "16px",
+    flexWrap: "wrap",
+  },
+  sectionTitle: {
+    margin: 0,
+    fontSize: "24px",
+    fontWeight: 800,
+    color: COLORS.text,
+  },
+  sectionText: {
+    margin: "6px 0 0",
+    fontSize: "14px",
+    color: COLORS.subtext,
+  },
+  summaryGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: "16px",
+    marginBottom: "20px",
+  },
+  metricCard: {
+    background: COLORS.softBg,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "18px",
+    padding: "20px",
+  },
+  metricTop: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "12px",
+    marginBottom: "12px",
+  },
+  metricLabel: {
+    margin: 0,
+    fontSize: "13px",
+    fontWeight: 700,
+    color: COLORS.subtext,
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
+  },
+  metricValue: {
+    margin: 0,
+    fontSize: "34px",
+    fontWeight: 800,
+    color: COLORS.text,
+    lineHeight: 1,
+  },
+  metricSubtext: {
+    margin: "8px 0 0",
+    fontSize: "14px",
+    color: COLORS.subtext,
+  },
+  contentGrid: {
+    display: "grid",
+    gridTemplateColumns: "1.2fr 1fr",
+    gap: "18px",
+  },
+  subSection: {
+    background: COLORS.cardBg,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "16px",
+    padding: "18px",
+  },
+  subSectionTitle: {
+    margin: "0 0 12px",
+    fontSize: "18px",
+    fontWeight: 800,
+    color: COLORS.text,
+  },
+  urgentList: {
+    display: "grid",
+    gap: "10px",
+  },
+  urgentCard: {
+    borderRadius: "14px",
+    padding: "14px 16px",
+    border: `1px solid ${COLORS.border}`,
+  },
+  urgentTitle: {
+    margin: "0 0 4px",
+    fontSize: "16px",
+    fontWeight: 800,
+    color: COLORS.text,
+  },
+  urgentMeta: {
+    margin: 0,
+    color: COLORS.subtext,
+    fontSize: "14px",
+  },
+  areaList: {
+    display: "grid",
+    gap: "10px",
+  },
+  areaCard: {
+    background: COLORS.softBg,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "14px",
+    padding: "14px 16px",
+  },
+  areaName: {
+    margin: "0 0 8px",
+    fontSize: "16px",
+    fontWeight: 800,
+    color: COLORS.text,
+  },
+  areaRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "12px",
+    fontSize: "14px",
+    color: COLORS.text,
+    marginTop: "4px",
+  },
+  emptyStateCard: {
+    background: COLORS.cardBg,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "20px",
+    padding: "40px 24px",
+    textAlign: "center",
+    boxShadow: "0 10px 24px rgba(23, 50, 77, 0.04)",
+  },
+  emptyIconWrap: {
+    width: "72px",
+    height: "72px",
+    borderRadius: "999px",
+    background: COLORS.successSoft,
+    color: COLORS.success,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    margin: "0 auto 16px",
+  },
+  emptyTitle: {
+    margin: 0,
+    fontSize: "28px",
+    fontWeight: 800,
+    color: COLORS.text,
+  },
+  emptyText: {
+    margin: "12px auto 0",
+    maxWidth: "700px",
+    fontSize: "15px",
+    color: COLORS.subtext,
+    lineHeight: 1.7,
+  },
+  updatedText: {
+    marginTop: "16px",
+    fontSize: "13px",
+    color: "#8ca0b4",
+  },
+  messageCard: {
+    background: COLORS.cardBg,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "20px",
+    padding: "28px 24px",
+    boxShadow: "0 10px 24px rgba(23, 50, 77, 0.04)",
+  },
+  messageTitle: {
+    margin: 0,
+    fontSize: "24px",
+    fontWeight: 800,
+    color: COLORS.text,
+  },
+  messageText: {
+    margin: "10px 0 0",
+    fontSize: "15px",
+    lineHeight: 1.7,
+    color: COLORS.subtext,
+  },
+  inlineEmptyText: {
+    margin: 0,
+    fontSize: "14px",
+    lineHeight: 1.6,
+    color: COLORS.subtext,
+  },
+};
 
-const PinIcon = () => (
-  <svg width="50" height="50" viewBox="0 0 24 24" fill="#17324d">
-    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
-  </svg>
-);
+const formatDate = (value) => {
+  if (!value) {
+    return "--";
+  }
 
-/* ================= MAIN COMPONENT ================= */
+  return new Intl.DateTimeFormat("en-PH", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(value));
+};
 
-const DonationInformationPage = () => {
-  const navigate = useNavigate();
+const formatUpdatedAt = (value) => {
+  if (!value) {
+    return "--";
+  }
 
-  const items = [
-    {
-      name: "Canned Goods",
-      count: 245,
-      level: "CRITICAL",
-      bg: "#f9dada",
-      badge: "#c73c3c",
-    },
-    {
-      name: "Rice",
-      count: 180,
-      level: "HIGH",
-      bg: "#fde7d2",
-      badge: "#e18b2f",
-    },
-    {
-      name: "Bottled Water",
-      count: 120,
-      level: "MEDIUM",
-      bg: "#f6edc8",
-      badge: "#b89a21",
-    },
-    {
-      name: "Instant Noodles",
-      count: 200,
-      level: "CRITICAL",
-      bg: "#f9dada",
-      badge: "#c73c3c",
-    },
-    {
-      name: "Blankets",
-      count: 95,
-      level: "HIGH",
-      bg: "#fde7d2",
-      badge: "#e18b2f",
-    },
-    {
-      name: "Hygiene Kits",
-      count: 70,
-      level: "MEDIUM",
-      bg: "#f6edc8",
-      badge: "#b89a21",
-    },
-  ];
+  return new Intl.DateTimeFormat("en-PH", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+};
+
+const formatDateRange = (startDate, endDate) => {
+  return `${formatDate(startDate)} - ${endDate ? formatDate(endDate) : "Ongoing"}`;
+};
+
+const formatStatusLabel = (status) => {
+  if (!status) {
+    return "Unknown";
+  }
+
+  const normalizedStatus = String(status).toLowerCase();
+  return normalizedStatus.charAt(0).toUpperCase() + normalizedStatus.slice(1);
+};
+
+const getUrgentStyles = (level) => {
+  if (level === "critical") {
+    return {
+      background: COLORS.dangerSoft,
+      color: COLORS.danger,
+    };
+  }
+
+  return {
+    background: COLORS.warningSoft,
+    color: COLORS.warning,
+  };
+};
+
+const buildInventoryLookup = (inventoryBatches) => {
+  const inventoryByItemId = new Map();
+
+  (inventoryBatches || []).forEach((batch) => {
+    const itemId = batch.inventory_item?.id || batch.inventory_item_id;
+
+    if (!itemId) {
+      return;
+    }
+
+    const quantityAvailable = Number(batch.quantity_available || 0);
+    const existingEntry = inventoryByItemId.get(itemId) || {
+      id: itemId,
+      name: batch.inventory_item?.item_name || "--",
+      unit: batch.inventory_item?.unit_of_measure || "pc",
+      totalQuantityAvailable: 0,
+      hasLowStock: false,
+      hasCriticalStock: false,
+    };
+
+    existingEntry.totalQuantityAvailable += quantityAvailable;
+    existingEntry.hasLowStock =
+      existingEntry.hasLowStock ||
+      batch.status === "LOW_STOCK" ||
+      (quantityAvailable > 0 && quantityAvailable <= LOW_STOCK_THRESHOLD);
+    existingEntry.hasCriticalStock =
+      existingEntry.hasCriticalStock ||
+      (quantityAvailable > 0 && quantityAvailable <= CRITICAL_STOCK_THRESHOLD);
+
+    inventoryByItemId.set(itemId, existingEntry);
+  });
+
+  return inventoryByItemId;
+};
+
+const getLatestTimestamp = (timestamps) => {
+  const validTimestamps = timestamps
+    .map((value) => new Date(value).getTime())
+    .filter((value) => Number.isFinite(value));
+
+  if (validTimestamps.length === 0) {
+    return new Date().toISOString();
+  }
+
+  return new Date(Math.max(...validTimestamps)).toISOString();
+};
+
+const buildActiveDisasterRows = ({
+  activeEvents,
+  operationalAnalyticsByEventId,
+  distributionTransactions,
+  inventoryLookup,
+}) => {
+  return (activeEvents || []).map((event) => {
+    const operationalPayload =
+      operationalAnalyticsByEventId.get(event.id) || EMPTY_OPERATIONAL_PAYLOAD;
+    const summaryMetrics =
+      operationalPayload.summary_metrics ||
+      EMPTY_OPERATIONAL_PAYLOAD.summary_metrics;
+    const areaBreakdown = (operationalPayload.charts?.per_barangay || []).map(
+      (item) => ({
+        area: item.barangay_name || "Unknown",
+        families: Number(item.families_count || 0),
+        individuals: Number(item.evacuees_count || 0),
+      }),
+    );
+
+    const neededItemsByItemId = new Map();
+
+    (distributionTransactions || [])
+      .filter((transaction) => transaction.disaster_event_id === event.id)
+      .forEach((transaction) => {
+        const itemId = transaction.inventory_item?.id;
+
+        if (!itemId) {
+          return;
+        }
+
+        const inventoryEntry = inventoryLookup.get(itemId);
+        const existingEntry = neededItemsByItemId.get(itemId) || {
+          id: itemId,
+          name:
+            transaction.inventory_item?.item_name ||
+            inventoryEntry?.name ||
+            "--",
+          needed: 0,
+          unit: inventoryEntry?.unit || "pc",
+          level: inventoryEntry?.hasCriticalStock ? "critical" : "high",
+        };
+
+        existingEntry.needed += Number(transaction.quantity || 0);
+
+        if (inventoryEntry?.hasCriticalStock) {
+          existingEntry.level = "critical";
+        }
+
+        neededItemsByItemId.set(itemId, existingEntry);
+      });
+
+    const urgentNeeds = [...neededItemsByItemId.values()]
+      .sort((left, right) => {
+        if (left.level !== right.level) {
+          return left.level === "critical" ? -1 : 1;
+        }
+
+        return right.needed - left.needed;
+      })
+      .slice(0, 4);
+
+    return {
+      id: event.id,
+      eventName: event.title || "Active Disaster Event",
+      status: formatStatusLabel(event.status),
+      dateRange: formatDateRange(event.start_date, event.end_date),
+      affectedAreasCount:
+        Number(summaryMetrics.total_barangays_covered || 0) ||
+        (event.affected_barangays || []).length,
+      affectedFamilies: Number(summaryMetrics.total_number_of_families || 0),
+      affectedIndividuals: Number(
+        summaryMetrics.total_number_of_evacuees_individuals || 0,
+      ),
+      neededItemsTotal: [...neededItemsByItemId.values()].reduce(
+        (total, item) => total + item.needed,
+        0,
+      ),
+      urgentNeeds,
+      areaBreakdown,
+    };
+  });
+};
+
+const HeroSection = ({ activeCount }) => {
+  const hasActiveDisasters = activeCount > 0;
 
   return (
-    <div style={styles.pageContainer}>
+    <section style={styles.heroCard}>
+      <div style={styles.heroTop}>
+        <div>
+          <p style={styles.eyebrow}>Donors & NGOs Portal</p>
+          <h1 style={styles.title}>Disaster Response Overview</h1>
+          <p style={styles.subtitle}>
+            {hasActiveDisasters
+              ? "This dashboard helps donors and NGOs understand which active disasters require support, how many families and individuals are affected, and which items are urgently needed across Malvar, Batangas."
+              : "This portal provides public-facing disaster response information for donors and NGOs in Malvar, Batangas. When there are no active disaster events, the page remains available for monitoring and contact reference."}
+          </p>
+        </div>
 
-      {/* BACK BUTTON */}
-      <div style={styles.backWrapper}>
-        <button onClick={() => navigate("/access")} style={styles.backButton}>
-          ← Back to Role Selection
-        </button>
+        {hasActiveDisasters ? (
+          <div style={styles.statusWrap}>
+            <span
+              style={{
+                ...styles.badge,
+                background: COLORS.dangerSoft,
+                color: COLORS.danger,
+              }}
+            >
+              <FiAlertCircle size={16} />
+              {activeCount} Active Disasters
+            </span>
+          </div>
+        ) : null}
       </div>
 
-      {/* HERO SECTION */}
-      <section style={styles.section}>
-        <div style={styles.heroCard}>
-          <h1 style={styles.heroTitle}>YOUR DONATION CAN SAVE LIVES!</h1>
-          <p style={styles.heroText}>
-            We are facing a disaster crisis and urgently need community support
-            to help displaced families get through this challenging time.
-          </p>
-
-          <div style={styles.donateCta}>DONATE NOW!</div>
-
-          <div style={styles.heroGrid}>
-            <button
-              style={styles.heroBtn}
-              onClick={() => alert("Navigate Home")}
-            >
-              <HomeIcon />
-            </button>
-            <button
-              style={styles.heroBtn}
-              onClick={() => alert("Navigate Groups")}
-            >
-              <GroupIcon />
-            </button>
-            <button
-              style={styles.heroBtn}
-              onClick={() => alert("Navigate Items")}
-            >
-              <BoxIconFlat />
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* INVENTORY SECTION */}
-      <section style={styles.section}>
-        <h2 style={styles.sectionHeading}>CRITICALLY NEEDED ITEMS</h2>
-        <div style={styles.inventoryGrid}>
-          {items.map((item, i) => (
-            <div
-              key={i}
-              style={{ ...styles.itemCard, backgroundColor: item.bg }}
-            >
-              <span
-                style={{ ...styles.badge, backgroundColor: item.badge }}
-              >
-                {item.level}
-              </span>
-              <p style={styles.itemLabel}>{item.name}</p>
-              <h3 style={styles.itemCount}>{item.count}</h3>
-              <p style={styles.itemSubtext}>units needed</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* DROP-OFF SECTION */}
-      <section style={styles.section}>
-        <h2 style={styles.sectionHeading}>DROP-OFF LOCATION</h2>
-        <div style={styles.locationContainer}>
-          <div style={styles.locationCard}>
-            <PinIcon />
-            <div style={{ textAlign: "left" }}>
-              <h3 style={styles.locationTitle}>Malvar Municipal Hall</h3>
-              <p style={styles.locationSub}>
-                Brgy. San Pioquinto, Malvar, Batangas
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* FOOTER BAR */}
-      <footer style={styles.footerBar}>
-        <div style={styles.footerItem}>
-          <span style={styles.footerIcon}>📞</span>
+      <div style={styles.contactGrid}>
+        <div style={styles.contactCard}>
+          <FiMapPin size={18} color={COLORS.primary} />
           <div>
-            <strong>Telephone No:</strong> +63 43 778 5101 <br />
-            <strong>Mobile No:</strong> +63 917 825 0356 / +63 917 805 7711
+            <p style={styles.contactTitle}>Address</p>
+            <p style={styles.contactText}>{LGU_CONTACT.address}</p>
           </div>
         </div>
-        <div style={styles.footerItem}>
-          <span style={styles.footerIcon}>📧</span>
+
+        <div style={styles.contactCard}>
+          <FiPhone size={18} color={COLORS.primary} />
           <div>
-            <strong>Emails:</strong> lgumalvarbatangas@gmail.com <br />
-            info@malvarbatangas.gov.ph
+            <p style={styles.contactTitle}>Contact Number</p>
+            <p style={styles.contactText}>{LGU_CONTACT.phone}</p>
           </div>
         </div>
-        <div style={styles.footerItem}>
-          <span style={styles.footerIcon}>🌐</span>
+
+        <div style={styles.contactCard}>
+          <FiMail size={18} color={COLORS.primary} />
           <div>
-            <strong>Website:</strong> www.malvarbatangas.gov.ph
+            <p style={styles.contactTitle}>Email</p>
+            <p style={styles.contactText}>{LGU_CONTACT.email}</p>
           </div>
         </div>
-      </footer>
-    </div>
+      </div>
+    </section>
   );
 };
 
-/* ================= STYLES ================= */
+const DonationInformationPage = () => {
+  const navigate = useNavigate();
+  const [pageState, setPageState] = useState({
+    isLoading: true,
+    errorMessage: "",
+    activeDisasters: [],
+    lastUpdatedAt: new Date().toISOString(),
+  });
 
-const styles = {
-  pageContainer: {
-    fontFamily: "'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-    backgroundColor: "#f7fafe",
-    minHeight: "100vh",
-    color: "#334155",
-  },
+  useEffect(() => {
+    let isMounted = true;
 
-  navBar: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: "14px 40px",
-    backgroundColor: "#dfe8f2",
-    borderBottom: "1px solid #cfdbea",
-  },
+    const loadDonationOverview = async () => {
+      setPageState((currentState) => ({
+        ...currentState,
+        isLoading: true,
+        errorMessage: "",
+      }));
 
-  navLeft: {
-    display: "flex",
-    alignItems: "center",
-    gap: "14px",
-  },
+      try {
+        const activeEvents = await fetchActiveDisasterEvents();
 
-  brandName: {
-    fontWeight: 800,
-    fontSize: "22px",
-    color: "#17324d",
-    lineHeight: 1,
-    letterSpacing: "0.01em",
-  },
+        if (!isMounted) {
+          return;
+        }
 
-  brandSub: {
-    fontSize: "12px",
-    color: "#6b8298",
-    marginTop: "4px",
-    fontWeight: 500,
-  },
+        if (!Array.isArray(activeEvents) || activeEvents.length === 0) {
+          setPageState({
+            isLoading: false,
+            errorMessage: "",
+            activeDisasters: [],
+            lastUpdatedAt: new Date().toISOString(),
+          });
+          return;
+        }
 
-  navRight: {
-    color: "#17324d",
-    fontSize: "15px",
-    fontWeight: 700,
-  },
+        const [operationalEntries, inventoryBatches, inventoryTransactions] =
+          await Promise.all([
+            Promise.all(
+              activeEvents.map(async (event) => {
+                try {
+                  const payload = await fetchMasterlistOperationalAnalytics({
+                    disasterEventId: event.id,
+                    barangayId: null,
+                  });
 
-  backWrapper: {
-    padding: "20px 40px 0",
-  },
+                  return [event.id, payload];
+                } catch (_error) {
+                  return [event.id, EMPTY_OPERATIONAL_PAYLOAD];
+                }
+              }),
+            ),
+            fetchInventoryBatches(),
+            fetchInventoryTransactions({
+              reference_type: "DISTRIBUTION",
+            }),
+          ]);
 
-  backButton: {
-    background: "none",
-    border: "none",
-    color: "#17324d",
-    cursor: "pointer",
-    fontWeight: 700,
-    fontSize: "14px",
-    padding: 0,
-  },
+        if (!isMounted) {
+          return;
+        }
 
-  section: {
-    padding: "36px 8%",
-    textAlign: "center",
-  },
+        const operationalAnalyticsByEventId = new Map(operationalEntries);
+        const inventoryLookup = buildInventoryLookup(inventoryBatches || []);
+        const activeDisasters = buildActiveDisasterRows({
+          activeEvents,
+          operationalAnalyticsByEventId,
+          distributionTransactions: inventoryTransactions || [],
+          inventoryLookup,
+        });
 
-  heroCard: {
-    backgroundColor: "#ffffff",
-    border: "1px solid #dce7f3",
-    borderRadius: "22px",
-    padding: "40px 32px",
-    boxShadow: "0 10px 30px rgba(23, 50, 77, 0.05)",
-  },
+        setPageState({
+          isLoading: false,
+          errorMessage: "",
+          activeDisasters,
+          lastUpdatedAt: getLatestTimestamp([
+            ...activeEvents.map((event) => event.updated_at),
+            ...(inventoryTransactions || []).map(
+              (transaction) =>
+                transaction.performed_at || transaction.created_at,
+            ),
+          ]),
+        });
+      } catch (error) {
+        if (!isMounted) {
+          return;
+        }
 
-  heroTitle: {
-    fontSize: "34px",
-    fontWeight: 800,
-    color: "#17324d",
-    margin: "0 0 14px 0",
-    letterSpacing: "0.01em",
-  },
+        setPageState({
+          isLoading: false,
+          errorMessage: error.message || "Failed to load donation information.",
+          activeDisasters: [],
+          lastUpdatedAt: new Date().toISOString(),
+        });
+      }
+    };
 
-  heroText: {
-    color: "#6b8298",
-    fontSize: "16px",
-    lineHeight: 1.6,
-    maxWidth: "760px",
-    margin: "0 auto",
-    fontWeight: 500,
-  },
+    loadDonationOverview();
 
-  donateCta: {
-    margin: "22px 0 0",
-    color: "#17324d",
-    fontSize: "24px",
-    fontWeight: 800,
-    letterSpacing: "0.03em",
-  },
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
-  heroGrid: {
-    display: "flex",
-    justifyContent: "center",
-    gap: "24px",
-    marginTop: "30px",
-    flexWrap: "wrap",
-  },
+  const { isLoading, errorMessage, activeDisasters, lastUpdatedAt } = pageState;
+  const hasActiveDisasters = activeDisasters.length > 0;
 
-  heroBtn: {
-    width: "170px",
-    height: "120px",
-    backgroundColor: "#ffffff",
-    border: "1px solid #dce7f3",
-    borderRadius: "16px",
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    transition: "transform 0.15s ease, box-shadow 0.15s ease",
-    boxShadow: "0 6px 16px rgba(23, 50, 77, 0.06)",
-  },
+  return (
+    <div style={styles.page}>
+      <div style={styles.pageInner}>
+        <div style={styles.backButtonWrap}>
+          <button
+            type="button"
+            onClick={() => navigate("/role-switcher")}
+            style={styles.backButton}
+          >
+            <FiArrowLeft size={16} />
+            Back
+          </button>
+        </div>
 
-  sectionHeading: {
-    fontSize: "26px",
-    color: "#17324d",
-    fontWeight: 800,
-    marginBottom: "28px",
-    letterSpacing: "0.01em",
-  },
+        <HeroSection activeCount={activeDisasters.length} />
 
-  inventoryGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-    gap: "20px",
-  },
+        {isLoading ? (
+          <section style={styles.messageCard}>
+            <h2 style={styles.messageTitle}>
+              Loading Disaster Response Overview
+            </h2>
+            <p style={styles.messageText}>
+              Fetching the latest active disaster, masterlist, and inventory
+              records used by the LGU modules.
+            </p>
+          </section>
+        ) : null}
 
-  itemCard: {
-    padding: "22px 20px",
-    borderRadius: "18px",
-    position: "relative",
-    textAlign: "left",
-    border: "1px solid rgba(23, 50, 77, 0.06)",
-    boxShadow: "0 6px 18px rgba(23, 50, 77, 0.04)",
-  },
+        {!isLoading && errorMessage ? (
+          <section style={styles.messageCard}>
+            <h2 style={styles.messageTitle}>
+              Unable to Load Donation Information
+            </h2>
+            <p style={styles.messageText}>{errorMessage}</p>
+          </section>
+        ) : null}
 
-  badge: {
-    position: "absolute",
-    top: "14px",
-    right: "14px",
-    color: "#ffffff",
-    fontSize: "10px",
-    fontWeight: 800,
-    padding: "4px 10px",
-    borderRadius: "999px",
-    letterSpacing: "0.03em",
-  },
+        {!isLoading && !errorMessage && !hasActiveDisasters ? (
+          <section style={styles.emptyStateCard}>
+            <div style={styles.emptyIconWrap}>
+              <FiCheckCircle size={36} />
+            </div>
 
-  itemLabel: {
-    margin: 0,
-    fontSize: "14px",
-    color: "#334155",
-    fontWeight: 600,
-  },
+            <h2 style={styles.emptyTitle}>No Active Disaster Events</h2>
+            <p style={styles.emptyText}>
+              There are currently no ongoing disaster events in Malvar,
+              Batangas. The LGU continues to monitor conditions and remains
+              prepared to respond to emergencies when needed.
+            </p>
+            <p style={styles.updatedText}>
+              Last updated: {formatUpdatedAt(lastUpdatedAt)}
+            </p>
+          </section>
+        ) : null}
 
-  itemCount: {
-    margin: "10px 0 6px",
-    fontSize: "38px",
-    color: "#17324d",
-    fontWeight: 800,
-    lineHeight: 1,
-  },
+        {!isLoading && !errorMessage && hasActiveDisasters
+          ? activeDisasters.map((disaster) => (
+              <section key={disaster.id} style={styles.disasterCard}>
+                <div style={styles.sectionHeader}>
+                  <div>
+                    <h2 style={styles.sectionTitle}>{disaster.eventName}</h2>
+                    <p style={styles.sectionText}>{disaster.dateRange}</p>
+                  </div>
 
-  itemSubtext: {
-    margin: 0,
-    fontSize: "13px",
-    color: "#6b8298",
-    fontWeight: 500,
-  },
+                  <div style={styles.statusWrap}>
+                    <span
+                      style={{
+                        ...styles.badge,
+                        background: COLORS.dangerSoft,
+                        color: COLORS.danger,
+                      }}
+                    >
+                      <FiAlertCircle size={16} />
+                      {disaster.status}
+                    </span>
+                    <span
+                      style={{
+                        ...styles.badge,
+                        background: COLORS.softBg,
+                        color: COLORS.text,
+                      }}
+                    >
+                      <FiMapPin size={16} />
+                      {disaster.affectedAreasCount} Affected Areas
+                    </span>
+                  </div>
+                </div>
 
-  locationContainer: {
-    display: "flex",
-    justifyContent: "center",
-  },
+                <div style={styles.summaryGrid}>
+                  <div style={styles.metricCard}>
+                    <div style={styles.metricTop}>
+                      <p style={styles.metricLabel}>Affected Families</p>
+                      <FiHome size={20} color={COLORS.primary} />
+                    </div>
+                    <h3 style={styles.metricValue}>
+                      {disaster.affectedFamilies.toLocaleString()}
+                    </h3>
+                    <p style={styles.metricSubtext}>
+                      Households needing assistance
+                    </p>
+                  </div>
 
-  locationCard: {
-    backgroundColor: "#ffffff",
-    padding: "24px 36px",
-    borderRadius: "18px",
-    border: "1px solid #dce7f3",
-    display: "flex",
-    alignItems: "center",
-    gap: "20px",
-    minWidth: "420px",
-    boxShadow: "0 8px 20px rgba(23, 50, 77, 0.05)",
-  },
+                  <div style={styles.metricCard}>
+                    <div style={styles.metricTop}>
+                      <p style={styles.metricLabel}>Affected Individuals</p>
+                      <FiUsers size={20} color={COLORS.primary} />
+                    </div>
+                    <h3 style={styles.metricValue}>
+                      {disaster.affectedIndividuals.toLocaleString()}
+                    </h3>
+                    <p style={styles.metricSubtext}>
+                      People currently affected
+                    </p>
+                  </div>
 
-  locationTitle: {
-    margin: 0,
-    color: "#17324d",
-    fontSize: "24px",
-    fontWeight: 800,
-  },
+                  <div style={styles.metricCard}>
+                    <div style={styles.metricTop}>
+                      <p style={styles.metricLabel}>Needed Items</p>
+                      <FiPackage size={20} color={COLORS.primary} />
+                    </div>
+                    <h3 style={styles.metricValue}>
+                      {disaster.neededItemsTotal.toLocaleString()}
+                    </h3>
+                    <p style={styles.metricSubtext}>
+                      Total items currently required
+                    </p>
+                  </div>
+                </div>
 
-  locationSub: {
-    margin: "6px 0 0",
-    color: "#6b8298",
-    fontSize: "14px",
-    fontWeight: 500,
-  },
+                <div style={styles.contentGrid}>
+                  <div style={styles.subSection}>
+                    <h3 style={styles.subSectionTitle}>Urgent Needs</h3>
+                    <div style={styles.urgentList}>
+                      {disaster.urgentNeeds.length === 0 ? (
+                        <p style={styles.inlineEmptyText}>
+                          No event-linked inventory summary is available yet for
+                          this active disaster.
+                        </p>
+                      ) : (
+                        disaster.urgentNeeds.map((item) => {
+                          const urgentStyle = getUrgentStyles(item.level);
 
-  footerBar: {
-    backgroundColor: "#dfe8f2",
-    padding: "24px 40px",
-    display: "flex",
-    justifyContent: "space-between",
-    gap: "24px",
-    fontSize: "13px",
-    color: "#17324d",
-    marginTop: "40px",
-    flexWrap: "wrap",
-    borderTop: "1px solid #cfdbea",
-  },
+                          return (
+                            <div
+                              key={item.id}
+                              style={{
+                                ...styles.urgentCard,
+                                background: urgentStyle.background,
+                              }}
+                            >
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "flex-start",
+                                  gap: "12px",
+                                }}
+                              >
+                                <div>
+                                  <h4 style={styles.urgentTitle}>
+                                    {item.name}
+                                  </h4>
+                                  <p style={styles.urgentMeta}>
+                                    {item.needed.toLocaleString()} {item.unit}{" "}
+                                    needed
+                                  </p>
+                                </div>
 
-  footerItem: {
-    display: "flex",
-    gap: "10px",
-    alignItems: "flex-start",
-    flex: 1,
-    minWidth: "260px",
-    lineHeight: 1.6,
-    fontWeight: 500,
-  },
+                                <span
+                                  style={{
+                                    fontSize: "12px",
+                                    fontWeight: 800,
+                                    textTransform: "uppercase",
+                                    color: urgentStyle.color,
+                                  }}
+                                >
+                                  {item.level}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
 
-  footerIcon: {
-    fontSize: "18px",
-    lineHeight: 1,
-  },
+                  <div style={styles.subSection}>
+                    <h3 style={styles.subSectionTitle}>Affected Areas</h3>
+                    <div style={styles.areaList}>
+                      {disaster.areaBreakdown.length === 0 ? (
+                        <p style={styles.inlineEmptyText}>
+                          No barangay-level impact summary is available yet for
+                          this active disaster.
+                        </p>
+                      ) : (
+                        disaster.areaBreakdown.map((area) => (
+                          <div key={area.area} style={styles.areaCard}>
+                            <h4 style={styles.areaName}>{area.area}</h4>
+                            <div style={styles.areaRow}>
+                              <span>Families</span>
+                              <strong>{area.families.toLocaleString()}</strong>
+                            </div>
+                            <div style={styles.areaRow}>
+                              <span>Individuals</span>
+                              <strong>
+                                {area.individuals.toLocaleString()}
+                              </strong>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </section>
+            ))
+          : null}
+      </div>
+    </div>
+  );
 };
 
 export default DonationInformationPage;
