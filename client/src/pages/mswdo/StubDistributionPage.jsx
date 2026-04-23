@@ -46,7 +46,7 @@ const filterPanelStyles = {
     display: "flex",
     flexDirection: "column",
     gap: "14px",
-    overflow: "hidden",
+    overflowY: "auto",
     boxSizing: "border-box",
   },
   title: {
@@ -60,7 +60,6 @@ const filterPanelStyles = {
     flexDirection: "column",
     gap: "8px",
     marginTop: "14px",
-    minHeight: 0,
   },
   label: {
     color: "#55718b",
@@ -82,9 +81,7 @@ const filterPanelStyles = {
   list: {
     display: "grid",
     gap: "10px",
-    overflowY: "auto",
-    flex: "1 1 auto",
-    minHeight: 0,
+    overflow: "visible",
     paddingRight: "4px",
   },
   option: {
@@ -98,7 +95,7 @@ const filterPanelStyles = {
     display: "flex",
     justifyContent: "space-between",
     gap: "10px",
-    marginTop: "auto",
+    marginTop: "18px",
   },
 };
 
@@ -815,12 +812,7 @@ const StubDistributionPage = () => {
                   </select>
                 </label>
 
-                <div
-                  style={{
-                    ...filterPanelStyles.field,
-                    flex: "1 1 auto",
-                  }}
-                >
+                <div style={filterPanelStyles.field}>
                   <span style={filterPanelStyles.label}>Sector</span>
                   <div style={filterPanelStyles.list}>
                     {sectors.length > 0 ? (
