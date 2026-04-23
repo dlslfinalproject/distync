@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FiFileText, FiFilter, FiUserPlus } from "react-icons/fi";
 import { MdDoorFront } from "react-icons/md";
 import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
@@ -80,16 +80,19 @@ const noticeModalStyles = {
 
 const filterPanelStyles = {
   panel: {
-    position: "absolute",
-    right: 0,
-    top: "48px",
-    width: "min(380px, 90vw)",
+    position: "fixed",
+    width: "min(380px, calc(100vw - 32px))",
     backgroundColor: "#ffffff",
     border: "1px solid #d6e2ef",
     borderRadius: "18px",
     boxShadow: "0 18px 36px rgba(31, 64, 95, 0.16)",
     padding: "18px",
-    zIndex: 30,
+    zIndex: 1200,
+    display: "flex",
+    flexDirection: "column",
+    gap: "14px",
+    overflow: "hidden",
+    boxSizing: "border-box",
   },
   title: {
     margin: 0,
@@ -100,10 +103,10 @@ const filterPanelStyles = {
   list: {
     display: "grid",
     gap: "10px",
-    maxHeight: "240px",
     overflowY: "auto",
-    marginTop: "14px",
-    padding: "4px",
+    flex: "1 1 auto",
+    minHeight: 0,
+    paddingRight: "4px",
   },
   option: {
     display: "flex",
@@ -116,7 +119,7 @@ const filterPanelStyles = {
     display: "flex",
     justifyContent: "space-between",
     gap: "10px",
-    marginTop: "18px",
+    marginTop: "auto",
   },
 };
 
@@ -163,6 +166,61 @@ const getEndedEventDateTimeText = (event) => {
   }
 
   return formatDateTime(event.updated_at || event.end_date);
+};
+
+const FILTER_PANEL_GAP = 12;
+const FILTER_PANEL_VIEWPORT_PADDING = 16;
+const MIN_FILTER_PANEL_HEIGHT = 220;
+
+const getFilterPanelPosition = ({ triggerRect, panelHeight }) => {
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const constrainedPanelWidth = Math.min(
+    380,
+    viewportWidth - FILTER_PANEL_VIEWPORT_PADDING * 2,
+  );
+  const safePanelHeight = Math.max(panelHeight || 0, MIN_FILTER_PANEL_HEIGHT);
+  const spaceBelow =
+    viewportHeight - triggerRect.bottom - FILTER_PANEL_VIEWPORT_PADDING;
+  const spaceAbove = triggerRect.top - FILTER_PANEL_VIEWPORT_PADDING;
+  const shouldOpenBelow =
+    spaceBelow >= MIN_FILTER_PANEL_HEIGHT || spaceBelow >= spaceAbove;
+
+  let left = triggerRect.right - constrainedPanelWidth;
+  left = Math.min(
+    Math.max(left, FILTER_PANEL_VIEWPORT_PADDING),
+    viewportWidth - constrainedPanelWidth - FILTER_PANEL_VIEWPORT_PADDING,
+  );
+
+  if (shouldOpenBelow) {
+    const top = Math.max(
+      FILTER_PANEL_VIEWPORT_PADDING,
+      triggerRect.bottom + FILTER_PANEL_GAP,
+    );
+    const availableHeight =
+      viewportHeight - top - FILTER_PANEL_VIEWPORT_PADDING;
+
+    return {
+      top,
+      left,
+      maxHeight: Math.max(availableHeight, 0),
+    };
+  }
+
+  const maxHeight = Math.max(
+    triggerRect.top - FILTER_PANEL_GAP - FILTER_PANEL_VIEWPORT_PADDING,
+    0,
+  );
+  const top = Math.max(
+    FILTER_PANEL_VIEWPORT_PADDING,
+    triggerRect.top - FILTER_PANEL_GAP - Math.min(safePanelHeight, maxHeight),
+  );
+
+  return {
+    top,
+    left,
+    maxHeight,
+  };
 };
 
 const eventIncludesBarangay = (event, barangayId) => {
@@ -217,7 +275,6 @@ const ConsolidatedEvacueeMasterlist = () => {
     sectors,
     selectedDisasterEventId,
     selectedBarangayId,
-    selectedSectorIds,
     selectedDisasterEvent,
     searchTerm,
     displayedRows,
@@ -240,12 +297,25 @@ const ConsolidatedEvacueeMasterlist = () => {
   const [isRecordingDeparture, setIsRecordingDeparture] = useState(false);
   const [selectedHouseholds, setSelectedHouseholds] = useState([]);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [sectorFiltersByTab, setSectorFiltersByTab] = useState({
+    active: [],
+    ended: [],
+  });
+  const [filterPanelPosition, setFilterPanelPosition] = useState({
+    top: 0,
+    left: 0,
+    maxHeight: 320,
+  });
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState("");
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [registrationSuccessMessage, setRegistrationSuccessMessage] = useState("");
   const [attendanceActionMessage, setAttendanceActionMessage] = useState("");
   const [exportNoticeMessage, setExportNoticeMessage] = useState("");
+  const filterButtonRef = useRef(null);
+  const filterPanelRef = useRef(null);
+
+  const selectedSectorIds = sectorFiltersByTab[activeTab] || [];
 
   const activeEventLabel = selectedDisasterEvent
     ? `${selectedDisasterEvent.event_code} - ${selectedDisasterEvent.title}`
@@ -268,11 +338,30 @@ const ConsolidatedEvacueeMasterlist = () => {
     : "All Barangays";
 
   const toggleSectorFilter = (sectorId) => {
-    setSelectedSectorIds((currentSectorIds) =>
-      currentSectorIds.includes(sectorId)
-        ? currentSectorIds.filter((id) => id !== sectorId)
-        : [...currentSectorIds, sectorId],
-    );
+    setSectorFiltersByTab((currentFilters) => ({
+      ...currentFilters,
+      [activeTab]: currentFilters[activeTab].includes(sectorId)
+        ? currentFilters[activeTab].filter((id) => id !== sectorId)
+        : [...currentFilters[activeTab], sectorId],
+    }));
+  };
+
+  const clearSectorFilters = () => {
+    setSectorFiltersByTab((currentFilters) => ({
+      ...currentFilters,
+      [activeTab]: [],
+    }));
+  };
+
+  const updateFilterPanelPosition = () => {
+    if (!filterButtonRef.current) {
+      return;
+    }
+
+    const triggerRect = filterButtonRef.current.getBoundingClientRect();
+    const panelHeight = filterPanelRef.current?.getBoundingClientRect().height || 0;
+
+    setFilterPanelPosition(getFilterPanelPosition({ triggerRect, panelHeight }));
   };
 
   const registrationForm = useHouseholdRegistrationForm({
@@ -429,7 +518,58 @@ const ConsolidatedEvacueeMasterlist = () => {
   ]);
 
   useEffect(() => {
+    setSelectedSectorIds(selectedSectorIds);
+  }, [selectedSectorIds, setSelectedSectorIds]);
+
+  useEffect(() => {
+    if (!isFilterOpen) {
+      return;
+    }
+
+    updateFilterPanelPosition();
+
+    const handleWindowChange = () => {
+      updateFilterPanelPosition();
+    };
+
+    window.addEventListener("resize", handleWindowChange);
+    window.addEventListener("scroll", handleWindowChange, true);
+
+    return () => {
+      window.removeEventListener("resize", handleWindowChange);
+      window.removeEventListener("scroll", handleWindowChange, true);
+    };
+  }, [activeTab, isFilterOpen, selectedSectorIds.length]);
+
+  useEffect(() => {
+    if (!isFilterOpen) {
+      return;
+    }
+
+    const handleOutsideClick = (event) => {
+      if (
+        filterPanelRef.current?.contains(event.target) ||
+        filterButtonRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+
+      setIsFilterOpen(false);
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [isFilterOpen]);
+
+  useEffect(() => {
     setSelectedHouseholds([]);
+  }, [activeTab, selectedBarangayId, selectedDisasterEventId]);
+
+  useEffect(() => {
+    setIsFilterOpen(false);
   }, [activeTab, selectedBarangayId, selectedDisasterEventId]);
 
   useEffect(() => {
@@ -441,6 +581,20 @@ const ConsolidatedEvacueeMasterlist = () => {
       setActiveTab("ended");
     }
   }, [activeTab, selectedDisasterEvent?.status]);
+
+  useEffect(() => {
+    if (!isFilterOpen) {
+      return;
+    }
+
+    const animationFrameId = window.requestAnimationFrame(() => {
+      updateFilterPanelPosition();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+    };
+  }, [isFilterOpen, selectedSectorIds.length]);
 
   const handleOpenRegisterModal = () => {
     if (!selectedDisasterEventId) {
@@ -705,15 +859,18 @@ const ConsolidatedEvacueeMasterlist = () => {
           flexWrap: "wrap",
         }}
       >
-        <SearchBar
-          value={searchTerm}
-          onChange={setSearchTerm}
-          placeholder="Search family head, address, or sectors"
-        />
+        <div style={{ flex: 1 }}>
+          <SearchBar
+            value={searchTerm}
+            onChange={setSearchTerm}
+            placeholder="Search family head, address, or sectors"
+          />
+        </div>
 
         <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-          <div style={{ position: "relative" }}>
+          <div>
             <button
+              ref={filterButtonRef}
               type="button"
               onClick={() => setIsFilterOpen((currentValue) => !currentValue)}
               style={{
@@ -721,8 +878,6 @@ const ConsolidatedEvacueeMasterlist = () => {
                 display: "flex",
                 alignItems: "center",
                 gap: "8px",
-                backgroundColor: hasActiveSectorFilters ? "#e5f1fb" : undefined,
-                color: hasActiveSectorFilters ? "#24496e" : undefined,
               }}
             >
               <FiFilter size={16} />
@@ -732,7 +887,15 @@ const ConsolidatedEvacueeMasterlist = () => {
             </button>
 
             {isFilterOpen ? (
-              <div style={filterPanelStyles.panel}>
+              <div
+                ref={filterPanelRef}
+                style={{
+                  ...filterPanelStyles.panel,
+                  top: filterPanelPosition.top,
+                  left: filterPanelPosition.left,
+                  maxHeight: filterPanelPosition.maxHeight,
+                }}
+              >
                 <h3 style={filterPanelStyles.title}>Filter by Sector</h3>
                 <div style={filterPanelStyles.list}>
                   {sectors.length > 0 ? (
@@ -742,6 +905,7 @@ const ConsolidatedEvacueeMasterlist = () => {
                           type="checkbox"
                           checked={selectedSectorIds.includes(sector.id)}
                           onChange={() => toggleSectorFilter(sector.id)}
+                          style={{ accentColor: "#2f6499" }}
                         />
                         <span>{sector.name}</span>
                       </label>
@@ -756,7 +920,7 @@ const ConsolidatedEvacueeMasterlist = () => {
                 <div style={filterPanelStyles.actions}>
                   <button
                     type="button"
-                    onClick={() => setSelectedSectorIds([])}
+                    onClick={clearSectorFilters}
                     style={pageHeaderStyles.secondaryButton}
                   >
                     Clear

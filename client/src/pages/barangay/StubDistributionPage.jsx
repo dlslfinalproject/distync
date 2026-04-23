@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { FaHandHolding } from "react-icons/fa6";
 import BarangayDashboardOverview from "../../components/barangay-dashboard/BarangayDashboardOverview";
 import PageHeader from "../../components/layout/PageHeader";
@@ -10,7 +10,19 @@ import { useAuth } from "../../context/AuthContext";
 import { useBarangayDashboard } from "../../features/barangay-dashboard/useBarangayDashboard";
 import { useStubDashboard } from "../../features/stubs/useStubDashboard";
 import { claimStub } from "../../features/stubs/stubService";
+import { fetchMswdoSectors } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { shellStyles } from "../../components/layout/BarangayLayout";
+
+const getSectorNames = (sectorsText) => {
+  if (!sectorsText || sectorsText === "-") {
+    return [];
+  }
+
+  return String(sectorsText)
+    .split(",")
+    .map((sectorName) => sectorName.trim())
+    .filter(Boolean);
+};
 
 const getFilteredRows = (rows, searchTerm) => {
   if (!searchTerm.trim()) {
@@ -40,6 +52,17 @@ const getFilteredRows = (rows, searchTerm) => {
 const StubDistributionPage = () => {
   const { authenticatedUser } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
+  const [filtersByScope, setFiltersByScope] = useState({
+    active: {
+      sectorNames: [],
+      stubStatus: "",
+    },
+    ended: {
+      sectorNames: [],
+      stubStatus: "",
+    },
+  });
+  const [sectorOptions, setSectorOptions] = useState([]);
   const [claimingStubId, setClaimingStubId] = useState("");
   const [claimErrorMessage, setClaimErrorMessage] = useState("");
   const [pendingClaimStubId, setPendingClaimStubId] = useState("");
@@ -86,8 +109,106 @@ const StubDistributionPage = () => {
   });
 
   const filteredRows = useMemo(() => {
-    return getFilteredRows(stubRows, searchTerm);
-  }, [searchTerm, stubRows]);
+    const searchedRows = getFilteredRows(stubRows, searchTerm);
+    const currentFilters = filtersByScope[eventScope] || {
+      sectorNames: [],
+      stubStatus: "",
+    };
+
+    return searchedRows.filter((row) => {
+      const matchesStatus =
+        !currentFilters.stubStatus || row.status === currentFilters.stubStatus;
+
+      if (!matchesStatus) {
+        return false;
+      }
+
+      if (currentFilters.sectorNames.length === 0) {
+        return true;
+      }
+
+      const rowSectorNames = getSectorNames(row.sectors_text);
+
+      return currentFilters.sectorNames.some((sectorName) =>
+        rowSectorNames.includes(sectorName),
+      );
+    });
+  }, [eventScope, filtersByScope, searchTerm, stubRows]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadSectors = async () => {
+      try {
+        const sectors = await fetchMswdoSectors();
+
+        if (!isMounted) {
+          return;
+        }
+
+        setSectorOptions(
+          (Array.isArray(sectors) ? sectors : [])
+            .map((sector) => String(sector.name || "").trim())
+            .filter(Boolean)
+            .sort((left, right) => left.localeCompare(right)),
+        );
+      } catch (_error) {
+        if (isMounted) {
+          setSectorOptions([]);
+        }
+      }
+    };
+
+    loadSectors();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const currentFilters = filtersByScope[eventScope] || {
+    sectorNames: [],
+    stubStatus: "",
+  };
+
+  const stubStatusOptions = [
+    { value: "ISSUED", label: "Unclaimed" },
+    { value: "CLAIMED", label: "Claimed" },
+  ];
+
+  const toggleSectorFilter = (sectorName) => {
+    setFiltersByScope((currentValues) => ({
+      ...currentValues,
+      [eventScope]: {
+        ...currentValues[eventScope],
+        sectorNames: currentValues[eventScope].sectorNames.includes(sectorName)
+          ? currentValues[eventScope].sectorNames.filter(
+              (value) => value !== sectorName,
+            )
+          : [...currentValues[eventScope].sectorNames, sectorName],
+      },
+    }));
+  };
+
+  const setStubStatusFilter = (stubStatus) => {
+    setFiltersByScope((currentValues) => ({
+      ...currentValues,
+      [eventScope]: {
+        ...currentValues[eventScope],
+        stubStatus,
+      },
+    }));
+  };
+
+  const clearFilters = () => {
+    setFiltersByScope((currentValues) => ({
+      ...currentValues,
+      [eventScope]: {
+        sectorNames: [],
+        stubStatus: "",
+      },
+    }));
+  };
 
   const handleToggleSelect = (stubId) => {
     setSelectedStubIds((currentValues) =>
@@ -239,6 +360,14 @@ const StubDistributionPage = () => {
             searchValue={searchTerm}
             onSearchChange={setSearchTerm}
             onSearchSubmit={() => {}}
+            sectorOptions={sectorOptions}
+            selectedSectorNames={currentFilters.sectorNames}
+            stubStatusOptions={stubStatusOptions}
+            selectedStubStatus={currentFilters.stubStatus}
+            onToggleSector={toggleSectorFilter}
+            onSelectStubStatus={setStubStatusFilter}
+            onClearFilters={clearFilters}
+            filterScopeKey={eventScope}
           />
         </div>
       </section>
