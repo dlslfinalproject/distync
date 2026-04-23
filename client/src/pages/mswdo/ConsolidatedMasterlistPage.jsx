@@ -9,6 +9,7 @@ import MasterlistTable from "../../components/masterlist/MasterlistTable";
 import MswdoSummaryCards from "../../components/mswdo-masterlist/MswdoSummaryCards";
 import SearchBar from "../../components/shared/SearchBar";
 import StatusPill from "../../components/shared/StatusPill";
+import { useAuth } from "../../context/AuthContext";
 import { useHouseholdRegistrationForm } from "../../features/household-registration/useHouseholdRegistrationForm";
 import { departHousehold } from "../../features/masterlist/masterlistService";
 import { exportConsolidatedMasterlist } from "../../features/mswdo-masterlist/mswdoMasterlistService";
@@ -156,6 +157,7 @@ const ExportNoticeModal = ({ isOpen, message, onClose }) => {
 };
 
 const ConsolidatedEvacueeMasterlist = () => {
+  const { authenticatedUser } = useAuth();
   const {
     disasterEvents,
     barangays,
@@ -209,6 +211,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     isOpen: isRegisterModalOpen,
     defaultBarangayId: selectedBarangayId || "",
     defaultDisasterEventId: selectedDisasterEventId || "",
+    registeredBy: authenticatedUser?.id || null,
     onSuccess: (response) => {
       setRegistrationSuccessMessage(
         response?.message || "Household registered successfully",

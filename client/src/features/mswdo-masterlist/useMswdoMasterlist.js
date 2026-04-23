@@ -47,6 +47,7 @@ const getMappedRows = (households) => {
     ...mapMasterlistRow(household),
     barangay_id: household.barangay?.id || null,
     barangay_name: household.barangay?.name || "",
+    residency_status: household.residency_status || "RESIDENT",
     has_stub_issued: Boolean(household.stub),
   }));
 };

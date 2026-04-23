@@ -81,7 +81,13 @@ const BarangayMasterlistPage = () => {
   const registrationForm = useHouseholdRegistrationForm({
     isOpen: isRegisterModalOpen,
     defaultBarangayId: assignedBarangay?.id || "",
+    defaultBarangayName: assignedBarangay?.name || "",
     defaultDisasterEventId: selectedEvent?.id || "",
+    lockBarangaySelection: true,
+    hideBarangaySelection: true,
+    restrictNonResidentToEvacCenter: true,
+    scopeNonResidentEvacuationCentersToBarangay: true,
+    registeredBy: authenticatedUser?.id || null,
     onSuccess: (response) => {
       setRegistrationSuccessMessage(
         response?.message || "Household registered successfully",

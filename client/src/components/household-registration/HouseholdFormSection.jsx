@@ -28,17 +28,35 @@ const fieldStyles = {
     backgroundColor: "#ffffff",
     boxSizing: "border-box",
   },
+  readOnlyBox: {
+    minHeight: "44px",
+    border: "1px solid #d0ddeb",
+    borderRadius: "14px",
+    padding: "10px 12px",
+    fontSize: "14px",
+    color: "#1f405f",
+    backgroundColor: "#f8fbfe",
+    boxSizing: "border-box",
+    display: "flex",
+    alignItems: "center",
+    fontWeight: 700,
+  },
 };
 
 const HouseholdFormSection = ({ form }) => {
   const selectedEvent = form.activeDisasterEvents.find(
     (eventItem) => eventItem.id === form.selectedDisasterEventId,
   );
+  const isNonResident = form.residencyStatus === "NON_RESIDENT";
   const selectedBarangay = form.barangays.find(
     (barangay) => barangay.id === form.selectedBarangayId,
   );
-  const isNonResidentBarangay =
-    selectedBarangay?.code === "NON_RESIDENT_OUTSIDE_MALVAR";
+  const barangayLabel =
+    form.assignedBarangayName || selectedBarangay?.name || "Assigned barangay";
+  const stayTypeOptions =
+    isNonResident && form.restrictNonResidentToEvacCenter
+      ? STAY_TYPE_OPTIONS.filter((option) => option.value === "EVAC_CENTER")
+      : STAY_TYPE_OPTIONS;
 
   return (
     <section style={shellStyles.card}>
@@ -67,21 +85,54 @@ const HouseholdFormSection = ({ form }) => {
 
       <div style={fieldStyles.grid}>
         <label style={fieldStyles.field}>
-          <span style={fieldStyles.label}>Barangay</span>
+          <span style={fieldStyles.label}>Residency Status</span>
           <select
-            value={form.selectedBarangayId}
-            onChange={(event) => form.setSelectedBarangayId(event.target.value)}
-            disabled={form.isBarangayLocked}
+            value={form.residencyStatus}
+            onChange={(event) => form.setResidencyStatus(event.target.value)}
             style={fieldStyles.input}
           >
-            <option value="">Select barangay</option>
-            {form.barangays.map((barangay) => (
-              <option key={barangay.id} value={barangay.id}>
-                {barangay.name}
-              </option>
-            ))}
+            <option value="RESIDENT">Resident</option>
+            <option value="NON_RESIDENT">Non-Resident (Outside Malvar)</option>
           </select>
         </label>
+
+        {form.hideBarangaySelection ? (
+          <div style={fieldStyles.field}>
+            <span style={fieldStyles.label}>Assigned Barangay</span>
+            <div style={fieldStyles.readOnlyBox}>{barangayLabel}</div>
+            <span style={{ color: "#60738a", fontSize: "12px" }}>
+              This registration will be assigned automatically to your
+              barangay account.
+            </span>
+          </div>
+        ) : (
+          <label style={fieldStyles.field}>
+            <span style={fieldStyles.label}>Barangay</span>
+            <select
+              value={form.selectedBarangayId}
+              onChange={(event) => form.setSelectedBarangayId(event.target.value)}
+              disabled={form.isBarangayLocked}
+              style={fieldStyles.input}
+            >
+              <option value="">
+                {isNonResident
+                  ? "Select handling barangay"
+                  : "Select barangay"}
+              </option>
+              {form.barangays.map((barangay) => (
+                <option key={barangay.id} value={barangay.id}>
+                  {barangay.name}
+                </option>
+              ))}
+            </select>
+            {isNonResident ? (
+              <span style={{ color: "#60738a", fontSize: "12px" }}>
+                Non-resident families keep this barangay as their handling
+                office, not their place of residence.
+              </span>
+            ) : null}
+          </label>
+        )}
 
         <label style={fieldStyles.field}>
           <span style={fieldStyles.label}>Current Stay Type</span>
@@ -90,18 +141,30 @@ const HouseholdFormSection = ({ form }) => {
             onChange={(event) =>
               form.updateHouseholdField("current_stay_type", event.target.value)
             }
+            disabled={isNonResident && form.restrictNonResidentToEvacCenter}
             style={fieldStyles.input}
           >
-            {STAY_TYPE_OPTIONS.map((option) => (
+            {stayTypeOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
             ))}
           </select>
+          {isNonResident && form.restrictNonResidentToEvacCenter ? (
+            <span style={{ color: "#60738a", fontSize: "12px" }}>
+              Non-resident families must be registered as staying in an
+              evacuation center under the assigned barangay.
+            </span>
+          ) : null}
         </label>
 
         <label style={fieldStyles.field}>
-          <span style={fieldStyles.label}>Evacuation Center (Optional)</span>
+          <span style={fieldStyles.label}>
+            Evacuation Center
+            {isNonResident && form.restrictNonResidentToEvacCenter
+              ? ""
+              : " (Optional)"}
+          </span>
           <select
             value={form.household.evacuation_center_id}
             onChange={(event) =>
@@ -118,10 +181,11 @@ const HouseholdFormSection = ({ form }) => {
             ))}
           </select>
           {form.household.current_stay_type === "EVAC_CENTER" &&
-          isNonResidentBarangay ? (
+          isNonResident ? (
             <span style={{ color: "#60738a", fontSize: "12px" }}>
-              Non-resident families may still stay in any registered evacuation
-              center.
+              {form.restrictNonResidentToEvacCenter
+                ? "Only evacuation centers under the assigned barangay are available."
+                : "Non-resident families may still stay in any registered evacuation center."}
             </span>
           ) : null}
         </label>

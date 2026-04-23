@@ -1,5 +1,6 @@
 const allowedStayTypes = ["EVAC_CENTER", "RELATIVES", "OTHER_SAFE_PLACE"];
 const allowedSexValues = ["MALE", "FEMALE"];
+const allowedResidencyStatuses = ["RESIDENT", "NON_RESIDENT"];
 const { ALLOWED_AGE_UNITS } = require("../utils/ageGroup");
 
 const uuidPattern =
@@ -18,6 +19,7 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
     const {
       disaster_event_id,
       barangay_id,
+      residency_status,
       evacuation_center_id,
       family_head,
       current_stay_type,
@@ -33,9 +35,17 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
       });
     }
 
+    const normalizedResidencyStatus = residency_status || "RESIDENT";
+
+    if (!allowedResidencyStatuses.includes(normalizedResidencyStatus)) {
+      return res.status(400).json({
+        message: "residency_status must be RESIDENT or NON_RESIDENT",
+      });
+    }
+
     if (!isValidUuid(barangay_id)) {
       return res.status(400).json({
-        message: "barangay_id is required and must be a valid UUID",
+        message: "barangay_id is required and must be a valid handling barangay",
       });
     }
 
@@ -261,6 +271,7 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
     req.validatedBody = {
       disaster_event_id,
       barangay_id,
+      residency_status: normalizedResidencyStatus,
       evacuation_center_id: evacuation_center_id ?? null,
       family_head: {
         first_name: family_head.first_name.trim(),

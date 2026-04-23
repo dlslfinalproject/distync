@@ -143,11 +143,14 @@ const getMasterlist = async (filters) => {
         household.family_head_last_name,
         household.family_head_suffix,
       ),
-      barangay: {
-        id: household.barangay_id,
-        code: household.barangay_code,
-        name: household.barangay_name,
-      },
+      barangay: household.barangay_id
+        ? {
+            id: household.barangay_id,
+            code: household.barangay_code,
+            name: household.barangay_name,
+          }
+        : null,
+      residency_status: household.residency_status || "RESIDENT",
       household_size: household.household_size,
       current_stay_type: household.current_stay_type,
       current_address_details: household.current_address_details,

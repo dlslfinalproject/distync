@@ -40,7 +40,8 @@ router.get("/roles", async (req, res) => {
 router.get("/barangays", async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT id, code, name FROM barangays ORDER BY name ASC",
+      "SELECT id, code, name FROM barangays WHERE code <> $1 ORDER BY name ASC",
+      ["NON_RESIDENT_OUTSIDE_MALVAR"],
     );
     res.status(200).json(result.rows);
   } catch (error) {
