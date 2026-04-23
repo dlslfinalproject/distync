@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import DisasterEventDetailModal from "../../components/disaster-events/DisasterEventDetailModal";
@@ -11,6 +11,56 @@ import SearchBar from "../../components/shared/SearchBar";
 import { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { FiFileText, FiFilter } from "react-icons/fi";
 import { exportDisasterEvents } from "../../features/disaster-events/disasterEventService";
+
+const filterPanelStyles = {
+  panel: {
+    position: "absolute",
+    right: 0,
+    top: "48px",
+    width: "min(360px, 90vw)",
+    backgroundColor: "#ffffff",
+    border: "1px solid #d6e2ef",
+    borderRadius: "18px",
+    boxShadow: "0 18px 36px rgba(31, 64, 95, 0.16)",
+    padding: "18px",
+    zIndex: 30,
+  },
+  title: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "16px",
+    fontWeight: 800,
+  },
+  field: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+    marginTop: "14px",
+  },
+  label: {
+    color: "#55718b",
+    fontSize: "12px",
+    fontWeight: 800,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+  },
+  select: {
+    minHeight: "42px",
+    border: "1px solid #d0ddeb",
+    borderRadius: "12px",
+    padding: "10px 12px",
+    fontSize: "14px",
+    color: "#1f405f",
+    backgroundColor: "#f8fbfe",
+    boxSizing: "border-box",
+  },
+  actions: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "10px",
+    marginTop: "18px",
+  },
+};
 
 const DisasterEventsPage = () => {
   const {
@@ -44,16 +94,49 @@ const DisasterEventsPage = () => {
   const [exportOpen, setExportOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState("");
   const [searchValue, setSearchValue] = useState("");
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [selectedDisasterType, setSelectedDisasterType] = useState("");
+  const [selectedAffectedBarangayId, setSelectedAffectedBarangayId] =
+    useState("");
+
+  const disasterTypeOptions = useMemo(() => {
+    return [
+      ...new Set(
+        events
+          .map((event) => String(event.disaster_type || "").trim())
+          .filter(Boolean),
+      ),
+    ].sort((a, b) => a.localeCompare(b));
+  }, [events]);
+
+  const hasActiveFilters = Boolean(
+    selectedDisasterType || selectedAffectedBarangayId,
+  );
 
   const filteredEvents = events.filter((event) => {
-    const search = searchValue.toLowerCase();
-
-    return (
+    const search = searchValue.trim().toLowerCase();
+    const matchesSearch =
+      !search ||
       event.title?.toLowerCase().includes(search) ||
       event.disaster_type?.toLowerCase().includes(search) ||
       event.affected_barangays?.some((b) =>
         (b.name || b).toLowerCase().includes(search),
-      )
+      );
+
+    const matchesDisasterType =
+      !selectedDisasterType ||
+      event.disaster_type === selectedDisasterType;
+
+    const matchesAffectedBarangay =
+      !selectedAffectedBarangayId ||
+      event.affected_barangays?.some(
+        (barangay) => barangay.id === selectedAffectedBarangayId,
+      );
+
+    return (
+      matchesSearch &&
+      matchesDisasterType &&
+      matchesAffectedBarangay
     );
   });
 
@@ -81,6 +164,8 @@ const DisasterEventsPage = () => {
       const file = await exportDisasterEvents({
         selectedFilter,
         search: searchValue,
+        disasterType: selectedDisasterType,
+        affectedBarangayId: selectedAffectedBarangayId,
         format,
       });
       const downloadUrl = window.URL.createObjectURL(file.blob);
@@ -279,10 +364,82 @@ const DisasterEventsPage = () => {
           />
         </div>
 
-        <button type="button" style={pageHeaderStyles.secondaryButton}>
-          <FiFilter size={16} />
-          Filter
-        </button>
+        <div style={{ position: "relative" }}>
+          <button
+            type="button"
+            onClick={() => setIsFilterOpen((currentValue) => !currentValue)}
+            style={{
+              ...pageHeaderStyles.secondaryButton,
+              backgroundColor: hasActiveFilters ? "#e5f1fb" : undefined,
+              color: hasActiveFilters ? "#24496e" : undefined,
+            }}
+          >
+            <FiFilter size={16} />
+            {hasActiveFilters ? "Filter Applied" : "Filter"}
+          </button>
+
+          {isFilterOpen ? (
+            <div style={filterPanelStyles.panel}>
+              <h3 style={filterPanelStyles.title}>Filter Disaster Events</h3>
+
+              <label style={filterPanelStyles.field}>
+                <span style={filterPanelStyles.label}>Disaster Type</span>
+                <select
+                  value={selectedDisasterType}
+                  onChange={(event) =>
+                    setSelectedDisasterType(event.target.value)
+                  }
+                  style={filterPanelStyles.select}
+                >
+                  <option value="">All Disaster Types</option>
+                  {disasterTypeOptions.map((disasterType) => (
+                    <option key={disasterType} value={disasterType}>
+                      {disasterType}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={filterPanelStyles.field}>
+                <span style={filterPanelStyles.label}>Affected Barangay</span>
+                <select
+                  value={selectedAffectedBarangayId}
+                  onChange={(event) =>
+                    setSelectedAffectedBarangayId(event.target.value)
+                  }
+                  style={filterPanelStyles.select}
+                >
+                  <option value="">All Barangays</option>
+                  {barangays.map((barangay) => (
+                    <option key={barangay.id} value={barangay.id}>
+                      {barangay.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div style={filterPanelStyles.actions}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedDisasterType("");
+                    setSelectedAffectedBarangayId("");
+                  }}
+                  style={pageHeaderStyles.secondaryButton}
+                >
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsFilterOpen(false)}
+                  style={pageHeaderStyles.primaryButton}
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <section
