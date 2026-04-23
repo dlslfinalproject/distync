@@ -75,6 +75,48 @@ const noticeModalStyles = {
   },
 };
 
+const filterPanelStyles = {
+  panel: {
+    position: "absolute",
+    right: 0,
+    top: "48px",
+    width: "min(380px, 90vw)",
+    backgroundColor: "#ffffff",
+    border: "1px solid #d6e2ef",
+    borderRadius: "18px",
+    boxShadow: "0 18px 36px rgba(31, 64, 95, 0.16)",
+    padding: "18px",
+    zIndex: 30,
+  },
+  title: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "16px",
+    fontWeight: 800,
+  },
+  list: {
+    display: "grid",
+    gap: "10px",
+    maxHeight: "240px",
+    overflowY: "auto",
+    marginTop: "14px",
+    padding: "4px",
+  },
+  option: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    color: "#1f405f",
+    fontSize: "14px",
+  },
+  actions: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "10px",
+    marginTop: "18px",
+  },
+};
+
 const tabButtonStyles = (isActive) => ({
   padding: "12px 24px",
   border: "none",
@@ -161,8 +203,10 @@ const ConsolidatedEvacueeMasterlist = () => {
   const {
     disasterEvents,
     barangays,
+    sectors,
     selectedDisasterEventId,
     selectedBarangayId,
+    selectedSectorIds,
     selectedDisasterEvent,
     searchTerm,
     displayedRows,
@@ -174,6 +218,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     dashboardErrorMessage,
     setSelectedDisasterEventId,
     setSelectedBarangayId,
+    setSelectedSectorIds,
     setSearchTerm,
     reloadMasterlist,
   } = useMswdoMasterlist();
@@ -183,6 +228,7 @@ const ConsolidatedEvacueeMasterlist = () => {
   const [isBulkDepartureConfirmOpen, setIsBulkDepartureConfirmOpen] = useState(false);
   const [isRecordingDeparture, setIsRecordingDeparture] = useState(false);
   const [selectedHouseholds, setSelectedHouseholds] = useState([]);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState("");
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
@@ -195,6 +241,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     : "No disaster event selected";
   const hasRowsToExport = displayedRows.length > 0;
   const canRegisterFamily = activeTab === "active";
+  const hasActiveSectorFilters = selectedSectorIds.length > 0;
   const scopedDisasterEvents = useMemo(() => {
     return getScopedDisasterEvents({
       events: disasterEvents,
@@ -206,6 +253,14 @@ const ConsolidatedEvacueeMasterlist = () => {
   const selectedBarangayLabel = selectedBarangayId
     ? barangays.find((barangay) => barangay.id === selectedBarangayId)?.name
     : "All Barangays";
+
+  const toggleSectorFilter = (sectorId) => {
+    setSelectedSectorIds((currentSectorIds) =>
+      currentSectorIds.includes(sectorId)
+        ? currentSectorIds.filter((id) => id !== sectorId)
+        : [...currentSectorIds, sectorId],
+    );
+  };
 
   const registrationForm = useHouseholdRegistrationForm({
     isOpen: isRegisterModalOpen,
@@ -408,6 +463,7 @@ const ConsolidatedEvacueeMasterlist = () => {
         disasterEventId: selectedDisasterEventId,
         barangayId: selectedBarangayId || null,
         search: searchTerm,
+        sectorIds: selectedSectorIds,
         format,
       });
 
@@ -638,18 +694,66 @@ const ConsolidatedEvacueeMasterlist = () => {
         />
 
         <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-          <button
-            type="button"
-            style={{
-              ...pageHeaderStyles.secondaryButton,
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-            }}
-          >
-            <FiFilter size={16} />
-            Filter
-          </button>
+          <div style={{ position: "relative" }}>
+            <button
+              type="button"
+              onClick={() => setIsFilterOpen((currentValue) => !currentValue)}
+              style={{
+                ...pageHeaderStyles.secondaryButton,
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                backgroundColor: hasActiveSectorFilters ? "#e5f1fb" : undefined,
+                color: hasActiveSectorFilters ? "#24496e" : undefined,
+              }}
+            >
+              <FiFilter size={16} />
+              {hasActiveSectorFilters
+                ? `Filter (${selectedSectorIds.length})`
+                : "Filter"}
+            </button>
+
+            {isFilterOpen ? (
+              <div style={filterPanelStyles.panel}>
+                <h3 style={filterPanelStyles.title}>Filter by Sector</h3>
+                <div style={filterPanelStyles.list}>
+                  {sectors.length > 0 ? (
+                    sectors.map((sector) => (
+                      <label key={sector.id} style={filterPanelStyles.option}>
+                        <input
+                          type="checkbox"
+                          checked={selectedSectorIds.includes(sector.id)}
+                          onChange={() => toggleSectorFilter(sector.id)}
+                        />
+                        <span>{sector.name}</span>
+                      </label>
+                    ))
+                  ) : (
+                    <p style={{ ...shellStyles.mutedText, margin: 0 }}>
+                      No sectors are available.
+                    </p>
+                  )}
+                </div>
+
+                <div style={filterPanelStyles.actions}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSectorIds([])}
+                    style={pageHeaderStyles.secondaryButton}
+                  >
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsFilterOpen(false)}
+                    style={pageHeaderStyles.primaryButton}
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
 
           {canRegisterFamily ? (
             <button

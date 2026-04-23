@@ -38,6 +38,12 @@ export const fetchBarangays = async () => {
   return handleJsonResponse(response, "Failed to fetch barangays");
 };
 
+export const fetchMswdoSectors = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/sectors/mswdo`);
+  const payload = await handleJsonResponse(response, "Failed to fetch sectors");
+  return Array.isArray(payload.data) ? payload.data : payload;
+};
+
 export const fetchConsolidatedMasterlist = async ({
   disasterEventId,
   barangayId,
@@ -117,6 +123,7 @@ export const exportConsolidatedMasterlist = async ({
   disasterEventId,
   barangayId,
   search,
+  sectorIds,
   format,
 }) => {
   const searchParams = new URLSearchParams({
@@ -130,6 +137,10 @@ export const exportConsolidatedMasterlist = async ({
 
   if (search && search.trim()) {
     searchParams.set("search", search.trim());
+  }
+
+  if (Array.isArray(sectorIds) && sectorIds.length > 0) {
+    searchParams.set("sector_ids", sectorIds.join(","));
   }
 
   const response = await fetch(
