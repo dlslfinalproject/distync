@@ -113,6 +113,7 @@ const MswdoStubResultsTable = ({
   claimingStubId,
   claimErrorMessage,
   onClaimStub,
+  isClaimReadOnly = false,
   selectedStubIds,
   onToggleSelect,
   onSelectAll,
@@ -180,7 +181,9 @@ const MswdoStubResultsTable = ({
     );
   }
 
-  const selectableRows = rows.filter((row) => row.status === "ISSUED");
+  const selectableRows = isClaimReadOnly
+    ? []
+    : rows.filter((row) => row.status === "ISSUED");
 
   const areAllSelected =
     selectableRows.length > 0 &&
@@ -246,7 +249,7 @@ const MswdoStubResultsTable = ({
           </thead>
           <tbody>
             {rows.map((row) => {
-              const isSelectable = row.status === "ISSUED";
+              const isSelectable = !isClaimReadOnly && row.status === "ISSUED";
               const isSelected = safeSelectedStubIds.includes(row.id);
 
               return (
@@ -283,7 +286,7 @@ const MswdoStubResultsTable = ({
                       verticalAlign: "middle",
                     }}
                   >
-                    {row.status === "ISSUED" ? (
+                    {row.status === "ISSUED" && !isClaimReadOnly ? (
                       <button
                         type="button"
                         onClick={() => onClaimStub(row.id)}
