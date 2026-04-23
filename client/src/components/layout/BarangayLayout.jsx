@@ -5,17 +5,16 @@ import Sidebar from "./Sidebar";
 export const shellStyles = {
   page: {
     minHeight: "100vh",
-    display: "flex",
     background:
       "linear-gradient(180deg, #edf4fb 0%, #e5eef7 50%, #dde7f2 100%)",
     color: "#1b2b40",
     fontFamily: '"Segoe UI", Tahoma, Geneva, Verdana, sans-serif',
   },
   main: {
-    flex: 1,
     padding: "28px 32px",
     boxSizing: "border-box",
     width: "100%",
+    minWidth: 0,
   },
   content: {
     maxWidth: "1180px",
@@ -55,9 +54,10 @@ const BarangayLayout = () => {
 
   return (
     <div
+      className="distync-shell"
       style={{
         ...shellStyles.page,
-        flexDirection: isSidebarCollapsed ? "column" : "row",
+        "--sidebar-width": isSidebarCollapsed ? "116px" : "280px",
       }}
     >
       <Sidebar
@@ -65,7 +65,7 @@ const BarangayLayout = () => {
         onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
       />
 
-      <main style={shellStyles.main}>
+      <main className="distync-shell__main" style={shellStyles.main}>
         <div style={shellStyles.content}>
           <Outlet />
         </div>

@@ -8,31 +8,32 @@ import distyncLogo from "../../assets/distync-logo.png";
 
 const getSidebarStyles = (isCollapsed) => ({
   wrapper: {
-    width: isCollapsed ? "100%" : "280px",
-    minWidth: isCollapsed ? "100%" : "280px",
-    height: isCollapsed ? "auto" : "100vh",
-    padding: "0 18px 24px",
+    height: "100vh",
+    padding: isCollapsed ? "0 12px 18px" : "0 18px 24px",
     boxSizing: "border-box",
     backgroundColor: "#f7fbff",
-    borderRight: isCollapsed ? "none" : "1px solid #d6e2ef",
-    borderBottom: isCollapsed ? "1px solid #d6e2ef" : "none",
+    borderRight: "1px solid #d6e2ef",
     display: "flex",
     flexDirection: "column",
-    gap: "24px",
+    gap: isCollapsed ? "18px" : "24px",
     flexShrink: 0,
-    position: isCollapsed ? "relative" : "sticky",
+    position: "sticky",
     top: 0,
     alignSelf: "flex-start",
-    overflowY: isCollapsed ? "visible" : "auto",
-    transition: "width 0.2s ease, min-width 0.2s ease",
+    overflowX: "hidden",
+    overflowY: "auto",
+    transition:
+      "padding 260ms cubic-bezier(0.22, 1, 0.36, 1), gap 260ms cubic-bezier(0.22, 1, 0.36, 1)",
   },
   topBar: {
     display: "flex",
     alignItems: "center",
-    justifyContent: "flex-start",
-    gap: "10px",
+    justifyContent: isCollapsed ? "center" : "flex-start",
+    gap: isCollapsed ? "8px" : "10px",
     paddingTop: "20px",
     minWidth: 0,
+    transition:
+      "gap 260ms cubic-bezier(0.22, 1, 0.36, 1), justify-content 260ms cubic-bezier(0.22, 1, 0.36, 1)",
   },
   menuButton: {
     border: "1px solid #c7d7e8",
@@ -55,23 +56,31 @@ const getSidebarStyles = (isCollapsed) => ({
     display: "flex",
     alignItems: "center",
     justifyContent: "flex-start",
-    flex: 1,
+    flex: isCollapsed ? "0 0 auto" : 1,
     minWidth: 0,
+    maxWidth: isCollapsed ? "38px" : "180px",
+    opacity: 1,
+    overflow: "hidden",
+    pointerEvents: "auto",
+    transition:
+      "flex-basis 260ms cubic-bezier(0.22, 1, 0.36, 1), max-width 260ms cubic-bezier(0.22, 1, 0.36, 1)",
   },
   brandHeader: {
     display: "flex",
     alignItems: "center",
     justifyContent: "flex-start",
     gap: "6px",
-    width: "100%",
+    width: isCollapsed ? "auto" : "100%",
     minWidth: 0,
   },
   brandLogo: {
-    height: "56px",
-    width: "56px",
+    height: isCollapsed ? "36px" : "56px",
+    width: isCollapsed ? "36px" : "56px",
     objectFit: "contain",
     display: "block",
     flexShrink: 0,
+    transition:
+      "height 260ms cubic-bezier(0.22, 1, 0.36, 1), width 260ms cubic-bezier(0.22, 1, 0.36, 1)",
   },
   brandTitle: {
     margin: 0,
@@ -82,24 +91,58 @@ const getSidebarStyles = (isCollapsed) => ({
     whiteSpace: "nowrap",
     overflow: "hidden",
     textOverflow: "ellipsis",
-    maxWidth: "120px",
+    maxWidth: isCollapsed ? 0 : "120px",
+    opacity: isCollapsed ? 0 : 1,
+    transition:
+      "max-width 220ms cubic-bezier(0.22, 1, 0.36, 1), opacity 160ms ease",
   },
   nav: {
-    display: isCollapsed ? "none" : "flex",
+    display: "flex",
     flexDirection: "column",
-    gap: "10px",
+    gap: isCollapsed ? "8px" : "10px",
     marginTop: "10px",
+    transition: "gap 260ms cubic-bezier(0.22, 1, 0.36, 1)",
   },
   navTitle: {
     display: "block",
     fontSize: "15px",
     fontWeight: 700,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    maxWidth: isCollapsed ? 0 : "190px",
+    opacity: isCollapsed ? 0 : 1,
+    transition:
+      "max-width 220ms cubic-bezier(0.22, 1, 0.36, 1), opacity 160ms ease",
+  },
+  compactNavTitle: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "30px",
+    height: "30px",
+    borderRadius: "10px",
+    backgroundColor: "#eef5fc",
+    color: "#24496e",
+    fontSize: "12px",
+    fontWeight: 800,
+    letterSpacing: "0.03em",
+    opacity: isCollapsed ? 1 : 0,
+    maxWidth: isCollapsed ? "30px" : 0,
+    overflow: "hidden",
+    transition:
+      "max-width 220ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease",
   },
   roleActions: {
     marginTop: "auto",
-    display: isCollapsed ? "none" : "flex",
+    display: "flex",
     flexDirection: "column",
     gap: "12px",
+    maxHeight: isCollapsed ? 0 : "220px",
+    opacity: isCollapsed ? 0 : 1,
+    overflow: "hidden",
+    pointerEvents: isCollapsed ? "none" : "auto",
+    transition:
+      "max-height 260ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease",
   },
   roleButton: {
     width: "100%",
@@ -124,6 +167,16 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
   if (currentRole === ROLE_CODES.DONOR) return null;
 
   const sidebarStyles = getSidebarStyles(isCollapsed);
+
+  const getCompactLabel = (label) => {
+    return label
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((word) => word[0])
+      .join("")
+      .toUpperCase();
+  };
 
   const roleMeta = {
     [ROLE_CODES.BARANGAY]: {
@@ -156,8 +209,12 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
   };
 
   return (
-    <aside style={sidebarStyles.wrapper}>
-      <div style={sidebarStyles.topBar}>
+    <aside
+      className="distync-sidebar"
+      data-collapsed={isCollapsed ? "true" : "false"}
+      style={sidebarStyles.wrapper}
+    >
+      <div className="distync-sidebar__topbar" style={sidebarStyles.topBar}>
         <button
           type="button"
           onClick={onToggleCollapse}
@@ -175,28 +232,40 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
         </div>
       </div>
 
-      <nav style={sidebarStyles.nav}>
+      <nav className="distync-sidebar__nav" style={sidebarStyles.nav}>
         {activeRoleMeta.navItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
+            title={isCollapsed ? item.label : undefined}
             style={{ textDecoration: "none" }}
           >
             {({ isActive }) => (
               <div
+                className="distync-sidebar__nav-item"
                 style={{
                   backgroundColor: isActive ? "#e1eef9" : "#ffffff",
                   color: isActive ? "#1f4f7d" : "#26435f",
                   border: `1px solid ${isActive ? "#b8d0e7" : "#dce7f3"}`,
                   borderRadius: "14px",
-                  padding: "14px 16px",
+                  padding: isCollapsed ? "11px" : "14px 16px",
                   boxShadow: isActive
                     ? "0 10px 24px rgba(66, 108, 154, 0.12)"
                     : "0 4px 12px rgba(72, 95, 122, 0.04)",
-                  transition: "all 0.2s ease",
+                  transition:
+                    "background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease, padding 260ms cubic-bezier(0.22, 1, 0.36, 1)",
                   marginBottom: "10px",
+                  minHeight: "46px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: isCollapsed ? "center" : "flex-start",
+                  gap: isCollapsed ? 0 : "10px",
+                  overflow: "hidden",
                 }}
               >
+                <span style={sidebarStyles.compactNavTitle}>
+                  {getCompactLabel(item.label)}
+                </span>
                 <span style={sidebarStyles.navTitle}>{item.label}</span>
               </div>
             )}
@@ -204,7 +273,7 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
         ))}
       </nav>
 
-      <div style={sidebarStyles.roleActions}>
+      <div className="distync-sidebar__role-actions" style={sidebarStyles.roleActions}>
         <div
           style={{
             padding: "14px 16px",
