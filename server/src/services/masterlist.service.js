@@ -273,6 +273,29 @@ const getMswdoMasterlistDashboard = async (filters) => {
   };
 };
 
+const getHouseholdSectorIds = (household) => {
+  return [
+    ...(household.household_sectors || []).map((sector) => sector.id),
+    ...(household.members || []).flatMap((member) =>
+      (member.sectors || []).map((sector) => sector.id),
+    ),
+  ].filter(Boolean);
+};
+
+const filterMasterlistBySectorIds = (households, sectorIds = []) => {
+  if (!Array.isArray(sectorIds) || sectorIds.length === 0) {
+    return households;
+  }
+
+  const selectedSectorIds = new Set(sectorIds);
+
+  return households.filter((household) =>
+    getHouseholdSectorIds(household).some((sectorId) =>
+      selectedSectorIds.has(sectorId),
+    ),
+  );
+};
+
 const exportMswdoMasterlist = async (filters) => {
   const [masterlist, dashboard] = await Promise.all([
     getMasterlist({
@@ -285,8 +308,13 @@ const exportMswdoMasterlist = async (filters) => {
     }),
   ]);
 
+  const sectorFilteredRows = filterMasterlistBySectorIds(
+    masterlist.data || [],
+    filters.sector_ids || [],
+  );
+
   const exportRows = filterExportRows(
-    (masterlist.data || []).map(mapHouseholdToExportRow),
+    sectorFilteredRows.map(mapHouseholdToExportRow),
     filters.search || "",
   );
 

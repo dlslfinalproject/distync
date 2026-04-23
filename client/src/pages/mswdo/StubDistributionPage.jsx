@@ -33,6 +33,71 @@ const filterStyles = {
   },
 };
 
+const filterPanelStyles = {
+  panel: {
+    position: "absolute",
+    right: 0,
+    top: "48px",
+    width: "min(380px, 90vw)",
+    backgroundColor: "#ffffff",
+    border: "1px solid #d6e2ef",
+    borderRadius: "18px",
+    boxShadow: "0 18px 36px rgba(31, 64, 95, 0.16)",
+    padding: "18px",
+    zIndex: 30,
+  },
+  title: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "16px",
+    fontWeight: 800,
+  },
+  field: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+    marginTop: "14px",
+  },
+  label: {
+    color: "#55718b",
+    fontSize: "12px",
+    fontWeight: 800,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+  },
+  select: {
+    minHeight: "42px",
+    border: "1px solid #d0ddeb",
+    borderRadius: "12px",
+    padding: "10px 12px",
+    fontSize: "14px",
+    color: "#1f405f",
+    backgroundColor: "#f8fbfe",
+    boxSizing: "border-box",
+  },
+  list: {
+    display: "grid",
+    gap: "10px",
+    maxHeight: "220px",
+    overflowY: "auto",
+    marginTop: "10px",
+    padding: "4px",
+  },
+  option: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    color: "#1f405f",
+    fontSize: "14px",
+  },
+  actions: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "10px",
+    marginTop: "18px",
+  },
+};
+
 const tabButtonStyles = (isActive) => ({
   padding: "12px 24px",
   border: "none",
@@ -83,6 +148,11 @@ const getStatusLabel = (status) => {
   return status || "-";
 };
 
+const stubStatusOptions = [
+  { value: "ISSUED", label: "Unclaimed" },
+  { value: "CLAIMED", label: "Claimed" },
+];
+
 const buildCsvCell = (value) => {
   return `"${String(value || "").replace(/"/g, '""')}"`;
 };
@@ -129,8 +199,11 @@ const StubDistributionPage = () => {
   const {
     disasterEvents,
     barangays,
+    sectors,
     selectedDisasterEventId,
     selectedBarangayId,
+    selectedSectorIds,
+    selectedStubStatus,
     selectedDisasterEvent,
     selectedBarangay,
     searchTerm,
@@ -143,11 +216,14 @@ const StubDistributionPage = () => {
     hasSelectedBarangay,
     setSelectedDisasterEventId,
     setSelectedBarangayId,
+    setSelectedSectorIds,
+    setSelectedStubStatus,
     setSearchTerm,
     reloadDashboard,
   } = useMswdoStubDistribution();
 
   const [activeTab, setActiveTab] = useState("active");
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [claimingStubId, setClaimingStubId] = useState("");
   const [claimErrorMessage, setClaimErrorMessage] = useState("");
   const [pendingClaimStubId, setPendingClaimStubId] = useState("");
@@ -165,6 +241,9 @@ const StubDistributionPage = () => {
   const activeEventLabel = selectedDisasterEvent
     ? `${selectedDisasterEvent.event_code} - ${selectedDisasterEvent.title}`
     : "No disaster event selected";
+  const activeFilterCount =
+    selectedSectorIds.length + (selectedStubStatus ? 1 : 0);
+  const hasActiveFilters = activeFilterCount > 0;
 
   useEffect(() => {
     if (
@@ -188,6 +267,26 @@ const StubDistributionPage = () => {
     setIsBulkClaimConfirmOpen(false);
     setClaimErrorMessage("");
   }, [selectedBarangayId, selectedDisasterEventId]);
+
+  useEffect(() => {
+    const visibleStubIds = new Set(displayedRows.map((row) => row.id));
+    setSelectedStubIds((currentValues) =>
+      currentValues.filter((stubId) => visibleStubIds.has(stubId)),
+    );
+  }, [displayedRows]);
+
+  const toggleSectorFilter = (sectorId) => {
+    setSelectedSectorIds((currentSectorIds) =>
+      currentSectorIds.includes(sectorId)
+        ? currentSectorIds.filter((id) => id !== sectorId)
+        : [...currentSectorIds, sectorId],
+    );
+  };
+
+  const clearFilters = () => {
+    setSelectedSectorIds([]);
+    setSelectedStubStatus("");
+  };
 
   const handleEventScopeChange = (nextTab) => {
     setActiveTab(nextTab);
@@ -496,18 +595,84 @@ const StubDistributionPage = () => {
         </div>
 
         <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-          <button
-            type="button"
-            style={{
-              ...pageHeaderStyles.secondaryButton,
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-            }}
-          >
-            <FiFilter size={16} />
-            Filter
-          </button>
+          <div style={{ position: "relative" }}>
+            <button
+              type="button"
+              onClick={() => setIsFilterOpen((currentValue) => !currentValue)}
+              style={{
+                ...pageHeaderStyles.secondaryButton,
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                backgroundColor: hasActiveFilters ? "#e5f1fb" : undefined,
+                color: hasActiveFilters ? "#24496e" : undefined,
+              }}
+            >
+              <FiFilter size={16} />
+              {hasActiveFilters ? `Filter (${activeFilterCount})` : "Filter"}
+            </button>
+
+            {isFilterOpen ? (
+              <div style={filterPanelStyles.panel}>
+                <h3 style={filterPanelStyles.title}>Filter Stub Records</h3>
+
+                <label style={filterPanelStyles.field}>
+                  <span style={filterPanelStyles.label}>Stub Status</span>
+                  <select
+                    value={selectedStubStatus}
+                    onChange={(event) => setSelectedStubStatus(event.target.value)}
+                    style={filterPanelStyles.select}
+                  >
+                    <option value="">All Stub Statuses</option>
+                    {stubStatusOptions.map((statusOption) => (
+                      <option key={statusOption.value} value={statusOption.value}>
+                        {statusOption.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <div style={filterPanelStyles.field}>
+                  <span style={filterPanelStyles.label}>Sector</span>
+                  <div style={filterPanelStyles.list}>
+                    {sectors.length > 0 ? (
+                      sectors.map((sector) => (
+                        <label key={sector.id} style={filterPanelStyles.option}>
+                          <input
+                            type="checkbox"
+                            checked={selectedSectorIds.includes(sector.id)}
+                            onChange={() => toggleSectorFilter(sector.id)}
+                          />
+                          <span>{sector.name}</span>
+                        </label>
+                      ))
+                    ) : (
+                      <p style={{ ...shellStyles.mutedText, margin: 0 }}>
+                        No sectors are available.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div style={filterPanelStyles.actions}>
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    style={pageHeaderStyles.secondaryButton}
+                  >
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsFilterOpen(false)}
+                    style={pageHeaderStyles.primaryButton}
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
 
           <button
             type="button"

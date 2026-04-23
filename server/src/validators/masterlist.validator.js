@@ -5,6 +5,17 @@ const isValidUuid = (value) => {
   return typeof value === "string" && uuidPattern.test(value);
 };
 
+const parseUuidList = (value) => {
+  if (!value || typeof value !== "string") {
+    return [];
+  }
+
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
+
 const validateGetMasterlist = (req, res, next) => {
   try {
     const { disaster_event_id, barangay_id } = req.query;
@@ -37,7 +48,8 @@ const validateGetMasterlist = (req, res, next) => {
 
 const validateExportMswdoMasterlist = (req, res, next) => {
   try {
-    const { disaster_event_id, barangay_id, format, search } = req.query;
+    const { disaster_event_id, barangay_id, format, search, sector_ids } =
+      req.query;
 
     if (!isValidUuid(disaster_event_id)) {
       return res.status(400).json({
@@ -57,11 +69,20 @@ const validateExportMswdoMasterlist = (req, res, next) => {
       });
     }
 
+    const parsedSectorIds = parseUuidList(sector_ids);
+
+    if (parsedSectorIds.some((sectorId) => !isValidUuid(sectorId))) {
+      return res.status(400).json({
+        message: "sector_ids must contain valid UUID values",
+      });
+    }
+
     req.validatedQuery = {
       disaster_event_id,
       barangay_id: barangay_id || null,
       format: String(format).toLowerCase(),
       search: typeof search === "string" ? search : "",
+      sector_ids: parsedSectorIds,
     };
 
     return next();
