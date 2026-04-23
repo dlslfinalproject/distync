@@ -268,11 +268,42 @@ const matchesDisasterEventSearch = (event, search) => {
   );
 };
 
-const exportDisasterEvents = async ({ scope, format, search }) => {
+const matchesDisasterEventFilters = ({
+  event,
+  disasterType,
+  affectedBarangayId,
+}) => {
+  const matchesDisasterType =
+    !disasterType || event.disaster_type === disasterType;
+  const matchesAffectedBarangay =
+    !affectedBarangayId ||
+    (event.affected_barangays || []).some(
+      (barangay) => barangay.id === affectedBarangayId,
+    );
+
+  return matchesDisasterType && matchesAffectedBarangay;
+};
+
+const exportDisasterEvents = async ({
+  scope,
+  format,
+  search,
+  disaster_type,
+  affected_barangay_id,
+}) => {
   const events = await getDisasterEventsByScope(scope);
   const validBarangayCount = await disasterEventRepository.getValidBarangayCount();
+  const disasterType = String(disaster_type || "").trim();
+  const affectedBarangayId = String(affected_barangay_id || "").trim();
   const exportRows = events
     .filter((event) => matchesDisasterEventSearch(event, search))
+    .filter((event) =>
+      matchesDisasterEventFilters({
+        event,
+        disasterType,
+        affectedBarangayId,
+      }),
+    )
     .map((event) => ({
       name: event.title || "--",
       disaster_type: event.disaster_type || "--",

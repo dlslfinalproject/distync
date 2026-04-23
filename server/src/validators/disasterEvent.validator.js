@@ -1,4 +1,6 @@
 const allowedStatuses = ["PLANNED", "ACTIVE", "CLOSED", "ARCHIVED"];
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
 
 const isValidDateString = (value) => {
   if (typeof value !== "string") {
@@ -135,7 +137,8 @@ const validateExtendDisasterEvent = (req, res, next) => {
 
 const validateExportDisasterEvents = (req, res, next) => {
   try {
-    const { scope, format, search } = req.query;
+    const { scope, format, search, disaster_type, affected_barangay_id } =
+      req.query;
     const normalizedScope = String(scope || "all").toLowerCase();
     const normalizedFormat = String(format || "").toLowerCase();
 
@@ -151,10 +154,24 @@ const validateExportDisasterEvents = (req, res, next) => {
       });
     }
 
+    if (
+      affected_barangay_id &&
+      !uuidPattern.test(String(affected_barangay_id))
+    ) {
+      return res.status(400).json({
+        message: "affected_barangay_id must be a valid UUID",
+      });
+    }
+
     req.validatedQuery = {
       scope: normalizedScope,
       format: normalizedFormat,
       search: typeof search === "string" ? search : "",
+      disaster_type: typeof disaster_type === "string" ? disaster_type : "",
+      affected_barangay_id:
+        typeof affected_barangay_id === "string"
+          ? affected_barangay_id
+          : "",
     };
 
     return next();
