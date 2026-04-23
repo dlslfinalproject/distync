@@ -125,12 +125,6 @@ const HouseholdFormSection = ({ form }) => {
                 </option>
               ))}
             </select>
-            {isNonResident ? (
-              <span style={{ color: "#60738a", fontSize: "12px" }}>
-                Non-resident families keep this barangay as their handling
-                office, not their place of residence.
-              </span>
-            ) : null}
           </label>
         )}
 
@@ -150,12 +144,6 @@ const HouseholdFormSection = ({ form }) => {
               </option>
             ))}
           </select>
-          {isNonResident && form.restrictNonResidentToEvacCenter ? (
-            <span style={{ color: "#60738a", fontSize: "12px" }}>
-              Non-resident families must be registered as staying in an
-              evacuation center under the assigned barangay.
-            </span>
-          ) : null}
         </label>
 
         <label style={fieldStyles.field}>
@@ -180,14 +168,6 @@ const HouseholdFormSection = ({ form }) => {
               </option>
             ))}
           </select>
-          {form.household.current_stay_type === "EVAC_CENTER" &&
-          isNonResident ? (
-            <span style={{ color: "#60738a", fontSize: "12px" }}>
-              {form.restrictNonResidentToEvacCenter
-                ? "Only evacuation centers under the assigned barangay are available."
-                : "Non-resident families may still stay in any registered evacuation center."}
-            </span>
-          ) : null}
         </label>
       </div>
     </section>
