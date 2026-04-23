@@ -236,9 +236,6 @@ ON CONFLICT (code) DO NOTHING;
 INSERT INTO barangays (code, name) VALUES ('SANTIAGO', 'Santiago')
 ON CONFLICT (code) DO NOTHING;
 
-INSERT INTO barangays (code, name) VALUES ('NON_RESIDENT_OUTSIDE_MALVAR', 'Non-Resident (Outside Malvar)')
-ON CONFLICT (code) DO NOTHING;
-
 -- =========================================================
 -- 5) SECTORS (DROMIC-ALIGNED MASTER LIST)
 -- =========================================================

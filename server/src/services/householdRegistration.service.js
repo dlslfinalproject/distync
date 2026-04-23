@@ -8,6 +8,11 @@ const {
 } = require("../utils/registrationOptions");
 
 const NON_RESIDENT_BARANGAY_CODE = "NON_RESIDENT_OUTSIDE_MALVAR";
+const RESIDENCY_STATUSES = {
+  resident: "RESIDENT",
+  nonResident: "NON_RESIDENT",
+};
+const BARANGAY_ROLE_CODE = "BARANGAY";
 
 const deduplicateIds = (ids) => {
   return [...new Set(ids)];
@@ -156,12 +161,90 @@ const registerHousehold = async (requestData) => {
     throw error;
   }
 
+  const isNonResident =
+    requestData.residency_status === RESIDENCY_STATUSES.nonResident;
+  let handlingBarangayId = requestData.barangay_id;
+  let userScope = null;
+
+  if (requestData.registered_by) {
+    userScope =
+      await householdRegistrationRepository.getUserBarangayScopeById(
+        requestData.registered_by,
+      );
+  }
+
+  const isBarangayUser = userScope?.role_code === BARANGAY_ROLE_CODE;
+  const isBarangayScopedRegistration =
+    isBarangayUser && Boolean(userScope.default_barangay_id);
+
+  if (isBarangayUser && !userScope.default_barangay_id) {
+    const error = new Error(
+      "Barangay registrations require an assigned barangay account.",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (isBarangayScopedRegistration) {
+    if (requestData.barangay_id !== userScope.default_barangay_id) {
+      const error = new Error(
+        "Barangay registrations must use the account's assigned barangay.",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    handlingBarangayId = userScope.default_barangay_id;
+  }
+
+  const registrationData = {
+    ...requestData,
+    barangay_id: handlingBarangayId,
+  };
   const barangay = await householdRegistrationRepository.getBarangayById(
-    requestData.barangay_id,
+    registrationData.barangay_id,
   );
 
-  if (!barangay) {
-    const error = new Error("barangay_id is invalid");
+  if (!barangay || barangay.code === NON_RESIDENT_BARANGAY_CODE) {
+    const error = new Error("barangay_id must reference a valid handling barangay");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const disasterEventBarangayLink =
+    await householdRegistrationRepository.getDisasterEventBarangayLink(
+      registrationData.disaster_event_id,
+      registrationData.barangay_id,
+    );
+
+  if (!disasterEventBarangayLink) {
+    const error = new Error(
+      "Selected disaster event is not linked to the chosen barangay.",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (
+    isNonResident &&
+    isBarangayScopedRegistration &&
+    registrationData.current_stay_type !== "EVAC_CENTER"
+  ) {
+    const error = new Error(
+      "Non-resident Barangay registrations must use Evacuation Center stay.",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (
+    isNonResident &&
+    isBarangayScopedRegistration &&
+    !registrationData.evacuation_center_id
+  ) {
+    const error = new Error(
+      "Non-resident Barangay registrations require an evacuation center.",
+    );
     error.statusCode = 400;
     throw error;
   }
@@ -178,13 +261,7 @@ const registerHousehold = async (requestData) => {
       throw error;
     }
 
-    const isNonResidentBarangay =
-      barangay.code === NON_RESIDENT_BARANGAY_CODE;
-
-    if (
-      !isNonResidentBarangay &&
-      evacuationCenter.barangay_id !== requestData.barangay_id
-    ) {
+    if (evacuationCenter.barangay_id !== registrationData.barangay_id) {
       const error = new Error(
         "Selected evacuation center must belong to the chosen barangay",
       );
@@ -217,7 +294,7 @@ const registerHousehold = async (requestData) => {
   );
 
   const requestDataWithDerivedAgeGroups = {
-    ...requestData,
+    ...registrationData,
     family_head: {
       ...normalizedFamilyHead,
       birth_date: null,

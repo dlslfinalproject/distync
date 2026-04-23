@@ -5,16 +5,53 @@ const disasterEventExport = require("../utils/disasterEventExport");
 const allowedStatuses = ["PLANNED", "ACTIVE", "CLOSED", "ARCHIVED"];
 const nonResidentBarangayCode = "NON_RESIDENT_OUTSIDE_MALVAR";
 
+const groupAffectedBarangaysByEventId = (affectedBarangays) => {
+  return affectedBarangays.reduce((lookup, row) => {
+    if (!lookup[row.disaster_event_id]) {
+      lookup[row.disaster_event_id] = [];
+    }
+
+    lookup[row.disaster_event_id].push({
+      id: row.id,
+      code: row.code,
+      name: row.name,
+    });
+
+    return lookup;
+  }, {});
+};
+
+const attachAffectedBarangays = async (events) => {
+  if (!Array.isArray(events) || events.length === 0) {
+    return events;
+  }
+
+  const affectedBarangays =
+    await disasterEventRepository.getAffectedBarangaysByDisasterEventIds(
+      events.map((event) => event.id),
+    );
+  const affectedBarangaysByEventId =
+    groupAffectedBarangaysByEventId(affectedBarangays);
+
+  return events.map((event) => ({
+    ...event,
+    affected_barangays: affectedBarangaysByEventId[event.id] || [],
+  }));
+};
+
 const getAllDisasterEvents = async () => {
-  return disasterEventRepository.getAllDisasterEvents();
+  const disasterEvents = await disasterEventRepository.getAllDisasterEvents();
+  return attachAffectedBarangays(disasterEvents);
 };
 
 const getActiveDisasterEvents = async () => {
-  return disasterEventRepository.getActiveDisasterEvents();
+  const disasterEvents = await disasterEventRepository.getActiveDisasterEvents();
+  return attachAffectedBarangays(disasterEvents);
 };
 
 const getClosedDisasterEvents = async () => {
-  return disasterEventRepository.getClosedDisasterEvents();
+  const disasterEvents = await disasterEventRepository.getClosedDisasterEvents();
+  return attachAffectedBarangays(disasterEvents);
 };
 
 const getDisasterEventsByScope = async (scope) => {
@@ -231,32 +268,42 @@ const matchesDisasterEventSearch = (event, search) => {
   );
 };
 
-const exportDisasterEvents = async ({ scope, format, search }) => {
-  const events = await getDisasterEventsByScope(scope);
-  const affectedBarangays =
-    await disasterEventRepository.getAffectedBarangaysByDisasterEventIds(
-      events.map((event) => event.id),
+const matchesDisasterEventFilters = ({
+  event,
+  disasterType,
+  affectedBarangayId,
+}) => {
+  const matchesDisasterType =
+    !disasterType || event.disaster_type === disasterType;
+  const matchesAffectedBarangay =
+    !affectedBarangayId ||
+    (event.affected_barangays || []).some(
+      (barangay) => barangay.id === affectedBarangayId,
     );
+
+  return matchesDisasterType && matchesAffectedBarangay;
+};
+
+const exportDisasterEvents = async ({
+  scope,
+  format,
+  search,
+  disaster_type,
+  affected_barangay_id,
+}) => {
+  const events = await getDisasterEventsByScope(scope);
   const validBarangayCount = await disasterEventRepository.getValidBarangayCount();
-  const affectedBarangaysByEventId = affectedBarangays.reduce((lookup, row) => {
-    if (!lookup[row.disaster_event_id]) {
-      lookup[row.disaster_event_id] = [];
-    }
-
-    lookup[row.disaster_event_id].push({
-      id: row.id,
-      code: row.code,
-      name: row.name,
-    });
-
-    return lookup;
-  }, {});
+  const disasterType = String(disaster_type || "").trim();
+  const affectedBarangayId = String(affected_barangay_id || "").trim();
   const exportRows = events
-    .map((event) => ({
-      ...event,
-      affected_barangays: affectedBarangaysByEventId[event.id] || [],
-    }))
     .filter((event) => matchesDisasterEventSearch(event, search))
+    .filter((event) =>
+      matchesDisasterEventFilters({
+        event,
+        disasterType,
+        affectedBarangayId,
+      }),
+    )
     .map((event) => ({
       name: event.title || "--",
       disaster_type: event.disaster_type || "--",

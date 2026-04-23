@@ -134,7 +134,7 @@ const getStubSearchResults = async (q, disasterEventId = null, barangayId = null
       ) AS members_count
     FROM stubs s
     INNER JOIN households h ON h.id = s.household_id
-    INNER JOIN barangays b ON b.id = h.barangay_id
+    LEFT JOIN barangays b ON b.id = h.barangay_id
     INNER JOIN disaster_events de ON de.id = s.disaster_event_id
     WHERE (
       s.stub_no ILIKE $1
@@ -187,7 +187,7 @@ const getStubById = async (id) => {
     FROM stubs s
     INNER JOIN disaster_events de ON de.id = s.disaster_event_id
     INNER JOIN households h ON h.id = s.household_id
-    INNER JOIN barangays b ON b.id = h.barangay_id
+    LEFT JOIN barangays b ON b.id = h.barangay_id
     WHERE s.id = $1
   `;
 
@@ -247,7 +247,7 @@ const getStubByStubNoOrSerialNo = async ({ stub_no, serial_no }) => {
       b.name AS barangay_name
     FROM stubs s
     INNER JOIN households h ON h.id = s.household_id
-    INNER JOIN barangays b ON b.id = h.barangay_id
+    LEFT JOIN barangays b ON b.id = h.barangay_id
     WHERE s.${field} = $1
   `;
 

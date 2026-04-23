@@ -197,7 +197,8 @@ const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) =
       SELECT
         h.id,
         h.barangay_id,
-        h.household_size
+        h.household_size,
+        h.residency_status
       FROM households h
       WHERE h.disaster_event_id = $1
         AND h.is_active = TRUE
@@ -337,6 +338,7 @@ const getHouseholdsByFilters = async (disasterEventId, barangayId = null) => {
       h.id AS household_id,
       h.disaster_event_id,
       h.barangay_id,
+      h.residency_status,
       h.family_head_first_name,
       h.family_head_middle_name,
       h.family_head_last_name,
@@ -352,7 +354,7 @@ const getHouseholdsByFilters = async (disasterEventId, barangayId = null) => {
       b.municipality_name,
       b.province_name
     FROM households h
-    INNER JOIN barangays b ON b.id = h.barangay_id
+    LEFT JOIN barangays b ON b.id = h.barangay_id
     WHERE h.disaster_event_id = $1
     ${barangayFilterClause}
     ORDER BY h.registered_at DESC, h.family_head_last_name ASC

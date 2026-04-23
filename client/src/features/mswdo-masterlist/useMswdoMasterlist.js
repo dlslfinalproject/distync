@@ -5,6 +5,7 @@ import {
   fetchConsolidatedMasterlist,
   fetchConsolidatedMasterlistDashboard,
   fetchDisasterEvents,
+  fetchMswdoSectors,
 } from "./mswdoMasterlistService";
 import { mapMasterlistRow } from "../masterlist/masterlistService";
 
@@ -43,22 +44,51 @@ const formatSearchValue = (value) => {
 };
 
 const getMappedRows = (households) => {
-  return households.map((household) => ({
-    ...mapMasterlistRow(household),
-    barangay_id: household.barangay?.id || null,
-    barangay_name: household.barangay?.name || "",
-    has_stub_issued: Boolean(household.stub),
-  }));
+  return households.map((household) => {
+    const baseRow = mapMasterlistRow(household);
+    const barangayName = household.barangay?.name || "";
+    const addressParts = [baseRow.address];
+    const sectorIds = [
+      ...(household.household_sectors || []).map((sector) => sector.id),
+      ...(household.members || []).flatMap((member) =>
+        (member.sectors || []).map((sector) => sector.id),
+      ),
+    ].filter(Boolean);
+
+    if (barangayName && !String(baseRow.address).includes(barangayName)) {
+      addressParts.push(`${barangayName}`);
+    }
+
+    return {
+      ...baseRow,
+      address: addressParts.filter(Boolean).join(" | "),
+      barangay_id: household.barangay?.id || null,
+      barangay_name: barangayName,
+      residency_status: household.residency_status || "RESIDENT",
+      sector_ids: [...new Set(sectorIds)],
+      has_stub_issued: Boolean(household.stub),
+    };
+  });
 };
 
-const getDisplayedRows = (rows, searchTerm) => {
-  if (!searchTerm.trim()) {
-    return rows;
-  }
-
+const getDisplayedRows = (rows, searchTerm, selectedSectorIds) => {
   const normalizedSearchTerm = searchTerm.trim().toLowerCase();
 
   return rows.filter((household) => {
+    const matchesSectorFilter =
+      selectedSectorIds.length === 0 ||
+      selectedSectorIds.some((sectorId) =>
+        (household.sector_ids || []).includes(sectorId),
+      );
+
+    if (!matchesSectorFilter) {
+      return false;
+    }
+
+    if (!normalizedSearchTerm) {
+      return true;
+    }
+
     const searchableValues = [
       household.family_head_name,
       household.address,
@@ -92,9 +122,11 @@ const getSummaryMetrics = (dashboardPayload) => {
 export const useMswdoMasterlist = () => {
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
+  const [sectors, setSectors] = useState([]);
   const [selectedDisasterEventId, setSelectedDisasterEventId] = useState("");
   const [selectedBarangayId, setSelectedBarangayId] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedSectorIds, setSelectedSectorIds] = useState([]);
   const [masterlistPayload, setMasterlistPayload] = useState(emptyMasterlistPayload);
   const [dashboardPayload, setDashboardPayload] = useState(emptyDashboardPayload);
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
@@ -112,10 +144,16 @@ export const useMswdoMasterlist = () => {
       setErrorMessage("");
 
       try {
-        const [eventsPayload, activePayload, barangaysPayload] = await Promise.all([
+        const [
+          eventsPayload,
+          activePayload,
+          barangaysPayload,
+          sectorsPayload,
+        ] = await Promise.all([
           fetchDisasterEvents(),
           fetchActiveDisasterEvents(),
           fetchBarangays(),
+          fetchMswdoSectors(),
         ]);
 
         if (!isMounted) {
@@ -125,9 +163,11 @@ export const useMswdoMasterlist = () => {
         const allEvents = Array.isArray(eventsPayload) ? eventsPayload : [];
         const activeEvents = Array.isArray(activePayload) ? activePayload : [];
         const barangayRows = Array.isArray(barangaysPayload) ? barangaysPayload : [];
+        const sectorRows = Array.isArray(sectorsPayload) ? sectorsPayload : [];
 
         setDisasterEvents(allEvents);
         setBarangays(barangayRows);
+        setSectors(sectorRows);
 
         if (activeEvents.length > 0) {
           setSelectedDisasterEventId(activeEvents[0].id);
@@ -237,8 +277,8 @@ export const useMswdoMasterlist = () => {
   }, [masterlistPayload.data]);
 
   const displayedRows = useMemo(() => {
-    return getDisplayedRows(mappedRows, searchTerm);
-  }, [mappedRows, searchTerm]);
+    return getDisplayedRows(mappedRows, searchTerm, selectedSectorIds);
+  }, [mappedRows, searchTerm, selectedSectorIds]);
 
   const summaryMetrics = useMemo(() => {
     return getSummaryMetrics(dashboardPayload);
@@ -253,8 +293,10 @@ export const useMswdoMasterlist = () => {
   return {
     disasterEvents,
     barangays,
+    sectors,
     selectedDisasterEventId,
     selectedBarangayId,
+    selectedSectorIds,
     selectedDisasterEvent,
     searchTerm,
     displayedRows,
@@ -267,6 +309,7 @@ export const useMswdoMasterlist = () => {
     hasDashboardData: Boolean(dashboardPayload.has_data),
     setSelectedDisasterEventId,
     setSelectedBarangayId,
+    setSelectedSectorIds,
     setSearchTerm,
     reloadMasterlist: () => {
       setReloadKey((currentValue) => currentValue + 1);

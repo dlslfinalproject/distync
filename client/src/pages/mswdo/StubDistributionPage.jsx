@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FaHandHolding } from "react-icons/fa6";
 import { FiFileText, FiFilter } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
@@ -31,6 +31,127 @@ const filterStyles = {
     letterSpacing: "0.08em",
     textTransform: "uppercase",
   },
+};
+
+const filterPanelStyles = {
+  panel: {
+    position: "fixed",
+    width: "min(380px, calc(100vw - 32px))",
+    backgroundColor: "#ffffff",
+    border: "1px solid #d6e2ef",
+    borderRadius: "18px",
+    boxShadow: "0 18px 36px rgba(31, 64, 95, 0.16)",
+    padding: "18px",
+    zIndex: 1200,
+    display: "flex",
+    flexDirection: "column",
+    gap: "14px",
+    overflowY: "auto",
+    boxSizing: "border-box",
+  },
+  title: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "16px",
+    fontWeight: 800,
+  },
+  field: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+    marginTop: "14px",
+  },
+  label: {
+    color: "#55718b",
+    fontSize: "12px",
+    fontWeight: 800,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+  },
+  select: {
+    minHeight: "42px",
+    border: "1px solid #d0ddeb",
+    borderRadius: "12px",
+    padding: "10px 12px",
+    fontSize: "14px",
+    color: "#1f405f",
+    backgroundColor: "#f8fbfe",
+    boxSizing: "border-box",
+  },
+  list: {
+    display: "grid",
+    gap: "10px",
+    overflow: "visible",
+    paddingRight: "4px",
+  },
+  option: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    color: "#1f405f",
+    fontSize: "14px",
+  },
+  actions: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "10px",
+    marginTop: "18px",
+  },
+};
+
+const FILTER_PANEL_GAP = 12;
+const FILTER_PANEL_VIEWPORT_PADDING = 16;
+const MIN_FILTER_PANEL_HEIGHT = 220;
+
+const getFilterPanelPosition = ({ triggerRect, panelHeight }) => {
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const constrainedPanelWidth = Math.min(
+    380,
+    viewportWidth - FILTER_PANEL_VIEWPORT_PADDING * 2,
+  );
+  const safePanelHeight = Math.max(panelHeight || 0, MIN_FILTER_PANEL_HEIGHT);
+  const spaceBelow =
+    viewportHeight - triggerRect.bottom - FILTER_PANEL_VIEWPORT_PADDING;
+  const spaceAbove = triggerRect.top - FILTER_PANEL_VIEWPORT_PADDING;
+  const shouldOpenBelow =
+    spaceBelow >= MIN_FILTER_PANEL_HEIGHT || spaceBelow >= spaceAbove;
+
+  let left = triggerRect.right - constrainedPanelWidth;
+  left = Math.min(
+    Math.max(left, FILTER_PANEL_VIEWPORT_PADDING),
+    viewportWidth - constrainedPanelWidth - FILTER_PANEL_VIEWPORT_PADDING,
+  );
+
+  if (shouldOpenBelow) {
+    const top = Math.max(
+      FILTER_PANEL_VIEWPORT_PADDING,
+      triggerRect.bottom + FILTER_PANEL_GAP,
+    );
+    const availableHeight =
+      viewportHeight - top - FILTER_PANEL_VIEWPORT_PADDING;
+
+    return {
+      top,
+      left,
+      maxHeight: Math.max(availableHeight, 0),
+    };
+  }
+
+  const maxHeight = Math.max(
+    triggerRect.top - FILTER_PANEL_GAP - FILTER_PANEL_VIEWPORT_PADDING,
+    0,
+  );
+  const top = Math.max(
+    FILTER_PANEL_VIEWPORT_PADDING,
+    triggerRect.top - FILTER_PANEL_GAP - Math.min(safePanelHeight, maxHeight),
+  );
+
+  return {
+    top,
+    left,
+    maxHeight,
+  };
 };
 
 const tabButtonStyles = (isActive) => ({
@@ -83,6 +204,11 @@ const getStatusLabel = (status) => {
   return status || "-";
 };
 
+const stubStatusOptions = [
+  { value: "ISSUED", label: "Unclaimed" },
+  { value: "CLAIMED", label: "Claimed" },
+];
+
 const buildCsvCell = (value) => {
   return `"${String(value || "").replace(/"/g, '""')}"`;
 };
@@ -129,6 +255,7 @@ const StubDistributionPage = () => {
   const {
     disasterEvents,
     barangays,
+    sectors,
     selectedDisasterEventId,
     selectedBarangayId,
     selectedDisasterEvent,
@@ -143,17 +270,40 @@ const StubDistributionPage = () => {
     hasSelectedBarangay,
     setSelectedDisasterEventId,
     setSelectedBarangayId,
+    setSelectedSectorIds,
+    setSelectedStubStatus,
     setSearchTerm,
     reloadDashboard,
   } = useMswdoStubDistribution();
 
   const [activeTab, setActiveTab] = useState("active");
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [claimingStubId, setClaimingStubId] = useState("");
   const [claimErrorMessage, setClaimErrorMessage] = useState("");
   const [pendingClaimStubId, setPendingClaimStubId] = useState("");
   const [selectedStubIds, setSelectedStubIds] = useState([]);
   const [isBulkClaimConfirmOpen, setIsBulkClaimConfirmOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [filtersByTab, setFiltersByTab] = useState({
+    active: {
+      sectorIds: [],
+      stubStatus: "",
+    },
+    ended: {
+      sectorIds: [],
+      stubStatus: "",
+    },
+  });
+  const [filterPanelPosition, setFilterPanelPosition] = useState({
+    top: 0,
+    left: 0,
+    maxHeight: 320,
+  });
+  const filterButtonRef = useRef(null);
+  const filterPanelRef = useRef(null);
+
+  const selectedSectorIds = filtersByTab[activeTab]?.sectorIds || [];
+  const selectedStubStatus = filtersByTab[activeTab]?.stubStatus || "";
 
   const scopedDisasterEvents = useMemo(() => {
     const allowedStatuses =
@@ -165,6 +315,9 @@ const StubDistributionPage = () => {
   const activeEventLabel = selectedDisasterEvent
     ? `${selectedDisasterEvent.event_code} - ${selectedDisasterEvent.title}`
     : "No disaster event selected";
+  const activeFilterCount =
+    selectedSectorIds.length + (selectedStubStatus ? 1 : 0);
+  const hasActiveFilters = activeFilterCount > 0;
 
   useEffect(() => {
     if (
@@ -183,11 +336,122 @@ const StubDistributionPage = () => {
   }, [activeTab, selectedDisasterEvent?.status]);
 
   useEffect(() => {
+    setSelectedSectorIds(selectedSectorIds);
+    setSelectedStubStatus(selectedStubStatus);
+  }, [
+    selectedSectorIds,
+    selectedStubStatus,
+    setSelectedSectorIds,
+    setSelectedStubStatus,
+  ]);
+
+  useEffect(() => {
     setSelectedStubIds([]);
     setPendingClaimStubId("");
     setIsBulkClaimConfirmOpen(false);
     setClaimErrorMessage("");
   }, [selectedBarangayId, selectedDisasterEventId]);
+
+  useEffect(() => {
+    if (!isFilterOpen) {
+      return;
+    }
+
+    updateFilterPanelPosition();
+
+    const handleWindowChange = () => {
+      updateFilterPanelPosition();
+    };
+
+    window.addEventListener("resize", handleWindowChange);
+    window.addEventListener("scroll", handleWindowChange, true);
+
+    return () => {
+      window.removeEventListener("resize", handleWindowChange);
+      window.removeEventListener("scroll", handleWindowChange, true);
+    };
+  }, [activeTab, isFilterOpen, activeFilterCount]);
+
+  useEffect(() => {
+    if (!isFilterOpen) {
+      return;
+    }
+
+    const handleOutsideClick = (event) => {
+      if (
+        filterPanelRef.current?.contains(event.target) ||
+        filterButtonRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+
+      setIsFilterOpen(false);
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [isFilterOpen]);
+
+  useEffect(() => {
+    setIsFilterOpen(false);
+  }, [activeTab, selectedBarangayId, selectedDisasterEventId]);
+
+  useEffect(() => {
+    if (!isFilterOpen) {
+      return;
+    }
+
+    const animationFrameId = window.requestAnimationFrame(() => {
+      updateFilterPanelPosition();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+    };
+  }, [isFilterOpen, activeFilterCount]);
+
+  useEffect(() => {
+    const visibleStubIds = new Set(displayedRows.map((row) => row.id));
+    setSelectedStubIds((currentValues) =>
+      currentValues.filter((stubId) => visibleStubIds.has(stubId)),
+    );
+  }, [displayedRows]);
+
+  const toggleSectorFilter = (sectorId) => {
+    setFiltersByTab((currentFilters) => ({
+      ...currentFilters,
+      [activeTab]: {
+        ...currentFilters[activeTab],
+        sectorIds: currentFilters[activeTab].sectorIds.includes(sectorId)
+          ? currentFilters[activeTab].sectorIds.filter((id) => id !== sectorId)
+          : [...currentFilters[activeTab].sectorIds, sectorId],
+      },
+    }));
+  };
+
+  const clearFilters = () => {
+    setFiltersByTab((currentFilters) => ({
+      ...currentFilters,
+      [activeTab]: {
+        sectorIds: [],
+        stubStatus: "",
+      },
+    }));
+  };
+
+  const updateFilterPanelPosition = () => {
+    if (!filterButtonRef.current) {
+      return;
+    }
+
+    const triggerRect = filterButtonRef.current.getBoundingClientRect();
+    const panelHeight = filterPanelRef.current?.getBoundingClientRect().height || 0;
+
+    setFilterPanelPosition(getFilterPanelPosition({ triggerRect, panelHeight }));
+  };
 
   const handleEventScopeChange = (nextTab) => {
     setActiveTab(nextTab);
@@ -496,18 +760,100 @@ const StubDistributionPage = () => {
         </div>
 
         <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-          <button
-            type="button"
-            style={{
-              ...pageHeaderStyles.secondaryButton,
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-            }}
-          >
-            <FiFilter size={16} />
-            Filter
-          </button>
+          <div>
+            <button
+              ref={filterButtonRef}
+              type="button"
+              onClick={() => setIsFilterOpen((currentValue) => !currentValue)}
+              style={{
+                ...pageHeaderStyles.secondaryButton,
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+              }}
+            >
+              <FiFilter size={16} />
+              {hasActiveFilters ? `Filter (${activeFilterCount})` : "Filter"}
+            </button>
+
+            {isFilterOpen ? (
+              <div
+                ref={filterPanelRef}
+                style={{
+                  ...filterPanelStyles.panel,
+                  top: filterPanelPosition.top,
+                  left: filterPanelPosition.left,
+                  maxHeight: filterPanelPosition.maxHeight,
+                }}
+              >
+                <h3 style={filterPanelStyles.title}>Filter Stub Records</h3>
+
+                <label style={filterPanelStyles.field}>
+                  <span style={filterPanelStyles.label}>Stub Status</span>
+                  <select
+                    value={selectedStubStatus}
+                    onChange={(event) =>
+                      setFiltersByTab((currentFilters) => ({
+                        ...currentFilters,
+                        [activeTab]: {
+                          ...currentFilters[activeTab],
+                          stubStatus: event.target.value,
+                        },
+                      }))
+                    }
+                    style={filterPanelStyles.select}
+                  >
+                    <option value="">All Stub Statuses</option>
+                    {stubStatusOptions.map((statusOption) => (
+                      <option key={statusOption.value} value={statusOption.value}>
+                        {statusOption.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <div style={filterPanelStyles.field}>
+                  <span style={filterPanelStyles.label}>Sector</span>
+                  <div style={filterPanelStyles.list}>
+                    {sectors.length > 0 ? (
+                      sectors.map((sector) => (
+                      <label key={sector.id} style={filterPanelStyles.option}>
+                        <input
+                          type="checkbox"
+                          checked={selectedSectorIds.includes(sector.id)}
+                          onChange={() => toggleSectorFilter(sector.id)}
+                          style={{ accentColor: "#2f6499" }}
+                        />
+                        <span>{sector.name}</span>
+                      </label>
+                      ))
+                    ) : (
+                      <p style={{ ...shellStyles.mutedText, margin: 0 }}>
+                        No sectors are available.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div style={filterPanelStyles.actions}>
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    style={pageHeaderStyles.secondaryButton}
+                  >
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsFilterOpen(false)}
+                    style={pageHeaderStyles.primaryButton}
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
 
           <button
             type="button"

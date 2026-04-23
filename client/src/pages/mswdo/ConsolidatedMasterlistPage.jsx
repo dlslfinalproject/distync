@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FiFileText, FiFilter, FiUserPlus } from "react-icons/fi";
 import { MdDoorFront } from "react-icons/md";
 import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
@@ -9,8 +9,12 @@ import MasterlistTable from "../../components/masterlist/MasterlistTable";
 import MswdoSummaryCards from "../../components/mswdo-masterlist/MswdoSummaryCards";
 import SearchBar from "../../components/shared/SearchBar";
 import StatusPill from "../../components/shared/StatusPill";
+import { useAuth } from "../../context/AuthContext";
 import { useHouseholdRegistrationForm } from "../../features/household-registration/useHouseholdRegistrationForm";
-import { departHousehold } from "../../features/masterlist/masterlistService";
+import {
+  departHousehold,
+  formatDateTime,
+} from "../../features/masterlist/masterlistService";
 import { exportConsolidatedMasterlist } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { useMswdoMasterlist } from "../../features/mswdo-masterlist/useMswdoMasterlist";
 
@@ -74,6 +78,51 @@ const noticeModalStyles = {
   },
 };
 
+const filterPanelStyles = {
+  panel: {
+    position: "fixed",
+    width: "min(380px, calc(100vw - 32px))",
+    backgroundColor: "#ffffff",
+    border: "1px solid #d6e2ef",
+    borderRadius: "18px",
+    boxShadow: "0 18px 36px rgba(31, 64, 95, 0.16)",
+    padding: "18px",
+    zIndex: 1200,
+    display: "flex",
+    flexDirection: "column",
+    gap: "14px",
+    overflow: "hidden",
+    boxSizing: "border-box",
+  },
+  title: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "16px",
+    fontWeight: 800,
+  },
+  list: {
+    display: "grid",
+    gap: "10px",
+    overflowY: "auto",
+    flex: "1 1 auto",
+    minHeight: 0,
+    paddingRight: "4px",
+  },
+  option: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    color: "#1f405f",
+    fontSize: "14px",
+  },
+  actions: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "10px",
+    marginTop: "auto",
+  },
+};
+
 const tabButtonStyles = (isActive) => ({
   padding: "12px 24px",
   border: "none",
@@ -111,6 +160,88 @@ const formatReliefPeriod = (event) => {
   return start;
 };
 
+const getEndedEventDateTimeText = (event) => {
+  if (!event || event.status === "ACTIVE") {
+    return "-";
+  }
+
+  return formatDateTime(event.updated_at || event.end_date);
+};
+
+const FILTER_PANEL_GAP = 12;
+const FILTER_PANEL_VIEWPORT_PADDING = 16;
+const MIN_FILTER_PANEL_HEIGHT = 220;
+
+const getFilterPanelPosition = ({ triggerRect, panelHeight }) => {
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const constrainedPanelWidth = Math.min(
+    380,
+    viewportWidth - FILTER_PANEL_VIEWPORT_PADDING * 2,
+  );
+  const safePanelHeight = Math.max(panelHeight || 0, MIN_FILTER_PANEL_HEIGHT);
+  const spaceBelow =
+    viewportHeight - triggerRect.bottom - FILTER_PANEL_VIEWPORT_PADDING;
+  const spaceAbove = triggerRect.top - FILTER_PANEL_VIEWPORT_PADDING;
+  const shouldOpenBelow =
+    spaceBelow >= MIN_FILTER_PANEL_HEIGHT || spaceBelow >= spaceAbove;
+
+  let left = triggerRect.right - constrainedPanelWidth;
+  left = Math.min(
+    Math.max(left, FILTER_PANEL_VIEWPORT_PADDING),
+    viewportWidth - constrainedPanelWidth - FILTER_PANEL_VIEWPORT_PADDING,
+  );
+
+  if (shouldOpenBelow) {
+    const top = Math.max(
+      FILTER_PANEL_VIEWPORT_PADDING,
+      triggerRect.bottom + FILTER_PANEL_GAP,
+    );
+    const availableHeight =
+      viewportHeight - top - FILTER_PANEL_VIEWPORT_PADDING;
+
+    return {
+      top,
+      left,
+      maxHeight: Math.max(availableHeight, 0),
+    };
+  }
+
+  const maxHeight = Math.max(
+    triggerRect.top - FILTER_PANEL_GAP - FILTER_PANEL_VIEWPORT_PADDING,
+    0,
+  );
+  const top = Math.max(
+    FILTER_PANEL_VIEWPORT_PADDING,
+    triggerRect.top - FILTER_PANEL_GAP - Math.min(safePanelHeight, maxHeight),
+  );
+
+  return {
+    top,
+    left,
+    maxHeight,
+  };
+};
+
+const eventIncludesBarangay = (event, barangayId) => {
+  if (!barangayId) {
+    return true;
+  }
+
+  return (event.affected_barangays || []).some(
+    (barangay) => barangay.id === barangayId,
+  );
+};
+
+const getScopedDisasterEvents = ({ events, activeTab, barangayId }) => {
+  const statusByTab = activeTab === "active" ? "ACTIVE" : "CLOSED";
+
+  return events.filter(
+    (event) =>
+      event.status === statusByTab && eventIncludesBarangay(event, barangayId),
+  );
+};
+
 const ExportNoticeModal = ({ isOpen, message, onClose }) => {
   if (!isOpen) {
     return null;
@@ -137,9 +268,11 @@ const ExportNoticeModal = ({ isOpen, message, onClose }) => {
 };
 
 const ConsolidatedEvacueeMasterlist = () => {
+  const { authenticatedUser } = useAuth();
   const {
     disasterEvents,
     barangays,
+    sectors,
     selectedDisasterEventId,
     selectedBarangayId,
     selectedDisasterEvent,
@@ -153,6 +286,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     dashboardErrorMessage,
     setSelectedDisasterEventId,
     setSelectedBarangayId,
+    setSelectedSectorIds,
     setSearchTerm,
     reloadMasterlist,
   } = useMswdoMasterlist();
@@ -162,32 +296,83 @@ const ConsolidatedEvacueeMasterlist = () => {
   const [isBulkDepartureConfirmOpen, setIsBulkDepartureConfirmOpen] = useState(false);
   const [isRecordingDeparture, setIsRecordingDeparture] = useState(false);
   const [selectedHouseholds, setSelectedHouseholds] = useState([]);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [sectorFiltersByTab, setSectorFiltersByTab] = useState({
+    active: [],
+    ended: [],
+  });
+  const [filterPanelPosition, setFilterPanelPosition] = useState({
+    top: 0,
+    left: 0,
+    maxHeight: 320,
+  });
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState("");
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [registrationSuccessMessage, setRegistrationSuccessMessage] = useState("");
   const [attendanceActionMessage, setAttendanceActionMessage] = useState("");
   const [exportNoticeMessage, setExportNoticeMessage] = useState("");
+  const filterButtonRef = useRef(null);
+  const filterPanelRef = useRef(null);
+
+  const selectedSectorIds = sectorFiltersByTab[activeTab] || [];
 
   const activeEventLabel = selectedDisasterEvent
     ? `${selectedDisasterEvent.event_code} - ${selectedDisasterEvent.title}`
     : "No disaster event selected";
   const hasRowsToExport = displayedRows.length > 0;
   const canRegisterFamily = activeTab === "active";
+  const isEndedView = activeTab === "ended";
+  const endedEventDateTimeText = getEndedEventDateTimeText(selectedDisasterEvent);
+  const hasActiveSectorFilters = selectedSectorIds.length > 0;
   const scopedDisasterEvents = useMemo(() => {
-    const statusByTab = activeTab === "active" ? "ACTIVE" : "CLOSED";
-
-    return disasterEvents.filter((event) => event.status === statusByTab);
-  }, [activeTab, disasterEvents]);
+    return getScopedDisasterEvents({
+      events: disasterEvents,
+      activeTab,
+      barangayId: selectedBarangayId,
+    });
+  }, [activeTab, disasterEvents, selectedBarangayId]);
 
   const selectedBarangayLabel = selectedBarangayId
     ? barangays.find((barangay) => barangay.id === selectedBarangayId)?.name
     : "All Barangays";
 
+  const toggleSectorFilter = (sectorId) => {
+    setSectorFiltersByTab((currentFilters) => ({
+      ...currentFilters,
+      [activeTab]: currentFilters[activeTab].includes(sectorId)
+        ? currentFilters[activeTab].filter((id) => id !== sectorId)
+        : [...currentFilters[activeTab], sectorId],
+    }));
+  };
+
+  const clearSectorFilters = () => {
+    setSectorFiltersByTab((currentFilters) => ({
+      ...currentFilters,
+      [activeTab]: [],
+    }));
+  };
+
+  const updateFilterPanelPosition = () => {
+    if (!filterButtonRef.current) {
+      return;
+    }
+
+    const triggerRect = filterButtonRef.current.getBoundingClientRect();
+    const panelHeight = filterPanelRef.current?.getBoundingClientRect().height || 0;
+
+    setFilterPanelPosition(getFilterPanelPosition({ triggerRect, panelHeight }));
+  };
+
   const registrationForm = useHouseholdRegistrationForm({
     isOpen: isRegisterModalOpen,
     defaultBarangayId: selectedBarangayId || "",
+    defaultBarangayName: selectedBarangayLabel || "",
     defaultDisasterEventId: selectedDisasterEventId || "",
+    lockBarangaySelection: true,
+    hideBarangaySelection: true,
+    scopeNonResidentEvacuationCentersToBarangay: true,
+    registeredBy: authenticatedUser?.id || null,
     onSuccess: (response) => {
       setRegistrationSuccessMessage(
         response?.message || "Household registered successfully",
@@ -205,6 +390,11 @@ const ConsolidatedEvacueeMasterlist = () => {
   };
 
   const handleSelectAll = () => {
+    if (isEndedView) {
+      setSelectedHouseholds([]);
+      return;
+    }
+
     const selectableHouseholdIds = displayedRows
       .filter((row) => !row.departure_time_value && row.can_record_departure)
       .map((row) => row.household_id);
@@ -217,7 +407,7 @@ const ConsolidatedEvacueeMasterlist = () => {
   };
 
   const handleOpenBulkDepartureConfirmation = () => {
-    if (!selectedHouseholds.length || isRecordingDeparture) {
+    if (isEndedView || !selectedHouseholds.length || isRecordingDeparture) {
       return;
     }
 
@@ -225,7 +415,7 @@ const ConsolidatedEvacueeMasterlist = () => {
   };
 
   const handleOpenDepartureConfirmation = (householdId) => {
-    if (isRecordingDeparture) {
+    if (isEndedView || isRecordingDeparture) {
       return;
     }
 
@@ -286,8 +476,11 @@ const ConsolidatedEvacueeMasterlist = () => {
   const handleEventScopeChange = (nextTab) => {
     setActiveTab(nextTab);
 
-    const nextStatus = nextTab === "active" ? "ACTIVE" : "CLOSED";
-    const nextEvents = disasterEvents.filter((event) => event.status === nextStatus);
+    const nextEvents = getScopedDisasterEvents({
+      events: disasterEvents,
+      activeTab: nextTab,
+      barangayId: selectedBarangayId,
+    });
 
     if (nextEvents.length === 0) {
       setSelectedDisasterEventId("");
@@ -300,6 +493,86 @@ const ConsolidatedEvacueeMasterlist = () => {
   };
 
   useEffect(() => {
+    if (isLoadingFilters) {
+      return;
+    }
+
+    if (scopedDisasterEvents.length === 0) {
+      if (selectedDisasterEventId) {
+        setSelectedDisasterEventId("");
+      }
+
+      return;
+    }
+
+    if (
+      !scopedDisasterEvents.some((event) => event.id === selectedDisasterEventId)
+    ) {
+      setSelectedDisasterEventId(scopedDisasterEvents[0].id);
+    }
+  }, [
+    isLoadingFilters,
+    scopedDisasterEvents,
+    selectedDisasterEventId,
+    setSelectedDisasterEventId,
+  ]);
+
+  useEffect(() => {
+    setSelectedSectorIds(selectedSectorIds);
+  }, [selectedSectorIds, setSelectedSectorIds]);
+
+  useEffect(() => {
+    if (!isFilterOpen) {
+      return;
+    }
+
+    updateFilterPanelPosition();
+
+    const handleWindowChange = () => {
+      updateFilterPanelPosition();
+    };
+
+    window.addEventListener("resize", handleWindowChange);
+    window.addEventListener("scroll", handleWindowChange, true);
+
+    return () => {
+      window.removeEventListener("resize", handleWindowChange);
+      window.removeEventListener("scroll", handleWindowChange, true);
+    };
+  }, [activeTab, isFilterOpen, selectedSectorIds.length]);
+
+  useEffect(() => {
+    if (!isFilterOpen) {
+      return;
+    }
+
+    const handleOutsideClick = (event) => {
+      if (
+        filterPanelRef.current?.contains(event.target) ||
+        filterButtonRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+
+      setIsFilterOpen(false);
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [isFilterOpen]);
+
+  useEffect(() => {
+    setSelectedHouseholds([]);
+  }, [activeTab, selectedBarangayId, selectedDisasterEventId]);
+
+  useEffect(() => {
+    setIsFilterOpen(false);
+  }, [activeTab, selectedBarangayId, selectedDisasterEventId]);
+
+  useEffect(() => {
     if (selectedDisasterEvent?.status === "ACTIVE" && activeTab !== "active") {
       setActiveTab("active");
     }
@@ -309,9 +582,30 @@ const ConsolidatedEvacueeMasterlist = () => {
     }
   }, [activeTab, selectedDisasterEvent?.status]);
 
+  useEffect(() => {
+    if (!isFilterOpen) {
+      return;
+    }
+
+    const animationFrameId = window.requestAnimationFrame(() => {
+      updateFilterPanelPosition();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+    };
+  }, [isFilterOpen, selectedSectorIds.length]);
+
   const handleOpenRegisterModal = () => {
     if (!selectedDisasterEventId) {
       window.alert("Select a disaster event before registering a family.");
+      return;
+    }
+
+    if (!selectedBarangayId) {
+      setExportNoticeMessage(
+        "Select one barangay before registering a family. Registration cannot use the All Barangays view.",
+      );
       return;
     }
 
@@ -341,6 +635,7 @@ const ConsolidatedEvacueeMasterlist = () => {
         disasterEventId: selectedDisasterEventId,
         barangayId: selectedBarangayId || null,
         search: searchTerm,
+        sectorIds: selectedSectorIds,
         format,
       });
 
@@ -415,7 +710,9 @@ const ConsolidatedEvacueeMasterlist = () => {
               style={filterStyles.field}
             >
               <option value="">
-                Select {activeTab === "active" ? "active" : "ended"} disaster event
+                {selectedBarangayId && scopedDisasterEvents.length === 0
+                  ? `No ${activeTab === "active" ? "active" : "ended"} events for this barangay`
+                  : `Select ${activeTab === "active" ? "active" : "ended"} disaster event`}
               </option>
               {scopedDisasterEvents.map((event) => (
                 <option key={event.id} value={event.id}>
@@ -562,35 +859,101 @@ const ConsolidatedEvacueeMasterlist = () => {
           flexWrap: "wrap",
         }}
       >
-        <SearchBar
-          value={searchTerm}
-          onChange={setSearchTerm}
-          placeholder="Search family head, address, or sectors"
-        />
+        <div style={{ flex: 1 }}>
+          <SearchBar
+            value={searchTerm}
+            onChange={setSearchTerm}
+            placeholder="Search family head, address, or sectors"
+          />
+        </div>
 
         <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-          <button
-            type="button"
-            style={{
-              ...pageHeaderStyles.secondaryButton,
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-            }}
-          >
-            <FiFilter size={16} />
-            Filter
-          </button>
+          <div>
+            <button
+              ref={filterButtonRef}
+              type="button"
+              onClick={() => setIsFilterOpen((currentValue) => !currentValue)}
+              style={{
+                ...pageHeaderStyles.secondaryButton,
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+              }}
+            >
+              <FiFilter size={16} />
+              {hasActiveSectorFilters
+                ? `Filter (${selectedSectorIds.length})`
+                : "Filter"}
+            </button>
+
+            {isFilterOpen ? (
+              <div
+                ref={filterPanelRef}
+                style={{
+                  ...filterPanelStyles.panel,
+                  top: filterPanelPosition.top,
+                  left: filterPanelPosition.left,
+                  maxHeight: filterPanelPosition.maxHeight,
+                }}
+              >
+                <h3 style={filterPanelStyles.title}>Filter by Sector</h3>
+                <div style={filterPanelStyles.list}>
+                  {sectors.length > 0 ? (
+                    sectors.map((sector) => (
+                      <label key={sector.id} style={filterPanelStyles.option}>
+                        <input
+                          type="checkbox"
+                          checked={selectedSectorIds.includes(sector.id)}
+                          onChange={() => toggleSectorFilter(sector.id)}
+                          style={{ accentColor: "#2f6499" }}
+                        />
+                        <span>{sector.name}</span>
+                      </label>
+                    ))
+                  ) : (
+                    <p style={{ ...shellStyles.mutedText, margin: 0 }}>
+                      No sectors are available.
+                    </p>
+                  )}
+                </div>
+
+                <div style={filterPanelStyles.actions}>
+                  <button
+                    type="button"
+                    onClick={clearSectorFilters}
+                    style={pageHeaderStyles.secondaryButton}
+                  >
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsFilterOpen(false)}
+                    style={pageHeaderStyles.primaryButton}
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
 
           {canRegisterFamily ? (
             <button
               type="button"
               onClick={handleOpenRegisterModal}
+              disabled={!selectedBarangayId}
+              title={
+                selectedBarangayId
+                  ? "Register a family under the selected barangay"
+                  : "Select one barangay before registering a family"
+              }
               style={{
                 ...pageHeaderStyles.primaryButton,
                 display: "flex",
                 alignItems: "center",
                 gap: "8px",
+                cursor: selectedBarangayId ? "pointer" : "not-allowed",
+                opacity: selectedBarangayId ? 1 : 0.65,
               }}
             >
               <FiUserPlus size={16} />
@@ -676,6 +1039,8 @@ const ConsolidatedEvacueeMasterlist = () => {
         isLoading={isLoadingFilters || isLoadingMasterlist}
         errorMessage={errorMessage}
         onMarkDeparted={handleOpenDepartureConfirmation}
+        isDepartureReadOnly={isEndedView}
+        departureReadOnlyText={endedEventDateTimeText}
         selectedHouseholds={selectedHouseholds}
         onToggleSelect={handleToggleSelect}
         onSelectAll={handleSelectAll}

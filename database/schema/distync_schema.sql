@@ -214,6 +214,7 @@ CREATE TABLE households (
     disaster_event_id UUID NOT NULL REFERENCES disaster_events(id) ON DELETE RESTRICT,
     barangay_id UUID NOT NULL REFERENCES barangays(id) ON DELETE RESTRICT,
     evacuation_center_id UUID REFERENCES evacuation_centers(id) ON DELETE SET NULL,
+    residency_status VARCHAR(30) NOT NULL DEFAULT 'RESIDENT',
 
     family_head_first_name VARCHAR(100) NOT NULL,
     family_head_middle_name VARCHAR(100),
@@ -237,7 +238,9 @@ CREATE TABLE households (
     CONSTRAINT chk_household_sex
         CHECK (sex IN ('MALE', 'FEMALE')),
     CONSTRAINT chk_household_stay_type
-        CHECK (current_stay_type IN ('EVAC_CENTER', 'RELATIVES', 'OTHER_SAFE_PLACE'))
+        CHECK (current_stay_type IN ('EVAC_CENTER', 'RELATIVES', 'OTHER_SAFE_PLACE')),
+    CONSTRAINT chk_household_residency_status
+        CHECK (residency_status IN ('RESIDENT', 'NON_RESIDENT'))
 );
 
 CREATE TABLE evacuees (
@@ -428,6 +431,11 @@ CREATE TABLE inventory_items (
     item_name VARCHAR(200) NOT NULL,
     category VARCHAR(100) NOT NULL,
     unit_of_measure VARCHAR(50) NOT NULL,
+    unit_of_measure_value NUMERIC(12,2) CHECK (unit_of_measure_value IS NULL OR unit_of_measure_value > 0),
+    packaging VARCHAR(50),
+    packaging_count INTEGER CHECK (packaging_count IS NULL OR packaging_count > 0),
+    quantity INTEGER CHECK (quantity IS NULL OR quantity > 0),
+    expiration_date DATE,
     barcode VARCHAR(150),
     is_perishable BOOLEAN NOT NULL DEFAULT FALSE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,

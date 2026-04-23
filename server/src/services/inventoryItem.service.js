@@ -1,5 +1,33 @@
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 
+const buildItemCodeSeed = (itemName) => {
+  const normalizedName = itemName
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 24);
+
+  return normalizedName || "ITEM";
+};
+
+const generateInventoryItemCode = async (itemName) => {
+  const itemCodeSeed = buildItemCodeSeed(itemName);
+  let sequenceNumber = 1;
+
+  while (true) {
+    const candidateCode = `INV-${itemCodeSeed}-${String(sequenceNumber).padStart(3, "0")}`;
+    const existingItem = await inventoryItemRepository.getInventoryItemByCode(
+      candidateCode,
+    );
+
+    if (!existingItem) {
+      return candidateCode;
+    }
+
+    sequenceNumber += 1;
+  }
+};
+
 const ensureUniqueFields = async (itemData, currentItemId = null) => {
   const existingItemByCode = await inventoryItemRepository.getInventoryItemByCode(
     itemData.item_code,
@@ -31,8 +59,13 @@ const getInventoryItemById = async (id) => {
 };
 
 const createInventoryItem = async (itemData) => {
-  await ensureUniqueFields(itemData);
-  return inventoryItemRepository.insertInventoryItem(itemData);
+  const inventoryItemToCreate = {
+    ...itemData,
+    item_code: itemData.item_code || await generateInventoryItemCode(itemData.item_name),
+  };
+
+  await ensureUniqueFields(inventoryItemToCreate);
+  return inventoryItemRepository.insertInventoryItem(inventoryItemToCreate);
 };
 
 const updateInventoryItem = async (id, itemData) => {
@@ -44,9 +77,14 @@ const updateInventoryItem = async (id, itemData) => {
     throw error;
   }
 
-  await ensureUniqueFields(itemData, id);
+  const inventoryItemToUpdate = {
+    ...itemData,
+    item_code: itemData.item_code || existingItem.item_code,
+  };
 
-  return inventoryItemRepository.updateInventoryItem(id, itemData);
+  await ensureUniqueFields(inventoryItemToUpdate, id);
+
+  return inventoryItemRepository.updateInventoryItem(id, inventoryItemToUpdate);
 };
 
 module.exports = {

@@ -86,6 +86,8 @@ export const fetchBarangays = async () => {
 export const exportDisasterEvents = async ({
   selectedFilter,
   search,
+  disasterType,
+  affectedBarangayId,
   format,
 }) => {
   const searchParams = new URLSearchParams({
@@ -95,6 +97,14 @@ export const exportDisasterEvents = async ({
 
   if (search && search.trim()) {
     searchParams.set("search", search.trim());
+  }
+
+  if (disasterType && disasterType.trim()) {
+    searchParams.set("disaster_type", disasterType.trim());
+  }
+
+  if (affectedBarangayId && affectedBarangayId.trim()) {
+    searchParams.set("affected_barangay_id", affectedBarangayId.trim());
   }
 
   const response = await fetch(

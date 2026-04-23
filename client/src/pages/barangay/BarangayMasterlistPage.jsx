@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import PageHeader from "../../components/layout/PageHeader";
 import BarangayDashboardOverview from "../../components/barangay-dashboard/BarangayDashboardOverview";
 import { shellStyles } from "../../components/layout/BarangayLayout";
@@ -12,7 +12,19 @@ import { useBarangayDashboard } from "../../features/barangay-dashboard/useBaran
 import { useHouseholdRegistrationForm } from "../../features/household-registration/useHouseholdRegistrationForm";
 import { useMasterlist } from "../../features/masterlist/masterlistHooks";
 import { departHousehold } from "../../features/masterlist/masterlistService";
+import { fetchMswdoSectors } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { MdDoorFront } from "react-icons/md";
+
+const getSectorNames = (sectorsText) => {
+  if (!sectorsText || sectorsText === "-") {
+    return [];
+  }
+
+  return String(sectorsText)
+    .split(",")
+    .map((sectorName) => sectorName.trim())
+    .filter(Boolean);
+};
 
 const getFilteredRows = (rows, searchTerm) => {
   if (!searchTerm.trim()) return rows;
@@ -36,6 +48,11 @@ const getFilteredRows = (rows, searchTerm) => {
 const BarangayMasterlistPage = () => {
   const { authenticatedUser } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedSectorNamesByScope, setSelectedSectorNamesByScope] = useState({
+    active: [],
+    ended: [],
+  });
+  const [sectorOptions, setSectorOptions] = useState([]);
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [registrationSuccessMessage, setRegistrationSuccessMessage] =
     useState("");
@@ -81,7 +98,13 @@ const BarangayMasterlistPage = () => {
   const registrationForm = useHouseholdRegistrationForm({
     isOpen: isRegisterModalOpen,
     defaultBarangayId: assignedBarangay?.id || "",
+    defaultBarangayName: assignedBarangay?.name || "",
     defaultDisasterEventId: selectedEvent?.id || "",
+    lockBarangaySelection: true,
+    hideBarangaySelection: true,
+    restrictNonResidentToEvacCenter: true,
+    scopeNonResidentEvacuationCentersToBarangay: true,
+    registeredBy: authenticatedUser?.id || null,
     onSuccess: (response) => {
       setRegistrationSuccessMessage(
         response?.message || "Household registered successfully",
@@ -91,8 +114,70 @@ const BarangayMasterlistPage = () => {
   });
 
   const filteredRows = useMemo(() => {
-    return getFilteredRows(data.rows, searchTerm);
-  }, [data.rows, searchTerm]);
+    const searchedRows = getFilteredRows(data.rows, searchTerm);
+    const selectedSectorNames = selectedSectorNamesByScope[eventScope] || [];
+
+    if (selectedSectorNames.length === 0) {
+      return searchedRows;
+    }
+
+    return searchedRows.filter((row) => {
+      const rowSectorNames = getSectorNames(row.sectors_text);
+
+      return selectedSectorNames.some((sectorName) =>
+        rowSectorNames.includes(sectorName),
+      );
+    });
+  }, [data.rows, eventScope, searchTerm, selectedSectorNamesByScope]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadSectors = async () => {
+      try {
+        const sectors = await fetchMswdoSectors();
+
+        if (!isMounted) {
+          return;
+        }
+
+        setSectorOptions(
+          (Array.isArray(sectors) ? sectors : [])
+            .map((sector) => String(sector.name || "").trim())
+            .filter(Boolean)
+            .sort((left, right) => left.localeCompare(right)),
+        );
+      } catch (_error) {
+        if (isMounted) {
+          setSectorOptions([]);
+        }
+      }
+    };
+
+    loadSectors();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const selectedSectorNames = selectedSectorNamesByScope[eventScope] || [];
+
+  const toggleSectorFilter = (sectorName) => {
+    setSelectedSectorNamesByScope((currentFilters) => ({
+      ...currentFilters,
+      [eventScope]: currentFilters[eventScope].includes(sectorName)
+        ? currentFilters[eventScope].filter((value) => value !== sectorName)
+        : [...currentFilters[eventScope], sectorName],
+    }));
+  };
+
+  const clearSectorFilters = () => {
+    setSelectedSectorNamesByScope((currentFilters) => ({
+      ...currentFilters,
+      [eventScope]: [],
+    }));
+  };
 
   const handleToggleSelect = (householdId) => {
     setSelectedHouseholds((currentValues) =>
@@ -231,6 +316,11 @@ const BarangayMasterlistPage = () => {
         onSearchChange={setSearchTerm}
         onOpenRegisterFamily={() => setIsRegisterModalOpen(true)}
         hideRegisterButton={eventScope === "ended" || !hasSelectedEvent}
+        sectorOptions={sectorOptions}
+        selectedSectorNames={selectedSectorNames}
+        onToggleSector={toggleSectorFilter}
+        onClearFilters={clearSectorFilters}
+        filterScopeKey={eventScope}
       />
 
       {selectedHouseholds.length > 0 ? (

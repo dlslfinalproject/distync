@@ -55,6 +55,8 @@ const MasterlistTable = ({
   errorMessage,
   hasSelectedEvent,
   onMarkDeparted,
+  isDepartureReadOnly = false,
+  departureReadOnlyText = "-",
   selectedHouseholds,
   onToggleSelect,
   onSelectAll,
@@ -115,9 +117,11 @@ const MasterlistTable = ({
     );
   }
 
-  const selectableRows = rows.filter(
-    (row) => !row.departure_time_value && row.can_record_departure,
-  );
+  const selectableRows = isDepartureReadOnly
+    ? []
+    : rows.filter(
+        (row) => !row.departure_time_value && row.can_record_departure,
+      );
 
   const areAllSelected =
     selectableRows.length > 0 &&
@@ -174,7 +178,9 @@ const MasterlistTable = ({
           <tbody>
             {rows.map((row) => {
               const isSelectable =
-                !row.departure_time_value && row.can_record_departure;
+                !isDepartureReadOnly &&
+                !row.departure_time_value &&
+                row.can_record_departure;
               const isSelected = safeSelectedHouseholds.includes(
                 row.household_id,
               );
@@ -216,7 +222,9 @@ const MasterlistTable = ({
                       textAlign: "center",
                     }}
                   >
-                    {row.departure_time_value ? (
+                    {isDepartureReadOnly ? (
+                      departureReadOnlyText || "-"
+                    ) : row.departure_time_value ? (
                       row.departure_time_text
                     ) : row.can_record_departure ? (
                       <button

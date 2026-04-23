@@ -143,11 +143,14 @@ const getMasterlist = async (filters) => {
         household.family_head_last_name,
         household.family_head_suffix,
       ),
-      barangay: {
-        id: household.barangay_id,
-        code: household.barangay_code,
-        name: household.barangay_name,
-      },
+      barangay: household.barangay_id
+        ? {
+            id: household.barangay_id,
+            code: household.barangay_code,
+            name: household.barangay_name,
+          }
+        : null,
+      residency_status: household.residency_status || "RESIDENT",
       household_size: household.household_size,
       current_stay_type: household.current_stay_type,
       current_address_details: household.current_address_details,
@@ -270,6 +273,29 @@ const getMswdoMasterlistDashboard = async (filters) => {
   };
 };
 
+const getHouseholdSectorIds = (household) => {
+  return [
+    ...(household.household_sectors || []).map((sector) => sector.id),
+    ...(household.members || []).flatMap((member) =>
+      (member.sectors || []).map((sector) => sector.id),
+    ),
+  ].filter(Boolean);
+};
+
+const filterMasterlistBySectorIds = (households, sectorIds = []) => {
+  if (!Array.isArray(sectorIds) || sectorIds.length === 0) {
+    return households;
+  }
+
+  const selectedSectorIds = new Set(sectorIds);
+
+  return households.filter((household) =>
+    getHouseholdSectorIds(household).some((sectorId) =>
+      selectedSectorIds.has(sectorId),
+    ),
+  );
+};
+
 const exportMswdoMasterlist = async (filters) => {
   const [masterlist, dashboard] = await Promise.all([
     getMasterlist({
@@ -282,8 +308,13 @@ const exportMswdoMasterlist = async (filters) => {
     }),
   ]);
 
+  const sectorFilteredRows = filterMasterlistBySectorIds(
+    masterlist.data || [],
+    filters.sector_ids || [],
+  );
+
   const exportRows = filterExportRows(
-    (masterlist.data || []).map(mapHouseholdToExportRow),
+    sectorFilteredRows.map(mapHouseholdToExportRow),
     filters.search || "",
   );
 

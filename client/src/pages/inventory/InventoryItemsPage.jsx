@@ -6,13 +6,10 @@ import { shellStyles } from "../../components/layout/BarangayLayout";
 import SearchBar from "../../components/shared/SearchBar";
 import InventoryItemFormModal from "../../components/inventory-items/InventoryItemFormModal";
 import InventoryItemScanModal from "../../components/inventory-items/InventoryItemScanModal";
-import InventoryItemsTable from "../../components/inventory-items/InventoryItemsTable";
 import StatusCard from "../../components/shared/StatusCard";
 import {
   createInventoryItem,
-  fetchInventoryItemById,
   fetchInventoryItems,
-  updateInventoryItem,
 } from "../../features/inventory-items/inventoryItemService";
 import {
   FiFileText,
@@ -119,11 +116,11 @@ const activeChipPalette = {
     backgroundColor: "#e6f5ec",
     color: "#2d7a4f",
   },
-  Low: {
-    backgroundColor: "#fef3c7",
-    color: "#92400e",
+  Active: {
+    backgroundColor: "#e0f2fe",
+    color: "#075985",
   },
-  Critical: {
+  Inactive: {
     backgroundColor: "#fee2e2",
     color: "#b91c1c",
   },
@@ -333,6 +330,117 @@ const formatPercentage = (value, total) => {
   return `${Math.round((value / total) * 100)}%`;
 };
 
+const buildInventoryItemFilters = (filters) => {
+  const apiFilters = {
+    search: filters.search,
+  };
+
+  if (filters.category === "Perishable") {
+    apiFilters.is_perishable = "true";
+  } else if (filters.category === "Non-Perishable") {
+    apiFilters.is_perishable = "false";
+  }
+
+  return apiFilters;
+};
+
+const formatItemQuantity = (item) => {
+  const packagingPart =
+    item.packaging_count && item.packaging
+      ? `${item.packaging_count} ${item.packaging}${
+          item.packaging_count > 1 ? "s" : ""
+        }`
+      : item.packaging || "--";
+
+  const unitPart =
+    item.unit_of_measure_value && item.unit_of_measure
+      ? `${item.unit_of_measure_value} ${item.unit_of_measure}`
+      : item.unit_of_measure || "--";
+
+  if (item.quantity) {
+    return `${packagingPart} | ${item.quantity} per packaging | ${unitPart}`;
+  }
+
+  return `${packagingPart} | ${unitPart}`;
+};
+
+const isItemExpiring = (item) => {
+  if (!item.expiration_date) {
+    return false;
+  }
+
+  const today = new Date();
+  const comparisonDate = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+  );
+  const expirationDate = new Date(`${item.expiration_date}T00:00:00`);
+
+  if (Number.isNaN(expirationDate.getTime())) {
+    return false;
+  }
+
+  const millisecondsUntilExpiration =
+    expirationDate.getTime() - comparisonDate.getTime();
+  const daysUntilExpiration = millisecondsUntilExpiration / (1000 * 60 * 60 * 24);
+
+  return daysUntilExpiration >= 0 && daysUntilExpiration <= 30;
+};
+
+const getItemStatus = (item) => {
+  if (!item.is_active) {
+    return "Inactive";
+  }
+
+  if (isItemExpiring(item)) {
+    return "Expiring";
+  }
+
+  return "Active";
+};
+
+const getItemStatusStyle = (status) => {
+  if (status === "Inactive") {
+    return {
+      background: "#fee2e2",
+      color: "#b91c1c",
+    };
+  }
+
+  if (status === "Expiring") {
+    return {
+      background: "#ede9fe",
+      color: "#6d28d9",
+    };
+  }
+
+  return {
+    background: "#e0f2fe",
+    color: "#075985",
+  };
+};
+
+const filterInventoryItemsByStatus = (items, selectedStatus) => {
+  if (selectedStatus === "All") {
+    return items;
+  }
+
+  if (selectedStatus === "Active") {
+    return items.filter((item) => item.is_active && !isItemExpiring(item));
+  }
+
+  if (selectedStatus === "Inactive") {
+    return items.filter((item) => !item.is_active);
+  }
+
+  if (selectedStatus === "Expiring") {
+    return items.filter((item) => item.is_active && isItemExpiring(item));
+  }
+
+  return items;
+};
+
 /* ================= COMPONENT ================= */
 
 const InventoryItemsPage = () => {
@@ -350,9 +458,6 @@ const InventoryItemsPage = () => {
   const [errorMessage, setErrorMessage] = useState("");
 
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [modalMode, setModalMode] = useState("create");
-  const [selectedItemId, setSelectedItemId] = useState(null);
-  const [selectedItemData, setSelectedItemData] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [modalErrorMessage, setModalErrorMessage] = useState("");
 
@@ -369,8 +474,11 @@ const InventoryItemsPage = () => {
 
   const loadInventoryItems = async (activeFilters = filters) => {
     setIsLoading(true);
+    setErrorMessage("");
     try {
-      const res = await fetchInventoryItems(activeFilters);
+      const res = await fetchInventoryItems(
+        buildInventoryItemFilters(activeFilters),
+      );
       setInventoryItems(res || []);
     } catch (err) {
       setErrorMessage(err.message);
@@ -440,6 +548,11 @@ const InventoryItemsPage = () => {
     [inventoryAnalytics]
   );
 
+  const visibleInventoryItems = useMemo(
+    () => filterInventoryItemsByStatus(inventoryItems, filters.status),
+    [inventoryItems, filters.status],
+  );
+
   /* ================= FILTERS ================= */
 
   const handleFilterChange = (name, value) => {
@@ -449,38 +562,18 @@ const InventoryItemsPage = () => {
   /* ================= MODAL ================= */
 
   const handleOpenCreateModal = () => {
-    setModalMode("create");
-    setSelectedItemData(null);
-    setSelectedItemId(null);
     setModalErrorMessage("");
     setIsModalOpen(true);
   };
 
-  const handleOpenEditModal = async (id) => {
-    setModalMode("edit");
-    setIsModalOpen(true);
-    setModalErrorMessage("");
-
-    try {
-      const data = await fetchInventoryItemById(id);
-      setSelectedItemData(data);
-      setSelectedItemId(id);
-    } catch (err) {
-      setModalErrorMessage(err.message);
-    }
-  };
+  const handleOpenEditModal = () => {};
 
   const handleSubmitModal = async (payload) => {
     setIsSubmitting(true);
     setModalErrorMessage("");
 
     try {
-      if (modalMode === "edit") {
-        await updateInventoryItem(selectedItemId, payload);
-      } else {
-        await createInventoryItem(payload);
-      }
-
+      await createInventoryItem(payload);
       await loadInventoryItems();
       setIsModalOpen(false);
     } catch (err) {
@@ -664,7 +757,7 @@ const InventoryItemsPage = () => {
 
               <span>Status:</span>
               <div style={chipGroupStyle}>
-                {["All", "Low", "Critical", "Expiring"].map((stat) => (
+                {["All", "Active", "Expiring"].map((stat) => (
                   <button
                     key={stat}
                     style={getChipStyle(stat, filters.status === stat)}
@@ -690,7 +783,6 @@ const InventoryItemsPage = () => {
                     "Quantity",
                     "Expiry Date",
                     "Status",
-                    "Actions",
                   ].map((header) => (
                     <th key={header} style={styles.th}>
                       {header}
@@ -702,35 +794,39 @@ const InventoryItemsPage = () => {
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan="6" style={styles.emptyStateCell}>
+                    <td colSpan="5" style={styles.emptyStateCell}>
                       Loading...
                     </td>
                   </tr>
                 ) : errorMessage ? (
                   <tr>
                     <td
-                      colSpan="6"
+                      colSpan="5"
                       style={{ ...styles.emptyStateCell, color: "#b91c1c" }}
                     >
                       {errorMessage}
                     </td>
                   </tr>
-                ) : inventoryItems.length === 0 ? (
+                ) : visibleInventoryItems.length === 0 ? (
                   <tr>
-                    <td colSpan="6" style={styles.emptyStateCell}>
+                    <td colSpan="5" style={styles.emptyStateCell}>
                       No items found
                     </td>
                   </tr>
                 ) : (
-                  inventoryItems.map((item, index) => (
-                    <tr key={item.id || index} style={styles.tr}>
-                      <td style={styles.td}>{item.name}</td>
+                  visibleInventoryItems.map((item, index) => {
+                    const itemStatus = getItemStatus(item);
+                    const itemStatusStyle = getItemStatusStyle(itemStatus);
+
+                    return (
+                      <tr key={item.id || index} style={styles.tr}>
+                      <td style={styles.td}>{item.item_name || item.name}</td>
                       <td style={styles.td}>{item.category}</td>
-                      <td style={styles.td}>{item.quantity}</td>
+                      <td style={styles.td}>{formatItemQuantity(item)}</td>
                       <td style={styles.td}>
-                        {item.expiryDate
-                          ? new Date(item.expiryDate).toLocaleDateString()
-                          : "—"}
+                        {item.expiration_date
+                          ? new Date(item.expiration_date).toLocaleDateString()
+                          : "--"}
                       </td>
 
                       <td style={styles.td}>
@@ -740,25 +836,15 @@ const InventoryItemsPage = () => {
                             borderRadius: "8px",
                             fontSize: "12px",
                             fontWeight: 600,
-                            background:
-                              item.status === "Critical"
-                                ? "#fee2e2"
-                                : item.status === "Low"
-                                ? "#fef3c7"
-                                : "#e0f2fe",
-                            color:
-                              item.status === "Critical"
-                                ? "#b91c1c"
-                                : item.status === "Low"
-                                ? "#92400e"
-                                : "#075985",
+                            background: itemStatusStyle.background,
+                            color: itemStatusStyle.color,
                           }}
                         >
-                          {item.status || "Normal"}
+                          {itemStatus}
                         </span>
                       </td>
 
-                      <td style={styles.td}>
+                      <td style={{ display: "none" }}>
                         <div
                           style={{
                             display: "flex",
@@ -781,8 +867,9 @@ const InventoryItemsPage = () => {
                           </button>
                         </div>
                       </td>
-                    </tr>
-                  ))
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -862,8 +949,8 @@ const InventoryItemsPage = () => {
       {/* EXISTING ITEM FORM MODAL - KEPT INTACT */}
       <InventoryItemFormModal
         isOpen={isModalOpen}
-        mode={modalMode}
-        itemData={selectedItemData}
+        mode="create"
+        itemData={null}
         isSubmitting={isSubmitting}
         errorMessage={modalErrorMessage}
         onClose={() => setIsModalOpen(false)}
