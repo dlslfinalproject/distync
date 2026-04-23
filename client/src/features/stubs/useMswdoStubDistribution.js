@@ -5,6 +5,7 @@ import {
   fetchBarangays,
   fetchConsolidatedMasterlist,
   fetchDisasterEvents,
+  fetchMswdoSectors,
 } from "../mswdo-masterlist/mswdoMasterlistService";
 import { fetchBarangayStubDashboard } from "./stubService";
 
@@ -45,6 +46,12 @@ const getMappedRows = (households, stubRows) => {
     }
 
     const mappedHousehold = mapMasterlistRow(household);
+    const sectorIds = [
+      ...(household.household_sectors || []).map((sector) => sector.id),
+      ...(household.members || []).flatMap((member) =>
+        (member.sectors || []).map((sector) => sector.id),
+      ),
+    ].filter(Boolean);
 
     rows.push({
       id: stubRow.id,
@@ -54,6 +61,7 @@ const getMappedRows = (households, stubRows) => {
       stub_number: stubRow.stub_sequence_no || stubRow.stub_no || "-",
       stub_no: stubRow.stub_no || household.stub?.stub_no || "-",
       sectors_text: mappedHousehold.sectors_text,
+      sector_ids: [...new Set(sectorIds)],
       status: stubRow.status,
     });
 
@@ -61,14 +69,27 @@ const getMappedRows = (households, stubRows) => {
   }, []);
 };
 
-const getDisplayedRows = (rows, searchTerm) => {
-  if (!searchTerm.trim()) {
-    return rows;
-  }
-
+const getDisplayedRows = (rows, searchTerm, selectedSectorIds, selectedStubStatus) => {
   const normalizedSearchTerm = searchTerm.trim().toLowerCase();
+  const selectedSectorIdSet = new Set(selectedSectorIds);
 
   return rows.filter((row) => {
+    const matchesSectorFilter =
+      selectedSectorIds.length === 0 ||
+      (row.sector_ids || []).some((sectorId) => selectedSectorIdSet.has(sectorId));
+
+    if (!matchesSectorFilter) {
+      return false;
+    }
+
+    if (selectedStubStatus && row.status !== selectedStubStatus) {
+      return false;
+    }
+
+    if (!normalizedSearchTerm) {
+      return true;
+    }
+
     const searchableValues = [
       row.family_head_name,
       row.address,
@@ -89,8 +110,11 @@ const getDisplayedRows = (rows, searchTerm) => {
 export const useMswdoStubDistribution = () => {
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
+  const [sectors, setSectors] = useState([]);
   const [selectedDisasterEventId, setSelectedDisasterEventId] = useState("");
   const [selectedBarangayId, setSelectedBarangayId] = useState("");
+  const [selectedSectorIds, setSelectedSectorIds] = useState([]);
+  const [selectedStubStatus, setSelectedStubStatus] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [dashboard, setDashboard] = useState(emptyDashboard);
   const [masterlistPayload, setMasterlistPayload] = useState(emptyMasterlistPayload);
@@ -107,10 +131,16 @@ export const useMswdoStubDistribution = () => {
       setErrorMessage("");
 
       try {
-        const [eventsPayload, activePayload, barangaysPayload] = await Promise.all([
+        const [
+          eventsPayload,
+          activePayload,
+          barangaysPayload,
+          sectorsPayload,
+        ] = await Promise.all([
           fetchDisasterEvents(),
           fetchActiveDisasterEvents(),
           fetchBarangays(),
+          fetchMswdoSectors(),
         ]);
 
         if (!isMounted) {
@@ -120,9 +150,11 @@ export const useMswdoStubDistribution = () => {
         const allEvents = Array.isArray(eventsPayload) ? eventsPayload : [];
         const activeEvents = Array.isArray(activePayload) ? activePayload : [];
         const barangayRows = Array.isArray(barangaysPayload) ? barangaysPayload : [];
+        const sectorRows = Array.isArray(sectorsPayload) ? sectorsPayload : [];
 
         setDisasterEvents(allEvents);
         setBarangays(barangayRows);
+        setSectors(sectorRows);
 
         if (activeEvents.length > 0) {
           setSelectedDisasterEventId(activeEvents[0].id);
@@ -211,8 +243,13 @@ export const useMswdoStubDistribution = () => {
   }, [dashboard.data, masterlistPayload.data]);
 
   const displayedRows = useMemo(() => {
-    return getDisplayedRows(rows, searchTerm);
-  }, [rows, searchTerm]);
+    return getDisplayedRows(
+      rows,
+      searchTerm,
+      selectedSectorIds,
+      selectedStubStatus,
+    );
+  }, [rows, searchTerm, selectedSectorIds, selectedStubStatus]);
 
   const summaryCards = useMemo(() => {
     return [
@@ -248,8 +285,11 @@ export const useMswdoStubDistribution = () => {
   return {
     disasterEvents,
     barangays,
+    sectors,
     selectedDisasterEventId,
     selectedBarangayId,
+    selectedSectorIds,
+    selectedStubStatus,
     selectedDisasterEvent,
     selectedBarangay,
     searchTerm,
@@ -262,6 +302,8 @@ export const useMswdoStubDistribution = () => {
     hasSelectedBarangay: Boolean(selectedBarangayId),
     setSelectedDisasterEventId,
     setSelectedBarangayId,
+    setSelectedSectorIds,
+    setSelectedStubStatus,
     setSearchTerm,
     reloadDashboard: () => {
       setReloadKey((currentValue) => currentValue + 1);
