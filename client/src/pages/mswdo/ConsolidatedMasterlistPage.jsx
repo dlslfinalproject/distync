@@ -9,6 +9,7 @@ import MasterlistTable from "../../components/masterlist/MasterlistTable";
 import MswdoSummaryCards from "../../components/mswdo-masterlist/MswdoSummaryCards";
 import SearchBar from "../../components/shared/SearchBar";
 import StatusPill from "../../components/shared/StatusPill";
+import { useAuth } from "../../context/AuthContext";
 import { useHouseholdRegistrationForm } from "../../features/household-registration/useHouseholdRegistrationForm";
 import { departHousehold } from "../../features/masterlist/masterlistService";
 import { exportConsolidatedMasterlist } from "../../features/mswdo-masterlist/mswdoMasterlistService";
@@ -111,6 +112,25 @@ const formatReliefPeriod = (event) => {
   return start;
 };
 
+const eventIncludesBarangay = (event, barangayId) => {
+  if (!barangayId) {
+    return true;
+  }
+
+  return (event.affected_barangays || []).some(
+    (barangay) => barangay.id === barangayId,
+  );
+};
+
+const getScopedDisasterEvents = ({ events, activeTab, barangayId }) => {
+  const statusByTab = activeTab === "active" ? "ACTIVE" : "CLOSED";
+
+  return events.filter(
+    (event) =>
+      event.status === statusByTab && eventIncludesBarangay(event, barangayId),
+  );
+};
+
 const ExportNoticeModal = ({ isOpen, message, onClose }) => {
   if (!isOpen) {
     return null;
@@ -137,6 +157,7 @@ const ExportNoticeModal = ({ isOpen, message, onClose }) => {
 };
 
 const ConsolidatedEvacueeMasterlist = () => {
+  const { authenticatedUser } = useAuth();
   const {
     disasterEvents,
     barangays,
@@ -175,10 +196,12 @@ const ConsolidatedEvacueeMasterlist = () => {
   const hasRowsToExport = displayedRows.length > 0;
   const canRegisterFamily = activeTab === "active";
   const scopedDisasterEvents = useMemo(() => {
-    const statusByTab = activeTab === "active" ? "ACTIVE" : "CLOSED";
-
-    return disasterEvents.filter((event) => event.status === statusByTab);
-  }, [activeTab, disasterEvents]);
+    return getScopedDisasterEvents({
+      events: disasterEvents,
+      activeTab,
+      barangayId: selectedBarangayId,
+    });
+  }, [activeTab, disasterEvents, selectedBarangayId]);
 
   const selectedBarangayLabel = selectedBarangayId
     ? barangays.find((barangay) => barangay.id === selectedBarangayId)?.name
@@ -188,6 +211,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     isOpen: isRegisterModalOpen,
     defaultBarangayId: selectedBarangayId || "",
     defaultDisasterEventId: selectedDisasterEventId || "",
+    registeredBy: authenticatedUser?.id || null,
     onSuccess: (response) => {
       setRegistrationSuccessMessage(
         response?.message || "Household registered successfully",
@@ -286,8 +310,11 @@ const ConsolidatedEvacueeMasterlist = () => {
   const handleEventScopeChange = (nextTab) => {
     setActiveTab(nextTab);
 
-    const nextStatus = nextTab === "active" ? "ACTIVE" : "CLOSED";
-    const nextEvents = disasterEvents.filter((event) => event.status === nextStatus);
+    const nextEvents = getScopedDisasterEvents({
+      events: disasterEvents,
+      activeTab: nextTab,
+      barangayId: selectedBarangayId,
+    });
 
     if (nextEvents.length === 0) {
       setSelectedDisasterEventId("");
@@ -298,6 +325,35 @@ const ConsolidatedEvacueeMasterlist = () => {
       setSelectedDisasterEventId(nextEvents[0].id);
     }
   };
+
+  useEffect(() => {
+    if (isLoadingFilters) {
+      return;
+    }
+
+    if (scopedDisasterEvents.length === 0) {
+      if (selectedDisasterEventId) {
+        setSelectedDisasterEventId("");
+      }
+
+      return;
+    }
+
+    if (
+      !scopedDisasterEvents.some((event) => event.id === selectedDisasterEventId)
+    ) {
+      setSelectedDisasterEventId(scopedDisasterEvents[0].id);
+    }
+  }, [
+    isLoadingFilters,
+    scopedDisasterEvents,
+    selectedDisasterEventId,
+    setSelectedDisasterEventId,
+  ]);
+
+  useEffect(() => {
+    setSelectedHouseholds([]);
+  }, [selectedBarangayId, selectedDisasterEventId]);
 
   useEffect(() => {
     if (selectedDisasterEvent?.status === "ACTIVE" && activeTab !== "active") {
@@ -415,7 +471,9 @@ const ConsolidatedEvacueeMasterlist = () => {
               style={filterStyles.field}
             >
               <option value="">
-                Select {activeTab === "active" ? "active" : "ended"} disaster event
+                {selectedBarangayId && scopedDisasterEvents.length === 0
+                  ? `No ${activeTab === "active" ? "active" : "ended"} events for this barangay`
+                  : `Select ${activeTab === "active" ? "active" : "ended"} disaster event`}
               </option>
               {scopedDisasterEvents.map((event) => (
                 <option key={event.id} value={event.id}>

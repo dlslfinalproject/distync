@@ -76,15 +76,27 @@ const getFinalRelationship = (member) => {
   return trimValue(member.relationship_option);
 };
 
-const NON_RESIDENT_BARANGAY_CODE = "NON_RESIDENT_OUTSIDE_MALVAR";
+const RESIDENCY_STATUS = {
+  resident: "RESIDENT",
+  nonResident: "NON_RESIDENT",
+};
 
 export const useHouseholdRegistrationForm = ({
   isOpen,
   defaultBarangayId,
+  defaultBarangayName = "",
   defaultDisasterEventId,
+  lockBarangaySelection = false,
+  hideBarangaySelection = false,
+  restrictNonResidentToEvacCenter = false,
+  scopeNonResidentEvacuationCentersToBarangay = false,
+  registeredBy = null,
   onSuccess,
 }) => {
   const [household, setHousehold] = useState(initialHousehold);
+  const [residencyStatus, setResidencyStatus] = useState(
+    RESIDENCY_STATUS.resident,
+  );
   const [familyHead, setFamilyHead] = useState(initialFamilyHead);
   const [members, setMembers] = useState([]);
   const [householdSectorIds, setHouseholdSectorIds] = useState([]);
@@ -109,8 +121,13 @@ export const useHouseholdRegistrationForm = ({
   }, [defaultDisasterEventId]);
 
   useEffect(() => {
-    setSelectedBarangayId(defaultBarangayId || "");
-  }, [defaultBarangayId]);
+    if (
+      residencyStatus === RESIDENCY_STATUS.resident ||
+      lockBarangaySelection
+    ) {
+      setSelectedBarangayId(defaultBarangayId || "");
+    }
+  }, [defaultBarangayId, lockBarangaySelection, residencyStatus]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -141,7 +158,9 @@ export const useHouseholdRegistrationForm = ({
           ? sectorsPayload.data
           : [];
         const availableBarangays = Array.isArray(barangaysPayload)
-          ? barangaysPayload
+          ? barangaysPayload.filter(
+              (barangay) => barangay.code !== "NON_RESIDENT_OUTSIDE_MALVAR",
+            )
           : [];
 
         setActiveDisasterEvents(disasterEvents);
@@ -151,7 +170,11 @@ export const useHouseholdRegistrationForm = ({
           setSelectedDisasterEventId(disasterEvents[0].id);
         }
 
-        if (!defaultBarangayId && availableBarangays.length > 0) {
+        if (
+          residencyStatus === RESIDENCY_STATUS.resident &&
+          !defaultBarangayId &&
+          availableBarangays.length > 0
+        ) {
           setSelectedBarangayId(availableBarangays[0].id);
         }
 
@@ -188,10 +211,10 @@ export const useHouseholdRegistrationForm = ({
     return () => {
       isMounted = false;
     };
-  }, [defaultBarangayId, defaultDisasterEventId, isOpen]);
+  }, [defaultBarangayId, defaultDisasterEventId, isOpen, residencyStatus]);
 
   useEffect(() => {
-    if (!isOpen || !selectedBarangayId) {
+    if (!isOpen) {
       setEvacuationCenters([]);
       setHousehold((currentValue) => ({
         ...currentValue,
@@ -203,14 +226,22 @@ export const useHouseholdRegistrationForm = ({
     let isMounted = true;
 
     const loadEvacuationCenters = async () => {
-      const selectedBarangay = barangays.find(
-        (barangay) => barangay.id === selectedBarangayId,
-      );
-      const isNonResidentBarangay =
-        selectedBarangay?.code === NON_RESIDENT_BARANGAY_CODE;
-      const centers = isNonResidentBarangay
-        ? await fetchEvacuationCenters()
-        : await fetchEvacuationCentersByBarangay(selectedBarangayId);
+      const needsBarangayScopedCenters =
+        residencyStatus === RESIDENCY_STATUS.resident ||
+        scopeNonResidentEvacuationCentersToBarangay;
+
+      if (needsBarangayScopedCenters && !selectedBarangayId) {
+        setEvacuationCenters([]);
+        setHousehold((currentValue) => ({
+          ...currentValue,
+          evacuation_center_id: "",
+        }));
+        return;
+      }
+
+      const centers = needsBarangayScopedCenters
+        ? await fetchEvacuationCentersByBarangay(selectedBarangayId)
+        : await fetchEvacuationCenters();
 
       if (isMounted) {
         setEvacuationCenters(Array.isArray(centers) ? centers : []);
@@ -226,11 +257,42 @@ export const useHouseholdRegistrationForm = ({
     return () => {
       isMounted = false;
     };
-  }, [barangays, isOpen, selectedBarangayId]);
+  }, [
+    isOpen,
+    residencyStatus,
+    scopeNonResidentEvacuationCentersToBarangay,
+    selectedBarangayId,
+  ]);
+
+  const updateResidencyStatus = (nextResidencyStatus) => {
+    setResidencyStatus(nextResidencyStatus);
+    setHousehold((currentValue) => ({
+      ...currentValue,
+      current_stay_type:
+        nextResidencyStatus === RESIDENCY_STATUS.nonResident &&
+        restrictNonResidentToEvacCenter
+          ? "EVAC_CENTER"
+          : currentValue.current_stay_type,
+      evacuation_center_id: "",
+    }));
+
+    if (!selectedBarangayId && barangays.length > 0) {
+      setSelectedBarangayId(defaultBarangayId || barangays[0].id);
+    }
+  };
 
   const memberCount = members.length + 1;
 
   const updateHouseholdField = (fieldName, value) => {
+    if (
+      fieldName === "current_stay_type" &&
+      residencyStatus === RESIDENCY_STATUS.nonResident &&
+      restrictNonResidentToEvacCenter &&
+      value !== "EVAC_CENTER"
+    ) {
+      return;
+    }
+
     setHousehold((currentValue) => ({
       ...currentValue,
       [fieldName]: value,
@@ -344,6 +406,7 @@ export const useHouseholdRegistrationForm = ({
 
   const resetForm = () => {
     setHousehold(initialHousehold);
+    setResidencyStatus(RESIDENCY_STATUS.resident);
     setFamilyHead(initialFamilyHead);
     setMembers([]);
     setHouseholdSectorIds([]);
@@ -360,7 +423,33 @@ export const useHouseholdRegistrationForm = ({
     }
 
     if (!selectedBarangayId) {
-      return "Please select a barangay";
+      return residencyStatus === RESIDENCY_STATUS.nonResident
+        ? "Please select the handling barangay for this non-resident family"
+        : "Please select a barangay";
+    }
+
+    if (
+      residencyStatus === RESIDENCY_STATUS.nonResident &&
+      restrictNonResidentToEvacCenter
+    ) {
+      if (household.current_stay_type !== "EVAC_CENTER") {
+        return "Non-resident families must be registered under Evacuation Center stay.";
+      }
+
+      if (!household.evacuation_center_id) {
+        return "Please select an evacuation center under the assigned barangay.";
+      }
+
+      const selectedCenter = evacuationCenters.find(
+        (center) => center.id === household.evacuation_center_id,
+      );
+
+      if (
+        !selectedCenter ||
+        selectedCenter.barangay_id !== selectedBarangayId
+      ) {
+        return "Please select a valid evacuation center under the assigned barangay.";
+      }
     }
 
     if (!trimValue(familyHead.first_name) || !trimValue(familyHead.last_name)) {
@@ -411,6 +500,7 @@ export const useHouseholdRegistrationForm = ({
     return {
       disaster_event_id: selectedDisasterEventId,
       barangay_id: selectedBarangayId,
+      residency_status: residencyStatus,
       evacuation_center_id:
         household.current_stay_type === "EVAC_CENTER"
           ? household.evacuation_center_id || null
@@ -427,7 +517,7 @@ export const useHouseholdRegistrationForm = ({
       },
       current_stay_type: household.current_stay_type,
       household_size: memberCount,
-      registered_by: null,
+      registered_by: registeredBy,
       members: members.map((member) => ({
         first_name: trimValue(member.first_name),
         middle_name: trimValue(member.middle_name) || null,
@@ -479,18 +569,23 @@ export const useHouseholdRegistrationForm = ({
 
   return {
     household,
+    residencyStatus,
+    setResidencyStatus: updateResidencyStatus,
     familyHead,
     members,
     memberCount,
     householdSectorIds,
     activeDisasterEvents,
     barangays,
+    assignedBarangayName: defaultBarangayName,
     selectedDisasterEventId,
     setSelectedDisasterEventId,
     isDisasterEventLocked: Boolean(defaultDisasterEventId),
     selectedBarangayId,
     setSelectedBarangayId,
-    isBarangayLocked: false,
+    isBarangayLocked: lockBarangaySelection,
+    hideBarangaySelection,
+    restrictNonResidentToEvacCenter,
     memberSectorOptions,
     householdSectors,
     evacuationCenters,

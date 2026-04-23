@@ -35,6 +35,8 @@ const groupByKey = (items, keyName) => {
 };
 
 const formatSearchResult = (stub) => {
+  const isNonResident = !stub.barangay_id;
+
   return {
     id: stub.id,
     stub_no: stub.stub_no,
@@ -60,7 +62,9 @@ const formatSearchResult = (stub) => {
       barangay: {
         id: stub.barangay_id,
         code: stub.barangay_code,
-        name: stub.barangay_name,
+        name: isNonResident
+          ? "Non-Resident (Outside Malvar)"
+          : stub.barangay_name,
       },
     },
   };
@@ -301,7 +305,9 @@ const getStubDetails = async (id) => {
     barangay: {
       id: stub.barangay_id,
       code: stub.barangay_code,
-      name: stub.barangay_name,
+      name: stub.barangay_id
+        ? stub.barangay_name
+        : "Non-Resident (Outside Malvar)",
     },
     household_sectors: householdSectors,
   };
@@ -363,7 +369,8 @@ const verifyStub = async (identifier) => {
         ),
         household_size: stub.household_size,
         contact_number: stub.contact_number,
-        barangay_name: stub.barangay_name,
+        barangay_name:
+          stub.barangay_name || "Non-Resident (Outside Malvar)",
       },
     },
   };

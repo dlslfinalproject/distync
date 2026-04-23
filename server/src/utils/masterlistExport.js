@@ -32,14 +32,23 @@ const buildSectorsText = (household) => {
   return uniqueSectorNames.length > 0 ? uniqueSectorNames.join(", ") : "-";
 };
 
+const getHouseholdLocationLabel = (household) => {
+  if (household.residency_status === "NON_RESIDENT") {
+    return "Non-Resident (Outside Malvar)";
+  }
+
+  return household.barangay?.name || "-";
+};
+
 const mapHouseholdToExportRow = (household) => {
   const departureTimeValue = household.latest_attendance?.time_out || null;
+  const locationLabel = getHouseholdLocationLabel(household);
 
   return {
     family_head_name: household.family_head_name || "-",
     address:
       household.current_address_details ||
-      household.barangay?.name ||
+      locationLabel ||
       "-",
     members_count: household.members?.length || 0,
     sectors_text: buildSectorsText(household),

@@ -32,6 +32,24 @@ const getBarangayById = async (id) => {
   return result.rows[0] || null;
 };
 
+const getUserBarangayScopeById = async (userId) => {
+  const query = `
+    SELECT
+      u.id,
+      u.default_barangay_id,
+      r.code AS role_code
+    FROM users u
+    LEFT JOIN user_roles ur ON ur.user_id = u.id
+    LEFT JOIN roles r ON r.id = ur.role_id
+    WHERE u.id = $1
+    ORDER BY ur.assigned_at ASC NULLS LAST
+    LIMIT 1
+  `;
+
+  const result = await pool.query(query, [userId]);
+  return result.rows[0] || null;
+};
+
 const getEvacuationCenterById = async (id) => {
   const query = `
     SELECT
@@ -136,6 +154,7 @@ const insertHousehold = async (householdData, dbClient) => {
       disaster_event_id,
       barangay_id,
       evacuation_center_id,
+      residency_status,
       family_head_first_name,
       family_head_middle_name,
       family_head_last_name,
@@ -152,13 +171,14 @@ const insertHousehold = async (householdData, dbClient) => {
       updated_at
     )
     VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW()
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW()
     )
     RETURNING
       id,
       disaster_event_id,
       barangay_id,
       evacuation_center_id,
+      residency_status,
       family_head_first_name,
       family_head_middle_name,
       family_head_last_name,
@@ -180,6 +200,7 @@ const insertHousehold = async (householdData, dbClient) => {
     householdData.disaster_event_id,
     householdData.barangay_id,
     householdData.evacuation_center_id,
+    householdData.residency_status,
     householdData.family_head.first_name,
     householdData.family_head.middle_name,
     householdData.family_head.last_name,
@@ -493,6 +514,7 @@ const getHouseholdSummaryById = async (id) => {
       h.disaster_event_id,
       h.barangay_id,
       h.evacuation_center_id,
+      h.residency_status,
       h.family_head_first_name,
       h.family_head_middle_name,
       h.family_head_last_name,
@@ -513,7 +535,7 @@ const getHouseholdSummaryById = async (id) => {
       de.event_code,
       de.title AS disaster_event_title
     FROM households h
-    INNER JOIN barangays b ON b.id = h.barangay_id
+    LEFT JOIN barangays b ON b.id = h.barangay_id
     INNER JOIN disaster_events de ON de.id = h.disaster_event_id
     WHERE h.id = $1
   `;
@@ -618,6 +640,7 @@ const getStubByHouseholdId = async (householdId) => {
 module.exports = {
   getDisasterEventById,
   getBarangayById,
+  getUserBarangayScopeById,
   getEvacuationCenterById,
   getSectorsByIds,
   getSectorsByCodes,
