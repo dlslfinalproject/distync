@@ -11,9 +11,19 @@ const handleJsonResponse = async (response, fallbackMessage) => {
   return responseData;
 };
 
-export const fetchInventoryItems = async (filters = {}) => {
-  const searchParams = new URLSearchParams();
+const getFallbackExportFilename = (format) => {
+  if (format === "excel") {
+    return "inventory-items.xlsx";
+  }
 
+  if (format === "pdf") {
+    return "inventory-items.pdf";
+  }
+
+  return "inventory-items.csv";
+};
+
+const appendInventoryItemFilters = (searchParams, filters = {}) => {
   if (filters.search) {
     searchParams.set("search", filters.search.trim());
   }
@@ -40,6 +50,15 @@ export const fetchInventoryItems = async (filters = {}) => {
     searchParams.set("is_perishable", filters.is_perishable);
   }
 
+  if (filters.status && filters.status !== "All") {
+    searchParams.set("status", filters.status);
+  }
+};
+
+export const fetchInventoryItems = async (filters = {}) => {
+  const searchParams = new URLSearchParams();
+  appendInventoryItemFilters(searchParams, filters);
+
   const queryString = searchParams.toString();
   const url = `${API_BASE_URL}/api/v1/inventory-items${
     queryString ? `?${queryString}` : ""
@@ -47,6 +66,37 @@ export const fetchInventoryItems = async (filters = {}) => {
 
   const response = await fetch(url);
   return handleJsonResponse(response, "Failed to fetch inventory items");
+};
+
+export const exportInventoryItems = async ({ format, filters = {} }) => {
+  const searchParams = new URLSearchParams({ format });
+  appendInventoryItemFilters(searchParams, filters);
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/inventory-items/export?${searchParams.toString()}`,
+  );
+
+  if (!response.ok) {
+    let message = "Failed to export inventory items";
+
+    try {
+      const payload = await response.json();
+      message = payload.message || message;
+    } catch (_error) {
+      message = "Failed to export inventory items";
+    }
+
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const contentDisposition = response.headers.get("Content-Disposition") || "";
+  const fileNameMatch = contentDisposition.match(/filename="([^"]+)"/i);
+
+  return {
+    blob,
+    filename: fileNameMatch?.[1] || getFallbackExportFilename(format),
+  };
 };
 
 export const fetchInventoryItemById = async (inventoryItemId) => {

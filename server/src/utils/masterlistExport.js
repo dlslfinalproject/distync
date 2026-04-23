@@ -1457,12 +1457,17 @@ const buildExportTitleLines = ({ eventLabel, barangayLabel, searchTerm }) => {
 };
 
 module.exports = {
+  addWorkbookLogo,
   buildCsvBuffer,
   buildExcelBuffer,
   buildExportColumns: getExportColumns,
   buildExportFilename,
   buildExportTitleLines,
   buildExcelFilename,
+  createPdfBuilder,
+  createPdfDocument,
+  PDF_COLORS,
+  PDF_IMAGE_REGISTRY,
   buildPdfBuffer,
   buildPdfFilename,
   filterExportRows,

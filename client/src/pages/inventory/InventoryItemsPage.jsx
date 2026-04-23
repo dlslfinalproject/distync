@@ -9,6 +9,7 @@ import InventoryItemScanModal from "../../components/inventory-items/InventoryIt
 import StatusCard from "../../components/shared/StatusCard";
 import {
   createInventoryItem,
+  exportInventoryItems,
   fetchInventoryItems,
 } from "../../features/inventory-items/inventoryItemService";
 import {
@@ -101,6 +102,44 @@ const chipGroupStyle = {
   padding: "2px",
   gap: "1px",
   flexWrap: "wrap",
+};
+
+const noticeModalStyles = {
+  overlay: {
+    position: "fixed",
+    inset: 0,
+    backgroundColor: "rgba(18, 34, 51, 0.45)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "24px",
+    zIndex: 1200,
+  },
+  modal: {
+    width: "100%",
+    maxWidth: "440px",
+    backgroundColor: "#ffffff",
+    borderRadius: "20px",
+    padding: "28px",
+    boxShadow: "0 24px 48px rgba(20, 48, 78, 0.2)",
+  },
+  title: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "22px",
+  },
+  message: {
+    margin: "12px 0 0",
+    color: "#5d7188",
+    fontSize: "15px",
+    lineHeight: 1.6,
+  },
+  actions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "12px",
+    marginTop: "24px",
+  },
 };
 
 const activeChipPalette = {
@@ -441,6 +480,31 @@ const filterInventoryItemsByStatus = (items, selectedStatus) => {
   return items;
 };
 
+const ExportNoticeModal = ({ isOpen, message, onClose }) => {
+  if (!isOpen) {
+    return null;
+  }
+
+  return (
+    <div style={noticeModalStyles.overlay}>
+      <div style={noticeModalStyles.modal}>
+        <h3 style={noticeModalStyles.title}>Export Unavailable</h3>
+        <p style={noticeModalStyles.message}>{message}</p>
+
+        <div style={noticeModalStyles.actions}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={pageHeaderStyles.primaryButton}
+          >
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 /* ================= COMPONENT ================= */
 
 const InventoryItemsPage = () => {
@@ -469,6 +533,7 @@ const InventoryItemsPage = () => {
 
   const [exportOpen, setExportOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState("");
+  const [exportNoticeMessage, setExportNoticeMessage] = useState("");
 
   /* ================= DATA LOADING ================= */
 
@@ -612,9 +677,11 @@ const InventoryItemsPage = () => {
   /* ================= EXPORT ================= */
 
   const handleExport = async (format) => {
-    if (inventoryItems.length === 0) {
-      window.alert("No inventory items are available to export.");
+    if (visibleInventoryItems.length === 0) {
       setExportOpen(false);
+      setExportNoticeMessage(
+        "No inventory items are available to export for the current filters.",
+      );
       return;
     }
 
@@ -622,9 +689,26 @@ const InventoryItemsPage = () => {
     setExportOpen(false);
 
     try {
-      window.alert(`Exporting inventory items as ${format.toUpperCase()}...`);
-    } catch (_error) {
-      window.alert("Unable to export inventory items. Please try again.");
+      const file = await exportInventoryItems({
+        format,
+        filters: {
+          ...buildInventoryItemFilters(filters),
+          status: filters.status,
+        },
+      });
+
+      const downloadUrl = window.URL.createObjectURL(file.blob);
+      const anchor = document.createElement("a");
+      anchor.href = downloadUrl;
+      anchor.download = file.filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      setExportNoticeMessage(
+        error.message || "Unable to export inventory items. Please try again.",
+      );
     } finally {
       setExportingFormat("");
     }
@@ -963,6 +1047,12 @@ const InventoryItemsPage = () => {
         onClose={handleCloseScanModal}
         onSubmit={handleSubmitScanModal}
         onInputChange={handleScanInputChange}
+      />
+
+      <ExportNoticeModal
+        isOpen={Boolean(exportNoticeMessage)}
+        message={exportNoticeMessage}
+        onClose={() => setExportNoticeMessage("")}
       />
     </div>
   );
