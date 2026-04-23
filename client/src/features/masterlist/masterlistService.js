@@ -42,13 +42,17 @@ export const buildSectorsText = (household) => {
 
 export const mapMasterlistRow = (household) => {
   const departureTimeValue = household.latest_attendance?.time_out || null;
+  const locationLabel =
+    household.residency_status === "NON_RESIDENT"
+      ? "Non-Resident (Outside Malvar)"
+      : household.barangay?.name;
 
   return {
     household_id: household.household_id,
     family_head_name: household.family_head_name || "-",
     address:
       household.current_address_details ||
-      household.barangay?.name ||
+      locationLabel ||
       "-",
     members_count: household.members?.length || 0,
     sectors_text: buildSectorsText(household),
