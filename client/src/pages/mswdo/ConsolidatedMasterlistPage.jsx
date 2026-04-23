@@ -91,6 +91,8 @@ const filterPanelStyles = {
     display: "flex",
     flexDirection: "column",
     gap: "14px",
+    overflow: "hidden",
+    boxSizing: "border-box",
   },
   title: {
     margin: 0,
@@ -102,6 +104,7 @@ const filterPanelStyles = {
     display: "grid",
     gap: "10px",
     overflowY: "auto",
+    flex: "1 1 auto",
     minHeight: 0,
     paddingRight: "4px",
   },
