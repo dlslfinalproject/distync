@@ -211,6 +211,20 @@ const registerHousehold = async (requestData) => {
     throw error;
   }
 
+  const disasterEventBarangayLink =
+    await householdRegistrationRepository.getDisasterEventBarangayLink(
+      registrationData.disaster_event_id,
+      registrationData.barangay_id,
+    );
+
+  if (!disasterEventBarangayLink) {
+    const error = new Error(
+      "Selected disaster event is not linked to the chosen barangay.",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
   if (
     isNonResident &&
     isBarangayScopedRegistration &&
@@ -247,10 +261,7 @@ const registerHousehold = async (requestData) => {
       throw error;
     }
 
-    if (
-      (!isNonResident || isBarangayScopedRegistration) &&
-      evacuationCenter.barangay_id !== registrationData.barangay_id
-    ) {
+    if (evacuationCenter.barangay_id !== registrationData.barangay_id) {
       const error = new Error(
         "Selected evacuation center must belong to the chosen barangay",
       );

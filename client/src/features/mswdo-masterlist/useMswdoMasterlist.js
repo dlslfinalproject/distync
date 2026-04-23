@@ -43,13 +43,24 @@ const formatSearchValue = (value) => {
 };
 
 const getMappedRows = (households) => {
-  return households.map((household) => ({
-    ...mapMasterlistRow(household),
-    barangay_id: household.barangay?.id || null,
-    barangay_name: household.barangay?.name || "",
-    residency_status: household.residency_status || "RESIDENT",
-    has_stub_issued: Boolean(household.stub),
-  }));
+  return households.map((household) => {
+    const baseRow = mapMasterlistRow(household);
+    const barangayName = household.barangay?.name || "";
+    const addressParts = [baseRow.address];
+
+    if (barangayName && !String(baseRow.address).includes(barangayName)) {
+      addressParts.push(`${barangayName}`);
+    }
+
+    return {
+      ...baseRow,
+      address: addressParts.filter(Boolean).join(" | "),
+      barangay_id: household.barangay?.id || null,
+      barangay_name: barangayName,
+      residency_status: household.residency_status || "RESIDENT",
+      has_stub_issued: Boolean(household.stub),
+    };
+  });
 };
 
 const getDisplayedRows = (rows, searchTerm) => {
