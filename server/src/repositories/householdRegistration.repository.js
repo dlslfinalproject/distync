@@ -69,6 +69,21 @@ const getEvacuationCenterById = async (id) => {
   return result.rows[0] || null;
 };
 
+const getDisasterEventBarangayLink = async (disasterEventId, barangayId) => {
+  const query = `
+    SELECT
+      disaster_event_id,
+      barangay_id
+    FROM disaster_event_barangays
+    WHERE disaster_event_id = $1
+      AND barangay_id = $2
+    LIMIT 1
+  `;
+
+  const result = await pool.query(query, [disasterEventId, barangayId]);
+  return result.rows[0] || null;
+};
+
 const getSectorsByIds = async (sectorIds) => {
   if (sectorIds.length === 0) {
     return [];
@@ -642,6 +657,7 @@ module.exports = {
   getBarangayById,
   getUserBarangayScopeById,
   getEvacuationCenterById,
+  getDisasterEventBarangayLink,
   getSectorsByIds,
   getSectorsByCodes,
   generateStubNumbers,

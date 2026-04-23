@@ -210,7 +210,11 @@ const ConsolidatedEvacueeMasterlist = () => {
   const registrationForm = useHouseholdRegistrationForm({
     isOpen: isRegisterModalOpen,
     defaultBarangayId: selectedBarangayId || "",
+    defaultBarangayName: selectedBarangayLabel || "",
     defaultDisasterEventId: selectedDisasterEventId || "",
+    lockBarangaySelection: true,
+    hideBarangaySelection: true,
+    scopeNonResidentEvacuationCentersToBarangay: true,
     registeredBy: authenticatedUser?.id || null,
     onSuccess: (response) => {
       setRegistrationSuccessMessage(
@@ -368,6 +372,13 @@ const ConsolidatedEvacueeMasterlist = () => {
   const handleOpenRegisterModal = () => {
     if (!selectedDisasterEventId) {
       window.alert("Select a disaster event before registering a family.");
+      return;
+    }
+
+    if (!selectedBarangayId) {
+      setExportNoticeMessage(
+        "Select one barangay before registering a family. Registration cannot use the All Barangays view.",
+      );
       return;
     }
 
@@ -644,11 +655,19 @@ const ConsolidatedEvacueeMasterlist = () => {
             <button
               type="button"
               onClick={handleOpenRegisterModal}
+              disabled={!selectedBarangayId}
+              title={
+                selectedBarangayId
+                  ? "Register a family under the selected barangay"
+                  : "Select one barangay before registering a family"
+              }
               style={{
                 ...pageHeaderStyles.primaryButton,
                 display: "flex",
                 alignItems: "center",
                 gap: "8px",
+                cursor: selectedBarangayId ? "pointer" : "not-allowed",
+                opacity: selectedBarangayId ? 1 : 0.65,
               }}
             >
               <FiUserPlus size={16} />

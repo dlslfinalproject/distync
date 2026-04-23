@@ -173,6 +173,8 @@ export const useHouseholdRegistrationForm = ({
         if (
           residencyStatus === RESIDENCY_STATUS.resident &&
           !defaultBarangayId &&
+          !lockBarangaySelection &&
+          !hideBarangaySelection &&
           availableBarangays.length > 0
         ) {
           setSelectedBarangayId(availableBarangays[0].id);
@@ -211,7 +213,14 @@ export const useHouseholdRegistrationForm = ({
     return () => {
       isMounted = false;
     };
-  }, [defaultBarangayId, defaultDisasterEventId, isOpen, residencyStatus]);
+  }, [
+    defaultBarangayId,
+    defaultDisasterEventId,
+    hideBarangaySelection,
+    isOpen,
+    lockBarangaySelection,
+    residencyStatus,
+  ]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -276,7 +285,12 @@ export const useHouseholdRegistrationForm = ({
       evacuation_center_id: "",
     }));
 
-    if (!selectedBarangayId && barangays.length > 0) {
+    if (
+      !selectedBarangayId &&
+      !lockBarangaySelection &&
+      !hideBarangaySelection &&
+      barangays.length > 0
+    ) {
       setSelectedBarangayId(defaultBarangayId || barangays[0].id);
     }
   };
