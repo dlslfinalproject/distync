@@ -11,7 +11,10 @@ import SearchBar from "../../components/shared/SearchBar";
 import StatusPill from "../../components/shared/StatusPill";
 import { useAuth } from "../../context/AuthContext";
 import { useHouseholdRegistrationForm } from "../../features/household-registration/useHouseholdRegistrationForm";
-import { departHousehold } from "../../features/masterlist/masterlistService";
+import {
+  departHousehold,
+  formatDateTime,
+} from "../../features/masterlist/masterlistService";
 import { exportConsolidatedMasterlist } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { useMswdoMasterlist } from "../../features/mswdo-masterlist/useMswdoMasterlist";
 
@@ -154,6 +157,14 @@ const formatReliefPeriod = (event) => {
   return start;
 };
 
+const getEndedEventDateTimeText = (event) => {
+  if (!event || event.status === "ACTIVE") {
+    return "-";
+  }
+
+  return formatDateTime(event.updated_at || event.end_date);
+};
+
 const eventIncludesBarangay = (event, barangayId) => {
   if (!barangayId) {
     return true;
@@ -241,6 +252,8 @@ const ConsolidatedEvacueeMasterlist = () => {
     : "No disaster event selected";
   const hasRowsToExport = displayedRows.length > 0;
   const canRegisterFamily = activeTab === "active";
+  const isEndedView = activeTab === "ended";
+  const endedEventDateTimeText = getEndedEventDateTimeText(selectedDisasterEvent);
   const hasActiveSectorFilters = selectedSectorIds.length > 0;
   const scopedDisasterEvents = useMemo(() => {
     return getScopedDisasterEvents({
@@ -288,6 +301,11 @@ const ConsolidatedEvacueeMasterlist = () => {
   };
 
   const handleSelectAll = () => {
+    if (isEndedView) {
+      setSelectedHouseholds([]);
+      return;
+    }
+
     const selectableHouseholdIds = displayedRows
       .filter((row) => !row.departure_time_value && row.can_record_departure)
       .map((row) => row.household_id);
@@ -300,7 +318,7 @@ const ConsolidatedEvacueeMasterlist = () => {
   };
 
   const handleOpenBulkDepartureConfirmation = () => {
-    if (!selectedHouseholds.length || isRecordingDeparture) {
+    if (isEndedView || !selectedHouseholds.length || isRecordingDeparture) {
       return;
     }
 
@@ -308,7 +326,7 @@ const ConsolidatedEvacueeMasterlist = () => {
   };
 
   const handleOpenDepartureConfirmation = (householdId) => {
-    if (isRecordingDeparture) {
+    if (isEndedView || isRecordingDeparture) {
       return;
     }
 
@@ -412,7 +430,7 @@ const ConsolidatedEvacueeMasterlist = () => {
 
   useEffect(() => {
     setSelectedHouseholds([]);
-  }, [selectedBarangayId, selectedDisasterEventId]);
+  }, [activeTab, selectedBarangayId, selectedDisasterEventId]);
 
   useEffect(() => {
     if (selectedDisasterEvent?.status === "ACTIVE" && activeTab !== "active") {
@@ -857,6 +875,8 @@ const ConsolidatedEvacueeMasterlist = () => {
         isLoading={isLoadingFilters || isLoadingMasterlist}
         errorMessage={errorMessage}
         onMarkDeparted={handleOpenDepartureConfirmation}
+        isDepartureReadOnly={isEndedView}
+        departureReadOnlyText={endedEventDateTimeText}
         selectedHouseholds={selectedHouseholds}
         onToggleSelect={handleToggleSelect}
         onSelectAll={handleSelectAll}
