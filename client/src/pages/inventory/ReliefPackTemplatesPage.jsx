@@ -13,11 +13,13 @@ import {
   replaceReliefPackTemplateItems,
   updateReliefPackTemplate,
 } from "../../features/relief-pack-templates/reliefPackTemplateService";
+import { FiChevronDown } from "react-icons/fi";
 
 const filterStyles = {
   field: {
     width: "100%",
     padding: "12px 14px",
+    paddingRight: "42px",
     borderRadius: "12px",
     border: "1px solid #cfddeb",
     backgroundColor: "#f8fbfe",
@@ -25,6 +27,10 @@ const filterStyles = {
     fontSize: "14px",
     boxSizing: "border-box",
     outline: "none",
+    appearance: "none",
+    WebkitAppearance: "none",
+    MozAppearance: "none",
+    cursor: "pointer",
   },
   label: {
     display: "block",
@@ -34,6 +40,21 @@ const filterStyles = {
     fontWeight: 700,
     letterSpacing: "0.08em",
     textTransform: "uppercase",
+  },
+  selectWrap: {
+    position: "relative",
+    width: "100%",
+  },
+  selectIcon: {
+    position: "absolute",
+    right: "14px",
+    top: "50%",
+    transform: "translateY(-50%)",
+    pointerEvents: "none",
+    color: "#5f7892",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
   },
 };
 
@@ -71,6 +92,88 @@ const helperTextStyle = {
   color: "#6b8298",
   fontSize: "14px",
 };
+
+const staticCardGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+  gap: "20px",
+  alignItems: "stretch",
+};
+
+const staticCardStyle = {
+  border: "1px solid #b7c7d8",
+  borderRadius: "10px",
+  backgroundColor: "#f8fbfe",
+  padding: "18px 18px 16px",
+  boxShadow: "0 2px 6px rgba(23, 50, 77, 0.10)",
+  display: "flex",
+  flexDirection: "column",
+  minHeight: "100%",
+};
+
+const staticInnerBoxStyle = {
+  backgroundColor: "#eef2f6",
+  borderRadius: "10px",
+  padding: "14px 16px",
+  marginBottom: "2px",
+  minHeight: "270px",
+  display: "flex",
+  flexDirection: "column",
+};
+
+const secondaryCardButtonStyle = {
+  flex: 1,
+  minHeight: "38px",
+  borderRadius: "10px",
+  border: "1px solid #bccbda",
+  backgroundColor: "#f8fbfe",
+  color: "#2f3f5d",
+  fontSize: "14px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const primaryCardButtonStyle = {
+  width: "100%",
+  minHeight: "40px",
+  borderRadius: "10px",
+  border: "none",
+  backgroundColor: "#3b4d73",
+  color: "#ffffff",
+  fontSize: "15px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const dummyTemplates = [
+  {
+    id: "basic-pack",
+    name: "Basic Relief Pack",
+    familyPerPack: "1 Family",
+    items: [
+      { name: "Rice (6kg)", quantity: "1 bag" },
+      { name: "Ligo Sardines", quantity: "5 cans" },
+      { name: "Argentina Corned Beef", quantity: "5 cans" },
+      { name: "Lucky Me Chicken Noodles", quantity: "7 packs" },
+      { name: "Bottled Water (300mL)", quantity: "10 bottles" },
+      { name: "Sleeping Mats", quantity: "3 pcs" },
+      { name: "Hygiene Kit", quantity: "1 bag" },
+    ],
+  },
+  {
+    id: "hygiene-kit",
+    name: "Hygiene Kit",
+    familyPerPack: "1 Family",
+    items: [
+      { name: "Toothbrush", quantity: "5 pcs" },
+      { name: "Toothpaste", quantity: "3 sachet" },
+      { name: "Soap", quantity: "1 pc" },
+      { name: "Shampoo", quantity: "3 sachet" },
+      { name: "Sanitary Napkin", quantity: "1 pack" },
+      { name: "Diaper", quantity: "1 pack" },
+    ],
+  },
+];
 
 const ReliefPackTemplatesPage = () => {
   const [activeTab, setActiveTab] = useState("relief-packs");
@@ -168,6 +271,18 @@ const ReliefPackTemplatesPage = () => {
     }
   };
 
+  const filteredDummyTemplates = dummyTemplates.filter((template) => {
+    const search = filters.search.trim().toLowerCase();
+    if (!search) return true;
+
+    const templateName = template.name.toLowerCase();
+    const itemNames = template.items
+      .map((item) => item.name.toLowerCase())
+      .join(" ");
+
+    return templateName.includes(search) || itemNames.includes(search);
+  });
+
   return (
     <>
       <PageHeader
@@ -217,9 +332,14 @@ const ReliefPackTemplatesPage = () => {
             >
               <div>
                 <label style={filterStyles.label}>Active Disaster Event</label>
-                <select style={filterStyles.field}>
-                  <option>-- Select Disaster Event --</option>
-                </select>
+                <div style={filterStyles.selectWrap}>
+                  <select style={filterStyles.field}>
+                    <option>-- Select Disaster Event --</option>
+                  </select>
+                  <span style={filterStyles.selectIcon}>
+                    <FiChevronDown size={16} />
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -396,40 +516,144 @@ const ReliefPackTemplatesPage = () => {
             </section>
 
             <section style={{ ...shellStyles.card, marginBottom: "16px" }}>
-              <ReliefPackTemplatesTable
-                rows={templates}
-                isLoading={isLoading}
-                onSelectTemplate={loadTemplateDetail}
-                onEditTemplate={handleOpenEditModal}
-              />
+              <div style={staticCardGridStyle}>
+                {filteredDummyTemplates.map((template) => (
+                  <div key={template.id} style={staticCardStyle}>
+                    <h3
+                      style={{
+                        margin: "0 0 12px",
+                        color: "#2f3f5d",
+                        fontSize: "22px",
+                        fontWeight: 800,
+                      }}
+                    >
+                      {template.name}
+                    </h3>
+
+                    <div style={staticInnerBoxStyle}>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          marginBottom: "10px",
+                        }}
+                      >
+                        <span
+                          style={{
+                            color: "#2f3f5d",
+                            fontWeight: 800,
+                            fontSize: "16px",
+                          }}
+                        >
+                          Items
+                        </span>
+                        <span
+                          style={{
+                            color: "#2f3f5d",
+                            fontWeight: 800,
+                            fontSize: "16px",
+                          }}
+                        >
+                          {template.items.length}
+                        </span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "grid",
+                          gap: "6px",
+                          marginBottom: "12px",
+                        }}
+                      >
+                        {template.items.map((item, index) => (
+                          <div
+                            key={`${template.id}-${index}`}
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "baseline",
+                              gap: "12px",
+                              color: "#3a4a66",
+                              fontSize: "14px",
+                            }}
+                          >
+                            <span>{item.name}</span>
+                            <span style={{ fontWeight: 600 }}>
+                              {item.quantity}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          marginTop: "auto",
+                          color: "#2f3f5d",
+                          fontWeight: 800,
+                          fontSize: "15px",
+                        }}
+                      >
+                        <span>FAMILY PER PACK</span>
+                        <span>{template.familyPerPack}</span>
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: "auto" }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: "10px",
+                          marginBottom: "10px",
+                        }}
+                      >
+                        <button
+                          type="button"
+                          style={secondaryCardButtonStyle}
+                          onClick={() =>
+                            setSuccessMessage(`Edit clicked for "${template.name}".`)
+                          }
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          style={secondaryCardButtonStyle}
+                          onClick={() =>
+                            setSuccessMessage(`Delete clicked for "${template.name}".`)
+                          }
+                        >
+                          Delete
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        style={primaryCardButtonStyle}
+                        onClick={() =>
+                          setSuccessMessage(
+                            `Assign to Disaster clicked for "${template.name}".`,
+                          )
+                        }
+                      >
+                        Assign to Disaster
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </section>
 
-            <section style={shellStyles.card}>
-              <ReliefPackTemplateItemsEditor
-                template={selectedTemplate}
-                inventoryItems={inventoryItems}
-                isSaving={isSavingItems}
-                onSaveItems={handleSaveItems}
-              />
-
-              {errorMessage ? (
-                <p style={{ ...helperTextStyle, marginTop: "16px", color: "#b42318" }}>
-                  {errorMessage}
-                </p>
-              ) : null}
-
-              {itemsErrorMessage ? (
-                <p style={{ ...helperTextStyle, marginTop: "12px", color: "#b42318" }}>
-                  {itemsErrorMessage}
-                </p>
-              ) : null}
-
-              {successMessage ? (
-                <p style={{ ...helperTextStyle, marginTop: "12px", color: "#17663a" }}>
+            {successMessage ? (
+              <section style={shellStyles.card}>
+                <p style={{ ...helperTextStyle, color: "#17663a" }}>
                   {successMessage}
                 </p>
-              ) : null}
-            </section>
+              </section>
+            ) : null}
           </>
         )}
       </section>
@@ -440,7 +664,26 @@ const ReliefPackTemplatesPage = () => {
         templateData={selectedTemplate}
         onClose={handleCloseModal}
         onSubmit={handleSubmitModal}
+        isSubmitting={isSubmitting}
       />
+
+      <div style={{ display: "none" }}>
+        <ReliefPackTemplatesTable
+          rows={templates}
+          isLoading={isLoading}
+          errorMessage={errorMessage}
+          selectedTemplateId={selectedTemplateId}
+          onSelectTemplate={loadTemplateDetail}
+          onEditTemplate={handleOpenEditModal}
+        />
+        <ReliefPackTemplateItemsEditor
+          template={selectedTemplate}
+          inventoryItems={inventoryItems}
+          isSaving={isSavingItems}
+          errorMessage={itemsErrorMessage}
+          onSaveItems={handleSaveItems}
+        />
+      </div>
     </>
   );
 };
