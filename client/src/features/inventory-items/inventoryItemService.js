@@ -18,15 +18,25 @@ export const fetchInventoryItems = async (filters = {}) => {
     searchParams.set("search", filters.search.trim());
   }
 
-  if (filters.category) {
+  if (filters.category && filters.category !== "All") {
     searchParams.set("category", filters.category.trim());
   }
 
-  if (filters.is_active !== "") {
+  if (
+    filters.is_active === true ||
+    filters.is_active === false ||
+    filters.is_active === "true" ||
+    filters.is_active === "false"
+  ) {
     searchParams.set("is_active", filters.is_active);
   }
 
-  if (filters.is_perishable !== "") {
+  if (
+    filters.is_perishable === true ||
+    filters.is_perishable === false ||
+    filters.is_perishable === "true" ||
+    filters.is_perishable === "false"
+  ) {
     searchParams.set("is_perishable", filters.is_perishable);
   }
 

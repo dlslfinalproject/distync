@@ -58,10 +58,30 @@ const errorBoxStyles = {
   border: "1px solid #ffe4e6",
 };
 
+const unitOfMeasureOptions = ["kg", "g", "L", "mL", "pc"];
+const packagingOptions = ["sack", "box", "carton", "case", "pack", "bottle"];
+
+const normalizeCategoryValue = (category) => {
+  if (typeof category !== "string") {
+    return "perishable";
+  }
+
+  const normalizedCategory = category.trim().toLowerCase();
+
+  if (normalizedCategory === "non-perishable") {
+    return "non-perishable";
+  }
+
+  return "perishable";
+};
+
 const createDefaultForm = () => ({
   item_name: "",
   quantity: "",
   unit_of_measure: "",
+  unit_of_measure_value: "",
+  packaging: "",
+  packaging_count: "",
   category: "perishable",
   expiration_date: "",
   reorder_level: "",
@@ -86,7 +106,10 @@ const InventoryItemFormModal = ({
         item_name: itemData.item_name || itemData.name || "",
         quantity: itemData.quantity || "",
         unit_of_measure: itemData.unit_of_measure || itemData.unit || "",
-        category: itemData.category || "perishable",
+        unit_of_measure_value: itemData.unit_of_measure_value || "",
+        packaging: itemData.packaging || "",
+        packaging_count: itemData.packaging_count || "",
+        category: normalizeCategoryValue(itemData.category),
         expiration_date: itemData.expiration_date || itemData.expiryDate || "",
         reorder_level: itemData.reorder_level || "",
       });
@@ -188,16 +211,61 @@ const InventoryItemFormModal = ({
                 <label htmlFor="unit_of_measure" style={labelStyles}>
                   Unit of Measure
                 </label>
-                <input
+                <select
                   id="unit_of_measure"
-                  type="text"
-                  placeholder="pcs, kg, box, etc."
                   value={formValues.unit_of_measure}
                   onChange={(e) =>
                     handleChange("unit_of_measure", e.target.value)
                   }
                   style={inputStyles}
+                  required
+                >
+                  <option value="">Select unit of measure</option>
+                  {unitOfMeasureOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="unit_of_measure_value" style={labelStyles}>
+                  Number for Unit of Measure
+                </label>
+                <input
+                  id="unit_of_measure_value"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  placeholder="Example: 5 for 5 kg"
+                  value={formValues.unit_of_measure_value}
+                  onChange={(e) =>
+                    handleChange("unit_of_measure_value", e.target.value)
+                  }
+                  style={inputStyles}
+                  required
                 />
+              </div>
+
+              <div>
+                <label htmlFor="packaging" style={labelStyles}>
+                  Packaging
+                </label>
+                <select
+                  id="packaging"
+                  value={formValues.packaging}
+                  onChange={(e) => handleChange("packaging", e.target.value)}
+                  style={inputStyles}
+                  required
+                >
+                  <option value="">Select packaging</option>
+                  {packagingOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
           </section>
@@ -216,13 +284,32 @@ const InventoryItemFormModal = ({
               }}
             >
               <div>
+                <label htmlFor="packaging_count" style={labelStyles}>
+                  Number of Packagings
+                </label>
+                <input
+                  id="packaging_count"
+                  type="number"
+                  min="1"
+                  placeholder="How many sacks, boxes, packs, etc."
+                  value={formValues.packaging_count}
+                  onChange={(e) =>
+                    handleChange("packaging_count", e.target.value)
+                  }
+                  style={inputStyles}
+                  required
+                />
+              </div>
+
+              <div>
                 <label htmlFor="quantity" style={labelStyles}>
-                  Quantity
+                  Quantity per Packaging
                 </label>
                 <input
                   id="quantity"
                   type="number"
-                  placeholder="0"
+                  min="1"
+                  placeholder="How many items per pack, box, case, etc."
                   value={formValues.quantity}
                   onChange={(e) => handleChange("quantity", e.target.value)}
                   style={inputStyles}

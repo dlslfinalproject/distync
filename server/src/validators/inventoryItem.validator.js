@@ -1,8 +1,64 @@
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+const allowedUnitOfMeasureValues = ["kg", "g", "L", "mL", "pc"];
+const allowedPackagingValues = ["sack", "box", "carton", "case", "pack", "bottle"];
+const categoryValueMap = {
+  perishable: "Perishable",
+  "non-perishable": "Non-Perishable",
+};
+
 const isValidUuid = (value) => {
   return typeof value === "string" && uuidPattern.test(value);
+};
+
+const normalizeAllowedValue = (value, allowedValues) => {
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+
+  const normalizedValue = value.trim().toLowerCase();
+
+  return (
+    allowedValues.find(
+      (allowedValue) => allowedValue.toLowerCase() === normalizedValue,
+    ) || null
+  );
+};
+
+const normalizeCategory = (value) => {
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+
+  const normalizedValue = value.trim().toLowerCase();
+  return categoryValueMap[normalizedValue] || value.trim();
+};
+
+const parsePositiveInteger = (value) => {
+  if (typeof value === "number") {
+    return Number.isInteger(value) && value > 0 ? value : null;
+  }
+
+  if (typeof value !== "string" || !/^\d+$/.test(value.trim())) {
+    return null;
+  }
+
+  const parsedValue = Number.parseInt(value.trim(), 10);
+  return parsedValue > 0 ? parsedValue : null;
+};
+
+const parsePositiveNumber = (value) => {
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+
+  if (typeof value !== "string" || !/^\d+(\.\d+)?$/.test(value.trim())) {
+    return null;
+  }
+
+  const parsedValue = Number.parseFloat(value.trim());
+  return parsedValue > 0 ? parsedValue : null;
 };
 
 const parseOptionalBoolean = (value) => {
@@ -19,6 +75,24 @@ const parseOptionalBoolean = (value) => {
   }
 
   return { isProvided: true, value: "invalid" };
+};
+
+const parseOptionalDate = (value) => {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    return "invalid";
+  }
+
+  const parsedDate = new Date(`${value.trim()}T00:00:00Z`);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "invalid";
+  }
+
+  return value.trim();
 };
 
 const validateInventoryItemId = (req, res, next) => {
@@ -82,14 +156,23 @@ const validateInventoryItemPayload = (req, res, next) => {
       item_name,
       category,
       unit_of_measure,
+      unit_of_measure_value,
+      packaging,
+      packaging_count,
+      quantity,
+      expiration_date,
       barcode,
       is_perishable,
       is_active,
     } = req.body;
 
-    if (!item_code || typeof item_code !== "string" || !item_code.trim()) {
+    if (
+      item_code !== undefined &&
+      item_code !== null &&
+      (typeof item_code !== "string" || !item_code.trim())
+    ) {
       return res.status(400).json({
-        message: "item_code is required and must be a non-empty string",
+        message: "item_code must be a non-empty string when provided",
       });
     }
 
@@ -105,13 +188,57 @@ const validateInventoryItemPayload = (req, res, next) => {
       });
     }
 
-    if (
-      !unit_of_measure ||
-      typeof unit_of_measure !== "string" ||
-      !unit_of_measure.trim()
-    ) {
+    const normalizedUnitOfMeasure = normalizeAllowedValue(
+      unit_of_measure,
+      allowedUnitOfMeasureValues,
+    );
+
+    if (!normalizedUnitOfMeasure) {
       return res.status(400).json({
-        message: "unit_of_measure is required and must be a non-empty string",
+        message: `unit_of_measure is required and must be one of: ${allowedUnitOfMeasureValues.join(", ")}`,
+      });
+    }
+
+    const parsedUnitOfMeasureValue = parsePositiveNumber(unit_of_measure_value);
+
+    if (!parsedUnitOfMeasureValue) {
+      return res.status(400).json({
+        message: "unit_of_measure_value is required and must be a positive number",
+      });
+    }
+
+    const normalizedPackaging = normalizeAllowedValue(
+      packaging,
+      allowedPackagingValues,
+    );
+
+    if (!normalizedPackaging) {
+      return res.status(400).json({
+        message: `packaging is required and must be one of: ${allowedPackagingValues.join(", ")}`,
+      });
+    }
+
+    const parsedQuantity = parsePositiveInteger(quantity);
+
+    if (!parsedQuantity) {
+      return res.status(400).json({
+        message: "quantity is required and must be a positive integer",
+      });
+    }
+
+    const parsedPackagingCount = parsePositiveInteger(packaging_count);
+
+    if (!parsedPackagingCount) {
+      return res.status(400).json({
+        message: "packaging_count is required and must be a positive integer",
+      });
+    }
+
+    const parsedExpirationDate = parseOptionalDate(expiration_date);
+
+    if (parsedExpirationDate === "invalid") {
+      return res.status(400).json({
+        message: "expiration_date must be a valid date in YYYY-MM-DD format",
       });
     }
 
@@ -136,13 +263,30 @@ const validateInventoryItemPayload = (req, res, next) => {
       });
     }
 
+    const normalizedCategory = normalizeCategory(category);
+
     req.validatedBody = {
-      item_code: item_code.trim(),
+      item_code:
+        typeof item_code === "string" && item_code.trim()
+          ? item_code.trim()
+          : null,
       item_name: item_name.trim(),
-      category: category.trim(),
-      unit_of_measure: unit_of_measure.trim(),
-      barcode: barcode ?? null,
-      is_perishable: is_perishable ?? false,
+      category: normalizedCategory,
+      unit_of_measure: normalizedUnitOfMeasure,
+      unit_of_measure_value: parsedUnitOfMeasureValue,
+      packaging: normalizedPackaging,
+      packaging_count: parsedPackagingCount,
+      quantity: parsedQuantity,
+      expiration_date: parsedExpirationDate,
+      barcode:
+        typeof barcode === "string" && barcode.trim() ? barcode.trim() : null,
+      is_perishable:
+        is_perishable ??
+        (normalizedCategory === "Perishable"
+          ? true
+          : normalizedCategory === "Non-Perishable"
+            ? false
+            : false),
       is_active: is_active ?? true,
     };
 
