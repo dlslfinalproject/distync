@@ -4,9 +4,13 @@ export const pageHeaderStyles = {
   wrapper: {
     display: "flex",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: "16px",
+    alignItems: "flex-end",
+    gap: "18px",
     flexWrap: "wrap",
+  },
+  content: {
+    flex: "1 1 420px",
+    minWidth: 0,
   },
   eyebrow: {
     display: "inline-flex",
@@ -25,8 +29,9 @@ export const pageHeaderStyles = {
   title: {
     margin: 0,
     color: "#17324d",
-    fontSize: "34px",
-    lineHeight: 1.1,
+    fontSize: "clamp(24px, 3vw, 34px)",
+    lineHeight: 1.12,
+    letterSpacing: "-0.03em",
   },
   description: {
     margin: "10px 0 0",
@@ -39,6 +44,9 @@ export const pageHeaderStyles = {
     display: "flex",
     gap: "12px",
     flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    flex: "0 1 auto",
   },
   primaryButton: {
     border: "none",
@@ -50,6 +58,13 @@ export const pageHeaderStyles = {
     fontWeight: 700,
     cursor: "pointer",
     boxShadow: "0 12px 24px rgba(58, 97, 141, 0.18)",
+    minHeight: "46px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    whiteSpace: "nowrap",
+    boxSizing: "border-box",
   },
   secondaryButton: {
     border: "1px solid #c6d8ea",
@@ -60,13 +75,20 @@ export const pageHeaderStyles = {
     fontSize: "14px",
     fontWeight: 700,
     cursor: "pointer",
+    minHeight: "46px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    whiteSpace: "nowrap",
+    boxSizing: "border-box",
   },
 };
 
 const PageHeader = ({ eyebrow, title, description, actions = [] }) => {
   return (
     <div style={pageHeaderStyles.wrapper}>
-      <div>
+      <div style={pageHeaderStyles.content}>
         {eyebrow ? <div style={pageHeaderStyles.eyebrow}>{eyebrow}</div> : null}
         <h2 style={pageHeaderStyles.title}>{title}</h2>
         {description ? (

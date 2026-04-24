@@ -5,6 +5,7 @@ import {
   fetchAllDisasterEvents,
   fetchBarangays,
   fetchDisasterEventById,
+  fetchEndedDisasterEvents,
   extendDisasterEvent,
   endDisasterEvent,
 } from "./disasterEventService";
@@ -28,11 +29,16 @@ const loadEventListByFilter = async (selectedFilter) => {
   }
 
   if (selectedFilter === "closed") {
-    const all = await fetchAllDisasterEvents();
-    return all.filter((event) => event.status === DISASTER_EVENT_STATUSES.CLOSED);
+    return fetchEndedDisasterEvents();
   }
 
-  return fetchAllDisasterEvents();
+  const allEvents = await fetchAllDisasterEvents();
+
+  return allEvents.filter(
+    (event) =>
+      event.status === DISASTER_EVENT_STATUSES.ACTIVE ||
+      event.status === DISASTER_EVENT_STATUSES.CLOSED,
+  );
 };
 
 export const useDisasterEvents = () => {

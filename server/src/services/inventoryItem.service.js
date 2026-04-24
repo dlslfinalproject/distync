@@ -1,4 +1,5 @@
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
+const inventoryItemExport = require("../utils/inventoryItemExport");
 
 const buildItemCodeSeed = (itemName) => {
   const normalizedName = itemName
@@ -50,8 +51,101 @@ const ensureUniqueFields = async (itemData, currentItemId = null) => {
   }
 };
 
+const isItemExpiring = (item) => {
+  if (!item.expiration_date) {
+    return false;
+  }
+
+  const expirationDate = new Date(item.expiration_date);
+  const comparisonDate = new Date();
+
+  expirationDate.setHours(0, 0, 0, 0);
+  comparisonDate.setHours(0, 0, 0, 0);
+
+  if (Number.isNaN(expirationDate.getTime())) {
+    return false;
+  }
+
+  const millisecondsUntilExpiration =
+    expirationDate.getTime() - comparisonDate.getTime();
+  const daysUntilExpiration = millisecondsUntilExpiration / (1000 * 60 * 60 * 24);
+
+  return daysUntilExpiration >= 0 && daysUntilExpiration <= 30;
+};
+
+const getItemStatus = (item) => {
+  if (!item.is_active) {
+    return "Inactive";
+  }
+
+  if (isItemExpiring(item)) {
+    return "Expiring";
+  }
+
+  return "Active";
+};
+
+const filterInventoryItemsByStatus = (items, selectedStatus) => {
+  if (!selectedStatus || selectedStatus === "All") {
+    return items;
+  }
+
+  return items.filter((item) => getItemStatus(item) === selectedStatus);
+};
+
+const formatPlural = (value, label) => {
+  return `${value} ${label}${Number(value) > 1 ? "s" : ""}`;
+};
+
+const formatItemQuantity = (item) => {
+  const packagingPart =
+    item.packaging_count && item.packaging
+      ? formatPlural(item.packaging_count, item.packaging)
+      : item.packaging || "--";
+  const unitPart =
+    item.unit_of_measure_value && item.unit_of_measure
+      ? `${item.unit_of_measure_value} ${item.unit_of_measure}`
+      : item.unit_of_measure || "--";
+
+  if (item.quantity) {
+    return `${packagingPart} | ${item.quantity} per packaging | ${unitPart}`;
+  }
+
+  return `${packagingPart} | ${unitPart}`;
+};
+
+const mapInventoryItemToExportRow = (item) => ({
+  item_name: item.item_name || "--",
+  category: item.category || "--",
+  quantity: formatItemQuantity(item),
+  expiration_date: inventoryItemExport.formatDate(item.expiration_date),
+  status: getItemStatus(item),
+});
+
 const getInventoryItems = async (filters) => {
   return inventoryItemRepository.getInventoryItems(filters);
+};
+
+const exportInventoryItems = async (filters) => {
+  const inventoryItems = await inventoryItemRepository.getInventoryItems(filters);
+  const exportRows = filterInventoryItemsByStatus(
+    inventoryItems,
+    filters.status,
+  ).map(mapInventoryItemToExportRow);
+
+  if (exportRows.length === 0) {
+    const error = new Error(
+      "No inventory items are available to export for the current filters.",
+    );
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return inventoryItemExport.buildExportFile({
+    rows: exportRows,
+    filters,
+    format: filters.format,
+  });
 };
 
 const getInventoryItemById = async (id) => {
@@ -89,6 +183,7 @@ const updateInventoryItem = async (id, itemData) => {
 
 module.exports = {
   getInventoryItems,
+  exportInventoryItems,
   getInventoryItemById,
   createInventoryItem,
   updateInventoryItem,

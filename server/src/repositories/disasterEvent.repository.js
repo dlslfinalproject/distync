@@ -19,10 +19,11 @@ const selectDisasterEventColumns = `
 const getAllDisasterEvents = async () => {
   const query = `
     ${selectDisasterEventColumns}
+    WHERE status = ANY($1::TEXT[])
     ORDER BY created_at DESC
   `;
 
-  const result = await pool.query(query);
+  const result = await pool.query(query, [["ACTIVE", "CLOSED"]]);
   return result.rows;
 };
 
