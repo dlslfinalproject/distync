@@ -3,20 +3,8 @@ import {
   fetchActiveDisasterEvents,
   fetchBarangays,
   fetchDisasterEvents,
-  fetchMasterlistAnalyticsSource,
   fetchMasterlistOperationalAnalytics,
 } from "./mswdoAnalyticsService";
-import { formatStayTypeLabel } from "../../utils/stayType";
-
-const emptyPayload = {
-  disaster_event: null,
-  filters: {
-    disaster_event_id: null,
-    barangay_id: null,
-  },
-  count: 0,
-  data: [],
-};
 
 const emptyOperationalPayload = {
   disaster_event: null,
@@ -34,6 +22,13 @@ const emptyOperationalPayload = {
   },
   charts: {
     per_barangay: [],
+    sex_distribution: [],
+    age_group_distribution: [],
+    sector_distribution: [],
+    stay_type_distribution: [],
+    evacuation_center_distribution: [],
+    relief_distribution_per_barangay: [],
+    daily_admission_trend: [],
   },
   has_data: false,
 };
@@ -42,100 +37,7 @@ const sortByValueDescending = (items) => {
   return [...items].sort((firstItem, secondItem) => secondItem.value - firstItem.value);
 };
 
-const getSummaryMetrics = (households) => {
-  const totalHouseholds = households.length;
-  const totalEvacuees = households.reduce((total, household) => {
-    return total + (household.household_size || household.members?.length || 0);
-  }, 0);
-
-  const barangayIds = new Set(
-    households.map((household) => household.barangay?.id).filter(Boolean),
-  );
-
-  const averageHouseholdSize =
-    totalHouseholds > 0 ? (totalEvacuees / totalHouseholds).toFixed(1) : "0.0";
-
-  return {
-    totalHouseholds,
-    totalEvacuees,
-    totalBarangaysCovered: barangayIds.size,
-    averageHouseholdSize,
-  };
-};
-
-const getEvacueesPerBarangay = (households) => {
-  const countsByBarangay = households.reduce((groups, household) => {
-    const barangayName = household.barangay?.name || "Unknown";
-    const householdSize = household.household_size || household.members?.length || 0;
-
-    groups[barangayName] = (groups[barangayName] || 0) + householdSize;
-    return groups;
-  }, {});
-
-  return sortByValueDescending(
-    Object.entries(countsByBarangay).map(([name, value]) => ({
-      name,
-      value,
-    })),
-  );
-};
-
-const getHouseholdsPerBarangay = (households) => {
-  const countsByBarangay = households.reduce((groups, household) => {
-    const barangayName = household.barangay?.name || "Unknown";
-    groups[barangayName] = (groups[barangayName] || 0) + 1;
-    return groups;
-  }, {});
-
-  return sortByValueDescending(
-    Object.entries(countsByBarangay).map(([name, value]) => ({
-      name,
-      value,
-    })),
-  );
-};
-
-const getSectorDistribution = (households) => {
-  const sectorCounts = households.reduce((groups, household) => {
-    const householdSectors = household.household_sectors || [];
-    const memberSectors = (household.members || []).flatMap(
-      (member) => member.sectors || [],
-    );
-
-    [...householdSectors, ...memberSectors].forEach((sector) => {
-      const sectorName = sector.name || sector.code || "Unknown";
-      groups[sectorName] = (groups[sectorName] || 0) + 1;
-    });
-
-    return groups;
-  }, {});
-
-  return sortByValueDescending(
-    Object.entries(sectorCounts).map(([name, value]) => ({
-      name,
-      value,
-    })),
-  );
-};
-
-const getStayTypeDistribution = (households) => {
-  const countsByStayType = households.reduce((groups, household) => {
-    const stayType = household.current_stay_type
-      ? formatStayTypeLabel(household.current_stay_type)
-      : "Unspecified";
-    groups[stayType] = (groups[stayType] || 0) + 1;
-    return groups;
-  }, {});
-
-  return sortByValueDescending(
-    Object.entries(countsByStayType).map(([name, value]) => ({
-      name,
-      value,
-    })),
-  );
-};
-
-const getPerBarangayDataset = (dashboardPayload) => {
+const mapPerBarangayDataset = (dashboardPayload) => {
   const items = dashboardPayload.charts?.per_barangay || [];
 
   return items.map((item) => ({
@@ -148,30 +50,37 @@ const getPerBarangayDataset = (dashboardPayload) => {
   }));
 };
 
-const getOperationalEvacueesPerBarangay = (perBarangayDataset) => {
+const mapSummaryMetrics = (summary) => ({
+  totalEvacuees: Number(summary.total_number_of_evacuees_individuals || 0),
+  totalHouseholds: Number(summary.total_number_of_families || 0),
+  currentlyAdmitted: Number(summary.currently_admitted_evacuees || 0),
+  departed: Number(summary.total_departed_evacuees || 0),
+  totalBarangaysCovered: Number(summary.total_barangays_covered || 0),
+  averageHouseholdSize: Number(summary.average_household_size || 0),
+});
+
+const mapSimpleDistribution = (items = []) => {
   return sortByValueDescending(
-    perBarangayDataset.map((item) => ({
-      name: item.barangay_name,
-      value: item.evacuees_count,
+    items.map((item) => ({
+      name: item.name || "Unknown",
+      value: Number(item.value || 0),
     })),
   );
 };
 
-const getOperationalFamiliesPerBarangay = (perBarangayDataset) => {
+const mapPerBarangayCounts = (items, valueKey) => {
   return sortByValueDescending(
-    perBarangayDataset.map((item) => ({
+    items.map((item) => ({
       name: item.barangay_name,
-      value: item.families_count,
+      value: Number(item[valueKey] || 0),
     })),
   );
 };
 
-const getAdmittedVsDepartedDistribution = (dashboardPayload) => {
-  const summary = dashboardPayload.summary_metrics || emptyOperationalPayload.summary_metrics;
-
+const mapAdmittedVsDepartedDistribution = (summary) => {
   return [
     {
-      name: "Currently Admitted",
+      name: "Admitted",
       value: Number(summary.currently_admitted_evacuees || 0),
     },
     {
@@ -181,11 +90,11 @@ const getAdmittedVsDepartedDistribution = (dashboardPayload) => {
   ].filter((item) => item.value > 0);
 };
 
-const getBarangayStatusBreakdown = (perBarangayDataset) => {
-  return perBarangayDataset.map((item) => ({
-    name: item.barangay_name,
-    admitted: item.admitted_evacuees_count,
-    departed: item.departed_evacuees_count,
+const mapDailyAdmissionTrend = (items = []) => {
+  return items.map((item) => ({
+    name: item.name || "Unknown",
+    value: Number(item.value || 0),
+    date: item.date || null,
   }));
 };
 
@@ -194,7 +103,6 @@ export const useMswdoAnalytics = () => {
   const [barangays, setBarangays] = useState([]);
   const [selectedDisasterEventId, setSelectedDisasterEventId] = useState("");
   const [selectedBarangayId, setSelectedBarangayId] = useState("");
-  const [masterlistPayload, setMasterlistPayload] = useState(emptyPayload);
   const [operationalPayload, setOperationalPayload] = useState(emptyOperationalPayload);
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
@@ -251,9 +159,8 @@ export const useMswdoAnalytics = () => {
   useEffect(() => {
     let isMounted = true;
 
-    const loadDashboardSource = async () => {
+    const loadDashboard = async () => {
       if (!selectedDisasterEventId) {
-        setMasterlistPayload(emptyPayload);
         setOperationalPayload(emptyOperationalPayload);
         return;
       }
@@ -262,24 +169,16 @@ export const useMswdoAnalytics = () => {
       setErrorMessage("");
 
       try {
-        const [payload, operationalDashboard] = await Promise.all([
-          fetchMasterlistAnalyticsSource({
-            disasterEventId: selectedDisasterEventId,
-            barangayId: selectedBarangayId || null,
-          }),
-          fetchMasterlistOperationalAnalytics({
-            disasterEventId: selectedDisasterEventId,
-            barangayId: selectedBarangayId || null,
-          }),
-        ]);
+        const payload = await fetchMasterlistOperationalAnalytics({
+          disasterEventId: selectedDisasterEventId,
+          barangayId: selectedBarangayId || null,
+        });
 
         if (isMounted) {
-          setMasterlistPayload(payload);
-          setOperationalPayload(operationalDashboard);
+          setOperationalPayload(payload);
         }
       } catch (error) {
         if (isMounted) {
-          setMasterlistPayload(emptyPayload);
           setOperationalPayload(emptyOperationalPayload);
           setErrorMessage(error.message || "Failed to load analytics dashboard");
         }
@@ -290,7 +189,7 @@ export const useMswdoAnalytics = () => {
       }
     };
 
-    loadDashboardSource();
+    loadDashboard();
 
     return () => {
       isMounted = false;
@@ -298,52 +197,65 @@ export const useMswdoAnalytics = () => {
   }, [selectedBarangayId, selectedDisasterEventId]);
 
   const selectedDisasterEvent = useMemo(() => {
-    return (
-      disasterEvents.find((event) => event.id === selectedDisasterEventId) || null
-    );
+    return disasterEvents.find((event) => event.id === selectedDisasterEventId) || null;
   }, [disasterEvents, selectedDisasterEventId]);
 
-  const households = masterlistPayload.data || [];
-
   const summaryMetrics = useMemo(() => {
-    return getSummaryMetrics(households);
-  }, [households]);
+    return mapSummaryMetrics(operationalPayload.summary_metrics || {});
+  }, [operationalPayload.summary_metrics]);
+
+  const perBarangayDataset = useMemo(() => {
+    return mapPerBarangayDataset(operationalPayload);
+  }, [operationalPayload]);
 
   const evacueesPerBarangay = useMemo(() => {
-    return getEvacueesPerBarangay(households);
-  }, [households]);
+    return mapPerBarangayCounts(perBarangayDataset, "evacuees_count");
+  }, [perBarangayDataset]);
 
-  const householdsPerBarangay = useMemo(() => {
-    return getHouseholdsPerBarangay(households);
-  }, [households]);
+  const familiesPerBarangay = useMemo(() => {
+    return mapPerBarangayCounts(perBarangayDataset, "families_count");
+  }, [perBarangayDataset]);
+
+  const sexDistribution = useMemo(() => {
+    return mapSimpleDistribution(operationalPayload.charts?.sex_distribution);
+  }, [operationalPayload.charts?.sex_distribution]);
+
+  const ageGroupDistribution = useMemo(() => {
+    return (operationalPayload.charts?.age_group_distribution || []).map((item) => ({
+      name: item.name || "Unknown",
+      value: Number(item.value || 0),
+    }));
+  }, [operationalPayload.charts?.age_group_distribution]);
 
   const sectorDistribution = useMemo(() => {
-    return getSectorDistribution(households);
-  }, [households]);
+    return mapSimpleDistribution(operationalPayload.charts?.sector_distribution);
+  }, [operationalPayload.charts?.sector_distribution]);
 
   const stayTypeDistribution = useMemo(() => {
-    return getStayTypeDistribution(households);
-  }, [households]);
-
-  const perBarangayOperationalDataset = useMemo(() => {
-    return getPerBarangayDataset(operationalPayload);
-  }, [operationalPayload]);
-
-  const operationalEvacueesPerBarangay = useMemo(() => {
-    return getOperationalEvacueesPerBarangay(perBarangayOperationalDataset);
-  }, [perBarangayOperationalDataset]);
-
-  const operationalFamiliesPerBarangay = useMemo(() => {
-    return getOperationalFamiliesPerBarangay(perBarangayOperationalDataset);
-  }, [perBarangayOperationalDataset]);
+    return mapSimpleDistribution(operationalPayload.charts?.stay_type_distribution);
+  }, [operationalPayload.charts?.stay_type_distribution]);
 
   const admittedVsDepartedDistribution = useMemo(() => {
-    return getAdmittedVsDepartedDistribution(operationalPayload);
-  }, [operationalPayload]);
+    return mapAdmittedVsDepartedDistribution(
+      operationalPayload.summary_metrics || emptyOperationalPayload.summary_metrics,
+    );
+  }, [operationalPayload.summary_metrics]);
 
-  const barangayStatusBreakdown = useMemo(() => {
-    return getBarangayStatusBreakdown(perBarangayOperationalDataset);
-  }, [perBarangayOperationalDataset]);
+  const evacuationCenterDistribution = useMemo(() => {
+    return mapSimpleDistribution(
+      operationalPayload.charts?.evacuation_center_distribution,
+    );
+  }, [operationalPayload.charts?.evacuation_center_distribution]);
+
+  const reliefDistributionPerBarangay = useMemo(() => {
+    return mapSimpleDistribution(
+      operationalPayload.charts?.relief_distribution_per_barangay,
+    );
+  }, [operationalPayload.charts?.relief_distribution_per_barangay]);
+
+  const dailyAdmissionTrend = useMemo(() => {
+    return mapDailyAdmissionTrend(operationalPayload.charts?.daily_admission_trend);
+  }, [operationalPayload.charts?.daily_admission_trend]);
 
   return {
     disasterEvents,
@@ -353,19 +265,20 @@ export const useMswdoAnalytics = () => {
     selectedDisasterEvent,
     summaryMetrics,
     evacueesPerBarangay,
-    householdsPerBarangay,
+    familiesPerBarangay,
+    sexDistribution,
+    ageGroupDistribution,
     sectorDistribution,
     stayTypeDistribution,
-    operationalEvacueesPerBarangay,
-    operationalFamiliesPerBarangay,
     admittedVsDepartedDistribution,
-    barangayStatusBreakdown,
+    evacuationCenterDistribution,
+    reliefDistributionPerBarangay,
+    dailyAdmissionTrend,
     isLoadingFilters,
     isLoadingDashboard,
     errorMessage,
     hasSelectedEvent: Boolean(selectedDisasterEventId),
-    hasData: households.length > 0,
-    hasOperationalData: Boolean(operationalPayload.has_data),
+    hasData: Boolean(operationalPayload.has_data),
     setSelectedDisasterEventId,
     setSelectedBarangayId,
   };

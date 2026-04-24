@@ -264,6 +264,53 @@ const getMswdoMasterlistDashboard = async (filters) => {
         admitted_evacuees_count: Number(item.admitted_evacuees_count || 0),
         departed_evacuees_count: Number(item.departed_evacuees_count || 0),
       })),
+      sex_distribution: Array.isArray(metrics.sex_distribution_dataset)
+        ? metrics.sex_distribution_dataset.map((item) => ({
+            name: item.name,
+            value: Number(item.value || 0),
+          }))
+        : [],
+      age_group_distribution: Array.isArray(metrics.age_group_distribution_dataset)
+        ? metrics.age_group_distribution_dataset.map((item) => ({
+            name: item.name,
+            value: Number(item.value || 0),
+          }))
+        : [],
+      sector_distribution: Array.isArray(metrics.sector_distribution_dataset)
+        ? metrics.sector_distribution_dataset.map((item) => ({
+            name: item.name,
+            value: Number(item.value || 0),
+          }))
+        : [],
+      stay_type_distribution: Array.isArray(metrics.stay_type_distribution_dataset)
+        ? metrics.stay_type_distribution_dataset.map((item) => ({
+            name: item.name,
+            value: Number(item.value || 0),
+          }))
+        : [],
+      evacuation_center_distribution: Array.isArray(
+        metrics.evacuation_center_distribution_dataset,
+      )
+        ? metrics.evacuation_center_distribution_dataset.map((item) => ({
+            name: item.name,
+            value: Number(item.value || 0),
+          }))
+        : [],
+      relief_distribution_per_barangay: Array.isArray(
+        metrics.relief_distribution_dataset,
+      )
+        ? metrics.relief_distribution_dataset.map((item) => ({
+            name: item.name,
+            value: Number(item.value || 0),
+          }))
+        : [],
+      daily_admission_trend: Array.isArray(metrics.daily_admission_trend_dataset)
+        ? metrics.daily_admission_trend_dataset.map((item) => ({
+            name: item.name,
+            date: item.date,
+            value: Number(item.value || 0),
+          }))
+        : [],
     },
     has_data:
       Number(metrics.total_number_of_evacuees_individuals || 0) > 0 ||
