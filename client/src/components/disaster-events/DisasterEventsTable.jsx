@@ -37,6 +37,43 @@ const tableStyles = {
     overflowWrap: "anywhere",
     wordBreak: "break-word",
   },
+  actionMenuButton: {
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    width: "36px",
+    height: "36px",
+    borderRadius: "10px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#24496e",
+  },
+  dropdown: {
+    position: "fixed",
+    background: "#fff",
+    borderRadius: "12px",
+    boxShadow: "0 8px 24px rgba(18, 39, 60, 0.16)",
+    padding: "10px",
+    zIndex: 1300,
+    minWidth: "116px",
+    display: "flex",
+    gap: "12px",
+    justifyContent: "center",
+    border: "1px solid #d7e2ef",
+  },
+  dropdownButton: {
+    border: "1px solid #c6d8ea",
+    borderRadius: "12px",
+    width: "40px",
+    height: "40px",
+    backgroundColor: "#f7fbfe",
+    color: "#24496e",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+  },
 };
 
 const DisasterEventsTable = ({
@@ -49,6 +86,37 @@ const DisasterEventsTable = ({
   validBarangayCount = 0,
 }) => {
   const [activeMenu, setActiveMenu] = useState(null);
+  const [menuPosition, setMenuPosition] = useState({
+    top: 0,
+    left: 0,
+  });
+
+  const handleToggleMenu = (event, rowId) => {
+    const buttonRect = event.currentTarget.getBoundingClientRect();
+    const dropdownWidth = 116;
+    const dropdownHeight = 64;
+    const spacing = 8;
+
+    const shouldOpenUpward =
+      window.innerHeight - buttonRect.bottom < dropdownHeight + spacing;
+
+    const calculatedLeft = Math.min(
+      Math.max(buttonRect.left + buttonRect.width / 2 - dropdownWidth / 2, 12),
+      window.innerWidth - dropdownWidth - 12,
+    );
+
+    const calculatedTop = shouldOpenUpward
+      ? buttonRect.top - dropdownHeight - spacing
+      : buttonRect.bottom + spacing;
+
+    setMenuPosition({
+      top: calculatedTop,
+      left: calculatedLeft,
+    });
+
+    setActiveMenu(activeMenu === rowId ? null : rowId);
+  };
+
   if (isLoading) {
     return (
       <div style={{ width: "100%" }}>
@@ -128,167 +196,144 @@ const DisasterEventsTable = ({
               <th style={{ ...tableStyles.headerCell, width: "8%" }}>
                 Status
               </th>
-              <th style={{ ...tableStyles.headerCell, width: "8%" }}>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  width: "8%",
+                  textAlign: "center",
+                }}
+              >
                 Action
               </th>
             </tr>
           </thead>
+
           <tbody>
             {rows.map((row) => {
-              const affectedBarangayDisplayItems = getAffectedBarangayDisplayItems(
-                row.affected_barangays,
-                validBarangayCount,
-              );
+              const affectedBarangayDisplayItems =
+                getAffectedBarangayDisplayItems(
+                  row.affected_barangays,
+                  validBarangayCount,
+                );
 
               return (
-              <tr key={row.id} style={{ borderBottom: "1px solid #edf3f8" }}>
-                <td style={{ ...tableStyles.bodyCell, textAlign: "left" }}>
-                  {row.title}
-                </td>
+                <tr key={row.id} style={{ borderBottom: "1px solid #edf3f8" }}>
+                  <td style={{ ...tableStyles.bodyCell, textAlign: "left" }}>
+                    {row.title}
+                  </td>
 
-                <td style={{ ...tableStyles.bodyCell, textAlign: "left" }}>
-                  {row.disaster_type}
-                </td>
+                  <td style={{ ...tableStyles.bodyCell, textAlign: "left" }}>
+                    {row.disaster_type}
+                  </td>
 
-                <td style={tableStyles.bodyCell}>
-                  {affectedBarangayDisplayItems.length ? (
-                    <div
-                      style={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        gap: "6px",
-                        maxWidth: "100%",
-                        justifyContent: "center",
-                      }}
-                    >
-                      {affectedBarangayDisplayItems.map((brgy, index) => (
-                        <span
-                          key={brgy.id || brgy.name || brgy || index}
-                          style={{
-                            display: "inline-block",
-                            minWidth: "36px",
-                            textAlign: "center",
-                            padding: "6px 10px",
-                            borderRadius: "999px",
-                            backgroundColor: "#e5f1fb",
-                            color: "#356592",
-                            fontSize: "12px",
-                            fontWeight: 700,
-                            whiteSpace: "normal",
-                            overflowWrap: "anywhere",
-                          }}
-                        >
-                          {brgy.name || brgy}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <span style={{ color: "#9aa9b8" }}>—</span>
-                  )}
-                </td>
-                <td style={tableStyles.bodyCell}>
-                  {formatDisasterEventDate(row.start_date)}
-                </td>
-                <td style={tableStyles.bodyCell}>
-                  {formatDisasterEventDate(row.end_date)}
-                </td>
-                <td style={tableStyles.bodyCell}>
-                  <StatusPill status={row.status} />
-                </td>
-                <td style={tableStyles.bodyCell}>
-                  {row.status === "ACTIVE" ? (
-                    <div style={{ position: "relative" }}>
-                      {/* THREE DOT BUTTON */}
-                      <button
-                        onClick={() =>
-                          setActiveMenu(activeMenu === row.id ? null : row.id)
-                        }
+                  <td style={tableStyles.bodyCell}>
+                    {affectedBarangayDisplayItems.length ? (
+                      <div
                         style={{
-                          background: "none",
-                          border: "none",
-                          cursor: "pointer",
                           display: "flex",
-                          alignItems: "center",
+                          flexWrap: "wrap",
+                          gap: "6px",
+                          maxWidth: "100%",
                           justifyContent: "center",
-                          color: "#24496e",
                         }}
                       >
-                        <FiMoreHorizontal size={18} />
-                      </button>
+                        {affectedBarangayDisplayItems.map((brgy, index) => (
+                          <span
+                            key={brgy.id || brgy.name || brgy || index}
+                            style={{
+                              display: "inline-block",
+                              minWidth: "36px",
+                              textAlign: "center",
+                              padding: "6px 10px",
+                              borderRadius: "999px",
+                              backgroundColor: "#e5f1fb",
+                              color: "#356592",
+                              fontSize: "12px",
+                              fontWeight: 700,
+                              whiteSpace: "normal",
+                              overflowWrap: "anywhere",
+                            }}
+                          >
+                            {brgy.name || brgy}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span style={{ color: "#9aa9b8" }}>—</span>
+                    )}
+                  </td>
 
-                      {/* DROPDOWN */}
-                      {activeMenu === row.id && (
-                        <div
-                          style={{
-                            position: "absolute",
-                            top: "30px",
-                            right: 0,
-                            background: "#fff",
-                            borderRadius: "10px",
-                            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-                            padding: "10px",
-                            zIndex: 10,
-                            minWidth: "160px",
-                            display: "flex",
-                            gap: "20px",
-                            justifyContent: "center",
-                          }}
+                  <td style={tableStyles.bodyCell}>
+                    {formatDisasterEventDate(row.start_date)}
+                  </td>
+
+                  <td style={tableStyles.bodyCell}>
+                    {formatDisasterEventDate(row.end_date)}
+                  </td>
+
+                  <td style={tableStyles.bodyCell}>
+                    <StatusPill status={row.status} />
+                  </td>
+
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      textAlign: "center",
+                      position: "relative",
+                    }}
+                  >
+                    {row.status === "ACTIVE" ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={(event) => handleToggleMenu(event, row.id)}
+                          style={tableStyles.actionMenuButton}
+                          title="Actions"
                         >
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onExtendEvent(row);
-                              setActiveMenu(null);
-                            }}
-                            style={{
-                              border: "1px solid #c6d8ea",
-                              borderRadius: "12px",
-                              width: "40px",
-                              height: "40px",
-                              backgroundColor: "#f7fbfe",
-                              color: "#24496e",
-                              display: "inline-flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              cursor: "pointer",
-                            }}
-                            title="Extend Period"
-                          >
-                            <FiCalendar size={18} />
-                          </button>
+                          <FiMoreHorizontal size={18} />
+                        </button>
 
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onEndEvent(row);
-                              setActiveMenu(null);
-                            }}
+                        {activeMenu === row.id && (
+                          <div
                             style={{
-                              border: "1px solid #c6d8ea",
-                              borderRadius: "12px",
-                              width: "40px",
-                              height: "40px",
-                              backgroundColor: "#f7fbfe",
-                              color: "#24496e",
-                              display: "inline-flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              cursor: "pointer",
+                              ...tableStyles.dropdown,
+                              top: `${menuPosition.top}px`,
+                              left: `${menuPosition.left}px`,
                             }}
-                            title="Mark as Completed"
                           >
-                            <FiCheckCircle size={18} />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <span style={{ color: "#9aa9b8", fontSize: "13px" }}>
-                      —
-                    </span>
-                  )}
-                </td>
-              </tr>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onExtendEvent(row);
+                                setActiveMenu(null);
+                              }}
+                              style={tableStyles.dropdownButton}
+                              title="Extend Period"
+                            >
+                              <FiCalendar size={18} />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onEndEvent(row);
+                                setActiveMenu(null);
+                              }}
+                              style={tableStyles.dropdownButton}
+                              title="Mark as Completed"
+                            >
+                              <FiCheckCircle size={18} />
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <span style={{ color: "#9aa9b8", fontSize: "13px" }}>
+                        —
+                      </span>
+                    )}
+                  </td>
+                </tr>
               );
             })}
           </tbody>
