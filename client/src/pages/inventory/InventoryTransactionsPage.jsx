@@ -89,9 +89,7 @@ const InventoryTransactionsPage = () => {
   return (
     <>
       <PageHeader
-        eyebrow="Inventory Workspace"
         title="INVENTORY TRACKING"
-        description="Track which items have already been distributed, expired, returned, or adjusted without exposing supplier and batch management on the Mayor screen."
       />
 
       <section style={shellStyles.card}>
