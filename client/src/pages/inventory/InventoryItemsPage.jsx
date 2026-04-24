@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import PageHeader from "../../components/layout/PageHeader";
+import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import SearchBar from "../../components/shared/SearchBar";
 import InventoryItemFormModal from "../../components/inventory-items/InventoryItemFormModal";
@@ -316,6 +316,31 @@ const buildInventoryItemFilters = (filters) => {
   }
 
   return apiFilters;
+};
+
+const ExportNoticeModal = ({ isOpen, message, onClose }) => {
+  if (!isOpen) {
+    return null;
+  }
+
+  return (
+    <div style={noticeModalStyles.overlay}>
+      <div style={noticeModalStyles.modal}>
+        <h3 style={noticeModalStyles.title}>Export Unavailable</h3>
+        <p style={noticeModalStyles.message}>{message}</p>
+
+        <div style={noticeModalStyles.actions}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={pageHeaderStyles.primaryButton}
+          >
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 const formatItemQuantity = (item) => {
