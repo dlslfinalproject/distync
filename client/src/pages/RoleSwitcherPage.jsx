@@ -21,7 +21,7 @@ const roles = [
   {
     code: ROLE_CODES.MAYOR,
     title: "Office of the Mayor",
-    description: "Inventory, suppliers, and relief pack template management.",
+    description: "Simple inventory items, stock tracking, and relief pack template management.",
   },
   {
     code: ROLE_CODES.DONOR,

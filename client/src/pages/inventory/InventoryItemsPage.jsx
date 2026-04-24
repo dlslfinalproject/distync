@@ -1,7 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import PageHeader, {
-  pageHeaderStyles,
-} from "../../components/layout/PageHeader";
+import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import SearchBar from "../../components/shared/SearchBar";
 import InventoryItemFormModal from "../../components/inventory-items/InventoryItemFormModal";
@@ -11,15 +9,14 @@ import {
   createInventoryItem,
   fetchInventoryItems,
 } from "../../features/inventory-items/inventoryItemService";
+import { fetchInventoryBatches } from "../../features/inventory-batches/inventoryBatchService";
+import { fetchInventoryTransactions } from "../../features/inventory-transactions/inventoryTransactionService";
 import {
   FiFileText,
-  FiFilter,
   FiPackage,
   FiPlus,
 } from "react-icons/fi";
 import { MdQrCodeScanner } from "react-icons/md";
-
-/* ================= STYLES ================= */
 
 const COLORS = {
   primary: "#17324d",
@@ -28,7 +25,6 @@ const COLORS = {
   border: "#d6e2ef",
   borderSoft: "#e7edf5",
   bgSoft: "#f8fbff",
-  bgHeader: "#f1f6fb",
   chipBg: "#d7dee9",
 };
 
@@ -61,32 +57,6 @@ const secondaryTopBtn = {
   gap: "8px",
 };
 
-const primaryModalBtn = {
-  border: "none",
-  borderRadius: "999px",
-  padding: "12px 24px",
-  background: "#3d4f78",
-  color: "#fff",
-  fontSize: "15px",
-  fontWeight: 600,
-  cursor: "pointer",
-  minWidth: "120px",
-  transition: "all 0.2s ease",
-};
-
-const secondaryModalBtn = {
-  border: "none",
-  borderRadius: "999px",
-  padding: "12px 24px",
-  background: "#d9d9d9",
-  color: "#3f4d63",
-  fontSize: "15px",
-  fontWeight: 500,
-  cursor: "pointer",
-  minWidth: "120px",
-  transition: "all 0.2s ease",
-};
-
 const analyticsCard = {
   background: COLORS.bgSoft,
   border: `1px solid ${COLORS.border}`,
@@ -116,11 +86,15 @@ const activeChipPalette = {
     backgroundColor: "#e6f5ec",
     color: "#2d7a4f",
   },
-  Active: {
+  Available: {
     backgroundColor: "#e0f2fe",
     color: "#075985",
   },
-  Inactive: {
+  Distributed: {
+    backgroundColor: "#dbeafe",
+    color: "#1d4ed8",
+  },
+  Expired: {
     backgroundColor: "#fee2e2",
     color: "#b91c1c",
   },
@@ -128,24 +102,28 @@ const activeChipPalette = {
     backgroundColor: "#ede9fe",
     color: "#6d28d9",
   },
+  Inactive: {
+    backgroundColor: "#f1f5f9",
+    color: "#475569",
+  },
 };
 
 const getChipStyle = (label, isActive) => {
   const activePalette = activeChipPalette[label] || activeChipPalette.All;
 
   return {
-  border: "none",
-  borderRadius: "6px",
-  padding: "3px 10px",
-  fontSize: "11px",
-  fontWeight: 600,
-  cursor: "pointer",
-  backgroundColor: isActive
-    ? activePalette.backgroundColor
-    : "transparent",
-  color: isActive ? activePalette.color : COLORS.muted,
-  transition: "all 0.2s",
-  lineHeight: 1.2,
+    border: "none",
+    borderRadius: "6px",
+    padding: "3px 10px",
+    fontSize: "11px",
+    fontWeight: 600,
+    cursor: "pointer",
+    backgroundColor: isActive
+      ? activePalette.backgroundColor
+      : "transparent",
+    color: isActive ? activePalette.color : COLORS.muted,
+    transition: "all 0.2s",
+    lineHeight: 1.2,
   };
 };
 
@@ -170,7 +148,6 @@ const styles = {
     flexWrap: "wrap",
     gap: "12px",
   },
-
   tabContainer: {
     display: "flex",
     borderBottom: "1px solid #d6e2ef",
@@ -178,7 +155,6 @@ const styles = {
     gap: "8px",
     flexWrap: "wrap",
   },
-
   sectionTitle: {
     margin: "0 0 12px 0",
     fontWeight: 800,
@@ -186,7 +162,6 @@ const styles = {
     color: "#2f3f5d",
     lineHeight: 1.1,
   },
-
   filterRow: {
     display: "flex",
     gap: "12px",
@@ -194,21 +169,6 @@ const styles = {
     marginBottom: "8px",
     flexWrap: "wrap",
   },
-
-  filterBtn: {
-    border: "1px solid #c6d8ea",
-    borderRadius: "14px",
-    padding: "12px 18px",
-    backgroundColor: "#f8fbfe",
-    color: "#2a4c6f",
-    fontSize: "14px",
-    fontWeight: 700,
-    cursor: "pointer",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "8px",
-  },
-
   inlineFilters: {
     display: "flex",
     alignItems: "center",
@@ -220,18 +180,15 @@ const styles = {
     fontWeight: 600,
     marginBottom: "16px",
   },
-
   tableWrap: {
     marginTop: "10px",
     overflowX: "auto",
   },
-
   table: {
     width: "100%",
     borderCollapse: "collapse",
     background: "transparent",
   },
-
   th: {
     textAlign: "left",
     padding: "10px 8px",
@@ -239,35 +196,22 @@ const styles = {
     color: COLORS.primary,
     fontWeight: 700,
     borderBottom: "none",
+    whiteSpace: "nowrap",
   },
-
   tr: {
     borderBottom: `1px solid ${COLORS.borderSoft}`,
   },
-
   td: {
     padding: "10px 8px",
     fontSize: "13px",
     color: COLORS.secondary,
     verticalAlign: "middle",
   },
-
   emptyStateCell: {
     padding: "16px 8px",
     fontSize: "14px",
     color: COLORS.secondary,
   },
-
-  actionIconBtn: {
-    border: "none",
-    background: "transparent",
-    color: COLORS.primary,
-    fontSize: "17px",
-    cursor: "pointer",
-    padding: 0,
-    lineHeight: 1,
-  },
-
   exportMenu: {
     position: "absolute",
     right: 0,
@@ -279,7 +223,6 @@ const styles = {
     minWidth: "170px",
     zIndex: 20,
   },
-
   exportMenuButton: {
     width: "100%",
     border: "none",
@@ -290,7 +233,6 @@ const styles = {
     color: "#1f3b57",
     fontSize: "14px",
   },
-
   addItemIconWrap: {
     position: "relative",
     width: "18px",
@@ -299,7 +241,6 @@ const styles = {
     alignItems: "center",
     justifyContent: "center",
   },
-
   addItemPlus: {
     position: "absolute",
     right: "-5px",
@@ -314,13 +255,7 @@ const styles = {
     boxShadow: "none",
     lineHeight: 1,
   },
-
 };
-
-/* ================= HELPERS ================= */
-
-const getUniqueCategories = (rows) =>
-  [...new Set(rows.map((r) => r.category).filter(Boolean))].sort();
 
 const formatPercentage = (value, total) => {
   if (!total) {
@@ -388,23 +323,184 @@ const isItemExpiring = (item) => {
   return daysUntilExpiration >= 0 && daysUntilExpiration <= 30;
 };
 
-const getItemStatus = (item) => {
+const isDateExpired = (dateValue) => {
+  if (!dateValue) {
+    return false;
+  }
+
+  const today = new Date();
+  const comparisonDate = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+  );
+  const targetDate = new Date(`${dateValue}T00:00:00`);
+
+  if (Number.isNaN(targetDate.getTime())) {
+    return false;
+  }
+
+  return targetDate < comparisonDate;
+};
+
+const formatDisplayDate = (value) => {
+  if (!value) {
+    return "--";
+  }
+
+  const parsedDate = new Date(`${value}T00:00:00`);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "--";
+  }
+
+  return parsedDate.toLocaleDateString();
+};
+
+const normalizeQuantity = (value) => {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : 0;
+};
+
+const getEarlierDate = (currentDate, nextDate) => {
+  if (!currentDate) {
+    return nextDate;
+  }
+
+  if (!nextDate) {
+    return currentDate;
+  }
+
+  return new Date(`${nextDate}T00:00:00`) < new Date(`${currentDate}T00:00:00`)
+    ? nextDate
+    : currentDate;
+};
+
+const createEmptyTrackingStats = () => ({
+  totalReceived: 0,
+  onHand: 0,
+  distributed: 0,
+  expired: 0,
+  expiredOnHand: 0,
+  nearestExpirationDate: null,
+  hasExpiringStock: false,
+});
+
+const buildInventoryTrackingMap = (
+  inventoryItems,
+  inventoryBatches,
+  inventoryTransactions,
+) => {
+  const trackingMap = new Map(
+    inventoryItems.map((item) => [item.id, createEmptyTrackingStats()]),
+  );
+
+  const ensureTrackingEntry = (itemId) => {
+    if (!itemId) {
+      return createEmptyTrackingStats();
+    }
+
+    if (!trackingMap.has(itemId)) {
+      trackingMap.set(itemId, createEmptyTrackingStats());
+    }
+
+    return trackingMap.get(itemId);
+  };
+
+  inventoryBatches.forEach((batch) => {
+    const itemId = batch.inventory_item?.id || batch.inventory_item_id;
+    const tracking = ensureTrackingEntry(itemId);
+
+    tracking.totalReceived += normalizeQuantity(batch.quantity_received);
+    tracking.onHand += normalizeQuantity(batch.quantity_available);
+
+    if (batch.expiration_date) {
+      tracking.nearestExpirationDate = getEarlierDate(
+        tracking.nearestExpirationDate,
+        batch.expiration_date,
+      );
+
+      if (isItemExpiring({ expiration_date: batch.expiration_date })) {
+        tracking.hasExpiringStock = true;
+      }
+
+      if (isDateExpired(batch.expiration_date)) {
+        tracking.expiredOnHand += normalizeQuantity(batch.quantity_available);
+      }
+    }
+  });
+
+  inventoryTransactions.forEach((transaction) => {
+    const itemId = transaction.inventory_item?.id || transaction.inventory_item_id;
+    const tracking = ensureTrackingEntry(itemId);
+
+    if (
+      transaction.transaction_type === "OUTFLOW" &&
+      transaction.reference_type === "DISTRIBUTION"
+    ) {
+      tracking.distributed += normalizeQuantity(transaction.quantity);
+    }
+
+    if (transaction.transaction_type === "EXPIRED") {
+      tracking.expired += normalizeQuantity(transaction.quantity);
+    }
+  });
+
+  return trackingMap;
+};
+
+const getTrackedExpirationDate = (item, trackingStats) => {
+  return getEarlierDate(
+    item.expiration_date || null,
+    trackingStats.nearestExpirationDate,
+  );
+};
+
+const getItemStatus = (item, trackingStats) => {
+  const trackedExpirationDate = getTrackedExpirationDate(item, trackingStats);
+
   if (!item.is_active) {
     return "Inactive";
   }
 
-  if (isItemExpiring(item)) {
+  if (trackingStats.expiredOnHand > 0 || isDateExpired(trackedExpirationDate)) {
+    return "Expired";
+  }
+
+  if (
+    trackingStats.distributed > 0 &&
+    trackingStats.onHand === 0 &&
+    trackingStats.totalReceived > 0
+  ) {
+    return "Distributed";
+  }
+
+  if (trackingStats.hasExpiringStock || isItemExpiring(item)) {
     return "Expiring";
   }
 
-  return "Active";
+  return "Available";
 };
 
 const getItemStatusStyle = (status) => {
-  if (status === "Inactive") {
+  if (status === "Distributed") {
+    return {
+      background: "#dbeafe",
+      color: "#1d4ed8",
+    };
+  }
+
+  if (status === "Expired") {
     return {
       background: "#fee2e2",
       color: "#b91c1c",
+    };
+  }
+
+  if (status === "Inactive") {
+    return {
+      background: "#f1f5f9",
+      color: "#475569",
     };
   }
 
@@ -421,105 +517,124 @@ const getItemStatusStyle = (status) => {
   };
 };
 
-const filterInventoryItemsByStatus = (items, selectedStatus) => {
-  if (selectedStatus === "All") {
-    return items;
-  }
-
-  if (selectedStatus === "Active") {
-    return items.filter((item) => item.is_active && !isItemExpiring(item));
-  }
-
-  if (selectedStatus === "Inactive") {
-    return items.filter((item) => !item.is_active);
-  }
-
-  if (selectedStatus === "Expiring") {
-    return items.filter((item) => item.is_active && isItemExpiring(item));
-  }
-
-  return items;
-};
-
-/* ================= COMPONENT ================= */
-
 const InventoryItemsPage = () => {
   const [filters, setFilters] = useState({
     search: "",
     category: "All",
     status: "All",
-    warehouse: "",
   });
-
   const [activeTab, setActiveTab] = useState("overview");
-
   const [inventoryItems, setInventoryItems] = useState([]);
+  const [inventoryBatches, setInventoryBatches] = useState([]);
+  const [inventoryTransactions, setInventoryTransactions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
-
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [modalErrorMessage, setModalErrorMessage] = useState("");
-
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
   const [scanForm, setScanForm] = useState({
     barcodeNumber: "",
     reorderLevel: "",
   });
-
   const [exportOpen, setExportOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState("");
 
-  /* ================= DATA LOADING ================= */
-
-  const loadInventoryItems = async (activeFilters = filters) => {
+  const loadInventoryData = async (activeFilters = filters) => {
     setIsLoading(true);
     setErrorMessage("");
+
     try {
-      const res = await fetchInventoryItems(
-        buildInventoryItemFilters(activeFilters),
-      );
-      setInventoryItems(res || []);
-    } catch (err) {
-      setErrorMessage(err.message);
+      const [itemResponse, batchResponse, transactionResponse] =
+        await Promise.all([
+          fetchInventoryItems(buildInventoryItemFilters(activeFilters)),
+          fetchInventoryBatches(),
+          fetchInventoryTransactions(),
+        ]);
+
+      setInventoryItems(itemResponse || []);
+      setInventoryBatches(batchResponse || []);
+      setInventoryTransactions(transactionResponse || []);
+    } catch (error) {
+      setErrorMessage(error.message);
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    loadInventoryItems(filters);
+    loadInventoryData(filters);
   }, [filters]);
 
-  const categories = useMemo(
-    () => getUniqueCategories(inventoryItems),
-    [inventoryItems]
+  const inventoryTrackingMap = useMemo(
+    () =>
+      buildInventoryTrackingMap(
+        inventoryItems,
+        inventoryBatches,
+        inventoryTransactions,
+      ),
+    [inventoryItems, inventoryBatches, inventoryTransactions],
   );
 
   const inventoryAnalytics = useMemo(() => {
     const totalItems = inventoryItems.length;
-    const activeItems = inventoryItems.filter((item) => item.is_active).length;
-    const inactiveItems = totalItems - activeItems;
-    const perishableItems = inventoryItems.filter(
-      (item) => item.is_perishable
-    ).length;
+    const perishableItems = inventoryItems.filter((item) => item.is_perishable).length;
     const nonPerishableItems = totalItems - perishableItems;
-    const trackedCategories = [
-      perishableItems > 0 ? "Perishable" : null,
-      nonPerishableItems > 0 ? "Non-Perishable" : null,
-    ].filter(Boolean).length;
+    const availableItems = inventoryItems.filter((item) => {
+      const trackingStats =
+        inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
+
+      return trackingStats.onHand > 0;
+    }).length;
+    const distributedItems = inventoryItems.filter((item) => {
+      const trackingStats =
+        inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
+
+      return trackingStats.distributed > 0;
+    }).length;
+    const expiredItems = inventoryItems.filter((item) => {
+      const trackingStats =
+        inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
+
+      return (
+        trackingStats.expired > 0 ||
+        trackingStats.expiredOnHand > 0 ||
+        isDateExpired(getTrackedExpirationDate(item, trackingStats))
+      );
+    }).length;
+    const totalOnHand = inventoryItems.reduce((sum, item) => {
+      const trackingStats =
+        inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
+
+      return sum + trackingStats.onHand;
+    }, 0);
+    const totalDistributed = inventoryItems.reduce((sum, item) => {
+      const trackingStats =
+        inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
+
+      return sum + trackingStats.distributed;
+    }, 0);
+    const totalExpired = inventoryItems.reduce((sum, item) => {
+      const trackingStats =
+        inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
+
+      return sum + trackingStats.expired + trackingStats.expiredOnHand;
+    }, 0);
 
     return {
       totalItems,
-      activeItems,
-      inactiveItems,
+      availableItems,
+      distributedItems,
+      expiredItems,
       perishableItems,
       nonPerishableItems,
-      trackedCategories,
+      totalOnHand,
+      totalDistributed,
+      totalExpired,
       perishableShare: formatPercentage(perishableItems, totalItems),
       nonPerishableShare: formatPercentage(nonPerishableItems, totalItems),
     };
-  }, [inventoryItems]);
+  }, [inventoryItems, inventoryTrackingMap]);
 
   const summaryCards = useMemo(
     () => [
@@ -527,46 +642,57 @@ const InventoryItemsPage = () => {
         label: "Total Registered Items",
         value: inventoryAnalytics.totalItems,
         description:
-          "All inventory item records currently registered in the system.",
+          "All inventory item records currently listed for the Mayor's Office.",
         accentColor: "#2f6499",
       },
       {
-        label: "Perishable Goods",
-        value: inventoryAnalytics.perishableItems,
+        label: "Units On Hand",
+        value: inventoryAnalytics.totalOnHand,
         description:
-          "Items that need closer monitoring because they are time-sensitive or spoilable.",
+          "Remaining stock that is still currently on hand across tracked items.",
         accentColor: "#c9792b",
       },
       {
-        label: "Non-Perishable Goods",
-        value: inventoryAnalytics.nonPerishableItems,
-        description:
-          "Items intended for longer storage and more stable stock availability.",
+        label: "Units Distributed",
+        value: inventoryAnalytics.totalDistributed,
+        description: "Stock already released through recorded distributions.",
         accentColor: "#2d7a4f",
       },
+      {
+        label: "Units Expired",
+        value: inventoryAnalytics.totalExpired,
+        description:
+          "Stock already marked expired or still sitting in expired batches.",
+        accentColor: "#b91c1c",
+      },
     ],
-    [inventoryAnalytics]
+    [inventoryAnalytics],
   );
 
-  const visibleInventoryItems = useMemo(
-    () => filterInventoryItemsByStatus(inventoryItems, filters.status),
-    [inventoryItems, filters.status],
-  );
+  const visibleInventoryItems = useMemo(() => {
+    if (filters.status === "All") {
+      return inventoryItems;
+    }
 
-  /* ================= FILTERS ================= */
+    return inventoryItems.filter((item) => {
+      const trackingStats =
+        inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
+
+      return getItemStatus(item, trackingStats) === filters.status;
+    });
+  }, [inventoryItems, inventoryTrackingMap, filters.status]);
 
   const handleFilterChange = (name, value) => {
-    setFilters((prev) => ({ ...prev, [name]: value }));
+    setFilters((previousFilters) => ({
+      ...previousFilters,
+      [name]: value,
+    }));
   };
-
-  /* ================= MODAL ================= */
 
   const handleOpenCreateModal = () => {
     setModalErrorMessage("");
     setIsModalOpen(true);
   };
-
-  const handleOpenEditModal = () => {};
 
   const handleSubmitModal = async (payload) => {
     setIsSubmitting(true);
@@ -574,16 +700,14 @@ const InventoryItemsPage = () => {
 
     try {
       await createInventoryItem(payload);
-      await loadInventoryItems();
+      await loadInventoryData();
       setIsModalOpen(false);
-    } catch (err) {
-      setModalErrorMessage(err.message);
+    } catch (error) {
+      setModalErrorMessage(error.message);
     } finally {
       setIsSubmitting(false);
     }
   };
-
-  /* ================= SCAN ITEM MODAL ================= */
 
   const handleOpenScanModal = () => {
     setScanForm({
@@ -598,8 +722,8 @@ const InventoryItemsPage = () => {
   };
 
   const handleScanInputChange = (field, value) => {
-    setScanForm((prev) => ({
-      ...prev,
+    setScanForm((previousForm) => ({
+      ...previousForm,
       [field]: value,
     }));
   };
@@ -608,8 +732,6 @@ const InventoryItemsPage = () => {
     console.log("Scan item submitted:", scanForm);
     setIsScanModalOpen(false);
   };
-
-  /* ================= EXPORT ================= */
 
   const handleExport = async (format) => {
     if (inventoryItems.length === 0) {
@@ -629,8 +751,6 @@ const InventoryItemsPage = () => {
       setExportingFormat("");
     }
   };
-
-  /* ================= UI ================= */
 
   return (
     <div
@@ -657,8 +777,8 @@ const InventoryItemsPage = () => {
         <div style={{ position: "relative" }}>
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
+            onClick={(event) => {
+              event.stopPropagation();
               setExportOpen(!exportOpen);
             }}
             disabled={Boolean(exportingFormat)}
@@ -702,8 +822,6 @@ const InventoryItemsPage = () => {
       </section>
 
       <section style={shellStyles.card}>
-
-        {/* TABS */}
         <div style={styles.tabContainer}>
           {["overview", "analytics"].map((tab) => (
             <button
@@ -712,58 +830,57 @@ const InventoryItemsPage = () => {
               onClick={() => setActiveTab(tab)}
               style={tabButtonStyles(activeTab === tab)}
             >
-              {tab === "overview"
-                ? "Stock Overview"
-                : "Inventory Analytics"}
+              {tab === "overview" ? "Inventory List" : "Tracking Summary"}
             </button>
           ))}
         </div>
 
-        {/* TITLE */}
         <h3 style={styles.sectionTitle}>
-          {activeTab === "overview" ? "CURRENT STOCK" : "INVENTORY ANALYTICS"}
+          {activeTab === "overview" ? "ITEM STOCK TRACKING" : "TRACKING SUMMARY"}
         </h3>
 
-        {/* FILTERS */}
         {activeTab === "overview" && (
           <>
             <div style={styles.filterRow}>
               <div style={{ flex: 1 }}>
                 <SearchBar
                   value={filters.search}
-                  onChange={(v) => handleFilterChange("search", v)}
-                  placeholder="Search item..."
+                  onChange={(value) => handleFilterChange("search", value)}
+                  placeholder="Search item name or code"
                 />
               </div>
-              <button type="button" style={styles.filterBtn}>
-                <FiFilter size={16} />
-                Filter
-              </button>
             </div>
 
             <div style={styles.inlineFilters}>
               <span>Category:</span>
               <div style={chipGroupStyle}>
-                {["All", "Perishable", "Non-Perishable"].map((cat) => (
+                {["All", "Perishable", "Non-Perishable"].map((category) => (
                   <button
-                    key={cat}
-                    style={getChipStyle(cat, filters.category === cat)}
-                    onClick={() => handleFilterChange("category", cat)}
+                    key={category}
+                    style={getChipStyle(category, filters.category === category)}
+                    onClick={() => handleFilterChange("category", category)}
                   >
-                    {cat}
+                    {category}
                   </button>
                 ))}
               </div>
 
               <span>Status:</span>
               <div style={chipGroupStyle}>
-                {["All", "Active", "Expiring"].map((stat) => (
+                {[
+                  "All",
+                  "Available",
+                  "Distributed",
+                  "Expired",
+                  "Expiring",
+                  "Inactive",
+                ].map((status) => (
                   <button
-                    key={stat}
-                    style={getChipStyle(stat, filters.status === stat)}
-                    onClick={() => handleFilterChange("status", stat)}
+                    key={status}
+                    style={getChipStyle(status, filters.status === status)}
+                    onClick={() => handleFilterChange("status", status)}
                   >
-                    {stat}
+                    {status}
                   </button>
                 ))}
               </div>
@@ -771,7 +888,6 @@ const InventoryItemsPage = () => {
           </>
         )}
 
-        {/* CONTENT */}
         {activeTab === "overview" ? (
           <div style={styles.tableWrap}>
             <table style={styles.table}>
@@ -780,7 +896,10 @@ const InventoryItemsPage = () => {
                   {[
                     "Item Name",
                     "Category",
-                    "Quantity",
+                    "Item Details",
+                    "On Hand",
+                    "Distributed",
+                    "Expired",
                     "Expiry Date",
                     "Status",
                   ].map((header) => (
@@ -794,14 +913,14 @@ const InventoryItemsPage = () => {
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan="5" style={styles.emptyStateCell}>
+                    <td colSpan="8" style={styles.emptyStateCell}>
                       Loading...
                     </td>
                   </tr>
                 ) : errorMessage ? (
                   <tr>
                     <td
-                      colSpan="5"
+                      colSpan="8"
                       style={{ ...styles.emptyStateCell, color: "#b91c1c" }}
                     >
                       {errorMessage}
@@ -809,64 +928,62 @@ const InventoryItemsPage = () => {
                   </tr>
                 ) : visibleInventoryItems.length === 0 ? (
                   <tr>
-                    <td colSpan="5" style={styles.emptyStateCell}>
+                    <td colSpan="8" style={styles.emptyStateCell}>
                       No items found
                     </td>
                   </tr>
                 ) : (
-                  visibleInventoryItems.map((item, index) => {
-                    const itemStatus = getItemStatus(item);
+                  visibleInventoryItems.map((item) => {
+                    const trackingStats =
+                      inventoryTrackingMap.get(item.id) ||
+                      createEmptyTrackingStats();
+                    const itemStatus = getItemStatus(item, trackingStats);
                     const itemStatusStyle = getItemStatusStyle(itemStatus);
+                    const trackedExpirationDate = getTrackedExpirationDate(
+                      item,
+                      trackingStats,
+                    );
+                    const expiredQuantity =
+                      trackingStats.expired + trackingStats.expiredOnHand;
 
                     return (
-                      <tr key={item.id || index} style={styles.tr}>
-                      <td style={styles.td}>{item.item_name || item.name}</td>
-                      <td style={styles.td}>{item.category}</td>
-                      <td style={styles.td}>{formatItemQuantity(item)}</td>
-                      <td style={styles.td}>
-                        {item.expiration_date
-                          ? new Date(item.expiration_date).toLocaleDateString()
-                          : "--"}
-                      </td>
-
-                      <td style={styles.td}>
-                        <span
-                          style={{
-                            padding: "4px 10px",
-                            borderRadius: "8px",
-                            fontSize: "12px",
-                            fontWeight: 600,
-                            background: itemStatusStyle.background,
-                            color: itemStatusStyle.color,
-                          }}
-                        >
-                          {itemStatus}
-                        </span>
-                      </td>
-
-                      <td style={{ display: "none" }}>
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "10px",
-                          }}
-                        >
-                          <button
-                            style={styles.actionIconBtn}
-                            onClick={() => handleOpenEditModal(item.id)}
-                            title="Edit"
+                      <tr key={item.id} style={styles.tr}>
+                        <td style={styles.td}>
+                          <div style={{ fontWeight: 700, color: COLORS.primary }}>
+                            {item.item_name || item.name}
+                          </div>
+                          <div
+                            style={{
+                              marginTop: "4px",
+                              fontSize: "12px",
+                              color: COLORS.muted,
+                            }}
                           >
-                            ✎
-                          </button>
-                          <button
-                            style={styles.actionIconBtn}
-                            title="Delete"
+                            {item.item_code || "No item code"}
+                          </div>
+                        </td>
+                        <td style={styles.td}>{item.category}</td>
+                        <td style={styles.td}>{formatItemQuantity(item)}</td>
+                        <td style={styles.td}>{trackingStats.onHand}</td>
+                        <td style={styles.td}>{trackingStats.distributed}</td>
+                        <td style={styles.td}>{expiredQuantity}</td>
+                        <td style={styles.td}>
+                          {formatDisplayDate(trackedExpirationDate)}
+                        </td>
+                        <td style={styles.td}>
+                          <span
+                            style={{
+                              padding: "4px 10px",
+                              borderRadius: "8px",
+                              fontSize: "12px",
+                              fontWeight: 600,
+                              background: itemStatusStyle.background,
+                              color: itemStatusStyle.color,
+                            }}
                           >
-                            🗑
-                          </button>
-                        </div>
-                      </td>
+                            {itemStatus}
+                          </span>
+                        </td>
                       </tr>
                     );
                   })
@@ -884,6 +1001,21 @@ const InventoryItemsPage = () => {
           >
             {[
               {
+                title: "Items With Stock On Hand",
+                value: inventoryAnalytics.availableItems,
+                detail: "Registered items that still have remaining available stock.",
+              },
+              {
+                title: "Items Already Distributed",
+                value: inventoryAnalytics.distributedItems,
+                detail: "Inventory items that already have recorded distribution activity.",
+              },
+              {
+                title: "Items With Expired Stock",
+                value: inventoryAnalytics.expiredItems,
+                detail: "Inventory items with expired stock records that still need attention.",
+              },
+              {
                 title: "Perishable Goods",
                 value: inventoryAnalytics.perishableItems,
                 detail: `${inventoryAnalytics.perishableShare} of all registered items are marked as perishable.`,
@@ -892,21 +1024,6 @@ const InventoryItemsPage = () => {
                 title: "Non-Perishable Goods",
                 value: inventoryAnalytics.nonPerishableItems,
                 detail: `${inventoryAnalytics.nonPerishableShare} of all registered items are marked as non-perishable.`,
-              },
-              {
-                title: "Active Item Records",
-                value: inventoryAnalytics.activeItems,
-                detail: "Items currently available for use in the inventory masterlist.",
-              },
-              {
-                title: "Inactive Item Records",
-                value: inventoryAnalytics.inactiveItems,
-                detail: "Items kept in the masterlist but currently marked inactive.",
-              },
-              {
-                title: "Goods Categories Tracked",
-                value: inventoryAnalytics.trackedCategories,
-                detail: "The system currently tracks perishable and non-perishable goods only.",
               },
             ].map((card) => (
               <div key={card.title} style={analyticsCard}>
@@ -946,7 +1063,6 @@ const InventoryItemsPage = () => {
         )}
       </section>
 
-      {/* EXISTING ITEM FORM MODAL - KEPT INTACT */}
       <InventoryItemFormModal
         isOpen={isModalOpen}
         mode="create"

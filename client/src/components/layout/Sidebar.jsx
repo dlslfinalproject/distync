@@ -143,9 +143,7 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
     [ROLE_CODES.MAYOR]: {
       navItems: [
         { label: "Inventory Items", to: "/inventory/items" },
-        { label: "Inventory Batches", to: "/inventory/batches" },
-        { label: "Inventory Transactions", to: "/inventory/transactions" },
-        { label: "Suppliers", to: "/inventory/suppliers" },
+        { label: "Inventory Tracking", to: "/inventory/transactions" },
         { label: "Relief Pack Templates", to: "/inventory/relief-pack-templates" },
       ],
     },

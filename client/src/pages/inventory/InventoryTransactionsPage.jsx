@@ -2,13 +2,9 @@ import React, { useEffect, useMemo, useState } from "react";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import SearchBar from "../../components/shared/SearchBar";
-import InventoryTransactionFormModal from "../../components/inventory-transactions/InventoryTransactionFormModal";
 import InventoryTransactionsTable from "../../components/inventory-transactions/InventoryTransactionsTable";
-import {
-  createInventoryTransaction,
-  fetchInventoryBatches,
-  fetchInventoryTransactions,
-} from "../../features/inventory-transactions/inventoryTransactionService";
+import { fetchInventoryTransactions } from "../../features/inventory-transactions/inventoryTransactionService";
+import { fetchInventoryItems } from "../../features/inventory-items/inventoryItemService";
 
 const selectStyles = {
   minHeight: "52px",
@@ -21,13 +17,13 @@ const selectStyles = {
 };
 
 const transactionTypes = [
-  "INFLOW",
   "OUTFLOW",
-  "ADJUSTMENT",
   "EXPIRED",
-  "MISSING",
+  "ADJUSTMENT",
   "DAMAGED",
+  "MISSING",
   "RETURN",
+  "INFLOW",
 ];
 
 const referenceTypes = [
@@ -41,32 +37,27 @@ const referenceTypes = [
 const InventoryTransactionsPage = () => {
   const [filters, setFilters] = useState({
     search: "",
-    inventory_batch_id: "",
     inventory_item_id: "",
     transaction_type: "",
     reference_type: "",
   });
   const [inventoryTransactions, setInventoryTransactions] = useState([]);
-  const [inventoryBatches, setInventoryBatches] = useState([]);
+  const [inventoryItems, setInventoryItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [modalErrorMessage, setModalErrorMessage] = useState("");
 
   const loadPageData = async (activeFilters = filters) => {
     setIsLoading(true);
     setErrorMessage("");
 
     try {
-      const [transactionResponse, batchResponse] = await Promise.all([
+      const [transactionResponse, itemResponse] = await Promise.all([
         fetchInventoryTransactions(activeFilters),
-        fetchInventoryBatches(),
+        fetchInventoryItems(),
       ]);
 
       setInventoryTransactions(transactionResponse || []);
-      setInventoryBatches(batchResponse || []);
+      setInventoryItems(itemResponse || []);
     } catch (error) {
       setErrorMessage(error.message);
     } finally {
@@ -79,18 +70,10 @@ const InventoryTransactionsPage = () => {
   }, []);
 
   const inventoryItemOptions = useMemo(() => {
-    const itemsById = new Map();
-
-    inventoryBatches.forEach((batch) => {
-      if (batch.inventory_item?.id && !itemsById.has(batch.inventory_item.id)) {
-        itemsById.set(batch.inventory_item.id, batch.inventory_item);
-      }
-    });
-
-    return [...itemsById.values()].sort((left, right) =>
+    return [...inventoryItems].sort((left, right) =>
       left.item_name.localeCompare(right.item_name),
     );
-  }, [inventoryBatches]);
+  }, [inventoryItems]);
 
   const handleFilterChange = (fieldName, value) => {
     setFilters((currentFilters) => ({
@@ -103,52 +86,12 @@ const InventoryTransactionsPage = () => {
     await loadPageData(filters);
   };
 
-  const handleOpenCreateModal = () => {
-    setModalErrorMessage("");
-    setSuccessMessage("");
-    setIsModalOpen(true);
-  };
-
-  const handleCloseModal = () => {
-    if (isSubmitting) {
-      return;
-    }
-
-    setIsModalOpen(false);
-    setModalErrorMessage("");
-  };
-
-  const handleSubmitModal = async (payload) => {
-    setIsSubmitting(true);
-    setModalErrorMessage("");
-    setSuccessMessage("");
-
-    try {
-      const response = await createInventoryTransaction(payload);
-      setSuccessMessage(
-        response.message || "Inventory transaction recorded successfully",
-      );
-      setIsModalOpen(false);
-      await loadPageData(filters);
-    } catch (error) {
-      setModalErrorMessage(error.message);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   return (
     <>
       <PageHeader
         eyebrow="Inventory Workspace"
-        title="INVENTORY TRANSACTIONS"
-        description="Review stock movement history and record new inflow, outflow, adjustment, return, or loss transactions."
-        actions={[
-          {
-            label: "Create Transaction",
-            onClick: handleOpenCreateModal,
-          },
-        ]}
+        title="INVENTORY TRACKING"
+        description="Track which items have already been distributed, expired, returned, or adjusted without exposing supplier and batch management on the Mayor screen."
       />
 
       <section style={shellStyles.card}>
@@ -172,23 +115,8 @@ const InventoryTransactionsPage = () => {
             <SearchBar
               value={filters.search}
               onChange={(value) => handleFilterChange("search", value)}
-              placeholder="Search batch no, item name, item code, or remarks"
+              placeholder="Search item name, item code, or remarks"
             />
-
-            <select
-              value={filters.inventory_batch_id}
-              onChange={(event) =>
-                handleFilterChange("inventory_batch_id", event.target.value)
-              }
-              style={selectStyles}
-            >
-              <option value="">All Batches</option>
-              {inventoryBatches.map((batch) => (
-                <option key={batch.id} value={batch.id}>
-                  {batch.batch_no}
-                </option>
-              ))}
-            </select>
 
             <select
               value={filters.inventory_item_id}
@@ -212,7 +140,7 @@ const InventoryTransactionsPage = () => {
               }
               style={selectStyles}
             >
-              <option value="">All Transaction Types</option>
+              <option value="">All Activity Types</option>
               {transactionTypes.map((transactionType) => (
                 <option key={transactionType} value={transactionType}>
                   {transactionType}
@@ -254,38 +182,12 @@ const InventoryTransactionsPage = () => {
             Apply Filters
           </button>
         </div>
-
-        {successMessage ? (
-          <div
-            style={{
-              marginTop: "18px",
-              padding: "14px 16px",
-              borderRadius: "14px",
-              backgroundColor: "#edf8f1",
-              border: "1px solid #cfe8d7",
-              color: "#2f6c47",
-              fontSize: "14px",
-              fontWeight: 600,
-            }}
-          >
-            {successMessage}
-          </div>
-        ) : null}
       </section>
 
       <InventoryTransactionsTable
         rows={inventoryTransactions}
         isLoading={isLoading}
         errorMessage={errorMessage}
-      />
-
-      <InventoryTransactionFormModal
-        isOpen={isModalOpen}
-        inventoryBatches={inventoryBatches}
-        isSubmitting={isSubmitting}
-        errorMessage={modalErrorMessage}
-        onClose={handleCloseModal}
-        onSubmit={handleSubmitModal}
       />
     </>
   );

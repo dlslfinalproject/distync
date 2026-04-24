@@ -11,7 +11,6 @@ import AccessPage from "../pages/AccessPage";
 import BarangayMasterlistPage from "../pages/barangay/BarangayMasterlistPage";
 import DistributionTransactionPage from "../pages/barangay/DistributionTransactionPage";
 import StubDistributionPage from "../pages/barangay/StubDistributionPage";
-import InventoryBatchesPage from "../pages/inventory/InventoryBatchesPage";
 import InventoryItemsPage from "../pages/inventory/InventoryItemsPage";
 import InventoryTransactionsPage from "../pages/inventory/InventoryTransactionsPage";
 import ReliefPackTemplatesPage from "../pages/inventory/ReliefPackTemplatesPage";
@@ -21,7 +20,6 @@ import ConsolidatedMasterlistPage from "../pages/mswdo/ConsolidatedMasterlistPag
 import DisasterEventsPage from "../pages/mswdo/DisasterEventsPage";
 import StubDistributionPageMswdo from "../pages/mswdo/StubDistributionPage";
 import RoleSwitcherPage from "../pages/RoleSwitcherPage";
-import SuppliersPage from "../pages/inventory/SuppliersPage";
 import { useAuth } from "../context/AuthContext";
 import { getAccessMode, getEntryRouteForMode } from "../utils/accessMode";
 import {
@@ -98,13 +96,20 @@ const AppRoutes = () => {
             </RoleProtectedRoute>
           }
         >
+          <Route index element={<Navigate to="items" replace />} />
           <Route path="items" element={<InventoryItemsPage />} />
-          <Route path="batches" element={<InventoryBatchesPage />} />
+          <Route
+            path="batches"
+            element={<Navigate to="/inventory/items" replace />}
+          />
           <Route
             path="transactions"
             element={<InventoryTransactionsPage />}
           />
-          <Route path="suppliers" element={<SuppliersPage />} />
+          <Route
+            path="suppliers"
+            element={<Navigate to="/inventory/items" replace />}
+          />
           <Route
             path="relief-pack-templates"
             element={<ReliefPackTemplatesPage />}
