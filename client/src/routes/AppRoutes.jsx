@@ -12,6 +12,7 @@ import BarangayMasterlistPage from "../pages/barangay/BarangayMasterlistPage";
 import DistributionTransactionPage from "../pages/barangay/DistributionTransactionPage";
 import StubDistributionPage from "../pages/barangay/StubDistributionPage";
 import InventoryItemsPage from "../pages/inventory/InventoryItemsPage";
+import InventoryDistributionPage from "../pages/inventory/InventoryDistributionPage";
 import InventoryTransactionsPage from "../pages/inventory/InventoryTransactionsPage";
 import ReliefPackTemplatesPage from "../pages/inventory/ReliefPackTemplatesPage";
 import DonationInformationPage from "../pages/donor/DonationInformationPage";
@@ -113,6 +114,10 @@ const AppRoutes = () => {
           <Route
             path="relief-pack-templates"
             element={<ReliefPackTemplatesPage />}
+          />
+          <Route
+            path="distribution"
+            element={<InventoryDistributionPage />}
           />
         </Route>
         <Route

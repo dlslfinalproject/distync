@@ -206,6 +206,7 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
         { label: "Inventory Items", to: "/inventory/items" },
         { label: "Inventory Tracking", to: "/inventory/transactions" },
         { label: "Relief Pack Templates", to: "/inventory/relief-pack-templates" },
+        { label: "Inventory Distribution", to: "/inventory/distribution" },
       ],
     },
   };
