@@ -1026,70 +1026,42 @@ const InventoryItemsPage = () => {
                     </td>
                   </tr>
                 ) : (
-                  visibleInventoryItems.map((item) => {
+                  visibleInventoryItems.map((item, index) => {
                     const trackingStats =
-                      inventoryTrackingMap.get(item.id) ||
-                      createEmptyTrackingStats();
+                      inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
+
                     const itemStatus = getItemStatus(item, trackingStats);
                     const itemStatusStyle = getItemStatusStyle(itemStatus);
-                    const trackedExpirationDate = getTrackedExpirationDate(
-                      item,
-                      trackingStats,
-                    );
-                    const expiredQuantity =
-                      trackingStats.expired + trackingStats.expiredOnHand;
+
+                    // ✅ SAFE FIELD NORMALIZATION (FIX FOR BLANK CELLS)
+                    const itemName =
+                      item.item_name ??
+                      item.name ??
+                      item.product_name ??
+                      "Unnamed Item";
+
+                    const category = item.category ?? "--";
+
+                    const quantity = getTotalItemQuantity(item) ?? "0";
+
+                    const unit = formatUnitOfMeasurement(item) ?? "--";
+
+                    const expiry = item.expiration_date
+                      ? new Date(item.expiration_date).toLocaleDateString()
+                      : "--";
 
                     return (
                       <tr key={item.id || index} style={styles.tr}>
-                      <td style={styles.td}>{item.item_name || item.name}</td>
-                      <td style={styles.td}>{item.category}</td>
-                      <td style={styles.td}>{getTotalItemQuantity(item)}</td>
-                      <td style={styles.td}>{formatUnitOfMeasurement(item)}</td>
-                      <td style={styles.td}>
-                        {item.expiration_date
-                          ? new Date(item.expiration_date).toLocaleDateString()
-                          : "--"}
-                      </td>
+                        <td style={styles.td}>{itemName}</td>
 
-                      <td style={styles.td}>
-                        <span
-                          style={{
-                            padding: "4px 10px",
-                            borderRadius: "8px",
-                            fontSize: "12px",
-                            fontWeight: 600,
-                            background: itemStatusStyle.background,
-                            color: itemStatusStyle.color,
-                          }}
-                        >
-                          {itemStatus}
-                        </span>
-                      </td>
+                        <td style={styles.td}>{category}</td>
 
-                      <td style={{ display: "none" }}>
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "10px",
-                          }}
-                        >
-                          <button
-                            style={styles.actionIconBtn}
-                            onClick={() => handleOpenEditModal(item.id)}
-                            title="Edit"
-                          > </button>
-                            {item.item_code || "No item code"}
-                          </div>
-                        </td>
-                        <td style={styles.td}>{item.category}</td>
-                        <td style={styles.td}>{formatItemQuantity(item)}</td>
-                        <td style={styles.td}>{trackingStats.onHand}</td>
-                        <td style={styles.td}>{trackingStats.distributed}</td>
-                        <td style={styles.td}>{expiredQuantity}</td>
-                        <td style={styles.td}>
-                          {formatDisplayDate(trackedExpirationDate)}
-                        </td>
+                        <td style={styles.td}>{quantity}</td>
+
+                        <td style={styles.td}>{unit}</td>
+
+                        <td style={styles.td}>{expiry}</td>
+
                         <td style={styles.td}>
                           <span
                             style={{
@@ -1183,7 +1155,7 @@ const InventoryItemsPage = () => {
         )}
       </section>
 
-      <InventoryItemFormModal
+       <InventoryItemFormModal
         isOpen={isModalOpen}
         mode="create"
         itemData={null}
@@ -1199,12 +1171,6 @@ const InventoryItemsPage = () => {
         onClose={handleCloseScanModal}
         onSubmit={handleSubmitScanModal}
         onInputChange={handleScanInputChange}
-      />
-
-      <ExportNoticeModal
-        isOpen={Boolean(exportNoticeMessage)}
-        message={exportNoticeMessage}
-        onClose={() => setExportNoticeMessage("")}
       />
     </div>
   );
