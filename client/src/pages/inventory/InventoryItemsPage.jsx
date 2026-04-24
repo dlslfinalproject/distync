@@ -296,6 +296,40 @@ const styles = {
   },
 };
 
+/* ================= HELPERS ================= */
+
+const getUniqueCategories = (rows) =>
+  [...new Set(rows.map((r) => r.category).filter(Boolean))].sort();
+
+const formatNumericValue = (value) => {
+  if (!Number.isFinite(value)) {
+    return "--";
+  }
+
+  if (Number.isInteger(value)) {
+    return value.toLocaleString();
+  }
+
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+};
+
+const formatUnitOfMeasurement = (item) => {
+  const unitOfMeasureValue = Number(item.unit_of_measure_value || 0);
+
+  if (
+    Number.isFinite(unitOfMeasureValue) &&
+    unitOfMeasureValue > 0 &&
+    item.unit_of_measure
+  ) {
+    return `${formatNumericValue(unitOfMeasureValue)} ${item.unit_of_measure}`;
+  }
+
+  return item.unit_of_measure || "--";
+};
+
 const formatPercentage = (value, total) => {
   if (!total) {
     return "0%";
@@ -318,49 +352,26 @@ const buildInventoryItemFilters = (filters) => {
   return apiFilters;
 };
 
-const ExportNoticeModal = ({ isOpen, message, onClose }) => {
-  if (!isOpen) {
-    return null;
-  }
+const getTotalItemQuantity = (item) => {
+  const packagingCount = Number(item.packaging_count || 0);
+  const quantityPerPackaging = Number(item.quantity || 0);
+  const unitOfMeasureValue = Number(item.unit_of_measure_value || 1);
+  const normalizedPackagingCount =
+    Number.isFinite(packagingCount) && packagingCount > 0 ? packagingCount : 0;
+  const normalizedQuantityPerPackaging =
+    Number.isFinite(quantityPerPackaging) && quantityPerPackaging > 0
+      ? quantityPerPackaging
+      : 0;
+  const normalizedUnitOfMeasureValue =
+    Number.isFinite(unitOfMeasureValue) && unitOfMeasureValue > 0
+      ? unitOfMeasureValue
+      : 1;
+  const totalQuantity =
+    normalizedPackagingCount *
+    normalizedQuantityPerPackaging *
+    normalizedUnitOfMeasureValue;
 
-  return (
-    <div style={noticeModalStyles.overlay}>
-      <div style={noticeModalStyles.modal}>
-        <h3 style={noticeModalStyles.title}>Export Unavailable</h3>
-        <p style={noticeModalStyles.message}>{message}</p>
-
-        <div style={noticeModalStyles.actions}>
-          <button
-            type="button"
-            onClick={onClose}
-            style={pageHeaderStyles.primaryButton}
-          >
-            OK
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const formatItemQuantity = (item) => {
-  const packagingPart =
-    item.packaging_count && item.packaging
-      ? `${item.packaging_count} ${item.packaging}${
-          item.packaging_count > 1 ? "s" : ""
-        }`
-      : item.packaging || "--";
-
-  const unitPart =
-    item.unit_of_measure_value && item.unit_of_measure
-      ? `${item.unit_of_measure_value} ${item.unit_of_measure}`
-      : item.unit_of_measure || "--";
-
-  if (item.quantity) {
-    return `${packagingPart} | ${item.quantity} per packaging | ${unitPart}`;
-  }
-
-  return `${packagingPart} | ${unitPart}`;
+  return formatNumericValue(totalQuantity);
 };
 
 const isItemExpiring = (item) => {
@@ -980,10 +991,8 @@ const InventoryItemsPage = () => {
                   {[
                     "Item Name",
                     "Category",
-                    "Item Details",
-                    "On Hand",
-                    "Distributed",
-                    "Expired",
+                    "Quantity",
+                    "Unit of Measurement",
                     "Expiry Date",
                     "Status",
                   ].map((header) => (
@@ -997,14 +1006,14 @@ const InventoryItemsPage = () => {
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan="8" style={styles.emptyStateCell}>
+                    <td colSpan="6" style={styles.emptyStateCell}>
                       Loading...
                     </td>
                   </tr>
                 ) : errorMessage ? (
                   <tr>
                     <td
-                      colSpan="8"
+                      colSpan="6"
                       style={{ ...styles.emptyStateCell, color: "#b91c1c" }}
                     >
                       {errorMessage}
@@ -1012,7 +1021,7 @@ const InventoryItemsPage = () => {
                   </tr>
                 ) : visibleInventoryItems.length === 0 ? (
                   <tr>
-                    <td colSpan="8" style={styles.emptyStateCell}>
+                    <td colSpan="6" style={styles.emptyStateCell}>
                       No items found
                     </td>
                   </tr>
@@ -1031,18 +1040,45 @@ const InventoryItemsPage = () => {
                       trackingStats.expired + trackingStats.expiredOnHand;
 
                     return (
-                      <tr key={item.id} style={styles.tr}>
-                        <td style={styles.td}>
-                          <div style={{ fontWeight: 700, color: COLORS.primary }}>
-                            {item.item_name || item.name}
-                          </div>
-                          <div
-                            style={{
-                              marginTop: "4px",
-                              fontSize: "12px",
-                              color: COLORS.muted,
-                            }}
-                          >
+                      <tr key={item.id || index} style={styles.tr}>
+                      <td style={styles.td}>{item.item_name || item.name}</td>
+                      <td style={styles.td}>{item.category}</td>
+                      <td style={styles.td}>{getTotalItemQuantity(item)}</td>
+                      <td style={styles.td}>{formatUnitOfMeasurement(item)}</td>
+                      <td style={styles.td}>
+                        {item.expiration_date
+                          ? new Date(item.expiration_date).toLocaleDateString()
+                          : "--"}
+                      </td>
+
+                      <td style={styles.td}>
+                        <span
+                          style={{
+                            padding: "4px 10px",
+                            borderRadius: "8px",
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            background: itemStatusStyle.background,
+                            color: itemStatusStyle.color,
+                          }}
+                        >
+                          {itemStatus}
+                        </span>
+                      </td>
+
+                      <td style={{ display: "none" }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "10px",
+                          }}
+                        >
+                          <button
+                            style={styles.actionIconBtn}
+                            onClick={() => handleOpenEditModal(item.id)}
+                            title="Edit"
+                          > </button>
                             {item.item_code || "No item code"}
                           </div>
                         </td>
