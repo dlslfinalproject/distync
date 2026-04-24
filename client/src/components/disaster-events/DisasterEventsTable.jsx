@@ -169,7 +169,7 @@ const DisasterEventsTable = ({
               <th
                 style={{
                   ...tableStyles.headerCell,
-                  width: "22%",
+                  width: "20%",
                   textAlign: "left",
                 }}
               >
@@ -178,28 +178,34 @@ const DisasterEventsTable = ({
               <th
                 style={{
                   ...tableStyles.headerCell,
-                  width: "14%",
+                  width: "13%",
                   textAlign: "left",
                 }}
               >
                 Disaster Type
               </th>
-              <th style={{ ...tableStyles.headerCell, width: "24%" }}>
+              <th style={{ ...tableStyles.headerCell, width: "22%" }}>
                 Affected Barangays
               </th>
-              <th style={{ ...tableStyles.headerCell, width: "12%" }}>
+              <th style={{ ...tableStyles.headerCell, width: "11%" }}>
                 Start Date
               </th>
-              <th style={{ ...tableStyles.headerCell, width: "12%" }}>
+              <th style={{ ...tableStyles.headerCell, width: "11%" }}>
                 End Date
               </th>
-              <th style={{ ...tableStyles.headerCell, width: "8%" }}>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  width: "12%",
+                  textAlign: "center",
+                }}
+              >
                 Status
               </th>
               <th
                 style={{
                   ...tableStyles.headerCell,
-                  width: "8%",
+                  width: "10%",
                   textAlign: "center",
                 }}
               >
@@ -271,7 +277,12 @@ const DisasterEventsTable = ({
                     {formatDisasterEventDate(row.end_date)}
                   </td>
 
-                  <td style={tableStyles.bodyCell}>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      textAlign: "center",
+                    }}
+                  >
                     <StatusPill status={row.status} />
                   </td>
 
