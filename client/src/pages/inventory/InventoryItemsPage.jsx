@@ -322,6 +322,35 @@ const styles = {
 const getUniqueCategories = (rows) =>
   [...new Set(rows.map((r) => r.category).filter(Boolean))].sort();
 
+const formatNumericValue = (value) => {
+  if (!Number.isFinite(value)) {
+    return "--";
+  }
+
+  if (Number.isInteger(value)) {
+    return value.toLocaleString();
+  }
+
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+};
+
+const formatUnitOfMeasurement = (item) => {
+  const unitOfMeasureValue = Number(item.unit_of_measure_value || 0);
+
+  if (
+    Number.isFinite(unitOfMeasureValue) &&
+    unitOfMeasureValue > 0 &&
+    item.unit_of_measure
+  ) {
+    return `${formatNumericValue(unitOfMeasureValue)} ${item.unit_of_measure}`;
+  }
+
+  return item.unit_of_measure || "--";
+};
+
 const formatPercentage = (value, total) => {
   if (!total) {
     return "0%";
@@ -344,24 +373,26 @@ const buildInventoryItemFilters = (filters) => {
   return apiFilters;
 };
 
-const formatItemQuantity = (item) => {
-  const packagingPart =
-    item.packaging_count && item.packaging
-      ? `${item.packaging_count} ${item.packaging}${
-          item.packaging_count > 1 ? "s" : ""
-        }`
-      : item.packaging || "--";
+const getTotalItemQuantity = (item) => {
+  const packagingCount = Number(item.packaging_count || 0);
+  const quantityPerPackaging = Number(item.quantity || 0);
+  const unitOfMeasureValue = Number(item.unit_of_measure_value || 1);
+  const normalizedPackagingCount =
+    Number.isFinite(packagingCount) && packagingCount > 0 ? packagingCount : 0;
+  const normalizedQuantityPerPackaging =
+    Number.isFinite(quantityPerPackaging) && quantityPerPackaging > 0
+      ? quantityPerPackaging
+      : 0;
+  const normalizedUnitOfMeasureValue =
+    Number.isFinite(unitOfMeasureValue) && unitOfMeasureValue > 0
+      ? unitOfMeasureValue
+      : 1;
+  const totalQuantity =
+    normalizedPackagingCount *
+    normalizedQuantityPerPackaging *
+    normalizedUnitOfMeasureValue;
 
-  const unitPart =
-    item.unit_of_measure_value && item.unit_of_measure
-      ? `${item.unit_of_measure_value} ${item.unit_of_measure}`
-      : item.unit_of_measure || "--";
-
-  if (item.quantity) {
-    return `${packagingPart} | ${item.quantity} per packaging | ${unitPart}`;
-  }
-
-  return `${packagingPart} | ${unitPart}`;
+  return formatNumericValue(totalQuantity);
 };
 
 const isItemExpiring = (item) => {
@@ -781,6 +812,7 @@ const InventoryItemsPage = () => {
                     "Item Name",
                     "Category",
                     "Quantity",
+                    "Unit of Measurement",
                     "Expiry Date",
                     "Status",
                   ].map((header) => (
@@ -794,14 +826,14 @@ const InventoryItemsPage = () => {
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan="5" style={styles.emptyStateCell}>
+                    <td colSpan="6" style={styles.emptyStateCell}>
                       Loading...
                     </td>
                   </tr>
                 ) : errorMessage ? (
                   <tr>
                     <td
-                      colSpan="5"
+                      colSpan="6"
                       style={{ ...styles.emptyStateCell, color: "#b91c1c" }}
                     >
                       {errorMessage}
@@ -809,7 +841,7 @@ const InventoryItemsPage = () => {
                   </tr>
                 ) : visibleInventoryItems.length === 0 ? (
                   <tr>
-                    <td colSpan="5" style={styles.emptyStateCell}>
+                    <td colSpan="6" style={styles.emptyStateCell}>
                       No items found
                     </td>
                   </tr>
@@ -822,7 +854,8 @@ const InventoryItemsPage = () => {
                       <tr key={item.id || index} style={styles.tr}>
                       <td style={styles.td}>{item.item_name || item.name}</td>
                       <td style={styles.td}>{item.category}</td>
-                      <td style={styles.td}>{formatItemQuantity(item)}</td>
+                      <td style={styles.td}>{getTotalItemQuantity(item)}</td>
+                      <td style={styles.td}>{formatUnitOfMeasurement(item)}</td>
                       <td style={styles.td}>
                         {item.expiration_date
                           ? new Date(item.expiration_date).toLocaleDateString()
