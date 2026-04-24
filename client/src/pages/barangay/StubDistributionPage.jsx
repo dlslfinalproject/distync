@@ -49,6 +49,11 @@ const getFilteredRows = (rows, searchTerm) => {
   });
 };
 
+const isEndedDisasterEvent = (event, eventScope) => {
+  const status = String(event?.status || "").toUpperCase();
+  return eventScope === "ended" || status === "CLOSED" || status === "ARCHIVED";
+};
+
 const StubDistributionPage = () => {
   const { authenticatedUser } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
@@ -108,6 +113,9 @@ const StubDistributionPage = () => {
     allowFallback,
   });
 
+
+  const isSelectedEventEnded = isEndedDisasterEvent(selectedEvent, eventScope);
+
   const filteredRows = useMemo(() => {
     const searchedRows = getFilteredRows(stubRows, searchTerm);
     const currentFilters = filtersByScope[eventScope] || {
@@ -166,6 +174,14 @@ const StubDistributionPage = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (isSelectedEventEnded) {
+      setSelectedStubIds([]);
+      setPendingClaimStubId("");
+      setIsBulkClaimConfirmOpen(false);
+    }
+  }, [isSelectedEventEnded, selectedEvent?.id]);
+
   const currentFilters = filtersByScope[eventScope] || {
     sectorNames: [],
     stubStatus: "",
@@ -211,6 +227,10 @@ const StubDistributionPage = () => {
   };
 
   const handleToggleSelect = (stubId) => {
+    if (isSelectedEventEnded) {
+      return;
+    }
+
     setSelectedStubIds((currentValues) =>
       currentValues.includes(stubId)
         ? currentValues.filter((id) => id !== stubId)
@@ -219,6 +239,11 @@ const StubDistributionPage = () => {
   };
 
   const handleSelectAll = () => {
+    if (isSelectedEventEnded) {
+      setSelectedStubIds([]);
+      return;
+    }
+
     const selectableStubIds = filteredRows
       .filter((row) => row.status === "ISSUED")
       .map((row) => row.id);
@@ -231,7 +256,7 @@ const StubDistributionPage = () => {
   };
 
   const handleOpenBulkClaimConfirmation = () => {
-    if (!selectedStubIds.length || claimingStubId) {
+    if (isSelectedEventEnded || !selectedStubIds.length || claimingStubId) {
       return;
     }
 
@@ -240,7 +265,7 @@ const StubDistributionPage = () => {
   };
 
   const handleOpenClaimConfirmation = (stubId) => {
-    if (claimingStubId) {
+    if (isSelectedEventEnded || claimingStubId) {
       return;
     }
 
@@ -258,7 +283,7 @@ const StubDistributionPage = () => {
   };
 
   const handleConfirmClaim = async () => {
-    if (claimingStubId) {
+    if (isSelectedEventEnded || claimingStubId) {
       return;
     }
 
@@ -372,7 +397,7 @@ const StubDistributionPage = () => {
         </div>
       </section>
 
-      {selectedStubIds.length > 0 ? (
+      {!isSelectedEventEnded && selectedStubIds.length > 0 ? (
         <section style={shellStyles.card}>
           <div
             style={{
@@ -420,6 +445,7 @@ const StubDistributionPage = () => {
         claimingStubId={claimingStubId}
         claimErrorMessage={claimErrorMessage}
         onClaimStub={handleOpenClaimConfirmation}
+        isClaimReadOnly={isSelectedEventEnded}
         selectedStubIds={selectedStubIds}
         onToggleSelect={handleToggleSelect}
         onSelectAll={handleSelectAll}
