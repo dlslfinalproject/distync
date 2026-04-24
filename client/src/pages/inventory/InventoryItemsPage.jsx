@@ -296,6 +296,40 @@ const styles = {
   },
 };
 
+/* ================= HELPERS ================= */
+
+const getUniqueCategories = (rows) =>
+  [...new Set(rows.map((r) => r.category).filter(Boolean))].sort();
+
+const formatNumericValue = (value) => {
+  if (!Number.isFinite(value)) {
+    return "--";
+  }
+
+  if (Number.isInteger(value)) {
+    return value.toLocaleString();
+  }
+
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+};
+
+const formatUnitOfMeasurement = (item) => {
+  const unitOfMeasureValue = Number(item.unit_of_measure_value || 0);
+
+  if (
+    Number.isFinite(unitOfMeasureValue) &&
+    unitOfMeasureValue > 0 &&
+    item.unit_of_measure
+  ) {
+    return `${formatNumericValue(unitOfMeasureValue)} ${item.unit_of_measure}`;
+  }
+
+  return item.unit_of_measure || "--";
+};
+
 const formatPercentage = (value, total) => {
   if (!total) {
     return "0%";
@@ -318,49 +352,26 @@ const buildInventoryItemFilters = (filters) => {
   return apiFilters;
 };
 
-const ExportNoticeModal = ({ isOpen, message, onClose }) => {
-  if (!isOpen) {
-    return null;
-  }
+const getTotalItemQuantity = (item) => {
+  const packagingCount = Number(item.packaging_count || 0);
+  const quantityPerPackaging = Number(item.quantity || 0);
+  const unitOfMeasureValue = Number(item.unit_of_measure_value || 1);
+  const normalizedPackagingCount =
+    Number.isFinite(packagingCount) && packagingCount > 0 ? packagingCount : 0;
+  const normalizedQuantityPerPackaging =
+    Number.isFinite(quantityPerPackaging) && quantityPerPackaging > 0
+      ? quantityPerPackaging
+      : 0;
+  const normalizedUnitOfMeasureValue =
+    Number.isFinite(unitOfMeasureValue) && unitOfMeasureValue > 0
+      ? unitOfMeasureValue
+      : 1;
+  const totalQuantity =
+    normalizedPackagingCount *
+    normalizedQuantityPerPackaging *
+    normalizedUnitOfMeasureValue;
 
-  return (
-    <div style={noticeModalStyles.overlay}>
-      <div style={noticeModalStyles.modal}>
-        <h3 style={noticeModalStyles.title}>Export Unavailable</h3>
-        <p style={noticeModalStyles.message}>{message}</p>
-
-        <div style={noticeModalStyles.actions}>
-          <button
-            type="button"
-            onClick={onClose}
-            style={pageHeaderStyles.primaryButton}
-          >
-            OK
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const formatItemQuantity = (item) => {
-  const packagingPart =
-    item.packaging_count && item.packaging
-      ? `${item.packaging_count} ${item.packaging}${
-          item.packaging_count > 1 ? "s" : ""
-        }`
-      : item.packaging || "--";
-
-  const unitPart =
-    item.unit_of_measure_value && item.unit_of_measure
-      ? `${item.unit_of_measure_value} ${item.unit_of_measure}`
-      : item.unit_of_measure || "--";
-
-  if (item.quantity) {
-    return `${packagingPart} | ${item.quantity} per packaging | ${unitPart}`;
-  }
-
-  return `${packagingPart} | ${unitPart}`;
+  return formatNumericValue(totalQuantity);
 };
 
 const isItemExpiring = (item) => {
@@ -980,10 +991,8 @@ const InventoryItemsPage = () => {
                   {[
                     "Item Name",
                     "Category",
-                    "Item Details",
-                    "On Hand",
-                    "Distributed",
-                    "Expired",
+                    "Quantity",
+                    "Unit of Measurement",
                     "Expiry Date",
                     "Status",
                   ].map((header) => (
@@ -997,14 +1006,14 @@ const InventoryItemsPage = () => {
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan="8" style={styles.emptyStateCell}>
+                    <td colSpan="6" style={styles.emptyStateCell}>
                       Loading...
                     </td>
                   </tr>
                 ) : errorMessage ? (
                   <tr>
                     <td
-                      colSpan="8"
+                      colSpan="6"
                       style={{ ...styles.emptyStateCell, color: "#b91c1c" }}
                     >
                       {errorMessage}
@@ -1012,48 +1021,47 @@ const InventoryItemsPage = () => {
                   </tr>
                 ) : visibleInventoryItems.length === 0 ? (
                   <tr>
-                    <td colSpan="8" style={styles.emptyStateCell}>
+                    <td colSpan="6" style={styles.emptyStateCell}>
                       No items found
                     </td>
                   </tr>
                 ) : (
-                  visibleInventoryItems.map((item) => {
+                  visibleInventoryItems.map((item, index) => {
                     const trackingStats =
-                      inventoryTrackingMap.get(item.id) ||
-                      createEmptyTrackingStats();
+                      inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
+
                     const itemStatus = getItemStatus(item, trackingStats);
                     const itemStatusStyle = getItemStatusStyle(itemStatus);
-                    const trackedExpirationDate = getTrackedExpirationDate(
-                      item,
-                      trackingStats,
-                    );
-                    const expiredQuantity =
-                      trackingStats.expired + trackingStats.expiredOnHand;
+
+                    // ✅ SAFE FIELD NORMALIZATION (FIX FOR BLANK CELLS)
+                    const itemName =
+                      item.item_name ??
+                      item.name ??
+                      item.product_name ??
+                      "Unnamed Item";
+
+                    const category = item.category ?? "--";
+
+                    const quantity = getTotalItemQuantity(item) ?? "0";
+
+                    const unit = formatUnitOfMeasurement(item) ?? "--";
+
+                    const expiry = item.expiration_date
+                      ? new Date(item.expiration_date).toLocaleDateString()
+                      : "--";
 
                     return (
-                      <tr key={item.id} style={styles.tr}>
-                        <td style={styles.td}>
-                          <div style={{ fontWeight: 700, color: COLORS.primary }}>
-                            {item.item_name || item.name}
-                          </div>
-                          <div
-                            style={{
-                              marginTop: "4px",
-                              fontSize: "12px",
-                              color: COLORS.muted,
-                            }}
-                          >
-                            {item.item_code || "No item code"}
-                          </div>
-                        </td>
-                        <td style={styles.td}>{item.category}</td>
-                        <td style={styles.td}>{formatItemQuantity(item)}</td>
-                        <td style={styles.td}>{trackingStats.onHand}</td>
-                        <td style={styles.td}>{trackingStats.distributed}</td>
-                        <td style={styles.td}>{expiredQuantity}</td>
-                        <td style={styles.td}>
-                          {formatDisplayDate(trackedExpirationDate)}
-                        </td>
+                      <tr key={item.id || index} style={styles.tr}>
+                        <td style={styles.td}>{itemName}</td>
+
+                        <td style={styles.td}>{category}</td>
+
+                        <td style={styles.td}>{quantity}</td>
+
+                        <td style={styles.td}>{unit}</td>
+
+                        <td style={styles.td}>{expiry}</td>
+
                         <td style={styles.td}>
                           <span
                             style={{
@@ -1147,7 +1155,7 @@ const InventoryItemsPage = () => {
         )}
       </section>
 
-      <InventoryItemFormModal
+       <InventoryItemFormModal
         isOpen={isModalOpen}
         mode="create"
         itemData={null}
@@ -1163,12 +1171,6 @@ const InventoryItemsPage = () => {
         onClose={handleCloseScanModal}
         onSubmit={handleSubmitScanModal}
         onInputChange={handleScanInputChange}
-      />
-
-      <ExportNoticeModal
-        isOpen={Boolean(exportNoticeMessage)}
-        message={exportNoticeMessage}
-        onClose={() => setExportNoticeMessage("")}
       />
     </div>
   );

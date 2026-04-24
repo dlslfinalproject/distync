@@ -158,7 +158,14 @@ const MasterlistTable = ({
               </th>
               <th style={tableStyles.headerCell}>Family Head</th>
               <th style={tableStyles.headerCell}>Address</th>
-              <th style={tableStyles.headerCell}>Members</th>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  textAlign: "center",
+                }}
+              >
+                Members
+              </th>
               <th style={tableStyles.headerCell}>Sectors</th>
               <th
                 style={{
@@ -205,7 +212,12 @@ const MasterlistTable = ({
                   </td>
                   <td style={tableStyles.bodyCell}>{row.family_head_name}</td>
                   <td style={tableStyles.bodyCell}>{row.address}</td>
-                  <td style={tableStyles.bodyCell}>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      textAlign: "center",
+                    }}
+                  >
                     <span style={tableStyles.membersBadge}>
                       {row.members_count}
                     </span>

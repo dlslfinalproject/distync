@@ -140,7 +140,48 @@ const updateReliefPackTemplate = async (id, templateData) => {
 
   await ensureUniqueTemplateName(templateData.name, id);
 
-  return reliefPackTemplateRepository.updateReliefPackTemplate(id, templateData);
+  if (Array.isArray(templateData.items)) {
+    await validateTemplateItems(templateData.items);
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    await reliefPackTemplateRepository.updateReliefPackTemplate(
+      id,
+      templateData,
+      client,
+    );
+
+    if (Array.isArray(templateData.items)) {
+      await reliefPackTemplateRepository.deleteReliefPackTemplateItemsByTemplateId(
+        id,
+        client,
+      );
+
+      for (const item of templateData.items) {
+        await reliefPackTemplateRepository.insertReliefPackTemplateItem(
+          {
+            template_id: id,
+            inventory_item_id: item.inventory_item_id,
+            quantity_required: item.quantity_required,
+          },
+          client,
+        );
+      }
+    }
+
+    await client.query("COMMIT");
+
+    return getReliefPackTemplateById(id);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 };
 
 const replaceReliefPackTemplateItems = async (id, itemsPayload) => {

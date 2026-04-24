@@ -206,6 +206,7 @@ const validateUpdateReliefPackTemplate = (req, res, next) => {
       based_on_family_size,
       based_on_sector,
       is_active,
+      items,
     } = req.body;
 
     if (!name || typeof name !== "string" || !name.trim()) {
@@ -248,12 +249,23 @@ const validateUpdateReliefPackTemplate = (req, res, next) => {
       });
     }
 
+    if (items !== undefined) {
+      const itemsValidationError = validateTemplateItemsArray(items, true);
+
+      if (itemsValidationError) {
+        return res.status(400).json({
+          message: itemsValidationError,
+        });
+      }
+    }
+
     req.validatedBody = {
       name: name.trim(),
       description: description ?? null,
       based_on_family_size: based_on_family_size ?? false,
       based_on_sector: based_on_sector ?? false,
       is_active: is_active ?? true,
+      items,
     };
 
     return next();
