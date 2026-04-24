@@ -10,27 +10,31 @@ import {
 const tableStyles = {
   table: {
     width: "100%",
+    maxWidth: "100%",
     borderCollapse: "collapse",
-    minWidth: "920px",
+    tableLayout: "fixed",
   },
   headerCell: {
-    padding: "14px 16px",
+    padding: "14px 12px",
     textAlign: "center",
     fontSize: "12px",
     letterSpacing: "0.08em",
     textTransform: "uppercase",
     color: "#66809c",
     borderBottom: "1px solid #e0eaf4",
-    whiteSpace: "nowrap",
+    whiteSpace: "normal",
+    lineHeight: 1.4,
   },
   bodyCell: {
-    padding: "16px",
+    padding: "16px 12px",
     color: "#21405f",
     borderBottom: "1px solid #edf3f8",
     fontSize: "14px",
     verticalAlign: "middle",
     textAlign: "center",
     lineHeight: 1.5,
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
     wordBreak: "break-word",
   },
 };
@@ -90,21 +94,43 @@ const DisasterEventsTable = ({
         <h3 style={{ margin: 0, color: "#17324d" }}>Disaster Events</h3>
       </div>
 
-      <div style={{ width: "100%", overflowX: "auto" }}>
+      <div style={{ width: "100%", minWidth: 0 }}>
         <table style={tableStyles.table}>
           <thead>
             <tr>
-              <th style={{ ...tableStyles.headerCell, textAlign: "left" }}>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  width: "22%",
+                  textAlign: "left",
+                }}
+              >
                 Name
               </th>
-              <th style={{ ...tableStyles.headerCell, textAlign: "left" }}>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  width: "14%",
+                  textAlign: "left",
+                }}
+              >
                 Disaster Type
               </th>
-              <th style={tableStyles.headerCell}>Affected Barangays</th>
-              <th style={tableStyles.headerCell}>Start Date</th>
-              <th style={tableStyles.headerCell}>End Date</th>
-              <th style={tableStyles.headerCell}>Status</th>
-              <th style={tableStyles.headerCell}>Action</th>
+              <th style={{ ...tableStyles.headerCell, width: "24%" }}>
+                Affected Barangays
+              </th>
+              <th style={{ ...tableStyles.headerCell, width: "12%" }}>
+                Start Date
+              </th>
+              <th style={{ ...tableStyles.headerCell, width: "12%" }}>
+                End Date
+              </th>
+              <th style={{ ...tableStyles.headerCell, width: "8%" }}>
+                Status
+              </th>
+              <th style={{ ...tableStyles.headerCell, width: "8%" }}>
+                Action
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -131,7 +157,7 @@ const DisasterEventsTable = ({
                         display: "flex",
                         flexWrap: "wrap",
                         gap: "6px",
-                        maxWidth: "220px",
+                        maxWidth: "100%",
                         justifyContent: "center",
                       }}
                     >
@@ -148,7 +174,8 @@ const DisasterEventsTable = ({
                             color: "#356592",
                             fontSize: "12px",
                             fontWeight: 700,
-                            whiteSpace: "nowrap",
+                            whiteSpace: "normal",
+                            overflowWrap: "anywhere",
                           }}
                         >
                           {brgy.name || brgy}

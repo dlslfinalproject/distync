@@ -1,9 +1,7 @@
 import React, { useEffect, useState } from "react";
+import { FiX } from "react-icons/fi";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
-import { FiX } from "react-icons/fi";
-
-/* ================= STYLES ================= */
 
 const overlayStyles = {
   position: "fixed",
@@ -56,19 +54,6 @@ const labelStyles = {
   fontWeight: 700,
 };
 
-const eventCardStyles = (isSelected) => ({
-  display: "flex",
-  alignItems: "center",
-  gap: "15px",
-  padding: "16px 20px",
-  borderRadius: "14px",
-  border: "1px solid #dcdde1",
-  backgroundColor: isSelected ? "#f8fbfe" : "#ffffff",
-  marginBottom: "12px",
-  cursor: "pointer",
-  transition: "all 0.2s ease",
-});
-
 const primaryBtnStyle = {
   ...pageHeaderStyles.primaryButton,
   minHeight: "48px",
@@ -120,86 +105,189 @@ const itemChipStyles = {
   marginBottom: "8px",
 };
 
+const errorTextStyles = {
+  margin: 0,
+  color: "#9d4d58",
+  fontSize: "14px",
+  fontWeight: 600,
+};
+
+const buildPackItems = (templateData) => {
+  return (templateData?.items || []).map((item, index) => ({
+    id: item.id || `${item.inventory_item_id}-${index}`,
+    inventory_item_id: item.inventory_item_id,
+    item: item.inventory_item?.item_name || "Unknown item",
+    quantity: String(item.quantity_required || 1),
+  }));
+};
+
+const buildInitialFormValues = (templateData) => ({
+  packName: templateData?.name || "",
+  selectedItem: "",
+  quantity: "",
+  familyPerPack: "1 family",
+});
+
 const ReliefPackTemplateFormModal = ({
   isOpen,
+  mode = "create",
+  templateData,
+  inventoryItems = [],
+  errorMessage = "",
   onClose,
   onSubmit,
   isSubmitting,
 }) => {
-  const [step, setStep] = useState(1);
-  const [formValues, setFormValues] = useState({
-    packName: "",
-    selectedItem: "",
-    quantity: "",
-    familyPerPack: "",
-  });
-
-  const [selectedEvents, setSelectedEvents] = useState([1, 2]);
-  const [events] = useState([
-    { id: 1, name: "Typhoon Kristine", families: "1250 families" },
-    { id: 2, name: "Earthquake 5.2", families: "40 families" },
-    { id: 3, name: "Landslide (Bagong Pook)", families: "40 families" },
-    { id: 4, name: "Flood Zone B", families: "300 families" },
-  ]);
-  const [packItems, setPackItems] = useState([]);
+  const [formValues, setFormValues] = useState(buildInitialFormValues(templateData));
+  const [packItems, setPackItems] = useState(buildPackItems(templateData));
+  const [localErrorMessage, setLocalErrorMessage] = useState("");
 
   useEffect(() => {
-    if (!isOpen) return;
-    setStep(1);
-    setFormValues({
-      packName: "",
-      selectedItem: "",
-      quantity: "",
-      familyPerPack: "",
-    });
-    setSelectedEvents([1, 2]);
-    setPackItems([]);
-  }, [isOpen]);
+    if (!isOpen) {
+      return;
+    }
 
-  if (!isOpen) return null;
+    setFormValues(buildInitialFormValues(templateData));
+    setPackItems(buildPackItems(templateData));
+    setLocalErrorMessage("");
+  }, [isOpen, templateData]);
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormValues((prev) => ({ ...prev, [name]: value }));
-  };
+  if (!isOpen) {
+    return null;
+  }
 
-  const toggleEvent = (id) => {
-    setSelectedEvents((prev) =>
-      prev.includes(id) ? prev.filter((e) => e !== id) : [...prev, id]
-    );
-  };
+  const isEditMode = mode === "edit";
 
-  const handleNext = () => setStep(2);
-  const handlePrevious = () => setStep(1);
-
-  const handleAddItem = () => {
-    if (!formValues.selectedItem || !formValues.quantity) return;
-
-    setPackItems((prev) => [
-      ...prev,
-      {
-        id: `${formValues.selectedItem}-${Date.now()}`,
-        item: formValues.selectedItem,
-        quantity: formValues.quantity,
-      },
-    ]);
-
-    setFormValues((prev) => ({
-      ...prev,
-      selectedItem: "",
-      quantity: "",
+  const handleInputChange = (event) => {
+    const { name, value } = event.target;
+    setLocalErrorMessage("");
+    setFormValues((previousValues) => ({
+      ...previousValues,
+      [name]: value,
     }));
   };
 
-  const handleFinalSubmit = (e) => {
-    e.preventDefault();
-    onSubmit({ ...formValues, disasterEvents: selectedEvents, items: packItems });
+  const handleAddItem = () => {
+    const selectedInventoryItem = inventoryItems.find(
+      (inventoryItem) => inventoryItem.id === formValues.selectedItem,
+    );
+    const parsedQuantity = Number.parseInt(formValues.quantity, 10);
+
+    if (!selectedInventoryItem) {
+      setLocalErrorMessage("Select an item from inventory first.");
+      return;
+    }
+
+    if (!Number.isInteger(parsedQuantity) || parsedQuantity < 0) {
+      setLocalErrorMessage("Quantity must be zero or a positive whole number.");
+      return;
+    }
+
+    const duplicateItem = packItems.find(
+      (packItem) => packItem.inventory_item_id === selectedInventoryItem.id,
+    );
+
+    if (duplicateItem && parsedQuantity === 0) {
+      setPackItems((previousItems) =>
+        previousItems.filter(
+          (packItem) => packItem.inventory_item_id !== selectedInventoryItem.id,
+        ),
+      );
+      setFormValues((previousValues) => ({
+        ...previousValues,
+        selectedItem: "",
+        quantity: "",
+      }));
+      setLocalErrorMessage("");
+      return;
+    }
+
+    if (duplicateItem) {
+      setPackItems((previousItems) =>
+        previousItems.map((packItem) =>
+          packItem.inventory_item_id === selectedInventoryItem.id
+            ? {
+                ...packItem,
+                quantity: String(parsedQuantity),
+              }
+            : packItem,
+        ),
+      );
+      setFormValues((previousValues) => ({
+        ...previousValues,
+        selectedItem: "",
+        quantity: "",
+      }));
+      setLocalErrorMessage("");
+      return;
+    }
+
+    if (parsedQuantity === 0) {
+      setLocalErrorMessage("New items must have a quantity of at least 1.");
+      return;
+    }
+
+    setPackItems((previousItems) => [
+      ...previousItems,
+      {
+        id: `${selectedInventoryItem.id}-${Date.now()}`,
+        inventory_item_id: selectedInventoryItem.id,
+        item: selectedInventoryItem.item_name,
+        quantity: String(parsedQuantity),
+      },
+    ]);
+
+    setFormValues((previousValues) => ({
+      ...previousValues,
+      selectedItem: "",
+      quantity: "",
+    }));
+    setLocalErrorMessage("");
+  };
+
+  const handleFinalSubmit = (event) => {
+    event.preventDefault();
+
+    if (!formValues.packName.trim()) {
+      setLocalErrorMessage("Pack name is required.");
+      return;
+    }
+
+    const parsedItems = packItems
+      .map((packItem) => ({
+        inventory_item_id: packItem.inventory_item_id,
+        quantity_required: Number.parseInt(packItem.quantity, 10),
+      }))
+      .filter(
+        (packItem) =>
+          packItem.inventory_item_id &&
+          Number.isInteger(packItem.quantity_required) &&
+          packItem.quantity_required > 0,
+      );
+
+    if (parsedItems.length === 0) {
+      setLocalErrorMessage(
+        "Add at least one inventory item so the relief pack stays connected to inventory.",
+      );
+      return;
+    }
+
+    setLocalErrorMessage("");
+
+    onSubmit({
+      name: formValues.packName.trim(),
+      description: templateData?.description ?? null,
+      based_on_family_size: templateData?.based_on_family_size ?? false,
+      based_on_sector: templateData?.based_on_sector ?? false,
+      is_active: templateData?.is_active ?? true,
+      items: parsedItems,
+      family_per_pack_label: formValues.familyPerPack,
+    });
   };
 
   return (
     <div style={overlayStyles}>
       <div style={modalStyles}>
-        {/* Header */}
         <div
           style={{
             display: "flex",
@@ -211,14 +299,18 @@ const ReliefPackTemplateFormModal = ({
         >
           <div>
             <h3 style={{ margin: 0, color: "#17324d", fontSize: "26px" }}>
-              Add Relief Pack
+              {isEditMode ? "Edit Relief Pack" : "Add Relief Pack"}
             </h3>
           </div>
 
           <button
             type="button"
             onClick={onClose}
-            style={pageHeaderStyles.secondaryButton}
+            disabled={isSubmitting}
+            style={{
+              ...pageHeaderStyles.secondaryButton,
+              opacity: isSubmitting ? 0.7 : 1,
+            }}
           >
             <FiX />
           </button>
@@ -233,158 +325,124 @@ const ReliefPackTemplateFormModal = ({
               gap: "18px",
             }}
           >
-            {step === 1 ? (
-              <>
-                {/* SECTION 1 */}
-                <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
-                  <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
-                    Pack Information
-                  </h3>
+            <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
+              <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
+                Pack Information
+              </h3>
 
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                      gap: "18px",
-                    }}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: "18px",
+                }}
+              >
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label style={labelStyles} htmlFor="relief-pack-name">
+                    Pack Name
+                  </label>
+                  <input
+                    id="relief-pack-name"
+                    name="packName"
+                    style={inputStyles}
+                    value={formValues.packName}
+                    onChange={handleInputChange}
+                    placeholder="e.g. Standard Food Pack"
+                  />
+                </div>
+
+                <div>
+                  <label style={labelStyles} htmlFor="relief-pack-selected-item">
+                    Add Item to Pack
+                  </label>
+                  <select
+                    id="relief-pack-selected-item"
+                    name="selectedItem"
+                    style={inputStyles}
+                    value={formValues.selectedItem}
+                    onChange={handleInputChange}
                   >
-                    <div style={{ gridColumn: "1 / -1" }}>
-                      <label style={labelStyles}>Pack Name</label>
-                      <input
-                        name="packName"
-                        style={inputStyles}
-                        value={formValues.packName}
-                        onChange={handleInputChange}
-                        placeholder="e.g. Standard Food Pack"
-                      />
-                    </div>
+                    <option value="">Select Item</option>
+                    {inventoryItems.map((inventoryItem) => (
+                      <option key={inventoryItem.id} value={inventoryItem.id}>
+                        {inventoryItem.item_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-                    <div>
-                      <label style={labelStyles}>Add Item to Pack</label>
-                      <select
-                        name="selectedItem"
-                        style={inputStyles}
-                        value={formValues.selectedItem}
-                        onChange={handleInputChange}
-                      >
-                        <option value="">Select Item</option>
-                        <option value="rice">Rice (5kg)</option>
-                        <option value="canned">Canned Goods</option>
-                      </select>
-                    </div>
+                <div>
+                  <label style={labelStyles} htmlFor="relief-pack-quantity">
+                    Quantity
+                  </label>
+                  <input
+                    id="relief-pack-quantity"
+                    name="quantity"
+                    type="number"
+                    min="0"
+                    style={inputStyles}
+                    value={formValues.quantity}
+                    onChange={handleInputChange}
+                    placeholder="0"
+                  />
+                </div>
 
-                    <div>
-                      <label style={labelStyles}>Quantity</label>
-                      <input
-                        name="quantity"
-                        type="number"
-                        style={inputStyles}
-                        value={formValues.quantity}
-                        onChange={handleInputChange}
-                        placeholder="0"
-                      />
-                    </div>
-
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "end",
-                      }}
-                    >
-                      <button
-                        type="button"
-                        onClick={handleAddItem}
-                        style={{ ...primaryBtnStyle, width: "100%" }}
-                      >
-                        + Add Item
-                      </button>
-                    </div>
-
-                    <div>
-                      <label style={labelStyles}>Family per Pack</label>
-                      <input
-                        name="familyPerPack"
-                        style={inputStyles}
-                        value={formValues.familyPerPack}
-                        onChange={handleInputChange}
-                        placeholder="e.g. 1 family"
-                      />
-                    </div>
-                  </div>
-                </section>
-
-                {/* SECTION 2 */}
-                <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
-                  <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
-                    Pack Items
-                  </h3>
-
-                  {packItems.length === 0 ? (
-                    <p style={helperTextStyles}>
-                      No items have been added to this pack yet.
-                    </p>
-                  ) : (
-                    <div style={itemPreviewWrapStyles}>
-                      <h4 style={itemPreviewTitleStyles}>Added Items</h4>
-                      <div>
-                        {packItems.map((packItem) => (
-                          <span key={packItem.id} style={itemChipStyles}>
-                            {packItem.item} · {packItem.quantity}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </section>
-              </>
-            ) : (
-              /* SECTION 3 */
-              <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
-                <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
-                  Select Disaster Events
-                </h3>
-
-                <p style={helperTextStyles}>
-                  Choose one or more disaster events where this relief pack will be available.
-                </p>
-
-                {events.map((event) => (
-                  <div
-                    key={event.id}
-                    style={eventCardStyles(selectedEvents.includes(event.id))}
-                    onClick={() => toggleEvent(event.id)}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "end",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={handleAddItem}
+                    style={{ ...primaryBtnStyle, width: "100%" }}
                   >
-                    <input
-                      type="checkbox"
-                      checked={selectedEvents.includes(event.id)}
-                      onChange={() => {}}
-                      style={{ width: "20px", height: "20px", cursor: "pointer" }}
-                    />
-                    <div>
-                      <div
-                        style={{
-                          fontWeight: "700",
-                          color: "#2c3e50",
-                          fontSize: "16px",
-                        }}
-                      >
-                        {event.name}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: "13px",
-                          color: "#7f8c8d",
-                        }}
-                      >
-                        {event.families}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </section>
-            )}
+                    + Add Item
+                  </button>
+                </div>
 
-            {/* Footer Buttons */}
+                <div>
+                  <label style={labelStyles} htmlFor="relief-pack-family">
+                    Family per Pack
+                  </label>
+                  <input
+                    id="relief-pack-family"
+                    name="familyPerPack"
+                    style={inputStyles}
+                    value={formValues.familyPerPack}
+                    onChange={handleInputChange}
+                    placeholder="e.g. 1 family"
+                  />
+                </div>
+              </div>
+            </section>
+
+            <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
+              <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
+                Pack Items
+              </h3>
+
+              {packItems.length === 0 ? (
+                <p style={helperTextStyles}>No items have been added to this pack yet.</p>
+              ) : (
+                <div style={itemPreviewWrapStyles}>
+                  <h4 style={itemPreviewTitleStyles}>Added Items</h4>
+                  <div>
+                    {packItems.map((packItem) => (
+                      <span key={packItem.id} style={itemChipStyles}>
+                        {packItem.item} · {packItem.quantity}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+
+            {localErrorMessage || errorMessage ? (
+              <p style={errorTextStyles}>{localErrorMessage || errorMessage}</p>
+            ) : null}
+
             <div
               style={{
                 display: "flex",
@@ -394,45 +452,25 @@ const ReliefPackTemplateFormModal = ({
                 flexWrap: "wrap",
               }}
             >
-              {step === 1 ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    style={secondaryBtnStyle}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleNext}
-                    style={primaryBtnStyle}
-                  >
-                    Next
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={handlePrevious}
-                    style={secondaryBtnStyle}
-                  >
-                    Previous
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleFinalSubmit}
-                    disabled={isSubmitting}
-                    style={{
-                      ...primaryBtnStyle,
-                      opacity: isSubmitting ? 0.7 : 1,
-                    }}
-                  >
-                    {isSubmitting ? "Creating..." : "Create Pack"}
-                  </button>
-                </>
-              )}
+              <button type="button" onClick={onClose} style={secondaryBtnStyle}>
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                style={{
+                  ...primaryBtnStyle,
+                  opacity: isSubmitting ? 0.7 : 1,
+                }}
+              >
+                {isSubmitting
+                  ? isEditMode
+                    ? "Saving..."
+                    : "Creating..."
+                  : isEditMode
+                    ? "Save Changes"
+                    : "Create Pack"}
+              </button>
             </div>
           </form>
         </div>
