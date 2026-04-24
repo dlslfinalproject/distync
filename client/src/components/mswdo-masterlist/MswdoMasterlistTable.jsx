@@ -49,21 +49,26 @@ const tableStyles = {
     borderCollapse: "collapse",
   },
   headerCell: {
-    padding: "14px 16px",
+    padding: "14px 10px",
     textAlign: "left",
     fontSize: "12px",
     letterSpacing: "0.08em",
     textTransform: "uppercase",
     color: "#66809c",
     borderBottom: "1px solid #e0eaf4",
-    whiteSpace: "nowrap",
+    whiteSpace: "normal",
+    lineHeight: 1.4,
   },
   bodyCell: {
-    padding: "16px",
+    padding: "16px 10px",
     color: "#21405f",
     borderBottom: "1px solid #edf3f8",
-    fontSize: "14px",
+    fontSize: "13px",
     verticalAlign: "top",
+    lineHeight: 1.5,
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
+    wordBreak: "break-word",
   },
   badge: {
     display: "inline-flex",
@@ -139,19 +144,37 @@ const MswdoMasterlistTable = ({
         </p>
       </div>
 
-      <div style={{ width: "100%", overflowX: "auto" }}>
+      <div style={{ width: "100%", minWidth: 0 }}>
         <table style={tableStyles.table}>
           <thead>
             <tr>
-              <th style={tableStyles.headerCell}>Family Head</th>
-              <th style={tableStyles.headerCell}>Barangay</th>
-              <th style={tableStyles.headerCell}>Household Size</th>
-              <th style={tableStyles.headerCell}>Current Stay Type</th>
-              <th style={tableStyles.headerCell}>Contact Number</th>
-              <th style={tableStyles.headerCell}>Stub Number</th>
-              <th style={tableStyles.headerCell}>Latest Attendance</th>
-              <th style={tableStyles.headerCell}>Registered Date</th>
-              <th style={tableStyles.headerCell}>Action</th>
+              <th style={{ ...tableStyles.headerCell, width: "15%" }}>
+                Family Head
+              </th>
+              <th style={{ ...tableStyles.headerCell, width: "11%" }}>
+                Barangay
+              </th>
+              <th style={{ ...tableStyles.headerCell, width: "10%" }}>
+                Household Size
+              </th>
+              <th style={{ ...tableStyles.headerCell, width: "13%" }}>
+                Current Stay Type
+              </th>
+              <th style={{ ...tableStyles.headerCell, width: "12%" }}>
+                Contact Number
+              </th>
+              <th style={{ ...tableStyles.headerCell, width: "10%" }}>
+                Stub Number
+              </th>
+              <th style={{ ...tableStyles.headerCell, width: "11%" }}>
+                Latest Attendance
+              </th>
+              <th style={{ ...tableStyles.headerCell, width: "10%" }}>
+                Registered Date
+              </th>
+              <th style={{ ...tableStyles.headerCell, width: "8%" }}>
+                Action
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -193,7 +216,8 @@ const MswdoMasterlistTable = ({
                     style={{
                       border: "1px solid #c6d8ea",
                       borderRadius: "12px",
-                      padding: "10px 14px",
+                      width: "100%",
+                      padding: "10px 12px",
                       backgroundColor: "#f7fbfe",
                       color: "#24496e",
                       fontSize: "13px",

@@ -164,7 +164,7 @@ const insertReliefPackTemplate = async (templateData, dbClient) => {
   return result.rows[0];
 };
 
-const updateReliefPackTemplate = async (id, templateData) => {
+const updateReliefPackTemplate = async (id, templateData, dbClient = pool) => {
   const query = `
     UPDATE relief_pack_templates
     SET name = $2,
@@ -195,7 +195,7 @@ const updateReliefPackTemplate = async (id, templateData) => {
     templateData.is_active,
   ];
 
-  const result = await pool.query(query, values);
+  const result = await dbClient.query(query, values);
   return result.rows[0] || null;
 };
 

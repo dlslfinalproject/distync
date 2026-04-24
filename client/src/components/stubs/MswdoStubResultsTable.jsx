@@ -5,24 +5,31 @@ import { shellStyles } from "../layout/BarangayLayout";
 const tableStyles = {
   table: {
     width: "100%",
+    maxWidth: "100%",
     borderCollapse: "collapse",
+    tableLayout: "fixed",
   },
   headerCell: {
-    padding: "14px 16px",
+    padding: "14px 12px",
     textAlign: "left",
     fontSize: "12px",
     letterSpacing: "0.08em",
     textTransform: "uppercase",
     color: "#66809c",
     borderBottom: "1px solid #e0eaf4",
-    whiteSpace: "nowrap",
+    whiteSpace: "normal",
+    lineHeight: 1.4,
   },
   bodyCell: {
-    padding: "16px",
+    padding: "16px 12px",
     color: "#21405f",
     borderBottom: "1px solid #edf3f8",
     fontSize: "14px",
     verticalAlign: "top",
+    lineHeight: 1.5,
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
+    wordBreak: "break-word",
   },
   statusButton: {
     border: "1px solid #c6d8ea",
@@ -113,6 +120,7 @@ const MswdoStubResultsTable = ({
   claimingStubId,
   claimErrorMessage,
   onClaimStub,
+  isClaimReadOnly = false,
   selectedStubIds,
   onToggleSelect,
   onSelectAll,
@@ -180,7 +188,9 @@ const MswdoStubResultsTable = ({
     );
   }
 
-  const selectableRows = rows.filter((row) => row.status === "ISSUED");
+  const selectableRows = isClaimReadOnly
+    ? []
+    : rows.filter((row) => row.status === "ISSUED");
 
   const areAllSelected =
     selectableRows.length > 0 &&
@@ -205,7 +215,7 @@ const MswdoStubResultsTable = ({
         </p>
       ) : null}
 
-      <div style={{ overflowX: "auto" }}>
+      <div style={{ width: "100%", minWidth: 0 }}>
         <table style={tableStyles.table}>
           <thead>
             <tr>
@@ -223,20 +233,28 @@ const MswdoStubResultsTable = ({
                   disabled={!selectableRows.length}
                 />
               </th>
-              <th style={tableStyles.headerCell}>Family Head</th>
-              <th style={tableStyles.headerCell}>Address</th>
+              <th style={{ ...tableStyles.headerCell, width: "18%" }}>
+                Family Head
+              </th>
+              <th style={{ ...tableStyles.headerCell, width: "18%" }}>
+                Address
+              </th>
               <th
                 style={{
                   ...tableStyles.headerCell,
+                  width: "14%",
                   textAlign: "center",
                 }}
               >
                 Stub Number
               </th>
-              <th style={tableStyles.headerCell}>Sectors</th>
+              <th style={{ ...tableStyles.headerCell, width: "34%" }}>
+                Sectors
+              </th>
               <th
                 style={{
                   ...tableStyles.headerCell,
+                  width: "14%",
                   textAlign: "center",
                 }}
               >
@@ -246,7 +264,7 @@ const MswdoStubResultsTable = ({
           </thead>
           <tbody>
             {rows.map((row) => {
-              const isSelectable = row.status === "ISSUED";
+              const isSelectable = !isClaimReadOnly && row.status === "ISSUED";
               const isSelected = safeSelectedStubIds.includes(row.id);
 
               return (
@@ -283,7 +301,7 @@ const MswdoStubResultsTable = ({
                       verticalAlign: "middle",
                     }}
                   >
-                    {row.status === "ISSUED" ? (
+                    {row.status === "ISSUED" && !isClaimReadOnly ? (
                       <button
                         type="button"
                         onClick={() => onClaimStub(row.id)}

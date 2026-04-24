@@ -7,6 +7,8 @@ const categoryValueMap = {
   perishable: "Perishable",
   "non-perishable": "Non-Perishable",
 };
+const allowedExportFormats = ["pdf", "excel", "csv"];
+const allowedStatusFilters = ["All", "Active", "Inactive", "Expiring"];
 
 const isValidUuid = (value) => {
   return typeof value === "string" && uuidPattern.test(value);
@@ -144,6 +146,60 @@ const validateGetInventoryItems = (req, res, next) => {
   } catch (error) {
     return res.status(500).json({
       message: "Failed to validate inventory item filters",
+      error: error.message,
+    });
+  }
+};
+
+const validateExportInventoryItems = (req, res, next) => {
+  try {
+    const { format, category, search, is_active, is_perishable, status } =
+      req.query;
+    const normalizedFormat = String(format || "").toLowerCase();
+    const parsedIsActive = parseOptionalBoolean(is_active);
+    const parsedIsPerishable = parseOptionalBoolean(is_perishable);
+    const normalizedStatus =
+      typeof status === "string" && status.trim()
+        ? normalizeAllowedValue(status, allowedStatusFilters)
+        : "All";
+
+    if (!allowedExportFormats.includes(normalizedFormat)) {
+      return res.status(400).json({
+        message: "format must be one of: pdf, excel, csv",
+      });
+    }
+
+    if (parsedIsActive.value === "invalid") {
+      return res.status(400).json({
+        message: "is_active must be true or false when provided",
+      });
+    }
+
+    if (parsedIsPerishable.value === "invalid") {
+      return res.status(400).json({
+        message: "is_perishable must be true or false when provided",
+      });
+    }
+
+    if (!normalizedStatus) {
+      return res.status(400).json({
+        message: "status must be one of: All, Active, Inactive, Expiring",
+      });
+    }
+
+    req.validatedQuery = {
+      format: normalizedFormat,
+      category: typeof category === "string" && category.trim() ? category.trim() : null,
+      search: typeof search === "string" && search.trim() ? search.trim() : null,
+      is_active: parsedIsActive.isProvided ? parsedIsActive.value : null,
+      is_perishable: parsedIsPerishable.isProvided ? parsedIsPerishable.value : null,
+      status: normalizedStatus,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate inventory item export request",
       error: error.message,
     });
   }
@@ -301,6 +357,7 @@ const validateInventoryItemPayload = (req, res, next) => {
 
 module.exports = {
   validateInventoryItemId,
+  validateExportInventoryItems,
   validateGetInventoryItems,
   validateInventoryItemPayload,
 };

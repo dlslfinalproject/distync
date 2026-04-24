@@ -55,15 +55,14 @@ const CRITICAL_STOCK_THRESHOLD = 5;
 const styles = {
   page: {
     minHeight: "100vh",
-    background: COLORS.pageBg,
-    padding: "32px",
+    background: "transparent",
+    padding: 0,
     boxSizing: "border-box",
     fontFamily: "Inter, Segoe UI, sans-serif",
     color: COLORS.text,
   },
   pageInner: {
-    maxWidth: "1280px",
-    margin: "0 auto",
+    width: "100%",
     display: "flex",
     flexDirection: "column",
     gap: "20px",
@@ -355,9 +354,7 @@ const styles = {
 };
 
 const formatDate = (value) => {
-  if (!value) {
-    return "--";
-  }
+  if (!value) return "--";
 
   return new Intl.DateTimeFormat("en-PH", {
     month: "long",
@@ -367,9 +364,7 @@ const formatDate = (value) => {
 };
 
 const formatUpdatedAt = (value) => {
-  if (!value) {
-    return "--";
-  }
+  if (!value) return "--";
 
   return new Intl.DateTimeFormat("en-PH", {
     month: "long",
@@ -385,9 +380,7 @@ const formatDateRange = (startDate, endDate) => {
 };
 
 const formatStatusLabel = (status) => {
-  if (!status) {
-    return "Unknown";
-  }
+  if (!status) return "Unknown";
 
   const normalizedStatus = String(status).toLowerCase();
   return normalizedStatus.charAt(0).toUpperCase() + normalizedStatus.slice(1);
@@ -413,9 +406,7 @@ const buildInventoryLookup = (inventoryBatches) => {
   (inventoryBatches || []).forEach((batch) => {
     const itemId = batch.inventory_item?.id || batch.inventory_item_id;
 
-    if (!itemId) {
-      return;
-    }
+    if (!itemId) return;
 
     const quantityAvailable = Number(batch.quantity_available || 0);
     const existingEntry = inventoryByItemId.get(itemId) || {
@@ -463,9 +454,11 @@ const buildActiveDisasterRows = ({
   return (activeEvents || []).map((event) => {
     const operationalPayload =
       operationalAnalyticsByEventId.get(event.id) || EMPTY_OPERATIONAL_PAYLOAD;
+
     const summaryMetrics =
       operationalPayload.summary_metrics ||
       EMPTY_OPERATIONAL_PAYLOAD.summary_metrics;
+
     const areaBreakdown = (operationalPayload.charts?.per_barangay || []).map(
       (item) => ({
         area: item.barangay_name || "Unknown",
@@ -481,9 +474,7 @@ const buildActiveDisasterRows = ({
       .forEach((transaction) => {
         const itemId = transaction.inventory_item?.id;
 
-        if (!itemId) {
-          return;
-        }
+        if (!itemId) return;
 
         const inventoryEntry = inventoryLookup.get(itemId);
         const existingEntry = neededItemsByItemId.get(itemId) || {
@@ -545,7 +536,6 @@ const HeroSection = ({ activeCount }) => {
     <section style={styles.heroCard}>
       <div style={styles.heroTop}>
         <div>
-          <p style={styles.eyebrow}>Donors & NGOs Portal</p>
           <h1 style={styles.title}>Disaster Response Overview</h1>
           <p style={styles.subtitle}>
             {hasActiveDisasters
@@ -621,9 +611,7 @@ const DonationInformationPage = () => {
       try {
         const activeEvents = await fetchActiveDisasterEvents();
 
-        if (!isMounted) {
-          return;
-        }
+        if (!isMounted) return;
 
         if (!Array.isArray(activeEvents) || activeEvents.length === 0) {
           setPageState({
@@ -657,9 +645,7 @@ const DonationInformationPage = () => {
             }),
           ]);
 
-        if (!isMounted) {
-          return;
-        }
+        if (!isMounted) return;
 
         const operationalAnalyticsByEventId = new Map(operationalEntries);
         const inventoryLookup = buildInventoryLookup(inventoryBatches || []);
@@ -683,9 +669,7 @@ const DonationInformationPage = () => {
           ]),
         });
       } catch (error) {
-        if (!isMounted) {
-          return;
-        }
+        if (!isMounted) return;
 
         setPageState({
           isLoading: false,

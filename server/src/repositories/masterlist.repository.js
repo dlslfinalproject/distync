@@ -198,7 +198,8 @@ const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) =
         h.id,
         h.barangay_id,
         h.household_size,
-        h.residency_status
+        h.residency_status,
+        h.current_stay_type
       FROM households h
       WHERE h.disaster_event_id = $1
         AND h.is_active = TRUE
@@ -208,7 +209,12 @@ const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) =
       SELECT
         e.id,
         e.household_id,
-        fh.barangay_id
+        fh.barangay_id,
+        e.sex,
+        e.birth_date,
+        e.age,
+        e.age_value,
+        e.age_unit
       FROM evacuees e
       INNER JOIN filtered_households fh ON fh.id = e.household_id
       WHERE e.is_active = TRUE
@@ -216,8 +222,11 @@ const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) =
     latest_logs AS (
       SELECT DISTINCT ON (el.evacuee_id)
         el.evacuee_id,
+        el.household_id,
         el.status,
-        el.time_out
+        el.time_in,
+        el.time_out,
+        el.evacuation_center_id
       FROM evacuation_logs el
       INNER JOIN filtered_evacuees fe ON fe.id = el.evacuee_id
       WHERE el.disaster_event_id = $1
@@ -226,6 +235,84 @@ const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) =
         COALESCE(el.time_out, el.time_in) DESC,
         el.updated_at DESC,
         el.created_at DESC
+    ),
+    sex_distribution AS (
+      SELECT
+        CASE
+          WHEN fe.sex = 'MALE' THEN 'Male'
+          WHEN fe.sex = 'FEMALE' THEN 'Female'
+          ELSE 'Unspecified'
+        END AS name,
+        COUNT(*)::int AS value
+      FROM filtered_evacuees fe
+      GROUP BY 1
+      ORDER BY value DESC, name ASC
+    ),
+    evacuees_with_age AS (
+      SELECT
+        fe.id,
+        CASE
+          WHEN fe.birth_date IS NOT NULL THEN GREATEST(DATE_PART('year', AGE(CURRENT_DATE, fe.birth_date))::int, 0)
+          WHEN fe.age IS NOT NULL THEN fe.age
+          WHEN fe.age_value IS NOT NULL AND fe.age_unit = 'YEARS' THEN fe.age_value
+          WHEN fe.age_value IS NOT NULL AND fe.age_unit = 'MONTHS' THEN 0
+          ELSE NULL
+        END AS age_years
+      FROM filtered_evacuees fe
+    ),
+    age_group_distribution AS (
+      SELECT
+        CASE
+          WHEN ewa.age_years IS NULL THEN 'Unknown'
+          WHEN ewa.age_years <= 12 THEN 'Child (0-12)'
+          WHEN ewa.age_years <= 17 THEN 'Teen (13-17)'
+          WHEN ewa.age_years <= 59 THEN 'Adult (18-59)'
+          ELSE 'Senior (60+)'
+        END AS name,
+        CASE
+          WHEN ewa.age_years IS NULL THEN 5
+          WHEN ewa.age_years <= 12 THEN 1
+          WHEN ewa.age_years <= 17 THEN 2
+          WHEN ewa.age_years <= 59 THEN 3
+          ELSE 4
+        END AS sort_order,
+        COUNT(*)::int AS value
+      FROM evacuees_with_age ewa
+      GROUP BY 1, 2
+      ORDER BY sort_order ASC
+    ),
+    sector_distribution AS (
+      SELECT
+        sector_items.name,
+        COUNT(*)::int AS value
+      FROM (
+        SELECT s.name
+        FROM household_sectors hs
+        INNER JOIN filtered_households fh ON fh.id = hs.household_id
+        INNER JOIN sectors s ON s.id = hs.sector_id
+
+        UNION ALL
+
+        SELECT s.name
+        FROM evacuee_sectors es
+        INNER JOIN filtered_evacuees fe ON fe.id = es.evacuee_id
+        INNER JOIN sectors s ON s.id = es.sector_id
+      ) sector_items
+      GROUP BY sector_items.name
+      ORDER BY value DESC, sector_items.name ASC
+    ),
+    stay_type_distribution AS (
+      SELECT
+        CASE
+          WHEN fh.current_stay_type = 'EVAC_CENTER' THEN 'Evacuation Center'
+          WHEN fh.current_stay_type = 'RELATIVES' THEN 'Relatives'
+          WHEN fh.current_stay_type = 'OTHER_SAFE_PLACE' THEN 'Other Safe Place'
+          ELSE 'Unspecified'
+        END AS name,
+        COUNT(*)::int AS value
+      FROM filtered_households fh
+      GROUP BY 1
+      ORDER BY value DESC, name ASC
     ),
     summary AS (
       SELECT
@@ -277,6 +364,43 @@ const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) =
       LEFT JOIN latest_logs ll ON ll.evacuee_id = fe.id
       GROUP BY b.id, b.name
       ORDER BY b.name ASC
+    ),
+    evacuation_center_distribution AS (
+      SELECT
+        ec.id AS evacuation_center_id,
+        ec.name AS evacuation_center_name,
+        COUNT(DISTINCT ll.evacuee_id)::int AS value
+      FROM latest_logs ll
+      INNER JOIN evacuation_centers ec ON ec.id = ll.evacuation_center_id
+      WHERE ll.status = 'PRESENT'
+        AND ll.time_out IS NULL
+      GROUP BY ec.id, ec.name
+      ORDER BY value DESC, ec.name ASC
+    ),
+    relief_distribution_per_barangay AS (
+      SELECT
+        b.id AS barangay_id,
+        b.name AS barangay_name,
+        COALESCE(SUM(dti.quantity_released), 0)::int AS value
+      FROM distribution_transactions dt
+      INNER JOIN filtered_households fh ON fh.id = dt.household_id
+      INNER JOIN barangays b ON b.id = fh.barangay_id
+      LEFT JOIN distribution_transaction_items dti
+        ON dti.distribution_transaction_id = dt.id
+      WHERE dt.disaster_event_id = $1
+        AND dt.distribution_status = 'CLAIMED'
+      GROUP BY b.id, b.name
+      ORDER BY value DESC, b.name ASC
+    ),
+    daily_admission_trend AS (
+      SELECT
+        DATE(el.time_in) AS admission_date,
+        COUNT(DISTINCT el.evacuee_id)::int AS value
+      FROM evacuation_logs el
+      INNER JOIN filtered_households fh ON fh.id = el.household_id
+      WHERE el.disaster_event_id = $1
+      GROUP BY DATE(el.time_in)
+      ORDER BY admission_date ASC
     )
     SELECT
       summary.total_number_of_evacuees_individuals,
@@ -298,7 +422,99 @@ const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) =
           ORDER BY per_barangay.barangay_name ASC
         ) FILTER (WHERE per_barangay.barangay_id IS NOT NULL),
         '[]'::json
-      ) AS per_barangay_chart_dataset
+      ) AS per_barangay_chart_dataset,
+      (
+        SELECT COALESCE(
+          json_agg(
+            json_build_object(
+              'name', sd.name,
+              'value', sd.value
+            )
+            ORDER BY sd.value DESC, sd.name ASC
+          ),
+          '[]'::json
+        )
+        FROM sex_distribution sd
+      ) AS sex_distribution_dataset,
+      (
+        SELECT COALESCE(
+          json_agg(
+            json_build_object(
+              'name', agd.name,
+              'value', agd.value
+            )
+            ORDER BY agd.sort_order ASC
+          ),
+          '[]'::json
+        )
+        FROM age_group_distribution agd
+      ) AS age_group_distribution_dataset,
+      (
+        SELECT COALESCE(
+          json_agg(
+            json_build_object(
+              'name', sd.name,
+              'value', sd.value
+            )
+            ORDER BY sd.value DESC, sd.name ASC
+          ),
+          '[]'::json
+        )
+        FROM sector_distribution sd
+      ) AS sector_distribution_dataset,
+      (
+        SELECT COALESCE(
+          json_agg(
+            json_build_object(
+              'name', std.name,
+              'value', std.value
+            )
+            ORDER BY std.value DESC, std.name ASC
+          ),
+          '[]'::json
+        )
+        FROM stay_type_distribution std
+      ) AS stay_type_distribution_dataset,
+      (
+        SELECT COALESCE(
+          json_agg(
+            json_build_object(
+              'name', ecd.evacuation_center_name,
+              'value', ecd.value
+            )
+            ORDER BY ecd.value DESC, ecd.evacuation_center_name ASC
+          ),
+          '[]'::json
+        )
+        FROM evacuation_center_distribution ecd
+      ) AS evacuation_center_distribution_dataset,
+      (
+        SELECT COALESCE(
+          json_agg(
+            json_build_object(
+              'name', rdb.barangay_name,
+              'value', rdb.value
+            )
+            ORDER BY rdb.value DESC, rdb.barangay_name ASC
+          ),
+          '[]'::json
+        )
+        FROM relief_distribution_per_barangay rdb
+      ) AS relief_distribution_dataset,
+      (
+        SELECT COALESCE(
+          json_agg(
+            json_build_object(
+              'name', TO_CHAR(dat.admission_date, 'Mon DD'),
+              'date', dat.admission_date,
+              'value', dat.value
+            )
+            ORDER BY dat.admission_date ASC
+          ),
+          '[]'::json
+        )
+        FROM daily_admission_trend dat
+      ) AS daily_admission_trend_dataset
     FROM summary
     LEFT JOIN per_barangay ON TRUE
     GROUP BY
@@ -320,6 +536,13 @@ const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) =
       total_departed_evacuees: 0,
       total_barangays_covered: 0,
       per_barangay_chart_dataset: [],
+      sex_distribution_dataset: [],
+      age_group_distribution_dataset: [],
+      sector_distribution_dataset: [],
+      stay_type_distribution_dataset: [],
+      evacuation_center_distribution_dataset: [],
+      relief_distribution_dataset: [],
+      daily_admission_trend_dataset: [],
     }
   );
 };

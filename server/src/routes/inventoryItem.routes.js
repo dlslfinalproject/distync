@@ -2,6 +2,7 @@ const express = require("express");
 
 const inventoryItemService = require("../services/inventoryItem.service");
 const {
+  validateExportInventoryItems,
   validateInventoryItemId,
   validateGetInventoryItems,
   validateInventoryItemPayload,
@@ -21,6 +22,28 @@ router.get("/", validateGetInventoryItems, async (req, res) => {
 
     return res.status(statusCode).json({
       message: error.message || "Failed to fetch inventory items",
+    });
+  }
+});
+
+router.get("/export", validateExportInventoryItems, async (req, res) => {
+  try {
+    const file = await inventoryItemService.exportInventoryItems(
+      req.validatedQuery,
+    );
+
+    res.setHeader("Content-Type", file.contentType);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${file.filename}"`,
+    );
+
+    return res.status(200).send(file.buffer);
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+
+    return res.status(statusCode).json({
+      message: error.message || "Failed to export inventory items",
     });
   }
 });

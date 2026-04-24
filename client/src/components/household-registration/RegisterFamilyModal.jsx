@@ -24,10 +24,10 @@ const modalStyles = {
     maxHeight: "90vh",
     overflowY: "auto",
     borderRadius: "24px",
-    backgroundColor: "#eef5fb",
+    backgroundColor: "#f7fbff",
     boxShadow: "0 24px 48px rgba(18, 39, 60, 0.22)",
     border: "1px solid #d4e0ec",
-    padding: "24px",
+    padding: "clamp(18px, 2vw, 28px)",
     boxSizing: "border-box",
   },
   topBar: {
@@ -49,7 +49,7 @@ const modalStyles = {
   sections: {
     display: "flex",
     flexDirection: "column",
-    gap: "18px",
+    gap: "20px",
   },
   feedback: {
     borderRadius: "14px",
@@ -87,6 +87,9 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
             <h2 style={{ ...pageHeaderStyles.title, fontSize: "30px" }}>
               Register Family
             </h2>
+            <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
+              Complete the household, family head, member, and condition details below.
+            </p>
           </div>
           <button
             type="button"
