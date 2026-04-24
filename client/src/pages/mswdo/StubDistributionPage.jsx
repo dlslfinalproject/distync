@@ -315,6 +315,7 @@ const StubDistributionPage = () => {
   const activeEventLabel = selectedDisasterEvent
     ? `${selectedDisasterEvent.event_code} - ${selectedDisasterEvent.title}`
     : "No disaster event selected";
+  const isEndedView = activeTab === "ended";
   const activeFilterCount =
     selectedSectorIds.length + (selectedStubStatus ? 1 : 0);
   const hasActiveFilters = activeFilterCount > 0;
@@ -350,7 +351,7 @@ const StubDistributionPage = () => {
     setPendingClaimStubId("");
     setIsBulkClaimConfirmOpen(false);
     setClaimErrorMessage("");
-  }, [selectedBarangayId, selectedDisasterEventId]);
+  }, [activeTab, selectedBarangayId, selectedDisasterEventId]);
 
   useEffect(() => {
     if (!isFilterOpen) {
@@ -473,6 +474,10 @@ const StubDistributionPage = () => {
   };
 
   const handleToggleSelect = (stubId) => {
+    if (isEndedView) {
+      return;
+    }
+
     setSelectedStubIds((currentValues) =>
       currentValues.includes(stubId)
         ? currentValues.filter((id) => id !== stubId)
@@ -481,6 +486,11 @@ const StubDistributionPage = () => {
   };
 
   const handleSelectAll = () => {
+    if (isEndedView) {
+      setSelectedStubIds([]);
+      return;
+    }
+
     const selectableStubIds = displayedRows
       .filter((row) => row.status === "ISSUED")
       .map((row) => row.id);
@@ -493,7 +503,7 @@ const StubDistributionPage = () => {
   };
 
   const handleOpenBulkClaimConfirmation = () => {
-    if (!selectedStubIds.length || claimingStubId) {
+    if (isEndedView || !selectedStubIds.length || claimingStubId) {
       return;
     }
 
@@ -502,7 +512,7 @@ const StubDistributionPage = () => {
   };
 
   const handleOpenClaimConfirmation = (stubId) => {
-    if (claimingStubId) {
+    if (isEndedView || claimingStubId) {
       return;
     }
 
@@ -520,7 +530,7 @@ const StubDistributionPage = () => {
   };
 
   const handleConfirmClaim = async () => {
-    if (claimingStubId) {
+    if (isEndedView || claimingStubId) {
       return;
     }
 
@@ -897,7 +907,7 @@ const StubDistributionPage = () => {
         </div>
       </section>
 
-      {selectedStubIds.length > 0 ? (
+      {!isEndedView && selectedStubIds.length > 0 ? (
         <section style={shellStyles.card}>
           <div
             style={{
@@ -946,6 +956,7 @@ const StubDistributionPage = () => {
         claimingStubId={claimingStubId}
         claimErrorMessage={claimErrorMessage}
         onClaimStub={handleOpenClaimConfirmation}
+        isClaimReadOnly={isEndedView}
         selectedStubIds={selectedStubIds}
         onToggleSelect={handleToggleSelect}
         onSelectAll={handleSelectAll}

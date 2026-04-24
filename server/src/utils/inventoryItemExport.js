@@ -2,19 +2,12 @@ const ExcelJS = require("exceljs");
 const reportExport = require("./masterlistExport");
 
 const EXPORT_COLUMNS = [
-  { key: "name", label: "Name", width: 32 },
-  { key: "disaster_type", label: "Disaster Type", width: 24 },
-  { key: "affected_barangays", label: "Affected Barangays", width: 42 },
-  { key: "start_date", label: "Start Date", width: 16 },
-  { key: "end_date", label: "End Date", width: 16 },
-  { key: "status", label: "Status", width: 14 },
+  { key: "item_name", label: "Item Name", width: 30 },
+  { key: "category", label: "Category", width: 20 },
+  { key: "quantity", label: "Quantity", width: 42 },
+  { key: "expiration_date", label: "Expiry Date", width: 18 },
+  { key: "status", label: "Status", width: 16 },
 ];
-
-const SCOPE_LABELS = {
-  active: "Active Events",
-  closed: "Ended Events",
-  all: "All Events",
-};
 
 const CONTENT_TYPES = {
   csv: "text/csv; charset=utf-8",
@@ -44,16 +37,6 @@ const formatGeneratedAt = () => {
   }).format(new Date());
 };
 
-const slugifyFilePart = (value, fallback) => {
-  const slug = String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-
-  return slug || fallback;
-};
-
 const getDateStamp = () => {
   return new Intl.DateTimeFormat("en-CA", {
     year: "numeric",
@@ -64,17 +47,16 @@ const getDateStamp = () => {
     .replace(/-/g, "");
 };
 
-const buildFilename = ({ scope, format }) => {
+const buildFilename = (format) => {
   const extensionMap = {
     csv: "csv",
     excel: "xlsx",
     pdf: "pdf",
   };
 
-  return `mswdo-disaster-events-${slugifyFilePart(
-    SCOPE_LABELS[scope],
-    "all-events",
-  )}-${getDateStamp()}.${extensionMap[format]}`;
+  return `office-mayor-inventory-items-${getDateStamp()}.${
+    extensionMap[format]
+  }`;
 };
 
 const escapeCsvValue = (value) => {
@@ -115,22 +97,30 @@ const wrapText = (value, maxLength) => {
   return lines.length ? lines : ["--"];
 };
 
-const buildTitleLines = ({ scope, search, totalRows }) => {
+const buildTitleLines = ({ filters, totalRows }) => {
+  const searchLabel = filters.search?.trim() || "None";
+  const categoryLabel =
+    filters.is_perishable === true
+      ? "Perishable"
+      : filters.is_perishable === false
+        ? "Non-Perishable"
+        : filters.category || "All";
+
   return [
     "DISTYNC",
     "Municipality of Malvar Disaster Relief Management System",
-    "MSWDO Disaster Events Report",
-    `Tab: ${SCOPE_LABELS[scope] || SCOPE_LABELS.all}`,
-    `Search: ${search?.trim() || "None"}`,
+    "Office of the Mayor Inventory Items Report",
+    `Search: ${searchLabel}`,
+    `Category: ${categoryLabel || "All"}`,
+    `Status: ${filters.status || "All"}`,
     `Generated: ${formatGeneratedAt()}`,
     `Total Rows: ${totalRows}`,
   ];
 };
 
-const buildCsvBuffer = ({ rows, scope, search }) => {
+const buildCsvBuffer = ({ rows, filters }) => {
   const titleLines = buildTitleLines({
-    scope,
-    search,
+    filters,
     totalRows: rows.length,
   });
   const columnLine = EXPORT_COLUMNS.map((column) =>
@@ -144,13 +134,13 @@ const buildCsvBuffer = ({ rows, scope, search }) => {
   return Buffer.from(content, "utf8");
 };
 
-const buildExcelBuffer = async ({ rows, scope, search }) => {
+const buildExcelBuffer = async ({ rows, filters }) => {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "DISTYNC";
   workbook.created = new Date();
 
-  const worksheet = workbook.addWorksheet("Disaster Events", {
-    views: [{ state: "frozen", ySplit: 9 }],
+  const worksheet = workbook.addWorksheet("Inventory Items", {
+    views: [{ state: "frozen", ySplit: 10 }],
     pageSetup: {
       orientation: "landscape",
       fitToPage: true,
@@ -179,7 +169,7 @@ const buildExcelBuffer = async ({ rows, scope, search }) => {
   };
   worksheet.getCell("B1").alignment = { horizontal: "left", vertical: "middle" };
   worksheet.mergeCells(2, 2, 2, EXPORT_COLUMNS.length);
-  worksheet.getCell("B2").value = "MSWDO Disaster Events Report";
+  worksheet.getCell("B2").value = "Office of the Mayor Inventory Items Report";
   worksheet.getCell("B2").font = {
     bold: true,
     size: 14,
@@ -194,7 +184,7 @@ const buildExcelBuffer = async ({ rows, scope, search }) => {
   worksheet.getRow(1).height = 28;
   worksheet.getRow(2).height = 24;
 
-  buildTitleLines({ scope, search, totalRows: rows.length })
+  buildTitleLines({ filters, totalRows: rows.length })
     .slice(3)
     .forEach((line, index) => {
       const row = worksheet.getRow(index + 4);
@@ -202,7 +192,7 @@ const buildExcelBuffer = async ({ rows, scope, search }) => {
       row.getCell(1).font = { bold: index === 0 };
     });
 
-  const headerRowNumber = 9;
+  const headerRowNumber = 10;
   const headerRow = worksheet.getRow(headerRowNumber);
   EXPORT_COLUMNS.forEach((column, index) => {
     const cell = headerRow.getCell(index + 1);
@@ -222,31 +212,25 @@ const buildExcelBuffer = async ({ rows, scope, search }) => {
     };
   });
 
-  if (rows.length === 0) {
-    worksheet.mergeCells(headerRowNumber + 1, 1, headerRowNumber + 1, EXPORT_COLUMNS.length);
-    worksheet.getCell(`A${headerRowNumber + 1}`).value =
-      "No data available for the selected filters.";
-  } else {
-    rows.forEach((eventRow, index) => {
-      const row = worksheet.getRow(headerRowNumber + 1 + index);
+  rows.forEach((itemRow, index) => {
+    const row = worksheet.getRow(headerRowNumber + 1 + index);
 
-      EXPORT_COLUMNS.forEach((column, columnIndex) => {
-        const cell = row.getCell(columnIndex + 1);
-        cell.value = eventRow[column.key];
-        cell.alignment = {
-          vertical: "top",
-          horizontal: column.key === "status" ? "center" : "left",
-          wrapText: true,
-        };
-        cell.border = {
-          top: { style: "thin", color: { argb: "FFD9E3F0" } },
-          left: { style: "thin", color: { argb: "FFD9E3F0" } },
-          bottom: { style: "thin", color: { argb: "FFD9E3F0" } },
-          right: { style: "thin", color: { argb: "FFD9E3F0" } },
-        };
-      });
+    EXPORT_COLUMNS.forEach((column, columnIndex) => {
+      const cell = row.getCell(columnIndex + 1);
+      cell.value = itemRow[column.key];
+      cell.alignment = {
+        vertical: "top",
+        horizontal: column.key === "status" ? "center" : "left",
+        wrapText: true,
+      };
+      cell.border = {
+        top: { style: "thin", color: { argb: "FFD9E3F0" } },
+        left: { style: "thin", color: { argb: "FFD9E3F0" } },
+        bottom: { style: "thin", color: { argb: "FFD9E3F0" } },
+        right: { style: "thin", color: { argb: "FFD9E3F0" } },
+      };
     });
-  }
+  });
 
   worksheet.autoFilter = {
     from: { row: headerRowNumber, column: 1 },
@@ -257,7 +241,7 @@ const buildExcelBuffer = async ({ rows, scope, search }) => {
   return Buffer.from(buffer);
 };
 
-const buildPdfBuffer = ({ rows, scope, search }) => {
+const buildPdfBuffer = ({ rows, filters }) => {
   const pages = [];
   let page = null;
   let cursorY = 555;
@@ -265,16 +249,20 @@ const buildPdfBuffer = ({ rows, scope, search }) => {
   const addText = (text, x, y, options = {}) => {
     page.drawText(text, x, y, {
       font: options.bold ? "F2" : "F1",
-      size: options.size || 9,
+      size: options.size || 8,
       color: options.color || reportExport.PDF_COLORS.bodyText,
     });
   };
+
   const finishPage = () => {
     addText(`Page ${pages.length + 1}`, 760, 24);
     pages.push(page);
     cursorY = 555;
   };
+
   const startPage = () => {
+    const titleLines = buildTitleLines({ filters, totalRows: rows.length });
+
     page = reportExport.createPdfBuilder({ width: 842, height: 595 });
     page.fillRect(40, 505, 762, 64, reportExport.PDF_COLORS.navy);
     page.fillRect(58, 519, 40, 40, reportExport.PDF_COLORS.white);
@@ -286,20 +274,20 @@ const buildPdfBuffer = ({ rows, scope, search }) => {
       size: 18,
       color: reportExport.PDF_COLORS.white,
     });
-    addText("MSWDO Disaster Events Report", 112, 524, {
+    addText("Office of the Mayor Inventory Items Report", 112, 524, {
       bold: true,
       size: 14,
       color: reportExport.PDF_COLORS.white,
     });
     cursorY = 480;
-    addText(`Tab: ${SCOPE_LABELS[scope] || SCOPE_LABELS.all}`, 40, cursorY);
-    addText(`Search: ${search?.trim() || "None"}`, 230, cursorY);
-    addText(`Rows: ${rows.length}`, 460, cursorY);
-    addText(`Generated: ${formatGeneratedAt()}`, 580, cursorY);
-    cursorY -= 24;
+    titleLines.slice(3, 7).forEach((line) => {
+      addText(line, 40, cursorY, { size: 9 });
+      cursorY -= 12;
+    });
+    cursorY -= 10;
 
     EXPORT_COLUMNS.forEach((column, index) => {
-      addText(column.label, [40, 190, 300, 555, 635, 710][index], cursorY, {
+      addText(column.label, [40, 190, 285, 560, 670][index], cursorY, {
         bold: true,
       });
     });
@@ -308,16 +296,12 @@ const buildPdfBuffer = ({ rows, scope, search }) => {
 
   startPage();
 
-  if (rows.length === 0) {
-    addText("No data available for the selected filters.", 40, cursorY);
-  }
-
   rows.forEach((row) => {
-    const nameLines = wrapText(row.name, 22).slice(0, 2);
-    const typeLines = wrapText(row.disaster_type, 18).slice(0, 2);
-    const affectedLines = wrapText(row.affected_barangays, 35).slice(0, 3);
+    const nameLines = wrapText(row.item_name, 24).slice(0, 2);
+    const categoryLines = wrapText(row.category, 16).slice(0, 2);
+    const quantityLines = wrapText(row.quantity, 38).slice(0, 3);
     const rowHeight =
-      Math.max(nameLines.length, typeLines.length, affectedLines.length, 1) * 11 + 8;
+      Math.max(nameLines.length, categoryLines.length, quantityLines.length, 1) * 11 + 8;
 
     if (cursorY - rowHeight < 42) {
       finishPage();
@@ -325,13 +309,14 @@ const buildPdfBuffer = ({ rows, scope, search }) => {
     }
 
     nameLines.forEach((line, index) => addText(line, 40, cursorY - index * 11));
-    typeLines.forEach((line, index) => addText(line, 190, cursorY - index * 11));
-    affectedLines.forEach((line, index) =>
-      addText(line, 300, cursorY - index * 11),
+    categoryLines.forEach((line, index) =>
+      addText(line, 190, cursorY - index * 11),
     );
-    addText(row.start_date, 555, cursorY);
-    addText(row.end_date, 635, cursorY);
-    addText(row.status, 710, cursorY);
+    quantityLines.forEach((line, index) =>
+      addText(line, 285, cursorY - index * 11),
+    );
+    addText(row.expiration_date, 560, cursorY);
+    addText(row.status, 670, cursorY);
     cursorY -= rowHeight;
   });
 
@@ -340,19 +325,18 @@ const buildPdfBuffer = ({ rows, scope, search }) => {
   return reportExport.createPdfDocument(pages, reportExport.PDF_IMAGE_REGISTRY);
 };
 
-const buildExportFile = async ({ rows, scope, search, format }) => {
+const buildExportFile = async ({ rows, filters, format }) => {
   const builders = {
     csv: buildCsvBuffer,
     excel: buildExcelBuffer,
     pdf: buildPdfBuffer,
   };
-
-  const buffer = await builders[format]({ rows, scope, search });
+  const buffer = await builders[format]({ rows, filters });
 
   return {
     buffer,
     contentType: CONTENT_TYPES[format],
-    filename: buildFilename({ scope, format }),
+    filename: buildFilename(format),
   };
 };
 

@@ -38,10 +38,21 @@ const StatusCard = ({ label, value, description, accentColor }) => {
     : shellStyles.card;
 
   return (
-    <div style={cardStyle}>
+    <div
+      style={{
+        ...cardStyle,
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
       <p style={cardStyles.label}>{label}</p>
       <p style={cardStyles.value}>{value}</p>
-      {description ? <p style={cardStyles.description}>{description}</p> : null}
+      {description ? (
+        <p style={{ ...cardStyles.description, marginTop: "auto", paddingTop: "12px" }}>
+          {description}
+        </p>
+      ) : null}
     </div>
   );
 };

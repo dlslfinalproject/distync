@@ -1,8 +1,8 @@
 import React from "react";
 import {
-  Bar,
-  BarChart,
   CartesianGrid,
+  Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -24,7 +24,7 @@ const chartStyles = {
   },
 };
 
-const BarangayBarChart = ({ title, description, data, dataKey, color }) => {
+const LineTrendChart = ({ title, description, data }) => {
   return (
     <section style={shellStyles.card}>
       <h3 style={chartStyles.title}>{title}</h3>
@@ -33,32 +33,27 @@ const BarangayBarChart = ({ title, description, data, dataKey, color }) => {
       {data.length > 0 ? (
         <div style={{ width: "100%", height: "320px" }}>
           <ResponsiveContainer>
-            <BarChart
-              data={data}
-              layout="vertical"
-              margin={{ top: 10, right: 24, left: 12, bottom: 10 }}
-            >
+            <LineChart data={data} margin={{ top: 10, right: 20, left: 0, bottom: 24 }}>
               <CartesianGrid stroke="#e4edf6" strokeDasharray="3 3" />
-              <XAxis
-                type="number"
-                tick={{ fill: "#66809c", fontSize: 12 }}
-              />
-              <YAxis
-                type="category"
-                dataKey="name"
-                width={120}
-                tick={{ fill: "#66809c", fontSize: 12 }}
-              />
+              <XAxis dataKey="name" tick={{ fill: "#66809c", fontSize: 12 }} />
+              <YAxis tick={{ fill: "#66809c", fontSize: 12 }} />
               <Tooltip />
-              <Bar dataKey={dataKey} fill={color} radius={[0, 8, 8, 0]} />
-            </BarChart>
+              <Line
+                type="monotone"
+                dataKey="value"
+                stroke="#4f86be"
+                strokeWidth={3}
+                dot={{ r: 4, fill: "#4f86be" }}
+                activeDot={{ r: 6 }}
+              />
+            </LineChart>
           </ResponsiveContainer>
         </div>
       ) : (
-        <p style={shellStyles.mutedText}>No chart data available for this view.</p>
+        <p style={shellStyles.mutedText}>No trend data available for this view.</p>
       )}
     </section>
   );
 };
 
-export default BarangayBarChart;
+export default LineTrendChart;

@@ -24,7 +24,7 @@ const chartStyles = {
   },
 };
 
-const BarangayBarChart = ({ title, description, data, dataKey, color }) => {
+const VerticalBarChart = ({ title, description, data, color = "#4f86be" }) => {
   return (
     <section style={shellStyles.card}>
       <h3 style={chartStyles.title}>{title}</h3>
@@ -33,24 +33,19 @@ const BarangayBarChart = ({ title, description, data, dataKey, color }) => {
       {data.length > 0 ? (
         <div style={{ width: "100%", height: "320px" }}>
           <ResponsiveContainer>
-            <BarChart
-              data={data}
-              layout="vertical"
-              margin={{ top: 10, right: 24, left: 12, bottom: 10 }}
-            >
+            <BarChart data={data} margin={{ top: 10, right: 20, left: 0, bottom: 36 }}>
               <CartesianGrid stroke="#e4edf6" strokeDasharray="3 3" />
               <XAxis
-                type="number"
-                tick={{ fill: "#66809c", fontSize: 12 }}
-              />
-              <YAxis
-                type="category"
                 dataKey="name"
-                width={120}
+                interval={0}
+                angle={-12}
+                textAnchor="end"
+                height={56}
                 tick={{ fill: "#66809c", fontSize: 12 }}
               />
+              <YAxis tick={{ fill: "#66809c", fontSize: 12 }} />
               <Tooltip />
-              <Bar dataKey={dataKey} fill={color} radius={[0, 8, 8, 0]} />
+              <Bar dataKey="value" fill={color} radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -61,4 +56,4 @@ const BarangayBarChart = ({ title, description, data, dataKey, color }) => {
   );
 };
 
-export default BarangayBarChart;
+export default VerticalBarChart;

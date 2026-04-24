@@ -21,24 +21,29 @@ const cardStyles = {
 const AnalyticsSummaryCards = ({ summaryMetrics }) => {
   const cards = [
     {
-      label: "Total Households",
-      value: summaryMetrics.totalHouseholds,
-      helperText: "Households included in the current analytics view.",
-    },
-    {
       label: "Total Evacuees",
       value: summaryMetrics.totalEvacuees,
-      helperText: "Combined household size from the filtered masterlist.",
+      helperText: "Evacuee individuals included in the selected analytics view.",
     },
     {
-      label: "Total Barangays Covered",
+      label: "Total Families",
+      value: summaryMetrics.totalHouseholds,
+      helperText: "Households represented in the current disaster-event scope.",
+    },
+    {
+      label: "Currently Admitted",
+      value: summaryMetrics.currentlyAdmitted,
+      helperText: "Evacuees whose latest evacuation log is still admitted.",
+    },
+    {
+      label: "Departed",
+      value: summaryMetrics.departed,
+      helperText: "Evacuees whose latest evacuation log is marked departed.",
+    },
+    {
+      label: "Barangays Covered",
       value: summaryMetrics.totalBarangaysCovered,
-      helperText: "Distinct barangays represented in the result set.",
-    },
-    {
-      label: "Average Household Size",
-      value: summaryMetrics.averageHouseholdSize,
-      helperText: "Average evacuee count per household.",
+      helperText: "Distinct barangays represented in the current analytics view.",
     },
   ];
 

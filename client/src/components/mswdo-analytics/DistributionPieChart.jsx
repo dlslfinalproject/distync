@@ -37,6 +37,7 @@ const DistributionPieChart = ({
                 cx="50%"
                 cy="50%"
                 outerRadius={100}
+                innerRadius={58}
                 label
               >
                 {data.map((entry, index) => (

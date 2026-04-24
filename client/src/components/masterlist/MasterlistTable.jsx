@@ -6,6 +6,7 @@ const tableStyles = {
   table: {
     width: "100%",
     borderCollapse: "collapse",
+    minWidth: "860px",
   },
   headerCell: {
     padding: "14px 16px",
@@ -23,6 +24,8 @@ const tableStyles = {
     borderBottom: "1px solid #edf3f8",
     fontSize: "14px",
     verticalAlign: "middle",
+    lineHeight: 1.5,
+    wordBreak: "break-word",
   },
   departureButton: {
     border: "1px solid #c6d8ea",
