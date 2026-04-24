@@ -47,6 +47,7 @@ const tableStyles = {
     maxWidth: "100%",
     tableLayout: "fixed",
     borderCollapse: "collapse",
+    minWidth: "1040px",
   },
   headerCell: {
     padding: "14px 16px",
@@ -64,6 +65,8 @@ const tableStyles = {
     borderBottom: "1px solid #edf3f8",
     fontSize: "14px",
     verticalAlign: "top",
+    lineHeight: 1.5,
+    wordBreak: "break-word",
   },
   badge: {
     display: "inline-flex",

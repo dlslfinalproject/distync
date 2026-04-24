@@ -9,6 +9,7 @@ import distyncLogo from "../../assets/distync-logo.png";
 const getSidebarStyles = (isCollapsed) => ({
   wrapper: {
     height: "100vh",
+    maxHeight: "100vh",
     padding: isCollapsed ? "0 12px 18px" : "0 18px 24px",
     boxSizing: "border-box",
     backgroundColor: "#f7fbff",
@@ -21,7 +22,7 @@ const getSidebarStyles = (isCollapsed) => ({
     top: 0,
     alignSelf: "flex-start",
     overflowX: "hidden",
-    overflowY: "auto",
+    overflowY: "hidden",
     transition:
       "padding 260ms cubic-bezier(0.22, 1, 0.36, 1), gap 260ms cubic-bezier(0.22, 1, 0.36, 1)",
   },
@@ -32,6 +33,7 @@ const getSidebarStyles = (isCollapsed) => ({
     gap: isCollapsed ? "8px" : "10px",
     paddingTop: "20px",
     minWidth: 0,
+    flexShrink: 0,
     transition:
       "gap 260ms cubic-bezier(0.22, 1, 0.36, 1), justify-content 260ms cubic-bezier(0.22, 1, 0.36, 1)",
   },
@@ -101,6 +103,11 @@ const getSidebarStyles = (isCollapsed) => ({
     flexDirection: "column",
     gap: isCollapsed ? "8px" : "10px",
     marginTop: "10px",
+    flex: "1 1 auto",
+    minHeight: 0,
+    overflowY: "auto",
+    overflowX: "hidden",
+    paddingRight: isCollapsed ? "0" : "4px",
     transition: "gap 260ms cubic-bezier(0.22, 1, 0.36, 1)",
   },
   navTitle: {
@@ -133,7 +140,7 @@ const getSidebarStyles = (isCollapsed) => ({
       "max-width 220ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease",
   },
   roleActions: {
-    marginTop: "auto",
+    marginTop: 0,
     display: "flex",
     flexDirection: "column",
     gap: "12px",
@@ -141,6 +148,7 @@ const getSidebarStyles = (isCollapsed) => ({
     opacity: isCollapsed ? 0 : 1,
     overflow: "hidden",
     pointerEvents: isCollapsed ? "none" : "auto",
+    flexShrink: 0,
     transition:
       "max-height 260ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease",
   },

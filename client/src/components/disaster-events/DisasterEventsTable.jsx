@@ -11,6 +11,7 @@ const tableStyles = {
   table: {
     width: "100%",
     borderCollapse: "collapse",
+    minWidth: "920px",
   },
   headerCell: {
     padding: "14px 16px",
@@ -29,6 +30,8 @@ const tableStyles = {
     fontSize: "14px",
     verticalAlign: "middle",
     textAlign: "center",
+    lineHeight: 1.5,
+    wordBreak: "break-word",
   },
 };
 
@@ -87,7 +90,7 @@ const DisasterEventsTable = ({
         <h3 style={{ margin: 0, color: "#17324d" }}>Disaster Events</h3>
       </div>
 
-      <div>
+      <div style={{ width: "100%", overflowX: "auto" }}>
         <table style={tableStyles.table}>
           <thead>
             <tr>
