@@ -5,26 +5,30 @@ import { shellStyles } from "../layout/BarangayLayout";
 const tableStyles = {
   table: {
     width: "100%",
+    maxWidth: "100%",
     borderCollapse: "collapse",
-    minWidth: "900px",
+    tableLayout: "fixed",
   },
   headerCell: {
-    padding: "14px 16px",
+    padding: "14px 12px",
     textAlign: "left",
     fontSize: "12px",
     letterSpacing: "0.08em",
     textTransform: "uppercase",
     color: "#66809c",
     borderBottom: "1px solid #e0eaf4",
-    whiteSpace: "nowrap",
+    whiteSpace: "normal",
+    lineHeight: 1.4,
   },
   bodyCell: {
-    padding: "16px",
+    padding: "16px 12px",
     color: "#21405f",
     borderBottom: "1px solid #edf3f8",
     fontSize: "14px",
     verticalAlign: "top",
     lineHeight: 1.5,
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
     wordBreak: "break-word",
   },
   statusButton: {
@@ -211,7 +215,7 @@ const MswdoStubResultsTable = ({
         </p>
       ) : null}
 
-      <div style={{ overflowX: "auto" }}>
+      <div style={{ width: "100%", minWidth: 0 }}>
         <table style={tableStyles.table}>
           <thead>
             <tr>
@@ -229,20 +233,28 @@ const MswdoStubResultsTable = ({
                   disabled={!selectableRows.length}
                 />
               </th>
-              <th style={tableStyles.headerCell}>Family Head</th>
-              <th style={tableStyles.headerCell}>Address</th>
+              <th style={{ ...tableStyles.headerCell, width: "18%" }}>
+                Family Head
+              </th>
+              <th style={{ ...tableStyles.headerCell, width: "18%" }}>
+                Address
+              </th>
               <th
                 style={{
                   ...tableStyles.headerCell,
+                  width: "14%",
                   textAlign: "center",
                 }}
               >
                 Stub Number
               </th>
-              <th style={tableStyles.headerCell}>Sectors</th>
+              <th style={{ ...tableStyles.headerCell, width: "34%" }}>
+                Sectors
+              </th>
               <th
                 style={{
                   ...tableStyles.headerCell,
+                  width: "14%",
                   textAlign: "center",
                 }}
               >
