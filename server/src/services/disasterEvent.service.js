@@ -4,6 +4,8 @@ const disasterEventExport = require("../utils/disasterEventExport");
 
 const allowedStatuses = ["PLANNED", "ACTIVE", "CLOSED", "ARCHIVED"];
 const nonResidentBarangayCode = "NON_RESIDENT_OUTSIDE_MALVAR";
+const requiresCompletedEndDate = (status) =>
+  status === "CLOSED" || status === "ARCHIVED";
 
 const groupAffectedBarangaysByEventId = (affectedBarangays) => {
   return affectedBarangays.reduce((lookup, row) => {
@@ -94,6 +96,17 @@ const createDisasterEvent = async (disasterEventData) => {
     new Date(disasterEventData.end_date) < new Date(disasterEventData.start_date)
   ) {
     const error = new Error("end_date must not be earlier than start_date");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (
+    requiresCompletedEndDate(disasterEventData.status) &&
+    !disasterEventData.end_date
+  ) {
+    const error = new Error(
+      "end_date is required when status is CLOSED or ARCHIVED",
+    );
     error.statusCode = 400;
     throw error;
   }
@@ -193,6 +206,7 @@ const endDisasterEvent = async (id) => {
   }
 
   const today = new Date().toISOString().slice(0, 10);
+  const endedAt = new Date().toISOString();
   const startDate = new Date(disasterEvent.start_date).toISOString().slice(0, 10);
 
   if (today < startDate) {
@@ -205,6 +219,7 @@ const endDisasterEvent = async (id) => {
 
   await disasterEventRepository.updateDisasterEventById(id, {
     end_date: today,
+    ended_at: endedAt,
     status: "CLOSED",
   });
 

@@ -56,13 +56,31 @@ const formatEventEndedDateTime = (value) => {
     return "-";
   }
 
+  const normalizedValue = String(value).trim();
+  const isDateOnlyValue = /^\d{4}-\d{2}-\d{2}$/.test(normalizedValue);
+  const parsedDate = new Date(
+    isDateOnlyValue ? `${normalizedValue}T00:00:00` : normalizedValue,
+  );
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "-";
+  }
+
+  if (isDateOnlyValue) {
+    return new Intl.DateTimeFormat("en-PH", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }).format(parsedDate);
+  }
+
   return new Intl.DateTimeFormat("en-PH", {
     month: "short",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  }).format(new Date(value));
+  }).format(parsedDate);
 };
 
 const BarangayMasterlistPage = () => {
@@ -118,7 +136,11 @@ const BarangayMasterlistPage = () => {
 
   const isSelectedEventEnded = isEndedDisasterEvent(selectedEvent, eventScope);
   const selectedEventEndedText = formatEventEndedDateTime(
-    selectedEvent?.end_date,
+    isSelectedEventEnded
+      ? selectedEvent?.ended_at ||
+          selectedEvent?.updated_at ||
+          selectedEvent?.end_date
+      : null,
   );
 
   const registrationForm = useHouseholdRegistrationForm({
