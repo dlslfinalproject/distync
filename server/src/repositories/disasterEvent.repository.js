@@ -9,6 +9,7 @@ const selectDisasterEventColumns = `
     description,
     start_date,
     end_date,
+    ended_at,
     status,
     created_by,
     created_at,
@@ -116,10 +117,11 @@ const insertDisasterEvent = async (disasterEventData, dbClient) => {
       description,
       start_date,
       end_date,
+      ended_at,
       status,
       created_by
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     RETURNING
       id,
       event_code,
@@ -128,6 +130,7 @@ const insertDisasterEvent = async (disasterEventData, dbClient) => {
       description,
       start_date,
       end_date,
+      ended_at,
       status,
       created_by,
       created_at,
@@ -141,6 +144,7 @@ const insertDisasterEvent = async (disasterEventData, dbClient) => {
     disasterEventData.description,
     disasterEventData.start_date,
     disasterEventData.end_date,
+    disasterEventData.ended_at || null,
     disasterEventData.status,
     disasterEventData.created_by,
   ];
@@ -183,6 +187,7 @@ const updateDisasterEventById = async (id, updates, dbClient = pool) => {
     SET
       end_date = COALESCE($2, end_date),
       status = COALESCE($3, status),
+      ended_at = COALESCE($4, ended_at),
       updated_at = NOW()
     WHERE id = $1
     RETURNING
@@ -193,13 +198,19 @@ const updateDisasterEventById = async (id, updates, dbClient = pool) => {
       description,
       start_date,
       end_date,
+      ended_at,
       status,
       created_by,
       created_at,
       updated_at
   `;
 
-  const values = [id, updates.end_date ?? null, updates.status ?? null];
+  const values = [
+    id,
+    updates.end_date ?? null,
+    updates.status ?? null,
+    updates.ended_at ?? null,
+  ];
   const result = await dbClient.query(query, values);
   return result.rows[0] || null;
 };

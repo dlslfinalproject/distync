@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import PageHeader from "../../components/layout/PageHeader";
 import BarangayDashboardOverview from "../../components/barangay-dashboard/BarangayDashboardOverview";
 import { shellStyles } from "../../components/layout/BarangayLayout";
-import { pageHeaderStyles } from "../../components/layout/PageHeader";
 import MasterlistDepartureConfirmModal from "../../components/masterlist/MasterlistDepartureConfirmModal";
 import MasterlistTable from "../../components/masterlist/MasterlistTable";
 import MasterlistToolbar from "../../components/masterlist/MasterlistToolbar";
@@ -43,6 +42,45 @@ const getFilteredRows = (rows, searchTerm) => {
       String(value).toLowerCase().includes(normalizedSearchTerm),
     );
   });
+};
+
+
+const isEndedDisasterEvent = (event, eventScope) => {
+  const status = String(event?.status || "").toUpperCase();
+  return eventScope === "ended" || status === "CLOSED" || status === "ARCHIVED";
+};
+
+
+const formatEventEndedDateTime = (value) => {
+  if (!value) {
+    return "-";
+  }
+
+  const normalizedValue = String(value).trim();
+  const isDateOnlyValue = /^\d{4}-\d{2}-\d{2}$/.test(normalizedValue);
+  const parsedDate = new Date(
+    isDateOnlyValue ? `${normalizedValue}T00:00:00` : normalizedValue,
+  );
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "-";
+  }
+
+  if (isDateOnlyValue) {
+    return new Intl.DateTimeFormat("en-PH", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }).format(parsedDate);
+  }
+
+  return new Intl.DateTimeFormat("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(parsedDate);
 };
 
 const BarangayMasterlistPage = () => {
@@ -94,6 +132,16 @@ const BarangayMasterlistPage = () => {
     disasterEventId: selectedEvent?.id || "",
     barangayId: assignedBarangay?.id || "",
   });
+
+
+  const isSelectedEventEnded = isEndedDisasterEvent(selectedEvent, eventScope);
+  const selectedEventEndedText = formatEventEndedDateTime(
+    isSelectedEventEnded
+      ? selectedEvent?.ended_at ||
+          selectedEvent?.updated_at ||
+          selectedEvent?.end_date
+      : null,
+  );
 
   const registrationForm = useHouseholdRegistrationForm({
     isOpen: isRegisterModalOpen,
@@ -161,6 +209,15 @@ const BarangayMasterlistPage = () => {
     };
   }, []);
 
+
+  useEffect(() => {
+    if (isSelectedEventEnded) {
+      setSelectedHouseholds([]);
+      setPendingDepartureHouseholdId("");
+      setIsBulkDepartureConfirmOpen(false);
+    }
+  }, [isSelectedEventEnded, selectedEvent?.id]);
+
   const selectedSectorNames = selectedSectorNamesByScope[eventScope] || [];
 
   const toggleSectorFilter = (sectorName) => {
@@ -180,6 +237,10 @@ const BarangayMasterlistPage = () => {
   };
 
   const handleToggleSelect = (householdId) => {
+    if (isSelectedEventEnded) {
+      return;
+    }
+
     setSelectedHouseholds((currentValues) =>
       currentValues.includes(householdId)
         ? currentValues.filter((id) => id !== householdId)
@@ -188,6 +249,11 @@ const BarangayMasterlistPage = () => {
   };
 
   const handleSelectAll = () => {
+    if (isSelectedEventEnded) {
+      setSelectedHouseholds([]);
+      return;
+    }
+
     const selectableHouseholdIds = filteredRows
       .filter((row) => !row.departure_time_value && row.can_record_departure)
       .map((row) => row.household_id);
@@ -200,7 +266,11 @@ const BarangayMasterlistPage = () => {
   };
 
   const handleOpenBulkDepartureConfirmation = () => {
-    if (!selectedHouseholds.length || isRecordingDeparture) {
+    if (
+      isSelectedEventEnded ||
+      !selectedHouseholds.length ||
+      isRecordingDeparture
+    ) {
       return;
     }
 
@@ -208,7 +278,7 @@ const BarangayMasterlistPage = () => {
   };
 
   const handleOpenDepartureConfirmation = (householdId) => {
-    if (isRecordingDeparture) {
+    if (isSelectedEventEnded || isRecordingDeparture) {
       return;
     }
 
@@ -225,7 +295,7 @@ const BarangayMasterlistPage = () => {
   };
 
   const handleConfirmDeparture = async () => {
-    if (isRecordingDeparture) {
+    if (isSelectedEventEnded || isRecordingDeparture) {
       return;
     }
 
@@ -323,7 +393,7 @@ const BarangayMasterlistPage = () => {
         filterScopeKey={eventScope}
       />
 
-      {selectedHouseholds.length > 0 ? (
+      {!isSelectedEventEnded && selectedHouseholds.length > 0 ? (
         <section style={shellStyles.card}>
           <div
             style={{
@@ -369,6 +439,8 @@ const BarangayMasterlistPage = () => {
         errorMessage={errorMessage}
         hasSelectedEvent={hasSelectedEvent}
         onMarkDeparted={handleOpenDepartureConfirmation}
+        isDepartureReadOnly={isSelectedEventEnded}
+        departureReadOnlyText={selectedEventEndedText}
         selectedHouseholds={selectedHouseholds}
         onToggleSelect={handleToggleSelect}
         onSelectAll={handleSelectAll}

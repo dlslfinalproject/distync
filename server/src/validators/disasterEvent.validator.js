@@ -11,6 +11,9 @@ const isValidDateString = (value) => {
   return !Number.isNaN(date.getTime());
 };
 
+const requiresCompletedEndDate = (status) =>
+  status === "CLOSED" || status === "ARCHIVED";
+
 const validateCreateDisasterEvent = (req, res, next) => {
   try {
     const {
@@ -58,9 +61,23 @@ const validateCreateDisasterEvent = (req, res, next) => {
       });
     }
 
+    const normalizedStatus = status ?? "ACTIVE";
+
     if (status !== undefined && !allowedStatuses.includes(status)) {
       return res.status(400).json({
         message: "status must be one of: PLANNED, ACTIVE, CLOSED, ARCHIVED",
+      });
+    }
+
+    if (end_date && new Date(end_date) < new Date(start_date)) {
+      return res.status(400).json({
+        message: "end_date must not be earlier than start_date",
+      });
+    }
+
+    if (requiresCompletedEndDate(normalizedStatus) && !end_date) {
+      return res.status(400).json({
+        message: "end_date is required when status is CLOSED or ARCHIVED",
       });
     }
 
@@ -98,7 +115,7 @@ const validateCreateDisasterEvent = (req, res, next) => {
       description: description ?? null,
       start_date,
       end_date: end_date ?? null,
-      status: status ?? "ACTIVE",
+      status: normalizedStatus,
       created_by: created_by ?? null,
       barangay_ids: barangay_ids ?? [],
     };

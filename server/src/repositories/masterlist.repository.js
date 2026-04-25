@@ -68,6 +68,7 @@ const getBarangayScopedDisasterEventsByStatuses = async (
       scoped.description,
       scoped.start_date,
       scoped.end_date,
+      scoped.ended_at,
       scoped.status,
       scoped.created_at,
       scoped.updated_at
@@ -80,6 +81,7 @@ const getBarangayScopedDisasterEventsByStatuses = async (
         de.description,
         de.start_date,
         de.end_date,
+        de.ended_at,
         de.status,
         de.created_at,
         de.updated_at,
@@ -117,6 +119,8 @@ const getBarangayScopedDisasterEventById = async (
       de.description,
       de.start_date,
       de.end_date,
+      de.ended_at,
+      de.updated_at,
       de.status
     FROM disaster_events de
     LEFT JOIN disaster_event_barangays deb

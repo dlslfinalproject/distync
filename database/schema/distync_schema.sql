@@ -103,6 +103,7 @@ CREATE TABLE disaster_events (
     description TEXT,
     start_date DATE NOT NULL,
     end_date DATE,
+    ended_at TIMESTAMPTZ,
     status VARCHAR(30) NOT NULL DEFAULT 'PLANNED',
     created_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

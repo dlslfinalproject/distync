@@ -114,10 +114,15 @@ const StubResultsTable = ({
   claimingStubId,
   claimErrorMessage,
   onClaimStub,
+  isClaimReadOnly = false,
   selectedStubIds,
   onToggleSelect,
   onSelectAll,
 }) => {
+  const safeSelectedStubIds = Array.isArray(selectedStubIds)
+    ? selectedStubIds
+    : [];
+
   if (!hasSelectedEvent) {
     return (
       <section style={shellStyles.card}>
@@ -169,11 +174,13 @@ const StubResultsTable = ({
     );
   }
 
-  const selectableRows = rows.filter((row) => row.status === "ISSUED");
+  const selectableRows = isClaimReadOnly
+    ? []
+    : rows.filter((row) => row.status === "ISSUED");
 
   const areAllSelected =
     selectableRows.length > 0 &&
-    selectableRows.every((row) => selectedStubIds.includes(row.id));
+    selectableRows.every((row) => safeSelectedStubIds.includes(row.id));
 
   return (
     <section style={shellStyles.card}>
@@ -236,8 +243,8 @@ const StubResultsTable = ({
           </thead>
           <tbody>
             {rows.map((row) => {
-              const isSelectable = row.status === "ISSUED";
-              const isSelected = selectedStubIds.includes(row.id);
+              const isSelectable = !isClaimReadOnly && row.status === "ISSUED";
+              const isSelected = safeSelectedStubIds.includes(row.id);
 
               return (
                 <tr key={row.id}>
@@ -257,10 +264,10 @@ const StubResultsTable = ({
                   </td>
                   <td style={tableStyles.bodyCell}>
                     <strong style={{ display: "block", marginBottom: "4px" }}>
-                      {row.household.family_head_name}
+                      {row.household?.family_head_name || "-"}
                     </strong>
                     <span style={{ color: "#69839c" }}>
-                      {row.household.members_count || 0} members
+                      {row.household?.members_count || 0} members
                     </span>
                   </td>
                   <td
@@ -281,7 +288,11 @@ const StubResultsTable = ({
                       verticalAlign: "middle",
                     }}
                   >
-                    {row.status === "ISSUED" ? (
+                    {isClaimReadOnly && row.status === "ISSUED" ? (
+                      <span style={getStatusChipStyles("ISSUED")}>
+                        Unclaimed
+                      </span>
+                    ) : row.status === "ISSUED" ? (
                       <button
                         type="button"
                         onClick={() => onClaimStub(row.id)}
@@ -290,7 +301,8 @@ const StubResultsTable = ({
                         style={{
                           ...tableStyles.statusButton,
                           opacity: claimingStubId === row.id ? 0.7 : 1,
-                          cursor: claimingStubId === row.id ? "wait" : "pointer",
+                          cursor:
+                            claimingStubId === row.id ? "wait" : "pointer",
                         }}
                       >
                         <FaHandHolding size={18} />
