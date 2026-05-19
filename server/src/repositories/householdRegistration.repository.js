@@ -182,11 +182,15 @@ const insertHousehold = async (householdData, dbClient) => {
       household_size,
       is_active,
       registered_by,
+      family_head_photo_url,
+      photo_captured_at,
+      photo_captured_by,
+      photo_verification_notes,
       registered_at,
       updated_at
     )
     VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW()
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW(), NOW()
     )
     RETURNING
       id,
@@ -206,6 +210,10 @@ const insertHousehold = async (householdData, dbClient) => {
       household_size,
       is_active,
       registered_by,
+      family_head_photo_url,
+      photo_captured_at,
+      photo_captured_by,
+      photo_verification_notes,
       registered_at,
       updated_at,
       family_head_evacuee_id
@@ -228,6 +236,10 @@ const insertHousehold = async (householdData, dbClient) => {
     householdData.household_size,
     true,
     householdData.registered_by,
+    householdData.family_head_photo_url || null,
+    householdData.photo_captured_at || null,
+    householdData.photo_captured_by || null,
+    householdData.photo_verification_notes || null,
   ];
 
   const result = await dbClient.query(query, values);
@@ -542,6 +554,10 @@ const getHouseholdSummaryById = async (id) => {
       h.household_size,
       h.is_active,
       h.registered_by,
+      h.family_head_photo_url,
+      h.photo_captured_at,
+      h.photo_captured_by,
+      h.photo_verification_notes,
       h.registered_at,
       h.updated_at,
       h.family_head_evacuee_id,

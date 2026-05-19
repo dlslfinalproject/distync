@@ -69,6 +69,9 @@ const getBarangayStubDashboardRows = async (disasterEventId, barangayId) => {
       h.family_head_middle_name,
       h.family_head_last_name,
       h.family_head_suffix,
+      h.family_head_photo_url,
+      h.photo_captured_at,
+      h.photo_verification_notes,
       (
         SELECT COUNT(*)::int
         FROM evacuees e
@@ -180,6 +183,10 @@ const getStubById = async (id) => {
       h.contact_number,
       h.current_stay_type,
       h.current_address_details,
+      h.family_head_photo_url,
+      h.photo_captured_at,
+      h.photo_captured_by,
+      h.photo_verification_notes,
       h.registered_at,
       h.barangay_id,
       b.code AS barangay_code,
@@ -241,6 +248,9 @@ const getStubByStubNoOrSerialNo = async ({ stub_no, serial_no }) => {
       h.family_head_middle_name,
       h.family_head_last_name,
       h.family_head_suffix,
+      h.family_head_photo_url,
+      h.photo_captured_at,
+      h.photo_verification_notes,
       h.household_size,
       h.contact_number,
       h.barangay_id,

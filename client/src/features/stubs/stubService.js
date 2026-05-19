@@ -76,6 +76,12 @@ export const verifyStub = async ({ stubNo, serialNo }) => {
   return handleJsonResponse(response, "Failed to verify stub");
 };
 
+export const fetchStubDetails = async (stubId) => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/stubs/${stubId}`);
+
+  return handleJsonResponse(response, "Failed to fetch stub details");
+};
+
 export const claimStub = async ({ stubId, userId, overrideBarangayId }) => {
   const response = await fetch(`${API_BASE_URL}/api/v1/stubs/${stubId}/claim`, {
     method: "POST",

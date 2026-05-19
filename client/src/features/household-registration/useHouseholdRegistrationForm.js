@@ -44,6 +44,8 @@ const initialHousehold = {
   evacuation_center_id: "",
 };
 
+const MAX_FAMILY_HEAD_PHOTO_FILE_SIZE = 3 * 1024 * 1024;
+
 const trimValue = (value) => String(value || "").trim();
 
 const normalizeAgeValue = (value) => {
@@ -100,6 +102,9 @@ export const useHouseholdRegistrationForm = ({
   const [familyHead, setFamilyHead] = useState(initialFamilyHead);
   const [members, setMembers] = useState([]);
   const [householdSectorIds, setHouseholdSectorIds] = useState([]);
+  const [familyHeadPhotoUrl, setFamilyHeadPhotoUrl] = useState("");
+  const [familyHeadPhotoFileName, setFamilyHeadPhotoFileName] = useState("");
+  const [photoVerificationNotes, setPhotoVerificationNotes] = useState("");
   const [activeDisasterEvents, setActiveDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
   const [selectedDisasterEventId, setSelectedDisasterEventId] = useState(
@@ -113,6 +118,7 @@ export const useHouseholdRegistrationForm = ({
   const [evacuationCenters, setEvacuationCenters] = useState([]);
   const [isLoadingOptions, setIsLoadingOptions] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
@@ -418,12 +424,75 @@ export const useHouseholdRegistrationForm = ({
     );
   };
 
+  const setFamilyHeadPhotoFromFile = async (file) => {
+    if (!file) {
+      setFamilyHeadPhotoUrl("");
+      setFamilyHeadPhotoFileName("");
+      return;
+    }
+
+    if (!String(file.type || "").startsWith("image/")) {
+      setErrorMessage("Please select a valid image file for the family head photo.");
+      return;
+    }
+
+    if (file.size > MAX_FAMILY_HEAD_PHOTO_FILE_SIZE) {
+      setErrorMessage("Family head photo must be 3 MB or smaller.");
+      return;
+    }
+
+    setIsProcessingPhoto(true);
+    setErrorMessage("");
+
+    try {
+      const encodedPhoto = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+
+        reader.onload = () => {
+          if (typeof reader.result === "string") {
+            resolve(reader.result);
+            return;
+          }
+
+          reject(new Error("Failed to read selected photo."));
+        };
+
+        reader.onerror = () => {
+          reject(new Error("Failed to read selected photo."));
+        };
+
+        reader.readAsDataURL(file);
+      });
+
+      setFamilyHeadPhotoUrl(encodedPhoto);
+      setFamilyHeadPhotoFileName(file.name || "Captured photo");
+      setSuccessMessage("");
+    } catch (error) {
+      setErrorMessage(error.message || "Failed to process family head photo.");
+    } finally {
+      setIsProcessingPhoto(false);
+    }
+  };
+
+  const clearFamilyHeadPhoto = () => {
+    setFamilyHeadPhotoUrl("");
+    setFamilyHeadPhotoFileName("");
+  };
+
+  const clearFormMessages = () => {
+    setErrorMessage("");
+    setSuccessMessage("");
+  };
+
   const resetForm = () => {
     setHousehold(initialHousehold);
     setResidencyStatus(RESIDENCY_STATUS.resident);
     setFamilyHead(initialFamilyHead);
     setMembers([]);
     setHouseholdSectorIds([]);
+    setFamilyHeadPhotoUrl("");
+    setFamilyHeadPhotoFileName("");
+    setPhotoVerificationNotes("");
     setEvacuationCenters([]);
     setSelectedDisasterEventId(defaultDisasterEventId || "");
     setSelectedBarangayId(defaultBarangayId || "");
@@ -434,6 +503,14 @@ export const useHouseholdRegistrationForm = ({
   const validateForm = () => {
     if (!selectedDisasterEventId) {
       return "Please select an active disaster event from the Barangay masterlist page";
+    }
+
+    if (isProcessingPhoto) {
+      return "Please wait for the family head photo to finish processing.";
+    }
+
+    if (!familyHeadPhotoUrl) {
+      return "Family head photo is required for verification.";
     }
 
     if (!selectedBarangayId) {
@@ -532,6 +609,8 @@ export const useHouseholdRegistrationForm = ({
       current_stay_type: household.current_stay_type,
       household_size: memberCount,
       registered_by: registeredBy,
+      family_head_photo_url: familyHeadPhotoUrl || null,
+      photo_verification_notes: trimValue(photoVerificationNotes) || null,
       members: members.map((member) => ({
         first_name: trimValue(member.first_name),
         middle_name: trimValue(member.middle_name) || null,
@@ -607,6 +686,10 @@ export const useHouseholdRegistrationForm = ({
     isSubmitting,
     errorMessage,
     successMessage,
+    familyHeadPhotoUrl,
+    familyHeadPhotoFileName,
+    photoVerificationNotes,
+    isProcessingPhoto,
     updateHouseholdField,
     updateFamilyHeadField,
     toggleFamilyHeadSector,
@@ -615,6 +698,10 @@ export const useHouseholdRegistrationForm = ({
     toggleHouseholdSector,
     addMember,
     removeMember,
+    setFamilyHeadPhotoFromFile,
+    clearFamilyHeadPhoto,
+    setPhotoVerificationNotes,
+    clearFormMessages,
     resetForm,
     submitRegistration,
   };

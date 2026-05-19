@@ -295,6 +295,14 @@ const registerHousehold = async (requestData) => {
 
   const requestDataWithDerivedAgeGroups = {
     ...registrationData,
+    family_head_photo_url: registrationData.family_head_photo_url || null,
+    photo_captured_at: registrationData.family_head_photo_url
+      ? new Date().toISOString()
+      : null,
+    photo_captured_by: registrationData.family_head_photo_url
+      ? registrationData.registered_by
+      : null,
+    photo_verification_notes: registrationData.photo_verification_notes || null,
     family_head: {
       ...normalizedFamilyHead,
       birth_date: null,

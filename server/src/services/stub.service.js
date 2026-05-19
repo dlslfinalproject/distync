@@ -214,6 +214,9 @@ const getBarangayStubDashboard = async (filters) => {
           row.family_head_suffix,
         ),
         members_count: row.members_count,
+        family_head_photo_url: row.family_head_photo_url || null,
+        photo_captured_at: row.photo_captured_at || null,
+        photo_verification_notes: row.photo_verification_notes || null,
       },
       sectors_text: buildSectorsText(
         row.household_id,
@@ -301,6 +304,10 @@ const getStubDetails = async (id) => {
       current_address_details: stub.current_address_details,
       registered_at: stub.registered_at,
       members_count: membersCount,
+      family_head_photo_url: stub.family_head_photo_url || null,
+      photo_captured_at: stub.photo_captured_at || null,
+      photo_captured_by: stub.photo_captured_by || null,
+      photo_verification_notes: stub.photo_verification_notes || null,
     },
     barangay: {
       id: stub.barangay_id,
@@ -371,6 +378,9 @@ const verifyStub = async (identifier) => {
         contact_number: stub.contact_number,
         barangay_name:
           stub.barangay_name || "Non-Resident (Outside Malvar)",
+        family_head_photo_url: stub.family_head_photo_url || null,
+        photo_captured_at: stub.photo_captured_at || null,
+        photo_verification_notes: stub.photo_verification_notes || null,
       },
     },
   };

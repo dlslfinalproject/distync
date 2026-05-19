@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import PageHeader from "../../components/layout/PageHeader";
 import StubSummaryCard from "../../components/distribution/StubSummaryCard";
 import DistributionForm from "../../components/distribution/DistributionForm";
+import { fetchStubDetails } from "../../features/stubs/stubService";
 import {
   fetchInventoryBatches,
   fetchInventoryItems,
@@ -41,6 +42,10 @@ const buildStubContextFromLocation = (locationState, searchParams) => {
     family_head_name: searchParams.get("family_head_name") || "--",
     barangay_name: searchParams.get("barangay_name") || "--",
     household_size: Number(searchParams.get("household_size") || 0),
+    family_head_photo_url: searchParams.get("family_head_photo_url") || "",
+    photo_captured_at: searchParams.get("photo_captured_at") || "",
+    photo_verification_notes:
+      searchParams.get("photo_verification_notes") || "",
   };
 };
 
@@ -64,6 +69,7 @@ const DistributionTransactionPage = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [isLoadingStubDetails, setIsLoadingStubDetails] = useState(false);
 
   useEffect(() => {
     const loadFormOptions = async () => {
@@ -102,6 +108,57 @@ const DistributionTransactionPage = () => {
       setClaimedByName(location.state.stubContext.family_head_name);
     }
   }, [location.state, searchParams]);
+
+  useEffect(() => {
+    if (!stubContext?.stub_id) {
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadStubDetails = async () => {
+      setIsLoadingStubDetails(true);
+
+      try {
+        const stubDetails = await fetchStubDetails(stubContext.stub_id);
+
+        if (!isMounted) {
+          return;
+        }
+
+        setStubContext((currentValue) => {
+          if (!currentValue) {
+            return currentValue;
+          }
+
+          return {
+            ...currentValue,
+            family_head_photo_url:
+              stubDetails?.household?.family_head_photo_url || "",
+            photo_captured_at: stubDetails?.household?.photo_captured_at || "",
+            photo_verification_notes:
+              stubDetails?.household?.photo_verification_notes || "",
+          };
+        });
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(
+            error.message || "Failed to load family head verification photo.",
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingStubDetails(false);
+        }
+      }
+    };
+
+    loadStubDetails();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [stubContext?.stub_id]);
 
   const availableInventoryBatches = useMemo(() => {
     return inventoryBatches.filter(
@@ -282,7 +339,10 @@ const DistributionTransactionPage = () => {
         ]}
       />
 
-      <StubSummaryCard stubContext={stubContext} />
+      <StubSummaryCard
+        stubContext={stubContext}
+        isLoadingStubDetails={isLoadingStubDetails}
+      />
 
       <DistributionForm
         claimedByName={claimedByName}

@@ -17,7 +17,61 @@ const valueStyles = {
   fontWeight: 700,
 };
 
-const StubSummaryCard = ({ stubContext }) => {
+const photoStyles = {
+  card: {
+    marginTop: "18px",
+    paddingTop: "18px",
+    borderTop: "1px solid #e3edf6",
+  },
+  photoPreview: {
+    width: "100%",
+    maxWidth: "220px",
+    aspectRatio: "4 / 3",
+    objectFit: "cover",
+    borderRadius: "16px",
+    border: "1px solid #d5e1eb",
+    backgroundColor: "#eaf2f8",
+  },
+  photoPlaceholder: {
+    width: "100%",
+    maxWidth: "220px",
+    aspectRatio: "4 / 3",
+    borderRadius: "16px",
+    border: "1px dashed #cad9e8",
+    backgroundColor: "#f4f8fb",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#6b8198",
+    fontSize: "13px",
+    fontWeight: 600,
+    textAlign: "center",
+    padding: "16px",
+    boxSizing: "border-box",
+  },
+};
+
+const formatPhotoCapturedAt = (value) => {
+  if (!value) {
+    return "";
+  }
+
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(parsedDate);
+};
+
+const StubSummaryCard = ({ stubContext, isLoadingStubDetails = false }) => {
   if (!stubContext) {
     return (
       <section style={shellStyles.card}>
@@ -62,6 +116,38 @@ const StubSummaryCard = ({ stubContext }) => {
             Members: {stubContext.household_size || "--"}
           </p>
         </div>
+      </div>
+
+      <div style={photoStyles.card}>
+        <p style={labelStyles}>Family Head Photo Verification</p>
+
+        <div style={{ marginTop: "12px" }}>
+          {isLoadingStubDetails ? (
+            <p style={{ ...shellStyles.mutedText, marginTop: 0 }}>
+              Loading registered family head photo...
+            </p>
+          ) : stubContext.family_head_photo_url ? (
+            <img
+              src={stubContext.family_head_photo_url}
+              alt="Registered family head"
+              style={photoStyles.photoPreview}
+            />
+          ) : (
+            <div style={photoStyles.photoPlaceholder}>No photo available</div>
+          )}
+        </div>
+
+        {stubContext.photo_captured_at ? (
+          <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
+            Captured: {formatPhotoCapturedAt(stubContext.photo_captured_at)}
+          </p>
+        ) : null}
+
+        {stubContext.photo_verification_notes ? (
+          <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
+            Notes: {stubContext.photo_verification_notes}
+          </p>
+        ) : null}
       </div>
     </section>
   );

@@ -14,6 +14,9 @@ const validateUuidArray = (values) => {
   return values.every((value) => isValidUuid(value));
 };
 
+const MAX_FAMILY_HEAD_PHOTO_URL_LENGTH = 4_500_000;
+const MAX_PHOTO_VERIFICATION_NOTES_LENGTH = 1_000;
+
 const validateCreateHouseholdRegistration = (req, res, next) => {
   try {
     const {
@@ -27,6 +30,8 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
       registered_by,
       members,
       household_sector_ids,
+      family_head_photo_url,
+      photo_verification_notes,
     } = req.body;
 
     if (!isValidUuid(disaster_event_id)) {
@@ -166,6 +171,55 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
       });
     }
 
+    if (
+      family_head_photo_url !== undefined &&
+      family_head_photo_url !== null &&
+      typeof family_head_photo_url !== "string"
+    ) {
+      return res.status(400).json({
+        message: "family_head_photo_url must be a string or null",
+      });
+    }
+
+    if (
+      typeof family_head_photo_url === "string" &&
+      family_head_photo_url.length > MAX_FAMILY_HEAD_PHOTO_URL_LENGTH
+    ) {
+      return res.status(400).json({
+        message: "family_head_photo_url is too large",
+      });
+    }
+
+    if (
+      family_head_photo_url === undefined ||
+      family_head_photo_url === null ||
+      (typeof family_head_photo_url === "string" &&
+        !family_head_photo_url.trim())
+    ) {
+      return res.status(400).json({
+        message: "Family head photo is required for verification.",
+      });
+    }
+
+    if (
+      photo_verification_notes !== undefined &&
+      photo_verification_notes !== null &&
+      typeof photo_verification_notes !== "string"
+    ) {
+      return res.status(400).json({
+        message: "photo_verification_notes must be a string or null",
+      });
+    }
+
+    if (
+      typeof photo_verification_notes === "string" &&
+      photo_verification_notes.length > MAX_PHOTO_VERIFICATION_NOTES_LENGTH
+    ) {
+      return res.status(400).json({
+        message: "photo_verification_notes must be 1000 characters or fewer",
+      });
+    }
+
     if (!Array.isArray(members)) {
       return res.status(400).json({
         message: "members must be an array",
@@ -286,6 +340,16 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
       current_stay_type,
       household_size,
       registered_by: registered_by ?? null,
+      family_head_photo_url:
+        typeof family_head_photo_url === "string" &&
+        family_head_photo_url.trim()
+          ? family_head_photo_url.trim()
+          : null,
+      photo_verification_notes:
+        typeof photo_verification_notes === "string" &&
+        photo_verification_notes.trim()
+          ? photo_verification_notes.trim()
+          : null,
       members: members.map((member) => ({
         first_name: member.first_name.trim(),
         middle_name: member.middle_name ?? null,

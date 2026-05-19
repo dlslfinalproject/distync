@@ -155,14 +155,26 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
                 </button>
                 <button
                   type="submit"
-                  disabled={form.isSubmitting || form.isLoadingOptions}
+                  disabled={
+                    form.isSubmitting ||
+                    form.isLoadingOptions ||
+                    form.isProcessingPhoto
+                  }
                   style={{
                     ...pageHeaderStyles.primaryButton,
                     opacity:
-                      form.isSubmitting || form.isLoadingOptions ? 0.7 : 1,
+                      form.isSubmitting ||
+                      form.isLoadingOptions ||
+                      form.isProcessingPhoto
+                        ? 0.7
+                        : 1,
                   }}
                 >
-                  {form.isSubmitting ? "Saving..." : "Register"}
+                  {form.isSubmitting
+                    ? "Saving..."
+                    : form.isProcessingPhoto
+                      ? "Processing Photo..."
+                      : "Register"}
                 </button>
               </div>
             </div>
