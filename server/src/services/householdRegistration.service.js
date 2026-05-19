@@ -1,4 +1,5 @@
 const pool = require("../config/db");
+const { randomUUID } = require("crypto");
 const householdRegistrationRepository = require("../repositories/householdRegistration.repository");
 const { deriveAgeGroup } = require("../utils/ageGroup");
 const {
@@ -13,6 +14,10 @@ const RESIDENCY_STATUSES = {
   nonResident: "NON_RESIDENT",
 };
 const BARANGAY_ROLE_CODE = "BARANGAY";
+
+const buildStubQrCodeValue = ({ disasterEventId, householdId, stubNo }) => {
+  return `DISTYNC-STUB|${disasterEventId}|${householdId}|${stubNo}|${randomUUID()}`;
+};
 
 const deduplicateIds = (ids) => {
   return [...new Set(ids)];
@@ -489,6 +494,14 @@ const registerHousehold = async (requestData) => {
         serial_no: stubNumbers.serial_no,
         status: "ISSUED",
         issued_by: requestDataWithDerivedAgeGroups.registered_by,
+        qr_code_value: buildStubQrCodeValue({
+          disasterEventId: requestDataWithDerivedAgeGroups.disaster_event_id,
+          householdId: createdHousehold.id,
+          stubNo: stubNumbers.stub_no,
+        }),
+        qr_generated_by: requestDataWithDerivedAgeGroups.registered_by,
+        qr_status: "ACTIVE",
+        qr_notes: null,
       },
       client,
     );

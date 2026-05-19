@@ -5,6 +5,8 @@ const buildFullName = (firstName, middleName, lastName, suffix) => {
   return [firstName, middleName, lastName, suffix].filter(Boolean).join(" ");
 };
 
+const ACTIVE_QR_STATUS = "ACTIVE";
+
 const getInventoryBatchStatus = (quantityAvailable) => {
   if (quantityAvailable === 0) {
     return "DEPLETED";
@@ -81,6 +83,25 @@ const createDistributionTransaction = async (requestData) => {
       throw error;
     }
 
+    if (
+      requestData.qr_reference_value &&
+      stub.qr_code_value !== requestData.qr_reference_value
+    ) {
+      const error = new Error("qr_reference_value does not match the stub record");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (
+      requestData.qr_reference_value &&
+      stub.qr_status &&
+      stub.qr_status !== ACTIVE_QR_STATUS
+    ) {
+      const error = new Error("The scanned QR reference is not active");
+      error.statusCode = 400;
+      throw error;
+    }
+
     const groupedItems = groupRequestedItemsByBatch(requestData.items);
     const lockedBatches = new Map();
 
@@ -118,6 +139,15 @@ const createDistributionTransaction = async (requestData) => {
       lockedBatches.set(groupedItem.inventory_batch_id, inventoryBatch);
     }
 
+    const receiptNo =
+      await distributionTransactionRepository.getDistributionReceiptSequence(
+        client,
+      );
+    const receivedAt = new Date().toISOString();
+    const qrScannedAt = requestData.qr_reference_value
+      ? new Date().toISOString()
+      : null;
+
     const distributionTransaction =
       await distributionTransactionRepository.insertDistributionTransaction(
         {
@@ -130,6 +160,16 @@ const createDistributionTransaction = async (requestData) => {
           device_id: requestData.device_id,
           is_offline_encoded: requestData.is_offline_encoded,
           sync_status: requestData.sync_status,
+          qr_reference_value:
+            requestData.qr_reference_value || stub.qr_code_value || null,
+          qr_scanned_at: qrScannedAt,
+          qr_scanned_by: requestData.qr_reference_value
+            ? requestData.verified_by
+            : null,
+          receipt_no: receiptNo,
+          receipt_status: requestData.receipt_status,
+          received_at: receivedAt,
+          relief_pack_template_id: requestData.relief_pack_template_id,
           remarks: requestData.remarks,
         },
         client,
@@ -194,12 +234,24 @@ const createDistributionTransaction = async (requestData) => {
     return {
       distribution_transaction_id: distributionTransaction.id,
       distribution_date: distributionTransaction.distribution_date,
+      qr_reference_value: distributionTransaction.qr_reference_value,
+      qr_scanned_at: distributionTransaction.qr_scanned_at,
+      qr_scanned_by: distributionTransaction.qr_scanned_by,
+      receipt_no: distributionTransaction.receipt_no,
+      receipt_status: distributionTransaction.receipt_status,
+      received_at: distributionTransaction.received_at,
+      relief_pack_template_id: distributionTransaction.relief_pack_template_id,
       stub: {
         id: updatedStub.id,
         stub_no: updatedStub.stub_no,
         serial_no: updatedStub.serial_no,
         status: updatedStub.status,
         claimed_at: updatedStub.claimed_at,
+        qr_code_value: updatedStub.qr_code_value || null,
+        qr_generated_at: updatedStub.qr_generated_at || null,
+        qr_generated_by: updatedStub.qr_generated_by || null,
+        qr_status: updatedStub.qr_status || null,
+        qr_notes: updatedStub.qr_notes || null,
       },
       household: {
         id: stub.household_id,

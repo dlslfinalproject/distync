@@ -8,7 +8,7 @@ import StatusPill from "../../components/shared/StatusPill";
 import StubClaimConfirmModal from "../../components/stubs/StubClaimConfirmModal";
 import MswdoStubResultsTable from "../../components/stubs/MswdoStubResultsTable";
 import StubSummaryCards from "../../components/stubs/StubSummaryCards";
-import { claimStub } from "../../features/stubs/stubService";
+import { claimStub, fetchStubDetails } from "../../features/stubs/stubService";
 import { useMswdoStubDistribution } from "../../features/stubs/useMswdoStubDistribution";
 
 const filterStyles = {
@@ -281,6 +281,9 @@ const StubDistributionPage = () => {
   const [claimingStubId, setClaimingStubId] = useState("");
   const [claimErrorMessage, setClaimErrorMessage] = useState("");
   const [pendingClaimStubId, setPendingClaimStubId] = useState("");
+  const [pendingClaimStubDetails, setPendingClaimStubDetails] = useState(null);
+  const [isLoadingPendingClaimStubDetails, setIsLoadingPendingClaimStubDetails] =
+    useState(false);
   const [selectedStubIds, setSelectedStubIds] = useState([]);
   const [isBulkClaimConfirmOpen, setIsBulkClaimConfirmOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -349,6 +352,7 @@ const StubDistributionPage = () => {
   useEffect(() => {
     setSelectedStubIds([]);
     setPendingClaimStubId("");
+    setPendingClaimStubDetails(null);
     setIsBulkClaimConfirmOpen(false);
     setClaimErrorMessage("");
   }, [activeTab, selectedBarangayId, selectedDisasterEventId]);
@@ -508,6 +512,8 @@ const StubDistributionPage = () => {
     }
 
     setClaimErrorMessage("");
+    setPendingClaimStubId("");
+    setPendingClaimStubDetails(null);
     setIsBulkClaimConfirmOpen(true);
   };
 
@@ -517,8 +523,48 @@ const StubDistributionPage = () => {
     }
 
     setClaimErrorMessage("");
+    setIsBulkClaimConfirmOpen(false);
     setPendingClaimStubId(stubId);
+    setPendingClaimStubDetails(null);
   };
+
+  useEffect(() => {
+    if (!pendingClaimStubId || isBulkClaimConfirmOpen) {
+      setPendingClaimStubDetails(null);
+      setIsLoadingPendingClaimStubDetails(false);
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadPendingClaimStubDetails = async () => {
+      setIsLoadingPendingClaimStubDetails(true);
+
+      try {
+        const stubDetails = await fetchStubDetails(pendingClaimStubId);
+
+        if (isMounted) {
+          setPendingClaimStubDetails(stubDetails);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setClaimErrorMessage(
+            error.message || "Unable to load the selected stub details.",
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingPendingClaimStubDetails(false);
+        }
+      }
+    };
+
+    loadPendingClaimStubDetails();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isBulkClaimConfirmOpen, pendingClaimStubId]);
 
   const handleCancelClaim = () => {
     if (claimingStubId) {
@@ -526,6 +572,7 @@ const StubDistributionPage = () => {
     }
 
     setPendingClaimStubId("");
+    setPendingClaimStubDetails(null);
     setIsBulkClaimConfirmOpen(false);
   };
 
@@ -553,6 +600,7 @@ const StubDistributionPage = () => {
         reloadDashboard();
         setSelectedStubIds([]);
         setIsBulkClaimConfirmOpen(false);
+        setPendingClaimStubDetails(null);
       } catch (error) {
         setClaimErrorMessage(
           error.message || "Unable to mark the selected stubs as claimed.",
@@ -578,6 +626,7 @@ const StubDistributionPage = () => {
       });
       reloadDashboard();
       setPendingClaimStubId("");
+      setPendingClaimStubDetails(null);
     } catch (error) {
       setClaimErrorMessage(error.message || "Unable to mark the stub as claimed.");
     } finally {
@@ -965,9 +1014,11 @@ const StubDistributionPage = () => {
       <StubClaimConfirmModal
         isOpen={Boolean(pendingClaimStubId) || isBulkClaimConfirmOpen}
         isSubmitting={Boolean(claimingStubId)}
+        isLoadingStubDetails={isLoadingPendingClaimStubDetails}
         onCancel={handleCancelClaim}
         onConfirm={handleConfirmClaim}
         selectedCount={isBulkClaimConfirmOpen ? selectedStubIds.length : 1}
+        stubDetails={pendingClaimStubDetails}
       />
     </>
   );

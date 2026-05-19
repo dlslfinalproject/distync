@@ -43,6 +43,11 @@ const formatSearchResult = (stub) => {
     serial_no: stub.serial_no,
     status: stub.status,
     issued_at: stub.issued_at,
+    qr_code_value: stub.qr_code_value || null,
+    qr_generated_at: stub.qr_generated_at || null,
+    qr_generated_by: stub.qr_generated_by || null,
+    qr_status: stub.qr_status || null,
+    qr_notes: stub.qr_notes || null,
     disaster_event: {
       id: stub.disaster_event_id,
       event_code: stub.event_code,
@@ -284,6 +289,11 @@ const getStubDetails = async (id) => {
     issued_at: stub.issued_at,
     claimed_at: stub.claimed_at,
     updated_at: stub.updated_at,
+    qr_code_value: stub.qr_code_value || null,
+    qr_generated_at: stub.qr_generated_at || null,
+    qr_generated_by: stub.qr_generated_by || null,
+    qr_status: stub.qr_status || null,
+    qr_notes: stub.qr_notes || null,
     disaster_event: {
       id: stub.disaster_event_id,
       event_code: stub.event_code,
@@ -343,7 +353,9 @@ const getClaimabilityResult = (status) => {
 };
 
 const verifyStub = async (identifier) => {
-  const stub = await stubRepository.getStubByStubNoOrSerialNo(identifier);
+  const stub = identifier.qr_code_value
+    ? await stubRepository.getStubByQrCodeValue(identifier.qr_code_value)
+    : await stubRepository.getStubByStubNoOrSerialNo(identifier);
 
   if (!stub) {
     const error = new Error("Stub not found");
@@ -365,6 +377,11 @@ const verifyStub = async (identifier) => {
         serial_no: stub.serial_no,
         status: stub.status,
         issued_at: stub.issued_at,
+        qr_code_value: stub.qr_code_value || null,
+        qr_generated_at: stub.qr_generated_at || null,
+        qr_generated_by: stub.qr_generated_by || null,
+        qr_status: stub.qr_status || null,
+        qr_notes: stub.qr_notes || null,
       },
       household: {
         id: stub.household_id,

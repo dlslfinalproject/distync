@@ -1,5 +1,6 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
+import QrCodePanel from "../stubs/QrCodePanel";
 
 const labelStyles = {
   margin: 0,
@@ -148,6 +149,16 @@ const StubSummaryCard = ({ stubContext, isLoadingStubDetails = false }) => {
             Notes: {stubContext.photo_verification_notes}
           </p>
         ) : null}
+
+        <div style={{ marginTop: "18px" }}>
+          <p style={labelStyles}>Stub QR</p>
+          <div style={{ marginTop: "12px" }}>
+            <QrCodePanel
+              value={stubContext.qr_code_value || ""}
+              emptyLabel="No QR available"
+            />
+          </div>
+        </div>
       </div>
     </section>
   );

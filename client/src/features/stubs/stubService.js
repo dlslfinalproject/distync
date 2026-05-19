@@ -61,7 +61,7 @@ export const searchStubs = async ({ query, disasterEventId, barangayId }) => {
   return handleJsonResponse(response, "Failed to search stubs");
 };
 
-export const verifyStub = async ({ stubNo, serialNo }) => {
+export const verifyStub = async ({ stubNo, serialNo, qrCodeValue }) => {
   const response = await fetch(`${API_BASE_URL}/api/v1/stubs/verify`, {
     method: "POST",
     headers: {
@@ -70,6 +70,7 @@ export const verifyStub = async ({ stubNo, serialNo }) => {
     body: JSON.stringify({
       stub_no: stubNo || null,
       serial_no: serialNo || null,
+      qr_code_value: qrCodeValue || null,
     }),
   });
 

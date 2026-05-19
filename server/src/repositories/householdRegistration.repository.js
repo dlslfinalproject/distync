@@ -395,10 +395,15 @@ const insertStub = async (stubData, dbClient) => {
       serial_no,
       status,
       issued_by,
+      qr_code_value,
+      qr_generated_at,
+      qr_generated_by,
+      qr_status,
+      qr_notes,
       issued_at,
       updated_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, NOW(), NOW())
     RETURNING
       id,
       disaster_event_id,
@@ -407,6 +412,11 @@ const insertStub = async (stubData, dbClient) => {
       serial_no,
       status,
       issued_by,
+      qr_code_value,
+      qr_generated_at,
+      qr_generated_by,
+      qr_status,
+      qr_notes,
       issued_at,
       claimed_at,
       updated_at
@@ -419,6 +429,10 @@ const insertStub = async (stubData, dbClient) => {
     stubData.serial_no,
     stubData.status,
     stubData.issued_by,
+    stubData.qr_code_value,
+    stubData.qr_generated_by,
+    stubData.qr_status,
+    stubData.qr_notes ?? null,
   ];
 
   const result = await dbClient.query(query, values);
@@ -655,6 +669,11 @@ const getStubByHouseholdId = async (householdId) => {
       serial_no,
       status,
       issued_by,
+      qr_code_value,
+      qr_generated_at,
+      qr_generated_by,
+      qr_status,
+      qr_notes,
       issued_at,
       claimed_at,
       updated_at

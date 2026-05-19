@@ -1,5 +1,31 @@
 const pool = require("../config/db");
 
+const getDistributionReceiptSequence = async (dbClient) => {
+  const currentYear = new Date().getFullYear();
+  const receiptPrefix = `RCPT-${currentYear}-`;
+  const advisoryLockNamespace = 4119;
+
+  await dbClient.query("SELECT pg_advisory_xact_lock($1, $2)", [
+    advisoryLockNamespace,
+    currentYear,
+  ]);
+
+  const sequenceQuery = `
+    SELECT
+      COALESCE(
+        MAX(CAST(SUBSTRING(receipt_no FROM '^RCPT-\\d{4}-(\\d{6})$') AS INTEGER)),
+        0
+      ) + 1 AS next_sequence
+    FROM distribution_transactions
+    WHERE receipt_no LIKE $1
+  `;
+
+  const sequenceResult = await dbClient.query(sequenceQuery, [`${receiptPrefix}%`]);
+  const nextSequence = Number(sequenceResult.rows[0]?.next_sequence || 1);
+
+  return `${receiptPrefix}${String(nextSequence).padStart(6, "0")}`;
+};
+
 const getStubByIdForUpdate = async (stubId, dbClient) => {
   const query = `
     SELECT
@@ -9,6 +35,11 @@ const getStubByIdForUpdate = async (stubId, dbClient) => {
       s.stub_no,
       s.serial_no,
       s.status,
+      s.qr_code_value,
+      s.qr_generated_at,
+      s.qr_generated_by,
+      s.qr_status,
+      s.qr_notes,
       s.claimed_at,
       h.family_head_first_name,
       h.family_head_middle_name,
@@ -58,12 +89,19 @@ const insertDistributionTransaction = async (transactionData, dbClient) => {
       device_id,
       is_offline_encoded,
       sync_status,
+      qr_reference_value,
+      qr_scanned_at,
+      qr_scanned_by,
+      receipt_no,
+      receipt_status,
+      received_at,
+      relief_pack_template_id,
       remarks,
       created_at,
       updated_at
     )
     VALUES (
-      $1, $2, $3, NOW(), $4, $5, $6, $7, $8, $9, $10, NOW(), NOW()
+      $1, $2, $3, NOW(), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW(), NOW()
     )
     RETURNING
       id,
@@ -77,6 +115,13 @@ const insertDistributionTransaction = async (transactionData, dbClient) => {
       device_id,
       is_offline_encoded,
       sync_status,
+      qr_reference_value,
+      qr_scanned_at,
+      qr_scanned_by,
+      receipt_no,
+      receipt_status,
+      received_at,
+      relief_pack_template_id,
       remarks,
       created_at,
       updated_at
@@ -92,6 +137,13 @@ const insertDistributionTransaction = async (transactionData, dbClient) => {
     transactionData.device_id,
     transactionData.is_offline_encoded,
     transactionData.sync_status,
+    transactionData.qr_reference_value,
+    transactionData.qr_scanned_at,
+    transactionData.qr_scanned_by,
+    transactionData.receipt_no,
+    transactionData.receipt_status,
+    transactionData.received_at,
+    transactionData.relief_pack_template_id,
     transactionData.remarks,
   ];
 
@@ -166,6 +218,11 @@ const updateStubAsClaimed = async (stubId, dbClient) => {
       stub_no,
       serial_no,
       status,
+      qr_code_value,
+      qr_generated_at,
+      qr_generated_by,
+      qr_status,
+      qr_notes,
       claimed_at,
       updated_at
   `;
@@ -175,6 +232,7 @@ const updateStubAsClaimed = async (stubId, dbClient) => {
 };
 
 module.exports = {
+  getDistributionReceiptSequence,
   getStubByIdForUpdate,
   getInventoryBatchByIdForUpdate,
   insertDistributionTransaction,

@@ -1,4 +1,10 @@
 const allowedSyncStatuses = ["PENDING", "SYNCED", "CONFLICT", "FAILED"];
+const allowedReceiptStatuses = [
+  "GENERATED",
+  "VOIDED",
+  "REISSUED",
+  "CANCELLED",
+];
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -19,6 +25,9 @@ const validateCreateDistributionTransaction = (req, res, next) => {
       is_offline_encoded,
       sync_status,
       remarks,
+      qr_reference_value,
+      receipt_status,
+      relief_pack_template_id,
       items,
     } = req.body;
 
@@ -79,6 +88,36 @@ const validateCreateDistributionTransaction = (req, res, next) => {
       });
     }
 
+    if (
+      qr_reference_value !== undefined &&
+      qr_reference_value !== null &&
+      typeof qr_reference_value !== "string"
+    ) {
+      return res.status(400).json({
+        message: "qr_reference_value must be a string or null",
+      });
+    }
+
+    if (
+      receipt_status !== undefined &&
+      !allowedReceiptStatuses.includes(receipt_status)
+    ) {
+      return res.status(400).json({
+        message:
+          "receipt_status must be one of: GENERATED, VOIDED, REISSUED, CANCELLED",
+      });
+    }
+
+    if (
+      relief_pack_template_id !== undefined &&
+      relief_pack_template_id !== null &&
+      !isValidUuid(relief_pack_template_id)
+    ) {
+      return res.status(400).json({
+        message: "relief_pack_template_id must be a valid UUID or null",
+      });
+    }
+
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({
         message: "items must be a non-empty array",
@@ -115,6 +154,12 @@ const validateCreateDistributionTransaction = (req, res, next) => {
       is_offline_encoded: is_offline_encoded ?? false,
       sync_status: sync_status ?? "SYNCED",
       remarks: remarks ?? null,
+      qr_reference_value:
+        typeof qr_reference_value === "string" && qr_reference_value.trim()
+          ? qr_reference_value.trim()
+          : null,
+      receipt_status: receipt_status ?? "GENERATED",
+      relief_pack_template_id: relief_pack_template_id ?? null,
       items: items.map((item) => ({
         inventory_batch_id: item.inventory_batch_id,
         inventory_item_id: item.inventory_item_id,

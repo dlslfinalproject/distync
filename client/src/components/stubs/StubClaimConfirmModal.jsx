@@ -1,6 +1,7 @@
 import React from "react";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
+import QrCodePanel from "./QrCodePanel";
 
 const modalStyles = {
   overlay: {
@@ -164,6 +165,13 @@ const StubClaimConfirmModal = ({
                 Notes: {stubDetails.household.photo_verification_notes}
               </p>
             ) : null}
+
+            <div style={{ marginTop: "16px" }}>
+              <QrCodePanel
+                value={stubDetails?.qr_code_value || ""}
+                emptyLabel="No QR available"
+              />
+            </div>
           </div>
         ) : null}
 

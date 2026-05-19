@@ -117,14 +117,15 @@ const validateStubId = (req, res, next) => {
 
 const validateStubVerify = (req, res, next) => {
   try {
-    const { stub_no, serial_no } = req.body;
+    const { stub_no, serial_no, qr_code_value } = req.body;
 
     if (
       (stub_no === undefined || stub_no === null || stub_no === "") &&
-      (serial_no === undefined || serial_no === null || serial_no === "")
+      (serial_no === undefined || serial_no === null || serial_no === "") &&
+      (qr_code_value === undefined || qr_code_value === null || qr_code_value === "")
     ) {
       return res.status(400).json({
-        message: "Either stub_no or serial_no is required",
+        message: "Either stub_no, serial_no, or qr_code_value is required",
       });
     }
 
@@ -132,6 +133,10 @@ const validateStubVerify = (req, res, next) => {
       stub_no: typeof stub_no === "string" && stub_no.trim() ? stub_no.trim() : null,
       serial_no:
         typeof serial_no === "string" && serial_no.trim() ? serial_no.trim() : null,
+      qr_code_value:
+        typeof qr_code_value === "string" && qr_code_value.trim()
+          ? qr_code_value.trim()
+          : null,
     };
 
     return next();

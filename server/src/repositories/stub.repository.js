@@ -64,6 +64,11 @@ const getBarangayStubDashboardRows = async (disasterEventId, barangayId) => {
       s.status,
       s.issued_at,
       s.updated_at,
+      s.qr_code_value,
+      s.qr_generated_at,
+      s.qr_generated_by,
+      s.qr_status,
+      s.qr_notes,
       h.barangay_id,
       h.family_head_first_name,
       h.family_head_middle_name,
@@ -119,6 +124,11 @@ const getStubSearchResults = async (q, disasterEventId = null, barangayId = null
       s.serial_no,
       s.status,
       s.issued_at,
+      s.qr_code_value,
+      s.qr_generated_at,
+      s.qr_generated_by,
+      s.qr_status,
+      s.qr_notes,
       h.family_head_first_name,
       h.family_head_middle_name,
       h.family_head_last_name,
@@ -172,6 +182,11 @@ const getStubById = async (id) => {
       s.issued_at,
       s.claimed_at,
       s.updated_at,
+      s.qr_code_value,
+      s.qr_generated_at,
+      s.qr_generated_by,
+      s.qr_status,
+      s.qr_notes,
       de.event_code,
       de.title AS disaster_event_title,
       de.disaster_type,
@@ -213,6 +228,11 @@ const getScopedStubById = async (id, barangayId) => {
       s.status,
       s.claimed_at,
       s.updated_at,
+      s.qr_code_value,
+      s.qr_generated_at,
+      s.qr_generated_by,
+      s.qr_status,
+      s.qr_notes,
       h.barangay_id,
       h.family_head_first_name,
       h.family_head_middle_name,
@@ -244,6 +264,11 @@ const getStubByStubNoOrSerialNo = async ({ stub_no, serial_no }) => {
       s.issued_at,
       s.claimed_at,
       s.updated_at,
+      s.qr_code_value,
+      s.qr_generated_at,
+      s.qr_generated_by,
+      s.qr_status,
+      s.qr_notes,
       h.family_head_first_name,
       h.family_head_middle_name,
       h.family_head_last_name,
@@ -262,6 +287,45 @@ const getStubByStubNoOrSerialNo = async ({ stub_no, serial_no }) => {
   `;
 
   const result = await pool.query(query, [value]);
+  return result.rows[0] || null;
+};
+
+const getStubByQrCodeValue = async (qrCodeValue) => {
+  const query = `
+    SELECT
+      s.id,
+      s.disaster_event_id,
+      s.household_id,
+      s.stub_no,
+      s.serial_no,
+      s.status,
+      s.issued_by,
+      s.issued_at,
+      s.claimed_at,
+      s.updated_at,
+      s.qr_code_value,
+      s.qr_generated_at,
+      s.qr_generated_by,
+      s.qr_status,
+      s.qr_notes,
+      h.family_head_first_name,
+      h.family_head_middle_name,
+      h.family_head_last_name,
+      h.family_head_suffix,
+      h.household_size,
+      h.contact_number,
+      h.family_head_photo_url,
+      h.photo_captured_at,
+      h.photo_verification_notes,
+      h.barangay_id,
+      b.name AS barangay_name
+    FROM stubs s
+    INNER JOIN households h ON h.id = s.household_id
+    LEFT JOIN barangays b ON b.id = h.barangay_id
+    WHERE s.qr_code_value = $1
+  `;
+
+  const result = await pool.query(query, [qrCodeValue]);
   return result.rows[0] || null;
 };
 
@@ -361,6 +425,7 @@ module.exports = {
   getStubById,
   getScopedStubById,
   getStubByStubNoOrSerialNo,
+  getStubByQrCodeValue,
   getHouseholdSectorsByHouseholdId,
   getHouseholdSectorsByHouseholdIds,
   getMemberSectorsByHouseholdIds,
