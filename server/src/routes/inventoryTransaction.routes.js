@@ -1,5 +1,6 @@
 const express = require("express");
 
+const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
 const inventoryTransactionService = require("../services/inventoryTransaction.service");
 const {
   validateInventoryTransactionId,
@@ -47,11 +48,18 @@ router.get("/:id", validateInventoryTransactionId, async (req, res) => {
   }
 });
 
-router.post("/", validateCreateInventoryTransaction, async (req, res) => {
+router.post(
+  "/",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateCreateInventoryTransaction,
+  async (req, res) => {
   try {
     const inventoryTransaction =
       await inventoryTransactionService.createInventoryTransaction(
-        req.validatedBody,
+        {
+          ...req.validatedBody,
+          performed_by: req.auth.userId,
+        },
       );
 
     return res.status(201).json({
@@ -65,6 +73,7 @@ router.post("/", validateCreateInventoryTransaction, async (req, res) => {
       message: error.message || "Failed to record inventory transaction",
     });
   }
-});
+  },
+);
 
 module.exports = router;

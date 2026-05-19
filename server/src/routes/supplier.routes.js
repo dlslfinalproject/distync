@@ -1,5 +1,6 @@
 const express = require("express");
 
+const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
 const supplierService = require("../services/supplier.service");
 const {
   validateSupplierId,
@@ -9,7 +10,11 @@ const {
 
 const router = express.Router();
 
-router.get("/", validateGetSuppliers, async (req, res) => {
+router.get(
+  "/",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateGetSuppliers,
+  async (req, res) => {
   try {
     const suppliers = await supplierService.getSuppliers(req.validatedQuery);
 
@@ -21,9 +26,14 @@ router.get("/", validateGetSuppliers, async (req, res) => {
       message: error.message || "Failed to fetch suppliers",
     });
   }
-});
+  },
+);
 
-router.get("/:id", validateSupplierId, async (req, res) => {
+router.get(
+  "/:id",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateSupplierId,
+  async (req, res) => {
   try {
     const supplier = await supplierService.getSupplierById(req.params.id);
 
@@ -41,9 +51,14 @@ router.get("/:id", validateSupplierId, async (req, res) => {
       message: error.message || "Failed to fetch supplier",
     });
   }
-});
+  },
+);
 
-router.post("/", validateSupplierPayload, async (req, res) => {
+router.post(
+  "/",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateSupplierPayload,
+  async (req, res) => {
   try {
     const supplier = await supplierService.createSupplier(req.validatedBody);
 
@@ -58,10 +73,12 @@ router.post("/", validateSupplierPayload, async (req, res) => {
       message: error.message || "Failed to create supplier",
     });
   }
-});
+  },
+);
 
 router.put(
   "/:id",
+  requireRoles(ROLE_CODES.MAYOR),
   validateSupplierId,
   validateSupplierPayload,
   async (req, res) => {

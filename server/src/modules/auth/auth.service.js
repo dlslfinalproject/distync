@@ -1,4 +1,6 @@
 const authRepository = require("./auth.repository");
+const { isDevelopmentBypassEnabled } = require("../../config/accessMode");
+const { TOKEN_EXPIRY, createAccessToken } = require("./auth.token");
 
 const AUTHORIZED_ROLE_CODES = new Set(["MSWDO", "BARANGAY", "MAYOR"]);
 const GOOGLE_ISSUERS = new Set([
@@ -74,7 +76,17 @@ const verifyGoogleIdToken = async (idToken) => {
 };
 
 const buildSessionPayload = (user, roleCode) => {
+  const accessToken = createAccessToken({
+    userId: user.id,
+    roleCode,
+    email: user.email,
+    defaultBarangayId: user.default_barangay_id,
+  });
+
   return {
+    access_token: accessToken,
+    token_type: "Bearer",
+    expires_in: TOKEN_EXPIRY,
     user: {
       id: user.id,
       email: user.email,
@@ -150,6 +162,35 @@ const authenticateWithGoogle = async (idToken) => {
   return buildSessionPayload(user, role.code);
 };
 
+const authenticateDevelopmentRole = async (roleCode) => {
+  if (!isDevelopmentBypassEnabled()) {
+    const error = new Error(
+      "Development authentication bypass is disabled on the server.",
+    );
+    error.statusCode = 403;
+    throw error;
+  }
+
+  if (!AUTHORIZED_ROLE_CODES.has(roleCode)) {
+    const error = new Error("Only staff roles are allowed for development login.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const user = await authRepository.getFirstActiveUserByRoleCode(roleCode);
+
+  if (!user) {
+    const error = new Error(
+      `No active seeded user is available for the ${roleCode} role.`,
+    );
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return buildSessionPayload(user, roleCode);
+};
+
 module.exports = {
+  authenticateDevelopmentRole,
   authenticateWithGoogle,
 };

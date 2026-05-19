@@ -32,11 +32,18 @@ const roles = [
 
 const RoleSwitcherPage = () => {
   const navigate = useNavigate();
-  const { selectDevelopmentRole } = useAuth();
+  const { authError, clearAuthError, isAuthLoading, selectDevelopmentRole } =
+    useAuth();
 
-  const handleSelectRole = (role) => {
-    selectDevelopmentRole(role);
-    navigate(getDefaultRouteForRole(role), { replace: true });
+  const handleSelectRole = async (role) => {
+    clearAuthError();
+
+    try {
+      await selectDevelopmentRole(role);
+      navigate(getDefaultRouteForRole(role), { replace: true });
+    } catch (error) {
+      // AuthContext already stores the readable error for the page.
+    }
   };
 
   return (
@@ -75,9 +82,36 @@ const RoleSwitcherPage = () => {
           </h1>
           <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
             This temporary selector is only for development, testing, and demo
-            navigation. Pick one role to load its default pages and sidebar.
+            navigation. Pick one role to load its default pages, sidebar, and
+            backend access token.
           </p>
         </section>
+
+        {authError ? (
+          <section
+            style={{
+              ...shellStyles.card,
+              border: "1px solid #efc7ca",
+              backgroundColor: "#fff6f7",
+            }}
+          >
+            <p
+              style={{
+                margin: 0,
+                color: "#9f4652",
+                fontSize: "12px",
+                fontWeight: 700,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+              }}
+            >
+              Development Access Error
+            </p>
+            <p style={{ ...shellStyles.mutedText, marginTop: "10px", color: "#8f4c55" }}>
+              {authError}
+            </p>
+          </section>
+        ) : null}
 
         <section
           style={{
@@ -91,12 +125,14 @@ const RoleSwitcherPage = () => {
               key={role.code}
               type="button"
               onClick={() => handleSelectRole(role.code)}
+              disabled={isAuthLoading}
               style={{
                 ...shellStyles.card,
                 textAlign: "left",
                 cursor: "pointer",
                 background:
                   "linear-gradient(180deg, #ffffff 0%, #f6faff 100%)",
+                opacity: isAuthLoading ? 0.72 : 1,
               }}
             >
               <p
@@ -123,6 +159,11 @@ const RoleSwitcherPage = () => {
               <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
                 {role.description}
               </p>
+              {isAuthLoading ? (
+                <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
+                  Preparing role access...
+                </p>
+              ) : null}
             </button>
           ))}
         </section>

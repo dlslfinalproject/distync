@@ -1,5 +1,6 @@
 const express = require("express");
 
+const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
 const householdRegistrationService = require("../services/householdRegistration.service");
 const {
   validateCreateHouseholdRegistration,
@@ -10,11 +11,15 @@ const router = express.Router();
 
 router.post(
   "/register",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO),
   validateCreateHouseholdRegistration,
   async (req, res) => {
     try {
       const registrationResult =
-        await householdRegistrationService.registerHousehold(req.validatedBody);
+        await householdRegistrationService.registerHousehold({
+          ...req.validatedBody,
+          registered_by: req.auth.userId,
+        });
 
       return res.status(201).json({
         message: "Household registered successfully",
@@ -32,6 +37,7 @@ router.post(
 
 router.post(
   "/:householdId/depart",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO),
   validateDepartHousehold,
   async (req, res) => {
     try {

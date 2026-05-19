@@ -1,5 +1,6 @@
 const express = require("express");
 
+const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
 const reliefPackTemplateService = require("../services/reliefPackTemplate.service");
 const {
   validateReliefPackTemplateId,
@@ -11,7 +12,11 @@ const {
 
 const router = express.Router();
 
-router.get("/", validateGetReliefPackTemplates, async (req, res) => {
+router.get(
+  "/",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
+  validateGetReliefPackTemplates,
+  async (req, res) => {
   try {
     const templates = await reliefPackTemplateService.getReliefPackTemplates(
       req.validatedQuery,
@@ -25,9 +30,14 @@ router.get("/", validateGetReliefPackTemplates, async (req, res) => {
       message: error.message || "Failed to fetch relief pack templates",
     });
   }
-});
+  },
+);
 
-router.get("/:id", validateReliefPackTemplateId, async (req, res) => {
+router.get(
+  "/:id",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
+  validateReliefPackTemplateId,
+  async (req, res) => {
   try {
     const template = await reliefPackTemplateService.getReliefPackTemplateById(
       req.params.id,
@@ -47,13 +57,21 @@ router.get("/:id", validateReliefPackTemplateId, async (req, res) => {
       message: error.message || "Failed to fetch relief pack template",
     });
   }
-});
+  },
+);
 
-router.post("/", validateCreateReliefPackTemplate, async (req, res) => {
+router.post(
+  "/",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateCreateReliefPackTemplate,
+  async (req, res) => {
   try {
     const template =
       await reliefPackTemplateService.createReliefPackTemplate(
-        req.validatedBody,
+        {
+          ...req.validatedBody,
+          created_by: req.auth.userId,
+        },
       );
 
     return res.status(201).json({
@@ -67,10 +85,12 @@ router.post("/", validateCreateReliefPackTemplate, async (req, res) => {
       message: error.message || "Failed to create relief pack template",
     });
   }
-});
+  },
+);
 
 router.put(
   "/:id",
+  requireRoles(ROLE_CODES.MAYOR),
   validateReliefPackTemplateId,
   validateUpdateReliefPackTemplate,
   async (req, res) => {
@@ -97,6 +117,7 @@ router.put(
 
 router.put(
   "/:id/items",
+  requireRoles(ROLE_CODES.MAYOR),
   validateReliefPackTemplateId,
   validateReplaceReliefPackTemplateItems,
   async (req, res) => {

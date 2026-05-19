@@ -114,6 +114,20 @@ export const authenticateWithGoogleIdToken = async (idToken) => {
   return handleJsonResponse(response, "Google sign-in failed");
 };
 
+export const authenticateWithDevelopmentRole = async (role) => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/auth/development`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      role,
+    }),
+  });
+
+  return handleJsonResponse(response, "Development sign-in failed");
+};
+
 export const clearGooglePromptState = () => {
   if (window.google?.accounts?.id) {
     window.google.accounts.id.disableAutoSelect();

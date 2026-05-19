@@ -1,5 +1,6 @@
 const express = require("express");
 
+const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
 const inventoryBatchService = require("../services/inventoryBatch.service");
 const {
   validateInventoryBatchId,
@@ -47,10 +48,17 @@ router.get("/:id", validateInventoryBatchId, async (req, res) => {
   }
 });
 
-router.post("/", validateCreateInventoryBatch, async (req, res) => {
+router.post(
+  "/",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateCreateInventoryBatch,
+  async (req, res) => {
   try {
     const inventoryBatch = await inventoryBatchService.createInventoryBatch(
-      req.validatedBody,
+      {
+        ...req.validatedBody,
+        created_by: req.auth.userId,
+      },
     );
 
     return res.status(201).json({
@@ -64,6 +72,7 @@ router.post("/", validateCreateInventoryBatch, async (req, res) => {
       message: error.message || "Failed to create inventory batch",
     });
   }
-});
+  },
+);
 
 module.exports = router;

@@ -3,6 +3,9 @@ import ReactDOM from "react-dom/client";
 import "./index.css";
 import { AuthProvider } from "./context/AuthContext";
 import AppRoutes from "./routes/AppRoutes";
+import { installAuthenticatedFetch } from "./utils/apiClient";
+
+installAuthenticatedFetch();
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>

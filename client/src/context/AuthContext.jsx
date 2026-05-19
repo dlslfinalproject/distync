@@ -5,7 +5,7 @@ import React, {
   useMemo,
   useState,
 } from "react";
-import { getAccessMode } from "../utils/accessMode";
+import { ACCESS_MODES, getAccessMode } from "../utils/accessMode";
 import {
   ROLE_CODES,
   clearAllAccessSessions,
@@ -16,6 +16,7 @@ import {
   setCurrentRole,
 } from "../utils/roleSession";
 import {
+  authenticateWithDevelopmentRole,
   authenticateWithGoogleIdToken,
   clearGooglePromptState,
 } from "../features/auth/authService";
@@ -39,16 +40,46 @@ export const AuthProvider = ({ children }) => {
   const [authState, setAuthState] = useState(buildAuthState);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [authError, setAuthError] = useState("");
+  const accessMode = authState.accessMode || getAccessMode();
+
+  if (!accessMode) {
+    throw new Error("VITE_ACCESS_MODE is not defined. Check your .env file.");
+  }
 
   const syncAuthState = useCallback(() => {
     setAuthState(buildAuthState());
   }, []);
 
-  const selectDevelopmentRole = useCallback((role) => {
-    clearAuthenticatedSession();
-    setCurrentRole(role);
+  const selectDevelopmentRole = useCallback(async (role) => {
+    if (role === ROLE_CODES.DONOR) {
+      clearAuthenticatedSession();
+      setCurrentRole(role);
+      setAuthError("");
+      syncAuthState();
+      return {
+        user: {
+          role,
+        },
+      };
+    }
+
+    setIsAuthLoading(true);
     setAuthError("");
-    syncAuthState();
+
+    try {
+      const sessionPayload = await authenticateWithDevelopmentRole(role);
+      clearAllAccessSessions();
+      setCurrentRole(role);
+      setAuthenticatedSession(sessionPayload);
+      syncAuthState();
+      return sessionPayload;
+    } catch (error) {
+      const message = error.message || "Failed to sign in for development";
+      setAuthError(message);
+      throw error;
+    } finally {
+      setIsAuthLoading(false);
+    }
   }, [syncAuthState]);
 
   const continueAsDonor = useCallback(() => {
@@ -65,6 +96,9 @@ export const AuthProvider = ({ children }) => {
     try {
       const sessionPayload = await authenticateWithGoogleIdToken(credential);
       clearAllAccessSessions();
+      if (accessMode === ACCESS_MODES.DEMO) {
+        setCurrentRole(sessionPayload.user.role);
+      }
       setAuthenticatedSession(sessionPayload);
       syncAuthState();
       return sessionPayload;
@@ -75,7 +109,7 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setIsAuthLoading(false);
     }
-  }, [syncAuthState]);
+  }, [accessMode, syncAuthState]);
 
   const clearSession = useCallback(() => {
     clearGooglePromptState();

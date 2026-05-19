@@ -1,5 +1,6 @@
 const express = require("express");
 
+const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
 const inventoryItemService = require("../services/inventoryItem.service");
 const {
   validateExportInventoryItems,
@@ -10,7 +11,11 @@ const {
 
 const router = express.Router();
 
-router.get("/", validateGetInventoryItems, async (req, res) => {
+router.get(
+  "/",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
+  validateGetInventoryItems,
+  async (req, res) => {
   try {
     const inventoryItems = await inventoryItemService.getInventoryItems(
       req.validatedQuery,
@@ -24,9 +29,14 @@ router.get("/", validateGetInventoryItems, async (req, res) => {
       message: error.message || "Failed to fetch inventory items",
     });
   }
-});
+  },
+);
 
-router.get("/export", validateExportInventoryItems, async (req, res) => {
+router.get(
+  "/export",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateExportInventoryItems,
+  async (req, res) => {
   try {
     const file = await inventoryItemService.exportInventoryItems(
       req.validatedQuery,
@@ -46,9 +56,14 @@ router.get("/export", validateExportInventoryItems, async (req, res) => {
       message: error.message || "Failed to export inventory items",
     });
   }
-});
+  },
+);
 
-router.get("/:id", validateInventoryItemId, async (req, res) => {
+router.get(
+  "/:id",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
+  validateInventoryItemId,
+  async (req, res) => {
   try {
     const inventoryItem = await inventoryItemService.getInventoryItemById(
       req.params.id,
@@ -68,9 +83,14 @@ router.get("/:id", validateInventoryItemId, async (req, res) => {
       message: error.message || "Failed to fetch inventory item",
     });
   }
-});
+  },
+);
 
-router.post("/", validateInventoryItemPayload, async (req, res) => {
+router.post(
+  "/",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateInventoryItemPayload,
+  async (req, res) => {
   try {
     const inventoryItem = await inventoryItemService.createInventoryItem(
       req.validatedBody,
@@ -87,10 +107,12 @@ router.post("/", validateInventoryItemPayload, async (req, res) => {
       message: error.message || "Failed to create inventory item",
     });
   }
-});
+  },
+);
 
 router.put(
   "/:id",
+  requireRoles(ROLE_CODES.MAYOR),
   validateInventoryItemId,
   validateInventoryItemPayload,
   async (req, res) => {

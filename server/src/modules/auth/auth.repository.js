@@ -74,7 +74,33 @@ const getRoleByUserId = async (userId) => {
   return result.rows[0] || null;
 };
 
+const getFirstActiveUserByRoleCode = async (roleCode) => {
+  const query = `
+    SELECT
+      u.id,
+      u.google_sub,
+      u.email,
+      u.first_name,
+      u.middle_name,
+      u.last_name,
+      u.default_barangay_id,
+      u.is_active,
+      r.code AS role_code
+    FROM users u
+    INNER JOIN user_roles ur ON ur.user_id = u.id
+    INNER JOIN roles r ON r.id = ur.role_id
+    WHERE r.code = $1
+      AND u.is_active = TRUE
+    ORDER BY ur.assigned_at ASC, u.created_at ASC
+    LIMIT 1
+  `;
+
+  const result = await pool.query(query, [roleCode]);
+  return result.rows[0] || null;
+};
+
 module.exports = {
+  getFirstActiveUserByRoleCode,
   getRoleByUserId,
   getUserByEmail,
   getUserByGoogleSub,

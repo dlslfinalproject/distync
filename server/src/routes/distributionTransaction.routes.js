@@ -1,5 +1,6 @@
 const express = require("express");
 
+const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
 const distributionTransactionService = require("../services/distributionTransaction.service");
 const {
   validateCreateDistributionTransaction,
@@ -7,11 +8,18 @@ const {
 
 const router = express.Router();
 
-router.post("/", validateCreateDistributionTransaction, async (req, res) => {
+router.post(
+  "/",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO),
+  validateCreateDistributionTransaction,
+  async (req, res) => {
   try {
     const distributionTransaction =
       await distributionTransactionService.createDistributionTransaction(
-        req.validatedBody,
+        {
+          ...req.validatedBody,
+          verified_by: req.auth.userId,
+        },
       );
 
     return res.status(201).json({
@@ -25,6 +33,7 @@ router.post("/", validateCreateDistributionTransaction, async (req, res) => {
       message: error.message || "Failed to record distribution",
     });
   }
-});
+  },
+);
 
 module.exports = router;

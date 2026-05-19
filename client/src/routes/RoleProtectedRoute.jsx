@@ -17,7 +17,6 @@ const RoleProtectedRoute = ({ children }) => {
   }
 
   if (
-    resolvedAccessMode === "DEMO" &&
     currentRole !== "DONOR" &&
     !isAuthenticated
   ) {

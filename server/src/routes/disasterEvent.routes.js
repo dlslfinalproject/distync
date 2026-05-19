@@ -1,5 +1,6 @@
 const express = require("express");
 
+const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
 const disasterEventService = require("../services/disasterEvent.service");
 const {
   validateCreateDisasterEvent,
@@ -9,7 +10,7 @@ const {
 
 const router = express.Router();
 
-router.get("/", async (req, res) => {
+router.get("/", requireRoles(ROLE_CODES.MSWDO), async (req, res) => {
   try {
     const disasterEvents = await disasterEventService.getAllDisasterEvents();
 
@@ -36,7 +37,7 @@ router.get("/active", async (req, res) => {
   }
 });
 
-router.get("/ended", async (req, res) => {
+router.get("/ended", requireRoles(ROLE_CODES.MSWDO), async (req, res) => {
   try {
     const closedDisasterEvents =
       await disasterEventService.getClosedDisasterEvents();
@@ -50,7 +51,11 @@ router.get("/ended", async (req, res) => {
   }
 });
 
-router.get("/export", validateExportDisasterEvents, async (req, res) => {
+router.get(
+  "/export",
+  requireRoles(ROLE_CODES.MSWDO),
+  validateExportDisasterEvents,
+  async (req, res) => {
   try {
     const file = await disasterEventService.exportDisasterEvents(
       req.validatedQuery,
@@ -70,9 +75,10 @@ router.get("/export", validateExportDisasterEvents, async (req, res) => {
       message: error.message || "Failed to export disaster events",
     });
   }
-});
+  },
+);
 
-router.get("/:id", async (req, res) => {
+router.get("/:id", requireRoles(ROLE_CODES.MSWDO), async (req, res) => {
   try {
     const disasterEvent = await disasterEventService.getDisasterEventById(
       req.params.id,
@@ -93,10 +99,17 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-router.post("/", validateCreateDisasterEvent, async (req, res) => {
+router.post(
+  "/",
+  requireRoles(ROLE_CODES.MSWDO),
+  validateCreateDisasterEvent,
+  async (req, res) => {
   try {
     const disasterEvent = await disasterEventService.createDisasterEvent(
-      req.validatedBody,
+      {
+        ...req.validatedBody,
+        created_by: req.auth.userId,
+      },
     );
 
     return res.status(201).json({
@@ -110,9 +123,14 @@ router.post("/", validateCreateDisasterEvent, async (req, res) => {
       message: error.message || "Failed to create disaster event",
     });
   }
-});
+  },
+);
 
-router.patch("/:id", validateExtendDisasterEvent, async (req, res) => {
+router.patch(
+  "/:id",
+  requireRoles(ROLE_CODES.MSWDO),
+  validateExtendDisasterEvent,
+  async (req, res) => {
   try {
     const disasterEvent = await disasterEventService.extendDisasterEvent(
       req.params.id,
@@ -130,9 +148,10 @@ router.patch("/:id", validateExtendDisasterEvent, async (req, res) => {
       message: error.message || "Failed to extend disaster event",
     });
   }
-});
+  },
+);
 
-router.patch("/:id/end", async (req, res) => {
+router.patch("/:id/end", requireRoles(ROLE_CODES.MSWDO), async (req, res) => {
   try {
     const disasterEvent = await disasterEventService.endDisasterEvent(
       req.params.id,
