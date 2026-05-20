@@ -4,9 +4,38 @@ const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
 const distributionTransactionService = require("../services/distributionTransaction.service");
 const {
   validateCreateDistributionTransaction,
+  validateClaimDistributionFromQr,
 } = require("../validators/distributionTransaction.validator");
 
 const router = express.Router();
+
+router.post(
+  "/claim-from-qr",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO),
+  validateClaimDistributionFromQr,
+  async (req, res) => {
+  try {
+    const distributionTransaction =
+      await distributionTransactionService.claimDistributionTransactionFromQr(
+        {
+          ...req.validatedBody,
+          verified_by: req.auth.userId,
+        },
+      );
+
+    return res.status(201).json({
+      message: "Stub marked as claimed successfully",
+      data: distributionTransaction,
+    });
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+
+    return res.status(statusCode).json({
+      message: error.message || "Failed to claim stub from QR verification",
+    });
+  }
+  },
+);
 
 router.post(
   "/",

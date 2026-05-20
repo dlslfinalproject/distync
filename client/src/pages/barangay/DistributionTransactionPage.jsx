@@ -7,6 +7,7 @@ import StubSummaryCard from "../../components/distribution/StubSummaryCard";
 import DistributionForm from "../../components/distribution/DistributionForm";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import { fetchStubDetails, verifyStub } from "../../features/stubs/stubService";
+import { extractStubQrValue } from "../../utils/stubQr";
 import {
   fetchInventoryBatches,
   fetchInventoryItems,
@@ -360,7 +361,7 @@ const DistributionTransactionPage = () => {
   };
 
   const resolveStubFromQrLookup = async (lookupValue) => {
-    const normalizedValue = String(lookupValue || "").trim();
+    const normalizedValue = extractStubQrValue(lookupValue);
 
     if (!normalizedValue) {
       setErrorMessage("Enter or scan a QR reference value first.");

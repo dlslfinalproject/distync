@@ -1,5 +1,4 @@
 const pool = require("../config/db");
-const { randomUUID } = require("crypto");
 const householdRegistrationRepository = require("../repositories/householdRegistration.repository");
 const { deriveAgeGroup } = require("../utils/ageGroup");
 const {
@@ -16,7 +15,7 @@ const RESIDENCY_STATUSES = {
 const BARANGAY_ROLE_CODE = "BARANGAY";
 
 const buildStubQrCodeValue = ({ disasterEventId, householdId, stubNo }) => {
-  return `DISTYNC-STUB|${disasterEventId}|${householdId}|${stubNo}|${randomUUID()}`;
+  return `DISTYNC-STUB|${disasterEventId}|${householdId}|${stubNo}`;
 };
 
 const deduplicateIds = (ids) => {

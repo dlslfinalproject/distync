@@ -280,6 +280,155 @@ const createDistributionTransaction = async (requestData) => {
   }
 };
 
+const claimDistributionTransactionFromQr = async (requestData) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const stub = await distributionTransactionRepository.getStubByIdForUpdate(
+      requestData.stub_id,
+      client,
+    );
+
+    if (!stub) {
+      const error = new Error("Stub not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (stub.disaster_event_id !== requestData.disaster_event_id) {
+      const error = new Error("disaster_event_id does not match the stub record");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (stub.household_id !== requestData.household_id) {
+      const error = new Error("household_id does not match the stub record");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (stub.status !== "ISSUED") {
+      const error = new Error("Stub is not claimable");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (
+      requestData.qr_reference_value &&
+      stub.qr_code_value !== requestData.qr_reference_value
+    ) {
+      const error = new Error("qr_reference_value does not match the stub record");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (
+      requestData.qr_reference_value &&
+      stub.qr_status &&
+      stub.qr_status !== ACTIVE_QR_STATUS
+    ) {
+      const error = new Error("The scanned QR reference is not active");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const receiptNo =
+      await distributionTransactionRepository.getDistributionReceiptSequence(
+        client,
+      );
+    const receivedAt = new Date().toISOString();
+    const qrScannedAt = requestData.qr_reference_value
+      ? new Date().toISOString()
+      : null;
+
+    const distributionTransaction =
+      await distributionTransactionRepository.insertDistributionTransaction(
+        {
+          disaster_event_id: requestData.disaster_event_id,
+          household_id: requestData.household_id,
+          stub_id: requestData.stub_id,
+          distribution_status: "CLAIMED",
+          claimed_by_name: requestData.claimed_by_name,
+          verified_by: requestData.verified_by,
+          device_id: null,
+          is_offline_encoded: false,
+          sync_status: "SYNCED",
+          qr_reference_value:
+            requestData.qr_reference_value || stub.qr_code_value || null,
+          qr_scanned_at: qrScannedAt,
+          qr_scanned_by: requestData.qr_reference_value
+            ? requestData.verified_by
+            : null,
+          receipt_no: receiptNo,
+          receipt_status: "GENERATED",
+          received_at: receivedAt,
+          relief_pack_template_id: null,
+          remarks:
+            requestData.remarks ||
+            "Claimed through QR stub verification page",
+        },
+        client,
+      );
+
+    const updatedStub = await distributionTransactionRepository.updateStubAsClaimed(
+      requestData.stub_id,
+      client,
+    );
+
+    await client.query("COMMIT");
+
+    return {
+      distribution_transaction_id: distributionTransaction.id,
+      distribution_date: distributionTransaction.distribution_date,
+      qr_reference_value: distributionTransaction.qr_reference_value,
+      qr_scanned_at: distributionTransaction.qr_scanned_at,
+      qr_scanned_by: distributionTransaction.qr_scanned_by,
+      receipt_no: distributionTransaction.receipt_no,
+      receipt_status: distributionTransaction.receipt_status,
+      received_at: distributionTransaction.received_at,
+      relief_pack_template_id: distributionTransaction.relief_pack_template_id,
+      stub: {
+        id: updatedStub.id,
+        stub_no: updatedStub.stub_no,
+        serial_no: updatedStub.serial_no,
+        status: updatedStub.status,
+        claimed_at: updatedStub.claimed_at,
+        qr_code_value: updatedStub.qr_code_value || null,
+        qr_generated_at: updatedStub.qr_generated_at || null,
+        qr_generated_by: updatedStub.qr_generated_by || null,
+        qr_status: updatedStub.qr_status || null,
+        qr_notes: updatedStub.qr_notes || null,
+      },
+      household: {
+        id: stub.household_id,
+        family_head_name: buildFullName(
+          stub.family_head_first_name,
+          stub.family_head_middle_name,
+          stub.family_head_last_name,
+          stub.family_head_suffix,
+        ),
+      },
+      items_count: 0,
+      items: [],
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+
+    if (error.code === "23505") {
+      const duplicateError = new Error("This stub has already been used for distribution");
+      duplicateError.statusCode = 409;
+      throw duplicateError;
+    }
+
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
 module.exports = {
   createDistributionTransaction,
+  claimDistributionTransactionFromQr,
 };

@@ -11,6 +11,7 @@ import AccessPage from "../pages/AccessPage";
 import BarangayMasterlistPage from "../pages/barangay/BarangayMasterlistPage";
 import DistributionTransactionPage from "../pages/barangay/DistributionTransactionPage";
 import StubDistributionPage from "../pages/barangay/StubDistributionPage";
+import VerifyStubPage from "../pages/VerifyStubPage";
 import InventoryItemsPage from "../pages/inventory/InventoryItemsPage";
 import InventoryDistributionPage from "../pages/inventory/InventoryDistributionPage";
 import InventoryTransactionsPage from "../pages/inventory/InventoryTransactionsPage";
@@ -45,6 +46,7 @@ const AppRoutes = () => {
       <Routes>
         <Route path="/" element={<DefaultAppRedirect />} />
         <Route path="/access" element={<AccessPage />} />
+        <Route path="/verify-stub" element={<VerifyStubPage />} />
         <Route path="/role-switcher" element={<RoleSwitcherPage />} />
         <Route
           path="/barangay"

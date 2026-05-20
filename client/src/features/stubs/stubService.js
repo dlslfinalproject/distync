@@ -97,3 +97,35 @@ export const claimStub = async ({ stubId, userId, overrideBarangayId }) => {
 
   return handleJsonResponse(response, "Failed to mark the stub as claimed");
 };
+
+export const claimStubFromQrVerification = async ({
+  disasterEventId,
+  householdId,
+  stubId,
+  claimedByName,
+  qrCodeValue,
+  remarks,
+}) => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/distribution-transactions/claim-from-qr`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        disaster_event_id: disasterEventId,
+        household_id: householdId,
+        stub_id: stubId,
+        claimed_by_name: claimedByName,
+        qr_reference_value: qrCodeValue || null,
+        remarks: remarks || null,
+      }),
+    },
+  );
+
+  return handleJsonResponse(
+    response,
+    "Failed to mark the stub as claimed from QR verification",
+  );
+};

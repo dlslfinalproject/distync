@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import QRCode from "qrcode";
+import { buildStubQrUrl } from "../../utils/stubQr";
 
 const styles = {
   container: {
@@ -57,7 +58,12 @@ const QrCodePanel = ({ value, emptyLabel = "No QR available" }) => {
       }
 
       try {
-        const imageUrl = await QRCode.toDataURL(value, {
+        const qrCodeValue = String(value || "").trim();
+        const qrPayloadUrl = buildStubQrUrl(qrCodeValue);
+
+        console.log("QR VALUE:", qrCodeValue);
+
+        const imageUrl = await QRCode.toDataURL(qrPayloadUrl, {
           width: 220,
           margin: 1,
           color: {

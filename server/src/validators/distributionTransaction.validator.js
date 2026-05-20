@@ -176,6 +176,79 @@ const validateCreateDistributionTransaction = (req, res, next) => {
   }
 };
 
+const validateClaimDistributionFromQr = (req, res, next) => {
+  try {
+    const {
+      disaster_event_id,
+      household_id,
+      stub_id,
+      claimed_by_name,
+      qr_reference_value,
+      remarks,
+    } = req.body;
+
+    if (!isValidUuid(disaster_event_id)) {
+      return res.status(400).json({
+        message: "disaster_event_id is required and must be a valid UUID",
+      });
+    }
+
+    if (!isValidUuid(household_id)) {
+      return res.status(400).json({
+        message: "household_id is required and must be a valid UUID",
+      });
+    }
+
+    if (!isValidUuid(stub_id)) {
+      return res.status(400).json({
+        message: "stub_id is required and must be a valid UUID",
+      });
+    }
+
+    if (!claimed_by_name || typeof claimed_by_name !== "string" || !claimed_by_name.trim()) {
+      return res.status(400).json({
+        message: "claimed_by_name is required and must be a non-empty string",
+      });
+    }
+
+    if (
+      qr_reference_value !== undefined &&
+      qr_reference_value !== null &&
+      typeof qr_reference_value !== "string"
+    ) {
+      return res.status(400).json({
+        message: "qr_reference_value must be a string or null",
+      });
+    }
+
+    if (remarks !== undefined && remarks !== null && typeof remarks !== "string") {
+      return res.status(400).json({
+        message: "remarks must be a string or null",
+      });
+    }
+
+    req.validatedBody = {
+      disaster_event_id,
+      household_id,
+      stub_id,
+      claimed_by_name: claimed_by_name.trim(),
+      qr_reference_value:
+        typeof qr_reference_value === "string" && qr_reference_value.trim()
+          ? qr_reference_value.trim()
+          : null,
+      remarks: remarks ?? null,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate QR stub claim request",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   validateCreateDistributionTransaction,
+  validateClaimDistributionFromQr,
 };
