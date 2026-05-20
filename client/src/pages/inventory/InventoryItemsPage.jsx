@@ -8,10 +8,13 @@ import StatusCard from "../../components/shared/StatusCard";
 import {
   createInventoryItem,
   exportInventoryItems,
+  fetchLatestInventoryForecast,
   fetchInventoryItems,
+  runInventoryForecast,
 } from "../../features/inventory-items/inventoryItemService";
 import { fetchInventoryBatches } from "../../features/inventory-batches/inventoryBatchService";
 import { fetchInventoryTransactions } from "../../features/inventory-transactions/inventoryTransactionService";
+import { fetchAllDisasterEvents } from "../../features/disaster-events/disasterEventService";
 import {
   FiFileText,
   FiPackage,
@@ -373,7 +376,32 @@ const inventoryExportFormatOptions = [
   { value: "pdf", label: "PDF" },
 ];
 
+const forecastModelOptions = [
+  {
+    value: "MOVING_AVERAGE",
+    label: "Moving Average",
+    description: "Recommended default model for regular stock planning.",
+  },
+  {
+    value: "EXPONENTIAL_SMOOTHING",
+    label: "Exponential Smoothing",
+    description: "Gives more weight to recent distribution activity.",
+  },
+  {
+    value: "TREND_PROJECTION",
+    label: "Trend Projection",
+    description: "Uses historical trend direction to project demand.",
+  },
+];
+
 const NO_EXPORT_DATA_MESSAGE = "No available data to export.";
+
+const getForecastModelLabel = (modelName) => {
+  return (
+    forecastModelOptions.find((option) => option.value === modelName)?.label ||
+    "Moving Average"
+  );
+};
 
 const buildInventoryExportFilters = (selectedReportType) => {
   if (selectedReportType === "LOW_STOCK") {
@@ -760,6 +788,15 @@ const InventoryItemsPage = () => {
   const [inventoryItems, setInventoryItems] = useState([]);
   const [inventoryBatches, setInventoryBatches] = useState([]);
   const [inventoryTransactions, setInventoryTransactions] = useState([]);
+  const [forecastEvents, setForecastEvents] = useState([]);
+  const [selectedForecastEventId, setSelectedForecastEventId] = useState("");
+  const [selectedForecastModel, setSelectedForecastModel] =
+    useState("MOVING_AVERAGE");
+  const [forecastRunData, setForecastRunData] = useState(null);
+  const [isForecastLoading, setIsForecastLoading] = useState(false);
+  const [isRunningForecast, setIsRunningForecast] = useState(false);
+  const [forecastErrorMessage, setForecastErrorMessage] = useState("");
+  const [forecastSuccessMessage, setForecastSuccessMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -802,6 +839,81 @@ const InventoryItemsPage = () => {
   useEffect(() => {
     loadInventoryData(filters);
   }, [filters]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadForecastEvents = async () => {
+      try {
+        const eventRows = await fetchAllDisasterEvents();
+
+        if (!isMounted) {
+          return;
+        }
+
+        const normalizedEvents = Array.isArray(eventRows) ? eventRows : [];
+        setForecastEvents(normalizedEvents);
+
+        if (normalizedEvents.length > 0) {
+          const preferredEvent =
+            normalizedEvents.find((event) => event.status === "ACTIVE") ||
+            normalizedEvents[0];
+          setSelectedForecastEventId(preferredEvent.id);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setForecastErrorMessage(
+            error.message || "Failed to load disaster events for forecasting.",
+          );
+        }
+      }
+    };
+
+    loadForecastEvents();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadLatestForecast = async () => {
+      if (!selectedForecastEventId) {
+        setForecastRunData(null);
+        return;
+      }
+
+      setIsForecastLoading(true);
+      setForecastErrorMessage("");
+
+      try {
+        const response = await fetchLatestInventoryForecast(selectedForecastEventId);
+
+        if (isMounted) {
+          setForecastRunData(response?.data || null);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setForecastRunData(null);
+          setForecastErrorMessage(
+            error.message || "Failed to load the latest forecast.",
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setIsForecastLoading(false);
+        }
+      }
+    };
+
+    loadLatestForecast();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedForecastEventId]);
 
   const inventoryTrackingMap = useMemo(
     () =>
@@ -1050,6 +1162,35 @@ const InventoryItemsPage = () => {
     );
   };
 
+  const handleRunForecast = async () => {
+    if (!selectedForecastEventId) {
+      setForecastErrorMessage("Select a disaster event before running a forecast.");
+      return;
+    }
+
+    setIsRunningForecast(true);
+    setForecastErrorMessage("");
+    setForecastSuccessMessage("");
+
+    try {
+      const response = await runInventoryForecast({
+        disaster_event_id: selectedForecastEventId,
+        model_name: selectedForecastModel,
+      });
+
+      setForecastRunData(response.data || null);
+      setForecastSuccessMessage(
+        `${getForecastModelLabel(selectedForecastModel)} forecast completed successfully.`,
+      );
+    } catch (error) {
+      setForecastErrorMessage(
+        error.message || "Failed to run the selected forecast model.",
+      );
+    } finally {
+      setIsRunningForecast(false);
+    }
+  };
+
   return (
     <div
       style={{ flex: 1, minWidth: 0, maxWidth: "100%", overflowX: "hidden" }}
@@ -1097,20 +1238,28 @@ const InventoryItemsPage = () => {
 
       <section style={shellStyles.card}>
         <div style={styles.tabContainer}>
-          {["overview", "analytics"].map((tab) => (
+          {["overview", "analytics", "forecasting"].map((tab) => (
             <button
               key={tab}
               type="button"
               onClick={() => setActiveTab(tab)}
               style={tabButtonStyles(activeTab === tab)}
             >
-              {tab === "overview" ? "Inventory List" : "Tracking Summary"}
+              {tab === "overview"
+                ? "Inventory List"
+                : tab === "analytics"
+                  ? "Tracking Summary"
+                  : "Forecasting"}
             </button>
           ))}
         </div>
 
         <h3 style={styles.sectionTitle}>
-          {activeTab === "overview" ? "ITEM STOCK TRACKING" : "TRACKING SUMMARY"}
+          {activeTab === "overview"
+            ? "ITEM STOCK TRACKING"
+            : activeTab === "analytics"
+              ? "TRACKING SUMMARY"
+              : "FORECASTING SUMMARY"}
         </h3>
 
         {activeTab === "overview" && (
@@ -1262,7 +1411,7 @@ const InventoryItemsPage = () => {
               </tbody>
             </table>
           </div>
-        ) : (
+        ) : activeTab === "analytics" ? (
           <div
             style={{
               display: "grid",
@@ -1330,6 +1479,230 @@ const InventoryItemsPage = () => {
                 </p>
               </div>
             ))}
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: "18px" }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "16px",
+              }}
+            >
+              <div>
+                <label style={exportModalStyles.label}>Disaster Event</label>
+                <select
+                  value={selectedForecastEventId}
+                  onChange={(event) => setSelectedForecastEventId(event.target.value)}
+                  style={exportModalStyles.select}
+                >
+                  {forecastEvents.length === 0 ? (
+                    <option value="">No disaster events available</option>
+                  ) : (
+                    forecastEvents.map((event) => (
+                      <option key={event.id} value={event.id}>
+                        {event.event_code} - {event.title}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              <div>
+                <label style={exportModalStyles.label}>Forecast Model</label>
+                <select
+                  value={selectedForecastModel}
+                  onChange={(event) => setSelectedForecastModel(event.target.value)}
+                  style={exportModalStyles.select}
+                >
+                  {forecastModelOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <p
+                  style={{
+                    margin: "8px 0 0",
+                    color: "#5d7188",
+                    fontSize: "13px",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {
+                    forecastModelOptions.find(
+                      (option) => option.value === selectedForecastModel,
+                    )?.description
+                  }
+                </p>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "flex-end" }}>
+                <button
+                  type="button"
+                  onClick={handleRunForecast}
+                  disabled={isRunningForecast || !selectedForecastEventId}
+                  style={{
+                    ...pageHeaderStyles.primaryButton,
+                    opacity: isRunningForecast || !selectedForecastEventId ? 0.7 : 1,
+                    width: "100%",
+                  }}
+                >
+                  {isRunningForecast ? "Running Forecast..." : "Run Forecast"}
+                </button>
+              </div>
+            </div>
+
+            <div
+              style={{
+                borderRadius: "16px",
+                border: "1px solid #d6e2ef",
+                backgroundColor: "#f8fbff",
+                padding: "16px 18px",
+              }}
+            >
+              <p
+                style={{
+                  margin: 0,
+                  color: "#17324d",
+                  fontSize: "14px",
+                  fontWeight: 700,
+                }}
+              >
+                Recommended Default Model: Moving Average
+              </p>
+              <p
+                style={{
+                  margin: "8px 0 0",
+                  color: "#5d7188",
+                  fontSize: "13px",
+                  lineHeight: 1.6,
+                }}
+              >
+                Moving Average is selected by default to give the Mayor&apos;s Office a
+                stable baseline forecast using recent distribution demand.
+              </p>
+            </div>
+
+            {forecastSuccessMessage ? (
+              <div
+                style={{
+                  padding: "14px 16px",
+                  borderRadius: "14px",
+                  backgroundColor: "#edf8f1",
+                  color: "#1f6b46",
+                  fontSize: "14px",
+                  fontWeight: 600,
+                }}
+              >
+                {forecastSuccessMessage}
+              </div>
+            ) : null}
+
+            {forecastErrorMessage ? (
+              <div
+                style={{
+                  padding: "14px 16px",
+                  borderRadius: "14px",
+                  backgroundColor: "#fff3f1",
+                  color: "#a14538",
+                  fontSize: "14px",
+                  fontWeight: 600,
+                }}
+              >
+                {forecastErrorMessage}
+              </div>
+            ) : null}
+
+            <div style={{ ...styles.tableWrap, marginTop: 0 }}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    {[
+                      "Item Name",
+                      "Current Stock",
+                      "Selected Model",
+                      "Average Daily Usage",
+                      "Forecasted Usage",
+                      "Projected Depletion Date",
+                      "Recommended Reorder Quantity",
+                      "Risk Level",
+                    ].map((header) => (
+                      <th key={header} style={styles.th}>
+                        {header}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {isForecastLoading ? (
+                    <tr>
+                      <td colSpan="8" style={styles.emptyStateCell}>
+                        Loading latest forecast...
+                      </td>
+                    </tr>
+                  ) : !forecastRunData || forecastRunData.results.length === 0 ? (
+                    <tr>
+                      <td colSpan="8" style={styles.emptyStateCell}>
+                        No saved forecast results are available yet for the selected
+                        disaster event.
+                      </td>
+                    </tr>
+                  ) : (
+                    forecastRunData.results.map((result) => (
+                      <tr key={result.inventory_item_id} style={styles.tr}>
+                        <td style={styles.td}>{result.item_name}</td>
+                        <td style={styles.td}>{result.current_available_stock}</td>
+                        <td style={styles.td}>
+                          {getForecastModelLabel(result.selected_model)}
+                        </td>
+                        <td style={styles.td}>{result.average_daily_usage}</td>
+                        <td style={styles.td}>{result.forecasted_usage}</td>
+                        <td style={styles.td}>
+                          {result.projected_depletion_date
+                            ? new Date(
+                                `${result.projected_depletion_date}T00:00:00`,
+                              ).toLocaleDateString()
+                            : "--"}
+                        </td>
+                        <td style={styles.td}>
+                          {result.recommended_reorder_quantity}
+                        </td>
+                        <td style={styles.td}>
+                          <span
+                            style={{
+                              padding: "4px 10px",
+                              borderRadius: "8px",
+                              fontSize: "12px",
+                              fontWeight: 600,
+                              backgroundColor:
+                                result.risk_level === "CRITICAL"
+                                  ? "#fee2e2"
+                                  : result.risk_level === "HIGH"
+                                    ? "#fef3c7"
+                                    : result.risk_level === "MEDIUM"
+                                      ? "#ede9fe"
+                                      : "#e0f2fe",
+                              color:
+                                result.risk_level === "CRITICAL"
+                                  ? "#b91c1c"
+                                  : result.risk_level === "HIGH"
+                                    ? "#92400e"
+                                    : result.risk_level === "MEDIUM"
+                                      ? "#6d28d9"
+                                      : "#075985",
+                            }}
+                          >
+                            {result.risk_level}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </section>

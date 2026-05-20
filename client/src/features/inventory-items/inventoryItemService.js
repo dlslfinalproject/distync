@@ -141,3 +141,26 @@ export const updateInventoryItem = async (inventoryItemId, payload) => {
 
   return handleJsonResponse(response, "Failed to update inventory item");
 };
+
+export const runInventoryForecast = async (payload) => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/inventory-items/forecast/run`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return handleJsonResponse(response, "Failed to run inventory forecast");
+};
+
+export const fetchLatestInventoryForecast = async (disasterEventId) => {
+  const searchParams = new URLSearchParams({
+    disaster_event_id: disasterEventId,
+  });
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/inventory-items/forecast/latest?${searchParams.toString()}`,
+  );
+
+  return handleJsonResponse(response, "Failed to fetch latest inventory forecast");
+};

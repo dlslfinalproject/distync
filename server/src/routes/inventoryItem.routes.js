@@ -1,15 +1,62 @@
 const express = require("express");
 
 const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
+const forecastService = require("../services/forecast.service");
 const inventoryItemService = require("../services/inventoryItem.service");
 const {
   validateExportInventoryItems,
+  validateForecastLatestQuery,
+  validateForecastRunPayload,
   validateInventoryItemId,
   validateGetInventoryItems,
   validateInventoryItemPayload,
 } = require("../validators/inventoryItem.validator");
 
 const router = express.Router();
+
+router.get(
+  "/forecast/latest",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateForecastLatestQuery,
+  async (req, res) => {
+    try {
+      const latestForecast = await forecastService.getLatestInventoryForecast(
+        req.validatedQuery.disaster_event_id,
+      );
+
+      return res.status(200).json({
+        data: latestForecast,
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        message: error.message || "Failed to fetch latest inventory forecast",
+      });
+    }
+  },
+);
+
+router.post(
+  "/forecast/run",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateForecastRunPayload,
+  async (req, res) => {
+    try {
+      const forecastPayload = await forecastService.runInventoryForecast({
+        ...req.validatedBody,
+        run_by: req.auth.userId,
+      });
+
+      return res.status(201).json({
+        message: "Inventory forecast completed successfully",
+        data: forecastPayload,
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        message: error.message || "Failed to run inventory forecast",
+      });
+    }
+  },
+);
 
 router.get(
   "/",

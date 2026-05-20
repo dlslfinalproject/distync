@@ -15,6 +15,11 @@ const allowedConditionReportTypes = [
   "EXPIRED",
   "INCIDENT_LOSS",
 ];
+const allowedForecastModels = [
+  "MOVING_AVERAGE",
+  "EXPONENTIAL_SMOOTHING",
+  "TREND_PROJECTION",
+];
 
 const isValidUuid = (value) => {
   return typeof value === "string" && uuidPattern.test(value);
@@ -397,9 +402,66 @@ const validateInventoryItemPayload = (req, res, next) => {
   }
 };
 
+const validateForecastRunPayload = (req, res, next) => {
+  try {
+    const { disaster_event_id, model_name, model_type } = req.body;
+    const resolvedModelName = model_name || model_type || "MOVING_AVERAGE";
+
+    if (!isValidUuid(disaster_event_id)) {
+      return res.status(400).json({
+        message: "disaster_event_id must be a valid UUID",
+      });
+    }
+
+    if (!allowedForecastModels.includes(resolvedModelName)) {
+      return res.status(400).json({
+        message:
+          "model_name must be one of: MOVING_AVERAGE, EXPONENTIAL_SMOOTHING, TREND_PROJECTION",
+      });
+    }
+
+    req.validatedBody = {
+      disaster_event_id,
+      model_name: resolvedModelName,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate forecast run payload",
+      error: error.message,
+    });
+  }
+};
+
+const validateForecastLatestQuery = (req, res, next) => {
+  try {
+    const { disaster_event_id } = req.query;
+
+    if (!isValidUuid(disaster_event_id)) {
+      return res.status(400).json({
+        message: "disaster_event_id must be a valid UUID",
+      });
+    }
+
+    req.validatedQuery = {
+      disaster_event_id,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate forecast query",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   validateInventoryItemId,
   validateExportInventoryItems,
   validateGetInventoryItems,
   validateInventoryItemPayload,
+  validateForecastRunPayload,
+  validateForecastLatestQuery,
 };
