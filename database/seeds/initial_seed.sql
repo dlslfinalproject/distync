@@ -392,3 +392,25 @@ INSERT INTO evacuation_centers (barangay_id, name, individual_capacity)
 SELECT b.id, 'San Andres Evacuation Center', 80
 FROM barangays b WHERE b.code = 'SAN_ANDRES'
 ON CONFLICT (barangay_id, name) DO NOTHING;
+
+-- =========================================================
+-- 7) NOTIFICATION RULES
+-- =========================================================
+
+INSERT INTO notification_rules (code, name, trigger_type, target_role_code, is_active)
+VALUES
+  ('LOW_STOCK', 'Low Stock Alert', 'INVENTORY_STOCK_THRESHOLD', 'MAYOR', TRUE),
+  ('CRITICAL_STOCK', 'Critical Stock Alert', 'INVENTORY_STOCK_THRESHOLD', 'MAYOR', TRUE),
+  ('NEAR_EXPIRY_STOCK', 'Near Expiry Stock Alert', 'INVENTORY_EXPIRY', 'MAYOR', TRUE),
+  ('EXPIRED_STOCK', 'Expired Stock Alert', 'INVENTORY_EXPIRY', 'MAYOR', TRUE),
+  ('INVENTORY_INCIDENT', 'Inventory Incident Alert', 'INVENTORY_INCIDENT', 'MAYOR', TRUE),
+  ('DONATION_STOCK_UPDATE', 'Donation Stock Update', 'DONATION_UPDATE', 'MAYOR', TRUE),
+  ('DONATION_STOCK_ANOMALY', 'Donation Stock Anomaly', 'DONATION_ANOMALY', 'MAYOR', TRUE),
+  ('DISASTER_EVENT_UPDATE', 'Disaster Event Update', 'DISASTER_EVENT', 'MSWDO', TRUE),
+  ('SYNC_CONFLICT', 'Sync Conflict Alert', 'SYNC_CONFLICT', 'BARANGAY', TRUE),
+  ('SYSTEM_ANOMALY', 'System Anomaly Alert', 'SYSTEM_ANOMALY', 'BARANGAY', TRUE)
+ON CONFLICT (code) DO UPDATE SET
+  name = EXCLUDED.name,
+  trigger_type = EXCLUDED.trigger_type,
+  target_role_code = EXCLUDED.target_role_code,
+  is_active = EXCLUDED.is_active;

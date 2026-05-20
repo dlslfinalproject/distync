@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const distributionTransactionRepository = require("../repositories/distributionTransaction.repository");
+const notificationService = require("../modules/notifications/notification.service");
 
 const buildFullName = (firstName, middleName, lastName, suffix) => {
   return [firstName, middleName, lastName, suffix].filter(Boolean).join(" ");
@@ -176,6 +177,7 @@ const createDistributionTransaction = async (requestData) => {
       );
 
     const releasedItems = [];
+    const batchAlertPayloads = [];
 
     for (const item of requestData.items) {
       const insertedItem =
@@ -222,6 +224,17 @@ const createDistributionTransaction = async (requestData) => {
         quantity_available: updatedBatch.quantity_available,
         status: updatedBatch.status,
       });
+      batchAlertPayloads.push({
+        batch: {
+          id: batchDetails.id,
+          batch_no: batchDetails.batch_no,
+          quantity_available: updatedBatch.quantity_available,
+          status: updatedBatch.status,
+          item_name: batchDetails.item_name,
+        },
+        previousQuantityAvailable: batchDetails.quantity_available,
+        previousStatus: batchDetails.status,
+      });
     }
 
     const updatedStub = await distributionTransactionRepository.updateStubAsClaimed(
@@ -230,6 +243,27 @@ const createDistributionTransaction = async (requestData) => {
     );
 
     await client.query("COMMIT");
+
+    await notificationService.emitSafely(async () => {
+      for (const batchAlertPayload of batchAlertPayloads) {
+        await notificationService.emitBatchAlerts({
+          ...batchAlertPayload,
+          disasterEventId: requestData.disaster_event_id,
+        });
+      }
+
+      await notificationService.emitDistributionUpdate({
+        disasterEventId: requestData.disaster_event_id,
+        stubNo: updatedStub.stub_no,
+        familyHeadName: buildFullName(
+          stub.family_head_first_name,
+          stub.family_head_middle_name,
+          stub.family_head_last_name,
+          stub.family_head_suffix,
+        ),
+        distributionTransactionId: distributionTransaction.id,
+      });
+    });
 
     return {
       distribution_transaction_id: distributionTransaction.id,
@@ -378,6 +412,20 @@ const claimDistributionTransactionFromQr = async (requestData) => {
     );
 
     await client.query("COMMIT");
+
+    await notificationService.emitSafely(() =>
+      notificationService.emitDistributionUpdate({
+        disasterEventId: requestData.disaster_event_id,
+        stubNo: updatedStub.stub_no,
+        familyHeadName: buildFullName(
+          stub.family_head_first_name,
+          stub.family_head_middle_name,
+          stub.family_head_last_name,
+          stub.family_head_suffix,
+        ),
+        distributionTransactionId: distributionTransaction.id,
+      }),
+    );
 
     return {
       distribution_transaction_id: distributionTransaction.id,

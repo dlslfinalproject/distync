@@ -11,7 +11,7 @@ const handleJsonResponse = async (response, fallbackMessage) => {
   return responseData;
 };
 
-export const fetchMayorNotifications = async ({
+export const fetchNotifications = async ({
   status = "ALL",
   limit = 40,
 } = {}) => {
@@ -30,12 +30,12 @@ export const fetchMayorNotifications = async ({
   return handleJsonResponse(response, "Failed to fetch notifications");
 };
 
-export const fetchMayorUnreadNotificationCount = async () => {
+export const fetchUnreadNotificationCount = async () => {
   const response = await fetch(`${API_BASE_URL}/api/v1/notifications/unread-count`);
   return handleJsonResponse(response, "Failed to fetch unread notification count");
 };
 
-export const markMayorNotificationAsRead = async (notificationId) => {
+export const markNotificationAsRead = async (notificationId) => {
   const response = await fetch(
     `${API_BASE_URL}/api/v1/notifications/${notificationId}/read`,
     {
@@ -46,10 +46,15 @@ export const markMayorNotificationAsRead = async (notificationId) => {
   return handleJsonResponse(response, "Failed to mark notification as read");
 };
 
-export const markAllMayorNotificationsAsRead = async () => {
+export const markAllNotificationsAsRead = async () => {
   const response = await fetch(`${API_BASE_URL}/api/v1/notifications/read-all`, {
     method: "POST",
   });
 
   return handleJsonResponse(response, "Failed to mark all notifications as read");
 };
+
+export const fetchMayorNotifications = fetchNotifications;
+export const fetchMayorUnreadNotificationCount = fetchUnreadNotificationCount;
+export const markMayorNotificationAsRead = markNotificationAsRead;
+export const markAllMayorNotificationsAsRead = markAllNotificationsAsRead;

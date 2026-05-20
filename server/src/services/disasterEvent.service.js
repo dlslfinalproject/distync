@@ -1,6 +1,7 @@
 const pool = require("../config/db");
 const disasterEventRepository = require("../repositories/disasterEvent.repository");
 const disasterEventExport = require("../utils/disasterEventExport");
+const notificationService = require("../modules/notifications/notification.service");
 
 const allowedStatuses = ["PLANNED", "ACTIVE", "CLOSED", "ARCHIVED"];
 const nonResidentBarangayCode = "NON_RESIDENT_OUTSIDE_MALVAR";
@@ -131,7 +132,17 @@ const createDisasterEvent = async (disasterEventData) => {
 
     await client.query("COMMIT");
 
-    return getDisasterEventById(createdDisasterEvent.id);
+    const disasterEvent = await getDisasterEventById(createdDisasterEvent.id);
+
+    await notificationService.emitSafely(() =>
+      notificationService.emitDisasterEventUpdate({
+        disasterEvent,
+        action: "created",
+        affectedBarangays: disasterEvent.affected_barangays,
+      }),
+    );
+
+    return disasterEvent;
   } catch (error) {
     await client.query("ROLLBACK");
 
@@ -187,7 +198,17 @@ const extendDisasterEvent = async (id, endDate) => {
     end_date: endDate,
   });
 
-  return getDisasterEventById(id);
+  const updatedDisasterEvent = await getDisasterEventById(id);
+
+  await notificationService.emitSafely(() =>
+    notificationService.emitDisasterEventUpdate({
+      disasterEvent: updatedDisasterEvent,
+      action: "extended",
+      affectedBarangays: updatedDisasterEvent.affected_barangays,
+    }),
+  );
+
+  return updatedDisasterEvent;
 };
 
 const endDisasterEvent = async (id) => {
@@ -223,7 +244,17 @@ const endDisasterEvent = async (id) => {
     status: "CLOSED",
   });
 
-  return getDisasterEventById(id);
+  const updatedDisasterEvent = await getDisasterEventById(id);
+
+  await notificationService.emitSafely(() =>
+    notificationService.emitDisasterEventUpdate({
+      disasterEvent: updatedDisasterEvent,
+      action: "ended",
+      affectedBarangays: updatedDisasterEvent.affected_barangays,
+    }),
+  );
+
+  return updatedDisasterEvent;
 };
 
 const isValidAffectedBarangay = (barangay) => {

@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const householdRegistrationRepository = require("../repositories/householdRegistration.repository");
+const notificationService = require("../modules/notifications/notification.service");
 const { deriveAgeGroup } = require("../utils/ageGroup");
 const {
   HOUSEHOLD_CONDITION_CODES,
@@ -507,7 +508,25 @@ const registerHousehold = async (requestData) => {
 
     await client.query("COMMIT");
 
-    return buildRegistrationResponse(createdHousehold.id);
+    const registrationResponse = await buildRegistrationResponse(createdHousehold.id);
+    const familyHeadName = [
+      registrationResponse.household?.family_head_first_name,
+      registrationResponse.household?.family_head_last_name,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    await notificationService.emitSafely(() =>
+      notificationService.emitHouseholdRegistrationUpdate({
+        householdId: createdHousehold.id,
+        barangayId: requestDataWithDerivedAgeGroups.barangay_id,
+        familyHeadName,
+        action: "registered",
+        requiresVerification: !registrationResponse.household?.family_head_photo_url,
+      }),
+    );
+
+    return registrationResponse;
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;

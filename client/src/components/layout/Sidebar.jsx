@@ -1,11 +1,15 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { FiBell, FiMenu } from "react-icons/fi";
 import { useAuth } from "../../context/AuthContext";
 import { getAccessMode, getEntryRouteForMode } from "../../utils/accessMode";
 import { ROLE_CODES } from "../../utils/roleSession";
 import distyncLogo from "../../assets/distync-logo.png";
-import { fetchMayorUnreadNotificationCount } from "../../features/notifications/notificationService";
+import {
+  fetchNotifications,
+  fetchUnreadNotificationCount,
+} from "../../features/notifications/notificationService";
+import { getNotificationDeepLink } from "../../features/notifications/notificationRouting";
 
 const getSidebarStyles = (isCollapsed) => ({
   wrapper: {
@@ -22,8 +26,8 @@ const getSidebarStyles = (isCollapsed) => ({
     position: "sticky",
     top: 0,
     alignSelf: "flex-start",
-    overflowX: "hidden",
-    overflowY: "hidden",
+    overflow: "visible",
+    zIndex: 20,
     transition:
       "padding 260ms cubic-bezier(0.22, 1, 0.36, 1), gap 260ms cubic-bezier(0.22, 1, 0.36, 1)",
   },
@@ -57,6 +61,7 @@ const getSidebarStyles = (isCollapsed) => ({
     gap: "10px",
     marginLeft: "auto",
     flexShrink: 0,
+    position: "relative",
   },
   notificationButton: {
     position: "relative",
@@ -88,6 +93,21 @@ const getSidebarStyles = (isCollapsed) => ({
     alignItems: "center",
     justifyContent: "center",
     boxShadow: "0 6px 14px rgba(209, 67, 67, 0.25)",
+  },
+  notificationDropdown: {
+    position: "absolute",
+    top: "52px",
+    right: 0,
+    width: "min(360px, calc(100vw - 32px))",
+    maxWidth: "calc(100vw - 32px)",
+    maxHeight: "min(70vh, 520px)",
+    borderRadius: "16px",
+    backgroundColor: "#ffffff",
+    border: "1px solid #d6e2ef",
+    boxShadow: "0 18px 32px rgba(39, 70, 104, 0.14)",
+    padding: "14px",
+    zIndex: 40,
+    overflowY: "auto",
   },
   brand: {
     margin: 0,
@@ -212,37 +232,71 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
   const resolvedAccessMode = accessMode || getAccessMode();
   const entryRoute = getEntryRouteForMode(resolvedAccessMode);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  const [recentNotifications, setRecentNotifications] = useState([]);
+  const [isNotificationDropdownOpen, setIsNotificationDropdownOpen] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(280);
+  const notificationMenuRef = useRef(null);
+  const sidebarRef = useRef(null);
 
   if (currentRole === ROLE_CODES.DONOR) return null;
 
   const sidebarStyles = getSidebarStyles(isCollapsed);
 
+  const notificationRouteByRole = useMemo(
+    () => ({
+      [ROLE_CODES.MAYOR]: "/inventory/notifications",
+      [ROLE_CODES.MSWDO]: "/mswdo/notifications",
+      [ROLE_CODES.BARANGAY]: "/barangay/notifications",
+    }),
+    [],
+  );
+  const notificationRoute =
+    notificationRouteByRole[currentRole] || "/inventory/notifications";
+  const canShowNotificationPreview = !isCollapsed && sidebarWidth >= 260;
+  const notificationDropdownWidth = Math.max(
+    220,
+    Math.min(320, sidebarWidth - 32),
+  );
+
   useEffect(() => {
-    if (currentRole !== ROLE_CODES.MAYOR) {
+    if (
+      currentRole !== ROLE_CODES.MAYOR &&
+      currentRole !== ROLE_CODES.MSWDO &&
+      currentRole !== ROLE_CODES.BARANGAY
+    ) {
       setUnreadNotificationCount(0);
+      setRecentNotifications([]);
       return undefined;
     }
 
     let isMounted = true;
 
-    const loadUnreadCount = async () => {
+    const loadNotificationState = async () => {
       try {
-        const response = await fetchMayorUnreadNotificationCount();
+        const [countResponse, recentResponse] = await Promise.all([
+          fetchUnreadNotificationCount(),
+          fetchNotifications({
+            status: "UNREAD",
+            limit: 5,
+          }),
+        ]);
 
         if (isMounted) {
-          setUnreadNotificationCount(Number(response?.unread_count || 0));
+          setUnreadNotificationCount(Number(countResponse?.unread_count || 0));
+          setRecentNotifications(Array.isArray(recentResponse) ? recentResponse : []);
         }
       } catch (_error) {
         if (isMounted) {
           setUnreadNotificationCount(0);
+          setRecentNotifications([]);
         }
       }
     };
 
-    loadUnreadCount();
+    loadNotificationState();
 
-    const intervalId = window.setInterval(loadUnreadCount, 30000);
-    const handleNotificationRefresh = () => loadUnreadCount();
+    const intervalId = window.setInterval(loadNotificationState, 30000);
+    const handleNotificationRefresh = () => loadNotificationState();
 
     window.addEventListener(
       "distync-notifications-updated",
@@ -258,6 +312,57 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
       );
     };
   }, [currentRole, location.pathname]);
+
+  useEffect(() => {
+    const sidebarElement = sidebarRef.current;
+
+    if (!sidebarElement || typeof window === "undefined") {
+      return undefined;
+    }
+
+    const updateSidebarWidth = () => {
+      setSidebarWidth(sidebarElement.getBoundingClientRect().width || 280);
+    };
+
+    updateSidebarWidth();
+
+    if (typeof window.ResizeObserver === "function") {
+      const resizeObserver = new window.ResizeObserver(() => {
+        updateSidebarWidth();
+      });
+
+      resizeObserver.observe(sidebarElement);
+
+      return () => resizeObserver.disconnect();
+    }
+
+    window.addEventListener("resize", updateSidebarWidth);
+    return () => window.removeEventListener("resize", updateSidebarWidth);
+  }, [isCollapsed]);
+
+  useEffect(() => {
+    if (canShowNotificationPreview) {
+      return undefined;
+    }
+
+    setIsNotificationDropdownOpen(false);
+    return undefined;
+  }, [canShowNotificationPreview]);
+
+  useEffect(() => {
+    if (!isNotificationDropdownOpen) {
+      return undefined;
+    }
+
+    const handleOutsideClick = (event) => {
+      if (!notificationMenuRef.current?.contains(event.target)) {
+        setIsNotificationDropdownOpen(false);
+      }
+    };
+
+    window.addEventListener("mousedown", handleOutsideClick);
+    return () => window.removeEventListener("mousedown", handleOutsideClick);
+  }, [isNotificationDropdownOpen]);
 
   const getCompactLabel = (label) => {
     return label
@@ -304,6 +409,7 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
 
   return (
     <aside
+      ref={sidebarRef}
       className="distync-sidebar"
       data-collapsed={isCollapsed ? "true" : "false"}
       style={sidebarStyles.wrapper}
@@ -325,13 +431,20 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
           </div>
         </div>
 
-        {currentRole === ROLE_CODES.MAYOR ? (
-          <div style={sidebarStyles.topBarActions}>
+        {currentRole !== ROLE_CODES.DONOR ? (
+          <div style={sidebarStyles.topBarActions} ref={notificationMenuRef}>
             <button
               type="button"
-              onClick={() => navigate("/inventory/notifications")}
+              onClick={() => {
+                if (!canShowNotificationPreview) {
+                  navigate(notificationRoute);
+                  return;
+                }
+
+                setIsNotificationDropdownOpen((currentValue) => !currentValue);
+              }}
               style={sidebarStyles.notificationButton}
-              title="Mayor notifications"
+              title="Notifications"
             >
               <FiBell size={18} />
               {unreadNotificationCount > 0 ? (
@@ -340,6 +453,150 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
                 </span>
               ) : null}
             </button>
+
+            {isNotificationDropdownOpen && canShowNotificationPreview ? (
+              <div
+                style={{
+                  ...sidebarStyles.notificationDropdown,
+                  width: `${notificationDropdownWidth}px`,
+                  maxWidth: `${notificationDropdownWidth}px`,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "12px",
+                    marginBottom: "12px",
+                  }}
+                >
+                  <div>
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.08em",
+                        color: "#6a8096",
+                      }}
+                    >
+                      Notifications
+                    </p>
+                    <p
+                      style={{
+                        margin: "4px 0 0",
+                        fontSize: "14px",
+                        fontWeight: 700,
+                        color: "#224565",
+                      }}
+                    >
+                      Unread: {unreadNotificationCount}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsNotificationDropdownOpen(false);
+                      navigate(notificationRoute);
+                    }}
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      color: "#1f4f7d",
+                      fontSize: "13px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                      flexShrink: 0,
+                    }}
+                  >
+                    View all
+                  </button>
+                </div>
+
+                {recentNotifications.length === 0 ? (
+                  <p
+                    style={{
+                      margin: 0,
+                      color: "#6b8298",
+                      fontSize: "13px",
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    No unread notifications right now.
+                  </p>
+                ) : (
+                  <div style={{ display: "grid", gap: "10px" }}>
+                    {recentNotifications.map((notification) => {
+                      const deepLink = getNotificationDeepLink(
+                        notification,
+                        currentRole,
+                      );
+
+                      return (
+                        <button
+                          key={notification.id}
+                          type="button"
+                          onClick={() => {
+                            setIsNotificationDropdownOpen(false);
+                            navigate(deepLink?.to || notificationRoute);
+                          }}
+                          style={{
+                            border: "1px solid #dce7f3",
+                            borderRadius: "12px",
+                            backgroundColor: "#f8fbff",
+                            padding: "12px",
+                            textAlign: "left",
+                            cursor: "pointer",
+                            width: "100%",
+                            display: "grid",
+                            gap: "6px",
+                            boxSizing: "border-box",
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontSize: "12px",
+                              fontWeight: 800,
+                              color: "#1f4f7d",
+                              lineHeight: 1.4,
+                              overflowWrap: "anywhere",
+                            }}
+                          >
+                            {notification.title}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: "12px",
+                              color: "#5d7489",
+                              lineHeight: 1.45,
+                              overflowWrap: "anywhere",
+                            }}
+                          >
+                            {notification.message}
+                          </div>
+                          {deepLink?.label ? (
+                            <div
+                              style={{
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                color: "#365472",
+                                overflowWrap: "anywhere",
+                              }}
+                            >
+                              {deepLink.label}
+                            </div>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>

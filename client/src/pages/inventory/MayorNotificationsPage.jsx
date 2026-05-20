@@ -1,11 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
+import { useAuth } from "../../context/AuthContext";
 import {
-  fetchMayorNotifications,
-  markAllMayorNotificationsAsRead,
-  markMayorNotificationAsRead,
+  fetchNotifications,
+  markAllNotificationsAsRead,
+  markNotificationAsRead,
 } from "../../features/notifications/notificationService";
+import { getNotificationDeepLink } from "../../features/notifications/notificationRouting";
+import { ROLE_CODES } from "../../utils/roleSession";
 
 const severityStyles = {
   INFO: {
@@ -41,7 +45,29 @@ const formatDateTime = (value) => {
   return new Date(value).toLocaleString();
 };
 
+const pageStyles = {
+  wrapper: {
+    width: "100%",
+    maxWidth: "1080px",
+    margin: "0 auto",
+    display: "grid",
+    gap: "20px",
+    padding: "0 0 28px",
+  },
+  summaryCard: {
+    ...shellStyles.card,
+    marginTop: "24px",
+    padding: "22px",
+  },
+  listCard: {
+    ...shellStyles.card,
+    padding: "22px",
+  },
+};
+
 const MayorNotificationsPage = () => {
+  const navigate = useNavigate();
+  const { currentRole } = useAuth();
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [notifications, setNotifications] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -49,6 +75,25 @@ const MayorNotificationsPage = () => {
   const [activeNotificationId, setActiveNotificationId] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+
+  const roleMeta = {
+    [ROLE_CODES.MAYOR]: {
+      eyebrow: "Mayor Workspace",
+      description: "Review inventory, donation, and anomaly alerts that need Mayor attention.",
+    },
+    [ROLE_CODES.MSWDO]: {
+      eyebrow: "MSWDO Workspace",
+      description: "Review disaster updates and distribution-related alerts for operations monitoring.",
+    },
+    [ROLE_CODES.BARANGAY]: {
+      eyebrow: "Barangay Workspace",
+      description: "Review disaster updates and sync-related alerts for your field operations.",
+    },
+  };
+  const activeRoleMeta = roleMeta[currentRole] || {
+    eyebrow: "Workspace",
+    description: "Review the latest system notifications.",
+  };
 
   const unreadCount = useMemo(
     () => notifications.filter((notification) => !notification.read_at).length,
@@ -60,7 +105,7 @@ const MayorNotificationsPage = () => {
     setErrorMessage("");
 
     try {
-      const response = await fetchMayorNotifications({
+      const response = await fetchNotifications({
         status: activeStatus,
         limit: 50,
       });
@@ -83,7 +128,7 @@ const MayorNotificationsPage = () => {
     setSuccessMessage("");
 
     try {
-      await markMayorNotificationAsRead(notificationId);
+      await markNotificationAsRead(notificationId);
       setNotifications((currentNotifications) =>
         currentNotifications.map((notification) =>
           notification.id === notificationId
@@ -109,7 +154,7 @@ const MayorNotificationsPage = () => {
     setSuccessMessage("");
 
     try {
-      await markAllMayorNotificationsAsRead();
+      await markAllNotificationsAsRead();
       setNotifications((currentNotifications) =>
         currentNotifications.map((notification) => ({
           ...notification,
@@ -126,11 +171,11 @@ const MayorNotificationsPage = () => {
   };
 
   return (
-    <>
+    <div style={pageStyles.wrapper}>
       <PageHeader
-        eyebrow="Mayor Workspace"
+        eyebrow={activeRoleMeta.eyebrow}
         title="NOTIFICATIONS"
-        description="Review inventory and donation alerts that need Mayor attention."
+        description={activeRoleMeta.description}
         actions={[
           {
             label: "Refresh",
@@ -144,7 +189,7 @@ const MayorNotificationsPage = () => {
         ]}
       />
 
-      <section style={{ ...shellStyles.card, marginTop: "24px" }}>
+      <section style={pageStyles.summaryCard}>
         <div
           style={{
             display: "flex",
@@ -218,7 +263,7 @@ const MayorNotificationsPage = () => {
         ) : null}
       </section>
 
-      <section style={{ ...shellStyles.card, marginTop: "20px" }}>
+      <section style={pageStyles.listCard}>
         {isLoading ? (
           <p style={shellStyles.mutedText}>Loading notifications...</p>
         ) : notifications.length === 0 ? (
@@ -230,6 +275,8 @@ const MayorNotificationsPage = () => {
             {notifications.map((notification) => {
               const palette =
                 severityStyles[notification.severity] || severityStyles.INFO;
+              const deepLink = getNotificationDeepLink(notification, currentRole);
+              const canOpenRelatedPage = Boolean(deepLink?.to);
 
               return (
                 <article
@@ -284,6 +331,20 @@ const MayorNotificationsPage = () => {
                         >
                           {notification.read_at ? "Read" : "Unread"}
                         </span>
+                        {notification.type ? (
+                          <span
+                            style={{
+                              borderRadius: "999px",
+                              padding: "6px 10px",
+                              fontSize: "11px",
+                              fontWeight: 700,
+                              backgroundColor: "#eef5fc",
+                              color: "#365472",
+                            }}
+                          >
+                            {notification.type}
+                          </span>
+                        ) : null}
                       </div>
 
                       <h3
@@ -323,25 +384,51 @@ const MayorNotificationsPage = () => {
                             ? `${notification.event_code || ""} ${notification.disaster_event_title}`.trim()
                             : "General inventory alert"}
                         </div>
+                        {deepLink?.note ? (
+                          <div>{deepLink.note}</div>
+                        ) : null}
                       </div>
                     </div>
 
-                    {!notification.read_at ? (
-                      <button
-                        type="button"
-                        onClick={() => handleMarkAsRead(notification.id)}
-                        disabled={activeNotificationId === notification.id}
-                        style={{
-                          ...pageHeaderStyles.secondaryButton,
-                          minWidth: "160px",
-                          opacity: activeNotificationId === notification.id ? 0.7 : 1,
-                        }}
-                      >
-                        {activeNotificationId === notification.id
-                          ? "Updating..."
-                          : "Mark as Read"}
-                      </button>
-                    ) : null}
+                    <div
+                      style={{
+                        display: "grid",
+                        gap: "10px",
+                        width: "100%",
+                        maxWidth: "200px",
+                      }}
+                    >
+                      {canOpenRelatedPage ? (
+                        <button
+                          type="button"
+                          onClick={() => navigate(deepLink.to)}
+                          style={{
+                            ...pageHeaderStyles.secondaryButton,
+                            textAlign: "center",
+                          }}
+                        >
+                          {deepLink.label}
+                        </button>
+                      ) : null}
+
+                      {!notification.read_at ? (
+                        <button
+                          type="button"
+                          onClick={() => handleMarkAsRead(notification.id)}
+                          disabled={activeNotificationId === notification.id}
+                          style={{
+                            ...pageHeaderStyles.secondaryButton,
+                            minWidth: "160px",
+                            opacity:
+                              activeNotificationId === notification.id ? 0.7 : 1,
+                          }}
+                        >
+                          {activeNotificationId === notification.id
+                            ? "Updating..."
+                            : "Mark as Read"}
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                 </article>
               );
@@ -349,7 +436,7 @@ const MayorNotificationsPage = () => {
           </div>
         )}
       </section>
-    </>
+    </div>
   );
 };
 

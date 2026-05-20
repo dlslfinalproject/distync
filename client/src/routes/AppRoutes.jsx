@@ -69,6 +69,7 @@ const AppRoutes = () => {
             path="stub-distribution"
             element={<StubDistributionPage />}
           />
+          <Route path="notifications" element={<MayorNotificationsPage />} />
         </Route>
         <Route
           path="/mswdo"
@@ -96,6 +97,7 @@ const AppRoutes = () => {
           />
           <Route path="donations" element={<DonationManagementPage />} />
           <Route path="disaster-events" element={<DisasterEventsPage />} />
+          <Route path="notifications" element={<MayorNotificationsPage />} />
         </Route>
         <Route
           path="/mswdo/print/stubs"

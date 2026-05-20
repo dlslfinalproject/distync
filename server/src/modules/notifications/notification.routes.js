@@ -7,7 +7,7 @@ const router = express.Router();
 
 router.get(
   "/",
-  requireRoles(ROLE_CODES.MAYOR),
+  requireRoles(ROLE_CODES.MAYOR, ROLE_CODES.MSWDO, ROLE_CODES.BARANGAY),
   async (req, res) => {
     try {
       const status =
@@ -17,7 +17,7 @@ router.get(
         ? Math.min(Math.max(parsedLimit, 1), 100)
         : 30;
 
-      const notifications = await notificationService.getNotificationsForMayor(
+      const notifications = await notificationService.getNotificationsForUser(
         req.auth.userId,
         {
           status,
@@ -36,10 +36,10 @@ router.get(
 
 router.get(
   "/unread-count",
-  requireRoles(ROLE_CODES.MAYOR),
+  requireRoles(ROLE_CODES.MAYOR, ROLE_CODES.MSWDO, ROLE_CODES.BARANGAY),
   async (req, res) => {
     try {
-      const unread_count = await notificationService.getUnreadCountForMayor(
+      const unread_count = await notificationService.getUnreadCountForUser(
         req.auth.userId,
       );
 
@@ -54,7 +54,7 @@ router.get(
 
 router.post(
   "/:id/read",
-  requireRoles(ROLE_CODES.MAYOR),
+  requireRoles(ROLE_CODES.MAYOR, ROLE_CODES.MSWDO, ROLE_CODES.BARANGAY),
   async (req, res) => {
     try {
       const updatedRecipient = await notificationService.markNotificationAsRead(
@@ -76,7 +76,7 @@ router.post(
 
 router.post(
   "/read-all",
-  requireRoles(ROLE_CODES.MAYOR),
+  requireRoles(ROLE_CODES.MAYOR, ROLE_CODES.MSWDO, ROLE_CODES.BARANGAY),
   async (req, res) => {
     try {
       const result = await notificationService.markAllNotificationsAsRead(

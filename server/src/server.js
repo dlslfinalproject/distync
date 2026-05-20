@@ -3,10 +3,12 @@ require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 
 let app;
 let pool;
+let notificationService;
 
 try {
   pool = require("./config/db");
   app = require("./app");
+  notificationService = require("./modules/notifications/notification.service");
 } catch (error) {
   console.error("Failed to initialize server configuration:", error.message);
   process.exit(1);
@@ -17,6 +19,13 @@ const PORT = process.env.PORT || 5000;
 const startServer = async () => {
   try {
     await pool.verifyConnection();
+    try {
+      await notificationService.initializeNotificationInfrastructure();
+    } catch (notificationError) {
+      console.error(
+        `Notification infrastructure failed to initialize: ${notificationError.message}`,
+      );
+    }
 
     app.listen(PORT, () => {
       console.log(`DISTYNC server running on port ${PORT}`);
