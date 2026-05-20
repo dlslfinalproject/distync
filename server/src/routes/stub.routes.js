@@ -24,10 +24,12 @@ router.get(
               ...req.validatedQuery,
               user_id: req.auth.userId,
               override_barangay_id: null,
+              qr_generated_by: req.auth.userId,
             }
           : {
               ...req.validatedQuery,
               user_id: null,
+              qr_generated_by: req.auth.userId,
             };
 
       const dashboard = await stubService.getBarangayStubDashboard(

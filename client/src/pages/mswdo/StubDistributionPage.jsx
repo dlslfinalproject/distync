@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FaHandHolding } from "react-icons/fa6";
-import { FiFileText, FiFilter } from "react-icons/fi";
+import { FiFileText, FiFilter, FiPrinter } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import SearchBar from "../../components/shared/SearchBar";
@@ -249,6 +249,33 @@ const downloadCsvFile = (rows, eventCode, barangayName) => {
   anchor.click();
   document.body.removeChild(anchor);
   window.URL.revokeObjectURL(downloadUrl);
+};
+
+const buildStubPrintRoute = ({
+  stubIds = [],
+  eventId = "",
+  barangayId = "",
+  status = "",
+}) => {
+  const searchParams = new URLSearchParams();
+
+  if (stubIds.length > 0) {
+    searchParams.set("stubIds", stubIds.join(","));
+  }
+
+  if (eventId) {
+    searchParams.set("eventId", eventId);
+  }
+
+  if (barangayId) {
+    searchParams.set("barangayId", barangayId);
+  }
+
+  if (status) {
+    searchParams.set("status", status);
+  }
+
+  return `/mswdo/print/stubs?${searchParams.toString()}`;
 };
 
 const StubDistributionPage = () => {
@@ -663,6 +690,49 @@ const StubDistributionPage = () => {
     }
   };
 
+  const openStubPrintPage = (printUrl) => {
+    const printWindow = window.open(printUrl, "_blank", "noopener,noreferrer");
+
+    if (!printWindow) {
+      window.alert("Allow pop-ups to open the printable stub page.");
+    }
+  };
+
+  const handlePrintSingleStub = (row) => {
+    if (!row?.id) {
+      window.alert("No printable stub data is available for the selected record.");
+      return;
+    }
+
+    openStubPrintPage(
+      buildStubPrintRoute({
+        stubIds: [row.id],
+      }),
+    );
+  };
+
+  const handlePrintIssuedStubs = () => {
+    const issuedRows = displayedRows.filter((row) => row.status === "ISSUED");
+
+    if (!issuedRows.length) {
+      window.alert("No issued stubs are available to print.");
+      return;
+    }
+
+    if (!selectedDisasterEventId || !selectedBarangayId) {
+      window.alert("Select an active disaster event and barangay before printing.");
+      return;
+    }
+
+    openStubPrintPage(
+      buildStubPrintRoute({
+        eventId: selectedDisasterEventId,
+        barangayId: selectedBarangayId,
+        status: "ISSUED",
+      }),
+    );
+  };
+
   return (
     <>
       <PageHeader title="RELIEF GOODS DISTRIBUTION" actions={[]} />
@@ -953,6 +1023,33 @@ const StubDistributionPage = () => {
             <FiFileText size={16} />
             {isExporting ? "Exporting..." : "Export"}
           </button>
+
+          {activeTab === "active" ? (
+            <button
+              type="button"
+              onClick={handlePrintIssuedStubs}
+              disabled={
+                !hasSelectedEvent ||
+                !hasSelectedBarangay ||
+                !displayedRows.some((row) => row.status === "ISSUED")
+              }
+              style={{
+                ...pageHeaderStyles.secondaryButton,
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                opacity:
+                  !hasSelectedEvent ||
+                  !hasSelectedBarangay ||
+                  !displayedRows.some((row) => row.status === "ISSUED")
+                    ? 0.7
+                    : 1,
+              }}
+            >
+              <FiPrinter size={16} />
+              Print Issued Stubs
+            </button>
+          ) : null}
         </div>
       </section>
 
@@ -1005,6 +1102,7 @@ const StubDistributionPage = () => {
         claimingStubId={claimingStubId}
         claimErrorMessage={claimErrorMessage}
         onClaimStub={handleOpenClaimConfirmation}
+        onPrintStub={handlePrintSingleStub}
         isClaimReadOnly={isEndedView}
         selectedStubIds={selectedStubIds}
         onToggleSelect={handleToggleSelect}

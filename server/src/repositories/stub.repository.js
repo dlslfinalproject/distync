@@ -400,6 +400,48 @@ const getHouseholdMembersCount = async (householdId) => {
   return result.rows[0]?.members_count || 0;
 };
 
+const updateStubQrMetadata = async (stubId, qrMetadata, dbClient = pool) => {
+  const query = `
+    UPDATE stubs
+    SET
+      qr_code_value = $2,
+      qr_generated_at = COALESCE($3, NOW()),
+      qr_generated_by = $4,
+      qr_status = $5,
+      qr_notes = $6,
+      updated_at = NOW()
+    WHERE id = $1
+    RETURNING
+      id,
+      disaster_event_id,
+      household_id,
+      stub_no,
+      serial_no,
+      status,
+      issued_by,
+      issued_at,
+      claimed_at,
+      updated_at,
+      qr_code_value,
+      qr_generated_at,
+      qr_generated_by,
+      qr_status,
+      qr_notes
+  `;
+
+  const values = [
+    stubId,
+    qrMetadata.qr_code_value,
+    qrMetadata.qr_generated_at || null,
+    qrMetadata.qr_generated_by || null,
+    qrMetadata.qr_status,
+    qrMetadata.qr_notes ?? null,
+  ];
+
+  const result = await dbClient.query(query, values);
+  return result.rows[0] || null;
+};
+
 const markStubAsClaimed = async (stubId) => {
   const query = `
     UPDATE stubs
@@ -430,5 +472,6 @@ module.exports = {
   getHouseholdSectorsByHouseholdIds,
   getMemberSectorsByHouseholdIds,
   getHouseholdMembersCount,
+  updateStubQrMetadata,
   markStubAsClaimed,
 };

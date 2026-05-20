@@ -19,6 +19,7 @@ import DonationInformationPage from "../pages/donor/DonationInformationPage";
 import AnalyticsDashboardPage from "../pages/mswdo/AnalyticsDashboardPage";
 import ConsolidatedMasterlistPage from "../pages/mswdo/ConsolidatedMasterlistPage";
 import DisasterEventsPage from "../pages/mswdo/DisasterEventsPage";
+import PrintStubsPage from "../pages/mswdo/PrintStubsPage";
 import StubDistributionPageMswdo from "../pages/mswdo/StubDistributionPage";
 import RoleSwitcherPage from "../pages/RoleSwitcherPage";
 import { useAuth } from "../context/AuthContext";
@@ -89,6 +90,14 @@ const AppRoutes = () => {
           />
           <Route path="disaster-events" element={<DisasterEventsPage />} />
         </Route>
+        <Route
+          path="/mswdo/print/stubs"
+          element={
+            <RoleProtectedRoute>
+              <PrintStubsPage />
+            </RoleProtectedRoute>
+          }
+        />
         <Route
           path="/inventory"
           element={

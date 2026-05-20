@@ -2,6 +2,7 @@ const masterlistRepository = require("../repositories/masterlist.repository");
 const stubRepository = require("../repositories/stub.repository");
 
 const isOverrideAllowed = process.env.NODE_ENV !== "production";
+const ACTIVE_QR_STATUS = "ACTIVE";
 
 const buildFullName = (firstName, middleName, lastName, suffix) => {
   return [firstName, middleName, lastName, suffix].filter(Boolean).join(" ");
@@ -32,6 +33,35 @@ const groupByKey = (items, keyName) => {
     groups[key].push(item);
     return groups;
   }, {});
+};
+
+const buildStableStubQrCodeValue = (stub) => {
+  return [
+    "DISTYNC-STUB",
+    stub.disaster_event_id,
+    stub.household_id,
+    stub.id,
+    stub.stub_no,
+  ].join("|");
+};
+
+const ensureStubQrMetadata = async (stub, qrGeneratedBy) => {
+  if (stub.qr_code_value) {
+    return stub;
+  }
+
+  const updatedStub = await stubRepository.updateStubQrMetadata(stub.id, {
+    qr_code_value: buildStableStubQrCodeValue(stub),
+    qr_generated_at: new Date().toISOString(),
+    qr_generated_by: qrGeneratedBy || null,
+    qr_status: ACTIVE_QR_STATUS,
+    qr_notes: stub.qr_notes || null,
+  });
+
+  return {
+    ...stub,
+    ...updatedStub,
+  };
 };
 
 const formatSearchResult = (stub) => {
@@ -175,7 +205,10 @@ const getBarangayStubDashboard = async (filters) => {
     filters.disaster_event_id,
     effectiveBarangay.id,
   );
-  const householdIds = rows.map((row) => row.household_id);
+  const rowsWithQr = await Promise.all(
+    rows.map((row) => ensureStubQrMetadata(row, filters.qr_generated_by)),
+  );
+  const householdIds = rowsWithQr.map((row) => row.household_id);
   const householdSectors =
     await stubRepository.getHouseholdSectorsByHouseholdIds(householdIds);
   const memberSectors =
@@ -203,13 +236,18 @@ const getBarangayStubDashboard = async (filters) => {
     disaster_event: scopedDisasterEvent,
     metrics,
     count: rows.length,
-    data: rows.map((row) => ({
+    data: rowsWithQr.map((row) => ({
       id: row.id,
       stub_no: row.stub_no,
       serial_no: row.serial_no,
       stub_sequence_no: row.stub_sequence_no,
       status: row.status,
       issued_at: row.issued_at,
+      qr_code_value: row.qr_code_value || null,
+      qr_generated_at: row.qr_generated_at || null,
+      qr_generated_by: row.qr_generated_by || null,
+      qr_status: row.qr_status || null,
+      qr_notes: row.qr_notes || null,
       household: {
         id: row.household_id,
         family_head_name: buildFullName(
@@ -273,57 +311,59 @@ const getStubDetails = async (id) => {
     return null;
   }
 
+  const ensuredStub = await ensureStubQrMetadata(stub, null);
+
   const householdSectors = await stubRepository.getHouseholdSectorsByHouseholdId(
-    stub.household_id,
+    ensuredStub.household_id,
   );
   const membersCount = await stubRepository.getHouseholdMembersCount(
-    stub.household_id,
+    ensuredStub.household_id,
   );
 
   return {
-    id: stub.id,
-    stub_no: stub.stub_no,
-    serial_no: stub.serial_no,
-    status: stub.status,
-    issued_by: stub.issued_by,
-    issued_at: stub.issued_at,
-    claimed_at: stub.claimed_at,
-    updated_at: stub.updated_at,
-    qr_code_value: stub.qr_code_value || null,
-    qr_generated_at: stub.qr_generated_at || null,
-    qr_generated_by: stub.qr_generated_by || null,
-    qr_status: stub.qr_status || null,
-    qr_notes: stub.qr_notes || null,
+    id: ensuredStub.id,
+    stub_no: ensuredStub.stub_no,
+    serial_no: ensuredStub.serial_no,
+    status: ensuredStub.status,
+    issued_by: ensuredStub.issued_by,
+    issued_at: ensuredStub.issued_at,
+    claimed_at: ensuredStub.claimed_at,
+    updated_at: ensuredStub.updated_at,
+    qr_code_value: ensuredStub.qr_code_value || null,
+    qr_generated_at: ensuredStub.qr_generated_at || null,
+    qr_generated_by: ensuredStub.qr_generated_by || null,
+    qr_status: ensuredStub.qr_status || null,
+    qr_notes: ensuredStub.qr_notes || null,
     disaster_event: {
-      id: stub.disaster_event_id,
-      event_code: stub.event_code,
-      title: stub.disaster_event_title,
-      disaster_type: stub.disaster_type,
+      id: ensuredStub.disaster_event_id,
+      event_code: ensuredStub.event_code,
+      title: ensuredStub.disaster_event_title,
+      disaster_type: ensuredStub.disaster_type,
     },
     household: {
-      id: stub.household_id,
+      id: ensuredStub.household_id,
       family_head_name: buildFullName(
-        stub.family_head_first_name,
-        stub.family_head_middle_name,
-        stub.family_head_last_name,
-        stub.family_head_suffix,
+        ensuredStub.family_head_first_name,
+        ensuredStub.family_head_middle_name,
+        ensuredStub.family_head_last_name,
+        ensuredStub.family_head_suffix,
       ),
-      household_size: stub.household_size,
-      contact_number: stub.contact_number,
-      current_stay_type: stub.current_stay_type,
-      current_address_details: stub.current_address_details,
-      registered_at: stub.registered_at,
+      household_size: ensuredStub.household_size,
+      contact_number: ensuredStub.contact_number,
+      current_stay_type: ensuredStub.current_stay_type,
+      current_address_details: ensuredStub.current_address_details,
+      registered_at: ensuredStub.registered_at,
       members_count: membersCount,
-      family_head_photo_url: stub.family_head_photo_url || null,
-      photo_captured_at: stub.photo_captured_at || null,
-      photo_captured_by: stub.photo_captured_by || null,
-      photo_verification_notes: stub.photo_verification_notes || null,
+      family_head_photo_url: ensuredStub.family_head_photo_url || null,
+      photo_captured_at: ensuredStub.photo_captured_at || null,
+      photo_captured_by: ensuredStub.photo_captured_by || null,
+      photo_verification_notes: ensuredStub.photo_verification_notes || null,
     },
     barangay: {
-      id: stub.barangay_id,
-      code: stub.barangay_code,
-      name: stub.barangay_id
-        ? stub.barangay_name
+      id: ensuredStub.barangay_id,
+      code: ensuredStub.barangay_code,
+      name: ensuredStub.barangay_id
+        ? ensuredStub.barangay_name
         : "Non-Resident (Outside Malvar)",
     },
     household_sectors: householdSectors,
@@ -363,7 +403,8 @@ const verifyStub = async (identifier) => {
     throw error;
   }
 
-  const claimability = getClaimabilityResult(stub.status);
+  const ensuredStub = await ensureStubQrMetadata(stub, null);
+  const claimability = getClaimabilityResult(ensuredStub.status);
 
   return {
     message: claimability.message,
@@ -372,32 +413,32 @@ const verifyStub = async (identifier) => {
       is_claimable: claimability.is_claimable,
       reason: claimability.reason,
       stub: {
-        id: stub.id,
-        stub_no: stub.stub_no,
-        serial_no: stub.serial_no,
-        status: stub.status,
-        issued_at: stub.issued_at,
-        qr_code_value: stub.qr_code_value || null,
-        qr_generated_at: stub.qr_generated_at || null,
-        qr_generated_by: stub.qr_generated_by || null,
-        qr_status: stub.qr_status || null,
-        qr_notes: stub.qr_notes || null,
+        id: ensuredStub.id,
+        stub_no: ensuredStub.stub_no,
+        serial_no: ensuredStub.serial_no,
+        status: ensuredStub.status,
+        issued_at: ensuredStub.issued_at,
+        qr_code_value: ensuredStub.qr_code_value || null,
+        qr_generated_at: ensuredStub.qr_generated_at || null,
+        qr_generated_by: ensuredStub.qr_generated_by || null,
+        qr_status: ensuredStub.qr_status || null,
+        qr_notes: ensuredStub.qr_notes || null,
       },
       household: {
-        id: stub.household_id,
+        id: ensuredStub.household_id,
         family_head_name: buildFullName(
-          stub.family_head_first_name,
-          stub.family_head_middle_name,
-          stub.family_head_last_name,
-          stub.family_head_suffix,
+          ensuredStub.family_head_first_name,
+          ensuredStub.family_head_middle_name,
+          ensuredStub.family_head_last_name,
+          ensuredStub.family_head_suffix,
         ),
-        household_size: stub.household_size,
-        contact_number: stub.contact_number,
+        household_size: ensuredStub.household_size,
+        contact_number: ensuredStub.contact_number,
         barangay_name:
-          stub.barangay_name || "Non-Resident (Outside Malvar)",
-        family_head_photo_url: stub.family_head_photo_url || null,
-        photo_captured_at: stub.photo_captured_at || null,
-        photo_verification_notes: stub.photo_verification_notes || null,
+          ensuredStub.barangay_name || "Non-Resident (Outside Malvar)",
+        family_head_photo_url: ensuredStub.family_head_photo_url || null,
+        photo_captured_at: ensuredStub.photo_captured_at || null,
+        photo_verification_notes: ensuredStub.photo_verification_notes || null,
       },
     },
   };

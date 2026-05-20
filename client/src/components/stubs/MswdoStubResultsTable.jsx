@@ -1,6 +1,8 @@
 import React from "react";
 import { FaHandHolding } from "react-icons/fa6";
+import { FiPrinter } from "react-icons/fi";
 import { shellStyles } from "../layout/BarangayLayout";
+import QrCodePanel from "./QrCodePanel";
 
 const tableStyles = {
   table: {
@@ -42,6 +44,21 @@ const tableStyles = {
     alignItems: "center",
     justifyContent: "center",
     cursor: "pointer",
+  },
+  printButton: {
+    border: "1px solid #c6d8ea",
+    borderRadius: "12px",
+    minHeight: "36px",
+    padding: "8px 12px",
+    backgroundColor: "#ffffff",
+    color: "#24496e",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    cursor: "pointer",
+    fontSize: "12px",
+    fontWeight: 700,
   },
   stubBadge: {
     display: "inline-block",
@@ -120,6 +137,7 @@ const MswdoStubResultsTable = ({
   claimingStubId,
   claimErrorMessage,
   onClaimStub,
+  onPrintStub,
   isClaimReadOnly = false,
   selectedStubIds,
   onToggleSelect,
@@ -251,6 +269,9 @@ const MswdoStubResultsTable = ({
               <th style={{ ...tableStyles.headerCell, width: "34%" }}>
                 Sectors
               </th>
+              <th style={{ ...tableStyles.headerCell, width: "18%" }}>
+                QR Stub
+              </th>
               <th
                 style={{
                   ...tableStyles.headerCell,
@@ -258,7 +279,7 @@ const MswdoStubResultsTable = ({
                   textAlign: "center",
                 }}
               >
-                Status
+                Actions
               </th>
             </tr>
           </thead>
@@ -292,8 +313,21 @@ const MswdoStubResultsTable = ({
                     }}
                   >
                     <span style={tableStyles.stubBadge}>{row.stub_number}</span>
+                    <div style={{ marginTop: "8px", color: "#69839c", fontSize: "12px" }}>
+                      {row.stub_no}
+                    </div>
                   </td>
                   <td style={tableStyles.bodyCell}>{row.sectors_text}</td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                    }}
+                  >
+                    <QrCodePanel
+                      value={row.qr_code_value}
+                      emptyLabel="QR unavailable"
+                    />
+                  </td>
                   <td
                     style={{
                       ...tableStyles.bodyCell,
@@ -301,25 +335,43 @@ const MswdoStubResultsTable = ({
                       verticalAlign: "middle",
                     }}
                   >
-                    {row.status === "ISSUED" && !isClaimReadOnly ? (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "10px",
+                        alignItems: "center",
+                      }}
+                    >
                       <button
                         type="button"
-                        onClick={() => onClaimStub(row.id)}
-                        disabled={claimingStubId === row.id}
-                        title="Mark as Claimed"
-                        style={{
-                          ...tableStyles.statusButton,
-                          opacity: claimingStubId === row.id ? 0.7 : 1,
-                          cursor: claimingStubId === row.id ? "wait" : "pointer",
-                        }}
+                        onClick={() => onPrintStub(row)}
+                        style={tableStyles.printButton}
                       >
-                        <FaHandHolding size={18} />
+                        <FiPrinter size={14} />
+                        Print
                       </button>
-                    ) : (
-                      <span style={getStatusChipStyles(row.status)}>
-                        {getStatusLabel(row.status)}
-                      </span>
-                    )}
+
+                      {row.status === "ISSUED" && !isClaimReadOnly ? (
+                        <button
+                          type="button"
+                          onClick={() => onClaimStub(row.id)}
+                          disabled={claimingStubId === row.id}
+                          title="Mark as Claimed"
+                          style={{
+                            ...tableStyles.statusButton,
+                            opacity: claimingStubId === row.id ? 0.7 : 1,
+                            cursor: claimingStubId === row.id ? "wait" : "pointer",
+                          }}
+                        >
+                          <FaHandHolding size={18} />
+                        </button>
+                      ) : (
+                        <span style={getStatusChipStyles(row.status)}>
+                          {getStatusLabel(row.status)}
+                        </span>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
