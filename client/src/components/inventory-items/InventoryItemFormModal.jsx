@@ -77,6 +77,7 @@ const normalizeCategoryValue = (category) => {
 
 const createDefaultForm = () => ({
   item_name: "",
+  barcode: "",
   quantity: "",
   unit_of_measure: "",
   unit_of_measure_value: "",
@@ -104,6 +105,7 @@ const InventoryItemFormModal = ({
     if (itemData) {
       setFormValues({
         item_name: itemData.item_name || itemData.name || "",
+        barcode: itemData.barcode || "",
         quantity: itemData.quantity || "",
         unit_of_measure: itemData.unit_of_measure || itemData.unit || "",
         unit_of_measure_value: itemData.unit_of_measure_value || "",
@@ -189,6 +191,20 @@ const InventoryItemFormModal = ({
                   onChange={(e) => handleChange("item_name", e.target.value)}
                   style={inputStyles}
                   required
+                />
+              </div>
+
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label htmlFor="barcode" style={labelStyles}>
+                  Barcode
+                </label>
+                <input
+                  id="barcode"
+                  type="text"
+                  placeholder="Scan or enter barcode"
+                  value={formValues.barcode}
+                  onChange={(e) => handleChange("barcode", e.target.value)}
+                  style={inputStyles}
                 />
               </div>
 

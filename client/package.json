@@ -2,6 +2,7 @@
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
     "@supabase/supabase-js": "^2.100.1",
+    "@zxing/browser": "^0.2.0",
     "axios": "^1.13.6",
     "dexie": "^4.4.1",
     "dexie-react-hooks": "^4.4.0",

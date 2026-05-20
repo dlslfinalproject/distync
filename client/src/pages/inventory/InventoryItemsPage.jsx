@@ -608,9 +608,9 @@ const InventoryItemsPage = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [modalErrorMessage, setModalErrorMessage] = useState("");
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
+  const [createModalItemData, setCreateModalItemData] = useState(null);
   const [scanForm, setScanForm] = useState({
     barcodeNumber: "",
-    reorderLevel: "",
   });
   const [exportOpen, setExportOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState("");
@@ -767,6 +767,7 @@ const InventoryItemsPage = () => {
 
   const handleOpenCreateModal = () => {
     setModalErrorMessage("");
+    setCreateModalItemData(null);
     setIsModalOpen(true);
   };
 
@@ -778,6 +779,7 @@ const InventoryItemsPage = () => {
       await createInventoryItem(payload);
       await loadInventoryData();
       setIsModalOpen(false);
+      setCreateModalItemData(null);
     } catch (error) {
       setModalErrorMessage(error.message);
     } finally {
@@ -788,7 +790,6 @@ const InventoryItemsPage = () => {
   const handleOpenScanModal = () => {
     setScanForm({
       barcodeNumber: "",
-      reorderLevel: "",
     });
     setIsScanModalOpen(true);
   };
@@ -805,8 +806,18 @@ const InventoryItemsPage = () => {
   };
 
   const handleSubmitScanModal = () => {
-    console.log("Scan item submitted:", scanForm);
+    const trimmedBarcode = scanForm.barcodeNumber.trim();
+
+    if (!trimmedBarcode) {
+      return;
+    }
+
+    setCreateModalItemData({
+      barcode: trimmedBarcode,
+    });
     setIsScanModalOpen(false);
+    setModalErrorMessage("");
+    setIsModalOpen(true);
   };
 
   const handleExport = async (format) => {
@@ -1158,10 +1169,13 @@ const InventoryItemsPage = () => {
        <InventoryItemFormModal
         isOpen={isModalOpen}
         mode="create"
-        itemData={null}
+        itemData={createModalItemData}
         isSubmitting={isSubmitting}
         errorMessage={modalErrorMessage}
-        onClose={() => setIsModalOpen(false)}
+        onClose={() => {
+          setIsModalOpen(false);
+          setCreateModalItemData(null);
+        }}
         onSubmit={handleSubmitModal}
       />
 

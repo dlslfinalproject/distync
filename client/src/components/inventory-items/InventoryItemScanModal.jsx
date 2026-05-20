@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { FiX } from "react-icons/fi";
+import { BarcodeFormat, BrowserMultiFormatReader } from "@zxing/browser";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
 
@@ -86,7 +87,69 @@ const styles = {
     marginTop: "10px",
     flexWrap: "wrap",
   },
+
+  cameraPreview: {
+    width: "100%",
+    minHeight: "260px",
+    borderRadius: "18px",
+    backgroundColor: "#10263d",
+    objectFit: "cover",
+    border: "1px solid #cfe0f0",
+  },
+
+  cameraPlaceholder: {
+    minHeight: "260px",
+    borderRadius: "18px",
+    border: "1px dashed #c6d5e3",
+    backgroundColor: "#f8fbfe",
+    color: "#4f677f",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    textAlign: "center",
+    padding: "24px",
+    lineHeight: 1.6,
+  },
+
+  helperText: {
+    margin: "10px 0 0",
+    color: "#4f677f",
+    fontSize: "13px",
+    lineHeight: 1.6,
+  },
+
+  feedbackText: {
+    margin: "10px 0 0",
+    color: "#17324d",
+    fontSize: "13px",
+    fontWeight: 600,
+  },
+
+  errorText: {
+    margin: "10px 0 0",
+    color: "#b91c1c",
+    fontSize: "13px",
+    fontWeight: 600,
+  },
+
+  cameraActions: {
+    display: "flex",
+    gap: "12px",
+    flexWrap: "wrap",
+    marginTop: "14px",
+  },
 };
+
+const BARCODE_FORMATS = [
+  BarcodeFormat.CODE_128,
+  BarcodeFormat.CODE_39,
+  BarcodeFormat.CODABAR,
+  BarcodeFormat.EAN_13,
+  BarcodeFormat.EAN_8,
+  BarcodeFormat.UPC_A,
+  BarcodeFormat.UPC_E,
+  BarcodeFormat.ITF,
+];
 
 const InventoryItemScanModal = ({
   isOpen,
@@ -95,6 +158,146 @@ const InventoryItemScanModal = ({
   onSubmit,
   onInputChange,
 }) => {
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const scannerReaderRef = useRef(null);
+  const scannerControlsRef = useRef(null);
+  const [cameraError, setCameraError] = useState("");
+  const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [isCameraActive, setIsCameraActive] = useState(false);
+
+  const stopCamera = () => {
+    if (scannerControlsRef.current) {
+      scannerControlsRef.current.stop();
+      scannerControlsRef.current = null;
+    }
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+
+    if (videoRef.current) {
+      if (typeof videoRef.current.pause === "function") {
+        videoRef.current.pause();
+      }
+      videoRef.current.srcObject = null;
+    }
+
+    setIsCameraActive(false);
+  };
+
+  const startCamera = async () => {
+    stopCamera();
+    setCameraError("");
+    setFeedbackMessage("");
+
+    if (
+      typeof navigator === "undefined" ||
+      !navigator.mediaDevices ||
+      !navigator.mediaDevices.getUserMedia
+    ) {
+      setCameraError(
+        "Camera access is not available on this browser. Enter the barcode manually instead.",
+      );
+      return;
+    }
+
+    if (!scannerReaderRef.current) {
+      scannerReaderRef.current = new BrowserMultiFormatReader();
+      scannerReaderRef.current.possibleFormats = BARCODE_FORMATS;
+    }
+
+    try {
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" },
+        },
+        audio: false,
+      });
+
+      streamRef.current = mediaStream;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+        await videoRef.current.play();
+      }
+
+      const scannerControls = await scannerReaderRef.current.decodeFromStream(
+        mediaStream,
+        videoRef.current,
+        (result, error) => {
+          if (result?.getText()) {
+            const detectedValue = result.getText().trim();
+
+            if (!detectedValue) {
+              return;
+            }
+
+            onInputChange("barcodeNumber", detectedValue);
+            setFeedbackMessage(`Barcode detected: ${detectedValue}`);
+            setCameraError("");
+            stopCamera();
+            return;
+          }
+
+          if (
+            error &&
+            error.name !== "NotFoundException" &&
+            error.name !== "ChecksumException" &&
+            error.name !== "FormatException"
+          ) {
+            setCameraError(
+              error.message ||
+                "Unable to scan barcode from the current camera feed.",
+            );
+          }
+        },
+      );
+
+      scannerControlsRef.current = scannerControls;
+      setIsCameraActive(true);
+    } catch (error) {
+      console.error("Inventory barcode scanner getUserMedia failed:", error);
+      const permissionDenied =
+        error?.name === "NotAllowedError" || error?.name === "SecurityError";
+      const noCameraFound =
+        error?.name === "NotFoundError" || error?.name === "DevicesNotFoundError";
+
+      if (permissionDenied) {
+        setCameraError(
+          "Camera permission was denied. Enter the barcode manually instead.",
+        );
+      } else if (noCameraFound) {
+        setCameraError(
+          "No camera was found on this device. Enter the barcode manually instead.",
+        );
+      } else {
+        setCameraError(
+          error?.message ||
+            "Unable to open the camera right now. Enter the barcode manually instead.",
+        );
+      }
+
+      stopCamera();
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen) {
+      stopCamera();
+      setCameraError("");
+      setFeedbackMessage("");
+      return undefined;
+    }
+
+    startCamera();
+
+    return () => {
+      stopCamera();
+    };
+  }, [isOpen]);
+
   if (!isOpen) {
     return null;
   }
@@ -106,9 +309,8 @@ const InventoryItemScanModal = ({
           <div>
             <h3 style={styles.scanModalTitle}>Scan Item</h3>
             <p style={styles.scanModalDescription}>
-              Actual barcode scanner or scanning app support can be used later.
-              For now, enter the barcode number manually to add the item
-              details.
+              Scan a barcode using your device camera, or enter it manually if
+              camera access is unavailable.
             </p>
           </div>
 
@@ -129,7 +331,61 @@ const InventoryItemScanModal = ({
           }}
         >
           <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
-            <h3 style={styles.scanModalSectionTitle}>Scan Details</h3>
+            <h3 style={styles.scanModalSectionTitle}>Camera Scanner</h3>
+
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              style={{
+                ...styles.cameraPreview,
+                display: isCameraActive ? "block" : "none",
+                height: "auto",
+              }}
+            />
+
+            {!isCameraActive && (
+              <div style={styles.cameraPlaceholder}>
+                Open the camera to scan a barcode here. If camera access is not
+                available, you can still type the barcode manually below.
+              </div>
+            )}
+
+            <div style={styles.cameraActions}>
+              <button
+                type="button"
+                onClick={startCamera}
+                style={pageHeaderStyles.secondaryButton}
+              >
+                {isCameraActive ? "Restart Camera" : "Open Camera"}
+              </button>
+
+              {isCameraActive && (
+                <button
+                  type="button"
+                  onClick={stopCamera}
+                  style={pageHeaderStyles.secondaryButton}
+                >
+                  Stop Camera
+                </button>
+              )}
+            </div>
+
+            {feedbackMessage && (
+              <p style={styles.feedbackText}>{feedbackMessage}</p>
+            )}
+
+            {cameraError && <p style={styles.errorText}>{cameraError}</p>}
+
+            <p style={styles.helperText}>
+              Hold the barcode steady inside the camera view. The barcode field
+              will fill automatically after a successful scan.
+            </p>
+          </section>
+
+          <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
+            <h3 style={styles.scanModalSectionTitle}>Barcode Details</h3>
 
             <div
               style={{
@@ -150,19 +406,6 @@ const InventoryItemScanModal = ({
                   placeholder="Enter barcode number"
                 />
               </div>
-
-              <div>
-                <label style={scanModalLabelStyle}>Reorder Level</label>
-                <input
-                  type="text"
-                  value={scanForm.reorderLevel}
-                  onChange={(e) =>
-                    onInputChange("reorderLevel", e.target.value)
-                  }
-                  style={scanModalInputStyle}
-                  placeholder="Set reorder level"
-                />
-              </div>
             </div>
           </section>
 
@@ -179,8 +422,9 @@ const InventoryItemScanModal = ({
               type="button"
               style={pageHeaderStyles.primaryButton}
               onClick={onSubmit}
+              disabled={!scanForm.barcodeNumber.trim()}
             >
-              Add Item
+              Continue to Add Item
             </button>
           </div>
         </div>
