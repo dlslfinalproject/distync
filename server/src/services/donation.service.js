@@ -1,6 +1,7 @@
 const pool = require("../config/db");
 const donationRepository = require("../repositories/donation.repository");
 const mayorReportExport = require("../utils/mayorReportExport");
+const notificationService = require("../modules/notifications/notification.service");
 
 const buildFullName = (firstName, lastName) => {
   return [firstName, lastName].filter(Boolean).join(" ");
@@ -416,6 +417,19 @@ const removeDonationItemWithinTransaction = async ({
   );
 
   await donationRepository.deleteDonationItem(donationItem.id, dbClient);
+
+  return {
+    batchId: batch.id,
+    batchNo: batch.batch_no,
+    previousQuantityAvailable: currentAvailable,
+    previousStatus: batch.status,
+    nextQuantityAvailable: nextAvailable,
+    nextStatus: getBatchStatus(batch.expiration_date, nextAvailable),
+    expirationDate: batch.expiration_date,
+    itemName: inventoryItem.item_name,
+    quantityRemoved: quantityReceived,
+    disasterEventId: donation.disaster_event_id,
+  };
 };
 
 const getDonationNeeds = async (filters = {}) => {
@@ -553,8 +567,37 @@ const createDonation = async (payload, receivedBy) => {
     }
 
     await client.query("COMMIT");
+    const createdDonationRecord = await getDonationById(createdDonation.id);
 
-    return getDonationById(createdDonation.id);
+    await notificationService.emitSafely(async () => {
+      await notificationService.emitDonationSummaryUpdate({
+        donorName: createdDonationRecord.donor_name,
+        itemCount: createdDonationRecord.items.length,
+        disasterEventId: createdDonationRecord.disaster_event_id,
+        referenceId: createdDonationRecord.id,
+      });
+
+      for (const item of createdDonationRecord.items) {
+        await notificationService.emitBatchAlerts({
+          batch: {
+            id: item.inventory_batch?.id,
+            batch_no: item.inventory_batch?.batch_no,
+            quantity_available: item.inventory_batch?.quantity_available,
+            status: item.inventory_batch?.source_type === "DONATED"
+              ? getBatchStatus(
+                  item.inventory_batch?.expiration_date,
+                  item.inventory_batch?.quantity_available,
+                )
+              : null,
+            expiration_date: item.inventory_batch?.expiration_date,
+            item_name: item.inventory_item?.item_name,
+          },
+          disasterEventId: createdDonationRecord.disaster_event_id,
+        });
+      }
+    });
+
+    return createdDonationRecord;
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -626,8 +669,35 @@ const createDonationItem = async (donationId, payload, performedBy) => {
       createdDonationItemId,
       pool,
     );
+    const mappedDonationItem = mapDonationItem(donationItem);
 
-    return mapDonationItem(donationItem);
+    await notificationService.emitSafely(async () => {
+      await notificationService.emitDonationStockUpdate({
+        donorName: donation.donor_name,
+        itemName: mappedDonationItem.inventory_item?.item_name || "Donation item",
+        quantity: mappedDonationItem.quantity_received,
+        disasterEventId: donation.disaster_event_id,
+        referenceId: mappedDonationItem.id,
+        actionLabel: "received",
+      });
+
+      await notificationService.emitBatchAlerts({
+        batch: {
+          id: mappedDonationItem.inventory_batch?.id,
+          batch_no: mappedDonationItem.inventory_batch?.batch_no,
+          quantity_available: mappedDonationItem.inventory_batch?.quantity_available,
+          status: getBatchStatus(
+            mappedDonationItem.inventory_batch?.expiration_date,
+            mappedDonationItem.inventory_batch?.quantity_available,
+          ),
+          expiration_date: mappedDonationItem.inventory_batch?.expiration_date,
+          item_name: mappedDonationItem.inventory_item?.item_name,
+        },
+        disasterEventId: donation.disaster_event_id,
+      });
+    });
+
+    return mappedDonationItem;
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -765,7 +835,41 @@ const updateDonationItem = async (id, payload, performedBy) => {
     await client.query("COMMIT");
 
     const donationItem = await donationRepository.getDonationItemById(id, pool);
-    return mapDonationItem(donationItem);
+    const mappedDonationItem = mapDonationItem(donationItem);
+
+    if (quantityDelta !== 0) {
+      await notificationService.emitSafely(async () => {
+        await notificationService.emitDonationStockUpdate({
+          donorName: donation.donor_name,
+          itemName: mappedDonationItem.inventory_item?.item_name || "Donation item",
+          quantity: Math.abs(quantityDelta),
+          disasterEventId: donation.disaster_event_id,
+          referenceId: mappedDonationItem.id,
+          actionLabel: quantityDelta > 0 ? "adjusted upward" : "adjusted downward",
+          severity: quantityDelta > 0 ? "INFO" : "WARNING",
+          anomaly: quantityDelta < 0,
+        });
+
+        await notificationService.emitBatchAlerts({
+          batch: {
+            id: mappedDonationItem.inventory_batch?.id,
+            batch_no: mappedDonationItem.inventory_batch?.batch_no,
+            quantity_available: mappedDonationItem.inventory_batch?.quantity_available,
+            status: getBatchStatus(
+              mappedDonationItem.inventory_batch?.expiration_date,
+              mappedDonationItem.inventory_batch?.quantity_available,
+            ),
+            expiration_date: mappedDonationItem.inventory_batch?.expiration_date,
+            item_name: mappedDonationItem.inventory_item?.item_name,
+          },
+          previousQuantityAvailable: currentAvailable,
+          previousStatus: batch.status,
+          disasterEventId: donation.disaster_event_id,
+        });
+      });
+    }
+
+    return mappedDonationItem;
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -800,13 +904,40 @@ const deleteDonationItem = async (id, performedBy) => {
       throw error;
     }
 
-    await removeDonationItemWithinTransaction({
+    const removalSummary = await removeDonationItemWithinTransaction({
       donationItem: existingDonationItem,
       donation,
       performedBy,
       dbClient: client,
     });
     await client.query("COMMIT");
+
+    await notificationService.emitSafely(async () => {
+      await notificationService.emitDonationStockUpdate({
+        donorName: donation.donor_name,
+        itemName: removalSummary.itemName,
+        quantity: removalSummary.quantityRemoved,
+        disasterEventId: donation.disaster_event_id,
+        referenceId: id,
+        actionLabel: "removed",
+        severity: "WARNING",
+        anomaly: true,
+      });
+
+      await notificationService.emitBatchAlerts({
+        batch: {
+          id: removalSummary.batchId,
+          batch_no: removalSummary.batchNo,
+          quantity_available: removalSummary.nextQuantityAvailable,
+          status: removalSummary.nextStatus,
+          expiration_date: removalSummary.expirationDate,
+          item_name: removalSummary.itemName,
+        },
+        previousQuantityAvailable: removalSummary.previousQuantityAvailable,
+        previousStatus: removalSummary.previousStatus,
+        disasterEventId: removalSummary.disasterEventId,
+      });
+    });
 
     return { id };
   } catch (error) {
@@ -847,6 +978,19 @@ const deleteDonationRecord = async (id, performedBy) => {
 
     await donationRepository.deleteDonation(id, client);
     await client.query("COMMIT");
+
+    await notificationService.emitSafely(() =>
+      notificationService.emitDonationStockUpdate({
+        donorName: donation.donor_name,
+        itemName: "donation record items",
+        quantity: donationItems.length,
+        disasterEventId: donation.disaster_event_id,
+        referenceId: id,
+        actionLabel: "removed",
+        severity: "WARNING",
+        anomaly: true,
+      }),
+    );
 
     return { id };
   } catch (error) {

@@ -1,6 +1,7 @@
 const pool = require("../config/db");
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
 const mayorReportExport = require("../utils/mayorReportExport");
+const notificationService = require("../modules/notifications/notification.service");
 
 const additiveTransactionTypes = new Set(["INFLOW", "RETURN", "ADJUSTMENT"]);
 const subtractiveTransactionTypes = new Set([
@@ -8,6 +9,8 @@ const subtractiveTransactionTypes = new Set([
   "EXPIRED",
   "MISSING",
   "DAMAGED",
+  "SPOILED",
+  "STOLEN",
 ]);
 
 const buildFullName = (firstName, lastName) => {
@@ -173,6 +176,23 @@ const createInventoryTransaction = async (transactionData) => {
     );
 
     await client.query("COMMIT");
+
+    await notificationService.emitSafely(() =>
+      notificationService.emitInventoryTransactionAlerts({
+        transaction: createdTransaction,
+        batch: {
+          id: inventoryBatch.id,
+          batch_no: inventoryBatch.batch_no,
+          quantity_available: newQuantityAvailable,
+          status: newBatchStatus,
+          expiration_date: inventoryBatch.expiration_date,
+          item_name: inventoryBatch.item_name,
+        },
+        previousQuantityAvailable: inventoryBatch.quantity_available,
+        previousStatus: inventoryBatch.status,
+        disasterEventId: transactionData.disaster_event_id,
+      }),
+    );
 
     return {
       transaction_id: createdTransaction.id,

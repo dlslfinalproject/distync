@@ -1,10 +1,11 @@
-import React from "react";
-import { NavLink, useNavigate } from "react-router-dom";
-import { FiMenu } from "react-icons/fi";
+import React, { useEffect, useState } from "react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { FiBell, FiMenu } from "react-icons/fi";
 import { useAuth } from "../../context/AuthContext";
 import { getAccessMode, getEntryRouteForMode } from "../../utils/accessMode";
 import { ROLE_CODES } from "../../utils/roleSession";
 import distyncLogo from "../../assets/distync-logo.png";
+import { fetchMayorUnreadNotificationCount } from "../../features/notifications/notificationService";
 
 const getSidebarStyles = (isCollapsed) => ({
   wrapper: {
@@ -49,6 +50,44 @@ const getSidebarStyles = (isCollapsed) => ({
     justifyContent: "center",
     cursor: "pointer",
     flexShrink: 0,
+  },
+  topBarActions: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    marginLeft: "auto",
+    flexShrink: 0,
+  },
+  notificationButton: {
+    position: "relative",
+    border: "1px solid #c7d7e8",
+    borderRadius: "12px",
+    backgroundColor: "#ffffff",
+    color: "#24496e",
+    width: "40px",
+    height: "40px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    flexShrink: 0,
+  },
+  notificationBadge: {
+    position: "absolute",
+    top: "-4px",
+    right: "-4px",
+    minWidth: "18px",
+    height: "18px",
+    padding: "0 4px",
+    borderRadius: "999px",
+    backgroundColor: "#d14343",
+    color: "#ffffff",
+    fontSize: "10px",
+    fontWeight: 800,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxShadow: "0 6px 14px rgba(209, 67, 67, 0.25)",
   },
   brand: {
     margin: 0,
@@ -168,13 +207,57 @@ const getSidebarStyles = (isCollapsed) => ({
 
 const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { accessMode, clearSession, currentRole } = useAuth();
   const resolvedAccessMode = accessMode || getAccessMode();
   const entryRoute = getEntryRouteForMode(resolvedAccessMode);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
 
   if (currentRole === ROLE_CODES.DONOR) return null;
 
   const sidebarStyles = getSidebarStyles(isCollapsed);
+
+  useEffect(() => {
+    if (currentRole !== ROLE_CODES.MAYOR) {
+      setUnreadNotificationCount(0);
+      return undefined;
+    }
+
+    let isMounted = true;
+
+    const loadUnreadCount = async () => {
+      try {
+        const response = await fetchMayorUnreadNotificationCount();
+
+        if (isMounted) {
+          setUnreadNotificationCount(Number(response?.unread_count || 0));
+        }
+      } catch (_error) {
+        if (isMounted) {
+          setUnreadNotificationCount(0);
+        }
+      }
+    };
+
+    loadUnreadCount();
+
+    const intervalId = window.setInterval(loadUnreadCount, 30000);
+    const handleNotificationRefresh = () => loadUnreadCount();
+
+    window.addEventListener(
+      "distync-notifications-updated",
+      handleNotificationRefresh,
+    );
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener(
+        "distync-notifications-updated",
+        handleNotificationRefresh,
+      );
+    };
+  }, [currentRole, location.pathname]);
 
   const getCompactLabel = (label) => {
     return label
@@ -241,6 +324,24 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
             <h1 style={sidebarStyles.brandTitle}>DISTYNC</h1>
           </div>
         </div>
+
+        {currentRole === ROLE_CODES.MAYOR ? (
+          <div style={sidebarStyles.topBarActions}>
+            <button
+              type="button"
+              onClick={() => navigate("/inventory/notifications")}
+              style={sidebarStyles.notificationButton}
+              title="Mayor notifications"
+            >
+              <FiBell size={18} />
+              {unreadNotificationCount > 0 ? (
+                <span style={sidebarStyles.notificationBadge}>
+                  {unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}
+                </span>
+              ) : null}
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <nav className="distync-sidebar__nav" style={sidebarStyles.nav}>

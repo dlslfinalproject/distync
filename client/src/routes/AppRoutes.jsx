@@ -16,6 +16,7 @@ import DonationManagementPage from "../pages/DonationManagementPage";
 import InventoryBatchesPage from "../pages/inventory/InventoryBatchesPage";
 import InventoryItemsPage from "../pages/inventory/InventoryItemsPage";
 import InventoryDistributionPage from "../pages/inventory/InventoryDistributionPage";
+import MayorNotificationsPage from "../pages/inventory/MayorNotificationsPage";
 import InventoryTransactionsPage from "../pages/inventory/InventoryTransactionsPage";
 import ReliefPackTemplatesPage from "../pages/inventory/ReliefPackTemplatesPage";
 import SuppliersPage from "../pages/inventory/SuppliersPage";
@@ -119,6 +120,7 @@ const AppRoutes = () => {
             path="transactions"
             element={<InventoryTransactionsPage />}
           />
+          <Route path="notifications" element={<MayorNotificationsPage />} />
           <Route path="suppliers" element={<SuppliersPage />} />
           <Route
             path="relief-pack-templates"

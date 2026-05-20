@@ -1,6 +1,7 @@
 const express = require("express");
 const pool = require("../config/db");
 const authRoutes = require("../modules/auth/auth.routes");
+const notificationRoutes = require("../modules/notifications/notification.routes");
 const disasterEventRoutes = require("./disasterEvent.routes");
 const donationRoutes = require("./donation.routes");
 const inventoryBatchRoutes = require("./inventoryBatch.routes");
@@ -56,6 +57,7 @@ router.get("/barangays", async (req, res) => {
 router.use("/disaster-events", disasterEventRoutes);
 router.use("/donations", donationRoutes);
 router.use("/auth", authRoutes);
+router.use("/notifications", notificationRoutes);
 router.use("/inventory-batches", inventoryBatchRoutes);
 router.use("/inventory-transactions", inventoryTransactionRoutes);
 router.use("/distribution-transactions", distributionTransactionRoutes);

@@ -1,5 +1,6 @@
 const inventoryBatchRepository = require("../repositories/inventoryBatch.repository");
 const mayorReportExport = require("../utils/mayorReportExport");
+const notificationService = require("../modules/notifications/notification.service");
 
 const mapInventoryBatch = (batch) => {
   return {
@@ -121,7 +122,15 @@ const createInventoryBatch = async (batchData) => {
     createdBatch.id,
   );
 
-  return mapInventoryBatch(fullBatch);
+  const mappedBatch = mapInventoryBatch(fullBatch);
+
+  await notificationService.emitSafely(() =>
+    notificationService.emitBatchAlerts({
+      batch: mappedBatch,
+    }),
+  );
+
+  return mappedBatch;
 };
 
 const exportInventoryBatches = async (filters, format) => {
