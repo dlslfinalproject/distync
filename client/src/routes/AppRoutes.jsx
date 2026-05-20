@@ -13,10 +13,12 @@ import DistributionTransactionPage from "../pages/barangay/DistributionTransacti
 import StubDistributionPage from "../pages/barangay/StubDistributionPage";
 import VerifyStubPage from "../pages/VerifyStubPage";
 import DonationManagementPage from "../pages/DonationManagementPage";
+import InventoryBatchesPage from "../pages/inventory/InventoryBatchesPage";
 import InventoryItemsPage from "../pages/inventory/InventoryItemsPage";
 import InventoryDistributionPage from "../pages/inventory/InventoryDistributionPage";
 import InventoryTransactionsPage from "../pages/inventory/InventoryTransactionsPage";
 import ReliefPackTemplatesPage from "../pages/inventory/ReliefPackTemplatesPage";
+import SuppliersPage from "../pages/inventory/SuppliersPage";
 import DonationInformationPage from "../pages/donor/DonationInformationPage";
 import AnalyticsDashboardPage from "../pages/mswdo/AnalyticsDashboardPage";
 import ConsolidatedMasterlistPage from "../pages/mswdo/ConsolidatedMasterlistPage";
@@ -112,18 +114,12 @@ const AppRoutes = () => {
         >
           <Route index element={<Navigate to="items" replace />} />
           <Route path="items" element={<InventoryItemsPage />} />
-          <Route
-            path="batches"
-            element={<Navigate to="/inventory/items" replace />}
-          />
+          <Route path="batches" element={<InventoryBatchesPage />} />
           <Route
             path="transactions"
             element={<InventoryTransactionsPage />}
           />
-          <Route
-            path="suppliers"
-            element={<Navigate to="/inventory/items" replace />}
-          />
+          <Route path="suppliers" element={<SuppliersPage />} />
           <Route
             path="relief-pack-templates"
             element={<ReliefPackTemplatesPage />}
