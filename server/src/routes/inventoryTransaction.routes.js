@@ -10,7 +10,11 @@ const {
 
 const router = express.Router();
 
-router.get("/", validateGetInventoryTransactions, async (req, res) => {
+router.get(
+  "/",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateGetInventoryTransactions,
+  async (req, res) => {
   try {
     const inventoryTransactions =
       await inventoryTransactionService.getInventoryTransactions(
@@ -25,9 +29,14 @@ router.get("/", validateGetInventoryTransactions, async (req, res) => {
       message: error.message || "Failed to fetch inventory transactions",
     });
   }
-});
+  },
+);
 
-router.get("/:id", validateInventoryTransactionId, async (req, res) => {
+router.get(
+  "/:id",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateInventoryTransactionId,
+  async (req, res) => {
   try {
     const inventoryTransaction =
       await inventoryTransactionService.getInventoryTransactionById(req.params.id);
@@ -46,7 +55,8 @@ router.get("/:id", validateInventoryTransactionId, async (req, res) => {
       message: error.message || "Failed to fetch inventory transaction",
     });
   }
-});
+  },
+);
 
 router.post(
   "/",

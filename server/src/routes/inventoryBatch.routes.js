@@ -10,7 +10,11 @@ const {
 
 const router = express.Router();
 
-router.get("/", validateGetInventoryBatches, async (req, res) => {
+router.get(
+  "/",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateGetInventoryBatches,
+  async (req, res) => {
   try {
     const inventoryBatches = await inventoryBatchService.getInventoryBatches(
       req.validatedQuery,
@@ -24,9 +28,14 @@ router.get("/", validateGetInventoryBatches, async (req, res) => {
       message: error.message || "Failed to fetch inventory batches",
     });
   }
-});
+  },
+);
 
-router.get("/:id", validateInventoryBatchId, async (req, res) => {
+router.get(
+  "/:id",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateInventoryBatchId,
+  async (req, res) => {
   try {
     const inventoryBatch = await inventoryBatchService.getInventoryBatchById(
       req.params.id,
@@ -46,7 +55,8 @@ router.get("/:id", validateInventoryBatchId, async (req, res) => {
       message: error.message || "Failed to fetch inventory batch",
     });
   }
-});
+  },
+);
 
 router.post(
   "/",
