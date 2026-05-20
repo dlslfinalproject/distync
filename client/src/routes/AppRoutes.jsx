@@ -12,6 +12,7 @@ import BarangayMasterlistPage from "../pages/barangay/BarangayMasterlistPage";
 import DistributionTransactionPage from "../pages/barangay/DistributionTransactionPage";
 import StubDistributionPage from "../pages/barangay/StubDistributionPage";
 import VerifyStubPage from "../pages/VerifyStubPage";
+import DonationManagementPage from "../pages/DonationManagementPage";
 import InventoryItemsPage from "../pages/inventory/InventoryItemsPage";
 import InventoryDistributionPage from "../pages/inventory/InventoryDistributionPage";
 import InventoryTransactionsPage from "../pages/inventory/InventoryTransactionsPage";
@@ -90,6 +91,7 @@ const AppRoutes = () => {
             path="stub-distribution"
             element={<StubDistributionPageMswdo />}
           />
+          <Route path="donations" element={<DonationManagementPage />} />
           <Route path="disaster-events" element={<DisasterEventsPage />} />
         </Route>
         <Route
@@ -130,27 +132,10 @@ const AppRoutes = () => {
             path="distribution"
             element={<InventoryDistributionPage />}
           />
+          <Route path="donations" element={<DonationManagementPage />} />
         </Route>
-        <Route
-          path="/donations"
-          element={
-            <RoleProtectedRoute>
-              <BarangayLayout />
-            </RoleProtectedRoute>
-          }
-        >
-          <Route index element={<DonationInformationPage />} />
-        </Route>
-        <Route
-          path="/donor"
-          element={
-            <RoleProtectedRoute>
-              <BarangayLayout />
-            </RoleProtectedRoute>
-          }
-        >
-          <Route path="information" element={<DonationInformationPage />} />
-        </Route>
+        <Route path="/donations" element={<DonationInformationPage />} />
+        <Route path="/donor/information" element={<DonationInformationPage />} />
         <Route path="*" element={<DefaultAppRedirect />} />
       </Routes>
     </BrowserRouter>

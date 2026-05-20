@@ -5,13 +5,18 @@ const allowedTransactionTypes = [
   "EXPIRED",
   "MISSING",
   "DAMAGED",
+  "SPOILED",
+  "STOLEN",
   "RETURN",
 ];
 
 const allowedReferenceTypes = [
   "MANUAL",
   "BARCODE_SCAN",
+  "QR_SCAN",
   "DISTRIBUTION",
+  "DONATION",
+  "PROOF_OF_RECEIPT",
   "SYNC",
   "SYSTEM",
 ];
@@ -72,7 +77,7 @@ const validateGetInventoryTransactions = (req, res, next) => {
     ) {
       return res.status(400).json({
         message:
-          "transaction_type must be one of: INFLOW, OUTFLOW, ADJUSTMENT, EXPIRED, MISSING, DAMAGED, RETURN",
+          "transaction_type must be one of: INFLOW, OUTFLOW, ADJUSTMENT, EXPIRED, MISSING, DAMAGED, SPOILED, STOLEN, RETURN",
       });
     }
 
@@ -82,7 +87,7 @@ const validateGetInventoryTransactions = (req, res, next) => {
     ) {
       return res.status(400).json({
         message:
-          "reference_type must be one of: MANUAL, BARCODE_SCAN, DISTRIBUTION, SYNC, SYSTEM",
+          "reference_type must be one of: MANUAL, BARCODE_SCAN, QR_SCAN, DISTRIBUTION, DONATION, PROOF_OF_RECEIPT, SYNC, SYSTEM",
       });
     }
 
@@ -145,7 +150,7 @@ const validateCreateInventoryTransaction = (req, res, next) => {
     if (!allowedTransactionTypes.includes(transaction_type)) {
       return res.status(400).json({
         message:
-          "transaction_type is required and must be one of: INFLOW, OUTFLOW, ADJUSTMENT, EXPIRED, MISSING, DAMAGED, RETURN",
+          "transaction_type is required and must be one of: INFLOW, OUTFLOW, ADJUSTMENT, EXPIRED, MISSING, DAMAGED, SPOILED, STOLEN, RETURN",
       });
     }
 
@@ -168,7 +173,7 @@ const validateCreateInventoryTransaction = (req, res, next) => {
     ) {
       return res.status(400).json({
         message:
-          "reference_type must be one of: MANUAL, BARCODE_SCAN, DISTRIBUTION, SYNC, SYSTEM",
+          "reference_type must be one of: MANUAL, BARCODE_SCAN, QR_SCAN, DISTRIBUTION, DONATION, PROOF_OF_RECEIPT, SYNC, SYSTEM",
       });
     }
 

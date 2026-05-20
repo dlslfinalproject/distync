@@ -10,7 +10,7 @@ const {
 
 const router = express.Router();
 
-router.get("/", requireRoles(ROLE_CODES.MSWDO), async (req, res) => {
+router.get("/", requireRoles(ROLE_CODES.MSWDO, ROLE_CODES.MAYOR), async (req, res) => {
   try {
     const disasterEvents = await disasterEventService.getAllDisasterEvents();
 
@@ -78,7 +78,7 @@ router.get(
   },
 );
 
-router.get("/:id", requireRoles(ROLE_CODES.MSWDO), async (req, res) => {
+router.get("/:id", requireRoles(ROLE_CODES.MSWDO, ROLE_CODES.MAYOR), async (req, res) => {
   try {
     const disasterEvent = await disasterEventService.getDisasterEventById(
       req.params.id,

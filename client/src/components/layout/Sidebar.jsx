@@ -198,6 +198,7 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
         { label: "Disaster Events", to: "/mswdo/disaster-events" },
         { label: "Evacuee Masterlist", to: "/mswdo/consolidated-masterlist" },
         { label: "Relief Goods Distribution", to: "/mswdo/stub-distribution" },
+        { label: "Donation Summary", to: "/mswdo/donations" },
         { label: "Analytics Dashboard", to: "/mswdo/analytics" },
       ],
     },
@@ -207,6 +208,7 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
         { label: "Inventory Tracking", to: "/inventory/transactions" },
         { label: "Relief Pack Templates", to: "/inventory/relief-pack-templates" },
         { label: "Inventory Distribution", to: "/inventory/distribution" },
+        { label: "Donation Management", to: "/inventory/donations" },
       ],
     },
   };

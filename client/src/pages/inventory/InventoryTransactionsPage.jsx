@@ -29,6 +29,7 @@ const transactionTypes = [
 const referenceTypes = [
   "MANUAL",
   "BARCODE_SCAN",
+  "DONATION",
   "DISTRIBUTION",
   "SYNC",
   "SYSTEM",
