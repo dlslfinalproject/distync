@@ -85,10 +85,12 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
         <div style={modalStyles.topBar}>
           <div>
             <h2 style={{ ...pageHeaderStyles.title, fontSize: "30px" }}>
-              Register Family
+              {form.isEditMode ? "Edit Household" : "Register Family"}
             </h2>
             <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-              Complete the household, family head, member, and condition details below.
+              {form.isEditMode
+                ? "Update the household profile and manage members below. You can add, edit, or remove incorrectly encoded members before saving."
+                : "Complete the household, family head, member, and condition details below."}
             </p>
           </div>
           <button
@@ -171,10 +173,14 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
                   }}
                 >
                   {form.isSubmitting
-                    ? "Saving..."
+                    ? form.isEditMode
+                      ? "Updating..."
+                      : "Saving..."
                     : form.isProcessingPhoto
                       ? "Processing Photo..."
-                      : "Register"}
+                      : form.isEditMode
+                        ? "Save Changes"
+                        : "Register"}
                 </button>
               </div>
             </div>

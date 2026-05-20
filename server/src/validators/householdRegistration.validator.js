@@ -16,6 +16,8 @@ const validateUuidArray = (values) => {
 
 const MAX_FAMILY_HEAD_PHOTO_URL_LENGTH = 4_500_000;
 const MAX_PHOTO_VERIFICATION_NOTES_LENGTH = 1_000;
+const MAX_CONTACT_NUMBER_LENGTH = 50;
+const MAX_CURRENT_ADDRESS_LENGTH = 500;
 
 const validateCreateHouseholdRegistration = (req, res, next) => {
   try {
@@ -28,6 +30,8 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
       current_stay_type,
       household_size,
       registered_by,
+      contact_number,
+      current_address_details,
       members,
       household_sector_ids,
       family_head_photo_url,
@@ -162,6 +166,44 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
     }
 
     if (
+      contact_number !== undefined &&
+      contact_number !== null &&
+      typeof contact_number !== "string"
+    ) {
+      return res.status(400).json({
+        message: "contact_number must be a string or null",
+      });
+    }
+
+    if (
+      typeof contact_number === "string" &&
+      contact_number.length > MAX_CONTACT_NUMBER_LENGTH
+    ) {
+      return res.status(400).json({
+        message: "contact_number must be 50 characters or fewer",
+      });
+    }
+
+    if (
+      current_address_details !== undefined &&
+      current_address_details !== null &&
+      typeof current_address_details !== "string"
+    ) {
+      return res.status(400).json({
+        message: "current_address_details must be a string or null",
+      });
+    }
+
+    if (
+      typeof current_address_details === "string" &&
+      current_address_details.length > MAX_CURRENT_ADDRESS_LENGTH
+    ) {
+      return res.status(400).json({
+        message: "current_address_details must be 500 characters or fewer",
+      });
+    }
+
+    if (
       registered_by !== undefined &&
       registered_by !== null &&
       !isValidUuid(registered_by)
@@ -227,6 +269,17 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
     }
 
     for (const member of members) {
+      if (
+        member.id !== undefined &&
+        member.id !== null &&
+        member.id !== "" &&
+        !isValidUuid(member.id)
+      ) {
+        return res.status(400).json({
+          message: "Each member.id must be a valid UUID when provided",
+        });
+      }
+
       if (!member.first_name || typeof member.first_name !== "string") {
         return res.status(400).json({
           message: "Each member.first_name is required and must be a string",
@@ -340,6 +393,15 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
       current_stay_type,
       household_size,
       registered_by: registered_by ?? null,
+      contact_number:
+        typeof contact_number === "string" && contact_number.trim()
+          ? contact_number.trim()
+          : null,
+      current_address_details:
+        typeof current_address_details === "string" &&
+        current_address_details.trim()
+          ? current_address_details.trim()
+          : null,
       family_head_photo_url:
         typeof family_head_photo_url === "string" &&
         family_head_photo_url.trim()
@@ -351,6 +413,10 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
           ? photo_verification_notes.trim()
           : null,
       members: members.map((member) => ({
+        id:
+          typeof member.id === "string" && member.id.trim()
+            ? member.id.trim()
+            : null,
         first_name: member.first_name.trim(),
         middle_name: member.middle_name ?? null,
         last_name: member.last_name.trim(),
@@ -442,7 +508,59 @@ const validateDepartHousehold = (req, res, next) => {
   }
 };
 
+const validateGetHouseholdDetails = (req, res, next) => {
+  try {
+    const { householdId } = req.params;
+
+    if (!isValidUuid(householdId)) {
+      return res.status(400).json({
+        message: "householdId must be a valid UUID",
+      });
+    }
+
+    req.validatedParams = {
+      householdId,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate household detail request",
+      error: error.message,
+    });
+  }
+};
+
+const validateUpdateHouseholdDetails = (req, res, next) => {
+  try {
+    const { householdId } = req.params;
+
+    if (!isValidUuid(householdId)) {
+      return res.status(400).json({
+        message: "householdId must be a valid UUID",
+      });
+    }
+
+    req.params.householdId = householdId;
+
+    return validateCreateHouseholdRegistration(req, res, () => {
+      req.validatedParams = {
+        householdId,
+      };
+
+      return next();
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate household update request",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   validateCreateHouseholdRegistration,
   validateDepartHousehold,
+  validateGetHouseholdDetails,
+  validateUpdateHouseholdDetails,
 };

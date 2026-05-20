@@ -5,6 +5,8 @@ const householdRegistrationService = require("../services/householdRegistration.
 const {
   validateCreateHouseholdRegistration,
   validateDepartHousehold,
+  validateGetHouseholdDetails,
+  validateUpdateHouseholdDetails,
 } = require("../validators/householdRegistration.validator");
 
 const router = express.Router();
@@ -30,6 +32,62 @@ router.post(
 
       return res.status(statusCode).json({
         message: error.message || "Failed to register household",
+      });
+    }
+  },
+);
+
+router.get(
+  "/:householdId",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO),
+  validateGetHouseholdDetails,
+  async (req, res) => {
+    try {
+      const householdDetails =
+        await householdRegistrationService.getHouseholdDetails({
+          householdId: req.validatedParams.householdId,
+          requester: req.auth,
+        });
+
+      return res.status(200).json({
+        message: "Household details retrieved successfully",
+        data: householdDetails,
+      });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+
+      return res.status(statusCode).json({
+        message: error.message || "Failed to fetch household details",
+      });
+    }
+  },
+);
+
+router.patch(
+  "/:householdId",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO),
+  validateUpdateHouseholdDetails,
+  async (req, res) => {
+    try {
+      const householdDetails =
+        await householdRegistrationService.updateHouseholdDetails({
+          householdId: req.validatedParams.householdId,
+          requester: req.auth,
+          requestData: {
+            ...req.validatedBody,
+            registered_by: req.auth.userId,
+          },
+        });
+
+      return res.status(200).json({
+        message: "Household updated successfully",
+        data: householdDetails,
+      });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+
+      return res.status(statusCode).json({
+        message: error.message || "Failed to update household",
       });
     }
   },

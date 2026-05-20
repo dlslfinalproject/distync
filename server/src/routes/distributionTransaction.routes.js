@@ -20,6 +20,7 @@ router.post(
         {
           ...req.validatedBody,
           verified_by: req.auth.userId,
+          requester: req.auth,
         },
       );
 
@@ -48,6 +49,7 @@ router.post(
         {
           ...req.validatedBody,
           verified_by: req.auth.userId,
+          requester: req.auth,
         },
       );
 

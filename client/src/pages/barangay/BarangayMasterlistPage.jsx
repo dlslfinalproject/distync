@@ -3,6 +3,7 @@ import PageHeader from "../../components/layout/PageHeader";
 import BarangayDashboardOverview from "../../components/barangay-dashboard/BarangayDashboardOverview";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import MasterlistDepartureConfirmModal from "../../components/masterlist/MasterlistDepartureConfirmModal";
+import HouseholdDetailModal from "../../components/masterlist/HouseholdDetailModal";
 import MasterlistTable from "../../components/masterlist/MasterlistTable";
 import MasterlistToolbar from "../../components/masterlist/MasterlistToolbar";
 import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
@@ -10,7 +11,10 @@ import { useAuth } from "../../context/AuthContext";
 import { useBarangayDashboard } from "../../features/barangay-dashboard/useBarangayDashboard";
 import { useHouseholdRegistrationForm } from "../../features/household-registration/useHouseholdRegistrationForm";
 import { useMasterlist } from "../../features/masterlist/masterlistHooks";
-import { departHousehold } from "../../features/masterlist/masterlistService";
+import {
+  departHousehold,
+  fetchHouseholdDetails,
+} from "../../features/masterlist/masterlistService";
 import { fetchMswdoSectors } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { MdDoorFront } from "react-icons/md";
 
@@ -97,6 +101,18 @@ const BarangayMasterlistPage = () => {
   const [attendanceActionMessage, setAttendanceActionMessage] = useState("");
   const [pendingDepartureHouseholdId, setPendingDepartureHouseholdId] =
     useState("");
+  const [viewingHouseholdId, setViewingHouseholdId] = useState("");
+  const [editingHouseholdId, setEditingHouseholdId] = useState("");
+  const [householdDetails, setHouseholdDetails] = useState(null);
+  const [editingHouseholdDetails, setEditingHouseholdDetails] = useState(null);
+  const [isLoadingHouseholdDetails, setIsLoadingHouseholdDetails] =
+    useState(false);
+  const [isLoadingEditHouseholdDetails, setIsLoadingEditHouseholdDetails] =
+    useState(false);
+  const [householdDetailsErrorMessage, setHouseholdDetailsErrorMessage] =
+    useState("");
+  const [editHouseholdErrorMessage, setEditHouseholdErrorMessage] =
+    useState("");
   const [isBulkDepartureConfirmOpen, setIsBulkDepartureConfirmOpen] =
     useState(false);
   const [isRecordingDeparture, setIsRecordingDeparture] = useState(false);
@@ -156,6 +172,26 @@ const BarangayMasterlistPage = () => {
     onSuccess: (response) => {
       setRegistrationSuccessMessage(
         response?.message || "Household registered successfully",
+      );
+      reloadMasterlist();
+    },
+  });
+
+  const editHouseholdForm = useHouseholdRegistrationForm({
+    isOpen: Boolean(editingHouseholdId),
+    mode: "edit",
+    initialHouseholdDetails: editingHouseholdDetails,
+    defaultBarangayId: assignedBarangay?.id || "",
+    defaultBarangayName: assignedBarangay?.name || "",
+    defaultDisasterEventId: selectedEvent?.id || "",
+    lockBarangaySelection: true,
+    hideBarangaySelection: true,
+    restrictNonResidentToEvacCenter: true,
+    scopeNonResidentEvacuationCentersToBarangay: true,
+    registeredBy: authenticatedUser?.id || null,
+    onSuccess: (response) => {
+      setRegistrationSuccessMessage(
+        response?.message || "Household updated successfully",
       );
       reloadMasterlist();
     },
@@ -294,6 +330,62 @@ const BarangayMasterlistPage = () => {
     setIsBulkDepartureConfirmOpen(false);
   };
 
+  const handleOpenHouseholdDetails = async (householdId) => {
+    setViewingHouseholdId(householdId);
+    setIsLoadingHouseholdDetails(true);
+    setHouseholdDetails(null);
+    setHouseholdDetailsErrorMessage("");
+
+    try {
+      const details = await fetchHouseholdDetails(householdId);
+      setHouseholdDetails(details);
+    } catch (error) {
+      setHouseholdDetailsErrorMessage(
+        error.message || "Failed to load household details.",
+      );
+    } finally {
+      setIsLoadingHouseholdDetails(false);
+    }
+  };
+
+  const handleCloseHouseholdDetails = () => {
+    setViewingHouseholdId("");
+    setHouseholdDetails(null);
+    setHouseholdDetailsErrorMessage("");
+    setIsLoadingHouseholdDetails(false);
+  };
+
+  const handleEditHouseholdFromDetails = async (householdId) => {
+    handleCloseHouseholdDetails();
+    await handleOpenEditHousehold(householdId);
+  };
+
+  const handleOpenEditHousehold = async (householdId) => {
+    setEditHouseholdErrorMessage("");
+    setEditingHouseholdId("");
+    setEditingHouseholdDetails(null);
+    setIsLoadingEditHouseholdDetails(true);
+
+    try {
+      const details = await fetchHouseholdDetails(householdId);
+      setEditingHouseholdDetails(details);
+      setEditingHouseholdId(householdId);
+    } catch (error) {
+      setEditHouseholdErrorMessage(
+        error.message || "Failed to load household details for editing.",
+      );
+    } finally {
+      setIsLoadingEditHouseholdDetails(false);
+    }
+  };
+
+  const handleCloseEditHousehold = () => {
+    setEditingHouseholdId("");
+    setEditingHouseholdDetails(null);
+    setEditHouseholdErrorMessage("");
+    setIsLoadingEditHouseholdDetails(false);
+  };
+
   const handleConfirmDeparture = async () => {
     if (isSelectedEventEnded || isRecordingDeparture) {
       return;
@@ -381,6 +473,14 @@ const BarangayMasterlistPage = () => {
         </section>
       ) : null}
 
+      {editHouseholdErrorMessage ? (
+        <section style={shellStyles.card}>
+          <p style={{ margin: 0, color: "#a14d58", fontWeight: 700 }}>
+            {editHouseholdErrorMessage}
+          </p>
+        </section>
+      ) : null}
+
       <MasterlistToolbar
         searchValue={searchTerm}
         onSearchChange={setSearchTerm}
@@ -439,6 +539,8 @@ const BarangayMasterlistPage = () => {
         errorMessage={errorMessage}
         hasSelectedEvent={hasSelectedEvent}
         onMarkDeparted={handleOpenDepartureConfirmation}
+        onViewHousehold={handleOpenHouseholdDetails}
+        onEditHousehold={handleOpenEditHousehold}
         isDepartureReadOnly={isSelectedEventEnded}
         departureReadOnlyText={selectedEventEndedText}
         selectedHouseholds={selectedHouseholds}
@@ -452,6 +554,12 @@ const BarangayMasterlistPage = () => {
         form={registrationForm}
       />
 
+      <RegisterFamilyModal
+        isOpen={Boolean(editingHouseholdId)}
+        onClose={handleCloseEditHousehold}
+        form={editHouseholdForm}
+      />
+
       <MasterlistDepartureConfirmModal
         isOpen={
           Boolean(pendingDepartureHouseholdId) || isBulkDepartureConfirmOpen
@@ -462,6 +570,15 @@ const BarangayMasterlistPage = () => {
         selectedCount={
           isBulkDepartureConfirmOpen ? selectedHouseholds.length : 1
         }
+      />
+
+      <HouseholdDetailModal
+        isOpen={Boolean(viewingHouseholdId)}
+        isLoading={isLoadingHouseholdDetails}
+        errorMessage={householdDetailsErrorMessage}
+        householdDetails={householdDetails}
+        onClose={handleCloseHouseholdDetails}
+        onEditHousehold={handleEditHouseholdFromDetails}
       />
     </>
   );

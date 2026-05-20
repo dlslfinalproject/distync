@@ -169,6 +169,38 @@ const HouseholdFormSection = ({ form }) => {
             ))}
           </select>
         </label>
+
+        <label style={fieldStyles.field}>
+          <span style={fieldStyles.label}>Contact Number</span>
+          <input
+            type="text"
+            value={form.household.contact_number}
+            onChange={(event) =>
+              form.updateHouseholdField("contact_number", event.target.value)
+            }
+            style={fieldStyles.input}
+          />
+        </label>
+
+        <label
+          style={{
+            ...fieldStyles.field,
+            gridColumn: "1 / -1",
+          }}
+        >
+          <span style={fieldStyles.label}>Current Address Details</span>
+          <textarea
+            value={form.household.current_address_details}
+            onChange={(event) =>
+              form.updateHouseholdField("current_address_details", event.target.value)
+            }
+            style={{
+              ...fieldStyles.input,
+              minHeight: "92px",
+              resize: "vertical",
+            }}
+          />
+        </label>
       </div>
     </section>
   );

@@ -1,6 +1,7 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
 import { MdDoorFront } from "react-icons/md";
+import { FiEdit2, FiEye } from "react-icons/fi";
 
 const tableStyles = {
   table: {
@@ -27,7 +28,49 @@ const tableStyles = {
     lineHeight: 1.5,
     wordBreak: "break-word",
   },
+  actionHeaderCell: {
+    width: "112px",
+    minWidth: "112px",
+    textAlign: "center",
+  },
+  actionBodyCell: {
+    width: "112px",
+    minWidth: "112px",
+    textAlign: "center",
+    whiteSpace: "nowrap",
+  },
+  actionGroup: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    flexWrap: "nowrap",
+  },
   departureButton: {
+    border: "1px solid #c6d8ea",
+    borderRadius: "12px",
+    width: "40px",
+    height: "40px",
+    backgroundColor: "#f7fbfe",
+    color: "#24496e",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+  },
+  viewButton: {
+    border: "1px solid #c6d8ea",
+    borderRadius: "12px",
+    width: "40px",
+    height: "40px",
+    backgroundColor: "#ffffff",
+    color: "#24496e",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+  },
+  editButton: {
     border: "1px solid #c6d8ea",
     borderRadius: "12px",
     width: "40px",
@@ -58,6 +101,8 @@ const MasterlistTable = ({
   errorMessage,
   hasSelectedEvent,
   onMarkDeparted,
+  onViewHousehold,
+  onEditHousehold,
   isDepartureReadOnly = false,
   departureReadOnlyText = "-",
   selectedHouseholds,
@@ -183,6 +228,14 @@ const MasterlistTable = ({
               >
                 Departure Time
               </th>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  ...tableStyles.actionHeaderCell,
+                }}
+              >
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -253,6 +306,33 @@ const MasterlistTable = ({
                     ) : (
                       "-"
                     )}
+                  </td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...tableStyles.actionBodyCell,
+                    }}
+                  >
+                    <div style={tableStyles.actionGroup}>
+                      <button
+                        type="button"
+                        onClick={() => onViewHousehold?.(row.household_id)}
+                        style={tableStyles.viewButton}
+                        title="View Details"
+                        aria-label="View Details"
+                      >
+                        <FiEye size={18} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onEditHousehold?.(row.household_id)}
+                        style={tableStyles.editButton}
+                        title="Edit Household"
+                        aria-label="Edit Household"
+                      >
+                        <FiEdit2 size={17} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );

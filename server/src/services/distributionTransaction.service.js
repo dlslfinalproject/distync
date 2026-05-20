@@ -7,6 +7,29 @@ const buildFullName = (firstName, middleName, lastName, suffix) => {
 };
 
 const ACTIVE_QR_STATUS = "ACTIVE";
+const BARANGAY_ROLE_CODE = "BARANGAY";
+
+const assertBarangayDistributionScope = (stub, requester) => {
+  if (requester?.roleCode !== BARANGAY_ROLE_CODE) {
+    return;
+  }
+
+  if (!requester.defaultBarangayId) {
+    const error = new Error(
+      "Barangay distribution requires an account with an assigned barangay.",
+    );
+    error.statusCode = 403;
+    throw error;
+  }
+
+  if (stub.barangay_id !== requester.defaultBarangayId) {
+    const error = new Error(
+      "You can only claim or distribute stubs under your assigned barangay.",
+    );
+    error.statusCode = 403;
+    throw error;
+  }
+};
 
 const getInventoryBatchStatus = (quantityAvailable) => {
   if (quantityAvailable === 0) {
@@ -65,6 +88,8 @@ const createDistributionTransaction = async (requestData) => {
       error.statusCode = 404;
       throw error;
     }
+
+    assertBarangayDistributionScope(stub, requestData.requester);
 
     if (stub.disaster_event_id !== requestData.disaster_event_id) {
       const error = new Error("disaster_event_id does not match the stub record");
@@ -330,6 +355,8 @@ const claimDistributionTransactionFromQr = async (requestData) => {
       error.statusCode = 404;
       throw error;
     }
+
+    assertBarangayDistributionScope(stub, requestData.requester);
 
     if (stub.disaster_event_id !== requestData.disaster_event_id) {
       const error = new Error("disaster_event_id does not match the stub record");

@@ -230,7 +230,7 @@ const insertHousehold = async (householdData, dbClient) => {
     householdData.family_head.suffix,
     householdData.family_head.sex,
     householdData.family_head.birth_date ?? null,
-    householdData.family_head.contact_number ?? null,
+    householdData.contact_number ?? householdData.family_head.contact_number ?? null,
     householdData.current_stay_type,
     householdData.current_address_details,
     householdData.household_size,
@@ -244,6 +244,77 @@ const insertHousehold = async (householdData, dbClient) => {
 
   const result = await dbClient.query(query, values);
   return result.rows[0];
+};
+
+const updateHousehold = async (householdId, householdData, dbClient) => {
+  const query = `
+    UPDATE households
+    SET
+      evacuation_center_id = $2,
+      residency_status = $3,
+      family_head_first_name = $4,
+      family_head_middle_name = $5,
+      family_head_last_name = $6,
+      family_head_suffix = $7,
+      sex = $8,
+      contact_number = $9,
+      current_stay_type = $10,
+      current_address_details = $11,
+      household_size = $12,
+      family_head_photo_url = $13,
+      photo_captured_at = $14,
+      photo_captured_by = $15,
+      photo_verification_notes = $16,
+      updated_at = NOW()
+    WHERE id = $1
+    RETURNING
+      id,
+      disaster_event_id,
+      barangay_id,
+      evacuation_center_id,
+      residency_status,
+      family_head_first_name,
+      family_head_middle_name,
+      family_head_last_name,
+      family_head_suffix,
+      sex,
+      birth_date,
+      contact_number,
+      current_stay_type,
+      current_address_details,
+      household_size,
+      is_active,
+      registered_by,
+      family_head_photo_url,
+      photo_captured_at,
+      photo_captured_by,
+      photo_verification_notes,
+      registered_at,
+      updated_at,
+      family_head_evacuee_id
+  `;
+
+  const values = [
+    householdId,
+    householdData.evacuation_center_id,
+    householdData.residency_status,
+    householdData.family_head.first_name,
+    householdData.family_head.middle_name,
+    householdData.family_head.last_name,
+    householdData.family_head.suffix,
+    householdData.family_head.sex,
+    householdData.contact_number ?? householdData.family_head.contact_number ?? null,
+    householdData.current_stay_type,
+    householdData.current_address_details ?? null,
+    householdData.household_size,
+    householdData.family_head_photo_url || null,
+    householdData.photo_captured_at || null,
+    householdData.photo_captured_by || null,
+    householdData.photo_verification_notes || null,
+  ];
+
+  const result = await dbClient.query(query, values);
+  return result.rows[0] || null;
 };
 
 const insertEvacuee = async (householdId, member, dbClient) => {
@@ -319,6 +390,75 @@ const insertEvacuee = async (householdId, member, dbClient) => {
   return result.rows[0];
 };
 
+const updateEvacuee = async (evacueeId, member, dbClient) => {
+  const query = `
+    UPDATE evacuees
+    SET
+      first_name = $2,
+      middle_name = $3,
+      last_name = $4,
+      suffix = $5,
+      sex = $6,
+      birth_date = $7,
+      age = $8,
+      age_value = $9,
+      age_unit = $10,
+      civil_status = $11,
+      relationship_to_head = $12,
+      is_family_head = $13,
+      is_pregnant = $14,
+      is_lactating = $15,
+      has_disability = $16,
+      is_active = $17,
+      updated_at = NOW()
+    WHERE id = $1
+    RETURNING
+      id,
+      household_id,
+      first_name,
+      middle_name,
+      last_name,
+      suffix,
+      sex,
+      birth_date,
+      age,
+      age_value,
+      age_unit,
+      civil_status,
+      relationship_to_head,
+      is_family_head,
+      is_pregnant,
+      is_lactating,
+      has_disability,
+      is_active,
+      created_at,
+      updated_at
+  `;
+
+  const values = [
+    evacueeId,
+    member.first_name,
+    member.middle_name,
+    member.last_name,
+    member.suffix,
+    member.sex,
+    member.birth_date ?? null,
+    member.age ?? null,
+    member.age_value,
+    member.age_unit,
+    member.civil_status ?? null,
+    member.relationship_to_head,
+    member.is_family_head,
+    member.is_pregnant,
+    member.is_lactating,
+    member.has_disability,
+    member.is_active ?? true,
+  ];
+
+  const result = await dbClient.query(query, values);
+  return result.rows[0] || null;
+};
+
 const updateHouseholdFamilyHeadEvacueeId = async (
   householdId,
   familyHeadEvacueeId,
@@ -359,6 +499,41 @@ const insertEvacueeSectors = async (evacueeId, sectorIds, dbClient) => {
   }
 
   return insertedRows;
+};
+
+const deleteEvacueeSectorsByEvacueeId = async (evacueeId, dbClient) => {
+  await dbClient.query(
+    `
+      DELETE FROM evacuee_sectors
+      WHERE evacuee_id = $1
+    `,
+    [evacueeId],
+  );
+};
+
+const deleteHouseholdSectorsByHouseholdId = async (householdId, dbClient) => {
+  await dbClient.query(
+    `
+      DELETE FROM household_sectors
+      WHERE household_id = $1
+    `,
+    [householdId],
+  );
+};
+
+const deactivateEvacuee = async (evacueeId, dbClient) => {
+  const result = await dbClient.query(
+    `
+      UPDATE evacuees
+      SET is_active = FALSE,
+          updated_at = NOW()
+      WHERE id = $1
+      RETURNING id
+    `,
+    [evacueeId],
+  );
+
+  return result.rows[0] || null;
 };
 
 const insertHouseholdSectors = async (householdId, sectorIds, dbClient) => {
@@ -614,6 +789,7 @@ const getEvacueesByHouseholdId = async (householdId) => {
       updated_at
     FROM evacuees
     WHERE household_id = $1
+      AND is_active = TRUE
     ORDER BY created_at ASC, first_name ASC, last_name ASC
   `;
 
@@ -634,6 +810,7 @@ const getEvacueeSectorAssignmentsByHouseholdId = async (householdId) => {
     INNER JOIN evacuees e ON e.id = es.evacuee_id
     INNER JOIN sectors s ON s.id = es.sector_id
     WHERE e.household_id = $1
+      AND e.is_active = TRUE
     ORDER BY e.created_at ASC, s.name ASC
   `;
 
@@ -687,6 +864,62 @@ const getStubByHouseholdId = async (householdId) => {
   return result.rows[0] || null;
 };
 
+const getLatestAttendanceByHouseholdId = async (householdId) => {
+  const query = `
+    SELECT
+      id,
+      disaster_event_id,
+      household_id,
+      evacuee_id,
+      evacuation_center_id,
+      time_in,
+      time_out,
+      status,
+      recorded_by,
+      remarks,
+      created_at,
+      updated_at
+    FROM evacuation_logs
+    WHERE household_id = $1
+    ORDER BY time_in DESC NULLS LAST, created_at DESC
+    LIMIT 1
+  `;
+
+  const result = await pool.query(query, [householdId]);
+  return result.rows[0] || null;
+};
+
+const getLatestDistributionTransactionByStubId = async (stubId) => {
+  if (!stubId) {
+    return null;
+  }
+
+  const query = `
+    SELECT
+      id,
+      disaster_event_id,
+      household_id,
+      stub_id,
+      distribution_date,
+      distribution_status,
+      claimed_by_name,
+      receipt_no,
+      receipt_status,
+      received_at,
+      qr_reference_value,
+      qr_scanned_at,
+      created_at,
+      updated_at
+    FROM distribution_transactions
+    WHERE stub_id = $1
+    ORDER BY distribution_date DESC, created_at DESC
+    LIMIT 1
+  `;
+
+  const result = await pool.query(query, [stubId]);
+  return result.rows[0] || null;
+};
+
 module.exports = {
   getDisasterEventById,
   getBarangayById,
@@ -697,10 +930,15 @@ module.exports = {
   getSectorsByCodes,
   generateStubNumbers,
   insertHousehold,
+  updateHousehold,
   insertEvacuee,
+  updateEvacuee,
   updateHouseholdFamilyHeadEvacueeId,
   insertEvacueeSectors,
+  deleteEvacueeSectorsByEvacueeId,
   insertHouseholdSectors,
+  deleteHouseholdSectorsByHouseholdId,
+  deactivateEvacuee,
   insertStub,
   insertEvacuationLog,
   getActiveEvacuationLogsByHouseholdId,
@@ -710,4 +948,6 @@ module.exports = {
   getEvacueeSectorAssignmentsByHouseholdId,
   getHouseholdSectorAssignmentsByHouseholdId,
   getStubByHouseholdId,
+  getLatestAttendanceByHouseholdId,
+  getLatestDistributionTransactionByStubId,
 };

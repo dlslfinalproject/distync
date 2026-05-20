@@ -73,6 +73,7 @@ const validateSectorUsage = (
 };
 
 const buildPersonRecord = ({
+  id,
   first_name,
   middle_name,
   last_name,
@@ -94,6 +95,7 @@ const buildPersonRecord = ({
   }
 
   return {
+    id: id || null,
     first_name,
     middle_name,
     last_name,
@@ -127,6 +129,14 @@ const buildRegistrationResponse = async (householdId) => {
   const stub = await householdRegistrationRepository.getStubByHouseholdId(
     householdId,
   );
+  const latestAttendance =
+    await householdRegistrationRepository.getLatestAttendanceByHouseholdId(
+      householdId,
+    );
+  const latestDistribution =
+    await householdRegistrationRepository.getLatestDistributionTransactionByStubId(
+      stub?.id || null,
+    );
 
   const membersWithSectors = members.map((member) => {
     const sectorAssignments = evacueeSectorAssignments
@@ -150,8 +160,335 @@ const buildRegistrationResponse = async (householdId) => {
     members: membersWithSectors,
     household_sectors: householdSectors,
     stub,
+    latest_attendance: latestAttendance,
+    distribution_transaction: latestDistribution,
     members_count: members.length,
   };
+};
+
+const getHouseholdDetails = async ({ householdId, requester }) => {
+  const household =
+    await householdRegistrationRepository.getHouseholdSummaryById(householdId);
+
+  if (!household) {
+    const error = new Error("Household not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (
+    requester?.roleCode === BARANGAY_ROLE_CODE &&
+    household.barangay_id !== requester.defaultBarangayId
+  ) {
+    const error = new Error("You do not have access to this household");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  return buildRegistrationResponse(householdId);
+};
+
+const updateHouseholdDetails = async ({
+  householdId,
+  requester,
+  requestData,
+}) => {
+  const existingHousehold =
+    await householdRegistrationRepository.getHouseholdSummaryById(householdId);
+
+  if (!existingHousehold) {
+    const error = new Error("Household not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (
+    requester?.roleCode === BARANGAY_ROLE_CODE &&
+    existingHousehold.barangay_id !== requester.defaultBarangayId
+  ) {
+    const error = new Error("You do not have access to update this household");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  if (requestData.disaster_event_id !== existingHousehold.disaster_event_id) {
+    const error = new Error("disaster_event_id cannot be changed");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (requestData.barangay_id !== existingHousehold.barangay_id) {
+    const error = new Error("barangay_id cannot be changed");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const normalizedFamilyHead = buildPersonRecord({
+    ...requestData.family_head,
+    relationship_to_head: "HEAD",
+  });
+  const normalizedMembers = requestData.members.map((member) =>
+    buildPersonRecord(member),
+  );
+
+  const requestDataWithDerivedAgeGroups = {
+    ...requestData,
+    family_head_photo_url:
+      requestData.family_head_photo_url || existingHousehold.family_head_photo_url || null,
+    photo_captured_at: requestData.family_head_photo_url
+      ? new Date().toISOString()
+      : existingHousehold.photo_captured_at || null,
+    photo_captured_by: requestData.family_head_photo_url
+      ? requester?.userId || requestData.registered_by || null
+      : existingHousehold.photo_captured_by || null,
+    photo_verification_notes: requestData.photo_verification_notes || null,
+    family_head: {
+      ...normalizedFamilyHead,
+      birth_date: null,
+      contact_number: requestData.contact_number || null,
+      id: existingHousehold.family_head_evacuee_id,
+    },
+    members: normalizedMembers,
+    current_address_details: requestData.current_address_details || null,
+    contact_number: requestData.contact_number || null,
+  };
+
+  const householdSectors = await householdRegistrationRepository.getSectorsByIds(
+    deduplicateIds(requestDataWithDerivedAgeGroups.household_sector_ids),
+  );
+  const memberSectors = await householdRegistrationRepository.getSectorsByIds(
+    deduplicateIds([
+      ...(requestDataWithDerivedAgeGroups.family_head.sector_ids || []),
+      ...requestDataWithDerivedAgeGroups.members.flatMap(
+        (member) => member.sector_ids || [],
+      ),
+    ]),
+  );
+  const ageSectorRows = await householdRegistrationRepository.getSectorsByCodes(
+    deduplicateIds([
+      requestDataWithDerivedAgeGroups.family_head.derived_age_sector_code,
+      ...requestDataWithDerivedAgeGroups.members.map(
+        (member) => member.derived_age_sector_code,
+      ),
+    ]),
+  );
+  const expectedAgeSectorCodes = deduplicateIds([
+    requestDataWithDerivedAgeGroups.family_head.derived_age_sector_code,
+    ...requestDataWithDerivedAgeGroups.members.map(
+      (member) => member.derived_age_sector_code,
+    ),
+  ]);
+
+  validateSectorUsage(
+    householdSectors,
+    memberSectors,
+    requestDataWithDerivedAgeGroups,
+  );
+
+  const ageSectorIdsByCode = Object.fromEntries(
+    ageSectorRows.map((sector) => [sector.code, sector.id]),
+  );
+
+  if (ageSectorRows.length !== expectedAgeSectorCodes.length) {
+    const error = new Error(
+      "One or more derived age-based sectors are missing from the sector master list",
+    );
+    error.statusCode = 500;
+    throw error;
+  }
+
+  const existingMembers =
+    await householdRegistrationRepository.getEvacueesByHouseholdId(householdId);
+  const existingMembersById = new Map(
+    existingMembers.map((member) => [member.id, member]),
+  );
+  const existingNonHeadMembers = existingMembers.filter(
+    (member) => !member.is_family_head,
+  );
+  const incomingExistingMemberIds = new Set(
+    requestData.members
+      .map((member) => member.id)
+      .filter(Boolean),
+  );
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    await householdRegistrationRepository.updateHousehold(
+      householdId,
+      {
+        ...requestDataWithDerivedAgeGroups,
+        household_size:
+          requestDataWithDerivedAgeGroups.members.length + 1,
+      },
+      client,
+    );
+
+    const familyHeadSectorRows = memberSectors.filter((sector) =>
+      requestDataWithDerivedAgeGroups.family_head.sector_ids.includes(sector.id),
+    );
+    const familyHeadSectorCodes = familyHeadSectorRows.map((sector) => sector.code);
+    const preparedFamilyHead = {
+      ...requestDataWithDerivedAgeGroups.family_head,
+      is_family_head: true,
+      is_active: true,
+      ...getMemberFlagsFromSectorCodes(familyHeadSectorCodes),
+    };
+
+    await householdRegistrationRepository.updateEvacuee(
+      existingHousehold.family_head_evacuee_id,
+      preparedFamilyHead,
+      client,
+    );
+
+    await householdRegistrationRepository.deleteEvacueeSectorsByEvacueeId(
+      existingHousehold.family_head_evacuee_id,
+      client,
+    );
+    const familyHeadSectorIds = deduplicateIds([
+      ageSectorIdsByCode[preparedFamilyHead.derived_age_sector_code],
+      ...preparedFamilyHead.sector_ids,
+    ]).filter(Boolean);
+
+    if (familyHeadSectorIds.length > 0) {
+      await householdRegistrationRepository.insertEvacueeSectors(
+        existingHousehold.family_head_evacuee_id,
+        familyHeadSectorIds,
+        client,
+      );
+    }
+
+    for (const existingMember of existingNonHeadMembers) {
+      if (incomingExistingMemberIds.has(existingMember.id)) {
+        continue;
+      }
+
+      await householdRegistrationRepository.deleteEvacueeSectorsByEvacueeId(
+        existingMember.id,
+        client,
+      );
+      await householdRegistrationRepository.deactivateEvacuee(
+        existingMember.id,
+        client,
+      );
+    }
+
+    const activeEvacuationLogs =
+      await householdRegistrationRepository.getActiveEvacuationLogsByHouseholdId(
+        householdId,
+        client,
+      );
+    const activeAttendanceSeed = activeEvacuationLogs[0] || null;
+
+    for (const member of requestDataWithDerivedAgeGroups.members) {
+      const memberSectorRows = memberSectors.filter((sector) =>
+        member.sector_ids.includes(sector.id),
+      );
+      const memberSectorCodes = memberSectorRows.map((sector) => sector.code);
+      const preparedMember = {
+        ...member,
+        is_family_head: false,
+        is_active: true,
+        ...getMemberFlagsFromSectorCodes(memberSectorCodes),
+      };
+
+      let savedMember = null;
+
+      if (member.id) {
+        if (!existingMembersById.has(member.id)) {
+          const error = new Error("One or more members do not belong to this household");
+          error.statusCode = 400;
+          throw error;
+        }
+
+        savedMember = await householdRegistrationRepository.updateEvacuee(
+          member.id,
+          preparedMember,
+          client,
+        );
+      } else {
+        savedMember = await householdRegistrationRepository.insertEvacuee(
+          householdId,
+          preparedMember,
+          client,
+        );
+
+        if (activeAttendanceSeed) {
+          await householdRegistrationRepository.insertEvacuationLog(
+            {
+              disaster_event_id: requestDataWithDerivedAgeGroups.disaster_event_id,
+              household_id: householdId,
+              evacuee_id: savedMember.id,
+              evacuation_center_id: activeAttendanceSeed.evacuation_center_id,
+              status: "PRESENT",
+              recorded_by: requester?.userId || requestDataWithDerivedAgeGroups.registered_by,
+              remarks: "Automatic arrival recorded during household update",
+            },
+            client,
+          );
+        }
+      }
+
+      await householdRegistrationRepository.deleteEvacueeSectorsByEvacueeId(
+        savedMember.id,
+        client,
+      );
+
+      const assignedSectorIds = deduplicateIds([
+        ageSectorIdsByCode[preparedMember.derived_age_sector_code],
+        ...preparedMember.sector_ids,
+      ]).filter(Boolean);
+
+      if (assignedSectorIds.length > 0) {
+        await householdRegistrationRepository.insertEvacueeSectors(
+          savedMember.id,
+          assignedSectorIds,
+          client,
+        );
+      }
+    }
+
+    await householdRegistrationRepository.deleteHouseholdSectorsByHouseholdId(
+      householdId,
+      client,
+    );
+
+    if (requestDataWithDerivedAgeGroups.household_sector_ids.length > 0) {
+      await householdRegistrationRepository.insertHouseholdSectors(
+        householdId,
+        deduplicateIds(requestDataWithDerivedAgeGroups.household_sector_ids),
+        client,
+      );
+    }
+
+    await client.query("COMMIT");
+    const householdDetails = await buildRegistrationResponse(householdId);
+    const familyHeadName = [
+      householdDetails.household?.family_head_first_name,
+      householdDetails.household?.family_head_last_name,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    await notificationService.emitSafely(() =>
+      notificationService.emitHouseholdRegistrationUpdate({
+        householdId,
+        barangayId: requestDataWithDerivedAgeGroups.barangay_id,
+        familyHeadName,
+        action: "updated",
+        requiresVerification: !householdDetails.household?.family_head_photo_url,
+      }),
+    );
+
+    return householdDetails;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 };
 
 const registerHousehold = async (requestData) => {
@@ -311,10 +648,11 @@ const registerHousehold = async (requestData) => {
     family_head: {
       ...normalizedFamilyHead,
       birth_date: null,
-      contact_number: null,
+      contact_number: registrationData.contact_number || null,
     },
     members: normalizedMembers,
-    current_address_details: null,
+    current_address_details: registrationData.current_address_details || null,
+    contact_number: registrationData.contact_number || null,
   };
 
   const householdSectors = await householdRegistrationRepository.getSectorsByIds(
@@ -572,6 +910,8 @@ const departHousehold = async (householdId, departureDetails) => {
 };
 
 module.exports = {
+  getHouseholdDetails,
   registerHousehold,
+  updateHouseholdDetails,
   departHousehold,
 };

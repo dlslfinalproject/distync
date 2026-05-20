@@ -143,3 +143,13 @@ export const departHousehold = async ({ householdId, remarks = null }) => {
     "Failed to record household departure",
   );
 };
+
+export const fetchHouseholdDetails = async (householdId) => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/households/${householdId}`);
+  const payload = await parseJsonResponse(
+    response,
+    "Failed to fetch household details",
+  );
+
+  return payload.data || null;
+};

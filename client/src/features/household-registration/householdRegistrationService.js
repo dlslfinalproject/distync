@@ -73,3 +73,15 @@ export const registerHousehold = async (payload) => {
 
   return parseJsonResponse(response);
 };
+
+export const updateHousehold = async (householdId, payload) => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/households/${householdId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return parseJsonResponse(response);
+};

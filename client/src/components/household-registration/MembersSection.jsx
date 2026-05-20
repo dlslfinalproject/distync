@@ -61,6 +61,11 @@ const MembersSection = ({ form }) => {
       >
         <div>
           <h3 style={{ margin: 0, color: "#17324d" }}>Household Members</h3>
+          <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
+            {form.isEditMode
+              ? "Add, update, or remove members here. Removed members are deactivated after you save the household."
+              : "Add members only if the family head is not the only evacuee in the household."}
+          </p>
         </div>
         <button
           type="button"
@@ -89,8 +94,9 @@ const MembersSection = ({ form }) => {
               fontSize: "14px",
             }}
           >
-            No additional members yet. Add one only if the family head is not
-            the only evacuee in the household.
+            {form.isEditMode
+              ? "No additional members are recorded yet. Add one here if the household needs another registered evacuee."
+              : "No additional members yet. Add one only if the family head is not the only evacuee in the household."}
           </div>
         ) : null}
 
