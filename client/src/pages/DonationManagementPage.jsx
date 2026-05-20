@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { FiFileText } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../components/layout/PageHeader";
 import { shellStyles } from "../components/layout/BarangayLayout";
 import SearchBar from "../components/shared/SearchBar";
@@ -12,6 +13,7 @@ import {
   deleteDonation,
   deleteDonationItem,
   deleteDonationNeed,
+  exportDonationTransparencySummary,
   fetchDonationById,
   fetchDonationNeeds,
   fetchDonationPortalData,
@@ -93,6 +95,35 @@ const compactButtonStyles = {
   fontWeight: 700,
   cursor: "pointer",
 };
+
+const exportMenuStyles = {
+  position: "absolute",
+  top: "calc(100% + 10px)",
+  right: 0,
+  minWidth: "220px",
+  padding: "8px",
+  borderRadius: "14px",
+  backgroundColor: "#ffffff",
+  border: "1px solid #d7e2ef",
+  boxShadow: "0 18px 36px rgba(23, 50, 77, 0.16)",
+  display: "grid",
+  gap: "6px",
+  zIndex: 20,
+};
+
+const exportMenuButtonStyles = {
+  border: "none",
+  borderRadius: "10px",
+  backgroundColor: "#f8fbfe",
+  color: "#264564",
+  textAlign: "left",
+  padding: "10px 12px",
+  fontSize: "13px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const NO_EXPORT_DATA_MESSAGE = "No available data to export.";
 
 const backButtonStyles = {
   background: "#0f2a44",
@@ -906,6 +937,9 @@ const DonationManagementPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [pageErrorMessage, setPageErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [isExportingTransparency, setIsExportingTransparency] = useState("");
+  const [isTransparencyExportMenuOpen, setIsTransparencyExportMenuOpen] =
+    useState(false);
   const [isNeedModalOpen, setIsNeedModalOpen] = useState(false);
   const [needForm, setNeedForm] = useState(createNeedForm());
   const [needErrorMessage, setNeedErrorMessage] = useState("");
@@ -1341,6 +1375,47 @@ const DonationManagementPage = () => {
     }
   };
 
+  const downloadFile = (file) => {
+    const downloadUrl = window.URL.createObjectURL(file.blob);
+    const anchor = document.createElement("a");
+    anchor.href = downloadUrl;
+    anchor.download = file.filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    window.URL.revokeObjectURL(downloadUrl);
+  };
+
+  const handleExportTransparency = async (format) => {
+    setPageErrorMessage("");
+    setSuccessMessage("");
+    setIsTransparencyExportMenuOpen(false);
+
+    if (
+      (portalData.transparency_summary?.received_vs_distributed || []).length === 0
+    ) {
+      setPageErrorMessage(NO_EXPORT_DATA_MESSAGE);
+      return;
+    }
+
+    setIsExportingTransparency(format);
+
+    try {
+      const file = await exportDonationTransparencySummary(format, {
+        disaster_event_id: selectedEventId,
+      });
+      downloadFile(file);
+    } catch (error) {
+      setPageErrorMessage(
+        error.message?.includes("No ")
+          ? NO_EXPORT_DATA_MESSAGE
+          : error.message || "Failed to export donor transparency summary.",
+      );
+    } finally {
+      setIsExportingTransparency("");
+    }
+  };
+
   const pageTitle = canManageDonations
     ? "DONATION MANAGEMENT"
     : "DONATION SUMMARY";
@@ -1418,6 +1493,42 @@ const DonationManagementPage = () => {
             >
               Refresh
             </button>
+            {canManageDonations && activeTab === "transparency" ? (
+              <div style={{ position: "relative" }}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setIsTransparencyExportMenuOpen((currentValue) => !currentValue)
+                  }
+                  style={pageHeaderStyles.secondaryButton}
+                  disabled={Boolean(isExportingTransparency)}
+                >
+                  <FiFileText size={16} />
+                  {isExportingTransparency
+                    ? `Exporting ${isExportingTransparency.toUpperCase()}...`
+                    : "Export"}
+                </button>
+
+                {isTransparencyExportMenuOpen ? (
+                  <div style={exportMenuStyles}>
+                    {[
+                      { key: "csv", label: "Export as CSV" },
+                      { key: "excel", label: "Export as Excel" },
+                      { key: "pdf", label: "Export as PDF" },
+                    ].map((option) => (
+                      <button
+                        key={option.key}
+                        type="button"
+                        onClick={() => handleExportTransparency(option.key)}
+                        style={exportMenuButtonStyles}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {canManageDonations && activeTab === "needs" ? (
               <button type="button" onClick={() => openNeedModal()} style={pageHeaderStyles.primaryButton}>
                 Create Donation Need

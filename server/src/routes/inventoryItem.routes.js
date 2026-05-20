@@ -38,9 +38,14 @@ router.get(
   validateExportInventoryItems,
   async (req, res) => {
   try {
-    const file = await inventoryItemService.exportInventoryItems(
-      req.validatedQuery,
-    );
+    const file = req.validatedQuery.report_type
+      ? await inventoryItemService.exportInventoryConditionReport({
+          report_type: req.validatedQuery.report_type,
+          near_expiry_days: req.validatedQuery.near_expiry_days,
+          filters: req.validatedQuery,
+          format: req.validatedQuery.format,
+        })
+      : await inventoryItemService.exportInventoryItems(req.validatedQuery);
 
     res.setHeader("Content-Type", file.contentType);
     res.setHeader(

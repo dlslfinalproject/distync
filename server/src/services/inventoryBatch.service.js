@@ -1,4 +1,5 @@
 const inventoryBatchRepository = require("../repositories/inventoryBatch.repository");
+const mayorReportExport = require("../utils/mayorReportExport");
 
 const mapInventoryBatch = (batch) => {
   return {
@@ -123,8 +124,47 @@ const createInventoryBatch = async (batchData) => {
   return mapInventoryBatch(fullBatch);
 };
 
+const exportInventoryBatches = async (filters, format) => {
+  const batches = await getInventoryBatches(filters);
+
+  const rows = batches.map((batch) => ({
+    batch_no: batch.batch_no || "--",
+    item_name: batch.inventory_item?.item_name || "--",
+    quantity_received: batch.quantity_received ?? 0,
+    quantity_available: batch.quantity_available ?? 0,
+    expiration_date: mayorReportExport.formatDateOnly(batch.expiration_date),
+    status: batch.status || "--",
+    supplier: batch.supplier?.name || "--",
+    received_at: mayorReportExport.formatDateTime(batch.received_at),
+  }));
+
+  return mayorReportExport.buildExportFile({
+    filePrefix: "office-mayor-inventory-batches",
+    worksheetName: "Inventory Batches",
+    reportTitle: "Inventory Batches Report",
+    metadata: [
+      { label: "Search", value: filters.search?.trim() || "None" },
+      { label: "Source Type", value: filters.source_type || "All" },
+      { label: "Status", value: filters.status || "All" },
+    ],
+    columns: [
+      { key: "batch_no", label: "Batch No", width: 24, pdfWidth: 85 },
+      { key: "item_name", label: "Item Name", width: 28, pdfWidth: 140 },
+      { key: "quantity_received", label: "Quantity Received", width: 20, pdfWidth: 70 },
+      { key: "quantity_available", label: "Quantity Available", width: 20, pdfWidth: 70 },
+      { key: "expiration_date", label: "Expiration Date", width: 20, pdfWidth: 88 },
+      { key: "status", label: "Status", width: 18, pdfWidth: 70 },
+      { key: "supplier", label: "Supplier", width: 26, pdfWidth: 130 },
+      { key: "received_at", label: "Received At", width: 22, pdfWidth: 109 },
+    ],
+    rows,
+    format,
+  });
+};
+
 module.exports = {
   getInventoryBatches,
   getInventoryBatchById,
   createInventoryBatch,
+  exportInventoryBatches,
 };

@@ -112,6 +112,69 @@ const noticeModalStyles = {
   },
 };
 
+const exportModalStyles = {
+  overlay: {
+    position: "fixed",
+    inset: 0,
+    backgroundColor: "rgba(18, 34, 51, 0.45)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "24px",
+    zIndex: 1200,
+  },
+  modal: {
+    width: "100%",
+    maxWidth: "480px",
+    backgroundColor: "#ffffff",
+    borderRadius: "20px",
+    padding: "28px",
+    boxShadow: "0 24px 48px rgba(20, 48, 78, 0.2)",
+  },
+  title: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "24px",
+  },
+  description: {
+    margin: "12px 0 0",
+    color: "#5d7188",
+    fontSize: "14px",
+    lineHeight: 1.6,
+  },
+  fieldGroup: {
+    display: "grid",
+    gap: "18px",
+    marginTop: "22px",
+  },
+  label: {
+    display: "block",
+    marginBottom: "8px",
+    color: "#4f677f",
+    fontSize: "13px",
+    fontWeight: 700,
+  },
+  select: {
+    width: "100%",
+    minHeight: "48px",
+    padding: "12px 14px",
+    borderRadius: "14px",
+    border: "1px solid #d2deea",
+    boxSizing: "border-box",
+    fontSize: "14px",
+    color: "#21405f",
+    backgroundColor: "#ffffff",
+    outline: "none",
+  },
+  actions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "12px",
+    marginTop: "24px",
+    flexWrap: "wrap",
+  },
+};
+
 const activeChipPalette = {
   All: {
     backgroundColor: COLORS.primary,
@@ -296,6 +359,81 @@ const styles = {
   },
 };
 
+const inventoryExportReportOptions = [
+  { value: "INVENTORY_ITEMS", label: "Inventory Items" },
+  { value: "LOW_STOCK", label: "Low Stock" },
+  { value: "NEAR_EXPIRY", label: "Near Expiry" },
+  { value: "EXPIRED", label: "Expired Items" },
+  { value: "INCIDENT_LOSS", label: "Inventory Loss" },
+];
+
+const inventoryExportFormatOptions = [
+  { value: "csv", label: "CSV" },
+  { value: "excel", label: "Excel" },
+  { value: "pdf", label: "PDF" },
+];
+
+const NO_EXPORT_DATA_MESSAGE = "No available data to export.";
+
+const buildInventoryExportFilters = (selectedReportType) => {
+  if (selectedReportType === "LOW_STOCK") {
+    return { report_type: "LOW_STOCK" };
+  }
+
+  if (selectedReportType === "NEAR_EXPIRY") {
+    return { report_type: "NEAR_EXPIRY", near_expiry_days: 14 };
+  }
+
+  if (selectedReportType === "EXPIRED") {
+    return { report_type: "EXPIRED" };
+  }
+
+  if (selectedReportType === "INCIDENT_LOSS") {
+    return { report_type: "INCIDENT_LOSS" };
+  }
+
+  return {};
+};
+
+const hasInventoryExportRows = ({
+  reportType,
+  visibleInventoryItems,
+  inventoryBatches,
+  inventoryTrackingMap,
+}) => {
+  if (reportType === "INVENTORY_ITEMS") {
+    return visibleInventoryItems.length > 0;
+  }
+
+  if (reportType === "LOW_STOCK") {
+    return inventoryBatches.some((batch) => batch.status === "LOW_STOCK");
+  }
+
+  if (reportType === "NEAR_EXPIRY") {
+    return inventoryBatches.some((batch) => isItemExpiring(batch));
+  }
+
+  if (reportType === "EXPIRED") {
+    return inventoryBatches.some((batch) => batch.status === "EXPIRED");
+  }
+
+  if (reportType === "INCIDENT_LOSS") {
+    return visibleInventoryItems.some((item) => {
+      const trackingStats =
+        inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
+
+      return (
+        trackingStats.damaged > 0 ||
+        trackingStats.missing > 0 ||
+        trackingStats.spoiled > 0 ||
+        trackingStats.stolen > 0
+      );
+    });
+  }
+
+  return false;
+};
+
 /* ================= HELPERS ================= */
 
 const getUniqueCategories = (rows) =>
@@ -457,6 +595,10 @@ const createEmptyTrackingStats = () => ({
   distributed: 0,
   expired: 0,
   expiredOnHand: 0,
+  damaged: 0,
+  missing: 0,
+  spoiled: 0,
+  stolen: 0,
   nearestExpirationDate: null,
   hasExpiringStock: false,
 });
@@ -518,6 +660,22 @@ const buildInventoryTrackingMap = (
 
     if (transaction.transaction_type === "EXPIRED") {
       tracking.expired += normalizeQuantity(transaction.quantity);
+    }
+
+    if (transaction.transaction_type === "DAMAGED") {
+      tracking.damaged += normalizeQuantity(transaction.quantity);
+    }
+
+    if (transaction.transaction_type === "MISSING") {
+      tracking.missing += normalizeQuantity(transaction.quantity);
+    }
+
+    if (transaction.transaction_type === "SPOILED") {
+      tracking.spoiled += normalizeQuantity(transaction.quantity);
+    }
+
+    if (transaction.transaction_type === "STOLEN") {
+      tracking.stolen += normalizeQuantity(transaction.quantity);
     }
   });
 
@@ -612,7 +770,10 @@ const InventoryItemsPage = () => {
   const [scanForm, setScanForm] = useState({
     barcodeNumber: "",
   });
-  const [exportOpen, setExportOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [selectedExportReportType, setSelectedExportReportType] =
+    useState("INVENTORY_ITEMS");
+  const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
   const [exportingFormat, setExportingFormat] = useState("");
   const [exportNoticeMessage, setExportNoticeMessage] = useState("");
 
@@ -820,17 +981,22 @@ const InventoryItemsPage = () => {
     setIsModalOpen(true);
   };
 
-  const handleExport = async (format) => {
-    if (visibleInventoryItems.length === 0) {
-      setExportOpen(false);
-      setExportNoticeMessage(
-        "No inventory items are available to export for the current filters.",
-      );
+  const handleExport = async (format, extraFilters = {}) => {
+    const selectedReportType = extraFilters.report_type || "INVENTORY_ITEMS";
+    const hasRowsToExport = hasInventoryExportRows({
+      reportType: selectedReportType,
+      visibleInventoryItems,
+      inventoryBatches,
+      inventoryTrackingMap,
+    });
+
+    if (!hasRowsToExport) {
+      setExportNoticeMessage(NO_EXPORT_DATA_MESSAGE);
       return;
     }
 
     setExportingFormat(format);
-    setExportOpen(false);
+    setIsExportModalOpen(false);
 
     try {
       const file = await exportInventoryItems({
@@ -838,6 +1004,7 @@ const InventoryItemsPage = () => {
         filters: {
           ...buildInventoryItemFilters(filters),
           status: filters.status,
+          ...extraFilters,
         },
       });
 
@@ -851,11 +1018,36 @@ const InventoryItemsPage = () => {
       window.URL.revokeObjectURL(downloadUrl);
     } catch (error) {
       setExportNoticeMessage(
-        error.message || "Unable to export inventory items. Please try again.",
+        error.message?.includes("No ")
+          ? NO_EXPORT_DATA_MESSAGE
+          : error.message || "Unable to export inventory items. Please try again.",
       );
     } finally {
       setExportingFormat("");
     }
+  };
+
+  const handleOpenExportModal = () => {
+    setSelectedExportReportType("INVENTORY_ITEMS");
+    setSelectedExportFormat("csv");
+    setExportNoticeMessage("");
+    setIsExportModalOpen(true);
+  };
+
+  const handleCloseExportModal = () => {
+    if (exportingFormat) {
+      return;
+    }
+
+    setExportNoticeMessage("");
+    setIsExportModalOpen(false);
+  };
+
+  const handleSubmitExportModal = () => {
+    handleExport(
+      selectedExportFormat,
+      buildInventoryExportFilters(selectedExportReportType),
+    );
   };
 
   return (
@@ -880,45 +1072,21 @@ const InventoryItemsPage = () => {
           Add Item
         </button>
 
-        <div style={{ position: "relative" }}>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              setExportOpen(!exportOpen);
-            }}
-            disabled={Boolean(exportingFormat)}
-            style={{
-              ...secondaryTopBtn,
-              opacity: exportingFormat ? 0.7 : 1,
-              cursor: exportingFormat ? "not-allowed" : "pointer",
-            }}
-          >
-            <FiFileText size={16} />
-            {exportingFormat
-              ? `Exporting ${exportingFormat.toUpperCase()}...`
-              : "Export"}
-          </button>
-
-          {exportOpen && (
-            <div style={styles.exportMenu}>
-              {[
-                { key: "csv", label: "Export as CSV" },
-                { key: "pdf", label: "Export as PDF" },
-                { key: "excel", label: "Export as Excel" },
-              ].map((option) => (
-                <button
-                  key={option.key}
-                  type="button"
-                  onClick={() => handleExport(option.key)}
-                  style={styles.exportMenuButton}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={handleOpenExportModal}
+          disabled={Boolean(exportingFormat)}
+          style={{
+            ...secondaryTopBtn,
+            opacity: exportingFormat ? 0.7 : 1,
+            cursor: exportingFormat ? "not-allowed" : "pointer",
+          }}
+        >
+          <FiFileText size={16} />
+          {exportingFormat
+            ? `Exporting ${exportingFormat.toUpperCase()}...`
+            : "Export"}
+        </button>
       </div>
 
       <section style={{ ...shellStyles.statGrid, marginBottom: "16px" }}>
@@ -1186,6 +1354,103 @@ const InventoryItemsPage = () => {
         onSubmit={handleSubmitScanModal}
         onInputChange={handleScanInputChange}
       />
+
+      {isExportModalOpen ? (
+        <div style={exportModalStyles.overlay}>
+          <div style={exportModalStyles.modal}>
+            <h3 style={exportModalStyles.title}>Export Inventory Report</h3>
+            <p style={exportModalStyles.description}>
+              Choose which inventory report to export and the file format to generate.
+            </p>
+
+            {exportNoticeMessage ? (
+              <div
+                style={{
+                  marginTop: "18px",
+                  padding: "12px 14px",
+                  borderRadius: "14px",
+                  backgroundColor: "#fff3f1",
+                  border: "1px solid #f4c9c2",
+                  color: "#a14538",
+                  fontSize: "0.95rem",
+                  fontWeight: 600,
+                }}
+              >
+                {exportNoticeMessage}
+              </div>
+            ) : null}
+
+            <div style={exportModalStyles.fieldGroup}>
+              <div>
+                <label style={exportModalStyles.label}>Report Type</label>
+                <select
+                  value={selectedExportReportType}
+                  onChange={(event) =>
+                    setSelectedExportReportType(event.target.value)
+                  }
+                  style={exportModalStyles.select}
+                >
+                  {inventoryExportReportOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={exportModalStyles.label}>Format</label>
+                <select
+                  value={selectedExportFormat}
+                  onChange={(event) => setSelectedExportFormat(event.target.value)}
+                  style={exportModalStyles.select}
+                >
+                  {inventoryExportFormatOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div style={exportModalStyles.actions}>
+              <button
+                type="button"
+                onClick={handleCloseExportModal}
+                style={pageHeaderStyles.secondaryButton}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmitExportModal}
+                style={pageHeaderStyles.primaryButton}
+              >
+                Export
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {!isExportModalOpen && exportNoticeMessage ? (
+        <div style={noticeModalStyles.overlay}>
+          <div style={noticeModalStyles.modal}>
+            <h3 style={noticeModalStyles.title}>Export Unavailable</h3>
+            <p style={noticeModalStyles.message}>{exportNoticeMessage}</p>
+            <div style={noticeModalStyles.actions}>
+              <button
+                type="button"
+                onClick={() => setExportNoticeMessage("")}
+                style={pageHeaderStyles.primaryButton}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };

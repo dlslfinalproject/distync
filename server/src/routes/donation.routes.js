@@ -2,6 +2,7 @@ const express = require("express");
 
 const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
 const donationService = require("../services/donation.service");
+const { ALLOWED_EXPORT_FORMATS } = require("../utils/mayorReportExport");
 const {
   validateDonationNeedId,
   validateDonationNeedFilters,
@@ -16,6 +17,13 @@ const {
 } = require("../validators/donation.validator");
 
 const router = express.Router();
+
+const resolveExportFormat = (format) => {
+  const normalizedFormat = String(format || "csv").toLowerCase();
+  return ALLOWED_EXPORT_FORMATS.includes(normalizedFormat)
+    ? normalizedFormat
+    : null;
+};
 
 router.get(
   "/public-portal",
@@ -32,6 +40,42 @@ router.get(
 
       return res.status(statusCode).json({
         message: error.message || "Failed to load donor portal data",
+      });
+    }
+  },
+);
+
+router.get(
+  "/export/transparency",
+  requireRoles(ROLE_CODES.MAYOR),
+  validatePublicDonationPortal,
+  async (req, res) => {
+    try {
+      const exportFormat = resolveExportFormat(req.query.format);
+
+      if (!exportFormat) {
+        return res.status(400).json({
+          message: "format must be one of: csv, excel, pdf",
+        });
+      }
+
+      const file = await donationService.exportDonationTransparencyReport(
+        req.validatedQuery.disaster_event_id,
+        exportFormat,
+      );
+
+      res.setHeader("Content-Type", file.contentType);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${file.filename}"`,
+      );
+
+      return res.status(200).send(file.buffer);
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+
+      return res.status(statusCode).json({
+        message: error.message || "Failed to export donor transparency summary",
       });
     }
   },

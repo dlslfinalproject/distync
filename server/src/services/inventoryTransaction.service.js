@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
+const mayorReportExport = require("../utils/mayorReportExport");
 
 const additiveTransactionTypes = new Set(["INFLOW", "RETURN", "ADJUSTMENT"]);
 const subtractiveTransactionTypes = new Set([
@@ -189,8 +190,42 @@ const createInventoryTransaction = async (transactionData) => {
   }
 };
 
+const exportInventoryTransactions = async (filters, format) => {
+  const transactions = await getInventoryTransactions(filters);
+  const rows = transactions.map((transaction) => ({
+    transaction_type: transaction.transaction_type || "--",
+    quantity: transaction.quantity ?? 0,
+    reference_type: transaction.reference_type || "--",
+    performed_by: transaction.performer?.full_name || "--",
+    performed_at: mayorReportExport.formatDateTime(transaction.performed_at),
+    remarks: transaction.remarks || "--",
+  }));
+
+  return mayorReportExport.buildExportFile({
+    filePrefix: "office-mayor-inventory-transactions",
+    worksheetName: "Inventory Transactions",
+    reportTitle: "Inventory Transactions Report",
+    metadata: [
+      { label: "Search", value: filters.search?.trim() || "None" },
+      { label: "Transaction Type", value: filters.transaction_type || "All" },
+      { label: "Reference Type", value: filters.reference_type || "All" },
+    ],
+    columns: [
+      { key: "transaction_type", label: "Transaction Type", width: 20, pdfWidth: 95 },
+      { key: "quantity", label: "Quantity", width: 12, pdfWidth: 55 },
+      { key: "reference_type", label: "Reference Type", width: 18, pdfWidth: 90 },
+      { key: "performed_by", label: "Performed By", width: 24, pdfWidth: 120 },
+      { key: "performed_at", label: "Performed At", width: 22, pdfWidth: 95 },
+      { key: "remarks", label: "Remarks", width: 34, pdfWidth: 300 },
+    ],
+    rows,
+    format,
+  });
+};
+
 module.exports = {
   getInventoryTransactions,
   getInventoryTransactionById,
   createInventoryTransaction,
+  exportInventoryTransactions,
 };

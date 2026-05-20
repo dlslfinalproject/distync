@@ -9,6 +9,12 @@ const categoryValueMap = {
 };
 const allowedExportFormats = ["pdf", "excel", "csv"];
 const allowedStatusFilters = ["All", "Active", "Inactive", "Expiring"];
+const allowedConditionReportTypes = [
+  "LOW_STOCK",
+  "NEAR_EXPIRY",
+  "EXPIRED",
+  "INCIDENT_LOSS",
+];
 
 const isValidUuid = (value) => {
   return typeof value === "string" && uuidPattern.test(value);
@@ -153,7 +159,16 @@ const validateGetInventoryItems = (req, res, next) => {
 
 const validateExportInventoryItems = (req, res, next) => {
   try {
-    const { format, category, search, is_active, is_perishable, status } =
+    const {
+      format,
+      category,
+      search,
+      is_active,
+      is_perishable,
+      status,
+      report_type,
+      near_expiry_days,
+    } =
       req.query;
     const normalizedFormat = String(format || "").toLowerCase();
     const parsedIsActive = parseOptionalBoolean(is_active);
@@ -187,6 +202,31 @@ const validateExportInventoryItems = (req, res, next) => {
       });
     }
 
+    if (
+      report_type !== undefined &&
+      !allowedConditionReportTypes.includes(report_type)
+    ) {
+      return res.status(400).json({
+        message:
+          "report_type must be one of: LOW_STOCK, NEAR_EXPIRY, EXPIRED, INCIDENT_LOSS",
+      });
+    }
+
+    const parsedNearExpiryDays =
+      near_expiry_days === undefined
+        ? 14
+        : Number.parseInt(String(near_expiry_days), 10);
+
+    if (
+      Number.isNaN(parsedNearExpiryDays) ||
+      parsedNearExpiryDays < 1 ||
+      parsedNearExpiryDays > 30
+    ) {
+      return res.status(400).json({
+        message: "near_expiry_days must be an integer between 1 and 30",
+      });
+    }
+
     req.validatedQuery = {
       format: normalizedFormat,
       category: typeof category === "string" && category.trim() ? category.trim() : null,
@@ -194,6 +234,8 @@ const validateExportInventoryItems = (req, res, next) => {
       is_active: parsedIsActive.isProvided ? parsedIsActive.value : null,
       is_perishable: parsedIsPerishable.isProvided ? parsedIsPerishable.value : null,
       status: normalizedStatus,
+      report_type: report_type || null,
+      near_expiry_days: parsedNearExpiryDays,
     };
 
     return next();

@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const donationRepository = require("../repositories/donation.repository");
+const mayorReportExport = require("../utils/mayorReportExport");
 
 const buildFullName = (firstName, lastName) => {
   return [firstName, lastName].filter(Boolean).join(" ");
@@ -911,6 +912,36 @@ const getPublicDonationPortal = async (disasterEventId = null) => {
   };
 };
 
+const exportDonationTransparencyReport = async (disasterEventId = null, format) => {
+  const rows = await donationRepository.getDonationTransparencyExportRows(
+    disasterEventId,
+  );
+
+  if (rows.length === 0) {
+    const error = new Error("No donation transparency records are available to export.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return mayorReportExport.buildExportFile({
+    filePrefix: "office-mayor-donor-transparency-summary",
+    worksheetName: "Donor Transparency",
+    reportTitle: "Donor Transparency Summary",
+    metadata: [
+      { label: "Disaster Event Filter", value: disasterEventId || "All" },
+    ],
+    columns: [
+      { key: "donor_name", label: "Donor Name", width: 28, pdfWidth: 150 },
+      { key: "item_name", label: "Item Name", width: 28, pdfWidth: 150 },
+      { key: "quantity_received", label: "Quantity Received", width: 18, pdfWidth: 72 },
+      { key: "quantity_distributed", label: "Quantity Distributed", width: 18, pdfWidth: 72 },
+      { key: "remaining_stock", label: "Remaining Stock", width: 18, pdfWidth: 72 },
+    ],
+    rows,
+    format,
+  });
+};
+
 module.exports = {
   getDonationNeeds,
   createDonationNeed,
@@ -925,4 +956,5 @@ module.exports = {
   deleteDonationItem,
   deleteDonationRecord,
   getPublicDonationPortal,
+  exportDonationTransparencyReport,
 };

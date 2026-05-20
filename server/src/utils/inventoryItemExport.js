@@ -108,8 +108,9 @@ const buildTitleLines = ({ filters, totalRows }) => {
 
   return [
     "DISTYNC",
-    "Municipality of Malvar Disaster Relief Management System",
-    "Office of the Mayor Inventory Items Report",
+    "Office of the Mayor",
+    "Municipality of Malvar, Batangas",
+    "Inventory Items Report",
     `Search: ${searchLabel}`,
     `Category: ${categoryLabel || "All"}`,
     `Status: ${filters.status || "All"}`,
@@ -140,7 +141,7 @@ const buildExcelBuffer = async ({ rows, filters }) => {
   workbook.created = new Date();
 
   const worksheet = workbook.addWorksheet("Inventory Items", {
-    views: [{ state: "frozen", ySplit: 10 }],
+    views: [{ state: "frozen", ySplit: 12 }],
     pageSetup: {
       orientation: "landscape",
       fitToPage: true,
@@ -169,7 +170,7 @@ const buildExcelBuffer = async ({ rows, filters }) => {
   };
   worksheet.getCell("B1").alignment = { horizontal: "left", vertical: "middle" };
   worksheet.mergeCells(2, 2, 2, EXPORT_COLUMNS.length);
-  worksheet.getCell("B2").value = "Office of the Mayor Inventory Items Report";
+  worksheet.getCell("B2").value = "Office of the Mayor";
   worksheet.getCell("B2").font = {
     bold: true,
     size: 14,
@@ -181,18 +182,41 @@ const buildExcelBuffer = async ({ rows, filters }) => {
     fgColor: { argb: "FF17324D" },
   };
   worksheet.getCell("B2").alignment = { horizontal: "left", vertical: "middle" };
+  worksheet.mergeCells(3, 2, 3, EXPORT_COLUMNS.length);
+  worksheet.getCell("B3").value = "Municipality of Malvar, Batangas";
+  worksheet.getCell("B3").font = {
+    bold: true,
+    size: 12,
+    color: { argb: "FFFFFFFF" },
+  };
+  worksheet.getCell("B3").fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FF17324D" },
+  };
+  worksheet.getCell("B3").alignment = { horizontal: "left", vertical: "middle" };
+  worksheet.mergeCells(4, 2, 4, EXPORT_COLUMNS.length);
+  worksheet.getCell("B4").value = "Inventory Items Report";
+  worksheet.getCell("B4").font = {
+    bold: true,
+    size: 12,
+    color: { argb: "FF17324D" },
+  };
+  worksheet.getCell("B4").alignment = { horizontal: "left", vertical: "middle" };
   worksheet.getRow(1).height = 28;
   worksheet.getRow(2).height = 24;
+  worksheet.getRow(3).height = 20;
+  worksheet.getRow(4).height = 20;
 
   buildTitleLines({ filters, totalRows: rows.length })
-    .slice(3)
+    .slice(4)
     .forEach((line, index) => {
-      const row = worksheet.getRow(index + 4);
+      const row = worksheet.getRow(index + 6);
       row.getCell(1).value = line;
       row.getCell(1).font = { bold: index === 0 };
     });
 
-  const headerRowNumber = 10;
+  const headerRowNumber = 12;
   const headerRow = worksheet.getRow(headerRowNumber);
   EXPORT_COLUMNS.forEach((column, index) => {
     const cell = headerRow.getCell(index + 1);
@@ -274,13 +298,23 @@ const buildPdfBuffer = ({ rows, filters }) => {
       size: 18,
       color: reportExport.PDF_COLORS.white,
     });
-    addText("Office of the Mayor Inventory Items Report", 112, 524, {
+    addText("Office of the Mayor", 112, 527, {
       bold: true,
       size: 14,
       color: reportExport.PDF_COLORS.white,
     });
+    addText("Municipality of Malvar, Batangas", 112, 512, {
+      bold: true,
+      size: 11,
+      color: reportExport.PDF_COLORS.white,
+    });
+    addText("Inventory Items Report", 430, 527, {
+      bold: true,
+      size: 12,
+      color: reportExport.PDF_COLORS.white,
+    });
     cursorY = 480;
-    titleLines.slice(3, 7).forEach((line) => {
+    titleLines.slice(4, 8).forEach((line) => {
       addText(line, 40, cursorY, { size: 9 });
       cursorY -= 12;
     });

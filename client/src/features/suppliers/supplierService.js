@@ -11,6 +11,21 @@ const handleJsonResponse = async (response, fallbackMessage) => {
   return responseData;
 };
 
+const downloadResponseAsFile = async (response, fallbackMessage) => {
+  if (!response.ok) {
+    return handleJsonResponse(response, fallbackMessage);
+  }
+
+  const blob = await response.blob();
+  const contentDisposition = response.headers.get("Content-Disposition") || "";
+  const fileNameMatch = contentDisposition.match(/filename="([^"]+)"/i);
+
+  return {
+    blob,
+    filename: fileNameMatch?.[1] || "suppliers.csv",
+  };
+};
+
 export const fetchSuppliers = async (filters = {}) => {
   const searchParams = new URLSearchParams();
 
@@ -35,6 +50,27 @@ export const fetchSupplierById = async (supplierId) => {
   const response = await fetch(`${API_BASE_URL}/api/v1/suppliers/${supplierId}`);
 
   return handleJsonResponse(response, "Failed to fetch supplier");
+};
+
+export const exportSuppliers = async (format = "csv", filters = {}) => {
+  const searchParams = new URLSearchParams();
+  searchParams.set("format", format);
+
+  if (filters.search) {
+    searchParams.set("search", filters.search.trim());
+  }
+
+  if (filters.has_moa !== "") {
+    searchParams.set("has_moa", filters.has_moa);
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/suppliers/export${
+      searchParams.toString() ? `?${searchParams.toString()}` : ""
+    }`,
+  );
+
+  return downloadResponseAsFile(response, "Failed to export suppliers");
 };
 
 export const createSupplier = async (payload) => {

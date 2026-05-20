@@ -11,6 +11,21 @@ const handleJsonResponse = async (response, fallbackMessage) => {
   return payload;
 };
 
+const downloadResponseAsFile = async (response, fallbackMessage) => {
+  if (!response.ok) {
+    return handleJsonResponse(response, fallbackMessage);
+  }
+
+  const blob = await response.blob();
+  const contentDisposition = response.headers.get("Content-Disposition") || "";
+  const fileNameMatch = contentDisposition.match(/filename="([^"]+)"/i);
+
+  return {
+    blob,
+    filename: fileNameMatch?.[1] || "donor-transparency-summary.csv",
+  };
+};
+
 const appendFilters = (searchParams, filters = {}) => {
   Object.entries(filters).forEach(([key, value]) => {
     if (value === undefined || value === null || value === "") {
@@ -32,6 +47,26 @@ export const fetchDonationPortalData = async (filters = {}) => {
   );
 
   return handleJsonResponse(response, "Failed to fetch donor portal data");
+};
+
+export const exportDonationTransparencySummary = async (
+  format = "csv",
+  filters = {},
+) => {
+  const searchParams = new URLSearchParams();
+  searchParams.set("format", format);
+  appendFilters(searchParams, filters);
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/donations/export/transparency${
+      searchParams.toString() ? `?${searchParams.toString()}` : ""
+    }`,
+  );
+
+  return downloadResponseAsFile(
+    response,
+    "Failed to export donor transparency summary",
+  );
 };
 
 export const fetchDonationNeeds = async (filters = {}) => {

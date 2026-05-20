@@ -770,6 +770,49 @@ const getDonationItemTransparencySummary = async (
   return result.rows;
 };
 
+const getDonationTransparencyExportRows = async (
+  disasterEventId,
+  dbClient = pool,
+) => {
+  const values = [];
+  const conditions = [];
+
+  if (disasterEventId) {
+    values.push(disasterEventId);
+    conditions.push(`d.disaster_event_id = $${values.length}`);
+  }
+
+  const whereClause =
+    conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  const result = await dbClient.query(
+    `
+      SELECT
+        d.donor_name,
+        ii.item_name,
+        di.quantity_received,
+        COALESCE(distributed.quantity_distributed, 0)::int AS quantity_distributed,
+        COALESCE(ib.quantity_available, 0)::int AS remaining_stock
+      FROM donation_items di
+      INNER JOIN donations d ON d.id = di.donation_id
+      INNER JOIN inventory_items ii ON ii.id = di.inventory_item_id
+      LEFT JOIN inventory_batches ib ON ib.id = di.inventory_batch_id
+      LEFT JOIN LATERAL (
+        SELECT COALESCE(SUM(it.quantity), 0)::int AS quantity_distributed
+        FROM inventory_transactions it
+        WHERE it.inventory_batch_id = di.inventory_batch_id
+          AND it.transaction_type = 'OUTFLOW'
+          AND it.reference_type = 'DISTRIBUTION'
+      ) distributed ON TRUE
+      ${whereClause}
+      ORDER BY d.donor_name ASC, ii.item_name ASC
+    `,
+    values,
+  );
+
+  return result.rows;
+};
+
 module.exports = {
   getDisasterEventById,
   getInventoryItemById,
@@ -798,4 +841,5 @@ module.exports = {
   getPublicDonationNeeds,
   getDonationSummaryTotals,
   getDonationItemTransparencySummary,
+  getDonationTransparencyExportRows,
 };

@@ -1,9 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { FiFileText } from "react-icons/fi";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import SearchBar from "../../components/shared/SearchBar";
 import InventoryTransactionsTable from "../../components/inventory-transactions/InventoryTransactionsTable";
-import { fetchInventoryTransactions } from "../../features/inventory-transactions/inventoryTransactionService";
+import {
+  exportInventoryTransactions,
+  fetchInventoryTransactions,
+} from "../../features/inventory-transactions/inventoryTransactionService";
 import { fetchInventoryItems } from "../../features/inventory-items/inventoryItemService";
 
 const selectStyles = {
@@ -35,6 +39,35 @@ const referenceTypes = [
   "SYSTEM",
 ];
 
+const exportMenuStyles = {
+  position: "absolute",
+  top: "calc(100% + 10px)",
+  right: 0,
+  minWidth: "220px",
+  padding: "8px",
+  borderRadius: "14px",
+  backgroundColor: "#ffffff",
+  border: "1px solid #d7e2ef",
+  boxShadow: "0 18px 36px rgba(23, 50, 77, 0.16)",
+  display: "grid",
+  gap: "6px",
+  zIndex: 20,
+};
+
+const exportMenuButtonStyles = {
+  border: "none",
+  borderRadius: "10px",
+  backgroundColor: "#f8fbfe",
+  color: "#264564",
+  textAlign: "left",
+  padding: "10px 12px",
+  fontSize: "13px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const NO_EXPORT_DATA_MESSAGE = "No available data to export.";
+
 const InventoryTransactionsPage = () => {
   const [filters, setFilters] = useState({
     search: "",
@@ -46,6 +79,19 @@ const InventoryTransactionsPage = () => {
   const [inventoryItems, setInventoryItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [isExporting, setIsExporting] = useState("");
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+
+  const downloadFile = (file) => {
+    const downloadUrl = window.URL.createObjectURL(file.blob);
+    const anchor = document.createElement("a");
+    anchor.href = downloadUrl;
+    anchor.download = file.filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    window.URL.revokeObjectURL(downloadUrl);
+  };
 
   const loadPageData = async (activeFilters = filters) => {
     setIsLoading(true);
@@ -85,6 +131,31 @@ const InventoryTransactionsPage = () => {
 
   const handleApplyFilters = async () => {
     await loadPageData(filters);
+  };
+
+  const handleExport = async (format) => {
+    setErrorMessage("");
+    setIsExportMenuOpen(false);
+
+    if (inventoryTransactions.length === 0) {
+      setErrorMessage(NO_EXPORT_DATA_MESSAGE);
+      return;
+    }
+
+    setIsExporting(format);
+
+    try {
+      const file = await exportInventoryTransactions(format, filters);
+      downloadFile(file);
+    } catch (error) {
+      setErrorMessage(
+        error.message?.includes("No ")
+          ? NO_EXPORT_DATA_MESSAGE
+          : error.message || "Failed to export inventory transactions.",
+      );
+    } finally {
+      setIsExporting("");
+    }
   };
 
   return (
@@ -163,23 +234,70 @@ const InventoryTransactionsPage = () => {
             </select>
           </div>
 
-          <button
-            type="button"
-            onClick={handleApplyFilters}
-            style={{
-              border: "none",
-              borderRadius: "14px",
-              padding: "12px 18px",
-              background: "linear-gradient(135deg, #2f6499 0%, #4c86be 100%)",
-              color: "#ffffff",
-              fontSize: "14px",
-              fontWeight: 700,
-              cursor: "pointer",
-              boxShadow: "0 12px 24px rgba(58, 97, 141, 0.18)",
-            }}
-          >
-            Apply Filters
-          </button>
+          <div style={{ display: "flex", gap: "12px", position: "relative" }}>
+            <button
+              type="button"
+              onClick={handleApplyFilters}
+              style={{
+                border: "none",
+                borderRadius: "14px",
+                padding: "12px 18px",
+                background: "linear-gradient(135deg, #2f6499 0%, #4c86be 100%)",
+                color: "#ffffff",
+                fontSize: "14px",
+                fontWeight: 700,
+                cursor: "pointer",
+                boxShadow: "0 12px 24px rgba(58, 97, 141, 0.18)",
+              }}
+            >
+              Apply Filters
+            </button>
+
+            <div style={{ position: "relative" }}>
+              <button
+                type="button"
+                onClick={() => setIsExportMenuOpen((currentValue) => !currentValue)}
+                disabled={Boolean(isExporting)}
+                style={{
+                  border: "1px solid #c6d8ea",
+                  borderRadius: "14px",
+                  padding: "12px 18px",
+                  backgroundColor: "#f8fbfe",
+                  color: "#2a4c6f",
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  cursor: isExporting ? "not-allowed" : "pointer",
+                  minHeight: "46px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  opacity: isExporting ? 0.7 : 1,
+                }}
+              >
+                <FiFileText size={16} />
+                {isExporting ? `Exporting ${isExporting.toUpperCase()}...` : "Export"}
+              </button>
+
+              {isExportMenuOpen ? (
+                <div style={exportMenuStyles}>
+                  {[
+                    { key: "csv", label: "Export as CSV" },
+                    { key: "excel", label: "Export as Excel" },
+                    { key: "pdf", label: "Export as PDF" },
+                  ].map((option) => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => handleExport(option.key)}
+                      style={exportMenuButtonStyles}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
         </div>
       </section>
 

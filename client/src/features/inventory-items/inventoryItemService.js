@@ -72,6 +72,14 @@ export const exportInventoryItems = async ({ format, filters = {} }) => {
   const searchParams = new URLSearchParams({ format });
   appendInventoryItemFilters(searchParams, filters);
 
+  if (filters.report_type) {
+    searchParams.set("report_type", filters.report_type);
+  }
+
+  if (filters.near_expiry_days) {
+    searchParams.set("near_expiry_days", filters.near_expiry_days);
+  }
+
   const response = await fetch(
     `${API_BASE_URL}/api/v1/inventory-items/export?${searchParams.toString()}`,
   );
