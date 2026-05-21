@@ -213,3 +213,40 @@ export const fetchLatestInventoryForecast = async (disasterEventId) => {
 
   return handleJsonResponse(response, "Failed to fetch latest inventory forecast");
 };
+
+export const fetchForecastHealth = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/inventory-items/forecast/health`);
+
+  return handleJsonResponse(response, "Failed to fetch analytics health");
+};
+
+export const fetchForecastHistory = async ({
+  disasterEventId = null,
+  limit = 10,
+} = {}) => {
+  const searchParams = new URLSearchParams();
+
+  if (disasterEventId) {
+    searchParams.set("disaster_event_id", disasterEventId);
+  }
+
+  if (limit) {
+    searchParams.set("limit", String(limit));
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/inventory-items/forecast/history${
+      searchParams.toString() ? `?${searchParams.toString()}` : ""
+    }`,
+  );
+
+  return handleJsonResponse(response, "Failed to fetch forecast history");
+};
+
+export const fetchForecastRunDetails = async (runId) => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/inventory-items/forecast/history/${runId}`,
+  );
+
+  return handleJsonResponse(response, "Failed to fetch forecast run details");
+};

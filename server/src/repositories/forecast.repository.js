@@ -171,6 +171,80 @@ const getForecastResultsByRunId = async (forecastRunId, dbClient = pool) => {
   return result.rows;
 };
 
+const getForecastRunById = async (forecastRunId, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      SELECT
+        fr.id,
+        fr.disaster_event_id,
+        fr.run_type,
+        fr.run_by,
+        fr.run_at,
+        fr.model_name,
+        fr.parameters_json,
+        de.event_code,
+        de.title AS disaster_event_title,
+        u.first_name AS run_by_first_name,
+        u.last_name AS run_by_last_name,
+        u.email AS run_by_email
+      FROM forecast_runs fr
+      INNER JOIN disaster_events de ON de.id = fr.disaster_event_id
+      LEFT JOIN users u ON u.id = fr.run_by
+      WHERE fr.id = $1
+      LIMIT 1
+    `,
+    [forecastRunId],
+  );
+
+  return result.rows[0] || null;
+};
+
+const getForecastRunHistory = async (
+  { disasterEventId = null, limit = 10 } = {},
+  dbClient = pool,
+) => {
+  const values = [];
+  const conditions = [];
+
+  if (disasterEventId) {
+    values.push(disasterEventId);
+    conditions.push(`fr.disaster_event_id = $${values.length}`);
+  }
+
+  values.push(limit);
+
+  const whereClause = conditions.length
+    ? `WHERE ${conditions.join(" AND ")}`
+    : "";
+
+  const result = await dbClient.query(
+    `
+      SELECT
+        fr.id,
+        fr.disaster_event_id,
+        fr.run_type,
+        fr.run_by,
+        fr.run_at,
+        fr.model_name,
+        fr.parameters_json,
+        de.event_code,
+        de.title AS disaster_event_title,
+        u.first_name AS run_by_first_name,
+        u.last_name AS run_by_last_name,
+        u.email AS run_by_email
+      FROM forecast_runs fr
+      INNER JOIN disaster_events de ON de.id = fr.disaster_event_id
+      LEFT JOIN users u ON u.id = fr.run_by
+      ${whereClause}
+      ORDER BY fr.run_at DESC, fr.id DESC
+      LIMIT $${values.length}
+    `,
+    values,
+  );
+
+  return result.rows;
+};
+
 module.exports = {
   getDisasterEventById,
   getInventoryForecastItems,
@@ -179,4 +253,6 @@ module.exports = {
   insertForecastResult,
   getLatestForecastRunByDisasterEvent,
   getForecastResultsByRunId,
+  getForecastRunById,
+  getForecastRunHistory,
 };

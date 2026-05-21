@@ -457,6 +457,66 @@ const validateForecastLatestQuery = (req, res, next) => {
   }
 };
 
+const validateForecastHistoryQuery = (req, res, next) => {
+  try {
+    const { disaster_event_id, limit } = req.query;
+    const parsedLimit =
+      limit === undefined ? 10 : Number.parseInt(String(limit), 10);
+
+    if (
+      disaster_event_id !== undefined &&
+      disaster_event_id !== null &&
+      disaster_event_id !== "" &&
+      !isValidUuid(disaster_event_id)
+    ) {
+      return res.status(400).json({
+        message: "disaster_event_id must be a valid UUID when provided",
+      });
+    }
+
+    if (Number.isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 50) {
+      return res.status(400).json({
+        message: "limit must be an integer between 1 and 50",
+      });
+    }
+
+    req.validatedQuery = {
+      disaster_event_id: disaster_event_id || null,
+      limit: parsedLimit,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate forecast history query",
+      error: error.message,
+    });
+  }
+};
+
+const validateForecastRunIdParam = (req, res, next) => {
+  try {
+    const { runId } = req.params;
+
+    if (!isValidUuid(runId)) {
+      return res.status(400).json({
+        message: "runId must be a valid UUID",
+      });
+    }
+
+    req.validatedParams = {
+      runId,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate forecast run id",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   validateInventoryItemId,
   validateExportInventoryItems,
@@ -464,4 +524,6 @@ module.exports = {
   validateInventoryItemPayload,
   validateForecastRunPayload,
   validateForecastLatestQuery,
+  validateForecastHistoryQuery,
+  validateForecastRunIdParam,
 };

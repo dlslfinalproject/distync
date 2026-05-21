@@ -145,6 +145,26 @@ const buildAnalyticsUnavailableError = (message) => {
   return error;
 };
 
+const mapForecastRunSummary = (forecastRun) => ({
+  id: forecastRun.id,
+  disaster_event_id: forecastRun.disaster_event_id,
+  disaster_event: {
+    event_code: forecastRun.event_code,
+    title: forecastRun.disaster_event_title,
+  },
+  run_type: forecastRun.run_type,
+  run_by: forecastRun.run_by,
+  generated_by:
+    [forecastRun.run_by_first_name, forecastRun.run_by_last_name]
+      .filter(Boolean)
+      .join(" ")
+      .trim() || forecastRun.run_by_email || forecastRun.run_by || "Unknown User",
+  run_at: forecastRun.run_at,
+  model_name: forecastRun.model_name,
+  status: "COMPLETED",
+  parameters_json: forecastRun.parameters_json || {},
+});
+
 const callAnalyticsInventoryForecast = async (payload, actor = null) => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), ANALYTICS_TIMEOUT_MS);
@@ -245,6 +265,56 @@ const callAnalyticsInventoryForecast = async (payload, actor = null) => {
     throw buildAnalyticsUnavailableError(
       "Analytics service is unavailable. Please make sure the analytics server is running.",
     );
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
+const getAnalyticsServiceHealth = async () => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), ANALYTICS_TIMEOUT_MS);
+  const analyticsUrl = `${normalizeAnalyticsServiceUrl(
+    ANALYTICS_SERVICE_URL,
+  )}/health`;
+
+  try {
+    const response = await fetch(analyticsUrl, {
+      method: "GET",
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      return {
+        status: "UNAVAILABLE",
+        is_available: false,
+        service_url: normalizeAnalyticsServiceUrl(ANALYTICS_SERVICE_URL),
+      };
+    }
+
+    const responseData = await response.json().catch(() => null);
+
+    return {
+      status:
+        String(responseData?.status || "").toLowerCase() === "online"
+          ? "ONLINE"
+          : "UNAVAILABLE",
+      is_available: String(responseData?.status || "").toLowerCase() === "online",
+      service_url: normalizeAnalyticsServiceUrl(ANALYTICS_SERVICE_URL),
+    };
+  } catch (error) {
+    if (error.name === "AbortError") {
+      return {
+        status: "OFFLINE",
+        is_available: false,
+        service_url: normalizeAnalyticsServiceUrl(ANALYTICS_SERVICE_URL),
+      };
+    }
+
+    return {
+      status: "OFFLINE",
+      is_available: false,
+      service_url: normalizeAnalyticsServiceUrl(ANALYTICS_SERVICE_URL),
+    };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -391,6 +461,39 @@ const getLatestInventoryForecast = async (disasterEventId) => {
   return mapStoredForecastRun(latestRun, resultRows);
 };
 
+const getInventoryForecastHistory = async ({
+  disaster_event_id = null,
+  limit = 10,
+} = {}) => {
+  const historyRows = await forecastRepository.getForecastRunHistory({
+    disasterEventId: disaster_event_id,
+    limit,
+  });
+
+  return historyRows.map(mapForecastRunSummary);
+};
+
+const getInventoryForecastRunDetails = async (forecastRunId) => {
+  const forecastRun = await forecastRepository.getForecastRunById(forecastRunId);
+
+  if (!forecastRun) {
+    const error = new Error("Forecast run not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const resultRows = await forecastRepository.getForecastResultsByRunId(forecastRunId);
+  const mappedResults = mapStoredForecastRun(forecastRun, resultRows);
+
+  return {
+    forecast_run: {
+      ...mapForecastRunSummary(forecastRun),
+      parameters_json: forecastRun.parameters_json || {},
+    },
+    results: mappedResults.results,
+  };
+};
+
 module.exports = {
   FORECAST_MODELS,
   DEFAULT_FORECAST_MODEL,
@@ -398,4 +501,7 @@ module.exports = {
   LOOKBACK_DAYS,
   runInventoryForecast,
   getLatestInventoryForecast,
+  getAnalyticsServiceHealth,
+  getInventoryForecastHistory,
+  getInventoryForecastRunDetails,
 };

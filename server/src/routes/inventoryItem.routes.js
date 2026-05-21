@@ -5,7 +5,9 @@ const forecastService = require("../services/forecast.service");
 const inventoryItemService = require("../services/inventoryItem.service");
 const {
   validateExportInventoryItems,
+  validateForecastHistoryQuery,
   validateForecastLatestQuery,
+  validateForecastRunIdParam,
   validateForecastRunPayload,
   validateInventoryItemId,
   validateGetInventoryItems,
@@ -13,6 +15,67 @@ const {
 } = require("../validators/inventoryItem.validator");
 
 const router = express.Router();
+
+router.get(
+  "/forecast/health",
+  requireRoles(ROLE_CODES.MAYOR),
+  async (_req, res) => {
+    try {
+      const health = await forecastService.getAnalyticsServiceHealth();
+
+      return res.status(200).json({
+        data: health,
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        message: error.message || "Failed to fetch analytics health",
+      });
+    }
+  },
+);
+
+router.get(
+  "/forecast/history",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateForecastHistoryQuery,
+  async (req, res) => {
+    try {
+      const history = await forecastService.getInventoryForecastHistory(
+        req.validatedQuery,
+      );
+
+      return res.status(200).json({
+        data: history,
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        message: error.message || "Failed to fetch forecast history",
+      });
+    }
+  },
+);
+
+router.get(
+  "/forecast/history/:runId",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateForecastRunIdParam,
+  async (req, res) => {
+    try {
+      const forecastRunDetails =
+        await forecastService.getInventoryForecastRunDetails(
+          req.validatedParams.runId,
+        );
+
+      return res.status(200).json({
+        data: forecastRunDetails,
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        message: error.message || "Failed to fetch forecast run details",
+      });
+    }
+  },
+);
 
 router.get(
   "/forecast/latest",

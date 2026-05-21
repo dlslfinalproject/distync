@@ -11,6 +11,9 @@ import ForecastingPanel from "../../components/inventory-items/ForecastingPanel"
 import InventoryFilters from "../../components/inventory-items/InventoryFilters";
 import {
   createInventoryItem,
+  fetchForecastHealth,
+  fetchForecastHistory,
+  fetchForecastRunDetails,
   exportInventoryItems,
   fetchLatestInventoryForecast,
   fetchInventoryItems,
@@ -170,7 +173,13 @@ const InventoryItemsPage = () => {
   const [selectedForecastModel, setSelectedForecastModel] =
     useState("MOVING_AVERAGE");
   const [forecastRunData, setForecastRunData] = useState(null);
+  const [forecastHistory, setForecastHistory] = useState([]);
+  const [forecastHistoryDetails, setForecastHistoryDetails] = useState(null);
+  const [forecastHealth, setForecastHealth] = useState(null);
   const [isForecastLoading, setIsForecastLoading] = useState(false);
+  const [isForecastHistoryLoading, setIsForecastHistoryLoading] = useState(false);
+  const [isForecastHistoryDetailLoading, setIsForecastHistoryDetailLoading] =
+    useState(false);
   const [isRunningForecast, setIsRunningForecast] = useState(false);
   const [forecastErrorMessage, setForecastErrorMessage] = useState("");
   const [forecastSuccessMessage, setForecastSuccessMessage] = useState("");
@@ -268,6 +277,33 @@ const InventoryItemsPage = () => {
   useEffect(() => {
     let isMounted = true;
 
+    const loadForecastHealth = async () => {
+      try {
+        const response = await fetchForecastHealth();
+
+        if (isMounted) {
+          setForecastHealth(response?.data || null);
+        }
+      } catch (_error) {
+        if (isMounted) {
+          setForecastHealth({
+            status: "UNAVAILABLE",
+            is_available: false,
+          });
+        }
+      }
+    };
+
+    loadForecastHealth();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
     const loadLatestForecast = async () => {
       if (!selectedForecastEventId) {
         setForecastRunData(null);
@@ -298,6 +334,48 @@ const InventoryItemsPage = () => {
     };
 
     loadLatestForecast();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedForecastEventId]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadForecastHistory = async () => {
+      if (!selectedForecastEventId) {
+        setForecastHistory([]);
+        setForecastHistoryDetails(null);
+        return;
+      }
+
+      setIsForecastHistoryLoading(true);
+
+      try {
+        const response = await fetchForecastHistory({
+          disasterEventId: selectedForecastEventId,
+          limit: 10,
+        });
+
+        if (isMounted) {
+          const historyRows = response?.data || [];
+          setForecastHistory(historyRows);
+          setForecastHistoryDetails(null);
+        }
+      } catch (_error) {
+        if (isMounted) {
+          setForecastHistory([]);
+          setForecastHistoryDetails(null);
+        }
+      } finally {
+        if (isMounted) {
+          setIsForecastHistoryLoading(false);
+        }
+      }
+    };
+
+    loadForecastHistory();
 
     return () => {
       isMounted = false;
@@ -577,15 +655,36 @@ const InventoryItemsPage = () => {
       });
 
       setForecastRunData(response.data || null);
+      setForecastHistoryDetails(response.data || null);
       setForecastSuccessMessage(
         `${getForecastModelLabel(selectedForecastModel)} forecast completed successfully.`,
       );
+      const historyResponse = await fetchForecastHistory({
+        disasterEventId: selectedForecastEventId,
+        limit: 10,
+      });
+      setForecastHistory(historyResponse?.data || []);
     } catch (error) {
       setForecastErrorMessage(
         error.message || "Failed to run the selected forecast model.",
       );
     } finally {
       setIsRunningForecast(false);
+    }
+  };
+
+  const handleSelectForecastHistoryRun = async (runId) => {
+    setIsForecastHistoryDetailLoading(true);
+
+    try {
+      const response = await fetchForecastRunDetails(runId);
+      setForecastHistoryDetails(response?.data || null);
+    } catch (error) {
+      setForecastErrorMessage(
+        error.message || "Failed to load forecast run details.",
+      );
+    } finally {
+      setIsForecastHistoryDetailLoading(false);
     }
   };
 
@@ -746,14 +845,20 @@ const InventoryItemsPage = () => {
             selectedForecastModel={selectedForecastModel}
             forecastModelOptions={forecastModelOptions}
             forecastRunData={forecastRunData}
+            forecastHistory={forecastHistory}
+            forecastHistoryDetails={forecastHistoryDetails}
+            forecastHealth={forecastHealth}
             forecastSuccessMessage={forecastSuccessMessage}
             forecastErrorMessage={forecastErrorMessage}
             isForecastLoading={isForecastLoading}
+            isForecastHistoryLoading={isForecastHistoryLoading}
+            isForecastHistoryDetailLoading={isForecastHistoryDetailLoading}
             isRunningForecast={isRunningForecast}
             getForecastModelLabel={getForecastModelLabel}
             onForecastEventChange={setSelectedForecastEventId}
             onForecastModelChange={setSelectedForecastModel}
             onRunForecast={handleRunForecast}
+            onSelectForecastHistoryRun={handleSelectForecastHistoryRun}
           />
         )}
       </section>
