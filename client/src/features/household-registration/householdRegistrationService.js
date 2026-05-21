@@ -231,7 +231,7 @@ export const registerHousehold = async (payload) => {
       ? `${payload.family_head.first_name}-${payload.family_head.last_name}-${payload.disaster_event_id}-${payload.barangay_id}`
       : null,
     payload,
-    requiredFields: ["disaster_event_id", "barangay_id", "family_head", "members"],
+    requiredFields: ["disaster_event_id", "barangay_id", "family_head"],
     request: async () => {
       const response = await fetch(`${API_BASE_URL}/api/v1/households/register`, {
         method: "POST",
@@ -267,7 +267,7 @@ export const updateHousehold = async (householdId, payload) => {
     entityType: "HOUSEHOLD",
     entityServerId: householdId,
     payload,
-    requiredFields: ["disaster_event_id", "barangay_id", "family_head", "members"],
+    requiredFields: ["disaster_event_id", "barangay_id", "family_head"],
     request: async () => {
       const response = await fetch(`${API_BASE_URL}/api/v1/households/${householdId}`, {
         method: "PATCH",
