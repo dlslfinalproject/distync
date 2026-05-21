@@ -381,6 +381,7 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
         { label: "Relief Goods Distribution", to: "/barangay/stub-distribution" },
         { label: "Distribution History", to: "/barangay/distribution-history" },
         { label: "Sync Center", to: "/barangay/sync" },
+        { label: "Settings", to: "/barangay/settings" },
       ],
     },
     [ROLE_CODES.MSWDO]: {
@@ -395,6 +396,7 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
         { label: "Donation Summary", to: "/mswdo/donations" },
         { label: "Analytics Dashboard", to: "/mswdo/analytics" },
         { label: "Sync Center", to: "/mswdo/sync" },
+        { label: "Settings", to: "/mswdo/settings" },
       ],
     },
     [ROLE_CODES.MAYOR]: {
@@ -409,6 +411,7 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
         { label: "Donation Management", to: "/inventory/donations" },
         { label: "System Logs", to: "/inventory/system-logs" },
         { label: "Sync Center", to: "/inventory/sync" },
+        { label: "Settings", to: "/inventory/settings" },
       ],
     },
   };

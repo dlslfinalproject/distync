@@ -14,6 +14,27 @@ const getNotificationRuleByCode = async (code, dbClient = pool) => {
   return result.rows[0] || null;
 };
 
+const getNotificationRulesByTargetRoleCode = async (roleCode, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      SELECT
+        id,
+        code,
+        name,
+        trigger_type,
+        target_role_code,
+        is_active,
+        created_at
+      FROM notification_rules
+      WHERE target_role_code = $1
+      ORDER BY is_active DESC, name ASC
+    `,
+    [roleCode],
+  );
+
+  return result.rows;
+};
+
 const upsertNotificationRule = async (payload, dbClient = pool) => {
   const result = await dbClient.query(
     `
@@ -374,6 +395,7 @@ const getOpenSyncConflictsForNotificationScan = async (dbClient = pool) => {
 
 module.exports = {
   getNotificationRuleByCode,
+  getNotificationRulesByTargetRoleCode,
   upsertNotificationRule,
   getRecipientUserIdsByRoleCode,
   getRecipientUserIdsByRoleCodeAndBarangayIds,

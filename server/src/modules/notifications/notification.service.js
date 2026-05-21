@@ -653,6 +653,22 @@ const getUnreadCountForUser = async (userId) => {
   return notificationRepository.countUnreadNotificationsForUser(userId);
 };
 
+const getNotificationRulesForRole = async (roleCode) => {
+  const rules = await notificationRepository.getNotificationRulesByTargetRoleCode(
+    roleCode,
+  );
+
+  return rules.map((row) => ({
+    id: row.id,
+    code: row.code,
+    name: row.name,
+    trigger_type: row.trigger_type,
+    target_role_code: row.target_role_code,
+    is_active: row.is_active !== false,
+    created_at: row.created_at,
+  }));
+};
+
 const markNotificationAsRead = async (notificationId, userId) => {
   const updatedRecipient = await notificationRepository.markNotificationAsRead(
     notificationId,
@@ -699,6 +715,7 @@ module.exports = {
   initializeNotificationInfrastructure,
   getNotificationsForUser,
   getUnreadCountForUser,
+  getNotificationRulesForRole,
   markNotificationAsRead,
   markAllNotificationsAsRead,
 };

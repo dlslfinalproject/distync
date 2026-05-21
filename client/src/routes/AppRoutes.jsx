@@ -33,6 +33,7 @@ import PrintStubsPage from "../pages/mswdo/PrintStubsPage";
 import StubDistributionPageMswdo from "../pages/mswdo/StubDistributionPage";
 import StubClaimHistoryPage from "../pages/mswdo/StubClaimHistoryPage";
 import RoleSwitcherPage from "../pages/RoleSwitcherPage";
+import RoleSettingsPage from "../pages/settings/RoleSettingsPage";
 import { useAuth } from "../context/AuthContext";
 import { getAccessMode, getEntryRouteForMode } from "../utils/accessMode";
 import {
@@ -81,6 +82,7 @@ const AppRoutes = () => {
           />
           <Route path="notifications" element={<MayorNotificationsPage />} />
           <Route path="sync" element={<SyncManagementPage />} />
+          <Route path="settings" element={<RoleSettingsPage />} />
         </Route>
         <Route
           path="/mswdo"
@@ -123,6 +125,7 @@ const AppRoutes = () => {
           <Route path="anomalies" element={<AnomalyTrackingPage />} />
           <Route path="notifications" element={<MayorNotificationsPage />} />
           <Route path="sync" element={<SyncManagementPage />} />
+          <Route path="settings" element={<RoleSettingsPage />} />
         </Route>
         <Route
           path="/mswdo/print/stubs"
@@ -164,6 +167,7 @@ const AppRoutes = () => {
           />
           <Route path="system-logs" element={<SystemLogReviewPage />} />
           <Route path="donations" element={<DonationManagementPage />} />
+          <Route path="settings" element={<RoleSettingsPage />} />
         </Route>
         <Route path="/donations" element={<DonationInformationPage />} />
         <Route path="/donor/information" element={<DonationInformationPage />} />

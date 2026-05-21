@@ -6,6 +6,26 @@ const notificationService = require("./notification.service");
 const router = express.Router();
 
 router.get(
+  "/rules/current",
+  requireRoles(ROLE_CODES.MAYOR, ROLE_CODES.MSWDO, ROLE_CODES.BARANGAY),
+  async (req, res) => {
+    try {
+      const rules = await notificationService.getNotificationRulesForRole(
+        req.auth.roleCode,
+      );
+
+      return res.status(200).json({
+        data: rules,
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        message: error.message || "Failed to fetch notification rules",
+      });
+    }
+  },
+);
+
+router.get(
   "/",
   requireRoles(ROLE_CODES.MAYOR, ROLE_CODES.MSWDO, ROLE_CODES.BARANGAY),
   async (req, res) => {
