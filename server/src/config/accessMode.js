@@ -1,6 +1,7 @@
 const ACCESS_MODES = {
   DEVELOPMENT: "DEVELOPMENT",
   DEMO: "DEMO",
+  PRODUCTION: "PRODUCTION",
 };
 
 const normalizeAccessMode = (value) => {

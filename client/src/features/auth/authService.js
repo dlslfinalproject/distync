@@ -114,6 +114,24 @@ export const authenticateWithGoogleIdToken = async (idToken) => {
   return handleJsonResponse(response, "Google sign-in failed");
 };
 
+export const authenticateWithDemoCredentials = async ({
+  email,
+  password,
+}) => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/auth/demo-login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      email,
+      password,
+    }),
+  });
+
+  return handleJsonResponse(response, "Demo sign-in failed");
+};
+
 export const authenticateWithDevelopmentRole = async (role) => {
   const response = await fetch(`${API_BASE_URL}/api/v1/auth/development`, {
     method: "POST",

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { shellStyles } from "../components/layout/BarangayLayout";
 import { useAuth } from "../context/AuthContext";
 import { renderGoogleSignInButton } from "../features/auth/authService";
@@ -9,23 +9,98 @@ import {
   getDefaultRouteForRole,
 } from "../utils/roleSession";
 
+const inputStyles = {
+  width: "100%",
+  minHeight: "48px",
+  padding: "12px 14px",
+  borderRadius: "14px",
+  border: "1px solid #d2deea",
+  backgroundColor: "#ffffff",
+  color: "#21405f",
+  fontSize: "14px",
+  boxSizing: "border-box",
+};
+
+const labelStyles = {
+  display: "block",
+  marginBottom: "8px",
+  color: "#4f677f",
+  fontSize: "13px",
+  fontWeight: 700,
+};
+
+const buttonStyles = {
+  primary: {
+    border: "none",
+    borderRadius: "999px",
+    backgroundColor: "#24496e",
+    color: "#ffffff",
+    padding: "12px 18px",
+    fontSize: "14px",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  secondary: {
+    border: "1px solid #c7d7e8",
+    borderRadius: "999px",
+    backgroundColor: "#ffffff",
+    color: "#24496e",
+    padding: "12px 18px",
+    fontSize: "14px",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  link: {
+    border: "none",
+    background: "none",
+    padding: 0,
+    color: "#507192",
+    fontSize: "13px",
+    textAlign: "left",
+  },
+};
+
 const AccessPage = () => {
   const navigate = useNavigate();
   const googleButtonRef = useRef(null);
   const [pageError, setPageError] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const accessMode = getAccessMode();
   const {
     authError,
     clearAuthError,
     continueAsDonor,
     isAuthLoading,
+    signInWithDemoCredentials,
     signInWithGoogleCredential,
   } = useAuth();
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
-  const isDemoMode = useMemo(() => {
-    return accessMode === ACCESS_MODES.DEMO;
-  }, [accessMode]);
+  const isDemoMode = accessMode === ACCESS_MODES.DEMO;
+  const isDevelopmentMode = accessMode === ACCESS_MODES.DEVELOPMENT;
+  const isProductionMode = accessMode === ACCESS_MODES.PRODUCTION;
+
+  const signInTitle = useMemo(() => {
+    if (isDemoMode) {
+      return "Demo Access Mode";
+    }
+
+    if (isProductionMode) {
+      return "Staff Access";
+    }
+
+    return "Access Entry";
+  }, [isDemoMode, isProductionMode]);
+
+  const handleAuthenticatedRedirect = useCallback(
+    (sessionPayload) => {
+      navigate(getDefaultRouteForRole(sessionPayload.user.role), {
+        replace: true,
+      });
+    },
+    [navigate],
+  );
 
   const handleGoogleCredential = useCallback(
     async (credential) => {
@@ -39,22 +114,45 @@ const AccessPage = () => {
 
       try {
         const sessionPayload = await signInWithGoogleCredential(credential);
-
-        navigate(getDefaultRouteForRole(sessionPayload.user.role), {
-          replace: true,
-        });
+        handleAuthenticatedRedirect(sessionPayload);
       } catch (error) {
         setPageError(error.message || "Google sign-in failed");
       }
     },
-    [clearAuthError, navigate, signInWithGoogleCredential],
+    [clearAuthError, handleAuthenticatedRedirect, signInWithGoogleCredential],
   );
+
+  const handleDemoLogin = async (event) => {
+    event.preventDefault();
+    clearAuthError();
+    setPageError("");
+
+    if (!email.trim()) {
+      setPageError("Email is required.");
+      return;
+    }
+
+    if (!password) {
+      setPageError("Password is required.");
+      return;
+    }
+
+    try {
+      const sessionPayload = await signInWithDemoCredentials({
+        email: email.trim().toLowerCase(),
+        password,
+      });
+      handleAuthenticatedRedirect(sessionPayload);
+    } catch (error) {
+      setPageError(error.message || "Demo sign-in failed");
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
 
     const setupGoogleButton = async () => {
-      if (!isDemoMode || !googleButtonRef.current) {
+      if (isDevelopmentMode || !googleButtonRef.current) {
         return;
       }
 
@@ -85,17 +183,13 @@ const AccessPage = () => {
     return () => {
       isMounted = false;
     };
-  }, [
-    googleClientId,
-    handleGoogleCredential,
-    isDemoMode,
-  ]);
+  }, [googleClientId, handleGoogleCredential, isDevelopmentMode]);
 
   useEffect(() => {
-    if (isDemoMode && authError) {
+    if (!isDevelopmentMode && authError) {
       setPageError(authError);
     }
-  }, [authError, isDemoMode]);
+  }, [authError, isDevelopmentMode]);
 
   const handleDonorAccess = () => {
     clearAuthError();
@@ -104,11 +198,9 @@ const AccessPage = () => {
     navigate(getDefaultRouteForRole(ROLE_CODES.DONOR), { replace: true });
   };
 
-  const handleDevelopmentStaffAccess = () => {
-    clearAuthError();
-    setPageError("");
-    navigate("/role-switcher", { replace: true });
-  };
+  if (isDevelopmentMode) {
+    return <Navigate to="/role-switcher" replace />;
+  }
 
   return (
     <div
@@ -147,25 +239,53 @@ const AccessPage = () => {
               textTransform: "uppercase",
             }}
           >
-            {isDemoMode ? "Demo Access Mode" : "Access Entry"}
+            {signInTitle}
           </p>
           <h1 style={{ margin: 0, color: "#17324d", fontSize: "36px" }}>
             Welcome to DISTYNC
           </h1>
           <p style={shellStyles.mutedText}>
-            This entry flow is ready for demos now and structured so we can plug
-            real authentication into the same redirect logic later.
+            {isDemoMode
+              ? "Sign in with approved demo credentials or Google access tied to an authorized DISTYNC user account."
+              : "Sign in with the authorized Google account linked to your DISTYNC user record."}
           </p>
+
+          {isDemoMode ? (
+            <section
+              style={{
+                borderRadius: "16px",
+                backgroundColor: "#f8fbfe",
+                border: "1px solid #d7e2ef",
+                padding: "18px",
+              }}
+            >
+              <p
+                style={{
+                  margin: 0,
+                  color: "#6a8097",
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                }}
+              >
+                Demo Notice
+              </p>
+              <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
+                Demo access mode only.
+              </p>
+            </section>
+          ) : null}
 
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
               gap: "16px",
               marginTop: "6px",
             }}
           >
-            <div
+            <section
               style={{
                 ...shellStyles.card,
                 padding: "18px",
@@ -183,48 +303,96 @@ const AccessPage = () => {
                   textTransform: "uppercase",
                 }}
               >
-                Authorized User Access
+                Staff Login Path
               </p>
               <h2 style={{ margin: "10px 0 0", color: "#17324d", fontSize: "22px" }}>
-                Staff Login Path
+                {isDemoMode ? "Demo Login Dashboard" : "Authorized Google Sign-In"}
               </h2>
               <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
                 {isDemoMode
-                  ? "Sign in with the authorized Google account linked to your DISTYNC user record. Your role will be loaded from the database."
-                  : "Development Mode uses the role switcher for fast testing instead of Google sign-in."}
+                  ? "Use a valid DISTYNC user email and the demo password configured on the server, or continue with Google sign-in."
+                  : "Continue with the authorized Google account linked to your DISTYNC user record."}
               </p>
+
               {isDemoMode ? (
-                <>
-                  <div
-                    ref={googleButtonRef}
-                    style={{ marginTop: "18px", minHeight: "44px" }}
-                  />
-                  {isAuthLoading ? (
-                    <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
-                      Verifying Google sign-in...
-                    </p>
-                  ) : null}
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleDevelopmentStaffAccess}
-                  style={{
-                    marginTop: "18px",
-                    border: "1px solid #c7d7e8",
-                    borderRadius: "999px",
-                    backgroundColor: "#ffffff",
-                    color: "#24496e",
-                    padding: "12px 18px",
-                    fontSize: "14px",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
-                >
-                  Continue to Role Switcher
-                </button>
-              )}
-            </div>
+                <form onSubmit={handleDemoLogin} style={{ marginTop: "18px", display: "grid", gap: "14px" }}>
+                  <div>
+                    <label htmlFor="demo-login-email" style={labelStyles}>
+                      Email
+                    </label>
+                    <input
+                      id="demo-login-email"
+                      type="email"
+                      value={email}
+                      onChange={(event) => setEmail(event.target.value)}
+                      placeholder="Enter your demo access email"
+                      autoComplete="username"
+                      style={inputStyles}
+                      disabled={isAuthLoading}
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="demo-login-password" style={labelStyles}>
+                      Password
+                    </label>
+                    <input
+                      id="demo-login-password"
+                      type="password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      placeholder="Enter your demo password"
+                      autoComplete="current-password"
+                      style={inputStyles}
+                      disabled={isAuthLoading}
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isAuthLoading}
+                    style={{
+                      ...buttonStyles.primary,
+                      opacity: isAuthLoading ? 0.72 : 1,
+                      cursor: isAuthLoading ? "wait" : "pointer",
+                    }}
+                  >
+                    {isAuthLoading ? "Signing in..." : "Login"}
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled
+                    style={{
+                      ...buttonStyles.link,
+                      opacity: 0.7,
+                      cursor: "not-allowed",
+                    }}
+                    title="Forgot password flow is not configured yet."
+                  >
+                    Forgot password? Contact the system administrator.
+                  </button>
+                </form>
+              ) : null}
+
+              <div
+                style={{
+                  marginTop: "18px",
+                  display: "grid",
+                  gap: "10px",
+                }}
+              >
+                <div
+                  ref={googleButtonRef}
+                  style={{ minHeight: "44px" }}
+                />
+                {isAuthLoading ? (
+                  <p style={{ ...shellStyles.mutedText, margin: 0 }}>
+                    Verifying sign-in...
+                  </p>
+                ) : null}
+              </div>
+            </section>
 
             <button
               type="button"
@@ -322,12 +490,12 @@ const AccessPage = () => {
             }}
           >
             <h3 style={{ margin: 0, color: "#17324d", fontSize: "18px" }}>
-              Future auth hook point
+              Current access behavior
             </h3>
             <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-              Authorized users now go through backend verification, while donor
-              access stays public and the development role switcher stays available
-              in Development Mode.
+              {isDemoMode
+                ? "Demo mode supports server-validated email/password access and Google sign-in for authorized users."
+                : "Production mode keeps the normal authorized Google sign-in path without exposing development shortcuts."}
             </p>
           </div>
 
@@ -340,7 +508,7 @@ const AccessPage = () => {
             }}
           >
             <h3 style={{ margin: 0, color: "#17324d", fontSize: "18px" }}>
-              What this mode gives us now
+              What stays protected
             </h3>
             <ul
               style={{
@@ -350,10 +518,10 @@ const AccessPage = () => {
                 lineHeight: 1.7,
               }}
             >
-              <li>Role-based redirects</li>
-              <li>Role-based sidebar navigation</li>
-              <li>Fast demo entry without backend auth changes</li>
-              <li>One route guard pattern we can reuse later</li>
+              <li>Development role switcher is hidden outside Development mode</li>
+              <li>Inactive users cannot sign in</li>
+              <li>Google staff access stays role-based</li>
+              <li>Donor access remains separate from staff access</li>
             </ul>
           </div>
         </aside>

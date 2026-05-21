@@ -35,7 +35,7 @@ import StubClaimHistoryPage from "../pages/mswdo/StubClaimHistoryPage";
 import RoleSwitcherPage from "../pages/RoleSwitcherPage";
 import RoleSettingsPage from "../pages/settings/RoleSettingsPage";
 import { useAuth } from "../context/AuthContext";
-import { getAccessMode, getEntryRouteForMode } from "../utils/accessMode";
+import { ACCESS_MODES, getAccessMode, getEntryRouteForMode } from "../utils/accessMode";
 import {
   getDefaultRouteForRole,
 } from "../utils/roleSession";
@@ -52,13 +52,24 @@ const DefaultAppRedirect = () => {
 };
 
 const AppRoutes = () => {
+  const resolvedAccessMode = getAccessMode();
+
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<DefaultAppRedirect />} />
         <Route path="/access" element={<AccessPage />} />
         <Route path="/verify-stub" element={<VerifyStubPage />} />
-        <Route path="/role-switcher" element={<RoleSwitcherPage />} />
+        <Route
+          path="/role-switcher"
+          element={
+            resolvedAccessMode === ACCESS_MODES.DEVELOPMENT ? (
+              <RoleSwitcherPage />
+            ) : (
+              <Navigate to={getEntryRouteForMode(resolvedAccessMode)} replace />
+            )
+          }
+        />
         <Route
           path="/barangay"
           element={

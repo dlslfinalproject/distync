@@ -1,5 +1,10 @@
 const authRepository = require("./auth.repository");
-const { isDevelopmentBypassEnabled } = require("../../config/accessMode");
+const crypto = require("crypto");
+const {
+  ACCESS_MODES,
+  getServerAccessMode,
+  isDevelopmentBypassEnabled,
+} = require("../../config/accessMode");
 const { TOKEN_EXPIRY, createAccessToken } = require("./auth.token");
 
 const AUTHORIZED_ROLE_CODES = new Set(["MSWDO", "BARANGAY", "MAYOR"]);
@@ -99,6 +104,57 @@ const buildSessionPayload = (user, roleCode) => {
   };
 };
 
+const resolveAuthorizedRoleForUser = async (user) => {
+  if (!user.is_active) {
+    const error = new Error("This DISTYNC account is currently inactive.");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  const role = await authRepository.getRoleByUserId(user.id);
+
+  if (!role) {
+    const error = new Error("This DISTYNC account does not have an assigned role.");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  if (!AUTHORIZED_ROLE_CODES.has(role.code)) {
+    const error = new Error(
+      "This account is not allowed to use authorized staff access.",
+    );
+    error.statusCode = 403;
+    throw error;
+  }
+
+  return role.code;
+};
+
+const getDemoAccessPassword = () => {
+  const configuredPassword = String(
+    process.env.DEMO_ACCESS_PASSWORD || "",
+  ).trim();
+
+  if (!configuredPassword) {
+    const error = new Error("DEMO_ACCESS_PASSWORD is missing in the backend environment");
+    error.statusCode = 500;
+    throw error;
+  }
+
+  return configuredPassword;
+};
+
+const isMatchingSecret = (leftValue, rightValue) => {
+  const leftBuffer = Buffer.from(String(leftValue));
+  const rightBuffer = Buffer.from(String(rightValue));
+
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+};
+
 const authenticateWithGoogle = async (idToken) => {
   const verifiedIdentity = await verifyGoogleIdToken(idToken);
 
@@ -137,29 +193,37 @@ const authenticateWithGoogle = async (idToken) => {
     }
   }
 
-  if (!user.is_active) {
-    const error = new Error("This DISTYNC account is currently inactive.");
+  const roleCode = await resolveAuthorizedRoleForUser(user);
+
+  return buildSessionPayload(user, roleCode);
+};
+
+const authenticateWithDemoCredentials = async ({ email, password }) => {
+  if (getServerAccessMode() !== ACCESS_MODES.DEMO) {
+    const error = new Error("Demo credential login is only available in Demo access mode.");
     error.statusCode = 403;
     throw error;
   }
 
-  const role = await authRepository.getRoleByUserId(user.id);
+  const configuredPassword = getDemoAccessPassword();
 
-  if (!role) {
-    const error = new Error("This DISTYNC account does not have an assigned role.");
-    error.statusCode = 403;
+  if (!isMatchingSecret(password, configuredPassword)) {
+    const error = new Error("Invalid demo email or password.");
+    error.statusCode = 401;
     throw error;
   }
 
-  if (!AUTHORIZED_ROLE_CODES.has(role.code)) {
-    const error = new Error(
-      "This account is not allowed to use authorized staff access.",
-    );
-    error.statusCode = 403;
+  const user = await authRepository.getUserByEmail(email);
+
+  if (!user) {
+    const error = new Error("Invalid demo email or password.");
+    error.statusCode = 401;
     throw error;
   }
 
-  return buildSessionPayload(user, role.code);
+  const roleCode = await resolveAuthorizedRoleForUser(user);
+
+  return buildSessionPayload(user, roleCode);
 };
 
 const authenticateDevelopmentRole = async (roleCode) => {
@@ -191,6 +255,7 @@ const authenticateDevelopmentRole = async (roleCode) => {
 };
 
 module.exports = {
+  authenticateWithDemoCredentials,
   authenticateDevelopmentRole,
   authenticateWithGoogle,
 };

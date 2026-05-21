@@ -16,6 +16,7 @@ import {
   setCurrentRole,
 } from "../utils/roleSession";
 import {
+  authenticateWithDemoCredentials,
   authenticateWithDevelopmentRole,
   authenticateWithGoogleIdToken,
   clearGooglePromptState,
@@ -96,7 +97,10 @@ export const AuthProvider = ({ children }) => {
     try {
       const sessionPayload = await authenticateWithGoogleIdToken(credential);
       clearAllAccessSessions();
-      if (accessMode === ACCESS_MODES.DEMO) {
+      if (
+        accessMode === ACCESS_MODES.DEMO ||
+        accessMode === ACCESS_MODES.PRODUCTION
+      ) {
         setCurrentRole(sessionPayload.user.role);
       }
       setAuthenticatedSession(sessionPayload);
@@ -110,6 +114,32 @@ export const AuthProvider = ({ children }) => {
       setIsAuthLoading(false);
     }
   }, [accessMode, syncAuthState]);
+
+  const signInWithDemoCredentials = useCallback(async ({
+    email,
+    password,
+  }) => {
+    setIsAuthLoading(true);
+    setAuthError("");
+
+    try {
+      const sessionPayload = await authenticateWithDemoCredentials({
+        email,
+        password,
+      });
+      clearAllAccessSessions();
+      setCurrentRole(sessionPayload.user.role);
+      setAuthenticatedSession(sessionPayload);
+      syncAuthState();
+      return sessionPayload;
+    } catch (error) {
+      const message = error.message || "Failed to sign in with demo credentials";
+      setAuthError(message);
+      throw error;
+    } finally {
+      setIsAuthLoading(false);
+    }
+  }, [syncAuthState]);
 
   const clearSession = useCallback(() => {
     clearGooglePromptState();
@@ -131,6 +161,7 @@ export const AuthProvider = ({ children }) => {
       continueAsDonor,
       clearSession,
       selectDevelopmentRole,
+      signInWithDemoCredentials,
       signInWithGoogleCredential,
       syncAuthState,
     };

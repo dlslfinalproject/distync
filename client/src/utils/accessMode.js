@@ -1,6 +1,7 @@
 export const ACCESS_MODES = {
   DEVELOPMENT: "DEVELOPMENT",
   DEMO: "DEMO",
+  PRODUCTION: "PRODUCTION",
 };
 
 const validAccessModes = Object.values(ACCESS_MODES);
@@ -16,7 +17,7 @@ export const getAccessMode = () => {
 };
 
 export const getEntryRouteForMode = (mode) => {
-  if (mode === ACCESS_MODES.DEMO) {
+  if (mode === ACCESS_MODES.DEMO || mode === ACCESS_MODES.PRODUCTION) {
     return "/access";
   }
 
