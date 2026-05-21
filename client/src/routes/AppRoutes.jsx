@@ -22,6 +22,7 @@ import InventoryTransactionsPage from "../pages/inventory/InventoryTransactionsP
 import ReliefPackTemplatesPage from "../pages/inventory/ReliefPackTemplatesPage";
 import SuppliersPage from "../pages/inventory/SuppliersPage";
 import DonationInformationPage from "../pages/donor/DonationInformationPage";
+import DistributionHistoryPage from "../pages/DistributionHistoryPage";
 import AnalyticsDashboardPage from "../pages/mswdo/AnalyticsDashboardPage";
 import ConsolidatedMasterlistPage from "../pages/mswdo/ConsolidatedMasterlistPage";
 import DisasterEventsPage from "../pages/mswdo/DisasterEventsPage";
@@ -67,6 +68,10 @@ const AppRoutes = () => {
             element={<DistributionTransactionPage />}
           />
           <Route
+            path="distribution-history"
+            element={<DistributionHistoryPage />}
+          />
+          <Route
             path="stub-distribution"
             element={<StubDistributionPage />}
           />
@@ -96,6 +101,10 @@ const AppRoutes = () => {
           <Route
             path="stub-distribution"
             element={<StubDistributionPageMswdo />}
+          />
+          <Route
+            path="distribution-history"
+            element={<DistributionHistoryPage />}
           />
           <Route path="donations" element={<DonationManagementPage />} />
           <Route path="disaster-events" element={<DisasterEventsPage />} />
@@ -135,6 +144,10 @@ const AppRoutes = () => {
           <Route
             path="distribution"
             element={<InventoryDistributionPage />}
+          />
+          <Route
+            path="distribution-history"
+            element={<DistributionHistoryPage />}
           />
           <Route path="donations" element={<DonationManagementPage />} />
         </Route>

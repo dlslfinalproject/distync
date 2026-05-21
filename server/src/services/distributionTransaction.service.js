@@ -538,7 +538,32 @@ const claimDistributionTransactionFromQr = async (requestData) => {
   }
 };
 
+const getDistributionHistory = async ({ requester, filters }) => {
+  const roleCode = requester?.roleCode;
+  const isBarangay = roleCode === BARANGAY_ROLE_CODE;
+
+  if (isBarangay && !requester?.defaultBarangayId) {
+    const error = new Error(
+      "Barangay distribution history requires an account with an assigned barangay.",
+    );
+    error.statusCode = 403;
+    throw error;
+  }
+
+  return distributionTransactionRepository.getDistributionHistory({
+    barangayId: isBarangay
+      ? requester.defaultBarangayId
+      : filters.barangay_id || null,
+    disasterEventId: filters.disaster_event_id || null,
+    status: filters.status || null,
+    dateFrom: filters.date_from || null,
+    dateTo: filters.date_to || null,
+    limit: filters.limit || 100,
+  });
+};
+
 module.exports = {
   createDistributionTransaction,
   claimDistributionTransactionFromQr,
+  getDistributionHistory,
 };

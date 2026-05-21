@@ -232,6 +232,116 @@ const updateStubAsClaimed = async (stubId, dbClient) => {
   return result.rows[0] || null;
 };
 
+const getDistributionHistory = async ({
+  barangayId = null,
+  disasterEventId = null,
+  status = null,
+  dateFrom = null,
+  dateTo = null,
+  limit = 100,
+}) => {
+  const values = [];
+  const conditions = [];
+
+  if (barangayId) {
+    values.push(barangayId);
+    conditions.push(`h.barangay_id = $${values.length}`);
+  }
+
+  if (disasterEventId) {
+    values.push(disasterEventId);
+    conditions.push(`dt.disaster_event_id = $${values.length}`);
+  }
+
+  if (status) {
+    values.push(status);
+    conditions.push(`dt.distribution_status = $${values.length}`);
+  }
+
+  if (dateFrom) {
+    values.push(dateFrom);
+    conditions.push(`dt.distribution_date >= $${values.length}`);
+  }
+
+  if (dateTo) {
+    values.push(dateTo);
+    conditions.push(`dt.distribution_date < ($${values.length}::date + INTERVAL '1 day')`);
+  }
+
+  values.push(limit);
+
+  const whereClause =
+    conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  const query = `
+    SELECT
+      dt.id,
+      dt.disaster_event_id,
+      dt.household_id,
+      dt.stub_id,
+      dt.distribution_date,
+      dt.distribution_status,
+      dt.claimed_by_name,
+      dt.verified_by,
+      dt.qr_reference_value,
+      dt.receipt_no,
+      dt.receipt_status,
+      dt.received_at,
+      dt.relief_pack_template_id,
+      dt.remarks,
+      dt.sync_status,
+      dt.created_at,
+      dt.updated_at,
+      de.event_code,
+      de.title AS disaster_event_title,
+      b.id AS barangay_id,
+      b.name AS barangay_name,
+      s.stub_no,
+      s.serial_no,
+      CONCAT_WS(
+        ' ',
+        h.family_head_first_name,
+        h.family_head_middle_name,
+        h.family_head_last_name,
+        h.family_head_suffix
+      ) AS family_head_name,
+      CONCAT_WS(
+        ' ',
+        u.first_name,
+        u.middle_name,
+        u.last_name
+      ) AS verified_by_name,
+      rpt.name AS relief_pack_template_name,
+      COALESCE(item_summary.total_quantity_released, 0) AS total_quantity_released,
+      COALESCE(item_summary.released_items_summary, '') AS released_items_summary
+    FROM distribution_transactions dt
+    INNER JOIN households h ON h.id = dt.household_id
+    INNER JOIN barangays b ON b.id = h.barangay_id
+    INNER JOIN disaster_events de ON de.id = dt.disaster_event_id
+    INNER JOIN stubs s ON s.id = dt.stub_id
+    LEFT JOIN users u ON u.id = dt.verified_by
+    LEFT JOIN relief_pack_templates rpt ON rpt.id = dt.relief_pack_template_id
+    LEFT JOIN LATERAL (
+      SELECT
+        SUM(dti.quantity_released)::integer AS total_quantity_released,
+        STRING_AGG(
+          CONCAT(ii.item_name, ' x', dti.quantity_released),
+          ', '
+          ORDER BY ii.item_name
+        ) AS released_items_summary
+      FROM distribution_transaction_items dti
+      INNER JOIN inventory_items ii ON ii.id = dti.inventory_item_id
+      WHERE dti.distribution_transaction_id = dt.id
+    ) item_summary ON TRUE
+    ${whereClause}
+    ORDER BY dt.distribution_date DESC, dt.created_at DESC
+    LIMIT $${values.length}
+  `;
+
+  const result = await pool.query(query, values);
+  return result.rows;
+};
+
 module.exports = {
   getDistributionReceiptSequence,
   getStubByIdForUpdate,
@@ -240,4 +350,5 @@ module.exports = {
   insertDistributionTransactionItem,
   updateInventoryBatchQuantityAndStatus,
   updateStubAsClaimed,
+  getDistributionHistory,
 };

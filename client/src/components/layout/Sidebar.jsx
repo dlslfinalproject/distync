@@ -379,6 +379,7 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
       navItems: [
         { label: "Evacuee Masterlist", to: "/barangay/masterlist" },
         { label: "Relief Goods Distribution", to: "/barangay/stub-distribution" },
+        { label: "Distribution History", to: "/barangay/distribution-history" },
         { label: "Sync Center", to: "/barangay/sync" },
       ],
     },
@@ -387,6 +388,7 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
         { label: "Disaster Events", to: "/mswdo/disaster-events" },
         { label: "Evacuee Masterlist", to: "/mswdo/consolidated-masterlist" },
         { label: "Relief Goods Distribution", to: "/mswdo/stub-distribution" },
+        { label: "Distribution History", to: "/mswdo/distribution-history" },
         { label: "Donation Summary", to: "/mswdo/donations" },
         { label: "Analytics Dashboard", to: "/mswdo/analytics" },
         { label: "Sync Center", to: "/mswdo/sync" },
@@ -400,6 +402,7 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
         { label: "Inventory Tracking", to: "/inventory/transactions" },
         { label: "Relief Pack Templates", to: "/inventory/relief-pack-templates" },
         { label: "Inventory Distribution", to: "/inventory/distribution" },
+        { label: "Distribution History", to: "/inventory/distribution-history" },
         { label: "Donation Management", to: "/inventory/donations" },
         { label: "Sync Center", to: "/inventory/sync" },
       ],

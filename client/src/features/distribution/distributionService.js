@@ -46,6 +46,26 @@ export const fetchInventoryBatches = async () => {
   return handleJsonResponse(response, "Failed to fetch inventory batches");
 };
 
+export const fetchDistributionHistory = async (filters = {}) => {
+  const searchParams = new URLSearchParams();
+
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") {
+      return;
+    }
+
+    searchParams.set(key, value);
+  });
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/distribution-transactions/history${
+      searchParams.toString() ? `?${searchParams.toString()}` : ""
+    }`,
+  );
+
+  return handleJsonResponse(response, "Failed to fetch distribution history");
+};
+
 export const recordDistributionTransaction = async (payload) => {
   return performSyncableMutation({
     moduleName: "distribution",

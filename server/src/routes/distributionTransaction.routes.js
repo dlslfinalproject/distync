@@ -5,9 +5,34 @@ const distributionTransactionService = require("../services/distributionTransact
 const {
   validateCreateDistributionTransaction,
   validateClaimDistributionFromQr,
+  validateGetDistributionHistory,
 } = require("../validators/distributionTransaction.validator");
 
 const router = express.Router();
+
+router.get(
+  "/history",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
+  validateGetDistributionHistory,
+  async (req, res) => {
+    try {
+      const historyRows =
+        await distributionTransactionService.getDistributionHistory({
+          requester: req.auth,
+          filters: req.validatedQuery,
+        });
+
+      return res.status(200).json({
+        message: "Distribution history fetched successfully",
+        data: historyRows,
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        message: error.message || "Failed to fetch distribution history",
+      });
+    }
+  },
+);
 
 router.post(
   "/claim-from-qr",
