@@ -9,6 +9,15 @@ import {
   subscribeToSyncUpdates,
 } from "../offline/syncService";
 import { fetchSyncHistory } from "../features/sync/syncHistoryService";
+import {
+  buildConflictPayloadSummary,
+  buildPayloadSummary,
+  formatSyncDateTime,
+  getWinningSide,
+  isSafeRetryableStatus,
+  matchesSyncFilter,
+  SYNC_FILTERS,
+} from "../features/sync/syncManagementHelpers";
 
 const noteStyles = {
   padding: "16px 18px",
@@ -45,24 +54,21 @@ const tableStyles = {
   },
 };
 
-const formatDateTime = (value) => {
-  if (!value) {
-    return "--";
-  }
+const filterButtonStyles = (isActive) => ({
+  border: "none",
+  borderRadius: "999px",
+  padding: "10px 16px",
+  backgroundColor: isActive ? "#dbe8f6" : "#eef5fc",
+  color: isActive ? "#17324d" : "#40617f",
+  fontWeight: 700,
+  cursor: "pointer",
+});
 
-  const parsedDate = new Date(value);
-
-  if (Number.isNaN(parsedDate.getTime())) {
-    return "--";
-  }
-
-  return parsedDate.toLocaleString("en-PH", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+const detailTextStyles = {
+  color: "#60738a",
+  fontSize: "12px",
+  lineHeight: 1.5,
+  marginTop: "4px",
 };
 
 const SyncManagementPage = () => {
@@ -73,6 +79,7 @@ const SyncManagementPage = () => {
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [isRetrying, setIsRetrying] = useState(false);
+  const [activeFilter, setActiveFilter] = useState("ALL");
 
   const syncQueueEntries =
     useLiveQuery(() => db.syncQueue.orderBy("updatedAt").reverse().toArray(), [], []) ||
@@ -109,12 +116,32 @@ const SyncManagementPage = () => {
     );
   }, [syncQueueEntries]);
 
+  const filteredQueueEntries = useMemo(() => {
+    return syncQueueEntries.filter((entry) =>
+      matchesSyncFilter(entry.status, activeFilter),
+    );
+  }, [activeFilter, syncQueueEntries]);
+
+  const filteredTransactions = useMemo(() => {
+    return syncHistory.transactions.filter((transaction) =>
+      matchesSyncFilter(transaction.sync_status, activeFilter),
+    );
+  }, [activeFilter, syncHistory.transactions]);
+
+  const filteredConflicts = useMemo(() => {
+    if (activeFilter === "ALL" || activeFilter === "CONFLICT") {
+      return syncHistory.conflicts;
+    }
+
+    return [];
+  }, [activeFilter, syncHistory.conflicts]);
+
   const loadSyncHistory = async () => {
     setIsLoadingHistory(true);
     setErrorMessage("");
 
     try {
-      const response = await fetchSyncHistory({ limit: 50 });
+      const response = await fetchSyncHistory({ limit: 100 });
       setSyncHistory({
         transactions: Array.isArray(response.transactions)
           ? response.transactions
@@ -198,6 +225,21 @@ const SyncManagementPage = () => {
       </section>
 
       <section style={shellStyles.card}>
+        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+          {SYNC_FILTERS.map((filter) => (
+            <button
+              key={filter.key}
+              type="button"
+              onClick={() => setActiveFilter(filter.key)}
+              style={filterButtonStyles(activeFilter === filter.key)}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section style={shellStyles.card}>
         <div style={{ marginBottom: "16px" }}>
           <h3 style={{ margin: 0, color: "#17324d" }}>Local Sync Queue</h3>
           <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
@@ -206,38 +248,49 @@ const SyncManagementPage = () => {
           </p>
         </div>
 
-        {syncQueueEntries.length === 0 ? (
-          <p style={shellStyles.mutedText}>No local sync queue entries right now.</p>
+        {filteredQueueEntries.length === 0 ? (
+          <p style={shellStyles.mutedText}>
+            No local sync queue entries match the current filter.
+          </p>
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={tableStyles.table}>
               <thead>
                 <tr>
                   <th style={tableStyles.th}>Module</th>
+                  <th style={tableStyles.th}>Table</th>
                   <th style={tableStyles.th}>Action</th>
                   <th style={tableStyles.th}>Status</th>
-                  <th style={tableStyles.th}>Queued At</th>
+                  <th style={tableStyles.th}>Created</th>
+                  <th style={tableStyles.th}>Synced</th>
                   <th style={tableStyles.th}>Details</th>
                   <th style={tableStyles.th}>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {syncQueueEntries.map((entry) => (
+                {filteredQueueEntries.map((entry) => (
                   <tr key={entry.id}>
                     <td style={tableStyles.td}>{entry.moduleName || "--"}</td>
+                    <td style={tableStyles.td}>{entry.entityType || "--"}</td>
                     <td style={tableStyles.td}>{entry.actionKey || "--"}</td>
                     <td style={tableStyles.td}>
                       <SyncStatusBadge status={entry.status} />
                     </td>
                     <td style={tableStyles.td}>
-                      {formatDateTime(entry.clientTimestamp)}
+                      {formatSyncDateTime(entry.clientTimestamp || entry.createdAt)}
                     </td>
                     <td style={tableStyles.td}>
-                      {entry.lastError ||
-                        entry.serverMessage ||
-                        entry.entityServerId ||
-                        entry.entityLocalId ||
-                        "--"}
+                      {formatSyncDateTime(entry.syncedAt)}
+                    </td>
+                    <td style={tableStyles.td}>
+                      <div>{buildPayloadSummary(entry.payload)}</div>
+                      <div style={detailTextStyles}>
+                        {entry.lastError ||
+                          entry.serverMessage ||
+                          entry.entityServerId ||
+                          entry.entityLocalId ||
+                          "--"}
+                      </div>
                     </td>
                     <td style={tableStyles.td}>
                       <button
@@ -245,20 +298,14 @@ const SyncManagementPage = () => {
                         onClick={handleRetrySync}
                         disabled={
                           !isOnline ||
-                          ![
-                            LOCAL_SYNC_STATUS.PENDING,
-                            LOCAL_SYNC_STATUS.FAILED,
-                          ].includes(entry.status) ||
+                          !isSafeRetryableStatus(entry.status) ||
                           isRetrying
                         }
                         style={{
                           ...pageHeaderStyles.secondaryButton,
                           opacity:
                             !isOnline ||
-                            ![
-                              LOCAL_SYNC_STATUS.PENDING,
-                              LOCAL_SYNC_STATUS.FAILED,
-                            ].includes(entry.status) ||
+                            !isSafeRetryableStatus(entry.status) ||
                             isRetrying
                               ? 0.7
                               : 1,
@@ -289,24 +336,31 @@ const SyncManagementPage = () => {
           <p style={{ ...shellStyles.mutedText, color: "#a14d58" }}>
             {errorMessage}
           </p>
-        ) : syncHistory.transactions.length === 0 ? (
-          <p style={shellStyles.mutedText}>No sync history is available yet.</p>
+        ) : filteredTransactions.length === 0 ? (
+          <p style={shellStyles.mutedText}>
+            No sync history matches the current filter.
+          </p>
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={tableStyles.table}>
               <thead>
                 <tr>
+                  <th style={tableStyles.th}>Module / Table</th>
                   <th style={tableStyles.th}>Entity</th>
                   <th style={tableStyles.th}>Operation</th>
                   <th style={tableStyles.th}>Status</th>
-                  <th style={tableStyles.th}>Client Timestamp</th>
-                  <th style={tableStyles.th}>Server Timestamp</th>
-                  <th style={tableStyles.th}>Message</th>
+                  <th style={tableStyles.th}>Created</th>
+                  <th style={tableStyles.th}>Synced</th>
+                  <th style={tableStyles.th}>Details</th>
                 </tr>
               </thead>
               <tbody>
-                {syncHistory.transactions.map((transaction) => (
+                {filteredTransactions.map((transaction) => (
                   <tr key={transaction.id}>
+                    <td style={tableStyles.td}>
+                      <div>sync_transactions</div>
+                      <div style={detailTextStyles}>{transaction.entity_type || "--"}</div>
+                    </td>
                     <td style={tableStyles.td}>
                       {transaction.entity_type}
                       <div style={{ color: "#60738a", fontSize: "12px" }}>
@@ -320,13 +374,18 @@ const SyncManagementPage = () => {
                       <SyncStatusBadge status={transaction.sync_status} />
                     </td>
                     <td style={tableStyles.td}>
-                      {formatDateTime(transaction.client_timestamp)}
+                      {formatSyncDateTime(
+                        transaction.created_at || transaction.client_timestamp,
+                      )}
                     </td>
                     <td style={tableStyles.td}>
-                      {formatDateTime(transaction.server_timestamp)}
+                      {formatSyncDateTime(transaction.server_timestamp)}
                     </td>
                     <td style={tableStyles.td}>
-                      {transaction.error_message || "--"}
+                      <div>{buildPayloadSummary(transaction.payload_json?.payload)}</div>
+                      <div style={detailTextStyles}>
+                        {transaction.error_message || "--"}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -347,23 +406,31 @@ const SyncManagementPage = () => {
 
         {isLoadingHistory ? (
           <p style={shellStyles.mutedText}>Loading conflicts...</p>
-        ) : syncHistory.conflicts.length === 0 ? (
-          <p style={shellStyles.mutedText}>No conflicts are logged right now.</p>
+        ) : filteredConflicts.length === 0 ? (
+          <p style={shellStyles.mutedText}>
+            No conflicts match the current filter.
+          </p>
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={tableStyles.table}>
               <thead>
                 <tr>
+                  <th style={tableStyles.th}>Table</th>
                   <th style={tableStyles.th}>Entity</th>
                   <th style={tableStyles.th}>Conflict Type</th>
                   <th style={tableStyles.th}>Status</th>
-                  <th style={tableStyles.th}>Resolution</th>
+                  <th style={tableStyles.th}>Conflict Reason</th>
+                  <th style={tableStyles.th}>Local Summary</th>
+                  <th style={tableStyles.th}>Server Summary</th>
+                  <th style={tableStyles.th}>Winning Side</th>
+                  <th style={tableStyles.th}>Resolution Status</th>
                   <th style={tableStyles.th}>Resolved At</th>
                 </tr>
               </thead>
               <tbody>
-                {syncHistory.conflicts.map((conflict) => (
+                {filteredConflicts.map((conflict) => (
                   <tr key={conflict.id}>
+                    <td style={tableStyles.td}>sync_conflicts</td>
                     <td style={tableStyles.td}>
                       {conflict.entity_type}
                       <div style={{ color: "#60738a", fontSize: "12px" }}>
@@ -381,10 +448,28 @@ const SyncManagementPage = () => {
                       />
                     </td>
                     <td style={tableStyles.td}>
-                      {conflict.resolution_strategy || "--"}
+                      {conflict.conflict_type || "--"}
+                      <div style={detailTextStyles}>
+                        {conflict.error_message || conflict.resolution_strategy || "--"}
+                      </div>
                     </td>
                     <td style={tableStyles.td}>
-                      {formatDateTime(conflict.resolved_at)}
+                      {buildConflictPayloadSummary(conflict.local_payload_json)}
+                    </td>
+                    <td style={tableStyles.td}>
+                      {buildConflictPayloadSummary(conflict.server_payload_json)}
+                    </td>
+                    <td style={tableStyles.td}>
+                      {getWinningSide(conflict)}
+                    </td>
+                    <td style={tableStyles.td}>
+                      {conflict.status || "--"}
+                      <div style={detailTextStyles}>
+                        {conflict.resolution_strategy || "--"}
+                      </div>
+                    </td>
+                    <td style={tableStyles.td}>
+                      {formatSyncDateTime(conflict.resolved_at)}
                     </td>
                   </tr>
                 ))}
