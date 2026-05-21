@@ -1,11 +1,14 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useNavigate } from "react-router-dom";
-import { FiFileText } from "react-icons/fi";
-import PageHeader, { pageHeaderStyles } from "../components/layout/PageHeader";
+import PageHeader from "../components/layout/PageHeader";
 import { shellStyles } from "../components/layout/BarangayLayout";
-import SearchBar from "../components/shared/SearchBar";
-import SyncStatusBadge from "../components/shared/SyncStatusBadge";
+import DonationFilters from "../components/donations/DonationFilters";
+import DonationModal from "../components/donations/DonationModal";
+import DonationNeedModal from "../components/donations/DonationNeedModal";
+import DonationNeedsTab from "../components/donations/DonationNeedsTab";
+import DonationsTab from "../components/donations/DonationsTab";
+import DonorTransparencyTab from "../components/donations/DonorTransparencyTab";
 import { fetchAllDisasterEvents } from "../features/disaster-events/disasterEventService";
 import { fetchInventoryItems } from "../features/inventory-items/inventoryItemService";
 import {
@@ -24,940 +27,32 @@ import {
   updateDonationItem,
   updateDonationNeed,
 } from "../features/donations/donationService";
+import { transparencyExportOptions } from "../features/donations/donationExportOptions";
+import {
+  mergeDonationsWithSyncStatus,
+  mergeDonationNeedsWithSyncStatus,
+} from "../features/donations/donationSync";
+import {
+  backButtonStyles,
+  createDonationForm,
+  createDonationItemForm,
+  createNeedForm,
+  NO_EXPORT_DATA_MESSAGE,
+} from "../features/donations/donationUi";
 import { useAuth } from "../context/AuthContext";
 import { getDefaultRouteForRole } from "../utils/roleSession";
 import db from "../offline/db";
-import { buildSyncDescriptor, findSyncEntry } from "../offline/syncStatus";
 import { subscribeToSyncUpdates } from "../offline/syncService";
 
-const donorTypes = [
-  "INDIVIDUAL",
-  "NGO",
-  "PRIVATE_ORGANIZATION",
-  "GOVERNMENT_PARTNER",
-  "OTHER",
-];
-
-const donationStatuses = [
-  "RECEIVED",
-  "PARTIALLY_DISTRIBUTED",
-  "DISTRIBUTED",
-  "CANCELLED",
-];
-
-const priorityLevels = ["URGENT", "HIGH", "MEDIUM", "LOW"];
-
-const overlayStyles = {
-  position: "fixed",
-  inset: 0,
-  backgroundColor: "rgba(21, 40, 63, 0.48)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: "24px",
-  zIndex: 1000,
-};
-
-const modalStyles = {
-  width: "min(980px, 100%)",
-  maxHeight: "90vh",
-  overflowY: "auto",
-  backgroundColor: "#ffffff",
-  borderRadius: "22px",
-  border: "1px solid #d7e2ef",
-  boxShadow: "0 24px 60px rgba(23, 50, 77, 0.18)",
-  padding: "24px",
-  boxSizing: "border-box",
-};
-
-const inputStyles = {
-  width: "100%",
-  minHeight: "48px",
-  padding: "12px 14px",
-  borderRadius: "14px",
-  border: "1px solid #d2deea",
-  boxSizing: "border-box",
-  fontSize: "14px",
-  color: "#21405f",
-  backgroundColor: "#ffffff",
-};
-
-const labelStyles = {
-  display: "block",
-  marginBottom: "8px",
-  color: "#4f677f",
-  fontSize: "13px",
-  fontWeight: 700,
-};
-
-const compactButtonStyles = {
-  border: "1px solid #c6d8ea",
-  borderRadius: "12px",
-  padding: "8px 12px",
-  backgroundColor: "#f8fbfe",
-  color: "#2a4c6f",
-  fontSize: "13px",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const exportMenuStyles = {
-  position: "absolute",
-  top: "calc(100% + 10px)",
-  right: 0,
-  minWidth: "220px",
-  padding: "8px",
-  borderRadius: "14px",
-  backgroundColor: "#ffffff",
-  border: "1px solid #d7e2ef",
-  boxShadow: "0 18px 36px rgba(23, 50, 77, 0.16)",
-  display: "grid",
-  gap: "6px",
-  zIndex: 20,
-};
-
-const exportMenuButtonStyles = {
-  border: "none",
-  borderRadius: "10px",
-  backgroundColor: "#f8fbfe",
-  color: "#264564",
-  textAlign: "left",
-  padding: "10px 12px",
-  fontSize: "13px",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const NO_EXPORT_DATA_MESSAGE = "No available data to export.";
-
-const backButtonStyles = {
-  background: "#0f2a44",
-  border: "none",
-  padding: "10px 16px",
-  borderRadius: "10px",
-  cursor: "pointer",
-  fontWeight: 600,
-  color: "#ffffff",
-  transition: "all 0.2s ease",
-  boxShadow: "0 4px 12px rgba(15, 42, 68, 0.25)",
-};
-
-const badgePalette = {
-  URGENT: { backgroundColor: "#fee2e2", color: "#b91c1c" },
-  HIGH: { backgroundColor: "#ffedd5", color: "#c2410c" },
-  MEDIUM: { backgroundColor: "#fef3c7", color: "#b45309" },
-  LOW: { backgroundColor: "#dcfce7", color: "#15803d" },
-  RECEIVED: { backgroundColor: "#dbeafe", color: "#1d4ed8" },
-  PARTIALLY_DISTRIBUTED: { backgroundColor: "#fef3c7", color: "#b45309" },
-  DISTRIBUTED: { backgroundColor: "#dcfce7", color: "#15803d" },
-  CANCELLED: { backgroundColor: "#fee2e2", color: "#b91c1c" },
-  ACTIVE: { backgroundColor: "#dcfce7", color: "#15803d" },
-  INACTIVE: { backgroundColor: "#e2e8f0", color: "#475569" },
-};
-
-const createNeedForm = () => ({
-  disaster_event_id: "",
-  inventory_item_id: "",
-  quantity_needed: 0,
-  priority_level: "MEDIUM",
-  notes: "",
-  is_active: true,
-});
-
-const createDonationItemForm = () => ({
-  inventory_item_id: "",
-  quantity_received: 1,
-  remarks: "",
-  expiration_date: "",
-  storage_location: "",
-});
-
-const createDonationForm = () => ({
-  disaster_event_id: "",
-  donor_name: "",
-  donor_type: "INDIVIDUAL",
-  contact_information: "",
-  received_at: "",
-  status: "RECEIVED",
-  remarks: "",
-  items: [],
-});
-
-const formatDateTime = (value) => {
-  if (!value) {
-    return "--";
-  }
-
-  return new Date(value).toLocaleString("en-PH", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-};
-
-const formatDateOnly = (value) => {
-  if (!value) {
-    return "--";
-  }
-
-  return new Date(value).toLocaleDateString("en-PH", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-};
-
-const buildQueuedDonationNeed = (entry, inventoryItems, disasterEvents) => {
-  const inventoryItem = inventoryItems.find(
-    (item) => item.id === entry.payload?.inventory_item_id,
-  );
-  const disasterEvent = disasterEvents.find(
-    (event) => event.id === entry.payload?.disaster_event_id,
-  );
-
-  return {
-    id: entry.entityLocalId || entry.id,
-    disaster_event_id: entry.payload?.disaster_event_id || "",
-    inventory_item_id: entry.payload?.inventory_item_id || "",
-    quantity_needed: entry.payload?.quantity_needed || 0,
-    priority_level: entry.payload?.priority_level || "MEDIUM",
-    notes: entry.payload?.notes || "",
-    is_active: entry.payload?.is_active !== false,
-    disaster_event: disasterEvent || null,
-    inventory_item: inventoryItem || null,
-    sync_status: entry.status,
-    is_local_only: true,
-  };
-};
-
-const buildQueuedDonation = (entry, inventoryItems, disasterEvents) => {
-  const disasterEvent = disasterEvents.find(
-    (event) => event.id === entry.payload?.disaster_event_id,
-  );
-  const itemRows = Array.isArray(entry.payload?.items) ? entry.payload.items : [];
-  const totalQuantityReceived = itemRows.reduce((sum, item) => {
-    return sum + Number(item.quantity_received || 0);
-  }, 0);
-
-  return {
-    id: entry.entityLocalId || entry.id,
-    donor_name: entry.payload?.donor_name || "Pending donation",
-    donor_type: entry.payload?.donor_type || "INDIVIDUAL",
-    contact_information: entry.payload?.contact_information || "",
-    received_at: entry.payload?.received_at || entry.clientTimestamp,
-    status: entry.payload?.status || "RECEIVED",
-    remarks: entry.payload?.remarks || "",
-    disaster_event: disasterEvent || null,
-    items: itemRows.map((item, index) => ({
-      id: `${entry.id}-${index}`,
-      ...item,
-      inventory_item: inventoryItems.find(
-        (inventoryItem) => inventoryItem.id === item.inventory_item_id,
-      ),
-    })),
-    item_count: itemRows.length,
-    total_quantity_received: totalQuantityReceived,
-    sync_status: entry.status,
-    is_local_only: true,
-  };
-};
-
-const StatusBadge = ({ label }) => (
-  <span
-    style={{
-      display: "inline-flex",
-      alignItems: "center",
-      borderRadius: "999px",
-      padding: "4px 10px",
-      fontSize: "12px",
-      fontWeight: 700,
-      ...(badgePalette[label] || {
-        backgroundColor: "#e2e8f0",
-        color: "#334155",
-      }),
-    }}
-  >
-    {label}
-  </span>
-);
-
-const DonationNeedModal = ({
-  isOpen,
-  formValues,
-  inventoryItems,
-  disasterEvents,
-  isSubmitting,
-  errorMessage,
-  onClose,
-  onChange,
-  onSubmit,
-}) => {
-  if (!isOpen) {
-    return null;
-  }
-
-  return (
-    <div style={overlayStyles}>
-      <div style={{ ...modalStyles, width: "min(760px, 100%)" }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            gap: "16px",
-            marginBottom: "20px",
-          }}
-        >
-          <div>
-            <h3 style={{ margin: 0, color: "#17324d", fontSize: "26px" }}>
-              {formValues.id ? "Update Donation Need" : "Create Donation Need"}
-            </h3>
-            <p
-              style={{
-                margin: "8px 0 0",
-                color: "#60738a",
-                fontSize: "14px",
-                lineHeight: 1.6,
-              }}
-            >
-              Publish the active relief items and quantities that donors can see in the public portal.
-            </p>
-          </div>
-          <button type="button" onClick={onClose} style={pageHeaderStyles.secondaryButton}>
-            Close
-          </button>
-        </div>
-
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSubmit();
-          }}
-        >
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: "18px",
-            }}
-          >
-            <div>
-              <label htmlFor="need_event" style={labelStyles}>
-                Disaster Event
-              </label>
-              <select
-                id="need_event"
-                value={formValues.disaster_event_id}
-                onChange={(event) => onChange("disaster_event_id", event.target.value)}
-                style={inputStyles}
-              >
-                <option value="">Select disaster event</option>
-                {disasterEvents.map((event) => (
-                  <option key={event.id} value={event.id}>
-                    {event.event_code} - {event.title}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="need_item" style={labelStyles}>
-                Inventory Item
-              </label>
-              <select
-                id="need_item"
-                value={formValues.inventory_item_id}
-                onChange={(event) => onChange("inventory_item_id", event.target.value)}
-                style={inputStyles}
-              >
-                <option value="">Select inventory item</option>
-                {inventoryItems.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.item_name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="need_qty" style={labelStyles}>
-                Quantity Needed
-              </label>
-              <input
-                id="need_qty"
-                type="number"
-                min="0"
-                value={formValues.quantity_needed}
-                onChange={(event) =>
-                  onChange("quantity_needed", Number.parseInt(event.target.value || "0", 10))
-                }
-                style={inputStyles}
-              />
-            </div>
-
-            <div>
-              <label htmlFor="need_priority" style={labelStyles}>
-                Priority Level
-              </label>
-              <select
-                id="need_priority"
-                value={formValues.priority_level}
-                onChange={(event) => onChange("priority_level", event.target.value)}
-                style={inputStyles}
-              >
-                {priorityLevels.map((level) => (
-                  <option key={level} value={level}>
-                    {level}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div style={{ gridColumn: "1 / -1" }}>
-              <label htmlFor="need_notes" style={labelStyles}>
-                Notes
-              </label>
-              <textarea
-                id="need_notes"
-                value={formValues.notes}
-                onChange={(event) => onChange("notes", event.target.value)}
-                style={{ ...inputStyles, minHeight: "96px", resize: "vertical" }}
-              />
-            </div>
-
-            <label
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "10px",
-                color: "#24496e",
-                fontWeight: 700,
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={formValues.is_active}
-                onChange={(event) => onChange("is_active", event.target.checked)}
-              />
-              Keep this donation need visible in the public portal
-            </label>
-          </div>
-
-          {errorMessage ? (
-            <div
-              style={{
-                marginTop: "18px",
-                padding: "14px 16px",
-                borderRadius: "14px",
-                backgroundColor: "#fff3f1",
-                border: "1px solid #f1d2cc",
-                color: "#9d4d58",
-                fontSize: "14px",
-                fontWeight: 600,
-              }}
-            >
-              {errorMessage}
-            </div>
-          ) : null}
-
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "flex-end",
-              gap: "12px",
-              flexWrap: "wrap",
-              marginTop: "24px",
-            }}
-          >
-            <button type="button" onClick={onClose} style={pageHeaderStyles.secondaryButton}>
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              style={{ ...pageHeaderStyles.primaryButton, opacity: isSubmitting ? 0.7 : 1 }}
-            >
-              {isSubmitting ? "Saving..." : formValues.id ? "Update Need" : "Create Need"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
-
-const DonationModal = ({
-  isOpen,
-  formValues,
-  itemDraft,
-  inventoryItems,
-  disasterEvents,
-  isSubmitting,
-  errorMessage,
-  itemErrorMessage,
-  editingItemId,
-  onClose,
-  onFormChange,
-  onItemDraftChange,
-  onAddItemDraft,
-  onEditExistingItem,
-  onDeleteExistingItem,
-  onRemoveDraftItem,
-  onStartEditItem,
-  onCancelEditItem,
-  onSubmit,
-}) => {
-  if (!isOpen) {
-    return null;
-  }
-
-  const isEditingDonation = Boolean(formValues.id);
-
-  return (
-    <div style={overlayStyles}>
-      <div style={modalStyles}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            gap: "16px",
-            marginBottom: "20px",
-          }}
-        >
-          <div>
-            <h3 style={{ margin: 0, color: "#17324d", fontSize: "26px" }}>
-              {isEditingDonation ? "Update Donation Record" : "Record Donation"}
-            </h3>
-            <p
-              style={{
-                margin: "8px 0 0",
-                color: "#60738a",
-                fontSize: "14px",
-                lineHeight: 1.6,
-              }}
-            >
-              Capture the donor record and the donated inventory items that should feed stock tracking.
-            </p>
-          </div>
-          <button type="button" onClick={onClose} style={pageHeaderStyles.secondaryButton}>
-            Close
-          </button>
-        </div>
-
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSubmit();
-          }}
-        >
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: "18px",
-            }}
-          >
-            <div>
-              <label htmlFor="donation_event" style={labelStyles}>
-                Disaster Event
-              </label>
-              <select
-                id="donation_event"
-                value={formValues.disaster_event_id}
-                onChange={(event) => onFormChange("disaster_event_id", event.target.value)}
-                style={inputStyles}
-              >
-                <option value="">Select disaster event</option>
-                {disasterEvents.map((event) => (
-                  <option key={event.id} value={event.id}>
-                    {event.event_code} - {event.title}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="donor_name" style={labelStyles}>
-                Donor Name
-              </label>
-              <input
-                id="donor_name"
-                value={formValues.donor_name}
-                onChange={(event) => onFormChange("donor_name", event.target.value)}
-                style={inputStyles}
-              />
-            </div>
-
-            <div>
-              <label htmlFor="donor_type" style={labelStyles}>
-                Donor Type
-              </label>
-              <select
-                id="donor_type"
-                value={formValues.donor_type}
-                onChange={(event) => onFormChange("donor_type", event.target.value)}
-                style={inputStyles}
-              >
-                {donorTypes.map((type) => (
-                  <option key={type} value={type}>
-                    {type}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="donation_status" style={labelStyles}>
-                Donation Status
-              </label>
-              <select
-                id="donation_status"
-                value={formValues.status}
-                onChange={(event) => onFormChange("status", event.target.value)}
-                style={inputStyles}
-              >
-                {donationStatuses.map((status) => (
-                  <option key={status} value={status}>
-                    {status}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="contact_information" style={labelStyles}>
-                Contact Information
-              </label>
-              <input
-                id="contact_information"
-                value={formValues.contact_information}
-                onChange={(event) => onFormChange("contact_information", event.target.value)}
-                style={inputStyles}
-              />
-            </div>
-
-            <div>
-              <label htmlFor="received_at" style={labelStyles}>
-                Received At
-              </label>
-              <input
-                id="received_at"
-                type="datetime-local"
-                value={formValues.received_at}
-                onChange={(event) => onFormChange("received_at", event.target.value)}
-                style={inputStyles}
-              />
-            </div>
-
-            <div style={{ gridColumn: "1 / -1" }}>
-              <label htmlFor="donation_remarks" style={labelStyles}>
-                Remarks
-              </label>
-              <textarea
-                id="donation_remarks"
-                value={formValues.remarks}
-                onChange={(event) => onFormChange("remarks", event.target.value)}
-                style={{ ...inputStyles, minHeight: "88px", resize: "vertical" }}
-              />
-            </div>
-          </div>
-
-          <section
-            style={{
-              marginTop: "24px",
-              borderTop: "1px solid #e4edf6",
-              paddingTop: "20px",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: "12px",
-                flexWrap: "wrap",
-              }}
-            >
-              <div>
-                <h4 style={{ margin: 0, color: "#17324d", fontSize: "18px" }}>
-                  Donation Items
-                </h4>
-                <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-                  Each item received here creates or updates donated stock and adds a donation inventory transaction.
-                </p>
-              </div>
-            </div>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-                gap: "16px",
-                marginTop: "18px",
-              }}
-            >
-              <div>
-                <label htmlFor="item_inventory_item_id" style={labelStyles}>
-                  Inventory Item
-                </label>
-                <select
-                  id="item_inventory_item_id"
-                  value={itemDraft.inventory_item_id}
-                  onChange={(event) =>
-                    onItemDraftChange("inventory_item_id", event.target.value)
-                  }
-                  style={inputStyles}
-                  disabled={Boolean(editingItemId)}
-                >
-                  <option value="">Select inventory item</option>
-                  {inventoryItems.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.item_name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label htmlFor="item_quantity" style={labelStyles}>
-                  Quantity Received
-                </label>
-                <input
-                  id="item_quantity"
-                  type="number"
-                  min="1"
-                  value={itemDraft.quantity_received}
-                  onChange={(event) =>
-                    onItemDraftChange(
-                      "quantity_received",
-                      Number.parseInt(event.target.value || "1", 10),
-                    )
-                  }
-                  style={inputStyles}
-                />
-              </div>
-
-              <div>
-                <label htmlFor="item_expiration_date" style={labelStyles}>
-                  Expiration Date
-                </label>
-                <input
-                  id="item_expiration_date"
-                  type="date"
-                  value={itemDraft.expiration_date}
-                  onChange={(event) => onItemDraftChange("expiration_date", event.target.value)}
-                  style={inputStyles}
-                />
-              </div>
-
-              <div>
-                <label htmlFor="item_storage_location" style={labelStyles}>
-                  Storage Location
-                </label>
-                <input
-                  id="item_storage_location"
-                  value={itemDraft.storage_location}
-                  onChange={(event) => onItemDraftChange("storage_location", event.target.value)}
-                  style={inputStyles}
-                />
-              </div>
-
-              <div style={{ gridColumn: "1 / -1" }}>
-                <label htmlFor="item_remarks" style={labelStyles}>
-                  Item Remarks
-                </label>
-                <textarea
-                  id="item_remarks"
-                  value={itemDraft.remarks}
-                  onChange={(event) => onItemDraftChange("remarks", event.target.value)}
-                  style={{ ...inputStyles, minHeight: "84px", resize: "vertical" }}
-                />
-              </div>
-            </div>
-
-            {itemErrorMessage ? (
-              <div
-                style={{
-                  marginTop: "16px",
-                  padding: "14px 16px",
-                  borderRadius: "14px",
-                  backgroundColor: "#fff3f1",
-                  border: "1px solid #f1d2cc",
-                  color: "#9d4d58",
-                  fontSize: "14px",
-                  fontWeight: 600,
-                }}
-              >
-                {itemErrorMessage}
-              </div>
-            ) : null}
-
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "flex-end",
-                gap: "12px",
-                marginTop: "16px",
-                flexWrap: "wrap",
-              }}
-            >
-              {editingItemId ? (
-                <button
-                  type="button"
-                  onClick={onCancelEditItem}
-                  style={pageHeaderStyles.secondaryButton}
-                >
-                  Cancel Item Edit
-                </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={editingItemId ? onEditExistingItem : onAddItemDraft}
-                style={pageHeaderStyles.secondaryButton}
-              >
-                {editingItemId ? "Save Item Changes" : "Add Item"}
-              </button>
-            </div>
-
-            <div style={{ overflowX: "auto", marginTop: "18px" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    {["Item", "Quantity", "Batch", "Expiry", "Remarks", "Actions"].map((label) => (
-                      <th
-                        key={label}
-                        style={{
-                          padding: "12px 14px",
-                          textAlign: "left",
-                          fontSize: "12px",
-                          letterSpacing: "0.08em",
-                          textTransform: "uppercase",
-                          color: "#66809c",
-                          borderBottom: "1px solid #e0eaf4",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {(isEditingDonation ? formValues.items : formValues.items).length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={6}
-                        style={{
-                          padding: "18px 14px",
-                          color: "#60738a",
-                          fontSize: "14px",
-                        }}
-                      >
-                        No donation items have been added yet.
-                      </td>
-                    </tr>
-                  ) : (
-                    formValues.items.map((item) => (
-                      <tr key={item.id || `${item.inventory_item_id}-${item.quantity_received}-${item.remarks}`}>
-                        <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                          {item.inventory_item?.item_name ||
-                            inventoryItems.find((row) => row.id === item.inventory_item_id)?.item_name ||
-                            "--"}
-                        </td>
-                        <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                          {item.quantity_received}
-                        </td>
-                        <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                          {item.inventory_batch?.batch_no || "Auto-generated"}
-                        </td>
-                        <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                          {formatDateOnly(item.expiration_date || item.inventory_batch?.expiration_date)}
-                        </td>
-                        <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                          {item.remarks || "--"}
-                        </td>
-                        <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                            {item.id ? (
-                              <>
-                                <button type="button" onClick={() => onStartEditItem(item)} style={compactButtonStyles}>
-                                  Edit
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => onDeleteExistingItem(item)}
-                                  style={{ ...compactButtonStyles, color: "#b91c1c", borderColor: "#f1d2cc" }}
-                                >
-                                  Delete
-                                </button>
-                              </>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => onRemoveDraftItem(item)}
-                                style={{ ...compactButtonStyles, color: "#b91c1c", borderColor: "#f1d2cc" }}
-                              >
-                                Remove
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          {errorMessage ? (
-            <div
-              style={{
-                marginTop: "18px",
-                padding: "14px 16px",
-                borderRadius: "14px",
-                backgroundColor: "#fff3f1",
-                border: "1px solid #f1d2cc",
-                color: "#9d4d58",
-                fontSize: "14px",
-                fontWeight: 600,
-              }}
-            >
-              {errorMessage}
-            </div>
-          ) : null}
-
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "flex-end",
-              gap: "12px",
-              flexWrap: "wrap",
-              marginTop: "24px",
-            }}
-          >
-            <button type="button" onClick={onClose} style={pageHeaderStyles.secondaryButton}>
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              style={{ ...pageHeaderStyles.primaryButton, opacity: isSubmitting ? 0.7 : 1 }}
-            >
-              {isSubmitting
-                ? "Saving..."
-                : isEditingDonation
-                  ? "Update Donation"
-                  : "Record Donation"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
+const defaultPortalData = {
+  donation_needs: [],
+  transparency_summary: {
+    total_donations_received: 0,
+    total_quantity_received: 0,
+    total_donated_items_distributed: 0,
+    remaining_donated_inventory: 0,
+    received_vs_distributed: [],
+  },
 };
 
 const DonationManagementPage = () => {
@@ -974,6 +69,7 @@ const DonationManagementPage = () => {
         { key: "needs", label: "Donation Needs" },
         { key: "transparency", label: "Transparency Summary" },
       ];
+
   const [activeTab, setActiveTab] = useState(
     canManageDonations ? "donations" : "needs",
   );
@@ -981,16 +77,7 @@ const DonationManagementPage = () => {
   const [inventoryItems, setInventoryItems] = useState([]);
   const [donationNeeds, setDonationNeeds] = useState([]);
   const [donations, setDonations] = useState([]);
-  const [portalData, setPortalData] = useState({
-    donation_needs: [],
-    transparency_summary: {
-      total_donations_received: 0,
-      total_quantity_received: 0,
-      total_donated_items_distributed: 0,
-      remaining_donated_inventory: 0,
-      received_vs_distributed: [],
-    },
-  });
+  const [portalData, setPortalData] = useState(defaultPortalData);
   const [selectedEventId, setSelectedEventId] = useState("");
   const [needSearch, setNeedSearch] = useState("");
   const [donationSearch, setDonationSearch] = useState("");
@@ -1011,6 +98,7 @@ const DonationManagementPage = () => {
   const [isDonationSubmitting, setIsDonationSubmitting] = useState(false);
   const [donationItemDraft, setDonationItemDraft] = useState(createDonationItemForm());
   const [editingDonationItemId, setEditingDonationItemId] = useState("");
+
   const syncQueueEntries =
     useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
 
@@ -1044,16 +132,7 @@ const DonationManagementPage = () => {
       setInventoryItems(Array.isArray(inventoryItemRows) ? inventoryItemRows : []);
       setDonationNeeds(Array.isArray(donationNeedRows) ? donationNeedRows : []);
       setDonations(Array.isArray(donationRows) ? donationRows : []);
-      setPortalData(donationPortal || {
-        donation_needs: [],
-        transparency_summary: {
-          total_donations_received: 0,
-          total_quantity_received: 0,
-          total_donated_items_distributed: 0,
-          remaining_donated_inventory: 0,
-          received_vs_distributed: [],
-        },
-      });
+      setPortalData(donationPortal || defaultPortalData);
 
       if (!eventId && Array.isArray(eventRows) && eventRows.length > 0) {
         setSelectedEventId(eventRows[0].id);
@@ -1084,80 +163,23 @@ const DonationManagementPage = () => {
   }, [selectedEventId]);
 
   const donationNeedsWithSyncStatus = useMemo(() => {
-    const syncedRows = donationNeeds.map((need) => {
-      const matchingEntry = findSyncEntry(syncQueueEntries, (entry) => {
-        if (entry.moduleName !== "mayor-donations") {
-          return false;
-        }
-
-        return (
-          entry.entityType === "DONATION_NEED" &&
-          (entry.entityServerId === need.id || entry.entityLocalId === need.id)
-        );
-      });
-
-      return {
-        ...need,
-        sync_status: buildSyncDescriptor(matchingEntry).status,
-        is_local_only: false,
-      };
+    return mergeDonationNeedsWithSyncStatus({
+      donationNeeds,
+      syncQueueEntries,
+      selectedEventId,
+      inventoryItems,
+      disasterEvents,
     });
-
-    const optimisticRows = syncQueueEntries
-      .filter((entry) => {
-        return (
-          entry.moduleName === "mayor-donations" &&
-          entry.actionKey === "DONATION_NEED_CREATE" &&
-          !syncedRows.some(
-            (need) =>
-              need.id === entry.entityServerId || need.id === entry.entityLocalId,
-          ) &&
-          (!selectedEventId || entry.payload?.disaster_event_id === selectedEventId)
-        );
-      })
-      .map((entry) =>
-        buildQueuedDonationNeed(entry, inventoryItems, disasterEvents),
-      );
-
-    return [...optimisticRows, ...syncedRows];
   }, [disasterEvents, donationNeeds, inventoryItems, selectedEventId, syncQueueEntries]);
 
   const donationsWithSyncStatus = useMemo(() => {
-    const syncedRows = donations.map((donation) => {
-      const matchingEntry = findSyncEntry(syncQueueEntries, (entry) => {
-        if (entry.moduleName !== "mayor-donations") {
-          return false;
-        }
-
-        return (
-          entry.entityType === "DONATION" &&
-          (entry.entityServerId === donation.id || entry.entityLocalId === donation.id)
-        );
-      });
-
-      return {
-        ...donation,
-        sync_status: buildSyncDescriptor(matchingEntry).status,
-        is_local_only: false,
-      };
+    return mergeDonationsWithSyncStatus({
+      donations,
+      syncQueueEntries,
+      selectedEventId,
+      inventoryItems,
+      disasterEvents,
     });
-
-    const optimisticRows = syncQueueEntries
-      .filter((entry) => {
-        return (
-          entry.moduleName === "mayor-donations" &&
-          entry.actionKey === "DONATION_CREATE" &&
-          !syncedRows.some(
-            (donation) =>
-              donation.id === entry.entityServerId ||
-              donation.id === entry.entityLocalId,
-          ) &&
-          (!selectedEventId || entry.payload?.disaster_event_id === selectedEventId)
-        );
-      })
-      .map((entry) => buildQueuedDonation(entry, inventoryItems, disasterEvents));
-
-    return [...optimisticRows, ...syncedRows];
   }, [disasterEvents, donations, inventoryItems, selectedEventId, syncQueueEntries]);
 
   const filteredDonationNeeds = useMemo(() => {
@@ -1550,9 +572,7 @@ const DonationManagementPage = () => {
     setSuccessMessage("");
     setIsTransparencyExportMenuOpen(false);
 
-    if (
-      (portalData.transparency_summary?.received_vs_distributed || []).length === 0
-    ) {
+    if ((portalData.transparency_summary?.received_vs_distributed || []).length === 0) {
       setPageErrorMessage(NO_EXPORT_DATA_MESSAGE);
       return;
     }
@@ -1592,113 +612,37 @@ const DonationManagementPage = () => {
           }
           style={backButtonStyles}
         >
-          ← Back
+          â† Back
         </button>
       </div>
 
-      <PageHeader
-        title={pageTitle}
-        description={pageDescription}
-      />
+      <PageHeader title={pageTitle} description={pageDescription} />
 
       <section style={shellStyles.card}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: "16px",
-            flexWrap: "wrap",
+        <DonationFilters
+          activeTab={activeTab}
+          canManageDonations={canManageDonations}
+          selectedEventId={selectedEventId}
+          disasterEvents={disasterEvents}
+          needSearch={needSearch}
+          donationSearch={donationSearch}
+          onSelectedEventChange={(nextEventId) => {
+            setSelectedEventId(nextEventId);
+            loadPageData(nextEventId);
           }}
-        >
-          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", flex: "1 1 760px" }}>
-            <select
-              value={selectedEventId}
-              onChange={(event) => {
-                const nextEventId = event.target.value;
-                setSelectedEventId(nextEventId);
-                loadPageData(nextEventId);
-              }}
-              style={{ ...inputStyles, maxWidth: "340px" }}
-            >
-              <option value="">All Events</option>
-              {disasterEvents.map((event) => (
-                <option key={event.id} value={event.id}>
-                  {event.event_code} - {event.title}
-                </option>
-              ))}
-            </select>
-
-            {activeTab === "needs" ? (
-              <SearchBar
-                value={needSearch}
-                onChange={setNeedSearch}
-                placeholder="Search needs by item, event, or notes"
-              />
-            ) : activeTab === "donations" ? (
-              <SearchBar
-                value={donationSearch}
-                onChange={setDonationSearch}
-                placeholder="Search donations by donor, event, or remarks"
-              />
-            ) : null}
-          </div>
-
-          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-            <button
-              type="button"
-              onClick={() => loadPageData(selectedEventId)}
-              style={pageHeaderStyles.secondaryButton}
-            >
-              Refresh
-            </button>
-            {canManageDonations && activeTab === "transparency" ? (
-              <div style={{ position: "relative" }}>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setIsTransparencyExportMenuOpen((currentValue) => !currentValue)
-                  }
-                  style={pageHeaderStyles.secondaryButton}
-                  disabled={Boolean(isExportingTransparency)}
-                >
-                  <FiFileText size={16} />
-                  {isExportingTransparency
-                    ? `Exporting ${isExportingTransparency.toUpperCase()}...`
-                    : "Export"}
-                </button>
-
-                {isTransparencyExportMenuOpen ? (
-                  <div style={exportMenuStyles}>
-                    {[
-                      { key: "csv", label: "Export as CSV" },
-                      { key: "excel", label: "Export as Excel" },
-                      { key: "pdf", label: "Export as PDF" },
-                    ].map((option) => (
-                      <button
-                        key={option.key}
-                        type="button"
-                        onClick={() => handleExportTransparency(option.key)}
-                        style={exportMenuButtonStyles}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-            {canManageDonations && activeTab === "needs" ? (
-              <button type="button" onClick={() => openNeedModal()} style={pageHeaderStyles.primaryButton}>
-                Create Donation Need
-              </button>
-            ) : canManageDonations && activeTab === "donations" ? (
-              <button type="button" onClick={() => openDonationModal()} style={pageHeaderStyles.primaryButton}>
-                Record Donation
-              </button>
-            ) : null}
-          </div>
-        </div>
+          onNeedSearchChange={setNeedSearch}
+          onDonationSearchChange={setDonationSearch}
+          onRefresh={() => loadPageData(selectedEventId)}
+          onOpenNeedModal={() => openNeedModal()}
+          onOpenDonationModal={() => openDonationModal()}
+          isExportingTransparency={isExportingTransparency}
+          isTransparencyExportMenuOpen={isTransparencyExportMenuOpen}
+          onToggleTransparencyExportMenu={() =>
+            setIsTransparencyExportMenuOpen((currentValue) => !currentValue)
+          }
+          onExportTransparency={handleExportTransparency}
+          transparencyExportOptions={transparencyExportOptions}
+        />
 
         <div
           style={{
@@ -1764,295 +708,31 @@ const DonationManagementPage = () => {
       </section>
 
       {activeTab === "needs" ? (
-        <section style={shellStyles.card}>
-          <div style={{ marginBottom: "16px" }}>
-            <h3 style={{ margin: 0, color: "#17324d" }}>Published Donation Needs</h3>
-            <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-              Current filter: {selectedEventLabel}
-            </p>
-          </div>
-
-          {isLoading ? (
-            <p style={shellStyles.mutedText}>Loading donation needs...</p>
-          ) : filteredDonationNeeds.length === 0 ? (
-            <p style={shellStyles.mutedText}>
-              No donation needs are available for the current filters.
-            </p>
-          ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    {[
-                      "Event",
-                      "Item",
-                      "Quantity Needed",
-                      "Priority",
-                      "Visibility",
-                      "Sync",
-                      "Notes",
-                      ...(canManageDonations ? ["Actions"] : []),
-                    ].map((label) => (
-                      <th
-                        key={label}
-                        style={{
-                          padding: "12px 14px",
-                          textAlign: "left",
-                          fontSize: "12px",
-                          letterSpacing: "0.08em",
-                          textTransform: "uppercase",
-                          color: "#66809c",
-                          borderBottom: "1px solid #e0eaf4",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredDonationNeeds.map((need) => (
-                    <tr key={need.id}>
-                      <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                        {need.disaster_event?.event_code} - {need.disaster_event?.title}
-                      </td>
-                      <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                        {need.inventory_item?.item_name}
-                      </td>
-                      <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                        {need.quantity_needed}
-                      </td>
-                      <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                        <StatusBadge label={need.priority_level} />
-                      </td>
-                      <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                        <StatusBadge label={need.is_active ? "ACTIVE" : "INACTIVE"} />
-                      </td>
-                      <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                        <SyncStatusBadge status={need.sync_status} compact />
-                      </td>
-                      <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                        {need.notes || "--"}
-                      </td>
-                      {canManageDonations ? (
-                        <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                            <button
-                              type="button"
-                              onClick={() => openNeedModal(need)}
-                              style={compactButtonStyles}
-                              disabled={need.is_local_only}
-                              title={need.is_local_only ? "Available after sync" : undefined}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteDonationNeed(need)}
-                              style={{ ...compactButtonStyles, color: "#b91c1c", borderColor: "#f1d2cc" }}
-                              disabled={need.is_local_only}
-                              title={need.is_local_only ? "Available after sync" : undefined}
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </td>
-                      ) : null}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+        <DonationNeedsTab
+          isLoading={isLoading}
+          filteredDonationNeeds={filteredDonationNeeds}
+          selectedEventLabel={selectedEventLabel}
+          canManageDonations={canManageDonations}
+          onOpenNeedModal={openNeedModal}
+          onDeleteDonationNeed={handleDeleteDonationNeed}
+        />
       ) : null}
 
       {activeTab === "donations" ? (
-        <section style={shellStyles.card}>
-          <div style={{ marginBottom: "16px" }}>
-            <h3 style={{ margin: 0, color: "#17324d" }}>Received Donations</h3>
-            <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-              Current filter: {selectedEventLabel}
-            </p>
-          </div>
-
-          {isLoading ? (
-            <p style={shellStyles.mutedText}>Loading donation records...</p>
-          ) : filteredDonations.length === 0 ? (
-            <p style={shellStyles.mutedText}>
-              No donations are available for the current filters yet.
-            </p>
-          ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    {["Received At", "Donor", "Event", "Status", "Sync", "Items", "Quantity", "Actions"].map((label) => (
-                      <th
-                        key={label}
-                        style={{
-                          padding: "12px 14px",
-                          textAlign: "left",
-                          fontSize: "12px",
-                          letterSpacing: "0.08em",
-                          textTransform: "uppercase",
-                          color: "#66809c",
-                          borderBottom: "1px solid #e0eaf4",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredDonations.map((donation) => (
-                    <tr key={donation.id}>
-                      <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                        {formatDateTime(donation.received_at)}
-                      </td>
-                      <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                        <div style={{ fontWeight: 700 }}>{donation.donor_name}</div>
-                        <div style={{ color: "#60738a", fontSize: "13px" }}>{donation.donor_type}</div>
-                      </td>
-                      <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                        {donation.disaster_event?.event_code} - {donation.disaster_event?.title}
-                      </td>
-                      <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                        <StatusBadge label={donation.status} />
-                      </td>
-                      <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                        <SyncStatusBadge status={donation.sync_status} compact />
-                      </td>
-                      <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                        {donation.item_count}
-                      </td>
-                      <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                        {donation.total_quantity_received}
-                      </td>
-                      <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                          <button
-                            type="button"
-                            onClick={() => openDonationModal(donation.id)}
-                            style={compactButtonStyles}
-                            disabled={donation.is_local_only}
-                            title={donation.is_local_only ? "Available after sync" : undefined}
-                          >
-                            View / Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteDonation(donation)}
-                            style={{ ...compactButtonStyles, color: "#b91c1c", borderColor: "#f1d2cc" }}
-                            disabled={donation.is_local_only}
-                            title={donation.is_local_only ? "Available after sync" : undefined}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+        <DonationsTab
+          isLoading={isLoading}
+          filteredDonations={filteredDonations}
+          selectedEventLabel={selectedEventLabel}
+          onOpenDonationModal={openDonationModal}
+          onDeleteDonation={handleDeleteDonation}
+        />
       ) : null}
 
       {activeTab === "transparency" ? (
-        <>
-          <section style={shellStyles.card}>
-            <div style={shellStyles.statGrid}>
-              <div>
-                <p style={shellStyles.mutedText}>Total Donations Received</p>
-                <p style={shellStyles.statValue}>
-                  {portalData.transparency_summary?.total_donations_received || 0}
-                </p>
-              </div>
-              <div>
-                <p style={shellStyles.mutedText}>Total Quantity Received</p>
-                <p style={shellStyles.statValue}>
-                  {portalData.transparency_summary?.total_quantity_received || 0}
-                </p>
-              </div>
-              <div>
-                <p style={shellStyles.mutedText}>Total Donated Items Distributed</p>
-                <p style={shellStyles.statValue}>
-                  {portalData.transparency_summary?.total_donated_items_distributed || 0}
-                </p>
-              </div>
-              <div>
-                <p style={shellStyles.mutedText}>Remaining Donated Inventory</p>
-                <p style={shellStyles.statValue}>
-                  {portalData.transparency_summary?.remaining_donated_inventory || 0}
-                </p>
-              </div>
-            </div>
-          </section>
-
-          <section style={shellStyles.card}>
-            <div style={{ marginBottom: "16px" }}>
-              <h3 style={{ margin: 0, color: "#17324d" }}>Received vs Distributed Per Item</h3>
-              <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-                Current filter: {selectedEventLabel}
-              </p>
-            </div>
-
-            {(portalData.transparency_summary?.received_vs_distributed || []).length === 0 ? (
-              <p style={shellStyles.mutedText}>
-                No donated inventory summaries are available yet.
-              </p>
-            ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead>
-                    <tr>
-                      {["Item", "Received", "Distributed", "Remaining"].map((label) => (
-                        <th
-                          key={label}
-                          style={{
-                            padding: "12px 14px",
-                            textAlign: "left",
-                            fontSize: "12px",
-                            letterSpacing: "0.08em",
-                            textTransform: "uppercase",
-                            color: "#66809c",
-                            borderBottom: "1px solid #e0eaf4",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {portalData.transparency_summary.received_vs_distributed.map((row) => (
-                      <tr key={row.inventory_item_id}>
-                        <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                          {row.item_name}
-                        </td>
-                        <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                          {row.quantity_received}
-                        </td>
-                        <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                          {row.quantity_distributed}
-                        </td>
-                        <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                          {row.quantity_remaining}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        </>
+        <DonorTransparencyTab
+          portalData={portalData}
+          selectedEventLabel={selectedEventLabel}
+        />
       ) : null}
 
       {canManageDonations ? (
