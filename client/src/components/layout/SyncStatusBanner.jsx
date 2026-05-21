@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import db, { LOCAL_SYNC_STATUS } from "../../offline/db";
+import { formatCompactSyncChipLabel } from "../../offline/syncStatus";
 import {
   flushPendingSyncEntries,
   initializeSyncService,
@@ -26,10 +27,6 @@ const badgeStylesByStatus = {
   },
 };
 
-const buildCountLabel = (count, singularLabel) => {
-  return `${count} ${singularLabel}${count === 1 ? "" : "s"}`;
-};
-
 const bannerCardStyles = {
   backgroundColor: "#ffffff",
   border: "1px solid #d7e2ef",
@@ -46,6 +43,14 @@ const mutedTextStyle = {
   color: "#60738a",
   fontSize: "14px",
   lineHeight: 1.6,
+};
+
+const chipBaseStyles = {
+  padding: "6px 12px",
+  borderRadius: "999px",
+  fontSize: "12px",
+  fontWeight: 700,
+  whiteSpace: "nowrap",
 };
 
 const SyncStatusBanner = () => {
@@ -69,6 +74,51 @@ const SyncStatusBanner = () => {
       },
     );
   }, [syncEntries]);
+
+  const statusChips = useMemo(() => {
+    const chips = [];
+
+    if (counts[LOCAL_SYNC_STATUS.PENDING] === 0) {
+      chips.push({
+        key: LOCAL_SYNC_STATUS.SYNCED,
+        label: formatCompactSyncChipLabel(0, "synced"),
+        palette: badgeStylesByStatus[LOCAL_SYNC_STATUS.SYNCED],
+      });
+    } else {
+      chips.push({
+        key: LOCAL_SYNC_STATUS.PENDING,
+        label: formatCompactSyncChipLabel(
+          counts[LOCAL_SYNC_STATUS.PENDING],
+          "pending",
+        ),
+        palette: badgeStylesByStatus[LOCAL_SYNC_STATUS.PENDING],
+      });
+    }
+
+    if (counts[LOCAL_SYNC_STATUS.FAILED] > 0) {
+      chips.push({
+        key: LOCAL_SYNC_STATUS.FAILED,
+        label: formatCompactSyncChipLabel(
+          counts[LOCAL_SYNC_STATUS.FAILED],
+          "failed",
+        ),
+        palette: badgeStylesByStatus[LOCAL_SYNC_STATUS.FAILED],
+      });
+    }
+
+    if (counts[LOCAL_SYNC_STATUS.CONFLICT] > 0) {
+      chips.push({
+        key: LOCAL_SYNC_STATUS.CONFLICT,
+        label: formatCompactSyncChipLabel(
+          counts[LOCAL_SYNC_STATUS.CONFLICT],
+          "conflict",
+        ),
+        palette: badgeStylesByStatus[LOCAL_SYNC_STATUS.CONFLICT],
+      });
+    }
+
+    return chips;
+  }, [counts]);
 
   useEffect(() => {
     initializeSyncService();
@@ -148,55 +198,22 @@ const SyncStatusBanner = () => {
       <div
         style={{
           display: "flex",
-          gap: "10px",
+          gap: "8px",
           flexWrap: "wrap",
           marginTop: "14px",
         }}
       >
-        <span
-          style={{
-            padding: "6px 12px",
-            borderRadius: "999px",
-            fontSize: "12px",
-            fontWeight: 700,
-            ...badgeStylesByStatus[LOCAL_SYNC_STATUS.SYNCED],
-          }}
-        >
-          Synced
-        </span>
-        <span
-          style={{
-            padding: "6px 12px",
-            borderRadius: "999px",
-            fontSize: "12px",
-            fontWeight: 700,
-            ...badgeStylesByStatus[LOCAL_SYNC_STATUS.PENDING],
-          }}
-        >
-          Pending Sync: {buildCountLabel(counts[LOCAL_SYNC_STATUS.PENDING], "entry")}
-        </span>
-        <span
-          style={{
-            padding: "6px 12px",
-            borderRadius: "999px",
-            fontSize: "12px",
-            fontWeight: 700,
-            ...badgeStylesByStatus[LOCAL_SYNC_STATUS.FAILED],
-          }}
-        >
-          Failed Sync: {buildCountLabel(counts[LOCAL_SYNC_STATUS.FAILED], "entry")}
-        </span>
-        <span
-          style={{
-            padding: "6px 12px",
-            borderRadius: "999px",
-            fontSize: "12px",
-            fontWeight: 700,
-            ...badgeStylesByStatus[LOCAL_SYNC_STATUS.CONFLICT],
-          }}
-        >
-          Conflict: {buildCountLabel(counts[LOCAL_SYNC_STATUS.CONFLICT], "entry")}
-        </span>
+        {statusChips.map((chip) => (
+          <span
+            key={chip.key}
+            style={{
+              ...chipBaseStyles,
+              ...chip.palette,
+            }}
+          >
+            {chip.label}
+          </span>
+        ))}
       </div>
     </section>
   );

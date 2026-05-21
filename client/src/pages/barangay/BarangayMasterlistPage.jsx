@@ -17,6 +17,15 @@ import {
   fetchHouseholdDetails,
   formatDateTime,
 } from "../../features/masterlist/masterlistService";
+import {
+  cacheRegistrationActiveDisasterEvents,
+  cacheRegistrationBarangays,
+  cacheRegistrationEvacuationCentersByBarangay,
+  cacheRegistrationSectors,
+  cacheSelectedDisasterEvent,
+  cacheSelectedDisasterEventId,
+  fetchEvacuationCentersByBarangay,
+} from "../../features/household-registration/householdRegistrationService";
 import { fetchMswdoSectors } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { MdDoorFront } from "react-icons/md";
 import db from "../../offline/db";
@@ -321,6 +330,7 @@ const BarangayMasterlistPage = () => {
             .filter(Boolean)
             .sort((left, right) => left.localeCompare(right)),
         );
+        cacheRegistrationSectors(Array.isArray(sectors) ? sectors : []);
       } catch (_error) {
         if (isMounted) {
           setSectorOptions([]);
@@ -334,6 +344,70 @@ const BarangayMasterlistPage = () => {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    const activeEvents = availableEvents.filter(
+      (event) => String(event.status || "").toUpperCase() === "ACTIVE",
+    );
+
+    if (activeEvents.length > 0) {
+      cacheRegistrationActiveDisasterEvents(activeEvents);
+    }
+
+    if (selectedEvent?.id) {
+      cacheSelectedDisasterEvent(selectedEvent);
+      cacheSelectedDisasterEventId(selectedEvent.id);
+    }
+
+    if (assignedBarangay?.id) {
+      cacheRegistrationBarangays([
+        {
+          id: assignedBarangay.id,
+          name: assignedBarangay.name,
+          code: assignedBarangay.code,
+        },
+      ]);
+    }
+  }, [
+    assignedBarangay?.code,
+    assignedBarangay?.id,
+    assignedBarangay?.name,
+    availableEvents,
+    selectedEvent?.id,
+  ]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const prefetchEvacuationCenters = async () => {
+      if (
+        !assignedBarangay?.id ||
+        typeof navigator === "undefined" ||
+        !navigator.onLine
+      ) {
+        return;
+      }
+
+      try {
+        const centers = await fetchEvacuationCentersByBarangay(assignedBarangay.id);
+
+        if (isMounted && Array.isArray(centers) && centers.length > 0) {
+          cacheRegistrationEvacuationCentersByBarangay(
+            assignedBarangay.id,
+            centers,
+          );
+        }
+      } catch (_error) {
+        // Keep this silent. The modal has its own fallback messaging.
+      }
+    };
+
+    prefetchEvacuationCenters();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [assignedBarangay?.id]);
 
   useEffect(() => {
     const unsubscribe = subscribeToSyncUpdates(() => {

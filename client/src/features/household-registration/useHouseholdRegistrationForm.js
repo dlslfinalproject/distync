@@ -1,10 +1,17 @@
 import { useEffect, useState } from "react";
 import {
+  cacheRegistrationBarangays,
+  cacheRegistrationEvacuationCentersByBarangay,
+  cacheRegistrationSectors,
+  cacheSelectedDisasterEvent,
+  cacheSelectedDisasterEventId,
+  cacheRegistrationActiveDisasterEvents,
   fetchActiveDisasterEvents,
   fetchBarangays,
   fetchEvacuationCenters,
   fetchEvacuationCentersByBarangay,
   fetchSectors,
+  getCachedRegistrationReferenceData,
   registerHousehold,
   updateHousehold,
 } from "./householdRegistrationService";
@@ -130,10 +137,29 @@ export const useHouseholdRegistrationForm = ({
   const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [isUsingCachedReferenceData, setIsUsingCachedReferenceData] =
+    useState(false);
+
+  const isOffline =
+    typeof navigator !== "undefined" ? !navigator.onLine : false;
 
   useEffect(() => {
     setSelectedDisasterEventId(defaultDisasterEventId || "");
   }, [defaultDisasterEventId]);
+
+  useEffect(() => {
+    cacheSelectedDisasterEventId(selectedDisasterEventId);
+  }, [selectedDisasterEventId]);
+
+  useEffect(() => {
+    const selectedEvent = activeDisasterEvents.find(
+      (eventItem) => eventItem.id === selectedDisasterEventId,
+    );
+
+    if (selectedEvent) {
+      cacheSelectedDisasterEvent(selectedEvent);
+    }
+  }, [activeDisasterEvents, selectedDisasterEventId]);
 
   useEffect(() => {
     if (
@@ -154,6 +180,7 @@ export const useHouseholdRegistrationForm = ({
     const loadOptions = async () => {
       setIsLoadingOptions(true);
       setErrorMessage("");
+      setIsUsingCachedReferenceData(false);
 
       try {
         const [disasterEventsPayload, sectorsPayload, barangaysPayload] = await Promise.all([
@@ -180,6 +207,8 @@ export const useHouseholdRegistrationForm = ({
 
         setActiveDisasterEvents(disasterEvents);
         setBarangays(availableBarangays);
+        cacheRegistrationActiveDisasterEvents(disasterEvents);
+        cacheRegistrationBarangays(availableBarangays);
 
         if (!defaultDisasterEventId && disasterEvents.length > 0) {
           setSelectedDisasterEventId(disasterEvents[0].id);
@@ -212,10 +241,105 @@ export const useHouseholdRegistrationForm = ({
             HOUSEHOLD_CONDITION_CODES.includes(sector.code),
           ),
         );
+        cacheRegistrationSectors(sectors);
+        setIsUsingCachedReferenceData(false);
       } catch (error) {
-        if (isMounted) {
-          setErrorMessage(error.message || "Failed to load form options");
+        if (!isMounted) {
+          return;
         }
+
+        const cachedReferenceData = getCachedRegistrationReferenceData();
+        const cachedDisasterEvents = Array.isArray(
+          cachedReferenceData.activeDisasterEvents,
+        )
+          ? cachedReferenceData.activeDisasterEvents
+          : [];
+        const cachedSelectedDisasterEvent =
+          cachedReferenceData.selectedDisasterEvent &&
+          typeof cachedReferenceData.selectedDisasterEvent === "object"
+            ? cachedReferenceData.selectedDisasterEvent
+            : null;
+        const offlineDisasterEvents =
+          cachedSelectedDisasterEvent?.id &&
+          !cachedDisasterEvents.some(
+            (event) => event.id === cachedSelectedDisasterEvent.id,
+          )
+            ? [cachedSelectedDisasterEvent, ...cachedDisasterEvents]
+            : cachedDisasterEvents;
+        const cachedSectors = Array.isArray(cachedReferenceData.sectors?.data)
+          ? cachedReferenceData.sectors.data
+          : [];
+        const cachedBarangays = Array.isArray(cachedReferenceData.barangays)
+          ? cachedReferenceData.barangays.filter(
+              (barangay) => barangay.code !== "NON_RESIDENT_OUTSIDE_MALVAR",
+            )
+          : [];
+
+        const hasCachedBarangayReference =
+          cachedBarangays.length > 0 ||
+          Boolean(defaultBarangayId) ||
+          hideBarangaySelection ||
+          lockBarangaySelection;
+
+        const hasCachedReferences =
+          offlineDisasterEvents.length > 0 &&
+          cachedSectors.length > 0 &&
+          hasCachedBarangayReference;
+
+        if (!hasCachedReferences) {
+          setErrorMessage(
+            isOffline
+              ? "Offline mode: please select an active disaster event while online first."
+              : error.message || "Failed to load form options",
+          );
+          return;
+        }
+
+        setActiveDisasterEvents(offlineDisasterEvents);
+        setBarangays(cachedBarangays);
+
+        if (!defaultDisasterEventId) {
+          if (cachedSelectedDisasterEvent?.id) {
+            console.info("Loaded cached disaster event for offline registration");
+          }
+
+          setSelectedDisasterEventId(
+            cachedSelectedDisasterEvent?.id ||
+              cachedReferenceData.selectedDisasterEventId ||
+              offlineDisasterEvents[0]?.id ||
+              "",
+          );
+        }
+
+        if (
+          residencyStatus === RESIDENCY_STATUS.resident &&
+          !defaultBarangayId &&
+          !lockBarangaySelection &&
+          !hideBarangaySelection &&
+          cachedBarangays.length > 0
+        ) {
+          setSelectedBarangayId(cachedBarangays[0].id);
+        }
+
+        const availableMemberSectorsByCanonicalCode = new Map(
+          cachedSectors.map((sector) => [
+            getCanonicalMemberSectorCode(sector.code),
+            sector,
+          ]),
+        );
+
+        setMemberSectorOptions(
+          DISPLAY_MEMBER_SECTOR_CODES.map((sectorCode) =>
+            availableMemberSectorsByCanonicalCode.get(sectorCode),
+          ).filter(Boolean),
+        );
+        setHouseholdSectors(
+          cachedSectors.filter((sector) =>
+            HOUSEHOLD_CONDITION_CODES.includes(sector.code),
+          ),
+        );
+        setIsUsingCachedReferenceData(true);
+        setErrorMessage("");
       } finally {
         if (isMounted) {
           setIsLoadingOptions(false);
@@ -351,12 +475,22 @@ export const useHouseholdRegistrationForm = ({
         return;
       }
 
-      const centers = needsBarangayScopedCenters
+      let centers = needsBarangayScopedCenters
         ? await fetchEvacuationCentersByBarangay(selectedBarangayId)
         : await fetchEvacuationCenters();
 
+      if ((!Array.isArray(centers) || centers.length === 0) && isOffline) {
+        const cachedReferenceData = getCachedRegistrationReferenceData();
+        centers = needsBarangayScopedCenters
+          ? cachedReferenceData.evacuationCentersByBarangay?.[selectedBarangayId] || []
+          : cachedReferenceData.evacuationCentersAll || [];
+      }
+
       if (isMounted) {
         setEvacuationCenters(Array.isArray(centers) ? centers : []);
+        if (Array.isArray(centers) && centers.length > 0 && selectedBarangayId) {
+          cacheRegistrationEvacuationCentersByBarangay(selectedBarangayId, centers);
+        }
         setHousehold((currentValue) => ({
           ...currentValue,
           evacuation_center_id: Array.isArray(centers)
@@ -603,7 +737,24 @@ export const useHouseholdRegistrationForm = ({
 
   const validateForm = () => {
     if (!selectedDisasterEventId) {
-      return "Please select an active disaster event from the Barangay masterlist page";
+      return isOffline
+        ? "Offline mode: please select an active disaster event while online first."
+        : "Please select an active disaster event from the Barangay masterlist page";
+    }
+
+    const needsEvacuationCenterReference =
+      household.current_stay_type === "EVAC_CENTER" ||
+      (residencyStatus === RESIDENCY_STATUS.nonResident &&
+        restrictNonResidentToEvacCenter);
+
+    if (
+      isOffline &&
+      (activeDisasterEvents.length === 0 ||
+        householdSectors.length === 0 ||
+        barangays.length === 0 ||
+        (needsEvacuationCenterReference && evacuationCenters.length === 0))
+    ) {
+      return "Offline mode: please load the registration reference data while online first.";
     }
 
     if (isProcessingPhoto) {
@@ -781,6 +932,8 @@ export const useHouseholdRegistrationForm = ({
     activeDisasterEvents,
     barangays,
     assignedBarangayName: defaultBarangayName,
+    isUsingCachedReferenceData,
+    isOffline,
     isEditMode,
     selectedDisasterEventId,
     setSelectedDisasterEventId,

@@ -26,6 +26,66 @@ export const getSyncLabel = (status) => {
   return SYNC_STATUS_LABELS[getNormalizedSyncStatus(status)];
 };
 
+export const formatSyncStatusCount = (count, type) => {
+  if (type === "pending") {
+    if (count === 0) {
+      return "All changes synced";
+    }
+
+    if (count === 1) {
+      return "1 pending entry";
+    }
+
+    return `${count} pending entries`;
+  }
+
+  if (type === "failed") {
+    if (count === 0) {
+      return "No failed sync";
+    }
+
+    if (count === 1) {
+      return "1 failed entry";
+    }
+
+    return `${count} failed entries`;
+  }
+
+  if (type === "conflict") {
+    if (count === 0) {
+      return "No conflicts";
+    }
+
+    if (count === 1) {
+      return "1 conflict";
+    }
+
+    return `${count} conflicts`;
+  }
+
+  return "";
+};
+
+export const formatCompactSyncChipLabel = (count, type) => {
+  if (type === "synced") {
+    return "🟢 All changes synced";
+  }
+
+  if (type === "pending") {
+    return `🟡 ${count} pending`;
+  }
+
+  if (type === "failed") {
+    return `🔴 ${count} failed`;
+  }
+
+  if (type === "conflict") {
+    return `🟠 ${count} ${count === 1 ? "conflict" : "conflicts"}`;
+  }
+
+  return "";
+};
+
 export const getSyncBadgePalette = (status) => {
   const normalizedStatus = getNormalizedSyncStatus(status);
 

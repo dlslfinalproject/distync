@@ -79,8 +79,15 @@ const HouseholdFormSection = ({ form }) => {
         <p style={{ margin: "8px 0 0", color: "#17324d", fontSize: "14px", fontWeight: 700 }}>
           {selectedEvent
             ? `${selectedEvent.event_code} - ${selectedEvent.title}`
-            : "Select an active disaster event from the masterlist page first."}
+            : form.isOffline
+              ? "Offline mode: please select an active disaster event while online first."
+              : "Select an active disaster event from the masterlist page first."}
         </p>
+        {form.isUsingCachedReferenceData && selectedEvent ? (
+          <p style={{ margin: "8px 0 0", color: "#60738a", fontSize: "12px" }}>
+            Offline mode is using the last cached registration reference data.
+          </p>
+        ) : null}
       </div>
 
       <div style={fieldStyles.grid}>
