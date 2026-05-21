@@ -4,6 +4,8 @@ import { MdDoorFront } from "react-icons/md";
 import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
+import HouseholdArchiveConfirmModal from "../../components/masterlist/HouseholdArchiveConfirmModal";
+import HouseholdDetailModal from "../../components/masterlist/HouseholdDetailModal";
 import MasterlistDepartureConfirmModal from "../../components/masterlist/MasterlistDepartureConfirmModal";
 import MasterlistTable from "../../components/masterlist/MasterlistTable";
 import MswdoSummaryCards from "../../components/mswdo-masterlist/MswdoSummaryCards";
@@ -12,7 +14,9 @@ import StatusPill from "../../components/shared/StatusPill";
 import { useAuth } from "../../context/AuthContext";
 import { useHouseholdRegistrationForm } from "../../features/household-registration/useHouseholdRegistrationForm";
 import {
+  archiveHousehold,
   departHousehold,
+  fetchHouseholdDetails,
   formatDateTime,
 } from "../../features/masterlist/masterlistService";
 import { exportConsolidatedMasterlist } from "../../features/mswdo-masterlist/mswdoMasterlistService";
@@ -311,6 +315,21 @@ const ConsolidatedEvacueeMasterlist = () => {
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [registrationSuccessMessage, setRegistrationSuccessMessage] = useState("");
   const [attendanceActionMessage, setAttendanceActionMessage] = useState("");
+  const [householdDetails, setHouseholdDetails] = useState(null);
+  const [viewingHouseholdId, setViewingHouseholdId] = useState("");
+  const [editingHouseholdId, setEditingHouseholdId] = useState("");
+  const [editingHouseholdDetails, setEditingHouseholdDetails] = useState(null);
+  const [isLoadingHouseholdDetails, setIsLoadingHouseholdDetails] =
+    useState(false);
+  const [isLoadingEditHouseholdDetails, setIsLoadingEditHouseholdDetails] =
+    useState(false);
+  const [householdDetailsErrorMessage, setHouseholdDetailsErrorMessage] =
+    useState("");
+  const [editHouseholdErrorMessage, setEditHouseholdErrorMessage] =
+    useState("");
+  const [pendingArchiveHouseholdId, setPendingArchiveHouseholdId] = useState("");
+  const [archiveRemarks, setArchiveRemarks] = useState("");
+  const [isArchivingHousehold, setIsArchivingHousehold] = useState(false);
   const [exportNoticeMessage, setExportNoticeMessage] = useState("");
   const filterButtonRef = useRef(null);
   const filterPanelRef = useRef(null);
@@ -376,6 +395,25 @@ const ConsolidatedEvacueeMasterlist = () => {
     onSuccess: (response) => {
       setRegistrationSuccessMessage(
         response?.message || "Household registered successfully",
+      );
+      reloadMasterlist();
+    },
+  });
+
+  const editHouseholdForm = useHouseholdRegistrationForm({
+    isOpen: Boolean(editingHouseholdId),
+    mode: "edit",
+    initialHouseholdDetails: editingHouseholdDetails,
+    defaultBarangayId: selectedBarangayId || "",
+    defaultBarangayName: selectedBarangayLabel || "",
+    defaultDisasterEventId: selectedDisasterEventId || "",
+    lockBarangaySelection: false,
+    hideBarangaySelection: false,
+    scopeNonResidentEvacuationCentersToBarangay: true,
+    registeredBy: authenticatedUser?.id || null,
+    onSuccess: (response) => {
+      setRegistrationSuccessMessage(
+        response?.message || "Household updated successfully",
       );
       reloadMasterlist();
     },
@@ -613,6 +651,104 @@ const ConsolidatedEvacueeMasterlist = () => {
     setIsRegisterModalOpen(true);
   };
 
+  const handleOpenHouseholdDetails = async (householdId) => {
+    setViewingHouseholdId(householdId);
+    setIsLoadingHouseholdDetails(true);
+    setHouseholdDetails(null);
+    setHouseholdDetailsErrorMessage("");
+
+    try {
+      const details = await fetchHouseholdDetails(householdId);
+      setHouseholdDetails(details);
+    } catch (error) {
+      setHouseholdDetailsErrorMessage(
+        error.message || "Failed to load household details.",
+      );
+    } finally {
+      setIsLoadingHouseholdDetails(false);
+    }
+  };
+
+  const handleCloseHouseholdDetails = () => {
+    setViewingHouseholdId("");
+    setHouseholdDetails(null);
+    setHouseholdDetailsErrorMessage("");
+    setIsLoadingHouseholdDetails(false);
+  };
+
+  const handleOpenEditHousehold = async (householdId) => {
+    setEditHouseholdErrorMessage("");
+    setEditingHouseholdId("");
+    setEditingHouseholdDetails(null);
+    setIsLoadingEditHouseholdDetails(true);
+
+    try {
+      const details = await fetchHouseholdDetails(householdId);
+      setEditingHouseholdDetails(details);
+      setEditingHouseholdId(householdId);
+    } catch (error) {
+      setEditHouseholdErrorMessage(
+        error.message || "Failed to load household details for editing.",
+      );
+    } finally {
+      setIsLoadingEditHouseholdDetails(false);
+    }
+  };
+
+  const handleEditHouseholdFromDetails = async (householdId) => {
+    handleCloseHouseholdDetails();
+    await handleOpenEditHousehold(householdId);
+  };
+
+  const handleCloseEditHousehold = () => {
+    setEditingHouseholdId("");
+    setEditingHouseholdDetails(null);
+    setEditHouseholdErrorMessage("");
+    setIsLoadingEditHouseholdDetails(false);
+  };
+
+  const handleOpenArchiveHousehold = (householdId) => {
+    setPendingArchiveHouseholdId(householdId);
+    setArchiveRemarks("");
+  };
+
+  const handleCancelArchiveHousehold = () => {
+    if (isArchivingHousehold) {
+      return;
+    }
+
+    setPendingArchiveHouseholdId("");
+    setArchiveRemarks("");
+  };
+
+  const handleConfirmArchiveHousehold = async () => {
+    if (!pendingArchiveHouseholdId || isArchivingHousehold) {
+      return;
+    }
+
+    setIsArchivingHousehold(true);
+
+    try {
+      const response = await archiveHousehold({
+        householdId: pendingArchiveHouseholdId,
+        archiveRemarks,
+      });
+
+      setRegistrationSuccessMessage(
+        response.message || "Household archived successfully",
+      );
+      setPendingArchiveHouseholdId("");
+      setArchiveRemarks("");
+      reloadMasterlist();
+    } catch (error) {
+      setAttendanceActionMessage(
+        error.message || "Failed to archive household",
+      );
+    } finally {
+      setIsArchivingHousehold(false);
+    }
+  };
+
   const handleExport = async (format) => {
     if (!selectedDisasterEventId) {
       window.alert("Select a disaster event before exporting the masterlist.");
@@ -805,6 +941,14 @@ const ConsolidatedEvacueeMasterlist = () => {
         <section style={shellStyles.card}>
           <p style={{ margin: 0, color: "#24496e", fontWeight: 700 }}>
             {attendanceActionMessage}
+          </p>
+        </section>
+      ) : null}
+
+      {editHouseholdErrorMessage ? (
+        <section style={shellStyles.card}>
+          <p style={{ margin: 0, color: "#a14d58", fontWeight: 700 }}>
+            {editHouseholdErrorMessage}
           </p>
         </section>
       ) : null}
@@ -1039,6 +1183,9 @@ const ConsolidatedEvacueeMasterlist = () => {
         isLoading={isLoadingFilters || isLoadingMasterlist}
         errorMessage={errorMessage}
         onMarkDeparted={handleOpenDepartureConfirmation}
+        onViewHousehold={handleOpenHouseholdDetails}
+        onEditHousehold={handleOpenEditHousehold}
+        onArchiveHousehold={handleOpenArchiveHousehold}
         isDepartureReadOnly={isEndedView}
         departureReadOnlyText={endedEventDateTimeText}
         selectedHouseholds={selectedHouseholds}
@@ -1064,6 +1211,30 @@ const ConsolidatedEvacueeMasterlist = () => {
         isOpen={isRegisterModalOpen}
         onClose={() => setIsRegisterModalOpen(false)}
         form={registrationForm}
+      />
+
+      <RegisterFamilyModal
+        isOpen={Boolean(editingHouseholdId)}
+        onClose={handleCloseEditHousehold}
+        form={editHouseholdForm}
+      />
+
+      <HouseholdDetailModal
+        isOpen={Boolean(viewingHouseholdId)}
+        isLoading={isLoadingHouseholdDetails}
+        errorMessage={householdDetailsErrorMessage}
+        householdDetails={householdDetails}
+        onClose={handleCloseHouseholdDetails}
+        onEditHousehold={handleEditHouseholdFromDetails}
+      />
+
+      <HouseholdArchiveConfirmModal
+        isOpen={Boolean(pendingArchiveHouseholdId)}
+        isSubmitting={isArchivingHousehold}
+        archiveRemarks={archiveRemarks}
+        onChangeArchiveRemarks={setArchiveRemarks}
+        onCancel={handleCancelArchiveHousehold}
+        onConfirm={handleConfirmArchiveHousehold}
       />
     </>
   );

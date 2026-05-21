@@ -18,6 +18,7 @@ const MAX_FAMILY_HEAD_PHOTO_URL_LENGTH = 4_500_000;
 const MAX_PHOTO_VERIFICATION_NOTES_LENGTH = 1_000;
 const MAX_CONTACT_NUMBER_LENGTH = 50;
 const MAX_CURRENT_ADDRESS_LENGTH = 500;
+const MAX_CORRECTION_REMARKS_LENGTH = 1000;
 
 const validateCreateHouseholdRegistration = (req, res, next) => {
   try {
@@ -531,6 +532,131 @@ const validateGetHouseholdDetails = (req, res, next) => {
   }
 };
 
+const validateArchiveHousehold = (req, res, next) => {
+  try {
+    const { householdId } = req.params;
+    const { archive_remarks } = req.body || {};
+
+    if (!isValidUuid(householdId)) {
+      return res.status(400).json({
+        message: "householdId must be a valid UUID",
+      });
+    }
+
+    if (
+      archive_remarks !== undefined &&
+      archive_remarks !== null &&
+      typeof archive_remarks !== "string"
+    ) {
+      return res.status(400).json({
+        message: "archive_remarks must be a string or null",
+      });
+    }
+
+    if (
+      typeof archive_remarks === "string" &&
+      archive_remarks.length > MAX_CORRECTION_REMARKS_LENGTH
+    ) {
+      return res.status(400).json({
+        message: "archive_remarks must be 1000 characters or fewer",
+      });
+    }
+
+    req.validatedParams = {
+      householdId,
+    };
+
+    req.validatedBody = {
+      archive_remarks:
+        typeof archive_remarks === "string" && archive_remarks.trim()
+          ? archive_remarks.trim()
+          : null,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate household archive request",
+      error: error.message,
+    });
+  }
+};
+
+const validateCorrectEvacuationLog = (req, res, next) => {
+  try {
+    const { householdId, evacuationLogId } = req.params;
+    const { evacuation_center_id, status, correction_remarks } = req.body || {};
+
+    if (!isValidUuid(householdId)) {
+      return res.status(400).json({
+        message: "householdId must be a valid UUID",
+      });
+    }
+
+    if (!isValidUuid(evacuationLogId)) {
+      return res.status(400).json({
+        message: "evacuationLogId must be a valid UUID",
+      });
+    }
+
+    if (
+      evacuation_center_id !== undefined &&
+      evacuation_center_id !== null &&
+      !isValidUuid(evacuation_center_id)
+    ) {
+      return res.status(400).json({
+        message: "evacuation_center_id must be a valid UUID or null",
+      });
+    }
+
+    if (!["PRESENT", "LEFT", "TRANSFERRED"].includes(status)) {
+      return res.status(400).json({
+        message: "status must be PRESENT, LEFT, or TRANSFERRED",
+      });
+    }
+
+    if (
+      correction_remarks !== undefined &&
+      correction_remarks !== null &&
+      typeof correction_remarks !== "string"
+    ) {
+      return res.status(400).json({
+        message: "correction_remarks must be a string or null",
+      });
+    }
+
+    if (
+      typeof correction_remarks === "string" &&
+      correction_remarks.length > MAX_CORRECTION_REMARKS_LENGTH
+    ) {
+      return res.status(400).json({
+        message: "correction_remarks must be 1000 characters or fewer",
+      });
+    }
+
+    req.validatedParams = {
+      householdId,
+      evacuationLogId,
+    };
+
+    req.validatedBody = {
+      evacuation_center_id: evacuation_center_id ?? null,
+      status,
+      correction_remarks:
+        typeof correction_remarks === "string" && correction_remarks.trim()
+          ? correction_remarks.trim()
+          : null,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate evacuation correction request",
+      error: error.message,
+    });
+  }
+};
+
 const validateUpdateHouseholdDetails = (req, res, next) => {
   try {
     const { householdId } = req.params;
@@ -563,4 +689,6 @@ module.exports = {
   validateDepartHousehold,
   validateGetHouseholdDetails,
   validateUpdateHouseholdDetails,
+  validateArchiveHousehold,
+  validateCorrectEvacuationLog,
 };

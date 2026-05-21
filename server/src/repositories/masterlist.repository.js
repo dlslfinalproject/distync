@@ -551,13 +551,24 @@ const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) =
   );
 };
 
-const getHouseholdsByFilters = async (disasterEventId, barangayId = null) => {
+const getHouseholdsByFilters = async (
+  disasterEventId,
+  barangayId = null,
+  recordStatus = "active",
+) => {
   const values = [disasterEventId];
   let barangayFilterClause = "";
+  let activeFilterClause = "";
 
   if (barangayId) {
     values.push(barangayId);
     barangayFilterClause = "AND h.barangay_id = $2";
+  }
+
+  if (recordStatus === "active") {
+    activeFilterClause = "AND h.is_active = TRUE";
+  } else if (recordStatus === "archived") {
+    activeFilterClause = "AND h.is_active = FALSE";
   }
 
   const query = `
@@ -574,6 +585,7 @@ const getHouseholdsByFilters = async (disasterEventId, barangayId = null) => {
       h.current_stay_type,
       h.current_address_details,
       h.contact_number,
+      h.is_active,
       h.registered_at,
       h.family_head_evacuee_id,
       b.code AS barangay_code,
@@ -584,6 +596,7 @@ const getHouseholdsByFilters = async (disasterEventId, barangayId = null) => {
     LEFT JOIN barangays b ON b.id = h.barangay_id
     WHERE h.disaster_event_id = $1
     ${barangayFilterClause}
+    ${activeFilterClause}
     ORDER BY h.registered_at DESC, h.family_head_last_name ASC
   `;
 
@@ -633,10 +646,15 @@ const getHouseholdSectorsByHouseholdIds = async (householdIds) => {
   return result.rows;
 };
 
-const getMembersByHouseholdIds = async (householdIds) => {
+const getMembersByHouseholdIds = async (
+  householdIds,
+  { includeInactive = false } = {},
+) => {
   if (householdIds.length === 0) {
     return [];
   }
+
+  const activeFilterClause = includeInactive ? "" : "AND is_active = TRUE";
 
   const query = `
     SELECT
@@ -654,6 +672,7 @@ const getMembersByHouseholdIds = async (householdIds) => {
       is_family_head
     FROM evacuees
     WHERE household_id = ANY($1::uuid[])
+      ${activeFilterClause}
     ORDER BY household_id ASC, is_family_head DESC, created_at ASC
   `;
 
@@ -661,10 +680,15 @@ const getMembersByHouseholdIds = async (householdIds) => {
   return result.rows;
 };
 
-const getMemberSectorsByHouseholdIds = async (householdIds) => {
+const getMemberSectorsByHouseholdIds = async (
+  householdIds,
+  { includeInactive = false } = {},
+) => {
   if (householdIds.length === 0) {
     return [];
   }
+
+  const activeFilterClause = includeInactive ? "" : "AND e.is_active = TRUE";
 
   const query = `
     SELECT
@@ -677,6 +701,7 @@ const getMemberSectorsByHouseholdIds = async (householdIds) => {
     INNER JOIN evacuees e ON e.id = es.evacuee_id
     INNER JOIN sectors s ON s.id = es.sector_id
     WHERE e.household_id = ANY($1::uuid[])
+      ${activeFilterClause}
     ORDER BY e.household_id ASC, s.name ASC
   `;
 

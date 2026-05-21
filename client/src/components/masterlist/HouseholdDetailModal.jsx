@@ -151,6 +151,7 @@ const HouseholdDetailModal = ({
   householdDetails,
   onClose,
   onEditHousehold,
+  onCorrectEvacuation,
 }) => {
   if (!isOpen) {
     return null;
@@ -182,13 +183,30 @@ const HouseholdDetailModal = ({
           </div>
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
             {householdDetails?.household?.id ? (
-              <button
-                type="button"
-                onClick={() => onEditHousehold?.(householdDetails.household.id)}
-                style={pageHeaderStyles.secondaryButton}
-              >
-                Edit Household
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onCorrectEvacuation?.(householdDetails.household.id)
+                  }
+                  style={pageHeaderStyles.secondaryButton}
+                >
+                  Correct Evacuation
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onEditHousehold?.(householdDetails.household.id)}
+                  style={pageHeaderStyles.secondaryButton}
+                  disabled={householdDetails.household.is_active === false}
+                  title={
+                    householdDetails.household.is_active === false
+                      ? "Archived households cannot be edited"
+                      : "Edit Household"
+                  }
+                >
+                  Edit Household
+                </button>
+              </>
             ) : null}
             <button type="button" onClick={onClose} style={modalStyles.closeButton}>
               <FiX />
@@ -243,6 +261,12 @@ const HouseholdDetailModal = ({
                 <div>
                   <p style={modalStyles.label}>Household Size</p>
                   <p style={modalStyles.value}>{household.household_size || 0}</p>
+                </div>
+                <div>
+                  <p style={modalStyles.label}>Record Status</p>
+                  <p style={modalStyles.value}>
+                    {household.is_active === false ? "Archived" : "Active"}
+                  </p>
                 </div>
                 <div>
                   <p style={modalStyles.label}>Stay Type</p>

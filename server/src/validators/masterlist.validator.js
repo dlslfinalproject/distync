@@ -18,7 +18,7 @@ const parseUuidList = (value) => {
 
 const validateGetMasterlist = (req, res, next) => {
   try {
-    const { disaster_event_id, barangay_id } = req.query;
+    const { disaster_event_id, barangay_id, record_status } = req.query;
 
     if (!isValidUuid(disaster_event_id)) {
       return res.status(400).json({
@@ -32,9 +32,19 @@ const validateGetMasterlist = (req, res, next) => {
       });
     }
 
+    if (
+      record_status !== undefined &&
+      !["active", "archived", "all"].includes(String(record_status).toLowerCase())
+    ) {
+      return res.status(400).json({
+        message: "record_status must be active, archived, or all when provided",
+      });
+    }
+
     req.validatedQuery = {
       disaster_event_id,
       barangay_id: barangay_id || null,
+      record_status: String(record_status || "active").toLowerCase(),
     };
 
     return next();

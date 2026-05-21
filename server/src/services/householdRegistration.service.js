@@ -120,11 +120,17 @@ const buildPersonRecord = ({
 const buildRegistrationResponse = async (householdId) => {
   const household =
     await householdRegistrationRepository.getHouseholdSummaryById(householdId);
+  const includeInactiveMembers = household?.is_active === false;
   const members =
-    await householdRegistrationRepository.getEvacueesByHouseholdId(householdId);
+    await householdRegistrationRepository.getEvacueesByHouseholdId(householdId, {
+      includeInactive: includeInactiveMembers,
+    });
   const evacueeSectorAssignments =
     await householdRegistrationRepository.getEvacueeSectorAssignmentsByHouseholdId(
       householdId,
+      {
+        includeInactive: includeInactiveMembers,
+      },
     );
   const householdSectors =
     await householdRegistrationRepository.getHouseholdSectorAssignmentsByHouseholdId(
@@ -200,6 +206,17 @@ const summarizeMember = (member) => ({
   ]),
 });
 
+const summarizeEvacuationLog = (log) =>
+  pickDefined(log, [
+    "household_id",
+    "evacuee_id",
+    "evacuation_center_id",
+    "time_in",
+    "time_out",
+    "status",
+    "remarks",
+  ]);
+
 const getHouseholdDetails = async ({ householdId, requester }) => {
   const household =
     await householdRegistrationRepository.getHouseholdSummaryById(householdId);
@@ -253,6 +270,12 @@ const updateHouseholdDetails = async ({
 
   if (requestData.barangay_id !== existingHousehold.barangay_id) {
     const error = new Error("barangay_id cannot be changed");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!existingHousehold.is_active) {
+    const error = new Error("Archived households cannot be edited");
     error.statusCode = 400;
     throw error;
   }
@@ -947,6 +970,12 @@ const departHousehold = async (householdId, departureDetails) => {
     throw error;
   }
 
+  if (!household.is_active) {
+    const error = new Error("Archived households cannot be marked as departed");
+    error.statusCode = 400;
+    throw error;
+  }
+
   const activeEvacuationLogs =
     await householdRegistrationRepository.getActiveEvacuationLogsByHouseholdId(
       householdId,
@@ -973,9 +1002,169 @@ const departHousehold = async (householdId, departureDetails) => {
   };
 };
 
+const correctEvacuationLog = async ({
+  householdId,
+  evacuationLogId,
+  requester,
+  correctionData,
+}) => {
+  const household =
+    await householdRegistrationRepository.getHouseholdSummaryById(householdId);
+
+  if (!household) {
+    const error = new Error("Household not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (
+    requester?.roleCode === BARANGAY_ROLE_CODE &&
+    household.barangay_id !== requester.defaultBarangayId
+  ) {
+    const error = new Error(
+      "You do not have access to correct evacuation logs for this household",
+    );
+    error.statusCode = 403;
+    throw error;
+  }
+
+  const existingLog =
+    await householdRegistrationRepository.getEvacuationLogByIdForHousehold(
+      householdId,
+      evacuationLogId,
+    );
+
+  if (!existingLog) {
+    const error = new Error("Evacuation log not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (correctionData.evacuation_center_id) {
+    const evacuationCenter =
+      await householdRegistrationRepository.getEvacuationCenterById(
+        correctionData.evacuation_center_id,
+      );
+
+    if (!evacuationCenter || !evacuationCenter.is_active) {
+      const error = new Error("evacuation_center_id is invalid");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (evacuationCenter.barangay_id !== household.barangay_id) {
+      const error = new Error(
+        "Selected evacuation center must belong to the household barangay",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+
+  const updatedLog =
+    await householdRegistrationRepository.updateEvacuationLogCorrection(
+      evacuationLogId,
+      {
+        evacuation_center_id: correctionData.evacuation_center_id,
+        status: correctionData.status,
+        remarks: correctionData.correction_remarks,
+      },
+    );
+
+  await logAuditSafely({
+    actor: requester,
+    action: "HOUSEHOLD_EVACUATION_CORRECTION",
+    entityType: "EVACUATION_LOG",
+    entityId: evacuationLogId,
+    oldValues: summarizeEvacuationLog(existingLog),
+    newValues: summarizeEvacuationLog(updatedLog),
+  });
+
+  return {
+    household_id: householdId,
+    evacuation_log_id: updatedLog.id,
+    status: updatedLog.status,
+    evacuation_center_id: updatedLog.evacuation_center_id,
+    time_in: updatedLog.time_in,
+    time_out: updatedLog.time_out,
+    remarks: updatedLog.remarks,
+  };
+};
+
+const archiveHousehold = async ({ householdId, requester, archiveData }) => {
+  const existingHousehold =
+    await householdRegistrationRepository.getHouseholdSummaryById(householdId);
+
+  if (!existingHousehold) {
+    const error = new Error("Household not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (
+    requester?.roleCode === BARANGAY_ROLE_CODE &&
+    existingHousehold.barangay_id !== requester.defaultBarangayId
+  ) {
+    const error = new Error("You do not have access to archive this household");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  if (!existingHousehold.is_active) {
+    const error = new Error("This household is already archived");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const previousHouseholdSummary = summarizeHousehold(existingHousehold);
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    await householdRegistrationRepository.archiveHousehold(householdId, client);
+    const archivedEvacuees =
+      await householdRegistrationRepository.deactivateEvacueesByHouseholdId(
+        householdId,
+        client,
+      );
+
+    await client.query("COMMIT");
+
+    const archivedHouseholdDetails = await buildRegistrationResponse(householdId);
+
+    await logAuditSafely({
+      actor: requester,
+      action: "HOUSEHOLD_ARCHIVE",
+      entityType: "HOUSEHOLD",
+      entityId: householdId,
+      oldValues: previousHouseholdSummary,
+      newValues: {
+        ...summarizeHousehold(archivedHouseholdDetails.household),
+        archive_remarks: archiveData.archive_remarks || null,
+        archived_members_count: archivedEvacuees.length,
+      },
+    });
+
+    return {
+      household_id: householdId,
+      archived_members_count: archivedEvacuees.length,
+      status: "ARCHIVED",
+      household: archivedHouseholdDetails.household,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
 module.exports = {
   getHouseholdDetails,
   registerHousehold,
   updateHouseholdDetails,
   departHousehold,
+  correctEvacuationLog,
+  archiveHousehold,
 };

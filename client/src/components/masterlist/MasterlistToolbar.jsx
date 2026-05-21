@@ -108,6 +108,8 @@ const MasterlistToolbar = ({
   onSearchChange,
   onOpenRegisterFamily,
   hideRegisterButton,
+  recordStatus = "active",
+  onRecordStatusChange,
   sectorOptions = [],
   selectedSectorNames = [],
   onToggleSector,
@@ -215,6 +217,36 @@ const MasterlistToolbar = ({
       </div>
 
       <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            color: "#17324d",
+            fontWeight: 700,
+          }}
+        >
+          <span style={{ fontSize: "14px" }}>Status</span>
+          <select
+            value={recordStatus}
+            onChange={(event) => onRecordStatusChange?.(event.target.value)}
+            style={{
+              minWidth: "120px",
+              borderRadius: "12px",
+              border: "1px solid #c7d6e5",
+              backgroundColor: "#ffffff",
+              color: "#17324d",
+              padding: "10px 12px",
+              fontSize: "14px",
+              fontWeight: 600,
+            }}
+          >
+            <option value="active">Active</option>
+            <option value="archived">Archived</option>
+            <option value="all">All</option>
+          </select>
+        </label>
+
         <div>
           <button
             ref={filterButtonRef}

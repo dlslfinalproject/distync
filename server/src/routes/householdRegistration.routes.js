@@ -7,6 +7,8 @@ const {
   validateDepartHousehold,
   validateGetHouseholdDetails,
   validateUpdateHouseholdDetails,
+  validateArchiveHousehold,
+  validateCorrectEvacuationLog,
 } = require("../validators/householdRegistration.validator");
 
 const router = express.Router();
@@ -88,6 +90,60 @@ router.patch(
 
       return res.status(statusCode).json({
         message: error.message || "Failed to update household",
+      });
+    }
+  },
+);
+
+router.patch(
+  "/:householdId/archive",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO),
+  validateArchiveHousehold,
+  async (req, res) => {
+    try {
+      const archiveResult = await householdRegistrationService.archiveHousehold({
+        householdId: req.validatedParams.householdId,
+        requester: req.auth,
+        archiveData: req.validatedBody,
+      });
+
+      return res.status(200).json({
+        message: "Household archived successfully",
+        data: archiveResult,
+      });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+
+      return res.status(statusCode).json({
+        message: error.message || "Failed to archive household",
+      });
+    }
+  },
+);
+
+router.patch(
+  "/:householdId/evacuation-logs/:evacuationLogId/correct",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO),
+  validateCorrectEvacuationLog,
+  async (req, res) => {
+    try {
+      const correctionResult =
+        await householdRegistrationService.correctEvacuationLog({
+          householdId: req.validatedParams.householdId,
+          evacuationLogId: req.validatedParams.evacuationLogId,
+          requester: req.auth,
+          correctionData: req.validatedBody,
+        });
+
+      return res.status(200).json({
+        message: "Evacuation log corrected successfully",
+        data: correctionResult,
+      });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+
+      return res.status(statusCode).json({
+        message: error.message || "Failed to correct evacuation log",
       });
     }
   },

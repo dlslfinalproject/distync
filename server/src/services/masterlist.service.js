@@ -61,6 +61,7 @@ const getMasterlist = async (filters) => {
   const households = await masterlistRepository.getHouseholdsByFilters(
     filters.disaster_event_id,
     filters.barangay_id,
+    filters.record_status,
   );
 
   if (households.length === 0) {
@@ -73,6 +74,7 @@ const getMasterlist = async (filters) => {
       filters: {
         disaster_event_id: filters.disaster_event_id,
         barangay_id: filters.barangay_id,
+        record_status: filters.record_status || "active",
       },
       count: 0,
       data: [],
@@ -80,15 +82,19 @@ const getMasterlist = async (filters) => {
   }
 
   const householdIds = households.map((household) => household.household_id);
+  const includeInactiveMembers = filters.record_status !== "active";
 
   const stubs = await masterlistRepository.getStubsByHouseholdIds(householdIds);
   const householdSectors =
     await masterlistRepository.getHouseholdSectorsByHouseholdIds(householdIds);
   const members = await masterlistRepository.getMembersByHouseholdIds(
     householdIds,
+    { includeInactive: includeInactiveMembers },
   );
   const memberSectors =
-    await masterlistRepository.getMemberSectorsByHouseholdIds(householdIds);
+    await masterlistRepository.getMemberSectorsByHouseholdIds(householdIds, {
+      includeInactive: includeInactiveMembers,
+    });
   const latestAttendance =
     await masterlistRepository.getLatestAttendanceByHouseholdIds(householdIds);
 
@@ -155,6 +161,7 @@ const getMasterlist = async (filters) => {
       current_stay_type: household.current_stay_type,
       current_address_details: household.current_address_details,
       contact_number: household.contact_number,
+      is_active: household.is_active,
       registered_at: household.registered_at,
       stub: stub
         ? {
@@ -192,6 +199,7 @@ const getMasterlist = async (filters) => {
     filters: {
       disaster_event_id: filters.disaster_event_id,
       barangay_id: filters.barangay_id,
+      record_status: filters.record_status || "active",
     },
     count: data.length,
     data,

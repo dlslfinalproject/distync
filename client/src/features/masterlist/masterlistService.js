@@ -64,7 +64,10 @@ export const mapMasterlistRow = (household) => {
     arrival_time_text: formatDateTime(household.latest_attendance?.time_in),
     departure_time_value: departureTimeValue,
     departure_time_text: formatDateTime(departureTimeValue),
-    can_record_departure: household.latest_attendance?.status === "PRESENT",
+    can_record_departure:
+      household.is_active !== false &&
+      household.latest_attendance?.status === "PRESENT",
+    is_active: household.is_active !== false,
   };
 };
 
@@ -83,7 +86,11 @@ export const fetchBarangays = async () => {
   return parseJsonResponse(response, "Failed to fetch barangays");
 };
 
-export const fetchMasterlist = async ({ disasterEventId, barangayId }) => {
+export const fetchMasterlist = async ({
+  disasterEventId,
+  barangayId,
+  recordStatus = "active",
+}) => {
   if (!disasterEventId) {
     return {
       disasterEvent: null,
@@ -102,6 +109,10 @@ export const fetchMasterlist = async ({ disasterEventId, barangayId }) => {
 
   if (barangayId) {
     searchParams.set("barangay_id", barangayId);
+  }
+
+  if (recordStatus) {
+    searchParams.set("record_status", recordStatus);
   }
 
   const response = await fetch(
@@ -182,4 +193,46 @@ export const fetchHouseholdDetails = async (householdId) => {
   );
 
   return payload.data || null;
+};
+
+export const archiveHousehold = async ({ householdId, archiveRemarks = null }) => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/households/${householdId}/archive`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        archive_remarks: archiveRemarks,
+      }),
+    },
+  );
+
+  return parseJsonResponse(response, "Failed to archive household");
+};
+
+export const correctEvacuationLog = async ({
+  householdId,
+  evacuationLogId,
+  evacuationCenterId,
+  status,
+  correctionRemarks,
+}) => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/households/${householdId}/evacuation-logs/${evacuationLogId}/correct`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        evacuation_center_id: evacuationCenterId,
+        status,
+        correction_remarks: correctionRemarks,
+      }),
+    },
+  );
+
+  return parseJsonResponse(response, "Failed to correct evacuation log");
 };
