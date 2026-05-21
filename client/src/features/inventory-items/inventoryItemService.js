@@ -120,6 +120,14 @@ export const fetchInventoryItemById = async (inventoryItemId) => {
   return handleJsonResponse(response, "Failed to fetch inventory item");
 };
 
+export const fetchInventoryItemDetail = async (inventoryItemId) => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/inventory-items/${inventoryItemId}/detail`,
+  );
+
+  return handleJsonResponse(response, "Failed to fetch inventory item detail");
+};
+
 export const createInventoryItem = async (payload) => {
   return performSyncableMutation({
     moduleName: "mayor-inventory",

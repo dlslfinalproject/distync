@@ -3,6 +3,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import InventoryItemFormModal from "../../components/inventory-items/InventoryItemFormModal";
+import InventoryItemDetailModal from "../../components/inventory-items/InventoryItemDetailModal";
 import BarcodeScanModal from "../../components/inventory-items/BarcodeScanModal";
 import InventoryItemsTable from "../../components/inventory-items/InventoryItemsTable";
 import InventoryOverviewCards from "../../components/inventory-items/InventoryOverviewCards";
@@ -12,6 +13,7 @@ import ExportModal from "../../components/shared/ExportModal";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import {
   createInventoryItem,
+  fetchInventoryItemDetail,
   fetchForecastHealth,
   fetchForecastHistory,
   fetchForecastRunDetails,
@@ -196,6 +198,10 @@ const InventoryItemsPage = () => {
   const [modalErrorMessage, setModalErrorMessage] = useState("");
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
   const [createModalItemData, setCreateModalItemData] = useState(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
+  const [detailErrorMessage, setDetailErrorMessage] = useState("");
+  const [selectedItemDetail, setSelectedItemDetail] = useState(null);
   const [scanForm, setScanForm] = useState({
     barcodeNumber: "",
   });
@@ -552,6 +558,22 @@ const InventoryItemsPage = () => {
     setIsScanModalOpen(true);
   };
 
+  const handleOpenItemDetail = async (inventoryItemId) => {
+    setIsDetailModalOpen(true);
+    setIsDetailLoading(true);
+    setDetailErrorMessage("");
+    setSelectedItemDetail(null);
+
+    try {
+      const response = await fetchInventoryItemDetail(inventoryItemId);
+      setSelectedItemDetail(response?.data || null);
+    } catch (error) {
+      setDetailErrorMessage(error.message || "Failed to load inventory item detail.");
+    } finally {
+      setIsDetailLoading(false);
+    }
+  };
+
   const handleCloseScanModal = () => {
     setIsScanModalOpen(false);
   };
@@ -777,6 +799,7 @@ const InventoryItemsPage = () => {
               isLoading={isLoading}
               errorMessage={errorMessage}
               inventoryTrackingMap={inventoryTrackingMap}
+              onViewDetails={handleOpenItemDetail}
             />
           </>
         ) : activeTab === "analytics" ? (
@@ -913,6 +936,18 @@ const InventoryItemsPage = () => {
         type={exportFeedback.type}
         message={exportFeedback.message}
         onClose={() => setExportFeedback({ type: "", message: "" })}
+      />
+
+      <InventoryItemDetailModal
+        isOpen={isDetailModalOpen}
+        isLoading={isDetailLoading}
+        errorMessage={detailErrorMessage}
+        detail={selectedItemDetail}
+        onClose={() => {
+          setIsDetailModalOpen(false);
+          setSelectedItemDetail(null);
+          setDetailErrorMessage("");
+        }}
       />
     </div>
   );

@@ -7,6 +7,7 @@ const {
   pickDefined,
   normalizeActor,
 } = require("../utils/systemLog");
+const systemLogRepository = require("../repositories/systemLog.repository");
 
 const buildFullName = (firstName, lastName) => {
   return [firstName, lastName].filter(Boolean).join(" ");
@@ -134,6 +135,18 @@ const summarizeDonation = (donation) =>
     "item_count",
     "total_quantity_received",
   ]);
+
+const mapAuditLogRow = (row) => ({
+  id: row.id,
+  action: row.action,
+  entity_type: row.entity_type,
+  entity_id: row.entity_id,
+  role_code: row.role_code,
+  created_at: row.created_at,
+  actor_name: [row.first_name, row.last_name].filter(Boolean).join(" ").trim() || row.email || "Unknown User",
+  old_values_json: row.old_values_json || {},
+  new_values_json: row.new_values_json || {},
+});
 
 const getBatchStatus = (expirationDate, quantityAvailable) => {
   if (expirationDate) {
@@ -552,6 +565,28 @@ const getDonationById = async (id) => {
 
   const items = await attachDonationItems(id);
   return mapDonation(donation, items);
+};
+
+const getDonationDetail = async (id) => {
+  const [donation, stockUpdateHistory, auditLogs] = await Promise.all([
+    getDonationById(id),
+    donationRepository.getDonationInventoryTransactions(id),
+    systemLogRepository.getAuditLogsByEntity({
+      entityType: "DONATION",
+      entityId: id,
+      limit: 20,
+    }),
+  ]);
+
+  if (!donation) {
+    return null;
+  }
+
+  return {
+    donation,
+    stock_update_history: stockUpdateHistory,
+    audit_history: auditLogs.map(mapAuditLogRow),
+  };
 };
 
 const createDonation = async (payload, actor) => {
@@ -1137,6 +1172,7 @@ module.exports = {
   deleteDonationNeed,
   getDonations,
   getDonationById,
+  getDonationDetail,
   createDonation,
   updateDonation,
   createDonationItem,

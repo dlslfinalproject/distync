@@ -114,8 +114,40 @@ const getErrorLogs = async ({ limit = 50 } = {}, dbClient = pool) => {
   return result.rows;
 };
 
+const getAuditLogsByEntity = async (
+  { entityType, entityId, limit = 20 },
+  dbClient = pool,
+) => {
+  const query = `
+    SELECT
+      al.id,
+      al.action,
+      al.entity_type,
+      al.entity_id,
+      al.role_code,
+      al.old_values_json,
+      al.new_values_json,
+      al.ip_address,
+      al.created_at,
+      u.id AS user_id,
+      u.first_name,
+      u.last_name,
+      u.email
+    FROM audit_logs al
+    LEFT JOIN users u ON u.id = al.user_id
+    WHERE al.entity_type = $1
+      AND al.entity_id = $2
+    ORDER BY al.created_at DESC
+    LIMIT $3
+  `;
+
+  const result = await dbClient.query(query, [entityType, entityId, limit]);
+  return result.rows;
+};
+
 module.exports = {
   getAuditLogs,
+  getAuditLogsByEntity,
   getErrorLogs,
   insertAuditLog,
   insertErrorLog,

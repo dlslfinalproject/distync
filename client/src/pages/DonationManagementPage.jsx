@@ -8,6 +8,7 @@ import DonationModal from "../components/donations/DonationModal";
 import DonationNeedModal from "../components/donations/DonationNeedModal";
 import DonationNeedsTab from "../components/donations/DonationNeedsTab";
 import DonationsTab from "../components/donations/DonationsTab";
+import DonationDetailModal from "../components/donations/DonationDetailModal";
 import DonorTransparencyTab from "../components/donations/DonorTransparencyTab";
 import ExportModal from "../components/shared/ExportModal";
 import FeedbackToast from "../components/shared/FeedbackToast";
@@ -15,6 +16,7 @@ import { fetchAllDisasterEvents } from "../features/disaster-events/disasterEven
 import { fetchInventoryItems } from "../features/inventory-items/inventoryItemService";
 import {
   createDonation,
+  fetchDonationDetail,
   createDonationItem,
   createDonationNeed,
   deleteDonation,
@@ -105,6 +107,10 @@ const DonationManagementPage = () => {
   const [needErrorMessage, setNeedErrorMessage] = useState("");
   const [isNeedSubmitting, setIsNeedSubmitting] = useState(false);
   const [isDonationModalOpen, setIsDonationModalOpen] = useState(false);
+  const [isDonationDetailModalOpen, setIsDonationDetailModalOpen] = useState(false);
+  const [isDonationDetailLoading, setIsDonationDetailLoading] = useState(false);
+  const [donationDetailErrorMessage, setDonationDetailErrorMessage] = useState("");
+  const [selectedDonationDetail, setSelectedDonationDetail] = useState(null);
   const [donationForm, setDonationForm] = useState(createDonationForm());
   const [donationErrorMessage, setDonationErrorMessage] = useState("");
   const [donationItemErrorMessage, setDonationItemErrorMessage] = useState("");
@@ -310,6 +316,22 @@ const DonationManagementPage = () => {
     setDonationItemErrorMessage("");
     setDonationItemDraft(createDonationItemForm());
     setEditingDonationItemId("");
+  };
+
+  const openDonationDetailModal = async (donationId) => {
+    setIsDonationDetailModalOpen(true);
+    setIsDonationDetailLoading(true);
+    setDonationDetailErrorMessage("");
+    setSelectedDonationDetail(null);
+
+    try {
+      const response = await fetchDonationDetail(donationId);
+      setSelectedDonationDetail(response?.data || null);
+    } catch (error) {
+      setDonationDetailErrorMessage(error.message || "Failed to load donation detail.");
+    } finally {
+      setIsDonationDetailLoading(false);
+    }
   };
 
   const submitDonationNeed = async () => {
@@ -737,6 +759,7 @@ const DonationManagementPage = () => {
           isLoading={isLoading}
           filteredDonations={filteredDonations}
           selectedEventLabel={selectedEventLabel}
+          onOpenDonationDetail={openDonationDetailModal}
           onOpenDonationModal={openDonationModal}
           onDeleteDonation={handleDeleteDonation}
         />
@@ -830,6 +853,18 @@ const DonationManagementPage = () => {
         type={exportFeedback.type}
         message={exportFeedback.message}
         onClose={() => setExportFeedback({ type: "", message: "" })}
+      />
+
+      <DonationDetailModal
+        isOpen={isDonationDetailModalOpen}
+        isLoading={isDonationDetailLoading}
+        errorMessage={donationDetailErrorMessage}
+        detail={selectedDonationDetail}
+        onClose={() => {
+          setIsDonationDetailModalOpen(false);
+          setSelectedDonationDetail(null);
+          setDonationDetailErrorMessage("");
+        }}
       />
     </>
   );

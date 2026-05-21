@@ -15,6 +15,7 @@ const DonationsTab = ({
   isLoading,
   filteredDonations,
   selectedEventLabel,
+  onOpenDonationDetail,
   onOpenDonationModal,
   onDeleteDonation,
 }) => {
@@ -86,6 +87,15 @@ const DonationsTab = ({
                   </td>
                   <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
                     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        onClick={() => onOpenDonationDetail(donation.id)}
+                        style={compactButtonStyles}
+                        disabled={donation.is_local_only}
+                        title={donation.is_local_only ? "Available after sync" : undefined}
+                      >
+                        View Details
+                      </button>
                       <button
                         type="button"
                         onClick={() => onOpenDonationModal(donation.id)}

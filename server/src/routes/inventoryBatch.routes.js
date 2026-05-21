@@ -76,6 +76,35 @@ router.get(
 );
 
 router.get(
+  "/:id/detail",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateInventoryBatchId,
+  async (req, res) => {
+    try {
+      const payload = await inventoryBatchService.getInventoryBatchDetail(
+        req.params.id,
+      );
+
+      if (!payload) {
+        return res.status(404).json({
+          message: "Inventory batch not found",
+        });
+      }
+
+      return res.status(200).json({
+        data: payload,
+      });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+
+      return res.status(statusCode).json({
+        message: error.message || "Failed to fetch inventory batch detail",
+      });
+    }
+  },
+);
+
+router.get(
   "/:id",
   requireRoles(ROLE_CODES.MAYOR),
   validateInventoryBatchId,

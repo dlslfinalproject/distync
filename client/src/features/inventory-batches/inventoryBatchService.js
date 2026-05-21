@@ -71,6 +71,14 @@ export const fetchInventoryBatchById = async (inventoryBatchId) => {
   return handleJsonResponse(response, "Failed to fetch inventory batch");
 };
 
+export const fetchInventoryBatchDetail = async (inventoryBatchId) => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/inventory-batches/${inventoryBatchId}/detail`,
+  );
+
+  return handleJsonResponse(response, "Failed to fetch inventory batch detail");
+};
+
 export const exportInventoryBatches = async (format = "csv", filters = {}) => {
   const searchParams = new URLSearchParams();
   searchParams.set("format", format);

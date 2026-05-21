@@ -66,7 +66,7 @@ const formatDate = (value) => {
   });
 };
 
-const InventoryBatchesTable = ({ rows, isLoading, errorMessage }) => {
+const InventoryBatchesTable = ({ rows, isLoading, errorMessage, onViewDetails }) => {
   if (isLoading) {
     return (
       <section style={shellStyles.card}>
@@ -123,6 +123,7 @@ const InventoryBatchesTable = ({ rows, isLoading, errorMessage }) => {
               <th style={tableStyles.headerCell}>Expiration Date</th>
               <th style={tableStyles.headerCell}>Status</th>
               <th style={tableStyles.headerCell}>Sync</th>
+              <th style={tableStyles.headerCell}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -144,6 +145,25 @@ const InventoryBatchesTable = ({ rows, isLoading, errorMessage }) => {
                 </td>
                 <td style={tableStyles.bodyCell}>
                   <SyncStatusBadge status={row.sync_status} compact />
+                </td>
+                <td style={tableStyles.bodyCell}>
+                  <button
+                    type="button"
+                    onClick={() => onViewDetails?.(row.id)}
+                    style={{
+                      border: "1px solid #c6d8ea",
+                      borderRadius: "10px",
+                      padding: "8px 10px",
+                      backgroundColor: "#f8fbfe",
+                      color: "#2a4c6f",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                    disabled={typeof onViewDetails !== "function"}
+                  >
+                    View Batch Details
+                  </button>
                 </td>
               </tr>
             ))}

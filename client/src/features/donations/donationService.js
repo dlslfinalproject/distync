@@ -187,6 +187,11 @@ export const fetchDonationById = async (donationId) => {
   return handleJsonResponse(response, "Failed to fetch donation details");
 };
 
+export const fetchDonationDetail = async (donationId) => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/donations/${donationId}/detail`);
+  return handleJsonResponse(response, "Failed to fetch donation detail");
+};
+
 export const createDonation = async (payload) => {
   return performSyncableMutation({
     moduleName: "mayor-donations",

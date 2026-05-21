@@ -813,6 +813,45 @@ const getDonationTransparencyExportRows = async (
   return result.rows;
 };
 
+const getDonationInventoryTransactions = async (donationId, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      SELECT
+        it.id,
+        it.disaster_event_id,
+        it.inventory_batch_id,
+        it.transaction_type,
+        it.quantity,
+        it.reference_type,
+        it.reference_id,
+        it.performed_by,
+        it.performed_at,
+        it.remarks,
+        it.created_at,
+        ib.batch_no,
+        ib.status AS batch_status,
+        ib.quantity_available,
+        ib.expiration_date,
+        ii.id AS inventory_item_id,
+        ii.item_code,
+        ii.item_name,
+        u.first_name AS performed_by_first_name,
+        u.last_name AS performed_by_last_name
+      FROM inventory_transactions it
+      INNER JOIN donation_items di ON di.id = it.reference_id
+      INNER JOIN inventory_batches ib ON ib.id = it.inventory_batch_id
+      INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
+      LEFT JOIN users u ON u.id = it.performed_by
+      WHERE it.reference_type = 'DONATION'
+        AND di.donation_id = $1
+      ORDER BY it.performed_at DESC, it.created_at DESC
+    `,
+    [donationId],
+  );
+
+  return result.rows;
+};
+
 module.exports = {
   getDisasterEventById,
   getInventoryItemById,
@@ -842,4 +881,5 @@ module.exports = {
   getDonationSummaryTotals,
   getDonationItemTransparencySummary,
   getDonationTransparencyExportRows,
+  getDonationInventoryTransactions,
 };

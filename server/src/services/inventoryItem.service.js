@@ -1,6 +1,8 @@
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const inventoryBatchRepository = require("../repositories/inventoryBatch.repository");
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
+const forecastRepository = require("../repositories/forecast.repository");
+const systemLogRepository = require("../repositories/systemLog.repository");
 const inventoryItemExport = require("../utils/inventoryItemExport");
 const mayorReportExport = require("../utils/mayorReportExport");
 const { logAuditSafely, pickDefined } = require("../utils/systemLog");
@@ -425,6 +427,88 @@ const getInventoryItemById = async (id) => {
   return inventoryItemRepository.getInventoryItemById(id);
 };
 
+const mapAuditLogRow = (row) => ({
+  id: row.id,
+  action: row.action,
+  entity_type: row.entity_type,
+  entity_id: row.entity_id,
+  role_code: row.role_code,
+  created_at: row.created_at,
+  actor_name: [row.first_name, row.last_name].filter(Boolean).join(" ").trim() || row.email || "Unknown User",
+  old_values_json: row.old_values_json || {},
+  new_values_json: row.new_values_json || {},
+});
+
+const getLowStockThreshold = () => 10;
+
+const getInventoryItemDetail = async (id) => {
+  const [item, relatedBatches, relatedTransactions, auditLogs, latestForecast] =
+    await Promise.all([
+      inventoryItemRepository.getInventoryItemById(id),
+      inventoryBatchRepository.getInventoryBatches({ inventory_item_id: id }),
+      inventoryTransactionRepository.getInventoryTransactions({ inventory_item_id: id }),
+      systemLogRepository.getAuditLogsByEntity({
+        entityType: "INVENTORY_ITEM",
+        entityId: id,
+        limit: 20,
+      }),
+      forecastRepository.getLatestForecastResultByInventoryItem(id),
+    ]);
+
+  if (!item) {
+    return null;
+  }
+
+  const currentStock = relatedBatches.reduce(
+    (total, batch) => total + Number(batch.quantity_available || 0),
+    0,
+  );
+
+  let forecastSummary = null;
+
+  if (latestForecast) {
+    let parsedNotes = {};
+
+    try {
+      parsedNotes = latestForecast.confidence_notes
+        ? JSON.parse(latestForecast.confidence_notes)
+        : {};
+    } catch (_error) {
+      parsedNotes = {};
+    }
+
+    forecastSummary = {
+      forecast_run_id: latestForecast.forecast_run_id,
+      disaster_event_id: latestForecast.disaster_event_id,
+      disaster_event: {
+        event_code: latestForecast.event_code,
+        title: latestForecast.disaster_event_title,
+      },
+      model_name: latestForecast.model_name,
+      run_at: latestForecast.run_at,
+      average_daily_usage: Number(parsedNotes.average_daily_usage || 0),
+      forecasted_usage: Number(latestForecast.predicted_quantity_needed || 0),
+      projected_depletion_date: latestForecast.predicted_depletion_date,
+      recommended_reorder_quantity: Number(
+        latestForecast.recommended_reorder_quantity || 0,
+      ),
+      risk_level: parsedNotes.risk_level || "LOW",
+    };
+  }
+
+  return {
+    item: {
+      ...item,
+      current_stock: currentStock,
+      low_stock_threshold: getLowStockThreshold(),
+    },
+    related_batches: relatedBatches,
+    related_transactions: relatedTransactions,
+    forecast_summary: forecastSummary,
+    audit_history: auditLogs.map(mapAuditLogRow),
+  };
+};
+
 const createInventoryItem = async (itemData, actor = null) => {
   const inventoryItemToCreate = {
     ...itemData,
@@ -485,6 +569,7 @@ module.exports = {
   exportInventoryItems,
   exportInventoryConditionReport,
   getInventoryItemById,
+  getInventoryItemDetail,
   createInventoryItem,
   updateInventoryItem,
 };

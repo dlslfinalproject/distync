@@ -51,6 +51,7 @@ const InventoryItemsTable = ({
   isLoading,
   errorMessage,
   inventoryTrackingMap,
+  onViewDetails,
 }) => {
   return (
     <div style={styles.tableWrap}>
@@ -65,6 +66,7 @@ const InventoryItemsTable = ({
               "Expiry Date",
               "Status",
               "Sync",
+              "Actions",
             ].map((header) => (
               <th key={header} style={styles.th}>
                 {header}
@@ -76,14 +78,14 @@ const InventoryItemsTable = ({
         <tbody>
           {isLoading ? (
             <tr>
-              <td colSpan="7" style={styles.emptyStateCell}>
+              <td colSpan="8" style={styles.emptyStateCell}>
                 Loading...
               </td>
             </tr>
           ) : errorMessage ? (
             <tr>
               <td
-                colSpan="7"
+                colSpan="8"
                 style={{ ...styles.emptyStateCell, color: "#b91c1c" }}
               >
                 {errorMessage}
@@ -91,7 +93,7 @@ const InventoryItemsTable = ({
             </tr>
           ) : rows.length === 0 ? (
             <tr>
-              <td colSpan="7" style={styles.emptyStateCell}>
+              <td colSpan="8" style={styles.emptyStateCell}>
                 No items found
               </td>
             </tr>
@@ -131,6 +133,25 @@ const InventoryItemsTable = ({
                   </td>
                   <td style={styles.td}>
                     <SyncStatusBadge status={item.sync_status} compact />
+                  </td>
+                  <td style={styles.td}>
+                    <button
+                      type="button"
+                      onClick={() => onViewDetails?.(item.id)}
+                      style={{
+                        border: "1px solid #c6d8ea",
+                        borderRadius: "10px",
+                        padding: "8px 10px",
+                        backgroundColor: "#f8fbfe",
+                        color: "#2a4c6f",
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                      disabled={typeof onViewDetails !== "function"}
+                    >
+                      View Details
+                    </button>
                   </td>
                 </tr>
               );

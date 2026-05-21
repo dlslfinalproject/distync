@@ -190,6 +190,33 @@ router.get(
 );
 
 router.get(
+  "/:id/detail",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateDonationId,
+  async (req, res) => {
+    try {
+      const payload = await donationService.getDonationDetail(req.params.id);
+
+      if (!payload) {
+        return res.status(404).json({
+          message: "Donation not found",
+        });
+      }
+
+      return res.status(200).json({
+        data: payload,
+      });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+
+      return res.status(statusCode).json({
+        message: error.message || "Failed to fetch donation detail",
+      });
+    }
+  },
+);
+
+router.get(
   "/:id",
   requireRoles(ROLE_CODES.MAYOR),
   validateDonationId,

@@ -1,4 +1,6 @@
 const inventoryBatchRepository = require("../repositories/inventoryBatch.repository");
+const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
+const systemLogRepository = require("../repositories/systemLog.repository");
 const mayorReportExport = require("../utils/mayorReportExport");
 const notificationService = require("../modules/notifications/notification.service");
 const { logAuditSafely, pickDefined } = require("../utils/systemLog");
@@ -91,6 +93,70 @@ const getInventoryBatchById = async (id) => {
   }
 
   return mapInventoryBatch(batch);
+};
+
+const mapAuditLogRow = (row) => ({
+  id: row.id,
+  action: row.action,
+  entity_type: row.entity_type,
+  entity_id: row.entity_id,
+  role_code: row.role_code,
+  created_at: row.created_at,
+  actor_name: [row.first_name, row.last_name].filter(Boolean).join(" ").trim() || row.email || "Unknown User",
+  old_values_json: row.old_values_json || {},
+  new_values_json: row.new_values_json || {},
+});
+
+const buildBatchAlerts = (batch) => {
+  const alerts = [];
+  const quantityAvailable = Number(batch?.quantity_available || 0);
+
+  if (quantityAvailable <= 10) {
+    alerts.push("Low stock threshold reached");
+  }
+
+  if (batch?.status === "EXPIRED") {
+    alerts.push("Batch is expired");
+  } else if (batch?.expiration_date) {
+    const expirationDate = new Date(batch.expiration_date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    expirationDate.setHours(0, 0, 0, 0);
+
+    if (!Number.isNaN(expirationDate.getTime()) && expirationDate >= today) {
+      const daysUntilExpiry =
+        (expirationDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
+
+      if (daysUntilExpiry <= 30) {
+        alerts.push("Near expiry");
+      }
+    }
+  }
+
+  return alerts;
+};
+
+const getInventoryBatchDetail = async (id) => {
+  const [batch, relatedTransactions, auditLogs] = await Promise.all([
+    inventoryBatchRepository.getInventoryBatchById(id),
+    inventoryTransactionRepository.getInventoryTransactions({ inventory_batch_id: id }),
+    systemLogRepository.getAuditLogsByEntity({
+      entityType: "INVENTORY_BATCH",
+      entityId: id,
+      limit: 20,
+    }),
+  ]);
+
+  if (!batch) {
+    return null;
+  }
+
+  return {
+    batch: mapInventoryBatch(batch),
+    related_transactions: relatedTransactions,
+    alerts: buildBatchAlerts(batch),
+    audit_history: auditLogs.map(mapAuditLogRow),
+  };
 };
 
 const createInventoryBatch = async (batchData) => {
@@ -202,6 +268,7 @@ const exportInventoryBatches = async (filters, format) => {
 module.exports = {
   getInventoryBatches,
   getInventoryBatchById,
+  getInventoryBatchDetail,
   createInventoryBatch,
   exportInventoryBatches,
 };

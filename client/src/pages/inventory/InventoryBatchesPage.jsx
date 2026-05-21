@@ -7,10 +7,12 @@ import ExportModal from "../../components/shared/ExportModal";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import SearchBar from "../../components/shared/SearchBar";
 import InventoryBatchFormModal from "../../components/inventory-batches/InventoryBatchFormModal";
+import InventoryBatchDetailModal from "../../components/inventory-batches/InventoryBatchDetailModal";
 import InventoryBatchesTable from "../../components/inventory-batches/InventoryBatchesTable";
 import {
   createInventoryBatch,
   exportInventoryBatches,
+  fetchInventoryBatchDetail,
   fetchInventoryBatches,
   fetchInventoryItems,
   fetchSuppliers,
@@ -82,6 +84,10 @@ const InventoryBatchesPage = () => {
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
+  const [detailErrorMessage, setDetailErrorMessage] = useState("");
+  const [selectedBatchDetail, setSelectedBatchDetail] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [modalErrorMessage, setModalErrorMessage] = useState("");
   const [isExporting, setIsExporting] = useState("");
@@ -210,6 +216,22 @@ const InventoryBatchesPage = () => {
       setModalErrorMessage(error.message);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleOpenBatchDetail = async (inventoryBatchId) => {
+    setIsDetailModalOpen(true);
+    setIsDetailLoading(true);
+    setDetailErrorMessage("");
+    setSelectedBatchDetail(null);
+
+    try {
+      const response = await fetchInventoryBatchDetail(inventoryBatchId);
+      setSelectedBatchDetail(response?.data || null);
+    } catch (error) {
+      setDetailErrorMessage(error.message || "Failed to load inventory batch detail.");
+    } finally {
+      setIsDetailLoading(false);
     }
   };
 
@@ -418,6 +440,7 @@ const InventoryBatchesPage = () => {
         rows={inventoryBatchesWithSyncStatus}
         isLoading={isLoading}
         errorMessage={errorMessage}
+        onViewDetails={handleOpenBatchDetail}
       />
 
       <InventoryBatchFormModal
@@ -455,6 +478,18 @@ const InventoryBatchesPage = () => {
         type={exportFeedback.type}
         message={exportFeedback.message}
         onClose={() => setExportFeedback({ type: "", message: "" })}
+      />
+
+      <InventoryBatchDetailModal
+        isOpen={isDetailModalOpen}
+        isLoading={isDetailLoading}
+        errorMessage={detailErrorMessage}
+        detail={selectedBatchDetail}
+        onClose={() => {
+          setIsDetailModalOpen(false);
+          setSelectedBatchDetail(null);
+          setDetailErrorMessage("");
+        }}
       />
     </>
   );
