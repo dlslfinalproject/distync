@@ -23,6 +23,7 @@ import ReliefPackTemplatesPage from "../pages/inventory/ReliefPackTemplatesPage"
 import SuppliersPage from "../pages/inventory/SuppliersPage";
 import DonationInformationPage from "../pages/donor/DonationInformationPage";
 import DistributionHistoryPage from "../pages/DistributionHistoryPage";
+import SystemLogReviewPage from "../pages/SystemLogReviewPage";
 import AnalyticsDashboardPage from "../pages/mswdo/AnalyticsDashboardPage";
 import ConsolidatedMasterlistPage from "../pages/mswdo/ConsolidatedMasterlistPage";
 import DisasterEventsPage from "../pages/mswdo/DisasterEventsPage";
@@ -149,6 +150,7 @@ const AppRoutes = () => {
             path="distribution-history"
             element={<DistributionHistoryPage />}
           />
+          <Route path="system-logs" element={<SystemLogReviewPage />} />
           <Route path="donations" element={<DonationManagementPage />} />
         </Route>
         <Route path="/donations" element={<DonationInformationPage />} />

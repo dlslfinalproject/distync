@@ -1,4 +1,7 @@
 const { verifyAccessToken } = require("./auth.token");
+const {
+  getAllowedRolesForPolicy,
+} = require("./authorization.policy");
 
 const ROLE_CODES = {
   BARANGAY: "BARANGAY",
@@ -60,8 +63,23 @@ const requireRoles = (...allowedRoles) => {
   };
 };
 
+const requirePolicy = (policyName) => {
+  const allowedRoles = getAllowedRolesForPolicy(policyName);
+
+  if (!allowedRoles.length) {
+    return (_req, res) => {
+      return res.status(500).json({
+        message: `Authorization policy "${policyName}" is not configured.`,
+      });
+    };
+  }
+
+  return requireRoles(...allowedRoles);
+};
+
 module.exports = {
   ROLE_CODES,
   requireAuthentication,
+  requirePolicy,
   requireRoles,
 };

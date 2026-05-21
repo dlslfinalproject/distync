@@ -64,7 +64,59 @@ const insertErrorLog = async (payload, dbClient = pool) => {
   return result.rows[0];
 };
 
+const getAuditLogs = async ({ limit = 50 } = {}, dbClient = pool) => {
+  const query = `
+    SELECT
+      al.id,
+      al.action,
+      al.entity_type,
+      al.entity_id,
+      al.role_code,
+      al.old_values_json,
+      al.new_values_json,
+      al.ip_address,
+      al.created_at,
+      u.id AS user_id,
+      u.first_name,
+      u.last_name,
+      u.email
+    FROM audit_logs al
+    LEFT JOIN users u ON u.id = al.user_id
+    ORDER BY al.created_at DESC
+    LIMIT $1
+  `;
+
+  const result = await dbClient.query(query, [limit]);
+  return result.rows;
+};
+
+const getErrorLogs = async ({ limit = 50 } = {}, dbClient = pool) => {
+  const query = `
+    SELECT
+      el.id,
+      el.module_name,
+      el.error_code,
+      el.error_message,
+      el.stack_trace,
+      el.severity,
+      el.created_at,
+      u.id AS user_id,
+      u.first_name,
+      u.last_name,
+      u.email
+    FROM error_logs el
+    LEFT JOIN users u ON u.id = el.user_id
+    ORDER BY el.created_at DESC
+    LIMIT $1
+  `;
+
+  const result = await dbClient.query(query, [limit]);
+  return result.rows;
+};
+
 module.exports = {
+  getAuditLogs,
+  getErrorLogs,
   insertAuditLog,
   insertErrorLog,
 };

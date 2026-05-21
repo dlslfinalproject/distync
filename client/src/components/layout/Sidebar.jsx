@@ -404,6 +404,7 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
         { label: "Inventory Distribution", to: "/inventory/distribution" },
         { label: "Distribution History", to: "/inventory/distribution-history" },
         { label: "Donation Management", to: "/inventory/donations" },
+        { label: "System Logs", to: "/inventory/system-logs" },
         { label: "Sync Center", to: "/inventory/sync" },
       ],
     },

@@ -16,6 +16,7 @@ const sectorRoutes = require("./sector.routes");
 const stubRoutes = require("./stub.routes");
 const supplierRoutes = require("./supplier.routes");
 const syncRoutes = require("./sync.routes");
+const systemLogRoutes = require("./systemLog.routes");
 
 const router = express.Router();
 
@@ -71,5 +72,6 @@ router.use("/sectors", sectorRoutes);
 router.use("/stubs", stubRoutes);
 router.use("/suppliers", supplierRoutes);
 router.use("/sync", syncRoutes);
+router.use("/system-logs", systemLogRoutes);
 
 module.exports = router;
