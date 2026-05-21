@@ -2,11 +2,13 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
-import SearchBar from "../../components/shared/SearchBar";
 import InventoryItemFormModal from "../../components/inventory-items/InventoryItemFormModal";
-import InventoryItemScanModal from "../../components/inventory-items/InventoryItemScanModal";
-import StatusCard from "../../components/shared/StatusCard";
-import SyncStatusBadge from "../../components/shared/SyncStatusBadge";
+import BarcodeScanModal from "../../components/inventory-items/BarcodeScanModal";
+import InventoryItemsTable from "../../components/inventory-items/InventoryItemsTable";
+import InventoryOverviewCards from "../../components/inventory-items/InventoryOverviewCards";
+import InventoryExportModal from "../../components/inventory-items/InventoryExportModal";
+import ForecastingPanel from "../../components/inventory-items/ForecastingPanel";
+import InventoryFilters from "../../components/inventory-items/InventoryFilters";
 import {
   createInventoryItem,
   exportInventoryItems,
@@ -24,18 +26,25 @@ import {
 } from "react-icons/fi";
 import { MdQrCodeScanner } from "react-icons/md";
 import db from "../../offline/db";
-import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
-
-const COLORS = {
-  primary: "#17324d",
-  secondary: "#334155",
-  muted: "#6b8298",
-  border: "#d6e2ef",
-  borderSoft: "#e7edf5",
-  bgSoft: "#f8fbff",
-  chipBg: "#d7dee9",
-};
+import {
+  buildInventoryExportFilters,
+  forecastModelOptions,
+  getForecastModelLabel,
+  hasInventoryExportRows,
+  inventoryExportFormatOptions,
+  inventoryExportReportOptions,
+  NO_EXPORT_DATA_MESSAGE,
+} from "../../features/inventory-items/inventoryItemExportOptions";
+import { formatPercentage } from "../../features/inventory-items/inventoryItemFormatting";
+import {
+  buildInventoryTrackingMap,
+  createEmptyTrackingStats,
+  getItemStatus,
+  getTrackedExpirationDate,
+  isDateExpired,
+} from "../../features/inventory-items/inventoryItemStockStatus";
+import { mergeInventoryItemsWithSyncStatus } from "../../features/inventory-items/inventoryItemSync";
 
 const primaryTopBtn = {
   display: "inline-flex",
@@ -67,187 +76,11 @@ const secondaryTopBtn = {
 };
 
 const analyticsCard = {
-  background: COLORS.bgSoft,
-  border: `1px solid ${COLORS.border}`,
+  background: "#f8fbff",
+  border: "1px solid #d6e2ef",
   borderRadius: "14px",
   padding: "16px",
 };
-
-const chipGroupStyle = {
-  display: "flex",
-  background: COLORS.chipBg,
-  borderRadius: "7px",
-  padding: "2px",
-  gap: "1px",
-  flexWrap: "wrap",
-};
-
-const noticeModalStyles = {
-  overlay: {
-    position: "fixed",
-    inset: 0,
-    backgroundColor: "rgba(18, 34, 51, 0.45)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "24px",
-    zIndex: 1200,
-  },
-  modal: {
-    width: "100%",
-    maxWidth: "440px",
-    backgroundColor: "#ffffff",
-    borderRadius: "20px",
-    padding: "28px",
-    boxShadow: "0 24px 48px rgba(20, 48, 78, 0.2)",
-  },
-  title: {
-    margin: 0,
-    color: "#17324d",
-    fontSize: "22px",
-  },
-  message: {
-    margin: "12px 0 0",
-    color: "#5d7188",
-    fontSize: "15px",
-    lineHeight: 1.6,
-  },
-  actions: {
-    display: "flex",
-    justifyContent: "flex-end",
-    gap: "12px",
-    marginTop: "24px",
-  },
-};
-
-const exportModalStyles = {
-  overlay: {
-    position: "fixed",
-    inset: 0,
-    backgroundColor: "rgba(18, 34, 51, 0.45)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "24px",
-    zIndex: 1200,
-  },
-  modal: {
-    width: "100%",
-    maxWidth: "480px",
-    backgroundColor: "#ffffff",
-    borderRadius: "20px",
-    padding: "28px",
-    boxShadow: "0 24px 48px rgba(20, 48, 78, 0.2)",
-  },
-  title: {
-    margin: 0,
-    color: "#17324d",
-    fontSize: "24px",
-  },
-  description: {
-    margin: "12px 0 0",
-    color: "#5d7188",
-    fontSize: "14px",
-    lineHeight: 1.6,
-  },
-  fieldGroup: {
-    display: "grid",
-    gap: "18px",
-    marginTop: "22px",
-  },
-  label: {
-    display: "block",
-    marginBottom: "8px",
-    color: "#4f677f",
-    fontSize: "13px",
-    fontWeight: 700,
-  },
-  select: {
-    width: "100%",
-    minHeight: "48px",
-    padding: "12px 14px",
-    borderRadius: "14px",
-    border: "1px solid #d2deea",
-    boxSizing: "border-box",
-    fontSize: "14px",
-    color: "#21405f",
-    backgroundColor: "#ffffff",
-    outline: "none",
-  },
-  actions: {
-    display: "flex",
-    justifyContent: "flex-end",
-    gap: "12px",
-    marginTop: "24px",
-    flexWrap: "wrap",
-  },
-};
-
-const activeChipPalette = {
-  All: {
-    backgroundColor: COLORS.primary,
-    color: "#ffffff",
-  },
-  Perishable: {
-    backgroundColor: "#fef3c7",
-    color: "#92400e",
-  },
-  "Non-Perishable": {
-    backgroundColor: "#e6f5ec",
-    color: "#2d7a4f",
-  },
-  Available: {
-    backgroundColor: "#e0f2fe",
-    color: "#075985",
-  },
-  Distributed: {
-    backgroundColor: "#dbeafe",
-    color: "#1d4ed8",
-  },
-  Expired: {
-    backgroundColor: "#fee2e2",
-    color: "#b91c1c",
-  },
-  Expiring: {
-    backgroundColor: "#ede9fe",
-    color: "#6d28d9",
-  },
-  Inactive: {
-    backgroundColor: "#f1f5f9",
-    color: "#475569",
-  },
-};
-
-const getChipStyle = (label, isActive) => {
-  const activePalette = activeChipPalette[label] || activeChipPalette.All;
-
-  return {
-    border: "none",
-    borderRadius: "6px",
-    padding: "3px 10px",
-    fontSize: "11px",
-    fontWeight: 600,
-    cursor: "pointer",
-    backgroundColor: isActive
-      ? activePalette.backgroundColor
-      : "transparent",
-    color: isActive ? activePalette.color : COLORS.muted,
-    transition: "all 0.2s",
-    lineHeight: 1.2,
-  };
-};
-
-const tabButtonStyles = (isActive) => ({
-  padding: "12px 24px",
-  border: "none",
-  background: "none",
-  fontSize: "14px",
-  fontWeight: 700,
-  textTransform: "uppercase",
-  color: isActive ? "#17324d" : "#6b8298",
-  borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
-  cursor: "pointer",
-});
 
 const styles = {
   topActionsRow: {
@@ -271,77 +104,6 @@ const styles = {
     fontSize: "24px",
     color: "#2f3f5d",
     lineHeight: 1.1,
-  },
-  filterRow: {
-    display: "flex",
-    gap: "12px",
-    alignItems: "center",
-    marginBottom: "8px",
-    flexWrap: "wrap",
-  },
-  inlineFilters: {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-    marginTop: "2px",
-    flexWrap: "wrap",
-    color: COLORS.primary,
-    fontSize: "13px",
-    fontWeight: 600,
-    marginBottom: "16px",
-  },
-  tableWrap: {
-    marginTop: "10px",
-    overflowX: "auto",
-  },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-    background: "transparent",
-  },
-  th: {
-    textAlign: "left",
-    padding: "10px 8px",
-    fontSize: "13px",
-    color: COLORS.primary,
-    fontWeight: 700,
-    borderBottom: "none",
-    whiteSpace: "nowrap",
-  },
-  tr: {
-    borderBottom: `1px solid ${COLORS.borderSoft}`,
-  },
-  td: {
-    padding: "10px 8px",
-    fontSize: "13px",
-    color: COLORS.secondary,
-    verticalAlign: "middle",
-  },
-  emptyStateCell: {
-    padding: "16px 8px",
-    fontSize: "14px",
-    color: COLORS.secondary,
-  },
-  exportMenu: {
-    position: "absolute",
-    right: 0,
-    top: "52px",
-    background: "#fff",
-    borderRadius: "10px",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-    padding: "8px",
-    minWidth: "170px",
-    zIndex: 20,
-  },
-  exportMenuButton: {
-    width: "100%",
-    border: "none",
-    background: "transparent",
-    textAlign: "left",
-    padding: "8px",
-    cursor: "pointer",
-    color: "#1f3b57",
-    fontSize: "14px",
   },
   addItemIconWrap: {
     position: "relative",
@@ -367,164 +129,17 @@ const styles = {
   },
 };
 
-const inventoryExportReportOptions = [
-  { value: "INVENTORY_ITEMS", label: "Inventory Items" },
-  { value: "LOW_STOCK", label: "Low Stock" },
-  { value: "NEAR_EXPIRY", label: "Near Expiry" },
-  { value: "EXPIRED", label: "Expired Items" },
-  { value: "INCIDENT_LOSS", label: "Inventory Loss" },
-];
-
-const inventoryExportFormatOptions = [
-  { value: "csv", label: "CSV" },
-  { value: "excel", label: "Excel" },
-  { value: "pdf", label: "PDF" },
-];
-
-const forecastModelOptions = [
-  {
-    value: "MOVING_AVERAGE",
-    label: "Moving Average",
-    description: "Recommended default model for regular stock planning.",
-  },
-  {
-    value: "EXPONENTIAL_SMOOTHING",
-    label: "Exponential Smoothing",
-    description: "Gives more weight to recent distribution activity.",
-  },
-  {
-    value: "TREND_PROJECTION",
-    label: "Trend Projection",
-    description: "Uses historical trend direction to project demand.",
-  },
-];
-
-const NO_EXPORT_DATA_MESSAGE = "No available data to export.";
-
-const getForecastModelLabel = (modelName) => {
-  return (
-    forecastModelOptions.find((option) => option.value === modelName)?.label ||
-    "Moving Average"
-  );
-};
-
-const buildInventoryExportFilters = (selectedReportType) => {
-  if (selectedReportType === "LOW_STOCK") {
-    return { report_type: "LOW_STOCK" };
-  }
-
-  if (selectedReportType === "NEAR_EXPIRY") {
-    return { report_type: "NEAR_EXPIRY", near_expiry_days: 14 };
-  }
-
-  if (selectedReportType === "EXPIRED") {
-    return { report_type: "EXPIRED" };
-  }
-
-  if (selectedReportType === "INCIDENT_LOSS") {
-    return { report_type: "INCIDENT_LOSS" };
-  }
-
-  return {};
-};
-
-const hasInventoryExportRows = ({
-  reportType,
-  visibleInventoryItems,
-  inventoryBatches,
-  inventoryTrackingMap,
-}) => {
-  if (reportType === "INVENTORY_ITEMS") {
-    return visibleInventoryItems.length > 0;
-  }
-
-  if (reportType === "LOW_STOCK") {
-    return inventoryBatches.some((batch) => batch.status === "LOW_STOCK");
-  }
-
-  if (reportType === "NEAR_EXPIRY") {
-    return inventoryBatches.some((batch) => isItemExpiring(batch));
-  }
-
-  if (reportType === "EXPIRED") {
-    return inventoryBatches.some((batch) => batch.status === "EXPIRED");
-  }
-
-  if (reportType === "INCIDENT_LOSS") {
-    return visibleInventoryItems.some((item) => {
-      const trackingStats =
-        inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
-
-      return (
-        trackingStats.damaged > 0 ||
-        trackingStats.missing > 0 ||
-        trackingStats.spoiled > 0 ||
-        trackingStats.stolen > 0
-      );
-    });
-  }
-
-  return false;
-};
-
-const buildQueuedInventoryItem = (entry) => {
-  return {
-    id: entry.entityLocalId || entry.id,
-    item_name: entry.payload?.item_name || "Pending inventory item",
-    category: entry.payload?.category || "--",
-    quantity: entry.payload?.quantity || 0,
-    packaging_count: entry.payload?.packaging_count || 0,
-    unit_of_measure: entry.payload?.unit_of_measure || "--",
-    unit_of_measure_value: entry.payload?.unit_of_measure_value || 1,
-    expiration_date: entry.payload?.expiration_date || null,
-    is_active: true,
-    is_perishable: Boolean(entry.payload?.is_perishable),
-    is_local_only: true,
-    sync_status: entry.status,
-  };
-};
-
-/* ================= HELPERS ================= */
-
-const getUniqueCategories = (rows) =>
-  [...new Set(rows.map((r) => r.category).filter(Boolean))].sort();
-
-const formatNumericValue = (value) => {
-  if (!Number.isFinite(value)) {
-    return "--";
-  }
-
-  if (Number.isInteger(value)) {
-    return value.toLocaleString();
-  }
-
-  return value.toLocaleString(undefined, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  });
-};
-
-const formatUnitOfMeasurement = (item) => {
-  const unitOfMeasureValue = Number(item.unit_of_measure_value || 0);
-
-  if (
-    Number.isFinite(unitOfMeasureValue) &&
-    unitOfMeasureValue > 0 &&
-    item.unit_of_measure
-  ) {
-    return `${formatNumericValue(unitOfMeasureValue)} ${item.unit_of_measure}`;
-  }
-
-  return item.unit_of_measure || "--";
-};
-
-const formatPercentage = (value, total) => {
-  if (!total) {
-    return "0%";
-  }
-
-  return `${Math.round((value / total) * 100)}%`;
-};
+const tabButtonStyles = (isActive) => ({
+  padding: "12px 24px",
+  border: "none",
+  background: "none",
+  fontSize: "14px",
+  fontWeight: 700,
+  textTransform: "uppercase",
+  color: isActive ? "#17324d" : "#6b8298",
+  borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
+  cursor: "pointer",
+});
 
 const buildInventoryItemFilters = (filters) => {
   const apiFilters = {
@@ -538,266 +153,6 @@ const buildInventoryItemFilters = (filters) => {
   }
 
   return apiFilters;
-};
-
-const getTotalItemQuantity = (item) => {
-  const packagingCount = Number(item.packaging_count || 0);
-  const quantityPerPackaging = Number(item.quantity || 0);
-  const unitOfMeasureValue = Number(item.unit_of_measure_value || 1);
-  const normalizedPackagingCount =
-    Number.isFinite(packagingCount) && packagingCount > 0 ? packagingCount : 0;
-  const normalizedQuantityPerPackaging =
-    Number.isFinite(quantityPerPackaging) && quantityPerPackaging > 0
-      ? quantityPerPackaging
-      : 0;
-  const normalizedUnitOfMeasureValue =
-    Number.isFinite(unitOfMeasureValue) && unitOfMeasureValue > 0
-      ? unitOfMeasureValue
-      : 1;
-  const totalQuantity =
-    normalizedPackagingCount *
-    normalizedQuantityPerPackaging *
-    normalizedUnitOfMeasureValue;
-
-  return formatNumericValue(totalQuantity);
-};
-
-const isItemExpiring = (item) => {
-  if (!item.expiration_date) {
-    return false;
-  }
-
-  const today = new Date();
-  const comparisonDate = new Date(
-    today.getFullYear(),
-    today.getMonth(),
-    today.getDate(),
-  );
-  const expirationDate = new Date(`${item.expiration_date}T00:00:00`);
-
-  if (Number.isNaN(expirationDate.getTime())) {
-    return false;
-  }
-
-  const millisecondsUntilExpiration =
-    expirationDate.getTime() - comparisonDate.getTime();
-  const daysUntilExpiration = millisecondsUntilExpiration / (1000 * 60 * 60 * 24);
-
-  return daysUntilExpiration >= 0 && daysUntilExpiration <= 30;
-};
-
-const isDateExpired = (dateValue) => {
-  if (!dateValue) {
-    return false;
-  }
-
-  const today = new Date();
-  const comparisonDate = new Date(
-    today.getFullYear(),
-    today.getMonth(),
-    today.getDate(),
-  );
-  const targetDate = new Date(`${dateValue}T00:00:00`);
-
-  if (Number.isNaN(targetDate.getTime())) {
-    return false;
-  }
-
-  return targetDate < comparisonDate;
-};
-
-const formatDisplayDate = (value) => {
-  if (!value) {
-    return "--";
-  }
-
-  const parsedDate = new Date(`${value}T00:00:00`);
-
-  if (Number.isNaN(parsedDate.getTime())) {
-    return "--";
-  }
-
-  return parsedDate.toLocaleDateString();
-};
-
-const normalizeQuantity = (value) => {
-  const numericValue = Number(value);
-  return Number.isFinite(numericValue) ? numericValue : 0;
-};
-
-const getEarlierDate = (currentDate, nextDate) => {
-  if (!currentDate) {
-    return nextDate;
-  }
-
-  if (!nextDate) {
-    return currentDate;
-  }
-
-  return new Date(`${nextDate}T00:00:00`) < new Date(`${currentDate}T00:00:00`)
-    ? nextDate
-    : currentDate;
-};
-
-const createEmptyTrackingStats = () => ({
-  totalReceived: 0,
-  onHand: 0,
-  distributed: 0,
-  expired: 0,
-  expiredOnHand: 0,
-  damaged: 0,
-  missing: 0,
-  spoiled: 0,
-  stolen: 0,
-  nearestExpirationDate: null,
-  hasExpiringStock: false,
-});
-
-const buildInventoryTrackingMap = (
-  inventoryItems,
-  inventoryBatches,
-  inventoryTransactions,
-) => {
-  const trackingMap = new Map(
-    inventoryItems.map((item) => [item.id, createEmptyTrackingStats()]),
-  );
-
-  const ensureTrackingEntry = (itemId) => {
-    if (!itemId) {
-      return createEmptyTrackingStats();
-    }
-
-    if (!trackingMap.has(itemId)) {
-      trackingMap.set(itemId, createEmptyTrackingStats());
-    }
-
-    return trackingMap.get(itemId);
-  };
-
-  inventoryBatches.forEach((batch) => {
-    const itemId = batch.inventory_item?.id || batch.inventory_item_id;
-    const tracking = ensureTrackingEntry(itemId);
-
-    tracking.totalReceived += normalizeQuantity(batch.quantity_received);
-    tracking.onHand += normalizeQuantity(batch.quantity_available);
-
-    if (batch.expiration_date) {
-      tracking.nearestExpirationDate = getEarlierDate(
-        tracking.nearestExpirationDate,
-        batch.expiration_date,
-      );
-
-      if (isItemExpiring({ expiration_date: batch.expiration_date })) {
-        tracking.hasExpiringStock = true;
-      }
-
-      if (isDateExpired(batch.expiration_date)) {
-        tracking.expiredOnHand += normalizeQuantity(batch.quantity_available);
-      }
-    }
-  });
-
-  inventoryTransactions.forEach((transaction) => {
-    const itemId = transaction.inventory_item?.id || transaction.inventory_item_id;
-    const tracking = ensureTrackingEntry(itemId);
-
-    if (
-      transaction.transaction_type === "OUTFLOW" &&
-      transaction.reference_type === "DISTRIBUTION"
-    ) {
-      tracking.distributed += normalizeQuantity(transaction.quantity);
-    }
-
-    if (transaction.transaction_type === "EXPIRED") {
-      tracking.expired += normalizeQuantity(transaction.quantity);
-    }
-
-    if (transaction.transaction_type === "DAMAGED") {
-      tracking.damaged += normalizeQuantity(transaction.quantity);
-    }
-
-    if (transaction.transaction_type === "MISSING") {
-      tracking.missing += normalizeQuantity(transaction.quantity);
-    }
-
-    if (transaction.transaction_type === "SPOILED") {
-      tracking.spoiled += normalizeQuantity(transaction.quantity);
-    }
-
-    if (transaction.transaction_type === "STOLEN") {
-      tracking.stolen += normalizeQuantity(transaction.quantity);
-    }
-  });
-
-  return trackingMap;
-};
-
-const getTrackedExpirationDate = (item, trackingStats) => {
-  return getEarlierDate(
-    item.expiration_date || null,
-    trackingStats.nearestExpirationDate,
-  );
-};
-
-const getItemStatus = (item, trackingStats) => {
-  const trackedExpirationDate = getTrackedExpirationDate(item, trackingStats);
-
-  if (!item.is_active) {
-    return "Inactive";
-  }
-
-  if (trackingStats.expiredOnHand > 0 || isDateExpired(trackedExpirationDate)) {
-    return "Expired";
-  }
-
-  if (
-    trackingStats.distributed > 0 &&
-    trackingStats.onHand === 0 &&
-    trackingStats.totalReceived > 0
-  ) {
-    return "Distributed";
-  }
-
-  if (trackingStats.hasExpiringStock || isItemExpiring(item)) {
-    return "Expiring";
-  }
-
-  return "Available";
-};
-
-const getItemStatusStyle = (status) => {
-  if (status === "Distributed") {
-    return {
-      background: "#dbeafe",
-      color: "#1d4ed8",
-    };
-  }
-
-  if (status === "Expired") {
-    return {
-      background: "#fee2e2",
-      color: "#b91c1c",
-    };
-  }
-
-  if (status === "Inactive") {
-    return {
-      background: "#f1f5f9",
-      color: "#475569",
-    };
-  }
-
-  if (status === "Expiring") {
-    return {
-      background: "#ede9fe",
-      color: "#6d28d9",
-    };
-  }
-
-  return {
-    background: "#e0f2fe",
-    color: "#075985",
-  };
 };
 
 const InventoryItemsPage = () => {
@@ -949,41 +304,10 @@ const InventoryItemsPage = () => {
     };
   }, [selectedForecastEventId]);
 
-  const inventoryItemsWithSyncStatus = useMemo(() => {
-    const syncedItems = inventoryItems.map((item) => {
-      const matchingEntry = findSyncEntry(syncQueueEntries, (entry) => {
-        if (entry.moduleName !== "mayor-inventory") {
-          return false;
-        }
-
-        return (
-          entry.entityType === "INVENTORY_ITEM" &&
-          (entry.entityServerId === item.id || entry.entityLocalId === item.id)
-        );
-      });
-
-      return {
-        ...item,
-        sync_status: buildSyncDescriptor(matchingEntry).status,
-        is_local_only: false,
-      };
-    });
-
-    const optimisticItems = syncQueueEntries
-      .filter((entry) => {
-        return (
-          entry.moduleName === "mayor-inventory" &&
-          entry.actionKey === "INVENTORY_ITEM_CREATE" &&
-          !syncedItems.some(
-            (item) =>
-              item.id === entry.entityServerId || item.id === entry.entityLocalId,
-          )
-        );
-      })
-      .map(buildQueuedInventoryItem);
-
-    return [...optimisticItems, ...syncedItems];
-  }, [inventoryItems, syncQueueEntries]);
+  const inventoryItemsWithSyncStatus = useMemo(
+    () => mergeInventoryItemsWithSyncStatus(inventoryItems, syncQueueEntries),
+    [inventoryItems, syncQueueEntries],
+  );
 
   const inventoryTrackingMap = useMemo(
     () =>
@@ -997,7 +321,9 @@ const InventoryItemsPage = () => {
 
   const inventoryAnalytics = useMemo(() => {
     const totalItems = inventoryItemsWithSyncStatus.length;
-    const perishableItems = inventoryItemsWithSyncStatus.filter((item) => item.is_perishable).length;
+    const perishableItems = inventoryItemsWithSyncStatus.filter(
+      (item) => item.is_perishable,
+    ).length;
     const nonPerishableItems = totalItems - perishableItems;
     const availableItems = inventoryItemsWithSyncStatus.filter((item) => {
       const trackingStats =
@@ -1270,12 +596,12 @@ const InventoryItemsPage = () => {
       <PageHeader title="INVENTORY MANAGEMENT" />
 
       <div style={styles.topActionsRow}>
-        <button style={primaryTopBtn} onClick={handleOpenScanModal}>
+        <button type="button" style={primaryTopBtn} onClick={handleOpenScanModal}>
           <MdQrCodeScanner size={16} />
           Scan Item
         </button>
 
-        <button style={primaryTopBtn} onClick={handleOpenCreateModal}>
+        <button type="button" style={primaryTopBtn} onClick={handleOpenCreateModal}>
           <span style={styles.addItemIconWrap}>
             <FiPackage size={16} />
             <span style={styles.addItemPlus}>
@@ -1302,11 +628,7 @@ const InventoryItemsPage = () => {
         </button>
       </div>
 
-      <section style={{ ...shellStyles.statGrid, marginBottom: "16px" }}>
-        {summaryCards.map((card) => (
-          <StatusCard key={card.label} {...card} />
-        ))}
-      </section>
+      <InventoryOverviewCards summaryCards={summaryCards} />
 
       <section style={shellStyles.card}>
         <div style={styles.tabContainer}>
@@ -1334,159 +656,20 @@ const InventoryItemsPage = () => {
               : "FORECASTING SUMMARY"}
         </h3>
 
-        {activeTab === "overview" && (
-          <>
-            <div style={styles.filterRow}>
-              <div style={{ flex: 1 }}>
-                <SearchBar
-                  value={filters.search}
-                  onChange={(value) => handleFilterChange("search", value)}
-                  placeholder="Search item name or code"
-                />
-              </div>
-            </div>
-
-            <div style={styles.inlineFilters}>
-              <span>Category:</span>
-              <div style={chipGroupStyle}>
-                {["All", "Perishable", "Non-Perishable"].map((category) => (
-                  <button
-                    key={category}
-                    style={getChipStyle(category, filters.category === category)}
-                    onClick={() => handleFilterChange("category", category)}
-                  >
-                    {category}
-                  </button>
-                ))}
-              </div>
-
-              <span>Status:</span>
-              <div style={chipGroupStyle}>
-                {[
-                  "All",
-                  "Available",
-                  "Distributed",
-                  "Expired",
-                  "Expiring",
-                  "Inactive",
-                ].map((status) => (
-                  <button
-                    key={status}
-                    style={getChipStyle(status, filters.status === status)}
-                    onClick={() => handleFilterChange("status", status)}
-                  >
-                    {status}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
-
         {activeTab === "overview" ? (
-          <div style={styles.tableWrap}>
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  {[
-                    "Item Name",
-                    "Category",
-                    "Quantity",
-                    "Unit of Measurement",
-                    "Expiry Date",
-                    "Status",
-                    "Sync",
-                  ].map((header) => (
-                    <th key={header} style={styles.th}>
-                      {header}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
+          <>
+            <InventoryFilters
+              filters={filters}
+              onFilterChange={handleFilterChange}
+            />
 
-              <tbody>
-                {isLoading ? (
-                  <tr>
-                    <td colSpan="7" style={styles.emptyStateCell}>
-                      Loading...
-                    </td>
-                  </tr>
-                ) : errorMessage ? (
-                  <tr>
-                    <td
-                      colSpan="7"
-                      style={{ ...styles.emptyStateCell, color: "#b91c1c" }}
-                    >
-                      {errorMessage}
-                    </td>
-                  </tr>
-                ) : visibleInventoryItems.length === 0 ? (
-                  <tr>
-                    <td colSpan="7" style={styles.emptyStateCell}>
-                      No items found
-                    </td>
-                  </tr>
-                ) : (
-                  visibleInventoryItems.map((item, index) => {
-                    const trackingStats =
-                      inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
-
-                    const itemStatus = getItemStatus(item, trackingStats);
-                    const itemStatusStyle = getItemStatusStyle(itemStatus);
-
-                    // ✅ SAFE FIELD NORMALIZATION (FIX FOR BLANK CELLS)
-                    const itemName =
-                      item.item_name ??
-                      item.name ??
-                      item.product_name ??
-                      "Unnamed Item";
-
-                    const category = item.category ?? "--";
-
-                    const quantity = getTotalItemQuantity(item) ?? "0";
-
-                    const unit = formatUnitOfMeasurement(item) ?? "--";
-
-                    const expiry = item.expiration_date
-                      ? new Date(item.expiration_date).toLocaleDateString()
-                      : "--";
-
-                    return (
-                      <tr key={item.id || index} style={styles.tr}>
-                        <td style={styles.td}>{itemName}</td>
-
-                        <td style={styles.td}>{category}</td>
-
-                        <td style={styles.td}>{quantity}</td>
-
-                        <td style={styles.td}>{unit}</td>
-
-                        <td style={styles.td}>{expiry}</td>
-
-                        <td style={styles.td}>
-                          <span
-                            style={{
-                              padding: "4px 10px",
-                              borderRadius: "8px",
-                              fontSize: "12px",
-                              fontWeight: 600,
-                              background: itemStatusStyle.background,
-                              color: itemStatusStyle.color,
-                            }}
-                          >
-                            {itemStatus}
-                          </span>
-                        </td>
-                        <td style={styles.td}>
-                          <SyncStatusBadge status={item.sync_status} compact />
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+            <InventoryItemsTable
+              rows={visibleInventoryItems}
+              isLoading={isLoading}
+              errorMessage={errorMessage}
+              inventoryTrackingMap={inventoryTrackingMap}
+            />
+          </>
         ) : activeTab === "analytics" ? (
           <div
             style={{
@@ -1526,7 +709,7 @@ const InventoryItemsPage = () => {
                 <h4
                   style={{
                     margin: "0 0 8px",
-                    color: COLORS.primary,
+                    color: "#17324d",
                     fontSize: "16px",
                     fontWeight: 700,
                   }}
@@ -1536,7 +719,7 @@ const InventoryItemsPage = () => {
                 <p
                   style={{
                     margin: "0 0 12px",
-                    color: COLORS.primary,
+                    color: "#17324d",
                     fontSize: "32px",
                     fontWeight: 800,
                     lineHeight: 1,
@@ -1547,7 +730,7 @@ const InventoryItemsPage = () => {
                 <p
                   style={{
                     margin: 0,
-                    color: COLORS.muted,
+                    color: "#6b8298",
                     fontSize: "14px",
                   }}
                 >
@@ -1557,233 +740,25 @@ const InventoryItemsPage = () => {
             ))}
           </div>
         ) : (
-          <div style={{ display: "grid", gap: "18px" }}>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: "16px",
-              }}
-            >
-              <div>
-                <label style={exportModalStyles.label}>Disaster Event</label>
-                <select
-                  value={selectedForecastEventId}
-                  onChange={(event) => setSelectedForecastEventId(event.target.value)}
-                  style={exportModalStyles.select}
-                >
-                  {forecastEvents.length === 0 ? (
-                    <option value="">No disaster events available</option>
-                  ) : (
-                    forecastEvents.map((event) => (
-                      <option key={event.id} value={event.id}>
-                        {event.event_code} - {event.title}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
-
-              <div>
-                <label style={exportModalStyles.label}>Forecast Model</label>
-                <select
-                  value={selectedForecastModel}
-                  onChange={(event) => setSelectedForecastModel(event.target.value)}
-                  style={exportModalStyles.select}
-                >
-                  {forecastModelOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <p
-                  style={{
-                    margin: "8px 0 0",
-                    color: "#5d7188",
-                    fontSize: "13px",
-                    lineHeight: 1.5,
-                  }}
-                >
-                  {
-                    forecastModelOptions.find(
-                      (option) => option.value === selectedForecastModel,
-                    )?.description
-                  }
-                </p>
-              </div>
-
-              <div style={{ display: "flex", alignItems: "flex-end" }}>
-                <button
-                  type="button"
-                  onClick={handleRunForecast}
-                  disabled={isRunningForecast || !selectedForecastEventId}
-                  style={{
-                    ...pageHeaderStyles.primaryButton,
-                    opacity: isRunningForecast || !selectedForecastEventId ? 0.7 : 1,
-                    width: "100%",
-                  }}
-                >
-                  {isRunningForecast ? "Running Forecast..." : "Run Forecast"}
-                </button>
-              </div>
-            </div>
-
-            <div
-              style={{
-                borderRadius: "16px",
-                border: "1px solid #d6e2ef",
-                backgroundColor: "#f8fbff",
-                padding: "16px 18px",
-              }}
-            >
-              <p
-                style={{
-                  margin: 0,
-                  color: "#17324d",
-                  fontSize: "14px",
-                  fontWeight: 700,
-                }}
-              >
-                Recommended Default Model: Moving Average
-              </p>
-              <p
-                style={{
-                  margin: "8px 0 0",
-                  color: "#5d7188",
-                  fontSize: "13px",
-                  lineHeight: 1.6,
-                }}
-              >
-                Moving Average is selected by default to give the Mayor&apos;s Office a
-                stable baseline forecast using recent distribution demand.
-              </p>
-            </div>
-
-            {forecastSuccessMessage ? (
-              <div
-                style={{
-                  padding: "14px 16px",
-                  borderRadius: "14px",
-                  backgroundColor: "#edf8f1",
-                  color: "#1f6b46",
-                  fontSize: "14px",
-                  fontWeight: 600,
-                }}
-              >
-                {forecastSuccessMessage}
-              </div>
-            ) : null}
-
-            {forecastErrorMessage ? (
-              <div
-                style={{
-                  padding: "14px 16px",
-                  borderRadius: "14px",
-                  backgroundColor: "#fff3f1",
-                  color: "#a14538",
-                  fontSize: "14px",
-                  fontWeight: 600,
-                }}
-              >
-                {forecastErrorMessage}
-              </div>
-            ) : null}
-
-            <div style={{ ...styles.tableWrap, marginTop: 0 }}>
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    {[
-                      "Item Name",
-                      "Current Stock",
-                      "Selected Model",
-                      "Average Daily Usage",
-                      "Forecasted Usage",
-                      "Projected Depletion Date",
-                      "Recommended Reorder Quantity",
-                      "Risk Level",
-                    ].map((header) => (
-                      <th key={header} style={styles.th}>
-                        {header}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {isForecastLoading ? (
-                    <tr>
-                      <td colSpan="8" style={styles.emptyStateCell}>
-                        Loading latest forecast...
-                      </td>
-                    </tr>
-                  ) : !forecastRunData || forecastRunData.results.length === 0 ? (
-                    <tr>
-                      <td colSpan="8" style={styles.emptyStateCell}>
-                        No saved forecast results are available yet for the selected
-                        disaster event.
-                      </td>
-                    </tr>
-                  ) : (
-                    forecastRunData.results.map((result) => (
-                      <tr key={result.inventory_item_id} style={styles.tr}>
-                        <td style={styles.td}>{result.item_name}</td>
-                        <td style={styles.td}>{result.current_available_stock}</td>
-                        <td style={styles.td}>
-                          {getForecastModelLabel(result.selected_model)}
-                        </td>
-                        <td style={styles.td}>{result.average_daily_usage}</td>
-                        <td style={styles.td}>{result.forecasted_usage}</td>
-                        <td style={styles.td}>
-                          {result.projected_depletion_date
-                            ? new Date(
-                                `${result.projected_depletion_date}T00:00:00`,
-                              ).toLocaleDateString()
-                            : "--"}
-                        </td>
-                        <td style={styles.td}>
-                          {result.recommended_reorder_quantity}
-                        </td>
-                        <td style={styles.td}>
-                          <span
-                            style={{
-                              padding: "4px 10px",
-                              borderRadius: "8px",
-                              fontSize: "12px",
-                              fontWeight: 600,
-                              backgroundColor:
-                                result.risk_level === "CRITICAL"
-                                  ? "#fee2e2"
-                                  : result.risk_level === "HIGH"
-                                    ? "#fef3c7"
-                                    : result.risk_level === "MEDIUM"
-                                      ? "#ede9fe"
-                                      : "#e0f2fe",
-                              color:
-                                result.risk_level === "CRITICAL"
-                                  ? "#b91c1c"
-                                  : result.risk_level === "HIGH"
-                                    ? "#92400e"
-                                    : result.risk_level === "MEDIUM"
-                                      ? "#6d28d9"
-                                      : "#075985",
-                            }}
-                          >
-                            {result.risk_level}
-                          </span>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <ForecastingPanel
+            forecastEvents={forecastEvents}
+            selectedForecastEventId={selectedForecastEventId}
+            selectedForecastModel={selectedForecastModel}
+            forecastModelOptions={forecastModelOptions}
+            forecastRunData={forecastRunData}
+            forecastSuccessMessage={forecastSuccessMessage}
+            forecastErrorMessage={forecastErrorMessage}
+            isForecastLoading={isForecastLoading}
+            isRunningForecast={isRunningForecast}
+            getForecastModelLabel={getForecastModelLabel}
+            onForecastEventChange={setSelectedForecastEventId}
+            onForecastModelChange={setSelectedForecastModel}
+            onRunForecast={handleRunForecast}
+          />
         )}
       </section>
 
-       <InventoryItemFormModal
+      <InventoryItemFormModal
         isOpen={isModalOpen}
         mode="create"
         itemData={createModalItemData}
@@ -1796,7 +771,7 @@ const InventoryItemsPage = () => {
         onSubmit={handleSubmitModal}
       />
 
-      <InventoryItemScanModal
+      <BarcodeScanModal
         isOpen={isScanModalOpen}
         scanForm={scanForm}
         onClose={handleCloseScanModal}
@@ -1804,102 +779,19 @@ const InventoryItemsPage = () => {
         onInputChange={handleScanInputChange}
       />
 
-      {isExportModalOpen ? (
-        <div style={exportModalStyles.overlay}>
-          <div style={exportModalStyles.modal}>
-            <h3 style={exportModalStyles.title}>Export Inventory Report</h3>
-            <p style={exportModalStyles.description}>
-              Choose which inventory report to export and the file format to generate.
-            </p>
-
-            {exportNoticeMessage ? (
-              <div
-                style={{
-                  marginTop: "18px",
-                  padding: "12px 14px",
-                  borderRadius: "14px",
-                  backgroundColor: "#fff3f1",
-                  border: "1px solid #f4c9c2",
-                  color: "#a14538",
-                  fontSize: "0.95rem",
-                  fontWeight: 600,
-                }}
-              >
-                {exportNoticeMessage}
-              </div>
-            ) : null}
-
-            <div style={exportModalStyles.fieldGroup}>
-              <div>
-                <label style={exportModalStyles.label}>Report Type</label>
-                <select
-                  value={selectedExportReportType}
-                  onChange={(event) =>
-                    setSelectedExportReportType(event.target.value)
-                  }
-                  style={exportModalStyles.select}
-                >
-                  {inventoryExportReportOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label style={exportModalStyles.label}>Format</label>
-                <select
-                  value={selectedExportFormat}
-                  onChange={(event) => setSelectedExportFormat(event.target.value)}
-                  style={exportModalStyles.select}
-                >
-                  {inventoryExportFormatOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div style={exportModalStyles.actions}>
-              <button
-                type="button"
-                onClick={handleCloseExportModal}
-                style={pageHeaderStyles.secondaryButton}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSubmitExportModal}
-                style={pageHeaderStyles.primaryButton}
-              >
-                Export
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {!isExportModalOpen && exportNoticeMessage ? (
-        <div style={noticeModalStyles.overlay}>
-          <div style={noticeModalStyles.modal}>
-            <h3 style={noticeModalStyles.title}>Export Unavailable</h3>
-            <p style={noticeModalStyles.message}>{exportNoticeMessage}</p>
-            <div style={noticeModalStyles.actions}>
-              <button
-                type="button"
-                onClick={() => setExportNoticeMessage("")}
-                style={pageHeaderStyles.primaryButton}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <InventoryExportModal
+        isOpen={isExportModalOpen}
+        selectedExportReportType={selectedExportReportType}
+        selectedExportFormat={selectedExportFormat}
+        exportNoticeMessage={exportNoticeMessage}
+        reportOptions={inventoryExportReportOptions}
+        formatOptions={inventoryExportFormatOptions}
+        onReportTypeChange={setSelectedExportReportType}
+        onFormatChange={setSelectedExportFormat}
+        onClose={handleCloseExportModal}
+        onSubmit={handleSubmitExportModal}
+        onCloseNotice={() => setExportNoticeMessage("")}
+      />
     </div>
   );
 };

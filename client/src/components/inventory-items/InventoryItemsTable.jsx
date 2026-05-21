@@ -1,137 +1,144 @@
 import React from "react";
-import { shellStyles } from "../layout/BarangayLayout";
-import { pageHeaderStyles } from "../layout/PageHeader";
+import SyncStatusBadge from "../shared/SyncStatusBadge";
+import {
+  formatDisplayDate,
+  formatUnitOfMeasurement,
+  getTotalItemQuantity,
+} from "../../features/inventory-items/inventoryItemFormatting";
+import {
+  createEmptyTrackingStats,
+  getItemStatus,
+  getItemStatusStyle,
+} from "../../features/inventory-items/inventoryItemStockStatus";
 
-const tableStyles = {
+const styles = {
+  tableWrap: {
+    marginTop: "10px",
+    overflowX: "auto",
+  },
   table: {
     width: "100%",
     borderCollapse: "collapse",
+    background: "transparent",
   },
-  headerCell: {
-    padding: "14px 16px",
+  th: {
     textAlign: "left",
-    fontSize: "12px",
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
-    color: "#66809c",
-    borderBottom: "1px solid #e0eaf4",
+    padding: "10px 8px",
+    fontSize: "13px",
+    color: "#17324d",
+    fontWeight: 700,
+    borderBottom: "none",
     whiteSpace: "nowrap",
   },
-  bodyCell: {
-    padding: "16px",
-    color: "#21405f",
-    borderBottom: "1px solid #edf3f8",
+  tr: {
+    borderBottom: "1px solid #e7edf5",
+  },
+  td: {
+    padding: "10px 8px",
+    fontSize: "13px",
+    color: "#334155",
+    verticalAlign: "middle",
+  },
+  emptyStateCell: {
+    padding: "16px 8px",
     fontSize: "14px",
-    verticalAlign: "top",
+    color: "#334155",
   },
 };
-
-const getBooleanBadgeStyles = (value) => ({
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  minWidth: "72px",
-  padding: "6px 10px",
-  borderRadius: "999px",
-  fontSize: "12px",
-  fontWeight: 700,
-  backgroundColor: value ? "#e6f5ec" : "#f1f4f7",
-  color: value ? "#2d7a4f" : "#60738a",
-});
 
 const InventoryItemsTable = ({
   rows,
   isLoading,
   errorMessage,
-  onEditItem,
+  inventoryTrackingMap,
 }) => {
-  if (isLoading) {
-    return (
-      <section style={shellStyles.card}>
-        <h3 style={{ marginTop: 0, color: "#17324d" }}>Inventory Items</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          Loading inventory items...
-        </p>
-      </section>
-    );
-  }
-
-  if (errorMessage) {
-    return (
-      <section style={shellStyles.card}>
-        <h3 style={{ marginTop: 0, color: "#17324d" }}>Inventory Items</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "10px", color: "#a14d58" }}>
-          {errorMessage}
-        </p>
-      </section>
-    );
-  }
-
-  if (rows.length === 0) {
-    return (
-      <section style={shellStyles.card}>
-        <h3 style={{ marginTop: 0, color: "#17324d" }}>Inventory Items</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          No inventory items were found for the current filters.
-        </p>
-      </section>
-    );
-  }
-
   return (
-    <section style={shellStyles.card}>
-      <div style={{ marginBottom: "18px" }}>
-        <h3 style={{ margin: 0, color: "#17324d" }}>Inventory Items</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-          Review item master data and open any row for editing.
-        </p>
-      </div>
-
-      <div style={{ overflowX: "auto" }}>
-        <table style={tableStyles.table}>
-          <thead>
-            <tr>
-              <th style={tableStyles.headerCell}>Item Code</th>
-              <th style={tableStyles.headerCell}>Item Name</th>
-              <th style={tableStyles.headerCell}>Category</th>
-              <th style={tableStyles.headerCell}>Unit of Measure</th>
-              <th style={tableStyles.headerCell}>Perishable</th>
-              <th style={tableStyles.headerCell}>Active</th>
-              <th style={tableStyles.headerCell}>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.id}>
-                <td style={tableStyles.bodyCell}>{row.item_code}</td>
-                <td style={tableStyles.bodyCell}>{row.item_name}</td>
-                <td style={tableStyles.bodyCell}>{row.category}</td>
-                <td style={tableStyles.bodyCell}>{row.unit_of_measure}</td>
-                <td style={tableStyles.bodyCell}>
-                  <span style={getBooleanBadgeStyles(row.is_perishable)}>
-                    {row.is_perishable ? "Yes" : "No"}
-                  </span>
-                </td>
-                <td style={tableStyles.bodyCell}>
-                  <span style={getBooleanBadgeStyles(row.is_active)}>
-                    {row.is_active ? "Yes" : "No"}
-                  </span>
-                </td>
-                <td style={tableStyles.bodyCell}>
-                  <button
-                    type="button"
-                    onClick={() => onEditItem(row.id)}
-                    style={pageHeaderStyles.secondaryButton}
-                  >
-                    Edit
-                  </button>
-                </td>
-              </tr>
+    <div style={styles.tableWrap}>
+      <table style={styles.table}>
+        <thead>
+          <tr>
+            {[
+              "Item Name",
+              "Category",
+              "Quantity",
+              "Unit of Measurement",
+              "Expiry Date",
+              "Status",
+              "Sync",
+            ].map((header) => (
+              <th key={header} style={styles.th}>
+                {header}
+              </th>
             ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
+          </tr>
+        </thead>
+
+        <tbody>
+          {isLoading ? (
+            <tr>
+              <td colSpan="7" style={styles.emptyStateCell}>
+                Loading...
+              </td>
+            </tr>
+          ) : errorMessage ? (
+            <tr>
+              <td
+                colSpan="7"
+                style={{ ...styles.emptyStateCell, color: "#b91c1c" }}
+              >
+                {errorMessage}
+              </td>
+            </tr>
+          ) : rows.length === 0 ? (
+            <tr>
+              <td colSpan="7" style={styles.emptyStateCell}>
+                No items found
+              </td>
+            </tr>
+          ) : (
+            rows.map((item, index) => {
+              const trackingStats =
+                inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
+              const itemStatus = getItemStatus(item, trackingStats);
+              const itemStatusStyle = getItemStatusStyle(itemStatus);
+
+              const itemName =
+                item.item_name ??
+                item.name ??
+                item.product_name ??
+                "Unnamed Item";
+
+              return (
+                <tr key={item.id || index} style={styles.tr}>
+                  <td style={styles.td}>{itemName}</td>
+                  <td style={styles.td}>{item.category ?? "--"}</td>
+                  <td style={styles.td}>{getTotalItemQuantity(item) ?? "0"}</td>
+                  <td style={styles.td}>{formatUnitOfMeasurement(item) ?? "--"}</td>
+                  <td style={styles.td}>{formatDisplayDate(item.expiration_date)}</td>
+                  <td style={styles.td}>
+                    <span
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: "8px",
+                        fontSize: "12px",
+                        fontWeight: 600,
+                        background: itemStatusStyle.background,
+                        color: itemStatusStyle.color,
+                      }}
+                    >
+                      {itemStatus}
+                    </span>
+                  </td>
+                  <td style={styles.td}>
+                    <SyncStatusBadge status={item.sync_status} compact />
+                  </td>
+                </tr>
+              );
+            })
+          )}
+        </tbody>
+      </table>
+    </div>
   );
 };
 
