@@ -48,19 +48,31 @@ const typeStyles = {
     backgroundColor: "#edf8f1",
     borderColor: "#cfe8d7",
     color: "#2f6c47",
-    title: "Export Ready",
+    title: "Success",
   },
   error: {
     backgroundColor: "#fff3f1",
     borderColor: "#f1d2cc",
     color: "#9d4d58",
-    title: "Export Error",
+    title: "Error",
+  },
+  warning: {
+    backgroundColor: "#fff8e6",
+    borderColor: "#f2dfad",
+    color: "#8a5d22",
+    title: "Warning",
+  },
+  loading: {
+    backgroundColor: "#eef6ff",
+    borderColor: "#d1e3f8",
+    color: "#2a4c6f",
+    title: "Working",
   },
   info: {
     backgroundColor: "#eef6ff",
     borderColor: "#d1e3f8",
     color: "#2a4c6f",
-    title: "Export Notice",
+    title: "Notice",
   },
 };
 
@@ -72,7 +84,7 @@ const FeedbackToast = ({
   duration = 4000,
 }) => {
   useEffect(() => {
-    if (!message || !onClose) {
+    if (!message || !onClose || type === "loading") {
       return undefined;
     }
 
@@ -81,7 +93,7 @@ const FeedbackToast = ({
     }, duration);
 
     return () => window.clearTimeout(timeoutId);
-  }, [duration, message, onClose]);
+  }, [duration, message, onClose, type]);
 
   if (!message) {
     return null;

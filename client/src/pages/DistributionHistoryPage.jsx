@@ -13,7 +13,11 @@ import {
   fetchBarangays,
 } from "../features/disaster-events/disasterEventService";
 import ExportModal from "../components/shared/ExportModal";
+import EmptyState from "../components/shared/EmptyState";
+import ErrorState from "../components/shared/ErrorState";
 import FeedbackToast from "../components/shared/FeedbackToast";
+import LoadingState from "../components/shared/LoadingState";
+import TableActionsMenu from "../components/shared/TableActionsMenu";
 import DistributionLifecycleModal from "../components/distribution/DistributionLifecycleModal";
 import {
   buildExportSuccessMessage,
@@ -518,29 +522,12 @@ const DistributionHistoryPage = () => {
           </p>
         </div>
 
-        {errorMessage ? (
-          <div
-            style={{
-              marginBottom: "16px",
-              padding: "14px 16px",
-              borderRadius: "14px",
-              backgroundColor: "#fff3f1",
-              border: "1px solid #f1d2cc",
-              color: "#9d4d58",
-              fontSize: "14px",
-              fontWeight: 600,
-            }}
-          >
-            {errorMessage}
-          </div>
-        ) : null}
+        {errorMessage ? <ErrorState message={errorMessage} style={{ marginBottom: "16px" }} /> : null}
 
         {isLoadingHistory ? (
-          <p style={shellStyles.mutedText}>Loading distribution history...</p>
+          <LoadingState message="Loading distribution history..." />
         ) : historyRows.length === 0 ? (
-          <p style={shellStyles.mutedText}>
-            No distribution history is available for the current filters.
-          </p>
+          <EmptyState message="No distribution records yet for the current filters." />
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={tableStyles.table}>
@@ -610,40 +597,39 @@ const DistributionHistoryPage = () => {
                       </div>
                     </td>
                     <td style={tableStyles.td}>
-                      <div
-                        style={{
-                          display: "flex",
-                          flexWrap: "wrap",
-                          gap: "8px",
-                        }}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => openLifecycleModal("view", row)}
-                          style={pageHeaderStyles.secondaryButton}
-                        >
-                          View Reason / Status
-                        </button>
-                        {canManageLifecycle &&
-                        row.distribution_status === "CLAIMED" ? (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => openLifecycleModal("cancel", row)}
-                              style={pageHeaderStyles.secondaryButton}
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => openLifecycleModal("reverse", row)}
-                              style={pageHeaderStyles.primaryButton}
-                            >
-                              Reverse
-                            </button>
-                          </>
-                        ) : null}
-                      </div>
+                      <TableActionsMenu
+                        row={row}
+                        menuId={row.id}
+                        dataPrefix="distribution-history-action"
+                        items={[
+                          {
+                            key: "view",
+                            label: "View Reason / Status",
+                            onClick: (selectedRow) =>
+                              openLifecycleModal("view", selectedRow),
+                          },
+                          {
+                            key: "cancel",
+                            label: "Cancel",
+                            tone: "warning",
+                            hidden:
+                              !canManageLifecycle ||
+                              row.distribution_status !== "CLAIMED",
+                            onClick: (selectedRow) =>
+                              openLifecycleModal("cancel", selectedRow),
+                          },
+                          {
+                            key: "reverse",
+                            label: "Reverse",
+                            tone: "warning",
+                            hidden:
+                              !canManageLifecycle ||
+                              row.distribution_status !== "CLAIMED",
+                            onClick: (selectedRow) =>
+                              openLifecycleModal("reverse", selectedRow),
+                          },
+                        ]}
+                      />
                     </td>
                   </tr>
                 ))}

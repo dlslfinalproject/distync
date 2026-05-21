@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from "react";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
+import EmptyState from "../../components/shared/EmptyState";
+import ErrorState from "../../components/shared/ErrorState";
+import LoadingState from "../../components/shared/LoadingState";
 import {
   fetchAllDisasterEvents,
   fetchBarangays,
@@ -299,29 +302,12 @@ const AnomalyTrackingPage = () => {
           </p>
         </div>
 
-        {errorMessage ? (
-          <div
-            style={{
-              marginBottom: "16px",
-              padding: "14px 16px",
-              borderRadius: "14px",
-              backgroundColor: "#fff3f1",
-              border: "1px solid #f1d2cc",
-              color: "#9d4d58",
-              fontSize: "14px",
-              fontWeight: 600,
-            }}
-          >
-            {errorMessage}
-          </div>
-        ) : null}
+        {errorMessage ? <ErrorState message={errorMessage} style={{ marginBottom: "16px" }} /> : null}
 
         {isLoadingRows ? (
-          <p style={shellStyles.mutedText}>Loading anomaly tracking...</p>
+          <LoadingState message="Loading anomaly tracking..." />
         ) : rows.length === 0 ? (
-          <p style={shellStyles.mutedText}>
-            No anomalies are available for the current filters.
-          </p>
+          <EmptyState message="No anomalies are available for the current filters." />
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={tableStyles.table}>

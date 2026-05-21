@@ -1,8 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
 import { MdDoorFront } from "react-icons/md";
-import { FiMoreHorizontal } from "react-icons/fi";
 import SyncStatusBadge from "../shared/SyncStatusBadge";
+import EmptyState from "../shared/EmptyState";
+import ErrorState from "../shared/ErrorState";
+import LoadingState from "../shared/LoadingState";
+import TableActionsMenu from "../shared/TableActionsMenu";
 
 const tableStyles = {
   table: {
@@ -52,45 +55,6 @@ const tableStyles = {
     justifyContent: "center",
     cursor: "pointer",
   },
-  actionMenuButton: {
-    background: "none",
-    border: "none",
-    cursor: "pointer",
-    width: "36px",
-    height: "36px",
-    borderRadius: "10px",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#24496e",
-  },
-  dropdown: {
-    position: "fixed",
-    background: "#fff",
-    borderRadius: "12px",
-    boxShadow: "0 8px 24px rgba(18, 39, 60, 0.16)",
-    padding: "8px",
-    zIndex: 1300,
-    minWidth: "176px",
-    display: "grid",
-    gap: "6px",
-    border: "1px solid #d7e2ef",
-  },
-  dropdownButton: {
-    border: "none",
-    borderRadius: "10px",
-    width: "100%",
-    backgroundColor: "#ffffff",
-    color: "#24496e",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "flex-start",
-    cursor: "pointer",
-    padding: "10px 12px",
-    fontSize: "14px",
-    fontWeight: 600,
-    textAlign: "left",
-  },
   membersBadge: {
     display: "inline-block",
     minWidth: "36px",
@@ -119,93 +83,22 @@ const MasterlistTable = ({
   onToggleSelect,
   onSelectAll,
 }) => {
-  const [activeMenu, setActiveMenu] = useState(null);
-  const [selectedRow, setSelectedRow] = useState(null);
-  const [menuPosition, setMenuPosition] = useState({
-    top: 0,
-    left: 0,
-  });
   const safeSelectedHouseholds = Array.isArray(selectedHouseholds)
     ? selectedHouseholds
     : [];
   const canUseSelection =
     typeof onToggleSelect === "function" && typeof onSelectAll === "function";
 
-  useEffect(() => {
-    if (!activeMenu) {
-      return undefined;
-    }
-
-    const handleCloseMenu = (event) => {
-      const menuElement = event.target?.closest?.(
-        "[data-masterlist-action-menu='true']",
-      );
-      const menuButtonElement = event.target?.closest?.(
-        "[data-masterlist-action-button='true']",
-      );
-
-      if (menuElement || menuButtonElement) {
-        return;
-      }
-
-      setActiveMenu(null);
-      setSelectedRow(null);
-    };
-
-    document.addEventListener("mousedown", handleCloseMenu);
-    window.addEventListener("scroll", handleCloseMenu, true);
-    window.addEventListener("resize", handleCloseMenu);
-
-    return () => {
-      document.removeEventListener("mousedown", handleCloseMenu);
-      window.removeEventListener("scroll", handleCloseMenu, true);
-      window.removeEventListener("resize", handleCloseMenu);
-    };
-  }, [activeMenu]);
-
-  const handleToggleMenu = (event, row) => {
-    event.stopPropagation();
-    event.preventDefault();
-
-    const buttonRect = event.currentTarget.getBoundingClientRect();
-    const dropdownWidth = 176;
-    const dropdownHeight = 132;
-    const spacing = 8;
-
-    const shouldOpenUpward =
-      window.innerHeight - buttonRect.bottom < dropdownHeight + spacing;
-
-    const calculatedLeft = Math.min(
-      Math.max(buttonRect.left + buttonRect.width / 2 - dropdownWidth / 2, 12),
-      window.innerWidth - dropdownWidth - 12,
-    );
-
-    const calculatedTop = shouldOpenUpward
-      ? buttonRect.top - dropdownHeight - spacing
-      : buttonRect.bottom + spacing;
-
-    setMenuPosition({
-      top: calculatedTop,
-      left: calculatedLeft,
-    });
-
-    console.log("Selected row:", row);
-
-    setActiveMenu((currentValue) =>
-      currentValue === row.household_id ? null : row.household_id,
-    );
-    setSelectedRow((currentValue) =>
-      currentValue?.household_id === row.household_id ? null : row,
-    );
-  };
-
   if (!hasSelectedEvent) {
     return (
       <section style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Registered Family</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          Please select a disaster event to load the masterlist.
-        </p>
+        <div style={{ marginTop: "10px" }}>
+          <EmptyState
+            compact
+            message="Please select a disaster event to load the masterlist."
+          />
+        </div>
       </section>
     );
   }
@@ -214,9 +107,9 @@ const MasterlistTable = ({
     return (
       <section style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Registered Family</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          Loading masterlist data...
-        </p>
+        <div style={{ marginTop: "10px" }}>
+          <LoadingState message="Loading masterlist data..." />
+        </div>
       </section>
     );
   }
@@ -225,15 +118,9 @@ const MasterlistTable = ({
     return (
       <section style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Registered Family</h3>
-        <p
-          style={{
-            ...shellStyles.mutedText,
-            marginTop: "10px",
-            color: "#a14d58",
-          }}
-        >
-          {errorMessage}
-        </p>
+        <div style={{ marginTop: "10px" }}>
+          <ErrorState compact message={errorMessage} />
+        </div>
       </section>
     );
   }
@@ -242,9 +129,12 @@ const MasterlistTable = ({
     return (
       <section style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Registered Family</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          No registered families were found for the current filters.
-        </p>
+        <div style={{ marginTop: "10px" }}>
+          <EmptyState
+            compact
+            message="No registered families were found for the current filters."
+          />
+        </div>
       </section>
     );
   }
@@ -416,90 +306,57 @@ const MasterlistTable = ({
                     style={{
                       ...tableStyles.bodyCell,
                       ...tableStyles.actionBodyCell,
-                      position: "relative",
                     }}
                   >
-                    <button
-                      type="button"
-                      onClick={(event) => handleToggleMenu(event, row)}
-                      style={tableStyles.actionMenuButton}
-                      title={row.is_local_only ? "Available after sync" : "Actions"}
-                      aria-label="Actions"
+                    <TableActionsMenu
+                      row={row}
+                      menuId={row.household_id}
+                      buttonTitle={
+                        row.is_local_only ? "Available after sync" : "Actions"
+                      }
+                      buttonAriaLabel="Actions"
                       disabled={row.is_local_only}
-                      data-masterlist-action-button="true"
-                    >
-                      <FiMoreHorizontal size={18} />
-                    </button>
-
-                    {activeMenu === row.household_id && selectedRow ? (
-                      <div
-                        style={{
-                          ...tableStyles.dropdown,
-                          top: `${menuPosition.top}px`,
-                          left: `${menuPosition.left}px`,
-                        }}
-                        onClick={(event) => event.stopPropagation()}
-                        onMouseDown={(event) => event.stopPropagation()}
-                        data-masterlist-action-menu="true"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onViewHousehold?.(selectedRow.household_id);
-                            setActiveMenu(null);
-                            setSelectedRow(null);
-                          }}
-                          style={tableStyles.dropdownButton}
-                          disabled={typeof onViewHousehold !== "function"}
-                        >
-                          View Details
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onEditHousehold?.(selectedRow.household_id);
-                            setActiveMenu(null);
-                            setSelectedRow(null);
-                          }}
-                          style={tableStyles.dropdownButton}
-                          disabled={
+                      onToggle={(selectedRow) => {
+                        console.log("Selected row:", selectedRow);
+                      }}
+                      dataPrefix="masterlist-action"
+                      items={[
+                        {
+                          key: "view",
+                          label: "View Details",
+                          disabled: typeof onViewHousehold !== "function",
+                          onClick: (selectedRow) =>
+                            onViewHousehold?.(selectedRow.household_id),
+                        },
+                        {
+                          key: "edit",
+                          label: "Edit Household",
+                          disabled:
                             typeof onEditHousehold !== "function" ||
-                            selectedRow.is_active === false
-                          }
-                          title={
-                            selectedRow.is_active === false
+                            row.is_active === false,
+                          title:
+                            row.is_active === false
                               ? "Archived households cannot be edited"
-                              : "Edit Household"
-                          }
-                        >
-                          Edit Household
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onArchiveHousehold?.(selectedRow.household_id);
-                            setActiveMenu(null);
-                            setSelectedRow(null);
-                          }}
-                          style={{
-                            ...tableStyles.dropdownButton,
-                            color:
-                              selectedRow.is_active === false ? "#8f9fb0" : "#8a5d22",
-                          }}
-                          disabled={
+                              : "Edit Household",
+                          onClick: (selectedRow) =>
+                            onEditHousehold?.(selectedRow.household_id),
+                        },
+                        {
+                          key: "archive",
+                          label: "Archive Household",
+                          tone: "warning",
+                          disabled:
                             typeof onArchiveHousehold !== "function" ||
-                            selectedRow.is_active === false
-                          }
-                          title={
-                            selectedRow.is_active === false
+                            row.is_active === false,
+                          title:
+                            row.is_active === false
                               ? "Household already archived"
-                              : "Archive Household"
-                          }
-                        >
-                          Archive Household
-                        </button>
-                      </div>
-                    ) : null}
+                              : "Archive Household",
+                          onClick: (selectedRow) =>
+                            onArchiveHousehold?.(selectedRow.household_id),
+                        },
+                      ]}
+                    />
                   </td>
                 </tr>
               );

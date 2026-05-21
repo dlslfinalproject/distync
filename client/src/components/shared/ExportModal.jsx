@@ -1,44 +1,10 @@
 import React from "react";
 import { pageHeaderStyles } from "../layout/PageHeader";
-
-const overlayStyles = {
-  position: "fixed",
-  inset: 0,
-  backgroundColor: "rgba(18, 34, 51, 0.45)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: "24px",
-  zIndex: 1300,
-};
-
-const modalStyles = {
-  width: "100%",
-  maxWidth: "480px",
-  backgroundColor: "#ffffff",
-  borderRadius: "20px",
-  padding: "28px",
-  boxShadow: "0 24px 48px rgba(20, 48, 78, 0.2)",
-  boxSizing: "border-box",
-};
-
-const titleStyles = {
-  margin: 0,
-  color: "#17324d",
-  fontSize: "24px",
-};
-
-const descriptionStyles = {
-  margin: "12px 0 0",
-  color: "#5d7188",
-  fontSize: "14px",
-  lineHeight: 1.6,
-};
+import FormModalShell from "./FormModalShell";
 
 const fieldGroupStyles = {
   display: "grid",
   gap: "18px",
-  marginTop: "22px",
 };
 
 const labelStyles = {
@@ -62,14 +28,6 @@ const selectStyles = {
   outline: "none",
 };
 
-const actionsStyles = {
-  display: "flex",
-  justifyContent: "flex-end",
-  gap: "12px",
-  marginTop: "24px",
-  flexWrap: "wrap",
-};
-
 const ExportModal = ({
   isOpen,
   title = "Export Report",
@@ -91,46 +49,12 @@ const ExportModal = ({
   }
 
   return (
-    <div style={overlayStyles}>
-      <div style={modalStyles}>
-        <h3 style={titleStyles}>{title}</h3>
-        <p style={descriptionStyles}>{description}</p>
-
-        <div style={fieldGroupStyles}>
-          <div>
-            <label style={labelStyles}>{reportLabel}</label>
-            <select
-              value={selectedReportType}
-              onChange={(event) => onReportTypeChange?.(event.target.value)}
-              style={selectStyles}
-              disabled={isSubmitting}
-            >
-              {reportOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label style={labelStyles}>{formatLabel}</label>
-            <select
-              value={selectedFormat}
-              onChange={(event) => onFormatChange?.(event.target.value)}
-              style={selectStyles}
-              disabled={isSubmitting}
-            >
-              {formatOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div style={actionsStyles}>
+    <FormModalShell
+      isOpen={isOpen}
+      title={title}
+      description={description}
+      footer={
+        <>
           <button
             type="button"
             onClick={onClose}
@@ -147,9 +71,43 @@ const ExportModal = ({
           >
             {isSubmitting ? "Exporting..." : "Export"}
           </button>
+        </>
+      }
+    >
+      <div style={fieldGroupStyles}>
+        <div>
+          <label style={labelStyles}>{reportLabel}</label>
+          <select
+            value={selectedReportType}
+            onChange={(event) => onReportTypeChange?.(event.target.value)}
+            style={selectStyles}
+            disabled={isSubmitting}
+          >
+            {reportOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label style={labelStyles}>{formatLabel}</label>
+          <select
+            value={selectedFormat}
+            onChange={(event) => onFormatChange?.(event.target.value)}
+            style={selectStyles}
+            disabled={isSubmitting}
+          >
+            {formatOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
-    </div>
+    </FormModalShell>
   );
 };
 
