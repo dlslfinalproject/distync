@@ -9,6 +9,8 @@ import HouseholdDetailModal from "../../components/masterlist/HouseholdDetailMod
 import MasterlistDepartureConfirmModal from "../../components/masterlist/MasterlistDepartureConfirmModal";
 import MasterlistTable from "../../components/masterlist/MasterlistTable";
 import MswdoSummaryCards from "../../components/mswdo-masterlist/MswdoSummaryCards";
+import ExportModal from "../../components/shared/ExportModal";
+import FeedbackToast from "../../components/shared/FeedbackToast";
 import SearchBar from "../../components/shared/SearchBar";
 import StatusPill from "../../components/shared/StatusPill";
 import { useAuth } from "../../context/AuthContext";
@@ -21,6 +23,13 @@ import {
 } from "../../features/masterlist/masterlistService";
 import { exportConsolidatedMasterlist } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { useMswdoMasterlist } from "../../features/mswdo-masterlist/useMswdoMasterlist";
+import {
+  buildExportSuccessMessage,
+  COMMON_EXPORT_FORMAT_OPTIONS,
+  downloadExportFile,
+  NO_EXPORT_DATA_MESSAGE,
+  resolveExportErrorMessage,
+} from "../../utils/exportHelpers";
 
 const filterStyles = {
   field: {
@@ -41,44 +50,6 @@ const filterStyles = {
     fontWeight: 700,
     letterSpacing: "0.08em",
     textTransform: "uppercase",
-  },
-};
-
-const noticeModalStyles = {
-  overlay: {
-    position: "fixed",
-    inset: 0,
-    backgroundColor: "rgba(18, 34, 51, 0.45)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "24px",
-    zIndex: 1200,
-  },
-  modal: {
-    width: "100%",
-    maxWidth: "440px",
-    backgroundColor: "#ffffff",
-    borderRadius: "20px",
-    padding: "28px",
-    boxShadow: "0 24px 48px rgba(20, 48, 78, 0.2)",
-  },
-  title: {
-    margin: 0,
-    color: "#17324d",
-    fontSize: "22px",
-  },
-  message: {
-    margin: "12px 0 0",
-    color: "#5d7188",
-    fontSize: "15px",
-    lineHeight: 1.6,
-  },
-  actions: {
-    display: "flex",
-    justifyContent: "flex-end",
-    gap: "12px",
-    marginTop: "24px",
   },
 };
 
@@ -246,31 +217,6 @@ const getScopedDisasterEvents = ({ events, activeTab, barangayId }) => {
   );
 };
 
-const ExportNoticeModal = ({ isOpen, message, onClose }) => {
-  if (!isOpen) {
-    return null;
-  }
-
-  return (
-    <div style={noticeModalStyles.overlay}>
-      <div style={noticeModalStyles.modal}>
-        <h3 style={noticeModalStyles.title}>Export Unavailable</h3>
-        <p style={noticeModalStyles.message}>{message}</p>
-
-        <div style={noticeModalStyles.actions}>
-          <button
-            type="button"
-            onClick={onClose}
-            style={pageHeaderStyles.primaryButton}
-          >
-            OK
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 const ConsolidatedEvacueeMasterlist = () => {
   const { authenticatedUser } = useAuth();
   const {
@@ -310,8 +256,9 @@ const ConsolidatedEvacueeMasterlist = () => {
     left: 0,
     maxHeight: 320,
   });
-  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState("");
+  const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [registrationSuccessMessage, setRegistrationSuccessMessage] = useState("");
   const [attendanceActionMessage, setAttendanceActionMessage] = useState("");
@@ -330,7 +277,10 @@ const ConsolidatedEvacueeMasterlist = () => {
   const [pendingArchiveHouseholdId, setPendingArchiveHouseholdId] = useState("");
   const [archiveRemarks, setArchiveRemarks] = useState("");
   const [isArchivingHousehold, setIsArchivingHousehold] = useState(false);
-  const [exportNoticeMessage, setExportNoticeMessage] = useState("");
+  const [exportFeedback, setExportFeedback] = useState({
+    type: "",
+    message: "",
+  });
   const filterButtonRef = useRef(null);
   const filterPanelRef = useRef(null);
 
@@ -641,9 +591,11 @@ const ConsolidatedEvacueeMasterlist = () => {
     }
 
     if (!selectedBarangayId) {
-      setExportNoticeMessage(
-        "Select one barangay before registering a family. Registration cannot use the All Barangays view.",
-      );
+      setExportFeedback({
+        type: "error",
+        message:
+          "Select one barangay before registering a family. Registration cannot use the All Barangays view.",
+      });
       return;
     }
 
@@ -751,20 +703,24 @@ const ConsolidatedEvacueeMasterlist = () => {
 
   const handleExport = async (format) => {
     if (!selectedDisasterEventId) {
-      window.alert("Select a disaster event before exporting the masterlist.");
+      setExportFeedback({
+        type: "error",
+        message: "Select a disaster event before exporting the masterlist.",
+      });
       return;
     }
 
     if (!hasRowsToExport) {
-      setIsExportMenuOpen(false);
-      setExportNoticeMessage(
-        "No masterlist data is available to export for the current filters.",
-      );
+      setIsExportModalOpen(false);
+      setExportFeedback({
+        type: "error",
+        message: NO_EXPORT_DATA_MESSAGE,
+      });
       return;
     }
 
     setExportingFormat(format);
-    setIsExportMenuOpen(false);
+    setIsExportModalOpen(false);
 
     try {
       const file = await exportConsolidatedMasterlist({
@@ -775,22 +731,19 @@ const ConsolidatedEvacueeMasterlist = () => {
         format,
       });
 
-      const downloadUrl = window.URL.createObjectURL(file.blob);
-      const anchor = document.createElement("a");
-      anchor.href = downloadUrl;
-      anchor.download = file.filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      document.body.removeChild(anchor);
-      window.URL.revokeObjectURL(downloadUrl);
-    } catch (_error) {
-      window.alert(
-        format === "pdf"
-          ? "Unable to export the masterlist as PDF."
-          : format === "excel"
-            ? "Unable to export the masterlist as Excel."
-            : "Unable to export the masterlist as CSV.",
-      );
+      downloadExportFile(file);
+      setExportFeedback({
+        type: "success",
+        message: buildExportSuccessMessage("MSWDO masterlist report"),
+      });
+    } catch (error) {
+      setExportFeedback({
+        type: "error",
+        message: resolveExportErrorMessage(
+          error,
+          "Unable to export the masterlist.",
+        ),
+      });
     } finally {
       setExportingFormat("");
     }
@@ -1108,7 +1061,11 @@ const ConsolidatedEvacueeMasterlist = () => {
           <div style={{ position: "relative" }}>
             <button
               type="button"
-              onClick={() => setIsExportMenuOpen((currentValue) => !currentValue)}
+              onClick={() => {
+                setSelectedExportFormat("csv");
+                setExportFeedback({ type: "", message: "" });
+                setIsExportModalOpen(true);
+              }}
               disabled={!selectedDisasterEventId || Boolean(exportingFormat)}
               style={{
                 border: "1px solid #c6d8ea",
@@ -1133,46 +1090,6 @@ const ConsolidatedEvacueeMasterlist = () => {
                 ? `Exporting ${exportingFormat.toUpperCase()}...`
                 : "Export"}
             </button>
-
-            {isExportMenuOpen && !exportingFormat ? (
-              <div
-                style={{
-                  position: "absolute",
-                  right: 0,
-                  top: "45px",
-                  background: "#fff",
-                  borderRadius: "10px",
-                  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-                  padding: "8px",
-                  minWidth: "160px",
-                  zIndex: 20,
-                }}
-              >
-                {[
-                  { key: "csv", label: "Export as CSV" },
-                  { key: "pdf", label: "Export as PDF" },
-                  { key: "excel", label: "Export as Excel" },
-                ].map((option) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    onClick={() => handleExport(option.key)}
-                    style={{
-                      width: "100%",
-                      border: "none",
-                      background: "transparent",
-                      textAlign: "left",
-                      padding: "8px",
-                      cursor: "pointer",
-                      color: "#1f3b57",
-                      fontSize: "14px",
-                    }}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
           </div>
         </div>
       </div>
@@ -1201,10 +1118,28 @@ const ConsolidatedEvacueeMasterlist = () => {
         selectedCount={isBulkDepartureConfirmOpen ? selectedHouseholds.length : 1}
       />
 
-      <ExportNoticeModal
-        isOpen={Boolean(exportNoticeMessage)}
-        message={exportNoticeMessage}
-        onClose={() => setExportNoticeMessage("")}
+      <ExportModal
+        isOpen={isExportModalOpen}
+        title="Export MSWDO Report"
+        description="Choose the masterlist report format to generate."
+        reportOptions={[
+          {
+            value: "MSWDO_MASTERLIST",
+            label: "Consolidated Evacuee Masterlist",
+          },
+        ]}
+        formatOptions={COMMON_EXPORT_FORMAT_OPTIONS}
+        selectedReportType="MSWDO_MASTERLIST"
+        selectedFormat={selectedExportFormat}
+        isSubmitting={Boolean(exportingFormat)}
+        onReportTypeChange={() => {}}
+        onFormatChange={setSelectedExportFormat}
+        onClose={() => {
+          if (!exportingFormat) {
+            setIsExportModalOpen(false);
+          }
+        }}
+        onSubmit={() => handleExport(selectedExportFormat)}
       />
 
       <RegisterFamilyModal
@@ -1235,6 +1170,12 @@ const ConsolidatedEvacueeMasterlist = () => {
         onChangeArchiveRemarks={setArchiveRemarks}
         onCancel={handleCancelArchiveHousehold}
         onConfirm={handleConfirmArchiveHousehold}
+      />
+
+      <FeedbackToast
+        type={exportFeedback.type}
+        message={exportFeedback.message}
+        onClose={() => setExportFeedback({ type: "", message: "" })}
       />
     </>
   );

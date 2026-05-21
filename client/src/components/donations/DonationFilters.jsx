@@ -3,7 +3,6 @@ import { FiFileText } from "react-icons/fi";
 import SearchBar from "../shared/SearchBar";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { inputStyles } from "../../features/donations/donationUi";
-import DonationExportModal from "./DonationExportModal";
 
 const DonationFilters = ({
   activeTab,
@@ -19,10 +18,7 @@ const DonationFilters = ({
   onOpenNeedModal,
   onOpenDonationModal,
   isExportingTransparency,
-  isTransparencyExportMenuOpen,
-  onToggleTransparencyExportMenu,
-  onExportTransparency,
-  transparencyExportOptions,
+  onOpenTransparencyExport,
 }) => {
   return (
     <section
@@ -68,19 +64,17 @@ const DonationFilters = ({
           Refresh
         </button>
         {canManageDonations && activeTab === "transparency" ? (
-          <DonationExportModal
-            isOpen={isTransparencyExportMenuOpen}
-            isExporting={Boolean(isExportingTransparency)}
-            exportLabel={
-              isExportingTransparency
-                ? `Exporting ${isExportingTransparency.toUpperCase()}...`
-                : "Export"
-            }
-            icon={<FiFileText size={16} />}
-            options={transparencyExportOptions}
-            onToggle={onToggleTransparencyExportMenu}
-            onSelectOption={onExportTransparency}
-          />
+          <button
+            type="button"
+            onClick={onOpenTransparencyExport}
+            style={pageHeaderStyles.secondaryButton}
+            disabled={Boolean(isExportingTransparency)}
+          >
+            <FiFileText size={16} />
+            {isExportingTransparency
+              ? `Exporting ${isExportingTransparency.toUpperCase()}...`
+              : "Export"}
+          </button>
         ) : null}
         {canManageDonations && activeTab === "needs" ? (
           <button type="button" onClick={onOpenNeedModal} style={pageHeaderStyles.primaryButton}>

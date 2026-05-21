@@ -6,9 +6,10 @@ import InventoryItemFormModal from "../../components/inventory-items/InventoryIt
 import BarcodeScanModal from "../../components/inventory-items/BarcodeScanModal";
 import InventoryItemsTable from "../../components/inventory-items/InventoryItemsTable";
 import InventoryOverviewCards from "../../components/inventory-items/InventoryOverviewCards";
-import InventoryExportModal from "../../components/inventory-items/InventoryExportModal";
 import ForecastingPanel from "../../components/inventory-items/ForecastingPanel";
 import InventoryFilters from "../../components/inventory-items/InventoryFilters";
+import ExportModal from "../../components/shared/ExportModal";
+import FeedbackToast from "../../components/shared/FeedbackToast";
 import {
   createInventoryItem,
   fetchForecastHealth,
@@ -35,9 +36,7 @@ import {
   forecastModelOptions,
   getForecastModelLabel,
   hasInventoryExportRows,
-  inventoryExportFormatOptions,
   inventoryExportReportOptions,
-  NO_EXPORT_DATA_MESSAGE,
 } from "../../features/inventory-items/inventoryItemExportOptions";
 import { formatPercentage } from "../../features/inventory-items/inventoryItemFormatting";
 import {
@@ -48,6 +47,13 @@ import {
   isDateExpired,
 } from "../../features/inventory-items/inventoryItemStockStatus";
 import { mergeInventoryItemsWithSyncStatus } from "../../features/inventory-items/inventoryItemSync";
+import {
+  buildExportSuccessMessage,
+  COMMON_EXPORT_FORMAT_OPTIONS,
+  downloadExportFile,
+  NO_EXPORT_DATA_MESSAGE,
+  resolveExportErrorMessage,
+} from "../../utils/exportHelpers";
 
 const primaryTopBtn = {
   display: "inline-flex",
@@ -198,7 +204,10 @@ const InventoryItemsPage = () => {
     useState("INVENTORY_ITEMS");
   const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
   const [exportingFormat, setExportingFormat] = useState("");
-  const [exportNoticeMessage, setExportNoticeMessage] = useState("");
+  const [exportFeedback, setExportFeedback] = useState({
+    type: "",
+    message: "",
+  });
   const syncQueueEntries =
     useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
 
@@ -579,7 +588,10 @@ const InventoryItemsPage = () => {
     });
 
     if (!hasRowsToExport) {
-      setExportNoticeMessage(NO_EXPORT_DATA_MESSAGE);
+      setExportFeedback({
+        type: "error",
+        message: NO_EXPORT_DATA_MESSAGE,
+      });
       return;
     }
 
@@ -596,20 +608,19 @@ const InventoryItemsPage = () => {
         },
       });
 
-      const downloadUrl = window.URL.createObjectURL(file.blob);
-      const anchor = document.createElement("a");
-      anchor.href = downloadUrl;
-      anchor.download = file.filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      document.body.removeChild(anchor);
-      window.URL.revokeObjectURL(downloadUrl);
+      downloadExportFile(file);
+      setExportFeedback({
+        type: "success",
+        message: buildExportSuccessMessage("Inventory report"),
+      });
     } catch (error) {
-      setExportNoticeMessage(
-        error.message?.includes("No ")
-          ? NO_EXPORT_DATA_MESSAGE
-          : error.message || "Unable to export inventory items. Please try again.",
-      );
+      setExportFeedback({
+        type: "error",
+        message: resolveExportErrorMessage(
+          error,
+          "Unable to export inventory items. Please try again.",
+        ),
+      });
     } finally {
       setExportingFormat("");
     }
@@ -618,7 +629,7 @@ const InventoryItemsPage = () => {
   const handleOpenExportModal = () => {
     setSelectedExportReportType("INVENTORY_ITEMS");
     setSelectedExportFormat("csv");
-    setExportNoticeMessage("");
+    setExportFeedback({ type: "", message: "" });
     setIsExportModalOpen(true);
   };
 
@@ -627,7 +638,6 @@ const InventoryItemsPage = () => {
       return;
     }
 
-    setExportNoticeMessage("");
     setIsExportModalOpen(false);
   };
 
@@ -884,18 +894,25 @@ const InventoryItemsPage = () => {
         onInputChange={handleScanInputChange}
       />
 
-      <InventoryExportModal
+      <ExportModal
         isOpen={isExportModalOpen}
-        selectedExportReportType={selectedExportReportType}
-        selectedExportFormat={selectedExportFormat}
-        exportNoticeMessage={exportNoticeMessage}
+        title="Export Inventory Report"
+        description="Choose which inventory report to export and the file format to generate."
         reportOptions={inventoryExportReportOptions}
-        formatOptions={inventoryExportFormatOptions}
+        formatOptions={COMMON_EXPORT_FORMAT_OPTIONS}
+        selectedReportType={selectedExportReportType}
+        selectedFormat={selectedExportFormat}
+        isSubmitting={Boolean(exportingFormat)}
         onReportTypeChange={setSelectedExportReportType}
         onFormatChange={setSelectedExportFormat}
         onClose={handleCloseExportModal}
         onSubmit={handleSubmitExportModal}
-        onCloseNotice={() => setExportNoticeMessage("")}
+      />
+
+      <FeedbackToast
+        type={exportFeedback.type}
+        message={exportFeedback.message}
+        onClose={() => setExportFeedback({ type: "", message: "" })}
       />
     </div>
   );

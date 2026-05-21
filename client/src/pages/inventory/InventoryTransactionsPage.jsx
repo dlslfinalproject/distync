@@ -3,6 +3,8 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { FiFileText } from "react-icons/fi";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
+import ExportModal from "../../components/shared/ExportModal";
+import FeedbackToast from "../../components/shared/FeedbackToast";
 import SearchBar from "../../components/shared/SearchBar";
 import InventoryTransactionsTable from "../../components/inventory-transactions/InventoryTransactionsTable";
 import {
@@ -13,6 +15,13 @@ import { fetchInventoryItems } from "../../features/inventory-items/inventoryIte
 import db from "../../offline/db";
 import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
+import {
+  buildExportSuccessMessage,
+  COMMON_EXPORT_FORMAT_OPTIONS,
+  downloadExportFile,
+  NO_EXPORT_DATA_MESSAGE,
+  resolveExportErrorMessage,
+} from "../../utils/exportHelpers";
 
 const selectStyles = {
   minHeight: "52px",
@@ -43,35 +52,6 @@ const referenceTypes = [
   "SYSTEM",
 ];
 
-const exportMenuStyles = {
-  position: "absolute",
-  top: "calc(100% + 10px)",
-  right: 0,
-  minWidth: "220px",
-  padding: "8px",
-  borderRadius: "14px",
-  backgroundColor: "#ffffff",
-  border: "1px solid #d7e2ef",
-  boxShadow: "0 18px 36px rgba(23, 50, 77, 0.16)",
-  display: "grid",
-  gap: "6px",
-  zIndex: 20,
-};
-
-const exportMenuButtonStyles = {
-  border: "none",
-  borderRadius: "10px",
-  backgroundColor: "#f8fbfe",
-  color: "#264564",
-  textAlign: "left",
-  padding: "10px 12px",
-  fontSize: "13px",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const NO_EXPORT_DATA_MESSAGE = "No available data to export.";
-
 const buildQueuedInventoryTransaction = (entry, inventoryItems) => {
   return {
     id: entry.entityLocalId || entry.id,
@@ -100,19 +80,17 @@ const InventoryTransactionsPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [isExporting, setIsExporting] = useState("");
-  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
+  const [exportFeedback, setExportFeedback] = useState({
+    type: "",
+    message: "",
+  });
   const syncQueueEntries =
     useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
 
   const downloadFile = (file) => {
-    const downloadUrl = window.URL.createObjectURL(file.blob);
-    const anchor = document.createElement("a");
-    anchor.href = downloadUrl;
-    anchor.download = file.filename;
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-    window.URL.revokeObjectURL(downloadUrl);
+    downloadExportFile(file);
   };
 
   const loadPageData = async (activeFilters = filters) => {
@@ -202,10 +180,13 @@ const InventoryTransactionsPage = () => {
 
   const handleExport = async (format) => {
     setErrorMessage("");
-    setIsExportMenuOpen(false);
+    setIsExportModalOpen(false);
 
     if (inventoryTransactionsWithSyncStatus.length === 0) {
-      setErrorMessage(NO_EXPORT_DATA_MESSAGE);
+      setExportFeedback({
+        type: "error",
+        message: NO_EXPORT_DATA_MESSAGE,
+      });
       return;
     }
 
@@ -214,12 +195,18 @@ const InventoryTransactionsPage = () => {
     try {
       const file = await exportInventoryTransactions(format, filters);
       downloadFile(file);
+      setExportFeedback({
+        type: "success",
+        message: buildExportSuccessMessage("Inventory transactions report"),
+      });
     } catch (error) {
-      setErrorMessage(
-        error.message?.includes("No ")
-          ? NO_EXPORT_DATA_MESSAGE
-          : error.message || "Failed to export inventory transactions.",
-      );
+      setExportFeedback({
+        type: "error",
+        message: resolveExportErrorMessage(
+          error,
+          "Failed to export inventory transactions.",
+        ),
+      });
     } finally {
       setIsExporting("");
     }
@@ -323,7 +310,11 @@ const InventoryTransactionsPage = () => {
             <div style={{ position: "relative" }}>
               <button
                 type="button"
-                onClick={() => setIsExportMenuOpen((currentValue) => !currentValue)}
+                onClick={() => {
+                  setSelectedExportFormat("csv");
+                  setExportFeedback({ type: "", message: "" });
+                  setIsExportModalOpen(true);
+                }}
                 disabled={Boolean(isExporting)}
                 style={{
                   border: "1px solid #c6d8ea",
@@ -344,25 +335,6 @@ const InventoryTransactionsPage = () => {
                 <FiFileText size={16} />
                 {isExporting ? `Exporting ${isExporting.toUpperCase()}...` : "Export"}
               </button>
-
-              {isExportMenuOpen ? (
-                <div style={exportMenuStyles}>
-                  {[
-                    { key: "csv", label: "Export as CSV" },
-                    { key: "excel", label: "Export as Excel" },
-                    { key: "pdf", label: "Export as PDF" },
-                  ].map((option) => (
-                    <button
-                      key={option.key}
-                      type="button"
-                      onClick={() => handleExport(option.key)}
-                      style={exportMenuButtonStyles}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
             </div>
           </div>
         </div>
@@ -372,6 +344,36 @@ const InventoryTransactionsPage = () => {
         rows={inventoryTransactionsWithSyncStatus}
         isLoading={isLoading}
         errorMessage={errorMessage}
+      />
+
+      <ExportModal
+        isOpen={isExportModalOpen}
+        title="Export Inventory Report"
+        description="Choose the inventory transactions report format to generate."
+        reportOptions={[
+          {
+            value: "INVENTORY_TRANSACTIONS",
+            label: "Inventory Transactions Report",
+          },
+        ]}
+        formatOptions={COMMON_EXPORT_FORMAT_OPTIONS}
+        selectedReportType="INVENTORY_TRANSACTIONS"
+        selectedFormat={selectedExportFormat}
+        isSubmitting={Boolean(isExporting)}
+        onReportTypeChange={() => {}}
+        onFormatChange={setSelectedExportFormat}
+        onClose={() => {
+          if (!isExporting) {
+            setIsExportModalOpen(false);
+          }
+        }}
+        onSubmit={() => handleExport(selectedExportFormat)}
+      />
+
+      <FeedbackToast
+        type={exportFeedback.type}
+        message={exportFeedback.message}
+        onClose={() => setExportFeedback({ type: "", message: "" })}
       />
     </>
   );

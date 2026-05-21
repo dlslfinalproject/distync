@@ -9,6 +9,8 @@ import DonationNeedModal from "../components/donations/DonationNeedModal";
 import DonationNeedsTab from "../components/donations/DonationNeedsTab";
 import DonationsTab from "../components/donations/DonationsTab";
 import DonorTransparencyTab from "../components/donations/DonorTransparencyTab";
+import ExportModal from "../components/shared/ExportModal";
+import FeedbackToast from "../components/shared/FeedbackToast";
 import { fetchAllDisasterEvents } from "../features/disaster-events/disasterEventService";
 import { fetchInventoryItems } from "../features/inventory-items/inventoryItemService";
 import {
@@ -27,7 +29,6 @@ import {
   updateDonationItem,
   updateDonationNeed,
 } from "../features/donations/donationService";
-import { transparencyExportOptions } from "../features/donations/donationExportOptions";
 import {
   mergeDonationsWithSyncStatus,
   mergeDonationNeedsWithSyncStatus,
@@ -37,12 +38,18 @@ import {
   createDonationForm,
   createDonationItemForm,
   createNeedForm,
-  NO_EXPORT_DATA_MESSAGE,
 } from "../features/donations/donationUi";
 import { useAuth } from "../context/AuthContext";
 import { getDefaultRouteForRole } from "../utils/roleSession";
 import db from "../offline/db";
 import { subscribeToSyncUpdates } from "../offline/syncService";
+import {
+  buildExportSuccessMessage,
+  COMMON_EXPORT_FORMAT_OPTIONS,
+  downloadExportFile,
+  NO_EXPORT_DATA_MESSAGE,
+  resolveExportErrorMessage,
+} from "../utils/exportHelpers";
 
 const defaultPortalData = {
   donation_needs: [],
@@ -85,8 +92,14 @@ const DonationManagementPage = () => {
   const [pageErrorMessage, setPageErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [isExportingTransparency, setIsExportingTransparency] = useState("");
-  const [isTransparencyExportMenuOpen, setIsTransparencyExportMenuOpen] =
+  const [isTransparencyExportModalOpen, setIsTransparencyExportModalOpen] =
     useState(false);
+  const [selectedTransparencyExportFormat, setSelectedTransparencyExportFormat] =
+    useState("csv");
+  const [exportFeedback, setExportFeedback] = useState({
+    type: "",
+    message: "",
+  });
   const [isNeedModalOpen, setIsNeedModalOpen] = useState(false);
   const [needForm, setNeedForm] = useState(createNeedForm());
   const [needErrorMessage, setNeedErrorMessage] = useState("");
@@ -557,23 +570,19 @@ const DonationManagementPage = () => {
   };
 
   const downloadFile = (file) => {
-    const downloadUrl = window.URL.createObjectURL(file.blob);
-    const anchor = document.createElement("a");
-    anchor.href = downloadUrl;
-    anchor.download = file.filename;
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-    window.URL.revokeObjectURL(downloadUrl);
+    downloadExportFile(file);
   };
 
   const handleExportTransparency = async (format) => {
     setPageErrorMessage("");
     setSuccessMessage("");
-    setIsTransparencyExportMenuOpen(false);
+    setIsTransparencyExportModalOpen(false);
 
     if ((portalData.transparency_summary?.received_vs_distributed || []).length === 0) {
-      setPageErrorMessage(NO_EXPORT_DATA_MESSAGE);
+      setExportFeedback({
+        type: "error",
+        message: NO_EXPORT_DATA_MESSAGE,
+      });
       return;
     }
 
@@ -584,12 +593,18 @@ const DonationManagementPage = () => {
         disaster_event_id: selectedEventId,
       });
       downloadFile(file);
+      setExportFeedback({
+        type: "success",
+        message: buildExportSuccessMessage("Donation transparency summary"),
+      });
     } catch (error) {
-      setPageErrorMessage(
-        error.message?.includes("No ")
-          ? NO_EXPORT_DATA_MESSAGE
-          : error.message || "Failed to export donor transparency summary.",
-      );
+      setExportFeedback({
+        type: "error",
+        message: resolveExportErrorMessage(
+          error,
+          "Failed to export donor transparency summary.",
+        ),
+      });
     } finally {
       setIsExportingTransparency("");
     }
@@ -636,12 +651,11 @@ const DonationManagementPage = () => {
           onOpenNeedModal={() => openNeedModal()}
           onOpenDonationModal={() => openDonationModal()}
           isExportingTransparency={isExportingTransparency}
-          isTransparencyExportMenuOpen={isTransparencyExportMenuOpen}
-          onToggleTransparencyExportMenu={() =>
-            setIsTransparencyExportMenuOpen((currentValue) => !currentValue)
-          }
-          onExportTransparency={handleExportTransparency}
-          transparencyExportOptions={transparencyExportOptions}
+          onOpenTransparencyExport={() => {
+            setSelectedTransparencyExportFormat("csv");
+            setExportFeedback({ type: "", message: "" });
+            setIsTransparencyExportModalOpen(true);
+          }}
         />
 
         <div
@@ -787,6 +801,36 @@ const DonationManagementPage = () => {
           onSubmit={submitDonation}
         />
       ) : null}
+
+      <ExportModal
+        isOpen={isTransparencyExportModalOpen}
+        title="Export Donation Report"
+        description="Choose the donation report and file format to generate."
+        reportOptions={[
+          {
+            value: "DONATION_TRANSPARENCY_SUMMARY",
+            label: "Donation Transparency Summary",
+          },
+        ]}
+        formatOptions={COMMON_EXPORT_FORMAT_OPTIONS}
+        selectedReportType="DONATION_TRANSPARENCY_SUMMARY"
+        selectedFormat={selectedTransparencyExportFormat}
+        isSubmitting={Boolean(isExportingTransparency)}
+        onReportTypeChange={() => {}}
+        onFormatChange={setSelectedTransparencyExportFormat}
+        onClose={() => {
+          if (!isExportingTransparency) {
+            setIsTransparencyExportModalOpen(false);
+          }
+        }}
+        onSubmit={() => handleExportTransparency(selectedTransparencyExportFormat)}
+      />
+
+      <FeedbackToast
+        type={exportFeedback.type}
+        message={exportFeedback.message}
+        onClose={() => setExportFeedback({ type: "", message: "" })}
+      />
     </>
   );
 };

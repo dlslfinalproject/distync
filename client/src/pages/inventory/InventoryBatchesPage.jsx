@@ -3,6 +3,8 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { FiFileText } from "react-icons/fi";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
+import ExportModal from "../../components/shared/ExportModal";
+import FeedbackToast from "../../components/shared/FeedbackToast";
 import SearchBar from "../../components/shared/SearchBar";
 import InventoryBatchFormModal from "../../components/inventory-batches/InventoryBatchFormModal";
 import InventoryBatchesTable from "../../components/inventory-batches/InventoryBatchesTable";
@@ -16,6 +18,13 @@ import {
 import db from "../../offline/db";
 import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
+import {
+  buildExportSuccessMessage,
+  COMMON_EXPORT_FORMAT_OPTIONS,
+  downloadExportFile,
+  NO_EXPORT_DATA_MESSAGE,
+  resolveExportErrorMessage,
+} from "../../utils/exportHelpers";
 
 const selectStyles = {
   minHeight: "52px",
@@ -36,35 +45,6 @@ const statusOptions = [
   "MISSING",
   "DAMAGED",
 ];
-
-const exportMenuStyles = {
-  position: "absolute",
-  top: "calc(100% + 10px)",
-  right: 0,
-  minWidth: "220px",
-  padding: "8px",
-  borderRadius: "14px",
-  backgroundColor: "#ffffff",
-  border: "1px solid #d7e2ef",
-  boxShadow: "0 18px 36px rgba(23, 50, 77, 0.16)",
-  display: "grid",
-  gap: "6px",
-  zIndex: 20,
-};
-
-const exportMenuButtonStyles = {
-  border: "none",
-  borderRadius: "10px",
-  backgroundColor: "#f8fbfe",
-  color: "#264564",
-  textAlign: "left",
-  padding: "10px 12px",
-  fontSize: "13px",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const NO_EXPORT_DATA_MESSAGE = "No available data to export.";
 
 const buildQueuedBatch = (entry, inventoryItems, suppliers) => {
   return {
@@ -105,19 +85,17 @@ const InventoryBatchesPage = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [modalErrorMessage, setModalErrorMessage] = useState("");
   const [isExporting, setIsExporting] = useState("");
-  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
+  const [exportFeedback, setExportFeedback] = useState({
+    type: "",
+    message: "",
+  });
   const syncQueueEntries =
     useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
 
   const downloadFile = (file) => {
-    const downloadUrl = window.URL.createObjectURL(file.blob);
-    const anchor = document.createElement("a");
-    anchor.href = downloadUrl;
-    anchor.download = file.filename;
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-    window.URL.revokeObjectURL(downloadUrl);
+    downloadExportFile(file);
   };
 
   const loadPageData = async (activeFilters = filters) => {
@@ -238,10 +216,13 @@ const InventoryBatchesPage = () => {
   const handleExport = async (format) => {
     setErrorMessage("");
     setSuccessMessage("");
-    setIsExportMenuOpen(false);
+    setIsExportModalOpen(false);
 
     if (inventoryBatchesWithSyncStatus.length === 0) {
-      setErrorMessage(NO_EXPORT_DATA_MESSAGE);
+      setExportFeedback({
+        type: "error",
+        message: NO_EXPORT_DATA_MESSAGE,
+      });
       return;
     }
 
@@ -250,12 +231,18 @@ const InventoryBatchesPage = () => {
     try {
       const file = await exportInventoryBatches(format, filters);
       downloadFile(file);
+      setExportFeedback({
+        type: "success",
+        message: buildExportSuccessMessage("Inventory batches report"),
+      });
     } catch (error) {
-      setErrorMessage(
-        error.message?.includes("No ")
-          ? NO_EXPORT_DATA_MESSAGE
-          : error.message || "Failed to export inventory batches.",
-      );
+      setExportFeedback({
+        type: "error",
+        message: resolveExportErrorMessage(
+          error,
+          "Failed to export inventory batches.",
+        ),
+      });
     } finally {
       setIsExporting("");
     }
@@ -380,7 +367,11 @@ const InventoryBatchesPage = () => {
             <div style={{ position: "relative" }}>
               <button
                 type="button"
-                onClick={() => setIsExportMenuOpen((currentValue) => !currentValue)}
+                onClick={() => {
+                  setSelectedExportFormat("csv");
+                  setExportFeedback({ type: "", message: "" });
+                  setIsExportModalOpen(true);
+                }}
                 disabled={Boolean(isExporting)}
                 style={{
                   border: "1px solid #c6d8ea",
@@ -401,25 +392,6 @@ const InventoryBatchesPage = () => {
                 <FiFileText size={16} />
                 {isExporting ? `Exporting ${isExporting.toUpperCase()}...` : "Export"}
               </button>
-
-              {isExportMenuOpen ? (
-                <div style={exportMenuStyles}>
-                  {[
-                    { key: "csv", label: "Export as CSV" },
-                    { key: "excel", label: "Export as Excel" },
-                    { key: "pdf", label: "Export as PDF" },
-                  ].map((option) => (
-                    <button
-                      key={option.key}
-                      type="button"
-                      onClick={() => handleExport(option.key)}
-                      style={exportMenuButtonStyles}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
             </div>
           </div>
         </div>
@@ -456,6 +428,33 @@ const InventoryBatchesPage = () => {
         errorMessage={modalErrorMessage}
         onClose={handleCloseModal}
         onSubmit={handleSubmitModal}
+      />
+
+      <ExportModal
+        isOpen={isExportModalOpen}
+        title="Export Inventory Report"
+        description="Choose the inventory batch report format to generate."
+        reportOptions={[
+          { value: "INVENTORY_BATCHES", label: "Inventory Batches Report" },
+        ]}
+        formatOptions={COMMON_EXPORT_FORMAT_OPTIONS}
+        selectedReportType="INVENTORY_BATCHES"
+        selectedFormat={selectedExportFormat}
+        isSubmitting={Boolean(isExporting)}
+        onReportTypeChange={() => {}}
+        onFormatChange={setSelectedExportFormat}
+        onClose={() => {
+          if (!isExporting) {
+            setIsExportModalOpen(false);
+          }
+        }}
+        onSubmit={() => handleExport(selectedExportFormat)}
+      />
+
+      <FeedbackToast
+        type={exportFeedback.type}
+        message={exportFeedback.message}
+        onClose={() => setExportFeedback({ type: "", message: "" })}
       />
     </>
   );
