@@ -7,6 +7,7 @@ const {
   validateClaimDistributionFromQr,
   validateGetDistributionHistory,
   validateExportDistributionHistory,
+  validateUpdateDistributionLifecycle,
 } = require("../validators/distributionTransaction.validator");
 
 const router = express.Router();
@@ -117,6 +118,35 @@ router.post(
       message: error.message || "Failed to record distribution",
     });
   }
+  },
+);
+
+router.patch(
+  "/:transactionId/lifecycle",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO),
+  validateUpdateDistributionLifecycle,
+  async (req, res) => {
+    try {
+      const updatedDistributionTransaction =
+        await distributionTransactionService.updateDistributionTransactionLifecycle({
+          transactionId: req.validatedParams.transactionId,
+          actionType: req.validatedBody.action,
+          remarks: req.validatedBody.remarks,
+          requester: req.auth,
+        });
+
+      return res.status(200).json({
+        message:
+          req.validatedBody.action === "REVERSED"
+            ? "Distribution reversed successfully"
+            : "Distribution cancelled successfully",
+        data: updatedDistributionTransaction,
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        message: error.message || "Failed to update distribution status",
+      });
+    }
   },
 );
 

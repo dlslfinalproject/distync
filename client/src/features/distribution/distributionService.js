@@ -106,6 +106,31 @@ export const exportDistributionHistory = async (filters = {}) => {
   };
 };
 
+export const updateDistributionLifecycle = async ({
+  transactionId,
+  action,
+  remarks,
+}) => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/distribution-transactions/${transactionId}/lifecycle`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        action,
+        remarks,
+      }),
+    },
+  );
+
+  return handleJsonResponse(
+    response,
+    "Failed to update distribution transaction status",
+  );
+};
+
 export const recordDistributionTransaction = async (payload) => {
   return performSyncableMutation({
     moduleName: "distribution",

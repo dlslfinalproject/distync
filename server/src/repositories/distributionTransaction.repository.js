@@ -232,6 +232,141 @@ const updateStubAsClaimed = async (stubId, dbClient) => {
   return result.rows[0] || null;
 };
 
+const getDistributionTransactionByIdForUpdate = async (transactionId, dbClient) => {
+  const query = `
+    SELECT
+      dt.id,
+      dt.disaster_event_id,
+      dt.household_id,
+      dt.stub_id,
+      dt.distribution_date,
+      dt.distribution_status,
+      dt.claimed_by_name,
+      dt.verified_by,
+      dt.qr_reference_value,
+      dt.receipt_no,
+      dt.receipt_status,
+      dt.received_at,
+      dt.relief_pack_template_id,
+      dt.remarks,
+      dt.sync_status,
+      dt.created_at,
+      dt.updated_at,
+      s.stub_no,
+      s.serial_no,
+      s.status AS stub_status,
+      h.barangay_id,
+      h.family_head_first_name,
+      h.family_head_middle_name,
+      h.family_head_last_name,
+      h.family_head_suffix
+    FROM distribution_transactions dt
+    INNER JOIN households h ON h.id = dt.household_id
+    INNER JOIN stubs s ON s.id = dt.stub_id
+    WHERE dt.id = $1
+    FOR UPDATE
+  `;
+
+  const result = await dbClient.query(query, [transactionId]);
+  return result.rows[0] || null;
+};
+
+const getDistributionTransactionItemsForUpdate = async (
+  distributionTransactionId,
+  dbClient,
+) => {
+  const query = `
+    SELECT
+      dti.id,
+      dti.distribution_transaction_id,
+      dti.inventory_batch_id,
+      dti.inventory_item_id,
+      dti.quantity_released,
+      ib.batch_no,
+      ib.quantity_available,
+      ib.status,
+      ii.item_name,
+      ii.unit_of_measure
+    FROM distribution_transaction_items dti
+    INNER JOIN inventory_batches ib ON ib.id = dti.inventory_batch_id
+    INNER JOIN inventory_items ii ON ii.id = dti.inventory_item_id
+    WHERE dti.distribution_transaction_id = $1
+    FOR UPDATE OF ib
+  `;
+
+  const result = await dbClient.query(query, [distributionTransactionId]);
+  return result.rows;
+};
+
+const updateDistributionTransactionStatus = async (
+  transactionId,
+  {
+    distribution_status,
+    receipt_status,
+    remarks,
+  },
+  dbClient,
+) => {
+  const query = `
+    UPDATE distribution_transactions
+    SET distribution_status = $2,
+        receipt_status = $3,
+        remarks = $4,
+        updated_at = NOW()
+    WHERE id = $1
+    RETURNING
+      id,
+      disaster_event_id,
+      household_id,
+      stub_id,
+      distribution_date,
+      distribution_status,
+      claimed_by_name,
+      verified_by,
+      qr_reference_value,
+      receipt_no,
+      receipt_status,
+      received_at,
+      relief_pack_template_id,
+      remarks,
+      sync_status,
+      created_at,
+      updated_at
+  `;
+
+  const result = await dbClient.query(query, [
+    transactionId,
+    distribution_status,
+    receipt_status,
+    remarks,
+  ]);
+  return result.rows[0] || null;
+};
+
+const updateStubStatus = async (stubId, status, dbClient) => {
+  const query = `
+    UPDATE stubs
+    SET status = $2,
+        updated_at = NOW()
+    WHERE id = $1
+    RETURNING
+      id,
+      stub_no,
+      serial_no,
+      status,
+      qr_code_value,
+      qr_generated_at,
+      qr_generated_by,
+      qr_status,
+      qr_notes,
+      claimed_at,
+      updated_at
+  `;
+
+  const result = await dbClient.query(query, [stubId, status]);
+  return result.rows[0] || null;
+};
+
 const getDistributionHistory = async ({
   barangayId = null,
   disasterEventId = null,
@@ -367,6 +502,10 @@ module.exports = {
   insertDistributionTransactionItem,
   updateInventoryBatchQuantityAndStatus,
   updateStubAsClaimed,
+  getDistributionTransactionByIdForUpdate,
+  getDistributionTransactionItemsForUpdate,
+  updateDistributionTransactionStatus,
+  updateStubStatus,
   getDistributionHistory,
   getDistributionHistoryExportRows,
 };

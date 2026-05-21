@@ -67,6 +67,7 @@ const typeStyles = {
 const FeedbackToast = ({
   message,
   type = "info",
+  title,
   onClose,
   duration = 4000,
 }) => {
@@ -99,7 +100,7 @@ const FeedbackToast = ({
         }}
       >
         <div style={toastStyles.titleRow}>
-          <p style={toastStyles.title}>{selectedTypeStyles.title}</p>
+          <p style={toastStyles.title}>{title || selectedTypeStyles.title}</p>
           <button
             type="button"
             onClick={onClose}

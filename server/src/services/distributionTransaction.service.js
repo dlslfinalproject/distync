@@ -10,6 +10,10 @@ const buildFullName = (firstName, middleName, lastName, suffix) => {
 
 const ACTIVE_QR_STATUS = "ACTIVE";
 const BARANGAY_ROLE_CODE = "BARANGAY";
+const ROLE_CODES = {
+  BARANGAY: "BARANGAY",
+  MSWDO: "MSWDO",
+};
 
 const assertBarangayDistributionScope = (stub, requester) => {
   if (requester?.roleCode !== BARANGAY_ROLE_CODE) {
@@ -76,6 +80,7 @@ const groupRequestedItemsByBatch = (items) => {
 
 const summarizeDistributionTransaction = (transaction) =>
   pickDefined(transaction, [
+    "id",
     "disaster_event_id",
     "household_id",
     "stub_id",
@@ -89,6 +94,47 @@ const summarizeDistributionTransaction = (transaction) =>
     "relief_pack_template_id",
     "remarks",
   ]);
+
+const summarizeDistributionItems = (items) =>
+  (Array.isArray(items) ? items : []).map((item) =>
+    pickDefined(item, [
+      "id",
+      "inventory_batch_id",
+      "inventory_item_id",
+      "quantity_released",
+      "batch_no",
+      "item_name",
+      "unit_of_measure",
+    ]),
+  );
+
+const formatDistributionActionRemarks = ({
+  actionType,
+  reason,
+  previousRemarks,
+}) => {
+  const actionLabel = actionType === "REVERSED" ? "Reversal" : "Cancellation";
+  const normalizedReason = String(reason || "").trim();
+  const normalizedPreviousRemarks = String(previousRemarks || "").trim();
+
+  if (!normalizedPreviousRemarks) {
+    return `${actionLabel} reason: ${normalizedReason}`;
+  }
+
+  return `${actionLabel} reason: ${normalizedReason}\nPrevious remarks: ${normalizedPreviousRemarks}`;
+};
+
+const normalizeRestoredBatchStatus = (batch, restoredQuantity) => {
+  if (!batch) {
+    return "AVAILABLE";
+  }
+
+  if (batch.status === "EXPIRED") {
+    return "EXPIRED";
+  }
+
+  return getInventoryBatchStatus(restoredQuantity);
+};
 
 const createDistributionTransaction = async (requestData) => {
   const client = await pool.connect();
@@ -633,9 +679,191 @@ const exportDistributionHistory = async ({ requester, filters }) => {
   });
 };
 
+const updateDistributionTransactionLifecycle = async ({
+  transactionId,
+  actionType,
+  remarks,
+  requester,
+}) => {
+  const normalizedActionType = String(actionType || "").toUpperCase();
+  const normalizedRemarks = String(remarks || "").trim();
+
+  if (!["CANCELLED", "REVERSED"].includes(normalizedActionType)) {
+    const error = new Error("distribution action must be CANCELLED or REVERSED");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!normalizedRemarks) {
+    const error = new Error("remarks are required for distribution cancel/reversal");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (
+    requester?.roleCode !== ROLE_CODES.BARANGAY &&
+    requester?.roleCode !== ROLE_CODES.MSWDO
+  ) {
+    const error = new Error("Only Barangay and MSWDO can cancel or reverse distributions.");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const distributionTransaction =
+      await distributionTransactionRepository.getDistributionTransactionByIdForUpdate(
+        transactionId,
+        client,
+      );
+
+    if (!distributionTransaction) {
+      const error = new Error("Distribution transaction not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    assertBarangayDistributionScope(
+      {
+        barangay_id: distributionTransaction.barangay_id,
+      },
+      requester,
+    );
+
+    if (distributionTransaction.distribution_status === normalizedActionType) {
+      const duplicateActionLabel =
+        normalizedActionType === "REVERSED" ? "reversed" : "cancelled";
+      const error = new Error(
+        `This distribution record has already been ${duplicateActionLabel}.`,
+      );
+      error.statusCode = 409;
+      throw error;
+    }
+
+    if (distributionTransaction.distribution_status !== "CLAIMED") {
+      const error = new Error(
+        "Only currently claimed distribution records can be cancelled or reversed.",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const transactionItems =
+      await distributionTransactionRepository.getDistributionTransactionItemsForUpdate(
+        distributionTransaction.id,
+        client,
+      );
+
+    const batchSummaries = [];
+
+    for (const item of transactionItems) {
+      const restoredQuantity =
+        Number(item.quantity_available || 0) + Number(item.quantity_released || 0);
+      const nextStatus = normalizeRestoredBatchStatus(item, restoredQuantity);
+
+      await distributionTransactionRepository.updateInventoryBatchQuantityAndStatus(
+        item.inventory_batch_id,
+        restoredQuantity,
+        nextStatus,
+        client,
+      );
+
+      batchSummaries.push({
+        inventory_batch_id: item.inventory_batch_id,
+        batch_no: item.batch_no,
+        item_name: item.item_name,
+        restored_quantity: item.quantity_released,
+        next_quantity_available: restoredQuantity,
+        next_status: nextStatus,
+      });
+    }
+
+    const nextReceiptStatus =
+      normalizedActionType === "REVERSED" ? "VOIDED" : "CANCELLED";
+    const nextRemarks = formatDistributionActionRemarks({
+      actionType: normalizedActionType,
+      reason: normalizedRemarks,
+      previousRemarks: distributionTransaction.remarks,
+    });
+
+    const updatedTransaction =
+      await distributionTransactionRepository.updateDistributionTransactionStatus(
+        distributionTransaction.id,
+        {
+          distribution_status: normalizedActionType,
+          receipt_status: nextReceiptStatus,
+          remarks: nextRemarks,
+        },
+        client,
+      );
+
+    const updatedStub = await distributionTransactionRepository.updateStubStatus(
+      distributionTransaction.stub_id,
+      "CANCELLED",
+      client,
+    );
+
+    await client.query("COMMIT");
+
+    await logAuditSafely({
+      actor: requester,
+      action:
+        normalizedActionType === "REVERSED"
+          ? "DISTRIBUTION_REVERSE"
+          : "DISTRIBUTION_CANCEL",
+      entityType: "DISTRIBUTION_TRANSACTION",
+      entityId: updatedTransaction.id,
+      oldValues: {
+        transaction: summarizeDistributionTransaction(distributionTransaction),
+        items: summarizeDistributionItems(transactionItems),
+        stub: pickDefined(distributionTransaction, [
+          "stub_id",
+          "stub_no",
+          "serial_no",
+          "stub_status",
+        ]),
+      },
+      newValues: {
+        transaction: summarizeDistributionTransaction(updatedTransaction),
+        stub: pickDefined(updatedStub, [
+          "id",
+          "stub_no",
+          "serial_no",
+          "status",
+        ]),
+        reason: normalizedRemarks,
+        restored_batches: batchSummaries,
+      },
+    });
+
+    return {
+      id: updatedTransaction.id,
+      distribution_status: updatedTransaction.distribution_status,
+      receipt_status: updatedTransaction.receipt_status,
+      remarks: updatedTransaction.remarks,
+      stub: pickDefined(updatedStub, [
+        "id",
+        "stub_no",
+        "serial_no",
+        "status",
+      ]),
+      restored_batches: batchSummaries,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
 module.exports = {
   createDistributionTransaction,
   claimDistributionTransactionFromQr,
   getDistributionHistory,
   exportDistributionHistory,
+  updateDistributionTransactionLifecycle,
 };

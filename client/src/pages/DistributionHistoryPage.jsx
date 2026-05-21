@@ -6,6 +6,7 @@ import { ROLE_CODES } from "../utils/roleSession";
 import {
   fetchDistributionHistory,
   exportDistributionHistory,
+  updateDistributionLifecycle,
 } from "../features/distribution/distributionService";
 import {
   fetchAllDisasterEvents,
@@ -13,6 +14,7 @@ import {
 } from "../features/disaster-events/disasterEventService";
 import ExportModal from "../components/shared/ExportModal";
 import FeedbackToast from "../components/shared/FeedbackToast";
+import DistributionLifecycleModal from "../components/distribution/DistributionLifecycleModal";
 import {
   buildExportSuccessMessage,
   COMMON_EXPORT_FORMAT_OPTIONS,
@@ -158,6 +160,16 @@ const DistributionHistoryPage = () => {
     type: "",
     message: "",
   });
+  const [actionFeedback, setActionFeedback] = useState({
+    type: "",
+    title: "",
+    message: "",
+  });
+  const [lifecycleModalMode, setLifecycleModalMode] = useState("");
+  const [selectedHistoryRow, setSelectedHistoryRow] = useState(null);
+  const [lifecycleRemarks, setLifecycleRemarks] = useState("");
+  const [isSubmittingLifecycleAction, setIsSubmittingLifecycleAction] =
+    useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -234,15 +246,94 @@ const DistributionHistoryPage = () => {
 
   const pageDescription = useMemo(() => {
     if (isBarangay) {
-      return "Review read-only distribution records for your assigned barangay, including household, stub, pack, and release details.";
+      return "Review distribution records for your assigned barangay, including household, stub, pack, release details, and guarded correction actions.";
     }
 
     if (isMayor) {
       return "Review read-only disaster distribution records across barangays for monitoring and oversight.";
     }
 
-    return "Review read-only disaster distribution records across barangays, including stub claims and item releases.";
+    return "Review disaster distribution records across barangays, including stub claims, item releases, and guarded correction actions.";
   }, [isBarangay, isMayor]);
+
+  const canManageLifecycle = !isMayor;
+
+  const openLifecycleModal = (mode, row) => {
+    setSelectedHistoryRow(row);
+    setLifecycleModalMode(mode);
+    setLifecycleRemarks("");
+    setActionFeedback({ type: "", title: "", message: "" });
+  };
+
+  const closeLifecycleModal = (force = false) => {
+    if (isSubmittingLifecycleAction && !force) {
+      return;
+    }
+
+    setLifecycleModalMode("");
+    setSelectedHistoryRow(null);
+    setLifecycleRemarks("");
+  };
+
+  const handleLifecycleSubmit = async () => {
+    if (!selectedHistoryRow || !lifecycleModalMode) {
+      return;
+    }
+
+    if (!lifecycleRemarks.trim()) {
+      setActionFeedback({
+        type: "error",
+        title: "Action Error",
+        message: "Remarks are required before cancelling or reversing a distribution.",
+      });
+      return;
+    }
+
+    setIsSubmittingLifecycleAction(true);
+
+    try {
+      const response = await updateDistributionLifecycle({
+        transactionId: selectedHistoryRow.id,
+        action: lifecycleModalMode === "reverse" ? "REVERSED" : "CANCELLED",
+        remarks: lifecycleRemarks.trim(),
+      });
+
+      const updatedRow = response?.data || {};
+
+      setHistoryRows((currentRows) =>
+        currentRows.map((row) =>
+          row.id === selectedHistoryRow.id
+            ? {
+                ...row,
+                distribution_status:
+                  updatedRow.distribution_status || row.distribution_status,
+                receipt_status: updatedRow.receipt_status || row.receipt_status,
+                remarks: updatedRow.remarks || row.remarks,
+              }
+            : row,
+        ),
+      );
+
+      setActionFeedback({
+        type: "success",
+        title: "Distribution Updated",
+        message:
+          lifecycleModalMode === "reverse"
+            ? "Distribution reversed successfully."
+            : "Distribution cancelled successfully.",
+      });
+      closeLifecycleModal(true);
+    } catch (error) {
+      setActionFeedback({
+        type: "error",
+        title: "Action Error",
+        message:
+          error.message || "Failed to update the selected distribution record.",
+      });
+    } finally {
+      setIsSubmittingLifecycleAction(false);
+    }
+  };
 
   return (
     <>
@@ -464,6 +555,7 @@ const DistributionHistoryPage = () => {
                   <th style={tableStyles.th}>Barangay</th>
                   <th style={tableStyles.th}>Status</th>
                   <th style={tableStyles.th}>Date / Time</th>
+                  <th style={tableStyles.th}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -507,11 +599,50 @@ const DistributionHistoryPage = () => {
                     <td style={tableStyles.td}>{row.barangay_name || "--"}</td>
                     <td style={tableStyles.td}>
                       <StatusBadge status={row.distribution_status} />
+                      <div style={{ color: "#60738a", fontSize: "12px", marginTop: "6px" }}>
+                        Receipt: {row.receipt_status || "--"}
+                      </div>
                     </td>
                     <td style={tableStyles.td}>
                       <div>{formatDateTime(row.distribution_date)}</div>
                       <div style={{ color: "#60738a", fontSize: "12px" }}>
                         Receipt: {row.receipt_no || "--"}
+                      </div>
+                    </td>
+                    <td style={tableStyles.td}>
+                      <div
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          gap: "8px",
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => openLifecycleModal("view", row)}
+                          style={pageHeaderStyles.secondaryButton}
+                        >
+                          View Reason / Status
+                        </button>
+                        {canManageLifecycle &&
+                        row.distribution_status === "CLAIMED" ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => openLifecycleModal("cancel", row)}
+                              style={pageHeaderStyles.secondaryButton}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openLifecycleModal("reverse", row)}
+                              style={pageHeaderStyles.primaryButton}
+                            >
+                              Reverse
+                            </button>
+                          </>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -585,6 +716,26 @@ const DistributionHistoryPage = () => {
         type={exportFeedback.type}
         message={exportFeedback.message}
         onClose={() => setExportFeedback({ type: "", message: "" })}
+      />
+
+      <FeedbackToast
+        type={actionFeedback.type}
+        title={actionFeedback.title}
+        message={actionFeedback.message}
+        onClose={() =>
+          setActionFeedback({ type: "", title: "", message: "" })
+        }
+      />
+
+      <DistributionLifecycleModal
+        mode={lifecycleModalMode}
+        isOpen={Boolean(lifecycleModalMode && selectedHistoryRow)}
+        isSubmitting={isSubmittingLifecycleAction}
+        remarks={lifecycleRemarks}
+        onChangeRemarks={setLifecycleRemarks}
+        row={selectedHistoryRow}
+        onCancel={closeLifecycleModal}
+        onConfirm={handleLifecycleSubmit}
       />
     </>
   );
