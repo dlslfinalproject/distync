@@ -66,6 +66,46 @@ export const fetchDistributionHistory = async (filters = {}) => {
   return handleJsonResponse(response, "Failed to fetch distribution history");
 };
 
+export const exportDistributionHistory = async (filters = {}) => {
+  const searchParams = new URLSearchParams();
+
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") {
+      return;
+    }
+
+    searchParams.set(key, value);
+  });
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/distribution-transactions/history/export?${
+      searchParams.toString()
+    }`,
+  );
+
+  if (!response.ok) {
+    let message = "Failed to export distribution history";
+
+    try {
+      const payload = await response.json();
+      message = payload.message || message;
+    } catch (_error) {
+      message = "Failed to export distribution history";
+    }
+
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const contentDisposition = response.headers.get("Content-Disposition") || "";
+  const fileNameMatch = contentDisposition.match(/filename="([^"]+)"/i);
+
+  return {
+    blob,
+    filename: fileNameMatch?.[1] || "mswdo-distribution-history.csv",
+  };
+};
+
 export const recordDistributionTransaction = async (payload) => {
   return performSyncableMutation({
     moduleName: "distribution",

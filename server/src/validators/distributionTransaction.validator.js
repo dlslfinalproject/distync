@@ -317,8 +317,27 @@ const validateGetDistributionHistory = (req, res, next) => {
   }
 };
 
+const validateExportDistributionHistory = (req, res, next) => {
+  const { format } = req.query;
+  const normalizedFormat = String(format || "").toLowerCase();
+
+  if (!["csv", "excel", "pdf"].includes(normalizedFormat)) {
+    return res.status(400).json({
+      message: "format must be one of: csv, excel, pdf",
+    });
+  }
+
+  req.validatedQuery = {
+    ...(req.validatedQuery || {}),
+    format: normalizedFormat,
+  };
+
+  return next();
+};
+
 module.exports = {
   validateCreateDistributionTransaction,
   validateClaimDistributionFromQr,
   validateGetDistributionHistory,
+  validateExportDistributionHistory,
 };

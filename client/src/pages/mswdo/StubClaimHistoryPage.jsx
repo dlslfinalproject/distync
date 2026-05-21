@@ -1,25 +1,23 @@
-import React, { useEffect, useMemo, useState } from "react";
-import PageHeader, { pageHeaderStyles } from "../components/layout/PageHeader";
-import { shellStyles } from "../components/layout/BarangayLayout";
-import { useAuth } from "../context/AuthContext";
-import { ROLE_CODES } from "../utils/roleSession";
+import React, { useEffect, useState } from "react";
+import PageHeader from "../../components/layout/PageHeader";
+import { shellStyles } from "../../components/layout/BarangayLayout";
+import ExportModal from "../../components/shared/ExportModal";
+import FeedbackToast from "../../components/shared/FeedbackToast";
 import {
-  fetchDistributionHistory,
-  exportDistributionHistory,
-} from "../features/distribution/distributionService";
-import {
-  fetchAllDisasterEvents,
   fetchBarangays,
-} from "../features/disaster-events/disasterEventService";
-import ExportModal from "../components/shared/ExportModal";
-import FeedbackToast from "../components/shared/FeedbackToast";
+  fetchAllDisasterEvents,
+} from "../../features/disaster-events/disasterEventService";
+import {
+  exportStubClaimHistory,
+  fetchStubClaimHistory,
+} from "../../features/stubs/stubService";
 import {
   buildExportSuccessMessage,
   COMMON_EXPORT_FORMAT_OPTIONS,
   downloadExportFile,
   NO_EXPORT_DATA_MESSAGE,
   resolveExportErrorMessage,
-} from "../utils/exportHelpers";
+} from "../../utils/exportHelpers";
 
 const inputStyles = {
   width: "100%",
@@ -74,7 +72,6 @@ const formatDateTime = (value) => {
   }
 
   const parsedDate = new Date(value);
-
   if (Number.isNaN(parsedDate.getTime())) {
     return "--";
   }
@@ -88,59 +85,10 @@ const formatDateTime = (value) => {
   });
 };
 
-const statusBadgeStyles = (status) => {
-  if (status === "CLAIMED") {
-    return {
-      backgroundColor: "#dcfce7",
-      color: "#15803d",
-    };
-  }
-
-  if (status === "CANCELLED") {
-    return {
-      backgroundColor: "#fee2e2",
-      color: "#b91c1c",
-    };
-  }
-
-  if (status === "REVERSED") {
-    return {
-      backgroundColor: "#fef3c7",
-      color: "#b45309",
-    };
-  }
-
-  return {
-    backgroundColor: "#e2e8f0",
-    color: "#475569",
-  };
-};
-
-const StatusBadge = ({ status }) => (
-  <span
-    style={{
-      display: "inline-flex",
-      alignItems: "center",
-      borderRadius: "999px",
-      padding: "4px 10px",
-      fontSize: "12px",
-      fontWeight: 700,
-      ...statusBadgeStyles(status),
-    }}
-  >
-    {status || "--"}
-  </span>
-);
-
-const DistributionHistoryPage = () => {
-  const { currentRole } = useAuth();
-  const isBarangay = currentRole === ROLE_CODES.BARANGAY;
-  const isMayor = currentRole === ROLE_CODES.MAYOR;
-  const isMswdo = currentRole === ROLE_CODES.MSWDO;
-
+const StubClaimHistoryPage = () => {
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
-  const [historyRows, setHistoryRows] = useState([]);
+  const [rows, setRows] = useState([]);
   const [filters, setFilters] = useState({
     disaster_event_id: "",
     barangay_id: "",
@@ -149,7 +97,7 @@ const DistributionHistoryPage = () => {
     date_to: "",
   });
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [isLoadingRows, setIsLoadingRows] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
@@ -162,13 +110,13 @@ const DistributionHistoryPage = () => {
   useEffect(() => {
     let isMounted = true;
 
-    const loadFilterData = async () => {
+    const loadFilters = async () => {
       setIsLoadingFilters(true);
 
       try {
         const [eventRows, barangayRows] = await Promise.all([
           fetchAllDisasterEvents(),
-          isBarangay ? Promise.resolve([]) : fetchBarangays(),
+          fetchBarangays(),
         ]);
 
         if (!isMounted) {
@@ -179,7 +127,9 @@ const DistributionHistoryPage = () => {
         setBarangays(Array.isArray(barangayRows) ? barangayRows : []);
       } catch (error) {
         if (isMounted) {
-          setErrorMessage(error.message || "Failed to load distribution history filters.");
+          setErrorMessage(
+            error.message || "Failed to load stub claim history filters.",
+          );
         }
       } finally {
         if (isMounted) {
@@ -188,22 +138,22 @@ const DistributionHistoryPage = () => {
       }
     };
 
-    loadFilterData();
+    loadFilters();
 
     return () => {
       isMounted = false;
     };
-  }, [isBarangay]);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
 
-    const loadHistory = async () => {
-      setIsLoadingHistory(true);
+    const loadRows = async () => {
+      setIsLoadingRows(true);
       setErrorMessage("");
 
       try {
-        const response = await fetchDistributionHistory({
+        const response = await fetchStubClaimHistory({
           ...filters,
           limit: 100,
         });
@@ -212,43 +162,33 @@ const DistributionHistoryPage = () => {
           return;
         }
 
-        setHistoryRows(Array.isArray(response.data) ? response.data : []);
+        setRows(Array.isArray(response.data) ? response.data : []);
       } catch (error) {
         if (isMounted) {
-          setHistoryRows([]);
-          setErrorMessage(error.message || "Failed to load distribution history.");
+          setRows([]);
+          setErrorMessage(
+            error.message || "Failed to load stub claim history.",
+          );
         }
       } finally {
         if (isMounted) {
-          setIsLoadingHistory(false);
+          setIsLoadingRows(false);
         }
       }
     };
 
-    loadHistory();
+    loadRows();
 
     return () => {
       isMounted = false;
     };
   }, [filters]);
 
-  const pageDescription = useMemo(() => {
-    if (isBarangay) {
-      return "Review read-only distribution records for your assigned barangay, including household, stub, pack, and release details.";
-    }
-
-    if (isMayor) {
-      return "Review read-only disaster distribution records across barangays for monitoring and oversight.";
-    }
-
-    return "Review read-only disaster distribution records across barangays, including stub claims and item releases.";
-  }, [isBarangay, isMayor]);
-
   return (
     <>
       <PageHeader
-        title="DISTRIBUTION HISTORY"
-        description={pageDescription}
+        title="STUB / CLAIM HISTORY"
+        description="Review issued, claimed, and still-unclaimed stub records without changing the existing claim workflow."
         actions={[]}
       />
 
@@ -256,45 +196,34 @@ const DistributionHistoryPage = () => {
         style={{
           display: "flex",
           justifyContent: "flex-end",
-          alignItems: "center",
           gap: "12px",
           flexWrap: "wrap",
           marginBottom: "16px",
         }}
       >
-        {isMswdo ? (
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedExportFormat("csv");
-              setExportFeedback({ type: "", message: "" });
-              setIsExportModalOpen(true);
-            }}
-            disabled={Boolean(exportingFormat)}
-            style={{
-              border: "1px solid #c6d8ea",
-              borderRadius: "14px",
-              padding: "12px 18px",
-              backgroundColor: "#f8fbfe",
-              color: "#2a4c6f",
-              fontSize: "14px",
-              fontWeight: 700,
-              cursor: exportingFormat ? "not-allowed" : "pointer",
-              opacity: exportingFormat ? 0.7 : 1,
-            }}
-          >
-            {exportingFormat
-              ? `Exporting ${exportingFormat.toUpperCase()}...`
-              : "Export"}
-          </button>
-        ) : null}
-
         <button
           type="button"
-          onClick={() => setFilters((currentValue) => ({ ...currentValue }))}
-          style={pageHeaderStyles.secondaryButton}
+          onClick={() => {
+            setSelectedExportFormat("csv");
+            setExportFeedback({ type: "", message: "" });
+            setIsExportModalOpen(true);
+          }}
+          disabled={Boolean(exportingFormat)}
+          style={{
+            border: "1px solid #c6d8ea",
+            borderRadius: "14px",
+            padding: "12px 18px",
+            backgroundColor: "#f8fbfe",
+            color: "#2a4c6f",
+            fontSize: "14px",
+            fontWeight: 700,
+            cursor: exportingFormat ? "not-allowed" : "pointer",
+            opacity: exportingFormat ? 0.7 : 1,
+          }}
         >
-          Refresh
+          {exportingFormat
+            ? `Exporting ${exportingFormat.toUpperCase()}...`
+            : "Export"}
         </button>
       </section>
 
@@ -308,11 +237,11 @@ const DistributionHistoryPage = () => {
           }}
         >
           <div>
-            <label htmlFor="distribution-history-event" style={labelStyles}>
+            <label htmlFor="stub-history-event" style={labelStyles}>
               Disaster Event
             </label>
             <select
-              id="distribution-history-event"
+              id="stub-history-event"
               value={filters.disaster_event_id}
               onChange={(event) =>
                 setFilters((currentValue) => ({
@@ -324,47 +253,45 @@ const DistributionHistoryPage = () => {
               style={inputStyles}
             >
               <option value="">All disaster events</option>
-              {disasterEvents.map((eventRow) => (
-                <option key={eventRow.id} value={eventRow.id}>
-                  {eventRow.event_code} - {eventRow.title}
+              {disasterEvents.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.event_code} - {row.title}
                 </option>
               ))}
             </select>
           </div>
 
-          {!isBarangay ? (
-            <div>
-              <label htmlFor="distribution-history-barangay" style={labelStyles}>
-                Barangay
-              </label>
-              <select
-                id="distribution-history-barangay"
-                value={filters.barangay_id}
-                onChange={(event) =>
-                  setFilters((currentValue) => ({
-                    ...currentValue,
-                    barangay_id: event.target.value,
-                  }))
-                }
-                disabled={isLoadingFilters}
-                style={inputStyles}
-              >
-                <option value="">All barangays</option>
-                {barangays.map((barangay) => (
-                  <option key={barangay.id} value={barangay.id}>
-                    {barangay.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : null}
+          <div>
+            <label htmlFor="stub-history-barangay" style={labelStyles}>
+              Barangay
+            </label>
+            <select
+              id="stub-history-barangay"
+              value={filters.barangay_id}
+              onChange={(event) =>
+                setFilters((currentValue) => ({
+                  ...currentValue,
+                  barangay_id: event.target.value,
+                }))
+              }
+              disabled={isLoadingFilters}
+              style={inputStyles}
+            >
+              <option value="">All barangays</option>
+              {barangays.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.name}
+                </option>
+              ))}
+            </select>
+          </div>
 
           <div>
-            <label htmlFor="distribution-history-status" style={labelStyles}>
+            <label htmlFor="stub-history-status" style={labelStyles}>
               Status
             </label>
             <select
-              id="distribution-history-status"
+              id="stub-history-status"
               value={filters.status}
               onChange={(event) =>
                 setFilters((currentValue) => ({
@@ -376,17 +303,17 @@ const DistributionHistoryPage = () => {
             >
               <option value="">All statuses</option>
               <option value="CLAIMED">Claimed</option>
-              <option value="CANCELLED">Cancelled</option>
-              <option value="REVERSED">Reversed</option>
+              <option value="UNCLAIMED">Unclaimed</option>
+              <option value="INVALID">Invalid / Voided</option>
             </select>
           </div>
 
           <div>
-            <label htmlFor="distribution-history-date-from" style={labelStyles}>
+            <label htmlFor="stub-history-date-from" style={labelStyles}>
               Date From
             </label>
             <input
-              id="distribution-history-date-from"
+              id="stub-history-date-from"
               type="date"
               value={filters.date_from}
               onChange={(event) =>
@@ -400,11 +327,11 @@ const DistributionHistoryPage = () => {
           </div>
 
           <div>
-            <label htmlFor="distribution-history-date-to" style={labelStyles}>
+            <label htmlFor="stub-history-date-to" style={labelStyles}>
               Date To
             </label>
             <input
-              id="distribution-history-date-to"
+              id="stub-history-date-to"
               type="date"
               value={filters.date_to}
               onChange={(event) =>
@@ -421,9 +348,11 @@ const DistributionHistoryPage = () => {
 
       <section style={shellStyles.card}>
         <div style={{ marginBottom: "16px" }}>
-          <h3 style={{ margin: 0, color: "#17324d" }}>Distribution Records</h3>
+          <h3 style={{ margin: 0, color: "#17324d" }}>Stub and Claim Records</h3>
           <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-            Read-only history of claimed and recorded disaster distributions.
+            Includes issued stubs, claimed stubs, and currently unclaimed records.
+            Failed verification and duplicate claim attempts appear in anomaly tracking
+            when they are captured by system logs.
           </p>
         </div>
 
@@ -444,11 +373,11 @@ const DistributionHistoryPage = () => {
           </div>
         ) : null}
 
-        {isLoadingHistory ? (
-          <p style={shellStyles.mutedText}>Loading distribution history...</p>
-        ) : historyRows.length === 0 ? (
+        {isLoadingRows ? (
+          <p style={shellStyles.mutedText}>Loading stub and claim history...</p>
+        ) : rows.length === 0 ? (
           <p style={shellStyles.mutedText}>
-            No distribution history is available for the current filters.
+            No stub or claim history is available for the current filters.
           </p>
         ) : (
           <div style={{ overflowX: "auto" }}>
@@ -456,18 +385,17 @@ const DistributionHistoryPage = () => {
               <thead>
                 <tr>
                   <th style={tableStyles.th}>Household / Family Head</th>
-                  <th style={tableStyles.th}>Stub / QR</th>
-                  <th style={tableStyles.th}>Disaster Event</th>
-                  <th style={tableStyles.th}>Relief Item / Pack</th>
-                  <th style={tableStyles.th}>Quantity</th>
-                  <th style={tableStyles.th}>Claimed / Recorded By</th>
                   <th style={tableStyles.th}>Barangay</th>
-                  <th style={tableStyles.th}>Status</th>
+                  <th style={tableStyles.th}>Disaster Event</th>
+                  <th style={tableStyles.th}>Stub / QR</th>
+                  <th style={tableStyles.th}>Claim Status</th>
+                  <th style={tableStyles.th}>Relief Item / Pack</th>
+                  <th style={tableStyles.th}>Claimed / Recorded By</th>
                   <th style={tableStyles.th}>Date / Time</th>
                 </tr>
               </thead>
               <tbody>
-                {historyRows.map((row) => (
+                {rows.map((row) => (
                   <tr key={row.id}>
                     <td style={tableStyles.td}>
                       <div style={{ fontWeight: 700 }}>{row.family_head_name || "--"}</div>
@@ -475,12 +403,7 @@ const DistributionHistoryPage = () => {
                         Household ID: {row.household_id || "--"}
                       </div>
                     </td>
-                    <td style={tableStyles.td}>
-                      <div>Stub: {row.stub_no || "--"}</div>
-                      <div style={{ color: "#60738a", fontSize: "12px" }}>
-                        QR: {row.qr_reference_value || row.serial_no || "--"}
-                      </div>
-                    </td>
+                    <td style={tableStyles.td}>{row.barangay_name || "--"}</td>
                     <td style={tableStyles.td}>
                       <div>{row.event_code || "--"}</div>
                       <div style={{ color: "#60738a", fontSize: "12px" }}>
@@ -488,31 +411,36 @@ const DistributionHistoryPage = () => {
                       </div>
                     </td>
                     <td style={tableStyles.td}>
-                      <div>{row.relief_pack_template_name || row.released_items_summary || "--"}</div>
+                      <div>Stub: {row.stub_no || "--"}</div>
                       <div style={{ color: "#60738a", fontSize: "12px" }}>
-                        {row.relief_pack_template_name && row.released_items_summary
-                          ? row.released_items_summary
-                          : row.relief_pack_template_name
-                            ? "Pack-based release"
-                            : "Item-based release"}
+                        QR: {row.qr_code_value || "--"}
                       </div>
                     </td>
-                    <td style={tableStyles.td}>{row.total_quantity_released || 0}</td>
                     <td style={tableStyles.td}>
-                      <div>Claimed: {row.claimed_by_name || "--"}</div>
-                      <div style={{ color: "#60738a", fontSize: "12px" }}>
-                        Recorded by: {row.verified_by_name || "--"}
+                      <div style={{ fontWeight: 700 }}>
+                        {row.status === "CLAIMED"
+                          ? "Claimed"
+                          : row.status === "ISSUED"
+                            ? "Unclaimed"
+                            : row.status || "--"}
                       </div>
-                    </td>
-                    <td style={tableStyles.td}>{row.barangay_name || "--"}</td>
-                    <td style={tableStyles.td}>
-                      <StatusBadge status={row.distribution_status} />
-                    </td>
-                    <td style={tableStyles.td}>
-                      <div>{formatDateTime(row.distribution_date)}</div>
                       <div style={{ color: "#60738a", fontSize: "12px" }}>
                         Receipt: {row.receipt_no || "--"}
                       </div>
+                    </td>
+                    <td style={tableStyles.td}>
+                      {row.relief_pack_template_name || row.released_items_summary || "--"}
+                    </td>
+                    <td style={tableStyles.td}>
+                      <div>Claimed: {row.claimed_by_name || "--"}</div>
+                      <div style={{ color: "#60738a", fontSize: "12px" }}>
+                        Recorded by: {row.recorded_by_name || "--"}
+                      </div>
+                    </td>
+                    <td style={tableStyles.td}>
+                      {formatDateTime(
+                        row.distribution_date || row.claimed_at || row.issued_at,
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -525,15 +453,15 @@ const DistributionHistoryPage = () => {
       <ExportModal
         isOpen={isExportModalOpen}
         title="Export MSWDO Report"
-        description="Choose the distribution history format to generate."
+        description="Choose the stub and claim history format to generate."
         reportOptions={[
           {
-            value: "DISTRIBUTION_HISTORY",
-            label: "Distribution History",
+            value: "STUB_CLAIM_HISTORY",
+            label: "Stub / Claim History",
           },
         ]}
         formatOptions={COMMON_EXPORT_FORMAT_OPTIONS}
-        selectedReportType="DISTRIBUTION_HISTORY"
+        selectedReportType="STUB_CLAIM_HISTORY"
         selectedFormat={selectedExportFormat}
         isSubmitting={Boolean(exportingFormat)}
         onReportTypeChange={() => {}}
@@ -544,7 +472,7 @@ const DistributionHistoryPage = () => {
           }
         }}
         onSubmit={async () => {
-          if (!historyRows.length) {
+          if (!rows.length) {
             setIsExportModalOpen(false);
             setExportFeedback({
               type: "error",
@@ -557,7 +485,7 @@ const DistributionHistoryPage = () => {
           setIsExportModalOpen(false);
 
           try {
-            const file = await exportDistributionHistory({
+            const file = await exportStubClaimHistory({
               ...filters,
               format: selectedExportFormat,
             });
@@ -565,14 +493,14 @@ const DistributionHistoryPage = () => {
             downloadExportFile(file);
             setExportFeedback({
               type: "success",
-              message: buildExportSuccessMessage("Distribution history report"),
+              message: buildExportSuccessMessage("Stub and claim history report"),
             });
           } catch (error) {
             setExportFeedback({
               type: "error",
               message: resolveExportErrorMessage(
                 error,
-                "Unable to export distribution history.",
+                "Unable to export stub and claim history.",
               ),
             });
           } finally {
@@ -590,4 +518,4 @@ const DistributionHistoryPage = () => {
   );
 };
 
-export default DistributionHistoryPage;
+export default StubClaimHistoryPage;

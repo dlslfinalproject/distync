@@ -460,6 +460,126 @@ const markStubAsClaimed = async (stubId) => {
   return result.rows[0] || null;
 };
 
+const getStubClaimHistory = async ({
+  disasterEventId = null,
+  barangayId = null,
+  status = null,
+  dateFrom = null,
+  dateTo = null,
+  limit = 100,
+}) => {
+  const values = [];
+  const conditions = [];
+
+  if (disasterEventId) {
+    values.push(disasterEventId);
+    conditions.push(`s.disaster_event_id = $${values.length}`);
+  }
+
+  if (barangayId) {
+    values.push(barangayId);
+    conditions.push(`h.barangay_id = $${values.length}`);
+  }
+
+  if (status === "CLAIMED") {
+    conditions.push(`s.status = 'CLAIMED'`);
+  } else if (status === "UNCLAIMED") {
+    conditions.push(`s.status = 'ISSUED'`);
+  } else if (status === "INVALID") {
+    conditions.push(`s.status IN ('VOID', 'CANCELLED')`);
+  }
+
+  if (dateFrom) {
+    values.push(dateFrom);
+    conditions.push(`COALESCE(dt.distribution_date, s.issued_at) >= $${values.length}`);
+  }
+
+  if (dateTo) {
+    values.push(dateTo);
+    conditions.push(
+      `COALESCE(dt.distribution_date, s.issued_at) < ($${values.length}::date + INTERVAL '1 day')`,
+    );
+  }
+
+  values.push(limit);
+
+  const whereClause =
+    conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  const query = `
+    SELECT
+      s.id,
+      s.disaster_event_id,
+      s.household_id,
+      s.stub_no,
+      s.serial_no,
+      s.status,
+      s.issued_at,
+      s.claimed_at,
+      s.qr_code_value,
+      s.qr_status,
+      de.event_code,
+      de.title AS disaster_event_title,
+      b.id AS barangay_id,
+      b.name AS barangay_name,
+      CONCAT_WS(
+        ' ',
+        h.family_head_first_name,
+        h.family_head_middle_name,
+        h.family_head_last_name,
+        h.family_head_suffix
+      ) AS family_head_name,
+      dt.id AS distribution_transaction_id,
+      dt.distribution_date,
+      dt.claimed_by_name,
+      dt.distribution_status,
+      dt.qr_reference_value,
+      dt.receipt_no,
+      dt.remarks,
+      CONCAT_WS(
+        ' ',
+        u.first_name,
+        u.middle_name,
+        u.last_name
+      ) AS recorded_by_name,
+      rpt.name AS relief_pack_template_name,
+      COALESCE(item_summary.total_quantity_released, 0) AS total_quantity_released,
+      COALESCE(item_summary.released_items_summary, '') AS released_items_summary
+    FROM stubs s
+    INNER JOIN disaster_events de ON de.id = s.disaster_event_id
+    INNER JOIN households h ON h.id = s.household_id
+    LEFT JOIN barangays b ON b.id = h.barangay_id
+    LEFT JOIN LATERAL (
+      SELECT
+        dt_inner.*
+      FROM distribution_transactions dt_inner
+      WHERE dt_inner.stub_id = s.id
+      ORDER BY dt_inner.distribution_date DESC, dt_inner.created_at DESC
+      LIMIT 1
+    ) dt ON TRUE
+    LEFT JOIN users u ON u.id = dt.verified_by
+    LEFT JOIN relief_pack_templates rpt ON rpt.id = dt.relief_pack_template_id
+    LEFT JOIN LATERAL (
+      SELECT
+        SUM(dti.quantity_released)::integer AS total_quantity_released,
+        STRING_AGG(
+          CONCAT(ii.item_name, ' x', dti.quantity_released),
+          ', '
+          ORDER BY ii.item_name
+        ) AS released_items_summary
+      FROM distribution_transaction_items dti
+      INNER JOIN inventory_items ii ON ii.id = dti.inventory_item_id
+      WHERE dti.distribution_transaction_id = dt.id
+    ) item_summary ON TRUE
+    ${whereClause}
+    ORDER BY COALESCE(dt.distribution_date, s.issued_at) DESC, s.updated_at DESC
+    LIMIT $${values.length}
+  `;
+
+  const result = await pool.query(query, values);
+  return result.rows;
+};
+
 module.exports = {
   getStubDashboardMetrics,
   getBarangayStubDashboardRows,
@@ -474,4 +594,5 @@ module.exports = {
   getHouseholdMembersCount,
   updateStubQrMetadata,
   markStubAsClaimed,
+  getStubClaimHistory,
 };

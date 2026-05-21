@@ -210,3 +210,64 @@ export const exportDisasterEvents = async ({
     filename: fileNameMatch?.[1] || getFallbackExportFilename(format),
   };
 };
+
+export const fetchDisasterEventReportSummary = async (filters = {}) => {
+  const searchParams = new URLSearchParams();
+
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") {
+      return;
+    }
+
+    searchParams.set(key, value);
+  });
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/disaster-events/reports/summary${
+      searchParams.toString() ? `?${searchParams.toString()}` : ""
+    }`,
+  );
+
+  return handleJsonResponse(
+    response,
+    "Failed to fetch disaster event report summary",
+  );
+};
+
+export const exportDisasterEventReportSummary = async (filters = {}) => {
+  const searchParams = new URLSearchParams();
+
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") {
+      return;
+    }
+
+    searchParams.set(key, value);
+  });
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/disaster-events/reports/export?${searchParams.toString()}`,
+  );
+
+  if (!response.ok) {
+    let message = "Failed to export disaster event summary";
+
+    try {
+      const payload = await response.json();
+      message = payload.message || message;
+    } catch (_error) {
+      message = "Failed to export disaster event summary";
+    }
+
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const contentDisposition = response.headers.get("Content-Disposition") || "";
+  const fileNameMatch = contentDisposition.match(/filename="([^"]+)"/i);
+
+  return {
+    blob,
+    filename: fileNameMatch?.[1] || "mswdo-disaster-event-summary.csv",
+  };
+};

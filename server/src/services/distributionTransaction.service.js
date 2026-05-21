@@ -2,6 +2,7 @@ const pool = require("../config/db");
 const distributionTransactionRepository = require("../repositories/distributionTransaction.repository");
 const notificationService = require("../modules/notifications/notification.service");
 const { logAuditSafely, pickDefined } = require("../utils/systemLog");
+const mswdoReportExport = require("../utils/mswdoReportExport");
 
 const buildFullName = (firstName, middleName, lastName, suffix) => {
   return [firstName, middleName, lastName, suffix].filter(Boolean).join(" ");
@@ -562,8 +563,79 @@ const getDistributionHistory = async ({ requester, filters }) => {
   });
 };
 
+const exportDistributionHistory = async ({ requester, filters }) => {
+  if (requester?.roleCode !== "MSWDO") {
+    const error = new Error("Only MSWDO can export distribution history.");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  const rows = await distributionTransactionRepository.getDistributionHistoryExportRows({
+    barangayId: filters.barangay_id || null,
+    disasterEventId: filters.disaster_event_id || null,
+    status: filters.status || null,
+    dateFrom: filters.date_from || null,
+    dateTo: filters.date_to || null,
+  });
+
+  return mswdoReportExport.buildExportFile({
+    filePrefix: "mswdo-distribution-history",
+    worksheetName: "Distribution History",
+    reportTitle: "MSWDO Distribution History",
+    metadata: [
+      {
+        label: "Disaster Event",
+        value: filters.disaster_event_id || "All",
+      },
+      {
+        label: "Barangay",
+        value: filters.barangay_id || "All",
+      },
+      {
+        label: "Status",
+        value: filters.status || "All",
+      },
+      {
+        label: "Date Range",
+        value:
+          filters.date_from || filters.date_to
+            ? `${filters.date_from || "--"} to ${filters.date_to || "--"}`
+            : "All",
+      },
+    ],
+    columns: [
+      { key: "family_head_name", label: "Family Head", width: 28, pdfWidth: 100 },
+      { key: "barangay_name", label: "Barangay", width: 20, pdfWidth: 70 },
+      { key: "event_label", label: "Disaster Event", width: 28, pdfWidth: 90 },
+      { key: "stub_reference", label: "Stub / QR", width: 24, pdfWidth: 80 },
+      { key: "relief_summary", label: "Relief Item / Pack", width: 32, pdfWidth: 120 },
+      { key: "total_quantity_released", label: "Quantity", width: 14, pdfWidth: 45 },
+      { key: "claimed_recorded_by", label: "Claimed / Recorded By", width: 30, pdfWidth: 90 },
+      { key: "distribution_status", label: "Status", width: 14, pdfWidth: 55 },
+      { key: "distribution_date_label", label: "Date / Time", width: 22, pdfWidth: 80 },
+    ],
+    rows: rows.map((row) => ({
+      family_head_name: row.family_head_name || "--",
+      barangay_name: row.barangay_name || "--",
+      event_label: [row.event_code, row.disaster_event_title].filter(Boolean).join(" - ") || "--",
+      stub_reference:
+        [row.stub_no ? `Stub: ${row.stub_no}` : "", row.qr_reference_value ? `QR: ${row.qr_reference_value}` : ""]
+          .filter(Boolean)
+          .join(" | ") || "--",
+      relief_summary:
+        row.relief_pack_template_name || row.released_items_summary || "--",
+      total_quantity_released: row.total_quantity_released || 0,
+      claimed_recorded_by: `Claimed: ${row.claimed_by_name || "--"} | Recorded: ${row.verified_by_name || "--"}`,
+      distribution_status: row.distribution_status || "--",
+      distribution_date_label: mswdoReportExport.formatDateTime(row.distribution_date),
+    })),
+    format: filters.format,
+  });
+};
+
 module.exports = {
   createDistributionTransaction,
   claimDistributionTransactionFromQr,
   getDistributionHistory,
+  exportDistributionHistory,
 };

@@ -386,9 +386,12 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
     [ROLE_CODES.MSWDO]: {
       navItems: [
         { label: "Disaster Events", to: "/mswdo/disaster-events" },
+        { label: "Disaster Reports", to: "/mswdo/disaster-reports" },
         { label: "Evacuee Masterlist", to: "/mswdo/consolidated-masterlist" },
         { label: "Relief Goods Distribution", to: "/mswdo/stub-distribution" },
         { label: "Distribution History", to: "/mswdo/distribution-history" },
+        { label: "Stub / Claim History", to: "/mswdo/stub-claim-history" },
+        { label: "Anomaly Tracking", to: "/mswdo/anomalies" },
         { label: "Donation Summary", to: "/mswdo/donations" },
         { label: "Analytics Dashboard", to: "/mswdo/analytics" },
         { label: "Sync Center", to: "/mswdo/sync" },

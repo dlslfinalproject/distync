@@ -25,10 +25,13 @@ import DonationInformationPage from "../pages/donor/DonationInformationPage";
 import DistributionHistoryPage from "../pages/DistributionHistoryPage";
 import SystemLogReviewPage from "../pages/SystemLogReviewPage";
 import AnalyticsDashboardPage from "../pages/mswdo/AnalyticsDashboardPage";
+import AnomalyTrackingPage from "../pages/mswdo/AnomalyTrackingPage";
 import ConsolidatedMasterlistPage from "../pages/mswdo/ConsolidatedMasterlistPage";
+import DisasterEventReportsPage from "../pages/mswdo/DisasterEventReportsPage";
 import DisasterEventsPage from "../pages/mswdo/DisasterEventsPage";
 import PrintStubsPage from "../pages/mswdo/PrintStubsPage";
 import StubDistributionPageMswdo from "../pages/mswdo/StubDistributionPage";
+import StubClaimHistoryPage from "../pages/mswdo/StubClaimHistoryPage";
 import RoleSwitcherPage from "../pages/RoleSwitcherPage";
 import { useAuth } from "../context/AuthContext";
 import { getAccessMode, getEntryRouteForMode } from "../utils/accessMode";
@@ -107,8 +110,17 @@ const AppRoutes = () => {
             path="distribution-history"
             element={<DistributionHistoryPage />}
           />
+          <Route
+            path="stub-claim-history"
+            element={<StubClaimHistoryPage />}
+          />
           <Route path="donations" element={<DonationManagementPage />} />
           <Route path="disaster-events" element={<DisasterEventsPage />} />
+          <Route
+            path="disaster-reports"
+            element={<DisasterEventReportsPage />}
+          />
+          <Route path="anomalies" element={<AnomalyTrackingPage />} />
           <Route path="notifications" element={<MayorNotificationsPage />} />
           <Route path="sync" element={<SyncManagementPage />} />
         </Route>

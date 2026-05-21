@@ -6,6 +6,8 @@ const {
   validateCreateDisasterEvent,
   validateExportDisasterEvents,
   validateExtendDisasterEvent,
+  validateDisasterEventReportSummary,
+  validateExportDisasterEventReportSummary,
 } = require("../validators/disasterEvent.validator");
 
 const router = express.Router();
@@ -50,6 +52,55 @@ router.get("/ended", requireRoles(ROLE_CODES.MSWDO), async (req, res) => {
     });
   }
 });
+
+router.get(
+  "/reports/summary",
+  requireRoles(ROLE_CODES.MSWDO),
+  validateDisasterEventReportSummary,
+  async (req, res) => {
+    try {
+      const rows = await disasterEventService.getDisasterEventReportSummary(
+        req.validatedQuery,
+      );
+
+      return res.status(200).json({
+        message: "Disaster event report summary fetched successfully",
+        data: rows,
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        message: error.message || "Failed to fetch disaster event report summary",
+      });
+    }
+  },
+);
+
+router.get(
+  "/reports/export",
+  requireRoles(ROLE_CODES.MSWDO),
+  validateDisasterEventReportSummary,
+  validateExportDisasterEventReportSummary,
+  async (req, res) => {
+    try {
+      const file =
+        await disasterEventService.exportDisasterEventReportSummary(
+          req.validatedQuery,
+        );
+
+      res.setHeader("Content-Type", file.contentType);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${file.filename}"`,
+      );
+
+      return res.status(200).send(file.buffer);
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        message: error.message || "Failed to export disaster event report summary",
+      });
+    }
+  },
+);
 
 router.get(
   "/export",

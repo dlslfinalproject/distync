@@ -8,6 +8,8 @@ const {
   validateStubId,
   validateStubVerify,
   validateClaimBarangayStub,
+  validateStubHistory,
+  validateStubHistoryExport,
 } = require("../validators/stub.validator");
 
 const router = express.Router();
@@ -96,6 +98,50 @@ router.post(
       message: error.message || "Failed to claim stub",
     });
   }
+  },
+);
+
+router.get(
+  "/history",
+  requireRoles(ROLE_CODES.MSWDO),
+  validateStubHistory,
+  async (req, res) => {
+    try {
+      const rows = await stubService.getStubClaimHistory(req.validatedQuery);
+
+      return res.status(200).json({
+        message: "Stub claim history fetched successfully",
+        data: rows,
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        message: error.message || "Failed to fetch stub claim history",
+      });
+    }
+  },
+);
+
+router.get(
+  "/history/export",
+  requireRoles(ROLE_CODES.MSWDO),
+  validateStubHistory,
+  validateStubHistoryExport,
+  async (req, res) => {
+    try {
+      const file = await stubService.exportStubClaimHistory(req.validatedQuery);
+
+      res.setHeader("Content-Type", file.contentType);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${file.filename}"`,
+      );
+
+      return res.status(200).send(file.buffer);
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        message: error.message || "Failed to export stub claim history",
+      });
+    }
   },
 );
 

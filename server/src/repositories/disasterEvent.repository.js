@@ -215,6 +215,138 @@ const updateDisasterEventById = async (id, updates, dbClient = pool) => {
   return result.rows[0] || null;
 };
 
+const getDisasterEventReportSummary = async ({
+  disasterEventId = null,
+  barangayId = null,
+  status = null,
+  dateFrom = null,
+  dateTo = null,
+  limit = 100,
+}) => {
+  const values = [];
+  const conditions = [];
+
+  if (disasterEventId) {
+    values.push(disasterEventId);
+    conditions.push(`de.id = $${values.length}`);
+  }
+
+  if (status) {
+    values.push(status);
+    conditions.push(`de.status = $${values.length}`);
+  }
+
+  if (dateFrom) {
+    values.push(dateFrom);
+    conditions.push(`de.start_date >= $${values.length}`);
+  }
+
+  if (dateTo) {
+    values.push(dateTo);
+    conditions.push(`de.start_date <= $${values.length}`);
+  }
+
+  const barangayFilterIndex = barangayId ? values.push(barangayId) : null;
+
+  if (barangayFilterIndex) {
+    conditions.push(`
+      EXISTS (
+        SELECT 1
+        FROM disaster_event_barangays deb_filter
+        WHERE deb_filter.disaster_event_id = de.id
+          AND deb_filter.barangay_id = $${barangayFilterIndex}
+      )
+    `);
+  }
+
+  values.push(limit);
+  const limitIndex = values.length;
+  const whereClause =
+    conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const barangayScopedHouseholds = barangayFilterIndex
+    ? `AND h.barangay_id = $${barangayFilterIndex}`
+    : "";
+  const barangayScopedStubs = barangayFilterIndex
+    ? `AND hs.barangay_id = $${barangayFilterIndex}`
+    : "";
+  const barangayScopedTransactions = barangayFilterIndex
+    ? `AND hd.barangay_id = $${barangayFilterIndex}`
+    : "";
+  const barangayScopedAffected = barangayFilterIndex
+    ? `AND deb.barangay_id = $${barangayFilterIndex}`
+    : "";
+
+  const query = `
+    SELECT
+      de.id,
+      de.event_code,
+      de.title,
+      de.disaster_type,
+      de.start_date,
+      de.end_date,
+      de.status,
+      COALESCE(affected_barangays.affected_barangays_count, 0)::int AS affected_barangays_count,
+      COALESCE(affected_barangays.affected_barangays_text, '--') AS affected_barangays_text,
+      COALESCE(household_counts.registered_households_count, 0)::int AS registered_households_count,
+      COALESCE(distribution_counts.distributed_aid_count, 0)::int AS distributed_aid_count,
+      COALESCE(stub_counts.claimed_stubs_count, 0)::int AS claimed_stubs_count,
+      COALESCE(stub_counts.unclaimed_stubs_count, 0)::int AS unclaimed_stubs_count,
+      COALESCE(distribution_counts.quantity_released_total, 0)::int AS quantity_released_total
+    FROM disaster_events de
+    LEFT JOIN LATERAL (
+      SELECT
+        COUNT(DISTINCT deb.barangay_id)::int AS affected_barangays_count,
+        STRING_AGG(DISTINCT b.name, ', ' ORDER BY b.name) AS affected_barangays_text
+      FROM disaster_event_barangays deb
+      INNER JOIN barangays b ON b.id = deb.barangay_id
+      WHERE deb.disaster_event_id = de.id
+      ${barangayScopedAffected}
+    ) affected_barangays ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*)::int AS registered_households_count
+      FROM households h
+      WHERE h.disaster_event_id = de.id
+      ${barangayScopedHouseholds}
+    ) household_counts ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT
+        COUNT(*) FILTER (WHERE s.status = 'CLAIMED')::int AS claimed_stubs_count,
+        COUNT(*) FILTER (WHERE s.status = 'ISSUED')::int AS unclaimed_stubs_count
+      FROM stubs s
+      WHERE s.disaster_event_id = de.id
+        AND EXISTS (
+          SELECT 1
+          FROM households hs
+          WHERE hs.id = s.household_id
+          ${barangayScopedStubs}
+        )
+    ) stub_counts ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT
+        COUNT(DISTINCT dt.id) FILTER (
+          WHERE dt.distribution_status = 'CLAIMED'
+        )::int AS distributed_aid_count,
+        COALESCE(SUM(dti.quantity_released), 0)::int AS quantity_released_total
+      FROM distribution_transactions dt
+      LEFT JOIN distribution_transaction_items dti
+        ON dti.distribution_transaction_id = dt.id
+      WHERE dt.disaster_event_id = de.id
+        AND EXISTS (
+          SELECT 1
+          FROM households hd
+          WHERE hd.id = dt.household_id
+          ${barangayScopedTransactions}
+        )
+    ) distribution_counts ON TRUE
+    ${whereClause}
+    ORDER BY de.start_date DESC, de.created_at DESC
+    LIMIT $${limitIndex}
+  `;
+
+  const result = await pool.query(query, values);
+  return result.rows;
+};
+
 module.exports = {
   getAllDisasterEvents,
   getActiveDisasterEvents,
@@ -226,4 +358,5 @@ module.exports = {
   insertDisasterEvent,
   insertDisasterEventBarangays,
   updateDisasterEventById,
+  getDisasterEventReportSummary,
 };

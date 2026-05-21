@@ -88,6 +88,64 @@ export const fetchStubDetails = async (stubId) => {
   return handleJsonResponse(response, "Failed to fetch stub details");
 };
 
+export const fetchStubClaimHistory = async (filters = {}) => {
+  const searchParams = new URLSearchParams();
+
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") {
+      return;
+    }
+
+    searchParams.set(key, value);
+  });
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/stubs/history${
+      searchParams.toString() ? `?${searchParams.toString()}` : ""
+    }`,
+  );
+
+  return handleJsonResponse(response, "Failed to fetch stub claim history");
+};
+
+export const exportStubClaimHistory = async (filters = {}) => {
+  const searchParams = new URLSearchParams();
+
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") {
+      return;
+    }
+
+    searchParams.set(key, value);
+  });
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/stubs/history/export?${searchParams.toString()}`,
+  );
+
+  if (!response.ok) {
+    let message = "Failed to export stub claim history";
+
+    try {
+      const payload = await response.json();
+      message = payload.message || message;
+    } catch (_error) {
+      message = "Failed to export stub claim history";
+    }
+
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const contentDisposition = response.headers.get("Content-Disposition") || "";
+  const fileNameMatch = contentDisposition.match(/filename="([^"]+)"/i);
+
+  return {
+    blob,
+    filename: fileNameMatch?.[1] || "mswdo-stub-claim-history.csv",
+  };
+};
+
 export const claimStub = async ({ stubId, userId, overrideBarangayId }) => {
   const payload = {
     user_id: userId || null,

@@ -1,5 +1,6 @@
 const masterlistRepository = require("../repositories/masterlist.repository");
 const stubRepository = require("../repositories/stub.repository");
+const mswdoReportExport = require("../utils/mswdoReportExport");
 
 const isOverrideAllowed = process.env.NODE_ENV !== "production";
 const ACTIVE_QR_STATUS = "ACTIVE";
@@ -444,10 +445,85 @@ const verifyStub = async (identifier) => {
   };
 };
 
+const getStubClaimHistory = async (filters) => {
+  return stubRepository.getStubClaimHistory(filters);
+};
+
+const exportStubClaimHistory = async (filters) => {
+  const rows = await stubRepository.getStubClaimHistory({
+    disasterEventId: filters.disaster_event_id || null,
+    barangayId: filters.barangay_id || null,
+    status: filters.status || null,
+    dateFrom: filters.date_from || null,
+    dateTo: filters.date_to || null,
+    limit: 1000,
+  });
+
+  return mswdoReportExport.buildExportFile({
+    filePrefix: "mswdo-stub-claim-history",
+    worksheetName: "Stub Claim History",
+    reportTitle: "MSWDO Stub and Claim History",
+    metadata: [
+      {
+        label: "Disaster Event",
+        value: filters.disaster_event_id || "All",
+      },
+      {
+        label: "Barangay",
+        value: filters.barangay_id || "All",
+      },
+      {
+        label: "Status",
+        value: filters.status || "All",
+      },
+      {
+        label: "Date Range",
+        value:
+          filters.date_from || filters.date_to
+            ? `${filters.date_from || "--"} to ${filters.date_to || "--"}`
+            : "All",
+      },
+    ],
+    columns: [
+      { key: "family_head_name", label: "Family Head", width: 28, pdfWidth: 95 },
+      { key: "barangay_name", label: "Barangay", width: 20, pdfWidth: 65 },
+      { key: "event_label", label: "Disaster Event", width: 28, pdfWidth: 90 },
+      { key: "stub_reference", label: "Stub / QR", width: 24, pdfWidth: 85 },
+      { key: "claim_reference", label: "Claim Status", width: 22, pdfWidth: 75 },
+      { key: "relief_summary", label: "Relief Item / Pack", width: 32, pdfWidth: 120 },
+      { key: "recorded_by_name", label: "Claimed / Recorded By", width: 30, pdfWidth: 90 },
+      { key: "activity_date", label: "Date / Time", width: 22, pdfWidth: 80 },
+    ],
+    rows: rows.map((row) => ({
+      family_head_name: row.family_head_name || "--",
+      barangay_name: row.barangay_name || "--",
+      event_label: [row.event_code, row.disaster_event_title].filter(Boolean).join(" - ") || "--",
+      stub_reference:
+        [row.stub_no ? `Stub: ${row.stub_no}` : "", row.qr_code_value ? `QR: ${row.qr_code_value}` : ""]
+          .filter(Boolean)
+          .join(" | ") || "--",
+      claim_reference:
+        row.status === "CLAIMED"
+          ? `Claimed${row.receipt_no ? ` (${row.receipt_no})` : ""}`
+          : row.status === "ISSUED"
+            ? "Unclaimed"
+            : row.status || "--",
+      relief_summary: row.relief_pack_template_name || row.released_items_summary || "--",
+      recorded_by_name: `Claimed: ${row.claimed_by_name || "--"} | Recorded: ${row.recorded_by_name || "--"}`,
+      activity_date: mswdoReportExport.formatDateTime(
+        row.distribution_date || row.claimed_at || row.issued_at,
+      ),
+    })),
+    format: filters.format,
+  });
+};
+
 module.exports = {
   getBarangayStubDashboard,
   getSearchResults,
   getStubDetails,
   verifyStub,
   claimBarangayStub,
+  getStubClaimHistory,
+  exportStubClaimHistory,
 };

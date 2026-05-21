@@ -6,6 +6,7 @@ const {
   validateCreateDistributionTransaction,
   validateClaimDistributionFromQr,
   validateGetDistributionHistory,
+  validateExportDistributionHistory,
 } = require("../validators/distributionTransaction.validator");
 
 const router = express.Router();
@@ -29,6 +30,33 @@ router.get(
     } catch (error) {
       return res.status(error.statusCode || 500).json({
         message: error.message || "Failed to fetch distribution history",
+      });
+    }
+  },
+);
+
+router.get(
+  "/history/export",
+  requireRoles(ROLE_CODES.MSWDO),
+  validateGetDistributionHistory,
+  validateExportDistributionHistory,
+  async (req, res) => {
+    try {
+      const file = await distributionTransactionService.exportDistributionHistory({
+        requester: req.auth,
+        filters: req.validatedQuery,
+      });
+
+      res.setHeader("Content-Type", file.contentType);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${file.filename}"`,
+      );
+
+      return res.status(200).send(file.buffer);
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        message: error.message || "Failed to export distribution history",
       });
     }
   },

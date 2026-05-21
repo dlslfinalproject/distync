@@ -342,6 +342,23 @@ const getDistributionHistory = async ({
   return result.rows;
 };
 
+const getDistributionHistoryExportRows = async ({
+  barangayId = null,
+  disasterEventId = null,
+  status = null,
+  dateFrom = null,
+  dateTo = null,
+}) => {
+  return getDistributionHistory({
+    barangayId,
+    disasterEventId,
+    status,
+    dateFrom,
+    dateTo,
+    limit: 1000,
+  });
+};
+
 module.exports = {
   getDistributionReceiptSequence,
   getStubByIdForUpdate,
@@ -351,4 +368,5 @@ module.exports = {
   updateInventoryBatchQuantityAndStatus,
   updateStubAsClaimed,
   getDistributionHistory,
+  getDistributionHistoryExportRows,
 };
