@@ -222,7 +222,7 @@ router.post(
     try {
       const donation = await donationService.createDonation(
         req.validatedBody,
-        req.auth.userId,
+        req.auth,
       );
 
       return res.status(201).json({
@@ -249,6 +249,7 @@ router.put(
       const donation = await donationService.updateDonation(
         req.params.id,
         req.validatedBody,
+        req.auth,
       );
 
       return res.status(200).json({

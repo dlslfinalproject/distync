@@ -1,6 +1,7 @@
 const inventoryBatchRepository = require("../repositories/inventoryBatch.repository");
 const mayorReportExport = require("../utils/mayorReportExport");
 const notificationService = require("../modules/notifications/notification.service");
+const { logAuditSafely, pickDefined } = require("../utils/systemLog");
 
 const mapInventoryBatch = (batch) => {
   return {
@@ -41,6 +42,21 @@ const mapInventoryBatch = (batch) => {
       : null,
   };
 };
+
+const summarizeInventoryBatch = (batch) =>
+  pickDefined(batch, [
+    "inventory_item_id",
+    "batch_no",
+    "supplier_id",
+    "source_type",
+    "quantity_received",
+    "quantity_available",
+    "expiration_date",
+    "received_at",
+    "storage_location",
+    "status",
+    "created_by",
+  ]);
 
 const getInitialStatus = (expirationDate) => {
   if (!expirationDate) {
@@ -129,6 +145,18 @@ const createInventoryBatch = async (batchData) => {
       batch: mappedBatch,
     }),
   );
+
+  await logAuditSafely({
+    actor: {
+      userId: batchData.created_by,
+      roleCode: "MAYOR",
+    },
+    action: "INVENTORY_BATCH_CREATE",
+    entityType: "INVENTORY_BATCH",
+    entityId: mappedBatch.id,
+    oldValues: {},
+    newValues: summarizeInventoryBatch(mappedBatch),
+  });
 
   return mappedBatch;
 };

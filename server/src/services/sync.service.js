@@ -14,6 +14,7 @@ const donationService = require("./donation.service");
 const disasterEventService = require("./disasterEvent.service");
 const stubService = require("./stub.service");
 const { ROLE_CODES } = require("../modules/auth/auth.middleware");
+const { logErrorSafely } = require("../utils/systemLog");
 
 const SYNC_STATUS = {
   PENDING: "PENDING",
@@ -148,7 +149,8 @@ const ACTION_HANDLERS = {
     entityType: "INVENTORY_ITEM",
     operationType: "CREATE",
     roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload }) => inventoryItemService.createInventoryItem(payload),
+    execute: async ({ payload, auth }) =>
+      inventoryItemService.createInventoryItem(payload, auth),
   },
   INVENTORY_ITEM_UPDATE: {
     entityType: "INVENTORY_ITEM",
@@ -156,8 +158,8 @@ const ACTION_HANDLERS = {
     roles: [ROLE_CODES.MAYOR],
     getCurrentRecord: async ({ entityServerId }) =>
       inventoryItemRepository.getInventoryItemById(entityServerId),
-    execute: async ({ entityServerId, payload }) =>
-      inventoryItemService.updateInventoryItem(entityServerId, payload),
+    execute: async ({ entityServerId, payload, auth }) =>
+      inventoryItemService.updateInventoryItem(entityServerId, payload, auth),
   },
   INVENTORY_BATCH_CREATE: {
     entityType: "INVENTORY_BATCH",
@@ -215,7 +217,7 @@ const ACTION_HANDLERS = {
     operationType: "DONATION_RECEIVE",
     roles: [ROLE_CODES.MAYOR],
     execute: async ({ payload, auth }) =>
-      donationService.createDonation(payload, auth.userId),
+      donationService.createDonation(payload, auth),
   },
   DONATION_UPDATE: {
     entityType: "DONATION",
@@ -223,8 +225,8 @@ const ACTION_HANDLERS = {
     roles: [ROLE_CODES.MAYOR],
     getCurrentRecord: async ({ entityServerId }) =>
       donationRepository.getDonationById(entityServerId),
-    execute: async ({ entityServerId, payload }) =>
-      donationService.updateDonation(entityServerId, payload),
+    execute: async ({ entityServerId, payload, auth }) =>
+      donationService.updateDonation(entityServerId, payload, auth),
   },
   DONATION_ITEM_CREATE: {
     entityType: "DONATION_ITEM",
@@ -305,23 +307,36 @@ const maybeResolveTimestampConflict = async ({
 
   const shouldApplyLocalChange = localTimestamp > serverTimestamp;
 
-  const conflictRecord = await syncRepository.insertSyncConflict({
-    sync_transaction_id: syncTransaction.id,
-    entity_type: actionConfig.entityType,
-    entity_server_id: entry.entity_server_id,
-    conflict_type: "UPDATED_AT_MISMATCH",
-    local_payload_json: entry.payload,
-    server_payload_json: currentRecord,
-    resolution_strategy: RESOLUTION_STRATEGY,
-    resolved_payload_json: {
-      winner: shouldApplyLocalChange ? "LOCAL" : "SERVER",
-      local_payload: entry.payload,
-      server_payload: currentRecord,
-    },
-    resolved_by: auth.userId,
-    resolved_at: new Date().toISOString(),
-    status: CONFLICT_STATUS.RESOLVED,
-  });
+  let conflictRecord = null;
+
+  try {
+    conflictRecord = await syncRepository.insertSyncConflict({
+      sync_transaction_id: syncTransaction.id,
+      entity_type: actionConfig.entityType,
+      entity_server_id: entry.entity_server_id,
+      conflict_type: "UPDATED_AT_MISMATCH",
+      local_payload_json: entry.payload,
+      server_payload_json: currentRecord,
+      resolution_strategy: RESOLUTION_STRATEGY,
+      resolved_payload_json: {
+        winner: shouldApplyLocalChange ? "LOCAL" : "SERVER",
+        local_payload: entry.payload,
+        server_payload: currentRecord,
+      },
+      resolved_by: auth.userId,
+      resolved_at: new Date().toISOString(),
+      status: CONFLICT_STATUS.RESOLVED,
+    });
+  } catch (error) {
+    await logErrorSafely({
+      actor: auth,
+      moduleName: "sync",
+      errorCode: "SYNC_CONFLICT_RESOLUTION_FAILED",
+      errorMessage: `Failed to record sync conflict resolution for ${actionConfig.entityType}`,
+      error,
+    });
+    throw error;
+  }
 
   return {
     hasConflict: true,
@@ -428,6 +443,14 @@ const processSingleSyncEntry = async (entry, auth) => {
       server_timestamp: new Date().toISOString(),
       sync_status: SYNC_STATUS.FAILED,
       error_message: error.message || "Sync failed",
+    });
+
+    await logErrorSafely({
+      actor: auth,
+      moduleName: "sync",
+      errorCode: "SYNC_PROCESS_FAILED",
+      errorMessage: `Sync failed for ${entry.action_key}: ${error.message || "Unknown error"}`,
+      error,
     });
 
     return {

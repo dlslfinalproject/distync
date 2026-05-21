@@ -1,6 +1,7 @@
 const pool = require("../config/db");
 const distributionTransactionRepository = require("../repositories/distributionTransaction.repository");
 const notificationService = require("../modules/notifications/notification.service");
+const { logAuditSafely, pickDefined } = require("../utils/systemLog");
 
 const buildFullName = (firstName, middleName, lastName, suffix) => {
   return [firstName, middleName, lastName, suffix].filter(Boolean).join(" ");
@@ -71,6 +72,22 @@ const groupRequestedItemsByBatch = (items) => {
 
   return [...groupedItems.values()];
 };
+
+const summarizeDistributionTransaction = (transaction) =>
+  pickDefined(transaction, [
+    "disaster_event_id",
+    "household_id",
+    "stub_id",
+    "distribution_status",
+    "claimed_by_name",
+    "verified_by",
+    "qr_reference_value",
+    "receipt_no",
+    "receipt_status",
+    "received_at",
+    "relief_pack_template_id",
+    "remarks",
+  ]);
 
 const createDistributionTransaction = async (requestData) => {
   const client = await pool.connect();
@@ -290,6 +307,15 @@ const createDistributionTransaction = async (requestData) => {
       });
     });
 
+    await logAuditSafely({
+      actor: requestData.requester,
+      action: "DISTRIBUTION_RECORD",
+      entityType: "DISTRIBUTION_TRANSACTION",
+      entityId: distributionTransaction.id,
+      oldValues: {},
+      newValues: summarizeDistributionTransaction(distributionTransaction),
+    });
+
     return {
       distribution_transaction_id: distributionTransaction.id,
       distribution_date: distributionTransaction.distribution_date,
@@ -453,6 +479,15 @@ const claimDistributionTransactionFromQr = async (requestData) => {
         distributionTransactionId: distributionTransaction.id,
       }),
     );
+
+    await logAuditSafely({
+      actor: requestData.requester,
+      action: "DISTRIBUTION_QR_CLAIM",
+      entityType: "DISTRIBUTION_TRANSACTION",
+      entityId: distributionTransaction.id,
+      oldValues: {},
+      newValues: summarizeDistributionTransaction(distributionTransaction),
+    });
 
     return {
       distribution_transaction_id: distributionTransaction.id,

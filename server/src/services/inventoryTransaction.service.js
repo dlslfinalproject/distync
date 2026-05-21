@@ -2,6 +2,7 @@ const pool = require("../config/db");
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
 const mayorReportExport = require("../utils/mayorReportExport");
 const notificationService = require("../modules/notifications/notification.service");
+const { logAuditSafely, pickDefined } = require("../utils/systemLog");
 
 const additiveTransactionTypes = new Set(["INFLOW", "RETURN", "ADJUSTMENT"]);
 const subtractiveTransactionTypes = new Set([
@@ -78,6 +79,19 @@ const mapInventoryTransaction = (transaction) => {
       : null,
   };
 };
+
+const summarizeInventoryTransaction = (transaction) =>
+  pickDefined(transaction, [
+    "disaster_event_id",
+    "inventory_batch_id",
+    "transaction_type",
+    "quantity",
+    "reference_type",
+    "reference_id",
+    "performed_by",
+    "performed_at",
+    "remarks",
+  ]);
 
 const getInventoryTransactions = async (filters) => {
   const transactions =
@@ -193,6 +207,18 @@ const createInventoryTransaction = async (transactionData) => {
         disasterEventId: transactionData.disaster_event_id,
       }),
     );
+
+    await logAuditSafely({
+      actor: {
+        userId: transactionData.performed_by,
+        roleCode: "MAYOR",
+      },
+      action: "INVENTORY_TRANSACTION_CREATE",
+      entityType: "INVENTORY_TRANSACTION",
+      entityId: createdTransaction.id,
+      oldValues: {},
+      newValues: summarizeInventoryTransaction(createdTransaction),
+    });
 
     return {
       transaction_id: createdTransaction.id,

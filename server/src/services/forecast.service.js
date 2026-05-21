@@ -3,6 +3,7 @@ require("dotenv").config({ path: path.resolve(__dirname, "../../.env") });
 
 const pool = require("../config/db");
 const forecastRepository = require("../repositories/forecast.repository");
+const { logErrorSafely } = require("../utils/systemLog");
 
 const FORECAST_MODELS = {
   MOVING_AVERAGE: "MOVING_AVERAGE",
@@ -144,7 +145,7 @@ const buildAnalyticsUnavailableError = (message) => {
   return error;
 };
 
-const callAnalyticsInventoryForecast = async (payload) => {
+const callAnalyticsInventoryForecast = async (payload, actor = null) => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), ANALYTICS_TIMEOUT_MS);
   const analyticsUrl = `${normalizeAnalyticsServiceUrl(
@@ -173,6 +174,14 @@ const callAnalyticsInventoryForecast = async (payload) => {
 
       console.error("Inventory forecasting analytics error:", detail);
 
+      await logErrorSafely({
+        actor,
+        moduleName: "forecasting",
+        errorCode: "ANALYTICS_FORECAST_REQUEST_FAILED",
+        errorMessage: detail,
+        severity: response.status >= 500 ? "ERROR" : "WARNING",
+      });
+
       const error = new Error(detail);
       error.statusCode = response.status >= 500 ? 503 : response.status;
       throw error;
@@ -187,6 +196,15 @@ const callAnalyticsInventoryForecast = async (payload) => {
         "Analytics service returned an invalid forecast response.",
       );
       error.statusCode = 502;
+
+      await logErrorSafely({
+        actor,
+        moduleName: "forecasting",
+        errorCode: "INVALID_FORECAST_RESPONSE",
+        errorMessage: error.message,
+        error,
+      });
+
       throw error;
     }
 
@@ -196,6 +214,15 @@ const callAnalyticsInventoryForecast = async (payload) => {
       console.error(
         `Inventory forecasting analytics timed out after ${ANALYTICS_TIMEOUT_MS}ms.`,
       );
+
+      await logErrorSafely({
+        actor,
+        moduleName: "forecasting",
+        errorCode: "ANALYTICS_FORECAST_TIMEOUT",
+        errorMessage: "Analytics service timed out while computing the inventory forecast.",
+        error,
+      });
+
       throw buildAnalyticsUnavailableError(
         "Analytics service timed out while computing the inventory forecast.",
       );
@@ -206,6 +233,15 @@ const callAnalyticsInventoryForecast = async (payload) => {
     }
 
     console.error("Inventory forecasting analytics request failed:", error.message);
+
+    await logErrorSafely({
+      actor,
+      moduleName: "forecasting",
+      errorCode: "ANALYTICS_SERVICE_UNAVAILABLE",
+      errorMessage: error.message || "Analytics service is unavailable.",
+      error,
+    });
+
     throw buildAnalyticsUnavailableError(
       "Analytics service is unavailable. Please make sure the analytics server is running.",
     );
@@ -266,7 +302,10 @@ const runInventoryForecast = async ({ disaster_event_id, model_name, run_by }) =
     usageSeriesMap,
     modelName: resolvedModelName,
   });
-  const analyticsForecast = await callAnalyticsInventoryForecast(analyticsPayload);
+  const analyticsForecast = await callAnalyticsInventoryForecast(analyticsPayload, {
+    userId: run_by,
+    roleCode: "MAYOR",
+  });
   const client = await pool.connect();
 
   try {

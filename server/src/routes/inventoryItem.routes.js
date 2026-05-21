@@ -146,6 +146,7 @@ router.post(
   try {
     const inventoryItem = await inventoryItemService.createInventoryItem(
       req.validatedBody,
+      req.auth,
     );
 
     return res.status(201).json({
@@ -172,6 +173,7 @@ router.put(
       const inventoryItem = await inventoryItemService.updateInventoryItem(
         req.params.id,
         req.validatedBody,
+        req.auth,
       );
 
       return res.status(200).json({

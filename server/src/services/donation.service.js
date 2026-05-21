@@ -2,6 +2,11 @@ const pool = require("../config/db");
 const donationRepository = require("../repositories/donation.repository");
 const mayorReportExport = require("../utils/mayorReportExport");
 const notificationService = require("../modules/notifications/notification.service");
+const {
+  logAuditSafely,
+  pickDefined,
+  normalizeActor,
+} = require("../utils/systemLog");
 
 const buildFullName = (firstName, lastName) => {
   return [firstName, lastName].filter(Boolean).join(" ");
@@ -115,6 +120,20 @@ const mapDonation = (row, items = []) => {
     ),
   };
 };
+
+const summarizeDonation = (donation) =>
+  pickDefined(donation, [
+    "disaster_event_id",
+    "donor_name",
+    "donor_type",
+    "contact_information",
+    "received_by",
+    "received_at",
+    "status",
+    "remarks",
+    "item_count",
+    "total_quantity_received",
+  ]);
 
 const getBatchStatus = (expirationDate, quantityAvailable) => {
   if (expirationDate) {
@@ -535,7 +554,9 @@ const getDonationById = async (id) => {
   return mapDonation(donation, items);
 };
 
-const createDonation = async (payload, receivedBy) => {
+const createDonation = async (payload, actor) => {
+  const normalizedActor = normalizeActor(actor);
+  const receivedBy = normalizedActor.userId;
   const client = await pool.connect();
 
   try {
@@ -597,6 +618,15 @@ const createDonation = async (payload, receivedBy) => {
       }
     });
 
+    await logAuditSafely({
+      actor: normalizedActor,
+      action: "DONATION_CREATE",
+      entityType: "DONATION",
+      entityId: createdDonationRecord.id,
+      oldValues: {},
+      newValues: summarizeDonation(createdDonationRecord),
+    });
+
     return createdDonationRecord;
   } catch (error) {
     await client.query("ROLLBACK");
@@ -606,7 +636,8 @@ const createDonation = async (payload, receivedBy) => {
   }
 };
 
-const updateDonation = async (id, payload) => {
+const updateDonation = async (id, payload, actor = null) => {
+  const normalizedActor = normalizeActor(actor);
   const client = await pool.connect();
 
   try {
@@ -623,12 +654,25 @@ const updateDonation = async (id, payload) => {
       throw error;
     }
 
+    const previousDonationSummary = summarizeDonation(existingDonation);
+
     await ensureDisasterEvent(payload.disaster_event_id, client);
 
     await donationRepository.updateDonation(id, payload, client);
     await client.query("COMMIT");
 
-    return getDonationById(id);
+    const updatedDonation = await getDonationById(id);
+
+    await logAuditSafely({
+      actor: normalizedActor,
+      action: "DONATION_UPDATE",
+      entityType: "DONATION",
+      entityId: id,
+      oldValues: previousDonationSummary,
+      newValues: summarizeDonation(updatedDonation),
+    });
+
+    return updatedDonation;
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;

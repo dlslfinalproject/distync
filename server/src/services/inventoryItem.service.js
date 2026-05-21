@@ -3,6 +3,7 @@ const inventoryBatchRepository = require("../repositories/inventoryBatch.reposit
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
 const inventoryItemExport = require("../utils/inventoryItemExport");
 const mayorReportExport = require("../utils/mayorReportExport");
+const { logAuditSafely, pickDefined } = require("../utils/systemLog");
 
 const buildItemCodeSeed = (itemName) => {
   const normalizedName = itemName
@@ -124,6 +125,22 @@ const mapInventoryItemToExportRow = (item) => ({
   expiration_date: inventoryItemExport.formatDate(item.expiration_date),
   status: getItemStatus(item),
 });
+
+const summarizeInventoryItem = (item) =>
+  pickDefined(item, [
+    "item_code",
+    "item_name",
+    "category",
+    "unit_of_measure",
+    "unit_of_measure_value",
+    "packaging",
+    "packaging_count",
+    "quantity",
+    "expiration_date",
+    "barcode",
+    "is_perishable",
+    "is_active",
+  ]);
 
 const buildInventoryTrackingMap = (inventoryItems, inventoryBatches, inventoryTransactions) => {
   const trackingMap = new Map();
@@ -408,17 +425,29 @@ const getInventoryItemById = async (id) => {
   return inventoryItemRepository.getInventoryItemById(id);
 };
 
-const createInventoryItem = async (itemData) => {
+const createInventoryItem = async (itemData, actor = null) => {
   const inventoryItemToCreate = {
     ...itemData,
     item_code: itemData.item_code || await generateInventoryItemCode(itemData.item_name),
   };
 
   await ensureUniqueFields(inventoryItemToCreate);
-  return inventoryItemRepository.insertInventoryItem(inventoryItemToCreate);
+  const createdItem =
+    await inventoryItemRepository.insertInventoryItem(inventoryItemToCreate);
+
+  await logAuditSafely({
+    actor,
+    action: "INVENTORY_ITEM_CREATE",
+    entityType: "INVENTORY_ITEM",
+    entityId: createdItem.id,
+    oldValues: {},
+    newValues: summarizeInventoryItem(createdItem),
+  });
+
+  return createdItem;
 };
 
-const updateInventoryItem = async (id, itemData) => {
+const updateInventoryItem = async (id, itemData, actor = null) => {
   const existingItem = await inventoryItemRepository.getInventoryItemById(id);
 
   if (!existingItem) {
@@ -434,7 +463,21 @@ const updateInventoryItem = async (id, itemData) => {
 
   await ensureUniqueFields(inventoryItemToUpdate, id);
 
-  return inventoryItemRepository.updateInventoryItem(id, inventoryItemToUpdate);
+  const updatedItem = await inventoryItemRepository.updateInventoryItem(
+    id,
+    inventoryItemToUpdate,
+  );
+
+  await logAuditSafely({
+    actor,
+    action: "INVENTORY_ITEM_UPDATE",
+    entityType: "INVENTORY_ITEM",
+    entityId: updatedItem.id,
+    oldValues: summarizeInventoryItem(existingItem),
+    newValues: summarizeInventoryItem(updatedItem),
+  });
+
+  return updatedItem;
 };
 
 module.exports = {

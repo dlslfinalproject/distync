@@ -3,6 +3,10 @@ const householdRegistrationRepository = require("../repositories/householdRegist
 const notificationService = require("../modules/notifications/notification.service");
 const { deriveAgeGroup } = require("../utils/ageGroup");
 const {
+  logAuditSafely,
+  pickDefined,
+} = require("../utils/systemLog");
+const {
   HOUSEHOLD_CONDITION_CODES,
   MANUAL_MEMBER_SECTOR_CODES,
   getMemberFlagsFromSectorCodes,
@@ -166,6 +170,36 @@ const buildRegistrationResponse = async (householdId) => {
   };
 };
 
+const summarizeHousehold = (household) =>
+  pickDefined(household, [
+    "disaster_event_id",
+    "barangay_id",
+    "evacuation_center_id",
+    "residency_status",
+    "family_head_first_name",
+    "family_head_last_name",
+    "contact_number",
+    "current_stay_type",
+    "current_address_details",
+    "household_size",
+    "family_head_photo_url",
+    "photo_verification_notes",
+    "is_active",
+  ]);
+
+const summarizeMember = (member) => ({
+  id: member.id,
+  ...pickDefined(member, [
+    "household_id",
+    "first_name",
+    "last_name",
+    "relationship_to_head",
+    "age_value",
+    "age_unit",
+    "is_active",
+  ]),
+});
+
 const getHouseholdDetails = async ({ householdId, requester }) => {
   const household =
     await householdRegistrationRepository.getHouseholdSummaryById(householdId);
@@ -222,6 +256,8 @@ const updateHouseholdDetails = async ({
     error.statusCode = 400;
     throw error;
   }
+
+  const previousHouseholdSummary = summarizeHousehold(existingHousehold);
 
   const normalizedFamilyHead = buildPersonRecord({
     ...requestData.family_head,
@@ -305,6 +341,7 @@ const updateHouseholdDetails = async ({
   const existingNonHeadMembers = existingMembers.filter(
     (member) => !member.is_family_head,
   );
+  const deactivatedMemberSummaries = [];
   const incomingExistingMemberIds = new Set(
     requestData.members
       .map((member) => member.id)
@@ -373,6 +410,7 @@ const updateHouseholdDetails = async ({
         existingMember.id,
         client,
       );
+      deactivatedMemberSummaries.push(summarizeMember(existingMember));
     }
 
     const activeEvacuationLogs =
@@ -481,6 +519,32 @@ const updateHouseholdDetails = async ({
         requiresVerification: !householdDetails.household?.family_head_photo_url,
       }),
     );
+
+    await logAuditSafely({
+      actor: requester,
+      action: "HOUSEHOLD_UPDATE",
+      entityType: "HOUSEHOLD",
+      entityId: householdId,
+      oldValues: previousHouseholdSummary,
+      newValues: summarizeHousehold(householdDetails.household),
+    });
+
+    for (const deactivatedMember of deactivatedMemberSummaries) {
+      await logAuditSafely({
+        actor: requester,
+        action: "HOUSEHOLD_MEMBER_DEACTIVATE",
+        entityType: "EVACUEE",
+        entityId: deactivatedMember.id,
+        oldValues: {
+          ...deactivatedMember,
+          is_active: true,
+        },
+        newValues: {
+          ...deactivatedMember,
+          is_active: false,
+        },
+      });
+    }
 
     return householdDetails;
   } catch (error) {
