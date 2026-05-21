@@ -1,3 +1,8 @@
+import {
+  buildOfflineQueuedResponse,
+  performSyncableMutation,
+} from "../../offline/syncService";
+
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
@@ -100,15 +105,38 @@ export const exportInventoryBatches = async (format = "csv", filters = {}) => {
 };
 
 export const createInventoryBatch = async (payload) => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/inventory-batches`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+  return performSyncableMutation({
+    moduleName: "mayor-inventory",
+    actionKey: "INVENTORY_BATCH_CREATE",
+    entityType: "INVENTORY_BATCH",
+    entityLocalId: payload?.batch_no || null,
+    payload,
+    requiredFields: ["inventory_item_id", "batch_no", "quantity_received"],
+    request: async () => {
+      const response = await fetch(`${API_BASE_URL}/api/v1/inventory-batches`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
 
-  return handleJsonResponse(response, "Failed to create inventory batch");
+      return handleJsonResponse(response, "Failed to create inventory batch");
+    },
+    buildQueuedResponse: ({ clientSyncId, entityLocalId, clientTimestamp }) =>
+      buildOfflineQueuedResponse({
+        message:
+          "Inventory batch saved offline. Pending sync once connection is restored.",
+        data: {
+          id: entityLocalId,
+          batch_no: payload?.batch_no || entityLocalId,
+          updated_at: clientTimestamp,
+        },
+        clientSyncId,
+        entityLocalId,
+        clientTimestamp,
+      }),
+  });
 };
 
 export const fetchInventoryItems = async () => {

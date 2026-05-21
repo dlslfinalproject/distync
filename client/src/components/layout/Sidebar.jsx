@@ -379,6 +379,7 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
       navItems: [
         { label: "Evacuee Masterlist", to: "/barangay/masterlist" },
         { label: "Relief Goods Distribution", to: "/barangay/stub-distribution" },
+        { label: "Sync Center", to: "/barangay/sync" },
       ],
     },
     [ROLE_CODES.MSWDO]: {
@@ -388,6 +389,7 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
         { label: "Relief Goods Distribution", to: "/mswdo/stub-distribution" },
         { label: "Donation Summary", to: "/mswdo/donations" },
         { label: "Analytics Dashboard", to: "/mswdo/analytics" },
+        { label: "Sync Center", to: "/mswdo/sync" },
       ],
     },
     [ROLE_CODES.MAYOR]: {
@@ -399,6 +401,7 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
         { label: "Relief Pack Templates", to: "/inventory/relief-pack-templates" },
         { label: "Inventory Distribution", to: "/inventory/distribution" },
         { label: "Donation Management", to: "/inventory/donations" },
+        { label: "Sync Center", to: "/inventory/sync" },
       ],
     },
   };

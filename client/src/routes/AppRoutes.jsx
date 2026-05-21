@@ -17,6 +17,7 @@ import InventoryBatchesPage from "../pages/inventory/InventoryBatchesPage";
 import InventoryItemsPage from "../pages/inventory/InventoryItemsPage";
 import InventoryDistributionPage from "../pages/inventory/InventoryDistributionPage";
 import MayorNotificationsPage from "../pages/inventory/MayorNotificationsPage";
+import SyncManagementPage from "../pages/SyncManagementPage";
 import InventoryTransactionsPage from "../pages/inventory/InventoryTransactionsPage";
 import ReliefPackTemplatesPage from "../pages/inventory/ReliefPackTemplatesPage";
 import SuppliersPage from "../pages/inventory/SuppliersPage";
@@ -70,6 +71,7 @@ const AppRoutes = () => {
             element={<StubDistributionPage />}
           />
           <Route path="notifications" element={<MayorNotificationsPage />} />
+          <Route path="sync" element={<SyncManagementPage />} />
         </Route>
         <Route
           path="/mswdo"
@@ -98,6 +100,7 @@ const AppRoutes = () => {
           <Route path="donations" element={<DonationManagementPage />} />
           <Route path="disaster-events" element={<DisasterEventsPage />} />
           <Route path="notifications" element={<MayorNotificationsPage />} />
+          <Route path="sync" element={<SyncManagementPage />} />
         </Route>
         <Route
           path="/mswdo/print/stubs"
@@ -123,6 +126,7 @@ const AppRoutes = () => {
             element={<InventoryTransactionsPage />}
           />
           <Route path="notifications" element={<MayorNotificationsPage />} />
+          <Route path="sync" element={<SyncManagementPage />} />
           <Route path="suppliers" element={<SuppliersPage />} />
           <Route
             path="relief-pack-templates"

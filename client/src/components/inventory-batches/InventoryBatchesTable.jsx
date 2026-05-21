@@ -1,5 +1,6 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
+import SyncStatusBadge from "../shared/SyncStatusBadge";
 
 const tableStyles = {
   table: {
@@ -121,6 +122,7 @@ const InventoryBatchesTable = ({ rows, isLoading, errorMessage }) => {
               <th style={tableStyles.headerCell}>Quantity Available</th>
               <th style={tableStyles.headerCell}>Expiration Date</th>
               <th style={tableStyles.headerCell}>Status</th>
+              <th style={tableStyles.headerCell}>Sync</th>
             </tr>
           </thead>
           <tbody>
@@ -139,6 +141,9 @@ const InventoryBatchesTable = ({ rows, isLoading, errorMessage }) => {
                 </td>
                 <td style={tableStyles.bodyCell}>
                   <span style={getStatusBadgeStyles(row.status)}>{row.status}</span>
+                </td>
+                <td style={tableStyles.bodyCell}>
+                  <SyncStatusBadge status={row.sync_status} compact />
                 </td>
               </tr>
             ))}

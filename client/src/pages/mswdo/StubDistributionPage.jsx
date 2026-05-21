@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import { FaHandHolding } from "react-icons/fa6";
 import { FiFileText, FiFilter, FiPrinter } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
@@ -10,6 +11,9 @@ import MswdoStubResultsTable from "../../components/stubs/MswdoStubResultsTable"
 import StubSummaryCards from "../../components/stubs/StubSummaryCards";
 import { claimStub, fetchStubDetails } from "../../features/stubs/stubService";
 import { useMswdoStubDistribution } from "../../features/stubs/useMswdoStubDistribution";
+import db from "../../offline/db";
+import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
+import { subscribeToSyncUpdates } from "../../offline/syncService";
 
 const filterStyles = {
   field: {
@@ -331,9 +335,31 @@ const StubDistributionPage = () => {
   });
   const filterButtonRef = useRef(null);
   const filterPanelRef = useRef(null);
+  const syncQueueEntries =
+    useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
 
   const selectedSectorIds = filtersByTab[activeTab]?.sectorIds || [];
   const selectedStubStatus = filtersByTab[activeTab]?.stubStatus || "";
+  const displayedRowsWithSyncStatus = useMemo(() => {
+    return displayedRows.map((row) => {
+      const matchingEntry = findSyncEntry(syncQueueEntries, (entry) => {
+        if (entry.moduleName !== "stubs") {
+          return false;
+        }
+
+        return (
+          entry.entityServerId === row.id ||
+          entry.entityLocalId === row.id ||
+          entry.payload?.stub_id === row.id
+        );
+      });
+
+      return {
+        ...row,
+        sync_status: buildSyncDescriptor(matchingEntry).status,
+      };
+    });
+  }, [displayedRows, syncQueueEntries]);
 
   const scopedDisasterEvents = useMemo(() => {
     const allowedStatuses =
@@ -446,11 +472,21 @@ const StubDistributionPage = () => {
   }, [isFilterOpen, activeFilterCount]);
 
   useEffect(() => {
-    const visibleStubIds = new Set(displayedRows.map((row) => row.id));
+    const visibleStubIds = new Set(displayedRowsWithSyncStatus.map((row) => row.id));
     setSelectedStubIds((currentValues) =>
       currentValues.filter((stubId) => visibleStubIds.has(stubId)),
     );
-  }, [displayedRows]);
+  }, [displayedRowsWithSyncStatus]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToSyncUpdates(() => {
+      if (typeof navigator !== "undefined" && navigator.onLine) {
+        reloadDashboard();
+      }
+    });
+
+    return () => unsubscribe();
+  }, [reloadDashboard]);
 
   const toggleSectorFilter = (sectorId) => {
     setFiltersByTab((currentFilters) => ({
@@ -522,7 +558,7 @@ const StubDistributionPage = () => {
       return;
     }
 
-    const selectableStubIds = displayedRows
+    const selectableStubIds = displayedRowsWithSyncStatus
       .filter((row) => row.status === "ISSUED")
       .map((row) => row.id);
 
@@ -672,7 +708,7 @@ const StubDistributionPage = () => {
       return;
     }
 
-    if (!displayedRows.length) {
+    if (!displayedRowsWithSyncStatus.length) {
       window.alert("No stub records are available to export for the current filters.");
       return;
     }
@@ -681,7 +717,7 @@ const StubDistributionPage = () => {
 
     try {
       downloadCsvFile(
-        displayedRows,
+        displayedRowsWithSyncStatus,
         selectedDisasterEvent?.event_code || "event",
         selectedBarangay?.name || "barangay",
       );
@@ -712,7 +748,7 @@ const StubDistributionPage = () => {
   };
 
   const handlePrintIssuedStubs = () => {
-    const issuedRows = displayedRows.filter((row) => row.status === "ISSUED");
+    const issuedRows = displayedRowsWithSyncStatus.filter((row) => row.status === "ISSUED");
 
     if (!issuedRows.length) {
       window.alert("No issued stubs are available to print.");
@@ -990,7 +1026,7 @@ const StubDistributionPage = () => {
             disabled={
               !hasSelectedEvent ||
               !hasSelectedBarangay ||
-              !displayedRows.length ||
+              !displayedRowsWithSyncStatus.length ||
               isExporting
             }
             style={{
@@ -1004,7 +1040,7 @@ const StubDistributionPage = () => {
               cursor:
                 !hasSelectedEvent ||
                 !hasSelectedBarangay ||
-                !displayedRows.length ||
+                !displayedRowsWithSyncStatus.length ||
                 isExporting
                   ? "not-allowed"
                   : "pointer",
@@ -1014,7 +1050,7 @@ const StubDistributionPage = () => {
               opacity:
                 !hasSelectedEvent ||
                 !hasSelectedBarangay ||
-                !displayedRows.length ||
+                !displayedRowsWithSyncStatus.length ||
                 isExporting
                   ? 0.7
                   : 1,
@@ -1031,7 +1067,7 @@ const StubDistributionPage = () => {
               disabled={
                 !hasSelectedEvent ||
                 !hasSelectedBarangay ||
-                !displayedRows.some((row) => row.status === "ISSUED")
+                !displayedRowsWithSyncStatus.some((row) => row.status === "ISSUED")
               }
               style={{
                 ...pageHeaderStyles.secondaryButton,
@@ -1041,7 +1077,7 @@ const StubDistributionPage = () => {
                 opacity:
                   !hasSelectedEvent ||
                   !hasSelectedBarangay ||
-                  !displayedRows.some((row) => row.status === "ISSUED")
+                  !displayedRowsWithSyncStatus.some((row) => row.status === "ISSUED")
                     ? 0.7
                     : 1,
               }}
@@ -1094,7 +1130,7 @@ const StubDistributionPage = () => {
       ) : null}
 
       <MswdoStubResultsTable
-        rows={displayedRows}
+        rows={displayedRowsWithSyncStatus}
         isLoading={isLoadingData}
         errorMessage={errorMessage}
         hasSelectedEvent={hasSelectedEvent}

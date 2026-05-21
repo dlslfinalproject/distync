@@ -3,6 +3,7 @@ import { FaHandHolding } from "react-icons/fa6";
 import { FiPrinter } from "react-icons/fi";
 import { shellStyles } from "../layout/BarangayLayout";
 import QrCodePanel from "./QrCodePanel";
+import SyncStatusBadge from "../shared/SyncStatusBadge";
 
 const tableStyles = {
   table: {
@@ -269,6 +270,15 @@ const MswdoStubResultsTable = ({
               <th style={{ ...tableStyles.headerCell, width: "34%" }}>
                 Sectors
               </th>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  width: "12%",
+                  textAlign: "center",
+                }}
+              >
+                Sync
+              </th>
               <th style={{ ...tableStyles.headerCell, width: "18%" }}>
                 QR Stub
               </th>
@@ -318,6 +328,14 @@ const MswdoStubResultsTable = ({
                     </div>
                   </td>
                   <td style={tableStyles.bodyCell}>{row.sectors_text}</td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      textAlign: "center",
+                    }}
+                  >
+                    <SyncStatusBadge status={row.sync_status} compact />
+                  </td>
                   <td
                     style={{
                       ...tableStyles.bodyCell,

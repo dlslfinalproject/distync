@@ -1,3 +1,8 @@
+import {
+  buildOfflineQueuedResponse,
+  performSyncableMutation,
+} from "../../offline/syncService";
+
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
@@ -74,25 +79,70 @@ export const exportSuppliers = async (format = "csv", filters = {}) => {
 };
 
 export const createSupplier = async (payload) => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/suppliers`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+  return performSyncableMutation({
+    moduleName: "mayor-suppliers",
+    actionKey: "SUPPLIER_CREATE",
+    entityType: "SUPPLIER",
+    entityLocalId: payload?.name || null,
+    payload,
+    requiredFields: ["name"],
+    request: async () => {
+      const response = await fetch(`${API_BASE_URL}/api/v1/suppliers`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
 
-  return handleJsonResponse(response, "Failed to create supplier");
+      return handleJsonResponse(response, "Failed to create supplier");
+    },
+    buildQueuedResponse: ({ clientSyncId, entityLocalId, clientTimestamp }) =>
+      buildOfflineQueuedResponse({
+        message:
+          "Supplier record saved offline. Pending sync once connection is restored.",
+        data: {
+          id: entityLocalId,
+          name: payload?.name || entityLocalId,
+          updated_at: clientTimestamp,
+        },
+        clientSyncId,
+        entityLocalId,
+        clientTimestamp,
+      }),
+  });
 };
 
 export const updateSupplier = async (supplierId, payload) => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/suppliers/${supplierId}`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+  return performSyncableMutation({
+    moduleName: "mayor-suppliers",
+    actionKey: "SUPPLIER_UPDATE",
+    entityType: "SUPPLIER",
+    entityServerId: supplierId,
+    payload,
+    requiredFields: ["name"],
+    request: async () => {
+      const response = await fetch(`${API_BASE_URL}/api/v1/suppliers/${supplierId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
 
-  return handleJsonResponse(response, "Failed to update supplier");
+      return handleJsonResponse(response, "Failed to update supplier");
+    },
+    buildQueuedResponse: ({ clientSyncId, clientTimestamp }) =>
+      buildOfflineQueuedResponse({
+        message:
+          "Supplier update saved offline. Pending sync once connection is restored.",
+        data: {
+          id: supplierId,
+          updated_at: clientTimestamp,
+        },
+        clientSyncId,
+        entityLocalId: supplierId,
+        clientTimestamp,
+      }),
+  });
 };

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import { FiFileText } from "react-icons/fi";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
@@ -9,6 +10,9 @@ import {
   fetchInventoryTransactions,
 } from "../../features/inventory-transactions/inventoryTransactionService";
 import { fetchInventoryItems } from "../../features/inventory-items/inventoryItemService";
+import db from "../../offline/db";
+import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
+import { subscribeToSyncUpdates } from "../../offline/syncService";
 
 const selectStyles = {
   minHeight: "52px",
@@ -68,6 +72,22 @@ const exportMenuButtonStyles = {
 
 const NO_EXPORT_DATA_MESSAGE = "No available data to export.";
 
+const buildQueuedInventoryTransaction = (entry, inventoryItems) => {
+  return {
+    id: entry.entityLocalId || entry.id,
+    performed_at: entry.clientTimestamp,
+    inventory_item:
+      inventoryItems.find((item) => item.id === entry.payload?.inventory_item_id) ||
+      null,
+    transaction_type: entry.payload?.transaction_type || "ADJUSTMENT",
+    quantity: entry.payload?.quantity || 0,
+    reference_type: entry.payload?.reference_type || "SYNC",
+    remarks: entry.payload?.remarks || "",
+    sync_status: entry.status,
+    is_local_only: true,
+  };
+};
+
 const InventoryTransactionsPage = () => {
   const [filters, setFilters] = useState({
     search: "",
@@ -81,6 +101,8 @@ const InventoryTransactionsPage = () => {
   const [errorMessage, setErrorMessage] = useState("");
   const [isExporting, setIsExporting] = useState("");
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const syncQueueEntries =
+    useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
 
   const downloadFile = (file) => {
     const downloadUrl = window.URL.createObjectURL(file.blob);
@@ -116,11 +138,56 @@ const InventoryTransactionsPage = () => {
     loadPageData(filters);
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = subscribeToSyncUpdates(() => {
+      if (typeof navigator !== "undefined" && navigator.onLine) {
+        loadPageData(filters);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [filters]);
+
   const inventoryItemOptions = useMemo(() => {
     return [...inventoryItems].sort((left, right) =>
       left.item_name.localeCompare(right.item_name),
     );
   }, [inventoryItems]);
+
+  const inventoryTransactionsWithSyncStatus = useMemo(() => {
+    const syncedRows = inventoryTransactions.map((transaction) => {
+      const matchingEntry = findSyncEntry(syncQueueEntries, (entry) => {
+        return (
+          entry.moduleName === "mayor-inventory" &&
+          entry.entityType === "INVENTORY_TRANSACTION" &&
+          (entry.entityServerId === transaction.id ||
+            entry.entityLocalId === transaction.id)
+        );
+      });
+
+      return {
+        ...transaction,
+        sync_status: buildSyncDescriptor(matchingEntry).status,
+        is_local_only: false,
+      };
+    });
+
+    const optimisticRows = syncQueueEntries
+      .filter((entry) => {
+        return (
+          entry.moduleName === "mayor-inventory" &&
+          entry.actionKey === "INVENTORY_TRANSACTION_CREATE" &&
+          !syncedRows.some(
+            (transaction) =>
+              transaction.id === entry.entityServerId ||
+              transaction.id === entry.entityLocalId,
+          )
+        );
+      })
+      .map((entry) => buildQueuedInventoryTransaction(entry, inventoryItems));
+
+    return [...optimisticRows, ...syncedRows];
+  }, [inventoryItems, inventoryTransactions, syncQueueEntries]);
 
   const handleFilterChange = (fieldName, value) => {
     setFilters((currentFilters) => ({
@@ -137,7 +204,7 @@ const InventoryTransactionsPage = () => {
     setErrorMessage("");
     setIsExportMenuOpen(false);
 
-    if (inventoryTransactions.length === 0) {
+    if (inventoryTransactionsWithSyncStatus.length === 0) {
       setErrorMessage(NO_EXPORT_DATA_MESSAGE);
       return;
     }
@@ -302,7 +369,7 @@ const InventoryTransactionsPage = () => {
       </section>
 
       <InventoryTransactionsTable
-        rows={inventoryTransactions}
+        rows={inventoryTransactionsWithSyncStatus}
         isLoading={isLoading}
         errorMessage={errorMessage}
       />

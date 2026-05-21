@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import SearchBar from "../../components/shared/SearchBar";
 import InventoryItemFormModal from "../../components/inventory-items/InventoryItemFormModal";
 import InventoryItemScanModal from "../../components/inventory-items/InventoryItemScanModal";
 import StatusCard from "../../components/shared/StatusCard";
+import SyncStatusBadge from "../../components/shared/SyncStatusBadge";
 import {
   createInventoryItem,
   exportInventoryItems,
@@ -21,6 +23,9 @@ import {
   FiPlus,
 } from "react-icons/fi";
 import { MdQrCodeScanner } from "react-icons/md";
+import db from "../../offline/db";
+import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
+import { subscribeToSyncUpdates } from "../../offline/syncService";
 
 const COLORS = {
   primary: "#17324d",
@@ -462,6 +467,23 @@ const hasInventoryExportRows = ({
   return false;
 };
 
+const buildQueuedInventoryItem = (entry) => {
+  return {
+    id: entry.entityLocalId || entry.id,
+    item_name: entry.payload?.item_name || "Pending inventory item",
+    category: entry.payload?.category || "--",
+    quantity: entry.payload?.quantity || 0,
+    packaging_count: entry.payload?.packaging_count || 0,
+    unit_of_measure: entry.payload?.unit_of_measure || "--",
+    unit_of_measure_value: entry.payload?.unit_of_measure_value || 1,
+    expiration_date: entry.payload?.expiration_date || null,
+    is_active: true,
+    is_perishable: Boolean(entry.payload?.is_perishable),
+    is_local_only: true,
+    sync_status: entry.status,
+  };
+};
+
 /* ================= HELPERS ================= */
 
 const getUniqueCategories = (rows) =>
@@ -813,6 +835,8 @@ const InventoryItemsPage = () => {
   const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
   const [exportingFormat, setExportingFormat] = useState("");
   const [exportNoticeMessage, setExportNoticeMessage] = useState("");
+  const syncQueueEntries =
+    useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
 
   const loadInventoryData = async (activeFilters = filters) => {
     setIsLoading(true);
@@ -838,6 +862,16 @@ const InventoryItemsPage = () => {
 
   useEffect(() => {
     loadInventoryData(filters);
+  }, [filters]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToSyncUpdates(() => {
+      if (typeof navigator !== "undefined" && navigator.onLine) {
+        loadInventoryData(filters);
+      }
+    });
+
+    return () => unsubscribe();
   }, [filters]);
 
   useEffect(() => {
@@ -915,33 +949,69 @@ const InventoryItemsPage = () => {
     };
   }, [selectedForecastEventId]);
 
+  const inventoryItemsWithSyncStatus = useMemo(() => {
+    const syncedItems = inventoryItems.map((item) => {
+      const matchingEntry = findSyncEntry(syncQueueEntries, (entry) => {
+        if (entry.moduleName !== "mayor-inventory") {
+          return false;
+        }
+
+        return (
+          entry.entityType === "INVENTORY_ITEM" &&
+          (entry.entityServerId === item.id || entry.entityLocalId === item.id)
+        );
+      });
+
+      return {
+        ...item,
+        sync_status: buildSyncDescriptor(matchingEntry).status,
+        is_local_only: false,
+      };
+    });
+
+    const optimisticItems = syncQueueEntries
+      .filter((entry) => {
+        return (
+          entry.moduleName === "mayor-inventory" &&
+          entry.actionKey === "INVENTORY_ITEM_CREATE" &&
+          !syncedItems.some(
+            (item) =>
+              item.id === entry.entityServerId || item.id === entry.entityLocalId,
+          )
+        );
+      })
+      .map(buildQueuedInventoryItem);
+
+    return [...optimisticItems, ...syncedItems];
+  }, [inventoryItems, syncQueueEntries]);
+
   const inventoryTrackingMap = useMemo(
     () =>
       buildInventoryTrackingMap(
-        inventoryItems,
+        inventoryItemsWithSyncStatus,
         inventoryBatches,
         inventoryTransactions,
       ),
-    [inventoryItems, inventoryBatches, inventoryTransactions],
+    [inventoryItemsWithSyncStatus, inventoryBatches, inventoryTransactions],
   );
 
   const inventoryAnalytics = useMemo(() => {
-    const totalItems = inventoryItems.length;
-    const perishableItems = inventoryItems.filter((item) => item.is_perishable).length;
+    const totalItems = inventoryItemsWithSyncStatus.length;
+    const perishableItems = inventoryItemsWithSyncStatus.filter((item) => item.is_perishable).length;
     const nonPerishableItems = totalItems - perishableItems;
-    const availableItems = inventoryItems.filter((item) => {
+    const availableItems = inventoryItemsWithSyncStatus.filter((item) => {
       const trackingStats =
         inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
 
       return trackingStats.onHand > 0;
     }).length;
-    const distributedItems = inventoryItems.filter((item) => {
+    const distributedItems = inventoryItemsWithSyncStatus.filter((item) => {
       const trackingStats =
         inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
 
       return trackingStats.distributed > 0;
     }).length;
-    const expiredItems = inventoryItems.filter((item) => {
+    const expiredItems = inventoryItemsWithSyncStatus.filter((item) => {
       const trackingStats =
         inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
 
@@ -951,19 +1021,19 @@ const InventoryItemsPage = () => {
         isDateExpired(getTrackedExpirationDate(item, trackingStats))
       );
     }).length;
-    const totalOnHand = inventoryItems.reduce((sum, item) => {
+    const totalOnHand = inventoryItemsWithSyncStatus.reduce((sum, item) => {
       const trackingStats =
         inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
 
       return sum + trackingStats.onHand;
     }, 0);
-    const totalDistributed = inventoryItems.reduce((sum, item) => {
+    const totalDistributed = inventoryItemsWithSyncStatus.reduce((sum, item) => {
       const trackingStats =
         inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
 
       return sum + trackingStats.distributed;
     }, 0);
-    const totalExpired = inventoryItems.reduce((sum, item) => {
+    const totalExpired = inventoryItemsWithSyncStatus.reduce((sum, item) => {
       const trackingStats =
         inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
 
@@ -983,7 +1053,7 @@ const InventoryItemsPage = () => {
       perishableShare: formatPercentage(perishableItems, totalItems),
       nonPerishableShare: formatPercentage(nonPerishableItems, totalItems),
     };
-  }, [inventoryItems, inventoryTrackingMap]);
+  }, [inventoryItemsWithSyncStatus, inventoryTrackingMap]);
 
   const summaryCards = useMemo(
     () => [
@@ -1020,16 +1090,16 @@ const InventoryItemsPage = () => {
 
   const visibleInventoryItems = useMemo(() => {
     if (filters.status === "All") {
-      return inventoryItems;
+      return inventoryItemsWithSyncStatus;
     }
 
-    return inventoryItems.filter((item) => {
+    return inventoryItemsWithSyncStatus.filter((item) => {
       const trackingStats =
         inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
 
       return getItemStatus(item, trackingStats) === filters.status;
     });
-  }, [inventoryItems, inventoryTrackingMap, filters.status]);
+  }, [inventoryItemsWithSyncStatus, inventoryTrackingMap, filters.status]);
 
   const handleFilterChange = (name, value) => {
     setFilters((previousFilters) => ({
@@ -1049,8 +1119,10 @@ const InventoryItemsPage = () => {
     setModalErrorMessage("");
 
     try {
-      await createInventoryItem(payload);
-      await loadInventoryData();
+      const response = await createInventoryItem(payload);
+      if (!response?.queued_offline) {
+        await loadInventoryData();
+      }
       setIsModalOpen(false);
       setCreateModalItemData(null);
     } catch (error) {
@@ -1323,6 +1395,7 @@ const InventoryItemsPage = () => {
                     "Unit of Measurement",
                     "Expiry Date",
                     "Status",
+                    "Sync",
                   ].map((header) => (
                     <th key={header} style={styles.th}>
                       {header}
@@ -1334,14 +1407,14 @@ const InventoryItemsPage = () => {
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan="6" style={styles.emptyStateCell}>
+                    <td colSpan="7" style={styles.emptyStateCell}>
                       Loading...
                     </td>
                   </tr>
                 ) : errorMessage ? (
                   <tr>
                     <td
-                      colSpan="6"
+                      colSpan="7"
                       style={{ ...styles.emptyStateCell, color: "#b91c1c" }}
                     >
                       {errorMessage}
@@ -1349,7 +1422,7 @@ const InventoryItemsPage = () => {
                   </tr>
                 ) : visibleInventoryItems.length === 0 ? (
                   <tr>
-                    <td colSpan="6" style={styles.emptyStateCell}>
+                    <td colSpan="7" style={styles.emptyStateCell}>
                       No items found
                     </td>
                   </tr>
@@ -1403,6 +1476,9 @@ const InventoryItemsPage = () => {
                           >
                             {itemStatus}
                           </span>
+                        </td>
+                        <td style={styles.td}>
+                          <SyncStatusBadge status={item.sync_status} compact />
                         </td>
                       </tr>
                     );

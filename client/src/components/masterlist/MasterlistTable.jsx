@@ -2,6 +2,7 @@ import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
 import { MdDoorFront } from "react-icons/md";
 import { FiEdit2, FiEye } from "react-icons/fi";
+import SyncStatusBadge from "../shared/SyncStatusBadge";
 
 const tableStyles = {
   table: {
@@ -218,6 +219,14 @@ const MasterlistTable = ({
                   textAlign: "center",
                 }}
               >
+                Sync
+              </th>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  textAlign: "center",
+                }}
+              >
                 Arrival Time
               </th>
               <th
@@ -243,7 +252,8 @@ const MasterlistTable = ({
               const isSelectable =
                 !isDepartureReadOnly &&
                 !row.departure_time_value &&
-                row.can_record_departure;
+                row.can_record_departure &&
+                !row.is_local_only;
               const isSelected = safeSelectedHouseholds.includes(
                 row.household_id,
               );
@@ -282,6 +292,14 @@ const MasterlistTable = ({
                       textAlign: "center",
                     }}
                   >
+                    <SyncStatusBadge status={row.sync_status} compact />
+                  </td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      textAlign: "center",
+                    }}
+                  >
                     {row.arrival_time_text}
                   </td>
                   <td
@@ -292,6 +310,10 @@ const MasterlistTable = ({
                   >
                     {isDepartureReadOnly ? (
                       departureReadOnlyText || "-"
+                    ) : row.is_local_only ? (
+                      <span style={{ color: "#60738a", fontSize: "12px", fontWeight: 700 }}>
+                        Waiting for sync
+                      </span>
                     ) : row.departure_time_value ? (
                       row.departure_time_text
                     ) : row.can_record_departure ? (
@@ -318,8 +340,9 @@ const MasterlistTable = ({
                         type="button"
                         onClick={() => onViewHousehold?.(row.household_id)}
                         style={tableStyles.viewButton}
-                        title="View Details"
+                        title={row.is_local_only ? "Available after sync" : "View Details"}
                         aria-label="View Details"
+                        disabled={row.is_local_only}
                       >
                         <FiEye size={18} />
                       </button>
@@ -327,8 +350,9 @@ const MasterlistTable = ({
                         type="button"
                         onClick={() => onEditHousehold?.(row.household_id)}
                         style={tableStyles.editButton}
-                        title="Edit Household"
+                        title={row.is_local_only ? "Available after sync" : "Edit Household"}
                         aria-label="Edit Household"
+                        disabled={row.is_local_only}
                       >
                         <FiEdit2 size={17} />
                       </button>

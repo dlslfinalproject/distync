@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import { useNavigate } from "react-router-dom";
 import { FiFileText } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../components/layout/PageHeader";
 import { shellStyles } from "../components/layout/BarangayLayout";
 import SearchBar from "../components/shared/SearchBar";
+import SyncStatusBadge from "../components/shared/SyncStatusBadge";
 import { fetchAllDisasterEvents } from "../features/disaster-events/disasterEventService";
 import { fetchInventoryItems } from "../features/inventory-items/inventoryItemService";
 import {
@@ -24,6 +26,9 @@ import {
 } from "../features/donations/donationService";
 import { useAuth } from "../context/AuthContext";
 import { getDefaultRouteForRole } from "../utils/roleSession";
+import db from "../offline/db";
+import { buildSyncDescriptor, findSyncEntry } from "../offline/syncStatus";
+import { subscribeToSyncUpdates } from "../offline/syncService";
 
 const donorTypes = [
   "INDIVIDUAL",
@@ -202,6 +207,61 @@ const formatDateOnly = (value) => {
     month: "short",
     day: "numeric",
   });
+};
+
+const buildQueuedDonationNeed = (entry, inventoryItems, disasterEvents) => {
+  const inventoryItem = inventoryItems.find(
+    (item) => item.id === entry.payload?.inventory_item_id,
+  );
+  const disasterEvent = disasterEvents.find(
+    (event) => event.id === entry.payload?.disaster_event_id,
+  );
+
+  return {
+    id: entry.entityLocalId || entry.id,
+    disaster_event_id: entry.payload?.disaster_event_id || "",
+    inventory_item_id: entry.payload?.inventory_item_id || "",
+    quantity_needed: entry.payload?.quantity_needed || 0,
+    priority_level: entry.payload?.priority_level || "MEDIUM",
+    notes: entry.payload?.notes || "",
+    is_active: entry.payload?.is_active !== false,
+    disaster_event: disasterEvent || null,
+    inventory_item: inventoryItem || null,
+    sync_status: entry.status,
+    is_local_only: true,
+  };
+};
+
+const buildQueuedDonation = (entry, inventoryItems, disasterEvents) => {
+  const disasterEvent = disasterEvents.find(
+    (event) => event.id === entry.payload?.disaster_event_id,
+  );
+  const itemRows = Array.isArray(entry.payload?.items) ? entry.payload.items : [];
+  const totalQuantityReceived = itemRows.reduce((sum, item) => {
+    return sum + Number(item.quantity_received || 0);
+  }, 0);
+
+  return {
+    id: entry.entityLocalId || entry.id,
+    donor_name: entry.payload?.donor_name || "Pending donation",
+    donor_type: entry.payload?.donor_type || "INDIVIDUAL",
+    contact_information: entry.payload?.contact_information || "",
+    received_at: entry.payload?.received_at || entry.clientTimestamp,
+    status: entry.payload?.status || "RECEIVED",
+    remarks: entry.payload?.remarks || "",
+    disaster_event: disasterEvent || null,
+    items: itemRows.map((item, index) => ({
+      id: `${entry.id}-${index}`,
+      ...item,
+      inventory_item: inventoryItems.find(
+        (inventoryItem) => inventoryItem.id === item.inventory_item_id,
+      ),
+    })),
+    item_count: itemRows.length,
+    total_quantity_received: totalQuantityReceived,
+    sync_status: entry.status,
+    is_local_only: true,
+  };
 };
 
 const StatusBadge = ({ label }) => (
@@ -951,6 +1011,8 @@ const DonationManagementPage = () => {
   const [isDonationSubmitting, setIsDonationSubmitting] = useState(false);
   const [donationItemDraft, setDonationItemDraft] = useState(createDonationItemForm());
   const [editingDonationItemId, setEditingDonationItemId] = useState("");
+  const syncQueueEntries =
+    useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
 
   const loadPageData = async (eventId = selectedEventId) => {
     setIsLoading(true);
@@ -1011,14 +1073,101 @@ const DonationManagementPage = () => {
     loadPageData(selectedEventId);
   }, [canManageDonations]);
 
+  useEffect(() => {
+    const unsubscribe = subscribeToSyncUpdates(() => {
+      if (typeof navigator !== "undefined" && navigator.onLine) {
+        loadPageData(selectedEventId);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [selectedEventId]);
+
+  const donationNeedsWithSyncStatus = useMemo(() => {
+    const syncedRows = donationNeeds.map((need) => {
+      const matchingEntry = findSyncEntry(syncQueueEntries, (entry) => {
+        if (entry.moduleName !== "mayor-donations") {
+          return false;
+        }
+
+        return (
+          entry.entityType === "DONATION_NEED" &&
+          (entry.entityServerId === need.id || entry.entityLocalId === need.id)
+        );
+      });
+
+      return {
+        ...need,
+        sync_status: buildSyncDescriptor(matchingEntry).status,
+        is_local_only: false,
+      };
+    });
+
+    const optimisticRows = syncQueueEntries
+      .filter((entry) => {
+        return (
+          entry.moduleName === "mayor-donations" &&
+          entry.actionKey === "DONATION_NEED_CREATE" &&
+          !syncedRows.some(
+            (need) =>
+              need.id === entry.entityServerId || need.id === entry.entityLocalId,
+          ) &&
+          (!selectedEventId || entry.payload?.disaster_event_id === selectedEventId)
+        );
+      })
+      .map((entry) =>
+        buildQueuedDonationNeed(entry, inventoryItems, disasterEvents),
+      );
+
+    return [...optimisticRows, ...syncedRows];
+  }, [disasterEvents, donationNeeds, inventoryItems, selectedEventId, syncQueueEntries]);
+
+  const donationsWithSyncStatus = useMemo(() => {
+    const syncedRows = donations.map((donation) => {
+      const matchingEntry = findSyncEntry(syncQueueEntries, (entry) => {
+        if (entry.moduleName !== "mayor-donations") {
+          return false;
+        }
+
+        return (
+          entry.entityType === "DONATION" &&
+          (entry.entityServerId === donation.id || entry.entityLocalId === donation.id)
+        );
+      });
+
+      return {
+        ...donation,
+        sync_status: buildSyncDescriptor(matchingEntry).status,
+        is_local_only: false,
+      };
+    });
+
+    const optimisticRows = syncQueueEntries
+      .filter((entry) => {
+        return (
+          entry.moduleName === "mayor-donations" &&
+          entry.actionKey === "DONATION_CREATE" &&
+          !syncedRows.some(
+            (donation) =>
+              donation.id === entry.entityServerId ||
+              donation.id === entry.entityLocalId,
+          ) &&
+          (!selectedEventId || entry.payload?.disaster_event_id === selectedEventId)
+        );
+      })
+      .map((entry) => buildQueuedDonation(entry, inventoryItems, disasterEvents));
+
+    return [...optimisticRows, ...syncedRows];
+  }, [disasterEvents, donations, inventoryItems, selectedEventId, syncQueueEntries]);
+
   const filteredDonationNeeds = useMemo(() => {
     if (!needSearch.trim()) {
-      return donationNeeds;
+      return donationNeedsWithSyncStatus;
     }
 
     const normalizedSearch = needSearch.trim().toLowerCase();
 
-    return donationNeeds.filter((need) =>
+    return donationNeedsWithSyncStatus.filter((need) =>
       [
         need.inventory_item?.item_name,
         need.inventory_item?.item_code,
@@ -1029,16 +1178,16 @@ const DonationManagementPage = () => {
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(normalizedSearch)),
     );
-  }, [donationNeeds, needSearch]);
+  }, [donationNeedsWithSyncStatus, needSearch]);
 
   const filteredDonations = useMemo(() => {
     if (!donationSearch.trim()) {
-      return donations;
+      return donationsWithSyncStatus;
     }
 
     const normalizedSearch = donationSearch.trim().toLowerCase();
 
-    return donations.filter((donation) =>
+    return donationsWithSyncStatus.filter((donation) =>
       [
         donation.donor_name,
         donation.contact_information,
@@ -1049,7 +1198,7 @@ const DonationManagementPage = () => {
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(normalizedSearch)),
     );
-  }, [donations, donationSearch]);
+  }, [donationsWithSyncStatus, donationSearch]);
 
   const selectedEventLabel = useMemo(() => {
     const matchedEvent = disasterEvents.find((event) => event.id === selectedEventId);
@@ -1143,15 +1292,20 @@ const DonationManagementPage = () => {
       };
 
       if (needForm.id) {
-        await updateDonationNeed(needForm.id, payload);
+        const response = await updateDonationNeed(needForm.id, payload);
         setSuccessMessage("Donation need updated successfully.");
+        if (!response?.queued_offline) {
+          await loadPageData(selectedEventId);
+        }
       } else {
-        await createDonationNeed(payload);
+        const response = await createDonationNeed(payload);
         setSuccessMessage("Donation need created successfully.");
+        if (!response?.queued_offline) {
+          await loadPageData(selectedEventId);
+        }
       }
 
       closeNeedModal();
-      await loadPageData(selectedEventId);
     } catch (error) {
       setNeedErrorMessage(error.message || "Failed to save donation need.");
     } finally {
@@ -1181,7 +1335,7 @@ const DonationManagementPage = () => {
           throw new Error("Add at least one donated item before saving the donation record.");
         }
 
-        await createDonation({
+        const response = await createDonation({
           ...payload,
           items: donationForm.items.map((item) => ({
             inventory_item_id: item.inventory_item_id,
@@ -1192,13 +1346,18 @@ const DonationManagementPage = () => {
           })),
         });
         setSuccessMessage("Donation recorded successfully.");
+        if (!response?.queued_offline) {
+          await loadPageData(selectedEventId);
+        }
       } else {
-        await updateDonation(donationForm.id, payload);
+        const response = await updateDonation(donationForm.id, payload);
         setSuccessMessage("Donation updated successfully.");
+        if (!response?.queued_offline) {
+          await loadPageData(selectedEventId);
+        }
       }
 
       closeDonationModal();
-      await loadPageData(selectedEventId);
     } catch (error) {
       setDonationErrorMessage(error.message || "Failed to save donation.");
     } finally {
@@ -1630,6 +1789,7 @@ const DonationManagementPage = () => {
                       "Quantity Needed",
                       "Priority",
                       "Visibility",
+                      "Sync",
                       "Notes",
                       ...(canManageDonations ? ["Actions"] : []),
                     ].map((label) => (
@@ -1670,18 +1830,29 @@ const DonationManagementPage = () => {
                         <StatusBadge label={need.is_active ? "ACTIVE" : "INACTIVE"} />
                       </td>
                       <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
+                        <SyncStatusBadge status={need.sync_status} compact />
+                      </td>
+                      <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
                         {need.notes || "--"}
                       </td>
                       {canManageDonations ? (
                         <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
                           <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                            <button type="button" onClick={() => openNeedModal(need)} style={compactButtonStyles}>
+                            <button
+                              type="button"
+                              onClick={() => openNeedModal(need)}
+                              style={compactButtonStyles}
+                              disabled={need.is_local_only}
+                              title={need.is_local_only ? "Available after sync" : undefined}
+                            >
                               Edit
                             </button>
                             <button
                               type="button"
                               onClick={() => handleDeleteDonationNeed(need)}
                               style={{ ...compactButtonStyles, color: "#b91c1c", borderColor: "#f1d2cc" }}
+                              disabled={need.is_local_only}
+                              title={need.is_local_only ? "Available after sync" : undefined}
                             >
                               Delete
                             </button>
@@ -1717,7 +1888,7 @@ const DonationManagementPage = () => {
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    {["Received At", "Donor", "Event", "Status", "Items", "Quantity", "Actions"].map((label) => (
+                    {["Received At", "Donor", "Event", "Status", "Sync", "Items", "Quantity", "Actions"].map((label) => (
                       <th
                         key={label}
                         style={{
@@ -1753,6 +1924,9 @@ const DonationManagementPage = () => {
                         <StatusBadge label={donation.status} />
                       </td>
                       <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
+                        <SyncStatusBadge status={donation.sync_status} compact />
+                      </td>
+                      <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
                         {donation.item_count}
                       </td>
                       <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
@@ -1760,13 +1934,21 @@ const DonationManagementPage = () => {
                       </td>
                       <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
                         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                          <button type="button" onClick={() => openDonationModal(donation.id)} style={compactButtonStyles}>
+                          <button
+                            type="button"
+                            onClick={() => openDonationModal(donation.id)}
+                            style={compactButtonStyles}
+                            disabled={donation.is_local_only}
+                            title={donation.is_local_only ? "Available after sync" : undefined}
+                          >
                             View / Edit
                           </button>
                           <button
                             type="button"
                             onClick={() => handleDeleteDonation(donation)}
                             style={{ ...compactButtonStyles, color: "#b91c1c", borderColor: "#f1d2cc" }}
+                            disabled={donation.is_local_only}
+                            title={donation.is_local_only ? "Available after sync" : undefined}
                           >
                             Delete
                           </button>

@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import { FiFileText } from "react-icons/fi";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
@@ -12,6 +13,9 @@ import {
   fetchSuppliers,
   updateSupplier,
 } from "../../features/suppliers/supplierService";
+import db from "../../offline/db";
+import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
+import { subscribeToSyncUpdates } from "../../offline/syncService";
 
 const selectStyles = {
   minHeight: "52px",
@@ -52,6 +56,20 @@ const exportMenuButtonStyles = {
 
 const NO_EXPORT_DATA_MESSAGE = "No available data to export.";
 
+const buildQueuedSupplier = (entry) => {
+  return {
+    id: entry.entityLocalId || entry.id,
+    name: entry.payload?.name || "Pending supplier",
+    contact_person: entry.payload?.contact_person || "",
+    contact_number: entry.payload?.contact_number || "",
+    address: entry.payload?.address || "",
+    has_moa: Boolean(entry.payload?.has_moa),
+    notes: entry.payload?.notes || "",
+    sync_status: entry.status,
+    is_local_only: true,
+  };
+};
+
 const SuppliersPage = () => {
   const [filters, setFilters] = useState({
     search: "",
@@ -69,6 +87,8 @@ const SuppliersPage = () => {
   const [modalErrorMessage, setModalErrorMessage] = useState("");
   const [isExporting, setIsExporting] = useState("");
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const syncQueueEntries =
+    useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
 
   const downloadFile = (file) => {
     const downloadUrl = window.URL.createObjectURL(file.blob);
@@ -98,6 +118,53 @@ const SuppliersPage = () => {
   useEffect(() => {
     loadSuppliers(filters);
   }, []);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToSyncUpdates(() => {
+      if (typeof navigator !== "undefined" && navigator.onLine) {
+        loadSuppliers(filters);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [filters]);
+
+  const suppliersWithSyncStatus = useMemo(() => {
+    const syncedRows = suppliers.map((supplier) => {
+      const matchingEntry = findSyncEntry(syncQueueEntries, (entry) => {
+        const isSupplierModule =
+          entry.moduleName === "mayor-suppliers" || entry.moduleName === "mayor-inventory";
+
+        return (
+          isSupplierModule &&
+          entry.entityType === "SUPPLIER" &&
+          (entry.entityServerId === supplier.id || entry.entityLocalId === supplier.id)
+        );
+      });
+
+      return {
+        ...supplier,
+        sync_status: buildSyncDescriptor(matchingEntry).status,
+        is_local_only: false,
+      };
+    });
+
+    const optimisticRows = syncQueueEntries
+      .filter((entry) => {
+        return (
+          (entry.moduleName === "mayor-suppliers" || entry.moduleName === "mayor-inventory") &&
+          entry.actionKey === "SUPPLIER_CREATE" &&
+          !syncedRows.some(
+            (supplier) =>
+              supplier.id === entry.entityServerId ||
+              supplier.id === entry.entityLocalId,
+          )
+        );
+      })
+      .map(buildQueuedSupplier);
+
+    return [...optimisticRows, ...syncedRows];
+  }, [suppliers, syncQueueEntries]);
 
   const handleFilterChange = (fieldName, value) => {
     setFilters((currentFilters) => ({
@@ -155,13 +222,18 @@ const SuppliersPage = () => {
       if (modalMode === "edit" && selectedSupplierId) {
         const response = await updateSupplier(selectedSupplierId, payload);
         setSuccessMessage(response.message || "Supplier updated successfully");
+        if (!response?.queued_offline) {
+          await loadSuppliers(filters);
+        }
       } else {
         const response = await createSupplier(payload);
         setSuccessMessage(response.message || "Supplier created successfully");
+        if (!response?.queued_offline) {
+          await loadSuppliers(filters);
+        }
       }
 
       setIsModalOpen(false);
-      await loadSuppliers(filters);
     } catch (error) {
       setModalErrorMessage(error.message);
     } finally {
@@ -174,7 +246,7 @@ const SuppliersPage = () => {
     setSuccessMessage("");
     setIsExportMenuOpen(false);
 
-    if (suppliers.length === 0) {
+    if (suppliersWithSyncStatus.length === 0) {
       setErrorMessage(NO_EXPORT_DATA_MESSAGE);
       return;
     }
@@ -331,7 +403,7 @@ const SuppliersPage = () => {
       </section>
 
       <SuppliersTable
-        rows={suppliers}
+        rows={suppliersWithSyncStatus}
         isLoading={isLoading}
         errorMessage={errorMessage}
         onEditSupplier={handleOpenEditModal}

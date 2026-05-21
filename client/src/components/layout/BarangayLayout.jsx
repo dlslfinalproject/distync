@@ -3,6 +3,7 @@ import { Outlet } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { ROLE_CODES } from "../../utils/roleSession";
 import Sidebar from "./Sidebar";
+import SyncStatusBanner from "./SyncStatusBanner";
 
 export const shellStyles = {
   page: {
@@ -94,6 +95,7 @@ const BarangayLayout = () => {
 
       <main className="distync-shell__main" style={shellStyles.main}>
         <div className="distync-shell__content" style={shellStyles.content}>
+          <SyncStatusBanner />
           <Outlet />
         </div>
       </main>

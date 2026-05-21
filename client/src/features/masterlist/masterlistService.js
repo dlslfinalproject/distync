@@ -1,3 +1,8 @@
+import {
+  buildOfflineQueuedResponse,
+  performSyncableMutation,
+} from "../../offline/syncService";
+
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
@@ -124,24 +129,49 @@ export const fetchMasterlist = async ({ disasterEventId, barangayId }) => {
 };
 
 export const departHousehold = async ({ householdId, remarks = null }) => {
-  const response = await fetch(
-    `${API_BASE_URL}/api/v1/households/${householdId}/depart`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        remarks,
-        recorded_by: null,
-      }),
-    },
-  );
+  const payload = {
+    remarks,
+    recorded_by: null,
+  };
 
-  return parseJsonResponse(
-    response,
-    "Failed to record household departure",
-  );
+  return performSyncableMutation({
+    moduleName: "barangay-masterlist",
+    actionKey: "HOUSEHOLD_DEPART",
+    entityType: "HOUSEHOLD",
+    entityServerId: householdId,
+    payload,
+    request: async () => {
+      const response = await fetch(
+        `${API_BASE_URL}/api/v1/households/${householdId}/depart`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      return parseJsonResponse(
+        response,
+        "Failed to record household departure",
+      );
+    },
+    buildQueuedResponse: ({ clientSyncId, clientTimestamp }) =>
+      buildOfflineQueuedResponse({
+        message:
+          "Household departure saved offline. Pending sync once connection is restored.",
+        data: {
+          household_id: householdId,
+          latest_departure_time: null,
+          status: "PENDING_SYNC",
+          client_timestamp: clientTimestamp,
+        },
+        clientSyncId,
+        entityLocalId: householdId,
+        clientTimestamp,
+      }),
+  });
 };
 
 export const fetchHouseholdDetails = async (householdId) => {

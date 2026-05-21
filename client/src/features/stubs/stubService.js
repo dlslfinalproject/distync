@@ -1,3 +1,8 @@
+import {
+  buildOfflineQueuedResponse,
+  performSyncableMutation,
+} from "../../offline/syncService";
+
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
@@ -84,18 +89,42 @@ export const fetchStubDetails = async (stubId) => {
 };
 
 export const claimStub = async ({ stubId, userId, overrideBarangayId }) => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/stubs/${stubId}/claim`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      user_id: userId || null,
-      override_barangay_id: overrideBarangayId || null,
-    }),
-  });
+  const payload = {
+    user_id: userId || null,
+    override_barangay_id: overrideBarangayId || null,
+  };
 
-  return handleJsonResponse(response, "Failed to mark the stub as claimed");
+  return performSyncableMutation({
+    moduleName: "stubs",
+    actionKey: "STUB_CLAIM",
+    entityType: "STUB",
+    entityServerId: stubId,
+    payload,
+    request: async () => {
+      const response = await fetch(`${API_BASE_URL}/api/v1/stubs/${stubId}/claim`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      return handleJsonResponse(response, "Failed to mark the stub as claimed");
+    },
+    buildQueuedResponse: ({ clientSyncId, clientTimestamp }) =>
+      buildOfflineQueuedResponse({
+        message:
+          "Stub claim saved offline. Pending sync once connection is restored.",
+        data: {
+          id: stubId,
+          status: "PENDING_SYNC",
+          claimed_at: clientTimestamp,
+        },
+        clientSyncId,
+        entityLocalId: stubId,
+        clientTimestamp,
+      }),
+  });
 };
 
 export const claimStubFromQrVerification = async ({
@@ -106,26 +135,55 @@ export const claimStubFromQrVerification = async ({
   qrCodeValue,
   remarks,
 }) => {
-  const response = await fetch(
-    `${API_BASE_URL}/api/v1/distribution-transactions/claim-from-qr`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        disaster_event_id: disasterEventId,
-        household_id: householdId,
-        stub_id: stubId,
-        claimed_by_name: claimedByName,
-        qr_reference_value: qrCodeValue || null,
-        remarks: remarks || null,
-      }),
-    },
-  );
+  const payload = {
+    disaster_event_id: disasterEventId,
+    household_id: householdId,
+    stub_id: stubId,
+    claimed_by_name: claimedByName,
+    qr_reference_value: qrCodeValue || null,
+    remarks: remarks || null,
+  };
 
-  return handleJsonResponse(
-    response,
-    "Failed to mark the stub as claimed from QR verification",
-  );
+  return performSyncableMutation({
+    moduleName: "stubs",
+    actionKey: "DISTRIBUTION_QR_CLAIM",
+    entityType: "DISTRIBUTION_TRANSACTION",
+    entityLocalId: stubId,
+    payload,
+    requiredFields: [
+      "disaster_event_id",
+      "household_id",
+      "stub_id",
+      "claimed_by_name",
+    ],
+    request: async () => {
+      const response = await fetch(
+        `${API_BASE_URL}/api/v1/distribution-transactions/claim-from-qr`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      return handleJsonResponse(
+        response,
+        "Failed to mark the stub as claimed from QR verification",
+      );
+    },
+    buildQueuedResponse: ({ clientSyncId, entityLocalId, clientTimestamp }) =>
+      buildOfflineQueuedResponse({
+        message:
+          "QR claim saved offline. Pending sync once connection is restored.",
+        data: {
+          distribution_transaction_id: entityLocalId,
+          distribution_date: clientTimestamp,
+        },
+        clientSyncId,
+        entityLocalId,
+        clientTimestamp,
+      }),
+  });
 };

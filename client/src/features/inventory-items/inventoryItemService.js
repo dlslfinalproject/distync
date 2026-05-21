@@ -1,3 +1,8 @@
+import {
+  buildOfflineQueuedResponse,
+  performSyncableMutation,
+} from "../../offline/syncService";
+
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
@@ -116,30 +121,74 @@ export const fetchInventoryItemById = async (inventoryItemId) => {
 };
 
 export const createInventoryItem = async (payload) => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/inventory-items`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+  return performSyncableMutation({
+    moduleName: "mayor-inventory",
+    actionKey: "INVENTORY_ITEM_CREATE",
+    entityType: "INVENTORY_ITEM",
+    entityLocalId: payload?.item_code || payload?.item_name || null,
+    payload,
+    requiredFields: ["item_name", "category", "unit_of_measure"],
+    request: async () => {
+      const response = await fetch(`${API_BASE_URL}/api/v1/inventory-items`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
 
-  return handleJsonResponse(response, "Failed to create inventory item");
+      return handleJsonResponse(response, "Failed to create inventory item");
+    },
+    buildQueuedResponse: ({ clientSyncId, entityLocalId, clientTimestamp }) =>
+      buildOfflineQueuedResponse({
+        message:
+          "Inventory item saved offline. Pending sync once connection is restored.",
+        data: {
+          id: entityLocalId,
+          updated_at: clientTimestamp,
+        },
+        clientSyncId,
+        entityLocalId,
+        clientTimestamp,
+      }),
+  });
 };
 
 export const updateInventoryItem = async (inventoryItemId, payload) => {
-  const response = await fetch(
-    `${API_BASE_URL}/api/v1/inventory-items/${inventoryItemId}`,
-    {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    },
-  );
+  return performSyncableMutation({
+    moduleName: "mayor-inventory",
+    actionKey: "INVENTORY_ITEM_UPDATE",
+    entityType: "INVENTORY_ITEM",
+    entityServerId: inventoryItemId,
+    payload,
+    requiredFields: ["item_name", "category", "unit_of_measure"],
+    request: async () => {
+      const response = await fetch(
+        `${API_BASE_URL}/api/v1/inventory-items/${inventoryItemId}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        },
+      );
 
-  return handleJsonResponse(response, "Failed to update inventory item");
+      return handleJsonResponse(response, "Failed to update inventory item");
+    },
+    buildQueuedResponse: ({ clientSyncId, clientTimestamp }) =>
+      buildOfflineQueuedResponse({
+        message:
+          "Inventory item update saved offline. Pending sync once connection is restored.",
+        data: {
+          id: inventoryItemId,
+          updated_at: clientTimestamp,
+        },
+        clientSyncId,
+        entityLocalId: inventoryItemId,
+        clientTimestamp,
+      }),
+  });
 };
 
 export const runInventoryForecast = async (payload) => {

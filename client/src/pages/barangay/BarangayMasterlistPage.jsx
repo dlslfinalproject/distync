@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import PageHeader from "../../components/layout/PageHeader";
 import BarangayDashboardOverview from "../../components/barangay-dashboard/BarangayDashboardOverview";
 import { shellStyles } from "../../components/layout/BarangayLayout";
@@ -14,9 +15,16 @@ import { useMasterlist } from "../../features/masterlist/masterlistHooks";
 import {
   departHousehold,
   fetchHouseholdDetails,
+  formatDateTime,
 } from "../../features/masterlist/masterlistService";
 import { fetchMswdoSectors } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { MdDoorFront } from "react-icons/md";
+import db from "../../offline/db";
+import {
+  buildSyncDescriptor,
+  findSyncEntry,
+} from "../../offline/syncStatus";
+import { subscribeToSyncUpdates } from "../../offline/syncService";
 
 const getSectorNames = (sectorsText) => {
   if (!sectorsText || sectorsText === "-") {
@@ -46,6 +54,44 @@ const getFilteredRows = (rows, searchTerm) => {
       String(value).toLowerCase().includes(normalizedSearchTerm),
     );
   });
+};
+
+const buildFamilyHeadName = (familyHead = {}) => {
+  return [
+    familyHead.first_name,
+    familyHead.middle_name,
+    familyHead.last_name,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+};
+
+const buildQueuedHouseholdRow = (entry, assignedBarangayName) => {
+  const familyHeadName = buildFamilyHeadName(entry.payload?.family_head);
+  const currentAddress =
+    entry.payload?.current_address_details ||
+    assignedBarangayName ||
+    "Pending local address";
+  const departureTimestamp =
+    entry.actionKey === "HOUSEHOLD_DEPART" ? entry.clientTimestamp : null;
+
+  return {
+    household_id: entry.entityLocalId || entry.id,
+    family_head_name: familyHeadName || "Pending household",
+    address: currentAddress,
+    members_count: Array.isArray(entry.payload?.members)
+      ? entry.payload.members.length
+      : 0,
+    sectors_text: "-",
+    arrival_time_text: formatDateTime(entry.clientTimestamp),
+    departure_time_value: departureTimestamp,
+    departure_time_text: departureTimestamp ? formatDateTime(departureTimestamp) : "-",
+    can_record_departure: false,
+    is_local_only: true,
+    sync_status: entry.status,
+    sync_entry_id: entry.id,
+  };
 };
 
 
@@ -117,6 +163,8 @@ const BarangayMasterlistPage = () => {
     useState(false);
   const [isRecordingDeparture, setIsRecordingDeparture] = useState(false);
   const [selectedHouseholds, setSelectedHouseholds] = useState([]);
+  const syncQueueEntries =
+    useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
 
   const {
     accessMode,
@@ -197,8 +245,50 @@ const BarangayMasterlistPage = () => {
     },
   });
 
+  const rowsWithSyncStatus = useMemo(() => {
+    const syncedRows = data.rows.map((row) => {
+      const matchingEntry = findSyncEntry(syncQueueEntries, (entry) => {
+        if (
+          entry.entityType !== "HOUSEHOLD" ||
+          !["barangay-households", "barangay-masterlist"].includes(entry.moduleName)
+        ) {
+          return false;
+        }
+
+        return (
+          entry.entityServerId === row.household_id ||
+          entry.entityLocalId === row.household_id
+        );
+      });
+
+      return {
+        ...row,
+        sync_status: buildSyncDescriptor(matchingEntry).status,
+        is_local_only: false,
+      };
+    });
+
+    const optimisticRows = syncQueueEntries
+      .filter((entry) => {
+        return (
+          entry.moduleName === "barangay-households" &&
+          entry.actionKey === "HOUSEHOLD_REGISTER" &&
+          entry.payload?.disaster_event_id === selectedEvent?.id &&
+          entry.payload?.barangay_id === assignedBarangay?.id &&
+          !syncedRows.some(
+            (row) =>
+              row.household_id === entry.entityServerId ||
+              row.household_id === entry.entityLocalId,
+          )
+        );
+      })
+      .map((entry) => buildQueuedHouseholdRow(entry, assignedBarangay?.name || ""));
+
+    return [...optimisticRows, ...syncedRows];
+  }, [assignedBarangay?.id, assignedBarangay?.name, data.rows, selectedEvent?.id, syncQueueEntries]);
+
   const filteredRows = useMemo(() => {
-    const searchedRows = getFilteredRows(data.rows, searchTerm);
+    const searchedRows = getFilteredRows(rowsWithSyncStatus, searchTerm);
     const selectedSectorNames = selectedSectorNamesByScope[eventScope] || [];
 
     if (selectedSectorNames.length === 0) {
@@ -212,7 +302,7 @@ const BarangayMasterlistPage = () => {
         rowSectorNames.includes(sectorName),
       );
     });
-  }, [data.rows, eventScope, searchTerm, selectedSectorNamesByScope]);
+  }, [eventScope, rowsWithSyncStatus, searchTerm, selectedSectorNamesByScope]);
 
   useEffect(() => {
     let isMounted = true;
@@ -244,6 +334,16 @@ const BarangayMasterlistPage = () => {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToSyncUpdates(() => {
+      if (typeof navigator !== "undefined" && navigator.onLine) {
+        reloadMasterlist();
+      }
+    });
+
+    return () => unsubscribe();
+  }, [reloadMasterlist]);
 
 
   useEffect(() => {

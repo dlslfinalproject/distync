@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import { FiFileText } from "react-icons/fi";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
@@ -12,6 +13,9 @@ import {
   fetchInventoryItems,
   fetchSuppliers,
 } from "../../features/inventory-batches/inventoryBatchService";
+import db from "../../offline/db";
+import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
+import { subscribeToSyncUpdates } from "../../offline/syncService";
 
 const selectStyles = {
   minHeight: "52px",
@@ -62,6 +66,27 @@ const exportMenuButtonStyles = {
 
 const NO_EXPORT_DATA_MESSAGE = "No available data to export.";
 
+const buildQueuedBatch = (entry, inventoryItems, suppliers) => {
+  return {
+    id: entry.entityLocalId || entry.id,
+    batch_no: entry.payload?.batch_no || entry.entityLocalId || "Pending batch",
+    inventory_item_id: entry.payload?.inventory_item_id || "",
+    supplier_id: entry.payload?.supplier_id || "",
+    inventory_item:
+      inventoryItems.find((item) => item.id === entry.payload?.inventory_item_id) ||
+      null,
+    supplier:
+      suppliers.find((supplier) => supplier.id === entry.payload?.supplier_id) || null,
+    source_type: entry.payload?.source_type || "OTHER",
+    quantity_received: entry.payload?.quantity_received || 0,
+    quantity_available: entry.payload?.quantity_available || entry.payload?.quantity_received || 0,
+    expiration_date: entry.payload?.expiration_date || null,
+    status: entry.payload?.status || "AVAILABLE",
+    sync_status: entry.status,
+    is_local_only: true,
+  };
+};
+
 const InventoryBatchesPage = () => {
   const [filters, setFilters] = useState({
     search: "",
@@ -81,6 +106,8 @@ const InventoryBatchesPage = () => {
   const [modalErrorMessage, setModalErrorMessage] = useState("");
   const [isExporting, setIsExporting] = useState("");
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const syncQueueEntries =
+    useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
 
   const downloadFile = (file) => {
     const downloadUrl = window.URL.createObjectURL(file.blob);
@@ -118,8 +145,50 @@ const InventoryBatchesPage = () => {
     loadPageData(filters);
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = subscribeToSyncUpdates(() => {
+      if (typeof navigator !== "undefined" && navigator.onLine) {
+        loadPageData(filters);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [filters]);
+
   const itemOptions = useMemo(() => inventoryItems, [inventoryItems]);
   const supplierOptions = useMemo(() => suppliers, [suppliers]);
+  const inventoryBatchesWithSyncStatus = useMemo(() => {
+    const syncedRows = inventoryBatches.map((batch) => {
+      const matchingEntry = findSyncEntry(syncQueueEntries, (entry) => {
+        return (
+          entry.moduleName === "mayor-inventory" &&
+          entry.entityType === "INVENTORY_BATCH" &&
+          (entry.entityServerId === batch.id || entry.entityLocalId === batch.id)
+        );
+      });
+
+      return {
+        ...batch,
+        sync_status: buildSyncDescriptor(matchingEntry).status,
+        is_local_only: false,
+      };
+    });
+
+    const optimisticRows = syncQueueEntries
+      .filter((entry) => {
+        return (
+          entry.moduleName === "mayor-inventory" &&
+          entry.actionKey === "INVENTORY_BATCH_CREATE" &&
+          !syncedRows.some(
+            (batch) =>
+              batch.id === entry.entityServerId || batch.id === entry.entityLocalId,
+          )
+        );
+      })
+      .map((entry) => buildQueuedBatch(entry, inventoryItems, suppliers));
+
+    return [...optimisticRows, ...syncedRows];
+  }, [inventoryBatches, inventoryItems, suppliers, syncQueueEntries]);
 
   const handleFilterChange = (fieldName, value) => {
     setFilters((currentFilters) => ({
@@ -156,7 +225,9 @@ const InventoryBatchesPage = () => {
       const response = await createInventoryBatch(payload);
       setSuccessMessage(response.message || "Inventory batch created successfully");
       setIsModalOpen(false);
-      await loadPageData(filters);
+      if (!response?.queued_offline) {
+        await loadPageData(filters);
+      }
     } catch (error) {
       setModalErrorMessage(error.message);
     } finally {
@@ -169,7 +240,7 @@ const InventoryBatchesPage = () => {
     setSuccessMessage("");
     setIsExportMenuOpen(false);
 
-    if (inventoryBatches.length === 0) {
+    if (inventoryBatchesWithSyncStatus.length === 0) {
       setErrorMessage(NO_EXPORT_DATA_MESSAGE);
       return;
     }
@@ -372,7 +443,7 @@ const InventoryBatchesPage = () => {
       </section>
 
       <InventoryBatchesTable
-        rows={inventoryBatches}
+        rows={inventoryBatchesWithSyncStatus}
         isLoading={isLoading}
         errorMessage={errorMessage}
       />

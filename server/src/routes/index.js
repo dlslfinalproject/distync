@@ -15,6 +15,7 @@ const reliefPackTemplateRoutes = require("./reliefPackTemplate.routes");
 const sectorRoutes = require("./sector.routes");
 const stubRoutes = require("./stub.routes");
 const supplierRoutes = require("./supplier.routes");
+const syncRoutes = require("./sync.routes");
 
 const router = express.Router();
 
@@ -69,5 +70,6 @@ router.use("/relief-pack-templates", reliefPackTemplateRoutes);
 router.use("/sectors", sectorRoutes);
 router.use("/stubs", stubRoutes);
 router.use("/suppliers", supplierRoutes);
+router.use("/sync", syncRoutes);
 
 module.exports = router;

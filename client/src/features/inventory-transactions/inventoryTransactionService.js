@@ -1,3 +1,8 @@
+import {
+  buildOfflineQueuedResponse,
+  performSyncableMutation,
+} from "../../offline/syncService";
+
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
@@ -103,15 +108,37 @@ export const exportInventoryTransactions = async (format = "csv", filters = {}) 
 };
 
 export const createInventoryTransaction = async (payload) => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/inventory-transactions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+  return performSyncableMutation({
+    moduleName: "mayor-inventory",
+    actionKey: "INVENTORY_TRANSACTION_CREATE",
+    entityType: "INVENTORY_TRANSACTION",
+    entityLocalId: payload?.inventory_batch_id || null,
+    payload,
+    requiredFields: ["inventory_batch_id", "transaction_type", "quantity"],
+    request: async () => {
+      const response = await fetch(`${API_BASE_URL}/api/v1/inventory-transactions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
 
-  return handleJsonResponse(response, "Failed to record inventory transaction");
+      return handleJsonResponse(response, "Failed to record inventory transaction");
+    },
+    buildQueuedResponse: ({ clientSyncId, entityLocalId, clientTimestamp }) =>
+      buildOfflineQueuedResponse({
+        message:
+          "Inventory transaction saved offline. Pending sync once connection is restored.",
+        data: {
+          transaction_id: entityLocalId,
+          performed_at: clientTimestamp,
+        },
+        clientSyncId,
+        entityLocalId,
+        clientTimestamp,
+      }),
+  });
 };
 
 export const fetchInventoryBatches = async () => {
