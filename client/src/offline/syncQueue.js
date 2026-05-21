@@ -28,6 +28,19 @@ export const getRetryableSyncEntries = async () => {
     .toArray();
 };
 
+export const getFailedSyncEntries = async (entryIds = []) => {
+  const requestedIds = Array.isArray(entryIds) ? entryIds.filter(Boolean) : [];
+
+  return db.syncQueue
+    .orderBy("clientTimestamp")
+    .filter(
+      (entry) =>
+        entry.status === LOCAL_SYNC_STATUS.FAILED &&
+        (requestedIds.length === 0 || requestedIds.includes(entry.id)),
+    )
+    .toArray();
+};
+
 export const queueSyncEntry = async (entry) => {
   const now = getIsoNow();
   const existingEntry = entry.queueGroupKey

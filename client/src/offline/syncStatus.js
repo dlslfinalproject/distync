@@ -15,6 +15,10 @@ export const SYNC_STATUS_LABELS = {
 };
 
 export const getNormalizedSyncStatus = (status) => {
+  if (status === "RESOLVED") {
+    return "RESOLVED";
+  }
+
   if (Object.values(LOCAL_SYNC_STATUS).includes(status)) {
     return status;
   }
@@ -23,6 +27,10 @@ export const getNormalizedSyncStatus = (status) => {
 };
 
 export const getSyncLabel = (status) => {
+  if (status === "RESOLVED") {
+    return "Resolved";
+  }
+
   return SYNC_STATUS_LABELS[getNormalizedSyncStatus(status)];
 };
 
@@ -87,6 +95,14 @@ export const formatCompactSyncChipLabel = (count, type) => {
 };
 
 export const getSyncBadgePalette = (status) => {
+  if (status === "RESOLVED") {
+    return {
+      backgroundColor: "#eef6ff",
+      color: "#1d4f91",
+      borderColor: "#cfe0fb",
+    };
+  }
+
   const normalizedStatus = getNormalizedSyncStatus(status);
 
   if (normalizedStatus === LOCAL_SYNC_STATUS.PENDING) {

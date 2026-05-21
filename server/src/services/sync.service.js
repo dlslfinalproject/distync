@@ -14,7 +14,7 @@ const donationService = require("./donation.service");
 const disasterEventService = require("./disasterEvent.service");
 const stubService = require("./stub.service");
 const { ROLE_CODES } = require("../modules/auth/auth.middleware");
-const { logErrorSafely } = require("../utils/systemLog");
+const { logAuditSafely, logErrorSafely, pickDefined } = require("../utils/systemLog");
 
 const SYNC_STATUS = {
   PENDING: "PENDING",
@@ -495,7 +495,85 @@ const getSyncHistory = async ({ auth, syncStatus, conflictStatus, limit }) => {
   };
 };
 
+const getSyncConflictDetail = async ({ auth, conflictId }) => {
+  const conflict = await syncRepository.getSyncConflictByIdForUser({
+    id: conflictId,
+    userId: auth.userId,
+  });
+
+  if (!conflict) {
+    const error = new Error("Sync conflict not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  await logAuditSafely({
+    actor: auth,
+    action: "SYNC_CONFLICT_REVIEW",
+    entityType: "SYNC_CONFLICT",
+    entityId: conflict.id,
+    oldValues: {},
+    newValues: {
+      sync_transaction_id: conflict.sync_transaction_id,
+      entity_type: conflict.entity_type,
+      entity_server_id: conflict.entity_server_id,
+      conflict_type: conflict.conflict_type,
+      resolution_strategy: conflict.resolution_strategy,
+      winner: conflict.resolved_payload_json?.winner || null,
+      resolution_status: conflict.status,
+    },
+  });
+
+  return {
+    ...conflict,
+    local_payload_summary: pickDefined(conflict.local_payload_json?.payload || conflict.local_payload_json, [
+      "disaster_event_id",
+      "household_id",
+      "stub_id",
+      "claimed_by_name",
+      "item_name",
+      "remarks",
+      "status",
+      "batch_no",
+      "donor_name",
+    ]),
+    server_payload_summary: pickDefined(conflict.server_payload_json, [
+      "id",
+      "updated_at",
+      "status",
+      "remarks",
+      "item_name",
+      "batch_no",
+      "donor_name",
+    ]),
+  };
+};
+
+const auditSyncRetryRequest = async ({ auth, entries }) => {
+  const normalizedEntries = Array.isArray(entries) ? entries : [];
+
+  await logAuditSafely({
+    actor: auth,
+    action: "SYNC_RETRY_REQUEST",
+    entityType: "SYNC_TRANSACTION",
+    entityId: normalizedEntries[0]?.sync_transaction_id || null,
+    oldValues: {},
+    newValues: {
+      retry_count: normalizedEntries.length,
+      entries: normalizedEntries.slice(0, 10).map((entry) => ({
+        id: entry.id || null,
+        module_name: entry.module_name || null,
+        entity_type: entry.entity_type || null,
+        action_key: entry.action_key || null,
+        status: entry.status || null,
+      })),
+    },
+  });
+};
+
 module.exports = {
   processSyncEntries,
   getSyncHistory,
+  getSyncConflictDetail,
+  auditSyncRetryRequest,
 };

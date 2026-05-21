@@ -6,6 +6,7 @@ export const SYNC_FILTERS = [
   { key: "SYNCED", label: "Synced" },
   { key: "FAILED", label: "Failed" },
   { key: "CONFLICT", label: "Conflict" },
+  { key: "RESOLVED", label: "Resolved" },
 ];
 
 export const formatSyncDateTime = (value) => {
@@ -33,11 +34,19 @@ export const matchesSyncFilter = (status, filterKey) => {
     return true;
   }
 
+  if (filterKey === "CONFLICT") {
+    return status === "CONFLICT" || status === LOCAL_SYNC_STATUS.CONFLICT;
+  }
+
+  if (filterKey === "RESOLVED") {
+    return status === "RESOLVED";
+  }
+
   return status === filterKey;
 };
 
 export const isSafeRetryableStatus = (status) =>
-  status === LOCAL_SYNC_STATUS.PENDING || status === LOCAL_SYNC_STATUS.FAILED;
+  status === LOCAL_SYNC_STATUS.FAILED;
 
 export const getWinningSide = (conflict) => {
   const winner = conflict?.resolved_payload_json?.winner;
@@ -109,4 +118,24 @@ export const buildConflictPayloadSummary = (payload) => {
   }
 
   return buildPayloadSummary(payload);
+};
+
+export const getConflictReasonLabel = (conflict) => {
+  if (conflict?.conflict_type === "UPDATED_AT_MISMATCH") {
+    return "Latest updated_at timestamp did not match between local and server records.";
+  }
+
+  return conflict?.conflict_type || "--";
+};
+
+export const getResolutionStatusLabel = (conflict) => {
+  if (conflict?.status === "RESOLVED") {
+    return "Resolved";
+  }
+
+  if (conflict?.status === "OPEN") {
+    return "Conflict";
+  }
+
+  return conflict?.status || "--";
 };

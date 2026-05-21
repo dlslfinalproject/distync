@@ -1,6 +1,7 @@
 import { LOCAL_SYNC_STATUS } from "./db";
 import {
   clearSyncedEntries,
+  getFailedSyncEntries,
   getRetryableSyncEntries,
   queueSyncEntry,
   updateSyncEntryStatus,
@@ -70,11 +71,19 @@ export const subscribeToSyncUpdates = (listener) => {
 };
 
 export const flushPendingSyncEntries = async () => {
+  const queuedEntries = await getRetryableSyncEntries();
+  return flushSelectedSyncEntries(queuedEntries);
+};
+
+export const retryFailedSyncEntries = async (entryIds = []) => {
+  const failedEntries = await getFailedSyncEntries(entryIds);
+  return flushSelectedSyncEntries(failedEntries);
+};
+
+const flushSelectedSyncEntries = async (queuedEntries = []) => {
   if (isSyncInFlight || typeof navigator === "undefined" || !navigator.onLine) {
     return;
   }
-
-  const queuedEntries = await getRetryableSyncEntries();
 
   if (queuedEntries.length === 0) {
     return;

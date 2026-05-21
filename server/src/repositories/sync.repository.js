@@ -168,10 +168,37 @@ const getSyncConflictsByUser = async ({ userId, status = null, limit = 50 }) => 
   return result.rows;
 };
 
+const getSyncConflictByIdForUser = async ({ id, userId }, dbClient = pool) => {
+  const query = `
+    SELECT
+      sc.*,
+      st.user_id,
+      st.entity_local_id,
+      st.sync_status,
+      st.error_message,
+      st.client_timestamp,
+      st.server_timestamp,
+      st.operation_type,
+      st.payload_json,
+      st.created_at AS sync_transaction_created_at,
+      st.updated_at AS sync_transaction_updated_at
+    FROM sync_conflicts sc
+    INNER JOIN sync_transactions st
+      ON st.id = sc.sync_transaction_id
+    WHERE sc.id = $1
+      AND st.user_id = $2
+    LIMIT 1
+  `;
+
+  const result = await dbClient.query(query, [id, userId]);
+  return result.rows[0] || null;
+};
+
 module.exports = {
   insertSyncTransaction,
   updateSyncTransaction,
   insertSyncConflict,
   getSyncTransactionsByUser,
   getSyncConflictsByUser,
+  getSyncConflictByIdForUser,
 };

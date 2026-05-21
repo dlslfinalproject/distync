@@ -154,7 +154,91 @@ const validateGetSyncHistory = (req, res, next) => {
   }
 };
 
+const validateGetSyncConflictDetail = (req, res, next) => {
+  try {
+    const { conflictId } = req.params || {};
+
+    if (!isValidUuid(conflictId)) {
+      return res.status(400).json({
+        message: "conflictId must be a valid UUID",
+      });
+    }
+
+    req.validatedParams = {
+      conflictId,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate sync conflict detail request",
+      error: error.message,
+    });
+  }
+};
+
+const validateAuditSyncRetryRequest = (req, res, next) => {
+  try {
+    const { entries } = req.body || {};
+
+    if (!Array.isArray(entries) || entries.length === 0) {
+      return res.status(400).json({
+        message: "entries must be a non-empty array",
+      });
+    }
+
+    const normalizedEntries = [];
+
+    for (const entry of entries) {
+      if (!entry || typeof entry !== "object") {
+        return res.status(400).json({
+          message: "Each retry audit entry must be an object",
+        });
+      }
+
+      normalizedEntries.push({
+        id:
+          typeof entry.id === "string" && entry.id.trim() ? entry.id.trim() : null,
+        sync_transaction_id:
+          typeof entry.sync_transaction_id === "string" &&
+          entry.sync_transaction_id.trim()
+            ? entry.sync_transaction_id.trim()
+            : null,
+        module_name:
+          typeof entry.module_name === "string" && entry.module_name.trim()
+            ? entry.module_name.trim()
+            : null,
+        entity_type:
+          typeof entry.entity_type === "string" && entry.entity_type.trim()
+            ? entry.entity_type.trim()
+            : null,
+        action_key:
+          typeof entry.action_key === "string" && entry.action_key.trim()
+            ? entry.action_key.trim()
+            : null,
+        status:
+          typeof entry.status === "string" && entry.status.trim()
+            ? entry.status.trim().toUpperCase()
+            : null,
+      });
+    }
+
+    req.validatedBody = {
+      entries: normalizedEntries,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate sync retry audit request",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   validateProcessSyncEntries,
   validateGetSyncHistory,
+  validateGetSyncConflictDetail,
+  validateAuditSyncRetryRequest,
 };

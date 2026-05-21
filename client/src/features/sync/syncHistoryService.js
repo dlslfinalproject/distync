@@ -30,3 +30,20 @@ export const fetchSyncHistory = async (filters = {}) => {
 
   return handleJsonResponse(response, "Failed to load sync history");
 };
+
+export const fetchSyncConflictDetail = async (conflictId) => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/sync/conflicts/${conflictId}`);
+  return handleJsonResponse(response, "Failed to load sync conflict detail");
+};
+
+export const auditSyncRetryRequest = async (entries = []) => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/sync/retry-audit`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ entries }),
+  });
+
+  return handleJsonResponse(response, "Failed to log sync retry request");
+};

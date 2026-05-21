@@ -3,16 +3,24 @@ import { useLiveQuery } from "dexie-react-hooks";
 import PageHeader, { pageHeaderStyles } from "../components/layout/PageHeader";
 import { shellStyles } from "../components/layout/BarangayLayout";
 import SyncStatusBadge from "../components/shared/SyncStatusBadge";
+import FeedbackToast from "../components/shared/FeedbackToast";
+import SyncConflictDetailModal from "../components/shared/SyncConflictDetailModal";
 import db, { LOCAL_SYNC_STATUS } from "../offline/db";
 import {
-  flushPendingSyncEntries,
+  retryFailedSyncEntries,
   subscribeToSyncUpdates,
 } from "../offline/syncService";
-import { fetchSyncHistory } from "../features/sync/syncHistoryService";
+import {
+  auditSyncRetryRequest,
+  fetchSyncConflictDetail,
+  fetchSyncHistory,
+} from "../features/sync/syncHistoryService";
 import {
   buildConflictPayloadSummary,
   buildPayloadSummary,
   formatSyncDateTime,
+  getConflictReasonLabel,
+  getResolutionStatusLabel,
   getWinningSide,
   isSafeRetryableStatus,
   matchesSyncFilter,
@@ -79,7 +87,14 @@ const SyncManagementPage = () => {
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [isRetrying, setIsRetrying] = useState(false);
+  const [isLoadingConflictDetail, setIsLoadingConflictDetail] = useState(false);
   const [activeFilter, setActiveFilter] = useState("ALL");
+  const [selectedConflictDetail, setSelectedConflictDetail] = useState(null);
+  const [feedback, setFeedback] = useState({
+    type: "",
+    title: "",
+    message: "",
+  });
 
   const syncQueueEntries =
     useLiveQuery(() => db.syncQueue.orderBy("updatedAt").reverse().toArray(), [], []) ||
@@ -116,6 +131,14 @@ const SyncManagementPage = () => {
     );
   }, [syncQueueEntries]);
 
+  const failedQueueEntries = useMemo(
+    () =>
+      syncQueueEntries.filter(
+        (entry) => entry.status === LOCAL_SYNC_STATUS.FAILED,
+      ),
+    [syncQueueEntries],
+  );
+
   const filteredQueueEntries = useMemo(() => {
     return syncQueueEntries.filter((entry) =>
       matchesSyncFilter(entry.status, activeFilter),
@@ -129,11 +152,12 @@ const SyncManagementPage = () => {
   }, [activeFilter, syncHistory.transactions]);
 
   const filteredConflicts = useMemo(() => {
-    if (activeFilter === "ALL" || activeFilter === "CONFLICT") {
-      return syncHistory.conflicts;
-    }
-
-    return [];
+    return syncHistory.conflicts.filter((conflict) =>
+      matchesSyncFilter(
+        conflict.status === "RESOLVED" ? "RESOLVED" : LOCAL_SYNC_STATUS.CONFLICT,
+        activeFilter,
+      ),
+    );
   }, [activeFilter, syncHistory.conflicts]);
 
   const loadSyncHistory = async () => {
@@ -170,13 +194,70 @@ const SyncManagementPage = () => {
   }, []);
 
   const handleRetrySync = async () => {
+    if (!failedQueueEntries.length) {
+      return;
+    }
+
     setIsRetrying(true);
 
     try {
-      await flushPendingSyncEntries();
+      try {
+        await auditSyncRetryRequest(
+          failedQueueEntries.map((entry) => ({
+            id: entry.id,
+            sync_transaction_id: entry.syncTransactionId || null,
+            module_name: entry.moduleName || null,
+            entity_type: entry.entityType || null,
+            action_key: entry.actionKey || null,
+            status: entry.status || null,
+          })),
+        );
+      } catch (_auditError) {
+        // Retry should still proceed even if review logging is temporarily unavailable.
+      }
+
+      await retryFailedSyncEntries(failedQueueEntries.map((entry) => entry.id));
       await loadSyncHistory();
+      setFeedback({
+        type: "success",
+        title: "Retry Requested",
+        message: "Failed sync entries were retried safely.",
+      });
+    } catch (error) {
+      setFeedback({
+        type: "error",
+        title: "Retry Error",
+        message: error.message || "Failed to retry the selected sync entries.",
+      });
     } finally {
       setIsRetrying(false);
+    }
+  };
+
+  const handleOpenConflictDetail = async (conflictId) => {
+    setIsLoadingConflictDetail(true);
+
+    try {
+      const response = await fetchSyncConflictDetail(conflictId);
+      const conflict = response?.data || null;
+
+      setSelectedConflictDetail(
+        conflict
+          ? {
+              ...conflict,
+              conflict_reason: getConflictReasonLabel(conflict),
+              resolution_status_label: getResolutionStatusLabel(conflict),
+            }
+          : null,
+      );
+    } catch (error) {
+      setFeedback({
+        type: "error",
+        title: "Conflict Detail Error",
+        message: error.message || "Failed to load sync conflict detail.",
+      });
+    } finally {
+      setIsLoadingConflictDetail(false);
     }
   };
 
@@ -187,10 +268,10 @@ const SyncManagementPage = () => {
         description="Review queued offline actions, failed sync attempts, and conflict results across your current module."
         actions={[
           {
-            label: isRetrying ? "Retrying..." : "Retry Pending Sync",
+            label: isRetrying ? "Retrying..." : "Retry Failed Sync",
             variant: "secondary",
             onClick: handleRetrySync,
-            disabled: !isOnline || summary.total === 0 || isRetrying,
+            disabled: !isOnline || failedQueueEntries.length === 0 || isRetrying,
           },
         ]}
       />
@@ -203,7 +284,7 @@ const SyncManagementPage = () => {
           </div>
           <div>
             <p style={shellStyles.mutedText}>Failed Sync</p>
-            <p style={shellStyles.statValue}>{summary.failed}</p>
+            <p style={shellStyles.statValue}>{failedQueueEntries.length}</p>
           </div>
           <div>
             <p style={shellStyles.mutedText}>Conflicts</p>
@@ -311,7 +392,7 @@ const SyncManagementPage = () => {
                               : 1,
                         }}
                       >
-                        Retry
+                        Retry Failed
                       </button>
                     </td>
                   </tr>
@@ -425,6 +506,7 @@ const SyncManagementPage = () => {
                   <th style={tableStyles.th}>Winning Side</th>
                   <th style={tableStyles.th}>Resolution Status</th>
                   <th style={tableStyles.th}>Resolved At</th>
+                  <th style={tableStyles.th}>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -440,15 +522,11 @@ const SyncManagementPage = () => {
                     <td style={tableStyles.td}>{conflict.conflict_type}</td>
                     <td style={tableStyles.td}>
                       <SyncStatusBadge
-                        status={
-                          conflict.status === "OPEN"
-                            ? LOCAL_SYNC_STATUS.CONFLICT
-                            : LOCAL_SYNC_STATUS.SYNCED
-                        }
+                        status={conflict.status === "RESOLVED" ? "RESOLVED" : "CONFLICT"}
                       />
                     </td>
                     <td style={tableStyles.td}>
-                      {conflict.conflict_type || "--"}
+                      {getConflictReasonLabel(conflict)}
                       <div style={detailTextStyles}>
                         {conflict.error_message || conflict.resolution_strategy || "--"}
                       </div>
@@ -463,13 +541,23 @@ const SyncManagementPage = () => {
                       {getWinningSide(conflict)}
                     </td>
                     <td style={tableStyles.td}>
-                      {conflict.status || "--"}
+                      {getResolutionStatusLabel(conflict)}
                       <div style={detailTextStyles}>
                         {conflict.resolution_strategy || "--"}
                       </div>
                     </td>
                     <td style={tableStyles.td}>
                       {formatSyncDateTime(conflict.resolved_at)}
+                    </td>
+                    <td style={tableStyles.td}>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenConflictDetail(conflict.id)}
+                        disabled={isLoadingConflictDetail}
+                        style={pageHeaderStyles.secondaryButton}
+                      >
+                        View Detail
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -478,6 +566,19 @@ const SyncManagementPage = () => {
           </div>
         )}
       </section>
+
+      <SyncConflictDetailModal
+        isOpen={Boolean(selectedConflictDetail)}
+        conflict={selectedConflictDetail}
+        onClose={() => setSelectedConflictDetail(null)}
+      />
+
+      <FeedbackToast
+        type={feedback.type}
+        title={feedback.title}
+        message={feedback.message}
+        onClose={() => setFeedback({ type: "", title: "", message: "" })}
+      />
     </>
   );
 };
