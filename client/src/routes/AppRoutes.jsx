@@ -123,15 +123,14 @@ const AppRoutes = () => {
             path="distribution-history"
             element={<DistributionHistoryPage />}
           />
-          <Route
-            path="stub-claim-history"
-            element={<StubClaimHistoryPage />}
-          />
-          <Route path="donations" element={<DonationManagementPage />} />
-          <Route path="disaster-events" element={<DisasterEventsPage />} />
-          <Route
-            path="disaster-reports"
-            element={<DisasterEventReportsPage />}
+        <Route
+          path="stub-claim-history"
+          element={<StubClaimHistoryPage />}
+        />
+        <Route path="disaster-events" element={<DisasterEventsPage />} />
+        <Route
+          path="disaster-reports"
+          element={<DisasterEventReportsPage />}
           />
           <Route path="anomalies" element={<AnomalyTrackingPage />} />
           <Route path="notifications" element={<MayorNotificationsPage />} />

@@ -38,9 +38,12 @@ export const getNotificationDeepLink = (notification, roleCode) => {
       return {
         to:
           roleCode === ROLE_CODES.MSWDO
-            ? "/mswdo/donations"
+            ? "/mswdo/disaster-reports"
             : "/inventory/donations",
-        label: "Open donations",
+        label:
+          roleCode === ROLE_CODES.MSWDO
+            ? "Open disaster reports"
+            : "Open donations",
       };
     case "DISASTER_EVENT":
       if (roleCode === ROLE_CODES.MSWDO) {

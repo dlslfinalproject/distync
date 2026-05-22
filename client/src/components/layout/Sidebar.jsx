@@ -393,7 +393,6 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
         { label: "Distribution History", to: "/mswdo/distribution-history" },
         { label: "Stub / Claim History", to: "/mswdo/stub-claim-history" },
         { label: "Anomaly Tracking", to: "/mswdo/anomalies" },
-        { label: "Donation Summary", to: "/mswdo/donations" },
         { label: "Analytics Dashboard", to: "/mswdo/analytics" },
         { label: "Sync Center", to: "/mswdo/sync" },
         { label: "Settings", to: "/mswdo/settings" },
