@@ -268,7 +268,7 @@ const SyncManagementPage = () => {
         description="Review queued offline actions, failed sync attempts, and conflict results across your current module."
         actions={[
           {
-            label: isRetrying ? "Retrying..." : "Retry Failed Sync",
+            label: isRetrying ? "Retrying..." : "Retry failed syncs",
             variant: "secondary",
             onClick: handleRetrySync,
             disabled: !isOnline || failedQueueEntries.length === 0 || isRetrying,
@@ -392,7 +392,7 @@ const SyncManagementPage = () => {
                               : 1,
                         }}
                       >
-                        Retry Failed
+                        Retry failed syncs
                       </button>
                     </td>
                   </tr>
