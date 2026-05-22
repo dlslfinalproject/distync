@@ -1,6 +1,10 @@
 const express = require("express");
 
-const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
+const {
+  ROLE_CODES,
+  requireAuthentication,
+  requireRoles,
+} = require("../modules/auth/auth.middleware");
 const masterlistService = require("../services/masterlist.service");
 const {
   validateExportMswdoMasterlist,
@@ -44,21 +48,27 @@ router.get(
   },
 );
 
-router.get("/mswdo-dashboard", validateGetMasterlist, async (req, res) => {
-  try {
-    const dashboard = await masterlistService.getMswdoMasterlistDashboard(
-      req.validatedQuery,
-    );
+router.get(
+  "/mswdo-dashboard",
+  requireAuthentication,
+  requireRoles(ROLE_CODES.MSWDO),
+  validateGetMasterlist,
+  async (req, res) => {
+    try {
+      const dashboard = await masterlistService.getMswdoMasterlistDashboard(
+        req.validatedQuery,
+      );
 
-    return res.status(200).json(dashboard);
-  } catch (error) {
-    const statusCode = error.statusCode || 500;
+      return res.status(200).json(dashboard);
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
 
-    return res.status(statusCode).json({
-      message: error.message || "Failed to fetch MSWDO masterlist dashboard",
-    });
-  }
-});
+      return res.status(statusCode).json({
+        message: error.message || "Failed to fetch MSWDO masterlist dashboard",
+      });
+    }
+  },
+);
 
 router.get(
   "/export",

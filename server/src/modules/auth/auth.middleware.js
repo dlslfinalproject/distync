@@ -51,7 +51,11 @@ const requireAuthentication = (req, res, next) => {
 
 const requireRoles = (...allowedRoles) => {
   return (req, res, next) => {
-    requireAuthentication(req, res, () => {
+    const ensureAuthenticated = req.auth
+      ? (handler) => handler()
+      : (handler) => requireAuthentication(req, res, handler);
+
+    ensureAuthenticated(() => {
       if (!allowedRoles.includes(req.auth.roleCode)) {
         return res.status(403).json({
           message: "You do not have permission to access this resource",
