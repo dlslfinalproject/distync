@@ -22,38 +22,24 @@ import {
   fetchHouseholdDetails,
 } from "../../features/masterlist/masterlistService";
 import {
-  buildQueuedHouseholdRow,
   formatEventEndedDateTime,
-  getFilteredRows,
-  getSectorNames,
   isEndedDisasterEvent,
 } from "../../features/masterlist/barangayMasterlistUi";
+import { useBarangayMasterlistSync } from "../../features/masterlist/useBarangayMasterlistSync";
 import {
   cacheRegistrationActiveDisasterEvents,
   cacheRegistrationBarangays,
   cacheRegistrationEvacuationCentersByBarangay,
-  cacheRegistrationSectors,
   cacheSelectedDisasterEvent,
   cacheSelectedDisasterEventId,
   fetchEvacuationCentersByBarangay,
 } from "../../features/household-registration/householdRegistrationService";
-import { fetchMswdoSectors } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import db from "../../offline/db";
-import {
-  buildSyncDescriptor,
-  findSyncEntry,
-} from "../../offline/syncStatus";
-import { subscribeToSyncUpdates } from "../../offline/syncService";
 
 const BarangayMasterlistPage = () => {
   const { authenticatedUser } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const [recordStatus, setRecordStatus] = useState("active");
-  const [selectedSectorNamesByScope, setSelectedSectorNamesByScope] = useState({
-    active: [],
-    ended: [],
-  });
-  const [sectorOptions, setSectorOptions] = useState([]);
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [registrationSuccessMessage, setRegistrationSuccessMessage] =
     useState("");
@@ -174,96 +160,21 @@ const BarangayMasterlistPage = () => {
     },
   });
 
-  const rowsWithSyncStatus = useMemo(() => {
-    const syncedRows = data.rows.map((row) => {
-      const matchingEntry = findSyncEntry(syncQueueEntries, (entry) => {
-        if (
-          entry.entityType !== "HOUSEHOLD" ||
-          !["barangay-households", "barangay-masterlist"].includes(entry.moduleName)
-        ) {
-          return false;
-        }
-
-        return (
-          entry.entityServerId === row.household_id ||
-          entry.entityLocalId === row.household_id
-        );
-      });
-
-      return {
-        ...row,
-        sync_status: buildSyncDescriptor(matchingEntry).status,
-        is_local_only: false,
-      };
-    });
-
-    const optimisticRows = syncQueueEntries
-      .filter((entry) => {
-        return (
-          entry.moduleName === "barangay-households" &&
-          entry.actionKey === "HOUSEHOLD_REGISTER" &&
-          entry.payload?.disaster_event_id === selectedEvent?.id &&
-          entry.payload?.barangay_id === assignedBarangay?.id &&
-          !syncedRows.some(
-            (row) =>
-              row.household_id === entry.entityServerId ||
-              row.household_id === entry.entityLocalId,
-          )
-        );
-      })
-      .map((entry) => buildQueuedHouseholdRow(entry, assignedBarangay?.name || ""));
-
-    return [...optimisticRows, ...syncedRows];
-  }, [assignedBarangay?.id, assignedBarangay?.name, data.rows, selectedEvent?.id, syncQueueEntries]);
-
-  const filteredRows = useMemo(() => {
-    const searchedRows = getFilteredRows(rowsWithSyncStatus, searchTerm);
-    const selectedSectorNames = selectedSectorNamesByScope[eventScope] || [];
-
-    if (selectedSectorNames.length === 0) {
-      return searchedRows;
-    }
-
-    return searchedRows.filter((row) => {
-      const rowSectorNames = getSectorNames(row.sectors_text);
-
-      return selectedSectorNames.some((sectorName) =>
-        rowSectorNames.includes(sectorName),
-      );
-    });
-  }, [eventScope, rowsWithSyncStatus, searchTerm, selectedSectorNamesByScope]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadSectors = async () => {
-      try {
-        const sectors = await fetchMswdoSectors();
-
-        if (!isMounted) {
-          return;
-        }
-
-        setSectorOptions(
-          (Array.isArray(sectors) ? sectors : [])
-            .map((sector) => String(sector.name || "").trim())
-            .filter(Boolean)
-            .sort((left, right) => left.localeCompare(right)),
-        );
-        cacheRegistrationSectors(Array.isArray(sectors) ? sectors : []);
-      } catch (_error) {
-        if (isMounted) {
-          setSectorOptions([]);
-        }
-      }
-    };
-
-    loadSectors();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  const {
+    sectorOptions,
+    selectedSectorNames,
+    filteredRows,
+    toggleSectorFilter,
+    clearSectorFilters,
+  } = useBarangayMasterlistSync({
+    rows: data.rows,
+    syncQueueEntries,
+    selectedEvent,
+    assignedBarangay,
+    searchTerm,
+    eventScope,
+    reloadMasterlist,
+  });
 
   useEffect(() => {
     const activeEvents = availableEvents.filter(
@@ -330,17 +241,6 @@ const BarangayMasterlistPage = () => {
   }, [assignedBarangay?.id]);
 
   useEffect(() => {
-    const unsubscribe = subscribeToSyncUpdates(() => {
-      if (typeof navigator !== "undefined" && navigator.onLine) {
-        reloadMasterlist();
-      }
-    });
-
-    return () => unsubscribe();
-  }, [reloadMasterlist]);
-
-
-  useEffect(() => {
     if (isSelectedEventEnded) {
       setSelectedHouseholds([]);
       setPendingDepartureHouseholdId("");
@@ -356,24 +256,6 @@ const BarangayMasterlistPage = () => {
 
     setRecordStatus("active");
   }, [eventScope]);
-
-  const selectedSectorNames = selectedSectorNamesByScope[eventScope] || [];
-
-  const toggleSectorFilter = (sectorName) => {
-    setSelectedSectorNamesByScope((currentFilters) => ({
-      ...currentFilters,
-      [eventScope]: currentFilters[eventScope].includes(sectorName)
-        ? currentFilters[eventScope].filter((value) => value !== sectorName)
-        : [...currentFilters[eventScope], sectorName],
-    }));
-  };
-
-  const clearSectorFilters = () => {
-    setSelectedSectorNamesByScope((currentFilters) => ({
-      ...currentFilters,
-      [eventScope]: [],
-    }));
-  };
 
   const handleToggleSelect = (householdId) => {
     if (isSelectedEventEnded) {
