@@ -11,6 +11,14 @@
 -- 1) REFERENCE / ACCESS CONTROL TABLES
 -- =========================================================
 
+-- NOTE:
+-- The permissions and role_permissions tables are currently retained as
+-- reference/documentation structures and for possible future migration to a
+-- richer policy model.
+-- Live runtime authorization in the current app is still enforced primarily by
+-- role-code checks in the backend (for example BARANGAY, MSWDO, MAYOR), not by
+-- dynamic permission-table lookups.
+
 CREATE TABLE public.roles (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   code character varying NOT NULL UNIQUE,
