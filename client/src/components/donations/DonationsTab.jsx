@@ -1,15 +1,9 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
-import { compactButtonStyles } from "../../features/donations/donationUi";
 import { formatDonationDateTime } from "../../features/donations/donationFormatters";
 import DonationStatusBadge from "./DonationStatusBadge";
 import DonationSyncBadge from "./DonationSyncBadges";
-
-const destructiveButtonStyles = {
-  ...compactButtonStyles,
-  color: "#b91c1c",
-  borderColor: "#f1d2cc",
-};
+import TableActionsMenu from "../shared/TableActionsMenu";
 
 const DonationsTab = ({
   isLoading,
@@ -86,34 +80,51 @@ const DonationsTab = ({
                     {donation.total_quantity_received}
                   </td>
                   <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                      <button
-                        type="button"
-                        onClick={() => onOpenDonationDetail(donation.id)}
-                        style={compactButtonStyles}
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        minHeight: "36px",
+                      }}
+                    >
+                      <TableActionsMenu
+                        row={donation}
+                        menuId={`donation-actions-${donation.id}`}
                         disabled={donation.is_local_only}
-                        title={donation.is_local_only ? "Available after sync" : undefined}
-                      >
-                        View Details
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onOpenDonationModal(donation.id)}
-                        style={compactButtonStyles}
-                        disabled={donation.is_local_only}
-                        title={donation.is_local_only ? "Available after sync" : undefined}
-                      >
-                        View / Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onDeleteDonation(donation)}
-                        style={destructiveButtonStyles}
-                        disabled={donation.is_local_only}
-                        title={donation.is_local_only ? "Available after sync" : undefined}
-                      >
-                        Delete
-                      </button>
+                        buttonTitle={
+                          donation.is_local_only ? "Available after sync" : "Donation actions"
+                        }
+                        buttonAriaLabel={
+                          donation.is_local_only
+                            ? "Donation actions unavailable until synced"
+                            : "Donation actions"
+                        }
+                        items={[
+                          {
+                            key: "view-details",
+                            label: "View Details",
+                            onClick: (row) => onOpenDonationDetail(row.id),
+                            disabled: donation.is_local_only,
+                            title: donation.is_local_only ? "Available after sync" : undefined,
+                          },
+                          {
+                            key: "edit",
+                            label: "Edit",
+                            onClick: (row) => onOpenDonationModal(row.id),
+                            disabled: donation.is_local_only,
+                            title: donation.is_local_only ? "Available after sync" : undefined,
+                          },
+                          {
+                            key: "delete",
+                            label: "Delete",
+                            tone: "destructive",
+                            onClick: (row) => onDeleteDonation(row),
+                            disabled: donation.is_local_only,
+                            title: donation.is_local_only ? "Available after sync" : undefined,
+                          },
+                        ]}
+                      />
                     </div>
                   </td>
                 </tr>

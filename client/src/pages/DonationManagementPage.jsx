@@ -11,6 +11,7 @@ import DonationNeedsTab from "../components/donations/DonationNeedsTab";
 import DonationsTab from "../components/donations/DonationsTab";
 import DonationDetailModal from "../components/donations/DonationDetailModal";
 import DonorTransparencyTab from "../components/donations/DonorTransparencyTab";
+import ConfirmationModal from "../components/shared/ConfirmationModal";
 import ExportModal from "../components/shared/ExportModal";
 import FeedbackToast from "../components/shared/FeedbackToast";
 import { fetchAllDisasterEvents } from "../features/disaster-events/disasterEventService";
@@ -88,6 +89,8 @@ const DonationManagementPage = () => {
     type: "",
     message: "",
   });
+  const [deleteConfirmation, setDeleteConfirmation] = useState(null);
+  const [isDeleteSubmitting, setIsDeleteSubmitting] = useState(false);
   const [isNeedModalOpen, setIsNeedModalOpen] = useState(false);
   const [needForm, setNeedForm] = useState(createNeedForm());
   const [needErrorMessage, setNeedErrorMessage] = useState("");
@@ -456,27 +459,13 @@ const DonationManagementPage = () => {
   };
 
   const removeExistingDonationItem = async (item) => {
-    const userConfirmed = window.confirm(
-      "Remove this donation item from the donation record?",
-    );
-
-    if (!userConfirmed) {
-      return;
-    }
-
-    try {
-      await deleteDonationItem(item.id);
-      const refreshedDonation = await fetchDonationById(donationForm.id);
-      setDonationForm((currentForm) => ({
-        ...currentForm,
-        items: refreshedDonation.items || [],
-      }));
-      setSuccessMessage("Donation item deleted successfully.");
-      cancelEditDonationItem();
-      await loadPageData(selectedEventId);
-    } catch (error) {
-      setDonationItemErrorMessage(error.message || "Failed to delete donation item.");
-    }
+    setDeleteConfirmation({
+      type: "donation-item",
+      payload: item,
+      title: "Delete Donation Item",
+      message: "Remove this donation item from the donation record?",
+      confirmLabel: "Delete",
+    });
   };
 
   const addExistingDonationItem = async () => {
@@ -509,38 +498,89 @@ const DonationManagementPage = () => {
   };
 
   const handleDeleteDonationNeed = async (donationNeed) => {
-    const confirmed = window.confirm(
-      `Delete the donation need for ${donationNeed.inventory_item?.item_name || "this item"}?`,
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    try {
-      await deleteDonationNeed(donationNeed.id);
-      setSuccessMessage("Donation need deleted successfully.");
-      await loadPageData(selectedEventId);
-    } catch (error) {
-      setPageErrorMessage(error.message || "Failed to delete donation need.");
-    }
+    setDeleteConfirmation({
+      type: "donation-need",
+      payload: donationNeed,
+      title: "Delete Donation Need",
+      message: `Delete the donation need for ${donationNeed.inventory_item?.item_name || "this item"}?`,
+      confirmLabel: "Delete",
+    });
   };
 
   const handleDeleteDonation = async (donation) => {
-    const confirmed = window.confirm(
-      `Delete the donation record for ${donation.donor_name}?`,
-    );
+    setDeleteConfirmation({
+      type: "donation",
+      payload: donation,
+      title: "Delete Donation Record",
+      message: `Delete the donation record for ${donation.donor_name}?`,
+      confirmLabel: "Delete",
+    });
+  };
 
-    if (!confirmed) {
+  const handleCancelDeleteConfirmation = () => {
+    if (isDeleteSubmitting) {
       return;
     }
 
+    setDeleteConfirmation(null);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirmation || isDeleteSubmitting) {
+      return;
+    }
+
+    setIsDeleteSubmitting(true);
+
     try {
-      await deleteDonation(donation.id);
-      setSuccessMessage("Donation deleted successfully.");
-      await loadPageData(selectedEventId);
+      if (deleteConfirmation.type === "donation-item") {
+        await deleteDonationItem(deleteConfirmation.payload.id);
+        const refreshedDonation = await fetchDonationById(donationForm.id);
+        setDonationForm((currentForm) => ({
+          ...currentForm,
+          items: refreshedDonation.items || [],
+        }));
+        cancelEditDonationItem();
+        await loadPageData(selectedEventId);
+        setExportFeedback({
+          type: "success",
+          message: "Donation item deleted successfully.",
+        });
+      } else if (deleteConfirmation.type === "donation-need") {
+        await deleteDonationNeed(deleteConfirmation.payload.id);
+        await loadPageData(selectedEventId);
+        setExportFeedback({
+          type: "success",
+          message: "Donation need deleted successfully.",
+        });
+      } else if (deleteConfirmation.type === "donation") {
+        await deleteDonation(deleteConfirmation.payload.id);
+        await loadPageData(selectedEventId);
+        setExportFeedback({
+          type: "success",
+          message: "Donation deleted successfully.",
+        });
+      }
+
+      setDeleteConfirmation(null);
     } catch (error) {
-      setPageErrorMessage(error.message || "Failed to delete donation.");
+      if (deleteConfirmation.type === "donation-item") {
+        setExportFeedback({
+          type: "error",
+          message: error.message || "Failed to delete donation item.",
+        });
+      } else {
+        setExportFeedback({
+          type: "error",
+          message:
+            error.message ||
+            (deleteConfirmation.type === "donation"
+              ? "Failed to delete donation."
+              : "Failed to delete donation need."),
+        });
+      }
+    } finally {
+      setIsDeleteSubmitting(false);
     }
   };
 
@@ -589,20 +629,6 @@ const DonationManagementPage = () => {
 
   return (
     <>
-      {/*
-      <div style={{ display: "flex", justifyContent: "flex-start" }}>
-        <button
-          type="button"
-          onClick={() =>
-            navigate(getDefaultRouteForRole(currentRole), { replace: true })
-          }
-          style={backButtonStyles}
-        >
-          â† Back
-        </button>
-      </div>
-      */}
-
       <PageHeader title={pageMeta.title} description={pageMeta.description} />
 
       <section style={shellStyles.card}>
@@ -752,6 +778,20 @@ const DonationManagementPage = () => {
         type={exportFeedback.type}
         message={exportFeedback.message}
         onClose={() => setExportFeedback({ type: "", message: "" })}
+      />
+
+      <ConfirmationModal
+        isOpen={Boolean(deleteConfirmation)}
+        title={deleteConfirmation?.title || "Confirm Delete"}
+        message={deleteConfirmation?.message || ""}
+        confirmLabel={deleteConfirmation?.confirmLabel || "Delete"}
+        isSubmitting={isDeleteSubmitting}
+        confirmButtonStyle={{
+          background: "#b91c1c",
+          borderColor: "#b91c1c",
+        }}
+        onCancel={handleCancelDeleteConfirmation}
+        onConfirm={handleConfirmDelete}
       />
 
       <DonationDetailModal

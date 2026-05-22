@@ -1,9 +1,9 @@
 import React from "react";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
+import TableActionsMenu from "../shared/TableActionsMenu";
 import { formatDonationDateOnly } from "../../features/donations/donationFormatters";
 import {
-  compactButtonStyles,
   donationStatuses,
   donorTypes,
   inputStyles,
@@ -11,12 +11,6 @@ import {
   modalStyles,
   overlayStyles,
 } from "../../features/donations/donationUi";
-
-const destructiveButtonStyles = {
-  ...compactButtonStyles,
-  color: "#b91c1c",
-  borderColor: "#f1d2cc",
-};
 
 const DonationModal = ({
   isOpen,
@@ -410,33 +404,44 @@ const DonationModal = ({
                           {item.remarks || "--"}
                         </td>
                         <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                            {item.id ? (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => onStartEditItem(item)}
-                                  style={compactButtonStyles}
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => onDeleteExistingItem(item)}
-                                  style={destructiveButtonStyles}
-                                >
-                                  Delete
-                                </button>
-                              </>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => onRemoveDraftItem(item)}
-                                style={destructiveButtonStyles}
-                              >
-                                Remove
-                              </button>
-                            )}
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "center",
+                              alignItems: "center",
+                              minHeight: "36px",
+                            }}
+                          >
+                            <TableActionsMenu
+                              row={item}
+                              menuId={`donation-item-actions-${item.id || `${item.inventory_item_id}-${item.quantity_received}`}`}
+                              buttonTitle="Donation item actions"
+                              buttonAriaLabel="Donation item actions"
+                              items={
+                                item.id
+                                  ? [
+                                      {
+                                        key: "edit",
+                                        label: "Edit",
+                                        onClick: (row) => onStartEditItem(row),
+                                      },
+                                      {
+                                        key: "delete",
+                                        label: "Delete",
+                                        tone: "destructive",
+                                        onClick: (row) => onDeleteExistingItem(row),
+                                      },
+                                    ]
+                                  : [
+                                      {
+                                        key: "remove",
+                                        label: "Remove",
+                                        tone: "destructive",
+                                        onClick: (row) => onRemoveDraftItem(row),
+                                      },
+                                    ]
+                              }
+                            />
                           </div>
                         </td>
                       </tr>

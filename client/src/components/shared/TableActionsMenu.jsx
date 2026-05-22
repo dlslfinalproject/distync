@@ -43,6 +43,22 @@ const menuStyles = {
   },
 };
 
+const getItemColor = (item) => {
+  if (item.disabled) {
+    return "#8f9fb0";
+  }
+
+  if (item.tone === "destructive") {
+    return "#b91c1c";
+  }
+
+  if (item.tone === "warning") {
+    return "#8a5d22";
+  }
+
+  return "#24496e";
+};
+
 const TableActionsMenu = ({
   row,
   menuId,
@@ -189,7 +205,7 @@ const TableActionsMenu = ({
               }}
               style={{
                 ...menuStyles.dropdownButton,
-                color: item.disabled ? "#8f9fb0" : item.tone === "warning" ? "#8a5d22" : "#24496e",
+                color: getItemColor(item),
               }}
               disabled={item.disabled}
               title={item.title || item.label}
