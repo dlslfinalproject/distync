@@ -14,10 +14,6 @@ import {
 } from "react-icons/fi";
 import distyncLogo from "../../assets/distync-logo.png";
 import { fetchDonationPortalData } from "../../features/donations/donationService";
-import { fetchActiveDisasterEvents } from "../../features/disaster-events/disasterEventService";
-import { fetchInventoryBatches } from "../../features/inventory-batches/inventoryBatchService";
-import { fetchInventoryTransactions } from "../../features/inventory-transactions/inventoryTransactionService";
-import { fetchMasterlistOperationalAnalytics } from "../../features/mswdo-analytics/mswdoAnalyticsService";
 
 const COLORS = {
   cardBg: "#ffffff",
@@ -42,20 +38,6 @@ const LGU_CONTACT = {
   emailSecondary: "info@malvarbatangas.gov.ph",
   website: "www.malvarbatangas.gov.ph",
 };
-
-const EMPTY_OPERATIONAL_PAYLOAD = {
-  summary_metrics: {
-    total_number_of_evacuees_individuals: 0,
-    total_number_of_families: 0,
-    total_barangays_covered: 0,
-  },
-  charts: {
-    per_barangay: [],
-  },
-};
-
-const LOW_STOCK_THRESHOLD = 10;
-const CRITICAL_STOCK_THRESHOLD = 5;
 
 const styles = {
   page: {
@@ -705,41 +687,6 @@ const getNeedPalette = (level) => {
   };
 };
 
-const buildInventoryLookup = (inventoryBatches) => {
-  const inventoryByItemId = new Map();
-
-  (inventoryBatches || []).forEach((batch) => {
-    const itemId = batch.inventory_item?.id || batch.inventory_item_id;
-
-    if (!itemId) {
-      return;
-    }
-
-    const quantityAvailable = Number(batch.quantity_available || 0);
-    const existingEntry = inventoryByItemId.get(itemId) || {
-      id: itemId,
-      name: batch.inventory_item?.item_name || "--",
-      unit: batch.inventory_item?.unit_of_measure || "pc",
-      totalQuantityAvailable: 0,
-      hasLowStock: false,
-      hasCriticalStock: false,
-    };
-
-    existingEntry.totalQuantityAvailable += quantityAvailable;
-    existingEntry.hasLowStock =
-      existingEntry.hasLowStock ||
-      batch.status === "LOW_STOCK" ||
-      (quantityAvailable > 0 && quantityAvailable <= LOW_STOCK_THRESHOLD);
-    existingEntry.hasCriticalStock =
-      existingEntry.hasCriticalStock ||
-      (quantityAvailable > 0 && quantityAvailable <= CRITICAL_STOCK_THRESHOLD);
-
-    inventoryByItemId.set(itemId, existingEntry);
-  });
-
-  return inventoryByItemId;
-};
-
 const getLatestTimestamp = (timestamps) => {
   const validTimestamps = timestamps
     .map((value) => new Date(value).getTime())
@@ -753,58 +700,33 @@ const getLatestTimestamp = (timestamps) => {
 };
 
 const buildActiveDisasterRows = ({
-  activeEvents,
-  operationalAnalyticsByEventId,
-  distributionTransactions,
-  inventoryLookup,
+  disasterEvents,
+  donationNeeds,
 }) => {
-  return (activeEvents || []).map((event) => {
-    const operationalPayload =
-      operationalAnalyticsByEventId.get(event.id) || EMPTY_OPERATIONAL_PAYLOAD;
-    const summaryMetrics =
-      operationalPayload.summary_metrics ||
-      EMPTY_OPERATIONAL_PAYLOAD.summary_metrics;
-    const areaBreakdown = (operationalPayload.charts?.per_barangay || []).map(
-      (item) => ({
-        area: item.barangay_name || "Unknown",
-        families: Number(item.families_count || 0),
-        individuals: Number(item.evacuees_count || 0),
-      }),
-    );
+  const needsByEventId = new Map();
 
-    const neededItemsByItemId = new Map();
+  (donationNeeds || []).forEach((need) => {
+    const eventId = need.disaster_event_id;
 
-    (distributionTransactions || [])
-      .filter((transaction) => transaction.disaster_event_id === event.id)
-      .forEach((transaction) => {
-        const itemId = transaction.inventory_item?.id;
+    if (!eventId) {
+      return;
+    }
 
-        if (!itemId) {
-          return;
-        }
+    const bucket = needsByEventId.get(eventId) || [];
+    bucket.push(need);
+    needsByEventId.set(eventId, bucket);
+  });
 
-        const inventoryEntry = inventoryLookup.get(itemId);
-        const existingEntry = neededItemsByItemId.get(itemId) || {
-          id: itemId,
-          name:
-            transaction.inventory_item?.item_name ||
-            inventoryEntry?.name ||
-            "--",
-          needed: 0,
-          unit: inventoryEntry?.unit || "pc",
-          level: inventoryEntry?.hasCriticalStock ? "critical" : "high",
-        };
-
-        existingEntry.needed += Number(transaction.quantity || 0);
-
-        if (inventoryEntry?.hasCriticalStock) {
-          existingEntry.level = "critical";
-        }
-
-        neededItemsByItemId.set(itemId, existingEntry);
-      });
-
-    const urgentNeeds = [...neededItemsByItemId.values()]
+  return (disasterEvents || []).map((event) => {
+    const eventNeeds = needsByEventId.get(event.id) || [];
+    const urgentNeeds = eventNeeds
+      .map((need) => ({
+        id: need.id,
+        name: need.inventory_item?.item_name || "--",
+        needed: Number(need.quantity_needed || 0),
+        unit: need.inventory_item?.unit_of_measure || "items",
+        level: need.priority_level === "URGENT" ? "critical" : "high",
+      }))
       .sort((left, right) => {
         if (left.level !== right.level) {
           return left.level === "critical" ? -1 : 1;
@@ -819,19 +741,12 @@ const buildActiveDisasterRows = ({
       eventName: event.title || "Active Disaster Event",
       status: formatStatusLabel(event.status),
       dateRange: formatDateRange(event.start_date, event.end_date),
-      affectedAreasCount:
-        Number(summaryMetrics.total_barangays_covered || 0) ||
-        (event.affected_barangays || []).length,
-      affectedFamilies: Number(summaryMetrics.total_number_of_families || 0),
-      affectedIndividuals: Number(
-        summaryMetrics.total_number_of_evacuees_individuals || 0,
-      ),
-      neededItemsTotal: [...neededItemsByItemId.values()].reduce(
-        (total, item) => total + item.needed,
-        0,
-      ),
+      affectedAreasCount: Number(event.affected_barangays_count || 0),
+      affectedFamilies: Number(event.registered_households_count || 0),
+      affectedIndividuals: Number(event.affected_individuals_count || 0),
+      neededItemsTotal: Number(event.published_needed_quantity || 0),
       urgentNeeds,
-      areaBreakdown,
+      areaBreakdown: [],
     };
   });
 };
@@ -1118,74 +1033,43 @@ const DonationInformationPage = () => {
       }));
 
       try {
-        const [activeEvents, publicPortalData] = await Promise.all([
-          fetchActiveDisasterEvents(),
-          fetchDonationPortalData(),
-        ]);
+        const publicPortalData = await fetchDonationPortalData();
 
         if (!isMounted) {
           return;
         }
 
-        if (!Array.isArray(activeEvents) || activeEvents.length === 0) {
+        const publicDisasterEvents = Array.isArray(publicPortalData?.disaster_events)
+          ? publicPortalData.disaster_events
+          : [];
+        const publicDonationNeeds = Array.isArray(publicPortalData?.donation_needs)
+          ? publicPortalData.donation_needs
+          : [];
+
+        if (publicDisasterEvents.length === 0) {
           setPageState({
             isLoading: false,
             errorMessage: "",
             activeDisasters: [],
-            donationNeeds: publicPortalData?.donation_needs || [],
+            donationNeeds: publicDonationNeeds,
             lastUpdatedAt: new Date().toISOString(),
           });
           return;
         }
-
-        const [operationalEntries, inventoryBatches, inventoryTransactions] =
-          await Promise.all([
-            Promise.all(
-              activeEvents.map(async (event) => {
-                try {
-                  const payload = await fetchMasterlistOperationalAnalytics({
-                    disasterEventId: event.id,
-                    barangayId: null,
-                  });
-
-                  return [event.id, payload];
-                } catch (_error) {
-                  return [event.id, EMPTY_OPERATIONAL_PAYLOAD];
-                }
-              }),
-            ),
-            fetchInventoryBatches(),
-            fetchInventoryTransactions({
-              reference_type: "DISTRIBUTION",
-            }),
-          ]);
-
-        if (!isMounted) {
-          return;
-        }
-
-        const operationalAnalyticsByEventId = new Map(operationalEntries);
-        const inventoryLookup = buildInventoryLookup(inventoryBatches || []);
         const activeDisasters = buildActiveDisasterRows({
-          activeEvents,
-          operationalAnalyticsByEventId,
-          distributionTransactions: inventoryTransactions || [],
-          inventoryLookup,
+          disasterEvents: publicDisasterEvents,
+          donationNeeds: publicDonationNeeds,
         });
 
         setPageState({
           isLoading: false,
           errorMessage: "",
           activeDisasters,
-          donationNeeds: publicPortalData?.donation_needs || [],
+          donationNeeds: publicDonationNeeds,
           lastUpdatedAt: getLatestTimestamp([
-            ...activeEvents.map((event) => event.updated_at),
-            ...(publicPortalData?.donation_needs || []).map(
+            ...publicDisasterEvents.map((event) => event.updated_at),
+            ...publicDonationNeeds.map(
               (need) => need.updated_at || need.published_at,
-            ),
-            ...(inventoryTransactions || []).map(
-              (transaction) =>
-                transaction.performed_at || transaction.created_at,
             ),
           ]),
         });

@@ -1081,29 +1081,16 @@ const deleteDonationRecord = async (id, performedBy) => {
 };
 
 const getPublicDonationPortal = async (disasterEventId = null) => {
-  const [activeNeeds, summaryTotals, perItemSummary] = await Promise.all([
-    donationRepository.getPublicDonationNeeds(disasterEventId),
-    donationRepository.getDonationSummaryTotals(disasterEventId),
-    donationRepository.getDonationItemTransparencySummary(disasterEventId),
-  ]);
-
-  const groupedEventMap = new Map();
-
-  activeNeeds.forEach((need) => {
-    if (!groupedEventMap.has(need.disaster_event_id)) {
-      groupedEventMap.set(need.disaster_event_id, {
-        id: need.disaster_event_id,
-        event_code: need.event_code,
-        title: need.disaster_event_title,
-        need_count: 0,
-      });
-    }
-
-    groupedEventMap.get(need.disaster_event_id).need_count += 1;
-  });
+  const [activeDisasterSummaries, activeNeeds, summaryTotals, perItemSummary] =
+    await Promise.all([
+      donationRepository.getPublicDonationDisasterSummaries(disasterEventId),
+      donationRepository.getPublicDonationNeeds(disasterEventId),
+      donationRepository.getDonationSummaryTotals(disasterEventId),
+      donationRepository.getDonationItemTransparencySummary(disasterEventId),
+    ]);
 
   return {
-    disaster_events: [...groupedEventMap.values()],
+    disaster_events: activeDisasterSummaries,
     selected_disaster_event_id: disasterEventId,
     donation_needs: activeNeeds
       .map(mapDonationNeed)

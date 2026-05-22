@@ -659,6 +659,66 @@ const getPublicDonationNeeds = async (disasterEventId, dbClient = pool) => {
   return result.rows;
 };
 
+const getPublicDonationDisasterSummaries = async (
+  disasterEventId,
+  dbClient = pool,
+) => {
+  const values = [];
+  const conditions = [`de.status = 'ACTIVE'`];
+
+  if (disasterEventId) {
+    values.push(disasterEventId);
+    conditions.push(`de.id = $${values.length}`);
+  }
+
+  const result = await dbClient.query(
+    `
+      SELECT
+        de.id,
+        de.event_code,
+        de.title,
+        de.disaster_type,
+        de.description,
+        de.start_date,
+        de.end_date,
+        de.status,
+        de.updated_at,
+        COALESCE(barangay_summary.affected_barangays_count, 0)::int AS affected_barangays_count,
+        COALESCE(household_summary.registered_households_count, 0)::int AS registered_households_count,
+        COALESCE(household_summary.affected_individuals_count, 0)::int AS affected_individuals_count,
+        COALESCE(need_summary.published_need_count, 0)::int AS published_need_count,
+        COALESCE(need_summary.published_needed_quantity, 0)::int AS published_needed_quantity
+      FROM disaster_events de
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS affected_barangays_count
+        FROM disaster_event_barangays deb
+        WHERE deb.disaster_event_id = de.id
+      ) barangay_summary ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(*)::int AS registered_households_count,
+          COALESCE(SUM(h.household_size), 0)::int AS affected_individuals_count
+        FROM households h
+        WHERE h.disaster_event_id = de.id
+          AND h.is_active = TRUE
+      ) household_summary ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(*)::int AS published_need_count,
+          COALESCE(SUM(dn.quantity_needed), 0)::int AS published_needed_quantity
+        FROM donation_needs dn
+        WHERE dn.disaster_event_id = de.id
+          AND dn.is_active = TRUE
+      ) need_summary ON TRUE
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY de.start_date DESC, de.created_at DESC
+    `,
+    values,
+  );
+
+  return result.rows;
+};
+
 const getDonationSummaryTotals = async (disasterEventId, dbClient = pool) => {
   const values = [];
   const donationConditions = [];
@@ -877,6 +937,7 @@ module.exports = {
   insertInventoryBatch,
   updateInventoryBatchStock,
   insertInventoryTransaction,
+  getPublicDonationDisasterSummaries,
   getPublicDonationNeeds,
   getDonationSummaryTotals,
   getDonationItemTransparencySummary,
