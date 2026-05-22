@@ -2,11 +2,12 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import PageHeader from "../../components/layout/PageHeader";
 import BarangayDashboardOverview from "../../components/barangay-dashboard/BarangayDashboardOverview";
-import { shellStyles } from "../../components/layout/BarangayLayout";
 import MasterlistDepartureConfirmModal from "../../components/masterlist/MasterlistDepartureConfirmModal";
 import HouseholdArchiveConfirmModal from "../../components/masterlist/HouseholdArchiveConfirmModal";
 import EvacuationCorrectionModal from "../../components/masterlist/EvacuationCorrectionModal";
 import HouseholdDetailModal from "../../components/masterlist/HouseholdDetailModal";
+import MasterlistSelectionBar from "../../components/masterlist/MasterlistSelectionBar";
+import MasterlistStatusMessages from "../../components/masterlist/MasterlistStatusMessages";
 import MasterlistTable from "../../components/masterlist/MasterlistTable";
 import MasterlistToolbar from "../../components/masterlist/MasterlistToolbar";
 import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
@@ -19,8 +20,14 @@ import {
   correctEvacuationLog,
   departHousehold,
   fetchHouseholdDetails,
-  formatDateTime,
 } from "../../features/masterlist/masterlistService";
+import {
+  buildQueuedHouseholdRow,
+  formatEventEndedDateTime,
+  getFilteredRows,
+  getSectorNames,
+  isEndedDisasterEvent,
+} from "../../features/masterlist/barangayMasterlistUi";
 import {
   cacheRegistrationActiveDisasterEvents,
   cacheRegistrationBarangays,
@@ -31,120 +38,12 @@ import {
   fetchEvacuationCentersByBarangay,
 } from "../../features/household-registration/householdRegistrationService";
 import { fetchMswdoSectors } from "../../features/mswdo-masterlist/mswdoMasterlistService";
-import { MdDoorFront } from "react-icons/md";
 import db from "../../offline/db";
 import {
   buildSyncDescriptor,
   findSyncEntry,
 } from "../../offline/syncStatus";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
-
-const getSectorNames = (sectorsText) => {
-  if (!sectorsText || sectorsText === "-") {
-    return [];
-  }
-
-  return String(sectorsText)
-    .split(",")
-    .map((sectorName) => sectorName.trim())
-    .filter(Boolean);
-};
-
-const getFilteredRows = (rows, searchTerm) => {
-  if (!searchTerm.trim()) return rows;
-  const normalizedSearchTerm = searchTerm.trim().toLowerCase();
-
-  return rows.filter((row) => {
-    const searchableValues = [
-      row.family_head_name,
-      row.address,
-      row.sectors_text,
-      row.attendance_status_text,
-      row.arrival_time_text,
-      row.departure_time_text,
-    ];
-    return searchableValues.some((value) =>
-      String(value).toLowerCase().includes(normalizedSearchTerm),
-    );
-  });
-};
-
-const buildFamilyHeadName = (familyHead = {}) => {
-  return [
-    familyHead.first_name,
-    familyHead.middle_name,
-    familyHead.last_name,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .trim();
-};
-
-const buildQueuedHouseholdRow = (entry, assignedBarangayName) => {
-  const familyHeadName = buildFamilyHeadName(entry.payload?.family_head);
-  const currentAddress =
-    entry.payload?.current_address_details ||
-    assignedBarangayName ||
-    "Pending local address";
-  const departureTimestamp =
-    entry.actionKey === "HOUSEHOLD_DEPART" ? entry.clientTimestamp : null;
-
-  return {
-    household_id: entry.entityLocalId || entry.id,
-    family_head_name: familyHeadName || "Pending household",
-    address: currentAddress,
-    members_count: Array.isArray(entry.payload?.members)
-      ? entry.payload.members.length
-      : 0,
-    sectors_text: "-",
-    arrival_time_text: formatDateTime(entry.clientTimestamp),
-    departure_time_value: departureTimestamp,
-    departure_time_text: departureTimestamp ? formatDateTime(departureTimestamp) : "-",
-    can_record_departure: false,
-    is_local_only: true,
-    sync_status: entry.status,
-    sync_entry_id: entry.id,
-  };
-};
-
-
-const isEndedDisasterEvent = (event, eventScope) => {
-  const status = String(event?.status || "").toUpperCase();
-  return eventScope === "ended" || status === "CLOSED" || status === "ARCHIVED";
-};
-
-
-const formatEventEndedDateTime = (value) => {
-  if (!value) {
-    return "-";
-  }
-
-  const normalizedValue = String(value).trim();
-  const isDateOnlyValue = /^\d{4}-\d{2}-\d{2}$/.test(normalizedValue);
-  const parsedDate = new Date(
-    isDateOnlyValue ? `${normalizedValue}T00:00:00` : normalizedValue,
-  );
-
-  if (Number.isNaN(parsedDate.getTime())) {
-    return "-";
-  }
-
-  if (isDateOnlyValue) {
-    return new Intl.DateTimeFormat("en-PH", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    }).format(parsedDate);
-  }
-
-  return new Intl.DateTimeFormat("en-PH", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(parsedDate);
-};
 
 const BarangayMasterlistPage = () => {
   const { authenticatedUser } = useAuth();
@@ -781,29 +680,11 @@ const BarangayMasterlistPage = () => {
         setOverrideBarangayId={setOverrideBarangayId}
       />
 
-      {registrationSuccessMessage ? (
-        <section style={shellStyles.card}>
-          <p style={{ margin: 0, color: "#2f6c47", fontWeight: 700 }}>
-            {registrationSuccessMessage}
-          </p>
-        </section>
-      ) : null}
-
-      {attendanceActionMessage ? (
-        <section style={shellStyles.card}>
-          <p style={{ margin: 0, color: "#24496e", fontWeight: 700 }}>
-            {attendanceActionMessage}
-          </p>
-        </section>
-      ) : null}
-
-      {editHouseholdErrorMessage ? (
-        <section style={shellStyles.card}>
-          <p style={{ margin: 0, color: "#a14d58", fontWeight: 700 }}>
-            {editHouseholdErrorMessage}
-          </p>
-        </section>
-      ) : null}
+      <MasterlistStatusMessages
+        successMessage={registrationSuccessMessage}
+        infoMessage={attendanceActionMessage}
+        errorMessage={editHouseholdErrorMessage}
+      />
 
       <MasterlistToolbar
         searchValue={searchTerm}
@@ -819,44 +700,12 @@ const BarangayMasterlistPage = () => {
         filterScopeKey={eventScope}
       />
 
-      {!isSelectedEventEnded && selectedHouseholds.length > 0 ? (
-        <section style={shellStyles.card}>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: "12px",
-              flexWrap: "wrap",
-            }}
-          >
-            <p style={{ margin: 0, fontWeight: 700, color: "#24496e" }}>
-              {selectedHouseholds.length} selected
-            </p>
-
-            <button
-              type="button"
-              onClick={handleOpenBulkDepartureConfirmation}
-              disabled={isRecordingDeparture}
-              style={{
-                border: "1px solid #c6d8ea",
-                borderRadius: "12px",
-                width: "40px",
-                height: "40px",
-                backgroundColor: "#f7fbfe",
-                color: "#24496e",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                cursor: isRecordingDeparture ? "not-allowed" : "pointer",
-                opacity: isRecordingDeparture ? 0.7 : 1,
-              }}
-              title="Mark Selected as Departed"
-            >
-              <MdDoorFront size={18} />
-            </button>
-          </div>
-        </section>
+      {!isSelectedEventEnded ? (
+        <MasterlistSelectionBar
+          selectedCount={selectedHouseholds.length}
+          isSubmitting={isRecordingDeparture}
+          onConfirmDeparture={handleOpenBulkDepartureConfirmation}
+        />
       ) : null}
 
       <MasterlistTable

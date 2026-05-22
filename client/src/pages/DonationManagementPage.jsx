@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { useNavigate } from "react-router-dom";
 import PageHeader from "../components/layout/PageHeader";
 import { shellStyles } from "../components/layout/BarangayLayout";
 import DonationFilters from "../components/donations/DonationFilters";
+import DonationPageStatus from "../components/donations/DonationPageStatus";
+import DonationPageTabs from "../components/donations/DonationPageTabs";
 import DonationModal from "../components/donations/DonationModal";
 import DonationNeedModal from "../components/donations/DonationNeedModal";
 import DonationNeedsTab from "../components/donations/DonationNeedsTab";
@@ -36,13 +37,19 @@ import {
   mergeDonationNeedsWithSyncStatus,
 } from "../features/donations/donationSync";
 import {
-  backButtonStyles,
   createDonationForm,
   createDonationItemForm,
   createNeedForm,
 } from "../features/donations/donationUi";
+import {
+  defaultPortalData,
+  filterDonationNeeds,
+  filterDonations,
+  getAvailableDonationTabs,
+  getDonationPageMeta,
+  getSelectedDonationEventLabel,
+} from "../features/donations/donationPageUi";
 import { useAuth } from "../context/AuthContext";
-import { getDefaultRouteForRole } from "../utils/roleSession";
 import db from "../offline/db";
 import { subscribeToSyncUpdates } from "../offline/syncService";
 import {
@@ -53,31 +60,10 @@ import {
   resolveExportErrorMessage,
 } from "../utils/exportHelpers";
 
-const defaultPortalData = {
-  donation_needs: [],
-  transparency_summary: {
-    total_donations_received: 0,
-    total_quantity_received: 0,
-    total_donated_items_distributed: 0,
-    remaining_donated_inventory: 0,
-    received_vs_distributed: [],
-  },
-};
-
 const DonationManagementPage = () => {
-  const navigate = useNavigate();
   const { currentRole } = useAuth();
   const canManageDonations = currentRole === "MAYOR";
-  const availableTabs = canManageDonations
-    ? [
-        { key: "donations", label: "Donations" },
-        { key: "needs", label: "Donation Needs" },
-        { key: "transparency", label: "Transparency Summary" },
-      ]
-    : [
-        { key: "needs", label: "Donation Needs" },
-        { key: "transparency", label: "Transparency Summary" },
-      ];
+  const availableTabs = getAvailableDonationTabs(canManageDonations);
 
   const [activeTab, setActiveTab] = useState(
     canManageDonations ? "donations" : "needs",
@@ -202,48 +188,15 @@ const DonationManagementPage = () => {
   }, [disasterEvents, donations, inventoryItems, selectedEventId, syncQueueEntries]);
 
   const filteredDonationNeeds = useMemo(() => {
-    if (!needSearch.trim()) {
-      return donationNeedsWithSyncStatus;
-    }
-
-    const normalizedSearch = needSearch.trim().toLowerCase();
-
-    return donationNeedsWithSyncStatus.filter((need) =>
-      [
-        need.inventory_item?.item_name,
-        need.inventory_item?.item_code,
-        need.disaster_event?.title,
-        need.disaster_event?.event_code,
-        need.notes,
-      ]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(normalizedSearch)),
-    );
+    return filterDonationNeeds(donationNeedsWithSyncStatus, needSearch);
   }, [donationNeedsWithSyncStatus, needSearch]);
 
   const filteredDonations = useMemo(() => {
-    if (!donationSearch.trim()) {
-      return donationsWithSyncStatus;
-    }
-
-    const normalizedSearch = donationSearch.trim().toLowerCase();
-
-    return donationsWithSyncStatus.filter((donation) =>
-      [
-        donation.donor_name,
-        donation.contact_information,
-        donation.disaster_event?.title,
-        donation.disaster_event?.event_code,
-        donation.remarks,
-      ]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(normalizedSearch)),
-    );
+    return filterDonations(donationsWithSyncStatus, donationSearch);
   }, [donationsWithSyncStatus, donationSearch]);
 
   const selectedEventLabel = useMemo(() => {
-    const matchedEvent = disasterEvents.find((event) => event.id === selectedEventId);
-    return matchedEvent ? `${matchedEvent.event_code} - ${matchedEvent.title}` : "All Events";
+    return getSelectedDonationEventLabel(disasterEvents, selectedEventId);
   }, [disasterEvents, selectedEventId]);
 
   const openNeedModal = (donationNeed = null) => {
@@ -632,15 +585,11 @@ const DonationManagementPage = () => {
     }
   };
 
-  const pageTitle = canManageDonations
-    ? "DONATION MANAGEMENT"
-    : "DONATION SUMMARY";
-  const pageDescription = canManageDonations
-    ? "Manage published donation needs, record received donations, and review donor transparency summaries using live database-backed data."
-    : "Review published donation needs and donor transparency summaries using live database-backed data.";
+  const pageMeta = getDonationPageMeta(canManageDonations);
 
   return (
     <>
+      {/*
       <div style={{ display: "flex", justifyContent: "flex-start" }}>
         <button
           type="button"
@@ -652,8 +601,9 @@ const DonationManagementPage = () => {
           â† Back
         </button>
       </div>
+      */}
 
-      <PageHeader title={pageTitle} description={pageDescription} />
+      <PageHeader title={pageMeta.title} description={pageMeta.description} />
 
       <section style={shellStyles.card}>
         <DonationFilters
@@ -680,67 +630,16 @@ const DonationManagementPage = () => {
           }}
         />
 
-        <div
-          style={{
-            display: "flex",
-            gap: "10px",
-            flexWrap: "wrap",
-            marginTop: "18px",
-          }}
-        >
-          {availableTabs.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => setActiveTab(tab.key)}
-              style={{
-                border: "none",
-                borderRadius: "999px",
-                padding: "10px 16px",
-                backgroundColor: activeTab === tab.key ? "#dbe8f6" : "#eef5fc",
-                color: activeTab === tab.key ? "#17324d" : "#40617f",
-                fontWeight: 700,
-                cursor: "pointer",
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        <DonationPageTabs
+          availableTabs={availableTabs}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+        />
 
-        {successMessage ? (
-          <div
-            style={{
-              marginTop: "18px",
-              padding: "14px 16px",
-              borderRadius: "14px",
-              backgroundColor: "#edfdf4",
-              border: "1px solid #ccebd9",
-              color: "#1f6b48",
-              fontSize: "14px",
-              fontWeight: 600,
-            }}
-          >
-            {successMessage}
-          </div>
-        ) : null}
-
-        {pageErrorMessage ? (
-          <div
-            style={{
-              marginTop: "18px",
-              padding: "14px 16px",
-              borderRadius: "14px",
-              backgroundColor: "#fff3f1",
-              border: "1px solid #f1d2cc",
-              color: "#9d4d58",
-              fontSize: "14px",
-              fontWeight: 600,
-            }}
-          >
-            {pageErrorMessage}
-          </div>
-        ) : null}
+        <DonationPageStatus
+          successMessage={successMessage}
+          errorMessage={pageErrorMessage}
+        />
       </section>
 
       {activeTab === "needs" ? (

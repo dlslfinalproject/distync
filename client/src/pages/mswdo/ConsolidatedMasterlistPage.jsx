@@ -1,18 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { FiFileText, FiFilter, FiUserPlus } from "react-icons/fi";
-import { MdDoorFront } from "react-icons/md";
 import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
-import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
+import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import HouseholdArchiveConfirmModal from "../../components/masterlist/HouseholdArchiveConfirmModal";
 import HouseholdDetailModal from "../../components/masterlist/HouseholdDetailModal";
 import MasterlistDepartureConfirmModal from "../../components/masterlist/MasterlistDepartureConfirmModal";
 import MasterlistTable from "../../components/masterlist/MasterlistTable";
+import MswdoMasterlistControls from "../../components/mswdo-masterlist/MswdoMasterlistControls";
+import MswdoMasterlistEventSummary from "../../components/mswdo-masterlist/MswdoMasterlistEventSummary";
+import MswdoMasterlistScopeSection from "../../components/mswdo-masterlist/MswdoMasterlistScopeSection";
+import MswdoMasterlistSelectionBar from "../../components/mswdo-masterlist/MswdoMasterlistSelectionBar";
 import MswdoSummaryCards from "../../components/mswdo-masterlist/MswdoSummaryCards";
 import ExportModal from "../../components/shared/ExportModal";
 import FeedbackToast from "../../components/shared/FeedbackToast";
-import SearchBar from "../../components/shared/SearchBar";
-import StatusPill from "../../components/shared/StatusPill";
 import { useAuth } from "../../context/AuthContext";
 import { useHouseholdRegistrationForm } from "../../features/household-registration/useHouseholdRegistrationForm";
 import {
@@ -22,6 +22,12 @@ import {
   formatDateTime,
 } from "../../features/masterlist/masterlistService";
 import { exportConsolidatedMasterlist } from "../../features/mswdo-masterlist/mswdoMasterlistService";
+import {
+  formatReliefPeriod,
+  getEndedEventDateTimeText,
+  getFilterPanelPosition,
+  getScopedDisasterEvents,
+} from "../../features/mswdo-masterlist/mswdoMasterlistUi";
 import { useMswdoMasterlist } from "../../features/mswdo-masterlist/useMswdoMasterlist";
 import {
   buildExportSuccessMessage,
@@ -30,192 +36,6 @@ import {
   NO_EXPORT_DATA_MESSAGE,
   resolveExportErrorMessage,
 } from "../../utils/exportHelpers";
-
-const filterStyles = {
-  field: {
-    width: "100%",
-    padding: "12px 14px",
-    borderRadius: "12px",
-    border: "1px solid #cfddeb",
-    backgroundColor: "#f8fbfe",
-    color: "#1f3b57",
-    fontSize: "14px",
-    boxSizing: "border-box",
-  },
-  label: {
-    display: "block",
-    marginBottom: "8px",
-    color: "#5f7892",
-    fontSize: "12px",
-    fontWeight: 700,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
-  },
-};
-
-const filterPanelStyles = {
-  panel: {
-    position: "fixed",
-    width: "min(380px, calc(100vw - 32px))",
-    backgroundColor: "#ffffff",
-    border: "1px solid #d6e2ef",
-    borderRadius: "18px",
-    boxShadow: "0 18px 36px rgba(31, 64, 95, 0.16)",
-    padding: "18px",
-    zIndex: 1200,
-    display: "flex",
-    flexDirection: "column",
-    gap: "14px",
-    overflow: "hidden",
-    boxSizing: "border-box",
-  },
-  title: {
-    margin: 0,
-    color: "#17324d",
-    fontSize: "16px",
-    fontWeight: 800,
-  },
-  list: {
-    display: "grid",
-    gap: "10px",
-    overflowY: "auto",
-    flex: "1 1 auto",
-    minHeight: 0,
-    paddingRight: "4px",
-  },
-  option: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    color: "#1f405f",
-    fontSize: "14px",
-  },
-  actions: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: "10px",
-    marginTop: "auto",
-  },
-};
-
-const tabButtonStyles = (isActive) => ({
-  padding: "12px 24px",
-  border: "none",
-  background: "none",
-  fontSize: "14px",
-  fontWeight: 700,
-  textTransform: "uppercase",
-  color: isActive ? "#17324d" : "#6b8298",
-  borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
-  cursor: "pointer",
-});
-
-const formatDisplayDate = (value) => {
-  if (!value) return "-";
-  return new Intl.DateTimeFormat("en-PH", {
-    month: "2-digit",
-    day: "2-digit",
-    year: "numeric",
-  }).format(new Date(value));
-};
-
-const formatReliefPeriod = (event) => {
-  if (!event) return "-";
-
-  const start = formatDisplayDate(event.start_date);
-
-  if (!event.end_date && event.status === "ACTIVE") {
-    return `${start} - Ongoing`;
-  }
-
-  if (event.end_date) {
-    return `${start} - ${formatDisplayDate(event.end_date)}`;
-  }
-
-  return start;
-};
-
-const getEndedEventDateTimeText = (event) => {
-  if (!event || event.status === "ACTIVE") {
-    return "-";
-  }
-
-  return formatDateTime(event.updated_at || event.end_date);
-};
-
-const FILTER_PANEL_GAP = 12;
-const FILTER_PANEL_VIEWPORT_PADDING = 16;
-const MIN_FILTER_PANEL_HEIGHT = 220;
-
-const getFilterPanelPosition = ({ triggerRect, panelHeight }) => {
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-  const constrainedPanelWidth = Math.min(
-    380,
-    viewportWidth - FILTER_PANEL_VIEWPORT_PADDING * 2,
-  );
-  const safePanelHeight = Math.max(panelHeight || 0, MIN_FILTER_PANEL_HEIGHT);
-  const spaceBelow =
-    viewportHeight - triggerRect.bottom - FILTER_PANEL_VIEWPORT_PADDING;
-  const spaceAbove = triggerRect.top - FILTER_PANEL_VIEWPORT_PADDING;
-  const shouldOpenBelow =
-    spaceBelow >= MIN_FILTER_PANEL_HEIGHT || spaceBelow >= spaceAbove;
-
-  let left = triggerRect.right - constrainedPanelWidth;
-  left = Math.min(
-    Math.max(left, FILTER_PANEL_VIEWPORT_PADDING),
-    viewportWidth - constrainedPanelWidth - FILTER_PANEL_VIEWPORT_PADDING,
-  );
-
-  if (shouldOpenBelow) {
-    const top = Math.max(
-      FILTER_PANEL_VIEWPORT_PADDING,
-      triggerRect.bottom + FILTER_PANEL_GAP,
-    );
-    const availableHeight =
-      viewportHeight - top - FILTER_PANEL_VIEWPORT_PADDING;
-
-    return {
-      top,
-      left,
-      maxHeight: Math.max(availableHeight, 0),
-    };
-  }
-
-  const maxHeight = Math.max(
-    triggerRect.top - FILTER_PANEL_GAP - FILTER_PANEL_VIEWPORT_PADDING,
-    0,
-  );
-  const top = Math.max(
-    FILTER_PANEL_VIEWPORT_PADDING,
-    triggerRect.top - FILTER_PANEL_GAP - Math.min(safePanelHeight, maxHeight),
-  );
-
-  return {
-    top,
-    left,
-    maxHeight,
-  };
-};
-
-const eventIncludesBarangay = (event, barangayId) => {
-  if (!barangayId) {
-    return true;
-  }
-
-  return (event.affected_barangays || []).some(
-    (barangay) => barangay.id === barangayId,
-  );
-};
-
-const getScopedDisasterEvents = ({ events, activeTab, barangayId }) => {
-  const statusByTab = activeTab === "active" ? "ACTIVE" : "CLOSED";
-
-  return events.filter(
-    (event) =>
-      event.status === statusByTab && eventIncludesBarangay(event, barangayId),
-  );
-};
 
 const ConsolidatedEvacueeMasterlist = () => {
   const { authenticatedUser } = useAuth();
@@ -289,10 +109,14 @@ const ConsolidatedEvacueeMasterlist = () => {
   const activeEventLabel = selectedDisasterEvent
     ? `${selectedDisasterEvent.event_code} - ${selectedDisasterEvent.title}`
     : "No disaster event selected";
+  const reliefPeriodText = formatReliefPeriod(selectedDisasterEvent);
   const hasRowsToExport = displayedRows.length > 0;
   const canRegisterFamily = activeTab === "active";
   const isEndedView = activeTab === "ended";
-  const endedEventDateTimeText = getEndedEventDateTimeText(selectedDisasterEvent);
+  const endedEventDateTimeText = getEndedEventDateTimeText(
+    selectedDisasterEvent,
+    formatDateTime,
+  );
   const hasActiveSectorFilters = selectedSectorIds.length > 0;
   const scopedDisasterEvents = useMemo(() => {
     return getScopedDisasterEvents({
@@ -753,130 +577,24 @@ const ConsolidatedEvacueeMasterlist = () => {
     <>
       <PageHeader title="EVACUEE MASTERLIST MANAGEMENT" actions={[]} />
 
-      <section style={shellStyles.card}>
-        <div
-          style={{
-            display: "flex",
-            borderBottom: "1px solid #d6e2ef",
-            marginBottom: "24px",
-            gap: "8px",
-            flexWrap: "wrap",
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => handleEventScopeChange("active")}
-            style={tabButtonStyles(activeTab === "active")}
-          >
-            Active Events
-          </button>
-          <button
-            type="button"
-            onClick={() => handleEventScopeChange("ended")}
-            style={tabButtonStyles(activeTab === "ended")}
-          >
-            Ended Events
-          </button>
-        </div>
+      <MswdoMasterlistScopeSection
+        activeTab={activeTab}
+        isLoadingFilters={isLoadingFilters}
+        scopedDisasterEvents={scopedDisasterEvents}
+        selectedDisasterEventId={selectedDisasterEventId}
+        selectedBarangayId={selectedBarangayId}
+        barangays={barangays}
+        onEventScopeChange={handleEventScopeChange}
+        onDisasterEventChange={setSelectedDisasterEventId}
+        onBarangayChange={setSelectedBarangayId}
+      />
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: "16px",
-            alignItems: "end",
-          }}
-        >
-          <div>
-            <label htmlFor="mswdo-masterlist-event" style={filterStyles.label}>
-              {activeTab === "active" ? "Active" : "Ended"} Disaster Event
-            </label>
-            <select
-              id="mswdo-masterlist-event"
-              value={selectedDisasterEventId || ""}
-              onChange={(event) => setSelectedDisasterEventId(event.target.value)}
-              disabled={isLoadingFilters || scopedDisasterEvents.length === 0}
-              style={filterStyles.field}
-            >
-              <option value="">
-                {selectedBarangayId && scopedDisasterEvents.length === 0
-                  ? `No ${activeTab === "active" ? "active" : "ended"} events for this barangay`
-                  : `Select ${activeTab === "active" ? "active" : "ended"} disaster event`}
-              </option>
-              {scopedDisasterEvents.map((event) => (
-                <option key={event.id} value={event.id}>
-                  {event.event_code} - {event.title}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="mswdo-masterlist-barangay" style={filterStyles.label}>
-              Barangay
-            </label>
-            <select
-              id="mswdo-masterlist-barangay"
-              value={selectedBarangayId || ""}
-              onChange={(event) => setSelectedBarangayId(event.target.value)}
-              disabled={isLoadingFilters}
-              style={filterStyles.field}
-            >
-              <option value="">All Barangays</option>
-              {barangays.map((barangay) => (
-                <option key={barangay.id} value={barangay.id}>
-                  {barangay.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </section>
-
-      <section style={shellStyles.card}>
-        <div
-          style={{
-            border: "1px solid #d6e2ef",
-            borderRadius: "16px",
-            padding: "18px 20px",
-            backgroundColor: "#f8fbfe",
-          }}
-        >
-          <p
-            style={{
-              margin: 0,
-              color: "#17324d",
-              fontSize: "18px",
-              fontWeight: 800,
-            }}
-          >
-            {activeEventLabel}
-          </p>
-
-          <div
-            style={{
-              display: "flex",
-              gap: "24px",
-              marginTop: "14px",
-              flexWrap: "wrap",
-              color: "#334155",
-            }}
-          >
-            <span>Period: {formatReliefPeriod(selectedDisasterEvent)}</span>
-            <StatusPill status={selectedDisasterEvent?.status} />
-          </div>
-        </div>
-
-        {isLoadingFilters ? (
-          <p style={{ ...shellStyles.mutedText, marginTop: "16px" }}>
-            Loading MSWDO masterlist filters...
-          </p>
-        ) : !selectedDisasterEvent ? (
-          <p style={{ ...shellStyles.mutedText, marginTop: "16px" }}>
-            Select a disaster event to load the consolidated masterlist.
-          </p>
-      ) : null}
-    </section>
+      <MswdoMasterlistEventSummary
+        activeEventLabel={activeEventLabel}
+        selectedDisasterEvent={selectedDisasterEvent}
+        isLoadingFilters={isLoadingFilters}
+        reliefPeriodText={reliefPeriodText}
+      />
 
       {selectedDisasterEvent && !isLoadingDashboard && !dashboardErrorMessage ? (
         <MswdoSummaryCards summary={summaryMetrics} />
@@ -906,193 +624,37 @@ const ConsolidatedEvacueeMasterlist = () => {
         </section>
       ) : null}
 
-      {selectedHouseholds.length > 0 ? (
-        <section style={shellStyles.card}>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: "12px",
-              flexWrap: "wrap",
-            }}
-          >
-            <p style={{ margin: 0, fontWeight: 700, color: "#24496e" }}>
-              {selectedHouseholds.length} selected
-            </p>
+      <MswdoMasterlistSelectionBar
+        selectedCount={selectedHouseholds.length}
+        isSubmitting={isRecordingDeparture}
+        onConfirmDeparture={handleOpenBulkDepartureConfirmation}
+      />
 
-            <button
-              type="button"
-              onClick={handleOpenBulkDepartureConfirmation}
-              disabled={isRecordingDeparture}
-              style={{
-                border: "1px solid #c6d8ea",
-                borderRadius: "12px",
-                width: "40px",
-                height: "40px",
-                backgroundColor: "#f7fbfe",
-                color: "#24496e",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                cursor: isRecordingDeparture ? "not-allowed" : "pointer",
-                opacity: isRecordingDeparture ? 0.7 : 1,
-              }}
-              title="Mark Selected as Departed"
-            >
-              <MdDoorFront size={18} />
-            </button>
-          </div>
-        </section>
-      ) : null}
-
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          margin: "20px 0",
-          gap: "16px",
-          flexWrap: "wrap",
+      <MswdoMasterlistControls
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        filterButtonRef={filterButtonRef}
+        filterPanelRef={filterPanelRef}
+        isFilterOpen={isFilterOpen}
+        filterPanelPosition={filterPanelPosition}
+        hasActiveSectorFilters={hasActiveSectorFilters}
+        selectedSectorIds={selectedSectorIds}
+        sectors={sectors}
+        onToggleFilterOpen={() => setIsFilterOpen((currentValue) => !currentValue)}
+        onToggleSectorFilter={toggleSectorFilter}
+        onClearSectorFilters={clearSectorFilters}
+        onApplySectorFilters={() => setIsFilterOpen(false)}
+        canRegisterFamily={canRegisterFamily}
+        selectedBarangayId={selectedBarangayId}
+        onOpenRegisterModal={handleOpenRegisterModal}
+        selectedDisasterEventId={selectedDisasterEventId}
+        exportingFormat={exportingFormat}
+        onOpenExportModal={() => {
+          setSelectedExportFormat("csv");
+          setExportFeedback({ type: "", message: "" });
+          setIsExportModalOpen(true);
         }}
-      >
-        <div style={{ flex: 1 }}>
-          <SearchBar
-            value={searchTerm}
-            onChange={setSearchTerm}
-            placeholder="Search family head, address, or sectors"
-          />
-        </div>
-
-        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-          <div>
-            <button
-              ref={filterButtonRef}
-              type="button"
-              onClick={() => setIsFilterOpen((currentValue) => !currentValue)}
-              style={{
-                ...pageHeaderStyles.secondaryButton,
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-              }}
-            >
-              <FiFilter size={16} />
-              {hasActiveSectorFilters
-                ? `Filter (${selectedSectorIds.length})`
-                : "Filter"}
-            </button>
-
-            {isFilterOpen ? (
-              <div
-                ref={filterPanelRef}
-                style={{
-                  ...filterPanelStyles.panel,
-                  top: filterPanelPosition.top,
-                  left: filterPanelPosition.left,
-                  maxHeight: filterPanelPosition.maxHeight,
-                }}
-              >
-                <h3 style={filterPanelStyles.title}>Filter by Sector</h3>
-                <div style={filterPanelStyles.list}>
-                  {sectors.length > 0 ? (
-                    sectors.map((sector) => (
-                      <label key={sector.id} style={filterPanelStyles.option}>
-                        <input
-                          type="checkbox"
-                          checked={selectedSectorIds.includes(sector.id)}
-                          onChange={() => toggleSectorFilter(sector.id)}
-                          style={{ accentColor: "#2f6499" }}
-                        />
-                        <span>{sector.name}</span>
-                      </label>
-                    ))
-                  ) : (
-                    <p style={{ ...shellStyles.mutedText, margin: 0 }}>
-                      No sectors are available.
-                    </p>
-                  )}
-                </div>
-
-                <div style={filterPanelStyles.actions}>
-                  <button
-                    type="button"
-                    onClick={clearSectorFilters}
-                    style={pageHeaderStyles.secondaryButton}
-                  >
-                    Clear
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsFilterOpen(false)}
-                    style={pageHeaderStyles.primaryButton}
-                  >
-                    Apply
-                  </button>
-                </div>
-              </div>
-            ) : null}
-          </div>
-
-          {canRegisterFamily ? (
-            <button
-              type="button"
-              onClick={handleOpenRegisterModal}
-              disabled={!selectedBarangayId}
-              title={
-                selectedBarangayId
-                  ? "Register a family under the selected barangay"
-                  : "Select one barangay before registering a family"
-              }
-              style={{
-                ...pageHeaderStyles.primaryButton,
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                cursor: selectedBarangayId ? "pointer" : "not-allowed",
-                opacity: selectedBarangayId ? 1 : 0.65,
-              }}
-            >
-              <FiUserPlus size={16} />
-              Register Family
-            </button>
-          ) : null}
-
-          <div style={{ position: "relative" }}>
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedExportFormat("csv");
-                setExportFeedback({ type: "", message: "" });
-                setIsExportModalOpen(true);
-              }}
-              disabled={!selectedDisasterEventId || Boolean(exportingFormat)}
-              style={{
-                border: "1px solid #c6d8ea",
-                borderRadius: "14px",
-                padding: "12px 18px",
-                backgroundColor: "#f8fbfe",
-                color: "#2a4c6f",
-                fontSize: "14px",
-                fontWeight: 700,
-                cursor:
-                  !selectedDisasterEventId || exportingFormat ? "not-allowed" : "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                opacity: !selectedDisasterEventId || exportingFormat ? 0.7 : 1,
-              }}
-            >
-              <span style={{ display: "flex", alignItems: "center", gap: "2px" }}>
-                <FiFileText size={16} />
-              </span>
-              {exportingFormat
-                ? `Exporting ${exportingFormat.toUpperCase()}...`
-                : "Export"}
-            </button>
-          </div>
-        </div>
-      </div>
+      />
 
       <MasterlistTable
         rows={displayedRows}

@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
+import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
+import InventoryAnalyticsPanel from "../../components/inventory-items/InventoryAnalyticsPanel";
 import InventoryItemFormModal from "../../components/inventory-items/InventoryItemFormModal";
 import InventoryItemDetailModal from "../../components/inventory-items/InventoryItemDetailModal";
 import BarcodeScanModal from "../../components/inventory-items/BarcodeScanModal";
+import InventoryPageActions from "../../components/inventory-items/InventoryPageActions";
+import InventoryPageTabs from "../../components/inventory-items/InventoryPageTabs";
 import InventoryItemsTable from "../../components/inventory-items/InventoryItemsTable";
 import InventoryOverviewCards from "../../components/inventory-items/InventoryOverviewCards";
 import ForecastingPanel from "../../components/inventory-items/ForecastingPanel";
@@ -25,12 +28,6 @@ import {
 import { fetchInventoryBatches } from "../../features/inventory-batches/inventoryBatchService";
 import { fetchInventoryTransactions } from "../../features/inventory-transactions/inventoryTransactionService";
 import { fetchAllDisasterEvents } from "../../features/disaster-events/disasterEventService";
-import {
-  FiFileText,
-  FiPackage,
-  FiPlus,
-} from "react-icons/fi";
-import { MdQrCodeScanner } from "react-icons/md";
 import db from "../../offline/db";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
 import {
@@ -41,6 +38,13 @@ import {
   inventoryExportReportOptions,
 } from "../../features/inventory-items/inventoryItemExportOptions";
 import { formatPercentage } from "../../features/inventory-items/inventoryItemFormatting";
+import {
+  buildInventoryItemFilters,
+  getInventoryAnalyticsCards,
+  getInventoryPageTabs,
+  getInventorySectionTitle,
+  inventoryPageStyles,
+} from "../../features/inventory-items/inventoryItemsPageUi";
 import {
   buildInventoryTrackingMap,
   createEmptyTrackingStats,
@@ -56,115 +60,6 @@ import {
   NO_EXPORT_DATA_MESSAGE,
   resolveExportErrorMessage,
 } from "../../utils/exportHelpers";
-
-const primaryTopBtn = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "8px",
-  border: "none",
-  borderRadius: "14px",
-  padding: "12px 18px",
-  background: "linear-gradient(135deg, #2f6499 0%, #4c86be 100%)",
-  color: "#ffffff",
-  fontSize: "14px",
-  fontWeight: 700,
-  cursor: "pointer",
-  boxShadow: "0 12px 24px rgba(58, 97, 141, 0.18)",
-};
-
-const secondaryTopBtn = {
-  border: "1px solid #c6d8ea",
-  borderRadius: "14px",
-  padding: "12px 18px",
-  backgroundColor: "#f8fbfe",
-  color: "#2a4c6f",
-  fontSize: "14px",
-  fontWeight: 700,
-  cursor: "pointer",
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "8px",
-};
-
-const analyticsCard = {
-  background: "#f8fbff",
-  border: "1px solid #d6e2ef",
-  borderRadius: "14px",
-  padding: "16px",
-};
-
-const styles = {
-  topActionsRow: {
-    display: "flex",
-    justifyContent: "flex-end",
-    alignItems: "center",
-    margin: "16px 0 24px",
-    flexWrap: "wrap",
-    gap: "12px",
-  },
-  tabContainer: {
-    display: "flex",
-    borderBottom: "1px solid #d6e2ef",
-    marginBottom: "24px",
-    gap: "8px",
-    flexWrap: "wrap",
-  },
-  sectionTitle: {
-    margin: "0 0 12px 0",
-    fontWeight: 800,
-    fontSize: "24px",
-    color: "#2f3f5d",
-    lineHeight: 1.1,
-  },
-  addItemIconWrap: {
-    position: "relative",
-    width: "18px",
-    height: "18px",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  addItemPlus: {
-    position: "absolute",
-    right: "-5px",
-    bottom: "-4px",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#ffffff",
-    background: "transparent",
-    padding: 0,
-    borderRadius: 0,
-    boxShadow: "none",
-    lineHeight: 1,
-  },
-};
-
-const tabButtonStyles = (isActive) => ({
-  padding: "12px 24px",
-  border: "none",
-  background: "none",
-  fontSize: "14px",
-  fontWeight: 700,
-  textTransform: "uppercase",
-  color: isActive ? "#17324d" : "#6b8298",
-  borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
-  cursor: "pointer",
-});
-
-const buildInventoryItemFilters = (filters) => {
-  const apiFilters = {
-    search: filters.search,
-  };
-
-  if (filters.category === "Perishable") {
-    apiFilters.is_perishable = "true";
-  } else if (filters.category === "Non-Perishable") {
-    apiFilters.is_perishable = "false";
-  }
-
-  return apiFilters;
-};
 
 const InventoryItemsPage = () => {
   const [filters, setFilters] = useState({
@@ -506,6 +401,11 @@ const InventoryItemsPage = () => {
     ],
     [inventoryAnalytics],
   );
+  const inventoryPageTabs = useMemo(() => getInventoryPageTabs(), []);
+  const inventoryAnalyticsCards = useMemo(
+    () => getInventoryAnalyticsCards(inventoryAnalytics),
+    [inventoryAnalytics],
+  );
 
   const visibleInventoryItems = useMemo(() => {
     if (filters.status === "All") {
@@ -726,65 +626,24 @@ const InventoryItemsPage = () => {
     >
       <PageHeader title="INVENTORY MANAGEMENT" />
 
-      <div style={styles.topActionsRow}>
-        <button type="button" style={primaryTopBtn} onClick={handleOpenScanModal}>
-          <MdQrCodeScanner size={16} />
-          Scan Item
-        </button>
-
-        <button type="button" style={primaryTopBtn} onClick={handleOpenCreateModal}>
-          <span style={styles.addItemIconWrap}>
-            <FiPackage size={16} />
-            <span style={styles.addItemPlus}>
-              <FiPlus size={10} strokeWidth={3} />
-            </span>
-          </span>
-          Add Item
-        </button>
-
-        <button
-          type="button"
-          onClick={handleOpenExportModal}
-          disabled={Boolean(exportingFormat)}
-          style={{
-            ...secondaryTopBtn,
-            opacity: exportingFormat ? 0.7 : 1,
-            cursor: exportingFormat ? "not-allowed" : "pointer",
-          }}
-        >
-          <FiFileText size={16} />
-          {exportingFormat
-            ? `Exporting ${exportingFormat.toUpperCase()}...`
-            : "Export"}
-        </button>
-      </div>
+      <InventoryPageActions
+        exportingFormat={exportingFormat}
+        onOpenScanModal={handleOpenScanModal}
+        onOpenCreateModal={handleOpenCreateModal}
+        onOpenExportModal={handleOpenExportModal}
+      />
 
       <InventoryOverviewCards summaryCards={summaryCards} />
 
       <section style={shellStyles.card}>
-        <div style={styles.tabContainer}>
-          {["overview", "analytics", "forecasting"].map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setActiveTab(tab)}
-              style={tabButtonStyles(activeTab === tab)}
-            >
-              {tab === "overview"
-                ? "Inventory List"
-                : tab === "analytics"
-                  ? "Tracking Summary"
-                  : "Forecasting"}
-            </button>
-          ))}
-        </div>
+        <InventoryPageTabs
+          tabs={inventoryPageTabs}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+        />
 
-        <h3 style={styles.sectionTitle}>
-          {activeTab === "overview"
-            ? "ITEM STOCK TRACKING"
-            : activeTab === "analytics"
-              ? "TRACKING SUMMARY"
-              : "FORECASTING SUMMARY"}
+        <h3 style={inventoryPageStyles.sectionTitle}>
+          {getInventorySectionTitle(activeTab)}
         </h3>
 
         {activeTab === "overview" ? (
@@ -803,74 +662,7 @@ const InventoryItemsPage = () => {
             />
           </>
         ) : activeTab === "analytics" ? (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-              gap: "16px",
-            }}
-          >
-            {[
-              {
-                title: "Items With Stock On Hand",
-                value: inventoryAnalytics.availableItems,
-                detail: "Registered items that still have remaining available stock.",
-              },
-              {
-                title: "Items Already Distributed",
-                value: inventoryAnalytics.distributedItems,
-                detail: "Inventory items that already have recorded distribution activity.",
-              },
-              {
-                title: "Items With Expired Stock",
-                value: inventoryAnalytics.expiredItems,
-                detail: "Inventory items with expired stock records that still need attention.",
-              },
-              {
-                title: "Perishable Goods",
-                value: inventoryAnalytics.perishableItems,
-                detail: `${inventoryAnalytics.perishableShare} of all registered items are marked as perishable.`,
-              },
-              {
-                title: "Non-Perishable Goods",
-                value: inventoryAnalytics.nonPerishableItems,
-                detail: `${inventoryAnalytics.nonPerishableShare} of all registered items are marked as non-perishable.`,
-              },
-            ].map((card) => (
-              <div key={card.title} style={analyticsCard}>
-                <h4
-                  style={{
-                    margin: "0 0 8px",
-                    color: "#17324d",
-                    fontSize: "16px",
-                    fontWeight: 700,
-                  }}
-                >
-                  {card.title}
-                </h4>
-                <p
-                  style={{
-                    margin: "0 0 12px",
-                    color: "#17324d",
-                    fontSize: "32px",
-                    fontWeight: 800,
-                    lineHeight: 1,
-                  }}
-                >
-                  {card.value}
-                </p>
-                <p
-                  style={{
-                    margin: 0,
-                    color: "#6b8298",
-                    fontSize: "14px",
-                  }}
-                >
-                  {card.detail}
-                </p>
-              </div>
-            ))}
-          </div>
+          <InventoryAnalyticsPanel cards={inventoryAnalyticsCards} />
         ) : (
           <ForecastingPanel
             forecastEvents={forecastEvents}
