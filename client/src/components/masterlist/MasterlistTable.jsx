@@ -77,6 +77,7 @@ const MasterlistTable = ({
   onViewHousehold,
   onEditHousehold,
   onArchiveHousehold,
+  onRestoreHousehold,
   isDepartureReadOnly = false,
   departureReadOnlyText = "-",
   selectedHouseholds,
@@ -342,18 +343,25 @@ const MasterlistTable = ({
                             onEditHousehold?.(selectedRow.household_id),
                         },
                         {
-                          key: "archive",
-                          label: "Archive Household",
-                          tone: "warning",
+                          key: row.is_active === false ? "restore" : "archive",
+                          label:
+                            row.is_active === false
+                              ? "Restore Household"
+                              : "Archive Household",
+                          tone:
+                            row.is_active === false ? "default" : "warning",
                           disabled:
-                            typeof onArchiveHousehold !== "function" ||
-                            row.is_active === false,
+                            row.is_active === false
+                              ? typeof onRestoreHousehold !== "function"
+                              : typeof onArchiveHousehold !== "function",
                           title:
                             row.is_active === false
-                              ? "Household already archived"
+                              ? "Restore Household"
                               : "Archive Household",
                           onClick: (selectedRow) =>
-                            onArchiveHousehold?.(selectedRow.household_id),
+                            row.is_active === false
+                              ? onRestoreHousehold?.(selectedRow.household_id)
+                              : onArchiveHousehold?.(selectedRow.household_id),
                         },
                       ]}
                     />

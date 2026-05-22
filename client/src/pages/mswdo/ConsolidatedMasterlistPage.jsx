@@ -52,6 +52,9 @@ const ConsolidatedEvacueeMasterlist = () => {
     pendingArchiveHouseholdId,
     archiveRemarks,
     isArchivingHousehold,
+    pendingRestoreHouseholdId,
+    restoreRemarks,
+    isRestoringHousehold,
     exportFeedback,
     filterButtonRef,
     filterPanelRef,
@@ -70,6 +73,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     setSearchTerm,
     setSelectedExportFormat,
     setArchiveRemarks,
+    setRestoreRemarks,
     setExportFeedback,
     setIsExportModalOpen,
     setIsFilterOpen,
@@ -89,6 +93,9 @@ const ConsolidatedEvacueeMasterlist = () => {
     handleOpenArchiveHousehold,
     handleCancelArchiveHousehold,
     handleConfirmArchiveHousehold,
+    handleOpenRestoreHousehold,
+    handleCancelRestoreHousehold,
+    handleConfirmRestoreHousehold,
     handleExport,
     toggleSectorFilter,
     clearSectorFilters,
@@ -190,6 +197,7 @@ const ConsolidatedEvacueeMasterlist = () => {
         onViewHousehold={handleOpenHouseholdDetails}
         onEditHousehold={handleOpenEditHousehold}
         onArchiveHousehold={handleOpenArchiveHousehold}
+        onRestoreHousehold={handleOpenRestoreHousehold}
         isDepartureReadOnly={isEndedView}
         departureReadOnlyText={endedEventDateTimeText}
         selectedHouseholds={selectedHouseholds}
@@ -257,6 +265,16 @@ const ConsolidatedEvacueeMasterlist = () => {
         onChangeArchiveRemarks={setArchiveRemarks}
         onCancel={handleCancelArchiveHousehold}
         onConfirm={handleConfirmArchiveHousehold}
+      />
+
+      <HouseholdArchiveConfirmModal
+        isOpen={Boolean(pendingRestoreHouseholdId)}
+        isSubmitting={isRestoringHousehold}
+        archiveRemarks={restoreRemarks}
+        onChangeArchiveRemarks={setRestoreRemarks}
+        onCancel={handleCancelRestoreHousehold}
+        onConfirm={handleConfirmRestoreHousehold}
+        mode="restore"
       />
 
       <FeedbackToast

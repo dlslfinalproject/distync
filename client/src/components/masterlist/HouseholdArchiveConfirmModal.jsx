@@ -19,26 +19,43 @@ const HouseholdArchiveConfirmModal = ({
   onChangeArchiveRemarks,
   onCancel,
   onConfirm,
+  mode = "archive",
 }) => {
   if (!isOpen) {
     return null;
   }
 
+  const isRestoreMode = mode === "restore";
+  const title = isRestoreMode ? "Restore Household" : "Archive Household";
+  const message = isRestoreMode
+    ? "Are you sure you want to restore this household?"
+    : "Are you sure you want to archive this household?";
+  const confirmLabel = isRestoreMode
+    ? isSubmitting
+      ? "Restoring..."
+      : "Restore Household"
+    : isSubmitting
+      ? "Archiving..."
+      : "Archive Household";
+  const placeholder = isRestoreMode
+    ? "Optional restore remarks"
+    : "Optional archive remarks";
+
   return (
     <ConfirmationModal
       isOpen={isOpen}
-      title="Archive Household"
-      message="Are you sure you want to archive this household?"
+      title={title}
+      message={message}
       onCancel={onCancel}
       onConfirm={onConfirm}
       isSubmitting={isSubmitting}
-      confirmLabel={isSubmitting ? "Archiving..." : "Archive Household"}
+      confirmLabel={confirmLabel}
       maxWidth="480px"
     >
       <textarea
         value={archiveRemarks}
         onChange={(event) => onChangeArchiveRemarks?.(event.target.value)}
-        placeholder="Optional archive remarks"
+        placeholder={placeholder}
         style={textareaStyles}
         disabled={isSubmitting}
       />

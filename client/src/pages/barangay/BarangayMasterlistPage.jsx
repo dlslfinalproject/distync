@@ -20,6 +20,7 @@ import {
   correctEvacuationLog,
   departHousehold,
   fetchHouseholdDetails,
+  restoreHousehold,
 } from "../../features/masterlist/masterlistService";
 import {
   formatEventEndedDateTime,
@@ -64,6 +65,9 @@ const BarangayMasterlistPage = () => {
   const [pendingArchiveHouseholdId, setPendingArchiveHouseholdId] = useState("");
   const [archiveRemarks, setArchiveRemarks] = useState("");
   const [isArchivingHousehold, setIsArchivingHousehold] = useState(false);
+  const [pendingRestoreHouseholdId, setPendingRestoreHouseholdId] = useState("");
+  const [restoreRemarks, setRestoreRemarks] = useState("");
+  const [isRestoringHousehold, setIsRestoringHousehold] = useState(false);
   const [isEvacuationCorrectionOpen, setIsEvacuationCorrectionOpen] =
     useState(false);
   const [isSubmittingEvacuationCorrection, setIsSubmittingEvacuationCorrection] =
@@ -385,6 +389,20 @@ const BarangayMasterlistPage = () => {
     setArchiveRemarks("");
   };
 
+  const handleOpenRestoreHousehold = (householdId) => {
+    setPendingRestoreHouseholdId(householdId);
+    setRestoreRemarks("");
+  };
+
+  const handleCancelRestoreHousehold = () => {
+    if (isRestoringHousehold) {
+      return;
+    }
+
+    setPendingRestoreHouseholdId("");
+    setRestoreRemarks("");
+  };
+
   const handleConfirmArchiveHousehold = async () => {
     if (!pendingArchiveHouseholdId || isArchivingHousehold) {
       return;
@@ -410,6 +428,34 @@ const BarangayMasterlistPage = () => {
       );
     } finally {
       setIsArchivingHousehold(false);
+    }
+  };
+
+  const handleConfirmRestoreHousehold = async () => {
+    if (!pendingRestoreHouseholdId || isRestoringHousehold) {
+      return;
+    }
+
+    setIsRestoringHousehold(true);
+
+    try {
+      const response = await restoreHousehold({
+        householdId: pendingRestoreHouseholdId,
+        restoreRemarks,
+      });
+
+      setRegistrationSuccessMessage(
+        response.message || "Household restored successfully",
+      );
+      setPendingRestoreHouseholdId("");
+      setRestoreRemarks("");
+      reloadMasterlist();
+    } catch (error) {
+      setAttendanceActionMessage(
+        error.message || "Failed to restore household",
+      );
+    } finally {
+      setIsRestoringHousehold(false);
     }
   };
 
@@ -599,6 +645,7 @@ const BarangayMasterlistPage = () => {
         onViewHousehold={handleOpenHouseholdDetails}
         onEditHousehold={handleOpenEditHousehold}
         onArchiveHousehold={handleOpenArchiveHousehold}
+        onRestoreHousehold={handleOpenRestoreHousehold}
         isDepartureReadOnly={isSelectedEventEnded}
         departureReadOnlyText={selectedEventEndedText}
         selectedHouseholds={selectedHouseholds}
@@ -647,6 +694,16 @@ const BarangayMasterlistPage = () => {
         onChangeArchiveRemarks={setArchiveRemarks}
         onCancel={handleCancelArchiveHousehold}
         onConfirm={handleConfirmArchiveHousehold}
+      />
+
+      <HouseholdArchiveConfirmModal
+        isOpen={Boolean(pendingRestoreHouseholdId)}
+        isSubmitting={isRestoringHousehold}
+        archiveRemarks={restoreRemarks}
+        onChangeArchiveRemarks={setRestoreRemarks}
+        onCancel={handleCancelRestoreHousehold}
+        onConfirm={handleConfirmRestoreHousehold}
+        mode="restore"
       />
 
       <EvacuationCorrectionModal

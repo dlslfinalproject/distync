@@ -1160,6 +1160,75 @@ const archiveHousehold = async ({ householdId, requester, archiveData }) => {
   }
 };
 
+const restoreHousehold = async ({ householdId, requester, restoreData }) => {
+  const existingHousehold =
+    await householdRegistrationRepository.getHouseholdSummaryById(householdId);
+
+  if (!existingHousehold) {
+    const error = new Error("Household not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (
+    requester?.roleCode === BARANGAY_ROLE_CODE &&
+    existingHousehold.barangay_id !== requester.defaultBarangayId
+  ) {
+    const error = new Error("You do not have access to restore this household");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  if (existingHousehold.is_active) {
+    const error = new Error("This household is already active");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const previousHouseholdSummary = summarizeHousehold(existingHousehold);
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    await householdRegistrationRepository.restoreHousehold(householdId, client);
+    const restoredEvacuees =
+      await householdRegistrationRepository.reactivateEvacueesByHouseholdId(
+        householdId,
+        client,
+      );
+
+    await client.query("COMMIT");
+
+    const restoredHouseholdDetails = await buildRegistrationResponse(householdId);
+
+    await logAuditSafely({
+      actor: requester,
+      action: "HOUSEHOLD_RESTORE",
+      entityType: "HOUSEHOLD",
+      entityId: householdId,
+      oldValues: previousHouseholdSummary,
+      newValues: {
+        ...summarizeHousehold(restoredHouseholdDetails.household),
+        restore_remarks: restoreData.restore_remarks || null,
+        restored_members_count: restoredEvacuees.length,
+      },
+    });
+
+    return {
+      household_id: householdId,
+      restored_members_count: restoredEvacuees.length,
+      status: "ACTIVE",
+      household: restoredHouseholdDetails.household,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
 module.exports = {
   getHouseholdDetails,
   registerHousehold,
@@ -1167,4 +1236,5 @@ module.exports = {
   departHousehold,
   correctEvacuationLog,
   archiveHousehold,
+  restoreHousehold,
 };

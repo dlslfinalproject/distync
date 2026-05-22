@@ -582,6 +582,56 @@ const validateArchiveHousehold = (req, res, next) => {
   }
 };
 
+const validateRestoreHousehold = (req, res, next) => {
+  try {
+    const { householdId } = req.params;
+    const { restore_remarks } = req.body || {};
+
+    if (!isValidUuid(householdId)) {
+      return res.status(400).json({
+        message: "householdId must be a valid UUID",
+      });
+    }
+
+    if (
+      restore_remarks !== undefined &&
+      restore_remarks !== null &&
+      typeof restore_remarks !== "string"
+    ) {
+      return res.status(400).json({
+        message: "restore_remarks must be a string or null",
+      });
+    }
+
+    if (
+      typeof restore_remarks === "string" &&
+      restore_remarks.length > MAX_CORRECTION_REMARKS_LENGTH
+    ) {
+      return res.status(400).json({
+        message: "restore_remarks must be 1000 characters or fewer",
+      });
+    }
+
+    req.validatedParams = {
+      householdId,
+    };
+
+    req.validatedBody = {
+      restore_remarks:
+        typeof restore_remarks === "string" && restore_remarks.trim()
+          ? restore_remarks.trim()
+          : null,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate household restore request",
+      error: error.message,
+    });
+  }
+};
+
 const validateCorrectEvacuationLog = (req, res, next) => {
   try {
     const { householdId, evacuationLogId } = req.params;
@@ -690,5 +740,6 @@ module.exports = {
   validateGetHouseholdDetails,
   validateUpdateHouseholdDetails,
   validateArchiveHousehold,
+  validateRestoreHousehold,
   validateCorrectEvacuationLog,
 };

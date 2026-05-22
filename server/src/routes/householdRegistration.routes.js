@@ -8,6 +8,7 @@ const {
   validateGetHouseholdDetails,
   validateUpdateHouseholdDetails,
   validateArchiveHousehold,
+  validateRestoreHousehold,
   validateCorrectEvacuationLog,
 } = require("../validators/householdRegistration.validator");
 
@@ -116,6 +117,32 @@ router.patch(
 
       return res.status(statusCode).json({
         message: error.message || "Failed to archive household",
+      });
+    }
+  },
+);
+
+router.patch(
+  "/:householdId/restore",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO),
+  validateRestoreHousehold,
+  async (req, res) => {
+    try {
+      const restoreResult = await householdRegistrationService.restoreHousehold({
+        householdId: req.validatedParams.householdId,
+        requester: req.auth,
+        restoreData: req.validatedBody,
+      });
+
+      return res.status(200).json({
+        message: "Household restored successfully",
+        data: restoreResult,
+      });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+
+      return res.status(statusCode).json({
+        message: error.message || "Failed to restore household",
       });
     }
   },

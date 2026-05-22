@@ -5,6 +5,7 @@ import {
   departHousehold,
   fetchHouseholdDetails,
   formatDateTime,
+  restoreHousehold,
 } from "../masterlist/masterlistService";
 import { exportConsolidatedMasterlist } from "./mswdoMasterlistService";
 import {
@@ -84,6 +85,10 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     useState("");
   const [archiveRemarks, setArchiveRemarks] = useState("");
   const [isArchivingHousehold, setIsArchivingHousehold] = useState(false);
+  const [pendingRestoreHouseholdId, setPendingRestoreHouseholdId] =
+    useState("");
+  const [restoreRemarks, setRestoreRemarks] = useState("");
+  const [isRestoringHousehold, setIsRestoringHousehold] = useState(false);
   const [exportFeedback, setExportFeedback] = useState({
     type: "",
     message: "",
@@ -483,6 +488,20 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setArchiveRemarks("");
   };
 
+  const handleOpenRestoreHousehold = (householdId) => {
+    setPendingRestoreHouseholdId(householdId);
+    setRestoreRemarks("");
+  };
+
+  const handleCancelRestoreHousehold = () => {
+    if (isRestoringHousehold) {
+      return;
+    }
+
+    setPendingRestoreHouseholdId("");
+    setRestoreRemarks("");
+  };
+
   const handleConfirmArchiveHousehold = async () => {
     if (!pendingArchiveHouseholdId || isArchivingHousehold) {
       return;
@@ -508,6 +527,34 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
       );
     } finally {
       setIsArchivingHousehold(false);
+    }
+  };
+
+  const handleConfirmRestoreHousehold = async () => {
+    if (!pendingRestoreHouseholdId || isRestoringHousehold) {
+      return;
+    }
+
+    setIsRestoringHousehold(true);
+
+    try {
+      const response = await restoreHousehold({
+        householdId: pendingRestoreHouseholdId,
+        restoreRemarks,
+      });
+
+      setRegistrationSuccessMessage(
+        response.message || "Household restored successfully",
+      );
+      setPendingRestoreHouseholdId("");
+      setRestoreRemarks("");
+      reloadMasterlist();
+    } catch (error) {
+      setAttendanceActionMessage(
+        error.message || "Failed to restore household",
+      );
+    } finally {
+      setIsRestoringHousehold(false);
     }
   };
 
@@ -596,6 +643,9 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     pendingArchiveHouseholdId,
     archiveRemarks,
     isArchivingHousehold,
+    pendingRestoreHouseholdId,
+    restoreRemarks,
+    isRestoringHousehold,
     exportFeedback,
     filterButtonRef,
     filterPanelRef,
@@ -614,6 +664,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setSearchTerm,
     setSelectedExportFormat,
     setArchiveRemarks,
+    setRestoreRemarks,
     setExportFeedback,
     setIsExportModalOpen,
     setIsFilterOpen,
@@ -633,6 +684,9 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     handleOpenArchiveHousehold,
     handleCancelArchiveHousehold,
     handleConfirmArchiveHousehold,
+    handleOpenRestoreHousehold,
+    handleCancelRestoreHousehold,
+    handleConfirmRestoreHousehold,
     handleExport,
     toggleSectorFilter,
     clearSectorFilters,
