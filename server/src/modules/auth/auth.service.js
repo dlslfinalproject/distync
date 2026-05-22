@@ -1,5 +1,4 @@
 const authRepository = require("./auth.repository");
-const crypto = require("crypto");
 const {
   ACCESS_MODES,
   getServerAccessMode,
@@ -104,6 +103,10 @@ const buildSessionPayload = (user, roleCode) => {
   };
 };
 
+const logDemoAuthDebug = (label, details) => {
+  console.log("[demo-login]", label, details);
+};
+
 const resolveAuthorizedRoleForUser = async (user) => {
   if (!user.is_active) {
     const error = new Error("This DISTYNC account is currently inactive.");
@@ -128,31 +131,6 @@ const resolveAuthorizedRoleForUser = async (user) => {
   }
 
   return role.code;
-};
-
-const getDemoAccessPassword = () => {
-  const configuredPassword = String(
-    process.env.DEMO_ACCESS_PASSWORD || "",
-  ).trim();
-
-  if (!configuredPassword) {
-    const error = new Error("DEMO_ACCESS_PASSWORD is missing in the backend environment");
-    error.statusCode = 500;
-    throw error;
-  }
-
-  return configuredPassword;
-};
-
-const isMatchingSecret = (leftValue, rightValue) => {
-  const leftBuffer = Buffer.from(String(leftValue));
-  const rightBuffer = Buffer.from(String(rightValue));
-
-  if (leftBuffer.length !== rightBuffer.length) {
-    return false;
-  }
-
-  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
 };
 
 const authenticateWithGoogle = async (idToken) => {
@@ -205,25 +183,66 @@ const authenticateWithDemoCredentials = async ({ email, password }) => {
     throw error;
   }
 
-  const configuredPassword = getDemoAccessPassword();
+  const candidate = await authRepository.getDemoLoginCandidateByEmail(
+    email,
+    password,
+  );
 
-  if (!isMatchingSecret(password, configuredPassword)) {
+  logDemoAuthDebug("candidate_lookup", {
+    email,
+    userFound: Boolean(candidate),
+    demoAccessEnabled: candidate?.demo_access_enabled ?? null,
+    authProvider: candidate?.auth_provider ?? null,
+    passwordMatch: candidate?.password_match ?? null,
+    roleFound: candidate?.role_code ?? null,
+    isActive: candidate?.is_active ?? null,
+  });
+
+  if (!candidate) {
     const error = new Error("Invalid demo email or password.");
     error.statusCode = 401;
     throw error;
   }
 
-  const user = await authRepository.getUserByEmail(email);
+  if (!candidate.is_active) {
+    const error = new Error("This DISTYNC account is currently inactive.");
+    error.statusCode = 403;
+    throw error;
+  }
 
-  if (!user) {
+  if (candidate.demo_access_enabled !== true) {
+    const error = new Error("Demo access is not enabled for this account.");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  if (String(candidate.auth_provider || "").toUpperCase() !== "EMAIL") {
+    const error = new Error("This account is not configured for demo email sign-in.");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  if (candidate.password_match !== true) {
     const error = new Error("Invalid demo email or password.");
     error.statusCode = 401;
     throw error;
   }
 
-  const roleCode = await resolveAuthorizedRoleForUser(user);
+  if (!candidate.role_code) {
+    const error = new Error("This DISTYNC account does not have an assigned role.");
+    error.statusCode = 403;
+    throw error;
+  }
 
-  return buildSessionPayload(user, roleCode);
+  if (!AUTHORIZED_ROLE_CODES.has(candidate.role_code)) {
+    const error = new Error(
+      "This account is not allowed to use authorized staff access.",
+    );
+    error.statusCode = 403;
+    throw error;
+  }
+
+  return buildSessionPayload(candidate, candidate.role_code);
 };
 
 const authenticateDevelopmentRole = async (roleCode) => {
