@@ -5,11 +5,11 @@ import { shellStyles } from "../../components/layout/BarangayLayout";
 import HouseholdArchiveConfirmModal from "../../components/masterlist/HouseholdArchiveConfirmModal";
 import HouseholdDetailModal from "../../components/masterlist/HouseholdDetailModal";
 import MasterlistDepartureConfirmModal from "../../components/masterlist/MasterlistDepartureConfirmModal";
+import MasterlistSelectionBar from "../../components/masterlist/MasterlistSelectionBar";
 import MasterlistTable from "../../components/masterlist/MasterlistTable";
 import MswdoMasterlistControls from "../../components/mswdo-masterlist/MswdoMasterlistControls";
 import MswdoMasterlistEventSummary from "../../components/mswdo-masterlist/MswdoMasterlistEventSummary";
 import MswdoMasterlistScopeSection from "../../components/mswdo-masterlist/MswdoMasterlistScopeSection";
-import MswdoMasterlistSelectionBar from "../../components/mswdo-masterlist/MswdoMasterlistSelectionBar";
 import MswdoSummaryCards from "../../components/mswdo-masterlist/MswdoSummaryCards";
 import ExportModal from "../../components/shared/ExportModal";
 import FeedbackToast from "../../components/shared/FeedbackToast";
@@ -149,7 +149,7 @@ const ConsolidatedEvacueeMasterlist = () => {
         </section>
       ) : null}
 
-      <MswdoMasterlistSelectionBar
+      <MasterlistSelectionBar
         selectedCount={selectedHouseholds.length}
         isSubmitting={isRecordingDeparture}
         onConfirmDeparture={handleOpenBulkDepartureConfirmation}
