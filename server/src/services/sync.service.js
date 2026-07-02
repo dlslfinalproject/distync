@@ -81,8 +81,12 @@ const ACTION_HANDLERS = {
     entityType: "HOUSEHOLD",
     operationType: "TIME_OUT",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    execute: async ({ entityServerId, payload }) =>
-      householdRegistrationService.departHousehold(entityServerId, payload),
+    execute: async ({ entityServerId, payload, auth }) =>
+      householdRegistrationService.departHousehold(
+        entityServerId,
+        payload,
+        getRequesterForSync(auth),
+      ),
   },
   STUB_CLAIM: {
     entityType: "STUB",

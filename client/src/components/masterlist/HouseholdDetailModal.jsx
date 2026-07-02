@@ -215,6 +215,12 @@ const HouseholdDetailModal = ({
   const latestAttendance = householdDetails?.latest_attendance || null;
   const stub = householdDetails?.stub || null;
   const distributionTransaction = householdDetails?.distribution_transaction || null;
+  const latestAttendanceStatus = String(latestAttendance?.status || "").toUpperCase();
+  const isOperationallyActive =
+    household?.is_active !== false &&
+    !latestAttendance?.time_out &&
+    latestAttendanceStatus !== "LEFT" &&
+    latestAttendanceStatus !== "TRANSFERRED";
 
   return (
     <div style={modalStyles.backdrop}>
@@ -230,18 +236,13 @@ const HouseholdDetailModal = ({
             </p>
           </div>
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            {householdDetails?.household?.id ? (
+            {householdDetails?.household?.id && isOperationallyActive ? (
               <>
                 <button
                   type="button"
                   onClick={() => onEditHousehold?.(householdDetails.household.id)}
                   style={pageHeaderStyles.secondaryButton}
-                  disabled={householdDetails.household.is_active === false}
-                  title={
-                    householdDetails.household.is_active === false
-                      ? "Archived households cannot be edited"
-                      : "Edit Household"
-                  }
+                  title="Edit Household"
                 >
                   Edit Household
                 </button>

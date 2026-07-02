@@ -960,7 +960,11 @@ const registerHousehold = async (requestData) => {
   }
 };
 
-const departHousehold = async (householdId, departureDetails) => {
+const departHousehold = async (
+  householdId,
+  departureDetails,
+  requester = null,
+) => {
   const household =
     await householdRegistrationRepository.getHouseholdSummaryById(householdId);
 
@@ -989,17 +993,57 @@ const departHousehold = async (householdId, departureDetails) => {
     throw error;
   }
 
-  const updatedLogs = await householdRegistrationRepository.markHouseholdDeparture(
-    householdId,
-    departureDetails,
-  );
+  const previousHouseholdSummary = summarizeHousehold(household);
+  const client = await pool.connect();
 
-  return {
-    household_id: householdId,
-    affected_logs_count: updatedLogs.length,
-    latest_departure_time: updatedLogs[0]?.time_out || null,
-    status: "LEFT",
-  };
+  try {
+    await client.query("BEGIN");
+
+    const updatedLogs =
+      await householdRegistrationRepository.markHouseholdDeparture(
+        householdId,
+        departureDetails,
+        client,
+      );
+    const archivedHousehold =
+      await householdRegistrationRepository.archiveHousehold(householdId, client);
+    const archivedEvacuees =
+      await householdRegistrationRepository.deactivateEvacueesByHouseholdId(
+        householdId,
+        client,
+      );
+
+    await client.query("COMMIT");
+
+    await logAuditSafely({
+      actor: requester,
+      action: "HOUSEHOLD_DEPART_AND_ARCHIVE",
+      entityType: "HOUSEHOLD",
+      entityId: householdId,
+      oldValues: previousHouseholdSummary,
+      newValues: {
+        ...summarizeHousehold(archivedHousehold),
+        departure_remarks: departureDetails?.remarks || null,
+        affected_logs_count: updatedLogs.length,
+        archived_members_count: archivedEvacuees.length,
+        status: "LEFT",
+      },
+    });
+
+    return {
+      household_id: householdId,
+      affected_logs_count: updatedLogs.length,
+      archived_members_count: archivedEvacuees.length,
+      latest_departure_time: updatedLogs[0]?.time_out || null,
+      status: "ARCHIVED",
+      household: archivedHousehold,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 };
 
 const correctEvacuationLog = async ({

@@ -186,10 +186,11 @@ router.post(
         await householdRegistrationService.departHousehold(
           req.validatedParams.householdId,
           req.validatedBody,
+          req.auth,
         );
 
       return res.status(200).json({
-        message: "Household departure recorded successfully",
+        message: "Household departure recorded successfully and archived automatically",
         data: departureResult,
       });
     } catch (error) {

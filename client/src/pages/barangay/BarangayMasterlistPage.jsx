@@ -2,8 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import PageHeader from "../../components/layout/PageHeader";
 import BarangayDashboardOverview from "../../components/barangay-dashboard/BarangayDashboardOverview";
-import MasterlistDepartureConfirmModal from "../../components/masterlist/MasterlistDepartureConfirmModal";
 import HouseholdArchiveConfirmModal from "../../components/masterlist/HouseholdArchiveConfirmModal";
+import MasterlistDepartureConfirmModal from "../../components/masterlist/MasterlistDepartureConfirmModal";
 import HouseholdDetailModal from "../../components/masterlist/HouseholdDetailModal";
 import MasterlistSelectionBar from "../../components/masterlist/MasterlistSelectionBar";
 import MasterlistStatusMessages from "../../components/masterlist/MasterlistStatusMessages";
@@ -15,7 +15,6 @@ import { useBarangayDashboard } from "../../features/barangay-dashboard/useBaran
 import { useHouseholdRegistrationForm } from "../../features/household-registration/useHouseholdRegistrationForm";
 import { useMasterlist } from "../../features/masterlist/masterlistHooks";
 import {
-  archiveHousehold,
   departHousehold,
   fetchHouseholdDetails,
   restoreHousehold,
@@ -66,9 +65,6 @@ const BarangayMasterlistPage = () => {
   const [isBulkDepartureConfirmOpen, setIsBulkDepartureConfirmOpen] =
     useState(false);
   const [isRecordingDeparture, setIsRecordingDeparture] = useState(false);
-  const [pendingArchiveHouseholdId, setPendingArchiveHouseholdId] = useState("");
-  const [archiveRemarks, setArchiveRemarks] = useState("");
-  const [isArchivingHousehold, setIsArchivingHousehold] = useState(false);
   const [pendingRestoreHouseholdId, setPendingRestoreHouseholdId] = useState("");
   const [restoreRemarks, setRestoreRemarks] = useState("");
   const [isRestoringHousehold, setIsRestoringHousehold] = useState(false);
@@ -452,20 +448,6 @@ const BarangayMasterlistPage = () => {
     setIsLoadingEditHouseholdDetails(false);
   };
 
-  const handleOpenArchiveHousehold = (householdId) => {
-    setPendingArchiveHouseholdId(householdId);
-    setArchiveRemarks("");
-  };
-
-  const handleCancelArchiveHousehold = () => {
-    if (isArchivingHousehold) {
-      return;
-    }
-
-    setPendingArchiveHouseholdId("");
-    setArchiveRemarks("");
-  };
-
   const handleOpenRestoreHousehold = (householdId) => {
     setPendingRestoreHouseholdId(householdId);
     setRestoreRemarks("");
@@ -478,34 +460,6 @@ const BarangayMasterlistPage = () => {
 
     setPendingRestoreHouseholdId("");
     setRestoreRemarks("");
-  };
-
-  const handleConfirmArchiveHousehold = async () => {
-    if (!pendingArchiveHouseholdId || isArchivingHousehold) {
-      return;
-    }
-
-    setIsArchivingHousehold(true);
-
-    try {
-      const response = await archiveHousehold({
-        householdId: pendingArchiveHouseholdId,
-        archiveRemarks,
-      });
-
-      setRegistrationSuccessMessage(
-        response.message || "Household archived successfully",
-      );
-      setPendingArchiveHouseholdId("");
-      setArchiveRemarks("");
-      reloadMasterlist();
-    } catch (error) {
-      setAttendanceActionMessage(
-        error.message || "Failed to archive household",
-      );
-    } finally {
-      setIsArchivingHousehold(false);
-    }
   };
 
   const handleConfirmRestoreHousehold = async () => {
@@ -647,7 +601,6 @@ const BarangayMasterlistPage = () => {
         onMarkDeparted={handleOpenDepartureConfirmation}
         onViewHousehold={handleOpenHouseholdDetails}
         onEditHousehold={handleOpenEditHousehold}
-        onArchiveHousehold={handleOpenArchiveHousehold}
         onRestoreHousehold={handleOpenRestoreHousehold}
         isDepartureReadOnly={isSelectedEventEnded}
         departureReadOnlyText={selectedEventEndedText}
@@ -691,15 +644,6 @@ const BarangayMasterlistPage = () => {
         householdDetails={householdDetails}
         onClose={handleCloseHouseholdDetails}
         onEditHousehold={handleEditHouseholdFromDetails}
-      />
-
-      <HouseholdArchiveConfirmModal
-        isOpen={Boolean(pendingArchiveHouseholdId)}
-        isSubmitting={isArchivingHousehold}
-        archiveRemarks={archiveRemarks}
-        onChangeArchiveRemarks={setArchiveRemarks}
-        onCancel={handleCancelArchiveHousehold}
-        onConfirm={handleConfirmArchiveHousehold}
       />
 
       <HouseholdArchiveConfirmModal
