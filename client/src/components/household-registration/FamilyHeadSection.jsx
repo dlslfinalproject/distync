@@ -34,6 +34,12 @@ const fieldStyles = {
     fontSize: "13px",
     fontWeight: 700,
   },
+  errorText: {
+    margin: "6px 0 0",
+    color: "#c53030",
+    fontSize: "12px",
+    lineHeight: 1.4,
+  },
   input: {
     minHeight: "44px",
     border: "1px solid #d0ddeb",
@@ -139,8 +145,14 @@ const FamilyHeadSection = ({ form }) => {
   const [cameraStream, setCameraStream] = useState(null);
   const [isStartingCamera, setIsStartingCamera] = useState(false);
   const [cameraErrorMessage, setCameraErrorMessage] = useState("");
+  const parsedFamilyHeadAgeValue = Number.parseInt(
+    String(form.familyHead.age_value || "").trim(),
+    10,
+  );
   const derivedFamilyHeadAgeSector = deriveAgeGroup(
-    Number.isInteger(form.familyHead.age_value) ? form.familyHead.age_value : null,
+    Number.isInteger(parsedFamilyHeadAgeValue) && parsedFamilyHeadAgeValue >= 1
+      ? parsedFamilyHeadAgeValue
+      : null,
     "YEARS",
   );
 
@@ -279,6 +291,11 @@ const FamilyHeadSection = ({ form }) => {
             }
             style={fieldStyles.input}
           />
+          {form.validationErrors.familyHead.first_name ? (
+            <p style={fieldStyles.errorText}>
+              {form.validationErrors.familyHead.first_name}
+            </p>
+          ) : null}
         </label>
 
         <label style={fieldStyles.field}>
@@ -303,6 +320,11 @@ const FamilyHeadSection = ({ form }) => {
             }
             style={fieldStyles.input}
           />
+          {form.validationErrors.familyHead.last_name ? (
+            <p style={fieldStyles.errorText}>
+              {form.validationErrors.familyHead.last_name}
+            </p>
+          ) : null}
         </label>
 
         <label style={fieldStyles.field}>
@@ -322,14 +344,19 @@ const FamilyHeadSection = ({ form }) => {
         <label style={fieldStyles.field}>
           <span style={fieldStyles.label}>Age</span>
           <input
-            type="number"
-            min="0"
+            type="text"
+            inputMode="numeric"
             value={form.familyHead.age_value}
             onChange={(event) =>
               form.updateFamilyHeadField("age_value", event.target.value)
             }
             style={fieldStyles.input}
           />
+          {form.validationErrors.familyHead.age_value ? (
+            <p style={fieldStyles.errorText}>
+              {form.validationErrors.familyHead.age_value}
+            </p>
+          ) : null}
         </label>
 
         <label style={fieldStyles.field}>
@@ -404,9 +431,11 @@ const FamilyHeadSection = ({ form }) => {
             A family head photo is required for relief verification. Use live
             camera capture when available, or upload an image as fallback.
           </p>
-          <p style={fieldStyles.warningText}>
-            Family head photo is required for verification.
-          </p>
+          {form.validationErrors.family_head_photo_url ? (
+            <p style={fieldStyles.errorText}>
+              {form.validationErrors.family_head_photo_url}
+            </p>
+          ) : null}
         </div>
 
         <div

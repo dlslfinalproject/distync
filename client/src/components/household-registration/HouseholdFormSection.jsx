@@ -18,6 +18,12 @@ const fieldStyles = {
     fontSize: "13px",
     fontWeight: 700,
   },
+  errorText: {
+    margin: "6px 0 0",
+    color: "#c53030",
+    fontSize: "12px",
+    lineHeight: 1.4,
+  },
   input: {
     minHeight: "44px",
     border: "1px solid #d0ddeb",
@@ -107,10 +113,6 @@ const HouseholdFormSection = ({ form }) => {
           <div style={fieldStyles.field}>
             <span style={fieldStyles.label}>Assigned Barangay</span>
             <div style={fieldStyles.readOnlyBox}>{barangayLabel}</div>
-            <span style={{ color: "#60738a", fontSize: "12px" }}>
-              This registration will be assigned automatically to your
-              barangay account.
-            </span>
           </div>
         ) : (
           <label style={fieldStyles.field}>
@@ -132,6 +134,11 @@ const HouseholdFormSection = ({ form }) => {
                 </option>
               ))}
             </select>
+            {form.validationErrors.selectedBarangayId ? (
+              <p style={fieldStyles.errorText}>
+                {form.validationErrors.selectedBarangayId}
+              </p>
+            ) : null}
           </label>
         )}
 
@@ -154,12 +161,7 @@ const HouseholdFormSection = ({ form }) => {
         </label>
 
         <label style={fieldStyles.field}>
-          <span style={fieldStyles.label}>
-            Evacuation Center
-            {isNonResident && form.restrictNonResidentToEvacCenter
-              ? ""
-              : " (Optional)"}
-          </span>
+          <span style={fieldStyles.label}>Evacuation Center</span>
           <select
             value={form.household.evacuation_center_id}
             onChange={(event) =>
@@ -175,6 +177,11 @@ const HouseholdFormSection = ({ form }) => {
               </option>
             ))}
           </select>
+          {form.validationErrors.evacuation_center_id ? (
+            <p style={fieldStyles.errorText}>
+              {form.validationErrors.evacuation_center_id}
+            </p>
+          ) : null}
         </label>
 
         <label style={fieldStyles.field}>
@@ -187,26 +194,11 @@ const HouseholdFormSection = ({ form }) => {
             }
             style={fieldStyles.input}
           />
-        </label>
-
-        <label
-          style={{
-            ...fieldStyles.field,
-            gridColumn: "1 / -1",
-          }}
-        >
-          <span style={fieldStyles.label}>Current Address Details</span>
-          <textarea
-            value={form.household.current_address_details}
-            onChange={(event) =>
-              form.updateHouseholdField("current_address_details", event.target.value)
-            }
-            style={{
-              ...fieldStyles.input,
-              minHeight: "92px",
-              resize: "vertical",
-            }}
-          />
+          {form.validationErrors.contact_number ? (
+            <p style={fieldStyles.errorText}>
+              {form.validationErrors.contact_number}
+            </p>
+          ) : null}
         </label>
       </div>
     </section>

@@ -57,9 +57,32 @@ const initialHousehold = {
   contact_number: "",
 };
 
+const createMemberValidationErrors = () => ({
+  first_name: "",
+  last_name: "",
+  age_value: "",
+  relationship_option: "",
+  custom_relationship: "",
+});
+
+const createValidationErrors = () => ({
+  selectedBarangayId: "",
+  evacuation_center_id: "",
+  contact_number: "",
+  family_head_photo_url: "",
+  familyHead: {
+    first_name: "",
+    last_name: "",
+    age_value: "",
+  },
+  members: [],
+});
+
 const MAX_FAMILY_HEAD_PHOTO_FILE_SIZE = 3 * 1024 * 1024;
 
 const trimValue = (value) => String(value || "").trim();
+
+const isWholeNumberString = (value) => /^\d+$/.test(trimValue(value));
 
 const normalizeAgeValue = (value) => {
   if (value === "" || value === null || value === undefined) {
@@ -137,6 +160,7 @@ export const useHouseholdRegistrationForm = ({
   const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [validationErrors, setValidationErrors] = useState(createValidationErrors());
   const [isUsingCachedReferenceData, setIsUsingCachedReferenceData] =
     useState(false);
 
@@ -441,6 +465,7 @@ export const useHouseholdRegistrationForm = ({
     setPhotoVerificationNotes(detailHousehold?.photo_verification_notes || "");
     setErrorMessage("");
     setSuccessMessage("");
+    setValidationErrors(createValidationErrors());
   }, [
     defaultBarangayId,
     defaultDisasterEventId,
@@ -534,6 +559,22 @@ export const useHouseholdRegistrationForm = ({
     ) {
       setSelectedBarangayId(defaultBarangayId || barangays[0].id);
     }
+
+    setValidationErrors((currentValue) => ({
+      ...currentValue,
+      selectedBarangayId: "",
+      evacuation_center_id: "",
+      contact_number: "",
+    }));
+  };
+
+  const updateSelectedBarangayId = (value) => {
+    setSelectedBarangayId(value);
+    setValidationErrors((currentValue) => ({
+      ...currentValue,
+      selectedBarangayId: "",
+      evacuation_center_id: "",
+    }));
   };
 
   const memberCount = members.length + 1;
@@ -552,6 +593,27 @@ export const useHouseholdRegistrationForm = ({
       ...currentValue,
       [fieldName]: value,
     }));
+
+    if (fieldName === "evacuation_center_id") {
+      setValidationErrors((currentValue) => ({
+        ...currentValue,
+        evacuation_center_id: "",
+      }));
+    }
+
+    if (fieldName === "contact_number") {
+      setValidationErrors((currentValue) => ({
+        ...currentValue,
+        contact_number: "",
+      }));
+    }
+
+    if (fieldName === "current_stay_type") {
+      setValidationErrors((currentValue) => ({
+        ...currentValue,
+        evacuation_center_id: "",
+      }));
+    }
   };
 
   const updateFamilyHeadField = (fieldName, value) => {
@@ -559,7 +621,7 @@ export const useHouseholdRegistrationForm = ({
       if (fieldName === "age_value") {
         return {
           ...currentValue,
-          ...buildAgeDetails(value, "YEARS"),
+          age_value: value,
         };
       }
 
@@ -572,6 +634,16 @@ export const useHouseholdRegistrationForm = ({
         [fieldName]: value,
       };
     });
+
+    if (fieldName === "first_name" || fieldName === "last_name" || fieldName === "age_value") {
+      setValidationErrors((currentValue) => ({
+        ...currentValue,
+        familyHead: {
+          ...currentValue.familyHead,
+          [fieldName]: "",
+        },
+      }));
+    }
   };
 
   const toggleFamilyHeadSector = (sectorId) => {
@@ -620,6 +692,29 @@ export const useHouseholdRegistrationForm = ({
         };
       }),
     );
+
+    if (
+      fieldName === "first_name" ||
+      fieldName === "last_name" ||
+      fieldName === "age_value" ||
+      fieldName === "relationship_option" ||
+      fieldName === "custom_relationship"
+    ) {
+      setValidationErrors((currentValue) => ({
+        ...currentValue,
+        members: currentValue.members.map((memberErrors, memberIndex) =>
+          memberIndex === index
+            ? {
+                ...memberErrors,
+                [fieldName]: "",
+                ...(fieldName === "relationship_option"
+                  ? { custom_relationship: "" }
+                  : {}),
+              }
+            : memberErrors,
+        ),
+      }));
+    }
   };
 
   const toggleMemberSector = (index, sectorId) => {
@@ -651,12 +746,20 @@ export const useHouseholdRegistrationForm = ({
 
   const addMember = () => {
     setMembers((currentMembers) => [...currentMembers, createMember()]);
+    setValidationErrors((currentValue) => ({
+      ...currentValue,
+      members: [...currentValue.members, createMemberValidationErrors()],
+    }));
   };
 
   const removeMember = (index) => {
     setMembers((currentMembers) =>
       currentMembers.filter((_, memberIndex) => memberIndex !== index),
     );
+    setValidationErrors((currentValue) => ({
+      ...currentValue,
+      members: currentValue.members.filter((_, memberIndex) => memberIndex !== index),
+    }));
   };
 
   const setFamilyHeadPhotoFromFile = async (file) => {
@@ -702,6 +805,10 @@ export const useHouseholdRegistrationForm = ({
       setFamilyHeadPhotoUrl(encodedPhoto);
       setFamilyHeadPhotoFileName(file.name || "Captured photo");
       setSuccessMessage("");
+      setValidationErrors((currentValue) => ({
+        ...currentValue,
+        family_head_photo_url: "",
+      }));
     } catch (error) {
       setErrorMessage(error.message || "Failed to process family head photo.");
     } finally {
@@ -733,6 +840,7 @@ export const useHouseholdRegistrationForm = ({
     setSelectedBarangayId(defaultBarangayId || "");
     setErrorMessage("");
     setSuccessMessage("");
+    setValidationErrors(createValidationErrors());
   };
 
   const validateForm = () => {
@@ -761,14 +869,25 @@ export const useHouseholdRegistrationForm = ({
       return "Please wait for the family head photo to finish processing.";
     }
 
-    if (!familyHeadPhotoUrl) {
-      return "Family head photo is required for verification.";
-    }
+    const nextValidationErrors = createValidationErrors();
+    nextValidationErrors.members = members.map(() => createMemberValidationErrors());
 
     if (!selectedBarangayId) {
-      return residencyStatus === RESIDENCY_STATUS.nonResident
-        ? "Please select the handling barangay for this non-resident family"
-        : "Please select a barangay";
+      nextValidationErrors.selectedBarangayId =
+        residencyStatus === RESIDENCY_STATUS.nonResident
+          ? "Please select the handling barangay for this non-resident family."
+          : "Please select a barangay.";
+    }
+
+    if (!trimValue(household.contact_number)) {
+      nextValidationErrors.contact_number = "Contact number is required.";
+    }
+
+    if (household.current_stay_type === "EVAC_CENTER") {
+      if (!household.evacuation_center_id) {
+        nextValidationErrors.evacuation_center_id =
+          "Please select an evacuation center.";
+      }
     }
 
     if (
@@ -780,7 +899,8 @@ export const useHouseholdRegistrationForm = ({
       }
 
       if (!household.evacuation_center_id) {
-        return "Please select an evacuation center under the assigned barangay.";
+        nextValidationErrors.evacuation_center_id =
+          "Please select an evacuation center under the assigned barangay.";
       }
 
       const selectedCenter = evacuationCenters.find(
@@ -791,52 +911,90 @@ export const useHouseholdRegistrationForm = ({
         !selectedCenter ||
         selectedCenter.barangay_id !== selectedBarangayId
       ) {
-        return "Please select a valid evacuation center under the assigned barangay.";
+        nextValidationErrors.evacuation_center_id =
+          "Please select a valid evacuation center under the assigned barangay.";
       }
     }
 
-    if (!trimValue(familyHead.first_name) || !trimValue(familyHead.last_name)) {
-      return "Family head first name and last name are required";
+    if (!trimValue(familyHead.first_name)) {
+      nextValidationErrors.familyHead.first_name =
+        "Family head first name is required.";
     }
 
+    if (!trimValue(familyHead.last_name)) {
+      nextValidationErrors.familyHead.last_name =
+        "Family head last name is required.";
+    }
+
+    const trimmedFamilyHeadAgeValue = trimValue(familyHead.age_value);
     const normalizedFamilyHeadAgeValue = normalizeAgeValue(familyHead.age_value);
 
-    if (normalizedFamilyHeadAgeValue === "") {
-      return "Family head age is required";
+    if (!trimmedFamilyHeadAgeValue) {
+      nextValidationErrors.familyHead.age_value = "Family head age is required.";
+    } else if (!isWholeNumberString(familyHead.age_value)) {
+      nextValidationErrors.familyHead.age_value =
+        "Family head age must be a whole number.";
+    } else if (normalizedFamilyHeadAgeValue < 1) {
+      nextValidationErrors.familyHead.age_value =
+        "Family head age must be at least 1.";
+    } else if (!deriveAgeGroup(normalizedFamilyHeadAgeValue, "YEARS")) {
+      nextValidationErrors.familyHead.age_value =
+        "Family head age must be a valid age.";
     }
 
-    if (familyHead.age_unit !== "YEARS") {
-      return "Family head age must be encoded in years";
-    }
+    for (const [memberIndex, member] of members.entries()) {
 
-    if (!deriveAgeGroup(normalizedFamilyHeadAgeValue, "YEARS")) {
-      return "Family head age must map to a valid age-based sector";
-    }
+      if (!trimValue(member.first_name)) {
+        nextValidationErrors.members[memberIndex].first_name =
+          "First name is required.";
+      }
 
-    for (const member of members) {
-      if (!trimValue(member.first_name) || !trimValue(member.last_name)) {
-        return "Each additional member needs a first name and last name";
+      if (!trimValue(member.last_name)) {
+        nextValidationErrors.members[memberIndex].last_name =
+          "Last name is required.";
       }
 
       const normalizedAgeValue = normalizeAgeValue(member.age_value);
 
       if (normalizedAgeValue === "" || !deriveAgeGroup(normalizedAgeValue, member.age_unit)) {
-        return "Each additional member needs a valid age value and age unit";
+        nextValidationErrors.members[memberIndex].age_value =
+          "A valid age is required.";
       }
 
       if (!trimValue(member.relationship_option)) {
-        return "Please choose the relationship to head for each additional member";
+        nextValidationErrors.members[memberIndex].relationship_option =
+          "Please choose the relationship to head.";
       }
 
       if (
         member.relationship_option === "OTHERS" &&
         !trimValue(member.custom_relationship)
       ) {
-        return "Please enter the custom relationship when Others is selected";
+        nextValidationErrors.members[memberIndex].custom_relationship =
+          "Please enter the relationship.";
       }
     }
 
-    return "";
+    if (!familyHeadPhotoUrl) {
+      nextValidationErrors.family_head_photo_url =
+        "Family head photo is required for verification.";
+    }
+
+    const hasFieldValidationErrors =
+      Boolean(nextValidationErrors.selectedBarangayId) ||
+      Boolean(nextValidationErrors.evacuation_center_id) ||
+      Boolean(nextValidationErrors.contact_number) ||
+      Boolean(nextValidationErrors.family_head_photo_url) ||
+      Object.values(nextValidationErrors.familyHead).some(Boolean) ||
+      nextValidationErrors.members.some((memberErrors) =>
+        Object.values(memberErrors).some(Boolean),
+      );
+
+    return {
+      generalMessage: "",
+      fieldErrors: nextValidationErrors,
+      hasFieldValidationErrors,
+    };
   };
 
   const buildPayload = () => {
@@ -883,17 +1041,26 @@ export const useHouseholdRegistrationForm = ({
   };
 
   const submitRegistration = async () => {
-    const validationMessage = validateForm();
+    const validationResult = validateForm();
 
-    if (validationMessage) {
+    if (typeof validationResult === "string" && validationResult) {
       setSuccessMessage("");
-      setErrorMessage(validationMessage);
+      setValidationErrors(createValidationErrors());
+      setErrorMessage(validationResult);
+      return false;
+    }
+
+    if (validationResult?.hasFieldValidationErrors) {
+      setSuccessMessage("");
+      setValidationErrors(validationResult.fieldErrors);
+      setErrorMessage("");
       return false;
     }
 
     setIsSubmitting(true);
     setErrorMessage("");
     setSuccessMessage("");
+    setValidationErrors(createValidationErrors());
 
     try {
       const payload = buildPayload();
@@ -939,7 +1106,7 @@ export const useHouseholdRegistrationForm = ({
     setSelectedDisasterEventId,
     isDisasterEventLocked: Boolean(defaultDisasterEventId),
     selectedBarangayId,
-    setSelectedBarangayId,
+    setSelectedBarangayId: updateSelectedBarangayId,
     isBarangayLocked: lockBarangaySelection,
     hideBarangaySelection,
     restrictNonResidentToEvacCenter,
@@ -950,6 +1117,7 @@ export const useHouseholdRegistrationForm = ({
     isSubmitting,
     errorMessage,
     successMessage,
+    validationErrors,
     familyHeadPhotoUrl,
     familyHeadPhotoFileName,
     photoVerificationNotes,
