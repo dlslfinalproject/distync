@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Outlet } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { ROLE_CODES } from "../../utils/roleSession";
+import HeaderNotifications from "./HeaderNotifications";
 import Sidebar from "./Sidebar";
 import SyncStatusBanner from "./SyncStatusBanner";
 
@@ -33,6 +34,13 @@ export const shellStyles = {
     gap: "24px",
     minWidth: 0,
     overflowX: "hidden",
+  },
+  headerBar: {
+    width: "100%",
+    display: "flex",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    minHeight: "44px",
   },
   card: {
     backgroundColor: "#ffffff",
@@ -70,7 +78,7 @@ const BarangayLayout = () => {
   const sidebarWidth = isDonorPortal
     ? "0px"
     : isSidebarCollapsed
-      ? "116px"
+      ? "208px"
       : "280px";
 
   const pageStyle = useMemo(
@@ -84,6 +92,15 @@ const BarangayLayout = () => {
     [isDonorPortal, sidebarWidth],
   );
 
+  const contentStyle = useMemo(
+    () => ({
+      ...shellStyles.content,
+      maxWidth: isSidebarCollapsed ? "100%" : shellStyles.content.maxWidth,
+      margin: isSidebarCollapsed ? "0" : shellStyles.content.margin,
+    }),
+    [isSidebarCollapsed],
+  );
+
   return (
     <div className="distync-shell" style={pageStyle}>
       {!isDonorPortal ? (
@@ -94,7 +111,12 @@ const BarangayLayout = () => {
       ) : null}
 
       <main className="distync-shell__main" style={shellStyles.main}>
-        <div className="distync-shell__content" style={shellStyles.content}>
+        <div className="distync-shell__content" style={contentStyle}>
+          {!isDonorPortal ? (
+            <div style={shellStyles.headerBar}>
+              <HeaderNotifications />
+            </div>
+          ) : null}
           <SyncStatusBanner />
           <Outlet />
         </div>

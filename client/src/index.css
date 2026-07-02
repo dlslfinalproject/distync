@@ -87,6 +87,15 @@ img {
   border-radius: 999px;
 }
 
+.distync-sidebar[data-collapsed="true"] .distync-sidebar__nav,
+.distync-sidebar[data-collapsed="true"] .distync-sidebar__role-actions {
+  max-height: 0 !important;
+  opacity: 0 !important;
+  margin-top: 0 !important;
+  pointer-events: none !important;
+  overflow: hidden !important;
+}
+
 .donor-portal-layout,
 .donor-portal-main,
 .donor-portal-overview,
@@ -125,15 +134,16 @@ img {
     top: 0;
     z-index: 50;
     border-right: none !important;
-    border-bottom: 1px solid #d6e2ef;
-    box-shadow: 0 14px 28px rgba(31, 64, 95, 0.12);
+    border-bottom: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
     transition:
       max-height 260ms cubic-bezier(0.22, 1, 0.36, 1),
       padding 260ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .distync-sidebar[data-collapsed="true"] {
-    max-height: 80px;
+    max-height: 108px;
     overflow: hidden !important;
   }
 
