@@ -103,10 +103,6 @@ const buildSessionPayload = (user, roleCode) => {
   };
 };
 
-const logDemoAuthDebug = (label, details) => {
-  console.log("[demo-login]", label, details);
-};
-
 const resolveAuthorizedRoleForUser = async (user) => {
   if (!user.is_active) {
     const error = new Error("This DISTYNC account is currently inactive.");
@@ -187,16 +183,6 @@ const authenticateWithDemoCredentials = async ({ email, password }) => {
     email,
     password,
   );
-
-  logDemoAuthDebug("candidate_lookup", {
-    email,
-    userFound: Boolean(candidate),
-    demoAccessEnabled: candidate?.demo_access_enabled ?? null,
-    authProvider: candidate?.auth_provider ?? null,
-    passwordMatch: candidate?.password_match ?? null,
-    roleFound: candidate?.role_code ?? null,
-    isActive: candidate?.is_active ?? null,
-  });
 
   if (!candidate) {
     const error = new Error("Invalid demo email or password.");
