@@ -151,7 +151,6 @@ const HouseholdDetailModal = ({
   householdDetails,
   onClose,
   onEditHousehold,
-  onCorrectEvacuation,
 }) => {
   if (!isOpen) {
     return null;
@@ -184,15 +183,6 @@ const HouseholdDetailModal = ({
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
             {householdDetails?.household?.id ? (
               <>
-                <button
-                  type="button"
-                  onClick={() =>
-                    onCorrectEvacuation?.(householdDetails.household.id)
-                  }
-                  style={pageHeaderStyles.secondaryButton}
-                >
-                  Correct Evacuation
-                </button>
                 <button
                   type="button"
                   onClick={() => onEditHousehold?.(householdDetails.household.id)}

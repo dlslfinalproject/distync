@@ -4,7 +4,6 @@ import PageHeader from "../../components/layout/PageHeader";
 import BarangayDashboardOverview from "../../components/barangay-dashboard/BarangayDashboardOverview";
 import MasterlistDepartureConfirmModal from "../../components/masterlist/MasterlistDepartureConfirmModal";
 import HouseholdArchiveConfirmModal from "../../components/masterlist/HouseholdArchiveConfirmModal";
-import EvacuationCorrectionModal from "../../components/masterlist/EvacuationCorrectionModal";
 import HouseholdDetailModal from "../../components/masterlist/HouseholdDetailModal";
 import MasterlistSelectionBar from "../../components/masterlist/MasterlistSelectionBar";
 import MasterlistStatusMessages from "../../components/masterlist/MasterlistStatusMessages";
@@ -17,7 +16,6 @@ import { useHouseholdRegistrationForm } from "../../features/household-registrat
 import { useMasterlist } from "../../features/masterlist/masterlistHooks";
 import {
   archiveHousehold,
-  correctEvacuationLog,
   departHousehold,
   fetchHouseholdDetails,
   restoreHousehold,
@@ -68,18 +66,6 @@ const BarangayMasterlistPage = () => {
   const [pendingRestoreHouseholdId, setPendingRestoreHouseholdId] = useState("");
   const [restoreRemarks, setRestoreRemarks] = useState("");
   const [isRestoringHousehold, setIsRestoringHousehold] = useState(false);
-  const [isEvacuationCorrectionOpen, setIsEvacuationCorrectionOpen] =
-    useState(false);
-  const [isSubmittingEvacuationCorrection, setIsSubmittingEvacuationCorrection] =
-    useState(false);
-  const [evacuationCorrectionForm, setEvacuationCorrectionForm] = useState({
-    evacuation_center_id: "",
-    status: "PRESENT",
-    correction_remarks: "",
-  });
-  const [evacuationCorrectionCenters, setEvacuationCorrectionCenters] = useState(
-    [],
-  );
   const [selectedHouseholds, setSelectedHouseholds] = useState([]);
   const syncQueueEntries =
     useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
@@ -459,84 +445,6 @@ const BarangayMasterlistPage = () => {
     }
   };
 
-  const handleOpenEvacuationCorrection = async () => {
-    const latestAttendance = householdDetails?.latest_attendance || null;
-
-    setEvacuationCorrectionForm({
-      evacuation_center_id: latestAttendance?.evacuation_center_id || "",
-      status: latestAttendance?.status || "PRESENT",
-      correction_remarks: latestAttendance?.remarks || "",
-    });
-    setEvacuationCorrectionCenters([]);
-
-    if (assignedBarangay?.id) {
-      try {
-        const centers = await fetchEvacuationCentersByBarangay(assignedBarangay.id);
-        setEvacuationCorrectionCenters(Array.isArray(centers) ? centers : []);
-      } catch (_error) {
-        setEvacuationCorrectionCenters([]);
-      }
-    }
-
-    setIsEvacuationCorrectionOpen(true);
-  };
-
-  const handleCloseEvacuationCorrection = () => {
-    if (isSubmittingEvacuationCorrection) {
-      return;
-    }
-
-    setIsEvacuationCorrectionOpen(false);
-    setEvacuationCorrectionForm({
-      evacuation_center_id: "",
-      status: "PRESENT",
-      correction_remarks: "",
-    });
-    setEvacuationCorrectionCenters([]);
-  };
-
-  const handleChangeEvacuationCorrectionField = (fieldName, value) => {
-    setEvacuationCorrectionForm((currentValue) => ({
-      ...currentValue,
-      [fieldName]: value,
-    }));
-  };
-
-  const handleSubmitEvacuationCorrection = async () => {
-    const latestAttendance = householdDetails?.latest_attendance || null;
-    const householdId = householdDetails?.household?.id || "";
-
-    if (!latestAttendance?.id || !householdId || isSubmittingEvacuationCorrection) {
-      return;
-    }
-
-    setIsSubmittingEvacuationCorrection(true);
-
-    try {
-      const response = await correctEvacuationLog({
-        householdId,
-        evacuationLogId: latestAttendance.id,
-        evacuationCenterId: evacuationCorrectionForm.evacuation_center_id || null,
-        status: evacuationCorrectionForm.status,
-        correctionRemarks: evacuationCorrectionForm.correction_remarks,
-      });
-
-      setRegistrationSuccessMessage(
-        response.message || "Evacuation log corrected successfully",
-      );
-      const refreshedDetails = await fetchHouseholdDetails(householdId);
-      setHouseholdDetails(refreshedDetails);
-      handleCloseEvacuationCorrection();
-      reloadMasterlist();
-    } catch (error) {
-      setAttendanceActionMessage(
-        error.message || "Failed to correct evacuation log",
-      );
-    } finally {
-      setIsSubmittingEvacuationCorrection(false);
-    }
-  };
-
   const handleConfirmDeparture = async () => {
     if (isSelectedEventEnded || isRecordingDeparture) {
       return;
@@ -684,7 +592,6 @@ const BarangayMasterlistPage = () => {
         householdDetails={householdDetails}
         onClose={handleCloseHouseholdDetails}
         onEditHousehold={handleEditHouseholdFromDetails}
-        onCorrectEvacuation={handleOpenEvacuationCorrection}
       />
 
       <HouseholdArchiveConfirmModal
@@ -704,17 +611,6 @@ const BarangayMasterlistPage = () => {
         onCancel={handleCancelRestoreHousehold}
         onConfirm={handleConfirmRestoreHousehold}
         mode="restore"
-      />
-
-      <EvacuationCorrectionModal
-        isOpen={isEvacuationCorrectionOpen}
-        isSubmitting={isSubmittingEvacuationCorrection}
-        hasAttendanceRecord={Boolean(householdDetails?.latest_attendance?.id)}
-        evacuationCenters={evacuationCorrectionCenters}
-        form={evacuationCorrectionForm}
-        onChange={handleChangeEvacuationCorrectionField}
-        onCancel={handleCloseEvacuationCorrection}
-        onConfirm={handleSubmitEvacuationCorrection}
       />
     </>
   );
