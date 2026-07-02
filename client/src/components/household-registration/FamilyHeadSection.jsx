@@ -575,21 +575,6 @@ const FamilyHeadSection = ({ form }) => {
                 Camera capture needs HTTPS or localhost in a supported browser.
               </p>
             ) : null}
-
-            <label style={fieldStyles.field}>
-              <span style={fieldStyles.label}>Photo Verification Notes</span>
-              <textarea
-                value={form.photoVerificationNotes}
-                onChange={(event) =>
-                  form.setPhotoVerificationNotes(event.target.value)
-                }
-                placeholder="Optional notes for verification or photo capture context"
-                style={{
-                  ...fieldStyles.input,
-                  ...fieldStyles.textarea,
-                }}
-              />
-            </label>
           </div>
         </div>
       </div>
