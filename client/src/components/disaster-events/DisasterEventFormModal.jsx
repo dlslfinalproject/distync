@@ -46,12 +46,28 @@ const labelStyles = {
   fontWeight: 700,
 };
 
+const errorTextStyles = {
+  margin: "6px 0 0",
+  color: "#c53030",
+  fontSize: "12px",
+  lineHeight: 1.4,
+};
+
 const createDefaultForm = () => ({
   event_name: "",
   disaster_type: "",
   start_date: "",
   end_date: "",
   barangay_ids: [],
+});
+
+const createDefaultErrors = () => ({
+  event_name: "",
+  disaster_type: "",
+  custom_disaster_type: "",
+  start_date: "",
+  end_date: "",
+  barangay_ids: "",
 });
 
 const DisasterEventFormModal = ({
@@ -63,12 +79,12 @@ const DisasterEventFormModal = ({
   onSubmit,
 }) => {
   const [formValues, setFormValues] = useState(createDefaultForm());
-  const [validationMessage, setValidationMessage] = useState("");
+  const [fieldErrors, setFieldErrors] = useState(createDefaultErrors());
 
   useEffect(() => {
     if (!isOpen) return;
     setFormValues(createDefaultForm());
-    setValidationMessage("");
+    setFieldErrors(createDefaultErrors());
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -85,6 +101,13 @@ const DisasterEventFormModal = ({
       ...currentValues,
       [fieldName]: value,
     }));
+
+    setFieldErrors((currentErrors) => ({
+      ...currentErrors,
+      [fieldName]: "",
+      ...(fieldName === "disaster_type" ? { custom_disaster_type: "" } : {}),
+      ...(fieldName === "start_date" ? { end_date: "" } : {}),
+    }));
   };
 
   const handleBarangayToggle = (barangayId, isChecked) => {
@@ -94,6 +117,11 @@ const DisasterEventFormModal = ({
         ? [...currentValues.barangay_ids, barangayId]
         : currentValues.barangay_ids.filter((id) => id !== barangayId),
     }));
+
+    setFieldErrors((currentErrors) => ({
+      ...currentErrors,
+      barangay_ids: "",
+    }));
   };
 
   const handleToggleAllBarangays = () => {
@@ -101,43 +129,58 @@ const DisasterEventFormModal = ({
       ...currentValues,
       barangay_ids: areAllBarangaysSelected ? [] : allBarangayIds,
     }));
+
+    setFieldErrors((currentErrors) => ({
+      ...currentErrors,
+      barangay_ids: "",
+    }));
   };
 
   const handleSubmit = (event) => {
     event.preventDefault();
 
+    const nextErrors = createDefaultErrors();
+
     if (!formValues.event_name.trim()) {
-      setValidationMessage("Event name is required.");
-      return;
+      nextErrors.event_name = "Event name is required.";
     }
 
     if (!formValues.disaster_type.trim()) {
-      setValidationMessage("disaster_type is required.");
-      return;
+      nextErrors.disaster_type = "Disaster type is required.";
     }
 
     if (
       formValues.disaster_type === "Other" &&
       !formValues.custom_disaster_type?.trim()
     ) {
-      setValidationMessage("Please specify the disaster type.");
-      return;
+      nextErrors.custom_disaster_type = "Please specify the disaster type.";
     }
 
     if (!formValues.start_date) {
-      setValidationMessage("start_date is required.");
-      return;
+      nextErrors.start_date = "Start date is required.";
+    }
+
+    if (!formValues.end_date) {
+      nextErrors.end_date = "End date is required.";
+    }
+
+    if (!formValues.barangay_ids.length) {
+      nextErrors.barangay_ids = "Please select at least one affected barangay.";
     }
 
     if (
       formValues.end_date &&
       new Date(formValues.end_date) < new Date(formValues.start_date)
     ) {
-      setValidationMessage("end_date must not be earlier than start_date.");
+      nextErrors.end_date = "End date must not be earlier than start date.";
+    }
+
+    if (Object.values(nextErrors).some(Boolean)) {
+      setFieldErrors(nextErrors);
       return;
     }
 
-    setValidationMessage("");
+    setFieldErrors(createDefaultErrors());
 
     const finalDisasterType =
       formValues.disaster_type === "Other"
@@ -145,10 +188,11 @@ const DisasterEventFormModal = ({
         : formValues.disaster_type.trim();
 
     onSubmit({
+      title: formValues.event_name.trim(),
       event_name: formValues.event_name.trim(),
       disaster_type: finalDisasterType,
       start_date: formValues.start_date,
-      end_date: formValues.end_date || null,
+      end_date: formValues.end_date,
       status: formValues.status,
       created_by: null,
       barangay_ids: formValues.barangay_ids,
@@ -189,6 +233,8 @@ const DisasterEventFormModal = ({
             gap: "18px",
           }}
         >
+          {errorMessage ? <p style={errorTextStyles}>{errorMessage}</p> : null}
+
           {/* SECTION 1 */}
           <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
             <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
@@ -210,6 +256,9 @@ const DisasterEventFormModal = ({
                   onChange={(e) => handleChange("event_name", e.target.value)}
                   style={inputStyles}
                 />
+                {fieldErrors.event_name ? (
+                  <p style={errorTextStyles}>{fieldErrors.event_name}</p>
+                ) : null}
               </div>
 
               <div>
@@ -233,17 +282,27 @@ const DisasterEventFormModal = ({
                   <option value="Fire">Fire</option>
                   <option value="Other">Other</option>
                 </select>
+                {fieldErrors.disaster_type ? (
+                  <p style={errorTextStyles}>{fieldErrors.disaster_type}</p>
+                ) : null}
 
                 {formValues.disaster_type === "Other" && (
-                  <input
-                    type="text"
-                    placeholder="Specify disaster type"
-                    value={formValues.custom_disaster_type || ""}
-                    onChange={(e) =>
-                      handleChange("custom_disaster_type", e.target.value)
-                    }
-                    style={{ ...inputStyles, marginTop: "10px" }}
-                  />
+                  <>
+                    <input
+                      type="text"
+                      placeholder="Specify disaster type"
+                      value={formValues.custom_disaster_type || ""}
+                      onChange={(e) =>
+                        handleChange("custom_disaster_type", e.target.value)
+                      }
+                      style={{ ...inputStyles, marginTop: "10px" }}
+                    />
+                    {fieldErrors.custom_disaster_type ? (
+                      <p style={errorTextStyles}>
+                        {fieldErrors.custom_disaster_type}
+                      </p>
+                    ) : null}
+                  </>
                 )}
               </div>
             </div>
@@ -270,6 +329,9 @@ const DisasterEventFormModal = ({
                   onChange={(e) => handleChange("start_date", e.target.value)}
                   style={inputStyles}
                 />
+                {fieldErrors.start_date ? (
+                  <p style={errorTextStyles}>{fieldErrors.start_date}</p>
+                ) : null}
               </div>
 
               <div>
@@ -280,6 +342,9 @@ const DisasterEventFormModal = ({
                   onChange={(e) => handleChange("end_date", e.target.value)}
                   style={inputStyles}
                 />
+                {fieldErrors.end_date ? (
+                  <p style={errorTextStyles}>{fieldErrors.end_date}</p>
+                ) : null}
               </div>
             </div>
           </section>
@@ -289,6 +354,11 @@ const DisasterEventFormModal = ({
             <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
               Affected Barangays
             </h3>
+            {fieldErrors.barangay_ids ? (
+              <p style={{ ...errorTextStyles, marginBottom: "12px" }}>
+                {fieldErrors.barangay_ids}
+              </p>
+            ) : null}
 
             <div
               style={{
