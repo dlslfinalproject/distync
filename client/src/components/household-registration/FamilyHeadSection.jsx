@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { shellStyles } from "../layout/BarangayLayout";
 import { deriveAgeGroup } from "../../utils/ageGroup";
 import {
+  AGE_BASED_MEMBER_SECTOR_CODES,
   formatMemberSectorLabel,
   getCanonicalMemberSectorCode,
   isAgeBasedMemberSectorCode,
@@ -265,10 +266,6 @@ const FamilyHeadSection = ({ form }) => {
     event.target.value = "";
   };
 
-  const ageBasedSectors = form.memberSectorOptions.filter((sector) =>
-    isAgeBasedMemberSectorCode(getCanonicalMemberSectorCode(sector.code)),
-  );
-
   const nonAgeBasedSectors = form.memberSectorOptions.filter(
     (sector) =>
       !isAgeBasedMemberSectorCode(getCanonicalMemberSectorCode(sector.code)),
@@ -381,20 +378,19 @@ const FamilyHeadSection = ({ form }) => {
 
         <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
-            {ageBasedSectors.map((sector) => {
-              const sectorCode = getCanonicalMemberSectorCode(sector.code);
+            {AGE_BASED_MEMBER_SECTOR_CODES.map((sectorCode) => {
               const isChecked = sectorCode === derivedFamilyHeadAgeSector;
 
               return (
                 <label
-                  key={sector.id}
+                  key={sectorCode}
                   style={{
                     ...fieldStyles.checkboxLabel,
                     opacity: isChecked ? 1 : 0.8,
                   }}
                 >
                   <input type="checkbox" checked={isChecked} disabled />
-                  {formatMemberSectorLabel(sector)}
+                  {formatMemberSectorLabel(sectorCode)}
                 </label>
               );
             })}
@@ -575,21 +571,6 @@ const FamilyHeadSection = ({ form }) => {
                 Camera capture needs HTTPS or localhost in a supported browser.
               </p>
             ) : null}
-
-            <label style={fieldStyles.field}>
-              <span style={fieldStyles.label}>Photo Verification Notes</span>
-              <textarea
-                value={form.photoVerificationNotes}
-                onChange={(event) =>
-                  form.setPhotoVerificationNotes(event.target.value)
-                }
-                placeholder="Optional notes for verification or photo capture context"
-                style={{
-                  ...fieldStyles.input,
-                  ...fieldStyles.textarea,
-                }}
-              />
-            </label>
           </div>
         </div>
       </div>

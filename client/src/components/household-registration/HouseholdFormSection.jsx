@@ -34,6 +34,31 @@ const fieldStyles = {
     backgroundColor: "#ffffff",
     boxSizing: "border-box",
   },
+  phoneInputGroup: {
+    display: "flex",
+    alignItems: "stretch",
+    width: "100%",
+  },
+  phonePrefix: {
+    minHeight: "44px",
+    minWidth: "124px",
+    border: "1px solid #d0ddeb",
+    borderRight: "none",
+    borderRadius: "14px 0 0 14px",
+    padding: "10px 12px",
+    fontSize: "14px",
+    color: "#1f405f",
+    backgroundColor: "#f8fbfe",
+    boxSizing: "border-box",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: 700,
+  },
+  phoneInput: {
+    borderRadius: "0 14px 14px 0",
+    flex: 1,
+  },
   readOnlyBox: {
     minHeight: "44px",
     border: "1px solid #d0ddeb",
@@ -186,14 +211,22 @@ const HouseholdFormSection = ({ form }) => {
 
         <label style={fieldStyles.field}>
           <span style={fieldStyles.label}>Contact Number</span>
-          <input
-            type="text"
-            value={form.household.contact_number}
-            onChange={(event) =>
-              form.updateHouseholdField("contact_number", event.target.value)
-            }
-            style={fieldStyles.input}
-          />
+          <div style={fieldStyles.phoneInputGroup}>
+            <div style={fieldStyles.phonePrefix}>PH +63</div>
+            <input
+              type="text"
+              inputMode="numeric"
+              placeholder="912 345 6789"
+              value={form.formattedContactNumber}
+              onChange={(event) =>
+                form.updateContactNumber(event.target.value)
+              }
+              style={{
+                ...fieldStyles.input,
+                ...fieldStyles.phoneInput,
+              }}
+            />
+          </div>
           {form.validationErrors.contact_number ? (
             <p style={fieldStyles.errorText}>
               {form.validationErrors.contact_number}

@@ -83,6 +83,54 @@ const MAX_FAMILY_HEAD_PHOTO_FILE_SIZE = 3 * 1024 * 1024;
 const trimValue = (value) => String(value || "").trim();
 
 const isWholeNumberString = (value) => /^\d+$/.test(trimValue(value));
+const isValidPhilippineContactNumber = (value) => /^\+639\d{9}$/.test(trimValue(value));
+const normalizePhilippineContactNumberInput = (value) => {
+  const digitsOnly = String(value || "").replace(/\D/g, "");
+
+  if (!digitsOnly) {
+    return "";
+  }
+
+  let localDigits = digitsOnly;
+
+  if (localDigits.startsWith("63")) {
+    localDigits = localDigits.slice(2);
+  }
+
+  if (localDigits.startsWith("0")) {
+    localDigits = localDigits.slice(1);
+  }
+
+  return localDigits.slice(0, 10);
+};
+
+const buildPhilippineContactNumber = (value) => {
+  const localDigits = normalizePhilippineContactNumberInput(value);
+  return localDigits ? `+63${localDigits}` : "";
+};
+
+const getPhilippineContactNumberLocalPart = (value) => {
+  const normalizedValue = trimValue(value);
+
+  if (!normalizedValue) {
+    return "";
+  }
+
+  if (normalizedValue.startsWith("+63")) {
+    return normalizedValue.slice(3, 13);
+  }
+
+  return normalizePhilippineContactNumberInput(normalizedValue);
+};
+
+const formatPhilippineContactNumberLocalPart = (value) => {
+  const localDigits = getPhilippineContactNumberLocalPart(value);
+  const firstGroup = localDigits.slice(0, 3);
+  const secondGroup = localDigits.slice(3, 6);
+  const thirdGroup = localDigits.slice(6, 10);
+
+  return [firstGroup, secondGroup, thirdGroup].filter(Boolean).join(" ");
+};
 
 const normalizeAgeValue = (value) => {
   if (value === "" || value === null || value === undefined) {
@@ -579,6 +627,18 @@ export const useHouseholdRegistrationForm = ({
 
   const memberCount = members.length + 1;
 
+  const updateContactNumber = (value) => {
+    setHousehold((currentValue) => ({
+      ...currentValue,
+      contact_number: buildPhilippineContactNumber(value),
+    }));
+
+    setValidationErrors((currentValue) => ({
+      ...currentValue,
+      contact_number: "",
+    }));
+  };
+
   const updateHouseholdField = (fieldName, value) => {
     if (
       fieldName === "current_stay_type" &&
@@ -598,13 +658,6 @@ export const useHouseholdRegistrationForm = ({
       setValidationErrors((currentValue) => ({
         ...currentValue,
         evacuation_center_id: "",
-      }));
-    }
-
-    if (fieldName === "contact_number") {
-      setValidationErrors((currentValue) => ({
-        ...currentValue,
-        contact_number: "",
       }));
     }
 
@@ -881,6 +934,9 @@ export const useHouseholdRegistrationForm = ({
 
     if (!trimValue(household.contact_number)) {
       nextValidationErrors.contact_number = "Contact number is required.";
+    } else if (!isValidPhilippineContactNumber(household.contact_number)) {
+      nextValidationErrors.contact_number =
+        "Contact number must start with 9 and contain 10 digits.";
     }
 
     if (household.current_stay_type === "EVAC_CENTER") {
@@ -1118,11 +1174,15 @@ export const useHouseholdRegistrationForm = ({
     errorMessage,
     successMessage,
     validationErrors,
+    formattedContactNumber: formatPhilippineContactNumberLocalPart(
+      household.contact_number,
+    ),
     familyHeadPhotoUrl,
     familyHeadPhotoFileName,
     photoVerificationNotes,
     isProcessingPhoto,
     updateHouseholdField,
+    updateContactNumber,
     updateFamilyHeadField,
     toggleFamilyHeadSector,
     updateMemberField,
