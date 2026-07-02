@@ -45,6 +45,10 @@ const BarangayMasterlistPage = () => {
   const [attendanceActionMessage, setAttendanceActionMessage] = useState("");
   const [pendingDepartureHouseholdId, setPendingDepartureHouseholdId] =
     useState("");
+  const [pendingDepartureHouseholdDetails, setPendingDepartureHouseholdDetails] =
+    useState(null);
+  const [isLoadingDepartureHouseholdDetails, setIsLoadingDepartureHouseholdDetails] =
+    useState(false);
   const [viewingHouseholdId, setViewingHouseholdId] = useState("");
   const [editingHouseholdId, setEditingHouseholdId] = useState("");
   const [householdDetails, setHouseholdDetails] = useState(null);
@@ -101,7 +105,6 @@ const BarangayMasterlistPage = () => {
     barangayId: assignedBarangay?.id || "",
     recordStatus,
   });
-
 
   const isSelectedEventEnded = isEndedDisasterEvent(selectedEvent, eventScope);
   const selectedEventEndedText = formatEventEndedDateTime(
@@ -165,6 +168,22 @@ const BarangayMasterlistPage = () => {
     eventScope,
     reloadMasterlist,
   });
+
+  const pendingDepartureRow = filteredRows.find(
+    (row) => row.household_id === pendingDepartureHouseholdId,
+  );
+  const pendingDepartureFamilyHeadName = pendingDepartureHouseholdDetails?.household
+    ? [
+        pendingDepartureHouseholdDetails.household.family_head_first_name,
+        pendingDepartureHouseholdDetails.household.family_head_middle_name,
+        pendingDepartureHouseholdDetails.household.family_head_last_name,
+        pendingDepartureHouseholdDetails.household.family_head_suffix,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : pendingDepartureRow?.family_head_name || "";
+  const pendingDepartureFamilyHeadPhotoUrl =
+    pendingDepartureHouseholdDetails?.household?.family_head_photo_url || "";
 
   useEffect(() => {
     const activeEvents = availableEvents.filter(
@@ -234,6 +253,8 @@ const BarangayMasterlistPage = () => {
     if (isSelectedEventEnded) {
       setSelectedHouseholds([]);
       setPendingDepartureHouseholdId("");
+      setPendingDepartureHouseholdDetails(null);
+      setIsLoadingDepartureHouseholdDetails(false);
       setIsBulkDepartureConfirmOpen(false);
     }
   }, [isSelectedEventEnded, selectedEvent?.id]);
@@ -288,12 +309,23 @@ const BarangayMasterlistPage = () => {
     setIsBulkDepartureConfirmOpen(true);
   };
 
-  const handleOpenDepartureConfirmation = (householdId) => {
+  const handleOpenDepartureConfirmation = async (householdId) => {
     if (isSelectedEventEnded || isRecordingDeparture) {
       return;
     }
 
     setPendingDepartureHouseholdId(householdId);
+    setPendingDepartureHouseholdDetails(null);
+    setIsLoadingDepartureHouseholdDetails(true);
+
+    try {
+      const details = await fetchHouseholdDetails(householdId);
+      setPendingDepartureHouseholdDetails(details);
+    } catch (_error) {
+      setPendingDepartureHouseholdDetails(null);
+    } finally {
+      setIsLoadingDepartureHouseholdDetails(false);
+    }
   };
 
   const handleCancelDeparture = () => {
@@ -302,6 +334,8 @@ const BarangayMasterlistPage = () => {
     }
 
     setPendingDepartureHouseholdId("");
+    setPendingDepartureHouseholdDetails(null);
+    setIsLoadingDepartureHouseholdDetails(false);
     setIsBulkDepartureConfirmOpen(false);
   };
 
@@ -477,6 +511,8 @@ const BarangayMasterlistPage = () => {
           response.message || "Household departure recorded successfully",
         );
         setPendingDepartureHouseholdId("");
+        setPendingDepartureHouseholdDetails(null);
+        setIsLoadingDepartureHouseholdDetails(false);
         reloadMasterlist();
       }
     } catch (error) {
@@ -578,11 +614,14 @@ const BarangayMasterlistPage = () => {
           Boolean(pendingDepartureHouseholdId) || isBulkDepartureConfirmOpen
         }
         isSubmitting={isRecordingDeparture}
+        isLoadingHouseholdDetails={isLoadingDepartureHouseholdDetails}
         onCancel={handleCancelDeparture}
         onConfirm={handleConfirmDeparture}
         selectedCount={
           isBulkDepartureConfirmOpen ? selectedHouseholds.length : 1
         }
+        familyHeadName={pendingDepartureFamilyHeadName}
+        familyHeadPhotoUrl={pendingDepartureFamilyHeadPhotoUrl}
       />
 
       <HouseholdDetailModal
