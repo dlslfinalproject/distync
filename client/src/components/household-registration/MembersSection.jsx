@@ -26,6 +26,12 @@ const fieldStyles = {
     fontSize: "12px",
     fontWeight: 700,
   },
+  errorText: {
+    margin: "6px 0 0",
+    color: "#c53030",
+    fontSize: "12px",
+    lineHeight: 1.4,
+  },
   input: {
     minHeight: "42px",
     border: "1px solid #d0ddeb",
@@ -172,6 +178,11 @@ const MembersSection = ({ form }) => {
                     }
                     style={fieldStyles.input}
                   />
+                  {form.validationErrors.members[index]?.first_name ? (
+                    <p style={fieldStyles.errorText}>
+                      {form.validationErrors.members[index].first_name}
+                    </p>
+                  ) : null}
                 </label>
 
                 <label style={fieldStyles.field}>
@@ -204,6 +215,11 @@ const MembersSection = ({ form }) => {
                     }
                     style={fieldStyles.input}
                   />
+                  {form.validationErrors.members[index]?.last_name ? (
+                    <p style={fieldStyles.errorText}>
+                      {form.validationErrors.members[index].last_name}
+                    </p>
+                  ) : null}
                 </label>
 
                 <label style={fieldStyles.field}>
@@ -245,6 +261,11 @@ const MembersSection = ({ form }) => {
                     }
                     style={fieldStyles.input}
                   />
+                  {form.validationErrors.members[index]?.age_value ? (
+                    <p style={fieldStyles.errorText}>
+                      {form.validationErrors.members[index].age_value}
+                    </p>
+                  ) : null}
                 </label>
 
                 <label style={fieldStyles.field}>
@@ -302,6 +323,11 @@ const MembersSection = ({ form }) => {
                       </option>
                     ))}
                   </select>
+                  {form.validationErrors.members[index]?.relationship_option ? (
+                    <p style={fieldStyles.errorText}>
+                      {form.validationErrors.members[index].relationship_option}
+                    </p>
+                  ) : null}
                 </label>
               </div>
 
@@ -321,6 +347,11 @@ const MembersSection = ({ form }) => {
                       }
                       style={fieldStyles.input}
                     />
+                    {form.validationErrors.members[index]?.custom_relationship ? (
+                      <p style={fieldStyles.errorText}>
+                        {form.validationErrors.members[index].custom_relationship}
+                      </p>
+                    ) : null}
                   </label>
                 </div>
               ) : null}
