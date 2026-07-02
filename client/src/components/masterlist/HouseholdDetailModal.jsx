@@ -126,6 +126,22 @@ const formatDateTime = (value) => {
   }).format(parsedDate);
 };
 
+const formatContactNumber = (value) => {
+  if (!value) {
+    return "--";
+  }
+
+  const digitsOnly = String(value).replace(/\D/g, "");
+
+  if (digitsOnly.length === 12 && digitsOnly.startsWith("63")) {
+    const localNumber = digitsOnly.slice(2);
+
+    return `+63 ${localNumber.slice(0, 3)} ${localNumber.slice(3, 6)} ${localNumber.slice(6)}`;
+  }
+
+  return value;
+};
+
 const buildFullName = (person) => {
   if (!person) {
     return "--";
@@ -301,6 +317,12 @@ const HouseholdDetailModal = ({
                     {formatDateTime(household.registered_at)}
                   </p>
                 </div>
+                <div>
+                  <p style={modalStyles.label}>Contact Number</p>
+                  <p style={modalStyles.value}>
+                    {formatContactNumber(household.contact_number)}
+                  </p>
+                </div>
               </div>
             </section>
 
@@ -321,7 +343,9 @@ const HouseholdDetailModal = ({
                   </div>
                 </div>
                 <div>
-                  <p style={modalStyles.label}>Household Sectors / Vulnerabilities</p>
+                  <p style={modalStyles.label}>
+                    Household Sectors / Vulnerabilities
+                  </p>
                   <p style={modalStyles.value}>{buildSectorsText(householdSectors)}</p>
 
                   <p style={{ ...modalStyles.label, marginTop: "18px" }}>
