@@ -8,173 +8,83 @@
   --access-color-muted: #475569;
   --access-color-error: #dc2626;
   --access-color-success: #16a34a;
-  --access-shadow: 0 24px 48px rgba(15, 23, 42, 0.08);
+  --access-shadow: 0 24px 48px rgba(15, 23, 42, 0.18);
   min-height: 100vh;
   display: flex;
-  align-items: stretch;
+  align-items: center;
   justify-content: center;
   padding: 32px;
   box-sizing: border-box;
-  background:
-    linear-gradient(135deg, rgba(30, 58, 138, 0.05) 0%, rgba(30, 58, 138, 0.02) 100%),
-    repeating-linear-gradient(
-      0deg,
-      transparent 0,
-      transparent 39px,
-      rgba(148, 163, 184, 0.08) 39px,
-      rgba(148, 163, 184, 0.08) 40px
-    ),
-    var(--access-color-background);
+  position: relative;
+  overflow: hidden;
   color: var(--access-color-text);
   font-family: Inter, Roboto, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+.distync-access-page__backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.46) 0%, rgba(15, 23, 42, 0.62) 100%),
+    linear-gradient(90deg, rgba(30, 58, 138, 0.24) 0%, rgba(30, 58, 138, 0.08) 100%),
+    url("https://upload.wikimedia.org/wikipedia/commons/1/14/Malvar%2CBatangasjf8074_08.JPG")
+      center center / cover no-repeat;
+  transform: scale(1.02);
+}
+
 .distync-access-page__shell {
-  width: min(1180px, 100%);
-  display: grid;
-  grid-template-columns: minmax(0, 1.12fr) minmax(360px, 0.88fr);
-  gap: 32px;
-  align-items: stretch;
+  width: min(480px, 100%);
+  position: relative;
+  z-index: 1;
 }
 
 .distync-access-page__panel {
   border: 1px solid var(--access-color-border);
   border-radius: 24px;
-  background: var(--access-color-surface);
+  background: rgba(255, 255, 255, 0.94);
   box-shadow: var(--access-shadow);
+  backdrop-filter: blur(16px);
 }
 
-.distync-access-page__brand-panel {
-  padding: 48px;
-  display: flex;
-  flex-direction: column;
+.distync-access-page__auth-panel {
+  width: 100%;
+  padding: 40px;
+  display: grid;
   gap: 32px;
-  justify-content: space-between;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.98) 100%);
 }
 
-.distync-access-page__brand-header {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
+.distync-access-page__card-brand {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
 }
 
-.distync-access-page__brand-logo {
+.distync-access-page__card-logo {
   width: 88px;
   height: 88px;
   object-fit: contain;
 }
 
-.distync-access-page__eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  align-self: flex-start;
-  padding: 8px 16px;
-  border-radius: 999px;
-  background: rgba(30, 58, 138, 0.08);
-  color: var(--access-color-primary);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.distync-access-page__eyebrow-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--access-color-success);
-}
-
-.distync-access-page__title {
-  margin: 0;
-  font-size: clamp(32px, 4vw, 40px);
-  line-height: 1.1;
-  letter-spacing: -0.04em;
-  color: var(--access-color-primary-dark);
-}
-
-.distync-access-page__subtitle {
+.distync-access-page__card-system {
   margin: 0;
   color: var(--access-color-primary);
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1.5;
-  max-width: 62ch;
-}
-
-.distync-access-page__section {
-  display: grid;
-  gap: 16px;
-}
-
-.distync-access-page__section-title {
-  margin: 0;
-  color: var(--access-color-text);
-  font-size: 20px;
-  font-weight: 800;
-}
-
-.distync-access-page__brand-copy {
-  margin: 0;
-  color: var(--access-color-muted);
-  font-size: 14px;
-  line-height: 1.7;
-}
-
-.distync-access-page__brand-copy--lead {
-  font-size: 15px;
-}
-
-.distync-access-page__brand-footer {
-  padding-top: 24px;
-  border-top: 1px solid var(--access-color-border);
-  color: var(--access-color-muted);
   font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-weight: 800;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-}
-
-.distync-access-page__auth-column {
-  display: flex;
-}
-
-.distync-access-page__auth-panel {
-  width: 100%;
-  max-width: 448px;
-  margin-left: auto;
-  padding: 40px;
-  display: grid;
-  gap: 24px;
-  align-self: center;
 }
 
 .distync-access-page__auth-header {
   display: grid;
   gap: 16px;
-}
-
-.distync-access-page__mode-badge {
-  display: inline-flex;
-  align-items: center;
-  align-self: flex-start;
-  padding: 8px 16px;
-  border-radius: 999px;
-  background: #eff6ff;
-  color: var(--access-color-primary);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  justify-items: center;
+  text-align: center;
 }
 
 .distync-access-page__auth-title {
   margin: 0;
   color: var(--access-color-text);
-  font-size: clamp(28px, 4vw, 36px);
+  font-size: clamp(28px, 4vw, 34px);
   line-height: 1.12;
   letter-spacing: -0.03em;
 }
@@ -183,12 +93,13 @@
   margin: 0;
   color: var(--access-color-muted);
   font-size: 14px;
-  line-height: 1.7;
+  line-height: 1.75;
+  max-width: 320px;
 }
 
 .distync-access-page__form {
   display: grid;
-  gap: 24px;
+  gap: 20px;
 }
 
 .distync-access-page__field-group {
@@ -212,7 +123,7 @@
   width: 100%;
   min-height: 56px;
   padding: 16px;
-  border-radius: 16px;
+  border-radius: 14px;
   border: 1px solid var(--access-color-border);
   background: var(--access-color-surface);
   color: var(--access-color-text);
@@ -242,7 +153,7 @@
   right: 8px;
   transform: translateY(-50%);
   border: none;
-  background: transparent;
+  background: #eff6ff;
   color: var(--access-color-primary);
   font-size: 13px;
   font-weight: 800;
@@ -269,6 +180,12 @@
   border: 1px solid rgba(220, 38, 38, 0.18);
   background: #fef2f2;
   color: #991b1b;
+}
+
+.distync-access-page__alert--success {
+  border-color: rgba(22, 163, 74, 0.18);
+  background: #f0fdf4;
+  color: #166534;
 }
 
 .distync-access-page__alert-title {
@@ -312,6 +229,11 @@
   transform: none;
 }
 
+.distync-access-page__form-actions {
+  display: grid;
+  gap: 12px;
+}
+
 .distync-access-page__secondary-link {
   border: none;
   background: none;
@@ -319,13 +241,58 @@
   color: var(--access-color-primary);
   font-size: 13px;
   font-weight: 700;
-  text-align: left;
-  justify-self: start;
+  text-align: center;
+  justify-self: center;
+  cursor: pointer;
+}
+
+.distync-access-page__secondary-link--muted {
+  color: var(--access-color-muted);
+  cursor: default;
+}
+
+.distync-access-page__google-access {
+  display: grid;
+  gap: 16px;
+}
+
+.distync-access-page__separator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--access-color-muted);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.distync-access-page__separator::before,
+.distync-access-page__separator::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--access-color-border);
+}
+
+.distync-access-page__google-button {
+  display: flex;
+  justify-content: center;
+  min-height: 44px;
+  padding-top: 4px;
+}
+
+.distync-access-page__support-text {
+  margin: 0;
+  color: var(--access-color-muted);
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: center;
 }
 
 .distync-access-page__public-access {
   display: grid;
-  gap: 16px;
+  gap: 12px;
   margin-top: 8px;
   padding-top: 24px;
   border-top: 1px solid var(--access-color-border);
@@ -344,7 +311,7 @@
   width: 100%;
   border: 1px solid var(--access-color-border);
   border-radius: 16px;
-  background: var(--access-color-surface);
+  background: rgba(248, 250, 252, 0.98);
   color: var(--access-color-text);
   padding: 16px;
   text-align: left;
@@ -378,15 +345,6 @@
   .distync-access-page {
     padding: 24px;
   }
-
-  .distync-access-page__shell {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .distync-access-page__auth-panel {
-    max-width: none;
-    margin-left: 0;
-  }
 }
 
 @media (max-width: 640px) {
@@ -394,12 +352,11 @@
     padding: 16px;
   }
 
-  .distync-access-page__brand-panel,
   .distync-access-page__auth-panel {
     padding: 24px;
   }
 
-  .distync-access-page__brand-logo {
+  .distync-access-page__card-logo {
     width: 72px;
     height: 72px;
   }

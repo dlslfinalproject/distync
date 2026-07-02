@@ -1,9 +1,9 @@
-import React, { useMemo, useState } from "react";
-import { Outlet } from "react-router-dom";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { ROLE_CODES } from "../../utils/roleSession";
 import HeaderNotifications from "./HeaderNotifications";
-import Sidebar from "./Sidebar";
+import Sidebar, { SidebarBrandStrip } from "./Sidebar";
 import SyncStatusBanner from "./SyncStatusBanner";
 
 export const shellStyles = {
@@ -38,9 +38,21 @@ export const shellStyles = {
   headerBar: {
     width: "100%",
     display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "16px",
+    minHeight: "68px",
+  },
+  headerBrand: {
+    flex: "0 0 auto",
+    minWidth: 0,
+  },
+  headerActions: {
+    display: "flex",
     justifyContent: "flex-end",
     alignItems: "center",
-    minHeight: "44px",
+    flex: "1 1 auto",
+    minWidth: 0,
   },
   card: {
     backgroundColor: "#ffffff",
@@ -73,13 +85,37 @@ export const shellStyles = {
 
 const BarangayLayout = () => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const lastNonSettingsCollapseStateRef = useRef(false);
+  const location = useLocation();
   const { currentRole } = useAuth();
   const isDonorPortal = currentRole === ROLE_CODES.DONOR;
+  const isSettingsRoute = location.pathname.endsWith("/settings");
   const sidebarWidth = isDonorPortal
     ? "0px"
     : isSidebarCollapsed
-      ? "208px"
+      ? "0px"
       : "280px";
+
+  useEffect(() => {
+    if (isDonorPortal || isSettingsRoute) {
+      return;
+    }
+
+    lastNonSettingsCollapseStateRef.current = isSidebarCollapsed;
+  }, [isDonorPortal, isSettingsRoute, isSidebarCollapsed]);
+
+  useEffect(() => {
+    if (isDonorPortal) {
+      return;
+    }
+
+    if (isSettingsRoute) {
+      setIsSidebarCollapsed(true);
+      return;
+    }
+
+    setIsSidebarCollapsed(lastNonSettingsCollapseStateRef.current);
+  }, [isDonorPortal, isSettingsRoute]);
 
   const pageStyle = useMemo(
     () => ({
@@ -114,7 +150,15 @@ const BarangayLayout = () => {
         <div className="distync-shell__content" style={contentStyle}>
           {!isDonorPortal ? (
             <div style={shellStyles.headerBar}>
-              <HeaderNotifications />
+              <div style={shellStyles.headerBrand}>
+                <SidebarBrandStrip
+                  isCollapsed={isSidebarCollapsed}
+                  onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
+                />
+              </div>
+              <div style={shellStyles.headerActions}>
+                <HeaderNotifications />
+              </div>
             </div>
           ) : null}
           <SyncStatusBanner />

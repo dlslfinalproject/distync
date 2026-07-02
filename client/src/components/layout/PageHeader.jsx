@@ -103,10 +103,19 @@ const PageHeader = ({ eyebrow, title, description, actions = [] }) => {
               key={action.label}
               type="button"
               onClick={action.onClick}
+              disabled={Boolean(action.disabled)}
               style={
-                action.variant === "secondary"
-                  ? pageHeaderStyles.secondaryButton
-                  : pageHeaderStyles.primaryButton
+                action.disabled
+                  ? {
+                      ...(action.variant === "secondary"
+                        ? pageHeaderStyles.secondaryButton
+                        : pageHeaderStyles.primaryButton),
+                      opacity: 0.7,
+                      cursor: "not-allowed",
+                    }
+                  : action.variant === "secondary"
+                    ? pageHeaderStyles.secondaryButton
+                    : pageHeaderStyles.primaryButton
               }
             >
               {action.label}

@@ -59,10 +59,12 @@ img {
   width: var(--sidebar-width, 280px);
   min-width: var(--sidebar-width, 280px);
   max-width: var(--sidebar-width, 280px);
-  will-change: width, min-width;
+  will-change: width, min-width, max-width;
+  overflow: hidden;
   transition:
     width 260ms cubic-bezier(0.22, 1, 0.36, 1),
-    min-width 260ms cubic-bezier(0.22, 1, 0.36, 1);
+    min-width 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    max-width 260ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .distync-sidebar__nav-item {
@@ -143,7 +145,8 @@ img {
   }
 
   .distync-sidebar[data-collapsed="true"] {
-    max-height: 108px;
+    max-height: 0;
+    padding: 0 !important;
     overflow: hidden !important;
   }
 

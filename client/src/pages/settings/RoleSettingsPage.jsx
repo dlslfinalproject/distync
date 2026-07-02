@@ -1,5 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
+import {
+  FiActivity,
+  FiBell,
+  FiClock,
+  FiRefreshCw,
+  FiShield,
+  FiUser,
+} from "react-icons/fi";
 import { useNavigate } from "react-router-dom";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
@@ -21,7 +29,6 @@ import {
 import {
   loadRoleSettings,
   saveRoleSettings,
-  summarizeCachedRegistrationData,
 } from "../../features/settings/settingsService";
 import {
   buildPayloadSummary,
@@ -48,6 +55,46 @@ const cardStyles = {
   backgroundColor: "#fbfdff",
   display: "grid",
   gap: "12px",
+};
+
+const settingsHubStyles = {
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: "16px",
+  },
+  button: {
+    border: "1px solid #dbe6f0",
+    borderRadius: "20px",
+    padding: "20px",
+    background:
+      "linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(244, 249, 255, 0.98) 100%)",
+    display: "grid",
+    gap: "18px",
+    width: "100%",
+    textAlign: "left",
+    cursor: "pointer",
+    color: "#17324d",
+    boxShadow: "0 14px 28px rgba(70, 101, 136, 0.08)",
+    transition:
+      "transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease",
+  },
+  iconBadge: {
+    width: "48px",
+    height: "48px",
+    borderRadius: "16px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#e8f1fb",
+    color: "#2f6499",
+    flexShrink: 0,
+  },
+  openLabel: {
+    fontSize: "13px",
+    fontWeight: 700,
+    color: "#2f6499",
+  },
 };
 
 const labelStyles = {
@@ -146,13 +193,49 @@ const tableStyles = {
 };
 
 const BARANGAY_SETTINGS_SECTIONS = [
-  { key: "profile", label: "Profile" },
-  { key: "security", label: "Security" },
-  { key: "notification-preferences", label: "Notification Preferences" },
-  { key: "distribution-history", label: "Distribution History" },
-  { key: "sync-center", label: "Sync Center" },
-  { key: "activity-logs", label: "Activity Logs" },
+  {
+    key: "profile",
+    label: "Profile",
+    description: "Update local identity details, contact information, and profile photo.",
+    icon: FiUser,
+  },
+  {
+    key: "security",
+    label: "Security",
+    description: "Review device-level security preferences and password-related checks.",
+    icon: FiShield,
+  },
+  {
+    key: "notification-preferences",
+    label: "Notification Preferences",
+    description: "Control in-app and email alert preferences for barangay coordination.",
+    icon: FiBell,
+  },
+  {
+    key: "distribution-history",
+    label: "Distribution History",
+    description: "Inspect barangay distribution records and open the full history page when needed.",
+    icon: FiClock,
+  },
+  {
+    key: "sync-center",
+    label: "Sync Center",
+    description: "Monitor queue health, sync logs, and LGU data alignment status.",
+    icon: FiRefreshCw,
+  },
+  {
+    key: "activity-logs",
+    label: "Activity Logs",
+    description: "Review recent frontend-visible actions captured on this device.",
+    icon: FiActivity,
+  },
 ];
+
+const EDITABLE_BARANGAY_SECTION_KEYS = new Set([
+  "profile",
+  "security",
+  "notification-preferences",
+]);
 
 const BARANGAY_NOTIFICATION_OPTIONS = [
   { key: "disasterAlerts", label: "Disaster Alerts" },
@@ -442,7 +525,7 @@ const buildActivityLogs = ({
     timestamp:
       entry.updatedAt || entry.createdAt || entry.clientTimestamp || entry.syncedAt || "",
     title: formatQueueEntryTitle(entry),
-    detail: `Local sync queue · ${entry.status || "--"}`,
+    detail: `Local sync queue - ${entry.status || "--"}`,
     tone:
       entry.status === LOCAL_SYNC_STATUS.FAILED ||
       entry.status === LOCAL_SYNC_STATUS.CONFLICT
@@ -607,23 +690,35 @@ const RoleSettingsPage = () => {
     newPassword: "",
     confirmPassword: "",
   });
-  const [activeSection, setActiveSection] = useState(BARANGAY_SETTINGS_SECTIONS[0].key);
+  const [activeSection, setActiveSection] = useState(null);
   const [toast, setToast] = useState({
     message: "",
     type: "info",
     title: "",
   });
   const profilePictureInputRef = useRef(null);
-  const sectionRefs = useRef({});
 
   const roleMeta = useMemo(() => getRoleMeta(currentRole), [currentRole]);
   const syncSummary = useMemo(() => buildSyncSummary(syncEntries), [syncEntries]);
-  const cachedRegistrationSummary = useMemo(
-    () => summarizeCachedRegistrationData(),
-    [],
-  );
   const isOnline = typeof navigator === "undefined" ? true : navigator.onLine;
   const isBarangayRole = currentRole === ROLE_CODES.BARANGAY;
+
+  useEffect(() => {
+    if (!isBarangayRole) {
+      setActiveSection(null);
+      return;
+    }
+
+    setActiveSection((current) => {
+      if (!current) {
+        return null;
+      }
+
+      return BARANGAY_SETTINGS_SECTIONS.some((section) => section.key === current)
+        ? current
+        : null;
+    });
+  }, [isBarangayRole]);
 
   useEffect(() => {
     if (!currentRole || !authenticatedUser) {
@@ -1118,59 +1213,11 @@ const RoleSettingsPage = () => {
     }
   };
 
-  const scrollToSection = (sectionKey) => {
-    const targetElement = sectionRefs.current[sectionKey];
-
-    if (!targetElement) {
-      return;
-    }
-
-    setActiveSection(sectionKey);
-    targetElement.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-  };
-
   const notificationRuleCount = notificationRules.length;
   const enabledRuleCodes =
     preferences.enabledNotificationRuleCodes?.length > 0
       ? preferences.enabledNotificationRuleCodes
       : notificationRules.map((rule) => rule.code);
-
-  const barangaySummaryCards = useMemo(() => {
-    const syncStatus = getSyncStatusMeta(syncSummary, isOnline);
-    return [
-      {
-        label: "Unread Notifications",
-        value: `${unreadCount}`,
-        tone: "info",
-        description: "Unread barangay alerts still waiting for review.",
-      },
-      {
-        label: "Sync Status",
-        value: syncStatus.label,
-        tone: syncStatus.tone,
-        description: syncStatus.description,
-      },
-      {
-        label: "Pending Records",
-        value: `${syncSummary[LOCAL_SYNC_STATUS.PENDING] || 0}`,
-        tone:
-          syncSummary[LOCAL_SYNC_STATUS.PENDING] > 0 ? "warning" : "success",
-        description: "Queued records that still need LGU synchronization.",
-      },
-      {
-        label: "Cached Event",
-        value:
-          cachedRegistrationSummary.selectedDisasterEvent?.event_code ||
-          cachedRegistrationSummary.selectedDisasterEvent?.title ||
-          "--",
-        tone: "info",
-        description: "Offline-ready event reference saved on this device.",
-      },
-    ];
-  }, [cachedRegistrationSummary, isOnline, syncSummary, unreadCount]);
 
   const distributionHistoryRows = useMemo(() => {
     const summaryRows = buildDistributionSummaryRows(distributionRows);
@@ -1265,22 +1312,981 @@ const RoleSettingsPage = () => {
     [distributionRows, preferences, syncEntries, syncHistory],
   );
 
-  const pageActions = isBarangayRole
+  const activeBarangaySection = useMemo(
+    () =>
+      BARANGAY_SETTINGS_SECTIONS.find((section) => section.key === activeSection) ||
+      null,
+    [activeSection],
+  );
+
+  const barangaySectionCards = useMemo(() => {
+    const syncStatus = getSyncStatusMeta(syncSummary, isOnline);
+
+    return BARANGAY_SETTINGS_SECTIONS.map((section) => {
+      switch (section.key) {
+        case "profile":
+          return {
+            ...section,
+            statusTone: preferences.profile.fullName ? "success" : "warning",
+            statusLabel: preferences.profile.fullName
+              ? "Profile ready"
+              : "Needs details",
+          };
+        case "security":
+          return {
+            ...section,
+            statusTone: preferences.security.twoFactorEnabled ? "success" : "info",
+            statusLabel: preferences.security.twoFactorEnabled
+              ? "2FA preferred"
+              : "Review settings",
+          };
+        case "notification-preferences":
+          return {
+            ...section,
+            statusTone: enabledRuleCodes.length > 0 ? "success" : "warning",
+            statusLabel: `${enabledRuleCodes.length} rules enabled`,
+          };
+        case "distribution-history":
+          return {
+            ...section,
+            statusTone: distributionHistoryRows.length > 0 ? "info" : "warning",
+            statusLabel: `${distributionHistoryRows.length} records`,
+          };
+        case "sync-center":
+          return {
+            ...section,
+            statusTone: syncStatus.tone,
+            statusLabel: syncStatus.label,
+          };
+        case "activity-logs":
+          return {
+            ...section,
+            statusTone: activityLogs.length > 0 ? "info" : "warning",
+            statusLabel:
+              activityLogs.length > 0
+                ? `${activityLogs.length} recent items`
+                : "No recent items",
+          };
+        default:
+          return {
+            ...section,
+            statusTone: "info",
+            statusLabel: "Open section",
+          };
+      }
+    });
+  }, [
+    activityLogs.length,
+    distributionHistoryRows.length,
+    enabledRuleCodes.length,
+    isOnline,
+    preferences.profile.fullName,
+    preferences.security.twoFactorEnabled,
+    syncSummary,
+  ]);
+
+  const barangayPageActions = activeBarangaySection
     ? [
         {
-          label: isSavingPreferences ? "Saving..." : "Save Barangay Settings",
-          onClick: handleSavePreferences,
+          label: "Back to Categories",
+          onClick: () => setActiveSection(null),
+          variant: "secondary",
         },
+        ...(
+          EDITABLE_BARANGAY_SECTION_KEYS.has(activeBarangaySection.key)
+            ? [
+                {
+                  label: isSavingPreferences ? "Saving..." : "Save Barangay Settings",
+                  onClick: handleSavePreferences,
+                  disabled: isSavingPreferences,
+                },
+              ]
+            : []
+        ),
       ]
     : [];
+
+  const renderBarangaySectionContent = () => {
+    switch (activeSection) {
+      case "profile":
+        return (
+          <section style={shellStyles.card}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                gap: "20px",
+                flexWrap: "wrap",
+                marginBottom: "20px",
+              }}
+            >
+              <div style={{ display: "grid", gap: "8px", flex: "1 1 320px" }}>
+                <h3 style={{ margin: 0, color: "#17324d" }}>Profile Settings</h3>
+                <p style={mutedValueStyles}>
+                  Manage the barangay official identity shown in this frontend
+                  client while keeping the assigned barangay locked for coordination
+                  safety.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveSection("security")}
+                style={pageHeaderStyles.secondaryButton}
+              >
+                Change Password
+              </button>
+            </div>
+
+            <div style={{ ...gridStyles, alignItems: "start" }}>
+              <article style={cardStyles}>
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <label htmlFor="barangay-profile-full-name" style={labelStyles}>
+                    Full Name
+                  </label>
+                  <input
+                    id="barangay-profile-full-name"
+                    value={preferences.profile.fullName}
+                    onChange={(event) =>
+                      handleProfileFieldChange("fullName", event.target.value)
+                    }
+                    style={inputStyles.field}
+                  />
+                </div>
+
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <label htmlFor="barangay-profile-position" style={labelStyles}>
+                    Position
+                  </label>
+                  <select
+                    id="barangay-profile-position"
+                    value={preferences.profile.position}
+                    onChange={(event) =>
+                      handleProfileFieldChange("position", event.target.value)
+                    }
+                    style={inputStyles.field}
+                  >
+                    {BARANGAY_POSITION_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <label htmlFor="barangay-profile-name" style={labelStyles}>
+                    Barangay Name
+                  </label>
+                  <input
+                    id="barangay-profile-name"
+                    value={assignedBarangayName}
+                    readOnly
+                    style={{
+                      ...inputStyles.field,
+                      backgroundColor: "#eef5fc",
+                      color: "#4f6780",
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <label htmlFor="barangay-profile-contact" style={labelStyles}>
+                    Contact Number
+                  </label>
+                  <input
+                    id="barangay-profile-contact"
+                    value={preferences.profile.contactNumber}
+                    onChange={(event) =>
+                      handleProfileFieldChange("contactNumber", event.target.value)
+                    }
+                    placeholder="Enter barangay contact number"
+                    style={inputStyles.field}
+                  />
+                </div>
+
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <label htmlFor="barangay-profile-email" style={labelStyles}>
+                    Email Address
+                  </label>
+                  <input
+                    id="barangay-profile-email"
+                    type="email"
+                    value={preferences.profile.emailAddress}
+                    onChange={(event) =>
+                      handleProfileFieldChange("emailAddress", event.target.value)
+                    }
+                    style={inputStyles.field}
+                  />
+                </div>
+              </article>
+
+              <article style={cardStyles}>
+                <h4 style={{ margin: 0, color: "#17324d" }}>Profile Picture</h4>
+                <div
+                  style={{
+                    width: "140px",
+                    height: "140px",
+                    borderRadius: "20px",
+                    border: "1px solid #dbe6f0",
+                    backgroundColor: "#eef5fc",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    overflow: "hidden",
+                  }}
+                >
+                  {preferences.profile.profilePictureDataUrl ? (
+                    <img
+                      src={preferences.profile.profilePictureDataUrl}
+                      alt="Barangay profile preview"
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                      }}
+                    />
+                  ) : (
+                    <span style={{ ...mutedValueStyles, textAlign: "center" }}>
+                      No profile picture selected
+                    </span>
+                  )}
+                </div>
+                <p style={mutedValueStyles}>
+                  {preferences.profile.profilePictureFileName ||
+                    "Upload a profile photo for local UI personalization."}
+                </p>
+                <input
+                  ref={profilePictureInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleProfilePictureChange}
+                  style={{ display: "none" }}
+                />
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={() => profilePictureInputRef.current?.click()}
+                    style={pageHeaderStyles.secondaryButton}
+                  >
+                    Upload / Change
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPreferences((current) => ({
+                        ...current,
+                        profile: {
+                          ...current.profile,
+                          profilePictureDataUrl: "",
+                          profilePictureFileName: "",
+                        },
+                        metadata: {
+                          ...current.metadata,
+                          lastProfileUpdateAt: new Date().toISOString(),
+                        },
+                      }))
+                    }
+                    style={pageHeaderStyles.secondaryButton}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </article>
+            </div>
+          </section>
+        );
+      case "security":
+        return (
+          <section style={shellStyles.card}>
+            <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
+              <h3 style={{ margin: 0, color: "#17324d" }}>Security Settings</h3>
+              <p style={mutedValueStyles}>
+                Keep security actions grouped here while staying transparent that
+                this task does not change backend authentication behavior.
+              </p>
+            </div>
+
+            <div style={gridStyles}>
+              <article style={cardStyles}>
+                <h4 style={{ margin: 0, color: "#17324d" }}>Change Password</h4>
+                <p style={mutedValueStyles}>
+                  This frontend review keeps the requested UI in place without
+                  modifying the current authentication flow.
+                </p>
+                <input
+                  type="password"
+                  placeholder="Current password"
+                  value={securityForm.currentPassword}
+                  onChange={(event) =>
+                    setSecurityForm((current) => ({
+                      ...current,
+                      currentPassword: event.target.value,
+                    }))
+                  }
+                  style={inputStyles.field}
+                />
+                <input
+                  type="password"
+                  placeholder="New password"
+                  value={securityForm.newPassword}
+                  onChange={(event) =>
+                    setSecurityForm((current) => ({
+                      ...current,
+                      newPassword: event.target.value,
+                    }))
+                  }
+                  style={inputStyles.field}
+                />
+                <input
+                  type="password"
+                  placeholder="Confirm new password"
+                  value={securityForm.confirmPassword}
+                  onChange={(event) =>
+                    setSecurityForm((current) => ({
+                      ...current,
+                      confirmPassword: event.target.value,
+                    }))
+                  }
+                  style={inputStyles.field}
+                />
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={handleLocalPasswordReview}
+                    style={pageHeaderStyles.primaryButton}
+                  >
+                    Review Password Change
+                  </button>
+                  <StatusChip
+                    tone={
+                      preferences.security.lastLocalPasswordChangeAt
+                        ? "warning"
+                        : "info"
+                    }
+                    label={
+                      preferences.security.lastLocalPasswordChangeAt
+                        ? `Last reviewed ${formatDateTime(
+                            preferences.security.lastLocalPasswordChangeAt,
+                          )}`
+                        : "No local review yet"
+                    }
+                  />
+                </div>
+              </article>
+
+              <article style={cardStyles}>
+                <h4 style={{ margin: 0, color: "#17324d" }}>
+                  Two-Factor Authentication
+                </h4>
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    color: "#21405f",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={Boolean(preferences.security.twoFactorEnabled)}
+                    onChange={() =>
+                      setPreferences((current) => ({
+                        ...current,
+                        security: {
+                          ...current.security,
+                          twoFactorEnabled: !current.security.twoFactorEnabled,
+                        },
+                      }))
+                    }
+                  />
+                  Enable two-factor authentication preference for this role
+                </label>
+                <p style={mutedValueStyles}>
+                  Stored locally as a coordination preference until centralized 2FA
+                  management is introduced.
+                </p>
+                <StatusChip
+                  tone={preferences.security.twoFactorEnabled ? "success" : "info"}
+                  label={
+                    preferences.security.twoFactorEnabled ? "Enabled" : "Optional"
+                  }
+                />
+              </article>
+
+              <article style={cardStyles}>
+                <h4 style={{ margin: 0, color: "#17324d" }}>Login Activity</h4>
+                <div style={{ display: "grid", gap: "10px" }}>
+                  <div>
+                    <strong>Current browser session</strong>
+                    <div style={mutedValueStyles}>
+                      {preferences.profile.emailAddress ||
+                        authenticatedUser?.email ||
+                        "--"}
+                    </div>
+                  </div>
+                  <div>
+                    <strong>Last local settings save</strong>
+                    <div style={mutedValueStyles}>
+                      {formatDateTime(preferences.metadata.lastPreferenceSaveAt)}
+                    </div>
+                  </div>
+                  <div>
+                    <strong>Last password review</strong>
+                    <div style={mutedValueStyles}>
+                      {formatDateTime(preferences.security.lastLocalPasswordChangeAt)}
+                    </div>
+                  </div>
+                </div>
+              </article>
+
+              <article style={cardStyles}>
+                <h4 style={{ margin: 0, color: "#17324d" }}>Session Actions</h4>
+                <p style={mutedValueStyles}>
+                  Existing session controls stay intact. Server-wide sign-out is
+                  shown for planning visibility only.
+                </p>
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={() => clearSession()}
+                    style={pageHeaderStyles.secondaryButton}
+                  >
+                    Logout This Device
+                  </button>
+                  <button
+                    type="button"
+                    disabled
+                    style={{
+                      ...pageHeaderStyles.secondaryButton,
+                      opacity: 0.6,
+                      cursor: "not-allowed",
+                    }}
+                  >
+                    Logout from All Devices
+                  </button>
+                </div>
+              </article>
+            </div>
+          </section>
+        );
+      case "notification-preferences":
+        return (
+          <section style={shellStyles.card}>
+            <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
+              <h3 style={{ margin: 0, color: "#17324d" }}>
+                Notification Preferences
+              </h3>
+              <p style={mutedValueStyles}>
+                Manage local alert preferences for barangay coordination while
+                keeping the existing rule-mapping behavior visible.
+              </p>
+            </div>
+
+            <div style={{ ...gridStyles, alignItems: "start" }}>
+              <article style={cardStyles}>
+                <h4 style={{ margin: 0, color: "#17324d" }}>Alert Channels</h4>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={tableStyles.table}>
+                    <thead>
+                      <tr>
+                        <th style={tableStyles.th}>Notification Type</th>
+                        <th style={tableStyles.th}>In-App</th>
+                        <th style={tableStyles.th}>Email</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {BARANGAY_NOTIFICATION_OPTIONS.map((option) => (
+                        <tr key={option.key}>
+                          <td style={tableStyles.td}>{option.label}</td>
+                          <td style={tableStyles.td}>
+                            <input
+                              type="checkbox"
+                              checked={Boolean(
+                                preferences.notificationChannels[option.key]?.inApp,
+                              )}
+                              onChange={() =>
+                                handleNotificationChannelToggle(option.key, "inApp")
+                              }
+                            />
+                          </td>
+                          <td style={tableStyles.td}>
+                            <input
+                              type="checkbox"
+                              checked={Boolean(
+                                preferences.notificationChannels[option.key]?.email,
+                              )}
+                              onChange={() =>
+                                handleNotificationChannelToggle(option.key, "email")
+                              }
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+
+              <article style={cardStyles}>
+                <h4 style={{ margin: 0, color: "#17324d" }}>
+                  Existing Role Rule Mapping
+                </h4>
+                {notificationRules.length === 0 ? (
+                  <EmptyState message="No notification rules are currently mapped to this role." />
+                ) : (
+                  <div style={{ display: "grid", gap: "10px" }}>
+                    {notificationRules.map((rule) => {
+                      const isEnabled = enabledRuleCodes.includes(rule.code);
+
+                      return (
+                        <label
+                          key={rule.id}
+                          style={{
+                            display: "flex",
+                            alignItems: "flex-start",
+                            gap: "10px",
+                            color: "#21405f",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isEnabled}
+                            onChange={() => toggleNotificationRule(rule.code)}
+                            style={{ marginTop: "3px" }}
+                          />
+                          <span>
+                            <strong>{rule.name}</strong>
+                            <span style={{ ...mutedValueStyles, display: "block" }}>
+                              {rule.trigger_type} (
+                              {rule.is_active ? "Active" : "Inactive"})
+                            </span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </article>
+            </div>
+          </section>
+        );
+      case "distribution-history":
+        return (
+          <section style={shellStyles.card}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                gap: "20px",
+                flexWrap: "wrap",
+                marginBottom: "20px",
+              }}
+            >
+              <div style={{ display: "grid", gap: "8px", flex: "1 1 320px" }}>
+                <h3 style={{ margin: 0, color: "#17324d" }}>Distribution History</h3>
+                <p style={mutedValueStyles}>
+                  Review relief distributions tied to your barangay for audits,
+                  coordination checks, and report preparation.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate("/barangay/distribution-history")}
+                style={pageHeaderStyles.secondaryButton}
+              >
+                Open Full History Page
+              </button>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                gap: "14px",
+                alignItems: "end",
+                marginBottom: "20px",
+              }}
+            >
+              <div>
+                <label htmlFor="barangay-history-event" style={labelStyles}>
+                  Disaster / Event
+                </label>
+                <select
+                  id="barangay-history-event"
+                  value={distributionFilters.disaster_event_id}
+                  onChange={(event) =>
+                    setDistributionFilters((current) => ({
+                      ...current,
+                      disaster_event_id: event.target.value,
+                    }))
+                  }
+                  style={inputStyles.field}
+                >
+                  <option value="">All disaster events</option>
+                  {distributionEventOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="barangay-history-status" style={labelStyles}>
+                  Status
+                </label>
+                <select
+                  id="barangay-history-status"
+                  value={distributionFilters.status}
+                  onChange={(event) =>
+                    setDistributionFilters((current) => ({
+                      ...current,
+                      status: event.target.value,
+                    }))
+                  }
+                  style={inputStyles.field}
+                >
+                  <option value="">All statuses</option>
+                  <option value="COMPLETED">Completed</option>
+                  <option value="ONGOING">Ongoing</option>
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="barangay-history-date-from" style={labelStyles}>
+                  Date From
+                </label>
+                <input
+                  id="barangay-history-date-from"
+                  type="date"
+                  value={distributionFilters.date_from}
+                  onChange={(event) =>
+                    setDistributionFilters((current) => ({
+                      ...current,
+                      date_from: event.target.value,
+                    }))
+                  }
+                  style={inputStyles.field}
+                />
+              </div>
+
+              <div>
+                <label htmlFor="barangay-history-date-to" style={labelStyles}>
+                  Date To
+                </label>
+                <input
+                  id="barangay-history-date-to"
+                  type="date"
+                  value={distributionFilters.date_to}
+                  onChange={(event) =>
+                    setDistributionFilters((current) => ({
+                      ...current,
+                      date_to: event.target.value,
+                    }))
+                  }
+                  style={inputStyles.field}
+                />
+              </div>
+
+              <div>
+                <label htmlFor="barangay-history-sort" style={labelStyles}>
+                  Sort
+                </label>
+                <select
+                  id="barangay-history-sort"
+                  value={distributionFilters.sort_order}
+                  onChange={(event) =>
+                    setDistributionFilters((current) => ({
+                      ...current,
+                      sort_order: event.target.value,
+                    }))
+                  }
+                  style={inputStyles.field}
+                >
+                  <option value="latest">Latest first</option>
+                  <option value="oldest">Oldest first</option>
+                </select>
+              </div>
+            </div>
+
+            {distributionErrorMessage ? (
+              <p style={{ margin: "0 0 16px", color: "#9d4d58", fontWeight: 700 }}>
+                {distributionErrorMessage}
+              </p>
+            ) : null}
+
+            {isLoadingDistributionHistory ? (
+              <EmptyState message="Loading barangay distribution history..." />
+            ) : distributionHistoryRows.length === 0 ? (
+              <EmptyState message="No barangay distribution history matches the current filters." />
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={tableStyles.table}>
+                  <thead>
+                    <tr>
+                      <th style={tableStyles.th}>Distribution Date</th>
+                      <th style={tableStyles.th}>Disaster / Event</th>
+                      <th style={tableStyles.th}>Relief Goods Received</th>
+                      <th style={tableStyles.th}>Quantity Received</th>
+                      <th style={tableStyles.th}>Families Served</th>
+                      <th style={tableStyles.th}>Status</th>
+                      <th style={tableStyles.th}>Distribution Report (PDF)</th>
+                      <th style={tableStyles.th}>Photos Submitted</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {distributionHistoryRows.map((row) => (
+                      <tr key={row.id}>
+                        <td style={tableStyles.td}>
+                          {formatDateTime(row.distributionDate)}
+                        </td>
+                        <td style={tableStyles.td}>
+                          <div style={{ fontWeight: 700 }}>{row.disasterEventTitle}</div>
+                          <div style={{ ...mutedValueStyles, fontSize: "12px" }}>
+                            {row.eventCode}
+                          </div>
+                        </td>
+                        <td style={tableStyles.td}>{row.reliefGoodsReceived}</td>
+                        <td style={tableStyles.td}>{row.quantityReceived}</td>
+                        <td style={tableStyles.td}>{row.familiesServed}</td>
+                        <td style={tableStyles.td}>
+                          <StatusChip
+                            tone={
+                              row.statusLabel === "Completed" ? "success" : "warning"
+                            }
+                            label={row.statusLabel}
+                          />
+                        </td>
+                        <td style={tableStyles.td}>
+                          <button
+                            type="button"
+                            onClick={() => navigate("/barangay/distribution-history")}
+                            style={pageHeaderStyles.secondaryButton}
+                          >
+                            {row.distributionReportLabel}
+                          </button>
+                        </td>
+                        <td style={tableStyles.td}>{row.photosSubmitted || "--"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        );
+      case "sync-center":
+        return (
+          <section style={shellStyles.card}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                gap: "20px",
+                flexWrap: "wrap",
+                marginBottom: "20px",
+              }}
+            >
+              <div style={{ display: "grid", gap: "8px", flex: "1 1 320px" }}>
+                <h3 style={{ margin: 0, color: "#17324d" }}>Sync Center</h3>
+                <p style={mutedValueStyles}>
+                  Monitor whether barangay records are already aligned with the LGU
+                  and review the most recent sync logs.
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={handleSyncNow}
+                  disabled={isSyncingNow}
+                  style={pageHeaderStyles.primaryButton}
+                >
+                  {isSyncingNow ? "Syncing..." : "Sync Now"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate("/barangay/sync")}
+                  style={pageHeaderStyles.secondaryButton}
+                >
+                  Open Full Sync Center
+                </button>
+              </div>
+            </div>
+
+            <div style={gridStyles}>
+              <article style={cardStyles}>
+                <h4 style={{ margin: 0, color: "#17324d" }}>Sync Overview</h4>
+                <InfoRow
+                  label="Last Sync Date & Time"
+                  value={formatSyncDateTime(syncHistoryLogRows[0]?.timestamp)}
+                />
+                <InfoRow
+                  label="Pending Records"
+                  value={`${syncSummary[LOCAL_SYNC_STATUS.PENDING] || 0}`}
+                />
+                <InfoRow
+                  label="Failed / Conflict Records"
+                  value={`${
+                    (syncSummary[LOCAL_SYNC_STATUS.FAILED] || 0) +
+                    (syncSummary[LOCAL_SYNC_STATUS.CONFLICT] || 0)
+                  }`}
+                />
+                <StatusChip
+                  tone={getSyncStatusMeta(syncSummary, isOnline).tone}
+                  label={getSyncStatusMeta(syncSummary, isOnline).label}
+                />
+              </article>
+
+              <article style={cardStyles}>
+                <h4 style={{ margin: 0, color: "#17324d" }}>Synced Record Types</h4>
+                <div style={{ display: "grid", gap: "10px" }}>
+                  {[
+                    "Attendance Records",
+                    "Beneficiary Lists",
+                    "Distribution Records",
+                    "Disaster Reports",
+                  ].map((label) => (
+                    <div
+                      key={label}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: "12px",
+                      }}
+                    >
+                      <span style={{ color: "#21405f", fontWeight: 700 }}>{label}</span>
+                      <StatusChip
+                        tone="info"
+                        label={syncHistoryLogRows.length > 0 ? "Tracked" : "Waiting"}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </article>
+            </div>
+
+            {syncHistoryErrorMessage ? (
+              <p style={{ margin: "20px 0 0", color: "#9d4d58", fontWeight: 700 }}>
+                {syncHistoryErrorMessage}
+              </p>
+            ) : null}
+
+            <div style={{ marginTop: "20px" }}>
+              <h4 style={{ margin: "0 0 12px", color: "#17324d" }}>Sync Logs</h4>
+              {isLoadingSyncHistory ? (
+                <EmptyState message="Loading sync logs..." />
+              ) : syncHistoryLogRows.length === 0 ? (
+                <EmptyState message="No sync logs are available yet for this barangay account." />
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={tableStyles.table}>
+                    <thead>
+                      <tr>
+                        <th style={tableStyles.th}>Date & Time</th>
+                        <th style={tableStyles.th}>Record Type</th>
+                        <th style={tableStyles.th}>Status</th>
+                        <th style={tableStyles.th}>Details</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {syncHistoryLogRows.slice(0, 12).map((row) => (
+                        <tr key={row.id}>
+                          <td style={tableStyles.td}>
+                            {formatSyncDateTime(row.timestamp)}
+                          </td>
+                          <td style={tableStyles.td}>{row.label}</td>
+                          <td style={tableStyles.td}>
+                            <StatusChip
+                              tone={
+                                row.status === LOCAL_SYNC_STATUS.FAILED
+                                  ? "error"
+                                  : row.status === LOCAL_SYNC_STATUS.CONFLICT
+                                    ? "warning"
+                                    : row.status === "RESOLVED"
+                                      ? "success"
+                                      : "info"
+                              }
+                              label={row.status}
+                            />
+                          </td>
+                          <td style={tableStyles.td}>{row.detail || "--"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </section>
+        );
+      case "activity-logs":
+        return (
+          <section style={shellStyles.card}>
+            <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
+              <h3 style={{ margin: 0, color: "#17324d" }}>Activity Logs</h3>
+              <p style={mutedValueStyles}>
+                Review recent frontend-visible barangay actions in chronological
+                order for accountability and transparency.
+              </p>
+            </div>
+
+            {activityLogs.length === 0 ? (
+              <EmptyState message="No recent activity logs are available for this device yet." />
+            ) : (
+              <div style={{ display: "grid", gap: "12px" }}>
+                {activityLogs.map((entry) => (
+                  <article
+                    key={entry.id}
+                    style={{
+                      border: "1px solid #dbe6f0",
+                      borderRadius: "16px",
+                      padding: "16px 18px",
+                      backgroundColor: "#fbfdff",
+                      display: "grid",
+                      gap: "6px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "flex-start",
+                        gap: "12px",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <strong style={{ color: "#17324d" }}>{entry.title}</strong>
+                      <StatusChip
+                        tone={entry.tone || "info"}
+                        label={entry.tone || "info"}
+                      />
+                    </div>
+                    <p style={mutedValueStyles}>{entry.detail}</p>
+                    <p style={{ ...mutedValueStyles, fontSize: "12px" }}>
+                      {formatDateTime(entry.timestamp)}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        );
+      default:
+        return null;
+    }
+  };
 
   if (isBarangayRole) {
     return (
       <>
         <PageHeader
-          title={roleMeta.title}
-          description={roleMeta.description}
-          actions={pageActions}
+          eyebrow={activeBarangaySection ? roleMeta.title : undefined}
+          title={activeBarangaySection?.label || roleMeta.title}
+          description={activeBarangaySection?.description || roleMeta.description}
+          actions={barangayPageActions}
         />
 
         {errorMessage ? (
@@ -1291,917 +2297,63 @@ const RoleSettingsPage = () => {
           </section>
         ) : null}
 
-        <section style={shellStyles.card}>
-          <div style={gridStyles}>
-            {barangaySummaryCards.map((card) => (
-              <article key={card.label} style={cardStyles}>
-                <p style={labelStyles}>{card.label}</p>
-                <p style={{ ...valueStyles, fontSize: "26px" }}>{card.value}</p>
-                <StatusChip tone={card.tone} label={card.value} />
-                <p style={mutedValueStyles}>{card.description}</p>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section style={shellStyles.card}>
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "10px",
-            }}
-          >
-            {BARANGAY_SETTINGS_SECTIONS.map((section) => (
-              <button
-                key={section.key}
-                type="button"
-                onClick={() => scrollToSection(section.key)}
-                style={{
-                  border: "1px solid #d5e3f0",
-                  borderRadius: "999px",
-                  padding: "10px 16px",
-                  backgroundColor:
-                    activeSection === section.key ? "#dbe8f6" : "#f7fbff",
-                  color: activeSection === section.key ? "#17324d" : "#40617f",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                }}
-              >
-                {section.label}
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section
-          ref={(element) => {
-            sectionRefs.current.profile = element;
-          }}
-          style={shellStyles.card}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "flex-start",
-              gap: "20px",
-              flexWrap: "wrap",
-              marginBottom: "20px",
-            }}
-          >
-            <div style={{ display: "grid", gap: "8px", flex: "1 1 320px" }}>
-              <h3 style={{ margin: 0, color: "#17324d" }}>Profile Settings</h3>
+        {activeBarangaySection ? (
+          renderBarangaySectionContent()
+        ) : (
+          <section style={shellStyles.card}>
+            <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
+              <p style={labelStyles}>Settings Dashboard</p>
+              <h3 style={{ margin: 0, color: "#17324d" }}>
+                Open one settings function at a time
+              </h3>
               <p style={mutedValueStyles}>
-                Manage the barangay official identity shown in this frontend client
-                while keeping the assigned barangay locked for coordination safety.
+                Choose a category below to keep the Settings workspace focused and
+                uncluttered. Detailed forms, tables, and logs only appear after you
+                open a section.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => scrollToSection("security")}
-              style={pageHeaderStyles.secondaryButton}
-            >
-              Change Password
-            </button>
-          </div>
 
-          <div style={{ ...gridStyles, alignItems: "start" }}>
-            <article style={cardStyles}>
-              <div style={{ display: "grid", gap: "8px" }}>
-                <label htmlFor="barangay-profile-full-name" style={labelStyles}>
-                  Full Name
-                </label>
-                <input
-                  id="barangay-profile-full-name"
-                  value={preferences.profile.fullName}
-                  onChange={(event) =>
-                    handleProfileFieldChange("fullName", event.target.value)
-                  }
-                  style={inputStyles.field}
-                />
-              </div>
+            <div style={settingsHubStyles.grid}>
+              {barangaySectionCards.map((section) => {
+                const Icon = section.icon;
 
-              <div style={{ display: "grid", gap: "8px" }}>
-                <label htmlFor="barangay-profile-position" style={labelStyles}>
-                  Position
-                </label>
-                <select
-                  id="barangay-profile-position"
-                  value={preferences.profile.position}
-                  onChange={(event) =>
-                    handleProfileFieldChange("position", event.target.value)
-                  }
-                  style={inputStyles.field}
-                >
-                  {BARANGAY_POSITION_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={{ display: "grid", gap: "8px" }}>
-                <label htmlFor="barangay-profile-name" style={labelStyles}>
-                  Barangay Name
-                </label>
-                <input
-                  id="barangay-profile-name"
-                  value={assignedBarangayName}
-                  readOnly
-                  style={{
-                    ...inputStyles.field,
-                    backgroundColor: "#eef5fc",
-                    color: "#4f6780",
-                  }}
-                />
-              </div>
-
-              <div style={{ display: "grid", gap: "8px" }}>
-                <label htmlFor="barangay-profile-contact" style={labelStyles}>
-                  Contact Number
-                </label>
-                <input
-                  id="barangay-profile-contact"
-                  value={preferences.profile.contactNumber}
-                  onChange={(event) =>
-                    handleProfileFieldChange("contactNumber", event.target.value)
-                  }
-                  placeholder="Enter barangay contact number"
-                  style={inputStyles.field}
-                />
-              </div>
-
-              <div style={{ display: "grid", gap: "8px" }}>
-                <label htmlFor="barangay-profile-email" style={labelStyles}>
-                  Email Address
-                </label>
-                <input
-                  id="barangay-profile-email"
-                  type="email"
-                  value={preferences.profile.emailAddress}
-                  onChange={(event) =>
-                    handleProfileFieldChange("emailAddress", event.target.value)
-                  }
-                  style={inputStyles.field}
-                />
-              </div>
-            </article>
-
-            <article style={cardStyles}>
-              <h4 style={{ margin: 0, color: "#17324d" }}>Profile Picture</h4>
-              <div
-                style={{
-                  width: "140px",
-                  height: "140px",
-                  borderRadius: "20px",
-                  border: "1px solid #dbe6f0",
-                  backgroundColor: "#eef5fc",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  overflow: "hidden",
-                }}
-              >
-                {preferences.profile.profilePictureDataUrl ? (
-                  <img
-                    src={preferences.profile.profilePictureDataUrl}
-                    alt="Barangay profile preview"
-                    style={{
-                      width: "100%",
-                      height: "100%",
-                      objectFit: "cover",
-                    }}
-                  />
-                ) : (
-                  <span style={{ ...mutedValueStyles, textAlign: "center" }}>
-                    No profile picture selected
-                  </span>
-                )}
-              </div>
-              <p style={mutedValueStyles}>
-                {preferences.profile.profilePictureFileName ||
-                  "Upload a profile photo for local UI personalization."}
-              </p>
-              <input
-                ref={profilePictureInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleProfilePictureChange}
-                style={{ display: "none" }}
-              />
-              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={() => profilePictureInputRef.current?.click()}
-                  style={pageHeaderStyles.secondaryButton}
-                >
-                  Upload / Change
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setPreferences((current) => ({
-                      ...current,
-                      profile: {
-                        ...current.profile,
-                        profilePictureDataUrl: "",
-                        profilePictureFileName: "",
-                      },
-                      metadata: {
-                        ...current.metadata,
-                        lastProfileUpdateAt: new Date().toISOString(),
-                      },
-                    }))
-                  }
-                  style={pageHeaderStyles.secondaryButton}
-                >
-                  Remove
-                </button>
-              </div>
-            </article>
-          </div>
-        </section>
-
-        <section
-          ref={(element) => {
-            sectionRefs.current.security = element;
-          }}
-          style={shellStyles.card}
-        >
-          <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
-            <h3 style={{ margin: 0, color: "#17324d" }}>Security Settings</h3>
-            <p style={mutedValueStyles}>
-              Keep security actions grouped here while staying transparent that this
-              task does not change backend authentication behavior.
-            </p>
-          </div>
-
-          <div style={gridStyles}>
-            <article style={cardStyles}>
-              <h4 style={{ margin: 0, color: "#17324d" }}>Change Password</h4>
-              <p style={mutedValueStyles}>
-                This frontend review keeps the requested UI in place without
-                modifying the current authentication flow.
-              </p>
-              <input
-                type="password"
-                placeholder="Current password"
-                value={securityForm.currentPassword}
-                onChange={(event) =>
-                  setSecurityForm((current) => ({
-                    ...current,
-                    currentPassword: event.target.value,
-                  }))
-                }
-                style={inputStyles.field}
-              />
-              <input
-                type="password"
-                placeholder="New password"
-                value={securityForm.newPassword}
-                onChange={(event) =>
-                  setSecurityForm((current) => ({
-                    ...current,
-                    newPassword: event.target.value,
-                  }))
-                }
-                style={inputStyles.field}
-              />
-              <input
-                type="password"
-                placeholder="Confirm new password"
-                value={securityForm.confirmPassword}
-                onChange={(event) =>
-                  setSecurityForm((current) => ({
-                    ...current,
-                    confirmPassword: event.target.value,
-                  }))
-                }
-                style={inputStyles.field}
-              />
-              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={handleLocalPasswordReview}
-                  style={pageHeaderStyles.primaryButton}
-                >
-                  Review Password Change
-                </button>
-                <StatusChip
-                  tone={
-                    preferences.security.lastLocalPasswordChangeAt
-                      ? "warning"
-                      : "info"
-                  }
-                  label={
-                    preferences.security.lastLocalPasswordChangeAt
-                      ? `Last reviewed ${formatDateTime(
-                          preferences.security.lastLocalPasswordChangeAt,
-                        )}`
-                      : "No local review yet"
-                  }
-                />
-              </div>
-            </article>
-
-            <article style={cardStyles}>
-              <h4 style={{ margin: 0, color: "#17324d" }}>
-                Two-Factor Authentication
-              </h4>
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "10px",
-                  color: "#21405f",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={Boolean(preferences.security.twoFactorEnabled)}
-                  onChange={() =>
-                    setPreferences((current) => ({
-                      ...current,
-                      security: {
-                        ...current.security,
-                        twoFactorEnabled: !current.security.twoFactorEnabled,
-                      },
-                    }))
-                  }
-                />
-                Enable two-factor authentication preference for this role
-              </label>
-              <p style={mutedValueStyles}>
-                Stored locally as a coordination preference until centralized 2FA
-                management is introduced.
-              </p>
-              <StatusChip
-                tone={preferences.security.twoFactorEnabled ? "success" : "info"}
-                label={preferences.security.twoFactorEnabled ? "Enabled" : "Optional"}
-              />
-            </article>
-
-            <article style={cardStyles}>
-              <h4 style={{ margin: 0, color: "#17324d" }}>Login Activity</h4>
-              <div style={{ display: "grid", gap: "10px" }}>
-                <div>
-                  <strong>Current browser session</strong>
-                  <div style={mutedValueStyles}>
-                    {preferences.profile.emailAddress || authenticatedUser?.email || "--"}
-                  </div>
-                </div>
-                <div>
-                  <strong>Last local settings save</strong>
-                  <div style={mutedValueStyles}>
-                    {formatDateTime(preferences.metadata.lastPreferenceSaveAt)}
-                  </div>
-                </div>
-                <div>
-                  <strong>Last password review</strong>
-                  <div style={mutedValueStyles}>
-                    {formatDateTime(preferences.security.lastLocalPasswordChangeAt)}
-                  </div>
-                </div>
-              </div>
-            </article>
-
-            <article style={cardStyles}>
-              <h4 style={{ margin: 0, color: "#17324d" }}>Session Actions</h4>
-              <p style={mutedValueStyles}>
-                Existing session controls stay intact. Server-wide sign-out is shown
-                for planning visibility only.
-              </p>
-              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={() => clearSession()}
-                  style={pageHeaderStyles.secondaryButton}
-                >
-                  Logout This Device
-                </button>
-                <button
-                  type="button"
-                  disabled
-                  style={{
-                    ...pageHeaderStyles.secondaryButton,
-                    opacity: 0.6,
-                    cursor: "not-allowed",
-                  }}
-                >
-                  Logout from All Devices
-                </button>
-              </div>
-            </article>
-          </div>
-        </section>
-
-        <section
-          ref={(element) => {
-            sectionRefs.current["notification-preferences"] = element;
-          }}
-          style={shellStyles.card}
-        >
-          <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
-            <h3 style={{ margin: 0, color: "#17324d" }}>
-              Notification Preferences
-            </h3>
-            <p style={mutedValueStyles}>
-              Manage local alert preferences for barangay coordination while keeping
-              the existing rule-mapping behavior visible.
-            </p>
-          </div>
-
-          <div style={{ ...gridStyles, alignItems: "start" }}>
-            <article style={cardStyles}>
-              <h4 style={{ margin: 0, color: "#17324d" }}>Alert Channels</h4>
-              <div style={{ overflowX: "auto" }}>
-                <table style={tableStyles.table}>
-                  <thead>
-                    <tr>
-                      <th style={tableStyles.th}>Notification Type</th>
-                      <th style={tableStyles.th}>In-App</th>
-                      <th style={tableStyles.th}>Email</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {BARANGAY_NOTIFICATION_OPTIONS.map((option) => (
-                      <tr key={option.key}>
-                        <td style={tableStyles.td}>{option.label}</td>
-                        <td style={tableStyles.td}>
-                          <input
-                            type="checkbox"
-                            checked={Boolean(
-                              preferences.notificationChannels[option.key]?.inApp,
-                            )}
-                            onChange={() =>
-                              handleNotificationChannelToggle(option.key, "inApp")
-                            }
-                          />
-                        </td>
-                        <td style={tableStyles.td}>
-                          <input
-                            type="checkbox"
-                            checked={Boolean(
-                              preferences.notificationChannels[option.key]?.email,
-                            )}
-                            onChange={() =>
-                              handleNotificationChannelToggle(option.key, "email")
-                            }
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </article>
-
-            <article style={cardStyles}>
-              <h4 style={{ margin: 0, color: "#17324d" }}>
-                Existing Role Rule Mapping
-              </h4>
-              {notificationRules.length === 0 ? (
-                <EmptyState message="No notification rules are currently mapped to this role." />
-              ) : (
-                <div style={{ display: "grid", gap: "10px" }}>
-                  {notificationRules.map((rule) => {
-                    const isEnabled = enabledRuleCodes.includes(rule.code);
-
-                    return (
-                      <label
-                        key={rule.id}
-                        style={{
-                          display: "flex",
-                          alignItems: "flex-start",
-                          gap: "10px",
-                          color: "#21405f",
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isEnabled}
-                          onChange={() => toggleNotificationRule(rule.code)}
-                          style={{ marginTop: "3px" }}
-                        />
-                        <span>
-                          <strong>{rule.name}</strong>
-                          <span style={{ ...mutedValueStyles, display: "block" }}>
-                            {rule.trigger_type} ({rule.is_active ? "Active" : "Inactive"})
-                          </span>
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-            </article>
-          </div>
-        </section>
-
-        <section
-          ref={(element) => {
-            sectionRefs.current["distribution-history"] = element;
-          }}
-          style={shellStyles.card}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "flex-start",
-              gap: "20px",
-              flexWrap: "wrap",
-              marginBottom: "20px",
-            }}
-          >
-            <div style={{ display: "grid", gap: "8px", flex: "1 1 320px" }}>
-              <h3 style={{ margin: 0, color: "#17324d" }}>Distribution History</h3>
-              <p style={mutedValueStyles}>
-                Review relief distributions tied to your barangay for audits,
-                coordination checks, and report preparation.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => navigate("/barangay/distribution-history")}
-              style={pageHeaderStyles.secondaryButton}
-            >
-              Open Full History Page
-            </button>
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-              gap: "14px",
-              alignItems: "end",
-              marginBottom: "20px",
-            }}
-          >
-            <div>
-              <label htmlFor="barangay-history-event" style={labelStyles}>
-                Disaster / Event
-              </label>
-              <select
-                id="barangay-history-event"
-                value={distributionFilters.disaster_event_id}
-                onChange={(event) =>
-                  setDistributionFilters((current) => ({
-                    ...current,
-                    disaster_event_id: event.target.value,
-                  }))
-                }
-                style={inputStyles.field}
-              >
-                <option value="">All disaster events</option>
-                {distributionEventOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="barangay-history-status" style={labelStyles}>
-                Status
-              </label>
-              <select
-                id="barangay-history-status"
-                value={distributionFilters.status}
-                onChange={(event) =>
-                  setDistributionFilters((current) => ({
-                    ...current,
-                    status: event.target.value,
-                  }))
-                }
-                style={inputStyles.field}
-              >
-                <option value="">All statuses</option>
-                <option value="COMPLETED">Completed</option>
-                <option value="ONGOING">Ongoing</option>
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="barangay-history-date-from" style={labelStyles}>
-                Date From
-              </label>
-              <input
-                id="barangay-history-date-from"
-                type="date"
-                value={distributionFilters.date_from}
-                onChange={(event) =>
-                  setDistributionFilters((current) => ({
-                    ...current,
-                    date_from: event.target.value,
-                  }))
-                }
-                style={inputStyles.field}
-              />
-            </div>
-
-            <div>
-              <label htmlFor="barangay-history-date-to" style={labelStyles}>
-                Date To
-              </label>
-              <input
-                id="barangay-history-date-to"
-                type="date"
-                value={distributionFilters.date_to}
-                onChange={(event) =>
-                  setDistributionFilters((current) => ({
-                    ...current,
-                    date_to: event.target.value,
-                  }))
-                }
-                style={inputStyles.field}
-              />
-            </div>
-
-            <div>
-              <label htmlFor="barangay-history-sort" style={labelStyles}>
-                Sort
-              </label>
-              <select
-                id="barangay-history-sort"
-                value={distributionFilters.sort_order}
-                onChange={(event) =>
-                  setDistributionFilters((current) => ({
-                    ...current,
-                    sort_order: event.target.value,
-                  }))
-                }
-                style={inputStyles.field}
-              >
-                <option value="latest">Latest first</option>
-                <option value="oldest">Oldest first</option>
-              </select>
-            </div>
-          </div>
-
-          {distributionErrorMessage ? (
-            <p style={{ margin: "0 0 16px", color: "#9d4d58", fontWeight: 700 }}>
-              {distributionErrorMessage}
-            </p>
-          ) : null}
-
-          {isLoadingDistributionHistory ? (
-            <EmptyState message="Loading barangay distribution history..." />
-          ) : distributionHistoryRows.length === 0 ? (
-            <EmptyState message="No barangay distribution history matches the current filters." />
-          ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table style={tableStyles.table}>
-                <thead>
-                  <tr>
-                    <th style={tableStyles.th}>Distribution Date</th>
-                    <th style={tableStyles.th}>Disaster / Event</th>
-                    <th style={tableStyles.th}>Relief Goods Received</th>
-                    <th style={tableStyles.th}>Quantity Received</th>
-                    <th style={tableStyles.th}>Families Served</th>
-                    <th style={tableStyles.th}>Status</th>
-                    <th style={tableStyles.th}>Distribution Report (PDF)</th>
-                    <th style={tableStyles.th}>Photos Submitted</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {distributionHistoryRows.map((row) => (
-                    <tr key={row.id}>
-                      <td style={tableStyles.td}>{formatDateTime(row.distributionDate)}</td>
-                      <td style={tableStyles.td}>
-                        <div style={{ fontWeight: 700 }}>{row.disasterEventTitle}</div>
-                        <div style={{ ...mutedValueStyles, fontSize: "12px" }}>
-                          {row.eventCode}
-                        </div>
-                      </td>
-                      <td style={tableStyles.td}>{row.reliefGoodsReceived}</td>
-                      <td style={tableStyles.td}>{row.quantityReceived}</td>
-                      <td style={tableStyles.td}>{row.familiesServed}</td>
-                      <td style={tableStyles.td}>
-                        <StatusChip
-                          tone={row.statusLabel === "Completed" ? "success" : "warning"}
-                          label={row.statusLabel}
-                        />
-                      </td>
-                      <td style={tableStyles.td}>
-                        <button
-                          type="button"
-                          onClick={() => navigate("/barangay/distribution-history")}
-                          style={pageHeaderStyles.secondaryButton}
-                        >
-                          {row.distributionReportLabel}
-                        </button>
-                      </td>
-                      <td style={tableStyles.td}>{row.photosSubmitted || "--"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-
-        <section
-          ref={(element) => {
-            sectionRefs.current["sync-center"] = element;
-          }}
-          style={shellStyles.card}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "flex-start",
-              gap: "20px",
-              flexWrap: "wrap",
-              marginBottom: "20px",
-            }}
-          >
-            <div style={{ display: "grid", gap: "8px", flex: "1 1 320px" }}>
-              <h3 style={{ margin: 0, color: "#17324d" }}>Sync Center</h3>
-              <p style={mutedValueStyles}>
-                Monitor whether barangay records are already aligned with the LGU and
-                review the most recent sync logs.
-              </p>
-            </div>
-            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={handleSyncNow}
-                disabled={isSyncingNow}
-                style={pageHeaderStyles.primaryButton}
-              >
-                {isSyncingNow ? "Syncing..." : "Sync Now"}
-              </button>
-              <button
-                type="button"
-                onClick={() => navigate("/barangay/sync")}
-                style={pageHeaderStyles.secondaryButton}
-              >
-                Open Full Sync Center
-              </button>
-            </div>
-          </div>
-
-          <div style={gridStyles}>
-            <article style={cardStyles}>
-              <h4 style={{ margin: 0, color: "#17324d" }}>Sync Overview</h4>
-              <InfoRow
-                label="Last Sync Date & Time"
-                value={formatSyncDateTime(syncHistoryLogRows[0]?.timestamp)}
-              />
-              <InfoRow
-                label="Pending Records"
-                value={`${syncSummary[LOCAL_SYNC_STATUS.PENDING] || 0}`}
-              />
-              <InfoRow
-                label="Failed / Conflict Records"
-                value={`${
-                  (syncSummary[LOCAL_SYNC_STATUS.FAILED] || 0) +
-                  (syncSummary[LOCAL_SYNC_STATUS.CONFLICT] || 0)
-                }`}
-              />
-              <StatusChip
-                tone={getSyncStatusMeta(syncSummary, isOnline).tone}
-                label={getSyncStatusMeta(syncSummary, isOnline).label}
-              />
-            </article>
-
-            <article style={cardStyles}>
-              <h4 style={{ margin: 0, color: "#17324d" }}>Synced Record Types</h4>
-              <div style={{ display: "grid", gap: "10px" }}>
-                {[
-                  "Attendance Records",
-                  "Beneficiary Lists",
-                  "Distribution Records",
-                  "Disaster Reports",
-                ].map((label) => (
-                  <div
-                    key={label}
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      gap: "12px",
-                    }}
+                return (
+                  <button
+                    key={section.key}
+                    type="button"
+                    onClick={() => setActiveSection(section.key)}
+                    style={settingsHubStyles.button}
                   >
-                    <span style={{ color: "#21405f", fontWeight: 700 }}>{label}</span>
-                    <StatusChip
-                      tone="info"
-                      label={syncHistoryLogRows.length > 0 ? "Tracked" : "Waiting"}
-                    />
-                  </div>
-                ))}
-              </div>
-            </article>
-          </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "flex-start",
+                        gap: "12px",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <span style={settingsHubStyles.iconBadge}>
+                        <Icon size={22} />
+                      </span>
+                      <StatusChip
+                        tone={section.statusTone}
+                        label={section.statusLabel}
+                      />
+                    </div>
 
-          {syncHistoryErrorMessage ? (
-            <p style={{ margin: "20px 0 0", color: "#9d4d58", fontWeight: 700 }}>
-              {syncHistoryErrorMessage}
-            </p>
-          ) : null}
+                    <div style={{ display: "grid", gap: "8px" }}>
+                      <h3 style={{ margin: 0, color: "#17324d" }}>{section.label}</h3>
+                      <p style={mutedValueStyles}>{section.description}</p>
+                    </div>
 
-          <div style={{ marginTop: "20px" }}>
-            <h4 style={{ margin: "0 0 12px", color: "#17324d" }}>Sync Logs</h4>
-            {isLoadingSyncHistory ? (
-              <EmptyState message="Loading sync logs..." />
-            ) : syncHistoryLogRows.length === 0 ? (
-              <EmptyState message="No sync logs are available yet for this barangay account." />
-            ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table style={tableStyles.table}>
-                  <thead>
-                    <tr>
-                      <th style={tableStyles.th}>Date & Time</th>
-                      <th style={tableStyles.th}>Record Type</th>
-                      <th style={tableStyles.th}>Status</th>
-                      <th style={tableStyles.th}>Details</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {syncHistoryLogRows.slice(0, 12).map((row) => (
-                      <tr key={row.id}>
-                        <td style={tableStyles.td}>{formatSyncDateTime(row.timestamp)}</td>
-                        <td style={tableStyles.td}>{row.label}</td>
-                        <td style={tableStyles.td}>
-                          <StatusChip
-                            tone={
-                              row.status === LOCAL_SYNC_STATUS.FAILED
-                                ? "error"
-                                : row.status === LOCAL_SYNC_STATUS.CONFLICT
-                                  ? "warning"
-                                  : row.status === "RESOLVED"
-                                    ? "success"
-                                    : "info"
-                            }
-                            label={row.status}
-                          />
-                        </td>
-                        <td style={tableStyles.td}>{row.detail || "--"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section
-          ref={(element) => {
-            sectionRefs.current["activity-logs"] = element;
-          }}
-          style={shellStyles.card}
-        >
-          <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
-            <h3 style={{ margin: 0, color: "#17324d" }}>Activity Logs</h3>
-            <p style={mutedValueStyles}>
-              Review recent frontend-visible barangay actions in chronological order
-              for accountability and transparency.
-            </p>
-          </div>
-
-          {activityLogs.length === 0 ? (
-            <EmptyState message="No recent activity logs are available for this device yet." />
-          ) : (
-            <div style={{ display: "grid", gap: "12px" }}>
-              {activityLogs.map((entry) => (
-                <article
-                  key={entry.id}
-                  style={{
-                    border: "1px solid #dbe6f0",
-                    borderRadius: "16px",
-                    padding: "16px 18px",
-                    backgroundColor: "#fbfdff",
-                    display: "grid",
-                    gap: "6px",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "flex-start",
-                      gap: "12px",
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <strong style={{ color: "#17324d" }}>{entry.title}</strong>
-                    <StatusChip tone={entry.tone || "info"} label={entry.tone || "info"} />
-                  </div>
-                  <p style={mutedValueStyles}>{entry.detail}</p>
-                  <p style={{ ...mutedValueStyles, fontSize: "12px" }}>
-                    {formatDateTime(entry.timestamp)}
-                  </p>
-                </article>
-              ))}
+                    <span style={settingsHubStyles.openLabel}>Open section</span>
+                  </button>
+                );
+              })}
             </div>
-          )}
-        </section>
+          </section>
+        )}
 
         <FeedbackToast
           message={toast.message}

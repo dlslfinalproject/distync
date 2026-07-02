@@ -6,33 +6,14 @@ import { getAccessMode, getEntryRouteForMode } from "../../utils/accessMode";
 import { ROLE_CODES } from "../../utils/roleSession";
 import distyncLogo from "../../assets/distync-logo.png";
 
-const getSidebarStyles = (isCollapsed) => ({
-  wrapper: {
-    height: "100vh",
-    maxHeight: "100vh",
-    padding: isCollapsed ? "0 10px 24px" : "0 16px 24px",
-    boxSizing: "border-box",
-    backgroundColor: "transparent",
-    borderRight: "none",
-    display: "flex",
-    flexDirection: "column",
-    gap: "24px",
-    flexShrink: 0,
-    position: "sticky",
-    top: 0,
-    alignSelf: "flex-start",
-    overflow: "visible",
-    zIndex: 20,
-    transition: "padding 260ms cubic-bezier(0.22, 1, 0.36, 1)",
-  },
+const layoutBrandStyles = {
   topBar: {
     display: "flex",
     alignItems: "center",
     justifyContent: "flex-start",
     gap: "12px",
-    paddingTop: "20px",
     minWidth: 0,
-    width: "100%",
+    width: "max-content",
     flexShrink: 0,
   },
   menuButton: {
@@ -58,7 +39,7 @@ const getSidebarStyles = (isCollapsed) => ({
     display: "flex",
     alignItems: "center",
     justifyContent: "flex-start",
-    flex: "1 1 auto",
+    flex: "0 0 auto",
     minWidth: 0,
     maxWidth: "100%",
     overflow: "visible",
@@ -91,6 +72,62 @@ const getSidebarStyles = (isCollapsed) => ({
     maxWidth: "none",
     opacity: 1,
     flexShrink: 0,
+  },
+};
+
+export const SidebarBrandStrip = ({
+  onToggleCollapse,
+  isCollapsed,
+  style,
+  title,
+}) => (
+  <div
+    className="distync-layout__brand-strip"
+    style={{
+      ...layoutBrandStyles.topBar,
+      ...(style || {}),
+    }}
+  >
+    <button
+      type="button"
+      onClick={onToggleCollapse}
+      style={layoutBrandStyles.menuButton}
+      title={title || (isCollapsed ? "Expand sidebar" : "Collapse sidebar")}
+    >
+      <FiMenu size={20} />
+    </button>
+
+    <div style={layoutBrandStyles.brand}>
+      <div style={layoutBrandStyles.brandHeader}>
+        <img src={distyncLogo} alt="Logo" style={layoutBrandStyles.brandLogo} />
+        <h1 style={layoutBrandStyles.brandTitle}>DISTYNC</h1>
+      </div>
+    </div>
+  </div>
+);
+
+const getSidebarStyles = (isCollapsed) => ({
+  wrapper: {
+    height: "100vh",
+    maxHeight: "100vh",
+    padding: isCollapsed ? "0" : "20px 16px 24px",
+    boxSizing: "border-box",
+    backgroundColor: "transparent",
+    borderRight: "none",
+    display: "flex",
+    flexDirection: "column",
+    gap: isCollapsed ? "0" : "20px",
+    flexShrink: 0,
+    position: "sticky",
+    top: 0,
+    alignSelf: "flex-start",
+    overflow: "hidden",
+    zIndex: 20,
+    opacity: isCollapsed ? 0 : 1,
+    pointerEvents: isCollapsed ? "none" : "auto",
+    transform: isCollapsed ? "translateX(-18px)" : "translateX(0)",
+    transition:
+      "padding 260ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease, transform 260ms cubic-bezier(0.22, 1, 0.36, 1), gap 260ms cubic-bezier(0.22, 1, 0.36, 1)",
   },
   nav: {
     display: "flex",
@@ -209,24 +246,6 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
       data-collapsed={isCollapsed ? "true" : "false"}
       style={sidebarStyles.wrapper}
     >
-      <div className="distync-sidebar__topbar" style={sidebarStyles.topBar}>
-        <button
-          type="button"
-          onClick={onToggleCollapse}
-          style={sidebarStyles.menuButton}
-          title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          <FiMenu size={20} />
-        </button>
-
-        <div style={sidebarStyles.brand}>
-          <div style={sidebarStyles.brandHeader}>
-            <img src={distyncLogo} alt="Logo" style={sidebarStyles.brandLogo} />
-            <h1 style={sidebarStyles.brandTitle}>DISTYNC</h1>
-          </div>
-        </div>
-      </div>
-
       <nav className="distync-sidebar__nav" style={sidebarStyles.nav}>
         {activeRoleMeta.navItems.map((item) => (
           <NavLink
