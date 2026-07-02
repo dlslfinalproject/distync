@@ -244,8 +244,8 @@ const MembersSection = ({ form }) => {
                 <label style={fieldStyles.field}>
                   <span style={fieldStyles.label}>Age</span>
                   <input
-                    type="number"
-                    min="0"
+                    type="text"
+                    inputMode="numeric"
                     value={member.age_value}
                     onChange={(event) =>
                       form.updateMemberField(
