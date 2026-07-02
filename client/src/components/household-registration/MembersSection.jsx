@@ -3,6 +3,7 @@ import { shellStyles } from "../layout/BarangayLayout";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { AGE_UNIT_OPTIONS } from "../../utils/ageGroup";
 import {
+  AGE_BASED_MEMBER_SECTOR_CODES,
   RELATIONSHIP_OPTIONS,
   formatMemberSectorLabel,
   getCanonicalMemberSectorCode,
@@ -107,12 +108,6 @@ const MembersSection = ({ form }) => {
         ) : null}
 
         {form.members.map((member, index) => {
-          const ageBasedSectors = form.memberSectorOptions.filter((sector) =>
-            isAgeBasedMemberSectorCode(
-              getCanonicalMemberSectorCode(sector.code),
-            ),
-          );
-
           const nonAgeBasedSectors = form.memberSectorOptions.filter(
             (sector) =>
               !isAgeBasedMemberSectorCode(
@@ -372,23 +367,20 @@ const MembersSection = ({ form }) => {
                   <div
                     style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}
                   >
-                    {ageBasedSectors.map((sector) => {
-                      const sectorCode = getCanonicalMemberSectorCode(
-                        sector.code,
-                      );
+                    {AGE_BASED_MEMBER_SECTOR_CODES.map((sectorCode) => {
                       const isChecked =
                         sectorCode === member.derived_age_sector_code;
 
                       return (
                         <label
-                          key={sector.id}
+                          key={sectorCode}
                           style={{
                             ...fieldStyles.checkboxLabel,
                             opacity: isChecked ? 1 : 0.8,
                           }}
                         >
                           <input type="checkbox" checked={isChecked} disabled />
-                          {formatMemberSectorLabel(sector)}
+                          {formatMemberSectorLabel(sectorCode)}
                         </label>
                       );
                     })}

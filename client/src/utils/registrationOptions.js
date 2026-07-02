@@ -74,6 +74,34 @@ export const getCanonicalMemberSectorCode = (sectorCode) => {
     return "LACTATING_MOTHER";
   }
 
+  if (sectorCode === "INFANT_0_6_MONTHS") {
+    return "INFANT";
+  }
+
+  if (sectorCode === "TODDLER_7M_2Y") {
+    return "TODDLER";
+  }
+
+  if (sectorCode === "PRESCHOOL_3_5") {
+    return "PRE_SCHOOLER";
+  }
+
+  if (sectorCode === "CHILD_6_12") {
+    return "SCHOOL_AGE";
+  }
+
+  if (sectorCode === "TEEN_13_17") {
+    return "TEENAGE";
+  }
+
+  if (sectorCode === "ADULT_18_59") {
+    return "ADULT";
+  }
+
+  if (sectorCode === "SENIOR_60_ABOVE") {
+    return "SENIOR_CITIZEN";
+  }
+
   return sectorCode;
 };
 
