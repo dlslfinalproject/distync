@@ -81,6 +81,61 @@ const modalStyles = {
     fontWeight: 700,
     textAlign: "center",
   },
+  listSection: {
+    marginTop: "20px",
+    padding: "16px",
+    borderRadius: "16px",
+    border: "1px solid #e1eaf3",
+    backgroundColor: "#f8fbfe",
+  },
+  list: {
+    marginTop: "12px",
+    display: "grid",
+    gap: "12px",
+    maxHeight: "320px",
+    overflowY: "auto",
+    paddingRight: "4px",
+  },
+  listItem: {
+    display: "grid",
+    gridTemplateColumns: "72px minmax(0, 1fr)",
+    alignItems: "center",
+    gap: "12px",
+    padding: "10px",
+    borderRadius: "14px",
+    backgroundColor: "#ffffff",
+    border: "1px solid #dbe7f2",
+  },
+  listPhoto: {
+    width: "72px",
+    height: "72px",
+    objectFit: "cover",
+    borderRadius: "12px",
+    border: "1px solid #d5e0ea",
+    backgroundColor: "#eaf2f8",
+  },
+  listPhotoPlaceholder: {
+    width: "72px",
+    height: "72px",
+    borderRadius: "12px",
+    border: "1px dashed #cbd9e7",
+    backgroundColor: "#f3f8fc",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#698099",
+    fontSize: "11px",
+    fontWeight: 600,
+    textAlign: "center",
+    padding: "8px",
+    boxSizing: "border-box",
+  },
+  listName: {
+    margin: 0,
+    color: "#17324d",
+    fontWeight: 700,
+    lineHeight: 1.4,
+  },
 };
 
 const MasterlistDepartureConfirmModal = ({
@@ -92,6 +147,7 @@ const MasterlistDepartureConfirmModal = ({
   selectedCount = 1,
   familyHeadName = "",
   familyHeadPhotoUrl = "",
+  selectedHouseholdsPreview = [],
 }) => {
   if (!isOpen) return null;
 
@@ -127,6 +183,43 @@ const MasterlistDepartureConfirmModal = ({
 
                 <p style={modalStyles.photoName}>{familyHeadName || "--"}</p>
               </>
+            )}
+          </div>
+        ) : selectedCount > 1 ? (
+          <div style={modalStyles.listSection}>
+            {isLoadingHouseholdDetails ? (
+              <p style={{ ...shellStyles.mutedText, margin: 0 }}>
+                Loading selected family head photos...
+              </p>
+            ) : selectedHouseholdsPreview.length === 0 ? (
+              <p style={{ ...shellStyles.mutedText, margin: 0 }}>
+                No selected families available for preview.
+              </p>
+            ) : (
+              <div style={modalStyles.list}>
+                {selectedHouseholdsPreview.map((household) => (
+                  <div
+                    key={household.household_id || household.family_head_name}
+                    style={modalStyles.listItem}
+                  >
+                    {household.family_head_photo_url ? (
+                      <img
+                        src={household.family_head_photo_url}
+                        alt="Registered family head"
+                        style={modalStyles.listPhoto}
+                      />
+                    ) : (
+                      <div style={modalStyles.listPhotoPlaceholder}>
+                        No photo
+                      </div>
+                    )}
+
+                    <p style={modalStyles.listName}>
+                      {household.family_head_name || "--"}
+                    </p>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         ) : null}

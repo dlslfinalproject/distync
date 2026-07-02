@@ -47,6 +47,8 @@ const BarangayMasterlistPage = () => {
     useState("");
   const [pendingDepartureHouseholdDetails, setPendingDepartureHouseholdDetails] =
     useState(null);
+  const [pendingBulkDepartureHouseholds, setPendingBulkDepartureHouseholds] =
+    useState([]);
   const [isLoadingDepartureHouseholdDetails, setIsLoadingDepartureHouseholdDetails] =
     useState(false);
   const [viewingHouseholdId, setViewingHouseholdId] = useState("");
@@ -254,6 +256,7 @@ const BarangayMasterlistPage = () => {
       setSelectedHouseholds([]);
       setPendingDepartureHouseholdId("");
       setPendingDepartureHouseholdDetails(null);
+      setPendingBulkDepartureHouseholds([]);
       setIsLoadingDepartureHouseholdDetails(false);
       setIsBulkDepartureConfirmOpen(false);
     }
@@ -297,7 +300,7 @@ const BarangayMasterlistPage = () => {
     setSelectedHouseholds(areAllSelected ? [] : selectableHouseholdIds);
   };
 
-  const handleOpenBulkDepartureConfirmation = () => {
+  const handleOpenBulkDepartureConfirmation = async () => {
     if (
       isSelectedEventEnded ||
       !selectedHouseholds.length ||
@@ -306,7 +309,58 @@ const BarangayMasterlistPage = () => {
       return;
     }
 
+    setPendingDepartureHouseholdId("");
+    setPendingDepartureHouseholdDetails(null);
+    setPendingBulkDepartureHouseholds([]);
+    setIsLoadingDepartureHouseholdDetails(true);
     setIsBulkDepartureConfirmOpen(true);
+
+    const selectedRows = filteredRows.filter((row) =>
+      selectedHouseholds.includes(row.household_id),
+    );
+
+    try {
+      const detailResults = await Promise.allSettled(
+        selectedHouseholds.map((householdId) => fetchHouseholdDetails(householdId)),
+      );
+
+      const previewItems = selectedHouseholds.map((householdId, index) => {
+        const detailValue =
+          detailResults[index]?.status === "fulfilled"
+            ? detailResults[index].value
+            : null;
+        const fallbackRow = selectedRows.find((row) => row.household_id === householdId);
+        const detailHousehold = detailValue?.household || null;
+        const familyHeadName = detailHousehold
+          ? [
+              detailHousehold.family_head_first_name,
+              detailHousehold.family_head_middle_name,
+              detailHousehold.family_head_last_name,
+              detailHousehold.family_head_suffix,
+            ]
+              .filter(Boolean)
+              .join(" ")
+          : fallbackRow?.family_head_name || "";
+
+        return {
+          household_id: householdId,
+          family_head_name: familyHeadName,
+          family_head_photo_url: detailHousehold?.family_head_photo_url || "",
+        };
+      });
+
+      setPendingBulkDepartureHouseholds(previewItems);
+    } catch (_error) {
+      setPendingBulkDepartureHouseholds(
+        selectedRows.map((row) => ({
+          household_id: row.household_id,
+          family_head_name: row.family_head_name || "",
+          family_head_photo_url: "",
+        })),
+      );
+    } finally {
+      setIsLoadingDepartureHouseholdDetails(false);
+    }
   };
 
   const handleOpenDepartureConfirmation = async (householdId) => {
@@ -314,8 +368,10 @@ const BarangayMasterlistPage = () => {
       return;
     }
 
+    setIsBulkDepartureConfirmOpen(false);
     setPendingDepartureHouseholdId(householdId);
     setPendingDepartureHouseholdDetails(null);
+    setPendingBulkDepartureHouseholds([]);
     setIsLoadingDepartureHouseholdDetails(true);
 
     try {
@@ -335,6 +391,7 @@ const BarangayMasterlistPage = () => {
 
     setPendingDepartureHouseholdId("");
     setPendingDepartureHouseholdDetails(null);
+    setPendingBulkDepartureHouseholds([]);
     setIsLoadingDepartureHouseholdDetails(false);
     setIsBulkDepartureConfirmOpen(false);
   };
@@ -496,6 +553,7 @@ const BarangayMasterlistPage = () => {
 
         setAttendanceActionMessage("Selected households marked as departed");
         setSelectedHouseholds([]);
+        setPendingBulkDepartureHouseholds([]);
         setIsBulkDepartureConfirmOpen(false);
         reloadMasterlist();
       } else {
@@ -512,6 +570,7 @@ const BarangayMasterlistPage = () => {
         );
         setPendingDepartureHouseholdId("");
         setPendingDepartureHouseholdDetails(null);
+        setPendingBulkDepartureHouseholds([]);
         setIsLoadingDepartureHouseholdDetails(false);
         reloadMasterlist();
       }
@@ -622,6 +681,7 @@ const BarangayMasterlistPage = () => {
         }
         familyHeadName={pendingDepartureFamilyHeadName}
         familyHeadPhotoUrl={pendingDepartureFamilyHeadPhotoUrl}
+        selectedHouseholdsPreview={pendingBulkDepartureHouseholds}
       />
 
       <HouseholdDetailModal
