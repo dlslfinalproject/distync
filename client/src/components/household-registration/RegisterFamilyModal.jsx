@@ -64,7 +64,9 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
     return null;
   }
 
-  const handleClose = () => {
+  const handleClose = (event) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
     form.resetForm();
     onClose();
   };

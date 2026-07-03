@@ -517,6 +517,10 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setIsRegisterModalOpen(true);
   };
 
+  const handleCloseRegisterModal = () => {
+    setIsRegisterModalOpen(false);
+  };
+
   const handleOpenHouseholdDetails = async (householdId) => {
     setViewingHouseholdId(householdId);
     setIsLoadingHouseholdDetails(true);
@@ -756,6 +760,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     handleCloseDepartureConfirmation,
     handleConfirmDeparture,
     handleOpenRegisterModal,
+    handleCloseRegisterModal,
     handleOpenHouseholdDetails,
     handleCloseHouseholdDetails,
     handleOpenEditHousehold,

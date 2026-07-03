@@ -87,6 +87,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     handleCloseDepartureConfirmation,
     handleConfirmDeparture,
     handleOpenRegisterModal,
+    handleCloseRegisterModal,
     handleOpenHouseholdDetails,
     handleCloseHouseholdDetails,
     handleOpenEditHousehold,
@@ -254,7 +255,7 @@ const ConsolidatedEvacueeMasterlist = () => {
 
       <RegisterFamilyModal
         isOpen={isRegisterModalOpen}
-        onClose={() => setIsRegisterModalOpen(false)}
+        onClose={handleCloseRegisterModal}
         form={registrationForm}
       />
 
