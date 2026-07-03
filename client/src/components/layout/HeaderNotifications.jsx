@@ -100,7 +100,8 @@ const HeaderNotifications = () => {
   const { currentRole } = useAuth();
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [recentNotifications, setRecentNotifications] = useState([]);
-  const [isNotificationDropdownOpen, setIsNotificationDropdownOpen] = useState(false);
+  const [isNotificationDropdownOpen, setIsNotificationDropdownOpen] =
+    useState(false);
   const notificationMenuRef = useRef(null);
 
   const notificationRouteByRole = useMemo(
@@ -122,7 +123,8 @@ const HeaderNotifications = () => {
     }),
     [],
   );
-  const settingsRoute = settingsRouteByRole[currentRole] || "/inventory/settings";
+  const settingsRoute =
+    settingsRouteByRole[currentRole] || "/inventory/settings";
 
   useEffect(() => {
     if (!supportedRoles.has(currentRole)) {
@@ -145,7 +147,9 @@ const HeaderNotifications = () => {
 
         if (isMounted) {
           setUnreadNotificationCount(Number(countResponse?.unread_count || 0));
-          setRecentNotifications(Array.isArray(recentResponse) ? recentResponse : []);
+          setRecentNotifications(
+            Array.isArray(recentResponse) ? recentResponse : [],
+          );
         }
       } catch (_error) {
         if (isMounted) {
