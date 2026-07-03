@@ -244,7 +244,9 @@ export const archiveHousehold = async ({ householdId, archiveRemarks = null }) =
   return parseJsonResponse(response, "Failed to archive household");
 };
 
-export const restoreHousehold = async ({ householdId, restoreRemarks = null }) => {
+export const restoreHousehold = async ({
+  householdId,
+}) => {
   const response = await fetch(
     `${API_BASE_URL}/api/v1/households/${householdId}/restore`,
     {
@@ -253,12 +255,12 @@ export const restoreHousehold = async ({ householdId, restoreRemarks = null }) =
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        restore_remarks: restoreRemarks,
+        restore_mode: "RETURN_TO_EVAC_CENTER",
       }),
     },
   );
 
-  return parseJsonResponse(response, "Failed to restore household");
+  return parseJsonResponse(response, "Failed to record household return");
 };
 
 export const correctEvacuationLog = async ({

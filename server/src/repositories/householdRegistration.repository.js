@@ -889,7 +889,10 @@ const getLatestAttendanceByHouseholdId = async (householdId) => {
       updated_at
     FROM evacuation_logs
     WHERE household_id = $1
-    ORDER BY time_in DESC NULLS LAST, created_at DESC
+    ORDER BY
+      COALESCE(time_out, time_in) DESC,
+      updated_at DESC,
+      created_at DESC
     LIMIT 1
   `;
 

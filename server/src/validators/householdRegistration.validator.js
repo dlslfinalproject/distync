@@ -585,7 +585,11 @@ const validateArchiveHousehold = (req, res, next) => {
 const validateRestoreHousehold = (req, res, next) => {
   try {
     const { householdId } = req.params;
-    const { restore_remarks } = req.body || {};
+    const { restore_mode } = req.body || {};
+    const normalizedRestoreMode =
+      typeof restore_mode === "string" && restore_mode.trim()
+        ? restore_mode.trim().toUpperCase()
+        : "RETURN_TO_EVAC_CENTER";
 
     if (!isValidUuid(householdId)) {
       return res.status(400).json({
@@ -593,22 +597,9 @@ const validateRestoreHousehold = (req, res, next) => {
       });
     }
 
-    if (
-      restore_remarks !== undefined &&
-      restore_remarks !== null &&
-      typeof restore_remarks !== "string"
-    ) {
+    if (normalizedRestoreMode !== "RETURN_TO_EVAC_CENTER") {
       return res.status(400).json({
-        message: "restore_remarks must be a string or null",
-      });
-    }
-
-    if (
-      typeof restore_remarks === "string" &&
-      restore_remarks.length > MAX_CORRECTION_REMARKS_LENGTH
-    ) {
-      return res.status(400).json({
-        message: "restore_remarks must be 1000 characters or fewer",
+        message: "restore_mode must be RETURN_TO_EVAC_CENTER",
       });
     }
 
@@ -617,10 +608,7 @@ const validateRestoreHousehold = (req, res, next) => {
     };
 
     req.validatedBody = {
-      restore_remarks:
-        typeof restore_remarks === "string" && restore_remarks.trim()
-          ? restore_remarks.trim()
-          : null,
+      restore_mode: normalizedRestoreMode,
     };
 
     return next();

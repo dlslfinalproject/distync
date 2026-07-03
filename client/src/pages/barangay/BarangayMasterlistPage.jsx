@@ -66,7 +66,10 @@ const BarangayMasterlistPage = () => {
     useState(false);
   const [isRecordingDeparture, setIsRecordingDeparture] = useState(false);
   const [pendingRestoreHouseholdId, setPendingRestoreHouseholdId] = useState("");
-  const [restoreRemarks, setRestoreRemarks] = useState("");
+  const [pendingRestoreHouseholdDetails, setPendingRestoreHouseholdDetails] =
+    useState(null);
+  const [isLoadingRestoreHouseholdDetails, setIsLoadingRestoreHouseholdDetails] =
+    useState(false);
   const [isRestoringHousehold, setIsRestoringHousehold] = useState(false);
   const [selectedHouseholds, setSelectedHouseholds] = useState([]);
   const syncQueueEntries =
@@ -182,6 +185,21 @@ const BarangayMasterlistPage = () => {
     : pendingDepartureRow?.family_head_name || "";
   const pendingDepartureFamilyHeadPhotoUrl =
     pendingDepartureHouseholdDetails?.household?.family_head_photo_url || "";
+  const pendingRestoreRow = filteredRows.find(
+    (row) => row.household_id === pendingRestoreHouseholdId,
+  );
+  const pendingRestoreFamilyHeadName = pendingRestoreHouseholdDetails?.household
+    ? [
+        pendingRestoreHouseholdDetails.household.family_head_first_name,
+        pendingRestoreHouseholdDetails.household.family_head_middle_name,
+        pendingRestoreHouseholdDetails.household.family_head_last_name,
+        pendingRestoreHouseholdDetails.household.family_head_suffix,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : pendingRestoreRow?.family_head_name || "";
+  const pendingRestoreFamilyHeadPhotoUrl =
+    pendingRestoreHouseholdDetails?.household?.family_head_photo_url || "";
 
   useEffect(() => {
     const activeEvents = availableEvents.filter(
@@ -448,9 +466,19 @@ const BarangayMasterlistPage = () => {
     setIsLoadingEditHouseholdDetails(false);
   };
 
-  const handleOpenRestoreHousehold = (householdId) => {
+  const handleOpenRestoreHousehold = async (householdId) => {
     setPendingRestoreHouseholdId(householdId);
-    setRestoreRemarks("");
+    setPendingRestoreHouseholdDetails(null);
+    setIsLoadingRestoreHouseholdDetails(true);
+
+    try {
+      const details = await fetchHouseholdDetails(householdId);
+      setPendingRestoreHouseholdDetails(details);
+    } catch (_error) {
+      setPendingRestoreHouseholdDetails(null);
+    } finally {
+      setIsLoadingRestoreHouseholdDetails(false);
+    }
   };
 
   const handleCancelRestoreHousehold = () => {
@@ -459,7 +487,8 @@ const BarangayMasterlistPage = () => {
     }
 
     setPendingRestoreHouseholdId("");
-    setRestoreRemarks("");
+    setPendingRestoreHouseholdDetails(null);
+    setIsLoadingRestoreHouseholdDetails(false);
   };
 
   const handleConfirmRestoreHousehold = async () => {
@@ -472,18 +501,18 @@ const BarangayMasterlistPage = () => {
     try {
       const response = await restoreHousehold({
         householdId: pendingRestoreHouseholdId,
-        restoreRemarks,
       });
 
       setRegistrationSuccessMessage(
-        response.message || "Household restored successfully",
+        response.message || "Household return recorded successfully",
       );
       setPendingRestoreHouseholdId("");
-      setRestoreRemarks("");
+      setPendingRestoreHouseholdDetails(null);
+      setIsLoadingRestoreHouseholdDetails(false);
       reloadMasterlist();
     } catch (error) {
       setAttendanceActionMessage(
-        error.message || "Failed to restore household",
+        error.message || "Failed to record household return",
       );
     } finally {
       setIsRestoringHousehold(false);
@@ -649,8 +678,9 @@ const BarangayMasterlistPage = () => {
       <HouseholdArchiveConfirmModal
         isOpen={Boolean(pendingRestoreHouseholdId)}
         isSubmitting={isRestoringHousehold}
-        archiveRemarks={restoreRemarks}
-        onChangeArchiveRemarks={setRestoreRemarks}
+        isLoadingHouseholdDetails={isLoadingRestoreHouseholdDetails}
+        familyHeadName={pendingRestoreFamilyHeadName}
+        familyHeadPhotoUrl={pendingRestoreFamilyHeadPhotoUrl}
         onCancel={handleCancelRestoreHousehold}
         onConfirm={handleConfirmRestoreHousehold}
         mode="restore"
