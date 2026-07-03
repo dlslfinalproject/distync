@@ -3,8 +3,6 @@ import { useLiveQuery } from "dexie-react-hooks";
 import {
   FiActivity,
   FiBell,
-  FiClock,
-  FiRefreshCw,
   FiShield,
   FiUser,
 } from "react-icons/fi";
@@ -210,18 +208,6 @@ const BARANGAY_SETTINGS_SECTIONS = [
     label: "Notification Preferences",
     description: "Control in-app and email alert preferences for barangay coordination.",
     icon: FiBell,
-  },
-  {
-    key: "distribution-history",
-    label: "Distribution History",
-    description: "Inspect barangay distribution records and open the full history page when needed.",
-    icon: FiClock,
-  },
-  {
-    key: "sync-center",
-    label: "Sync Center",
-    description: "Monitor queue health, sync logs, and LGU data alignment status.",
-    icon: FiRefreshCw,
   },
   {
     key: "activity-logs",

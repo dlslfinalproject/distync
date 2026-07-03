@@ -2,9 +2,13 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { ROLE_CODES } from "../../utils/roleSession";
-import HeaderNotifications from "./HeaderNotifications";
-import Sidebar, { SidebarBrandStrip } from "./Sidebar";
+import Sidebar from "./Sidebar";
+import ShellHeader from "./ShellHeader";
 import SyncStatusBanner from "./SyncStatusBanner";
+
+const SIDEBAR_EXPANDED_WIDTH = "280px";
+const SIDEBAR_COLLAPSED_WIDTH = "0px";
+const HEADER_BRAND_WIDTH = "280px";
 
 export const shellStyles = {
   page: {
@@ -34,25 +38,6 @@ export const shellStyles = {
     gap: "24px",
     minWidth: 0,
     overflowX: "hidden",
-  },
-  headerBar: {
-    width: "100%",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "16px",
-    minHeight: "68px",
-  },
-  headerBrand: {
-    flex: "0 0 auto",
-    minWidth: 0,
-  },
-  headerActions: {
-    display: "flex",
-    justifyContent: "flex-end",
-    alignItems: "center",
-    flex: "1 1 auto",
-    minWidth: 0,
   },
   card: {
     backgroundColor: "#ffffff",
@@ -93,8 +78,8 @@ const BarangayLayout = () => {
   const sidebarWidth = isDonorPortal
     ? "0px"
     : isSidebarCollapsed
-      ? "0px"
-      : "280px";
+      ? SIDEBAR_COLLAPSED_WIDTH
+      : SIDEBAR_EXPANDED_WIDTH;
 
   useEffect(() => {
     if (isDonorPortal || isSettingsRoute) {
@@ -121,9 +106,11 @@ const BarangayLayout = () => {
     () => ({
       ...shellStyles.page,
       "--sidebar-width": sidebarWidth,
+      "--header-brand-width": HEADER_BRAND_WIDTH,
       gridTemplateColumns: isDonorPortal
         ? "minmax(0, 1fr)"
         : `var(--sidebar-width) minmax(0, 1fr)`,
+      gridTemplateRows: isDonorPortal ? "1fr" : "auto 1fr",
     }),
     [isDonorPortal, sidebarWidth],
   );
@@ -140,6 +127,13 @@ const BarangayLayout = () => {
   return (
     <div className="distync-shell" style={pageStyle}>
       {!isDonorPortal ? (
+        <ShellHeader
+          isSidebarCollapsed={isSidebarCollapsed}
+          onToggleSidebarCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
+        />
+      ) : null}
+
+      {!isDonorPortal ? (
         <Sidebar
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
@@ -148,19 +142,6 @@ const BarangayLayout = () => {
 
       <main className="distync-shell__main" style={shellStyles.main}>
         <div className="distync-shell__content" style={contentStyle}>
-          {!isDonorPortal ? (
-            <div style={shellStyles.headerBar}>
-              <div style={shellStyles.headerBrand}>
-                <SidebarBrandStrip
-                  isCollapsed={isSidebarCollapsed}
-                  onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
-                />
-              </div>
-              <div style={shellStyles.headerActions}>
-                <HeaderNotifications />
-              </div>
-            </div>
-          ) : null}
           <SyncStatusBanner />
           <Outlet />
         </div>
