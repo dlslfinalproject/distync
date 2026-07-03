@@ -1,5 +1,5 @@
 import React from "react";
-import { MdDoorFront } from "react-icons/md";
+import { FiLogOut } from "react-icons/fi";
 import { shellStyles } from "../layout/BarangayLayout";
 
 const MasterlistSelectionBar = ({
@@ -45,7 +45,7 @@ const MasterlistSelectionBar = ({
           }}
           title="Mark Selected as Departed"
         >
-          <MdDoorFront size={18} />
+          <FiLogOut size={18} />
         </button>
       </div>
     </section>

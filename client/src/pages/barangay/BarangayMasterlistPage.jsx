@@ -156,7 +156,7 @@ const BarangayMasterlistPage = () => {
 
   const {
     sectorOptions,
-    selectedSectorNames,
+    selectedSectorIds,
     filteredRows,
     toggleSectorFilter,
     clearSectorFilters,
@@ -608,7 +608,7 @@ const BarangayMasterlistPage = () => {
         recordStatus={recordStatus}
         onRecordStatusChange={setRecordStatus}
         sectorOptions={sectorOptions}
-        selectedSectorNames={selectedSectorNames}
+        selectedSectorIds={selectedSectorIds}
         onToggleSector={toggleSectorFilter}
         onClearFilters={clearSectorFilters}
         filterScopeKey={eventScope}

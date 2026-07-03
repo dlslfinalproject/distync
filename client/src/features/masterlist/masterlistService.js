@@ -2,6 +2,7 @@ import {
   buildOfflineQueuedResponse,
   performSyncableMutation,
 } from "../../offline/syncService";
+import { getCanonicalMemberSectorCode } from "../../utils/registrationOptions";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -52,6 +53,22 @@ export const mapMasterlistRow = (household) => {
       ? "Non-Resident (Outside Malvar)"
       : household.barangay?.name;
   const isOperationallyActive = isOperationallyActiveHousehold(household);
+  const sectorIds = [
+    ...(household.household_sectors || []).map((sector) => sector.id),
+    ...(household.members || []).flatMap((member) =>
+      (member.sectors || []).map((sector) => sector.id),
+    ),
+  ].filter(Boolean);
+  const sectorCodes = [
+    ...(household.household_sectors || []).map((sector) =>
+      getCanonicalMemberSectorCode(sector.code),
+    ),
+    ...(household.members || []).flatMap((member) =>
+      (member.sectors || []).map((sector) =>
+        getCanonicalMemberSectorCode(sector.code),
+      ),
+    ),
+  ].filter(Boolean);
 
   return {
     household_id: household.household_id,
@@ -70,6 +87,8 @@ export const mapMasterlistRow = (household) => {
       household.latest_attendance?.status === "PRESENT",
     is_active: household.is_active !== false,
     is_operationally_active: isOperationallyActive,
+    sector_ids: [...new Set(sectorIds)],
+    sector_codes: [...new Set(sectorCodes)],
   };
 };
 
@@ -104,6 +123,16 @@ export const fetchEndedDisasterEvents = async () => {
 export const fetchBarangays = async () => {
   const response = await fetch(`${API_BASE_URL}/api/v1/barangays`);
   return parseJsonResponse(response, "Failed to fetch barangays");
+};
+
+export const fetchBarangayVisibleSectors = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/sectors/barangay`);
+  const payload = await parseJsonResponse(
+    response,
+    "Failed to fetch barangay-visible sectors",
+  );
+
+  return Array.isArray(payload.data) ? payload.data : payload;
 };
 
 export const fetchMasterlist = async ({

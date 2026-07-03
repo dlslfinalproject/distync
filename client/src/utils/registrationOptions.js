@@ -49,6 +49,11 @@ export const HOUSEHOLD_CONDITION_CODES = [
   "SOLO_PARENT",
 ];
 
+export const MASTERLIST_FILTER_SECTOR_CODES = [
+  ...DISPLAY_MEMBER_SECTOR_CODES,
+  ...HOUSEHOLD_CONDITION_CODES,
+];
+
 export const MEMBER_SECTOR_LABELS = {
   INFANT: "Infant",
   TODDLER: "Toddler",
@@ -63,6 +68,12 @@ export const MEMBER_SECTOR_LABELS = {
   PWD: "Persons with Disabilities",
   INDIGENOUS: "Indigenous",
   FOUR_PS: "4Ps Beneficiaries",
+};
+
+export const HOUSEHOLD_CONDITION_LABELS = {
+  CHILD_HEADED: "Child-Headed Family",
+  SINGLE_HEADED: "Single-Headed Family",
+  SOLO_PARENT: "Solo Parents",
 };
 
 export const getCanonicalMemberSectorCode = (sectorCode) => {
@@ -127,4 +138,83 @@ export const formatMemberSectorLabel = (sectorOrCode) => {
     sectorCode ||
     ""
   );
+};
+
+export const formatMasterlistFilterSectorLabel = (sector) => {
+  const sectorCode =
+    typeof sector === "string" ? sector : sector?.code;
+  const canonicalCode = getCanonicalMemberSectorCode(sectorCode);
+
+  if (DISPLAY_MEMBER_SECTOR_CODES.includes(canonicalCode)) {
+    return formatMemberSectorLabel(canonicalCode);
+  }
+
+  if (HOUSEHOLD_CONDITION_CODES.includes(canonicalCode)) {
+    return (
+      HOUSEHOLD_CONDITION_LABELS[canonicalCode] ||
+      (typeof sector === "object" ? sector?.name : "") ||
+      ""
+    );
+  }
+
+  return typeof sector === "object" ? sector?.name || "" : "";
+};
+
+export const isMasterlistFilterSector = (sector) => {
+  return MASTERLIST_FILTER_SECTOR_CODES.includes(
+    getCanonicalMemberSectorCode(sector?.code),
+  );
+};
+
+export const sortMasterlistFilterSectors = (sectors = []) => {
+  const orderIndexByCode = new Map(
+    MASTERLIST_FILTER_SECTOR_CODES.map((sectorCode, index) => [sectorCode, index]),
+  );
+
+  return [...sectors].sort((left, right) => {
+    const leftCode = getCanonicalMemberSectorCode(left?.code);
+    const rightCode = getCanonicalMemberSectorCode(right?.code);
+    const leftIndex = orderIndexByCode.get(leftCode);
+    const rightIndex = orderIndexByCode.get(rightCode);
+
+    if (leftIndex !== undefined && rightIndex !== undefined) {
+      return leftIndex - rightIndex;
+    }
+
+    if (leftIndex !== undefined) {
+      return -1;
+    }
+
+    if (rightIndex !== undefined) {
+      return 1;
+    }
+
+    return String(left?.name || "").localeCompare(String(right?.name || ""));
+  });
+};
+
+export const buildMasterlistFilterSectorOptions = (sectors = []) => {
+  const sectorByCanonicalCode = new Map();
+
+  sectors.forEach((sector) => {
+    const canonicalCode = getCanonicalMemberSectorCode(sector?.code);
+
+    if (!canonicalCode || sectorByCanonicalCode.has(canonicalCode)) {
+      return;
+    }
+
+    sectorByCanonicalCode.set(canonicalCode, sector);
+  });
+
+  return MASTERLIST_FILTER_SECTOR_CODES.map((sectorCode) => {
+    const matchingSector = sectorByCanonicalCode.get(sectorCode);
+
+    return {
+      id: sectorCode,
+      code: sectorCode,
+      source_sector_id: matchingSector?.id || null,
+      name: matchingSector?.name || formatMasterlistFilterSectorLabel(sectorCode),
+      display_name: formatMasterlistFilterSectorLabel(sectorCode),
+    };
+  });
 };
