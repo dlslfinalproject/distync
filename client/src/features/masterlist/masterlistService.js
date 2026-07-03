@@ -51,6 +51,7 @@ export const mapMasterlistRow = (household) => {
     household.residency_status === "NON_RESIDENT"
       ? "Non-Resident (Outside Malvar)"
       : household.barangay?.name;
+  const isOperationallyActive = isOperationallyActiveHousehold(household);
 
   return {
     household_id: household.household_id,
@@ -68,7 +69,26 @@ export const mapMasterlistRow = (household) => {
       household.is_active !== false &&
       household.latest_attendance?.status === "PRESENT",
     is_active: household.is_active !== false,
+    is_operationally_active: isOperationallyActive,
   };
+};
+
+export const isOperationallyActiveHousehold = (household) => {
+  if (!household || household.is_active === false) {
+    return false;
+  }
+
+  const latestStatus = String(household.latest_attendance?.status || "").toUpperCase();
+
+  if (household.latest_attendance?.time_out) {
+    return false;
+  }
+
+  if (latestStatus === "LEFT" || latestStatus === "TRANSFERRED") {
+    return false;
+  }
+
+  return true;
 };
 
 export const fetchActiveDisasterEvents = async () => {
@@ -111,8 +131,11 @@ export const fetchMasterlist = async ({
     searchParams.set("barangay_id", barangayId);
   }
 
-  if (recordStatus) {
-    searchParams.set("record_status", recordStatus);
+  const requestedRecordStatus =
+    recordStatus === "archived" ? "all" : recordStatus;
+
+  if (requestedRecordStatus) {
+    searchParams.set("record_status", requestedRecordStatus);
   }
 
   const response = await fetch(
@@ -120,18 +143,27 @@ export const fetchMasterlist = async ({
   );
   const payload = await parseJsonResponse(response, "Failed to fetch masterlist");
 
-  const rows = (payload.data || []).map(mapMasterlistRow);
-  const totalMembers = (payload.data || []).reduce((total, household) => {
+  const households =
+    recordStatus === "active"
+      ? (payload.data || []).filter(isOperationallyActiveHousehold)
+      : recordStatus === "archived"
+        ? (payload.data || []).filter(
+            (household) => !isOperationallyActiveHousehold(household),
+          )
+      : payload.data || [];
+
+  const rows = households.map(mapMasterlistRow);
+  const totalMembers = households.reduce((total, household) => {
     return total + (household.members?.length || 0);
   }, 0);
-  const withAttendance = (payload.data || []).filter(
+  const withAttendance = households.filter(
     (household) => household.latest_attendance,
   ).length;
 
   return {
     disasterEvent: payload.disaster_event || null,
     summary: {
-      registeredFamilies: payload.count || 0,
+      registeredFamilies: households.length,
       totalMembers,
       withAttendance,
     },

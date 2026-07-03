@@ -49,9 +49,6 @@ const ConsolidatedEvacueeMasterlist = () => {
     isLoadingHouseholdDetails,
     householdDetailsErrorMessage,
     editHouseholdErrorMessage,
-    pendingArchiveHouseholdId,
-    archiveRemarks,
-    isArchivingHousehold,
     pendingRestoreHouseholdId,
     restoreRemarks,
     isRestoringHousehold,
@@ -72,7 +69,6 @@ const ConsolidatedEvacueeMasterlist = () => {
     setSelectedBarangayId,
     setSearchTerm,
     setSelectedExportFormat,
-    setArchiveRemarks,
     setRestoreRemarks,
     setExportFeedback,
     setIsExportModalOpen,
@@ -90,9 +86,6 @@ const ConsolidatedEvacueeMasterlist = () => {
     handleOpenEditHousehold,
     handleEditHouseholdFromDetails,
     handleCloseEditHousehold,
-    handleOpenArchiveHousehold,
-    handleCancelArchiveHousehold,
-    handleConfirmArchiveHousehold,
     handleOpenRestoreHousehold,
     handleCancelRestoreHousehold,
     handleConfirmRestoreHousehold,
@@ -196,7 +189,6 @@ const ConsolidatedEvacueeMasterlist = () => {
         onMarkDeparted={handleOpenDepartureConfirmation}
         onViewHousehold={handleOpenHouseholdDetails}
         onEditHousehold={handleOpenEditHousehold}
-        onArchiveHousehold={handleOpenArchiveHousehold}
         onRestoreHousehold={handleOpenRestoreHousehold}
         isDepartureReadOnly={isEndedView}
         departureReadOnlyText={endedEventDateTimeText}
@@ -256,15 +248,6 @@ const ConsolidatedEvacueeMasterlist = () => {
         householdDetails={householdDetails}
         onClose={handleCloseHouseholdDetails}
         onEditHousehold={handleEditHouseholdFromDetails}
-      />
-
-      <HouseholdArchiveConfirmModal
-        isOpen={Boolean(pendingArchiveHouseholdId)}
-        isSubmitting={isArchivingHousehold}
-        archiveRemarks={archiveRemarks}
-        onChangeArchiveRemarks={setArchiveRemarks}
-        onCancel={handleCancelArchiveHousehold}
-        onConfirm={handleConfirmArchiveHousehold}
       />
 
       <HouseholdArchiveConfirmModal

@@ -521,7 +521,7 @@ const FamilyHeadSection = ({ form }) => {
             </div>
 
             <label style={fieldStyles.field}>
-              <span style={fieldStyles.label}>Upload Photo Fallback</span>
+              <span style={fieldStyles.label}>Upload Photo (Fallback)</span>
               <input
                 type="file"
                 accept="image/*"

@@ -2,6 +2,11 @@ import React from "react";
 import { FiX } from "react-icons/fi";
 import { shellStyles } from "../layout/BarangayLayout";
 import { pageHeaderStyles } from "../layout/PageHeader";
+import {
+  DISPLAY_MEMBER_SECTOR_CODES,
+  formatMemberSectorLabel,
+  getCanonicalMemberSectorCode,
+} from "../../utils/registrationOptions";
 
 const modalStyles = {
   backdrop: {
@@ -121,6 +126,22 @@ const formatDateTime = (value) => {
   }).format(parsedDate);
 };
 
+const formatContactNumber = (value) => {
+  if (!value) {
+    return "--";
+  }
+
+  const digitsOnly = String(value).replace(/\D/g, "");
+
+  if (digitsOnly.length === 12 && digitsOnly.startsWith("63")) {
+    const localNumber = digitsOnly.slice(2);
+
+    return `+63 ${localNumber.slice(0, 3)} ${localNumber.slice(3, 6)} ${localNumber.slice(6)}`;
+  }
+
+  return value;
+};
+
 const buildFullName = (person) => {
   if (!person) {
     return "--";
@@ -141,7 +162,25 @@ const buildSectorsText = (sectors = []) => {
     return "No sector indicated.";
   }
 
-  return sectors.map((sector) => sector.name).join(", ");
+  const orderedSectorLabels = DISPLAY_MEMBER_SECTOR_CODES.map((sectorCode) =>
+    sectors.find(
+      (sector) => getCanonicalMemberSectorCode(sector.code) === sectorCode,
+    ),
+  )
+    .filter(Boolean)
+    .map((sector) => formatMemberSectorLabel(sector));
+
+  const remainingSectorLabels = sectors
+    .filter(
+      (sector) =>
+        !DISPLAY_MEMBER_SECTOR_CODES.includes(
+          getCanonicalMemberSectorCode(sector.code),
+        ),
+    )
+    .map((sector) => sector.name)
+    .filter(Boolean);
+
+  return [...orderedSectorLabels, ...remainingSectorLabels].join(", ");
 };
 
 const HouseholdDetailModal = ({
@@ -151,7 +190,6 @@ const HouseholdDetailModal = ({
   householdDetails,
   onClose,
   onEditHousehold,
-  onCorrectEvacuation,
 }) => {
   if (!isOpen) {
     return null;
@@ -161,12 +199,28 @@ const HouseholdDetailModal = ({
   const members = Array.isArray(householdDetails?.members)
     ? householdDetails.members
     : [];
+  const orderedMembers = members
+    .map((member, index) => ({ member, index }))
+    .sort((left, right) => {
+      if (left.member.is_family_head === right.member.is_family_head) {
+        return left.index - right.index;
+      }
+
+      return left.member.is_family_head ? -1 : 1;
+    })
+    .map(({ member }) => member);
   const householdSectors = Array.isArray(householdDetails?.household_sectors)
     ? householdDetails.household_sectors
     : [];
   const latestAttendance = householdDetails?.latest_attendance || null;
   const stub = householdDetails?.stub || null;
   const distributionTransaction = householdDetails?.distribution_transaction || null;
+  const latestAttendanceStatus = String(latestAttendance?.status || "").toUpperCase();
+  const isOperationallyActive =
+    household?.is_active !== false &&
+    !latestAttendance?.time_out &&
+    latestAttendanceStatus !== "LEFT" &&
+    latestAttendanceStatus !== "TRANSFERRED";
 
   return (
     <div style={modalStyles.backdrop}>
@@ -182,27 +236,13 @@ const HouseholdDetailModal = ({
             </p>
           </div>
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            {householdDetails?.household?.id ? (
+            {householdDetails?.household?.id && isOperationallyActive ? (
               <>
-                <button
-                  type="button"
-                  onClick={() =>
-                    onCorrectEvacuation?.(householdDetails.household.id)
-                  }
-                  style={pageHeaderStyles.secondaryButton}
-                >
-                  Correct Evacuation
-                </button>
                 <button
                   type="button"
                   onClick={() => onEditHousehold?.(householdDetails.household.id)}
                   style={pageHeaderStyles.secondaryButton}
-                  disabled={householdDetails.household.is_active === false}
-                  title={
-                    householdDetails.household.is_active === false
-                      ? "Archived households cannot be edited"
-                      : "Edit Household"
-                  }
+                  title="Edit Household"
                 >
                   Edit Household
                 </button>
@@ -278,6 +318,12 @@ const HouseholdDetailModal = ({
                     {formatDateTime(household.registered_at)}
                   </p>
                 </div>
+                <div>
+                  <p style={modalStyles.label}>Contact Number</p>
+                  <p style={modalStyles.value}>
+                    {formatContactNumber(household.contact_number)}
+                  </p>
+                </div>
               </div>
             </section>
 
@@ -298,7 +344,9 @@ const HouseholdDetailModal = ({
                   </div>
                 </div>
                 <div>
-                  <p style={modalStyles.label}>Household Sectors / Vulnerabilities</p>
+                  <p style={modalStyles.label}>
+                    Household Sectors / Vulnerabilities
+                  </p>
                   <p style={modalStyles.value}>{buildSectorsText(householdSectors)}</p>
 
                   <p style={{ ...modalStyles.label, marginTop: "18px" }}>
@@ -352,13 +400,13 @@ const HouseholdDetailModal = ({
 
             <section style={shellStyles.card}>
               <h3 style={{ margin: 0, color: "#17324d" }}>Family Members</h3>
-              {members.length === 0 ? (
+              {orderedMembers.length === 0 ? (
                 <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
                   No family members are recorded yet.
                 </p>
               ) : (
                 <div style={modalStyles.list}>
-                  {members.map((member) => (
+                  {orderedMembers.map((member) => (
                     <div key={member.id} style={modalStyles.listItem}>
                       <p style={{ margin: 0, color: "#17324d", fontWeight: 700 }}>
                         {buildFullName(member)}

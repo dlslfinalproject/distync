@@ -7,7 +7,10 @@ import {
   fetchDisasterEvents,
   fetchMswdoSectors,
 } from "./mswdoMasterlistService";
-import { mapMasterlistRow } from "../masterlist/masterlistService";
+import {
+  isOperationallyActiveHousehold,
+  mapMasterlistRow,
+} from "../masterlist/masterlistService";
 
 const emptyMasterlistPayload = {
   disaster_event: null,
@@ -69,6 +72,10 @@ const getMappedRows = (households) => {
       has_stub_issued: Boolean(household.stub),
     };
   });
+};
+
+const getOperationalRows = (households) => {
+  return households.filter(isOperationallyActiveHousehold);
 };
 
 const getDisplayedRows = (rows, searchTerm, selectedSectorIds) => {
@@ -273,7 +280,7 @@ export const useMswdoMasterlist = () => {
   }, [reloadKey, selectedBarangayId, selectedDisasterEventId]);
 
   const mappedRows = useMemo(() => {
-    return getMappedRows(masterlistPayload.data || []);
+    return getMappedRows(getOperationalRows(masterlistPayload.data || []));
   }, [masterlistPayload.data]);
 
   const displayedRows = useMemo(() => {

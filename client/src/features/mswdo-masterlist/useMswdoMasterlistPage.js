@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useHouseholdRegistrationForm } from "../household-registration/useHouseholdRegistrationForm";
 import {
-  archiveHousehold,
   departHousehold,
   fetchHouseholdDetails,
   formatDateTime,
@@ -81,10 +80,6 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     useState("");
   const [editHouseholdErrorMessage, setEditHouseholdErrorMessage] =
     useState("");
-  const [pendingArchiveHouseholdId, setPendingArchiveHouseholdId] =
-    useState("");
-  const [archiveRemarks, setArchiveRemarks] = useState("");
-  const [isArchivingHousehold, setIsArchivingHousehold] = useState(false);
   const [pendingRestoreHouseholdId, setPendingRestoreHouseholdId] =
     useState("");
   const [restoreRemarks, setRestoreRemarks] = useState("");
@@ -474,20 +469,6 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setIsLoadingEditHouseholdDetails(false);
   };
 
-  const handleOpenArchiveHousehold = (householdId) => {
-    setPendingArchiveHouseholdId(householdId);
-    setArchiveRemarks("");
-  };
-
-  const handleCancelArchiveHousehold = () => {
-    if (isArchivingHousehold) {
-      return;
-    }
-
-    setPendingArchiveHouseholdId("");
-    setArchiveRemarks("");
-  };
-
   const handleOpenRestoreHousehold = (householdId) => {
     setPendingRestoreHouseholdId(householdId);
     setRestoreRemarks("");
@@ -500,34 +481,6 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
 
     setPendingRestoreHouseholdId("");
     setRestoreRemarks("");
-  };
-
-  const handleConfirmArchiveHousehold = async () => {
-    if (!pendingArchiveHouseholdId || isArchivingHousehold) {
-      return;
-    }
-
-    setIsArchivingHousehold(true);
-
-    try {
-      const response = await archiveHousehold({
-        householdId: pendingArchiveHouseholdId,
-        archiveRemarks,
-      });
-
-      setRegistrationSuccessMessage(
-        response.message || "Household archived successfully",
-      );
-      setPendingArchiveHouseholdId("");
-      setArchiveRemarks("");
-      reloadMasterlist();
-    } catch (error) {
-      setAttendanceActionMessage(
-        error.message || "Failed to archive household",
-      );
-    } finally {
-      setIsArchivingHousehold(false);
-    }
   };
 
   const handleConfirmRestoreHousehold = async () => {
@@ -640,9 +593,6 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     isLoadingHouseholdDetails,
     householdDetailsErrorMessage,
     editHouseholdErrorMessage,
-    pendingArchiveHouseholdId,
-    archiveRemarks,
-    isArchivingHousehold,
     pendingRestoreHouseholdId,
     restoreRemarks,
     isRestoringHousehold,
@@ -663,7 +613,6 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setSelectedBarangayId,
     setSearchTerm,
     setSelectedExportFormat,
-    setArchiveRemarks,
     setRestoreRemarks,
     setExportFeedback,
     setIsExportModalOpen,
@@ -681,9 +630,6 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     handleOpenEditHousehold,
     handleEditHouseholdFromDetails,
     handleCloseEditHousehold,
-    handleOpenArchiveHousehold,
-    handleCancelArchiveHousehold,
-    handleConfirmArchiveHousehold,
     handleOpenRestoreHousehold,
     handleCancelRestoreHousehold,
     handleConfirmRestoreHousehold,

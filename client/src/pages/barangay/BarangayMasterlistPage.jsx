@@ -2,9 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import PageHeader from "../../components/layout/PageHeader";
 import BarangayDashboardOverview from "../../components/barangay-dashboard/BarangayDashboardOverview";
-import MasterlistDepartureConfirmModal from "../../components/masterlist/MasterlistDepartureConfirmModal";
 import HouseholdArchiveConfirmModal from "../../components/masterlist/HouseholdArchiveConfirmModal";
-import EvacuationCorrectionModal from "../../components/masterlist/EvacuationCorrectionModal";
+import MasterlistDepartureConfirmModal from "../../components/masterlist/MasterlistDepartureConfirmModal";
 import HouseholdDetailModal from "../../components/masterlist/HouseholdDetailModal";
 import MasterlistSelectionBar from "../../components/masterlist/MasterlistSelectionBar";
 import MasterlistStatusMessages from "../../components/masterlist/MasterlistStatusMessages";
@@ -16,8 +15,6 @@ import { useBarangayDashboard } from "../../features/barangay-dashboard/useBaran
 import { useHouseholdRegistrationForm } from "../../features/household-registration/useHouseholdRegistrationForm";
 import { useMasterlist } from "../../features/masterlist/masterlistHooks";
 import {
-  archiveHousehold,
-  correctEvacuationLog,
   departHousehold,
   fetchHouseholdDetails,
   restoreHousehold,
@@ -47,6 +44,12 @@ const BarangayMasterlistPage = () => {
   const [attendanceActionMessage, setAttendanceActionMessage] = useState("");
   const [pendingDepartureHouseholdId, setPendingDepartureHouseholdId] =
     useState("");
+  const [pendingDepartureHouseholdDetails, setPendingDepartureHouseholdDetails] =
+    useState(null);
+  const [pendingBulkDepartureHouseholds, setPendingBulkDepartureHouseholds] =
+    useState([]);
+  const [isLoadingDepartureHouseholdDetails, setIsLoadingDepartureHouseholdDetails] =
+    useState(false);
   const [viewingHouseholdId, setViewingHouseholdId] = useState("");
   const [editingHouseholdId, setEditingHouseholdId] = useState("");
   const [householdDetails, setHouseholdDetails] = useState(null);
@@ -62,24 +65,9 @@ const BarangayMasterlistPage = () => {
   const [isBulkDepartureConfirmOpen, setIsBulkDepartureConfirmOpen] =
     useState(false);
   const [isRecordingDeparture, setIsRecordingDeparture] = useState(false);
-  const [pendingArchiveHouseholdId, setPendingArchiveHouseholdId] = useState("");
-  const [archiveRemarks, setArchiveRemarks] = useState("");
-  const [isArchivingHousehold, setIsArchivingHousehold] = useState(false);
   const [pendingRestoreHouseholdId, setPendingRestoreHouseholdId] = useState("");
   const [restoreRemarks, setRestoreRemarks] = useState("");
   const [isRestoringHousehold, setIsRestoringHousehold] = useState(false);
-  const [isEvacuationCorrectionOpen, setIsEvacuationCorrectionOpen] =
-    useState(false);
-  const [isSubmittingEvacuationCorrection, setIsSubmittingEvacuationCorrection] =
-    useState(false);
-  const [evacuationCorrectionForm, setEvacuationCorrectionForm] = useState({
-    evacuation_center_id: "",
-    status: "PRESENT",
-    correction_remarks: "",
-  });
-  const [evacuationCorrectionCenters, setEvacuationCorrectionCenters] = useState(
-    [],
-  );
   const [selectedHouseholds, setSelectedHouseholds] = useState([]);
   const syncQueueEntries =
     useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
@@ -115,7 +103,6 @@ const BarangayMasterlistPage = () => {
     barangayId: assignedBarangay?.id || "",
     recordStatus,
   });
-
 
   const isSelectedEventEnded = isEndedDisasterEvent(selectedEvent, eventScope);
   const selectedEventEndedText = formatEventEndedDateTime(
@@ -179,6 +166,22 @@ const BarangayMasterlistPage = () => {
     eventScope,
     reloadMasterlist,
   });
+
+  const pendingDepartureRow = filteredRows.find(
+    (row) => row.household_id === pendingDepartureHouseholdId,
+  );
+  const pendingDepartureFamilyHeadName = pendingDepartureHouseholdDetails?.household
+    ? [
+        pendingDepartureHouseholdDetails.household.family_head_first_name,
+        pendingDepartureHouseholdDetails.household.family_head_middle_name,
+        pendingDepartureHouseholdDetails.household.family_head_last_name,
+        pendingDepartureHouseholdDetails.household.family_head_suffix,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : pendingDepartureRow?.family_head_name || "";
+  const pendingDepartureFamilyHeadPhotoUrl =
+    pendingDepartureHouseholdDetails?.household?.family_head_photo_url || "";
 
   useEffect(() => {
     const activeEvents = availableEvents.filter(
@@ -248,6 +251,9 @@ const BarangayMasterlistPage = () => {
     if (isSelectedEventEnded) {
       setSelectedHouseholds([]);
       setPendingDepartureHouseholdId("");
+      setPendingDepartureHouseholdDetails(null);
+      setPendingBulkDepartureHouseholds([]);
+      setIsLoadingDepartureHouseholdDetails(false);
       setIsBulkDepartureConfirmOpen(false);
     }
   }, [isSelectedEventEnded, selectedEvent?.id]);
@@ -290,7 +296,7 @@ const BarangayMasterlistPage = () => {
     setSelectedHouseholds(areAllSelected ? [] : selectableHouseholdIds);
   };
 
-  const handleOpenBulkDepartureConfirmation = () => {
+  const handleOpenBulkDepartureConfirmation = async () => {
     if (
       isSelectedEventEnded ||
       !selectedHouseholds.length ||
@@ -299,15 +305,79 @@ const BarangayMasterlistPage = () => {
       return;
     }
 
+    setPendingDepartureHouseholdId("");
+    setPendingDepartureHouseholdDetails(null);
+    setPendingBulkDepartureHouseholds([]);
+    setIsLoadingDepartureHouseholdDetails(true);
     setIsBulkDepartureConfirmOpen(true);
+
+    const selectedRows = filteredRows.filter((row) =>
+      selectedHouseholds.includes(row.household_id),
+    );
+
+    try {
+      const detailResults = await Promise.allSettled(
+        selectedHouseholds.map((householdId) => fetchHouseholdDetails(householdId)),
+      );
+
+      const previewItems = selectedHouseholds.map((householdId, index) => {
+        const detailValue =
+          detailResults[index]?.status === "fulfilled"
+            ? detailResults[index].value
+            : null;
+        const fallbackRow = selectedRows.find((row) => row.household_id === householdId);
+        const detailHousehold = detailValue?.household || null;
+        const familyHeadName = detailHousehold
+          ? [
+              detailHousehold.family_head_first_name,
+              detailHousehold.family_head_middle_name,
+              detailHousehold.family_head_last_name,
+              detailHousehold.family_head_suffix,
+            ]
+              .filter(Boolean)
+              .join(" ")
+          : fallbackRow?.family_head_name || "";
+
+        return {
+          household_id: householdId,
+          family_head_name: familyHeadName,
+          family_head_photo_url: detailHousehold?.family_head_photo_url || "",
+        };
+      });
+
+      setPendingBulkDepartureHouseholds(previewItems);
+    } catch (_error) {
+      setPendingBulkDepartureHouseholds(
+        selectedRows.map((row) => ({
+          household_id: row.household_id,
+          family_head_name: row.family_head_name || "",
+          family_head_photo_url: "",
+        })),
+      );
+    } finally {
+      setIsLoadingDepartureHouseholdDetails(false);
+    }
   };
 
-  const handleOpenDepartureConfirmation = (householdId) => {
+  const handleOpenDepartureConfirmation = async (householdId) => {
     if (isSelectedEventEnded || isRecordingDeparture) {
       return;
     }
 
+    setIsBulkDepartureConfirmOpen(false);
     setPendingDepartureHouseholdId(householdId);
+    setPendingDepartureHouseholdDetails(null);
+    setPendingBulkDepartureHouseholds([]);
+    setIsLoadingDepartureHouseholdDetails(true);
+
+    try {
+      const details = await fetchHouseholdDetails(householdId);
+      setPendingDepartureHouseholdDetails(details);
+    } catch (_error) {
+      setPendingDepartureHouseholdDetails(null);
+    } finally {
+      setIsLoadingDepartureHouseholdDetails(false);
+    }
   };
 
   const handleCancelDeparture = () => {
@@ -316,6 +386,9 @@ const BarangayMasterlistPage = () => {
     }
 
     setPendingDepartureHouseholdId("");
+    setPendingDepartureHouseholdDetails(null);
+    setPendingBulkDepartureHouseholds([]);
+    setIsLoadingDepartureHouseholdDetails(false);
     setIsBulkDepartureConfirmOpen(false);
   };
 
@@ -375,20 +448,6 @@ const BarangayMasterlistPage = () => {
     setIsLoadingEditHouseholdDetails(false);
   };
 
-  const handleOpenArchiveHousehold = (householdId) => {
-    setPendingArchiveHouseholdId(householdId);
-    setArchiveRemarks("");
-  };
-
-  const handleCancelArchiveHousehold = () => {
-    if (isArchivingHousehold) {
-      return;
-    }
-
-    setPendingArchiveHouseholdId("");
-    setArchiveRemarks("");
-  };
-
   const handleOpenRestoreHousehold = (householdId) => {
     setPendingRestoreHouseholdId(householdId);
     setRestoreRemarks("");
@@ -401,34 +460,6 @@ const BarangayMasterlistPage = () => {
 
     setPendingRestoreHouseholdId("");
     setRestoreRemarks("");
-  };
-
-  const handleConfirmArchiveHousehold = async () => {
-    if (!pendingArchiveHouseholdId || isArchivingHousehold) {
-      return;
-    }
-
-    setIsArchivingHousehold(true);
-
-    try {
-      const response = await archiveHousehold({
-        householdId: pendingArchiveHouseholdId,
-        archiveRemarks,
-      });
-
-      setRegistrationSuccessMessage(
-        response.message || "Household archived successfully",
-      );
-      setPendingArchiveHouseholdId("");
-      setArchiveRemarks("");
-      reloadMasterlist();
-    } catch (error) {
-      setAttendanceActionMessage(
-        error.message || "Failed to archive household",
-      );
-    } finally {
-      setIsArchivingHousehold(false);
-    }
   };
 
   const handleConfirmRestoreHousehold = async () => {
@@ -459,84 +490,6 @@ const BarangayMasterlistPage = () => {
     }
   };
 
-  const handleOpenEvacuationCorrection = async () => {
-    const latestAttendance = householdDetails?.latest_attendance || null;
-
-    setEvacuationCorrectionForm({
-      evacuation_center_id: latestAttendance?.evacuation_center_id || "",
-      status: latestAttendance?.status || "PRESENT",
-      correction_remarks: latestAttendance?.remarks || "",
-    });
-    setEvacuationCorrectionCenters([]);
-
-    if (assignedBarangay?.id) {
-      try {
-        const centers = await fetchEvacuationCentersByBarangay(assignedBarangay.id);
-        setEvacuationCorrectionCenters(Array.isArray(centers) ? centers : []);
-      } catch (_error) {
-        setEvacuationCorrectionCenters([]);
-      }
-    }
-
-    setIsEvacuationCorrectionOpen(true);
-  };
-
-  const handleCloseEvacuationCorrection = () => {
-    if (isSubmittingEvacuationCorrection) {
-      return;
-    }
-
-    setIsEvacuationCorrectionOpen(false);
-    setEvacuationCorrectionForm({
-      evacuation_center_id: "",
-      status: "PRESENT",
-      correction_remarks: "",
-    });
-    setEvacuationCorrectionCenters([]);
-  };
-
-  const handleChangeEvacuationCorrectionField = (fieldName, value) => {
-    setEvacuationCorrectionForm((currentValue) => ({
-      ...currentValue,
-      [fieldName]: value,
-    }));
-  };
-
-  const handleSubmitEvacuationCorrection = async () => {
-    const latestAttendance = householdDetails?.latest_attendance || null;
-    const householdId = householdDetails?.household?.id || "";
-
-    if (!latestAttendance?.id || !householdId || isSubmittingEvacuationCorrection) {
-      return;
-    }
-
-    setIsSubmittingEvacuationCorrection(true);
-
-    try {
-      const response = await correctEvacuationLog({
-        householdId,
-        evacuationLogId: latestAttendance.id,
-        evacuationCenterId: evacuationCorrectionForm.evacuation_center_id || null,
-        status: evacuationCorrectionForm.status,
-        correctionRemarks: evacuationCorrectionForm.correction_remarks,
-      });
-
-      setRegistrationSuccessMessage(
-        response.message || "Evacuation log corrected successfully",
-      );
-      const refreshedDetails = await fetchHouseholdDetails(householdId);
-      setHouseholdDetails(refreshedDetails);
-      handleCloseEvacuationCorrection();
-      reloadMasterlist();
-    } catch (error) {
-      setAttendanceActionMessage(
-        error.message || "Failed to correct evacuation log",
-      );
-    } finally {
-      setIsSubmittingEvacuationCorrection(false);
-    }
-  };
-
   const handleConfirmDeparture = async () => {
     if (isSelectedEventEnded || isRecordingDeparture) {
       return;
@@ -554,6 +507,7 @@ const BarangayMasterlistPage = () => {
 
         setAttendanceActionMessage("Selected households marked as departed");
         setSelectedHouseholds([]);
+        setPendingBulkDepartureHouseholds([]);
         setIsBulkDepartureConfirmOpen(false);
         reloadMasterlist();
       } else {
@@ -569,6 +523,9 @@ const BarangayMasterlistPage = () => {
           response.message || "Household departure recorded successfully",
         );
         setPendingDepartureHouseholdId("");
+        setPendingDepartureHouseholdDetails(null);
+        setPendingBulkDepartureHouseholds([]);
+        setIsLoadingDepartureHouseholdDetails(false);
         reloadMasterlist();
       }
     } catch (error) {
@@ -644,7 +601,6 @@ const BarangayMasterlistPage = () => {
         onMarkDeparted={handleOpenDepartureConfirmation}
         onViewHousehold={handleOpenHouseholdDetails}
         onEditHousehold={handleOpenEditHousehold}
-        onArchiveHousehold={handleOpenArchiveHousehold}
         onRestoreHousehold={handleOpenRestoreHousehold}
         isDepartureReadOnly={isSelectedEventEnded}
         departureReadOnlyText={selectedEventEndedText}
@@ -670,11 +626,15 @@ const BarangayMasterlistPage = () => {
           Boolean(pendingDepartureHouseholdId) || isBulkDepartureConfirmOpen
         }
         isSubmitting={isRecordingDeparture}
+        isLoadingHouseholdDetails={isLoadingDepartureHouseholdDetails}
         onCancel={handleCancelDeparture}
         onConfirm={handleConfirmDeparture}
         selectedCount={
           isBulkDepartureConfirmOpen ? selectedHouseholds.length : 1
         }
+        familyHeadName={pendingDepartureFamilyHeadName}
+        familyHeadPhotoUrl={pendingDepartureFamilyHeadPhotoUrl}
+        selectedHouseholdsPreview={pendingBulkDepartureHouseholds}
       />
 
       <HouseholdDetailModal
@@ -684,16 +644,6 @@ const BarangayMasterlistPage = () => {
         householdDetails={householdDetails}
         onClose={handleCloseHouseholdDetails}
         onEditHousehold={handleEditHouseholdFromDetails}
-        onCorrectEvacuation={handleOpenEvacuationCorrection}
-      />
-
-      <HouseholdArchiveConfirmModal
-        isOpen={Boolean(pendingArchiveHouseholdId)}
-        isSubmitting={isArchivingHousehold}
-        archiveRemarks={archiveRemarks}
-        onChangeArchiveRemarks={setArchiveRemarks}
-        onCancel={handleCancelArchiveHousehold}
-        onConfirm={handleConfirmArchiveHousehold}
       />
 
       <HouseholdArchiveConfirmModal
@@ -704,17 +654,6 @@ const BarangayMasterlistPage = () => {
         onCancel={handleCancelRestoreHousehold}
         onConfirm={handleConfirmRestoreHousehold}
         mode="restore"
-      />
-
-      <EvacuationCorrectionModal
-        isOpen={isEvacuationCorrectionOpen}
-        isSubmitting={isSubmittingEvacuationCorrection}
-        hasAttendanceRecord={Boolean(householdDetails?.latest_attendance?.id)}
-        evacuationCenters={evacuationCorrectionCenters}
-        form={evacuationCorrectionForm}
-        onChange={handleChangeEvacuationCorrectionField}
-        onCancel={handleCloseEvacuationCorrection}
-        onConfirm={handleSubmitEvacuationCorrection}
       />
     </>
   );

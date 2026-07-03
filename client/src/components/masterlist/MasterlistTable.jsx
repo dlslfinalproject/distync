@@ -76,7 +76,6 @@ const MasterlistTable = ({
   onMarkDeparted,
   onViewHousehold,
   onEditHousehold,
-  onArchiveHousehold,
   onRestoreHousehold,
   isDepartureReadOnly = false,
   departureReadOnlyText = "-",
@@ -321,49 +320,45 @@ const MasterlistTable = ({
                         console.log("Selected row:", selectedRow);
                       }}
                       dataPrefix="masterlist-action"
-                      items={[
-                        {
-                          key: "view",
-                          label: "View Details",
-                          disabled: typeof onViewHousehold !== "function",
-                          onClick: (selectedRow) =>
-                            onViewHousehold?.(selectedRow.household_id),
-                        },
-                        {
-                          key: "edit",
-                          label: "Edit Household",
-                          disabled:
-                            typeof onEditHousehold !== "function" ||
-                            row.is_active === false,
-                          title:
-                            row.is_active === false
-                              ? "Archived households cannot be edited"
-                              : "Edit Household",
-                          onClick: (selectedRow) =>
-                            onEditHousehold?.(selectedRow.household_id),
-                        },
-                        {
-                          key: row.is_active === false ? "restore" : "archive",
-                          label:
-                            row.is_active === false
-                              ? "Restore Household"
-                              : "Archive Household",
-                          tone:
-                            row.is_active === false ? "default" : "warning",
-                          disabled:
-                            row.is_active === false
-                              ? typeof onRestoreHousehold !== "function"
-                              : typeof onArchiveHousehold !== "function",
-                          title:
-                            row.is_active === false
-                              ? "Restore Household"
-                              : "Archive Household",
-                          onClick: (selectedRow) =>
-                            row.is_active === false
-                              ? onRestoreHousehold?.(selectedRow.household_id)
-                              : onArchiveHousehold?.(selectedRow.household_id),
-                        },
-                      ]}
+                      items={
+                        row.is_operationally_active === false
+                          ? [
+                              {
+                                key: "view",
+                                label: "View Details",
+                                disabled: typeof onViewHousehold !== "function",
+                                onClick: (selectedRow) =>
+                                  onViewHousehold?.(selectedRow.household_id),
+                              },
+                              {
+                                key: "restore",
+                                label: "Restore Household",
+                                disabled:
+                                  typeof onRestoreHousehold !== "function",
+                                title: "Restore Household",
+                                onClick: (selectedRow) =>
+                                  onRestoreHousehold?.(selectedRow.household_id),
+                              },
+                            ]
+                          : [
+                              {
+                                key: "view",
+                                label: "View Details",
+                                disabled: typeof onViewHousehold !== "function",
+                                onClick: (selectedRow) =>
+                                  onViewHousehold?.(selectedRow.household_id),
+                              },
+                              {
+                                key: "edit",
+                                label: "Edit Household",
+                                disabled:
+                                  typeof onEditHousehold !== "function",
+                                title: "Edit Household",
+                                onClick: (selectedRow) =>
+                                  onEditHousehold?.(selectedRow.household_id),
+                              },
+                            ]
+                      }
                     />
                   </td>
                 </tr>

@@ -80,7 +80,7 @@ const createValidationErrors = () => ({
 
 const MAX_FAMILY_HEAD_PHOTO_FILE_SIZE = 3 * 1024 * 1024;
 
-const trimValue = (value) => String(value || "").trim();
+const trimValue = (value) => String(value ?? "").trim();
 
 const isWholeNumberString = (value) => /^\d+$/.test(trimValue(value));
 const isValidPhilippineContactNumber = (value) => /^\+639\d{9}$/.test(trimValue(value));
@@ -1010,9 +1010,29 @@ export const useHouseholdRegistrationForm = ({
           "Last name is required.";
       }
 
+      const trimmedMemberAgeValue = trimValue(member.age_value);
       const normalizedAgeValue = normalizeAgeValue(member.age_value);
 
-      if (normalizedAgeValue === "" || !deriveAgeGroup(normalizedAgeValue, member.age_unit)) {
+      if (!trimmedMemberAgeValue) {
+        nextValidationErrors.members[memberIndex].age_value =
+          "Age is required.";
+      } else if (!isWholeNumberString(member.age_value)) {
+        nextValidationErrors.members[memberIndex].age_value =
+          "Age must be a whole number.";
+      } else if (member.age_unit === "MONTHS") {
+        if (normalizedAgeValue < 0 || normalizedAgeValue > 11) {
+          nextValidationErrors.members[memberIndex].age_value =
+            "Age in months must be from 0 to 11 only.";
+        }
+      } else if (member.age_unit === "YEARS") {
+        if (normalizedAgeValue < 1) {
+          nextValidationErrors.members[memberIndex].age_value =
+            "Age in years must be at least 1.";
+        } else if (!deriveAgeGroup(normalizedAgeValue, member.age_unit)) {
+          nextValidationErrors.members[memberIndex].age_value =
+            "A valid age is required.";
+        }
+      } else {
         nextValidationErrors.members[memberIndex].age_value =
           "A valid age is required.";
       }
