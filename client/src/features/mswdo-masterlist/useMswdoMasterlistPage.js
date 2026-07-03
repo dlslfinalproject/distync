@@ -30,6 +30,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     selectedBarangayId,
     selectedDisasterEvent,
     searchTerm,
+    recordStatus,
     displayedRows,
     summaryMetrics,
     isLoadingFilters,
@@ -41,6 +42,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setSelectedBarangayId,
     setSelectedSectorIds,
     setSearchTerm,
+    setRecordStatus,
     reloadMasterlist,
   } = useMswdoMasterlist();
 
@@ -55,6 +57,10 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   const [sectorFiltersByTab, setSectorFiltersByTab] = useState({
     active: [],
     ended: [],
+  });
+  const [recordStatusByTab, setRecordStatusByTab] = useState({
+    active: "active",
+    ended: "all",
   });
   const [filterPanelPosition, setFilterPanelPosition] = useState({
     top: 0,
@@ -95,6 +101,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   const filterPanelRef = useRef(null);
 
   const selectedSectorIds = sectorFiltersByTab[activeTab] || [];
+  const selectedRecordStatus = recordStatusByTab[activeTab] || "active";
   const activeEventLabel = selectedDisasterEvent
     ? `${selectedDisasterEvent.event_code} - ${selectedDisasterEvent.title}`
     : "No disaster event selected";
@@ -323,6 +330,10 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   }, [selectedSectorIds, setSelectedSectorIds]);
 
   useEffect(() => {
+    setRecordStatus(selectedRecordStatus);
+  }, [selectedRecordStatus, setRecordStatus]);
+
+  useEffect(() => {
     if (!isFilterOpen) {
       return;
     }
@@ -487,6 +498,13 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     }
   };
 
+  const handleRecordStatusChange = (nextRecordStatus) => {
+    setRecordStatusByTab((currentValue) => ({
+      ...currentValue,
+      [activeTab]: nextRecordStatus,
+    }));
+  };
+
   const handleCancelRestoreHousehold = () => {
     if (isRestoringHousehold) {
       return;
@@ -581,6 +599,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     selectedBarangayId,
     selectedDisasterEvent,
     searchTerm,
+    recordStatus,
     displayedRows,
     summaryMetrics,
     isLoadingFilters,
@@ -615,6 +634,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     filterButtonRef,
     filterPanelRef,
     selectedSectorIds,
+    selectedRecordStatus,
     activeEventLabel,
     reliefPeriodText,
     canRegisterFamily,
@@ -627,11 +647,13 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setSelectedDisasterEventId,
     setSelectedBarangayId,
     setSearchTerm,
+    setRecordStatus,
     setSelectedExportFormat,
     setExportFeedback,
     setIsExportModalOpen,
     setIsFilterOpen,
     handleEventScopeChange,
+    handleRecordStatusChange,
     handleToggleSelect,
     handleSelectAll,
     handleOpenBulkDepartureConfirmation,

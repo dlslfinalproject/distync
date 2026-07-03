@@ -27,6 +27,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     selectedBarangayId,
     selectedDisasterEvent,
     searchTerm,
+    selectedRecordStatus,
     displayedRows,
     summaryMetrics,
     isLoadingFilters,
@@ -74,6 +75,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     setIsExportModalOpen,
     setIsFilterOpen,
     handleEventScopeChange,
+    handleRecordStatusChange,
     handleToggleSelect,
     handleSelectAll,
     handleOpenBulkDepartureConfirmation,
@@ -170,6 +172,8 @@ const ConsolidatedEvacueeMasterlist = () => {
       <MswdoMasterlistControls
         searchTerm={searchTerm}
         onSearchChange={setSearchTerm}
+        recordStatus={selectedRecordStatus}
+        onRecordStatusChange={handleRecordStatusChange}
         filterButtonRef={filterButtonRef}
         filterPanelRef={filterPanelRef}
         isFilterOpen={isFilterOpen}
