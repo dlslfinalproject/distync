@@ -3,6 +3,8 @@ import { useLiveQuery } from "dexie-react-hooks";
 import {
   FiActivity,
   FiBell,
+  FiEye,
+  FiEyeOff,
   FiShield,
   FiUser,
 } from "react-icons/fi";
@@ -175,6 +177,26 @@ const inputStyles = {
   phoneField: {
     borderRadius: "0 12px 12px 0",
     flex: 1,
+  },
+  passwordWrapper: {
+    position: "relative",
+  },
+  passwordField: {
+    paddingRight: "44px",
+  },
+  visibilityButton: {
+    position: "absolute",
+    top: "50%",
+    right: "12px",
+    transform: "translateY(-50%)",
+    border: "none",
+    background: "transparent",
+    padding: 0,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#60738a",
+    cursor: "pointer",
   },
   textarea: {
     minHeight: "96px",
@@ -376,6 +398,36 @@ const getBarangayProfileValidationErrors = (profile = {}) => {
     errors.contactNumber = "Contact number is required.";
   } else if (!/^\+639\d{9}$/.test(contactNumber)) {
     errors.contactNumber = "Use the format 912 345 6789 after PH +63.";
+  }
+
+  return errors;
+};
+
+const getSecurityPasswordValidationErrors = (form = {}) => {
+  const errors = {};
+  const currentPassword = String(form.currentPassword || "");
+  const newPassword = String(form.newPassword || "");
+  const confirmPassword = String(form.confirmPassword || "");
+
+  if (!currentPassword) {
+    errors.currentPassword = "Current password is required.";
+  }
+
+  if (!newPassword) {
+    errors.newPassword = "New password is required.";
+  } else if (newPassword.length < 8) {
+    errors.newPassword = "Password must be at least 8 characters long.";
+  } else if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/.test(newPassword)) {
+    errors.newPassword =
+      "Password must contain at least one uppercase letter, one lowercase letter, and one number.";
+  } else if (currentPassword && newPassword === currentPassword) {
+    errors.newPassword = "New password cannot be the same as your current password.";
+  }
+
+  if (!confirmPassword) {
+    errors.confirmPassword = "Please confirm your new password.";
+  } else if (confirmPassword !== newPassword) {
+    errors.confirmPassword = "Passwords do not match.";
   }
 
   return errors;
@@ -748,7 +800,7 @@ const EmptyState = ({ message }) => (
 
 const RoleSettingsPage = () => {
   const navigate = useNavigate();
-  const { currentRole, authenticatedUser, clearSession } = useAuth();
+  const { currentRole, authenticatedUser } = useAuth();
   const syncEntries =
     useLiveQuery(() => db.syncQueue.orderBy("updatedAt").reverse().toArray(), [], []) ||
     [];
@@ -785,6 +837,16 @@ const RoleSettingsPage = () => {
     newPassword: "",
     confirmPassword: "",
   });
+  const [securityTouched, setSecurityTouched] = useState({
+    currentPassword: false,
+    newPassword: false,
+    confirmPassword: false,
+  });
+  const [securityVisibility, setSecurityVisibility] = useState({
+    currentPassword: false,
+    newPassword: false,
+    confirmPassword: false,
+  });
   const [activeSection, setActiveSection] = useState(null);
   const [toast, setToast] = useState({
     message: "",
@@ -805,6 +867,10 @@ const RoleSettingsPage = () => {
   const syncSummary = useMemo(() => buildSyncSummary(syncEntries), [syncEntries]);
   const isOnline = typeof navigator === "undefined" ? true : navigator.onLine;
   const isBarangayRole = currentRole === ROLE_CODES.BARANGAY;
+  const securityValidationErrors = useMemo(
+    () => getSecurityPasswordValidationErrors(securityForm),
+    [securityForm],
+  );
 
   useEffect(() => {
     if (!isBarangayRole) {
@@ -946,6 +1012,21 @@ const RoleSettingsPage = () => {
       };
     });
   }, [notificationRules]);
+
+  useEffect(() => {
+    if (!isBarangayRole) {
+      setSecurityTouched({
+        currentPassword: false,
+        newPassword: false,
+        confirmPassword: false,
+      });
+      setSecurityVisibility({
+        currentPassword: false,
+        newPassword: false,
+        confirmPassword: false,
+      });
+    }
+  }, [isBarangayRole]);
 
   useEffect(() => {
     const loadSettingsData = async () => {
@@ -1342,30 +1423,32 @@ const RoleSettingsPage = () => {
     fileReader.readAsDataURL(selectedFile);
   };
 
+  const handlePasswordFieldBlur = (field) => {
+    setSecurityTouched((current) => ({
+      ...current,
+      [field]: true,
+    }));
+  };
+
+  const togglePasswordVisibility = (field) => {
+    setSecurityVisibility((current) => ({
+      ...current,
+      [field]: !current[field],
+    }));
+  };
+
   const handleLocalPasswordReview = () => {
-    if (!securityForm.currentPassword || !securityForm.newPassword) {
-      setToast({
-        type: "error",
-        title: "Security Review Incomplete",
-        message: "Enter the current and new password fields before reviewing.",
-      });
-      return;
-    }
+    setSecurityTouched({
+      currentPassword: true,
+      newPassword: true,
+      confirmPassword: true,
+    });
 
-    if (securityForm.newPassword.length < 8) {
+    if (Object.values(securityValidationErrors).some(Boolean)) {
       setToast({
         type: "error",
-        title: "Password Too Short",
-        message: "Use at least 8 characters for the new password field.",
-      });
-      return;
-    }
-
-    if (securityForm.newPassword !== securityForm.confirmPassword) {
-      setToast({
-        type: "error",
-        title: "Password Mismatch",
-        message: "The new password and confirmation do not match.",
+        title: "Password Update Incomplete",
+        message: "Review the password fields and try again.",
       });
       return;
     }
@@ -1382,11 +1465,21 @@ const RoleSettingsPage = () => {
       newPassword: "",
       confirmPassword: "",
     });
+    setSecurityTouched({
+      currentPassword: false,
+      newPassword: false,
+      confirmPassword: false,
+    });
+    setSecurityVisibility({
+      currentPassword: false,
+      newPassword: false,
+      confirmPassword: false,
+    });
     setToast({
-      type: "info",
-      title: "Frontend-Only Review",
+      type: "success",
+      title: "Password Updated",
       message:
-        "Password review was captured locally for UI testing. Authentication backend behavior was not changed.",
+        "Password changed successfully. This frontend-only review did not modify backend authentication.",
     });
   };
 
@@ -1856,74 +1949,196 @@ const RoleSettingsPage = () => {
             <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
               <h3 style={{ margin: 0, color: "#17324d" }}>Security Settings</h3>
               <p style={mutedValueStyles}>
-                Keep security actions grouped here while staying transparent that
-                this task does not change backend authentication behavior.
+                Keep account protection and authentication controls grouped here.
+                Password validation in this screen is frontend-only and does not
+                modify backend authentication behavior.
               </p>
             </div>
 
             <div style={gridStyles}>
               <article style={cardStyles}>
-                <h4 style={{ margin: 0, color: "#17324d" }}>Change Password</h4>
+                <h4 style={{ margin: 0, color: "#17324d" }}>Password Management</h4>
                 <p style={mutedValueStyles}>
-                  This frontend review keeps the requested UI in place without
-                  modifying the current authentication flow.
+                  Update the password form with stronger client-side validation while
+                  keeping the authentication backend unchanged.
                 </p>
-                <input
-                  type="password"
-                  placeholder="Current password"
-                  value={securityForm.currentPassword}
-                  onChange={(event) =>
-                    setSecurityForm((current) => ({
-                      ...current,
-                      currentPassword: event.target.value,
-                    }))
-                  }
-                  style={inputStyles.field}
-                />
-                <input
-                  type="password"
-                  placeholder="New password"
-                  value={securityForm.newPassword}
-                  onChange={(event) =>
-                    setSecurityForm((current) => ({
-                      ...current,
-                      newPassword: event.target.value,
-                    }))
-                  }
-                  style={inputStyles.field}
-                />
-                <input
-                  type="password"
-                  placeholder="Confirm new password"
-                  value={securityForm.confirmPassword}
-                  onChange={(event) =>
-                    setSecurityForm((current) => ({
-                      ...current,
-                      confirmPassword: event.target.value,
-                    }))
-                  }
-                  style={inputStyles.field}
-                />
+
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <label htmlFor="security-current-password" style={labelStyles}>
+                    Current Password
+                  </label>
+                  <div style={inputStyles.passwordWrapper}>
+                    <input
+                      id="security-current-password"
+                      type={
+                        securityVisibility.currentPassword ? "text" : "password"
+                      }
+                      value={securityForm.currentPassword}
+                      onChange={(event) =>
+                        setSecurityForm((current) => ({
+                          ...current,
+                          currentPassword: event.target.value,
+                        }))
+                      }
+                      onBlur={() => handlePasswordFieldBlur("currentPassword")}
+                      style={{
+                        ...inputStyles.field,
+                        ...inputStyles.passwordField,
+                        ...(securityTouched.currentPassword &&
+                        securityValidationErrors.currentPassword
+                          ? inputStyles.errorField
+                          : {}),
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => togglePasswordVisibility("currentPassword")}
+                      style={inputStyles.visibilityButton}
+                      aria-label={
+                        securityVisibility.currentPassword
+                          ? "Hide current password"
+                          : "Show current password"
+                      }
+                    >
+                      {securityVisibility.currentPassword ? (
+                        <FiEyeOff size={18} />
+                      ) : (
+                        <FiEye size={18} />
+                      )}
+                    </button>
+                  </div>
+                  {securityTouched.currentPassword &&
+                  securityValidationErrors.currentPassword ? (
+                    <p style={errorTextStyles}>
+                      {securityValidationErrors.currentPassword}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <label htmlFor="security-new-password" style={labelStyles}>
+                    New Password
+                  </label>
+                  <div style={inputStyles.passwordWrapper}>
+                    <input
+                      id="security-new-password"
+                      type={securityVisibility.newPassword ? "text" : "password"}
+                      value={securityForm.newPassword}
+                      onChange={(event) =>
+                        setSecurityForm((current) => ({
+                          ...current,
+                          newPassword: event.target.value,
+                        }))
+                      }
+                      onBlur={() => handlePasswordFieldBlur("newPassword")}
+                      style={{
+                        ...inputStyles.field,
+                        ...inputStyles.passwordField,
+                        ...(securityTouched.newPassword &&
+                        securityValidationErrors.newPassword
+                          ? inputStyles.errorField
+                          : {}),
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => togglePasswordVisibility("newPassword")}
+                      style={inputStyles.visibilityButton}
+                      aria-label={
+                        securityVisibility.newPassword
+                          ? "Hide new password"
+                          : "Show new password"
+                      }
+                    >
+                      {securityVisibility.newPassword ? (
+                        <FiEyeOff size={18} />
+                      ) : (
+                        <FiEye size={18} />
+                      )}
+                    </button>
+                  </div>
+                  {securityTouched.newPassword && securityValidationErrors.newPassword ? (
+                    <p style={errorTextStyles}>
+                      {securityValidationErrors.newPassword}
+                    </p>
+                  ) : (
+                    <p style={helperTextStyles}>
+                      Use at least 8 characters with uppercase, lowercase, and a
+                      number.
+                    </p>
+                  )}
+                </div>
+
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <label htmlFor="security-confirm-password" style={labelStyles}>
+                    Confirm New Password
+                  </label>
+                  <div style={inputStyles.passwordWrapper}>
+                    <input
+                      id="security-confirm-password"
+                      type={
+                        securityVisibility.confirmPassword ? "text" : "password"
+                      }
+                      value={securityForm.confirmPassword}
+                      onChange={(event) =>
+                        setSecurityForm((current) => ({
+                          ...current,
+                          confirmPassword: event.target.value,
+                        }))
+                      }
+                      onBlur={() => handlePasswordFieldBlur("confirmPassword")}
+                      style={{
+                        ...inputStyles.field,
+                        ...inputStyles.passwordField,
+                        ...(securityTouched.confirmPassword &&
+                        securityValidationErrors.confirmPassword
+                          ? inputStyles.errorField
+                          : {}),
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => togglePasswordVisibility("confirmPassword")}
+                      style={inputStyles.visibilityButton}
+                      aria-label={
+                        securityVisibility.confirmPassword
+                          ? "Hide confirm password"
+                          : "Show confirm password"
+                      }
+                    >
+                      {securityVisibility.confirmPassword ? (
+                        <FiEyeOff size={18} />
+                      ) : (
+                        <FiEye size={18} />
+                      )}
+                    </button>
+                  </div>
+                  {securityTouched.confirmPassword &&
+                  securityValidationErrors.confirmPassword ? (
+                    <p style={errorTextStyles}>
+                      {securityValidationErrors.confirmPassword}
+                    </p>
+                  ) : null}
+                </div>
+
                 <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                   <button
                     type="button"
                     onClick={handleLocalPasswordReview}
                     style={pageHeaderStyles.primaryButton}
                   >
-                    Review Password Change
+                    Save Password Changes
                   </button>
                   <StatusChip
                     tone={
-                      preferences.security.lastLocalPasswordChangeAt
-                        ? "warning"
-                        : "info"
+                      preferences.security.lastLocalPasswordChangeAt ? "success" : "info"
                     }
                     label={
                       preferences.security.lastLocalPasswordChangeAt
-                        ? `Last reviewed ${formatDateTime(
+                        ? `Last updated ${formatDateTime(
                             preferences.security.lastLocalPasswordChangeAt,
                           )}`
-                        : "No local review yet"
+                        : "No local password update yet"
                     }
                   />
                 </div>
@@ -1966,60 +2181,6 @@ const RoleSettingsPage = () => {
                     preferences.security.twoFactorEnabled ? "Enabled" : "Optional"
                   }
                 />
-              </article>
-
-              <article style={cardStyles}>
-                <h4 style={{ margin: 0, color: "#17324d" }}>Login Activity</h4>
-                <div style={{ display: "grid", gap: "10px" }}>
-                  <div>
-                    <strong>Current browser session</strong>
-                    <div style={mutedValueStyles}>
-                      {preferences.profile.emailAddress ||
-                        authenticatedUser?.email ||
-                        "--"}
-                    </div>
-                  </div>
-                  <div>
-                    <strong>Last local settings save</strong>
-                    <div style={mutedValueStyles}>
-                      {formatDateTime(preferences.metadata.lastPreferenceSaveAt)}
-                    </div>
-                  </div>
-                  <div>
-                    <strong>Last password review</strong>
-                    <div style={mutedValueStyles}>
-                      {formatDateTime(preferences.security.lastLocalPasswordChangeAt)}
-                    </div>
-                  </div>
-                </div>
-              </article>
-
-              <article style={cardStyles}>
-                <h4 style={{ margin: 0, color: "#17324d" }}>Session Actions</h4>
-                <p style={mutedValueStyles}>
-                  Existing session controls stay intact. Server-wide sign-out is
-                  shown for planning visibility only.
-                </p>
-                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                  <button
-                    type="button"
-                    onClick={() => clearSession()}
-                    style={pageHeaderStyles.secondaryButton}
-                  >
-                    Logout This Device
-                  </button>
-                  <button
-                    type="button"
-                    disabled
-                    style={{
-                      ...pageHeaderStyles.secondaryButton,
-                      opacity: 0.6,
-                      cursor: "not-allowed",
-                    }}
-                  >
-                    Logout from All Devices
-                  </button>
-                </div>
               </article>
             </div>
           </section>
