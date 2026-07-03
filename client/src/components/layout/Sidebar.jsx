@@ -108,15 +108,14 @@ export const SidebarBrandStrip = ({
 
 const getSidebarStyles = (isCollapsed) => ({
   wrapper: {
-    height: "100vh",
-    maxHeight: "100vh",
+    height: isCollapsed ? "0" : "100vh",
+    maxHeight: isCollapsed ? "0" : "100vh",
     padding: isCollapsed ? "0" : "20px 16px 24px",
     boxSizing: "border-box",
     backgroundColor: "transparent",
     borderRight: "none",
     display: "flex",
     flexDirection: "column",
-    gap: isCollapsed ? "0" : "20px",
     flexShrink: 0,
     position: "sticky",
     top: 0,
@@ -127,23 +126,26 @@ const getSidebarStyles = (isCollapsed) => ({
     pointerEvents: isCollapsed ? "none" : "auto",
     transform: isCollapsed ? "translateX(-18px)" : "translateX(0)",
     transition:
-      "padding 260ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease, transform 260ms cubic-bezier(0.22, 1, 0.36, 1), gap 260ms cubic-bezier(0.22, 1, 0.36, 1)",
+      "height 260ms cubic-bezier(0.22, 1, 0.36, 1), max-height 260ms cubic-bezier(0.22, 1, 0.36, 1), padding 260ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease, transform 260ms cubic-bezier(0.22, 1, 0.36, 1)",
+  },
+  body: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "20px",
+    flex: "1 1 auto",
+    minHeight: 0,
+    maxHeight: "100%",
+    overflow: "hidden",
   },
   nav: {
     display: "flex",
     flexDirection: "column",
     gap: "10px",
-    marginTop: "6px",
-    flex: isCollapsed ? "0 0 auto" : "1 1 auto",
+    flex: "1 1 auto",
     minHeight: 0,
-    maxHeight: isCollapsed ? 0 : "100%",
-    opacity: isCollapsed ? 0 : 1,
     overflowY: "auto",
     overflowX: "hidden",
-    paddingRight: isCollapsed ? "0" : "4px",
-    pointerEvents: isCollapsed ? "none" : "auto",
-    transition:
-      "max-height 260ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease",
+    paddingRight: "4px",
   },
   navTitle: {
     display: "block",
@@ -159,13 +161,7 @@ const getSidebarStyles = (isCollapsed) => ({
     display: "flex",
     flexDirection: "column",
     gap: "12px",
-    maxHeight: isCollapsed ? 0 : "220px",
-    opacity: isCollapsed ? 0 : 1,
-    overflow: "hidden",
-    pointerEvents: isCollapsed ? "none" : "auto",
     flexShrink: 0,
-    transition:
-      "max-height 260ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease",
   },
   roleCard: {
     padding: "14px 16px",
@@ -217,7 +213,10 @@ const roleMeta = {
       { label: "Inventory Batches", to: "/inventory/batches" },
       { label: "Suppliers", to: "/inventory/suppliers" },
       { label: "Inventory Tracking", to: "/inventory/transactions" },
-      { label: "Relief Pack Templates", to: "/inventory/relief-pack-templates" },
+      {
+        label: "Relief Pack Templates",
+        to: "/inventory/relief-pack-templates",
+      },
       { label: "Inventory Distribution", to: "/inventory/distribution" },
       { label: "Distribution History", to: "/inventory/distribution-history" },
       { label: "Donation Management", to: "/inventory/donations" },
@@ -246,71 +245,78 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
       data-collapsed={isCollapsed ? "true" : "false"}
       style={sidebarStyles.wrapper}
     >
-      <nav className="distync-sidebar__nav" style={sidebarStyles.nav}>
-        {activeRoleMeta.navItems.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            style={{ textDecoration: "none" }}
-          >
-            {({ isActive }) => (
-              <div
-                className="distync-sidebar__nav-item"
-                style={{
-                  backgroundColor: isActive ? "#e1eef9" : "rgba(255, 255, 255, 0.82)",
-                  color: isActive ? "#1f4f7d" : "#26435f",
-                  border: `1px solid ${isActive ? "#b8d0e7" : "#dce7f3"}`,
-                  borderRadius: "14px",
-                  padding: "14px 16px",
-                  boxShadow: isActive
-                    ? "0 10px 24px rgba(66, 108, 154, 0.12)"
-                    : "0 4px 12px rgba(72, 95, 122, 0.04)",
-                  transition:
-                    "background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease",
-                  marginBottom: "10px",
-                  minHeight: "46px",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "flex-start",
-                  overflow: "hidden",
-                  backdropFilter: "blur(8px)",
-                }}
-              >
-                <span style={sidebarStyles.navTitle}>{item.label}</span>
-              </div>
-            )}
-          </NavLink>
-        ))}
-      </nav>
+      <div className="distync-sidebar__body" style={sidebarStyles.body}>
+        <nav className="distync-sidebar__nav" style={sidebarStyles.nav}>
+          {activeRoleMeta.navItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              style={{ textDecoration: "none" }}
+            >
+              {({ isActive }) => (
+                <div
+                  className="distync-sidebar__nav-item"
+                  style={{
+                    backgroundColor: isActive
+                      ? "#e1eef9"
+                      : "rgba(255, 255, 255, 0.82)",
+                    color: isActive ? "#1f4f7d" : "#26435f",
+                    border: `1px solid ${isActive ? "#b8d0e7" : "#dce7f3"}`,
+                    borderRadius: "14px",
+                    padding: "14px 16px",
+                    boxShadow: isActive
+                      ? "0 10px 24px rgba(66, 108, 154, 0.12)"
+                      : "0 4px 12px rgba(72, 95, 122, 0.04)",
+                    transition:
+                      "background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease",
+                    marginBottom: "10px",
+                    minHeight: "46px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "flex-start",
+                    overflow: "hidden",
+                    backdropFilter: "blur(8px)",
+                  }}
+                >
+                  <span style={sidebarStyles.navTitle}>{item.label}</span>
+                </div>
+              )}
+            </NavLink>
+          ))}
+        </nav>
 
-      <div className="distync-sidebar__role-actions" style={sidebarStyles.roleActions}>
-        <div style={sidebarStyles.roleCard}>
-          <p
-            style={{
-              margin: 0,
-              fontSize: "12px",
-              fontWeight: 700,
-              textTransform: "uppercase",
-              letterSpacing: "0.08em",
-            }}
-          >
-            Current Role
-          </p>
-          <p style={{ margin: "8px 0 0", fontSize: "16px", fontWeight: 700 }}>
-            {currentRole || "Not selected"}
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => {
-            clearSession();
-            navigate(entryRoute, { replace: true });
-          }}
-          style={sidebarStyles.roleButton}
+        <div
+          className="distync-sidebar__role-actions"
+          style={sidebarStyles.roleActions}
         >
-          Switch Role
-        </button>
+          <div style={sidebarStyles.roleCard}>
+            <p
+              style={{
+                margin: 0,
+                fontSize: "12px",
+                fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: "0.08em",
+              }}
+            >
+              Current Role
+            </p>
+            <p style={{ margin: "8px 0 0", fontSize: "16px", fontWeight: 700 }}>
+              {currentRole || "Not selected"}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              clearSession();
+              navigate(entryRoute, { replace: true });
+            }}
+            style={sidebarStyles.roleButton}
+          >
+            Switch Role
+          </button>
+        </div>
       </div>
     </aside>
   );
