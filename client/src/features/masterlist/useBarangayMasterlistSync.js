@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   cacheRegistrationSectors,
+  fetchSectors,
 } from "../household-registration/householdRegistrationService";
-import { fetchMswdoSectors } from "../mswdo-masterlist/mswdoMasterlistService";
 import {
   buildQueuedHouseholdRow,
   getFilteredRows,
-  getSectorNames,
 } from "./barangayMasterlistUi";
 import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
+import {
+  buildMasterlistFilterSectorOptions,
+} from "../../utils/registrationOptions";
 
 export const useBarangayMasterlistSync = ({
   rows,
@@ -20,7 +22,7 @@ export const useBarangayMasterlistSync = ({
   eventScope,
   reloadMasterlist,
 }) => {
-  const [selectedSectorNamesByScope, setSelectedSectorNamesByScope] = useState({
+  const [selectedSectorIdsByScope, setSelectedSectorIdsByScope] = useState({
     active: [],
     ended: [],
   });
@@ -74,42 +76,44 @@ export const useBarangayMasterlistSync = ({
     syncQueueEntries,
   ]);
 
-  const selectedSectorNames = selectedSectorNamesByScope[eventScope] || [];
+  const selectedSectorIds = selectedSectorIdsByScope[eventScope] || [];
 
   const filteredRows = useMemo(() => {
     const searchedRows = getFilteredRows(rowsWithSyncStatus, searchTerm);
 
-    if (selectedSectorNames.length === 0) {
+    if (selectedSectorIds.length === 0) {
       return searchedRows;
     }
 
     return searchedRows.filter((row) => {
-      const rowSectorNames = getSectorNames(row.sectors_text);
-
-      return selectedSectorNames.some((sectorName) =>
-        rowSectorNames.includes(sectorName),
+      return selectedSectorIds.some((sectorId) =>
+        (row.sector_codes || []).includes(sectorId),
       );
     });
-  }, [rowsWithSyncStatus, searchTerm, selectedSectorNames]);
+  }, [rowsWithSyncStatus, searchTerm, selectedSectorIds]);
 
   useEffect(() => {
     let isMounted = true;
 
     const loadSectors = async () => {
       try {
-        const sectors = await fetchMswdoSectors();
+        const sectorsPayload = await fetchSectors();
+        const sectors = Array.isArray(sectorsPayload?.data)
+          ? sectorsPayload.data
+          : Array.isArray(sectorsPayload)
+            ? sectorsPayload
+            : [];
 
         if (!isMounted) {
           return;
         }
 
-        setSectorOptions(
-          (Array.isArray(sectors) ? sectors : [])
-            .map((sector) => String(sector.name || "").trim())
-            .filter(Boolean)
-            .sort((left, right) => left.localeCompare(right)),
+        const normalizedSectors = buildMasterlistFilterSectorOptions(
+          Array.isArray(sectors) ? sectors : [],
         );
-        cacheRegistrationSectors(Array.isArray(sectors) ? sectors : []);
+
+        setSectorOptions(normalizedSectors);
+        cacheRegistrationSectors(normalizedSectors);
       } catch (_error) {
         if (isMounted) {
           setSectorOptions([]);
@@ -134,17 +138,17 @@ export const useBarangayMasterlistSync = ({
     return () => unsubscribe();
   }, [reloadMasterlist]);
 
-  const toggleSectorFilter = (sectorName) => {
-    setSelectedSectorNamesByScope((currentFilters) => ({
+  const toggleSectorFilter = (sectorId) => {
+    setSelectedSectorIdsByScope((currentFilters) => ({
       ...currentFilters,
-      [eventScope]: currentFilters[eventScope].includes(sectorName)
-        ? currentFilters[eventScope].filter((value) => value !== sectorName)
-        : [...currentFilters[eventScope], sectorName],
+      [eventScope]: currentFilters[eventScope].includes(sectorId)
+        ? currentFilters[eventScope].filter((value) => value !== sectorId)
+        : [...currentFilters[eventScope], sectorId],
     }));
   };
 
   const clearSectorFilters = () => {
-    setSelectedSectorNamesByScope((currentFilters) => ({
+    setSelectedSectorIdsByScope((currentFilters) => ({
       ...currentFilters,
       [eventScope]: [],
     }));
@@ -152,7 +156,7 @@ export const useBarangayMasterlistSync = ({
 
   return {
     sectorOptions,
-    selectedSectorNames,
+    selectedSectorIds,
     filteredRows,
     toggleSectorFilter,
     clearSectorFilters,

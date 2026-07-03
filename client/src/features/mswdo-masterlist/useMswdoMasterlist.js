@@ -5,12 +5,16 @@ import {
   fetchConsolidatedMasterlist,
   fetchConsolidatedMasterlistDashboard,
   fetchDisasterEvents,
-  fetchMswdoSectors,
 } from "./mswdoMasterlistService";
+import { fetchSectors } from "../household-registration/householdRegistrationService";
 import {
   isOperationallyActiveHousehold,
   mapMasterlistRow,
 } from "../masterlist/masterlistService";
+import {
+  buildMasterlistFilterSectorOptions,
+  getCanonicalMemberSectorCode,
+} from "../../utils/registrationOptions";
 
 const emptyMasterlistPayload = {
   disaster_event: null,
@@ -57,6 +61,16 @@ const getMappedRows = (households) => {
         (member.sectors || []).map((sector) => sector.id),
       ),
     ].filter(Boolean);
+    const sectorCodes = [
+      ...(household.household_sectors || []).map((sector) =>
+        getCanonicalMemberSectorCode(sector.code),
+      ),
+      ...(household.members || []).flatMap((member) =>
+        (member.sectors || []).map((sector) =>
+          getCanonicalMemberSectorCode(sector.code),
+        ),
+      ),
+    ].filter(Boolean);
 
     if (barangayName && !String(baseRow.address).includes(barangayName)) {
       addressParts.push(`${barangayName}`);
@@ -69,6 +83,7 @@ const getMappedRows = (households) => {
       barangay_name: barangayName,
       residency_status: household.residency_status || "RESIDENT",
       sector_ids: [...new Set(sectorIds)],
+      sector_codes: [...new Set(sectorCodes)],
       has_stub_issued: Boolean(household.stub),
     };
   });
@@ -85,7 +100,7 @@ const getDisplayedRows = (rows, searchTerm, selectedSectorIds) => {
     const matchesSectorFilter =
       selectedSectorIds.length === 0 ||
       selectedSectorIds.some((sectorId) =>
-        (household.sector_ids || []).includes(sectorId),
+        (household.sector_codes || []).includes(sectorId),
       );
 
     if (!matchesSectorFilter) {
@@ -160,7 +175,7 @@ export const useMswdoMasterlist = () => {
           fetchDisasterEvents(),
           fetchActiveDisasterEvents(),
           fetchBarangays(),
-          fetchMswdoSectors(),
+          fetchSectors(),
         ]);
 
         if (!isMounted) {
@@ -170,7 +185,12 @@ export const useMswdoMasterlist = () => {
         const allEvents = Array.isArray(eventsPayload) ? eventsPayload : [];
         const activeEvents = Array.isArray(activePayload) ? activePayload : [];
         const barangayRows = Array.isArray(barangaysPayload) ? barangaysPayload : [];
-        const sectorRows = Array.isArray(sectorsPayload) ? sectorsPayload : [];
+        const sectorSource = Array.isArray(sectorsPayload?.data)
+          ? sectorsPayload.data
+          : Array.isArray(sectorsPayload)
+            ? sectorsPayload
+            : [];
+        const sectorRows = buildMasterlistFilterSectorOptions(sectorSource);
 
         setDisasterEvents(allEvents);
         setBarangays(barangayRows);

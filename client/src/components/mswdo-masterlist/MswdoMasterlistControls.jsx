@@ -129,7 +129,7 @@ const MswdoMasterlistControls = ({
                         onChange={() => onToggleSectorFilter(sector.id)}
                         style={{ accentColor: "#2f6499" }}
                       />
-                      <span>{sector.name}</span>
+                      <span>{sector.display_name || sector.name}</span>
                     </label>
                   ))
                 ) : (

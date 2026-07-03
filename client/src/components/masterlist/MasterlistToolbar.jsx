@@ -111,7 +111,7 @@ const MasterlistToolbar = ({
   recordStatus = "active",
   onRecordStatusChange,
   sectorOptions = [],
-  selectedSectorNames = [],
+  selectedSectorIds = [],
   onToggleSector,
   onClearFilters,
   filterScopeKey = "",
@@ -124,7 +124,7 @@ const MasterlistToolbar = ({
   });
   const filterButtonRef = useRef(null);
   const filterPanelRef = useRef(null);
-  const activeFilterCount = selectedSectorNames.length;
+  const activeFilterCount = selectedSectorIds.length;
 
   const updateFilterPanelPosition = () => {
     if (!filterButtonRef.current) {
@@ -277,15 +277,15 @@ const MasterlistToolbar = ({
 
               <div style={filterPanelStyles.list}>
                 {sectorOptions.length > 0 ? (
-                  sectorOptions.map((sectorName) => (
-                    <label key={sectorName} style={filterPanelStyles.option}>
+                  sectorOptions.map((sector) => (
+                    <label key={sector.id} style={filterPanelStyles.option}>
                       <input
                         type="checkbox"
-                        checked={selectedSectorNames.includes(sectorName)}
-                        onChange={() => onToggleSector(sectorName)}
+                        checked={selectedSectorIds.includes(sector.id)}
+                        onChange={() => onToggleSector(sector.id)}
                         style={{ accentColor: "#2f6499" }}
                       />
-                      <span>{sectorName}</span>
+                      <span>{sector.display_name || sector.name}</span>
                     </label>
                   ))
                 ) : (

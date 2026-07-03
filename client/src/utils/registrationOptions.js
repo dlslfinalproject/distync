@@ -49,6 +49,10 @@ export const HOUSEHOLD_CONDITION_CODES = [
   "SOLO_PARENT",
 ];
 
+export const MASTERLIST_FILTER_SECTOR_CODES = [
+  ...DISPLAY_MEMBER_SECTOR_CODES,
+];
+
 export const MEMBER_SECTOR_LABELS = {
   INFANT: "Infant",
   TODDLER: "Toddler",
@@ -127,4 +131,73 @@ export const formatMemberSectorLabel = (sectorOrCode) => {
     sectorCode ||
     ""
   );
+};
+
+export const formatMasterlistFilterSectorLabel = (sector) => {
+  const canonicalCode = getCanonicalMemberSectorCode(sector?.code);
+
+  if (MASTERLIST_FILTER_SECTOR_CODES.includes(canonicalCode)) {
+    return formatMemberSectorLabel(canonicalCode);
+  }
+
+  return sector?.name || "";
+};
+
+export const isMasterlistFilterSector = (sector) => {
+  return MASTERLIST_FILTER_SECTOR_CODES.includes(
+    getCanonicalMemberSectorCode(sector?.code),
+  );
+};
+
+export const sortMasterlistFilterSectors = (sectors = []) => {
+  const orderIndexByCode = new Map(
+    MASTERLIST_FILTER_SECTOR_CODES.map((sectorCode, index) => [sectorCode, index]),
+  );
+
+  return [...sectors].sort((left, right) => {
+    const leftCode = getCanonicalMemberSectorCode(left?.code);
+    const rightCode = getCanonicalMemberSectorCode(right?.code);
+    const leftIndex = orderIndexByCode.get(leftCode);
+    const rightIndex = orderIndexByCode.get(rightCode);
+
+    if (leftIndex !== undefined && rightIndex !== undefined) {
+      return leftIndex - rightIndex;
+    }
+
+    if (leftIndex !== undefined) {
+      return -1;
+    }
+
+    if (rightIndex !== undefined) {
+      return 1;
+    }
+
+    return String(left?.name || "").localeCompare(String(right?.name || ""));
+  });
+};
+
+export const buildMasterlistFilterSectorOptions = (sectors = []) => {
+  const sectorByCanonicalCode = new Map();
+
+  sectors.forEach((sector) => {
+    const canonicalCode = getCanonicalMemberSectorCode(sector?.code);
+
+    if (!canonicalCode || sectorByCanonicalCode.has(canonicalCode)) {
+      return;
+    }
+
+    sectorByCanonicalCode.set(canonicalCode, sector);
+  });
+
+  return MASTERLIST_FILTER_SECTOR_CODES.map((sectorCode) => {
+    const matchingSector = sectorByCanonicalCode.get(sectorCode);
+
+    return {
+      id: sectorCode,
+      code: sectorCode,
+      source_sector_id: matchingSector?.id || null,
+      name: matchingSector?.name || formatMemberSectorLabel(sectorCode),
+      display_name: formatMemberSectorLabel(sectorCode),
+    };
+  });
 };
