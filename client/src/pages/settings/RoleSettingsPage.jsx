@@ -279,8 +279,8 @@ const BARANGAY_SETTINGS_SECTIONS = [
   },
   {
     key: "activity-logs",
-    label: "Activity Logs",
-    description: "Review recent frontend-visible actions captured on this device.",
+    label: "Recent Local Activity",
+    description: "Review recent sync and operational actions visible on this device.",
     icon: FiActivity,
   },
 ];
@@ -350,6 +350,7 @@ const createDefaultRolePreferences = () => ({
   security: {
     twoFactorEnabled: false,
     lastLocalPasswordChangeAt: "",
+    lastTwoFactorPreferenceUpdateAt: "",
   },
   metadata: {
     lastProfileUpdateAt: "",
@@ -726,7 +727,6 @@ const buildActivityLogs = ({
   distributionRows,
   syncEntries,
   syncHistory,
-  preferences,
 }) => {
   const localActivityEntries = syncEntries.map((entry) => ({
     id: `queue-${entry.id}`,
@@ -734,6 +734,7 @@ const buildActivityLogs = ({
       entry.updatedAt || entry.createdAt || entry.clientTimestamp || entry.syncedAt || "",
     title: formatQueueEntryTitle(entry),
     detail: `Local sync queue - ${entry.status || "--"}`,
+    moduleLabel: "Sync",
     tone:
       entry.status === LOCAL_SYNC_STATUS.FAILED ||
       entry.status === LOCAL_SYNC_STATUS.CONFLICT
@@ -762,6 +763,7 @@ const buildActivityLogs = ({
           " ",
         )}`,
         detail: buildPayloadSummary(payload),
+        moduleLabel: "Sync",
         tone:
           transaction.sync_status === LOCAL_SYNC_STATUS.FAILED
             ? "error"
@@ -779,6 +781,7 @@ const buildActivityLogs = ({
         " ",
       )}`,
       detail: conflict.conflict_type || "Conflict detected during sync.",
+      moduleLabel: "Sync",
       tone: conflict.status === "RESOLVED" ? "success" : "warning",
     })),
   ];
@@ -789,47 +792,51 @@ const buildActivityLogs = ({
     title: `Recorded distribution for ${row.disaster_event_title || row.event_code || "response"}`,
     detail:
       row.relief_pack_template_name || row.released_items_summary || "Relief goods released",
+    moduleLabel: "Distribution",
     tone: "info",
   }));
-
-  const localSettingsEntries = [
-    preferences.metadata?.lastProfileUpdateAt
-      ? {
-          id: "profile-update",
-          timestamp: preferences.metadata.lastProfileUpdateAt,
-          title: "Updated barangay profile details",
-          detail: "Local settings profile data changed on this device.",
-          tone: "info",
-        }
-      : null,
-    preferences.metadata?.lastPreferenceSaveAt
-      ? {
-          id: "settings-save",
-          timestamp: preferences.metadata.lastPreferenceSaveAt,
-          title: "Saved barangay local settings",
-          detail: "Notification and coordination preferences were saved locally.",
-          tone: "success",
-        }
-      : null,
-    preferences.security?.lastLocalPasswordChangeAt
-      ? {
-          id: "password-review",
-          timestamp: preferences.security.lastLocalPasswordChangeAt,
-          title: "Prepared password change review",
-          detail:
-            "Password fields were reviewed locally without changing backend authentication.",
-          tone: "warning",
-        }
-      : null,
-  ].filter(Boolean);
 
   return [
     ...localActivityEntries,
     ...syncHistoryEntries,
     ...distributionEntries,
-    ...localSettingsEntries,
   ]
     .filter((entry) => entry.timestamp || entry.title)
+    .sort((left, right) => {
+      const leftTime = left.timestamp ? new Date(left.timestamp).getTime() : 0;
+      const rightTime = right.timestamp ? new Date(right.timestamp).getTime() : 0;
+      return rightTime - leftTime;
+    });
+};
+
+const buildSecurityActivityLogs = (preferences) => {
+  return [
+    preferences.security?.lastLocalPasswordChangeAt
+      ? {
+          id: "password-update",
+          timestamp: preferences.security.lastLocalPasswordChangeAt,
+          title: "Password change reviewed",
+          detail:
+            "Password changes were reviewed in this frontend security form for the current account.",
+          moduleLabel: "Security",
+          tone: "success",
+        }
+      : null,
+    preferences.security?.lastTwoFactorPreferenceUpdateAt
+      ? {
+          id: "two-factor-update",
+          timestamp: preferences.security.lastTwoFactorPreferenceUpdateAt,
+          title: preferences.security.twoFactorEnabled
+            ? "Two-factor preference enabled"
+            : "Two-factor preference disabled",
+          detail:
+            "Two-factor authentication preference was updated in local security settings.",
+          moduleLabel: "Security",
+          tone: preferences.security.twoFactorEnabled ? "success" : "warning",
+        }
+      : null,
+  ]
+    .filter(Boolean)
     .sort((left, right) => {
       const leftTime = left.timestamp ? new Date(left.timestamp).getTime() : 0;
       const rightTime = right.timestamp ? new Date(right.timestamp).getTime() : 0;
@@ -1721,9 +1728,12 @@ const RoleSettingsPage = () => {
         distributionRows,
         syncEntries,
         syncHistory,
-        preferences,
       }).slice(0, 16),
-    [distributionRows, preferences, syncEntries, syncHistory],
+    [distributionRows, syncEntries, syncHistory],
+  );
+  const securityActivityLogs = useMemo(
+    () => buildSecurityActivityLogs(preferences),
+    [preferences],
   );
 
   const activeBarangaySection = useMemo(
@@ -2267,6 +2277,7 @@ const RoleSettingsPage = () => {
                         security: {
                           ...current.security,
                           twoFactorEnabled: !current.security.twoFactorEnabled,
+                          lastTwoFactorPreferenceUpdateAt: new Date().toISOString(),
                         },
                       }))
                     }
@@ -2283,6 +2294,57 @@ const RoleSettingsPage = () => {
                     preferences.security.twoFactorEnabled ? "Enabled" : "Optional"
                   }
                 />
+              </article>
+
+              <article style={cardStyles}>
+                <h4 style={{ margin: 0, color: "#17324d" }}>Security Activity</h4>
+                <p style={mutedValueStyles}>
+                  Review recent security-setting actions for this account. This
+                  section only shows frontend-visible account protection activity.
+                </p>
+
+                {securityActivityLogs.length === 0 ? (
+                  <EmptyState message="No recent security activity is available for this device yet." />
+                ) : (
+                  <div style={{ display: "grid", gap: "12px" }}>
+                    {securityActivityLogs.map((entry) => (
+                      <article
+                        key={entry.id}
+                        style={{
+                          border: "1px solid #dbe6f0",
+                          borderRadius: "16px",
+                          padding: "16px 18px",
+                          backgroundColor: "#fbfdff",
+                          display: "grid",
+                          gap: "8px",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "flex-start",
+                            gap: "12px",
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <strong style={{ color: "#17324d" }}>{entry.title}</strong>
+                          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                            <StatusChip tone="info" label={entry.moduleLabel || "Security"} />
+                            <StatusChip
+                              tone={entry.tone || "info"}
+                              label={entry.tone || "info"}
+                            />
+                          </div>
+                        </div>
+                        <p style={mutedValueStyles}>{entry.detail}</p>
+                        <p style={{ ...mutedValueStyles, fontSize: "12px" }}>
+                          {formatDateTime(entry.timestamp)}
+                        </p>
+                      </article>
+                    ))}
+                  </div>
+                )}
               </article>
             </div>
           </section>
@@ -2815,15 +2877,16 @@ const RoleSettingsPage = () => {
         return (
           <section style={shellStyles.card}>
             <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
-              <h3 style={{ margin: 0, color: "#17324d" }}>Activity Logs</h3>
+              <h3 style={{ margin: 0, color: "#17324d" }}>Recent Local Activity</h3>
               <p style={mutedValueStyles}>
-                Review recent frontend-visible barangay actions in chronological
-                order for accountability and transparency.
+                Review recent operational and sync-related activity visible in this
+                frontend. This section focuses on barangay workflow actions instead
+                of account security settings.
               </p>
             </div>
 
             {activityLogs.length === 0 ? (
-              <EmptyState message="No recent activity logs are available for this device yet." />
+              <EmptyState message="No recent local operational activity is available for this device yet." />
             ) : (
               <div style={{ display: "grid", gap: "12px" }}>
                 {activityLogs.map((entry) => (
@@ -2848,10 +2911,13 @@ const RoleSettingsPage = () => {
                       }}
                     >
                       <strong style={{ color: "#17324d" }}>{entry.title}</strong>
-                      <StatusChip
-                        tone={entry.tone || "info"}
-                        label={entry.tone || "info"}
-                      />
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                        <StatusChip tone="info" label={entry.moduleLabel || "Activity"} />
+                        <StatusChip
+                          tone={entry.tone || "info"}
+                          label={entry.tone || "info"}
+                        />
+                      </div>
                     </div>
                     <p style={mutedValueStyles}>{entry.detail}</p>
                     <p style={{ ...mutedValueStyles, fontSize: "12px" }}>
