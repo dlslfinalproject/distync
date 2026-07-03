@@ -61,6 +61,7 @@ const InventoryBatchFormModal = ({
   isOpen,
   inventoryItems,
   suppliers,
+  initialInventoryItemId,
   isSubmitting,
   errorMessage,
   onClose,
@@ -73,8 +74,11 @@ const InventoryBatchFormModal = ({
       return;
     }
 
-    setFormValues(createDefaultForm());
-  }, [isOpen]);
+    setFormValues({
+      ...createDefaultForm(),
+      inventory_item_id: initialInventoryItemId || "",
+    });
+  }, [initialInventoryItemId, isOpen]);
 
   if (!isOpen) {
     return null;

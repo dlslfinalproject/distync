@@ -261,6 +261,19 @@ const InventoryItemsPage = () => {
     () => getInventoryAnalyticsCards(inventoryAnalytics),
     [inventoryAnalytics],
   );
+  const matchedScannedItem = useMemo(() => {
+    const scannedBarcode = scanForm.barcodeNumber.trim().toLowerCase();
+
+    if (!scannedBarcode) {
+      return null;
+    }
+
+    return (
+      inventoryItemsWithSyncStatus.find((item) => {
+        return (item.barcode || "").trim().toLowerCase() === scannedBarcode;
+      }) || null
+    );
+  }, [inventoryItemsWithSyncStatus, scanForm.barcodeNumber]);
 
   const visibleInventoryItems = useMemo(() => {
     if (filters.status === "All") {
@@ -344,6 +357,13 @@ const InventoryItemsPage = () => {
     const trimmedBarcode = scanForm.barcodeNumber.trim();
 
     if (!trimmedBarcode) {
+      return;
+    }
+
+    if (matchedScannedItem?.id) {
+      setIsScanModalOpen(false);
+      setActiveTab("overview");
+      void handleOpenItemDetail(matchedScannedItem.id);
       return;
     }
 
@@ -509,6 +529,7 @@ const InventoryItemsPage = () => {
       <BarcodeScanModal
         isOpen={isScanModalOpen}
         scanForm={scanForm}
+        matchedItemName={matchedScannedItem?.item_name || ""}
         onClose={handleCloseScanModal}
         onSubmit={handleSubmitScanModal}
         onInputChange={handleScanInputChange}
