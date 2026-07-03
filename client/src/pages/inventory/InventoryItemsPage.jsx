@@ -2,23 +2,22 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
-import InventoryAnalyticsPanel from "../../components/inventory-items/InventoryAnalyticsPanel";
 import InventoryItemFormModal from "../../components/inventory-items/InventoryItemFormModal";
 import InventoryItemDetailModal from "../../components/inventory-items/InventoryItemDetailModal";
 import BarcodeScanModal from "../../components/inventory-items/BarcodeScanModal";
 import InventoryPageActions from "../../components/inventory-items/InventoryPageActions";
-import InventoryPageTabs from "../../components/inventory-items/InventoryPageTabs";
 import InventoryItemsTable from "../../components/inventory-items/InventoryItemsTable";
 import InventoryOverviewCards from "../../components/inventory-items/InventoryOverviewCards";
-import ForecastingPanel from "../../components/inventory-items/ForecastingPanel";
 import InventoryFilters from "../../components/inventory-items/InventoryFilters";
 import ExportModal from "../../components/shared/ExportModal";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import {
   createInventoryItem,
+  fetchInventoryItemById,
   fetchInventoryItemDetail,
   exportInventoryItems,
   fetchInventoryItems,
+  updateInventoryItem,
 } from "../../features/inventory-items/inventoryItemService";
 import { fetchInventoryBatches } from "../../features/inventory-batches/inventoryBatchService";
 import { fetchInventoryTransactions } from "../../features/inventory-transactions/inventoryTransactionService";
@@ -26,25 +25,24 @@ import db from "../../offline/db";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
 import {
   buildInventoryExportFilters,
-  forecastModelOptions,
-  getForecastModelLabel,
   hasInventoryExportRows,
   inventoryExportReportOptions,
 } from "../../features/inventory-items/inventoryItemExportOptions";
-import { formatPercentage } from "../../features/inventory-items/inventoryItemFormatting";
+import {
+  formatPercentage,
+  getTotalItemQuantityValue,
+} from "../../features/inventory-items/inventoryItemFormatting";
 import {
   buildInventoryItemFilters,
-  getInventoryAnalyticsCards,
-  getInventoryPageTabs,
   getInventorySectionTitle,
   inventoryPageStyles,
 } from "../../features/inventory-items/inventoryItemsPageUi";
-import { useInventoryForecast } from "../../features/inventory-items/useInventoryForecast";
 import {
   buildInventoryTrackingMap,
   createEmptyTrackingStats,
   getItemStatus,
   getTrackedExpirationDate,
+  isItemExpiring,
   isDateExpired,
 } from "../../features/inventory-items/inventoryItemStockStatus";
 import { mergeInventoryItemsWithSyncStatus } from "../../features/inventory-items/inventoryItemSync";
@@ -56,19 +54,26 @@ import {
   resolveExportErrorMessage,
 } from "../../utils/exportHelpers";
 
+const isLowStockItem = (item, trackingStats) => {
+  const reorderLevel = Number(item.reorder_level || 0);
+  const onHand = Number(trackingStats.onHand || 0);
+
+  return reorderLevel > 0 && onHand > 0 && onHand <= reorderLevel;
+};
+
 const InventoryItemsPage = () => {
   const [filters, setFilters] = useState({
     search: "",
     category: "All",
     status: "All",
   });
-  const [activeTab, setActiveTab] = useState("overview");
   const [inventoryItems, setInventoryItems] = useState([]);
   const [inventoryBatches, setInventoryBatches] = useState([]);
   const [inventoryTransactions, setInventoryTransactions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState("create");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [modalErrorMessage, setModalErrorMessage] = useState("");
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
@@ -91,26 +96,6 @@ const InventoryItemsPage = () => {
   });
   const syncQueueEntries =
     useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
-  const {
-    forecastEvents,
-    selectedForecastEventId,
-    selectedForecastModel,
-    forecastRunData,
-    forecastHistory,
-    forecastHistoryDetails,
-    forecastHealth,
-    isForecastLoading,
-    isForecastHistoryLoading,
-    isForecastHistoryDetailLoading,
-    isRunningForecast,
-    forecastErrorMessage,
-    forecastSuccessMessage,
-    setSelectedForecastEventId,
-    setSelectedForecastModel,
-    handleRunForecast,
-    handleSelectForecastHistoryRun,
-  } = useInventoryForecast();
-
   const loadInventoryData = async (activeFilters = filters) => {
     setIsLoading(true);
     setErrorMessage("");
@@ -208,6 +193,21 @@ const InventoryItemsPage = () => {
 
       return sum + trackingStats.expired + trackingStats.expiredOnHand;
     }, 0);
+    const lowStockItems = inventoryItemsWithSyncStatus.filter((item) => {
+      const trackingStats =
+        inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
+
+      return isLowStockItem(item, trackingStats);
+    }).length;
+    const expiringSoonItems = inventoryItemsWithSyncStatus.filter((item) => {
+      const trackingStats =
+        inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
+
+      return trackingStats.hasExpiringStock || isItemExpiring(item);
+    }).length;
+    const outOfStockItems = inventoryItemsWithSyncStatus.filter((item) => {
+      return getTotalItemQuantityValue(item) <= 0;
+    }).length;
 
     return {
       totalItems,
@@ -219,6 +219,9 @@ const InventoryItemsPage = () => {
       totalOnHand,
       totalDistributed,
       totalExpired,
+      lowStockItems,
+      expiringSoonItems,
+      outOfStockItems,
       perishableShare: formatPercentage(perishableItems, totalItems),
       nonPerishableShare: formatPercentage(nonPerishableItems, totalItems),
     };
@@ -227,38 +230,26 @@ const InventoryItemsPage = () => {
   const summaryCards = useMemo(
     () => [
       {
-        label: "Total Registered Items",
+        label: "Total Inventory Items",
         value: inventoryAnalytics.totalItems,
-        description:
-          "All inventory item records currently listed for the Mayor's Office.",
         accentColor: "#2f6499",
       },
       {
-        label: "Units On Hand",
-        value: inventoryAnalytics.totalOnHand,
-        description:
-          "Remaining stock that is still currently on hand across tracked items.",
+        label: "Low Stock Items",
+        value: inventoryAnalytics.lowStockItems,
         accentColor: "#c9792b",
       },
       {
-        label: "Units Distributed",
-        value: inventoryAnalytics.totalDistributed,
-        description: "Stock already released through recorded distributions.",
+        label: "Expiring Soon",
+        value: inventoryAnalytics.expiringSoonItems,
         accentColor: "#2d7a4f",
       },
       {
-        label: "Units Expired",
-        value: inventoryAnalytics.totalExpired,
-        description:
-          "Stock already marked expired or still sitting in expired batches.",
+        label: "Out of Stock",
+        value: inventoryAnalytics.outOfStockItems,
         accentColor: "#b91c1c",
       },
     ],
-    [inventoryAnalytics],
-  );
-  const inventoryPageTabs = useMemo(() => getInventoryPageTabs(), []);
-  const inventoryAnalyticsCards = useMemo(
-    () => getInventoryAnalyticsCards(inventoryAnalytics),
     [inventoryAnalytics],
   );
   const matchedScannedItem = useMemo(() => {
@@ -284,6 +275,18 @@ const InventoryItemsPage = () => {
       const trackingStats =
         inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
 
+      if (filters.status === "Low Stock") {
+        return isLowStockItem(item, trackingStats);
+      }
+
+      if (filters.status === "Expiring") {
+        return trackingStats.hasExpiringStock || isItemExpiring(item);
+      }
+
+      if (filters.status === "Out of Stock") {
+        return getTotalItemQuantityValue(item) <= 0;
+      }
+
       return getItemStatus(item, trackingStats) === filters.status;
     });
   }, [inventoryItemsWithSyncStatus, inventoryTrackingMap, filters.status]);
@@ -297,6 +300,7 @@ const InventoryItemsPage = () => {
 
   const handleOpenCreateModal = () => {
     setModalErrorMessage("");
+    setModalMode("create");
     setCreateModalItemData(null);
     setIsModalOpen(true);
   };
@@ -306,7 +310,10 @@ const InventoryItemsPage = () => {
     setModalErrorMessage("");
 
     try {
-      const response = await createInventoryItem(payload);
+      const response =
+        modalMode === "edit" && createModalItemData?.id
+          ? await updateInventoryItem(createModalItemData.id, payload)
+          : await createInventoryItem(payload);
       if (!response?.queued_offline) {
         await loadInventoryData();
       }
@@ -314,6 +321,27 @@ const InventoryItemsPage = () => {
       setCreateModalItemData(null);
     } catch (error) {
       setModalErrorMessage(error.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleOpenEditModal = async (itemRow) => {
+    if (!itemRow?.id) {
+      return;
+    }
+
+    setModalErrorMessage("");
+    setModalMode("edit");
+    setIsSubmitting(true);
+
+    try {
+      const itemDetails = await fetchInventoryItemById(itemRow.id);
+      setCreateModalItemData(itemDetails || itemRow);
+      setIsModalOpen(true);
+    } catch (_error) {
+      setCreateModalItemData(itemRow);
+      setIsModalOpen(true);
     } finally {
       setIsSubmitting(false);
     }
@@ -362,7 +390,6 @@ const InventoryItemsPage = () => {
 
     if (matchedScannedItem?.id) {
       setIsScanModalOpen(false);
-      setActiveTab("overview");
       void handleOpenItemDetail(matchedScannedItem.id);
       return;
     }
@@ -372,6 +399,7 @@ const InventoryItemsPage = () => {
     });
     setIsScanModalOpen(false);
     setModalErrorMessage("");
+    setModalMode("create");
     setIsModalOpen(true);
   };
 
@@ -400,7 +428,7 @@ const InventoryItemsPage = () => {
         format,
         filters: {
           ...buildInventoryItemFilters(filters),
-          status: filters.status,
+          status: filters.status === "Expiring" ? "Expiring" : "All",
           ...extraFilters,
         },
       });
@@ -449,7 +477,9 @@ const InventoryItemsPage = () => {
     <div
       style={{ flex: 1, minWidth: 0, maxWidth: "100%", overflowX: "hidden" }}
     >
-      <PageHeader title="INVENTORY MANAGEMENT" />
+      <PageHeader
+        title="INVENTORY MANAGEMENT"
+      />
 
       <InventoryPageActions
         exportingFormat={exportingFormat}
@@ -461,66 +491,33 @@ const InventoryItemsPage = () => {
       <InventoryOverviewCards summaryCards={summaryCards} />
 
       <section style={shellStyles.card}>
-        <InventoryPageTabs
-          tabs={inventoryPageTabs}
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-        />
-
         <h3 style={inventoryPageStyles.sectionTitle}>
-          {getInventorySectionTitle(activeTab)}
+          {getInventorySectionTitle()}
         </h3>
 
-        {activeTab === "overview" ? (
-          <>
-            <InventoryFilters
-              filters={filters}
-              onFilterChange={handleFilterChange}
-            />
+        <InventoryFilters
+          filters={filters}
+          onFilterChange={handleFilterChange}
+        />
 
-            <InventoryItemsTable
-              rows={visibleInventoryItems}
-              isLoading={isLoading}
-              errorMessage={errorMessage}
-              inventoryTrackingMap={inventoryTrackingMap}
-              onViewDetails={handleOpenItemDetail}
-            />
-          </>
-        ) : activeTab === "analytics" ? (
-          <InventoryAnalyticsPanel cards={inventoryAnalyticsCards} />
-        ) : (
-          <ForecastingPanel
-            forecastEvents={forecastEvents}
-            selectedForecastEventId={selectedForecastEventId}
-            selectedForecastModel={selectedForecastModel}
-            forecastModelOptions={forecastModelOptions}
-            forecastRunData={forecastRunData}
-            forecastHistory={forecastHistory}
-            forecastHistoryDetails={forecastHistoryDetails}
-            forecastHealth={forecastHealth}
-            forecastSuccessMessage={forecastSuccessMessage}
-            forecastErrorMessage={forecastErrorMessage}
-            isForecastLoading={isForecastLoading}
-            isForecastHistoryLoading={isForecastHistoryLoading}
-            isForecastHistoryDetailLoading={isForecastHistoryDetailLoading}
-            isRunningForecast={isRunningForecast}
-            getForecastModelLabel={getForecastModelLabel}
-            onForecastEventChange={setSelectedForecastEventId}
-            onForecastModelChange={setSelectedForecastModel}
-            onRunForecast={handleRunForecast}
-            onSelectForecastHistoryRun={handleSelectForecastHistoryRun}
-          />
-        )}
+        <InventoryItemsTable
+          rows={visibleInventoryItems}
+          isLoading={isLoading}
+          errorMessage={errorMessage}
+          onEditItem={handleOpenEditModal}
+          onViewDetails={handleOpenItemDetail}
+        />
       </section>
 
       <InventoryItemFormModal
         isOpen={isModalOpen}
-        mode="create"
+        mode={modalMode}
         itemData={createModalItemData}
         isSubmitting={isSubmitting}
         errorMessage={modalErrorMessage}
         onClose={() => {
           setIsModalOpen(false);
+          setModalMode("create");
           setCreateModalItemData(null);
         }}
         onSubmit={handleSubmitModal}

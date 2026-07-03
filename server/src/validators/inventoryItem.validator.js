@@ -263,6 +263,7 @@ const validateInventoryItemPayload = (req, res, next) => {
       packaging,
       packaging_count,
       quantity,
+      reorder_level,
       expiration_date,
       barcode,
       is_perishable,
@@ -338,10 +339,17 @@ const validateInventoryItemPayload = (req, res, next) => {
     }
 
     const parsedExpirationDate = parseOptionalDate(expiration_date);
+    const parsedReorderLevel = parsePositiveInteger(reorder_level);
 
     if (parsedExpirationDate === "invalid") {
       return res.status(400).json({
         message: "expiration_date must be a valid date in YYYY-MM-DD format",
+      });
+    }
+
+    if (!parsedReorderLevel) {
+      return res.status(400).json({
+        message: "reorder_level is required and must be a positive integer",
       });
     }
 
@@ -380,6 +388,7 @@ const validateInventoryItemPayload = (req, res, next) => {
       packaging: normalizedPackaging,
       packaging_count: parsedPackagingCount,
       quantity: parsedQuantity,
+      reorder_level: parsedReorderLevel,
       expiration_date: parsedExpirationDate,
       barcode:
         typeof barcode === "string" && barcode.trim() ? barcode.trim() : null,

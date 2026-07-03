@@ -112,8 +112,8 @@ const InventoryItemFormModal = ({
         packaging: itemData.packaging || "",
         packaging_count: itemData.packaging_count || "",
         category: normalizeCategoryValue(itemData.category),
-        expiration_date: itemData.expiration_date || itemData.expiryDate || "",
-        reorder_level: itemData.reorder_level || "",
+        expiration_date: itemData.expiration_date ?? itemData.expiryDate ?? "",
+        reorder_level: itemData.reorder_level ?? "",
       });
     } else {
       setFormValues(createDefaultForm());
@@ -217,6 +217,7 @@ const InventoryItemFormModal = ({
                   value={formValues.category}
                   onChange={(e) => handleChange("category", e.target.value)}
                   style={inputStyles}
+                  required
                 >
                   <option value="perishable">Perishable</option>
                   <option value="non-perishable">Non-Perishable</option>
@@ -340,12 +341,14 @@ const InventoryItemFormModal = ({
                 <input
                   id="reorder_level"
                   type="number"
-                  placeholder="Set alert threshold"
+                  min="1"
+                  placeholder="Set reorder level"
                   value={formValues.reorder_level}
                   onChange={(e) =>
                     handleChange("reorder_level", e.target.value)
                   }
                   style={inputStyles}
+                  required
                 />
               </div>
 
