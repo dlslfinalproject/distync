@@ -37,6 +37,10 @@ const ConsolidatedEvacueeMasterlist = () => {
     dashboardErrorMessage,
     activeTab,
     selectedHouseholds,
+    pendingDepartureFamilyHeadName,
+    pendingDepartureFamilyHeadPhotoUrl,
+    pendingBulkDepartureHouseholds,
+    isLoadingDepartureHouseholdDetails,
     isFilterOpen,
     filterPanelPosition,
     isExportModalOpen,
@@ -215,9 +219,13 @@ const ConsolidatedEvacueeMasterlist = () => {
       <MasterlistDepartureConfirmModal
         isOpen={Boolean(pendingDepartureHouseholdId) || isBulkDepartureConfirmOpen}
         isSubmitting={isRecordingDeparture}
+        isLoadingHouseholdDetails={isLoadingDepartureHouseholdDetails}
         onCancel={handleCloseDepartureConfirmation}
         onConfirm={handleConfirmDeparture}
         selectedCount={isBulkDepartureConfirmOpen ? selectedHouseholds.length : 1}
+        familyHeadName={pendingDepartureFamilyHeadName}
+        familyHeadPhotoUrl={pendingDepartureFamilyHeadPhotoUrl}
+        selectedHouseholdsPreview={pendingBulkDepartureHouseholds}
       />
 
       <ExportModal

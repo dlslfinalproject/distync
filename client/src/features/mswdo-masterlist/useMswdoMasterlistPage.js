@@ -49,6 +49,12 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   const [activeTab, setActiveTab] = useState("active");
   const [pendingDepartureHouseholdId, setPendingDepartureHouseholdId] =
     useState(null);
+  const [pendingDepartureHouseholdDetails, setPendingDepartureHouseholdDetails] =
+    useState(null);
+  const [pendingBulkDepartureHouseholds, setPendingBulkDepartureHouseholds] =
+    useState([]);
+  const [isLoadingDepartureHouseholdDetails, setIsLoadingDepartureHouseholdDetails] =
+    useState(false);
   const [isBulkDepartureConfirmOpen, setIsBulkDepartureConfirmOpen] =
     useState(false);
   const [isRecordingDeparture, setIsRecordingDeparture] = useState(false);
@@ -125,6 +131,21 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   const selectedBarangayLabel = selectedBarangayId
     ? barangays.find((barangay) => barangay.id === selectedBarangayId)?.name
     : "All Barangays";
+  const pendingDepartureRow = displayedRows.find(
+    (row) => row.household_id === pendingDepartureHouseholdId,
+  );
+  const pendingDepartureFamilyHeadName = pendingDepartureHouseholdDetails?.household
+    ? [
+        pendingDepartureHouseholdDetails.household.family_head_first_name,
+        pendingDepartureHouseholdDetails.household.family_head_middle_name,
+        pendingDepartureHouseholdDetails.household.family_head_last_name,
+        pendingDepartureHouseholdDetails.household.family_head_suffix,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : pendingDepartureRow?.family_head_name || "";
+  const pendingDepartureFamilyHeadPhotoUrl =
+    pendingDepartureHouseholdDetails?.household?.family_head_photo_url || "";
 
   const registrationForm = useHouseholdRegistrationForm({
     isOpen: isRegisterModalOpen,
@@ -214,20 +235,86 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setSelectedHouseholds(areAllSelected ? [] : selectableHouseholdIds);
   };
 
-  const handleOpenBulkDepartureConfirmation = () => {
+  const handleOpenBulkDepartureConfirmation = async () => {
     if (isEndedView || !selectedHouseholds.length || isRecordingDeparture) {
       return;
     }
 
+    setPendingDepartureHouseholdId("");
+    setPendingDepartureHouseholdDetails(null);
+    setPendingBulkDepartureHouseholds([]);
+    setIsLoadingDepartureHouseholdDetails(true);
     setIsBulkDepartureConfirmOpen(true);
+
+    const selectedRows = displayedRows.filter((row) =>
+      selectedHouseholds.includes(row.household_id),
+    );
+
+    try {
+      const detailResults = await Promise.allSettled(
+        selectedHouseholds.map((householdId) => fetchHouseholdDetails(householdId)),
+      );
+
+      const previewItems = selectedHouseholds.map((householdId, index) => {
+        const detailValue =
+          detailResults[index]?.status === "fulfilled"
+            ? detailResults[index].value
+            : null;
+        const fallbackRow = selectedRows.find(
+          (row) => row.household_id === householdId,
+        );
+        const detailHousehold = detailValue?.household || null;
+        const familyHeadName = detailHousehold
+          ? [
+              detailHousehold.family_head_first_name,
+              detailHousehold.family_head_middle_name,
+              detailHousehold.family_head_last_name,
+              detailHousehold.family_head_suffix,
+            ]
+              .filter(Boolean)
+              .join(" ")
+          : fallbackRow?.family_head_name || "";
+
+        return {
+          household_id: householdId,
+          family_head_name: familyHeadName,
+          family_head_photo_url: detailHousehold?.family_head_photo_url || "",
+        };
+      });
+
+      setPendingBulkDepartureHouseholds(previewItems);
+    } catch (_error) {
+      setPendingBulkDepartureHouseholds(
+        selectedRows.map((row) => ({
+          household_id: row.household_id,
+          family_head_name: row.family_head_name || "",
+          family_head_photo_url: "",
+        })),
+      );
+    } finally {
+      setIsLoadingDepartureHouseholdDetails(false);
+    }
   };
 
-  const handleOpenDepartureConfirmation = (householdId) => {
+  const handleOpenDepartureConfirmation = async (householdId) => {
     if (isEndedView || isRecordingDeparture) {
       return;
     }
 
+    setIsBulkDepartureConfirmOpen(false);
     setPendingDepartureHouseholdId(householdId);
+    setPendingDepartureHouseholdDetails(null);
+    setPendingBulkDepartureHouseholds([]);
+    setIsLoadingDepartureHouseholdDetails(true);
+
+    try {
+      const details = await fetchHouseholdDetails(householdId);
+      setPendingDepartureHouseholdDetails(details);
+    } catch (_error) {
+      setPendingDepartureHouseholdDetails(null);
+    } finally {
+      setIsLoadingDepartureHouseholdDetails(false);
+    }
   };
 
   const handleCloseDepartureConfirmation = () => {
@@ -236,6 +323,9 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     }
 
     setPendingDepartureHouseholdId(null);
+    setPendingDepartureHouseholdDetails(null);
+    setPendingBulkDepartureHouseholds([]);
+    setIsLoadingDepartureHouseholdDetails(false);
     setIsBulkDepartureConfirmOpen(false);
   };
 
@@ -256,6 +346,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
 
         setAttendanceActionMessage("Selected households marked as departed");
         setSelectedHouseholds([]);
+        setPendingBulkDepartureHouseholds([]);
         setIsBulkDepartureConfirmOpen(false);
         reloadMasterlist();
       } else {
@@ -270,6 +361,9 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
           response.message || "Household departure recorded successfully",
         );
         setPendingDepartureHouseholdId(null);
+        setPendingDepartureHouseholdDetails(null);
+        setPendingBulkDepartureHouseholds([]);
+        setIsLoadingDepartureHouseholdDetails(false);
         reloadMasterlist();
       }
     } catch (error) {
@@ -377,11 +471,16 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   }, [isFilterOpen]);
 
   useEffect(() => {
-    setSelectedHouseholds([]);
+    setIsFilterOpen(false);
   }, [activeTab, selectedBarangayId, selectedDisasterEventId]);
 
   useEffect(() => {
-    setIsFilterOpen(false);
+    setSelectedHouseholds([]);
+    setPendingDepartureHouseholdId(null);
+    setPendingDepartureHouseholdDetails(null);
+    setPendingBulkDepartureHouseholds([]);
+    setIsLoadingDepartureHouseholdDetails(false);
+    setIsBulkDepartureConfirmOpen(false);
   }, [activeTab, selectedBarangayId, selectedDisasterEventId]);
 
   useEffect(() => {
@@ -600,6 +699,9 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     dashboardErrorMessage,
     activeTab,
     pendingDepartureHouseholdId,
+    pendingDepartureHouseholdDetails,
+    pendingBulkDepartureHouseholds,
+    isLoadingDepartureHouseholdDetails,
     isBulkDepartureConfirmOpen,
     isRecordingDeparture,
     selectedHouseholds,
@@ -628,6 +730,8 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     selectedRecordStatus,
     activeEventLabel,
     reliefPeriodText,
+    pendingDepartureFamilyHeadName,
+    pendingDepartureFamilyHeadPhotoUrl,
     canRegisterFamily,
     isEndedView,
     endedEventDateTimeText,
