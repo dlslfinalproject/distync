@@ -294,11 +294,36 @@ const EDITABLE_BARANGAY_SECTION_KEYS = new Set([
 const BARANGAY_POSITION_LABEL = "Barangay Official";
 
 const BARANGAY_NOTIFICATION_OPTIONS = [
-  { key: "disasterAlerts", label: "Disaster Alerts" },
-  { key: "distributionSchedules", label: "Distribution Schedules" },
-  { key: "reliefArrivalNotifications", label: "Relief Arrival Notifications" },
-  { key: "attendanceReminders", label: "Attendance Reminders" },
-  { key: "systemAnnouncements", label: "System Announcements" },
+  {
+    key: "disasterAlerts",
+    label: "Disaster Alerts",
+    description:
+      "Receive local preferences for flood warnings, fire incidents, evacuation notices, and urgent LGU advisories.",
+  },
+  {
+    key: "distributionSchedules",
+    label: "Distribution Schedules",
+    description:
+      "Track upcoming relief distribution schedules, assignment changes, and related coordination notices.",
+  },
+  {
+    key: "reliefArrivalNotifications",
+    label: "Relief Arrival Notifications",
+    description:
+      "Review local preferences for supply arrival updates, release readiness, and barangay allocation notices.",
+  },
+  {
+    key: "attendanceReminders",
+    label: "Attendance Reminders",
+    description:
+      "Keep reminders visible for evacuation attendance submission follow-ups and attendance record completion.",
+  },
+  {
+    key: "systemAnnouncements",
+    label: "System Announcements",
+    description:
+      "Show maintenance announcements, policy updates, and general system notices relevant to barangay coordination.",
+  },
 ];
 
 const createDefaultNotificationChannels = () =>
@@ -428,6 +453,42 @@ const getSecurityPasswordValidationErrors = (form = {}) => {
     errors.confirmPassword = "Please confirm your new password.";
   } else if (confirmPassword !== newPassword) {
     errors.confirmPassword = "Passwords do not match.";
+  }
+
+  return errors;
+};
+
+const EMAIL_ADDRESS_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const getNotificationPreferenceValidationErrors = ({
+  notificationChannels = {},
+  emailAddress = "",
+}) => {
+  const errors = {};
+  const optionStates = BARANGAY_NOTIFICATION_OPTIONS.map((option) => ({
+    inApp: Boolean(notificationChannels[option.key]?.inApp),
+    email: Boolean(notificationChannels[option.key]?.email),
+  }));
+
+  const enabledTypeCount = optionStates.filter((option) => option.inApp || option.email)
+    .length;
+  const hasAtLeastOneChannel =
+    optionStates.some((option) => option.inApp) ||
+    optionStates.some((option) => option.email);
+  const hasAnyEmailChannel = optionStates.some((option) => option.email);
+  const trimmedEmailAddress = String(emailAddress || "").trim();
+
+  if (enabledTypeCount === 0) {
+    errors.notificationTypes = "Please select at least one notification type.";
+  }
+
+  if (!hasAtLeastOneChannel) {
+    errors.notificationChannels = "Please select at least one notification channel.";
+  }
+
+  if (hasAnyEmailChannel && !EMAIL_ADDRESS_PATTERN.test(trimmedEmailAddress)) {
+    errors.emailAddress =
+      "A valid email address is required to receive email notifications.";
   }
 
   return errors;
@@ -847,6 +908,7 @@ const RoleSettingsPage = () => {
     newPassword: false,
     confirmPassword: false,
   });
+  const [notificationTouched, setNotificationTouched] = useState(false);
   const [activeSection, setActiveSection] = useState(null);
   const [toast, setToast] = useState({
     message: "",
@@ -870,6 +932,15 @@ const RoleSettingsPage = () => {
   const securityValidationErrors = useMemo(
     () => getSecurityPasswordValidationErrors(securityForm),
     [securityForm],
+  );
+  const notificationValidationErrors = useMemo(
+    () =>
+      getNotificationPreferenceValidationErrors({
+        notificationChannels: preferences.notificationChannels,
+        emailAddress:
+          authenticatedUser?.email || preferences.profile.emailAddress || "",
+      }),
+    [authenticatedUser?.email, preferences.notificationChannels, preferences.profile.emailAddress],
   );
 
   useEffect(() => {
@@ -1025,6 +1096,7 @@ const RoleSettingsPage = () => {
         newPassword: false,
         confirmPassword: false,
       });
+      setNotificationTouched(false);
     }
   }, [isBarangayRole]);
 
@@ -1237,6 +1309,7 @@ const RoleSettingsPage = () => {
   }, [isBarangayRole]);
 
   const toggleNotificationRule = (ruleCode) => {
+    setNotificationTouched(true);
     setPreferences((current) => {
       const selectedCodes = new Set(current.enabledNotificationRuleCodes || []);
 
@@ -1287,6 +1360,19 @@ const RoleSettingsPage = () => {
           type: "error",
           title: "Profile Settings Incomplete",
           message: "Review the barangay profile fields before saving.",
+        });
+        return;
+      }
+    }
+
+    if (isBarangayRole && activeSection === "notification-preferences") {
+      setNotificationTouched(true);
+
+      if (Object.values(notificationValidationErrors).some(Boolean)) {
+        setToast({
+          type: "error",
+          title: "Notification Preferences Incomplete",
+          message: "Review the local notification preferences before saving.",
         });
         return;
       }
@@ -1367,6 +1453,7 @@ const RoleSettingsPage = () => {
   };
 
   const handleNotificationChannelToggle = (channelKey, type) => {
+    setNotificationTouched(true);
     setPreferences((current) => ({
       ...current,
       notificationChannels: {
@@ -1377,6 +1464,21 @@ const RoleSettingsPage = () => {
         },
       },
     }));
+  };
+
+  const handleResetNotificationPreferences = () => {
+    setNotificationTouched(false);
+    setPreferences((current) => ({
+      ...current,
+      enabledNotificationRuleCodes:
+        notificationRules.length > 0 ? notificationRules.map((rule) => rule.code) : [],
+      notificationChannels: createDefaultNotificationChannels(),
+    }));
+    setToast({
+      type: "info",
+      title: "Notification Preferences Reset",
+      message: "Local notification settings were reset to their default values.",
+    });
   };
 
   const handleProfilePictureChange = async (event) => {
@@ -2193,14 +2295,75 @@ const RoleSettingsPage = () => {
                 Notification Preferences
               </h3>
               <p style={mutedValueStyles}>
-                Manage local alert preferences for barangay coordination while
-                keeping the existing rule-mapping behavior visible.
+                Manage local alert preferences for barangay coordination. These
+                settings are saved on this device for the current account while the
+                live system rules shown below still depend on the existing backend
+                notification mappings.
               </p>
             </div>
 
             <div style={{ ...gridStyles, alignItems: "start" }}>
               <article style={cardStyles}>
-                <h4 style={{ margin: 0, color: "#17324d" }}>Alert Channels</h4>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "flex-start",
+                    gap: "12px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div style={{ display: "grid", gap: "8px" }}>
+                    <h4 style={{ margin: 0, color: "#17324d" }}>Alert Channels</h4>
+                    <p style={helperTextStyles}>
+                      Choose which alert types stay enabled locally and which
+                      channel you prefer when available.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleResetNotificationPreferences}
+                    style={pageHeaderStyles.secondaryButton}
+                  >
+                    Reset to Default
+                  </button>
+                </div>
+
+                {notificationTouched &&
+                Object.values(notificationValidationErrors).some(Boolean) ? (
+                  <div
+                    style={{
+                      border: "1px solid #f0d2d8",
+                      borderRadius: "14px",
+                      padding: "14px 16px",
+                      backgroundColor: "#fff8f9",
+                      display: "grid",
+                      gap: "8px",
+                    }}
+                  >
+                    {notificationValidationErrors.notificationTypes ? (
+                      <p style={errorTextStyles}>
+                        {notificationValidationErrors.notificationTypes}
+                      </p>
+                    ) : null}
+                    {notificationValidationErrors.notificationChannels ? (
+                      <p style={errorTextStyles}>
+                        {notificationValidationErrors.notificationChannels}
+                      </p>
+                    ) : null}
+                    {notificationValidationErrors.emailAddress ? (
+                      <p style={errorTextStyles}>
+                        {notificationValidationErrors.emailAddress}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p style={helperTextStyles}>
+                    In-app alerts are enabled by default. Email preferences only
+                    affect this frontend settings profile right now.
+                  </p>
+                )}
+
                 <div style={{ overflowX: "auto" }}>
                   <table style={tableStyles.table}>
                     <thead>
@@ -2213,7 +2376,12 @@ const RoleSettingsPage = () => {
                     <tbody>
                       {BARANGAY_NOTIFICATION_OPTIONS.map((option) => (
                         <tr key={option.key}>
-                          <td style={tableStyles.td}>{option.label}</td>
+                          <td style={tableStyles.td}>
+                            <div style={{ display: "grid", gap: "6px" }}>
+                              <strong>{option.label}</strong>
+                              <p style={helperTextStyles}>{option.description}</p>
+                            </div>
+                          </td>
                           <td style={tableStyles.td}>
                             <input
                               type="checkbox"
@@ -2247,6 +2415,12 @@ const RoleSettingsPage = () => {
                 <h4 style={{ margin: 0, color: "#17324d" }}>
                   Existing Role Rule Mapping
                 </h4>
+                <p style={helperTextStyles}>
+                  These mapped rules come from the current backend role
+                  configuration. Toggling them here saves your local review
+                  preference only and does not rewrite server-side notification
+                  rules.
+                </p>
                 {notificationRules.length === 0 ? (
                   <EmptyState message="No notification rules are currently mapped to this role." />
                 ) : (
