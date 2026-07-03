@@ -1,15 +1,8 @@
 import React from "react";
-import SyncStatusBadge from "../shared/SyncStatusBadge";
-import {
-  formatDisplayDate,
-  formatUnitOfMeasurement,
-  getTotalItemQuantity,
-} from "../../features/inventory-items/inventoryItemFormatting";
-import {
-  createEmptyTrackingStats,
-  getItemStatus,
-  getItemStatusStyle,
-} from "../../features/inventory-items/inventoryItemStockStatus";
+import { FiEdit2, FiEye } from "react-icons/fi";
+import { getTotalItemQuantity } from "../../features/inventory-items/inventoryItemFormatting";
+import { getItemStatusStyle } from "../../features/inventory-items/inventoryItemStockStatus";
+import TableActionsMenu from "../shared/TableActionsMenu";
 
 const styles = {
   tableWrap: {
@@ -44,13 +37,59 @@ const styles = {
     fontSize: "14px",
     color: "#334155",
   },
+  secondaryText: {
+    marginTop: "4px",
+    color: "#6b8298",
+    fontSize: "12px",
+  },
+  shelfLifeText: {
+    color: "#4f677f",
+    fontSize: "13px",
+    lineHeight: 1.5,
+  },
+};
+
+const getShelfLifeDisplay = (expirationDate) => {
+  if (!expirationDate) {
+    return "--";
+  }
+
+  const today = new Date();
+  const comparisonDate = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+  );
+  const parsedExpirationDate = new Date(expirationDate);
+
+  if (Number.isNaN(parsedExpirationDate.getTime())) {
+    return "--";
+  }
+
+  const targetDate = new Date(
+    parsedExpirationDate.getFullYear(),
+    parsedExpirationDate.getMonth(),
+    parsedExpirationDate.getDate(),
+  );
+
+  if (Number.isNaN(targetDate.getTime())) {
+    return "--";
+  }
+
+  const diffInDays = Math.ceil(
+    (targetDate.getTime() - comparisonDate.getTime()) / (1000 * 60 * 60 * 24),
+  );
+
+  const remainingDays = Math.max(diffInDays, 0);
+
+  return `${remainingDays} day${remainingDays === 1 ? "" : "s"}`;
 };
 
 const InventoryItemsTable = ({
   rows,
   isLoading,
   errorMessage,
-  inventoryTrackingMap,
+  onEditItem,
   onViewDetails,
 }) => {
   return (
@@ -62,10 +101,9 @@ const InventoryItemsTable = ({
               "Item Name",
               "Category",
               "Quantity",
-              "Unit of Measurement",
-              "Expiry Date",
-              "Status",
-              "Sync",
+              "Shelf Life",
+              "Minimum Stock Level",
+              "Active Status",
               "Actions",
             ].map((header) => (
               <th key={header} style={styles.th}>
@@ -78,14 +116,14 @@ const InventoryItemsTable = ({
         <tbody>
           {isLoading ? (
             <tr>
-              <td colSpan="8" style={styles.emptyStateCell}>
+              <td colSpan="7" style={styles.emptyStateCell}>
                 Loading...
               </td>
             </tr>
           ) : errorMessage ? (
             <tr>
               <td
-                colSpan="8"
+                colSpan="7"
                 style={{ ...styles.emptyStateCell, color: "#b91c1c" }}
               >
                 {errorMessage}
@@ -93,16 +131,14 @@ const InventoryItemsTable = ({
             </tr>
           ) : rows.length === 0 ? (
             <tr>
-              <td colSpan="8" style={styles.emptyStateCell}>
+              <td colSpan="7" style={styles.emptyStateCell}>
                 No items found
               </td>
             </tr>
           ) : (
             rows.map((item, index) => {
-              const trackingStats =
-                inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
-              const itemStatus = getItemStatus(item, trackingStats);
-              const itemStatusStyle = getItemStatusStyle(itemStatus);
+              const activeStatus = item.is_active === false ? "Inactive" : "Active";
+              const activeStatusStyle = getItemStatusStyle(activeStatus);
 
               const itemName =
                 item.item_name ??
@@ -112,11 +148,20 @@ const InventoryItemsTable = ({
 
               return (
                 <tr key={item.id || index} style={styles.tr}>
-                  <td style={styles.td}>{itemName}</td>
+                  <td style={styles.td}>
+                    <div>{itemName}</div>
+                    <div style={styles.secondaryText}>
+                      {item.packaging ? `Packaging: ${item.packaging}` : "Packaging: --"}
+                    </div>
+                  </td>
                   <td style={styles.td}>{item.category ?? "--"}</td>
-                  <td style={styles.td}>{getTotalItemQuantity(item) ?? "0"}</td>
-                  <td style={styles.td}>{formatUnitOfMeasurement(item) ?? "--"}</td>
-                  <td style={styles.td}>{formatDisplayDate(item.expiration_date)}</td>
+                  <td style={styles.td}>{getTotalItemQuantity(item)}</td>
+                  <td style={styles.td}>
+                    <div style={styles.shelfLifeText}>
+                      {getShelfLifeDisplay(item.expiration_date)}
+                    </div>
+                  </td>
+                  <td style={styles.td}>{item.reorder_level ?? "--"}</td>
                   <td style={styles.td}>
                     <span
                       style={{
@@ -124,34 +169,41 @@ const InventoryItemsTable = ({
                         borderRadius: "8px",
                         fontSize: "12px",
                         fontWeight: 600,
-                        background: itemStatusStyle.background,
-                        color: itemStatusStyle.color,
+                        background: activeStatusStyle.background,
+                        color: activeStatusStyle.color,
                       }}
                     >
-                      {itemStatus}
+                      {activeStatus}
                     </span>
                   </td>
                   <td style={styles.td}>
-                    <SyncStatusBadge status={item.sync_status} compact />
-                  </td>
-                  <td style={styles.td}>
-                    <button
-                      type="button"
-                      onClick={() => onViewDetails?.(item.id)}
-                      style={{
-                        border: "1px solid #c6d8ea",
-                        borderRadius: "10px",
-                        padding: "8px 10px",
-                        backgroundColor: "#f8fbfe",
-                        color: "#2a4c6f",
-                        fontSize: "12px",
-                        fontWeight: 700,
-                        cursor: "pointer",
-                      }}
-                      disabled={typeof onViewDetails !== "function"}
-                    >
-                      View Details
-                    </button>
+                    <TableActionsMenu
+                      row={item}
+                      menuId={item.id || `inventory-item-${index}`}
+                      buttonTitle="Actions"
+                      buttonAriaLabel="Actions"
+                      dataPrefix="inventory-item-action"
+                      menuWidth={116}
+                      variant="icon-grid"
+                      items={[
+                        {
+                          key: "view",
+                          label: "View Details",
+                          icon: <FiEye size={18} />,
+                          disabled: typeof onViewDetails !== "function",
+                          onClick: (selectedRow) =>
+                            onViewDetails?.(selectedRow.id),
+                        },
+                        {
+                          key: "edit",
+                          label: "Edit Item",
+                          icon: <FiEdit2 size={18} />,
+                          disabled: typeof onEditItem !== "function",
+                          title: "Edit Item",
+                          onClick: (selectedRow) => onEditItem?.(selectedRow),
+                        },
+                      ]}
+                    />
                   </td>
                 </tr>
               );

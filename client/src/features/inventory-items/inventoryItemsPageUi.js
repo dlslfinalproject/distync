@@ -89,23 +89,11 @@ export const buildInventoryItemFilters = (filters) => {
 };
 
 export const getInventoryPageTabs = () => {
-  return [
-    { key: "overview", label: "Inventory List" },
-    { key: "analytics", label: "Tracking Summary" },
-    { key: "forecasting", label: "Forecasting" },
-  ];
+  return [{ key: "overview", label: "Inventory Items" }];
 };
 
 export const getInventorySectionTitle = (activeTab) => {
-  if (activeTab === "overview") {
-    return "ITEM STOCK TRACKING";
-  }
-
-  if (activeTab === "analytics") {
-    return "TRACKING SUMMARY";
-  }
-
-  return "FORECASTING SUMMARY";
+  return "INVENTORY ITEM RECORDS";
 };
 
 export const getInventoryAnalyticsCards = (inventoryAnalytics) => {
@@ -113,7 +101,12 @@ export const getInventoryAnalyticsCards = (inventoryAnalytics) => {
     {
       title: "Items With Stock On Hand",
       value: inventoryAnalytics.availableItems,
-      detail: "Registered items that still have remaining available stock.",
+      detail: "Registered relief goods that still have remaining available stock.",
+    },
+    {
+      title: "Low Stock Items",
+      value: inventoryAnalytics.lowStockItems,
+      detail: "Inventory items already at or below their minimum stock threshold.",
     },
     {
       title: "Items Already Distributed",
@@ -121,9 +114,14 @@ export const getInventoryAnalyticsCards = (inventoryAnalytics) => {
       detail: "Inventory items that already have recorded distribution activity.",
     },
     {
-      title: "Items With Expired Stock",
-      value: inventoryAnalytics.expiredItems,
-      detail: "Inventory items with expired stock records that still need attention.",
+      title: "Expiring Inventory Items",
+      value: inventoryAnalytics.expiringSoonItems,
+      detail: "Inventory items with stock nearing expiration that need closer monitoring.",
+    },
+    {
+      title: "Out of Stock Items",
+      value: inventoryAnalytics.outOfStockItems,
+      detail: "Registered inventory items that currently have no stock on hand.",
     },
     {
       title: "Perishable Goods",

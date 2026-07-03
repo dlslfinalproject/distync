@@ -24,10 +24,6 @@ const activeChipPalette = {
     backgroundColor: "#e0f2fe",
     color: "#075985",
   },
-  Distributed: {
-    backgroundColor: "#dbeafe",
-    color: "#1d4ed8",
-  },
   Expired: {
     backgroundColor: "#fee2e2",
     color: "#b91c1c",
@@ -36,9 +32,13 @@ const activeChipPalette = {
     backgroundColor: "#ede9fe",
     color: "#6d28d9",
   },
-  Inactive: {
-    backgroundColor: "#f1f5f9",
-    color: "#475569",
+  "Low Stock": {
+    backgroundColor: "#fff7ed",
+    color: "#c2410c",
+  },
+  "Out of Stock": {
+    backgroundColor: "#fee2e2",
+    color: "#b91c1c",
   },
 };
 
@@ -99,7 +99,7 @@ const InventoryFilters = ({ filters, onFilterChange }) => {
           <SearchBar
             value={filters.search}
             onChange={(value) => onFilterChange("search", value)}
-            placeholder="Search item name or code"
+            placeholder="Search item ID, name, or barcode"
           />
         </div>
       </div>
@@ -119,16 +119,9 @@ const InventoryFilters = ({ filters, onFilterChange }) => {
           ))}
         </div>
 
-        <span>Status:</span>
+        <span>Monitor:</span>
         <div style={chipGroupStyle}>
-          {[
-            "All",
-            "Available",
-            "Distributed",
-            "Expired",
-            "Expiring",
-            "Inactive",
-          ].map((status) => (
+          {["All", "Low Stock", "Expiring", "Out of Stock"].map((status) => (
             <button
               key={status}
               type="button"

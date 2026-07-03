@@ -138,6 +138,7 @@ const summarizeInventoryItem = (item) =>
     "packaging",
     "packaging_count",
     "quantity",
+    "reorder_level",
     "expiration_date",
     "barcode",
     "is_perishable",
@@ -439,8 +440,6 @@ const mapAuditLogRow = (row) => ({
   new_values_json: row.new_values_json || {},
 });
 
-const getLowStockThreshold = () => 10;
-
 const getInventoryItemDetail = async (id) => {
   const [item, relatedBatches, relatedTransactions, auditLogs, latestForecast] =
     await Promise.all([
@@ -500,7 +499,7 @@ const getInventoryItemDetail = async (id) => {
     item: {
       ...item,
       current_stock: currentStock,
-      low_stock_threshold: getLowStockThreshold(),
+      low_stock_threshold: item.reorder_level ?? null,
     },
     related_batches: relatedBatches,
     related_transactions: relatedTransactions,
