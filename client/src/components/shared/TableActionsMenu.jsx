@@ -41,6 +41,30 @@ const menuStyles = {
     fontWeight: 600,
     textAlign: "left",
   },
+  iconGridDropdown: {
+    position: "fixed",
+    background: "#fff",
+    borderRadius: "12px",
+    boxShadow: "0 8px 24px rgba(18, 39, 60, 0.16)",
+    padding: "10px",
+    zIndex: 1300,
+    display: "flex",
+    gap: "12px",
+    justifyContent: "center",
+    border: "1px solid #d7e2ef",
+  },
+  iconGridButton: {
+    width: "40px",
+    height: "40px",
+    borderRadius: "12px",
+    border: "1px solid #c6d8ea",
+    backgroundColor: "#f7fbfe",
+    color: "#24496e",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+  },
 };
 
 const getItemColor = (item) => {
@@ -69,6 +93,7 @@ const TableActionsMenu = ({
   menuWidth = 176,
   onToggle,
   dataPrefix = "table-actions",
+  variant = "default",
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState({
@@ -138,7 +163,10 @@ const TableActionsMenu = ({
     event.preventDefault();
 
     const buttonRect = event.currentTarget.getBoundingClientRect();
-    const dropdownHeight = Math.max(availableItems.length * 52, 64);
+    const dropdownHeight =
+      variant === "icon-grid"
+        ? 64
+        : Math.max(availableItems.length * 52, 64);
     const spacing = 8;
 
     const shouldOpenUpward =
@@ -186,7 +214,9 @@ const TableActionsMenu = ({
       {isOpen ? (
         <div
           style={{
-            ...menuStyles.dropdown,
+            ...(variant === "icon-grid"
+              ? menuStyles.iconGridDropdown
+              : menuStyles.dropdown),
             width: `${menuWidth}px`,
             top: `${menuPosition.top}px`,
             left: `${menuPosition.left}px`,
@@ -204,14 +234,19 @@ const TableActionsMenu = ({
                 setIsOpen(false);
               }}
               style={{
-                ...menuStyles.dropdownButton,
+                ...(variant === "icon-grid"
+                  ? menuStyles.iconGridButton
+                  : menuStyles.dropdownButton),
                 color: getItemColor(item),
+                opacity: item.disabled ? 0.7 : 1,
+                cursor: item.disabled ? "not-allowed" : "pointer",
               }}
               disabled={item.disabled}
               title={item.title || item.label}
+              aria-label={item.label}
             >
               {item.icon ? item.icon : null}
-              <span>{item.label}</span>
+              {variant === "icon-grid" ? null : <span>{item.label}</span>}
             </button>
           ))}
         </div>

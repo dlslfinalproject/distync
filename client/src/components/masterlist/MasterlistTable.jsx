@@ -1,6 +1,6 @@
 import React from "react";
+import { FiEdit2, FiEye, FiLogIn, FiLogOut } from "react-icons/fi";
 import { shellStyles } from "../layout/BarangayLayout";
-import { MdDoorFront } from "react-icons/md";
 import SyncStatusBadge from "../shared/SyncStatusBadge";
 import EmptyState from "../shared/EmptyState";
 import ErrorState from "../shared/ErrorState";
@@ -296,7 +296,7 @@ const MasterlistTable = ({
                         style={tableStyles.departureButton}
                         title="Mark Departed"
                       >
-                        <MdDoorFront size={18} />
+                        <FiLogOut size={18} />
                       </button>
                     ) : (
                       "-"
@@ -320,12 +320,15 @@ const MasterlistTable = ({
                         console.log("Selected row:", selectedRow);
                       }}
                       dataPrefix="masterlist-action"
+                      menuWidth={116}
+                      variant="icon-grid"
                       items={
                         row.is_operationally_active === false
                           ? [
                               {
                                 key: "view",
                                 label: "View Details",
+                                icon: <FiEye size={18} />,
                                 disabled: typeof onViewHousehold !== "function",
                                 onClick: (selectedRow) =>
                                   onViewHousehold?.(selectedRow.household_id),
@@ -333,6 +336,7 @@ const MasterlistTable = ({
                               {
                                 key: "return",
                                 label: "Re-admit Household",
+                                icon: <FiLogIn size={18} />,
                                 disabled:
                                   typeof onRestoreHousehold !== "function",
                                 title: "Re-admit Household",
@@ -344,6 +348,7 @@ const MasterlistTable = ({
                               {
                                 key: "view",
                                 label: "View Details",
+                                icon: <FiEye size={18} />,
                                 disabled: typeof onViewHousehold !== "function",
                                 onClick: (selectedRow) =>
                                   onViewHousehold?.(selectedRow.household_id),
@@ -351,6 +356,7 @@ const MasterlistTable = ({
                               {
                                 key: "edit",
                                 label: "Edit Household",
+                                icon: <FiEdit2 size={18} />,
                                 disabled:
                                   typeof onEditHousehold !== "function",
                                 title: "Edit Household",
