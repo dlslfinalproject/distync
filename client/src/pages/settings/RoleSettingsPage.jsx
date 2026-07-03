@@ -118,6 +118,18 @@ const mutedValueStyles = {
   lineHeight: 1.6,
 };
 
+const helperTextStyles = {
+  ...mutedValueStyles,
+  fontSize: "12px",
+  lineHeight: 1.5,
+};
+
+const errorTextStyles = {
+  ...helperTextStyles,
+  color: "#b2434f",
+  fontWeight: 700,
+};
+
 const inputStyles = {
   field: {
     minHeight: "44px",
@@ -129,6 +141,40 @@ const inputStyles = {
     fontSize: "14px",
     width: "100%",
     boxSizing: "border-box",
+  },
+  lockedField: {
+    backgroundColor: "#eef5fc",
+    color: "#4f6780",
+  },
+  errorField: {
+    borderColor: "#d46975",
+    boxShadow: "0 0 0 1px rgba(212, 105, 117, 0.12)",
+  },
+  phoneInputGroup: {
+    display: "flex",
+    alignItems: "stretch",
+    width: "100%",
+  },
+  phonePrefix: {
+    minHeight: "44px",
+    minWidth: "124px",
+    border: "1px solid #c9d7e6",
+    borderRight: "none",
+    borderRadius: "12px 0 0 12px",
+    padding: "10px 12px",
+    fontSize: "14px",
+    color: "#21405f",
+    backgroundColor: "#eef5fc",
+    boxSizing: "border-box",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: 700,
+    flexShrink: 0,
+  },
+  phoneField: {
+    borderRadius: "0 12px 12px 0",
+    flex: 1,
   },
   textarea: {
     minHeight: "96px",
@@ -223,22 +269,14 @@ const EDITABLE_BARANGAY_SECTION_KEYS = new Set([
   "notification-preferences",
 ]);
 
+const BARANGAY_POSITION_LABEL = "Barangay Official";
+
 const BARANGAY_NOTIFICATION_OPTIONS = [
   { key: "disasterAlerts", label: "Disaster Alerts" },
   { key: "distributionSchedules", label: "Distribution Schedules" },
   { key: "reliefArrivalNotifications", label: "Relief Arrival Notifications" },
   { key: "attendanceReminders", label: "Attendance Reminders" },
   { key: "systemAnnouncements", label: "System Announcements" },
-];
-
-const BARANGAY_POSITION_OPTIONS = [
-  "Barangay Captain",
-  "Barangay Secretary",
-  "Barangay Kagawad",
-  "Barangay Treasurer",
-  "Barangay Health Worker",
-  "SK Chairperson",
-  "Barangay Official",
 ];
 
 const createDefaultNotificationChannels = () =>
@@ -255,7 +293,7 @@ const createDefaultRolePreferences = () => ({
   preferredExportFormat: "excel",
   profile: {
     fullName: "",
-    position: "Barangay Official",
+    position: BARANGAY_POSITION_LABEL,
     contactNumber: "",
     emailAddress: "",
     profilePictureDataUrl: "",
@@ -271,6 +309,77 @@ const createDefaultRolePreferences = () => ({
     lastPreferenceSaveAt: "",
   },
 });
+
+const normalizePhilippineContactNumber = (value = "") => {
+  const rawValue = String(value || "").trim();
+
+  if (!rawValue) {
+    return "";
+  }
+
+  const compactValue = rawValue.replace(/[^\d+]/g, "");
+
+  if (compactValue.startsWith("+")) {
+    return `+${compactValue.slice(1).replace(/\D/g, "").slice(0, 12)}`;
+  }
+
+  const digitsOnly = compactValue.replace(/\D/g, "");
+
+  if (!digitsOnly) {
+    return "";
+  }
+
+  if (digitsOnly.startsWith("09")) {
+    return `+63${digitsOnly.slice(1, 11)}`;
+  }
+
+  if (digitsOnly.startsWith("639")) {
+    return `+${digitsOnly.slice(0, 12)}`;
+  }
+
+  if (digitsOnly.startsWith("9")) {
+    return `+63${digitsOnly.slice(0, 10)}`;
+  }
+
+  if (digitsOnly.startsWith("63")) {
+    return `+${digitsOnly.slice(0, 12)}`;
+  }
+
+  return `+63${digitsOnly.slice(0, 10)}`;
+};
+
+const formatPhilippineContactNumberForDisplay = (value = "") => {
+  const normalizedValue = normalizePhilippineContactNumber(value);
+
+  if (!normalizedValue.startsWith("+639")) {
+    return normalizedValue.replace(/^\+63/, "");
+  }
+
+  const localDigits = normalizedValue.slice(3, 13);
+  const firstBlock = localDigits.slice(0, 3);
+  const secondBlock = localDigits.slice(3, 6);
+  const thirdBlock = localDigits.slice(6, 10);
+
+  return [firstBlock, secondBlock, thirdBlock].filter(Boolean).join(" ");
+};
+
+const getBarangayProfileValidationErrors = (profile = {}) => {
+  const errors = {};
+  const fullName = String(profile.fullName || "").trim();
+  const contactNumber = String(profile.contactNumber || "").trim();
+
+  if (!fullName) {
+    errors.fullName = "Full name is required.";
+  }
+
+  if (!contactNumber) {
+    errors.contactNumber = "Contact number is required.";
+  } else if (!/^\+639\d{9}$/.test(contactNumber)) {
+    errors.contactNumber = "Use the format 912 345 6789 after PH +63.";
+  }
+
+  return errors;
+};
 
 const normalizeRolePreferences = (value = {}) => {
   const defaults = createDefaultRolePreferences();
@@ -682,6 +791,14 @@ const RoleSettingsPage = () => {
     type: "info",
     title: "",
   });
+  const [profileErrors, setProfileErrors] = useState({
+    fullName: "",
+    contactNumber: "",
+  });
+  const [profileTouched, setProfileTouched] = useState({
+    fullName: false,
+    contactNumber: false,
+  });
   const profilePictureInputRef = useRef(null);
 
   const roleMeta = useMemo(() => getRoleMeta(currentRole), [currentRole]);
@@ -756,6 +873,62 @@ const RoleSettingsPage = () => {
       };
     });
   }, [authenticatedUser]);
+
+  useEffect(() => {
+    if (!isBarangayRole) {
+      setProfileErrors({
+        fullName: "",
+        contactNumber: "",
+      });
+      setProfileTouched({
+        fullName: false,
+        contactNumber: false,
+      });
+      return;
+    }
+
+    const lockedEmailAddress = authenticatedUser?.email || "";
+    const normalizedContactNumber = preferences.profile.contactNumber
+      ? normalizePhilippineContactNumber(preferences.profile.contactNumber)
+      : "";
+
+    setPreferences((current) => {
+      if (
+        current.profile.position === BARANGAY_POSITION_LABEL &&
+        current.profile.emailAddress === lockedEmailAddress &&
+        current.profile.contactNumber === normalizedContactNumber
+      ) {
+        return current;
+      }
+
+      return {
+        ...current,
+        profile: {
+          ...current.profile,
+          position: BARANGAY_POSITION_LABEL,
+          contactNumber: normalizedContactNumber,
+          emailAddress: lockedEmailAddress,
+        },
+      };
+    });
+  }, [authenticatedUser?.email, isBarangayRole, preferences.profile.contactNumber]);
+
+  useEffect(() => {
+    if (!isBarangayRole) {
+      return;
+    }
+
+    const validationErrors = getBarangayProfileValidationErrors(preferences.profile);
+
+    setProfileErrors({
+      fullName: validationErrors.fullName || "",
+      contactNumber: validationErrors.contactNumber || "",
+    });
+  }, [
+    isBarangayRole,
+    preferences.profile.contactNumber,
+    preferences.profile.fullName,
+  ]);
 
   useEffect(() => {
     if (!notificationRules.length) {
@@ -1004,11 +1177,55 @@ const RoleSettingsPage = () => {
       return;
     }
 
+    const trimmedFullName = preferences.profile.fullName.trim();
+    const normalizedContactNumber = isBarangayRole
+      ? normalizePhilippineContactNumber(preferences.profile.contactNumber)
+      : preferences.profile.contactNumber;
+    const lockedEmailAddress = authenticatedUser.email || preferences.profile.emailAddress;
+
+    if (isBarangayRole) {
+      const validationErrors = getBarangayProfileValidationErrors({
+        ...preferences.profile,
+        fullName: trimmedFullName,
+        position: BARANGAY_POSITION_LABEL,
+        contactNumber: normalizedContactNumber,
+        emailAddress: lockedEmailAddress,
+      });
+
+      setProfileTouched({
+        fullName: true,
+        contactNumber: true,
+      });
+      setProfileErrors({
+        fullName: validationErrors.fullName || "",
+        contactNumber: validationErrors.contactNumber || "",
+      });
+
+      if (Object.values(validationErrors).some(Boolean)) {
+        setToast({
+          type: "error",
+          title: "Profile Settings Incomplete",
+          message: "Review the barangay profile fields before saving.",
+        });
+        return;
+      }
+    }
+
     setIsSavingPreferences(true);
 
     try {
+      const updatedProfile = isBarangayRole
+        ? {
+            ...preferences.profile,
+            fullName: trimmedFullName,
+            position: BARANGAY_POSITION_LABEL,
+            contactNumber: normalizedContactNumber,
+            emailAddress: lockedEmailAddress,
+          }
+        : preferences.profile;
       const updatedSettings = {
         ...preferences,
+        profile: updatedProfile,
         metadata: {
           ...preferences.metadata,
           lastPreferenceSaveAt: new Date().toISOString(),
@@ -1039,16 +1256,32 @@ const RoleSettingsPage = () => {
   };
 
   const handleProfileFieldChange = (field, value) => {
+    const nextValue =
+      isBarangayRole && field === "contactNumber"
+        ? normalizePhilippineContactNumber(value)
+        : value;
+
     setPreferences((current) => ({
       ...current,
       profile: {
         ...current.profile,
-        [field]: value,
+        [field]: nextValue,
       },
       metadata: {
         ...current.metadata,
         lastProfileUpdateAt: new Date().toISOString(),
       },
+    }));
+  };
+
+  const handleProfileFieldBlur = (field) => {
+    if (!isBarangayRole) {
+      return;
+    }
+
+    setProfileTouched((current) => ({
+      ...current,
+      [field]: true,
     }));
   };
 
@@ -1410,18 +1643,11 @@ const RoleSettingsPage = () => {
               <div style={{ display: "grid", gap: "8px", flex: "1 1 320px" }}>
                 <h3 style={{ margin: 0, color: "#17324d" }}>Profile Settings</h3>
                 <p style={mutedValueStyles}>
-                  Manage the barangay official identity shown in this frontend
-                  client while keeping the assigned barangay locked for coordination
-                  safety.
+                  Update editable barangay profile details here while keeping the
+                  assigned role, account email, and linked barangay locked for
+                  coordination safety.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setActiveSection("security")}
-                style={pageHeaderStyles.secondaryButton}
-              >
-                Change Password
-              </button>
             </div>
 
             <div style={{ ...gridStyles, alignItems: "start" }}>
@@ -1436,28 +1662,40 @@ const RoleSettingsPage = () => {
                     onChange={(event) =>
                       handleProfileFieldChange("fullName", event.target.value)
                     }
-                    style={inputStyles.field}
+                    onBlur={() => handleProfileFieldBlur("fullName")}
+                    style={{
+                      ...inputStyles.field,
+                      ...(profileTouched.fullName && profileErrors.fullName
+                        ? inputStyles.errorField
+                        : {}),
+                    }}
                   />
+                  {profileTouched.fullName && profileErrors.fullName ? (
+                    <p style={errorTextStyles}>{profileErrors.fullName}</p>
+                  ) : (
+                    <p style={helperTextStyles}>
+                      Keep this updated for spelling or naming corrections.
+                    </p>
+                  )}
                 </div>
 
                 <div style={{ display: "grid", gap: "8px" }}>
                   <label htmlFor="barangay-profile-position" style={labelStyles}>
                     Position
                   </label>
-                  <select
+                  <input
                     id="barangay-profile-position"
-                    value={preferences.profile.position}
-                    onChange={(event) =>
-                      handleProfileFieldChange("position", event.target.value)
-                    }
-                    style={inputStyles.field}
-                  >
-                    {BARANGAY_POSITION_OPTIONS.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
+                    value={BARANGAY_POSITION_LABEL}
+                    readOnly
+                    style={{
+                      ...inputStyles.field,
+                      ...inputStyles.lockedField,
+                    }}
+                  />
+                  <p style={helperTextStyles}>
+                    Assigned role for this account. Barangay users cannot edit this
+                    field.
+                  </p>
                 </div>
 
                 <div style={{ display: "grid", gap: "8px" }}>
@@ -1470,25 +1708,50 @@ const RoleSettingsPage = () => {
                     readOnly
                     style={{
                       ...inputStyles.field,
-                      backgroundColor: "#eef5fc",
-                      color: "#4f6780",
+                      ...inputStyles.lockedField,
                     }}
                   />
+                  <p style={helperTextStyles}>
+                    This barangay assignment is linked to the account and stays
+                    locked.
+                  </p>
                 </div>
 
                 <div style={{ display: "grid", gap: "8px" }}>
                   <label htmlFor="barangay-profile-contact" style={labelStyles}>
                     Contact Number
                   </label>
-                  <input
-                    id="barangay-profile-contact"
-                    value={preferences.profile.contactNumber}
-                    onChange={(event) =>
-                      handleProfileFieldChange("contactNumber", event.target.value)
-                    }
-                    placeholder="Enter barangay contact number"
-                    style={inputStyles.field}
-                  />
+                  <div style={inputStyles.phoneInputGroup}>
+                    <div style={inputStyles.phonePrefix}>PH +63</div>
+                    <input
+                      id="barangay-profile-contact"
+                      type="text"
+                      inputMode="numeric"
+                      value={formatPhilippineContactNumberForDisplay(
+                        preferences.profile.contactNumber,
+                      )}
+                      onChange={(event) =>
+                        handleProfileFieldChange("contactNumber", event.target.value)
+                      }
+                      onBlur={() => handleProfileFieldBlur("contactNumber")}
+                      placeholder="912 345 6789"
+                      maxLength={12}
+                      style={{
+                        ...inputStyles.field,
+                        ...inputStyles.phoneField,
+                        ...(profileTouched.contactNumber && profileErrors.contactNumber
+                          ? inputStyles.errorField
+                          : {}),
+                      }}
+                    />
+                  </div>
+                  {profileTouched.contactNumber && profileErrors.contactNumber ? (
+                    <p style={errorTextStyles}>{profileErrors.contactNumber}</p>
+                  ) : (
+                    <p style={helperTextStyles}>
+                      Enter the mobile number after the fixed `+63` prefix.
+                    </p>
+                  )}
                 </div>
 
                 <div style={{ display: "grid", gap: "8px" }}>
@@ -1498,12 +1761,17 @@ const RoleSettingsPage = () => {
                   <input
                     id="barangay-profile-email"
                     type="email"
-                    value={preferences.profile.emailAddress}
-                    onChange={(event) =>
-                      handleProfileFieldChange("emailAddress", event.target.value)
-                    }
-                    style={inputStyles.field}
+                    value={authenticatedUser?.email || preferences.profile.emailAddress}
+                    readOnly
+                    style={{
+                      ...inputStyles.field,
+                      ...inputStyles.lockedField,
+                    }}
                   />
+                  <p style={helperTextStyles}>
+                    Account email is locked to protect sign-in and verification
+                    integrity.
+                  </p>
                 </div>
               </article>
 
