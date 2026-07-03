@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { FiFileText } from "react-icons/fi";
+import { useSearchParams } from "react-router-dom";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import ExportModal from "../../components/shared/ExportModal";
@@ -70,6 +71,7 @@ const buildQueuedBatch = (entry, inventoryItems, suppliers) => {
 };
 
 const InventoryBatchesPage = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [filters, setFilters] = useState({
     search: "",
     inventory_item_id: "",
@@ -97,8 +99,11 @@ const InventoryBatchesPage = () => {
     type: "",
     message: "",
   });
+  const [hasHandledScanRedirect, setHasHandledScanRedirect] = useState(false);
   const syncQueueEntries =
     useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
+  const initialInventoryItemId = searchParams.get("inventory_item_id") || "";
+  const shouldOpenCreateFromScan = searchParams.get("open_create") === "1";
 
   const downloadFile = (file) => {
     downloadExportFile(file);
@@ -128,6 +133,46 @@ const InventoryBatchesPage = () => {
   useEffect(() => {
     loadPageData(filters);
   }, []);
+
+  useEffect(() => {
+    if (
+      !shouldOpenCreateFromScan ||
+      !initialInventoryItemId ||
+      hasHandledScanRedirect ||
+      inventoryItems.length === 0
+    ) {
+      return;
+    }
+
+    const matchedItem = inventoryItems.find(
+      (item) => item.id === initialInventoryItemId,
+    );
+
+    if (!matchedItem) {
+      return;
+    }
+
+    setFilters((currentFilters) => ({
+      ...currentFilters,
+      inventory_item_id: initialInventoryItemId,
+    }));
+    setModalErrorMessage("");
+    setSuccessMessage("");
+    setIsModalOpen(true);
+    setHasHandledScanRedirect(true);
+
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("open_create");
+    nextParams.delete("source");
+    setSearchParams(nextParams, { replace: true });
+  }, [
+    hasHandledScanRedirect,
+    initialInventoryItemId,
+    inventoryItems,
+    searchParams,
+    setSearchParams,
+    shouldOpenCreateFromScan,
+  ]);
 
   useEffect(() => {
     const unsubscribe = subscribeToSyncUpdates(() => {
@@ -447,6 +492,7 @@ const InventoryBatchesPage = () => {
         isOpen={isModalOpen}
         inventoryItems={inventoryItems}
         suppliers={suppliers}
+        initialInventoryItemId={initialInventoryItemId}
         isSubmitting={isSubmitting}
         errorMessage={modalErrorMessage}
         onClose={handleCloseModal}
