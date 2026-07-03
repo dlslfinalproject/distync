@@ -18,6 +18,9 @@ const RESIDENCY_STATUSES = {
   nonResident: "NON_RESIDENT",
 };
 const BARANGAY_ROLE_CODE = "BARANGAY";
+const RESTORE_MODES = {
+  RETURN_TO_EVAC_CENTER: "RETURN_TO_EVAC_CENTER",
+};
 
 const buildStubQrCodeValue = ({ disasterEventId, householdId, stubNo }) => {
   return `DISTYNC-STUB|${disasterEventId}|${householdId}|${stubNo}`;
@@ -216,6 +219,71 @@ const summarizeEvacuationLog = (log) =>
     "status",
     "remarks",
   ]);
+
+const buildReturnRegistrationRequest = ({
+  householdDetails,
+  existingHousehold,
+  requester,
+  restoreData,
+}) => {
+  const familyHeadMember = (householdDetails.members || []).find(
+    (member) => member.is_family_head,
+  );
+
+  if (!familyHeadMember) {
+    const error = new Error(
+      "Family head details are missing and the household cannot be returned",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const filterManualSectorIds = (member) =>
+    (member?.sectors || [])
+      .filter((sector) => MANUAL_MEMBER_SECTOR_CODES.includes(sector.code))
+      .map((sector) => sector.id);
+
+  return {
+    disaster_event_id: existingHousehold.disaster_event_id,
+    barangay_id: existingHousehold.barangay_id,
+    evacuation_center_id: existingHousehold.evacuation_center_id,
+    residency_status: existingHousehold.residency_status,
+    contact_number: existingHousehold.contact_number || null,
+    current_stay_type: existingHousehold.current_stay_type,
+    current_address_details: existingHousehold.current_address_details || null,
+    household_size: (householdDetails.members || []).length,
+    household_sector_ids: (householdDetails.household_sectors || []).map(
+      (sector) => sector.id,
+    ),
+    family_head_photo_url: existingHousehold.family_head_photo_url || null,
+    photo_verification_notes: existingHousehold.photo_verification_notes || null,
+    registered_by: requester?.userId || existingHousehold.registered_by || null,
+    family_head: {
+      first_name: familyHeadMember.first_name,
+      middle_name: familyHeadMember.middle_name,
+      last_name: familyHeadMember.last_name,
+      suffix: familyHeadMember.suffix,
+      sex: familyHeadMember.sex,
+      age_value: familyHeadMember.age_value,
+      age_unit: familyHeadMember.age_unit,
+      sector_ids: filterManualSectorIds(familyHeadMember),
+    },
+    members: (householdDetails.members || [])
+      .filter((member) => !member.is_family_head)
+      .map((member) => ({
+        first_name: member.first_name,
+        middle_name: member.middle_name,
+        last_name: member.last_name,
+        suffix: member.suffix,
+        sex: member.sex,
+        age_value: member.age_value,
+        age_unit: member.age_unit,
+        relationship_to_head: member.relationship_to_head,
+        sector_ids: filterManualSectorIds(member),
+      })),
+    restore_remarks: restoreData.restore_remarks || null,
+  };
+};
 
 const getHouseholdDetails = async ({ householdId, requester }) => {
   const household =
@@ -1223,54 +1291,80 @@ const restoreHousehold = async ({ householdId, requester, restoreData }) => {
     throw error;
   }
 
-  if (existingHousehold.is_active) {
+  const restoreMode =
+    restoreData.restore_mode || RESTORE_MODES.RETURN_TO_EVAC_CENTER;
+  const latestAttendance =
+    await householdRegistrationRepository.getLatestAttendanceByHouseholdId(
+      householdId,
+    );
+  const latestAttendanceStatus = String(latestAttendance?.status || "").toUpperCase();
+  const hasDepartedLatestAttendance =
+    Boolean(latestAttendance?.time_out) ||
+    latestAttendanceStatus === "LEFT" ||
+    latestAttendanceStatus === "TRANSFERRED";
+
+  if (
+    restoreMode !== RESTORE_MODES.RETURN_TO_EVAC_CENTER ||
+    (existingHousehold.is_active && !hasDepartedLatestAttendance)
+  ) {
     const error = new Error("This household is already active");
     error.statusCode = 400;
     throw error;
   }
 
-  const previousHouseholdSummary = summarizeHousehold(existingHousehold);
-  const client = await pool.connect();
+  const archivedHouseholdDetails = await buildRegistrationResponse(householdId);
 
-  try {
-    await client.query("BEGIN");
+  if (existingHousehold.is_active) {
+    const client = await pool.connect();
 
-    await householdRegistrationRepository.restoreHousehold(householdId, client);
-    const restoredEvacuees =
-      await householdRegistrationRepository.reactivateEvacueesByHouseholdId(
+    try {
+      await client.query("BEGIN");
+      await householdRegistrationRepository.archiveHousehold(householdId, client);
+      await householdRegistrationRepository.deactivateEvacueesByHouseholdId(
         householdId,
         client,
       );
-
-    await client.query("COMMIT");
-
-    const restoredHouseholdDetails = await buildRegistrationResponse(householdId);
-
-    await logAuditSafely({
-      actor: requester,
-      action: "HOUSEHOLD_RESTORE",
-      entityType: "HOUSEHOLD",
-      entityId: householdId,
-      oldValues: previousHouseholdSummary,
-      newValues: {
-        ...summarizeHousehold(restoredHouseholdDetails.household),
-        restore_remarks: restoreData.restore_remarks || null,
-        restored_members_count: restoredEvacuees.length,
-      },
-    });
-
-    return {
-      household_id: householdId,
-      restored_members_count: restoredEvacuees.length,
-      status: "ACTIVE",
-      household: restoredHouseholdDetails.household,
-    };
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
+
+  const returnRegistrationRequest = buildReturnRegistrationRequest({
+    householdDetails: archivedHouseholdDetails,
+    existingHousehold,
+    requester,
+    restoreData,
+  });
+  const returnedHouseholdDetails =
+    await registerHousehold(returnRegistrationRequest);
+
+  await logAuditSafely({
+    actor: requester,
+    action: "HOUSEHOLD_RETURN_TO_EVAC_CENTER",
+    entityType: "HOUSEHOLD",
+    entityId: householdId,
+    oldValues: {
+      ...summarizeHousehold(existingHousehold),
+      restore_mode: restoreMode,
+    },
+    newValues: {
+      source_household_id: householdId,
+      new_household_id: returnedHouseholdDetails.household?.id || null,
+      restore_mode: restoreMode,
+    },
+  });
+
+  return {
+    household_id: returnedHouseholdDetails.household?.id || null,
+    source_household_id: householdId,
+    status: "ACTIVE",
+    restore_mode: restoreMode,
+    household: returnedHouseholdDetails.household,
+  };
 };
 
 module.exports = {

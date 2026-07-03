@@ -82,7 +82,10 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     useState("");
   const [pendingRestoreHouseholdId, setPendingRestoreHouseholdId] =
     useState("");
-  const [restoreRemarks, setRestoreRemarks] = useState("");
+  const [pendingRestoreHouseholdDetails, setPendingRestoreHouseholdDetails] =
+    useState(null);
+  const [isLoadingRestoreHouseholdDetails, setIsLoadingRestoreHouseholdDetails] =
+    useState(false);
   const [isRestoringHousehold, setIsRestoringHousehold] = useState(false);
   const [exportFeedback, setExportFeedback] = useState({
     type: "",
@@ -469,9 +472,19 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setIsLoadingEditHouseholdDetails(false);
   };
 
-  const handleOpenRestoreHousehold = (householdId) => {
+  const handleOpenRestoreHousehold = async (householdId) => {
     setPendingRestoreHouseholdId(householdId);
-    setRestoreRemarks("");
+    setPendingRestoreHouseholdDetails(null);
+    setIsLoadingRestoreHouseholdDetails(true);
+
+    try {
+      const details = await fetchHouseholdDetails(householdId);
+      setPendingRestoreHouseholdDetails(details);
+    } catch (_error) {
+      setPendingRestoreHouseholdDetails(null);
+    } finally {
+      setIsLoadingRestoreHouseholdDetails(false);
+    }
   };
 
   const handleCancelRestoreHousehold = () => {
@@ -480,7 +493,8 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     }
 
     setPendingRestoreHouseholdId("");
-    setRestoreRemarks("");
+    setPendingRestoreHouseholdDetails(null);
+    setIsLoadingRestoreHouseholdDetails(false);
   };
 
   const handleConfirmRestoreHousehold = async () => {
@@ -493,18 +507,18 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     try {
       const response = await restoreHousehold({
         householdId: pendingRestoreHouseholdId,
-        restoreRemarks,
       });
 
       setRegistrationSuccessMessage(
-        response.message || "Household restored successfully",
+        response.message || "Household return recorded successfully",
       );
       setPendingRestoreHouseholdId("");
-      setRestoreRemarks("");
+      setPendingRestoreHouseholdDetails(null);
+      setIsLoadingRestoreHouseholdDetails(false);
       reloadMasterlist();
     } catch (error) {
       setAttendanceActionMessage(
-        error.message || "Failed to restore household",
+        error.message || "Failed to record household return",
       );
     } finally {
       setIsRestoringHousehold(false);
@@ -594,7 +608,8 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     householdDetailsErrorMessage,
     editHouseholdErrorMessage,
     pendingRestoreHouseholdId,
-    restoreRemarks,
+    pendingRestoreHouseholdDetails,
+    isLoadingRestoreHouseholdDetails,
     isRestoringHousehold,
     exportFeedback,
     filterButtonRef,
@@ -613,7 +628,6 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setSelectedBarangayId,
     setSearchTerm,
     setSelectedExportFormat,
-    setRestoreRemarks,
     setExportFeedback,
     setIsExportModalOpen,
     setIsFilterOpen,

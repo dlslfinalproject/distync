@@ -331,11 +331,11 @@ const MasterlistTable = ({
                                   onViewHousehold?.(selectedRow.household_id),
                               },
                               {
-                                key: "restore",
-                                label: "Restore Household",
+                                key: "return",
+                                label: "Re-admit Household",
                                 disabled:
                                   typeof onRestoreHousehold !== "function",
-                                title: "Restore Household",
+                                title: "Re-admit Household",
                                 onClick: (selectedRow) =>
                                   onRestoreHousehold?.(selectedRow.household_id),
                               },

@@ -135,14 +135,14 @@ router.patch(
       });
 
       return res.status(200).json({
-        message: "Household restored successfully",
+        message: "Household return recorded successfully",
         data: restoreResult,
       });
     } catch (error) {
       const statusCode = error.statusCode || 500;
 
       return res.status(statusCode).json({
-        message: error.message || "Failed to restore household",
+        message: error.message || "Failed to record household return",
       });
     }
   },

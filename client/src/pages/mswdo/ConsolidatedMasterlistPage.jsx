@@ -50,7 +50,8 @@ const ConsolidatedEvacueeMasterlist = () => {
     householdDetailsErrorMessage,
     editHouseholdErrorMessage,
     pendingRestoreHouseholdId,
-    restoreRemarks,
+    pendingRestoreHouseholdDetails,
+    isLoadingRestoreHouseholdDetails,
     isRestoringHousehold,
     exportFeedback,
     filterButtonRef,
@@ -69,7 +70,6 @@ const ConsolidatedEvacueeMasterlist = () => {
     setSelectedBarangayId,
     setSearchTerm,
     setSelectedExportFormat,
-    setRestoreRemarks,
     setExportFeedback,
     setIsExportModalOpen,
     setIsFilterOpen,
@@ -97,6 +97,18 @@ const ConsolidatedEvacueeMasterlist = () => {
     isBulkDepartureConfirmOpen,
     isRecordingDeparture,
   } = useMswdoMasterlistPage({ authenticatedUser });
+  const pendingRestoreFamilyHeadName = pendingRestoreHouseholdDetails?.household
+    ? [
+        pendingRestoreHouseholdDetails.household.family_head_first_name,
+        pendingRestoreHouseholdDetails.household.family_head_middle_name,
+        pendingRestoreHouseholdDetails.household.family_head_last_name,
+        pendingRestoreHouseholdDetails.household.family_head_suffix,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : "";
+  const pendingRestoreFamilyHeadPhotoUrl =
+    pendingRestoreHouseholdDetails?.household?.family_head_photo_url || "";
 
   return (
     <>
@@ -253,8 +265,9 @@ const ConsolidatedEvacueeMasterlist = () => {
       <HouseholdArchiveConfirmModal
         isOpen={Boolean(pendingRestoreHouseholdId)}
         isSubmitting={isRestoringHousehold}
-        archiveRemarks={restoreRemarks}
-        onChangeArchiveRemarks={setRestoreRemarks}
+        isLoadingHouseholdDetails={isLoadingRestoreHouseholdDetails}
+        familyHeadName={pendingRestoreFamilyHeadName}
+        familyHeadPhotoUrl={pendingRestoreFamilyHeadPhotoUrl}
         onCancel={handleCancelRestoreHousehold}
         onConfirm={handleConfirmRestoreHousehold}
         mode="restore"

@@ -715,27 +715,19 @@ const getLatestAttendanceByHouseholdIds = async (householdIds) => {
   }
 
   const query = `
-    SELECT
-      ranked.household_id,
-      ranked.status,
-      ranked.time_in,
-      ranked.time_out,
-      ranked.evacuation_center_id
-    FROM (
-      SELECT
-        el.household_id,
-        el.status,
-        el.time_in,
-        el.time_out,
-        el.evacuation_center_id,
-        ROW_NUMBER() OVER (
-          PARTITION BY el.household_id
-          ORDER BY el.created_at DESC, el.time_in DESC
-        ) AS row_number
-      FROM evacuation_logs el
-      WHERE el.household_id = ANY($1::uuid[])
-    ) ranked
-    WHERE ranked.row_number = 1
+    SELECT DISTINCT ON (el.household_id)
+      el.household_id,
+      el.status,
+      el.time_in,
+      el.time_out,
+      el.evacuation_center_id
+    FROM evacuation_logs el
+    WHERE el.household_id = ANY($1::uuid[])
+    ORDER BY
+      el.household_id,
+      COALESCE(el.time_out, el.time_in) DESC,
+      el.updated_at DESC,
+      el.created_at DESC
   `;
 
   const result = await pool.query(query, [householdIds]);
