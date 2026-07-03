@@ -129,10 +129,10 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   const registrationForm = useHouseholdRegistrationForm({
     isOpen: isRegisterModalOpen,
     defaultBarangayId: selectedBarangayId || "",
-    defaultBarangayName: selectedBarangayLabel || "",
+    defaultBarangayName: selectedBarangayId ? selectedBarangayLabel || "" : "",
     defaultDisasterEventId: selectedDisasterEventId || "",
-    lockBarangaySelection: true,
-    hideBarangaySelection: true,
+    lockBarangaySelection: false,
+    hideBarangaySelection: false,
     scopeNonResidentEvacuationCentersToBarangay: true,
     registeredBy: authenticatedUser?.id || null,
     onSuccess: (response) => {
@@ -411,15 +411,6 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   const handleOpenRegisterModal = () => {
     if (!selectedDisasterEventId) {
       window.alert("Select a disaster event before registering a family.");
-      return;
-    }
-
-    if (!selectedBarangayId) {
-      setExportFeedback({
-        type: "error",
-        message:
-          "Select one barangay before registering a family. Registration cannot use the All Barangays view.",
-      });
       return;
     }
 

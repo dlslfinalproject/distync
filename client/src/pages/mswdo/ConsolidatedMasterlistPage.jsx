@@ -186,7 +186,6 @@ const ConsolidatedEvacueeMasterlist = () => {
         onClearSectorFilters={clearSectorFilters}
         onApplySectorFilters={() => setIsFilterOpen(false)}
         canRegisterFamily={canRegisterFamily}
-        selectedBarangayId={selectedBarangayId}
         onOpenRegisterModal={handleOpenRegisterModal}
         selectedDisasterEventId={selectedDisasterEventId}
         exportingFormat={exportingFormat}

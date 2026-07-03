@@ -66,7 +66,6 @@ const MswdoMasterlistControls = ({
   onClearSectorFilters,
   onApplySectorFilters,
   canRegisterFamily,
-  selectedBarangayId,
   onOpenRegisterModal,
   selectedDisasterEventId,
   exportingFormat,
@@ -195,19 +194,11 @@ const MswdoMasterlistControls = ({
           <button
             type="button"
             onClick={onOpenRegisterModal}
-            disabled={!selectedBarangayId}
-            title={
-              selectedBarangayId
-                ? "Register a family under the selected barangay"
-                : "Select one barangay before registering a family"
-            }
             style={{
               ...pageHeaderStyles.primaryButton,
               display: "flex",
               alignItems: "center",
               gap: "8px",
-              cursor: selectedBarangayId ? "pointer" : "not-allowed",
-              opacity: selectedBarangayId ? 1 : 0.65,
             }}
           >
             <FiUserPlus size={16} />
