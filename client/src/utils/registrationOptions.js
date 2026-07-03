@@ -51,6 +51,7 @@ export const HOUSEHOLD_CONDITION_CODES = [
 
 export const MASTERLIST_FILTER_SECTOR_CODES = [
   ...DISPLAY_MEMBER_SECTOR_CODES,
+  ...HOUSEHOLD_CONDITION_CODES,
 ];
 
 export const MEMBER_SECTOR_LABELS = {
@@ -67,6 +68,12 @@ export const MEMBER_SECTOR_LABELS = {
   PWD: "Persons with Disabilities",
   INDIGENOUS: "Indigenous",
   FOUR_PS: "4Ps Beneficiaries",
+};
+
+export const HOUSEHOLD_CONDITION_LABELS = {
+  CHILD_HEADED: "Child-Headed Family",
+  SINGLE_HEADED: "Single-Headed Family",
+  SOLO_PARENT: "Solo Parents",
 };
 
 export const getCanonicalMemberSectorCode = (sectorCode) => {
@@ -134,13 +141,23 @@ export const formatMemberSectorLabel = (sectorOrCode) => {
 };
 
 export const formatMasterlistFilterSectorLabel = (sector) => {
-  const canonicalCode = getCanonicalMemberSectorCode(sector?.code);
+  const sectorCode =
+    typeof sector === "string" ? sector : sector?.code;
+  const canonicalCode = getCanonicalMemberSectorCode(sectorCode);
 
-  if (MASTERLIST_FILTER_SECTOR_CODES.includes(canonicalCode)) {
+  if (DISPLAY_MEMBER_SECTOR_CODES.includes(canonicalCode)) {
     return formatMemberSectorLabel(canonicalCode);
   }
 
-  return sector?.name || "";
+  if (HOUSEHOLD_CONDITION_CODES.includes(canonicalCode)) {
+    return (
+      HOUSEHOLD_CONDITION_LABELS[canonicalCode] ||
+      (typeof sector === "object" ? sector?.name : "") ||
+      ""
+    );
+  }
+
+  return typeof sector === "object" ? sector?.name || "" : "";
 };
 
 export const isMasterlistFilterSector = (sector) => {
@@ -196,8 +213,8 @@ export const buildMasterlistFilterSectorOptions = (sectors = []) => {
       id: sectorCode,
       code: sectorCode,
       source_sector_id: matchingSector?.id || null,
-      name: matchingSector?.name || formatMemberSectorLabel(sectorCode),
-      display_name: formatMemberSectorLabel(sectorCode),
+      name: matchingSector?.name || formatMasterlistFilterSectorLabel(sectorCode),
+      display_name: formatMasterlistFilterSectorLabel(sectorCode),
     };
   });
 };
