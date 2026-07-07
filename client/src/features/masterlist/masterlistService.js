@@ -2,7 +2,11 @@ import {
   buildOfflineQueuedResponse,
   performSyncableMutation,
 } from "../../offline/syncService";
-import { getCanonicalMemberSectorCode } from "../../utils/registrationOptions";
+import {
+  MASTERLIST_FILTER_SECTOR_CODES,
+  formatMasterlistFilterSectorLabel,
+  getCanonicalMemberSectorCode,
+} from "../../utils/registrationOptions";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -32,18 +36,48 @@ export const formatDateTime = (value) => {
 };
 
 export const buildSectorsText = (household) => {
-  const householdSectorNames = (household.household_sectors || []).map(
-    (sector) => sector.name,
+  const orderIndexByCode = new Map(
+    MASTERLIST_FILTER_SECTOR_CODES.map((sectorCode, index) => [sectorCode, index]),
   );
-  const memberSectorNames = (household.members || []).flatMap((member) =>
-    (member.sectors || []).map((sector) => sector.name),
-  );
-
-  const uniqueSectorNames = [
-    ...new Set([...householdSectorNames, ...memberSectorNames]),
+  const sectors = [
+    ...(household.household_sectors || []),
+    ...(household.members || []).flatMap((member) => member.sectors || []),
   ];
+  const uniqueSectorsByCode = new Map();
 
-  return uniqueSectorNames.length > 0 ? uniqueSectorNames.join(", ") : "-";
+  sectors.forEach((sector) => {
+    const canonicalCode = getCanonicalMemberSectorCode(sector?.code);
+
+    if (!canonicalCode || uniqueSectorsByCode.has(canonicalCode)) {
+      return;
+    }
+
+    uniqueSectorsByCode.set(canonicalCode, sector);
+  });
+
+  const orderedSectorLabels = [...uniqueSectorsByCode.entries()]
+    .sort(([leftCode], [rightCode]) => {
+      const leftIndex = orderIndexByCode.get(leftCode);
+      const rightIndex = orderIndexByCode.get(rightCode);
+
+      if (leftIndex !== undefined && rightIndex !== undefined) {
+        return leftIndex - rightIndex;
+      }
+
+      if (leftIndex !== undefined) {
+        return -1;
+      }
+
+      if (rightIndex !== undefined) {
+        return 1;
+      }
+
+      return String(leftCode).localeCompare(String(rightCode));
+    })
+    .map(([, sector]) => formatMasterlistFilterSectorLabel(sector))
+    .filter(Boolean);
+
+  return orderedSectorLabels.length > 0 ? orderedSectorLabels.join(", ") : "-";
 };
 
 export const mapMasterlistRow = (household) => {

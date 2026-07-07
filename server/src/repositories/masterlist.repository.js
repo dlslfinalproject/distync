@@ -93,7 +93,6 @@ const getBarangayScopedDisasterEventsByStatuses = async (
       LEFT JOIN households h
         ON h.disaster_event_id = de.id
         AND h.barangay_id = $1
-        AND h.is_active = TRUE
       WHERE (deb.barangay_id IS NOT NULL OR h.id IS NOT NULL)
         AND de.status = ANY($2::text[])
     ) scoped
@@ -129,7 +128,6 @@ const getBarangayScopedDisasterEventById = async (
     LEFT JOIN households h
       ON h.disaster_event_id = de.id
       AND h.barangay_id = $2
-      AND h.is_active = TRUE
     WHERE de.id = $1
       AND (deb.barangay_id IS NOT NULL OR h.id IS NOT NULL)
     LIMIT 1
@@ -146,7 +144,6 @@ const getBarangayDashboardMetrics = async (disasterEventId, barangayId) => {
       FROM households h
       WHERE h.disaster_event_id = $1
         AND h.barangay_id = $2
-        AND h.is_active = TRUE
     ),
     scoped_evacuees AS (
       SELECT e.id

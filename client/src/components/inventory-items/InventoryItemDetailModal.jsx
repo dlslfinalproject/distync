@@ -3,6 +3,10 @@ import DetailsModalShell from "../shared/DetailsModalShell";
 import EmptyState from "../shared/EmptyState";
 import ErrorState from "../shared/ErrorState";
 import LoadingState from "../shared/LoadingState";
+import {
+  formatUnitOfMeasurement,
+  getTotalItemQuantity,
+} from "../../features/inventory-items/inventoryItemFormatting";
 
 const modalStyles = {
   sectionCard: {
@@ -125,9 +129,9 @@ const InventoryItemDetailModal = ({
             {[
               ["Item", `${item.item_name || "--"} (${item.item_code || "--"})`],
               ["Category", item.category || "--"],
-              ["Unit", item.unit_of_measure || "--"],
-              ["Current Stock", String(item.current_stock ?? 0)],
-              ["Low Stock Threshold", `${item.low_stock_threshold ?? "--"} units`],
+              ["Unit", formatUnitOfMeasurement(item)],
+              ["Quantity", getTotalItemQuantity(item)],
+              ["Minimum Stock Level", item.low_stock_threshold ?? "--"],
               ["Expiry Date", formatDate(item.expiration_date)],
             ].map(([label, value]) => (
               <div key={label} style={modalStyles.sectionCard}>

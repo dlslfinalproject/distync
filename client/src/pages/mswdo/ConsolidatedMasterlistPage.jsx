@@ -27,6 +27,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     selectedBarangayId,
     selectedDisasterEvent,
     searchTerm,
+    selectedRecordStatus,
     displayedRows,
     summaryMetrics,
     isLoadingFilters,
@@ -36,6 +37,10 @@ const ConsolidatedEvacueeMasterlist = () => {
     dashboardErrorMessage,
     activeTab,
     selectedHouseholds,
+    pendingDepartureFamilyHeadName,
+    pendingDepartureFamilyHeadPhotoUrl,
+    pendingBulkDepartureHouseholds,
+    isLoadingDepartureHouseholdDetails,
     isFilterOpen,
     filterPanelPosition,
     isExportModalOpen,
@@ -64,6 +69,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     endedEventDateTimeText,
     hasActiveSectorFilters,
     scopedDisasterEvents,
+    selectableBarangays,
     registrationForm,
     editHouseholdForm,
     setSelectedDisasterEventId,
@@ -74,6 +80,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     setIsExportModalOpen,
     setIsFilterOpen,
     handleEventScopeChange,
+    handleRecordStatusChange,
     handleToggleSelect,
     handleSelectAll,
     handleOpenBulkDepartureConfirmation,
@@ -81,6 +88,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     handleCloseDepartureConfirmation,
     handleConfirmDeparture,
     handleOpenRegisterModal,
+    handleCloseRegisterModal,
     handleOpenHouseholdDetails,
     handleCloseHouseholdDetails,
     handleOpenEditHousehold,
@@ -120,7 +128,7 @@ const ConsolidatedEvacueeMasterlist = () => {
         scopedDisasterEvents={scopedDisasterEvents}
         selectedDisasterEventId={selectedDisasterEventId}
         selectedBarangayId={selectedBarangayId}
-        barangays={barangays}
+        barangays={selectableBarangays}
         onEventScopeChange={handleEventScopeChange}
         onDisasterEventChange={setSelectedDisasterEventId}
         onBarangayChange={setSelectedBarangayId}
@@ -170,6 +178,8 @@ const ConsolidatedEvacueeMasterlist = () => {
       <MswdoMasterlistControls
         searchTerm={searchTerm}
         onSearchChange={setSearchTerm}
+        recordStatus={selectedRecordStatus}
+        onRecordStatusChange={handleRecordStatusChange}
         filterButtonRef={filterButtonRef}
         filterPanelRef={filterPanelRef}
         isFilterOpen={isFilterOpen}
@@ -182,7 +192,6 @@ const ConsolidatedEvacueeMasterlist = () => {
         onClearSectorFilters={clearSectorFilters}
         onApplySectorFilters={() => setIsFilterOpen(false)}
         canRegisterFamily={canRegisterFamily}
-        selectedBarangayId={selectedBarangayId}
         onOpenRegisterModal={handleOpenRegisterModal}
         selectedDisasterEventId={selectedDisasterEventId}
         exportingFormat={exportingFormat}
@@ -212,9 +221,13 @@ const ConsolidatedEvacueeMasterlist = () => {
       <MasterlistDepartureConfirmModal
         isOpen={Boolean(pendingDepartureHouseholdId) || isBulkDepartureConfirmOpen}
         isSubmitting={isRecordingDeparture}
+        isLoadingHouseholdDetails={isLoadingDepartureHouseholdDetails}
         onCancel={handleCloseDepartureConfirmation}
         onConfirm={handleConfirmDeparture}
         selectedCount={isBulkDepartureConfirmOpen ? selectedHouseholds.length : 1}
+        familyHeadName={pendingDepartureFamilyHeadName}
+        familyHeadPhotoUrl={pendingDepartureFamilyHeadPhotoUrl}
+        selectedHouseholdsPreview={pendingBulkDepartureHouseholds}
       />
 
       <ExportModal
@@ -243,7 +256,7 @@ const ConsolidatedEvacueeMasterlist = () => {
 
       <RegisterFamilyModal
         isOpen={isRegisterModalOpen}
-        onClose={() => setIsRegisterModalOpen(false)}
+        onClose={handleCloseRegisterModal}
         form={registrationForm}
       />
 

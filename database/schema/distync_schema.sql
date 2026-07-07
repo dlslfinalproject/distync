@@ -373,6 +373,7 @@ CREATE TABLE public.inventory_items (
   quantity integer CHECK (quantity IS NULL OR quantity > 0),
   packaging_count integer CHECK (packaging_count IS NULL OR packaging_count > 0),
   unit_of_measure_value numeric CHECK (unit_of_measure_value IS NULL OR unit_of_measure_value > 0::numeric),
+  reorder_level integer CHECK (reorder_level IS NULL OR reorder_level > 0),
   expiration_date date,
   CONSTRAINT inventory_items_pkey PRIMARY KEY (id)
 );

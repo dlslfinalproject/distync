@@ -9,6 +9,7 @@ export const buildQueuedInventoryItem = (entry) => {
     packaging_count: entry.payload?.packaging_count || 0,
     unit_of_measure: entry.payload?.unit_of_measure || "--",
     unit_of_measure_value: entry.payload?.unit_of_measure_value || 1,
+    reorder_level: entry.payload?.reorder_level || null,
     expiration_date: entry.payload?.expiration_date || null,
     is_active: true,
     is_perishable: Boolean(entry.payload?.is_perishable),

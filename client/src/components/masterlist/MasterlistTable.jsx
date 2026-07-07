@@ -66,6 +66,19 @@ const tableStyles = {
     fontSize: "12px",
     fontWeight: 700,
   },
+  archivedRow: {
+    backgroundColor: "#f8fbfe",
+  },
+  archivedBodyCell: {
+    color: "#5f7690",
+  },
+  archivedMembersBadge: {
+    backgroundColor: "#eef5fb",
+    color: "#6a87a6",
+  },
+  archivedCheckbox: {
+    opacity: 0.65,
+  },
 };
 
 const MasterlistTable = ({
@@ -145,6 +158,47 @@ const MasterlistTable = ({
         (row) => !row.departure_time_value && row.can_record_departure,
       );
 
+  const buildActionItems = (row) => {
+    const viewAction = {
+      key: "view",
+      label: "View Details",
+      icon: <FiEye size={18} />,
+      disabled: typeof onViewHousehold !== "function",
+      onClick: (selectedRow) => onViewHousehold?.(selectedRow.household_id),
+    };
+
+    if (isDepartureReadOnly) {
+      return [viewAction];
+    }
+
+    if (row.is_operationally_active === false) {
+      return [
+        viewAction,
+        {
+          key: "return",
+          label: "Re-admit Household",
+          icon: <FiLogIn size={18} />,
+          disabled: typeof onRestoreHousehold !== "function",
+          title: "Re-admit Household",
+          onClick: (selectedRow) =>
+            onRestoreHousehold?.(selectedRow.household_id),
+        },
+      ];
+    }
+
+    return [
+      viewAction,
+      {
+        key: "edit",
+        label: "Edit Household",
+        icon: <FiEdit2 size={18} />,
+        disabled: typeof onEditHousehold !== "function",
+        title: "Edit Household",
+        onClick: (selectedRow) => onEditHousehold?.(selectedRow.household_id),
+      },
+    ];
+  };
+
   const areAllSelected =
     selectableRows.length > 0 &&
     selectableRows.every((row) =>
@@ -222,6 +276,7 @@ const MasterlistTable = ({
           </thead>
           <tbody>
             {rows.map((row) => {
+              const isArchivedRow = row.is_operationally_active === false;
               const isSelectable =
                 !isDepartureReadOnly &&
                 !row.departure_time_value &&
@@ -232,10 +287,14 @@ const MasterlistTable = ({
               );
 
               return (
-                <tr key={row.household_id}>
+                <tr
+                  key={row.household_id}
+                  style={isArchivedRow ? tableStyles.archivedRow : undefined}
+                >
                   <td
                     style={{
                       ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
                       textAlign: "center",
                     }}
                   >
@@ -244,21 +303,49 @@ const MasterlistTable = ({
                       checked={isSelected}
                       disabled={!canUseSelection || !isSelectable}
                       onChange={() => onToggleSelect(row.household_id)}
+                      style={isArchivedRow ? tableStyles.archivedCheckbox : undefined}
                     />
                   </td>
-                  <td style={tableStyles.bodyCell}>{row.family_head_name}</td>
-                  <td style={tableStyles.bodyCell}>{row.address}</td>
                   <td
                     style={{
                       ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
+                    }}
+                  >
+                    {row.family_head_name}
+                  </td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
+                    }}
+                  >
+                    {row.address}
+                  </td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
                       textAlign: "center",
                     }}
                   >
-                    <span style={tableStyles.membersBadge}>
+                    <span
+                      style={{
+                        ...tableStyles.membersBadge,
+                        ...(isArchivedRow ? tableStyles.archivedMembersBadge : {}),
+                      }}
+                    >
                       {row.members_count}
                     </span>
                   </td>
-                  <td style={tableStyles.bodyCell}>{row.sectors_text}</td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
+                    }}
+                  >
+                    {row.sectors_text}
+                  </td>
                   <td
                     style={{
                       ...tableStyles.bodyCell,
@@ -270,6 +357,7 @@ const MasterlistTable = ({
                   <td
                     style={{
                       ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
                       textAlign: "center",
                     }}
                   >
@@ -278,6 +366,7 @@ const MasterlistTable = ({
                   <td
                     style={{
                       ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
                       textAlign: "center",
                     }}
                   >
@@ -322,49 +411,7 @@ const MasterlistTable = ({
                       dataPrefix="masterlist-action"
                       menuWidth={116}
                       variant="icon-grid"
-                      items={
-                        row.is_operationally_active === false
-                          ? [
-                              {
-                                key: "view",
-                                label: "View Details",
-                                icon: <FiEye size={18} />,
-                                disabled: typeof onViewHousehold !== "function",
-                                onClick: (selectedRow) =>
-                                  onViewHousehold?.(selectedRow.household_id),
-                              },
-                              {
-                                key: "return",
-                                label: "Re-admit Household",
-                                icon: <FiLogIn size={18} />,
-                                disabled:
-                                  typeof onRestoreHousehold !== "function",
-                                title: "Re-admit Household",
-                                onClick: (selectedRow) =>
-                                  onRestoreHousehold?.(selectedRow.household_id),
-                              },
-                            ]
-                          : [
-                              {
-                                key: "view",
-                                label: "View Details",
-                                icon: <FiEye size={18} />,
-                                disabled: typeof onViewHousehold !== "function",
-                                onClick: (selectedRow) =>
-                                  onViewHousehold?.(selectedRow.household_id),
-                              },
-                              {
-                                key: "edit",
-                                label: "Edit Household",
-                                icon: <FiEdit2 size={18} />,
-                                disabled:
-                                  typeof onEditHousehold !== "function",
-                                title: "Edit Household",
-                                onClick: (selectedRow) =>
-                                  onEditHousehold?.(selectedRow.household_id),
-                              },
-                            ]
-                      }
+                      items={buildActionItems(row)}
                     />
                   </td>
                 </tr>

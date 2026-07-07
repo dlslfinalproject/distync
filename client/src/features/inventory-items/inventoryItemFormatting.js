@@ -38,23 +38,28 @@ export const formatPercentage = (value, total) => {
 export const getTotalItemQuantity = (item) => {
   const packagingCount = Number(item.packaging_count || 0);
   const quantityPerPackaging = Number(item.quantity || 0);
-  const unitOfMeasureValue = Number(item.unit_of_measure_value || 1);
   const normalizedPackagingCount =
     Number.isFinite(packagingCount) && packagingCount > 0 ? packagingCount : 0;
   const normalizedQuantityPerPackaging =
     Number.isFinite(quantityPerPackaging) && quantityPerPackaging > 0
       ? quantityPerPackaging
       : 0;
-  const normalizedUnitOfMeasureValue =
-    Number.isFinite(unitOfMeasureValue) && unitOfMeasureValue > 0
-      ? unitOfMeasureValue
-      : 1;
-  const totalQuantity =
-    normalizedPackagingCount *
-    normalizedQuantityPerPackaging *
-    normalizedUnitOfMeasureValue;
+  const totalQuantity = normalizedPackagingCount * normalizedQuantityPerPackaging;
 
   return formatNumericValue(totalQuantity);
+};
+
+export const getTotalItemQuantityValue = (item) => {
+  const packagingCount = Number(item.packaging_count || 0);
+  const quantityPerPackaging = Number(item.quantity || 0);
+  const normalizedPackagingCount =
+    Number.isFinite(packagingCount) && packagingCount > 0 ? packagingCount : 0;
+  const normalizedQuantityPerPackaging =
+    Number.isFinite(quantityPerPackaging) && quantityPerPackaging > 0
+      ? quantityPerPackaging
+      : 0;
+
+  return normalizedPackagingCount * normalizedQuantityPerPackaging;
 };
 
 export const formatDisplayDate = (value) => {

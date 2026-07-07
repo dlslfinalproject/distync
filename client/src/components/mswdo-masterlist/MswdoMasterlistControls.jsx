@@ -7,7 +7,7 @@ import SearchBar from "../shared/SearchBar";
 const filterPanelStyles = {
   panel: {
     position: "fixed",
-    width: "min(380px, calc(100vw - 32px))",
+    width: "min(360px, calc(100vw - 32px))",
     backgroundColor: "#ffffff",
     border: "1px solid #d6e2ef",
     borderRadius: "18px",
@@ -52,6 +52,8 @@ const filterPanelStyles = {
 const MswdoMasterlistControls = ({
   searchTerm,
   onSearchChange,
+  recordStatus,
+  onRecordStatusChange,
   filterButtonRef,
   filterPanelRef,
   isFilterOpen,
@@ -64,7 +66,6 @@ const MswdoMasterlistControls = ({
   onClearSectorFilters,
   onApplySectorFilters,
   canRegisterFamily,
-  selectedBarangayId,
   onOpenRegisterModal,
   selectedDisasterEventId,
   exportingFormat,
@@ -90,6 +91,36 @@ const MswdoMasterlistControls = ({
       </div>
 
       <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            color: "#17324d",
+            fontWeight: 700,
+          }}
+        >
+          <span style={{ fontSize: "14px" }}>Status</span>
+          <select
+            value={recordStatus}
+            onChange={(event) => onRecordStatusChange?.(event.target.value)}
+            style={{
+              minWidth: "120px",
+              borderRadius: "12px",
+              border: "1px solid #c7d6e5",
+              backgroundColor: "#ffffff",
+              color: "#17324d",
+              padding: "10px 12px",
+              fontSize: "14px",
+              fontWeight: 600,
+            }}
+          >
+            <option value="active">Active</option>
+            <option value="archived">Archived</option>
+            <option value="all">All</option>
+          </select>
+        </label>
+
         <div>
           <button
             ref={filterButtonRef}
@@ -163,19 +194,11 @@ const MswdoMasterlistControls = ({
           <button
             type="button"
             onClick={onOpenRegisterModal}
-            disabled={!selectedBarangayId}
-            title={
-              selectedBarangayId
-                ? "Register a family under the selected barangay"
-                : "Select one barangay before registering a family"
-            }
             style={{
               ...pageHeaderStyles.primaryButton,
               display: "flex",
               alignItems: "center",
               gap: "8px",
-              cursor: selectedBarangayId ? "pointer" : "not-allowed",
-              opacity: selectedBarangayId ? 1 : 0.65,
             }}
           >
             <FiUserPlus size={16} />

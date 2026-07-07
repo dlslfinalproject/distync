@@ -89,7 +89,17 @@ const getMappedRows = (households) => {
   });
 };
 
-const getOperationalRows = (households) => {
+const getStatusScopedRows = (households, recordStatus) => {
+  if (recordStatus === "archived") {
+    return households.filter(
+      (household) => !isOperationallyActiveHousehold(household),
+    );
+  }
+
+  if (recordStatus === "all") {
+    return households;
+  }
+
   return households.filter(isOperationallyActiveHousehold);
 };
 
@@ -149,6 +159,7 @@ export const useMswdoMasterlist = () => {
   const [selectedBarangayId, setSelectedBarangayId] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedSectorIds, setSelectedSectorIds] = useState([]);
+  const [recordStatus, setRecordStatus] = useState("active");
   const [masterlistPayload, setMasterlistPayload] = useState(emptyMasterlistPayload);
   const [dashboardPayload, setDashboardPayload] = useState(emptyDashboardPayload);
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
@@ -235,6 +246,7 @@ export const useMswdoMasterlist = () => {
         const payload = await fetchConsolidatedMasterlist({
           disasterEventId: selectedDisasterEventId,
           barangayId: selectedBarangayId || null,
+          recordStatus,
         });
 
         if (isMounted) {
@@ -257,7 +269,7 @@ export const useMswdoMasterlist = () => {
     return () => {
       isMounted = false;
     };
-  }, [reloadKey, selectedBarangayId, selectedDisasterEventId]);
+  }, [recordStatus, reloadKey, selectedBarangayId, selectedDisasterEventId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -300,8 +312,10 @@ export const useMswdoMasterlist = () => {
   }, [reloadKey, selectedBarangayId, selectedDisasterEventId]);
 
   const mappedRows = useMemo(() => {
-    return getMappedRows(getOperationalRows(masterlistPayload.data || []));
-  }, [masterlistPayload.data]);
+    return getMappedRows(
+      getStatusScopedRows(masterlistPayload.data || [], recordStatus),
+    );
+  }, [masterlistPayload.data, recordStatus]);
 
   const displayedRows = useMemo(() => {
     return getDisplayedRows(mappedRows, searchTerm, selectedSectorIds);
@@ -326,6 +340,7 @@ export const useMswdoMasterlist = () => {
     selectedSectorIds,
     selectedDisasterEvent,
     searchTerm,
+    recordStatus,
     displayedRows,
     summaryMetrics,
     isLoadingFilters,
@@ -338,6 +353,7 @@ export const useMswdoMasterlist = () => {
     setSelectedBarangayId,
     setSelectedSectorIds,
     setSearchTerm,
+    setRecordStatus,
     reloadMasterlist: () => {
       setReloadKey((currentValue) => currentValue + 1);
     },
