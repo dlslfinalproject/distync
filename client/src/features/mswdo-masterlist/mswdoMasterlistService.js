@@ -47,6 +47,7 @@ export const fetchMswdoSectors = async () => {
 export const fetchConsolidatedMasterlist = async ({
   disasterEventId,
   barangayId,
+  recordStatus = "active",
 }) => {
   if (!disasterEventId) {
     return {
@@ -66,6 +67,13 @@ export const fetchConsolidatedMasterlist = async ({
 
   if (barangayId) {
     searchParams.set("barangay_id", barangayId);
+  }
+
+  const requestedRecordStatus =
+    recordStatus === "archived" ? "all" : recordStatus;
+
+  if (requestedRecordStatus) {
+    searchParams.set("record_status", requestedRecordStatus);
   }
 
   const response = await fetch(

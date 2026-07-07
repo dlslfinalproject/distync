@@ -69,6 +69,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     endedEventDateTimeText,
     hasActiveSectorFilters,
     scopedDisasterEvents,
+    selectableBarangays,
     registrationForm,
     editHouseholdForm,
     setSelectedDisasterEventId,
@@ -127,7 +128,7 @@ const ConsolidatedEvacueeMasterlist = () => {
         scopedDisasterEvents={scopedDisasterEvents}
         selectedDisasterEventId={selectedDisasterEventId}
         selectedBarangayId={selectedBarangayId}
-        barangays={barangays}
+        barangays={selectableBarangays}
         onEventScopeChange={handleEventScopeChange}
         onDisasterEventChange={setSelectedDisasterEventId}
         onBarangayChange={setSelectedBarangayId}

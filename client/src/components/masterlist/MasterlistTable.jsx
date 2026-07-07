@@ -145,6 +145,47 @@ const MasterlistTable = ({
         (row) => !row.departure_time_value && row.can_record_departure,
       );
 
+  const buildActionItems = (row) => {
+    const viewAction = {
+      key: "view",
+      label: "View Details",
+      icon: <FiEye size={18} />,
+      disabled: typeof onViewHousehold !== "function",
+      onClick: (selectedRow) => onViewHousehold?.(selectedRow.household_id),
+    };
+
+    if (isDepartureReadOnly) {
+      return [viewAction];
+    }
+
+    if (row.is_operationally_active === false) {
+      return [
+        viewAction,
+        {
+          key: "return",
+          label: "Re-admit Household",
+          icon: <FiLogIn size={18} />,
+          disabled: typeof onRestoreHousehold !== "function",
+          title: "Re-admit Household",
+          onClick: (selectedRow) =>
+            onRestoreHousehold?.(selectedRow.household_id),
+        },
+      ];
+    }
+
+    return [
+      viewAction,
+      {
+        key: "edit",
+        label: "Edit Household",
+        icon: <FiEdit2 size={18} />,
+        disabled: typeof onEditHousehold !== "function",
+        title: "Edit Household",
+        onClick: (selectedRow) => onEditHousehold?.(selectedRow.household_id),
+      },
+    ];
+  };
+
   const areAllSelected =
     selectableRows.length > 0 &&
     selectableRows.every((row) =>
@@ -322,49 +363,7 @@ const MasterlistTable = ({
                       dataPrefix="masterlist-action"
                       menuWidth={116}
                       variant="icon-grid"
-                      items={
-                        row.is_operationally_active === false
-                          ? [
-                              {
-                                key: "view",
-                                label: "View Details",
-                                icon: <FiEye size={18} />,
-                                disabled: typeof onViewHousehold !== "function",
-                                onClick: (selectedRow) =>
-                                  onViewHousehold?.(selectedRow.household_id),
-                              },
-                              {
-                                key: "return",
-                                label: "Re-admit Household",
-                                icon: <FiLogIn size={18} />,
-                                disabled:
-                                  typeof onRestoreHousehold !== "function",
-                                title: "Re-admit Household",
-                                onClick: (selectedRow) =>
-                                  onRestoreHousehold?.(selectedRow.household_id),
-                              },
-                            ]
-                          : [
-                              {
-                                key: "view",
-                                label: "View Details",
-                                icon: <FiEye size={18} />,
-                                disabled: typeof onViewHousehold !== "function",
-                                onClick: (selectedRow) =>
-                                  onViewHousehold?.(selectedRow.household_id),
-                              },
-                              {
-                                key: "edit",
-                                label: "Edit Household",
-                                icon: <FiEdit2 size={18} />,
-                                disabled:
-                                  typeof onEditHousehold !== "function",
-                                title: "Edit Household",
-                                onClick: (selectedRow) =>
-                                  onEditHousehold?.(selectedRow.household_id),
-                              },
-                            ]
-                      }
+                      items={buildActionItems(row)}
                     />
                   </td>
                 </tr>

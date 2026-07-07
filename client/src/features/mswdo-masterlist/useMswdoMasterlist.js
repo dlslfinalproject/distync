@@ -246,6 +246,7 @@ export const useMswdoMasterlist = () => {
         const payload = await fetchConsolidatedMasterlist({
           disasterEventId: selectedDisasterEventId,
           barangayId: selectedBarangayId || null,
+          recordStatus,
         });
 
         if (isMounted) {
@@ -268,7 +269,7 @@ export const useMswdoMasterlist = () => {
     return () => {
       isMounted = false;
     };
-  }, [reloadKey, selectedBarangayId, selectedDisasterEventId]);
+  }, [recordStatus, reloadKey, selectedBarangayId, selectedDisasterEventId]);
 
   useEffect(() => {
     let isMounted = true;

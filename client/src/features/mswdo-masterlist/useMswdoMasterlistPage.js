@@ -127,6 +127,25 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
       barangayId: selectedBarangayId,
     });
   }, [activeTab, disasterEvents, selectedBarangayId]);
+  const selectableBarangays = useMemo(() => {
+    if (!selectedDisasterEvent) {
+      return barangays;
+    }
+
+    const affectedBarangayIds = Array.isArray(
+      selectedDisasterEvent.affected_barangays,
+    )
+      ? selectedDisasterEvent.affected_barangays
+          .map((barangay) => barangay?.id)
+          .filter(Boolean)
+      : [];
+
+    if (affectedBarangayIds.length === 0) {
+      return barangays;
+    }
+
+    return barangays.filter((barangay) => affectedBarangayIds.includes(barangay.id));
+  }, [barangays, selectedDisasterEvent]);
 
   const selectedBarangayLabel = selectedBarangayId
     ? barangays.find((barangay) => barangay.id === selectedBarangayId)?.name
@@ -418,6 +437,20 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     selectedDisasterEventId,
     setSelectedDisasterEventId,
   ]);
+
+  useEffect(() => {
+    if (!selectedBarangayId) {
+      return;
+    }
+
+    const isSelectedBarangayVisible = selectableBarangays.some(
+      (barangay) => barangay.id === selectedBarangayId,
+    );
+
+    if (!isSelectedBarangayVisible) {
+      setSelectedBarangayId("");
+    }
+  }, [selectableBarangays, selectedBarangayId, setSelectedBarangayId]);
 
   useEffect(() => {
     setSelectedSectorIds(selectedSectorIds);
@@ -741,6 +774,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     endedEventDateTimeText,
     hasActiveSectorFilters,
     scopedDisasterEvents,
+    selectableBarangays,
     registrationForm,
     editHouseholdForm,
     setSelectedDisasterEventId,
