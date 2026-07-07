@@ -293,9 +293,9 @@ const ReliefPackTemplateFormModal = ({
         previousItems.map((packItem) =>
           packItem.inventory_item_id === selectedInventoryItem.id
             ? {
-                ...packItem,
-                quantity: String(parsedQuantity),
-              }
+              ...packItem,
+              quantity: String(parsedQuantity),
+            }
             : packItem,
         ),
       );

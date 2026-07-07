@@ -238,8 +238,13 @@ const computeTemplateMetrics = ({
 };
 
 const formatTemplateItemQuantity = (item) => {
-  const unitOfMeasure = item.inventory_item?.unit_of_measure || "";
-  return `${item.quantity_required} ${unitOfMeasure}`.trim();
+  const quantityRequired = Number(item?.quantity_required || 0);
+
+  if (!Number.isFinite(quantityRequired) || quantityRequired <= 0) {
+    return "--";
+  }
+
+  return `${quantityRequired} pc${quantityRequired === 1 ? "" : "s"}`;
 };
 
 const ReliefPackTemplatesPage = () => {
