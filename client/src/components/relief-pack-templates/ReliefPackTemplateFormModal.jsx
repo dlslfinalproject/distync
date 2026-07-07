@@ -209,7 +209,7 @@ const buildInitialFormValues = (templateData) => ({
   packName: templateData?.name || "",
   selectedItem: "",
   quantity: "",
-  familyPerPack: "1 family",
+  familyPerPack: templateData?.description || "1 member",
 });
 
 const ReliefPackTemplateFormModal = ({
@@ -382,7 +382,7 @@ const ReliefPackTemplateFormModal = ({
 
     onSubmit({
       name: formValues.packName.trim(),
-      description: templateData?.description ?? null,
+      description: formValues.familyPerPack.trim() || null,
       based_on_family_size: templateData?.based_on_family_size ?? false,
       based_on_sector: templateData?.based_on_sector ?? false,
       is_active: templateData?.is_active ?? true,
@@ -510,15 +510,17 @@ const ReliefPackTemplateFormModal = ({
 
                 <div>
                   <label style={labelStyles} htmlFor="relief-pack-family">
-                    Family per Pack
+                    Recommended Family Size
                   </label>
                   <input
                     id="relief-pack-family"
                     name="familyPerPack"
+                    type="number"
+                    min="0"
                     style={inputStyles}
                     value={formValues.familyPerPack}
                     onChange={handleInputChange}
-                    placeholder="e.g. 1 family"
+                    placeholder="e.g. 5 members"
                   />
                 </div>
               </div>
