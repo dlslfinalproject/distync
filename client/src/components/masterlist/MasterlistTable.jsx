@@ -66,6 +66,19 @@ const tableStyles = {
     fontSize: "12px",
     fontWeight: 700,
   },
+  archivedRow: {
+    backgroundColor: "#f8fbfe",
+  },
+  archivedBodyCell: {
+    color: "#5f7690",
+  },
+  archivedMembersBadge: {
+    backgroundColor: "#eef5fb",
+    color: "#6a87a6",
+  },
+  archivedCheckbox: {
+    opacity: 0.65,
+  },
 };
 
 const MasterlistTable = ({
@@ -263,6 +276,7 @@ const MasterlistTable = ({
           </thead>
           <tbody>
             {rows.map((row) => {
+              const isArchivedRow = row.is_operationally_active === false;
               const isSelectable =
                 !isDepartureReadOnly &&
                 !row.departure_time_value &&
@@ -273,10 +287,14 @@ const MasterlistTable = ({
               );
 
               return (
-                <tr key={row.household_id}>
+                <tr
+                  key={row.household_id}
+                  style={isArchivedRow ? tableStyles.archivedRow : undefined}
+                >
                   <td
                     style={{
                       ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
                       textAlign: "center",
                     }}
                   >
@@ -285,21 +303,49 @@ const MasterlistTable = ({
                       checked={isSelected}
                       disabled={!canUseSelection || !isSelectable}
                       onChange={() => onToggleSelect(row.household_id)}
+                      style={isArchivedRow ? tableStyles.archivedCheckbox : undefined}
                     />
                   </td>
-                  <td style={tableStyles.bodyCell}>{row.family_head_name}</td>
-                  <td style={tableStyles.bodyCell}>{row.address}</td>
                   <td
                     style={{
                       ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
+                    }}
+                  >
+                    {row.family_head_name}
+                  </td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
+                    }}
+                  >
+                    {row.address}
+                  </td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
                       textAlign: "center",
                     }}
                   >
-                    <span style={tableStyles.membersBadge}>
+                    <span
+                      style={{
+                        ...tableStyles.membersBadge,
+                        ...(isArchivedRow ? tableStyles.archivedMembersBadge : {}),
+                      }}
+                    >
                       {row.members_count}
                     </span>
                   </td>
-                  <td style={tableStyles.bodyCell}>{row.sectors_text}</td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
+                    }}
+                  >
+                    {row.sectors_text}
+                  </td>
                   <td
                     style={{
                       ...tableStyles.bodyCell,
@@ -311,6 +357,7 @@ const MasterlistTable = ({
                   <td
                     style={{
                       ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
                       textAlign: "center",
                     }}
                   >
@@ -319,6 +366,7 @@ const MasterlistTable = ({
                   <td
                     style={{
                       ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
                       textAlign: "center",
                     }}
                   >
