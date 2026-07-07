@@ -822,8 +822,8 @@ const ReliefPackTemplatesPage = () => {
                           fontSize: "15px",
                         }}
                       >
-                        <span>FAMILY PER PACK</span>
-                        <span>1 Family</span>
+                        <span>RECOMMENDED FAMILY SIZE</span>
+                        <span>{template.description + " members"}</span>
                       </div>
                     </div>
 
