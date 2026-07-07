@@ -210,18 +210,11 @@ const roleMeta = {
   [ROLE_CODES.MAYOR]: {
     navItems: [
       { label: "Inventory Items", to: "/inventory/items" },
-      { label: "Inventory Batches", to: "/inventory/batches" },
-      { label: "Suppliers", to: "/inventory/suppliers" },
+      { label: "Relief Pack Templates", to: "/inventory/relief-pack-templates", },
       { label: "Inventory Tracking", to: "/inventory/transactions" },
-      {
-        label: "Relief Pack Templates",
-        to: "/inventory/relief-pack-templates",
-      },
       { label: "Inventory Distribution", to: "/inventory/distribution" },
-      { label: "Distribution History", to: "/inventory/distribution-history" },
+      { label: "Inventory Forecasts", to: "/inventory/forecasts" },
       { label: "Donation Management", to: "/inventory/donations" },
-      { label: "System Logs", to: "/inventory/system-logs" },
-      { label: "Sync Center", to: "/inventory/sync" },
     ],
   },
 };
