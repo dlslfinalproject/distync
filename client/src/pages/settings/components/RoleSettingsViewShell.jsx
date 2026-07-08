@@ -3,6 +3,88 @@ import PageHeader from "../../../components/layout/PageHeader";
 import { shellStyles } from "../../../components/layout/BarangayLayout";
 import FeedbackToast from "../../../components/shared/FeedbackToast";
 
+class SettingsSectionErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidUpdate(prevProps) {
+    if (
+      this.state.hasError &&
+      prevProps.sectionKey !== this.props.sectionKey
+    ) {
+      this.setState({ hasError: false });
+    }
+  }
+
+  render() {
+    const { hasError } = this.state;
+    const { children, onOpenSection } = this.props;
+
+    if (hasError) {
+      return (
+        <section style={shellStyles.card}>
+          <div style={{ display: "grid", gap: "10px" }}>
+            <h3 style={{ margin: 0, color: "#17324d" }}>
+              This settings section could not be displayed.
+            </h3>
+            <p style={{ margin: 0, color: "#60738a", lineHeight: 1.6 }}>
+              Refresh the page or go back to the settings categories and open the
+              section again.
+            </p>
+            <div>
+              <button
+                type="button"
+                onClick={() => onOpenSection(null)}
+                style={{
+                  minHeight: "42px",
+                  padding: "0 16px",
+                  borderRadius: "14px",
+                  border: "1px solid #c7d6e8",
+                  backgroundColor: "#ffffff",
+                  color: "#2f6499",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                Back to Categories
+              </button>
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    return children;
+  }
+}
+
+const SectionContentRenderer = ({ renderSectionContent }) => {
+  const sectionContent = renderSectionContent?.();
+
+  if (sectionContent) {
+    return sectionContent;
+  }
+
+  return (
+    <section style={shellStyles.card}>
+      <div style={{ display: "grid", gap: "8px" }}>
+        <h3 style={{ margin: 0, color: "#17324d" }}>
+          This settings section is unavailable right now.
+        </h3>
+        <p style={{ margin: 0, color: "#60738a", lineHeight: 1.6 }}>
+          Go back to the categories and try opening the section again.
+        </p>
+      </div>
+    </section>
+  );
+};
+
 const RoleSettingsViewShell = ({
   activeSectionMeta,
   roleMeta,
@@ -39,7 +121,12 @@ const RoleSettingsViewShell = ({
       ) : null}
 
       {activeSectionMeta ? (
-        renderSectionContent()
+        <SettingsSectionErrorBoundary
+          sectionKey={activeSectionMeta.key}
+          onOpenSection={onOpenSection}
+        >
+          <SectionContentRenderer renderSectionContent={renderSectionContent} />
+        </SettingsSectionErrorBoundary>
       ) : (
         <section style={shellStyles.card}>
           <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
