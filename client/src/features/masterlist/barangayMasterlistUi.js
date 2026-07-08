@@ -61,6 +61,7 @@ export const buildQueuedHouseholdRow = (entry, assignedBarangayName) => {
     arrival_time_text: formatDateTime(entry.clientTimestamp),
     departure_time_value: departureTimestamp,
     departure_time_text: departureTimestamp ? formatDateTime(departureTimestamp) : "-",
+    registered_at: entry.clientTimestamp,
     can_record_departure: false,
     is_local_only: true,
     sync_status: entry.status,

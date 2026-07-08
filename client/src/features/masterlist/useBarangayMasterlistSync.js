@@ -7,6 +7,9 @@ import {
   buildQueuedHouseholdRow,
   getFilteredRows,
 } from "./barangayMasterlistUi";
+import {
+  sortMasterlistRows,
+} from "./masterlistService";
 import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
 import {
@@ -25,6 +28,10 @@ export const useBarangayMasterlistSync = ({
   const [selectedSectorIdsByScope, setSelectedSectorIdsByScope] = useState({
     active: [],
     ended: [],
+  });
+  const [sortOrderByScope, setSortOrderByScope] = useState({
+    active: "newest",
+    ended: "newest",
   });
   const [sectorOptions, setSectorOptions] = useState([]);
 
@@ -77,20 +84,21 @@ export const useBarangayMasterlistSync = ({
   ]);
 
   const selectedSectorIds = selectedSectorIdsByScope[eventScope] || [];
+  const selectedSortOrder = sortOrderByScope[eventScope] || "newest";
 
   const filteredRows = useMemo(() => {
     const searchedRows = getFilteredRows(rowsWithSyncStatus, searchTerm);
+    const sectorScopedRows =
+      selectedSectorIds.length === 0
+        ? searchedRows
+        : searchedRows.filter((row) => {
+            return selectedSectorIds.some((sectorId) =>
+              (row.sector_codes || []).includes(sectorId),
+            );
+          });
 
-    if (selectedSectorIds.length === 0) {
-      return searchedRows;
-    }
-
-    return searchedRows.filter((row) => {
-      return selectedSectorIds.some((sectorId) =>
-        (row.sector_codes || []).includes(sectorId),
-      );
-    });
-  }, [rowsWithSyncStatus, searchTerm, selectedSectorIds]);
+    return sortMasterlistRows(sectorScopedRows, selectedSortOrder);
+  }, [rowsWithSyncStatus, searchTerm, selectedSectorIds, selectedSortOrder]);
 
   useEffect(() => {
     let isMounted = true;
@@ -152,13 +160,26 @@ export const useBarangayMasterlistSync = ({
       ...currentFilters,
       [eventScope]: [],
     }));
+    setSortOrderByScope((currentValues) => ({
+      ...currentValues,
+      [eventScope]: "newest",
+    }));
+  };
+
+  const setSelectedSortOrder = (value) => {
+    setSortOrderByScope((currentValues) => ({
+      ...currentValues,
+      [eventScope]: value || "newest",
+    }));
   };
 
   return {
     sectorOptions,
     selectedSectorIds,
+    selectedSortOrder,
     filteredRows,
     toggleSectorFilter,
     clearSectorFilters,
+    setSelectedSortOrder,
   };
 };

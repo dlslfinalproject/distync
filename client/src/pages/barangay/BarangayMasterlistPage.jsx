@@ -157,9 +157,11 @@ const BarangayMasterlistPage = () => {
   const {
     sectorOptions,
     selectedSectorIds,
+    selectedSortOrder,
     filteredRows,
     toggleSectorFilter,
     clearSectorFilters,
+    setSelectedSortOrder,
   } = useBarangayMasterlistSync({
     rows: data.rows,
     syncQueueEntries,
@@ -612,6 +614,8 @@ const BarangayMasterlistPage = () => {
         onRecordStatusChange={setRecordStatus}
         sectorOptions={sectorOptions}
         selectedSectorIds={selectedSectorIds}
+        selectedSortOrder={selectedSortOrder}
+        onSortOrderChange={setSelectedSortOrder}
         onToggleSector={toggleSectorFilter}
         onClearFilters={clearSectorFilters}
         filterScopeKey={eventScope}
