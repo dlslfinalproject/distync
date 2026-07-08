@@ -21,6 +21,10 @@ const BARANGAY_ROLE_CODE = "BARANGAY";
 const RESTORE_MODES = {
   RETURN_TO_EVAC_CENTER: "RETURN_TO_EVAC_CENTER",
 };
+const NON_ADMITTED_RESIDENT_STAY_TYPES = new Set([
+  "RELATIVES",
+  "OTHER_SAFE_PLACE",
+]);
 
 const buildStubQrCodeValue = ({ disasterEventId, householdId, stubNo }) => {
   return `DISTYNC-STUB|${disasterEventId}|${householdId}|${stubNo}`;
@@ -220,7 +224,30 @@ const summarizeEvacuationLog = (log) =>
     "remarks",
   ]);
 
-const buildReturnRegistrationRequest = ({
+const isNonAdmittedResidentRecord = ({
+  residency_status,
+  current_stay_type,
+}) => {
+  return (
+    residency_status === RESIDENCY_STATUSES.resident &&
+    NON_ADMITTED_RESIDENT_STAY_TYPES.has(current_stay_type)
+  );
+};
+
+const resolveSingleActiveEvacuationCenterId = async (barangayId) => {
+  if (!barangayId) {
+    return null;
+  }
+
+  const evacuationCenters =
+    await householdRegistrationRepository.getActiveEvacuationCentersByBarangayId(
+      barangayId,
+    );
+
+  return evacuationCenters.length === 1 ? evacuationCenters[0].id : null;
+};
+
+const buildReturnRegistrationRequest = async ({
   householdDetails,
   existingHousehold,
   requester,
@@ -242,14 +269,21 @@ const buildReturnRegistrationRequest = ({
     (member?.sectors || [])
       .filter((sector) => MANUAL_MEMBER_SECTOR_CODES.includes(sector.code))
       .map((sector) => sector.id);
+  const inferredEvacuationCenterId = isNonAdmittedResidentRecord(existingHousehold)
+    ? await resolveSingleActiveEvacuationCenterId(existingHousehold.barangay_id)
+    : null;
 
   return {
     disaster_event_id: existingHousehold.disaster_event_id,
     barangay_id: existingHousehold.barangay_id,
-    evacuation_center_id: existingHousehold.evacuation_center_id,
+    evacuation_center_id: isNonAdmittedResidentRecord(existingHousehold)
+      ? inferredEvacuationCenterId
+      : existingHousehold.evacuation_center_id,
     residency_status: existingHousehold.residency_status,
     contact_number: existingHousehold.contact_number || null,
-    current_stay_type: existingHousehold.current_stay_type,
+    current_stay_type: isNonAdmittedResidentRecord(existingHousehold)
+      ? "EVAC_CENTER"
+      : existingHousehold.current_stay_type,
     current_address_details: existingHousehold.current_address_details || null,
     household_size: (householdDetails.members || []).length,
     household_sector_ids: (householdDetails.household_sectors || []).map(
@@ -342,7 +376,10 @@ const updateHouseholdDetails = async ({
     throw error;
   }
 
-  if (!existingHousehold.is_active) {
+  if (
+    !existingHousehold.is_active &&
+    !isNonAdmittedResidentRecord(existingHousehold)
+  ) {
     const error = new Error("Archived households cannot be edited");
     error.statusCode = 400;
     throw error;
@@ -425,7 +462,9 @@ const updateHouseholdDetails = async ({
   }
 
   const existingMembers =
-    await householdRegistrationRepository.getEvacueesByHouseholdId(householdId);
+    await householdRegistrationRepository.getEvacueesByHouseholdId(householdId, {
+      includeInactive: existingHousehold.is_active === false,
+    });
   const existingMembersById = new Map(
     existingMembers.map((member) => [member.id, member]),
   );
@@ -438,6 +477,7 @@ const updateHouseholdDetails = async ({
       .map((member) => member.id)
       .filter(Boolean),
   );
+  const shouldKeepMembersArchived = existingHousehold.is_active === false;
 
   const client = await pool.connect();
 
@@ -461,7 +501,7 @@ const updateHouseholdDetails = async ({
     const preparedFamilyHead = {
       ...requestDataWithDerivedAgeGroups.family_head,
       is_family_head: true,
-      is_active: true,
+      is_active: !shouldKeepMembersArchived,
       ...getMemberFlagsFromSectorCodes(familyHeadSectorCodes),
     };
 
@@ -519,7 +559,7 @@ const updateHouseholdDetails = async ({
       const preparedMember = {
         ...member,
         is_family_head: false,
-        is_active: true,
+        is_active: !shouldKeepMembersArchived,
         ...getMemberFlagsFromSectorCodes(memberSectorCodes),
       };
 
@@ -809,6 +849,8 @@ const registerHousehold = async (requestData) => {
     current_address_details: registrationData.current_address_details || null,
     contact_number: registrationData.contact_number || null,
   };
+  const shouldAutoArchiveWithoutAttendance =
+    isNonAdmittedResidentRecord(requestDataWithDerivedAgeGroups);
 
   const householdSectors = await householdRegistrationRepository.getSectorsByIds(
     deduplicateIds(requestDataWithDerivedAgeGroups.household_sector_ids),
@@ -903,18 +945,20 @@ const registerHousehold = async (requestData) => {
       );
     }
 
-    await householdRegistrationRepository.insertEvacuationLog(
-      {
-        disaster_event_id: requestDataWithDerivedAgeGroups.disaster_event_id,
-        household_id: createdHousehold.id,
-        evacuee_id: createdFamilyHead.id,
-        evacuation_center_id: requestDataWithDerivedAgeGroups.evacuation_center_id,
-        status: "PRESENT",
-        recorded_by: requestDataWithDerivedAgeGroups.registered_by,
-        remarks: "Automatic arrival recorded during household registration",
-      },
-      client,
-    );
+    if (!shouldAutoArchiveWithoutAttendance) {
+      await householdRegistrationRepository.insertEvacuationLog(
+        {
+          disaster_event_id: requestDataWithDerivedAgeGroups.disaster_event_id,
+          household_id: createdHousehold.id,
+          evacuee_id: createdFamilyHead.id,
+          evacuation_center_id: requestDataWithDerivedAgeGroups.evacuation_center_id,
+          status: "PRESENT",
+          recorded_by: requestDataWithDerivedAgeGroups.registered_by,
+          remarks: "Automatic arrival recorded during household registration",
+        },
+        client,
+      );
+    }
 
     for (const member of requestDataWithDerivedAgeGroups.members) {
       const memberSectorRows = memberSectors.filter((sector) =>
@@ -948,18 +992,20 @@ const registerHousehold = async (requestData) => {
         );
       }
 
-      await householdRegistrationRepository.insertEvacuationLog(
-        {
-          disaster_event_id: requestDataWithDerivedAgeGroups.disaster_event_id,
-          household_id: createdHousehold.id,
-          evacuee_id: createdMember.id,
-          evacuation_center_id: requestDataWithDerivedAgeGroups.evacuation_center_id,
-          status: "PRESENT",
-          recorded_by: requestDataWithDerivedAgeGroups.registered_by,
-          remarks: "Automatic arrival recorded during household registration",
-        },
-        client,
-      );
+      if (!shouldAutoArchiveWithoutAttendance) {
+        await householdRegistrationRepository.insertEvacuationLog(
+          {
+            disaster_event_id: requestDataWithDerivedAgeGroups.disaster_event_id,
+            household_id: createdHousehold.id,
+            evacuee_id: createdMember.id,
+            evacuation_center_id: requestDataWithDerivedAgeGroups.evacuation_center_id,
+            status: "PRESENT",
+            recorded_by: requestDataWithDerivedAgeGroups.registered_by,
+            remarks: "Automatic arrival recorded during household registration",
+          },
+          client,
+        );
+      }
     }
 
     await householdRegistrationRepository.updateHouseholdFamilyHeadEvacueeId(
@@ -998,6 +1044,17 @@ const registerHousehold = async (requestData) => {
       },
       client,
     );
+
+    if (shouldAutoArchiveWithoutAttendance) {
+      await householdRegistrationRepository.archiveHousehold(
+        createdHousehold.id,
+        client,
+      );
+      await householdRegistrationRepository.deactivateEvacueesByHouseholdId(
+        createdHousehold.id,
+        client,
+      );
+    }
 
     await client.query("COMMIT");
 
@@ -1333,7 +1390,7 @@ const restoreHousehold = async ({ householdId, requester, restoreData }) => {
     }
   }
 
-  const returnRegistrationRequest = buildReturnRegistrationRequest({
+  const returnRegistrationRequest = await buildReturnRegistrationRequest({
     householdDetails: archivedHouseholdDetails,
     existingHousehold,
     requester,

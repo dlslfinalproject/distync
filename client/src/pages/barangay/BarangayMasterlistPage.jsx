@@ -200,6 +200,9 @@ const BarangayMasterlistPage = () => {
     : pendingRestoreRow?.family_head_name || "";
   const pendingRestoreFamilyHeadPhotoUrl =
     pendingRestoreHouseholdDetails?.household?.family_head_photo_url || "";
+  const pendingRestoreVariant = pendingRestoreRow?.is_non_admitted_resident
+    ? "admit"
+    : "readmit";
 
   useEffect(() => {
     const activeEvents = availableEvents.filter(
@@ -684,6 +687,7 @@ const BarangayMasterlistPage = () => {
         onCancel={handleCancelRestoreHousehold}
         onConfirm={handleConfirmRestoreHousehold}
         mode="restore"
+        restoreVariant={pendingRestoreVariant}
       />
     </>
   );

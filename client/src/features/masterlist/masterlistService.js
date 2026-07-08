@@ -7,6 +7,7 @@ import {
   formatMasterlistFilterSectorLabel,
   getCanonicalMemberSectorCode,
 } from "../../utils/registrationOptions";
+import { formatStayTypeLabel } from "../../utils/stayType";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -80,13 +81,68 @@ export const buildSectorsText = (household) => {
   return orderedSectorLabels.length > 0 ? orderedSectorLabels.join(", ") : "-";
 };
 
-export const mapMasterlistRow = (household) => {
+export const isNonAdmittedResidentHousehold = (household) => {
+  const stayType = String(household?.current_stay_type || "").toUpperCase();
+  const latestStatus = String(household?.latest_attendance?.status || "").toUpperCase();
+
+  return (
+    household?.residency_status === "RESIDENT" &&
+    household?.is_active === false &&
+    (stayType === "RELATIVES" || stayType === "OTHER_SAFE_PLACE") &&
+    !household?.latest_attendance?.time_in &&
+    !household?.latest_attendance?.time_out &&
+    latestStatus !== "PRESENT"
+  );
+};
+
+const buildHouseholdIdentityKey = (household) => {
+  const disasterEventId = household?.disaster_event?.id || household?.disaster_event_id || "";
+  const barangayId = household?.barangay?.id || "";
+  const familyHeadName = String(household?.family_head_name || "")
+    .trim()
+    .toUpperCase();
+
+  return [disasterEventId, barangayId, familyHeadName].join("|");
+};
+
+const hasAdmittedSuccessor = (household, households) => {
+  if (!isNonAdmittedResidentHousehold(household)) {
+    return false;
+  }
+
+  const sourceIdentityKey = buildHouseholdIdentityKey(household);
+  const sourceRegisteredAt = new Date(household?.registered_at || 0).getTime();
+
+  return households.some((candidate) => {
+    if (!candidate || candidate.household_id === household.household_id) {
+      return false;
+    }
+
+    if (buildHouseholdIdentityKey(candidate) !== sourceIdentityKey) {
+      return false;
+    }
+
+    if (String(candidate?.current_stay_type || "").toUpperCase() !== "EVAC_CENTER") {
+      return false;
+    }
+
+    const candidateRegisteredAt = new Date(
+      candidate?.registered_at || 0,
+    ).getTime();
+
+    return candidateRegisteredAt > sourceRegisteredAt;
+  });
+};
+
+export const mapMasterlistRow = (household, households = []) => {
   const departureTimeValue = household.latest_attendance?.time_out || null;
   const locationLabel =
     household.residency_status === "NON_RESIDENT"
       ? "Non-Resident (Outside Malvar)"
       : household.barangay?.name;
   const isOperationallyActive = isOperationallyActiveHousehold(household);
+  const isNonAdmittedResident = isNonAdmittedResidentHousehold(household);
+  const admitAlreadyUsed = hasAdmittedSuccessor(household, households);
   const sectorIds = [
     ...(household.household_sectors || []).map((sector) => sector.id),
     ...(household.members || []).flatMap((member) =>
@@ -113,14 +169,20 @@ export const mapMasterlistRow = (household) => {
       "-",
     members_count: household.members?.length || 0,
     sectors_text: buildSectorsText(household),
-    arrival_time_text: formatDateTime(household.latest_attendance?.time_in),
+    arrival_time_text: isNonAdmittedResident
+      ? formatStayTypeLabel(household.current_stay_type)
+      : formatDateTime(household.latest_attendance?.time_in),
     departure_time_value: departureTimeValue,
-    departure_time_text: formatDateTime(departureTimeValue),
+    departure_time_text: isNonAdmittedResident
+      ? "None"
+      : formatDateTime(departureTimeValue),
     can_record_departure:
       household.is_active !== false &&
       household.latest_attendance?.status === "PRESENT",
     is_active: household.is_active !== false,
     is_operationally_active: isOperationallyActive,
+    is_non_admitted_resident: isNonAdmittedResident,
+    has_used_admit_action: admitAlreadyUsed,
     sector_ids: [...new Set(sectorIds)],
     sector_codes: [...new Set(sectorCodes)],
   };
@@ -205,17 +267,20 @@ export const fetchMasterlist = async ({
     `${API_BASE_URL}/api/v1/masterlist?${searchParams.toString()}`,
   );
   const payload = await parseJsonResponse(response, "Failed to fetch masterlist");
+  const allHouseholds = payload.data || [];
 
   const households =
     recordStatus === "active"
-      ? (payload.data || []).filter(isOperationallyActiveHousehold)
+      ? allHouseholds.filter(isOperationallyActiveHousehold)
       : recordStatus === "archived"
-        ? (payload.data || []).filter(
+        ? allHouseholds.filter(
             (household) => !isOperationallyActiveHousehold(household),
           )
-      : payload.data || [];
+      : allHouseholds;
 
-  const rows = households.map(mapMasterlistRow);
+  const rows = households.map((household) =>
+    mapMasterlistRow(household, allHouseholds),
+  );
   const totalMembers = households.reduce((total, household) => {
     return total + (household.members?.length || 0);
   }, 0);

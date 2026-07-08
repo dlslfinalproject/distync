@@ -173,6 +173,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     defaultDisasterEventId: selectedDisasterEventId || "",
     lockBarangaySelection: false,
     hideBarangaySelection: false,
+    restrictNonResidentToEvacCenter: true,
     scopeNonResidentEvacuationCentersToBarangay: true,
     registeredBy: authenticatedUser?.id || null,
     onSuccess: (response) => {
@@ -192,6 +193,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     defaultDisasterEventId: selectedDisasterEventId || "",
     lockBarangaySelection: false,
     hideBarangaySelection: false,
+    restrictNonResidentToEvacCenter: true,
     scopeNonResidentEvacuationCentersToBarangay: true,
     registeredBy: authenticatedUser?.id || null,
     onSuccess: (response) => {

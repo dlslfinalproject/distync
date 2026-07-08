@@ -50,9 +50,9 @@ const formatSearchValue = (value) => {
   return value ? String(value).toLowerCase() : "";
 };
 
-const getMappedRows = (households) => {
+const getMappedRows = (households, allHouseholds = households) => {
   return households.map((household) => {
-    const baseRow = mapMasterlistRow(household);
+    const baseRow = mapMasterlistRow(household, allHouseholds);
     const barangayName = household.barangay?.name || "";
     const addressParts = [baseRow.address];
     const sectorIds = [
@@ -312,9 +312,10 @@ export const useMswdoMasterlist = () => {
   }, [reloadKey, selectedBarangayId, selectedDisasterEventId]);
 
   const mappedRows = useMemo(() => {
-    return getMappedRows(
-      getStatusScopedRows(masterlistPayload.data || [], recordStatus),
-    );
+    const allHouseholds = masterlistPayload.data || [];
+    const statusScopedHouseholds = getStatusScopedRows(allHouseholds, recordStatus);
+
+    return getMappedRows(statusScopedHouseholds, allHouseholds);
   }, [masterlistPayload.data, recordStatus]);
 
   const displayedRows = useMemo(() => {

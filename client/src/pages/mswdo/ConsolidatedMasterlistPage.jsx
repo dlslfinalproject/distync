@@ -117,6 +117,12 @@ const ConsolidatedEvacueeMasterlist = () => {
     : "";
   const pendingRestoreFamilyHeadPhotoUrl =
     pendingRestoreHouseholdDetails?.household?.family_head_photo_url || "";
+  const pendingRestoreRow = displayedRows.find(
+    (row) => row.household_id === pendingRestoreHouseholdId,
+  );
+  const pendingRestoreVariant = pendingRestoreRow?.is_non_admitted_resident
+    ? "admit"
+    : "readmit";
 
   return (
     <>
@@ -284,6 +290,7 @@ const ConsolidatedEvacueeMasterlist = () => {
         onCancel={handleCancelRestoreHousehold}
         onConfirm={handleConfirmRestoreHousehold}
         mode="restore"
+        restoreVariant={pendingRestoreVariant}
       />
 
       <FeedbackToast
