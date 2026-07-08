@@ -75,7 +75,31 @@ const getReliefPackTemplateByName = async (name) => {
       id,
       name
     FROM relief_pack_templates
-    WHERE name = $1
+    WHERE LOWER(name) = LOWER($1)
+      AND is_active = TRUE
+  `;
+
+  const result = await pool.query(query, [name]);
+  return result.rows[0] || null;
+};
+
+const getInactiveReliefPackTemplateByName = async (name) => {
+  const query = `
+    SELECT
+      id,
+      name,
+      description,
+      based_on_family_size,
+      based_on_sector,
+      created_by,
+      is_active,
+      created_at,
+      updated_at
+    FROM relief_pack_templates
+    WHERE LOWER(name) = LOWER($1)
+      AND is_active = FALSE
+    ORDER BY updated_at DESC
+    LIMIT 1
   `;
 
   const result = await pool.query(query, [name]);
@@ -239,6 +263,7 @@ module.exports = {
   getReliefPackTemplates,
   getReliefPackTemplateById,
   getReliefPackTemplateByName,
+  getInactiveReliefPackTemplateByName,
   getInventoryItemById,
   getReliefPackTemplateItemsByTemplateId,
   insertReliefPackTemplate,

@@ -105,11 +105,95 @@ const itemChipStyles = {
   marginBottom: "8px",
 };
 
+const itemChipRemoveButtonStyles = {
+  border: "none",
+  background: "transparent",
+  color: "#6b8298",
+  cursor: "pointer",
+  padding: 0,
+  marginLeft: "8px",
+  fontSize: "14px",
+  fontWeight: 700,
+  lineHeight: 1,
+};
+
 const errorTextStyles = {
   margin: 0,
   color: "#9d4d58",
   fontSize: "14px",
   fontWeight: 600,
+};
+
+const confirmModalStyles = {
+  overlay: {
+    position: "fixed",
+    inset: 0,
+    backgroundColor: "rgba(18, 34, 51, 0.45)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "24px",
+    zIndex: 1200,
+  },
+  modal: {
+    width: "100%",
+    maxWidth: "460px",
+    backgroundColor: "#ffffff",
+    borderRadius: "20px",
+    padding: "28px",
+    boxShadow: "0 24px 48px rgba(20, 48, 78, 0.2)",
+  },
+  title: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "22px",
+  },
+  message: {
+    margin: "12px 0 0",
+    color: "#5d7188",
+    fontSize: "15px",
+    lineHeight: 1.6,
+  },
+  previewSection: {
+    marginTop: "20px",
+    padding: "16px",
+    borderRadius: "16px",
+    border: "1px solid #e1eaf3",
+    backgroundColor: "#f8fbfe",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+  },
+  previewCard: {
+    width: "100%",
+    maxWidth: "220px",
+    minHeight: "160px",
+    borderRadius: "14px",
+    border: "1px solid #d5e0ea",
+    backgroundColor: "#f3f8fc",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#698099",
+    fontSize: "14px",
+    fontWeight: 700,
+    textAlign: "center",
+    padding: "18px",
+    boxSizing: "border-box",
+  },
+  previewName: {
+    margin: "12px 0 0",
+    color: "#17324d",
+    fontWeight: 700,
+    textAlign: "center",
+  },
+  actions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "12px",
+    marginTop: "24px",
+    flexWrap: "wrap",
+  },
 };
 
 const buildPackItems = (templateData) => {
@@ -125,7 +209,7 @@ const buildInitialFormValues = (templateData) => ({
   packName: templateData?.name || "",
   selectedItem: "",
   quantity: "",
-  familyPerPack: "1 family",
+  familyPerPack: templateData?.description || "1 member",
 });
 
 const ReliefPackTemplateFormModal = ({
@@ -141,6 +225,7 @@ const ReliefPackTemplateFormModal = ({
   const [formValues, setFormValues] = useState(buildInitialFormValues(templateData));
   const [packItems, setPackItems] = useState(buildPackItems(templateData));
   const [localErrorMessage, setLocalErrorMessage] = useState("");
+  const [pendingRemovalItem, setPendingRemovalItem] = useState(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -150,6 +235,7 @@ const ReliefPackTemplateFormModal = ({
     setFormValues(buildInitialFormValues(templateData));
     setPackItems(buildPackItems(templateData));
     setLocalErrorMessage("");
+    setPendingRemovalItem(null);
   }, [isOpen, templateData]);
 
   if (!isOpen) {
@@ -207,9 +293,9 @@ const ReliefPackTemplateFormModal = ({
         previousItems.map((packItem) =>
           packItem.inventory_item_id === selectedInventoryItem.id
             ? {
-                ...packItem,
-                quantity: String(parsedQuantity),
-              }
+              ...packItem,
+              quantity: String(parsedQuantity),
+            }
             : packItem,
         ),
       );
@@ -245,6 +331,26 @@ const ReliefPackTemplateFormModal = ({
     setLocalErrorMessage("");
   };
 
+  const handleRemoveItem = (packItem) => {
+    setPendingRemovalItem(packItem);
+  };
+
+  const handleCancelRemoveItem = () => {
+    setPendingRemovalItem(null);
+  };
+
+  const handleConfirmRemoveItem = () => {
+    if (!pendingRemovalItem) {
+      return;
+    }
+
+    setPackItems((previousItems) =>
+      previousItems.filter((currentItem) => currentItem.id !== pendingRemovalItem.id),
+    );
+    setPendingRemovalItem(null);
+    setLocalErrorMessage("");
+  };
+
   const handleFinalSubmit = (event) => {
     event.preventDefault();
 
@@ -276,7 +382,7 @@ const ReliefPackTemplateFormModal = ({
 
     onSubmit({
       name: formValues.packName.trim(),
-      description: templateData?.description ?? null,
+      description: formValues.familyPerPack.trim() || null,
       based_on_family_size: templateData?.based_on_family_size ?? false,
       based_on_sector: templateData?.based_on_sector ?? false,
       is_active: templateData?.is_active ?? true,
@@ -404,15 +510,17 @@ const ReliefPackTemplateFormModal = ({
 
                 <div>
                   <label style={labelStyles} htmlFor="relief-pack-family">
-                    Family per Pack
+                    Recommended Family Size
                   </label>
                   <input
                     id="relief-pack-family"
                     name="familyPerPack"
+                    type="number"
+                    min="0"
                     style={inputStyles}
                     value={formValues.familyPerPack}
                     onChange={handleInputChange}
-                    placeholder="e.g. 1 family"
+                    placeholder="e.g. 5 members"
                   />
                 </div>
               </div>
@@ -424,14 +532,25 @@ const ReliefPackTemplateFormModal = ({
               </h3>
 
               {packItems.length === 0 ? (
-                <p style={helperTextStyles}>No items have been added to this pack yet.</p>
+                <p style={helperTextStyles}>
+                  No items have been added to this pack yet.
+                </p>
               ) : (
                 <div style={itemPreviewWrapStyles}>
                   <h4 style={itemPreviewTitleStyles}>Added Items</h4>
                   <div>
                     {packItems.map((packItem) => (
                       <span key={packItem.id} style={itemChipStyles}>
-                        {packItem.item} · {packItem.quantity}
+                        {packItem.item} - {packItem.quantity}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveItem(packItem)}
+                          style={itemChipRemoveButtonStyles}
+                          title={`Remove ${packItem.item}`}
+                          aria-label={`Remove ${packItem.item}`}
+                        >
+                          x
+                        </button>
                       </span>
                     ))}
                   </div>
@@ -481,6 +600,36 @@ const ReliefPackTemplateFormModal = ({
           .custom-scrollbar::-webkit-scrollbar-thumb { background: #ccc; border-radius: 10px; }
         `}</style>
       </div>
+
+      {pendingRemovalItem ? (
+        <div style={confirmModalStyles.overlay}>
+          <div style={confirmModalStyles.modal}>
+            <h3 style={confirmModalStyles.title}>Confirm Removal</h3>
+
+            <p style={confirmModalStyles.message}>
+              Are you sure you want to remove this item from the relief pack?
+            </p>
+
+            <div style={confirmModalStyles.actions}>
+              <button
+                type="button"
+                onClick={handleCancelRemoveItem}
+                style={secondaryBtnStyle}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmRemoveItem}
+                style={primaryBtnStyle}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };

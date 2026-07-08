@@ -86,16 +86,36 @@ const createReliefPackTemplate = async (templateData) => {
     await validateTemplateItems(templateData.items);
   }
 
+  const inactiveTemplate =
+    await reliefPackTemplateRepository.getInactiveReliefPackTemplateByName(
+      templateData.name,
+    );
+
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
 
-    const createdTemplate =
-      await reliefPackTemplateRepository.insertReliefPackTemplate(
-        templateData,
+    const createdTemplate = inactiveTemplate
+      ? await reliefPackTemplateRepository.updateReliefPackTemplate(
+          inactiveTemplate.id,
+          {
+            ...templateData,
+            is_active: true,
+          },
+          client,
+        )
+      : await reliefPackTemplateRepository.insertReliefPackTemplate(
+          templateData,
+          client,
+        );
+
+    if (inactiveTemplate) {
+      await reliefPackTemplateRepository.deleteReliefPackTemplateItemsByTemplateId(
+        createdTemplate.id,
         client,
       );
+    }
 
     for (const item of templateData.items) {
       await reliefPackTemplateRepository.insertReliefPackTemplateItem(
