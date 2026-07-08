@@ -43,6 +43,9 @@ import {
   subscribeToSyncUpdates,
 } from "../../offline/syncService";
 import { ROLE_CODES } from "../../utils/roleSession";
+import BarangaySettingsView from "./views/BarangaySettingsView";
+import MayorSettingsView from "./views/MayorSettingsView";
+import MswdoSettingsView from "./views/MswdoSettingsView";
 
 const gridStyles = {
   display: "grid",
@@ -4920,259 +4923,61 @@ const RoleSettingsPage = () => {
 
   if (isBarangayRole) {
     return (
-      <>
-        <PageHeader
-          eyebrow={activeBarangaySection ? roleMeta.title : undefined}
-          title={activeBarangaySection?.label || roleMeta.title}
-          description={activeBarangaySection?.description || roleMeta.description}
-          actions={barangayPageActions}
-        />
-
-        {errorMessage ? (
-          <section style={shellStyles.card}>
-            <p style={{ margin: 0, color: "#9d4d58", fontWeight: 700 }}>
-              {errorMessage}
-            </p>
-          </section>
-        ) : null}
-
-        {activeBarangaySection ? (
-          renderBarangaySectionContent()
-        ) : (
-          <section style={shellStyles.card}>
-            <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
-              <p style={labelStyles}>Settings Dashboard</p>
-              <h3 style={{ margin: 0, color: "#17324d" }}>
-                Open one settings function at a time
-              </h3>
-              <p style={mutedValueStyles}>
-                Choose a category below to keep the Settings workspace focused and
-                uncluttered. Detailed forms, tables, and logs only appear after you
-                open a section.
-              </p>
-            </div>
-
-            <div style={settingsHubStyles.grid}>
-              {barangaySectionCards.map((section) => {
-                const Icon = section.icon;
-
-                return (
-                  <button
-                    key={section.key}
-                    type="button"
-                    onClick={() => setActiveSection(section.key)}
-                    style={settingsHubStyles.button}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "flex-start",
-                        gap: "12px",
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <span style={settingsHubStyles.iconBadge}>
-                        <Icon size={22} />
-                      </span>
-                      <StatusChip
-                        tone={section.statusTone}
-                        label={section.statusLabel}
-                      />
-                    </div>
-
-                    <div style={{ display: "grid", gap: "8px" }}>
-                      <h3 style={{ margin: 0, color: "#17324d" }}>{section.label}</h3>
-                      <p style={mutedValueStyles}>{section.description}</p>
-                    </div>
-
-                    <span style={settingsHubStyles.openLabel}>Open section</span>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
-        <FeedbackToast
-          message={toast.message}
-          type={toast.type}
-          title={toast.title}
-          onClose={() => setToast({ message: "", type: "info", title: "" })}
-        />
-      </>
+      <BarangaySettingsView
+        activeSectionMeta={activeBarangaySection}
+        roleMeta={roleMeta}
+        pageActions={barangayPageActions}
+        errorMessage={errorMessage}
+        renderSectionContent={renderBarangaySectionContent}
+        sectionCards={barangaySectionCards}
+        onOpenSection={setActiveSection}
+        toast={toast}
+        onCloseToast={() => setToast({ message: "", type: "info", title: "" })}
+        settingsHubStyles={settingsHubStyles}
+        labelStyles={labelStyles}
+        mutedValueStyles={mutedValueStyles}
+        StatusChip={StatusChip}
+      />
     );
   }
 
   if (isMswdoRole) {
     return (
-      <>
-        <PageHeader
-          eyebrow={activeMswdoSection ? roleMeta.title : undefined}
-          title={activeMswdoSection?.label || roleMeta.title}
-          description={activeMswdoSection?.description || roleMeta.description}
-          actions={mswdoPageActions}
-        />
-
-        {errorMessage ? (
-          <section style={shellStyles.card}>
-            <p style={{ margin: 0, color: "#9d4d58", fontWeight: 700 }}>
-              {errorMessage}
-            </p>
-          </section>
-        ) : null}
-
-        {activeMswdoSection ? (
-          renderMswdoSectionContent()
-        ) : (
-          <section style={shellStyles.card}>
-            <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
-              <p style={labelStyles}>Settings Dashboard</p>
-              <h3 style={{ margin: 0, color: "#17324d" }}>
-                Open one settings function at a time
-              </h3>
-              <p style={mutedValueStyles}>
-                Choose a category below to keep the MSWDO Settings workspace focused
-                and uncluttered. Detailed forms, sync details, and notification
-                controls only appear after you open a section.
-              </p>
-            </div>
-
-            <div style={settingsHubStyles.grid}>
-              {mswdoSectionCards.map((section) => {
-                const Icon = section.icon;
-
-                return (
-                  <button
-                    key={section.key}
-                    type="button"
-                    onClick={() => setActiveSection(section.key)}
-                    style={settingsHubStyles.button}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "flex-start",
-                        gap: "12px",
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <span style={settingsHubStyles.iconBadge}>
-                        <Icon size={22} />
-                      </span>
-                      <StatusChip
-                        tone={section.statusTone}
-                        label={section.statusLabel}
-                      />
-                    </div>
-
-                    <div style={{ display: "grid", gap: "8px" }}>
-                      <h3 style={{ margin: 0, color: "#17324d" }}>{section.label}</h3>
-                      <p style={mutedValueStyles}>{section.description}</p>
-                    </div>
-
-                    <span style={settingsHubStyles.openLabel}>Open section</span>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
-        <FeedbackToast
-          message={toast.message}
-          type={toast.type}
-          title={toast.title}
-          onClose={() => setToast({ message: "", type: "info", title: "" })}
-        />
-      </>
+      <MswdoSettingsView
+        activeSectionMeta={activeMswdoSection}
+        roleMeta={roleMeta}
+        pageActions={mswdoPageActions}
+        errorMessage={errorMessage}
+        renderSectionContent={renderMswdoSectionContent}
+        sectionCards={mswdoSectionCards}
+        onOpenSection={setActiveSection}
+        toast={toast}
+        onCloseToast={() => setToast({ message: "", type: "info", title: "" })}
+        settingsHubStyles={settingsHubStyles}
+        labelStyles={labelStyles}
+        mutedValueStyles={mutedValueStyles}
+        StatusChip={StatusChip}
+      />
     );
   }
 
   if (isMayorRole) {
     return (
-      <>
-        <PageHeader
-          eyebrow={activeMayorSection ? roleMeta.title : undefined}
-          title={activeMayorSection?.label || roleMeta.title}
-          description={activeMayorSection?.description || roleMeta.description}
-          actions={mayorPageActions}
-        />
-
-        {errorMessage ? (
-          <section style={shellStyles.card}>
-            <p style={{ margin: 0, color: "#9d4d58", fontWeight: 700 }}>
-              {errorMessage}
-            </p>
-          </section>
-        ) : null}
-
-        {activeMayorSection ? (
-          renderMayorSectionContent()
-        ) : (
-          <section style={shellStyles.card}>
-            <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
-              <p style={labelStyles}>Settings Dashboard</p>
-              <h3 style={{ margin: 0, color: "#17324d" }}>
-                Open one settings function at a time
-              </h3>
-              <p style={mutedValueStyles}>
-                Choose a category below to keep the Mayor Settings workspace
-                focused and uncluttered. Detailed forms and system summaries only
-                appear after you open a section.
-              </p>
-            </div>
-
-            <div style={settingsHubStyles.grid}>
-              {mayorSectionCards.map((section) => {
-                const Icon = section.icon;
-
-                return (
-                  <button
-                    key={section.key}
-                    type="button"
-                    onClick={() => setActiveSection(section.key)}
-                    style={settingsHubStyles.button}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "flex-start",
-                        gap: "12px",
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <span style={settingsHubStyles.iconBadge}>
-                        <Icon size={22} />
-                      </span>
-                      <StatusChip
-                        tone={section.statusTone}
-                        label={section.statusLabel}
-                      />
-                    </div>
-
-                    <div style={{ display: "grid", gap: "8px" }}>
-                      <h3 style={{ margin: 0, color: "#17324d" }}>{section.label}</h3>
-                      <p style={mutedValueStyles}>{section.description}</p>
-                    </div>
-
-                    <span style={settingsHubStyles.openLabel}>Open section</span>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
-        <FeedbackToast
-          message={toast.message}
-          type={toast.type}
-          title={toast.title}
-          onClose={() => setToast({ message: "", type: "info", title: "" })}
-        />
-      </>
+      <MayorSettingsView
+        activeSectionMeta={activeMayorSection}
+        roleMeta={roleMeta}
+        pageActions={mayorPageActions}
+        errorMessage={errorMessage}
+        renderSectionContent={renderMayorSectionContent}
+        sectionCards={mayorSectionCards}
+        onOpenSection={setActiveSection}
+        toast={toast}
+        onCloseToast={() => setToast({ message: "", type: "info", title: "" })}
+        settingsHubStyles={settingsHubStyles}
+        labelStyles={labelStyles}
+        mutedValueStyles={mutedValueStyles}
+        StatusChip={StatusChip}
+      />
     );
   }
 
