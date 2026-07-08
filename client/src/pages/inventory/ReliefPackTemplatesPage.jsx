@@ -108,6 +108,45 @@ const alertBoxStyle = {
   color: "#721c24",
 };
 
+const confirmModalStyles = {
+  overlay: {
+    position: "fixed",
+    inset: 0,
+    backgroundColor: "rgba(18, 34, 51, 0.45)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "24px",
+    zIndex: 1200,
+  },
+  modal: {
+    width: "100%",
+    maxWidth: "460px",
+    backgroundColor: "#ffffff",
+    borderRadius: "20px",
+    padding: "28px",
+    boxShadow: "0 24px 48px rgba(20, 48, 78, 0.2)",
+  },
+  title: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "22px",
+  },
+  message: {
+    margin: "12px 0 0",
+    color: "#5d7188",
+    fontSize: "15px",
+    lineHeight: 1.6,
+  },
+  actions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "12px",
+    marginTop: "24px",
+    flexWrap: "wrap",
+  },
+};
+
 const emptyDashboardState = {
   totalFamilies: 0,
   perBarangayDemand: [],
@@ -266,6 +305,8 @@ const ReliefPackTemplatesPage = () => {
   const [modalMode, setModalMode] = useState("create");
   const [modalErrorMessage, setModalErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pendingDeleteTemplate, setPendingDeleteTemplate] = useState(null);
+  const [isDeletingTemplate, setIsDeletingTemplate] = useState(false);
 
   const loadReliefPackPage = async () => {
     setIsLoading(true);
@@ -506,30 +547,48 @@ const ReliefPackTemplatesPage = () => {
         templates.find((template) => template.id === templateId) ||
         (await loadTemplateDetail(templateId));
 
-      const shouldDelete = window.confirm(
-        `Remove "${targetTemplate.name}" from the active relief packs list?`,
-      );
+      setPendingDeleteTemplate(targetTemplate);
+    } catch (error) {
+      setErrorMessage(error.message);
+    }
+  };
 
-      if (!shouldDelete) {
-        return;
-      }
+  const handleCancelDeleteTemplate = () => {
+    if (!isDeletingTemplate) {
+      setPendingDeleteTemplate(null);
+    }
+  };
 
-      await updateReliefPackTemplate(templateId, {
-        name: targetTemplate.name,
-        description: targetTemplate.description,
-        based_on_family_size: targetTemplate.based_on_family_size,
-        based_on_sector: targetTemplate.based_on_sector,
+  const handleConfirmDeleteTemplate = async () => {
+    if (!pendingDeleteTemplate) {
+      return;
+    }
+
+    setIsDeletingTemplate(true);
+    setErrorMessage("");
+
+    try {
+      await updateReliefPackTemplate(pendingDeleteTemplate.id, {
+        name: pendingDeleteTemplate.name,
+        description: pendingDeleteTemplate.description,
+        based_on_family_size: pendingDeleteTemplate.based_on_family_size,
+        based_on_sector: pendingDeleteTemplate.based_on_sector,
         is_active: false,
-        items: (targetTemplate.items || []).map((item) => ({
+        items: (pendingDeleteTemplate.items || []).map((item) => ({
           inventory_item_id: item.inventory_item_id,
           quantity_required: Number(item.quantity_required || 0),
         })),
       });
 
-      setSuccessMessage(`"${targetTemplate.name}" was removed from active relief packs.`);
+      setSuccessMessage(
+        `"${pendingDeleteTemplate.name}" was removed from active relief packs.`,
+      );
+      setPendingDeleteTemplate(null);
       await loadReliefPackPage();
     } catch (error) {
       setErrorMessage(error.message);
+    } finally {
+      setIsDeletingTemplate(false);
     }
   };
 
@@ -884,6 +943,40 @@ const ReliefPackTemplatesPage = () => {
         onSubmit={handleSubmitModal}
         isSubmitting={isSubmitting}
       />
+
+      {pendingDeleteTemplate ? (
+        <div style={confirmModalStyles.overlay}>
+          <div style={confirmModalStyles.modal}>
+            <h3 style={confirmModalStyles.title}>Remove Relief Pack</h3>
+            <p style={confirmModalStyles.message}>
+              Are you sure you want to remove "{pendingDeleteTemplate.name}" from
+              the active relief packs list?
+            </p>
+
+            <div style={confirmModalStyles.actions}>
+              <button
+                type="button"
+                onClick={handleCancelDeleteTemplate}
+                disabled={isDeletingTemplate}
+                style={pageHeaderStyles.secondaryButton}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteTemplate}
+                disabled={isDeletingTemplate}
+                style={{
+                  ...pageHeaderStyles.primaryButton,
+                  opacity: isDeletingTemplate ? 0.7 : 1,
+                }}
+              >
+                {isDeletingTemplate ? "Removing..." : "Confirm"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };
