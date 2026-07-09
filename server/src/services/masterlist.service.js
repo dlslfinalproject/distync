@@ -255,12 +255,16 @@ const getMswdoMasterlistDashboard = async (filters) => {
       total_number_of_evacuees_individuals: Number(
         metrics.total_number_of_evacuees_individuals || 0,
       ),
-      total_number_of_families: Number(metrics.total_number_of_families || 0),
+      total_number_of_families: Number(
+        metrics.total_number_of_families || 0,
+      ),
       average_household_size: Number(metrics.average_household_size || 0),
       currently_admitted_evacuees: Number(
         metrics.currently_admitted_evacuees || 0,
       ),
-      total_departed_evacuees: Number(metrics.total_departed_evacuees || 0),
+      total_departed_evacuees: Number(
+        metrics.total_departed_evacuees || 0,
+      ),
       total_barangays_covered: Number(metrics.total_barangays_covered || 0),
     },
     charts: {

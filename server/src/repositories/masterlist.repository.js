@@ -277,11 +277,58 @@ const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) =
         h.barangay_id,
         h.household_size,
         h.residency_status,
-        h.current_stay_type
+        h.current_stay_type,
+        h.is_active,
+        h.registered_at,
+        h.updated_at,
+        h.family_head_first_name,
+        h.family_head_middle_name,
+        h.family_head_last_name,
+        h.family_head_suffix,
+        h.sex,
+        h.contact_number
       FROM households h
       WHERE h.disaster_event_id = $1
-        AND h.is_active = TRUE
         AND ($2::uuid IS NULL OR h.barangay_id = $2)
+    ),
+    summary_households AS (
+      SELECT
+        fh.id,
+        fh.barangay_id,
+        fh.household_size,
+        fh.current_stay_type,
+        fh.is_active,
+        fh.registered_at,
+        fh.updated_at,
+        LOWER(
+          CONCAT_WS(
+            '|',
+            REGEXP_REPLACE(BTRIM(COALESCE(fh.family_head_first_name, '')), '\\s+', ' ', 'g'),
+            REGEXP_REPLACE(BTRIM(COALESCE(fh.family_head_middle_name, '')), '\\s+', ' ', 'g'),
+            REGEXP_REPLACE(BTRIM(COALESCE(fh.family_head_last_name, '')), '\\s+', ' ', 'g'),
+            REGEXP_REPLACE(BTRIM(COALESCE(fh.family_head_suffix, '')), '\\s+', ' ', 'g'),
+            COALESCE(fh.sex, ''),
+            REGEXP_REPLACE(BTRIM(COALESCE(fh.contact_number, '')), '\\s+', '', 'g')
+          )
+        ) AS household_key
+      FROM filtered_households fh
+    ),
+    deduplicated_summary_households AS (
+      SELECT DISTINCT ON (sh.household_key)
+        sh.id,
+        sh.barangay_id,
+        sh.household_size,
+        sh.current_stay_type,
+        sh.is_active,
+        sh.registered_at,
+        sh.updated_at,
+        sh.household_key
+      FROM summary_households sh
+      ORDER BY
+        sh.household_key,
+        COALESCE(sh.updated_at, sh.registered_at) DESC,
+        sh.is_active DESC,
+        sh.registered_at DESC
     ),
     filtered_evacuees AS (
       SELECT
@@ -292,10 +339,48 @@ const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) =
         e.birth_date,
         e.age,
         e.age_value,
-        e.age_unit
+        e.age_unit,
+        e.first_name,
+        e.middle_name,
+        e.last_name,
+        e.suffix,
+        e.relationship_to_head,
+        e.is_family_head,
+        e.created_at,
+        e.updated_at,
+        fh.is_active AS household_is_active,
+        fh.current_stay_type,
+        fh.registered_at AS household_registered_at,
+        fh.updated_at AS household_updated_at
       FROM evacuees e
       INNER JOIN filtered_households fh ON fh.id = e.household_id
-      WHERE e.is_active = TRUE
+    ),
+    summary_evacuees AS (
+      SELECT
+        fe.id,
+        fe.household_id,
+        dsh.household_key,
+        fe.household_is_active,
+        fe.current_stay_type,
+        fe.household_registered_at,
+        fe.household_updated_at,
+        fe.created_at AS evacuee_created_at,
+        fe.updated_at AS evacuee_updated_at,
+        LOWER(
+          CONCAT_WS(
+            '|',
+            REGEXP_REPLACE(BTRIM(COALESCE(fe.first_name, '')), '\\s+', ' ', 'g'),
+            REGEXP_REPLACE(BTRIM(COALESCE(fe.middle_name, '')), '\\s+', ' ', 'g'),
+            REGEXP_REPLACE(BTRIM(COALESCE(fe.last_name, '')), '\\s+', ' ', 'g'),
+            REGEXP_REPLACE(BTRIM(COALESCE(fe.suffix, '')), '\\s+', ' ', 'g'),
+            COALESCE(fe.sex, ''),
+            COALESCE(fe.relationship_to_head, ''),
+            CASE WHEN fe.is_family_head THEN '1' ELSE '0' END
+          )
+        ) AS evacuee_key
+      FROM filtered_evacuees fe
+      INNER JOIN deduplicated_summary_households dsh
+        ON dsh.id = fe.household_id
     ),
     latest_logs AS (
       SELECT DISTINCT ON (el.evacuee_id)
@@ -313,6 +398,30 @@ const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) =
         COALESCE(el.time_out, el.time_in) DESC,
         el.updated_at DESC,
         el.created_at DESC
+    ),
+    deduplicated_summary_evacuees AS (
+      SELECT DISTINCT ON (se.evacuee_key)
+        se.evacuee_key,
+        se.household_key,
+        se.current_stay_type,
+        ll.status,
+        ll.time_in,
+        ll.time_out
+      FROM summary_evacuees se
+      LEFT JOIN latest_logs ll ON ll.evacuee_id = se.id
+      ORDER BY
+        se.evacuee_key,
+        COALESCE(
+          ll.time_out,
+          ll.time_in,
+          se.household_updated_at,
+          se.household_registered_at,
+          se.evacuee_updated_at,
+          se.evacuee_created_at
+        ) DESC,
+        se.household_is_active DESC,
+        se.evacuee_updated_at DESC,
+        se.evacuee_created_at DESC
     ),
     sex_distribution AS (
       SELECT
@@ -394,32 +503,40 @@ const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) =
     ),
     summary AS (
       SELECT
-        (SELECT COUNT(*)::int FROM filtered_evacuees)
+        (
+          SELECT COALESCE(SUM(dsh.household_size), 0)::int
+          FROM deduplicated_summary_households dsh
+        )
           AS total_number_of_evacuees_individuals,
-        (SELECT COUNT(*)::int FROM filtered_households)
+        (
+          SELECT COUNT(*)::int
+          FROM deduplicated_summary_households dsh
+        )
           AS total_number_of_families,
         COALESCE(
           (
-            SELECT ROUND(AVG(fh.household_size)::numeric, 1)
-            FROM filtered_households fh
+            SELECT ROUND(AVG(dsh.household_size)::numeric, 1)
+            FROM deduplicated_summary_households dsh
           ),
           0
         ) AS average_household_size,
         (
           SELECT COUNT(*)::int
-          FROM latest_logs ll
-          WHERE ll.status = 'PRESENT'
-            AND ll.time_out IS NULL
+          FROM deduplicated_summary_evacuees dse
+          WHERE dse.status = 'PRESENT'
+            AND dse.time_out IS NULL
         ) AS currently_admitted_evacuees,
         (
           SELECT COUNT(*)::int
-          FROM latest_logs ll
-          WHERE ll.status IN ('LEFT', 'TRANSFERRED')
-            AND ll.time_out IS NOT NULL
+          FROM deduplicated_summary_evacuees dse
+          WHERE dse.status IN ('LEFT', 'TRANSFERRED')
+            AND dse.time_out IS NOT NULL
         ) AS total_departed_evacuees,
         (
-          SELECT COUNT(DISTINCT fh.barangay_id)::int
-          FROM filtered_households fh
+          SELECT COUNT(DISTINCT deb.barangay_id)::int
+          FROM disaster_event_barangays deb
+          WHERE deb.disaster_event_id = $1
+            AND ($2::uuid IS NULL OR deb.barangay_id = $2)
         ) AS total_barangays_covered
     ),
     per_barangay AS (

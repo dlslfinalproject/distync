@@ -151,7 +151,10 @@ const ConsolidatedEvacueeMasterlist = () => {
       />
 
       {selectedDisasterEvent && !isLoadingDashboard && !dashboardErrorMessage ? (
-        <MswdoSummaryCards summary={summaryMetrics} />
+        <MswdoSummaryCards
+          summary={summaryMetrics}
+          selectedBarangayId={selectedBarangayId}
+        />
       ) : null}
 
       {registrationSuccessMessage ? (
