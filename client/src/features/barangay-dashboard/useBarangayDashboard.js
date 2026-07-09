@@ -37,6 +37,56 @@ const getFriendlyDashboardErrorMessage = (error) => {
   return "Unable to load analytics.";
 };
 
+const getEventSortValue = (event) => {
+  const sortableDate =
+    event?.ended_at ||
+    event?.end_date ||
+    event?.start_date ||
+    event?.created_at ||
+    null;
+
+  if (!sortableDate) {
+    return 0;
+  }
+
+  const parsedValue = new Date(sortableDate).getTime();
+  return Number.isNaN(parsedValue) ? 0 : parsedValue;
+};
+
+const getEventCodeSortValue = (event) => {
+  const code = String(event?.event_code || "");
+  const match = code.match(/^DE-(\d{4})-(\d{4})$/i);
+
+  if (!match) {
+    return 0;
+  }
+
+  return Number(`${match[1]}${match[2]}`);
+};
+
+const sortDashboardEvents = (events) => {
+  return [...(events || [])].sort((left, right) => {
+    const codeDifference =
+      getEventCodeSortValue(right) - getEventCodeSortValue(left);
+
+    if (codeDifference !== 0) {
+      return codeDifference;
+    }
+
+    const dateDifference = getEventSortValue(right) - getEventSortValue(left);
+
+    if (dateDifference !== 0) {
+      return dateDifference;
+    }
+
+    return String(right?.event_code || "").localeCompare(
+      String(left?.event_code || ""),
+      undefined,
+      { numeric: true, sensitivity: "base" },
+    );
+  });
+};
+
 export const useBarangayDashboard = ({ userId }) => {
   const accessMode = getAccessMode();
   const allowFallback = accessMode === ACCESS_MODES.DEVELOPMENT;
@@ -110,21 +160,28 @@ export const useBarangayDashboard = ({ userId }) => {
           return;
         }
 
+        const sortedAvailableEvents = sortDashboardEvents(
+          Array.isArray(response.available_events) ? response.available_events : [],
+        );
+        const nextSelectedEvent =
+          response.selected_event &&
+          sortedAvailableEvents.some((event) => event.id === response.selected_event.id)
+            ? response.selected_event
+            : sortedAvailableEvents[0] || null;
+
         setPayload({
           assigned_barangay: response.assigned_barangay || null,
           assigned_barangay_id: response.assigned_barangay_id || null,
           event_scope: response.event_scope || eventScope,
-          available_events: Array.isArray(response.available_events)
-            ? response.available_events
-            : [],
-          selected_event: response.selected_event || null,
+          available_events: sortedAvailableEvents,
+          selected_event: nextSelectedEvent,
           metrics: response.metrics || emptyMetrics,
           has_data: Boolean(response.has_data),
           is_dev_override: Boolean(response.is_dev_override),
         });
         setErrorCode("");
         setErrorMessage("");
-        setSelectedDisasterEventId(response.selected_event?.id || "");
+        setSelectedDisasterEventId(nextSelectedEvent?.id || "");
       } catch (error) {
         if (isMounted) {
           setPayload(emptyPayload);
