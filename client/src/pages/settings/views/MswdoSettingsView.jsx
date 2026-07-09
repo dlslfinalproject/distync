@@ -89,7 +89,7 @@ const MswdoSettingsView = ({
 
   const renderSectionContent = () => {
     switch (activeSection) {
-      case "profile-account":
+      case "profile":
         return (
           <section style={shellStyles.card}>
             <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
@@ -102,13 +102,13 @@ const MswdoSettingsView = ({
 
             <div style={{ ...gridStyles, marginBottom: "18px" }}>
               <article style={cardStyles}>
-                <h4 style={{ margin: 0, color: "#17324d" }}>Office Profile Summary</h4>
+                <h4 style={{ margin: 0, color: "#17324d" }}>Profile Summary</h4>
                 <InfoRow
                   label="Account Name"
                   value={preferences.profile.fullName || "--"}
                 />
                 <InfoRow
-                  label="Position / Designation"
+                  label="Position"
                   value={ROLE_DISPLAY_NAMES[ROLE_CODES.MSWDO]}
                 />
                 <InfoRow
@@ -636,7 +636,137 @@ const MswdoSettingsView = ({
 
             <div style={{ ...gridStyles, alignItems: "start" }}>
               <article style={cardStyles}>
-                <h4 style={{ margin: 0, color: "#17324d" }}>Notification Status</h4>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "flex-start",
+                    gap: "12px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div style={{ display: "grid", gap: "8px" }}>
+                    <h4 style={{ margin: 0, color: "#17324d" }}>Alert Channels</h4>
+                    <p style={helperTextStyles}>
+                      Choose which alert types stay enabled locally and which
+                      delivery channel you prefer when available.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleResetNotificationPreferences}
+                    style={pageHeaderStyles.secondaryButton}
+                  >
+                    Reset to Default
+                  </button>
+                </div>
+
+                {notificationTouched &&
+                Object.values(notificationValidationErrors).some(Boolean) ? (
+                  <div
+                    style={{
+                      border: "1px solid #f0d2d8",
+                      borderRadius: "14px",
+                      padding: "14px 16px",
+                      backgroundColor: "#fff8f9",
+                      display: "grid",
+                      gap: "8px",
+                    }}
+                  >
+                    {notificationValidationErrors.notificationTypes ? (
+                      <p style={errorTextStyles}>
+                        {notificationValidationErrors.notificationTypes}
+                      </p>
+                    ) : null}
+                    {notificationValidationErrors.notificationChannels ? (
+                      <p style={errorTextStyles}>
+                        {notificationValidationErrors.notificationChannels}
+                      </p>
+                    ) : null}
+                    {notificationValidationErrors.emailAddress ? (
+                      <p style={errorTextStyles}>
+                        {notificationValidationErrors.emailAddress}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p style={helperTextStyles}>
+                    In-app alerts are enabled by default. Email preferences only
+                    affect this frontend settings profile right now.
+                  </p>
+                )}
+
+                <div style={{ overflowX: "auto" }}>
+                  <table style={tableStyles.table}>
+                    <thead>
+                      <tr>
+                        <th style={tableStyles.th}>Notification Type</th>
+                        <th style={tableStyles.th}>In-App</th>
+                        <th style={tableStyles.th}>Email</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {BARANGAY_NOTIFICATION_OPTIONS.map((option) => (
+                        <tr key={option.key}>
+                          <td style={tableStyles.td}>
+                            <div style={{ display: "grid", gap: "6px" }}>
+                              <strong>{option.label}</strong>
+                              <p style={helperTextStyles}>{option.description}</p>
+                            </div>
+                          </td>
+                          <td style={tableStyles.td}>
+                            <input
+                              type="checkbox"
+                              checked={Boolean(
+                                preferences.notificationChannels[option.key]?.inApp,
+                              )}
+                              onChange={() =>
+                                handleNotificationChannelToggle(option.key, "inApp")
+                              }
+                            />
+                          </td>
+                          <td style={tableStyles.td}>
+                            <input
+                              type="checkbox"
+                              checked={Boolean(
+                                preferences.notificationChannels[option.key]?.email,
+                              )}
+                              onChange={() =>
+                                handleNotificationChannelToggle(option.key, "email")
+                              }
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+
+              <article style={cardStyles}>
+                <h4 style={{ margin: 0, color: "#17324d" }}>
+                  Existing Role Rule Mapping
+                </h4>
+                <p style={helperTextStyles}>
+                  These mapped rules come from the current backend role
+                  configuration. Toggling them here saves your local review
+                  preference only and does not rewrite server-side notification
+                  rules.
+                </p>
+                <div style={{ display: "grid", gap: "10px" }}>
+                  <InfoRow
+                    label="Unread Notifications"
+                    value={`${unreadCount}`}
+                  />
+                  <InfoRow
+                    label="Active Rules for This Role"
+                    value={`${notificationRuleCount}`}
+                  />
+                  <InfoRow
+                    label="Rules Enabled Locally"
+                    value={`${enabledRuleCodes.length}`}
+                  />
+                </div>
                 {isLoading ? (
                   <EmptyState message="Loading notification settings..." />
                 ) : notificationRules.length === 0 ? (
@@ -673,22 +803,6 @@ const MswdoSettingsView = ({
                     })}
                   </div>
                 )}
-              </article>
-
-              <article style={cardStyles}>
-                <h4 style={{ margin: 0, color: "#17324d" }}>Preference Summary</h4>
-                <InfoRow
-                  label="Unread Notifications"
-                  value={`${unreadCount}`}
-                />
-                <InfoRow
-                  label="Active Rules for This Role"
-                  value={`${notificationRuleCount}`}
-                />
-                <InfoRow
-                  label="Rules Enabled Locally"
-                  value={`${enabledRuleCodes.length}`}
-                />
               </article>
             </div>
           </section>

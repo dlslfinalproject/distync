@@ -92,24 +92,52 @@ const BarangaySettingsView = ({
       case "profile":
         return (
           <section style={shellStyles.card}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "flex-start",
-                gap: "20px",
-                flexWrap: "wrap",
-                marginBottom: "20px",
-              }}
-            >
-              <div style={{ display: "grid", gap: "8px", flex: "1 1 320px" }}>
-                <h3 style={{ margin: 0, color: "#17324d" }}>Profile Settings</h3>
-                <p style={mutedValueStyles}>
-                  Update editable barangay profile details here while keeping the
-                  assigned role, account email, and linked barangay locked for
-                  coordination safety.
-                </p>
-              </div>
+            <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
+              <h3 style={{ margin: 0, color: "#17324d" }}>Profile</h3>
+              <p style={mutedValueStyles}>
+                Keep barangay account identity details accurate while leaving the
+                assigned role, linked barangay, and account email locked for this
+                account.
+              </p>
+            </div>
+
+            <div style={{ ...gridStyles, marginBottom: "18px" }}>
+              <article style={cardStyles}>
+                <h4 style={{ margin: 0, color: "#17324d" }}>Profile Summary</h4>
+                <InfoRow
+                  label="Account Name"
+                  value={preferences.profile.fullName || "--"}
+                />
+                <InfoRow label="Position" value={BARANGAY_POSITION_LABEL} />
+                <InfoRow
+                  label="Barangay Name"
+                  value={assignedBarangayName || "--"}
+                  muted
+                />
+              </article>
+
+              <article style={cardStyles}>
+                <h4 style={{ margin: 0, color: "#17324d" }}>Account Contact</h4>
+                <InfoRow
+                  label="Email Address"
+                  value={
+                    authenticatedUser?.email ||
+                    preferences.profile.emailAddress ||
+                    "--"
+                  }
+                  muted
+                />
+                <InfoRow
+                  label="Contact Number"
+                  value={
+                    preferences.profile.contactNumber
+                      ? `PH +63 ${formatPhilippineContactNumberForDisplay(
+                          preferences.profile.contactNumber,
+                        )}`
+                      : "--"
+                  }
+                />
+              </article>
             </div>
 
             <div style={{ ...gridStyles, alignItems: "start" }}>
@@ -316,7 +344,7 @@ const BarangaySettingsView = ({
         return (
           <section style={shellStyles.card}>
             <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
-              <h3 style={{ margin: 0, color: "#17324d" }}>Security Settings</h3>
+              <h3 style={{ margin: 0, color: "#17324d" }}>Security</h3>
               <p style={mutedValueStyles}>
                 Keep account protection and authentication controls grouped here.
                 Password validation in this screen is frontend-only and does not
