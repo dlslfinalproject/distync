@@ -17,6 +17,35 @@ const formatDateTime = (value) => {
   }).format(new Date(value));
 };
 
+const formatStayTypeLabel = (value) => {
+  if (!value) {
+    return "-";
+  }
+
+  if (value === "EVAC_CENTER") {
+    return "Evacuation Center";
+  }
+
+  if (value === "RELATIVES") {
+    return "Staying with Relatives";
+  }
+
+  if (value === "OTHER_SAFE_PLACE") {
+    return "Other Safe Place";
+  }
+
+  return value;
+};
+
+const shouldUseStayTypeAsArrivalText = (household) => {
+  const stayType = String(household?.current_stay_type || "").toUpperCase();
+
+  return (
+    (stayType === "RELATIVES" || stayType === "OTHER_SAFE_PLACE") &&
+    !household?.latest_attendance?.time_in
+  );
+};
+
 const buildSectorsText = (household) => {
   const householdSectorNames = (household.household_sectors || []).map(
     (sector) => sector.name,
@@ -43,18 +72,19 @@ const getHouseholdLocationLabel = (household) => {
 const mapHouseholdToExportRow = (household) => {
   const departureTimeValue = household.latest_attendance?.time_out || null;
   const locationLabel = getHouseholdLocationLabel(household);
+  const useStayTypeAsArrivalText = shouldUseStayTypeAsArrivalText(household);
 
   return {
     family_head_name: household.family_head_name || "-",
-    address:
-      household.current_address_details ||
-      locationLabel ||
-      "-",
+    address: household.current_address_details || locationLabel || "-",
     members_count: household.members?.length || 0,
     sectors_text: buildSectorsText(household),
-    arrival_time_text: formatDateTime(household.latest_attendance?.time_in),
+    arrival_time_text: useStayTypeAsArrivalText
+      ? formatStayTypeLabel(household.current_stay_type)
+      : formatDateTime(household.latest_attendance?.time_in),
     departure_time_text: formatDateTime(departureTimeValue),
     barangay_name: household.barangay?.name || "",
+    registered_at: household.registered_at || null,
   };
 };
 
@@ -85,15 +115,55 @@ const filterExportRows = (rows, searchTerm) => {
   });
 };
 
-const getExportColumns = () => {
-  return [
+const sortExportRows = (rows, sortOrder = "newest") => {
+  const safeRows = Array.isArray(rows) ? [...rows] : [];
+
+  return safeRows.sort((leftRow, rightRow) => {
+    if (sortOrder === "oldest" || sortOrder === "newest") {
+      const leftTime = new Date(leftRow?.registered_at || 0).getTime();
+      const rightTime = new Date(rightRow?.registered_at || 0).getTime();
+
+      if (leftTime !== rightTime) {
+        return sortOrder === "oldest"
+          ? leftTime - rightTime
+          : rightTime - leftTime;
+      }
+    }
+
+    const leftName = String(leftRow?.family_head_name || "").trim().toUpperCase();
+    const rightName = String(rightRow?.family_head_name || "").trim().toUpperCase();
+
+    if (leftName !== rightName) {
+      if (sortOrder === "za") {
+        return rightName.localeCompare(leftName);
+      }
+
+      return leftName.localeCompare(rightName);
+    }
+
+    const leftTime = new Date(leftRow?.registered_at || 0).getTime();
+    const rightTime = new Date(rightRow?.registered_at || 0).getTime();
+    return rightTime - leftTime;
+  });
+};
+
+const getExportColumns = (includeBarangayColumn = false) => {
+  const columns = [];
+
+  if (includeBarangayColumn) {
+    columns.push({ key: "barangay_name", label: "Barangay" });
+  }
+
+  columns.push(
     { key: "family_head_name", label: "Family Head" },
     { key: "address", label: "Address" },
     { key: "members_count", label: "Members" },
     { key: "sectors_text", label: "Sectors" },
     { key: "arrival_time_text", label: "Arrival Time" },
     { key: "departure_time_text", label: "Departure Time" },
-  ];
+  );
+
+  return columns;
 };
 
 const getExcelExportColumns = (includeBarangayColumn) => {
@@ -1471,5 +1541,6 @@ module.exports = {
   buildPdfBuffer,
   buildPdfFilename,
   filterExportRows,
+  sortExportRows,
   mapHouseholdToExportRow,
 };
