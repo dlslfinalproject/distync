@@ -5,6 +5,7 @@ import PageHeader, {
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import SearchBar from "../../components/shared/SearchBar";
 import ReliefPackTemplateFormModal from "../../components/relief-pack-templates/ReliefPackTemplateFormModal";
+import TableActionsMenu from "../../components/shared/TableActionsMenu";
 import {
   createReliefPackTemplate,
   fetchInventoryItems,
@@ -16,7 +17,7 @@ import { fetchActiveDisasterEvents } from "../../features/disaster-events/disast
 import { fetchInventoryBatches } from "../../features/inventory-batches/inventoryBatchService";
 import { fetchConsolidatedMasterlistDashboard } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { useAuth } from "../../context/AuthContext";
-import { FiFilter } from "react-icons/fi";
+import { FiEdit2, FiEye, FiFilter, FiTrash2 } from "react-icons/fi";
 
 const getTabStyle = (isActive) => ({
   padding: "12px 24px",
@@ -74,6 +75,79 @@ const staticCardStyle = {
   minHeight: "100%",
   boxSizing: "border-box",
   width: "100%",
+};
+
+const tableStyles = {
+  table: {
+    width: "100%",
+    borderCollapse: "collapse",
+    minWidth: "1040px",
+  },
+  headerCell: {
+    padding: "14px 16px",
+    textAlign: "left",
+    fontSize: "12px",
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    color: "#66809c",
+    borderBottom: "1px solid #e0eaf4",
+    whiteSpace: "nowrap",
+  },
+  bodyCell: {
+    padding: "16px",
+    color: "#21405f",
+    borderBottom: "1px solid #edf3f8",
+    fontSize: "14px",
+    verticalAlign: "top",
+    lineHeight: 1.5,
+    wordBreak: "break-word",
+  },
+  countBadge: {
+    display: "inline-block",
+    minWidth: "36px",
+    textAlign: "center",
+    padding: "6px 10px",
+    borderRadius: "999px",
+    backgroundColor: "#e5f1fb",
+    color: "#356592",
+    fontSize: "12px",
+    fontWeight: 700,
+  },
+  helperText: {
+    display: "block",
+    marginTop: "4px",
+    color: "#6b8298",
+    fontSize: "12px",
+  },
+  centeredHeaderCell: {
+    textAlign: "center",
+  },
+  centeredBodyCell: {
+    textAlign: "center",
+    verticalAlign: "middle",
+  },
+  itemList: {
+    display: "grid",
+    gap: "6px",
+  },
+  itemRow: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: "8px",
+    color: "#21405f",
+  },
+  itemName: {
+    fontWeight: 600,
+  },
+  itemQuantity: {
+    color: "#6b8298",
+    fontSize: "12px",
+    fontWeight: 600,
+  },
+  stackedList: {
+    display: "grid",
+    gap: "10px",
+  },
 };
 
 const staticInnerBoxStyle = {
@@ -553,6 +627,19 @@ const ReliefPackTemplatesPage = () => {
     }
   };
 
+  const handleOpenViewModal = async (templateId) => {
+    setModalMode("view");
+    setModalErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      await loadTemplateDetail(templateId);
+      setIsModalOpen(true);
+    } catch (error) {
+      setErrorMessage(error.message);
+    }
+  };
+
   const handleCancelDeleteTemplate = () => {
     if (!isDeletingTemplate) {
       setPendingDeleteTemplate(null);
@@ -800,119 +887,143 @@ const ReliefPackTemplatesPage = () => {
             ) : filteredTemplateCards.length === 0 ? (
               <p style={helperTextStyle}>No active relief packs are available yet.</p>
             ) : (
-              <div style={staticCardGridStyle}>
-                {filteredTemplateCards.map((template) => (
-                  <div key={template.id} style={staticCardStyle}>
-                    <h3
-                      style={{
-                        margin: "0 0 12px",
-                        color: "#2f3f5d",
-                        fontSize: "22px",
-                        fontWeight: 800,
-                      }}
-                    >
-                      {template.name}
-                    </h3>
-
-                    <div style={staticInnerBoxStyle}>
-                      <div
+              <div style={{ overflowX: "auto" }}>
+                <table style={tableStyles.table}>
+                  <thead>
+                    <tr>
+                      <th style={tableStyles.headerCell}>Pack Name</th>
+                      <th style={tableStyles.headerCell}>Items</th>
+                      <th style={tableStyles.headerCell}>Quantity Per Item</th>
+                      <th
                         style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          marginBottom: "10px",
+                          ...tableStyles.headerCell,
+                          ...tableStyles.centeredHeaderCell,
                         }}
                       >
-                        <span
+                        Recommended Family Size
+                      </th>
+                      <th
+                        style={{
+                          ...tableStyles.headerCell,
+                          ...tableStyles.centeredHeaderCell,
+                        }}
+                      >
+                        Available Packs
+                      </th>
+                      <th
+                        style={{
+                          ...tableStyles.headerCell,
+                          ...tableStyles.centeredHeaderCell,
+                          width: "88px",
+                        }}
+                      >
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredTemplateCards.map((template) => (
+                      <tr key={template.id}>
+                        <td style={tableStyles.bodyCell}>
+                          <div style={{ fontWeight: 700 }}>{template.name}</div>
+                        </td>
+                        <td style={tableStyles.bodyCell}>
+                          {(template.items || []).length > 0 ? (
+                            <div style={tableStyles.stackedList}>
+                              {(template.items || []).map((item, index) => (
+                                <div
+                                  key={item.id || `${template.id}-${item.inventory_item_id}`}
+                                  style={tableStyles.itemRow}
+                                >
+                                  <span style={tableStyles.itemName}>
+                                    {item.inventory_item?.item_name || "--"}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span style={tableStyles.helperText}>No items</span>
+                          )}
+                        </td>
+                        <td style={tableStyles.bodyCell}>
+                          {(template.items || []).length > 0 ? (
+                            <div style={tableStyles.stackedList}>
+                              {(template.items || []).map((item, index) => (
+                                <div
+                                  key={`qty-${item.id || `${template.id}-${item.inventory_item_id}`}`}
+                                  style={tableStyles.itemRow}
+                                >
+                                  <span style={tableStyles.itemQuantity}>
+                                    {formatTemplateItemQuantity(item)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span style={tableStyles.helperText}>--</span>
+                          )}
+                        </td>
+                        <td
                           style={{
-                            color: "#2f3f5d",
-                            fontWeight: 800,
-                            fontSize: "16px",
+                            ...tableStyles.bodyCell,
+                            ...tableStyles.centeredBodyCell,
                           }}
                         >
-                          Items
-                        </span>
-                        <span
+                          {template.description || "--"}
+                        </td>
+                        <td
                           style={{
-                            color: "#2f3f5d",
-                            fontWeight: 800,
-                            fontSize: "16px",
+                            ...tableStyles.bodyCell,
+                            ...tableStyles.centeredBodyCell,
                           }}
                         >
-                          {(template.items || []).length}
-                        </span>
-                      </div>
-
-                      <div
-                        style={{
-                          display: "grid",
-                          gap: "6px",
-                          marginBottom: "12px",
-                        }}
-                      >
-                        {(template.items || []).map((item) => (
-                          <div
-                            key={item.id}
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "baseline",
-                              gap: "12px",
-                              color: "#3a4a66",
-                              fontSize: "14px",
-                            }}
-                          >
-                            <span>{item.inventory_item?.item_name || "--"}</span>
-                            <span style={{ fontWeight: 600 }}>
-                              {formatTemplateItemQuantity(item)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          marginTop: "auto",
-                          color: "#2f3f5d",
-                          fontWeight: 800,
-                          fontSize: "15px",
-                        }}
-                      >
-                        <span>RECOMMENDED FAMILY SIZE</span>
-                        <span>{template.description + " members"}</span>
-                      </div>
-                    </div>
-
-                    <div style={{ marginTop: "auto" }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: "10px",
-                          marginBottom: "10px",
-                        }}
-                      >
-                        <button
-                          type="button"
-                          style={secondaryCardButtonStyle}
-                          onClick={() => handleOpenEditModal(template.id)}
+                          {template.metrics.packsWeCanCreate.toLocaleString()}
+                        </td>
+                        <td
+                          style={{
+                            ...tableStyles.bodyCell,
+                            ...tableStyles.centeredBodyCell,
+                            whiteSpace: "nowrap",
+                          }}
                         >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          style={secondaryCardButtonStyle}
-                          onClick={() => handleDeleteTemplate(template.id)}
-                        >
-                          Delete
-                        </button>
-                      </div>
-
-                    </div>
-                  </div>
-                ))}
+                          <TableActionsMenu
+                            row={template}
+                            menuId={`relief-pack-template-${template.id}`}
+                            buttonTitle="Actions"
+                            buttonAriaLabel="Actions"
+                            dataPrefix="relief-pack-template-action"
+                            menuWidth={168}
+                            variant="icon-grid"
+                            items={[
+                              {
+                                key: "view",
+                                label: "View Relief Pack",
+                                icon: <FiEye size={18} />,
+                                onClick: (selectedRow) =>
+                                  handleOpenViewModal(selectedRow.id),
+                              },
+                              {
+                                key: "edit",
+                                label: "Edit Relief Pack",
+                                icon: <FiEdit2 size={18} />,
+                                onClick: (selectedRow) =>
+                                  handleOpenEditModal(selectedRow.id),
+                              },
+                              {
+                                key: "delete",
+                                label: "Delete Relief Pack",
+                                icon: <FiTrash2 size={18} />,
+                                tone: "destructive",
+                                onClick: (selectedRow) =>
+                                  handleDeleteTemplate(selectedRow.id),
+                              },
+                            ]}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </section>
