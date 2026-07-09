@@ -55,6 +55,18 @@ const tableStyles = {
     justifyContent: "center",
     cursor: "pointer",
   },
+  directActionButton: {
+    width: "40px",
+    height: "40px",
+    borderRadius: "12px",
+    border: "1px solid #c6d8ea",
+    backgroundColor: "#f7fbfe",
+    color: "#24496e",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+  },
   membersBadge: {
     display: "inline-block",
     minWidth: "36px",
@@ -431,22 +443,35 @@ const MasterlistTable = ({
                       ...tableStyles.actionBodyCell,
                     }}
                   >
-                    <TableActionsMenu
-                      row={row}
-                      menuId={row.household_id}
-                      buttonTitle={
-                        row.is_local_only ? "Available after sync" : "Actions"
-                      }
-                      buttonAriaLabel="Actions"
-                      disabled={row.is_local_only}
-                      onToggle={(selectedRow) => {
-                        console.log("Selected row:", selectedRow);
-                      }}
-                      dataPrefix="masterlist-action"
-                      menuWidth={actionItems.length > 2 ? 168 : 116}
-                      variant="icon-grid"
-                      items={actionItems}
-                    />
+                    {isDepartureReadOnly && actionItems.length === 1 ? (
+                      <button
+                        type="button"
+                        onClick={() => actionItems[0].onClick?.(row)}
+                        style={tableStyles.directActionButton}
+                        title={actionItems[0].title || actionItems[0].label}
+                        aria-label={actionItems[0].label}
+                        disabled={actionItems[0].disabled || row.is_local_only}
+                      >
+                        {actionItems[0].icon}
+                      </button>
+                    ) : (
+                      <TableActionsMenu
+                        row={row}
+                        menuId={row.household_id}
+                        buttonTitle={
+                          row.is_local_only ? "Available after sync" : "Actions"
+                        }
+                        buttonAriaLabel="Actions"
+                        disabled={row.is_local_only}
+                        onToggle={(selectedRow) => {
+                          console.log("Selected row:", selectedRow);
+                        }}
+                        dataPrefix="masterlist-action"
+                        menuWidth={actionItems.length > 2 ? 168 : 116}
+                        variant="icon-grid"
+                        items={actionItems}
+                      />
+                    )}
                   </td>
                 </tr>
               );
