@@ -67,6 +67,22 @@ export const setAuthenticatedSession = (sessionPayload) => {
   );
 };
 
+export const updateAuthenticatedSessionUser = (userUpdates) => {
+  const currentSession = getAuthenticatedSession();
+
+  if (!currentSession || !userUpdates || typeof userUpdates !== "object") {
+    return;
+  }
+
+  setAuthenticatedSession({
+    ...currentSession,
+    user: {
+      ...currentSession.user,
+      ...userUpdates,
+    },
+  });
+};
+
 export const clearAuthenticatedSession = () => {
   window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
 };

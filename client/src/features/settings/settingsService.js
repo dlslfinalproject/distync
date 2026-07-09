@@ -1,5 +1,8 @@
 import { getCachedRegistrationReferenceData } from "../household-registration/householdRegistrationService";
 
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+
 const SETTINGS_STORAGE_KEY_PREFIX = "distync-role-settings";
 
 const DEFAULT_PREFERENCES = {
@@ -41,10 +44,17 @@ const safeWriteJson = (storageKey, value) => {
   }
 };
 
-export const loadRoleSettings = ({ roleCode, userId }) => {
-  const storageKey = buildStorageKey({ roleCode, userId });
-  const storedValue = safeReadJson(storageKey, {});
+const handleJsonResponse = async (response, fallbackMessage) => {
+  const payload = await response.json();
 
+  if (!response.ok) {
+    throw new Error(payload.message || fallbackMessage);
+  }
+
+  return payload;
+};
+
+const normalizeStoredSettings = (storedValue = {}) => {
   return {
     ...DEFAULT_PREFERENCES,
     ...(storedValue || {}),
@@ -58,15 +68,47 @@ export const loadRoleSettings = ({ roleCode, userId }) => {
   };
 };
 
-export const saveRoleSettings = ({ roleCode, userId, settings }) => {
+export const loadRoleSettings = async ({ roleCode, userId }) => {
   const storageKey = buildStorageKey({ roleCode, userId });
-  safeWriteJson(storageKey, {
-    ...DEFAULT_PREFERENCES,
-    ...(settings || {}),
+  const cachedSettings = normalizeStoredSettings(safeReadJson(storageKey, {}));
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/settings/current`);
+    const payload = await handleJsonResponse(response, "Failed to load settings");
+    const resolvedSettings = normalizeStoredSettings(payload?.data || {});
+
+    safeWriteJson(storageKey, resolvedSettings);
+
+    return resolvedSettings;
+  } catch (_error) {
+    return cachedSettings;
+  }
+};
+
+export const saveRoleSettings = async ({ roleCode, userId, settings }) => {
+  const storageKey = buildStorageKey({ roleCode, userId });
+  const response = await fetch(`${API_BASE_URL}/api/v1/settings/current`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      settings: {
+        ...DEFAULT_PREFERENCES,
+        ...(settings || {}),
+      },
+    }),
   });
+
+  const payload = await handleJsonResponse(response, "Failed to save settings");
+  const resolvedSettings = normalizeStoredSettings(payload?.data || {});
+
+  safeWriteJson(storageKey, resolvedSettings);
 
   return {
     success: true,
+    data: resolvedSettings,
+    user: payload?.user || null,
   };
 };
 
