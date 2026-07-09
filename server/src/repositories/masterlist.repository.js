@@ -140,16 +140,69 @@ const getBarangayScopedDisasterEventById = async (
 const getBarangayDashboardMetrics = async (disasterEventId, barangayId) => {
   const query = `
     WITH scoped_households AS (
-      SELECT h.id
+      SELECT
+        h.id,
+        h.is_active,
+        h.household_size,
+        h.registered_at,
+        h.updated_at,
+        h.current_stay_type,
+        LOWER(
+          CONCAT_WS(
+            '|',
+            REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_first_name, '')), '\\s+', ' ', 'g'),
+            REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_middle_name, '')), '\\s+', ' ', 'g'),
+            REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_last_name, '')), '\\s+', ' ', 'g'),
+            REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_suffix, '')), '\\s+', ' ', 'g'),
+            COALESCE(h.sex, ''),
+            REGEXP_REPLACE(BTRIM(COALESCE(h.contact_number, '')), '\\s+', '', 'g')
+          )
+        ) AS household_key
       FROM households h
       WHERE h.disaster_event_id = $1
         AND h.barangay_id = $2
     ),
+    deduplicated_households AS (
+      SELECT DISTINCT ON (sh.household_key)
+        sh.id,
+        sh.household_key,
+        sh.household_size,
+        sh.is_active,
+        sh.current_stay_type,
+        sh.registered_at,
+        sh.updated_at
+      FROM scoped_households sh
+      ORDER BY
+        sh.household_key,
+        COALESCE(sh.updated_at, sh.registered_at) DESC,
+        sh.is_active DESC,
+        sh.registered_at DESC
+    ),
     scoped_evacuees AS (
-      SELECT e.id
+      SELECT
+        e.id,
+        e.household_id,
+        dh.household_key,
+        dh.is_active AS household_is_active,
+        dh.current_stay_type,
+        dh.registered_at AS household_registered_at,
+        dh.updated_at AS household_updated_at,
+        e.created_at AS evacuee_created_at,
+        e.updated_at AS evacuee_updated_at,
+        LOWER(
+          CONCAT_WS(
+            '|',
+            REGEXP_REPLACE(BTRIM(COALESCE(e.first_name, '')), '\\s+', ' ', 'g'),
+            REGEXP_REPLACE(BTRIM(COALESCE(e.middle_name, '')), '\\s+', ' ', 'g'),
+            REGEXP_REPLACE(BTRIM(COALESCE(e.last_name, '')), '\\s+', ' ', 'g'),
+            REGEXP_REPLACE(BTRIM(COALESCE(e.suffix, '')), '\\s+', ' ', 'g'),
+            COALESCE(e.sex, ''),
+            COALESCE(e.relationship_to_head, ''),
+            CASE WHEN e.is_family_head THEN '1' ELSE '0' END
+          )
+        ) AS evacuee_key
       FROM evacuees e
-      JOIN scoped_households sh ON sh.id = e.household_id
-      WHERE e.is_active = TRUE
+      JOIN deduplicated_households dh ON dh.id = e.household_id
     ),
     latest_logs AS (
       SELECT DISTINCT ON (el.evacuee_id)
@@ -165,21 +218,45 @@ const getBarangayDashboardMetrics = async (disasterEventId, barangayId) => {
         COALESCE(el.time_out, el.time_in) DESC,
         el.updated_at DESC,
         el.created_at DESC
+    ),
+    deduplicated_evacuees AS (
+      SELECT DISTINCT ON (se.evacuee_key)
+        se.evacuee_key,
+        se.household_key,
+        se.current_stay_type,
+        ll.status,
+        ll.time_in,
+        ll.time_out
+      FROM scoped_evacuees se
+      LEFT JOIN latest_logs ll ON ll.evacuee_id = se.id
+      ORDER BY
+        se.evacuee_key,
+        COALESCE(ll.time_out, ll.time_in, se.household_updated_at, se.household_registered_at, se.evacuee_updated_at, se.evacuee_created_at) DESC,
+        se.household_is_active DESC,
+        se.evacuee_updated_at DESC,
+        se.evacuee_created_at DESC
     )
     SELECT
-      (SELECT COUNT(*)::int FROM scoped_evacuees) AS total_evacuees_individuals,
-      (SELECT COUNT(*)::int FROM scoped_households) AS total_families,
+      (
+        SELECT COALESCE(SUM(dh.household_size), 0)::int
+        FROM deduplicated_households dh
+      )
+        AS total_evacuees_individuals,
       (
         SELECT COUNT(*)::int
-        FROM latest_logs ll
-        WHERE ll.status = 'PRESENT'
-          AND ll.time_out IS NULL
+        FROM deduplicated_households dh
+      ) AS total_families,
+      (
+        SELECT COUNT(*)::int
+        FROM deduplicated_evacuees de
+        WHERE de.status = 'PRESENT'
+          AND de.time_out IS NULL
       ) AS currently_admitted_evacuees,
       (
         SELECT COUNT(*)::int
-        FROM latest_logs ll
-        WHERE ll.status IN ('LEFT', 'TRANSFERRED')
-          AND ll.time_out IS NOT NULL
+        FROM deduplicated_evacuees de
+        WHERE de.status IN ('LEFT', 'TRANSFERRED')
+          AND de.time_out IS NOT NULL
       ) AS total_departed_evacuees
   `;
 

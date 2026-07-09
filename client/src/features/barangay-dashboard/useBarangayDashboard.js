@@ -156,24 +156,28 @@ export const useBarangayDashboard = ({ userId }) => {
   const summaryCards = useMemo(() => {
     return [
       {
-        label: "Total Number of Evacuees",
+        label: "Total Affected Individuals",
         value: payload.metrics.total_evacuees_individuals || 0,
-        helperText: "Individuals under the selected disaster event and scoped barangay.",
+        helperText:
+          "All registered individuals under the selected disaster event and scoped barangay, regardless of stay type.",
       },
       {
-        label: "Number of Families",
+        label: "Total Affected Families",
         value: payload.metrics.total_families || 0,
-        helperText: "Active household records for the selected disaster event and scoped barangay.",
+        helperText:
+          "All household records under the selected disaster event and scoped barangay, regardless of stay type.",
       },
       {
         label: "Currently Admitted Evacuees",
         value: payload.metrics.currently_admitted_evacuees || 0,
-        helperText: "Evacuees whose latest evacuation log still shows PRESENT.",
+        helperText:
+          "Individuals whose latest evacuation record still shows PRESENT in an evacuation center.",
       },
       {
-        label: "Total Departed Evacuees",
+        label: "Departed Evacuees",
         value: payload.metrics.total_departed_evacuees || 0,
-        helperText: "Evacuees whose latest evacuation log shows LEFT or TRANSFERRED.",
+        helperText:
+          "Individuals whose latest evacuation record shows LEFT or TRANSFERRED from an evacuation center.",
       },
     ];
   }, [payload.metrics]);
