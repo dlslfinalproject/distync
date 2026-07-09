@@ -194,11 +194,13 @@ const ConsolidatedEvacueeMasterlist = () => {
         </section>
       ) : null}
 
-      <MasterlistSelectionBar
-        selectedCount={selectedHouseholds.length}
-        isSubmitting={isRecordingDeparture}
-        onConfirmDeparture={handleOpenBulkDepartureConfirmation}
-      />
+      {!isEndedView ? (
+        <MasterlistSelectionBar
+          selectedCount={selectedHouseholds.length}
+          isSubmitting={isRecordingDeparture}
+          onConfirmDeparture={handleOpenBulkDepartureConfirmation}
+        />
+      ) : null}
 
       <MswdoMasterlistControls
         searchTerm={searchTerm}
@@ -224,6 +226,7 @@ const ConsolidatedEvacueeMasterlist = () => {
         onOpenRegisterModal={handleOpenRegisterModal}
         selectedDisasterEventId={selectedDisasterEventId}
         exportingFormat={exportingFormat}
+        hideRecordStatus={isEndedView}
         onOpenExportModal={() => {
           setSelectedExportDisasterEventId(selectedDisasterEventId || "");
           setSelectedExportBarangayIds(
@@ -336,7 +339,7 @@ const ConsolidatedEvacueeMasterlist = () => {
         errorMessage={householdDetailsErrorMessage}
         householdDetails={householdDetails}
         onClose={handleCloseHouseholdDetails}
-        onEditHousehold={handleEditHouseholdFromDetails}
+        onEditHousehold={isEndedView ? undefined : handleEditHouseholdFromDetails}
       />
 
       <HouseholdArchiveConfirmModal

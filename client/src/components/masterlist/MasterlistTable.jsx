@@ -101,6 +101,7 @@ const MasterlistTable = ({
     : [];
   const canUseSelection =
     typeof onToggleSelect === "function" && typeof onSelectAll === "function";
+  const showSelectionColumn = !isDepartureReadOnly;
 
   if (!hasSelectedEvent) {
     return (
@@ -243,20 +244,22 @@ const MasterlistTable = ({
         <table style={tableStyles.table}>
           <thead>
             <tr>
-              <th
-                style={{
-                  ...tableStyles.headerCell,
-                  width: "56px",
-                  textAlign: "center",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={areAllSelected}
-                  onChange={onSelectAll}
-                  disabled={!canUseSelection || !selectableRows.length}
-                />
-              </th>
+              {showSelectionColumn ? (
+                <th
+                  style={{
+                    ...tableStyles.headerCell,
+                    width: "56px",
+                    textAlign: "center",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={areAllSelected}
+                    onChange={onSelectAll}
+                    disabled={!canUseSelection || !selectableRows.length}
+                  />
+                </th>
+              ) : null}
               <th style={tableStyles.headerCell}>Family Head</th>
               <th style={tableStyles.headerCell}>Address</th>
               <th
@@ -320,21 +323,23 @@ const MasterlistTable = ({
                   key={row.household_id}
                   style={isArchivedRow ? tableStyles.archivedRow : undefined}
                 >
-                  <td
-                    style={{
-                      ...tableStyles.bodyCell,
-                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
-                      textAlign: "center",
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      disabled={!canUseSelection || !isSelectable}
-                      onChange={() => onToggleSelect(row.household_id)}
-                      style={isArchivedRow ? tableStyles.archivedCheckbox : undefined}
-                    />
-                  </td>
+                  {showSelectionColumn ? (
+                    <td
+                      style={{
+                        ...tableStyles.bodyCell,
+                        ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
+                        textAlign: "center",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        disabled={!canUseSelection || !isSelectable}
+                        onChange={() => onToggleSelect(row.household_id)}
+                        style={isArchivedRow ? tableStyles.archivedCheckbox : undefined}
+                      />
+                    </td>
+                  ) : null}
                   <td
                     style={{
                       ...tableStyles.bodyCell,

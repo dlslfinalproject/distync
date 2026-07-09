@@ -762,6 +762,7 @@ const BarangayMasterlistPage = () => {
         exportingFormat={exportingFormat}
         onOpenExport={handleOpenExportModal}
         disableExportButton={!hasSelectedEvent}
+        hideRecordStatus={isSelectedEventEnded}
       />
 
       {!isSelectedEventEnded ? (
@@ -822,7 +823,9 @@ const BarangayMasterlistPage = () => {
         errorMessage={householdDetailsErrorMessage}
         householdDetails={householdDetails}
         onClose={handleCloseHouseholdDetails}
-        onEditHousehold={handleEditHouseholdFromDetails}
+        onEditHousehold={
+          isSelectedEventEnded ? undefined : handleEditHouseholdFromDetails
+        }
       />
 
       <HouseholdArchiveConfirmModal
