@@ -92,20 +92,32 @@ const HouseholdArchiveConfirmModal = ({
   onCancel,
   onConfirm,
   mode = "archive",
+  restoreVariant = "readmit",
 }) => {
   if (!isOpen) {
     return null;
   }
 
   const isRestoreMode = mode === "restore";
-  const title = isRestoreMode ? "Re-admit Household" : "Archive Household";
+  const isAdmitVariant = restoreVariant === "admit";
+  const title = isRestoreMode
+    ? isAdmitVariant
+      ? "Admit Household"
+      : "Re-admit Household"
+    : "Archive Household";
   const message = isRestoreMode
-    ? "Are you sure this family has returned to the evacuation center?"
+    ? isAdmitVariant
+      ? "Are you sure this family should now be admitted to the evacuation center?"
+      : "Are you sure this family has returned to the evacuation center?"
     : "Are you sure you want to archive this household?";
   const confirmLabel = isRestoreMode
-    ? isSubmitting
-      ? "Recording Re-admission..."
-      : "Re-admit Household"
+    ? isAdmitVariant
+      ? isSubmitting
+        ? "Admitting Household..."
+        : "Admit Household"
+      : isSubmitting
+        ? "Recording Re-admission..."
+        : "Re-admit Household"
     : isSubmitting
       ? "Archiving..."
       : "Archive Household";

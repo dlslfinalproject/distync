@@ -157,9 +157,11 @@ const BarangayMasterlistPage = () => {
   const {
     sectorOptions,
     selectedSectorIds,
+    selectedSortOrder,
     filteredRows,
     toggleSectorFilter,
     clearSectorFilters,
+    setSelectedSortOrder,
   } = useBarangayMasterlistSync({
     rows: data.rows,
     syncQueueEntries,
@@ -200,6 +202,9 @@ const BarangayMasterlistPage = () => {
     : pendingRestoreRow?.family_head_name || "";
   const pendingRestoreFamilyHeadPhotoUrl =
     pendingRestoreHouseholdDetails?.household?.family_head_photo_url || "";
+  const pendingRestoreVariant = pendingRestoreRow?.is_non_admitted_resident
+    ? "admit"
+    : "readmit";
 
   useEffect(() => {
     const activeEvents = availableEvents.filter(
@@ -609,6 +614,8 @@ const BarangayMasterlistPage = () => {
         onRecordStatusChange={setRecordStatus}
         sectorOptions={sectorOptions}
         selectedSectorIds={selectedSectorIds}
+        selectedSortOrder={selectedSortOrder}
+        onSortOrderChange={setSelectedSortOrder}
         onToggleSector={toggleSectorFilter}
         onClearFilters={clearSectorFilters}
         filterScopeKey={eventScope}
@@ -684,6 +691,7 @@ const BarangayMasterlistPage = () => {
         onCancel={handleCancelRestoreHousehold}
         onConfirm={handleConfirmRestoreHousehold}
         mode="restore"
+        restoreVariant={pendingRestoreVariant}
       />
     </>
   );

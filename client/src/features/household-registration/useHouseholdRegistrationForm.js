@@ -585,6 +585,12 @@ export const useHouseholdRegistrationForm = ({
     isOpen,
   ]);
 
+  const savedEditEvacuationCenterId = String(
+    initialHouseholdDetails?.household?.evacuation_center_id ||
+      initialHouseholdDetails?.latest_attendance?.evacuation_center_id ||
+      "",
+  );
+
   useEffect(() => {
     if (!isOpen) {
       setEvacuationCenters([]);
@@ -624,6 +630,8 @@ export const useHouseholdRegistrationForm = ({
 
       if (isMounted) {
         const normalizedCenters = Array.isArray(centers) ? centers : [];
+        const preservedEvacuationCenterId =
+          household.evacuation_center_id || savedEditEvacuationCenterId;
 
         if (normalizedCenters.length > 0 && selectedBarangayId) {
           cacheRegistrationEvacuationCentersByBarangay(selectedBarangayId, centers);
@@ -632,27 +640,27 @@ export const useHouseholdRegistrationForm = ({
         setHousehold((currentValue) => ({
           ...currentValue,
           evacuation_center_id:
-            currentValue.evacuation_center_id &&
+            preservedEvacuationCenterId &&
             (normalizedCenters.some(
               (center) =>
                 String(center.id ?? "") ===
-                String(currentValue.evacuation_center_id ?? ""),
+                String(preservedEvacuationCenterId ?? ""),
             ) ||
               isEditMode)
-              ? currentValue.evacuation_center_id
+              ? preservedEvacuationCenterId
               : "",
         }));
 
-        setEvacuationCenters((currentCenters) => {
+        setEvacuationCenters(() => {
           const existingSelectedCenter = normalizedCenters.find(
             (center) =>
               String(center.id ?? "") ===
-              String(household.evacuation_center_id ?? ""),
+              String(preservedEvacuationCenterId ?? ""),
           );
 
           if (
             !isEditMode ||
-            !household.evacuation_center_id ||
+            !preservedEvacuationCenterId ||
             existingSelectedCenter
           ) {
             return normalizedCenters;
@@ -660,7 +668,7 @@ export const useHouseholdRegistrationForm = ({
 
           return [
             {
-              id: household.evacuation_center_id,
+              id: preservedEvacuationCenterId,
               name: "Saved evacuation center",
               barangay_id: selectedBarangayId || null,
               is_active: false,
@@ -678,7 +686,11 @@ export const useHouseholdRegistrationForm = ({
     };
   }, [
     isOpen,
+    household.evacuation_center_id,
+    initialHouseholdDetails,
+    isEditMode,
     residencyStatus,
+    savedEditEvacuationCenterId,
     scopeNonResidentEvacuationCentersToBarangay,
     selectedBarangayId,
   ]);
@@ -973,17 +985,26 @@ export const useHouseholdRegistrationForm = ({
   const normalizedSelectedEvacuationCenterId = String(
     household.evacuation_center_id ?? "",
   );
+  const inferredSingleEvacuationCenterId =
+    isEditMode &&
+    household.current_stay_type === "EVAC_CENTER" &&
+    !normalizedSelectedEvacuationCenterId &&
+    evacuationCenters.length === 1
+      ? String(evacuationCenters[0]?.id ?? "")
+      : "";
+  const effectiveEvacuationCenterId =
+    normalizedSelectedEvacuationCenterId || inferredSingleEvacuationCenterId;
   const hasSelectedEvacuationCenterInOptions = evacuationCenters.some(
     (center) =>
-      String(center.id ?? "") === normalizedSelectedEvacuationCenterId,
+      String(center.id ?? "") === effectiveEvacuationCenterId,
   );
   const displayedEvacuationCenters =
     isEditMode &&
-    normalizedSelectedEvacuationCenterId &&
+    effectiveEvacuationCenterId &&
     !hasSelectedEvacuationCenterInOptions
       ? [
           {
-            id: normalizedSelectedEvacuationCenterId,
+            id: effectiveEvacuationCenterId,
             name: "Saved evacuation center",
             barangay_id: selectedBarangayId || null,
             is_active: false,
@@ -1058,7 +1079,7 @@ export const useHouseholdRegistrationForm = ({
     }
 
     if (household.current_stay_type === "EVAC_CENTER") {
-      if (!household.evacuation_center_id) {
+      if (!effectiveEvacuationCenterId) {
         nextValidationErrors.evacuation_center_id =
           "Please select an evacuation center.";
       }
@@ -1072,7 +1093,7 @@ export const useHouseholdRegistrationForm = ({
         return "Non-resident families must be registered under Evacuation Center stay.";
       }
 
-      if (!household.evacuation_center_id) {
+      if (!effectiveEvacuationCenterId) {
         nextValidationErrors.evacuation_center_id =
           "Please select an evacuation center under the assigned barangay.";
       }
@@ -1080,7 +1101,7 @@ export const useHouseholdRegistrationForm = ({
       const selectedCenter = evacuationCenters.find(
         (center) =>
           String(center.id ?? "") ===
-          String(household.evacuation_center_id ?? ""),
+          effectiveEvacuationCenterId,
       );
 
       if (
@@ -1201,7 +1222,7 @@ export const useHouseholdRegistrationForm = ({
       residency_status: residencyStatus,
       evacuation_center_id:
         household.current_stay_type === "EVAC_CENTER"
-          ? household.evacuation_center_id || null
+          ? effectiveEvacuationCenterId || null
           : null,
       family_head: {
         first_name: trimValue(familyHead.first_name),
@@ -1309,6 +1330,7 @@ export const useHouseholdRegistrationForm = ({
     memberSectorOptions,
     householdSectors,
     evacuationCenters: displayedEvacuationCenters,
+    effectiveEvacuationCenterId,
     isLoadingOptions,
     isSubmitting,
     errorMessage,

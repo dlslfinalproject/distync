@@ -34,6 +34,11 @@ const fieldStyles = {
     backgroundColor: "#ffffff",
     boxSizing: "border-box",
   },
+  disabledInput: {
+    backgroundColor: "#f8fbfe",
+    color: "#60738a",
+    cursor: "not-allowed",
+  },
   phoneInputGroup: {
     display: "flex",
     alignItems: "stretch",
@@ -79,6 +84,7 @@ const HouseholdFormSection = ({ form }) => {
     (eventItem) => eventItem.id === form.selectedDisasterEventId,
   );
   const isNonResident = form.residencyStatus === "NON_RESIDENT";
+  const isPlacementLocked = form.isEditMode;
   const selectedBarangay = form.barangays.find(
     (barangay) => barangay.id === form.selectedBarangayId,
   );
@@ -88,6 +94,17 @@ const HouseholdFormSection = ({ form }) => {
     isNonResident && form.restrictNonResidentToEvacCenter
       ? STAY_TYPE_OPTIONS.filter((option) => option.value === "EVAC_CENTER")
       : STAY_TYPE_OPTIONS;
+  const getInputStyle = (isDisabled = false, extraStyle = null) => ({
+    ...fieldStyles.input,
+    ...(isDisabled ? fieldStyles.disabledInput : {}),
+    ...(extraStyle || {}),
+  });
+  const isResidencyLocked = isPlacementLocked;
+  const isBarangayLocked = form.isBarangayLocked || isPlacementLocked;
+  const isStayTypeLocked =
+    isPlacementLocked || (isNonResident && form.restrictNonResidentToEvacCenter);
+  const isEvacuationCenterLocked =
+    isPlacementLocked || form.household.current_stay_type !== "EVAC_CENTER";
 
   return (
     <section style={shellStyles.card}>
@@ -127,7 +144,8 @@ const HouseholdFormSection = ({ form }) => {
           <select
             value={form.residencyStatus}
             onChange={(event) => form.setResidencyStatus(event.target.value)}
-            style={fieldStyles.input}
+            disabled={isResidencyLocked}
+            style={getInputStyle(isResidencyLocked)}
           >
             <option value="RESIDENT">Resident</option>
             <option value="NON_RESIDENT">Non-Resident (Outside Malvar)</option>
@@ -145,8 +163,8 @@ const HouseholdFormSection = ({ form }) => {
             <select
               value={form.selectedBarangayId}
               onChange={(event) => form.setSelectedBarangayId(event.target.value)}
-              disabled={form.isBarangayLocked}
-              style={fieldStyles.input}
+              disabled={isBarangayLocked}
+              style={getInputStyle(isBarangayLocked)}
             >
               <option value="">
                 {isNonResident
@@ -174,8 +192,8 @@ const HouseholdFormSection = ({ form }) => {
             onChange={(event) =>
               form.updateHouseholdField("current_stay_type", event.target.value)
             }
-            disabled={isNonResident && form.restrictNonResidentToEvacCenter}
-            style={fieldStyles.input}
+            disabled={isStayTypeLocked}
+            style={getInputStyle(isStayTypeLocked)}
           >
             {stayTypeOptions.map((option) => (
               <option key={option.value} value={option.value}>
@@ -188,12 +206,12 @@ const HouseholdFormSection = ({ form }) => {
         <label style={fieldStyles.field}>
           <span style={fieldStyles.label}>Evacuation Center</span>
           <select
-            value={form.household.evacuation_center_id}
+            value={form.effectiveEvacuationCenterId || form.household.evacuation_center_id}
             onChange={(event) =>
               form.updateHouseholdField("evacuation_center_id", event.target.value)
             }
-            disabled={form.household.current_stay_type !== "EVAC_CENTER"}
-            style={fieldStyles.input}
+            disabled={isEvacuationCenterLocked}
+            style={getInputStyle(isEvacuationCenterLocked)}
           >
             <option value="">No evacuation center selected</option>
             {form.evacuationCenters.map((center) => (
@@ -222,8 +240,7 @@ const HouseholdFormSection = ({ form }) => {
                 form.updateContactNumber(event.target.value)
               }
               style={{
-                ...fieldStyles.input,
-                ...fieldStyles.phoneInput,
+                ...getInputStyle(false, fieldStyles.phoneInput),
               }}
             />
           </div>

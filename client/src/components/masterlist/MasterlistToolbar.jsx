@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import SearchBar from "../shared/SearchBar";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { FiUserPlus, FiFilter } from "react-icons/fi";
+import { MASTERLIST_SORT_OPTIONS } from "../../features/masterlist/masterlistService";
 
 const filterPanelStyles = {
   panel: {
@@ -42,9 +43,38 @@ const filterPanelStyles = {
   },
   actions: {
     display: "flex",
-    justifyContent: "space-between",
-    gap: "10px",
+    justifyContent: "flex-end",
     marginTop: "auto",
+  },
+  clearAction: {
+    border: "none",
+    background: "transparent",
+    color: "#55718b",
+    padding: "2px 0",
+    fontSize: "13px",
+    fontWeight: 700,
+    cursor: "pointer",
+    textDecoration: "underline",
+    textUnderlineOffset: "3px",
+  },
+  field: {
+    display: "grid",
+    gap: "8px",
+  },
+  label: {
+    color: "#55718b",
+    fontSize: "13px",
+    fontWeight: 700,
+  },
+  select: {
+    minHeight: "44px",
+    borderRadius: "14px",
+    border: "1px solid #d0ddeb",
+    backgroundColor: "#ffffff",
+    color: "#17324d",
+    padding: "10px 12px",
+    fontSize: "14px",
+    fontWeight: 600,
   },
 };
 
@@ -112,6 +142,8 @@ const MasterlistToolbar = ({
   onRecordStatusChange,
   sectorOptions = [],
   selectedSectorIds = [],
+  selectedSortOrder = "newest",
+  onSortOrderChange,
   onToggleSector,
   onClearFilters,
   filterScopeKey = "",
@@ -124,7 +156,8 @@ const MasterlistToolbar = ({
   });
   const filterButtonRef = useRef(null);
   const filterPanelRef = useRef(null);
-  const activeFilterCount = selectedSectorIds.length;
+  const activeFilterCount =
+    selectedSectorIds.length + (selectedSortOrder !== "newest" ? 1 : 0);
 
   const updateFilterPanelPosition = () => {
     if (!filterButtonRef.current) {
@@ -273,6 +306,23 @@ const MasterlistToolbar = ({
                 maxHeight: filterPanelPosition.maxHeight,
               }}
             >
+              <h3 style={filterPanelStyles.title}>Filter Records</h3>
+
+              <label style={filterPanelStyles.field}>
+                <span style={filterPanelStyles.label}>Order List</span>
+                <select
+                  value={selectedSortOrder}
+                  onChange={(event) => onSortOrderChange?.(event.target.value)}
+                  style={filterPanelStyles.select}
+                >
+                  {MASTERLIST_SORT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
               <h3 style={filterPanelStyles.title}>Filter by Sector</h3>
 
               <div style={filterPanelStyles.list}>
@@ -299,16 +349,9 @@ const MasterlistToolbar = ({
                 <button
                   type="button"
                   onClick={onClearFilters}
-                  style={pageHeaderStyles.secondaryButton}
+                  style={filterPanelStyles.clearAction}
                 >
                   Clear
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsFilterOpen(false)}
-                  style={pageHeaderStyles.primaryButton}
-                >
-                  Apply
                 </button>
               </div>
             </div>

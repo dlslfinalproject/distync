@@ -3,6 +3,7 @@ import { FiFileText, FiFilter, FiUserPlus } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
 import SearchBar from "../shared/SearchBar";
+import { MASTERLIST_SORT_OPTIONS } from "../../features/masterlist/masterlistService";
 
 const filterPanelStyles = {
   panel: {
@@ -43,9 +44,38 @@ const filterPanelStyles = {
   },
   actions: {
     display: "flex",
-    justifyContent: "space-between",
-    gap: "10px",
+    justifyContent: "flex-end",
     marginTop: "auto",
+  },
+  clearAction: {
+    border: "none",
+    background: "transparent",
+    color: "#55718b",
+    padding: "2px 0",
+    fontSize: "13px",
+    fontWeight: 700,
+    cursor: "pointer",
+    textDecoration: "underline",
+    textUnderlineOffset: "3px",
+  },
+  field: {
+    display: "grid",
+    gap: "8px",
+  },
+  label: {
+    color: "#55718b",
+    fontSize: "13px",
+    fontWeight: 700,
+  },
+  select: {
+    minHeight: "44px",
+    borderRadius: "14px",
+    border: "1px solid #d0ddeb",
+    backgroundColor: "#ffffff",
+    color: "#17324d",
+    padding: "10px 12px",
+    fontSize: "14px",
+    fontWeight: 600,
   },
 };
 
@@ -59,12 +89,14 @@ const MswdoMasterlistControls = ({
   isFilterOpen,
   filterPanelPosition,
   hasActiveSectorFilters,
+  hasNonDefaultSort,
   selectedSectorIds,
+  selectedSortOrder = "newest",
   sectors,
   onToggleFilterOpen,
   onToggleSectorFilter,
+  onSortOrderChange,
   onClearSectorFilters,
-  onApplySectorFilters,
   canRegisterFamily,
   onOpenRegisterModal,
   selectedDisasterEventId,
@@ -134,8 +166,8 @@ const MswdoMasterlistControls = ({
             }}
           >
             <FiFilter size={16} />
-            {hasActiveSectorFilters
-              ? `Filter (${selectedSectorIds.length})`
+            {hasActiveSectorFilters || hasNonDefaultSort
+              ? `Filter (${selectedSectorIds.length + (hasNonDefaultSort ? 1 : 0)})`
               : "Filter"}
           </button>
 
@@ -149,6 +181,22 @@ const MswdoMasterlistControls = ({
                 maxHeight: filterPanelPosition.maxHeight,
               }}
             >
+              <h3 style={filterPanelStyles.title}>Filter Records</h3>
+              <label style={filterPanelStyles.field}>
+                <span style={filterPanelStyles.label}>Order List</span>
+                <select
+                  value={selectedSortOrder}
+                  onChange={(event) => onSortOrderChange?.(event.target.value)}
+                  style={filterPanelStyles.select}
+                >
+                  {MASTERLIST_SORT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
               <h3 style={filterPanelStyles.title}>Filter by Sector</h3>
               <div style={filterPanelStyles.list}>
                 {sectors.length > 0 ? (
@@ -174,16 +222,9 @@ const MswdoMasterlistControls = ({
                 <button
                   type="button"
                   onClick={onClearSectorFilters}
-                  style={pageHeaderStyles.secondaryButton}
+                  style={filterPanelStyles.clearAction}
                 >
                   Clear
-                </button>
-                <button
-                  type="button"
-                  onClick={onApplySectorFilters}
-                  style={pageHeaderStyles.primaryButton}
-                >
-                  Apply
                 </button>
               </div>
             </div>

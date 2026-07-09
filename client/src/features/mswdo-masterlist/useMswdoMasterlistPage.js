@@ -31,6 +31,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     selectedDisasterEvent,
     searchTerm,
     recordStatus,
+    selectedSortOrder,
     displayedRows,
     summaryMetrics,
     isLoadingFilters,
@@ -41,6 +42,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setSelectedDisasterEventId,
     setSelectedBarangayId,
     setSelectedSectorIds,
+    setSelectedSortOrder,
     setSearchTerm,
     setRecordStatus,
     reloadMasterlist,
@@ -63,6 +65,10 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   const [sectorFiltersByTab, setSectorFiltersByTab] = useState({
     active: [],
     ended: [],
+  });
+  const [sortOrderByTab, setSortOrderByTab] = useState({
+    active: "newest",
+    ended: "newest",
   });
   const [recordStatusByTab, setRecordStatusByTab] = useState({
     active: "active",
@@ -107,6 +113,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   const filterPanelRef = useRef(null);
 
   const selectedSectorIds = sectorFiltersByTab[activeTab] || [];
+  const selectedSortOrderByTab = sortOrderByTab[activeTab] || "newest";
   const selectedRecordStatus = recordStatusByTab[activeTab] || "active";
   const activeEventLabel = selectedDisasterEvent
     ? `${selectedDisasterEvent.event_code} - ${selectedDisasterEvent.title}`
@@ -120,6 +127,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     formatDateTime,
   );
   const hasActiveSectorFilters = selectedSectorIds.length > 0;
+  const hasNonDefaultSort = selectedSortOrderByTab !== "newest";
   const scopedDisasterEvents = useMemo(() => {
     return getScopedDisasterEvents({
       events: disasterEvents,
@@ -173,6 +181,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     defaultDisasterEventId: selectedDisasterEventId || "",
     lockBarangaySelection: false,
     hideBarangaySelection: false,
+    restrictNonResidentToEvacCenter: true,
     scopeNonResidentEvacuationCentersToBarangay: true,
     registeredBy: authenticatedUser?.id || null,
     onSuccess: (response) => {
@@ -192,6 +201,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     defaultDisasterEventId: selectedDisasterEventId || "",
     lockBarangaySelection: false,
     hideBarangaySelection: false,
+    restrictNonResidentToEvacCenter: true,
     scopeNonResidentEvacuationCentersToBarangay: true,
     registeredBy: authenticatedUser?.id || null,
     onSuccess: (response) => {
@@ -215,6 +225,17 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setSectorFiltersByTab((currentFilters) => ({
       ...currentFilters,
       [activeTab]: [],
+    }));
+    setSortOrderByTab((currentValues) => ({
+      ...currentValues,
+      [activeTab]: "newest",
+    }));
+  };
+
+  const setTabSortOrder = (value) => {
+    setSortOrderByTab((currentValues) => ({
+      ...currentValues,
+      [activeTab]: value || "newest",
     }));
   };
 
@@ -455,6 +476,10 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   useEffect(() => {
     setSelectedSectorIds(selectedSectorIds);
   }, [selectedSectorIds, setSelectedSectorIds]);
+
+  useEffect(() => {
+    setSelectedSortOrder(selectedSortOrderByTab);
+  }, [selectedSortOrderByTab, setSelectedSortOrder]);
 
   useEffect(() => {
     setRecordStatus(selectedRecordStatus);
@@ -764,6 +789,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     filterButtonRef,
     filterPanelRef,
     selectedSectorIds,
+    selectedSortOrder: selectedSortOrderByTab,
     selectedRecordStatus,
     activeEventLabel,
     reliefPeriodText,
@@ -773,6 +799,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     isEndedView,
     endedEventDateTimeText,
     hasActiveSectorFilters,
+    hasNonDefaultSort,
     scopedDisasterEvents,
     selectableBarangays,
     registrationForm,
@@ -785,6 +812,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setExportFeedback,
     setIsExportModalOpen,
     setIsFilterOpen,
+    setTabSortOrder,
     handleEventScopeChange,
     handleRecordStatusChange,
     handleToggleSelect,

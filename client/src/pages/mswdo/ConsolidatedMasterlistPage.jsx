@@ -62,12 +62,14 @@ const ConsolidatedEvacueeMasterlist = () => {
     filterButtonRef,
     filterPanelRef,
     selectedSectorIds,
+    selectedSortOrder,
     activeEventLabel,
     reliefPeriodText,
     canRegisterFamily,
     isEndedView,
     endedEventDateTimeText,
     hasActiveSectorFilters,
+    hasNonDefaultSort,
     scopedDisasterEvents,
     selectableBarangays,
     registrationForm,
@@ -100,6 +102,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     handleExport,
     toggleSectorFilter,
     clearSectorFilters,
+    setTabSortOrder,
     householdDetails,
     pendingDepartureHouseholdId,
     isBulkDepartureConfirmOpen,
@@ -117,6 +120,12 @@ const ConsolidatedEvacueeMasterlist = () => {
     : "";
   const pendingRestoreFamilyHeadPhotoUrl =
     pendingRestoreHouseholdDetails?.household?.family_head_photo_url || "";
+  const pendingRestoreRow = displayedRows.find(
+    (row) => row.household_id === pendingRestoreHouseholdId,
+  );
+  const pendingRestoreVariant = pendingRestoreRow?.is_non_admitted_resident
+    ? "admit"
+    : "readmit";
 
   return (
     <>
@@ -185,12 +194,14 @@ const ConsolidatedEvacueeMasterlist = () => {
         isFilterOpen={isFilterOpen}
         filterPanelPosition={filterPanelPosition}
         hasActiveSectorFilters={hasActiveSectorFilters}
+        hasNonDefaultSort={hasNonDefaultSort}
         selectedSectorIds={selectedSectorIds}
+        selectedSortOrder={selectedSortOrder}
         sectors={sectors}
         onToggleFilterOpen={() => setIsFilterOpen((currentValue) => !currentValue)}
         onToggleSectorFilter={toggleSectorFilter}
+        onSortOrderChange={setTabSortOrder}
         onClearSectorFilters={clearSectorFilters}
-        onApplySectorFilters={() => setIsFilterOpen(false)}
         canRegisterFamily={canRegisterFamily}
         onOpenRegisterModal={handleOpenRegisterModal}
         selectedDisasterEventId={selectedDisasterEventId}
@@ -284,6 +295,7 @@ const ConsolidatedEvacueeMasterlist = () => {
         onCancel={handleCancelRestoreHousehold}
         onConfirm={handleConfirmRestoreHousehold}
         mode="restore"
+        restoreVariant={pendingRestoreVariant}
       />
 
       <FeedbackToast

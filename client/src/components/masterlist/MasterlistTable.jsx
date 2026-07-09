@@ -171,6 +171,34 @@ const MasterlistTable = ({
       return [viewAction];
     }
 
+    if (row.is_non_admitted_resident) {
+      const nonAdmittedResidentActions = [
+        viewAction,
+        {
+          key: "edit",
+          label: "Edit Household",
+          icon: <FiEdit2 size={18} />,
+          disabled: typeof onEditHousehold !== "function",
+          title: "Edit Household",
+          onClick: (selectedRow) => onEditHousehold?.(selectedRow.household_id),
+        },
+      ];
+
+      if (!row.has_used_admit_action) {
+        nonAdmittedResidentActions.push({
+          key: "admit",
+          label: "Admit Household",
+          icon: <FiLogIn size={18} />,
+          disabled: typeof onRestoreHousehold !== "function",
+          title: "Admit Household",
+          onClick: (selectedRow) =>
+            onRestoreHousehold?.(selectedRow.household_id),
+        });
+      }
+
+      return nonAdmittedResidentActions;
+    }
+
     if (row.is_operationally_active === false) {
       return [
         viewAction,
@@ -285,6 +313,7 @@ const MasterlistTable = ({
               const isSelected = safeSelectedHouseholds.includes(
                 row.household_id,
               );
+              const actionItems = buildActionItems(row);
 
               return (
                 <tr
@@ -409,9 +438,9 @@ const MasterlistTable = ({
                         console.log("Selected row:", selectedRow);
                       }}
                       dataPrefix="masterlist-action"
-                      menuWidth={116}
+                      menuWidth={actionItems.length > 2 ? 168 : 116}
                       variant="icon-grid"
-                      items={buildActionItems(row)}
+                      items={actionItems}
                     />
                   </td>
                 </tr>

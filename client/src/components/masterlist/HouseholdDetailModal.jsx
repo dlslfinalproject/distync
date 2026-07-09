@@ -7,6 +7,7 @@ import {
   formatMemberSectorLabel,
   getCanonicalMemberSectorCode,
 } from "../../utils/registrationOptions";
+import { formatStayTypeLabel } from "../../utils/stayType";
 
 const modalStyles = {
   backdrop: {
@@ -183,6 +184,20 @@ const buildSectorsText = (sectors = []) => {
   return [...orderedSectorLabels, ...remainingSectorLabels].join(", ");
 };
 
+const isNonAdmittedResidentHousehold = (household, latestAttendance) => {
+  const stayType = String(household?.current_stay_type || "").toUpperCase();
+  const latestStatus = String(latestAttendance?.status || "").toUpperCase();
+
+  return (
+    household?.residency_status === "RESIDENT" &&
+    household?.is_active === false &&
+    (stayType === "RELATIVES" || stayType === "OTHER_SAFE_PLACE") &&
+    !latestAttendance?.time_in &&
+    !latestAttendance?.time_out &&
+    latestStatus !== "PRESENT"
+  );
+};
+
 const HouseholdDetailModal = ({
   isOpen,
   isLoading,
@@ -221,6 +236,11 @@ const HouseholdDetailModal = ({
     !latestAttendance?.time_out &&
     latestAttendanceStatus !== "LEFT" &&
     latestAttendanceStatus !== "TRANSFERRED";
+  const isNonAdmittedResident = isNonAdmittedResidentHousehold(
+    household,
+    latestAttendance,
+  );
+  const stayTypeLabel = formatStayTypeLabel(household?.current_stay_type);
 
   return (
     <div style={modalStyles.backdrop}>
@@ -310,7 +330,7 @@ const HouseholdDetailModal = ({
                 </div>
                 <div>
                   <p style={modalStyles.label}>Stay Type</p>
-                  <p style={modalStyles.value}>{household.current_stay_type || "--"}</p>
+                  <p style={modalStyles.value}>{stayTypeLabel || "--"}</p>
                 </div>
                 <div>
                   <p style={modalStyles.label}>Registered At</p>
@@ -360,7 +380,9 @@ const HouseholdDetailModal = ({
                     Latest Arrival
                   </p>
                   <p style={modalStyles.value}>
-                    {formatDateTime(latestAttendance?.time_in)}
+                    {isNonAdmittedResident
+                      ? stayTypeLabel
+                      : formatDateTime(latestAttendance?.time_in)}
                   </p>
 
                   <p style={{ ...modalStyles.label, marginTop: "18px" }}>

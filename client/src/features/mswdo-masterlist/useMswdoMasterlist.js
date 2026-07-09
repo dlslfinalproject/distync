@@ -10,6 +10,7 @@ import { fetchSectors } from "../household-registration/householdRegistrationSer
 import {
   isOperationallyActiveHousehold,
   mapMasterlistRow,
+  sortMasterlistRows,
 } from "../masterlist/masterlistService";
 import {
   buildMasterlistFilterSectorOptions,
@@ -50,9 +51,9 @@ const formatSearchValue = (value) => {
   return value ? String(value).toLowerCase() : "";
 };
 
-const getMappedRows = (households) => {
+const getMappedRows = (households, allHouseholds = households) => {
   return households.map((household) => {
-    const baseRow = mapMasterlistRow(household);
+    const baseRow = mapMasterlistRow(household, allHouseholds);
     const barangayName = household.barangay?.name || "";
     const addressParts = [baseRow.address];
     const sectorIds = [
@@ -103,10 +104,15 @@ const getStatusScopedRows = (households, recordStatus) => {
   return households.filter(isOperationallyActiveHousehold);
 };
 
-const getDisplayedRows = (rows, searchTerm, selectedSectorIds) => {
+const getDisplayedRows = (
+  rows,
+  searchTerm,
+  selectedSectorIds,
+  selectedSortOrder = "newest",
+) => {
   const normalizedSearchTerm = searchTerm.trim().toLowerCase();
 
-  return rows.filter((household) => {
+  const filteredRows = rows.filter((household) => {
     const matchesSectorFilter =
       selectedSectorIds.length === 0 ||
       selectedSectorIds.some((sectorId) =>
@@ -134,6 +140,8 @@ const getDisplayedRows = (rows, searchTerm, selectedSectorIds) => {
       formatSearchValue(value).includes(normalizedSearchTerm),
     );
   });
+
+  return sortMasterlistRows(filteredRows, selectedSortOrder);
 };
 
 const getSummaryMetrics = (dashboardPayload) => {
@@ -159,6 +167,7 @@ export const useMswdoMasterlist = () => {
   const [selectedBarangayId, setSelectedBarangayId] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedSectorIds, setSelectedSectorIds] = useState([]);
+  const [selectedSortOrder, setSelectedSortOrder] = useState("newest");
   const [recordStatus, setRecordStatus] = useState("active");
   const [masterlistPayload, setMasterlistPayload] = useState(emptyMasterlistPayload);
   const [dashboardPayload, setDashboardPayload] = useState(emptyDashboardPayload);
@@ -312,14 +321,20 @@ export const useMswdoMasterlist = () => {
   }, [reloadKey, selectedBarangayId, selectedDisasterEventId]);
 
   const mappedRows = useMemo(() => {
-    return getMappedRows(
-      getStatusScopedRows(masterlistPayload.data || [], recordStatus),
-    );
+    const allHouseholds = masterlistPayload.data || [];
+    const statusScopedHouseholds = getStatusScopedRows(allHouseholds, recordStatus);
+
+    return getMappedRows(statusScopedHouseholds, allHouseholds);
   }, [masterlistPayload.data, recordStatus]);
 
   const displayedRows = useMemo(() => {
-    return getDisplayedRows(mappedRows, searchTerm, selectedSectorIds);
-  }, [mappedRows, searchTerm, selectedSectorIds]);
+    return getDisplayedRows(
+      mappedRows,
+      searchTerm,
+      selectedSectorIds,
+      selectedSortOrder,
+    );
+  }, [mappedRows, searchTerm, selectedSectorIds, selectedSortOrder]);
 
   const summaryMetrics = useMemo(() => {
     return getSummaryMetrics(dashboardPayload);
@@ -338,6 +353,7 @@ export const useMswdoMasterlist = () => {
     selectedDisasterEventId,
     selectedBarangayId,
     selectedSectorIds,
+    selectedSortOrder,
     selectedDisasterEvent,
     searchTerm,
     recordStatus,
@@ -352,6 +368,7 @@ export const useMswdoMasterlist = () => {
     setSelectedDisasterEventId,
     setSelectedBarangayId,
     setSelectedSectorIds,
+    setSelectedSortOrder,
     setSearchTerm,
     setRecordStatus,
     reloadMasterlist: () => {
