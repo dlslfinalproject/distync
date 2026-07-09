@@ -38,11 +38,13 @@ const ExportModal = ({
   formatOptions = [],
   selectedReportType = "",
   selectedFormat = "csv",
+  hideReportType = false,
   isSubmitting = false,
   onReportTypeChange,
   onFormatChange,
   onClose,
   onSubmit,
+  children,
 }) => {
   if (!isOpen) {
     return null;
@@ -75,21 +77,23 @@ const ExportModal = ({
       }
     >
       <div style={fieldGroupStyles}>
-        <div>
-          <label style={labelStyles}>{reportLabel}</label>
-          <select
-            value={selectedReportType}
-            onChange={(event) => onReportTypeChange?.(event.target.value)}
-            style={selectStyles}
-            disabled={isSubmitting}
-          >
-            {reportOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        {!hideReportType ? (
+          <div>
+            <label style={labelStyles}>{reportLabel}</label>
+            <select
+              value={selectedReportType}
+              onChange={(event) => onReportTypeChange?.(event.target.value)}
+              style={selectStyles}
+              disabled={isSubmitting}
+            >
+              {reportOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
 
         <div>
           <label style={labelStyles}>{formatLabel}</label>
@@ -106,6 +110,8 @@ const ExportModal = ({
             ))}
           </select>
         </div>
+
+        {children}
       </div>
     </FormModalShell>
   );

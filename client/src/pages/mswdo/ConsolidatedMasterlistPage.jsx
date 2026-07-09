@@ -8,14 +8,13 @@ import MasterlistDepartureConfirmModal from "../../components/masterlist/Masterl
 import MasterlistSelectionBar from "../../components/masterlist/MasterlistSelectionBar";
 import MasterlistTable from "../../components/masterlist/MasterlistTable";
 import MswdoMasterlistControls from "../../components/mswdo-masterlist/MswdoMasterlistControls";
+import MswdoExportModal from "../../components/mswdo-masterlist/MswdoExportModal";
 import MswdoMasterlistEventSummary from "../../components/mswdo-masterlist/MswdoMasterlistEventSummary";
 import MswdoMasterlistScopeSection from "../../components/mswdo-masterlist/MswdoMasterlistScopeSection";
 import MswdoSummaryCards from "../../components/mswdo-masterlist/MswdoSummaryCards";
-import ExportModal from "../../components/shared/ExportModal";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import { useAuth } from "../../context/AuthContext";
 import { useMswdoMasterlistPage } from "../../features/mswdo-masterlist/useMswdoMasterlistPage";
-import { COMMON_EXPORT_FORMAT_OPTIONS } from "../../utils/exportHelpers";
 
 const ConsolidatedEvacueeMasterlist = () => {
   const { authenticatedUser } = useAuth();
@@ -46,6 +45,13 @@ const ConsolidatedEvacueeMasterlist = () => {
     isExportModalOpen,
     exportingFormat,
     selectedExportFormat,
+    selectedExportDisasterEventId,
+    selectedExportBarangayIds,
+    selectedExportRecordStatus,
+    selectedExportSortOrder,
+    selectedExportSectorIds,
+    availableExportSectorIds,
+    availableExportBarangayIds,
     isRegisterModalOpen,
     registrationSuccessMessage,
     attendanceActionMessage,
@@ -78,9 +84,15 @@ const ConsolidatedEvacueeMasterlist = () => {
     setSelectedBarangayId,
     setSearchTerm,
     setSelectedExportFormat,
+    setSelectedExportDisasterEventId,
+    setSelectedExportBarangayIds,
+    setSelectedExportRecordStatus,
+    setSelectedExportSortOrder,
+    setSelectedExportSectorIds,
     setExportFeedback,
     setIsExportModalOpen,
     setIsFilterOpen,
+    handleExportDisasterEventChange,
     handleEventScopeChange,
     handleRecordStatusChange,
     handleToggleSelect,
@@ -107,6 +119,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     pendingDepartureHouseholdId,
     isBulkDepartureConfirmOpen,
     isRecordingDeparture,
+    exportSortOptions,
   } = useMswdoMasterlistPage({ authenticatedUser });
   const pendingRestoreFamilyHeadName = pendingRestoreHouseholdDetails?.household
     ? [
@@ -151,7 +164,10 @@ const ConsolidatedEvacueeMasterlist = () => {
       />
 
       {selectedDisasterEvent && !isLoadingDashboard && !dashboardErrorMessage ? (
-        <MswdoSummaryCards summary={summaryMetrics} />
+        <MswdoSummaryCards
+          summary={summaryMetrics}
+          selectedBarangayId={selectedBarangayId}
+        />
       ) : null}
 
       {registrationSuccessMessage ? (
@@ -178,11 +194,13 @@ const ConsolidatedEvacueeMasterlist = () => {
         </section>
       ) : null}
 
-      <MasterlistSelectionBar
-        selectedCount={selectedHouseholds.length}
-        isSubmitting={isRecordingDeparture}
-        onConfirmDeparture={handleOpenBulkDepartureConfirmation}
-      />
+      {!isEndedView ? (
+        <MasterlistSelectionBar
+          selectedCount={selectedHouseholds.length}
+          isSubmitting={isRecordingDeparture}
+          onConfirmDeparture={handleOpenBulkDepartureConfirmation}
+        />
+      ) : null}
 
       <MswdoMasterlistControls
         searchTerm={searchTerm}
@@ -198,7 +216,9 @@ const ConsolidatedEvacueeMasterlist = () => {
         selectedSectorIds={selectedSectorIds}
         selectedSortOrder={selectedSortOrder}
         sectors={sectors}
-        onToggleFilterOpen={() => setIsFilterOpen((currentValue) => !currentValue)}
+        onToggleFilterOpen={() =>
+          setIsFilterOpen((currentValue) => !currentValue)
+        }
         onToggleSectorFilter={toggleSectorFilter}
         onSortOrderChange={setTabSortOrder}
         onClearSectorFilters={clearSectorFilters}
@@ -206,8 +226,22 @@ const ConsolidatedEvacueeMasterlist = () => {
         onOpenRegisterModal={handleOpenRegisterModal}
         selectedDisasterEventId={selectedDisasterEventId}
         exportingFormat={exportingFormat}
+        hideRecordStatus={isEndedView}
         onOpenExportModal={() => {
+          setSelectedExportDisasterEventId(selectedDisasterEventId || "");
+          setSelectedExportBarangayIds(
+            selectedBarangayId
+              ? [selectedBarangayId]
+              : Array.isArray(selectedDisasterEvent?.affected_barangays)
+                ? selectedDisasterEvent.affected_barangays
+                    .map((barangay) => barangay?.id)
+                    .filter(Boolean)
+                : [],
+          );
           setSelectedExportFormat("csv");
+          setSelectedExportRecordStatus(selectedRecordStatus);
+          setSelectedExportSortOrder(selectedSortOrder);
+          setSelectedExportSectorIds(selectedSectorIds);
           setExportFeedback({ type: "", message: "" });
           setIsExportModalOpen(true);
         }}
@@ -241,28 +275,50 @@ const ConsolidatedEvacueeMasterlist = () => {
         selectedHouseholdsPreview={pendingBulkDepartureHouseholds}
       />
 
-      <ExportModal
+      <MswdoExportModal
         isOpen={isExportModalOpen}
-        title="Export MSWDO Report"
-        description="Choose the masterlist report format to generate."
-        reportOptions={[
-          {
-            value: "MSWDO_MASTERLIST",
-            label: "Consolidated Evacuee Masterlist",
-          },
-        ]}
-        formatOptions={COMMON_EXPORT_FORMAT_OPTIONS}
-        selectedReportType="MSWDO_MASTERLIST"
-        selectedFormat={selectedExportFormat}
         isSubmitting={Boolean(exportingFormat)}
-        onReportTypeChange={() => {}}
-        onFormatChange={setSelectedExportFormat}
+        disasterEvents={disasterEvents}
+        barangays={barangays}
+        sectors={sectors}
+        selectedDisasterEventId={selectedExportDisasterEventId}
+        selectedBarangayIds={selectedExportBarangayIds}
+        selectedRecordStatus={selectedExportRecordStatus}
+        selectedSortOrder={selectedExportSortOrder}
+        selectedSectorIds={selectedExportSectorIds}
+        availableSectorIds={availableExportSectorIds}
+        availableBarangayIds={availableExportBarangayIds}
+        selectedFormat={selectedExportFormat}
         onClose={() => {
           if (!exportingFormat) {
             setIsExportModalOpen(false);
           }
         }}
         onSubmit={() => handleExport(selectedExportFormat)}
+        onDisasterEventChange={handleExportDisasterEventChange}
+        onBarangayToggle={(barangayId) => {
+          setSelectedExportBarangayIds((currentValues) =>
+            currentValues.includes(barangayId)
+              ? currentValues.filter((id) => id !== barangayId)
+              : [...currentValues, barangayId],
+          );
+        }}
+        onSelectAllBarangays={() =>
+          setSelectedExportBarangayIds(availableExportBarangayIds)
+        }
+        onClearBarangays={() => setSelectedExportBarangayIds([])}
+        onRecordStatusChange={setSelectedExportRecordStatus}
+        onSortOrderChange={setSelectedExportSortOrder}
+        onSectorToggle={(sectorId) => {
+          setSelectedExportSectorIds((currentValues) =>
+            currentValues.includes(sectorId)
+              ? currentValues.filter((id) => id !== sectorId)
+              : [...currentValues, sectorId],
+          );
+        }}
+        onClearSectors={() => setSelectedExportSectorIds([])}
+        onFormatChange={setSelectedExportFormat}
+        sortOptions={exportSortOptions}
       />
 
       <RegisterFamilyModal
@@ -283,7 +339,7 @@ const ConsolidatedEvacueeMasterlist = () => {
         errorMessage={householdDetailsErrorMessage}
         householdDetails={householdDetails}
         onClose={handleCloseHouseholdDetails}
-        onEditHousehold={handleEditHouseholdFromDetails}
+        onEditHousehold={isEndedView ? undefined : handleEditHouseholdFromDetails}
       />
 
       <HouseholdArchiveConfirmModal

@@ -243,8 +243,13 @@ const ReliefPackTemplateFormModal = ({
   }
 
   const isEditMode = mode === "edit";
+  const isViewMode = mode === "view";
 
   const handleInputChange = (event) => {
+    if (isViewMode) {
+      return;
+    }
+
     const { name, value } = event.target;
     setLocalErrorMessage("");
     setFormValues((previousValues) => ({
@@ -405,7 +410,11 @@ const ReliefPackTemplateFormModal = ({
         >
           <div>
             <h3 style={{ margin: 0, color: "#17324d", fontSize: "26px" }}>
-              {isEditMode ? "Edit Relief Pack" : "Add Relief Pack"}
+              {isViewMode
+                ? "View Relief Pack"
+                : isEditMode
+                  ? "Edit Relief Pack"
+                  : "Add Relief Pack"}
             </h3>
           </div>
 
@@ -454,6 +463,7 @@ const ReliefPackTemplateFormModal = ({
                     value={formValues.packName}
                     onChange={handleInputChange}
                     placeholder="e.g. Standard Food Pack"
+                    disabled={isViewMode}
                   />
                 </div>
 
@@ -467,6 +477,7 @@ const ReliefPackTemplateFormModal = ({
                     style={inputStyles}
                     value={formValues.selectedItem}
                     onChange={handleInputChange}
+                    disabled={isViewMode}
                   >
                     <option value="">Select Item</option>
                     {inventoryItems.map((inventoryItem) => (
@@ -490,23 +501,26 @@ const ReliefPackTemplateFormModal = ({
                     value={formValues.quantity}
                     onChange={handleInputChange}
                     placeholder="0"
+                    disabled={isViewMode}
                   />
                 </div>
 
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "end",
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={handleAddItem}
-                    style={{ ...primaryBtnStyle, width: "100%" }}
+                {isViewMode ? null : (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "end",
+                    }}
                   >
-                    + Add Item
-                  </button>
-                </div>
+                    <button
+                      type="button"
+                      onClick={handleAddItem}
+                      style={{ ...primaryBtnStyle, width: "100%" }}
+                    >
+                      + Add Item
+                    </button>
+                  </div>
+                )}
 
                 <div>
                   <label style={labelStyles} htmlFor="relief-pack-family">
@@ -521,6 +535,7 @@ const ReliefPackTemplateFormModal = ({
                     value={formValues.familyPerPack}
                     onChange={handleInputChange}
                     placeholder="e.g. 5 members"
+                    disabled={isViewMode}
                   />
                 </div>
               </div>
@@ -542,15 +557,17 @@ const ReliefPackTemplateFormModal = ({
                     {packItems.map((packItem) => (
                       <span key={packItem.id} style={itemChipStyles}>
                         {packItem.item} - {packItem.quantity}
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveItem(packItem)}
-                          style={itemChipRemoveButtonStyles}
-                          title={`Remove ${packItem.item}`}
-                          aria-label={`Remove ${packItem.item}`}
-                        >
-                          x
-                        </button>
+                        {isViewMode ? null : (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveItem(packItem)}
+                            style={itemChipRemoveButtonStyles}
+                            title={`Remove ${packItem.item}`}
+                            aria-label={`Remove ${packItem.item}`}
+                          >
+                            x
+                          </button>
+                        )}
                       </span>
                     ))}
                   </div>
@@ -572,24 +589,26 @@ const ReliefPackTemplateFormModal = ({
               }}
             >
               <button type="button" onClick={onClose} style={secondaryBtnStyle}>
-                Cancel
+                {isViewMode ? "Close" : "Cancel"}
               </button>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                style={{
-                  ...primaryBtnStyle,
-                  opacity: isSubmitting ? 0.7 : 1,
-                }}
-              >
-                {isSubmitting
-                  ? isEditMode
-                    ? "Saving..."
-                    : "Creating..."
-                  : isEditMode
-                    ? "Save Changes"
-                    : "Create Pack"}
-              </button>
+              {isViewMode ? null : (
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  style={{
+                    ...primaryBtnStyle,
+                    opacity: isSubmitting ? 0.7 : 1,
+                  }}
+                >
+                  {isSubmitting
+                    ? isEditMode
+                      ? "Saving..."
+                      : "Creating..."
+                    : isEditMode
+                      ? "Save Changes"
+                      : "Create Pack"}
+                </button>
+              )}
             </div>
           </form>
         </div>

@@ -4,9 +4,13 @@ import {
   departHousehold,
   fetchHouseholdDetails,
   formatDateTime,
+  isOperationallyActiveHousehold,
   restoreHousehold,
 } from "../masterlist/masterlistService";
-import { exportConsolidatedMasterlist } from "./mswdoMasterlistService";
+import {
+  exportConsolidatedMasterlist,
+  fetchConsolidatedMasterlist,
+} from "./mswdoMasterlistService";
 import {
   formatReliefPeriod,
   getEndedEventDateTimeText,
@@ -17,9 +21,10 @@ import { useMswdoMasterlist } from "./useMswdoMasterlist";
 import {
   buildExportSuccessMessage,
   downloadExportFile,
-  NO_EXPORT_DATA_MESSAGE,
   resolveExportErrorMessage,
 } from "../../utils/exportHelpers";
+import { MASTERLIST_SORT_OPTIONS } from "../masterlist/masterlistService";
+import { getCanonicalMemberSectorCode } from "../../utils/registrationOptions";
 
 export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   const {
@@ -82,6 +87,16 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState("");
   const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
+  const [selectedExportDisasterEventId, setSelectedExportDisasterEventId] =
+    useState("");
+  const [selectedExportBarangayIds, setSelectedExportBarangayIds] = useState([]);
+  const [selectedExportRecordStatus, setSelectedExportRecordStatus] =
+    useState("active");
+  const [selectedExportSortOrder, setSelectedExportSortOrder] =
+    useState("newest");
+  const [selectedExportSectorIds, setSelectedExportSectorIds] = useState([]);
+  const [availableExportSectorIds, setAvailableExportSectorIds] = useState([]);
+  const [availableExportBarangayIds, setAvailableExportBarangayIds] = useState([]);
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [registrationSuccessMessage, setRegistrationSuccessMessage] =
     useState("");
@@ -119,7 +134,6 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     ? `${selectedDisasterEvent.event_code} - ${selectedDisasterEvent.title}`
     : "No disaster event selected";
   const reliefPeriodText = formatReliefPeriod(selectedDisasterEvent);
-  const hasRowsToExport = displayedRows.length > 0;
   const canRegisterFamily = activeTab === "active";
   const isEndedView = activeTab === "ended";
   const endedEventDateTimeText = getEndedEventDateTimeText(
@@ -154,6 +168,12 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
 
     return barangays.filter((barangay) => affectedBarangayIds.includes(barangay.id));
   }, [barangays, selectedDisasterEvent]);
+  const selectedExportDisasterEvent = useMemo(
+    () =>
+      disasterEvents.find((event) => event.id === selectedExportDisasterEventId) ||
+      null,
+    [disasterEvents, selectedExportDisasterEventId],
+  );
 
   const selectedBarangayLabel = selectedBarangayId
     ? barangays.find((barangay) => barangay.id === selectedBarangayId)?.name
@@ -211,6 +231,119 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
       reloadMasterlist();
     },
   });
+
+  useEffect(() => {
+    if (!selectedExportDisasterEvent) {
+      if (selectedExportBarangayIds.length > 0) {
+        setSelectedExportBarangayIds([]);
+      }
+      return;
+    }
+
+    const affectedBarangayIds = Array.isArray(
+      selectedExportDisasterEvent.affected_barangays,
+    )
+      ? selectedExportDisasterEvent.affected_barangays
+          .map((barangay) => barangay?.id)
+          .filter(Boolean)
+      : [];
+
+    setSelectedExportBarangayIds((currentIds) =>
+      currentIds.filter((barangayId) => affectedBarangayIds.includes(barangayId)),
+    );
+  }, [selectedExportBarangayIds.length, selectedExportDisasterEvent]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadAvailableExportOptions = async () => {
+      if (!isExportModalOpen || !selectedExportDisasterEventId) {
+        if (isMounted) {
+          setAvailableExportSectorIds([]);
+          setAvailableExportBarangayIds([]);
+        }
+        return;
+      }
+
+      try {
+        const payload = await fetchConsolidatedMasterlist({
+          disasterEventId: selectedExportDisasterEventId,
+          barangayId: null,
+          recordStatus: "all",
+        });
+
+        if (!isMounted) {
+          return;
+        }
+
+        const scopedHouseholds =
+          selectedExportRecordStatus === "archived"
+            ? (payload.data || []).filter(
+                (household) => !isOperationallyActiveHousehold(household),
+              )
+            : selectedExportRecordStatus === "all"
+              ? payload.data || []
+              : (payload.data || []).filter(isOperationallyActiveHousehold);
+
+        const nextSectorIds = [
+          ...scopedHouseholds.flatMap((household) => [
+            ...(household.household_sectors || []).map((sector) =>
+              getCanonicalMemberSectorCode(sector.code),
+            ),
+            ...(household.members || []).flatMap((member) =>
+              (member.sectors || []).map((sector) =>
+                getCanonicalMemberSectorCode(sector.code),
+              ),
+            ),
+          ]),
+        ].filter(Boolean);
+        const nextBarangayIds = scopedHouseholds
+          .map((household) => household?.barangay?.id)
+          .filter(Boolean);
+
+        setAvailableExportSectorIds([...new Set(nextSectorIds)]);
+        setAvailableExportBarangayIds([...new Set(nextBarangayIds)]);
+      } catch (_error) {
+        if (isMounted) {
+          setAvailableExportSectorIds([]);
+          setAvailableExportBarangayIds([]);
+        }
+      }
+    };
+
+    loadAvailableExportOptions();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isExportModalOpen, selectedExportDisasterEventId, selectedExportRecordStatus]);
+
+  useEffect(() => {
+    setSelectedExportSectorIds((currentIds) =>
+      currentIds.filter((sectorId) => availableExportSectorIds.includes(sectorId)),
+    );
+  }, [availableExportSectorIds]);
+
+  useEffect(() => {
+    setSelectedExportBarangayIds((currentIds) =>
+      currentIds.filter((barangayId) =>
+        availableExportBarangayIds.includes(barangayId),
+      ),
+    );
+  }, [availableExportBarangayIds]);
+
+  const handleExportDisasterEventChange = (nextEventId) => {
+    setSelectedExportDisasterEventId(nextEventId);
+
+    const nextEvent = disasterEvents.find((event) => event.id === nextEventId);
+    const nextAffectedBarangayIds = Array.isArray(nextEvent?.affected_barangays)
+      ? nextEvent.affected_barangays
+          .map((barangay) => barangay?.id)
+          .filter(Boolean)
+      : [];
+
+    setSelectedExportBarangayIds(nextAffectedBarangayIds);
+  };
 
   const toggleSectorFilter = (sectorId) => {
     setSectorFiltersByTab((currentFilters) => ({
@@ -696,7 +829,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   };
 
   const handleExport = async (format) => {
-    if (!selectedDisasterEventId) {
+    if (!selectedExportDisasterEventId) {
       setExportFeedback({
         type: "error",
         message: "Select a disaster event before exporting the masterlist.",
@@ -704,11 +837,10 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
       return;
     }
 
-    if (!hasRowsToExport) {
-      setIsExportModalOpen(false);
+    if (selectedExportBarangayIds.length === 0) {
       setExportFeedback({
         type: "error",
-        message: NO_EXPORT_DATA_MESSAGE,
+        message: "Select at least one barangay before exporting the masterlist.",
       });
       return;
     }
@@ -717,11 +849,21 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setIsExportModalOpen(false);
 
     try {
+      const selectedExportSourceSectorIds = selectedExportSectorIds
+        .map(
+          (sectorCode) =>
+            sectors.find((sector) => sector.id === sectorCode)?.source_sector_id ||
+            null,
+        )
+        .filter(Boolean);
+
       const file = await exportConsolidatedMasterlist({
-        disasterEventId: selectedDisasterEventId,
-        barangayId: selectedBarangayId || null,
-        search: searchTerm,
-        sectorIds: selectedSectorIds,
+        disasterEventId: selectedExportDisasterEventId,
+        barangayIds: selectedExportBarangayIds,
+        search: "",
+        recordStatus: selectedExportRecordStatus,
+        sortOrder: selectedExportSortOrder,
+        sectorIds: selectedExportSourceSectorIds,
         format,
       });
 
@@ -772,6 +914,13 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     isExportModalOpen,
     exportingFormat,
     selectedExportFormat,
+    selectedExportDisasterEventId,
+    selectedExportBarangayIds,
+    selectedExportRecordStatus,
+    selectedExportSortOrder,
+    selectedExportSectorIds,
+    availableExportSectorIds,
+    availableExportBarangayIds,
     isRegisterModalOpen,
     registrationSuccessMessage,
     attendanceActionMessage,
@@ -809,10 +958,16 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setSearchTerm,
     setRecordStatus,
     setSelectedExportFormat,
+    setSelectedExportDisasterEventId,
+    setSelectedExportBarangayIds,
+    setSelectedExportRecordStatus,
+    setSelectedExportSortOrder,
+    setSelectedExportSectorIds,
     setExportFeedback,
     setIsExportModalOpen,
     setIsFilterOpen,
     setTabSortOrder,
+    handleExportDisasterEventChange,
     handleEventScopeChange,
     handleRecordStatusChange,
     handleToggleSelect,
@@ -834,5 +989,6 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     handleExport,
     toggleSectorFilter,
     clearSectorFilters,
+    exportSortOptions: MASTERLIST_SORT_OPTIONS,
   };
 };

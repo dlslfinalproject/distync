@@ -72,12 +72,23 @@ router.get(
 
 router.get(
   "/export",
-  requireRoles(ROLE_CODES.MSWDO),
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO),
   validateExportMswdoMasterlist,
   async (req, res) => {
   try {
+    const protectedQuery =
+      req.auth.roleCode === ROLE_CODES.BARANGAY
+        ? {
+            ...req.validatedQuery,
+            barangay_id: req.auth.defaultBarangayId,
+            barangay_ids: req.auth.defaultBarangayId
+              ? [req.auth.defaultBarangayId]
+              : [],
+          }
+        : req.validatedQuery;
+
     const file = await masterlistService.exportMswdoMasterlist(
-      req.validatedQuery,
+      protectedQuery,
     );
 
     res.setHeader("Content-Type", file.contentType);

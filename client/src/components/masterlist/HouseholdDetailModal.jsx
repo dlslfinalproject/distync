@@ -256,7 +256,9 @@ const HouseholdDetailModal = ({
             </p>
           </div>
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            {householdDetails?.household?.id && isOperationallyActive ? (
+            {householdDetails?.household?.id &&
+            isOperationallyActive &&
+            typeof onEditHousehold === "function" ? (
               <>
                 <button
                   type="button"

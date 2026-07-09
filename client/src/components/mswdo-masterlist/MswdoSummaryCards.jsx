@@ -7,18 +7,26 @@ const gridStyles = {
   gap: "16px",
 };
 
-const MswdoSummaryCards = ({ summary }) => {
+const MswdoSummaryCards = ({ summary, selectedBarangayId }) => {
+  const isAllBarangaysView = !selectedBarangayId;
+
   const cards = [
     {
-      label: "Barangays Covered",
+      label: isAllBarangaysView
+        ? "Total Barangays Covered"
+        : "Barangays Covered",
       value: summary.totalBarangaysCovered,
     },
     {
-      label: "Total Evacuees",
+      label: isAllBarangaysView
+        ? "Total Affected Individuals"
+        : "Affected Individuals",
       value: summary.totalNumberOfEvacueesIndividuals,
     },
     {
-      label: "Total Families",
+      label: isAllBarangaysView
+        ? "Total Affected Families"
+        : "Affected Families",
       value: summary.totalNumberOfFamilies,
     },
     {
@@ -26,11 +34,11 @@ const MswdoSummaryCards = ({ summary }) => {
       value: summary.averageHouseholdSize,
     },
     {
-      label: "Currently Admitted",
+      label: "Currently Admitted Evacuees",
       value: summary.currentlyAdmittedEvacuees,
     },
     {
-      label: "Total Departed",
+      label: "Departed Evacuees",
       value: summary.totalDepartedEvacuees,
     },
   ];

@@ -9,6 +9,7 @@ const {
   buildPdfBuffer,
   buildPdfFilename,
   filterExportRows,
+  sortExportRows,
   mapHouseholdToExportRow,
 } = require("../utils/masterlistExport");
 const BARANGAY_EVENT_STATUSES = {
@@ -255,12 +256,16 @@ const getMswdoMasterlistDashboard = async (filters) => {
       total_number_of_evacuees_individuals: Number(
         metrics.total_number_of_evacuees_individuals || 0,
       ),
-      total_number_of_families: Number(metrics.total_number_of_families || 0),
+      total_number_of_families: Number(
+        metrics.total_number_of_families || 0,
+      ),
       average_household_size: Number(metrics.average_household_size || 0),
       currently_admitted_evacuees: Number(
         metrics.currently_admitted_evacuees || 0,
       ),
-      total_departed_evacuees: Number(metrics.total_departed_evacuees || 0),
+      total_departed_evacuees: Number(
+        metrics.total_departed_evacuees || 0,
+      ),
       total_barangays_covered: Number(metrics.total_barangays_covered || 0),
     },
     charts: {
@@ -351,42 +356,179 @@ const filterMasterlistBySectorIds = (households, sectorIds = []) => {
   );
 };
 
+const filterMasterlistByBarangayIds = (households, barangayIds = []) => {
+  if (!Array.isArray(barangayIds) || barangayIds.length === 0) {
+    return households;
+  }
+
+  const selectedBarangayIds = new Set(barangayIds);
+
+  return households.filter((household) =>
+    selectedBarangayIds.has(household?.barangay?.id),
+  );
+};
+
+const isOperationallyActiveHousehold = (household) => {
+  if (!household || household.is_active === false) {
+    return false;
+  }
+
+  const latestStatus = String(household.latest_attendance?.status || "").toUpperCase();
+
+  if (household.latest_attendance?.time_out) {
+    return false;
+  }
+
+  if (latestStatus === "LEFT" || latestStatus === "TRANSFERRED") {
+    return false;
+  }
+
+  return true;
+};
+
+const filterMasterlistByRecordStatus = (households, recordStatus = "active") => {
+  if (recordStatus === "archived") {
+    return households.filter(
+      (household) => !isOperationallyActiveHousehold(household),
+    );
+  }
+
+  if (recordStatus === "all") {
+    return households;
+  }
+
+  return households.filter(isOperationallyActiveHousehold);
+};
+
+const buildExportIdentityKey = (household, disasterEventId) => {
+  const familyHeadName = String(household?.family_head_name || "")
+    .trim()
+    .toUpperCase();
+
+  return [disasterEventId || "", household?.barangay?.id || "", familyHeadName].join(
+    "|",
+  );
+};
+
+const buildExportSummaryMetrics = (households, disasterEventId) => {
+  const latestHouseholdsByIdentity = new Map();
+
+  households.forEach((household) => {
+    const identityKey = buildExportIdentityKey(household, disasterEventId);
+    const currentTimestamp = new Date(household?.registered_at || 0).getTime();
+    const existingHousehold = latestHouseholdsByIdentity.get(identityKey);
+    const existingTimestamp = new Date(
+      existingHousehold?.registered_at || 0,
+    ).getTime();
+
+    if (!existingHousehold || currentTimestamp >= existingTimestamp) {
+      latestHouseholdsByIdentity.set(identityKey, household);
+    }
+  });
+
+  const latestHouseholds = [...latestHouseholdsByIdentity.values()];
+  const totalNumberOfFamilies = latestHouseholds.length;
+  const totalNumberOfEvacueesIndividuals = latestHouseholds.reduce(
+    (total, household) => total + Number(household?.household_size || 0),
+    0,
+  );
+  const currentlyAdmittedEvacuees = latestHouseholds.reduce((total, household) => {
+    const isEvacuationCenterStay =
+      String(household?.current_stay_type || "").toUpperCase() === "EVAC_CENTER";
+
+    if (!isEvacuationCenterStay || !isOperationallyActiveHousehold(household)) {
+      return total;
+    }
+
+    return total + Number(household?.household_size || 0);
+  }, 0);
+  const totalDepartedEvacuees = latestHouseholds.reduce((total, household) => {
+    const isEvacuationCenterStay =
+      String(household?.current_stay_type || "").toUpperCase() === "EVAC_CENTER";
+
+    if (isEvacuationCenterStay && !isOperationallyActiveHousehold(household)) {
+      return total + Number(household?.household_size || 0);
+    }
+
+    return total;
+  }, 0);
+  const totalBarangaysCovered = new Set(
+    latestHouseholds.map((household) => household?.barangay?.id).filter(Boolean),
+  ).size;
+
+  return {
+    total_number_of_evacuees_individuals: totalNumberOfEvacueesIndividuals,
+    total_number_of_families: totalNumberOfFamilies,
+    average_household_size:
+      totalNumberOfFamilies > 0
+        ? totalNumberOfEvacueesIndividuals / totalNumberOfFamilies
+        : 0,
+    currently_admitted_evacuees: currentlyAdmittedEvacuees,
+    total_departed_evacuees: totalDepartedEvacuees,
+    total_barangays_covered: totalBarangaysCovered,
+  };
+};
+
 const exportMswdoMasterlist = async (filters) => {
   const [masterlist, dashboard] = await Promise.all([
     getMasterlist({
       disaster_event_id: filters.disaster_event_id,
-      barangay_id: filters.barangay_id,
+      barangay_id: null,
+      record_status: filters.record_status === "active" ? "active" : "all",
     }),
     getMswdoMasterlistDashboard({
       disaster_event_id: filters.disaster_event_id,
-      barangay_id: filters.barangay_id,
+      barangay_id:
+        Array.isArray(filters.barangay_ids) && filters.barangay_ids.length === 1
+          ? filters.barangay_ids[0]
+          : filters.barangay_id,
     }),
   ]);
 
-  const sectorFilteredRows = filterMasterlistBySectorIds(
+  const recordStatusFilteredRows = filterMasterlistByRecordStatus(
     masterlist.data || [],
+    filters.record_status || "active",
+  );
+  const barangayFilteredRows = filterMasterlistByBarangayIds(
+    recordStatusFilteredRows,
+    filters.barangay_ids || [],
+  );
+  const sectorFilteredRows = filterMasterlistBySectorIds(
+    barangayFilteredRows,
     filters.sector_ids || [],
   );
+  const exportSummaryMetrics =
+    Array.isArray(filters.barangay_ids) && filters.barangay_ids.length > 1
+      ? buildExportSummaryMetrics(sectorFilteredRows, filters.disaster_event_id)
+      : dashboard.summary_metrics;
 
   const exportRows = filterExportRows(
     sectorFilteredRows.map(mapHouseholdToExportRow),
     filters.search || "",
   );
+  const sortedExportRows = sortExportRows(
+    exportRows,
+    filters.sort_order || "newest",
+  );
 
-  if (exportRows.length === 0) {
+  if (sortedExportRows.length === 0) {
     const error = new Error("No masterlist data available for export.");
     error.statusCode = 404;
     throw error;
   }
 
-  const columns = buildExportColumns();
+  const includeBarangayColumn = (filters.barangay_ids || []).length !== 1;
+  const columns = buildExportColumns(includeBarangayColumn);
   const eventLabel = masterlist.disaster_event
     ? `${masterlist.disaster_event.event_code} - ${masterlist.disaster_event.title}`
     : "No disaster event selected";
 
-  const barangayLabel = filters.barangay_id
-    ? exportRows[0]?.barangay_name || "Selected barangay"
-    : "All Barangays";
+  const barangayLabel =
+    Array.isArray(filters.barangay_ids) && filters.barangay_ids.length > 0
+      ? filters.barangay_ids.length === 1
+        ? sortedExportRows[0]?.barangay_name || "Selected barangay"
+        : "Selected Barangays"
+      : "All Barangays";
 
   const titleLines = buildExportTitleLines({
     eventLabel,
@@ -407,7 +549,7 @@ const exportMswdoMasterlist = async (filters) => {
       buffer: buildCsvBuffer({
         titleLines,
         columns,
-        rows: exportRows,
+        rows: sortedExportRows,
       }),
     };
   }
@@ -422,12 +564,12 @@ const exportMswdoMasterlist = async (filters) => {
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       buffer: await buildExcelBuffer({
         worksheetName: "Evacuee Masterlist",
-        rows: exportRows,
-        summaryMetrics: dashboard.summary_metrics,
+        rows: sortedExportRows,
+        summaryMetrics: exportSummaryMetrics,
         eventLabel,
         barangayLabel,
         searchTerm: filters.search,
-        includeBarangayColumn: !filters.barangay_id,
+        includeBarangayColumn,
       }),
     };
   }
@@ -439,13 +581,13 @@ const exportMswdoMasterlist = async (filters) => {
     }),
     contentType: "application/pdf",
     buffer: buildPdfBuffer({
-      rows: exportRows,
-      summaryMetrics: dashboard.summary_metrics,
+      rows: sortedExportRows,
+      summaryMetrics: exportSummaryMetrics,
       eventLabel,
       eventCode: masterlist.disaster_event?.event_code,
       barangayLabel,
       searchTerm: filters.search,
-      includeBarangayColumn: !filters.barangay_id,
+      includeBarangayColumn,
     }),
   };
 };

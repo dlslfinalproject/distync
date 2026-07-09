@@ -9,15 +9,20 @@ import MasterlistSelectionBar from "../../components/masterlist/MasterlistSelect
 import MasterlistStatusMessages from "../../components/masterlist/MasterlistStatusMessages";
 import MasterlistTable from "../../components/masterlist/MasterlistTable";
 import MasterlistToolbar from "../../components/masterlist/MasterlistToolbar";
+import FeedbackToast from "../../components/shared/FeedbackToast";
 import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
+import MswdoExportModal from "../../components/mswdo-masterlist/MswdoExportModal";
 import { useAuth } from "../../context/AuthContext";
 import { useBarangayDashboard } from "../../features/barangay-dashboard/useBarangayDashboard";
 import { useHouseholdRegistrationForm } from "../../features/household-registration/useHouseholdRegistrationForm";
 import { useMasterlist } from "../../features/masterlist/masterlistHooks";
 import {
   departHousehold,
+  exportBarangayMasterlist,
   fetchHouseholdDetails,
   restoreHousehold,
+  MASTERLIST_SORT_OPTIONS,
+  fetchMasterlist,
 } from "../../features/masterlist/masterlistService";
 import {
   formatEventEndedDateTime,
@@ -32,6 +37,11 @@ import {
   cacheSelectedDisasterEventId,
   fetchEvacuationCentersByBarangay,
 } from "../../features/household-registration/householdRegistrationService";
+import {
+  buildExportSuccessMessage,
+  downloadExportFile,
+  resolveExportErrorMessage,
+} from "../../utils/exportHelpers";
 import db from "../../offline/db";
 
 const BarangayMasterlistPage = () => {
@@ -72,6 +82,21 @@ const BarangayMasterlistPage = () => {
     useState(false);
   const [isRestoringHousehold, setIsRestoringHousehold] = useState(false);
   const [selectedHouseholds, setSelectedHouseholds] = useState([]);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState("");
+  const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
+  const [selectedExportDisasterEventId, setSelectedExportDisasterEventId] =
+    useState("");
+  const [selectedExportRecordStatus, setSelectedExportRecordStatus] =
+    useState("active");
+  const [selectedExportSortOrder, setSelectedExportSortOrder] =
+    useState("newest");
+  const [selectedExportSectorIds, setSelectedExportSectorIds] = useState([]);
+  const [availableExportSectorIds, setAvailableExportSectorIds] = useState([]);
+  const [exportFeedback, setExportFeedback] = useState({
+    type: "",
+    message: "",
+  });
   const syncQueueEntries =
     useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
 
@@ -205,6 +230,65 @@ const BarangayMasterlistPage = () => {
   const pendingRestoreVariant = pendingRestoreRow?.is_non_admitted_resident
     ? "admit"
     : "readmit";
+  const selectedExportBarangayIds = assignedBarangay?.id
+    ? [assignedBarangay.id]
+    : [];
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadAvailableExportSectors = async () => {
+      if (
+        !isExportModalOpen ||
+        !selectedExportDisasterEventId ||
+        !assignedBarangay?.id
+      ) {
+        if (isMounted) {
+          setAvailableExportSectorIds([]);
+        }
+        return;
+      }
+
+      try {
+        const payload = await fetchMasterlist({
+          disasterEventId: selectedExportDisasterEventId,
+          barangayId: assignedBarangay.id,
+          recordStatus: selectedExportRecordStatus,
+        });
+
+        if (!isMounted) {
+          return;
+        }
+
+        const nextSectorIds = (payload.rows || []).flatMap(
+          (row) => row.sector_codes || [],
+        );
+
+        setAvailableExportSectorIds([...new Set(nextSectorIds)]);
+      } catch (_error) {
+        if (isMounted) {
+          setAvailableExportSectorIds([]);
+        }
+      }
+    };
+
+    loadAvailableExportSectors();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [
+    assignedBarangay?.id,
+    isExportModalOpen,
+    selectedExportDisasterEventId,
+    selectedExportRecordStatus,
+  ]);
+
+  useEffect(() => {
+    setSelectedExportSectorIds((currentIds) =>
+      currentIds.filter((sectorId) => availableExportSectorIds.includes(sectorId)),
+    );
+  }, [availableExportSectorIds]);
 
   useEffect(() => {
     const activeEvents = availableEvents.filter(
@@ -571,6 +655,62 @@ const BarangayMasterlistPage = () => {
     }
   };
 
+  const handleOpenExportModal = () => {
+    setSelectedExportDisasterEventId(selectedEvent?.id || "");
+    setSelectedExportFormat("csv");
+    setSelectedExportRecordStatus(recordStatus);
+    setSelectedExportSortOrder(selectedSortOrder);
+    setSelectedExportSectorIds(selectedSectorIds);
+    setExportFeedback({ type: "", message: "" });
+    setIsExportModalOpen(true);
+  };
+
+  const handleExport = async (format) => {
+    if (!selectedExportDisasterEventId || !assignedBarangay?.id) {
+      setExportFeedback({
+        type: "error",
+        message: "Select a disaster event before exporting the masterlist.",
+      });
+      return;
+    }
+
+    setExportingFormat(format);
+    setIsExportModalOpen(false);
+
+    try {
+      const selectedExportSourceSectorIds = selectedExportSectorIds
+        .map((sectorId) =>
+          sectorOptions.find((sector) => sector.id === sectorId)?.source_sector_id,
+        )
+        .filter(Boolean);
+
+      const file = await exportBarangayMasterlist({
+        disasterEventId: selectedExportDisasterEventId,
+        barangayId: assignedBarangay.id,
+        recordStatus: selectedExportRecordStatus,
+        sortOrder: selectedExportSortOrder,
+        sectorIds: selectedExportSourceSectorIds,
+        format,
+      });
+
+      downloadExportFile(file);
+      setExportFeedback({
+        type: "success",
+        message: buildExportSuccessMessage("Barangay masterlist report"),
+      });
+    } catch (error) {
+      setExportFeedback({
+        type: "error",
+        message: resolveExportErrorMessage(
+          error,
+          "Unable to export the masterlist.",
+        ),
+      });
+    } finally {
+      setExportingFormat("");
+    }
+  };
+
   return (
     <>
       <PageHeader title="EVACUEE MASTERLIST" actions={[]} />
@@ -619,6 +759,10 @@ const BarangayMasterlistPage = () => {
         onToggleSector={toggleSectorFilter}
         onClearFilters={clearSectorFilters}
         filterScopeKey={eventScope}
+        exportingFormat={exportingFormat}
+        onOpenExport={handleOpenExportModal}
+        disableExportButton={!hasSelectedEvent}
+        hideRecordStatus={isSelectedEventEnded}
       />
 
       {!isSelectedEventEnded ? (
@@ -679,7 +823,9 @@ const BarangayMasterlistPage = () => {
         errorMessage={householdDetailsErrorMessage}
         householdDetails={householdDetails}
         onClose={handleCloseHouseholdDetails}
-        onEditHousehold={handleEditHouseholdFromDetails}
+        onEditHousehold={
+          isSelectedEventEnded ? undefined : handleEditHouseholdFromDetails
+        }
       />
 
       <HouseholdArchiveConfirmModal
@@ -692,6 +838,52 @@ const BarangayMasterlistPage = () => {
         onConfirm={handleConfirmRestoreHousehold}
         mode="restore"
         restoreVariant={pendingRestoreVariant}
+      />
+
+      <MswdoExportModal
+        isOpen={isExportModalOpen}
+        title="Export Barangay Report"
+        isSubmitting={Boolean(exportingFormat)}
+        disasterEvents={availableEvents}
+        barangays={assignedBarangay ? [assignedBarangay] : []}
+        sectors={sectorOptions}
+        selectedDisasterEventId={selectedExportDisasterEventId}
+        selectedBarangayIds={selectedExportBarangayIds}
+        selectedRecordStatus={selectedExportRecordStatus}
+        selectedSortOrder={selectedExportSortOrder}
+        selectedSectorIds={selectedExportSectorIds}
+        availableSectorIds={availableExportSectorIds}
+        availableBarangayIds={selectedExportBarangayIds}
+        selectedFormat={selectedExportFormat}
+        onClose={() => {
+          if (!exportingFormat) {
+            setIsExportModalOpen(false);
+          }
+        }}
+        onSubmit={() => handleExport(selectedExportFormat)}
+        onDisasterEventChange={setSelectedExportDisasterEventId}
+        onBarangayToggle={() => {}}
+        onSelectAllBarangays={() => {}}
+        onClearBarangays={() => {}}
+        onRecordStatusChange={setSelectedExportRecordStatus}
+        onSortOrderChange={setSelectedExportSortOrder}
+        onSectorToggle={(sectorId) => {
+          setSelectedExportSectorIds((currentValues) =>
+            currentValues.includes(sectorId)
+              ? currentValues.filter((id) => id !== sectorId)
+              : [...currentValues, sectorId],
+          );
+        }}
+        onClearSectors={() => setSelectedExportSectorIds([])}
+        onFormatChange={setSelectedExportFormat}
+        sortOptions={MASTERLIST_SORT_OPTIONS}
+        hideBarangaySelection
+      />
+
+      <FeedbackToast
+        type={exportFeedback.type}
+        message={exportFeedback.message}
+        onClose={() => setExportFeedback({ type: "", message: "" })}
       />
     </>
   );

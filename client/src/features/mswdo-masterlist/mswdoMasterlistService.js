@@ -129,8 +129,10 @@ export const fetchConsolidatedMasterlistDashboard = async ({
 
 export const exportConsolidatedMasterlist = async ({
   disasterEventId,
-  barangayId,
+  barangayIds,
   search,
+  recordStatus,
+  sortOrder,
   sectorIds,
   format,
 }) => {
@@ -139,12 +141,20 @@ export const exportConsolidatedMasterlist = async ({
     format,
   });
 
-  if (barangayId) {
-    searchParams.set("barangay_id", barangayId);
+  if (Array.isArray(barangayIds) && barangayIds.length > 0) {
+    searchParams.set("barangay_ids", barangayIds.join(","));
   }
 
   if (search && search.trim()) {
     searchParams.set("search", search.trim());
+  }
+
+  if (recordStatus) {
+    searchParams.set("record_status", recordStatus);
+  }
+
+  if (sortOrder) {
+    searchParams.set("sort_order", sortOrder);
   }
 
   if (Array.isArray(sectorIds) && sectorIds.length > 0) {
