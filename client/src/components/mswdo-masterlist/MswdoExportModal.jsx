@@ -142,6 +142,7 @@ const sortDisasterEvents = (events = []) => {
 
 const MswdoExportModal = ({
   isOpen,
+  title = "Export MSWDO Report",
   isSubmitting,
   disasterEvents,
   barangays,
@@ -166,6 +167,7 @@ const MswdoExportModal = ({
   onClearSectors,
   onFormatChange,
   sortOptions,
+  hideBarangaySelection = false,
 }) => {
   if (!isOpen) {
     return null;
@@ -206,7 +208,7 @@ const MswdoExportModal = ({
         >
           <div>
             <h3 style={{ margin: 0, color: "#17324d", fontSize: "26px" }}>
-              Export MSWDO Report
+              {title}
             </h3>
           </div>
           <button
@@ -376,69 +378,71 @@ const MswdoExportModal = ({
             </div>
           </section>
 
-          <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
-            <h3 style={sectionTitleStyles}>Barangay</h3>
+          {!hideBarangaySelection ? (
+            <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
+              <h3 style={sectionTitleStyles}>Barangay</h3>
 
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "flex-end",
-                marginBottom: "12px",
-              }}
-            >
-              <button
-                type="button"
-                onClick={
-                  areAllApplicableBarangaysSelected
-                    ? onClearBarangays
-                    : onSelectAllBarangays
-                }
-                style={toggleActionButtonStyles(areAllApplicableBarangaysSelected)}
-                disabled={isSubmitting || selectableBarangayIds.length === 0}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  marginBottom: "12px",
+                }}
               >
-                {areAllApplicableBarangaysSelected ? (
-                  <FiCheckSquare size={14} />
-                ) : (
-                  <FiSquare size={14} />
-                )}
-                {areAllApplicableBarangaysSelected ? "Unselect All" : "Select All"}
-              </button>
-            </div>
+                <button
+                  type="button"
+                  onClick={
+                    areAllApplicableBarangaysSelected
+                      ? onClearBarangays
+                      : onSelectAllBarangays
+                  }
+                  style={toggleActionButtonStyles(areAllApplicableBarangaysSelected)}
+                  disabled={isSubmitting || selectableBarangayIds.length === 0}
+                >
+                  {areAllApplicableBarangaysSelected ? (
+                    <FiCheckSquare size={14} />
+                  ) : (
+                    <FiSquare size={14} />
+                  )}
+                  {areAllApplicableBarangaysSelected ? "Unselect All" : "Select All"}
+                </button>
+              </div>
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: "12px",
-              }}
-            >
-              {barangays.map((barangay) => {
-                const isApplicable = availableBarangayIdSet.has(barangay.id);
-                const isSelected = selectedBarangayIds.includes(barangay.id);
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: "12px",
+                }}
+              >
+                {barangays.map((barangay) => {
+                  const isApplicable = availableBarangayIdSet.has(barangay.id);
+                  const isSelected = selectedBarangayIds.includes(barangay.id);
 
-                if (!isApplicable) {
+                  if (!isApplicable) {
+                    return (
+                      <label key={barangay.id} style={mutedChipStyles}>
+                        <input type="checkbox" checked={false} disabled />
+                        {barangay.name}
+                      </label>
+                    );
+                  }
+
                   return (
-                    <label key={barangay.id} style={mutedChipStyles}>
-                      <input type="checkbox" checked={false} disabled />
+                    <label key={barangay.id} style={chipStyles(isSelected)}>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => onBarangayToggle(barangay.id)}
+                        disabled={isSubmitting}
+                      />
                       {barangay.name}
                     </label>
                   );
-                }
-
-                return (
-                  <label key={barangay.id} style={chipStyles(isSelected)}>
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => onBarangayToggle(barangay.id)}
-                      disabled={isSubmitting}
-                    />
-                    {barangay.name}
-                  </label>
-                );
-              })}
-            </div>
-          </section>
+                })}
+              </div>
+            </section>
+          ) : null}
 
           <div
             style={{

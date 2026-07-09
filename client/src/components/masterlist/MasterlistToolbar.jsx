@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import SearchBar from "../shared/SearchBar";
 import { pageHeaderStyles } from "../layout/PageHeader";
-import { FiUserPlus, FiFilter } from "react-icons/fi";
+import { FiUserPlus, FiFilter, FiFileText } from "react-icons/fi";
 import { MASTERLIST_SORT_OPTIONS } from "../../features/masterlist/masterlistService";
 
 const filterPanelStyles = {
@@ -147,6 +147,10 @@ const MasterlistToolbar = ({
   onToggleSector,
   onClearFilters,
   filterScopeKey = "",
+  exportingFormat = "",
+  onOpenExport,
+  disableExportButton = false,
+  hideExportButton = false,
 }) => {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [filterPanelPosition, setFilterPanelPosition] = useState({
@@ -373,6 +377,34 @@ const MasterlistToolbar = ({
             Register Family
           </button>
         )}
+
+        {!hideExportButton ? (
+          <button
+            type="button"
+            onClick={onOpenExport}
+            disabled={disableExportButton || Boolean(exportingFormat)}
+            style={{
+              border: "1px solid #c6d8ea",
+              borderRadius: "14px",
+              padding: "12px 18px",
+              backgroundColor: "#f8fbfe",
+              color: "#2a4c6f",
+              fontSize: "14px",
+              fontWeight: 700,
+              cursor:
+                disableExportButton || exportingFormat ? "not-allowed" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              opacity: disableExportButton || exportingFormat ? 0.7 : 1,
+            }}
+          >
+            <FiFileText size={16} />
+            {exportingFormat
+              ? `Exporting ${exportingFormat.toUpperCase()}...`
+              : "Export"}
+          </button>
+        ) : null}
       </div>
     </section>
   );

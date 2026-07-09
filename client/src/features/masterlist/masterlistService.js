@@ -337,6 +337,68 @@ export const fetchMasterlist = async ({
   };
 };
 
+export const exportBarangayMasterlist = async ({
+  disasterEventId,
+  barangayId,
+  recordStatus,
+  sortOrder,
+  sectorIds,
+  format,
+}) => {
+  const searchParams = new URLSearchParams({
+    disaster_event_id: disasterEventId,
+    format,
+  });
+
+  if (barangayId) {
+    searchParams.set("barangay_id", barangayId);
+  }
+
+  if (recordStatus) {
+    searchParams.set("record_status", recordStatus);
+  }
+
+  if (sortOrder) {
+    searchParams.set("sort_order", sortOrder);
+  }
+
+  if (Array.isArray(sectorIds) && sectorIds.length > 0) {
+    searchParams.set("sector_ids", sectorIds.join(","));
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/masterlist/export?${searchParams.toString()}`,
+  );
+
+  if (!response.ok) {
+    let message = "Failed to export masterlist";
+
+    try {
+      const payload = await response.json();
+      message = payload.message || message;
+    } catch (_error) {
+      message = "Failed to export masterlist";
+    }
+
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const contentDisposition = response.headers.get("Content-Disposition") || "";
+  const fileNameMatch = contentDisposition.match(/filename="([^"]+)"/i);
+  const fallbackFilename =
+    format === "excel"
+      ? "barangay-masterlist.xlsx"
+      : format === "pdf"
+        ? "barangay-masterlist.pdf"
+        : "barangay-masterlist.csv";
+
+  return {
+    blob,
+    filename: fileNameMatch?.[1] || fallbackFilename,
+  };
+};
+
 export const departHousehold = async ({ householdId, remarks = null }) => {
   const payload = {
     remarks,
