@@ -103,9 +103,7 @@ const BarangaySettingsView = ({
 
             <div style={{ ...gridStyles, marginBottom: "18px" }}>
               <article style={cardStyles}>
-                <h4 style={{ margin: 0, color: "#17324d" }}>
-                  Barangay Profile Summary
-                </h4>
+                <h4 style={{ margin: 0, color: "#17324d" }}>Profile Summary</h4>
                 <InfoRow
                   label="Account Name"
                   value={preferences.profile.fullName || "--"}
@@ -346,7 +344,7 @@ const BarangaySettingsView = ({
         return (
           <section style={shellStyles.card}>
             <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
-              <h3 style={{ margin: 0, color: "#17324d" }}>Security Settings</h3>
+              <h3 style={{ margin: 0, color: "#17324d" }}>Security</h3>
               <p style={mutedValueStyles}>
                 Keep account protection and authentication controls grouped here.
                 Password validation in this screen is frontend-only and does not

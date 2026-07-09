@@ -296,7 +296,7 @@ const EDITABLE_BARANGAY_SECTION_KEYS = new Set([
 
 const MSWDO_SETTINGS_SECTIONS = [
   {
-    key: "profile-account",
+    key: "profile",
     label: "Profile",
     description:
       "Review office identity details, assigned role, contact information, and profile picture.",
@@ -333,7 +333,7 @@ const MSWDO_SETTINGS_SECTIONS = [
 ];
 
 const EDITABLE_MSWDO_SECTION_KEYS = new Set([
-  "profile-account",
+  "profile",
   "security",
   "notification-preferences",
   "report-preferences",
@@ -365,7 +365,7 @@ const MAYOR_SETTINGS_SECTIONS = [
     key: "sync-status",
     label: "Sync Status",
     description:
-      "Review a compact synchronization summary while keeping the full Sync Center in the sidebar.",
+      "Review sync health, recent queue activity, and full sync monitoring access from the sidebar.",
     icon: FiRefreshCw,
   },
   {
@@ -2008,7 +2008,7 @@ const RoleSettingsPage = () => {
 
     return MSWDO_SETTINGS_SECTIONS.map((section) => {
       switch (section.key) {
-        case "profile-account":
+        case "profile":
           return {
             ...section,
             statusTone: preferences.profile.fullName ? "success" : "warning",
@@ -2319,11 +2319,21 @@ const RoleSettingsPage = () => {
 
   const mswdoViewContext = {
     ...sharedRoleViewContext,
+    notificationTouched,
+    notificationValidationErrors: safeNotificationValidationErrors,
+    handleResetNotificationPreferences,
+    BARANGAY_NOTIFICATION_OPTIONS,
+    handleNotificationChannelToggle,
     localSyncLogRows: safeLocalSyncLogRows,
   };
 
   const mayorViewContext = {
     ...sharedRoleViewContext,
+    notificationTouched,
+    notificationValidationErrors: safeNotificationValidationErrors,
+    handleResetNotificationPreferences,
+    BARANGAY_NOTIFICATION_OPTIONS,
+    handleNotificationChannelToggle,
     localSyncLogRows: safeLocalSyncLogRows,
     forecastHealth: safeForecastHealth,
     inventoryThresholdSummary: safeInventoryThresholdSummary,

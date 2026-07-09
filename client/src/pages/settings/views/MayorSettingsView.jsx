@@ -102,7 +102,7 @@ const MayorSettingsView = ({
 
             <div style={{ ...gridStyles, marginBottom: "18px" }}>
               <article style={cardStyles}>
-                <h4 style={{ margin: 0, color: "#17324d" }}>Office Profile Summary</h4>
+                <h4 style={{ margin: 0, color: "#17324d" }}>Profile Summary</h4>
                 <InfoRow
                   label="Account Name"
                   value={preferences.profile.fullName || "--"}
@@ -632,7 +632,134 @@ const MayorSettingsView = ({
 
             <div style={{ ...gridStyles, alignItems: "start" }}>
               <article style={cardStyles}>
-                <h4 style={{ margin: 0, color: "#17324d" }}>Notification Status</h4>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "flex-start",
+                    gap: "12px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div style={{ display: "grid", gap: "8px" }}>
+                    <h4 style={{ margin: 0, color: "#17324d" }}>Alert Channels</h4>
+                    <p style={helperTextStyles}>
+                      Choose which alert types stay enabled locally and which
+                      delivery channel you prefer when available.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleResetNotificationPreferences}
+                    style={pageHeaderStyles.secondaryButton}
+                  >
+                    Reset to Default
+                  </button>
+                </div>
+
+                {notificationTouched &&
+                Object.values(notificationValidationErrors).some(Boolean) ? (
+                  <div
+                    style={{
+                      border: "1px solid #f0d2d8",
+                      borderRadius: "14px",
+                      padding: "14px 16px",
+                      backgroundColor: "#fff8f9",
+                      display: "grid",
+                      gap: "8px",
+                    }}
+                  >
+                    {notificationValidationErrors.notificationTypes ? (
+                      <p style={errorTextStyles}>
+                        {notificationValidationErrors.notificationTypes}
+                      </p>
+                    ) : null}
+                    {notificationValidationErrors.notificationChannels ? (
+                      <p style={errorTextStyles}>
+                        {notificationValidationErrors.notificationChannels}
+                      </p>
+                    ) : null}
+                    {notificationValidationErrors.emailAddress ? (
+                      <p style={errorTextStyles}>
+                        {notificationValidationErrors.emailAddress}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p style={helperTextStyles}>
+                    In-app alerts are enabled by default. Email preferences only
+                    affect this frontend settings profile right now.
+                  </p>
+                )}
+
+                <div style={{ overflowX: "auto" }}>
+                  <table style={tableStyles.table}>
+                    <thead>
+                      <tr>
+                        <th style={tableStyles.th}>Notification Type</th>
+                        <th style={tableStyles.th}>In-App</th>
+                        <th style={tableStyles.th}>Email</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {BARANGAY_NOTIFICATION_OPTIONS.map((option) => (
+                        <tr key={option.key}>
+                          <td style={tableStyles.td}>
+                            <div style={{ display: "grid", gap: "6px" }}>
+                              <strong>{option.label}</strong>
+                              <p style={helperTextStyles}>{option.description}</p>
+                            </div>
+                          </td>
+                          <td style={tableStyles.td}>
+                            <input
+                              type="checkbox"
+                              checked={Boolean(
+                                preferences.notificationChannels[option.key]?.inApp,
+                              )}
+                              onChange={() =>
+                                handleNotificationChannelToggle(option.key, "inApp")
+                              }
+                            />
+                          </td>
+                          <td style={tableStyles.td}>
+                            <input
+                              type="checkbox"
+                              checked={Boolean(
+                                preferences.notificationChannels[option.key]?.email,
+                              )}
+                              onChange={() =>
+                                handleNotificationChannelToggle(option.key, "email")
+                              }
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+
+              <article style={cardStyles}>
+                <h4 style={{ margin: 0, color: "#17324d" }}>
+                  Existing Role Rule Mapping
+                </h4>
+                <p style={helperTextStyles}>
+                  These mapped rules come from the current backend role
+                  configuration. Toggling them here saves your local review
+                  preference only and does not rewrite server-side notification
+                  rules.
+                </p>
+                <div style={{ display: "grid", gap: "10px" }}>
+                  <InfoRow label="Unread Notifications" value={`${unreadCount}`} />
+                  <InfoRow
+                    label="Active Rules for This Role"
+                    value={`${notificationRuleCount}`}
+                  />
+                  <InfoRow
+                    label="Rules Enabled Locally"
+                    value={`${enabledRuleCodes.length}`}
+                  />
+                </div>
                 {isLoading ? (
                   <EmptyState message="Loading notification settings..." />
                 ) : notificationRules.length === 0 ? (
@@ -670,19 +797,6 @@ const MayorSettingsView = ({
                   </div>
                 )}
               </article>
-
-              <article style={cardStyles}>
-                <h4 style={{ margin: 0, color: "#17324d" }}>Preference Summary</h4>
-                <InfoRow label="Unread Notifications" value={`${unreadCount}`} />
-                <InfoRow
-                  label="Active Rules for This Role"
-                  value={`${notificationRuleCount}`}
-                />
-                <InfoRow
-                  label="Rules Enabled Locally"
-                  value={`${enabledRuleCodes.length}`}
-                />
-              </article>
             </div>
           </section>
         );
@@ -702,23 +816,38 @@ const MayorSettingsView = ({
               <div style={{ display: "grid", gap: "8px", flex: "1 1 320px" }}>
                 <h3 style={{ margin: 0, color: "#17324d" }}>Sync Status</h3>
                 <p style={mutedValueStyles}>
-                  Review a compact synchronization summary here. The full Sync Center
-                  remains available from the sidebar for deeper monitoring.
+                  Review sync health, queue activity, and recent local tracking
+                  details here. The full Sync Center remains available from the
+                  sidebar for deeper monitoring.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => navigate("/inventory/sync")}
-                style={pageHeaderStyles.secondaryButton}
-              >
-                Open Full Sync Center
-              </button>
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={handleSyncNow}
+                  disabled={isSyncingNow}
+                  style={pageHeaderStyles.primaryButton}
+                >
+                  {isSyncingNow ? "Syncing..." : "Sync Now"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate("/inventory/sync")}
+                  style={pageHeaderStyles.secondaryButton}
+                >
+                  Open Full Sync Center
+                </button>
+              </div>
             </div>
 
             <div style={gridStyles}>
               <article style={cardStyles}>
                 <h4 style={{ margin: 0, color: "#17324d" }}>Sync Summary</h4>
                 <InfoRow label="Connection" value={isOnline ? "Online" : "Offline"} />
+                <InfoRow
+                  label="Last Queue Update"
+                  value={formatSyncDateTime(localSyncLogRows[0]?.timestamp)}
+                />
                 <InfoRow
                   label="Pending Queue Entries"
                   value={`${syncSummary[LOCAL_SYNC_STATUS.PENDING] || 0}`}
@@ -737,20 +866,78 @@ const MayorSettingsView = ({
               </article>
 
               <article style={cardStyles}>
-                <h4 style={{ margin: 0, color: "#17324d" }}>Latest Queue Activity</h4>
-                <InfoRow
-                  label="Last Queue Update"
-                  value={formatSyncDateTime(localSyncLogRows[0]?.timestamp)}
-                />
-                <InfoRow
-                  label="Tracked Queue Records"
-                  value={`${localSyncLogRows.length}`}
-                />
-                <p style={mutedValueStyles}>
-                  Use the full Sync Center for record-by-record review and operational
-                  follow-up.
-                </p>
+                <h4 style={{ margin: 0, color: "#17324d" }}>Synced Record Types</h4>
+                <div style={{ display: "grid", gap: "10px" }}>
+                  {[
+                    "Inventory Updates",
+                    "Distribution Records",
+                    "Donation Records",
+                    "System Queue Entries",
+                  ].map((label) => (
+                    <div
+                      key={label}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: "12px",
+                      }}
+                    >
+                      <span style={{ color: "#21405f", fontWeight: 700 }}>{label}</span>
+                      <StatusChip
+                        tone="info"
+                        label={localSyncLogRows.length > 0 ? "Tracked" : "Waiting"}
+                      />
+                    </div>
+                  ))}
+                </div>
               </article>
+            </div>
+
+            <div style={{ marginTop: "20px" }}>
+              <h4 style={{ margin: "0 0 12px", color: "#17324d" }}>
+                Local Queue Activity
+              </h4>
+              {localSyncLogRows.length === 0 ? (
+                <EmptyState message="No local sync queue activity is available for this Office of the Mayor account yet." />
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={tableStyles.table}>
+                    <thead>
+                      <tr>
+                        <th style={tableStyles.th}>Date & Time</th>
+                        <th style={tableStyles.th}>Record Type</th>
+                        <th style={tableStyles.th}>Status</th>
+                        <th style={tableStyles.th}>Details</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {localSyncLogRows.slice(0, 12).map((row) => (
+                        <tr key={row.id}>
+                          <td style={tableStyles.td}>
+                            {formatSyncDateTime(row.timestamp)}
+                          </td>
+                          <td style={tableStyles.td}>{row.label}</td>
+                          <td style={tableStyles.td}>
+                            <StatusChip
+                              tone={
+                                row.status === LOCAL_SYNC_STATUS.FAILED
+                                  ? "error"
+                                  : row.status === LOCAL_SYNC_STATUS.CONFLICT
+                                    ? "warning"
+                                    : row.status === "RESOLVED"
+                                      ? "success"
+                                      : "info"
+                              }
+                              label={row.status}
+                            />
+                          </td>
+                          <td style={tableStyles.td}>{row.detail || "--"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </section>
         );
