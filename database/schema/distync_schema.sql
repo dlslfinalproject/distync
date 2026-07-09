@@ -92,6 +92,28 @@ CREATE TABLE public.user_roles (
   CONSTRAINT user_roles_assigned_by_fkey FOREIGN KEY (assigned_by) REFERENCES public.users(id)
 );
 
+CREATE TABLE public.user_role_settings (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  role_code character varying NOT NULL,
+  profile_picture_data_url text,
+  profile_picture_file_name character varying,
+  enabled_notification_rule_codes_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  notification_channels_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  preferred_export_format character varying NOT NULL DEFAULT 'excel'::character varying CHECK (preferred_export_format::text = ANY (ARRAY['csv'::character varying, 'excel'::character varying, 'pdf'::character varying]::text[])),
+  two_factor_enabled boolean NOT NULL DEFAULT false,
+  last_local_password_change_at timestamp with time zone,
+  last_two_factor_preference_update_at timestamp with time zone,
+  last_profile_update_at timestamp with time zone,
+  last_preference_save_at timestamp with time zone NOT NULL DEFAULT now(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT user_role_settings_pkey PRIMARY KEY (id),
+  CONSTRAINT user_role_settings_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT user_role_settings_role_code_fkey FOREIGN KEY (role_code) REFERENCES public.roles(code),
+  CONSTRAINT user_role_settings_user_role_unique UNIQUE (user_id, role_code)
+);
+
 CREATE TABLE public.devices (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   device_uuid character varying NOT NULL UNIQUE,

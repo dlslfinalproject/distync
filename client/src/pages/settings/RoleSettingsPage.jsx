@@ -40,7 +40,10 @@ import {
   flushPendingSyncEntries,
   subscribeToSyncUpdates,
 } from "../../offline/syncService";
-import { ROLE_CODES } from "../../utils/roleSession";
+import {
+  ROLE_CODES,
+  updateAuthenticatedSessionUser,
+} from "../../utils/roleSession";
 import BarangaySettingsView from "./views/BarangaySettingsView";
 import MayorSettingsView from "./views/MayorSettingsView";
 import MswdoSettingsView from "./views/MswdoSettingsView";
@@ -986,7 +989,7 @@ const EmptyState = ({ message }) => (
 
 const RoleSettingsPage = () => {
   const navigate = useNavigate();
-  const { currentRole, authenticatedUser } = useAuth();
+  const { currentRole, authenticatedUser, syncAuthState } = useAuth();
   const syncEntries =
     useLiveQuery(() => db.syncQueue.orderBy("updatedAt").reverse().toArray(), [], []) ||
     [];
@@ -1100,14 +1103,26 @@ const RoleSettingsPage = () => {
       return;
     }
 
-    setPreferences(
-      normalizeRolePreferences(
-        loadRoleSettings({
-          roleCode: currentRole,
-          userId: authenticatedUser.id,
-        }),
-      ),
-    );
+    let isMounted = true;
+
+    const loadPersistedRoleSettings = async () => {
+      const loadedSettings = await loadRoleSettings({
+        roleCode: currentRole,
+        userId: authenticatedUser.id,
+      });
+
+      if (!isMounted) {
+        return;
+      }
+
+      setPreferences(normalizeRolePreferences(loadedSettings));
+    };
+
+    void loadPersistedRoleSettings();
+
+    return () => {
+      isMounted = false;
+    };
   }, [authenticatedUser, currentRole]);
 
   useEffect(() => {
@@ -1566,17 +1581,22 @@ const RoleSettingsPage = () => {
         },
       };
 
-      saveRoleSettings({
+      const saveResult = await saveRoleSettings({
         roleCode: currentRole,
         userId: authenticatedUser.id,
         settings: updatedSettings,
       });
 
-      setPreferences(updatedSettings);
+      if (saveResult?.user) {
+        updateAuthenticatedSessionUser(saveResult.user);
+        syncAuthState();
+      }
+
+      setPreferences(normalizeRolePreferences(saveResult?.data || updatedSettings));
       setToast({
         type: "success",
         title: "Settings Saved",
-        message: "Your local role settings were saved successfully.",
+        message: "Your role settings were saved successfully.",
       });
     } catch (error) {
       setToast({

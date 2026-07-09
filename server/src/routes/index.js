@@ -18,6 +18,7 @@ const supplierRoutes = require("./supplier.routes");
 const syncRoutes = require("./sync.routes");
 const systemLogRoutes = require("./systemLog.routes");
 const mswdoReportRoutes = require("./mswdoReport.routes");
+const settingsRoutes = require("./settings.routes");
 
 const router = express.Router();
 
@@ -75,5 +76,6 @@ router.use("/suppliers", supplierRoutes);
 router.use("/sync", syncRoutes);
 router.use("/system-logs", systemLogRoutes);
 router.use("/mswdo-reports", mswdoReportRoutes);
+router.use("/settings", settingsRoutes);
 
 module.exports = router;
