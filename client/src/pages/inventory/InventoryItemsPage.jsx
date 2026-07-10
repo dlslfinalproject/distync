@@ -56,9 +56,21 @@ import {
 
 const isLowStockItem = (item, trackingStats) => {
   const reorderLevel = Number(item.reorder_level || 0);
-  const onHand = Number(trackingStats.onHand || 0);
+  const onHand = getMonitorQuantity(item, trackingStats);
 
   return reorderLevel > 0 && onHand > 0 && onHand <= reorderLevel;
+};
+
+const getMonitorQuantity = (item, trackingStats) => {
+  const trackedOnHand = Number(trackingStats?.onHand || 0);
+  const trackedReceived = Number(trackingStats?.totalReceived || 0);
+  const itemTotalQuantity = getTotalItemQuantityValue(item);
+
+  if (trackedReceived > 0 || trackedOnHand > 0) {
+    return trackedOnHand;
+  }
+
+  return itemTotalQuantity;
 };
 
 const InventoryItemsPage = () => {
@@ -179,7 +191,7 @@ const InventoryItemsPage = () => {
       const trackingStats =
         inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
 
-      return sum + trackingStats.onHand;
+      return sum + getMonitorQuantity(item, trackingStats);
     }, 0);
     const totalDistributed = inventoryItemsWithSyncStatus.reduce((sum, item) => {
       const trackingStats =
@@ -206,7 +218,10 @@ const InventoryItemsPage = () => {
       return trackingStats.hasExpiringStock || isItemExpiring(item);
     }).length;
     const outOfStockItems = inventoryItemsWithSyncStatus.filter((item) => {
-      return getTotalItemQuantityValue(item) <= 0;
+      const trackingStats =
+        inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
+
+      return getMonitorQuantity(item, trackingStats) <= 0;
     }).length;
 
     return {
@@ -284,7 +299,7 @@ const InventoryItemsPage = () => {
       }
 
       if (filters.status === "Out of Stock") {
-        return getTotalItemQuantityValue(item) <= 0;
+        return getMonitorQuantity(item, trackingStats) <= 0;
       }
 
       return getItemStatus(item, trackingStats) === filters.status;
