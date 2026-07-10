@@ -11,6 +11,7 @@ import SearchBar from "../../components/shared/SearchBar";
 import { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { FiFileText, FiFilter } from "react-icons/fi";
 import { exportDisasterEvents } from "../../features/disaster-events/disasterEventService";
+import { MASTERLIST_SORT_OPTIONS } from "../../features/masterlist/masterlistService";
 import {
   buildExportSuccessMessage,
   COMMON_EXPORT_FORMAT_OPTIONS,
@@ -42,8 +43,7 @@ const filterPanelStyles = {
     fontWeight: 800,
   },
   field: {
-    display: "flex",
-    flexDirection: "column",
+    display: "grid",
     gap: "8px",
     marginTop: "14px",
   },
@@ -64,17 +64,91 @@ const filterPanelStyles = {
     backgroundColor: "#f8fbfe",
     boxSizing: "border-box",
   },
+  list: {
+    display: "grid",
+    gap: "10px",
+    overflowY: "auto",
+    flex: "1 1 auto",
+    minHeight: 0,
+    paddingRight: "4px",
+  },
+  option: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    color: "#1f405f",
+    fontSize: "14px",
+  },
   actions: {
     display: "flex",
-    justifyContent: "space-between",
-    gap: "10px",
+    justifyContent: "flex-end",
     marginTop: "auto",
+  },
+  clearAction: {
+    border: "none",
+    background: "transparent",
+    color: "#55718b",
+    padding: "2px 0",
+    fontSize: "13px",
+    fontWeight: 700,
+    cursor: "pointer",
+    textDecoration: "underline",
+    textUnderlineOffset: "3px",
   },
 };
 
 const FILTER_PANEL_GAP = 12;
 const FILTER_PANEL_VIEWPORT_PADDING = 16;
 const MIN_FILTER_PANEL_HEIGHT = 220;
+const DISASTER_TYPE_OPTIONS = [
+  "Typhoon",
+  "Flood",
+  "Earthquake",
+  "Landslide",
+  "Volcanic Eruption",
+  "Storm Surge",
+  "Drought / El Niño",
+  "Tsunami",
+  "Fire",
+];
+
+const sortDisasterEventRows = (rows, sortOrder = "newest") => {
+  const safeRows = Array.isArray(rows) ? [...rows] : [];
+
+  return safeRows.sort((leftRow, rightRow) => {
+    if (sortOrder === "oldest" || sortOrder === "newest") {
+      const leftTime = new Date(
+        leftRow?.start_date || leftRow?.created_at || leftRow?.updated_at || 0,
+      ).getTime();
+      const rightTime = new Date(
+        rightRow?.start_date || rightRow?.created_at || rightRow?.updated_at || 0,
+      ).getTime();
+
+      if (leftTime !== rightTime) {
+        return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
+      }
+    }
+
+    const leftTitle = String(leftRow?.title || "").trim().toUpperCase();
+    const rightTitle = String(rightRow?.title || "").trim().toUpperCase();
+
+    if (leftTitle !== rightTitle) {
+      if (sortOrder === "za") {
+        return rightTitle.localeCompare(leftTitle);
+      }
+
+      return leftTitle.localeCompare(rightTitle);
+    }
+
+    const leftTime = new Date(
+      leftRow?.start_date || leftRow?.created_at || leftRow?.updated_at || 0,
+    ).getTime();
+    const rightTime = new Date(
+      rightRow?.start_date || rightRow?.created_at || rightRow?.updated_at || 0,
+    ).getTime();
+    return rightTime - leftTime;
+  });
+};
 
 const getFilterPanelPosition = ({ triggerRect, panelHeight }) => {
   const viewportWidth = window.innerWidth;
@@ -165,16 +239,19 @@ const DisasterEventsPage = () => {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [filtersByTab, setFiltersByTab] = useState({
     active: {
-      disasterType: "",
-      affectedBarangayId: "",
+      sortOrder: "newest",
+      disasterTypes: [],
+      affectedBarangayIds: [],
     },
     closed: {
-      disasterType: "",
-      affectedBarangayId: "",
+      sortOrder: "newest",
+      disasterTypes: [],
+      affectedBarangayIds: [],
     },
     all: {
-      disasterType: "",
-      affectedBarangayId: "",
+      sortOrder: "newest",
+      disasterTypes: [],
+      affectedBarangayIds: [],
     },
   });
   const [filterPanelPosition, setFilterPanelPosition] = useState({
@@ -185,52 +262,80 @@ const DisasterEventsPage = () => {
   const filterButtonRef = useRef(null);
   const filterPanelRef = useRef(null);
   const currentTabFilters = filtersByTab[selectedFilter] || filtersByTab.all;
-  const selectedDisasterType = currentTabFilters.disasterType;
-  const selectedAffectedBarangayId = currentTabFilters.affectedBarangayId;
+  const selectedSortOrder = currentTabFilters.sortOrder || "newest";
+  const selectedDisasterTypes = currentTabFilters.disasterTypes || [];
+  const selectedAffectedBarangayIds = currentTabFilters.affectedBarangayIds || [];
 
   const disasterTypeOptions = useMemo(() => {
-    return [
-      ...new Set(
-        events
-          .map((event) => String(event.disaster_type || "").trim())
-          .filter(Boolean),
-      ),
-    ].sort((a, b) => a.localeCompare(b));
+    const eventDisasterTypes = events
+      .map((event) => String(event.disaster_type || "").trim())
+      .filter(Boolean);
+    const uniqueDisasterTypes = [...new Set([...DISASTER_TYPE_OPTIONS, ...eventDisasterTypes])];
+
+    return uniqueDisasterTypes.sort((leftType, rightType) => {
+      const leftIndex = DISASTER_TYPE_OPTIONS.indexOf(leftType);
+      const rightIndex = DISASTER_TYPE_OPTIONS.indexOf(rightType);
+
+      if (leftIndex !== -1 && rightIndex !== -1) {
+        return leftIndex - rightIndex;
+      }
+
+      if (leftIndex !== -1) {
+        return -1;
+      }
+
+      if (rightIndex !== -1) {
+        return 1;
+      }
+
+      return leftType.localeCompare(rightType);
+    });
   }, [events]);
 
   const hasActiveFilters = Boolean(
-    selectedDisasterType || selectedAffectedBarangayId,
+    selectedDisasterTypes.length > 0 ||
+      selectedAffectedBarangayIds.length > 0 ||
+      selectedSortOrder !== "newest",
   );
   const activeFilterCount =
-    Number(Boolean(selectedDisasterType)) +
-    Number(Boolean(selectedAffectedBarangayId));
+    selectedDisasterTypes.length +
+    selectedAffectedBarangayIds.length +
+    Number(selectedSortOrder !== "newest");
 
-  const filteredEvents = events.filter((event) => {
-    const search = searchValue.trim().toLowerCase();
-    const matchesSearch =
-      !search ||
-      event.title?.toLowerCase().includes(search) ||
-      event.disaster_type?.toLowerCase().includes(search) ||
-      event.affected_barangays?.some((b) =>
-        (b.name || b).toLowerCase().includes(search),
-      );
+  const filteredEvents = useMemo(() => {
+    const filteredRows = events.filter((event) => {
+      const search = searchValue.trim().toLowerCase();
+      const matchesSearch =
+        !search ||
+        event.title?.toLowerCase().includes(search) ||
+        event.disaster_type?.toLowerCase().includes(search) ||
+        event.affected_barangays?.some((barangay) =>
+          String(barangay?.name || barangay || "")
+            .toLowerCase()
+            .includes(search),
+        );
 
-    const matchesDisasterType =
-      !selectedDisasterType ||
-      event.disaster_type === selectedDisasterType;
+      const matchesDisasterType =
+        selectedDisasterTypes.length === 0 ||
+        selectedDisasterTypes.includes(event.disaster_type);
 
-    const matchesAffectedBarangay =
-      !selectedAffectedBarangayId ||
-      event.affected_barangays?.some(
-        (barangay) => barangay.id === selectedAffectedBarangayId,
-      );
+      const matchesAffectedBarangay =
+        selectedAffectedBarangayIds.length === 0 ||
+        event.affected_barangays?.some((barangay) =>
+          selectedAffectedBarangayIds.includes(barangay.id),
+        );
 
-    return (
-      matchesSearch &&
-      matchesDisasterType &&
-      matchesAffectedBarangay
-    );
-  });
+      return matchesSearch && matchesDisasterType && matchesAffectedBarangay;
+    });
+
+    return sortDisasterEventRows(filteredRows, selectedSortOrder);
+  }, [
+    events,
+    searchValue,
+    selectedAffectedBarangayIds,
+    selectedDisasterTypes,
+    selectedSortOrder,
+  ]);
 
   const handleExport = async (format) => {
     if (filteredEvents.length === 0) {
@@ -249,8 +354,12 @@ const DisasterEventsPage = () => {
       const file = await exportDisasterEvents({
         selectedFilter,
         search: searchValue,
-        disasterType: selectedDisasterType,
-        affectedBarangayId: selectedAffectedBarangayId,
+        disasterType:
+          selectedDisasterTypes.length === 1 ? selectedDisasterTypes[0] : "",
+        affectedBarangayId:
+          selectedAffectedBarangayIds.length === 1
+            ? selectedAffectedBarangayIds[0]
+            : "",
         format,
       });
       downloadExportFile(file);
@@ -283,8 +392,25 @@ const DisasterEventsPage = () => {
 
   const clearCurrentTabFilters = () => {
     updateCurrentTabFilters({
-      disasterType: "",
-      affectedBarangayId: "",
+      sortOrder: "newest",
+      disasterTypes: [],
+      affectedBarangayIds: [],
+    });
+  };
+
+  const toggleCurrentTabDisasterType = (disasterType) => {
+    updateCurrentTabFilters({
+      disasterTypes: selectedDisasterTypes.includes(disasterType)
+        ? selectedDisasterTypes.filter((value) => value !== disasterType)
+        : [...selectedDisasterTypes, disasterType],
+    });
+  };
+
+  const toggleCurrentTabAffectedBarangay = (barangayId) => {
+    updateCurrentTabFilters({
+      affectedBarangayIds: selectedAffectedBarangayIds.includes(barangayId)
+        ? selectedAffectedBarangayIds.filter((value) => value !== barangayId)
+        : [...selectedAffectedBarangayIds, barangayId],
     });
   };
 
@@ -525,59 +651,75 @@ const DisasterEventsPage = () => {
               <h3 style={filterPanelStyles.title}>Filter Disaster Events</h3>
 
               <label style={filterPanelStyles.field}>
-                <span style={filterPanelStyles.label}>Disaster Type</span>
+                <span style={filterPanelStyles.label}>Order List</span>
                 <select
-                  value={selectedDisasterType}
+                  value={selectedSortOrder}
                   onChange={(event) =>
-                    updateCurrentTabFilters({
-                      disasterType: event.target.value,
-                    })
+                    updateCurrentTabFilters({ sortOrder: event.target.value })
                   }
                   style={filterPanelStyles.select}
                 >
-                  <option value="">All Disaster Types</option>
-                  {disasterTypeOptions.map((disasterType) => (
-                    <option key={disasterType} value={disasterType}>
-                      {disasterType}
+                  {MASTERLIST_SORT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
                     </option>
                   ))}
                 </select>
               </label>
 
-              <label style={filterPanelStyles.field}>
-                <span style={filterPanelStyles.label}>Affected Barangay</span>
-                <select
-                  value={selectedAffectedBarangayId}
-                  onChange={(event) =>
-                    updateCurrentTabFilters({
-                      affectedBarangayId: event.target.value,
-                    })
-                  }
-                  style={filterPanelStyles.select}
-                >
-                  <option value="">All Barangays</option>
-                  {barangays.map((barangay) => (
-                    <option key={barangay.id} value={barangay.id}>
-                      {barangay.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <h3 style={filterPanelStyles.title}>Disaster Type</h3>
+
+              <div style={filterPanelStyles.list}>
+                {disasterTypeOptions.length > 0 ? (
+                  disasterTypeOptions.map((disasterType) => (
+                    <label key={disasterType} style={filterPanelStyles.option}>
+                      <input
+                        type="checkbox"
+                        checked={selectedDisasterTypes.includes(disasterType)}
+                        onChange={() => toggleCurrentTabDisasterType(disasterType)}
+                        style={{ accentColor: "#2f6499" }}
+                      />
+                      <span>{disasterType}</span>
+                    </label>
+                  ))
+                ) : (
+                  <p style={{ margin: 0, color: "#5d7188", fontSize: "14px" }}>
+                    No disaster types are available.
+                  </p>
+                )}
+              </div>
+
+              <h3 style={filterPanelStyles.title}>Affected Barangay</h3>
+
+              <div style={filterPanelStyles.list}>
+                {barangays.length > 0 ? (
+                  barangays.map((barangay) => (
+                    <label key={barangay.id} style={filterPanelStyles.option}>
+                      <input
+                        type="checkbox"
+                        checked={selectedAffectedBarangayIds.includes(barangay.id)}
+                        onChange={() =>
+                          toggleCurrentTabAffectedBarangay(barangay.id)
+                        }
+                        style={{ accentColor: "#2f6499" }}
+                      />
+                      <span>{barangay.name}</span>
+                    </label>
+                  ))
+                ) : (
+                  <p style={{ margin: 0, color: "#5d7188", fontSize: "14px" }}>
+                    No barangays are available.
+                  </p>
+                )}
+              </div>
 
               <div style={filterPanelStyles.actions}>
                 <button
                   type="button"
                   onClick={clearCurrentTabFilters}
-                  style={pageHeaderStyles.secondaryButton}
+                  style={filterPanelStyles.clearAction}
                 >
                   Clear
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsFilterOpen(false)}
-                  style={pageHeaderStyles.primaryButton}
-                >
-                  Apply
                 </button>
               </div>
             </div>
