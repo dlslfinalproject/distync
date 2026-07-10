@@ -947,55 +947,6 @@ const MswdoSettingsView = ({
             </div>
           </section>
         );
-      case "report-preferences":
-        return (
-          <section style={shellStyles.card}>
-            <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
-              <h3 style={{ margin: 0, color: "#17324d" }}>Report Preferences</h3>
-              <p style={mutedValueStyles}>
-                Keep the preferred local export format ready for future report
-                screens without changing backend report generation.
-              </p>
-            </div>
-
-            <div style={{ ...gridStyles, alignItems: "start" }}>
-              <article style={cardStyles}>
-                <h4 style={{ margin: 0, color: "#17324d" }}>Preferred Export Format</h4>
-                <p style={mutedValueStyles}>
-                  This export format preference is saved locally for this account and
-                  can be reused by future report screens safely.
-                </p>
-                <select
-                  value={preferences.preferredExportFormat}
-                  onChange={(event) =>
-                    setPreferences((current) => ({
-                      ...current,
-                      preferredExportFormat: event.target.value,
-                    }))
-                  }
-                  style={inputStyles.field}
-                >
-                  <option value="csv">CSV</option>
-                  <option value="excel">Excel</option>
-                  <option value="pdf">PDF</option>
-                </select>
-              </article>
-
-              <article style={cardStyles}>
-                <h4 style={{ margin: 0, color: "#17324d" }}>Preference Summary</h4>
-                <InfoRow
-                  label="Preferred Export Format"
-                  value={preferences.preferredExportFormat?.toUpperCase() || "EXCEL"}
-                />
-                <InfoRow
-                  label="Last Saved"
-                  value={formatDateTime(preferences.metadata?.lastPreferenceSaveAt)}
-                  muted
-                />
-              </article>
-            </div>
-          </section>
-        );
       default:
         return null;
     }

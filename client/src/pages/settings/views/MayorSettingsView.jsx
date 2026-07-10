@@ -2,6 +2,22 @@ import React from "react";
 import { FiEye, FiEyeOff } from "react-icons/fi";
 import RoleSettingsViewShell from "../components/RoleSettingsViewShell";
 
+const getMayorSettingsGridTemplateColumns = () => {
+  if (typeof window === "undefined") {
+    return "repeat(3, minmax(0, 1fr))";
+  }
+
+  if (window.innerWidth >= 1180) {
+    return "repeat(3, minmax(0, 1fr))";
+  }
+
+  if (window.innerWidth >= 760) {
+    return "repeat(2, minmax(0, 1fr))";
+  }
+
+  return "1fr";
+};
+
 const MayorSettingsView = ({
   activeSection,
   activeSectionMeta,
@@ -86,6 +102,36 @@ const MayorSettingsView = ({
     unreadCount,
     notificationRuleCount,
   } = ctx;
+  const [mayorGridTemplateColumns, setMayorGridTemplateColumns] = React.useState(
+    getMayorSettingsGridTemplateColumns,
+  );
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const handleResize = () => {
+      setMayorGridTemplateColumns(getMayorSettingsGridTemplateColumns());
+    };
+
+    window.addEventListener("resize", handleResize);
+    handleResize();
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
+
+  const mayorSettingsHubStyles = React.useMemo(() => {
+    return {
+      ...settingsHubStyles,
+      grid: {
+        ...settingsHubStyles.grid,
+        gridTemplateColumns: mayorGridTemplateColumns,
+      },
+    };
+  }, [mayorGridTemplateColumns, settingsHubStyles]);
 
   const renderSectionContent = () => {
     switch (activeSection) {
@@ -1024,59 +1070,6 @@ const MayorSettingsView = ({
             </div>
           </section>
         );
-      case "local-preferences":
-        return (
-          <section style={shellStyles.card}>
-            <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
-              <h3 style={{ margin: 0, color: "#17324d" }}>Local Preferences</h3>
-              <p style={mutedValueStyles}>
-                These preferences are stored locally for this signed-in role. They do
-                not change backend permission rules or core workflow behavior.
-              </p>
-            </div>
-
-            <div style={{ ...gridStyles, alignItems: "start" }}>
-              <article style={cardStyles}>
-                <h4 style={{ margin: 0, color: "#17324d" }}>Export Preferences</h4>
-                <p style={mutedValueStyles}>
-                  This export format preference is saved locally for this account and
-                  can be reused by future report screens safely.
-                </p>
-                <select
-                  value={preferences.preferredExportFormat}
-                  onChange={(event) =>
-                    setPreferences((current) => ({
-                      ...current,
-                      preferredExportFormat: event.target.value,
-                    }))
-                  }
-                  style={inputStyles.field}
-                >
-                  <option value="csv">CSV</option>
-                  <option value="excel">Excel</option>
-                  <option value="pdf">PDF</option>
-                </select>
-              </article>
-
-              <article style={cardStyles}>
-                <h4 style={{ margin: 0, color: "#17324d" }}>Preference Summary</h4>
-                <InfoRow
-                  label="Notification Rules Enabled Locally"
-                  value={`${enabledRuleCodes.length}`}
-                />
-                <InfoRow
-                  label="Preferred Export Format"
-                  value={preferences.preferredExportFormat?.toUpperCase() || "EXCEL"}
-                />
-                <InfoRow
-                  label="Last Saved"
-                  value={formatDateTime(preferences.metadata?.lastPreferenceSaveAt)}
-                  muted
-                />
-              </article>
-            </div>
-          </section>
-        );
       default:
         return null;
     }
@@ -1094,7 +1087,7 @@ const MayorSettingsView = ({
       dashboardDescription="Choose a category below to keep the Mayor Settings workspace focused and uncluttered. Detailed forms and system summaries only appear after you open a section."
       toast={toast}
       onCloseToast={onCloseToast}
-      settingsHubStyles={settingsHubStyles}
+      settingsHubStyles={mayorSettingsHubStyles}
       labelStyles={labelStyles}
       mutedValueStyles={mutedValueStyles}
       StatusChip={StatusChip}
