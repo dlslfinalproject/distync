@@ -150,6 +150,26 @@ const getSectorsByCodes = async (sectorCodes) => {
   return result.rows;
 };
 
+const getAgeGroupSectors = async () => {
+  const query = `
+    SELECT
+      id,
+      code,
+      name,
+      description,
+      sector_group,
+      is_barangay_visible,
+      is_mswdo_visible,
+      created_at
+    FROM sectors
+    WHERE sector_group = $1
+    ORDER BY name ASC, code ASC
+  `;
+
+  const result = await pool.query(query, ["AGE_GROUP"]);
+  return result.rows;
+};
+
 const generateStubNumbers = async (dbClient) => {
   const currentYear = new Date().getFullYear();
   const stubPrefix = `STUB-${currentYear}-`;
@@ -1300,6 +1320,7 @@ module.exports = {
   getDisasterEventBarangayLink,
   getSectorsByIds,
   getSectorsByCodes,
+  getAgeGroupSectors,
   generateStubNumbers,
   insertHousehold,
   updateHousehold,
