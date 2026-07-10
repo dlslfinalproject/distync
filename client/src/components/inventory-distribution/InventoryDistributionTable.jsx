@@ -81,6 +81,65 @@ const getStatusMeta = (status) => {
 };
 
 const renderReliefPackItems = (row) => {
+  if (
+    Array.isArray(row.relief_pack_templates) &&
+    row.relief_pack_templates.length > 0
+  ) {
+    return (
+      <div style={{ display: "grid", gap: "12px" }}>
+        {row.relief_pack_templates.map((template) => (
+          <div
+            key={template.id || template.name}
+            style={{
+              padding: "10px 12px",
+              borderRadius: "12px",
+              backgroundColor: "#f8fbfe",
+              border: "1px solid #e0eaf4",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "8px",
+                marginBottom: "8px",
+              }}
+            >
+              <strong>{template.name || "Relief Pack"}</strong>
+              {template.is_additional_pack ? (
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    padding: "4px 10px",
+                    borderRadius: "999px",
+                    backgroundColor: "#eaf3fc",
+                    color: "#356592",
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Additional Sector Pack
+                </span>
+              ) : null}
+            </div>
+
+            <div style={{ display: "grid", gap: "6px" }}>
+              {(template.items || []).map((item) => (
+                <div key={item.id || item.inventory_item_id}>
+                  {item.inventory_item?.item_name || "Unnamed Item"} ({item.quantity_required}{" "}
+                  {Number(item.quantity_required) === 1 ? "unit" : "units"})
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   if (!Array.isArray(row.relief_pack_items) || row.relief_pack_items.length === 0) {
     return (
       <span style={tableStyles.mutedText}>

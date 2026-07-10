@@ -15,6 +15,7 @@ import {
 } from "../../features/relief-pack-templates/reliefPackTemplateService";
 import { fetchActiveDisasterEvents } from "../../features/disaster-events/disasterEventService";
 import { fetchInventoryBatches } from "../../features/inventory-batches/inventoryBatchService";
+import { fetchSectors } from "../../features/household-registration/householdRegistrationService";
 import { fetchConsolidatedMasterlistDashboard } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { useAuth } from "../../context/AuthContext";
 import { FiEdit2, FiEye, FiFilter, FiTrash2 } from "react-icons/fi";
@@ -368,6 +369,7 @@ const ReliefPackTemplatesPage = () => {
   const [inventoryItems, setInventoryItems] = useState([]);
   const [inventoryBatches, setInventoryBatches] = useState([]);
   const [activeDisasterEvents, setActiveDisasterEvents] = useState([]);
+  const [sectorOptions, setSectorOptions] = useState([]);
   const [aggregatedDemand, setAggregatedDemand] = useState(emptyDashboardState);
   const [selectedTemplateId, setSelectedTemplateId] = useState(null);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
@@ -392,11 +394,13 @@ const ReliefPackTemplatesPage = () => {
         inventoryItemResponse,
         inventoryBatchResponse,
         activeDisasterEventResponse,
+        sectorResponse,
       ] = await Promise.all([
         fetchReliefPackTemplates({ is_active: "true" }),
         fetchInventoryItems(),
         fetchInventoryBatches(),
         fetchActiveDisasterEvents(),
+        fetchSectors(),
       ]);
 
       const templateDetails = await Promise.all(
@@ -409,6 +413,7 @@ const ReliefPackTemplatesPage = () => {
       setInventoryItems(inventoryItemResponse || []);
       setInventoryBatches(inventoryBatchResponse || []);
       setActiveDisasterEvents(activeDisasterEventResponse || []);
+      setSectorOptions(Array.isArray(sectorResponse?.data) ? sectorResponse.data : []);
     } catch (error) {
       setErrorMessage(error.message);
     } finally {
@@ -587,6 +592,8 @@ const ReliefPackTemplatesPage = () => {
           description: payload.description,
           based_on_family_size: payload.based_on_family_size,
           based_on_sector: payload.based_on_sector,
+          is_additional_pack: payload.is_additional_pack,
+          sector_id: payload.sector_id,
           is_active: payload.is_active,
           items: payload.items,
         });
@@ -598,6 +605,8 @@ const ReliefPackTemplatesPage = () => {
           description: payload.description,
           based_on_family_size: payload.based_on_family_size,
           based_on_sector: payload.based_on_sector,
+          is_additional_pack: payload.is_additional_pack,
+          sector_id: payload.sector_id,
           created_by: authenticatedUser?.id || null,
           is_active: payload.is_active,
           items: payload.items,
@@ -660,6 +669,8 @@ const ReliefPackTemplatesPage = () => {
         description: pendingDeleteTemplate.description,
         based_on_family_size: pendingDeleteTemplate.based_on_family_size,
         based_on_sector: pendingDeleteTemplate.based_on_sector,
+        is_additional_pack: pendingDeleteTemplate.is_additional_pack,
+        sector_id: pendingDeleteTemplate.sector_id,
         is_active: false,
         items: (pendingDeleteTemplate.items || []).map((item) => ({
           inventory_item_id: item.inventory_item_id,
@@ -1049,6 +1060,7 @@ const ReliefPackTemplatesPage = () => {
         mode={modalMode}
         templateData={selectedTemplate}
         inventoryItems={inventoryItems}
+        sectorOptions={sectorOptions}
         errorMessage={modalErrorMessage}
         onClose={handleCloseModal}
         onSubmit={handleSubmitModal}

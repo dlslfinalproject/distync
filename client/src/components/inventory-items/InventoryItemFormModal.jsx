@@ -58,8 +58,30 @@ const errorBoxStyles = {
   border: "1px solid #ffe4e6",
 };
 
+const helperTextStyles = {
+  marginTop: "6px",
+  color: "#6b8298",
+  fontSize: "12px",
+  lineHeight: 1.5,
+};
+
+const summaryBoxStyles = {
+  minHeight: "48px",
+  padding: "12px 14px",
+  borderRadius: "14px",
+  border: "1px solid #d2deea",
+  boxSizing: "border-box",
+  fontSize: "14px",
+  color: "#21405f",
+  backgroundColor: "#f8fbfe",
+  display: "flex",
+  alignItems: "center",
+};
+
 const unitOfMeasureOptions = ["kg", "g", "L", "mL", "pc"];
 const packagingOptions = ["sack", "box", "carton", "case", "pack", "bottle"];
+
+const weightOrVolumeUnits = new Set(["kg", "g", "L", "mL"]);
 
 const normalizeCategoryValue = (category) => {
   if (typeof category !== "string") {
@@ -86,7 +108,42 @@ const createDefaultForm = () => ({
   category: "perishable",
   expiration_date: "",
   reorder_level: "",
+  tracking_method: "Count-Based",
 });
+
+const inferTrackingMethod = (unitOfMeasure) => {
+  return weightOrVolumeUnits.has(unitOfMeasure)
+    ? "Weight/Volume-Based"
+    : "Count-Based";
+};
+
+const isWeightOrVolumeBased = (trackingMethod) =>
+  trackingMethod === "Weight/Volume-Based";
+
+const parsePositiveNumberOrZero = (value) => {
+  const parsedValue = Number(value);
+
+  if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+    return 0;
+  }
+
+  return parsedValue;
+};
+
+const formatComputedValue = (value) => {
+  if (!Number.isFinite(value)) {
+    return "--";
+  }
+
+  if (Number.isInteger(value)) {
+    return value.toLocaleString();
+  }
+
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+};
 
 const InventoryItemFormModal = ({
   isOpen,
@@ -103,17 +160,19 @@ const InventoryItemFormModal = ({
     if (!isOpen) return;
 
     if (itemData) {
+      const resolvedUnitOfMeasure = itemData.unit_of_measure || itemData.unit || "";
       setFormValues({
         item_name: itemData.item_name || itemData.name || "",
         barcode: itemData.barcode || "",
         quantity: itemData.quantity || "",
-        unit_of_measure: itemData.unit_of_measure || itemData.unit || "",
+        unit_of_measure: resolvedUnitOfMeasure,
         unit_of_measure_value: itemData.unit_of_measure_value || "",
         packaging: itemData.packaging || "",
         packaging_count: itemData.packaging_count || "",
         category: normalizeCategoryValue(itemData.category),
         expiration_date: itemData.expiration_date ?? itemData.expiryDate ?? "",
         reorder_level: itemData.reorder_level ?? "",
+        tracking_method: inferTrackingMethod(resolvedUnitOfMeasure),
       });
     } else {
       setFormValues(createDefaultForm());
@@ -122,13 +181,72 @@ const InventoryItemFormModal = ({
 
   if (!isOpen) return null;
 
+  const trackingMethod = formValues.tracking_method || "Count-Based";
+  const usesWeightOrVolume = isWeightOrVolumeBased(trackingMethod);
+  const unitValueLabel = usesWeightOrVolume
+    ? "Weight or Volume per Item"
+    : "Quantity Represented";
+  const unitValueHelperText = usesWeightOrVolume
+    ? "Example: 25 for a 25 kg sack of rice."
+    : "Optional for count-based items. How many countable units this item represents, if applicable.";
+  const quantityFieldLabel = usesWeightOrVolume
+    ? "Weight/Volume per Package"
+    : "Quantity per Package";
+  const quantityFieldPlaceholder = usesWeightOrVolume
+    ? "Example: 1 sack or 1 bottle per package"
+    : "How many items per pack, box, case, etc.";
+  const computedTotalLabel = "Total Stock";
+  const packageCountValue = parsePositiveNumberOrZero(formValues.packaging_count);
+  const quantityPerPackageValue = parsePositiveNumberOrZero(formValues.quantity);
+  const computedTotalStock =
+    packageCountValue > 0 && quantityPerPackageValue > 0
+      ? packageCountValue * quantityPerPackageValue
+      : 0;
+  const hasComputedTotalInputs = packageCountValue > 0 && quantityPerPackageValue > 0;
+  const computedTotalDisplay = hasComputedTotalInputs
+    ? formatComputedValue(computedTotalStock)
+    : "Enter the number of packages and quantity per package to calculate the total.";
+
   const handleChange = (fieldName, value) => {
-    setFormValues((prev) => ({ ...prev, [fieldName]: value }));
+    setFormValues((prev) => {
+      if (fieldName === "tracking_method") {
+        const nextValues = {
+          ...prev,
+          tracking_method: value,
+        };
+
+        if (value === "Count-Based") {
+          nextValues.unit_of_measure = "pc";
+          nextValues.unit_of_measure_value = "";
+        }
+
+        return nextValues;
+      }
+
+      if (fieldName === "unit_of_measure" && prev.tracking_method === "Count-Based") {
+        return {
+          ...prev,
+          unit_of_measure: "pc",
+        };
+      }
+
+      return { ...prev, [fieldName]: value };
+    });
   };
 
   const handleSubmit = (event) => {
     event.preventDefault();
-    onSubmit(formValues);
+    const normalizedFormValues = {
+      ...formValues,
+      unit_of_measure:
+        formValues.unit_of_measure ||
+        (trackingMethod === "Count-Based" ? "pc" : ""),
+      unit_of_measure_value:
+        formValues.unit_of_measure_value ||
+        (trackingMethod === "Count-Based" ? "1" : ""),
+    };
+
+    onSubmit(normalizedFormValues);
   };
 
   return (
@@ -225,6 +343,21 @@ const InventoryItemFormModal = ({
               </div>
 
               <div>
+                <label htmlFor="tracking_method" style={labelStyles}>
+                  Tracking Method
+                </label>
+                <select
+                  id="tracking_method"
+                  value={trackingMethod}
+                  onChange={(e) => handleChange("tracking_method", e.target.value)}
+                  style={inputStyles}
+                >
+                  <option value="Count-Based">Count-Based</option>
+                  <option value="Weight/Volume-Based">Weight/Volume-Based</option>
+                </select>
+              </div>
+
+              <div>
                 <label htmlFor="unit_of_measure" style={labelStyles}>
                   Unit of Measure
                 </label>
@@ -235,35 +368,50 @@ const InventoryItemFormModal = ({
                     handleChange("unit_of_measure", e.target.value)
                   }
                   style={inputStyles}
-                  required
+                  required={usesWeightOrVolume}
+                  disabled={!usesWeightOrVolume}
                 >
-                  <option value="">Select unit of measure</option>
-                  {unitOfMeasureOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
+                  {usesWeightOrVolume ? (
+                    <>
+                      <option value="">Select unit of measure</option>
+                      {unitOfMeasureOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </>
+                  ) : (
+                    <option value="pc">pc</option>
+                  )}
                 </select>
+                <div style={helperTextStyles}>
+                  {usesWeightOrVolume
+                    ? "Required for weight- or volume-based items."
+                    : "Set to pc for count-based items."}
+                </div>
               </div>
 
-              <div>
-                <label htmlFor="unit_of_measure_value" style={labelStyles}>
-                  Number for Unit of Measure
-                </label>
-                <input
-                  id="unit_of_measure_value"
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  placeholder="Example: 5 for 5 kg"
-                  value={formValues.unit_of_measure_value}
-                  onChange={(e) =>
-                    handleChange("unit_of_measure_value", e.target.value)
-                  }
-                  style={inputStyles}
-                  required
-                />
-              </div>
+              {usesWeightOrVolume ? (
+                <div>
+                  <label htmlFor="unit_of_measure_value" style={labelStyles}>
+                    {unitValueLabel}
+                  </label>
+                  <input
+                    id="unit_of_measure_value"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    placeholder="Example: 5 for 5 kg"
+                    value={formValues.unit_of_measure_value}
+                    onChange={(e) =>
+                      handleChange("unit_of_measure_value", e.target.value)
+                    }
+                    style={inputStyles}
+                    required
+                  />
+                  <div style={helperTextStyles}>{unitValueHelperText}</div>
+                </div>
+              ) : null}
 
               <div>
                 <label htmlFor="packaging" style={labelStyles}>
@@ -302,7 +450,7 @@ const InventoryItemFormModal = ({
             >
               <div>
                 <label htmlFor="packaging_count" style={labelStyles}>
-                  Number of Packagings
+                  Number of Packages
                 </label>
                 <input
                   id="packaging_count"
@@ -316,22 +464,37 @@ const InventoryItemFormModal = ({
                   style={inputStyles}
                   required
                 />
+                <div style={helperTextStyles}>
+                  How many boxes, packs, sacks, or containers are being recorded?
+                </div>
               </div>
 
               <div>
                 <label htmlFor="quantity" style={labelStyles}>
-                  Quantity per Packaging
+                  {quantityFieldLabel}
                 </label>
                 <input
                   id="quantity"
                   type="number"
                   min="1"
-                  placeholder="How many items per pack, box, case, etc."
+                  placeholder={quantityFieldPlaceholder}
                   value={formValues.quantity}
                   onChange={(e) => handleChange("quantity", e.target.value)}
                   style={inputStyles}
                   required
                 />
+                <div style={helperTextStyles}>
+                  How many base units are in each package?
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="computed_total_stock" style={labelStyles}>
+                  {computedTotalLabel}
+                </label>
+                <div id="computed_total_stock" style={summaryBoxStyles}>
+                  {computedTotalDisplay}
+                </div>
               </div>
 
               <div>

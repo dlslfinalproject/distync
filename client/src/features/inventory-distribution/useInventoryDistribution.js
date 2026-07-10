@@ -52,18 +52,52 @@ const getDistributionStatus = (stubStatus) => {
   return "NOT_DISTRIBUTED";
 };
 
-const getPreferredTemplate = (templates) => {
+const getStandardTemplate = (templates) => {
   if (!Array.isArray(templates) || templates.length === 0) {
     return null;
   }
 
   return (
     templates.find(
-      (template) => template.is_active && template.based_on_family_size,
+      (template) =>
+        template.is_active &&
+        !template.is_additional_pack &&
+        template.based_on_family_size,
     ) ||
-    templates.find((template) => template.is_active) ||
-    templates[0]
+    templates.find(
+      (template) => template.is_active && !template.is_additional_pack,
+    ) ||
+    null
   );
+};
+
+const getAssignedReliefPackTemplates = (householdSectorIds, templateDetails) => {
+  if (!Array.isArray(templateDetails) || templateDetails.length === 0) {
+    return [];
+  }
+
+  const sectorIdSet = new Set((householdSectorIds || []).filter(Boolean));
+  const standardTemplate = getStandardTemplate(templateDetails);
+  const assignedTemplates = [];
+
+  if (standardTemplate) {
+    assignedTemplates.push(standardTemplate);
+  }
+
+  templateDetails.forEach((template) => {
+    if (
+      !template?.is_active ||
+      !template?.is_additional_pack ||
+      !template?.sector_id ||
+      !sectorIdSet.has(template.sector_id)
+    ) {
+      return;
+    }
+
+    assignedTemplates.push(template);
+  });
+
+  return assignedTemplates;
 };
 
 const matchesSearch = (row, searchTerm) => {
@@ -110,7 +144,7 @@ export const useInventoryDistribution = () => {
   const [selectedStatus, setSelectedStatus] = useState("");
   const [selectedSectorIds, setSelectedSectorIds] = useState([]);
   const [masterlistPayload, setMasterlistPayload] = useState(emptyMasterlistPayload);
-  const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [templateDetails, setTemplateDetails] = useState([]);
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
   const [isLoadingMasterlist, setIsLoadingMasterlist] = useState(false);
   const [isLoadingTemplate, setIsLoadingTemplate] = useState(false);
@@ -219,10 +253,8 @@ export const useInventoryDistribution = () => {
     let isMounted = true;
 
     const loadTemplateDetail = async () => {
-      const preferredTemplate = getPreferredTemplate(reliefPackTemplates);
-
-      if (!preferredTemplate) {
-        setSelectedTemplate(null);
+      if (!reliefPackTemplates.length) {
+        setTemplateDetails([]);
         setIsLoadingTemplate(false);
         return;
       }
@@ -230,26 +262,39 @@ export const useInventoryDistribution = () => {
       setIsLoadingTemplate(true);
 
       try {
-        const templateDetail = await fetchReliefPackTemplateById(preferredTemplate.id);
+        const loadedTemplateDetails = await Promise.all(
+          reliefPackTemplates.map((template) =>
+            fetchReliefPackTemplateById(template.id),
+          ),
+        );
 
         if (!isMounted) {
           return;
         }
 
-        setSelectedTemplate(templateDetail);
+        setTemplateDetails(loadedTemplateDetails);
 
-        if (reliefPackTemplates.length > 1) {
+        const preferredTemplate = getStandardTemplate(loadedTemplateDetails);
+        const additionalTemplateCount = loadedTemplateDetails.filter(
+          (template) => template.is_active && template.is_additional_pack,
+        ).length;
+
+        if (preferredTemplate && additionalTemplateCount > 0) {
           setTemplateNotice(
-            `Relief pack items are showing the active template preview: ${templateDetail.name}. Household-to-template assignment can be linked once that data is exposed.`,
+            `Relief distribution uses the active base template "${preferredTemplate.name}" and automatically adds sector-based packs for matching households.`,
+          );
+        } else if (preferredTemplate) {
+          setTemplateNotice(
+            `Relief pack items are showing the active template: ${preferredTemplate.name}.`,
           );
         } else {
           setTemplateNotice(
-            `Relief pack items are showing the active template: ${templateDetail.name}.`,
+            "No standard relief pack template is currently active. Additional sector packs will appear once a matching base template is available.",
           );
         }
       } catch (error) {
         if (isMounted) {
-          setSelectedTemplate(null);
+          setTemplateDetails([]);
           setTemplateNotice(
             error.message ||
               "Relief pack template details are unavailable right now. The page is ready for integration.",
@@ -301,10 +346,15 @@ export const useInventoryDistribution = () => {
     );
   }, [masterlistPayload.data]);
 
+  const selectedTemplate = useMemo(() => {
+    return getStandardTemplate(templateDetails);
+  }, [templateDetails]);
+
   const allRows = useMemo(() => {
     return (masterlistPayload.data || []).map((household) => {
       const mappedRow = mapMasterlistRow(household);
       const sectorNames = getHouseholdSectorNames(household);
+      const sectorIds = [...new Set(getHouseholdSectorIds(household))];
       const stubStatus = household.stub?.status || "";
       const distributionStatus = getDistributionStatus(stubStatus);
       const barangayName = household.barangay?.name || "";
@@ -317,18 +367,27 @@ export const useInventoryDistribution = () => {
         addressParts.push(barangayName);
       }
 
+      const assignedTemplates = getAssignedReliefPackTemplates(
+        sectorIds,
+        templateDetails,
+      );
+      const flattenedReliefPackItems = assignedTemplates.flatMap(
+        (template) => template.items || [],
+      );
+
       return {
         household_id: household.household_id,
         family_head_name: mappedRow.family_head_name,
         address: addressParts.filter(Boolean).join(" | "),
         family_members_count: household.household_size || mappedRow.members_count || 0,
-        sector_ids: [...new Set(getHouseholdSectorIds(household))],
+        sector_ids: sectorIds,
         sector_names: sectorNames,
         sectors_text: buildSectorsText(household),
         barangay_id: household.barangay?.id || null,
         barangay_name: barangayName,
-        relief_pack_items: selectedTemplate?.items || [],
-        relief_pack_name: selectedTemplate?.name || "",
+        relief_pack_templates: assignedTemplates,
+        relief_pack_items: flattenedReliefPackItems,
+        relief_pack_name: assignedTemplates[0]?.name || "",
         distribution_status: distributionStatus,
         distribution_status_label:
           distributionStatus === "CLAIMED"
@@ -339,7 +398,7 @@ export const useInventoryDistribution = () => {
         raw_stub_status: stubStatus,
       };
     });
-  }, [masterlistPayload.data, selectedTemplate]);
+  }, [masterlistPayload.data, templateDetails]);
 
   const displayedRows = useMemo(() => {
     return allRows.filter(
