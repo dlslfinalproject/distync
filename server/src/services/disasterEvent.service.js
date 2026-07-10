@@ -68,9 +68,11 @@ const normalizeDateOnlyString = (value) => {
   }
 
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return `${value.getUTCFullYear()}-${String(
-      value.getUTCMonth() + 1,
-    ).padStart(2, "0")}-${String(value.getUTCDate()).padStart(2, "0")}`;
+    const { year, month, day } = getManilaDateParts(value);
+    return `${String(year).padStart(4, "0")}-${String(month).padStart(
+      2,
+      "0",
+    )}-${String(day).padStart(2, "0")}`;
   }
 
   return "";
@@ -87,7 +89,7 @@ const buildScheduledClosureTimestamp = (endDate) => {
   }
 
   return new Date(
-    Date.UTC(year, month - 1, day + 1, 0, 0, 0) - 8 * 60 * 60 * 1000,
+    Date.UTC(year, month - 1, day, 23, 59, 59, 999) - 8 * 60 * 60 * 1000,
   ).toISOString();
 };
 
