@@ -142,7 +142,7 @@ const sortDisasterEvents = (events = []) => {
 
 const MswdoExportModal = ({
   isOpen,
-  title = "Export MSWDO Report",
+  title = "Evacuee Masterlist Report",
   isSubmitting,
   disasterEvents,
   barangays,

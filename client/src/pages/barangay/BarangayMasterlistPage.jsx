@@ -842,7 +842,7 @@ const BarangayMasterlistPage = () => {
 
       <MswdoExportModal
         isOpen={isExportModalOpen}
-        title="Export Barangay Report"
+        title="Evacuee Masterlist Report"
         isSubmitting={Boolean(exportingFormat)}
         disasterEvents={availableEvents}
         barangays={assignedBarangay ? [assignedBarangay] : []}

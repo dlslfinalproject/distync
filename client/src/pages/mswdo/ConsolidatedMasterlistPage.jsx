@@ -277,6 +277,7 @@ const ConsolidatedEvacueeMasterlist = () => {
 
       <MswdoExportModal
         isOpen={isExportModalOpen}
+        title="Evacuee Masterlist Report"
         isSubmitting={Boolean(exportingFormat)}
         disasterEvents={disasterEvents}
         barangays={barangays}
