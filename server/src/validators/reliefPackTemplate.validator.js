@@ -118,6 +118,8 @@ const validateCreateReliefPackTemplate = (req, res, next) => {
       description,
       based_on_family_size,
       based_on_sector,
+      is_additional_pack,
+      sector_id,
       created_by,
       is_active,
       items,
@@ -157,6 +159,27 @@ const validateCreateReliefPackTemplate = (req, res, next) => {
       });
     }
 
+    if (
+      is_additional_pack !== undefined &&
+      typeof is_additional_pack !== "boolean"
+    ) {
+      return res.status(400).json({
+        message: "is_additional_pack must be a boolean when provided",
+      });
+    }
+
+    if (sector_id !== undefined && sector_id !== null && !isValidUuid(sector_id)) {
+      return res.status(400).json({
+        message: "sector_id must be a valid UUID or null",
+      });
+    }
+
+    if ((is_additional_pack ?? false) && !sector_id) {
+      return res.status(400).json({
+        message: "sector_id is required when is_additional_pack is true",
+      });
+    }
+
     if (created_by !== undefined && created_by !== null && !isValidUuid(created_by)) {
       return res.status(400).json({
         message: "created_by must be a valid UUID or null",
@@ -183,7 +206,9 @@ const validateCreateReliefPackTemplate = (req, res, next) => {
       name: name.trim(),
       description: description ?? null,
       based_on_family_size: based_on_family_size ?? false,
-      based_on_sector: based_on_sector ?? false,
+      based_on_sector: based_on_sector ?? Boolean(sector_id),
+      is_additional_pack: is_additional_pack ?? false,
+      sector_id: sector_id ?? null,
       created_by: created_by ?? null,
       is_active: is_active ?? true,
       items: items ?? [],
@@ -205,6 +230,8 @@ const validateUpdateReliefPackTemplate = (req, res, next) => {
       description,
       based_on_family_size,
       based_on_sector,
+      is_additional_pack,
+      sector_id,
       is_active,
       items,
     } = req.body;
@@ -243,6 +270,27 @@ const validateUpdateReliefPackTemplate = (req, res, next) => {
       });
     }
 
+    if (
+      is_additional_pack !== undefined &&
+      typeof is_additional_pack !== "boolean"
+    ) {
+      return res.status(400).json({
+        message: "is_additional_pack must be a boolean when provided",
+      });
+    }
+
+    if (sector_id !== undefined && sector_id !== null && !isValidUuid(sector_id)) {
+      return res.status(400).json({
+        message: "sector_id must be a valid UUID or null",
+      });
+    }
+
+    if ((is_additional_pack ?? false) && !sector_id) {
+      return res.status(400).json({
+        message: "sector_id is required when is_additional_pack is true",
+      });
+    }
+
     if (is_active !== undefined && typeof is_active !== "boolean") {
       return res.status(400).json({
         message: "is_active must be a boolean when provided",
@@ -263,7 +311,9 @@ const validateUpdateReliefPackTemplate = (req, res, next) => {
       name: name.trim(),
       description: description ?? null,
       based_on_family_size: based_on_family_size ?? false,
-      based_on_sector: based_on_sector ?? false,
+      based_on_sector: based_on_sector ?? Boolean(sector_id),
+      is_additional_pack: is_additional_pack ?? false,
+      sector_id: sector_id ?? null,
       is_active: is_active ?? true,
       items,
     };

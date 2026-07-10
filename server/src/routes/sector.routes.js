@@ -14,7 +14,7 @@ const sendSectorResponse = (res, message, data) => {
 
 router.get(
   "/",
-  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO),
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
   async (req, res) => {
   try {
     const sectors = await sectorService.getAllSectors();
@@ -31,7 +31,7 @@ router.get(
 
 router.get(
   "/person",
-  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO),
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
   async (req, res) => {
   try {
     const sectors = await sectorService.getPersonSectors();
@@ -52,7 +52,7 @@ router.get(
 
 router.get(
   "/household",
-  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO),
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
   async (req, res) => {
   try {
     const sectors = await sectorService.getHouseholdSectors();
@@ -73,7 +73,7 @@ router.get(
 
 router.get(
   "/barangay",
-  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO),
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
   async (req, res) => {
   try {
     const sectors = await sectorService.getBarangayVisibleSectors();
@@ -94,7 +94,7 @@ router.get(
 
 router.get(
   "/mswdo",
-  requireRoles(ROLE_CODES.MSWDO),
+  requireRoles(ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
   async (req, res) => {
   try {
     const sectors = await sectorService.getMswdoVisibleSectors();

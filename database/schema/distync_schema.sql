@@ -445,12 +445,15 @@ CREATE TABLE public.relief_pack_templates (
   description text,
   based_on_family_size boolean NOT NULL DEFAULT false,
   based_on_sector boolean NOT NULL DEFAULT false,
+  is_additional_pack boolean NOT NULL DEFAULT false,
+  sector_id uuid,
   created_by uuid,
   is_active boolean NOT NULL DEFAULT true,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT relief_pack_templates_pkey PRIMARY KEY (id),
-  CONSTRAINT relief_pack_templates_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id)
+  CONSTRAINT relief_pack_templates_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id),
+  CONSTRAINT relief_pack_templates_sector_id_fkey FOREIGN KEY (sector_id) REFERENCES public.sectors(id)
 );
 
 CREATE TABLE public.relief_pack_template_items (

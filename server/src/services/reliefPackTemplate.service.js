@@ -136,6 +136,8 @@ const createReliefPackTemplate = async (templateData) => {
       description: createdTemplate.description,
       based_on_family_size: createdTemplate.based_on_family_size,
       based_on_sector: createdTemplate.based_on_sector,
+      is_additional_pack: createdTemplate.is_additional_pack,
+      sector_id: createdTemplate.sector_id,
       is_active: createdTemplate.is_active,
       items_count: templateData.items.length,
     };

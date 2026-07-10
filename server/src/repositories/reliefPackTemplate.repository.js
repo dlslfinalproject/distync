@@ -36,6 +36,8 @@ const getReliefPackTemplates = async (filters) => {
       description,
       based_on_family_size,
       based_on_sector,
+      is_additional_pack,
+      sector_id,
       created_by,
       is_active,
       created_at,
@@ -57,6 +59,8 @@ const getReliefPackTemplateById = async (id) => {
       description,
       based_on_family_size,
       based_on_sector,
+      is_additional_pack,
+      sector_id,
       created_by,
       is_active,
       created_at,
@@ -91,6 +95,8 @@ const getInactiveReliefPackTemplateByName = async (name) => {
       description,
       based_on_family_size,
       based_on_sector,
+      is_additional_pack,
+      sector_id,
       created_by,
       is_active,
       created_at,
@@ -157,18 +163,22 @@ const insertReliefPackTemplate = async (templateData, dbClient) => {
       description,
       based_on_family_size,
       based_on_sector,
+      is_additional_pack,
+      sector_id,
       created_by,
       is_active,
       created_at,
       updated_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
     RETURNING
       id,
       name,
       description,
       based_on_family_size,
       based_on_sector,
+      is_additional_pack,
+      sector_id,
       created_by,
       is_active,
       created_at,
@@ -180,6 +190,8 @@ const insertReliefPackTemplate = async (templateData, dbClient) => {
     templateData.description,
     templateData.based_on_family_size,
     templateData.based_on_sector,
+    templateData.is_additional_pack,
+    templateData.sector_id,
     templateData.created_by,
     templateData.is_active,
   ];
@@ -195,7 +207,9 @@ const updateReliefPackTemplate = async (id, templateData, dbClient = pool) => {
         description = $3,
         based_on_family_size = $4,
         based_on_sector = $5,
-        is_active = $6,
+        is_additional_pack = $6,
+        sector_id = $7,
+        is_active = $8,
         updated_at = NOW()
     WHERE id = $1
     RETURNING
@@ -204,6 +218,8 @@ const updateReliefPackTemplate = async (id, templateData, dbClient = pool) => {
       description,
       based_on_family_size,
       based_on_sector,
+      is_additional_pack,
+      sector_id,
       created_by,
       is_active,
       created_at,
@@ -216,6 +232,8 @@ const updateReliefPackTemplate = async (id, templateData, dbClient = pool) => {
     templateData.description,
     templateData.based_on_family_size,
     templateData.based_on_sector,
+    templateData.is_additional_pack,
+    templateData.sector_id,
     templateData.is_active,
   ];
 

@@ -210,6 +210,8 @@ const buildInitialFormValues = (templateData) => ({
   selectedItem: "",
   quantity: "",
   familyPerPack: templateData?.description || "1 member",
+  packType: templateData?.is_additional_pack ? "additional" : "standard",
+  sectorId: templateData?.sector_id || "",
 });
 
 const ReliefPackTemplateFormModal = ({
@@ -217,6 +219,7 @@ const ReliefPackTemplateFormModal = ({
   mode = "create",
   templateData,
   inventoryItems = [],
+  sectorOptions = [],
   errorMessage = "",
   onClose,
   onSubmit,
@@ -364,6 +367,11 @@ const ReliefPackTemplateFormModal = ({
       return;
     }
 
+    if (formValues.packType === "additional" && !formValues.sectorId) {
+      setLocalErrorMessage("Select the sector that should automatically receive this additional pack.");
+      return;
+    }
+
     const parsedItems = packItems
       .map((packItem) => ({
         inventory_item_id: packItem.inventory_item_id,
@@ -388,8 +396,13 @@ const ReliefPackTemplateFormModal = ({
     onSubmit({
       name: formValues.packName.trim(),
       description: formValues.familyPerPack.trim() || null,
-      based_on_family_size: templateData?.based_on_family_size ?? false,
-      based_on_sector: templateData?.based_on_sector ?? false,
+      based_on_family_size: formValues.packType === "standard",
+      based_on_sector: formValues.packType === "additional",
+      is_additional_pack: formValues.packType === "additional",
+      sector_id:
+        formValues.packType === "additional" && formValues.sectorId
+          ? formValues.sectorId
+          : null,
       is_active: templateData?.is_active ?? true,
       items: parsedItems,
       family_per_pack_label: formValues.familyPerPack,
@@ -468,6 +481,66 @@ const ReliefPackTemplateFormModal = ({
                 </div>
 
                 <div>
+                  <label style={labelStyles} htmlFor="relief-pack-type">
+                    Pack Type
+                  </label>
+                  <select
+                    id="relief-pack-type"
+                    name="packType"
+                    style={inputStyles}
+                    value={formValues.packType}
+                    onChange={handleInputChange}
+                    disabled={isViewMode}
+                  >
+                    <option value="standard">Standard Pack</option>
+                    <option value="additional">Additional Pack</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={labelStyles} htmlFor="relief-pack-family">
+                    Recommended Family Size
+                  </label>
+                  <input
+                    id="relief-pack-family"
+                    name="familyPerPack"
+                    type="number"
+                    min="0"
+                    style={inputStyles}
+                    value={formValues.familyPerPack}
+                    onChange={handleInputChange}
+                    placeholder="e.g. 5 members"
+                    disabled={isViewMode}
+                  />
+                </div>
+
+                {formValues.packType === "additional" ? (
+                  <div style={{ gridColumn: "1 / -1" }}>
+                    <label style={labelStyles} htmlFor="relief-pack-sector">
+                      Auto-Assign to Sector
+                    </label>
+                    <select
+                      id="relief-pack-sector"
+                      name="sectorId"
+                      style={inputStyles}
+                      value={formValues.sectorId}
+                      onChange={handleInputChange}
+                      disabled={isViewMode}
+                    >
+                      <option value="">Select sector</option>
+                      {sectorOptions.map((sector) => (
+                        <option key={sector.id} value={sector.id}>
+                          {sector.display_name || sector.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p style={helperTextStyles}>
+                      This additional pack will be automatically matched to families tagged with the selected sector.
+                    </p>
+                  </div>
+                ) : null}
+
+                <div>
                   <label style={labelStyles} htmlFor="relief-pack-selected-item">
                     Add Item to Pack
                   </label>
@@ -522,22 +595,6 @@ const ReliefPackTemplateFormModal = ({
                   </div>
                 )}
 
-                <div>
-                  <label style={labelStyles} htmlFor="relief-pack-family">
-                    Recommended Family Size
-                  </label>
-                  <input
-                    id="relief-pack-family"
-                    name="familyPerPack"
-                    type="number"
-                    min="0"
-                    style={inputStyles}
-                    value={formValues.familyPerPack}
-                    onChange={handleInputChange}
-                    placeholder="e.g. 5 members"
-                    disabled={isViewMode}
-                  />
-                </div>
               </div>
             </section>
 
