@@ -1,13 +1,194 @@
 const pool = require("../config/db");
 const disasterEventRepository = require("../repositories/disasterEvent.repository");
+const householdRegistrationRepository = require("../repositories/householdRegistration.repository");
 const disasterEventExport = require("../utils/disasterEventExport");
 const notificationService = require("../modules/notifications/notification.service");
 const mswdoReportExport = require("../utils/mswdoReportExport");
 
 const allowedStatuses = ["PLANNED", "ACTIVE", "CLOSED", "ARCHIVED"];
 const nonResidentBarangayCode = "NON_RESIDENT_OUTSIDE_MALVAR";
+const PH_TIME_ZONE = "Asia/Manila";
 const requiresCompletedEndDate = (status) =>
   status === "CLOSED" || status === "ARCHIVED";
+
+const getManilaDateParts = (value = new Date()) => {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: PH_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = formatter.formatToParts(value);
+
+  return {
+    year: Number(parts.find((part) => part.type === "year")?.value || 0),
+    month: Number(parts.find((part) => part.type === "month")?.value || 0),
+    day: Number(parts.find((part) => part.type === "day")?.value || 0),
+  };
+};
+
+const getCurrentManilaDateString = () => {
+  const { year, month, day } = getManilaDateParts();
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+};
+
+const normalizeDateOnlyString = (value) => {
+  if (!value) {
+    return "";
+  }
+
+  if (typeof value === "string") {
+    const trimmedValue = value.trim();
+    const isoDateMatch = trimmedValue.match(/^(\d{4}-\d{2}-\d{2})/);
+
+    if (isoDateMatch) {
+      return isoDateMatch[1];
+    }
+
+    const parsedValue = new Date(trimmedValue);
+
+    if (!Number.isNaN(parsedValue.getTime())) {
+      return `${parsedValue.getUTCFullYear()}-${String(
+        parsedValue.getUTCMonth() + 1,
+      ).padStart(2, "0")}-${String(parsedValue.getUTCDate()).padStart(2, "0")}`;
+    }
+
+    return "";
+  }
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return `${value.getUTCFullYear()}-${String(
+      value.getUTCMonth() + 1,
+    ).padStart(2, "0")}-${String(value.getUTCDate()).padStart(2, "0")}`;
+  }
+
+  return "";
+};
+
+const buildScheduledClosureTimestamp = (endDate) => {
+  const normalizedEndDate = normalizeDateOnlyString(endDate);
+  const [year, month, day] = String(normalizedEndDate || "")
+    .split("-")
+    .map((value) => Number(value));
+
+  if (!year || !month || !day) {
+    return null;
+  }
+
+  return new Date(
+    Date.UTC(year, month - 1, day + 1, 0, 0, 0) - 8 * 60 * 60 * 1000,
+  ).toISOString();
+};
+
+const formatIsoDateOnly = (value) => normalizeDateOnlyString(value);
+
+const closeDisasterEventWithTimestamp = async ({
+  disasterEvent,
+  closureDate,
+  closureTimestamp,
+  eventAction = "ended",
+}) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    await disasterEventRepository.updateDisasterEventById(
+      disasterEvent.id,
+      {
+        end_date: closureDate,
+        ended_at: closureTimestamp,
+        status: "CLOSED",
+      },
+      client,
+    );
+
+    const updatedLogs =
+      await householdRegistrationRepository.markDisasterEventHouseholdDepartures(
+        disasterEvent.id,
+        closureTimestamp,
+        "Automatic departure recorded during disaster event closure",
+        client,
+      );
+
+    const affectedHouseholdIds = [...new Set(
+      updatedLogs.map((log) => log.household_id).filter(Boolean),
+    )];
+
+    if (affectedHouseholdIds.length > 0) {
+      await householdRegistrationRepository.archiveHouseholdsByIds(
+        affectedHouseholdIds,
+        client,
+      );
+      await householdRegistrationRepository.deactivateEvacueesByHouseholdIds(
+        affectedHouseholdIds,
+        client,
+      );
+    }
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  const updatedDisasterEventRow =
+    await disasterEventRepository.getDisasterEventById(disasterEvent.id);
+  const affectedBarangays =
+    await disasterEventRepository.getAffectedBarangaysByDisasterEventId(
+      disasterEvent.id,
+    );
+  const updatedDisasterEvent = updatedDisasterEventRow
+    ? {
+        ...updatedDisasterEventRow,
+        affected_barangays: affectedBarangays,
+      }
+    : null;
+
+  await notificationService.emitSafely(() =>
+    notificationService.emitDisasterEventUpdate({
+      disasterEvent: updatedDisasterEvent,
+      action: eventAction,
+      affectedBarangays: updatedDisasterEvent?.affected_barangays || [],
+    }),
+  );
+
+  return updatedDisasterEvent;
+};
+
+const syncOverdueActiveDisasterEvents = async () => {
+  const currentManilaDate = getCurrentManilaDateString();
+  const activeDisasterEvents = await disasterEventRepository.getActiveDisasterEvents();
+  const overdueEvents = activeDisasterEvents.filter(
+    (event) =>
+      event?.status === "ACTIVE" &&
+      normalizeDateOnlyString(event?.end_date) &&
+      normalizeDateOnlyString(event.end_date) < currentManilaDate,
+  );
+
+  for (const disasterEvent of overdueEvents) {
+    const scheduledClosureTimestamp = buildScheduledClosureTimestamp(
+      disasterEvent.end_date,
+    );
+
+    if (!scheduledClosureTimestamp) {
+      continue;
+    }
+
+    try {
+      await closeDisasterEventWithTimestamp({
+        disasterEvent,
+        closureDate: normalizeDateOnlyString(disasterEvent.end_date),
+        closureTimestamp: scheduledClosureTimestamp,
+        eventAction: "ended",
+      });
+    } catch (error) {
+      throw error;
+    }
+  }
+};
 
 const groupAffectedBarangaysByEventId = (affectedBarangays) => {
   return affectedBarangays.reduce((lookup, row) => {
@@ -44,16 +225,19 @@ const attachAffectedBarangays = async (events) => {
 };
 
 const getAllDisasterEvents = async () => {
+  await syncOverdueActiveDisasterEvents();
   const disasterEvents = await disasterEventRepository.getAllDisasterEvents();
   return attachAffectedBarangays(disasterEvents);
 };
 
 const getActiveDisasterEvents = async () => {
+  await syncOverdueActiveDisasterEvents();
   const disasterEvents = await disasterEventRepository.getActiveDisasterEvents();
   return attachAffectedBarangays(disasterEvents);
 };
 
 const getClosedDisasterEvents = async () => {
+  await syncOverdueActiveDisasterEvents();
   const disasterEvents = await disasterEventRepository.getClosedDisasterEvents();
   return attachAffectedBarangays(disasterEvents);
 };
@@ -71,6 +255,7 @@ const getDisasterEventsByScope = async (scope) => {
 };
 
 const getDisasterEventById = async (id) => {
+  await syncOverdueActiveDisasterEvents();
   const disasterEvent = await disasterEventRepository.getDisasterEventById(id);
 
   if (!disasterEvent) {
@@ -79,10 +264,13 @@ const getDisasterEventById = async (id) => {
 
   const affectedBarangays =
     await disasterEventRepository.getAffectedBarangaysByDisasterEventId(id);
+  const latestHouseholdActivityAt =
+    await disasterEventRepository.getLatestHouseholdActivityByDisasterEventId(id);
 
   return {
     ...disasterEvent,
     affected_barangays: affectedBarangays,
+    latest_household_activity_at: latestHouseholdActivityAt,
   };
 };
 
@@ -159,7 +347,110 @@ const createDisasterEvent = async (disasterEventData) => {
   }
 };
 
+const updateDisasterEvent = async (id, disasterEventData) => {
+  await syncOverdueActiveDisasterEvents();
+  const existingDisasterEvent = await disasterEventRepository.getDisasterEventById(
+    id,
+  );
+
+  if (!existingDisasterEvent) {
+    const error = new Error("Disaster event not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (existingDisasterEvent.status !== "ACTIVE") {
+    const error = new Error("Only active disaster events can be edited");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const startDate = new Date(disasterEventData.start_date);
+  const endDate = new Date(disasterEventData.end_date);
+
+  if (endDate < startDate) {
+    const error = new Error("end_date must not be earlier than start_date");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const latestHouseholdActivityAt =
+    await disasterEventRepository.getLatestHouseholdActivityByDisasterEventId(id);
+  const latestHouseholdActivityDate = formatIsoDateOnly(latestHouseholdActivityAt);
+  const requestedEndDate = formatIsoDateOnly(disasterEventData.end_date);
+
+  if (
+    latestHouseholdActivityDate &&
+    requestedEndDate &&
+    requestedEndDate < latestHouseholdActivityDate
+  ) {
+    const error = new Error(
+      `end_date cannot be earlier than the latest recorded household activity (${latestHouseholdActivityDate})`,
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    await disasterEventRepository.updateDisasterEventById(
+      id,
+      {
+        title: disasterEventData.title,
+        disaster_type: disasterEventData.disaster_type,
+        description: disasterEventData.description ?? null,
+        start_date: disasterEventData.start_date,
+        end_date: disasterEventData.end_date,
+      },
+      client,
+    );
+
+    await disasterEventRepository.deleteDisasterEventBarangaysByDisasterEventId(
+      id,
+      client,
+    );
+
+    if (disasterEventData.barangay_ids.length > 0) {
+      await disasterEventRepository.insertDisasterEventBarangays(
+        id,
+        disasterEventData.barangay_ids,
+        client,
+      );
+    }
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+
+    if (error.code === "23505") {
+      const duplicateError = new Error("event_code already exists");
+      duplicateError.statusCode = 409;
+      throw duplicateError;
+    }
+
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  const updatedDisasterEvent = await getDisasterEventById(id);
+
+  await notificationService.emitSafely(() =>
+    notificationService.emitDisasterEventUpdate({
+      disasterEvent: updatedDisasterEvent,
+      action: "updated",
+      affectedBarangays: updatedDisasterEvent.affected_barangays,
+    }),
+  );
+
+  return updatedDisasterEvent;
+};
+
 const extendDisasterEvent = async (id, endDate) => {
+  await syncOverdueActiveDisasterEvents();
   const disasterEvent = await disasterEventRepository.getDisasterEventById(id);
 
   if (!disasterEvent) {
@@ -213,6 +504,7 @@ const extendDisasterEvent = async (id, endDate) => {
 };
 
 const endDisasterEvent = async (id) => {
+  await syncOverdueActiveDisasterEvents();
   const disasterEvent = await disasterEventRepository.getDisasterEventById(id);
 
   if (!disasterEvent) {
@@ -227,9 +519,9 @@ const endDisasterEvent = async (id) => {
     throw error;
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getCurrentManilaDateString();
   const endedAt = new Date().toISOString();
-  const startDate = new Date(disasterEvent.start_date).toISOString().slice(0, 10);
+  const startDate = String(disasterEvent.start_date || "");
 
   if (today < startDate) {
     const error = new Error(
@@ -239,23 +531,12 @@ const endDisasterEvent = async (id) => {
     throw error;
   }
 
-  await disasterEventRepository.updateDisasterEventById(id, {
-    end_date: today,
-    ended_at: endedAt,
-    status: "CLOSED",
+  return closeDisasterEventWithTimestamp({
+    disasterEvent,
+    closureDate: today,
+    closureTimestamp: endedAt,
+    eventAction: "ended",
   });
-
-  const updatedDisasterEvent = await getDisasterEventById(id);
-
-  await notificationService.emitSafely(() =>
-    notificationService.emitDisasterEventUpdate({
-      disasterEvent: updatedDisasterEvent,
-      action: "ended",
-      affectedBarangays: updatedDisasterEvent.affected_barangays,
-    }),
-  );
-
-  return updatedDisasterEvent;
 };
 
 const isValidAffectedBarangay = (barangay) => {
@@ -372,6 +653,7 @@ const exportDisasterEvents = async ({
 };
 
 const getDisasterEventReportSummary = async (filters) => {
+  await syncOverdueActiveDisasterEvents();
   return disasterEventRepository.getDisasterEventReportSummary({
     disasterEventId: filters.disaster_event_id || null,
     barangayId: filters.barangay_id || null,
@@ -383,6 +665,7 @@ const getDisasterEventReportSummary = async (filters) => {
 };
 
 const exportDisasterEventReportSummary = async (filters) => {
+  await syncOverdueActiveDisasterEvents();
   const rows = await disasterEventRepository.getDisasterEventReportSummary({
     disasterEventId: filters.disaster_event_id || null,
     barangayId: filters.barangay_id || null,
@@ -447,9 +730,11 @@ module.exports = {
   getClosedDisasterEvents,
   getDisasterEventById,
   createDisasterEvent,
+  updateDisasterEvent,
   extendDisasterEvent,
   endDisasterEvent,
   exportDisasterEvents,
   getDisasterEventReportSummary,
   exportDisasterEventReportSummary,
+  syncOverdueActiveDisasterEvents,
 };

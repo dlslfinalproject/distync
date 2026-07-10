@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
 import { FiX, FiCheckSquare, FiSquare } from "react-icons/fi";
+import { formatDisasterEventDateInputValue } from "../../features/disaster-events/disasterEventFormatters";
 
 const overlayStyles = {
   position: "fixed",
@@ -53,9 +54,16 @@ const errorTextStyles = {
   lineHeight: 1.4,
 };
 
+const lockedInputStyles = {
+  ...inputStyles,
+  backgroundColor: "#eef5fc",
+  color: "#4f6780",
+};
+
 const createDefaultForm = () => ({
   event_name: "",
   disaster_type: "",
+  custom_disaster_type: "",
   start_date: "",
   end_date: "",
   barangay_ids: [],
@@ -70,22 +78,119 @@ const createDefaultErrors = () => ({
   barangay_ids: "",
 });
 
+const DISASTER_TYPE_OPTIONS = [
+  "Typhoon",
+  "Flood",
+  "Earthquake",
+  "Landslide",
+  "Volcanic Eruption",
+  "Storm Surge",
+  "Drought / El Niño",
+  "Tsunami",
+  "Fire",
+];
+
+const mapServerErrorToFieldError = (message) => {
+  const normalizedMessage = String(message || "").trim();
+
+  if (!normalizedMessage) {
+    return { fieldName: "", message: "" };
+  }
+
+  if (/current end_date/i.test(normalizedMessage)) {
+    return {
+      fieldName: "end_date",
+      message: "End date cannot be earlier than the current end date.",
+    };
+  }
+
+  if (/latest recorded household activity/i.test(normalizedMessage)) {
+    return {
+      fieldName: "end_date",
+      message: "End date cannot be earlier than the latest recorded household activity.",
+    };
+  }
+
+  if (/end_date must not be earlier than start_date/i.test(normalizedMessage)) {
+    return {
+      fieldName: "end_date",
+      message: "End date must not be earlier than start date.",
+    };
+  }
+
+  if (/end date/i.test(normalizedMessage) || /end_date/i.test(normalizedMessage)) {
+    return {
+      fieldName: "end_date",
+      message: normalizedMessage,
+    };
+  }
+
+  return { fieldName: "", message: normalizedMessage };
+};
+
 const DisasterEventFormModal = ({
   isOpen,
   barangays,
   isSubmitting,
   errorMessage,
+  initialValues = null,
+  mode = "create",
   onClose,
   onSubmit,
 }) => {
   const [formValues, setFormValues] = useState(createDefaultForm());
   const [fieldErrors, setFieldErrors] = useState(createDefaultErrors());
+  const isEditMode = mode === "edit";
+  const latestHouseholdActivityDate = formatDisasterEventDateInputValue(
+    initialValues?.latest_household_activity_at || "",
+  );
+  const { fieldName: serverErrorFieldName, message: serverErrorMessage } =
+    mapServerErrorToFieldError(errorMessage);
 
   useEffect(() => {
     if (!isOpen) return;
-    setFormValues(createDefaultForm());
+    setFormValues(
+      initialValues
+        ? (() => {
+            const initialDisasterType = initialValues.disaster_type || "";
+            const usesCustomDisasterType =
+              initialDisasterType &&
+              !DISASTER_TYPE_OPTIONS.includes(initialDisasterType);
+
+            return {
+              event_name: initialValues.title || "",
+              disaster_type: usesCustomDisasterType
+                ? "Other"
+                : initialDisasterType,
+              custom_disaster_type: usesCustomDisasterType
+                ? initialDisasterType
+                : "",
+              start_date: formatDisasterEventDateInputValue(
+                initialValues.start_date || "",
+              ),
+              end_date: formatDisasterEventDateInputValue(
+                initialValues.end_date || "",
+              ),
+              barangay_ids: (initialValues.affected_barangays || []).map(
+                (barangay) => barangay.id,
+              ),
+            };
+          })()
+        : createDefaultForm(),
+    );
     setFieldErrors(createDefaultErrors());
-  }, [isOpen]);
+  }, [initialValues, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !serverErrorFieldName || !serverErrorMessage) {
+      return;
+    }
+
+    setFieldErrors((currentErrors) => ({
+      ...currentErrors,
+      [serverErrorFieldName]: serverErrorMessage,
+    }));
+  }, [isOpen, serverErrorFieldName, serverErrorMessage]);
 
   if (!isOpen) return null;
 
@@ -175,6 +280,16 @@ const DisasterEventFormModal = ({
       nextErrors.end_date = "End date must not be earlier than start date.";
     }
 
+    if (
+      isEditMode &&
+      latestHouseholdActivityDate &&
+      formValues.end_date &&
+      formValues.end_date < latestHouseholdActivityDate
+    ) {
+      nextErrors.end_date =
+        "End date cannot be earlier than the latest recorded household activity.";
+    }
+
     if (Object.values(nextErrors).some(Boolean)) {
       setFieldErrors(nextErrors);
       return;
@@ -213,7 +328,7 @@ const DisasterEventFormModal = ({
         >
           <div>
             <h3 style={{ margin: 0, color: "#17324d", fontSize: "26px" }}>
-              Create Disaster Event
+              {isEditMode ? "Edit Disaster Event" : "Create Disaster Event"}
             </h3>
           </div>
           <button
@@ -233,7 +348,9 @@ const DisasterEventFormModal = ({
             gap: "18px",
           }}
         >
-          {errorMessage ? <p style={errorTextStyles}>{errorMessage}</p> : null}
+          {errorMessage && !serverErrorFieldName ? (
+            <p style={errorTextStyles}>{serverErrorMessage || errorMessage}</p>
+          ) : null}
 
           {/* SECTION 1 */}
           <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
@@ -254,7 +371,8 @@ const DisasterEventFormModal = ({
                   type="text"
                   value={formValues.event_name}
                   onChange={(e) => handleChange("event_name", e.target.value)}
-                  style={inputStyles}
+                  style={isEditMode ? lockedInputStyles : inputStyles}
+                  disabled={isEditMode}
                 />
                 {fieldErrors.event_name ? (
                   <p style={errorTextStyles}>{fieldErrors.event_name}</p>
@@ -263,30 +381,39 @@ const DisasterEventFormModal = ({
 
               <div>
                 <label style={labelStyles}>Disaster Type</label>
-                <select
-                  value={formValues.disaster_type}
-                  onChange={(e) =>
-                    handleChange("disaster_type", e.target.value)
-                  }
-                  style={inputStyles}
-                >
-                  <option value="">Select Disaster Type</option>
-                  <option value="Typhoon">Typhoon</option>
-                  <option value="Flood">Flood</option>
-                  <option value="Earthquake">Earthquake</option>
-                  <option value="Landslide">Landslide</option>
-                  <option value="Volcanic Eruption">Volcanic Eruption</option>
-                  <option value="Storm Surge">Storm Surge</option>
-                  <option value="Drought / El Niño">Drought / El Niño</option>
-                  <option value="Tsunami">Tsunami</option>
-                  <option value="Fire">Fire</option>
-                  <option value="Other">Other</option>
-                </select>
+                {isEditMode ? (
+                  <input
+                    type="text"
+                    value={
+                      formValues.disaster_type === "Other"
+                        ? formValues.custom_disaster_type || ""
+                        : formValues.disaster_type
+                    }
+                    style={lockedInputStyles}
+                    disabled
+                  />
+                ) : (
+                  <select
+                    value={formValues.disaster_type}
+                    onChange={(e) =>
+                      handleChange("disaster_type", e.target.value)
+                    }
+                    style={inputStyles}
+                  >
+                    <option value="">Select Disaster Type</option>
+                    {DISASTER_TYPE_OPTIONS.map((disasterType) => (
+                      <option key={disasterType} value={disasterType}>
+                        {disasterType}
+                      </option>
+                    ))}
+                    <option value="Other">Other</option>
+                  </select>
+                )}
                 {fieldErrors.disaster_type ? (
                   <p style={errorTextStyles}>{fieldErrors.disaster_type}</p>
                 ) : null}
 
-                {formValues.disaster_type === "Other" && (
+                {!isEditMode && formValues.disaster_type === "Other" && (
                   <>
                     <input
                       type="text"
@@ -327,7 +454,8 @@ const DisasterEventFormModal = ({
                   type="date"
                   value={formValues.start_date}
                   onChange={(e) => handleChange("start_date", e.target.value)}
-                  style={inputStyles}
+                  style={isEditMode ? lockedInputStyles : inputStyles}
+                  disabled={isEditMode}
                 />
                 {fieldErrors.start_date ? (
                   <p style={errorTextStyles}>{fieldErrors.start_date}</p>
@@ -459,7 +587,13 @@ const DisasterEventFormModal = ({
                 opacity: isSubmitting ? 0.7 : 1,
               }}
             >
-              {isSubmitting ? "Creating..." : "Create"}
+              {isSubmitting
+                ? isEditMode
+                  ? "Saving..."
+                  : "Creating..."
+                : isEditMode
+                  ? "Save Changes"
+                  : "Create"}
             </button>
           </div>
         </form>

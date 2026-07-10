@@ -5,8 +5,6 @@ import DisasterEventDetailModal from "../../components/disaster-events/DisasterE
 import DisasterEventFormModal from "../../components/disaster-events/DisasterEventFormModal";
 import DisasterEventsTable from "../../components/disaster-events/DisasterEventsTable";
 import { useDisasterEvents } from "../../features/disaster-events/useDisasterEvents";
-import DisasterEventExtendModal from "../../components/disaster-events/DisasterEventExtendModal";
-import DisasterEventEndModal from "../../components/disaster-events/DisasterEventEndModal";
 import ExportModal from "../../components/shared/ExportModal";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import SearchBar from "../../components/shared/SearchBar";
@@ -146,18 +144,16 @@ const DisasterEventsPage = () => {
     successMessage,
     isCreateModalOpen,
     isDetailModalOpen,
+    editingEvent,
     openCreateModal,
+    openEditModal,
     closeCreateModal,
     openDetailModal,
     closeDetailModal,
     submitCreateEvent,
-    extendEvent,
-    endEvent,
+    submitEditEvent,
   } = useDisasterEvents();
 
-  const [extendModalOpen, setExtendModalOpen] = useState(false);
-  const [endModalOpen, setEndModalOpen] = useState(false);
-  const [selectedRow, setSelectedRow] = useState(null);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState("");
   const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
@@ -235,16 +231,6 @@ const DisasterEventsPage = () => {
       matchesAffectedBarangay
     );
   });
-
-  const handleOpenExtend = (row) => {
-    setSelectedRow(row);
-    setExtendModalOpen(true);
-  };
-
-  const handleOpenEnd = (row) => {
-    setSelectedRow(row);
-    setEndModalOpen(true);
-  };
 
   const handleExport = async (format) => {
     if (filteredEvents.length === 0) {
@@ -614,8 +600,7 @@ const DisasterEventsPage = () => {
             isLoading={isLoading}
             errorMessage={errorMessage}
             onViewEvent={openDetailModal}
-            onExtendEvent={handleOpenExtend}
-            onEndEvent={handleOpenEnd}
+            onEditEvent={openEditModal}
             validBarangayCount={barangays.length}
           />
         </div>
@@ -626,8 +611,10 @@ const DisasterEventsPage = () => {
         barangays={barangays}
         isSubmitting={isSubmitting}
         errorMessage={formErrorMessage}
+        initialValues={editingEvent}
+        mode={editingEvent ? "edit" : "create"}
         onClose={closeCreateModal}
-        onSubmit={submitCreateEvent}
+        onSubmit={editingEvent ? submitEditEvent : submitCreateEvent}
       />
 
       <DisasterEventDetailModal
@@ -636,22 +623,6 @@ const DisasterEventsPage = () => {
         isLoading={isDetailLoading}
         errorMessage={detailErrorMessage}
         onClose={closeDetailModal}
-      />
-
-      <DisasterEventExtendModal
-        isOpen={extendModalOpen}
-        onClose={() => setExtendModalOpen(false)}
-        onSubmit={extendEvent}
-        event={selectedRow}
-        isSubmitting={isSubmitting}
-      />
-
-      <DisasterEventEndModal
-        isOpen={endModalOpen}
-        onClose={() => setEndModalOpen(false)}
-        onConfirm={endEvent}
-        event={selectedRow}
-        isSubmitting={isSubmitting}
       />
 
       <ExportModal

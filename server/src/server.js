@@ -4,11 +4,13 @@ require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 let app;
 let pool;
 let notificationService;
+let disasterEventService;
 
 try {
   pool = require("./config/db");
   app = require("./app");
   notificationService = require("./modules/notifications/notification.service");
+  disasterEventService = require("./services/disasterEvent.service");
 } catch (error) {
   console.error("Failed to initialize server configuration:", error.message);
   process.exit(1);
@@ -19,6 +21,13 @@ const PORT = process.env.PORT || 5000;
 const startServer = async () => {
   try {
     await pool.verifyConnection();
+    try {
+      await disasterEventService.syncOverdueActiveDisasterEvents();
+    } catch (disasterEventSyncError) {
+      console.error(
+        `Automatic disaster event closure sync failed: ${disasterEventSyncError.message}`,
+      );
+    }
     try {
       await notificationService.initializeNotificationInfrastructure();
     } catch (notificationError) {

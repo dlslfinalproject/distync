@@ -741,6 +741,46 @@ const markHouseholdDeparture = async (
   return result.rows;
 };
 
+const markDisasterEventHouseholdDepartures = async (
+  disasterEventId,
+  departureTimestamp,
+  remarks = null,
+  dbClient = pool,
+) => {
+  const query = `
+    UPDATE evacuation_logs
+    SET
+      time_out = GREATEST($2::timestamptz, time_in),
+      status = 'LEFT',
+      remarks = COALESCE($3, remarks),
+      updated_at = NOW()
+    WHERE disaster_event_id = $1
+      AND status = 'PRESENT'
+      AND time_out IS NULL
+    RETURNING
+      id,
+      disaster_event_id,
+      household_id,
+      evacuee_id,
+      evacuation_center_id,
+      time_in,
+      time_out,
+      status,
+      recorded_by,
+      remarks,
+      created_at,
+      updated_at
+  `;
+
+  const result = await dbClient.query(query, [
+    disasterEventId,
+    departureTimestamp,
+    remarks,
+  ]);
+
+  return result.rows;
+};
+
 const getHouseholdSummaryById = async (id) => {
   const query = `
     SELECT
@@ -1059,6 +1099,48 @@ const archiveHousehold = async (householdId, dbClient = pool) => {
   return result.rows[0] || null;
 };
 
+const archiveHouseholdsByIds = async (householdIds, dbClient = pool) => {
+  if (!Array.isArray(householdIds) || householdIds.length === 0) {
+    return [];
+  }
+
+  const query = `
+    UPDATE households
+    SET
+      is_active = FALSE,
+      updated_at = NOW()
+    WHERE id = ANY($1::uuid[])
+    RETURNING
+      id,
+      disaster_event_id,
+      barangay_id,
+      evacuation_center_id,
+      residency_status,
+      family_head_first_name,
+      family_head_middle_name,
+      family_head_last_name,
+      family_head_suffix,
+      sex,
+      birth_date,
+      contact_number,
+      current_stay_type,
+      current_address_details,
+      household_size,
+      is_active,
+      registered_by,
+      family_head_photo_url,
+      photo_captured_at,
+      photo_captured_by,
+      photo_verification_notes,
+      registered_at,
+      updated_at,
+      family_head_evacuee_id
+  `;
+
+  const result = await dbClient.query(query, [householdIds]);
+  return result.rows;
+};
+
 const deactivateEvacueesByHouseholdId = async (householdId, dbClient = pool) => {
   const query = `
     UPDATE evacuees
@@ -1091,6 +1173,48 @@ const deactivateEvacueesByHouseholdId = async (householdId, dbClient = pool) => 
   `;
 
   const result = await dbClient.query(query, [householdId]);
+  return result.rows;
+};
+
+const deactivateEvacueesByHouseholdIds = async (
+  householdIds,
+  dbClient = pool,
+) => {
+  if (!Array.isArray(householdIds) || householdIds.length === 0) {
+    return [];
+  }
+
+  const query = `
+    UPDATE evacuees
+    SET
+      is_active = FALSE,
+      updated_at = NOW()
+    WHERE household_id = ANY($1::uuid[])
+      AND is_active = TRUE
+    RETURNING
+      id,
+      household_id,
+      first_name,
+      middle_name,
+      last_name,
+      suffix,
+      sex,
+      birth_date,
+      age,
+      age_value,
+      age_unit,
+      civil_status,
+      relationship_to_head,
+      is_family_head,
+      is_pregnant,
+      is_lactating,
+      has_disability,
+      is_active,
+      created_at,
+      updated_at
+  `;
+
+  const result = await dbClient.query(query, [householdIds]);
   return result.rows;
 };
 
@@ -1191,6 +1315,7 @@ module.exports = {
   insertEvacuationLog,
   getActiveEvacuationLogsByHouseholdId,
   markHouseholdDeparture,
+  markDisasterEventHouseholdDepartures,
   getHouseholdSummaryById,
   getEvacueesByHouseholdId,
   getEvacueeSectorAssignmentsByHouseholdId,
@@ -1201,7 +1326,9 @@ module.exports = {
   getEvacuationLogByIdForHousehold,
   updateEvacuationLogCorrection,
   archiveHousehold,
+  archiveHouseholdsByIds,
   deactivateEvacueesByHouseholdId,
+  deactivateEvacueesByHouseholdIds,
   restoreHousehold,
   reactivateEvacueesByHouseholdId,
 };

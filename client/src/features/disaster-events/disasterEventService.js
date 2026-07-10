@@ -82,18 +82,14 @@ export const createDisasterEvent = async (payload) => {
   });
 };
 
-export const extendDisasterEvent = async (eventId, newEndDate) => {
-  const payload = {
-    end_date: newEndDate,
-  };
-
+export const updateDisasterEvent = async (eventId, payload) => {
   return performSyncableMutation({
     moduleName: "mswdo-disaster-events",
-    actionKey: "DISASTER_EVENT_EXTEND",
+    actionKey: "DISASTER_EVENT_UPDATE",
     entityType: "DISASTER_EVENT",
     entityServerId: eventId,
     payload,
-    requiredFields: ["end_date"],
+    requiredFields: ["title", "disaster_type", "start_date", "end_date"],
     request: async () => {
       const response = await fetch(
         `${API_BASE_URL}/api/v1/disaster-events/${eventId}`,
@@ -103,47 +99,15 @@ export const extendDisasterEvent = async (eventId, newEndDate) => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(payload),
-        }
+        },
       );
 
-      return handleJsonResponse(response, "Failed to extend disaster event");
+      return handleJsonResponse(response, "Failed to update disaster event");
     },
     buildQueuedResponse: ({ clientSyncId, clientTimestamp }) =>
       buildOfflineQueuedResponse({
         message:
           "Disaster event update saved offline. Pending sync once connection is restored.",
-        data: {
-          id: eventId,
-          updated_at: clientTimestamp,
-        },
-        clientSyncId,
-        entityLocalId: eventId,
-        clientTimestamp,
-      }),
-  });
-};
-
-export const endDisasterEvent = async (eventId) => {
-  return performSyncableMutation({
-    moduleName: "mswdo-disaster-events",
-    actionKey: "DISASTER_EVENT_END",
-    entityType: "DISASTER_EVENT",
-    entityServerId: eventId,
-    payload: {},
-    request: async () => {
-      const response = await fetch(
-        `${API_BASE_URL}/api/v1/disaster-events/${eventId}/end`,
-        {
-          method: "PATCH",
-        }
-      );
-
-      return handleJsonResponse(response, "Failed to end disaster event");
-    },
-    buildQueuedResponse: ({ clientSyncId, clientTimestamp }) =>
-      buildOfflineQueuedResponse({
-        message:
-          "Disaster event closure saved offline. Pending sync once connection is restored.",
         data: {
           id: eventId,
           updated_at: clientTimestamp,

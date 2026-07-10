@@ -1,4 +1,5 @@
 const masterlistRepository = require("../repositories/masterlist.repository");
+const disasterEventService = require("./disasterEvent.service");
 const {
   buildCsvBuffer,
   buildExcelBuffer,
@@ -36,6 +37,8 @@ const groupByKey = (items, keyName) => {
 };
 
 const getMasterlist = async (filters) => {
+  await disasterEventService.syncOverdueActiveDisasterEvents();
+
   const disasterEvent =
     await masterlistRepository.getDisasterEventSummaryById(
       filters.disaster_event_id,
@@ -208,6 +211,8 @@ const getMasterlist = async (filters) => {
 };
 
 const getMswdoMasterlistDashboard = async (filters) => {
+  await disasterEventService.syncOverdueActiveDisasterEvents();
+
   const disasterEvent =
     await masterlistRepository.getDisasterEventSummaryById(
       filters.disaster_event_id,
@@ -470,6 +475,8 @@ const buildExportSummaryMetrics = (households, disasterEventId) => {
 };
 
 const exportMswdoMasterlist = async (filters) => {
+  await disasterEventService.syncOverdueActiveDisasterEvents();
+
   const [masterlist, dashboard] = await Promise.all([
     getMasterlist({
       disaster_event_id: filters.disaster_event_id,
@@ -593,6 +600,8 @@ const exportMswdoMasterlist = async (filters) => {
 };
 
 const getBarangayDashboard = async (filters) => {
+  await disasterEventService.syncOverdueActiveDisasterEvents();
+
   const userScope = filters.user_id
     ? await masterlistRepository.getBarangayUserScopeById(filters.user_id)
     : null;

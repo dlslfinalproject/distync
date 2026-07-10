@@ -1,7 +1,7 @@
-import React, { useState } from "react";
+import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
 import StatusPill from "../shared/StatusPill";
-import { FiCalendar, FiCheckCircle, FiMoreHorizontal } from "react-icons/fi";
+import { FiEdit2 } from "react-icons/fi";
 import {
   formatDisasterEventDate,
   getAffectedBarangayDisplayItems,
@@ -37,31 +37,6 @@ const tableStyles = {
     overflowWrap: "anywhere",
     wordBreak: "break-word",
   },
-  actionMenuButton: {
-    background: "none",
-    border: "none",
-    cursor: "pointer",
-    width: "36px",
-    height: "36px",
-    borderRadius: "10px",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#24496e",
-  },
-  dropdown: {
-    position: "fixed",
-    background: "#fff",
-    borderRadius: "12px",
-    boxShadow: "0 8px 24px rgba(18, 39, 60, 0.16)",
-    padding: "10px",
-    zIndex: 1300,
-    minWidth: "116px",
-    display: "flex",
-    gap: "12px",
-    justifyContent: "center",
-    border: "1px solid #d7e2ef",
-  },
   dropdownButton: {
     border: "1px solid #c6d8ea",
     borderRadius: "12px",
@@ -81,42 +56,9 @@ const DisasterEventsTable = ({
   isLoading,
   errorMessage,
   onViewEvent,
-  onExtendEvent,
-  onEndEvent,
+  onEditEvent,
   validBarangayCount = 0,
 }) => {
-  const [activeMenu, setActiveMenu] = useState(null);
-  const [menuPosition, setMenuPosition] = useState({
-    top: 0,
-    left: 0,
-  });
-
-  const handleToggleMenu = (event, rowId) => {
-    const buttonRect = event.currentTarget.getBoundingClientRect();
-    const dropdownWidth = 116;
-    const dropdownHeight = 64;
-    const spacing = 8;
-
-    const shouldOpenUpward =
-      window.innerHeight - buttonRect.bottom < dropdownHeight + spacing;
-
-    const calculatedLeft = Math.min(
-      Math.max(buttonRect.left + buttonRect.width / 2 - dropdownWidth / 2, 12),
-      window.innerWidth - dropdownWidth - 12,
-    );
-
-    const calculatedTop = shouldOpenUpward
-      ? buttonRect.top - dropdownHeight - spacing
-      : buttonRect.bottom + spacing;
-
-    setMenuPosition({
-      top: calculatedTop,
-      left: calculatedLeft,
-    });
-
-    setActiveMenu(activeMenu === rowId ? null : rowId);
-  };
-
   if (isLoading) {
     return (
       <div style={{ width: "100%" }}>
@@ -294,50 +236,14 @@ const DisasterEventsTable = ({
                     }}
                   >
                     {row.status === "ACTIVE" ? (
-                      <>
-                        <button
-                          type="button"
-                          onClick={(event) => handleToggleMenu(event, row.id)}
-                          style={tableStyles.actionMenuButton}
-                          title="Actions"
-                        >
-                          <FiMoreHorizontal size={18} />
-                        </button>
-
-                        {activeMenu === row.id && (
-                          <div
-                            style={{
-                              ...tableStyles.dropdown,
-                              top: `${menuPosition.top}px`,
-                              left: `${menuPosition.left}px`,
-                            }}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => {
-                                onExtendEvent(row);
-                                setActiveMenu(null);
-                              }}
-                              style={tableStyles.dropdownButton}
-                              title="Extend Period"
-                            >
-                              <FiCalendar size={18} />
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                onEndEvent(row);
-                                setActiveMenu(null);
-                              }}
-                              style={tableStyles.dropdownButton}
-                              title="Mark as Completed"
-                            >
-                              <FiCheckCircle size={18} />
-                            </button>
-                          </div>
-                        )}
-                      </>
+                      <button
+                        type="button"
+                        onClick={() => onEditEvent?.(row.id)}
+                        style={tableStyles.dropdownButton}
+                        title="Edit Disaster Event"
+                      >
+                        <FiEdit2 size={18} />
+                      </button>
                     ) : (
                       <span style={{ color: "#9aa9b8", fontSize: "13px" }}>
                         —

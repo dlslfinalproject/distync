@@ -152,6 +152,10 @@ const validateExtendDisasterEvent = (req, res, next) => {
   }
 };
 
+const validateUpdateDisasterEvent = (req, res, next) => {
+  return validateCreateDisasterEvent(req, res, next);
+};
+
 const validateExportDisasterEvents = (req, res, next) => {
   try {
     const { scope, format, search, disaster_type, affected_barangay_id } =
@@ -287,6 +291,7 @@ const validateExportDisasterEventReportSummary = (req, res, next) => {
 
 module.exports = {
   validateCreateDisasterEvent,
+  validateUpdateDisasterEvent,
   validateExtendDisasterEvent,
   validateExportDisasterEvents,
   validateDisasterEventReportSummary,

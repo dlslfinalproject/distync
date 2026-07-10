@@ -4,6 +4,7 @@ const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
 const disasterEventService = require("../services/disasterEvent.service");
 const {
   validateCreateDisasterEvent,
+  validateUpdateDisasterEvent,
   validateExportDisasterEvents,
   validateExtendDisasterEvent,
   validateDisasterEventReportSummary,
@@ -180,23 +181,23 @@ router.post(
 router.patch(
   "/:id",
   requireRoles(ROLE_CODES.MSWDO),
-  validateExtendDisasterEvent,
+  validateUpdateDisasterEvent,
   async (req, res) => {
   try {
-    const disasterEvent = await disasterEventService.extendDisasterEvent(
+    const disasterEvent = await disasterEventService.updateDisasterEvent(
       req.params.id,
-      req.validatedBody.end_date,
+      req.validatedBody,
     );
 
     return res.status(200).json({
-      message: "Disaster event extended successfully",
+      message: "Disaster event updated successfully",
       data: disasterEvent,
     });
   } catch (error) {
     const statusCode = error.statusCode || 500;
 
     return res.status(statusCode).json({
-      message: error.message || "Failed to extend disaster event",
+      message: error.message || "Failed to update disaster event",
     });
   }
   },

@@ -60,6 +60,48 @@ const getDisasterEventById = async (id) => {
   return result.rows[0] || null;
 };
 
+const getLatestHouseholdActivityByDisasterEventId = async (disasterEventId) => {
+  const query = `
+    WITH household_activity AS (
+      SELECT MAX(activity_at) AS latest_activity_at
+      FROM (
+        SELECT h.registered_at AS activity_at
+        FROM households h
+        WHERE h.disaster_event_id = $1
+
+        UNION ALL
+
+        SELECT h.updated_at AS activity_at
+        FROM households h
+        WHERE h.disaster_event_id = $1
+
+        UNION ALL
+
+        SELECT el.time_in AS activity_at
+        FROM evacuation_logs el
+        WHERE el.disaster_event_id = $1
+
+        UNION ALL
+
+        SELECT el.time_out AS activity_at
+        FROM evacuation_logs el
+        WHERE el.disaster_event_id = $1
+
+        UNION ALL
+
+        SELECT el.updated_at AS activity_at
+        FROM evacuation_logs el
+        WHERE el.disaster_event_id = $1
+      ) activities
+    )
+    SELECT latest_activity_at
+    FROM household_activity
+  `;
+
+  const result = await pool.query(query, [disasterEventId]);
+  return result.rows[0]?.latest_activity_at || null;
+};
+
 const getAffectedBarangaysByDisasterEventId = async (disasterEventId) => {
   const query = `
     SELECT
@@ -181,13 +223,29 @@ const insertDisasterEventBarangays = async (
   return insertedRows;
 };
 
+const deleteDisasterEventBarangaysByDisasterEventId = async (
+  disasterEventId,
+  dbClient = pool,
+) => {
+  const query = `
+    DELETE FROM disaster_event_barangays
+    WHERE disaster_event_id = $1
+  `;
+
+  await dbClient.query(query, [disasterEventId]);
+};
+
 const updateDisasterEventById = async (id, updates, dbClient = pool) => {
   const query = `
     UPDATE disaster_events
     SET
-      end_date = COALESCE($2, end_date),
-      status = COALESCE($3, status),
-      ended_at = COALESCE($4, ended_at),
+      title = COALESCE($2, title),
+      disaster_type = COALESCE($3, disaster_type),
+      description = CASE WHEN $4::boolean THEN $5 ELSE description END,
+      start_date = COALESCE($6, start_date),
+      end_date = COALESCE($7, end_date),
+      status = COALESCE($8, status),
+      ended_at = CASE WHEN $9::boolean THEN $10 ELSE ended_at END,
       updated_at = NOW()
     WHERE id = $1
     RETURNING
@@ -207,8 +265,14 @@ const updateDisasterEventById = async (id, updates, dbClient = pool) => {
 
   const values = [
     id,
+    updates.title ?? null,
+    updates.disaster_type ?? null,
+    Object.prototype.hasOwnProperty.call(updates, "description"),
+    updates.description ?? null,
+    updates.start_date ?? null,
     updates.end_date ?? null,
     updates.status ?? null,
+    Object.prototype.hasOwnProperty.call(updates, "ended_at"),
     updates.ended_at ?? null,
   ];
   const result = await dbClient.query(query, values);
@@ -352,11 +416,13 @@ module.exports = {
   getActiveDisasterEvents,
   getClosedDisasterEvents,
   getDisasterEventById,
+  getLatestHouseholdActivityByDisasterEventId,
   getAffectedBarangaysByDisasterEventId,
   getAffectedBarangaysByDisasterEventIds,
   getValidBarangayCount,
   insertDisasterEvent,
   insertDisasterEventBarangays,
+  deleteDisasterEventBarangaysByDisasterEventId,
   updateDisasterEventById,
   getDisasterEventReportSummary,
 };
