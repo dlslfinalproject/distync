@@ -119,7 +119,7 @@ const buildTitleLines = ({ scope, search, totalRows }) => {
   return [
     "DISTYNC",
     "Municipality of Malvar Disaster Relief Management System",
-    "MSWDO Disaster Events Report",
+    "Disaster Event Report",
     `Tab: ${SCOPE_LABELS[scope] || SCOPE_LABELS.all}`,
     `Search: ${search?.trim() || "None"}`,
     `Generated: ${formatGeneratedAt()}`,
@@ -179,7 +179,7 @@ const buildExcelBuffer = async ({ rows, scope, search }) => {
   };
   worksheet.getCell("B1").alignment = { horizontal: "left", vertical: "middle" };
   worksheet.mergeCells(2, 2, 2, EXPORT_COLUMNS.length);
-  worksheet.getCell("B2").value = "MSWDO Disaster Events Report";
+  worksheet.getCell("B2").value = "Disaster Event Report";
   worksheet.getCell("B2").font = {
     bold: true,
     size: 14,

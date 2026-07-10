@@ -2,21 +2,25 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import DisasterEventDetailModal from "../../components/disaster-events/DisasterEventDetailModal";
+import DisasterEventExportModal from "../../components/disaster-events/DisasterEventExportModal";
 import DisasterEventFormModal from "../../components/disaster-events/DisasterEventFormModal";
 import DisasterEventsTable from "../../components/disaster-events/DisasterEventsTable";
 import { useDisasterEvents } from "../../features/disaster-events/useDisasterEvents";
-import ExportModal from "../../components/shared/ExportModal";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import SearchBar from "../../components/shared/SearchBar";
 import { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { FiFileText, FiFilter } from "react-icons/fi";
-import { exportDisasterEvents } from "../../features/disaster-events/disasterEventService";
+import {
+  exportDisasterEvents,
+  fetchActiveDisasterEvents,
+  fetchAllDisasterEvents,
+  fetchDisasterEventById,
+  fetchEndedDisasterEvents,
+} from "../../features/disaster-events/disasterEventService";
 import { MASTERLIST_SORT_OPTIONS } from "../../features/masterlist/masterlistService";
 import {
   buildExportSuccessMessage,
-  COMMON_EXPORT_FORMAT_OPTIONS,
   downloadExportFile,
-  NO_EXPORT_DATA_MESSAGE,
   resolveExportErrorMessage,
 } from "../../utils/exportHelpers";
 
@@ -110,7 +114,15 @@ const DISASTER_TYPE_OPTIONS = [
   "Drought / El Niño",
   "Tsunami",
   "Fire",
+  "Other",
 ];
+
+const sortBarangaysByName = (barangays = []) =>
+  [...barangays].sort((leftBarangay, rightBarangay) =>
+    String(leftBarangay?.name || "").localeCompare(
+      String(rightBarangay?.name || ""),
+    ),
+  );
 
 const sortDisasterEventRows = (rows, sortOrder = "newest") => {
   const safeRows = Array.isArray(rows) ? [...rows] : [];
@@ -231,6 +243,15 @@ const DisasterEventsPage = () => {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState("");
   const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
+  const [selectedExportRecordStatus, setSelectedExportRecordStatus] =
+    useState("active");
+  const [selectedExportSortOrder, setSelectedExportSortOrder] =
+    useState("newest");
+  const [selectedExportDisasterTypes, setSelectedExportDisasterTypes] =
+    useState([]);
+  const [selectedExportAffectedBarangayIds, setSelectedExportAffectedBarangayIds] =
+    useState([]);
+  const [exportScopeEvents, setExportScopeEvents] = useState([]);
   const [exportFeedback, setExportFeedback] = useState({
     type: "",
     message: "",
@@ -292,6 +313,55 @@ const DisasterEventsPage = () => {
     });
   }, [events]);
 
+  const availableExportDisasterTypes = useMemo(() => {
+    const hasCustomDisasterType = exportScopeEvents.some((event) => {
+      const disasterType = String(event?.disaster_type || "").trim();
+      return disasterType && !DISASTER_TYPE_OPTIONS.includes(disasterType);
+    });
+
+    return DISASTER_TYPE_OPTIONS.filter((disasterType) => {
+      if (disasterType === "Other") {
+        return hasCustomDisasterType;
+      }
+
+      return exportScopeEvents.some(
+        (event) => String(event?.disaster_type || "").trim() === disasterType,
+      );
+    });
+  }, [exportScopeEvents]);
+
+  const availableExportAffectedBarangayIds = useMemo(() => {
+    const filteredScopeEvents = exportScopeEvents.filter((event) => {
+      if (selectedExportDisasterTypes.length === 0) {
+        return true;
+      }
+
+      const disasterType = String(event?.disaster_type || "").trim();
+      const isCustomDisasterType =
+        disasterType && !DISASTER_TYPE_OPTIONS.includes(disasterType);
+
+      return selectedExportDisasterTypes.some((selectedType) => {
+        if (selectedType === "Other") {
+          return isCustomDisasterType;
+        }
+
+        return disasterType === selectedType;
+      });
+    });
+
+    return sortBarangaysByName(barangays)
+      .filter((barangay) =>
+        filteredScopeEvents.some((event) =>
+          Array.isArray(event?.affected_barangays)
+            ? event.affected_barangays.some(
+                (affectedBarangay) => affectedBarangay?.id === barangay.id,
+              )
+            : false,
+        ),
+      )
+      .map((barangay) => barangay.id);
+  }, [barangays, exportScopeEvents, selectedExportDisasterTypes]);
+
   const hasActiveFilters = Boolean(
     selectedDisasterTypes.length > 0 ||
       selectedAffectedBarangayIds.length > 0 ||
@@ -337,29 +407,95 @@ const DisasterEventsPage = () => {
     selectedSortOrder,
   ]);
 
-  const handleExport = async (format) => {
-    if (filteredEvents.length === 0) {
-      setExportFeedback({
-        type: "error",
-        message: NO_EXPORT_DATA_MESSAGE,
-      });
-      setIsExportModalOpen(false);
+  useEffect(() => {
+    if (!isExportModalOpen) {
       return;
     }
 
+    let isCancelled = false;
+
+    const loadExportScopeEvents = async () => {
+      try {
+        let eventRows;
+
+        if (selectedExportRecordStatus === "closed") {
+          eventRows = await fetchEndedDisasterEvents();
+        } else if (selectedExportRecordStatus === "all") {
+          eventRows = await fetchAllDisasterEvents();
+        } else {
+          eventRows = await fetchActiveDisasterEvents();
+        }
+
+        if (!isCancelled) {
+          const detailedRows = await Promise.all(
+            (Array.isArray(eventRows) ? eventRows : []).map(async (event) => {
+              try {
+                const detail = await fetchDisasterEventById(event.id);
+
+                return {
+                  ...event,
+                  affected_barangays: detail?.affected_barangays || [],
+                };
+              } catch (_error) {
+                return {
+                  ...event,
+                  affected_barangays: Array.isArray(event?.affected_barangays)
+                    ? event.affected_barangays
+                    : [],
+                };
+              }
+            }),
+          );
+
+          setExportScopeEvents(detailedRows);
+        }
+      } catch (_error) {
+        if (!isCancelled) {
+          setExportScopeEvents([]);
+        }
+      }
+    };
+
+    loadExportScopeEvents();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [isExportModalOpen, selectedExportRecordStatus]);
+
+  useEffect(() => {
+    if (!isExportModalOpen) {
+      return;
+    }
+
+    setSelectedExportDisasterTypes((currentValues) =>
+      currentValues.filter((value) => availableExportDisasterTypes.includes(value)),
+    );
+  }, [availableExportDisasterTypes, isExportModalOpen]);
+
+  useEffect(() => {
+    if (!isExportModalOpen) {
+      return;
+    }
+
+    setSelectedExportAffectedBarangayIds((currentValues) =>
+      currentValues.filter((value) =>
+        availableExportAffectedBarangayIds.includes(value),
+      ),
+    );
+  }, [availableExportAffectedBarangayIds, isExportModalOpen]);
+
+  const handleExport = async (format) => {
     setExportingFormat(format);
     setIsExportModalOpen(false);
 
     try {
       const file = await exportDisasterEvents({
-        selectedFilter,
+        selectedFilter: selectedExportRecordStatus,
         search: searchValue,
-        disasterType:
-          selectedDisasterTypes.length === 1 ? selectedDisasterTypes[0] : "",
-        affectedBarangayId:
-          selectedAffectedBarangayIds.length === 1
-            ? selectedAffectedBarangayIds[0]
-            : "",
+        disasterTypes: selectedExportDisasterTypes,
+        affectedBarangayIds: selectedExportAffectedBarangayIds,
+        sortOrder: selectedExportSortOrder,
         format,
       });
       downloadExportFile(file);
@@ -546,6 +682,11 @@ const DisasterEventsPage = () => {
             type="button"
             onClick={() => {
               setSelectedExportFormat("csv");
+              setSelectedExportRecordStatus(selectedFilter);
+              setSelectedExportSortOrder(selectedSortOrder);
+              setSelectedExportDisasterTypes(selectedDisasterTypes);
+              setSelectedExportAffectedBarangayIds(selectedAffectedBarangayIds);
+              setExportScopeEvents(events);
               setExportFeedback({ type: "", message: "" });
               setIsExportModalOpen(true);
             }}
@@ -767,21 +908,41 @@ const DisasterEventsPage = () => {
         onClose={closeDetailModal}
       />
 
-      <ExportModal
+      <DisasterEventExportModal
         isOpen={isExportModalOpen}
-        title="Export MSWDO Report"
-        description="Choose the disaster event report format to generate."
-        reportOptions={[
-          {
-            value: "DISASTER_EVENTS",
-            label: "Disaster Events Report",
-          },
-        ]}
-        formatOptions={COMMON_EXPORT_FORMAT_OPTIONS}
-        selectedReportType="DISASTER_EVENTS"
+        barangays={barangays}
+        availableDisasterTypes={availableExportDisasterTypes}
+        availableAffectedBarangayIds={availableExportAffectedBarangayIds}
         selectedFormat={selectedExportFormat}
+        selectedRecordStatus={selectedExportRecordStatus}
+        selectedSortOrder={selectedExportSortOrder}
+        selectedDisasterTypes={selectedExportDisasterTypes}
+        selectedAffectedBarangayIds={selectedExportAffectedBarangayIds}
         isSubmitting={Boolean(exportingFormat)}
-        onReportTypeChange={() => {}}
+        onRecordStatusChange={setSelectedExportRecordStatus}
+        onSortOrderChange={setSelectedExportSortOrder}
+        onDisasterTypeToggle={(disasterType) => {
+          setSelectedExportDisasterTypes((currentValues) =>
+            currentValues.includes(disasterType)
+              ? currentValues.filter((value) => value !== disasterType)
+              : [...currentValues, disasterType],
+          );
+        }}
+        onSelectAllDisasterTypes={() =>
+          setSelectedExportDisasterTypes(availableExportDisasterTypes)
+        }
+        onClearDisasterTypes={() => setSelectedExportDisasterTypes([])}
+        onAffectedBarangayToggle={(barangayId) => {
+          setSelectedExportAffectedBarangayIds((currentValues) =>
+            currentValues.includes(barangayId)
+              ? currentValues.filter((value) => value !== barangayId)
+              : [...currentValues, barangayId],
+          );
+        }}
+        onSelectAllBarangays={() =>
+          setSelectedExportAffectedBarangayIds(availableExportAffectedBarangayIds)
+        }
+        onClearBarangays={() => setSelectedExportAffectedBarangayIds([])}
         onFormatChange={setSelectedExportFormat}
         onClose={() => {
           if (!exportingFormat) {
@@ -801,3 +962,5 @@ const DisasterEventsPage = () => {
 };
 
 export default DisasterEventsPage;
+
+

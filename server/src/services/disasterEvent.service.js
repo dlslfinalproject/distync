@@ -8,6 +8,17 @@ const mswdoReportExport = require("../utils/mswdoReportExport");
 const allowedStatuses = ["PLANNED", "ACTIVE", "CLOSED", "ARCHIVED"];
 const nonResidentBarangayCode = "NON_RESIDENT_OUTSIDE_MALVAR";
 const PH_TIME_ZONE = "Asia/Manila";
+const DISASTER_EVENT_TYPE_OPTIONS = [
+  "Typhoon",
+  "Flood",
+  "Earthquake",
+  "Landslide",
+  "Volcanic Eruption",
+  "Storm Surge",
+  "Drought / El Niño",
+  "Tsunami",
+  "Fire",
+];
 const requiresCompletedEndDate = (status) =>
   status === "CLOSED" || status === "ARCHIVED";
 
@@ -598,51 +609,108 @@ const matchesDisasterEventSearch = (event, search) => {
 
 const matchesDisasterEventFilters = ({
   event,
-  disasterType,
-  affectedBarangayId,
+  disasterTypes,
+  affectedBarangayIds,
 }) => {
+  const normalizedDisasterType = String(event?.disaster_type || "").trim();
+  const isCustomDisasterType =
+    normalizedDisasterType &&
+    !DISASTER_EVENT_TYPE_OPTIONS.includes(normalizedDisasterType);
   const matchesDisasterType =
-    !disasterType || event.disaster_type === disasterType;
+    !Array.isArray(disasterTypes) ||
+    disasterTypes.length === 0 ||
+    disasterTypes.some((disasterType) => {
+      if (disasterType === "Other") {
+        return isCustomDisasterType;
+      }
+
+      return normalizedDisasterType === disasterType;
+    });
   const matchesAffectedBarangay =
-    !affectedBarangayId ||
+    !Array.isArray(affectedBarangayIds) ||
+    affectedBarangayIds.length === 0 ||
     (event.affected_barangays || []).some(
-      (barangay) => barangay.id === affectedBarangayId,
+      (barangay) => affectedBarangayIds.includes(barangay.id),
     );
 
   return matchesDisasterType && matchesAffectedBarangay;
+};
+
+const sortDisasterEventsForExport = (events, sortOrder = "newest") => {
+  const safeEvents = Array.isArray(events) ? [...events] : [];
+
+  return safeEvents.sort((leftEvent, rightEvent) => {
+    if (sortOrder === "oldest" || sortOrder === "newest") {
+      const leftTime = new Date(
+        leftEvent?.start_date || leftEvent?.created_at || leftEvent?.updated_at || 0,
+      ).getTime();
+      const rightTime = new Date(
+        rightEvent?.start_date || rightEvent?.created_at || rightEvent?.updated_at || 0,
+      ).getTime();
+
+      if (leftTime !== rightTime) {
+        return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
+      }
+    }
+
+    const leftTitle = String(leftEvent?.title || "").trim().toUpperCase();
+    const rightTitle = String(rightEvent?.title || "").trim().toUpperCase();
+
+    if (leftTitle !== rightTitle) {
+      if (sortOrder === "za") {
+        return rightTitle.localeCompare(leftTitle);
+      }
+
+      return leftTitle.localeCompare(rightTitle);
+    }
+
+    const leftTime = new Date(
+      leftEvent?.start_date || leftEvent?.created_at || leftEvent?.updated_at || 0,
+    ).getTime();
+    const rightTime = new Date(
+      rightEvent?.start_date || rightEvent?.created_at || rightEvent?.updated_at || 0,
+    ).getTime();
+    return rightTime - leftTime;
+  });
 };
 
 const exportDisasterEvents = async ({
   scope,
   format,
   search,
-  disaster_type,
-  affected_barangay_id,
+  sort_order,
+  disaster_types,
+  affected_barangay_ids,
 }) => {
   const events = await getDisasterEventsByScope(scope);
   const validBarangayCount = await disasterEventRepository.getValidBarangayCount();
-  const disasterType = String(disaster_type || "").trim();
-  const affectedBarangayId = String(affected_barangay_id || "").trim();
-  const exportRows = events
-    .filter((event) => matchesDisasterEventSearch(event, search))
-    .filter((event) =>
-      matchesDisasterEventFilters({
-        event,
-        disasterType,
-        affectedBarangayId,
-      }),
-    )
-    .map((event) => ({
-      name: event.title || "--",
-      disaster_type: event.disaster_type || "--",
-      affected_barangays: formatAffectedBarangays(
-        event.affected_barangays,
-        validBarangayCount,
-      ),
-      start_date: disasterEventExport.formatDate(event.start_date),
-      end_date: disasterEventExport.formatDate(event.end_date),
-      status: formatDisasterEventStatusLabel(event.status),
-    }));
+  const disasterTypes = Array.isArray(disaster_types) ? disaster_types : [];
+  const affectedBarangayIds = Array.isArray(affected_barangay_ids)
+    ? affected_barangay_ids
+    : [];
+  const exportRows = sortDisasterEventsForExport(
+    events
+      .filter((event) => matchesDisasterEventSearch(event, search))
+      .filter((event) =>
+        matchesDisasterEventFilters({
+          event,
+          disasterTypes,
+          affectedBarangayIds,
+        }),
+      )
+    ,
+    sort_order,
+  ).map((event) => ({
+    name: event.title || "--",
+    disaster_type: event.disaster_type || "--",
+    affected_barangays: formatAffectedBarangays(
+      event.affected_barangays,
+      validBarangayCount,
+    ),
+    start_date: disasterEventExport.formatDate(event.start_date),
+    end_date: disasterEventExport.formatDate(event.end_date),
+    status: formatDisasterEventStatusLabel(event.status),
+  }));
 
   return disasterEventExport.buildExportFile({
     rows: exportRows,

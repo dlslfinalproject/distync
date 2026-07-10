@@ -127,12 +127,14 @@ export const fetchBarangays = async () => {
 export const exportDisasterEvents = async ({
   selectedFilter,
   search,
-  disasterType,
-  affectedBarangayId,
+  disasterTypes = [],
+  affectedBarangayIds = [],
+  sortOrder = "newest",
   format,
 }) => {
   const searchParams = new URLSearchParams({
     scope: selectedFilter,
+    sort_order: sortOrder,
     format,
   });
 
@@ -140,12 +142,12 @@ export const exportDisasterEvents = async ({
     searchParams.set("search", search.trim());
   }
 
-  if (disasterType && disasterType.trim()) {
-    searchParams.set("disaster_type", disasterType.trim());
+  if (Array.isArray(disasterTypes) && disasterTypes.length > 0) {
+    searchParams.set("disaster_types", disasterTypes.join(","));
   }
 
-  if (affectedBarangayId && affectedBarangayId.trim()) {
-    searchParams.set("affected_barangay_id", affectedBarangayId.trim());
+  if (Array.isArray(affectedBarangayIds) && affectedBarangayIds.length > 0) {
+    searchParams.set("affected_barangay_ids", affectedBarangayIds.join(","));
   }
 
   const response = await fetch(
