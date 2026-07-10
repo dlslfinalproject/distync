@@ -355,9 +355,9 @@ const MAYOR_SETTINGS_SECTIONS = [
   },
   {
     key: "sync-status",
-    label: "Sync Status",
+    label: "Sync Center",
     description:
-      "Review sync health, recent queue activity, and full sync monitoring access from the sidebar.",
+      "Monitor pending queue records, sync health, and recent synchronization activity.",
     icon: FiRefreshCw,
   },
   {
@@ -389,7 +389,7 @@ const BARANGAY_NOTIFICATION_OPTIONS = [
     key: "disasterAlerts",
     label: "Disaster Alerts",
     description:
-      "Receive local preferences for flood warnings, fire incidents, evacuation notices, and urgent LGU advisories.",
+      "Receive flood warnings, fire incidents, evacuation notices, and urgent LGU advisories.",
   },
   {
     key: "distributionSchedules",
@@ -401,19 +401,19 @@ const BARANGAY_NOTIFICATION_OPTIONS = [
     key: "reliefArrivalNotifications",
     label: "Relief Arrival Notifications",
     description:
-      "Review local preferences for supply arrival updates, release readiness, and barangay allocation notices.",
+      "Review supply arrival updates, release readiness, and allocation notices.",
   },
   {
     key: "attendanceReminders",
     label: "Attendance Reminders",
     description:
-      "Keep reminders visible for evacuation attendance submission follow-ups and attendance record completion.",
+      "Keep reminders visible for attendance submission follow-ups and record completion.",
   },
   {
     key: "systemAnnouncements",
     label: "System Announcements",
     description:
-      "Show maintenance announcements, policy updates, and general system notices relevant to barangay coordination.",
+      "Show maintenance announcements, policy updates, and general system notices relevant to your role.",
   },
 ];
 
@@ -659,19 +659,19 @@ const getRoleMeta = (roleCode) => {
       return {
         title: "BARANGAY SETTINGS",
         description:
-          "Manage barangay coordination settings, distribution visibility, sync readiness, and local notification preferences.",
+          "Manage barangay profile, security, notification preferences, and recent local activity.",
       };
     case ROLE_CODES.MSWDO:
       return {
         title: "MSWDO SETTINGS",
         description:
-          "Manage MSWDO profile, security, notification preferences, sync visibility, and local report settings.",
+          "Manage MSWDO profile, security, notification preferences, and sync monitoring.",
       };
     case ROLE_CODES.MAYOR:
       return {
         title: "MAYOR SETTINGS",
         description:
-          "Manage mayor profile, security, notification preferences, sync visibility, and executive system summaries.",
+          "Manage mayor profile, security, notification preferences, sync monitoring, and executive system summaries.",
       };
     default:
       return {
@@ -2166,239 +2166,14 @@ const RoleSettingsPage = () => {
       ) : null}
 
       <section style={shellStyles.card}>
-        <div style={gridStyles}>
-          <article style={cardStyles}>
-            <h3 style={{ margin: 0, color: "#17324d" }}>Office Profile</h3>
-            <InfoRow
-              label="Account Name"
-              value={
-                [authenticatedUser?.first_name, authenticatedUser?.last_name]
-                  .filter(Boolean)
-                  .join(" ") || "--"
-              }
-            />
-            <InfoRow label="Email" value={authenticatedUser?.email || "--"} muted />
-            <InfoRow label="Role" value={currentRole || "--"} />
-          </article>
-
-          <article style={cardStyles}>
-            <h3 style={{ margin: 0, color: "#17324d" }}>Notification Status</h3>
-            {isLoading ? (
-              <EmptyState message="Loading notification settings..." />
-            ) : (
-              <>
-                <InfoRow label="Unread Notifications" value={`${unreadCount}`} />
-                <InfoRow
-                  label="Active Rules for This Role"
-                  value={`${notificationRuleCount}`}
-                />
-                <StatusChip
-                  tone={notificationRuleCount > 0 ? "success" : "warning"}
-                  label={
-                    notificationRuleCount > 0
-                      ? "Rules Available"
-                      : "No Role Rules Found"
-                  }
-                />
-              </>
-            )}
-          </article>
-
-          <article style={cardStyles}>
-            <h3 style={{ margin: 0, color: "#17324d" }}>Sync Status</h3>
-            <InfoRow label="Connection" value={isOnline ? "Online" : "Offline"} />
-            <InfoRow
-              label="Pending Queue Entries"
-              value={`${syncSummary[LOCAL_SYNC_STATUS.PENDING] || 0}`}
-            />
-            <InfoRow
-              label="Failed / Conflict Entries"
-              value={`${
-                (syncSummary[LOCAL_SYNC_STATUS.FAILED] || 0) +
-                (syncSummary[LOCAL_SYNC_STATUS.CONFLICT] || 0)
-              }`}
-            />
-            <StatusChip
-              tone={
-                syncSummary[LOCAL_SYNC_STATUS.FAILED] > 0 ||
-                syncSummary[LOCAL_SYNC_STATUS.CONFLICT] > 0
-                  ? "error"
-                  : syncSummary[LOCAL_SYNC_STATUS.PENDING] > 0
-                    ? "warning"
-                    : "success"
-              }
-              label={
-                syncSummary[LOCAL_SYNC_STATUS.FAILED] > 0 ||
-                syncSummary[LOCAL_SYNC_STATUS.CONFLICT] > 0
-                  ? "Needs Review"
-                  : syncSummary[LOCAL_SYNC_STATUS.PENDING] > 0
-                    ? "Pending Sync"
-                    : "Synced"
-              }
-            />
-          </article>
-        </div>
-      </section>
-
-      {currentRole === ROLE_CODES.MAYOR ? (
-        <section style={shellStyles.card}>
-          <div style={gridStyles}>
-            <article style={cardStyles}>
-              <h3 style={{ margin: 0, color: "#17324d" }}>Analytics Service</h3>
-              {isLoading ? (
-                <EmptyState message="Checking analytics service..." />
-              ) : forecastHealth ? (
-                <>
-                  <InfoRow
-                    label="Service Status"
-                    value={forecastHealth.status || "Online"}
-                  />
-                  <InfoRow
-                    label="Checked Endpoint"
-                    value={forecastHealth.analytics_url || "--"}
-                    muted
-                  />
-                  <StatusChip
-                    tone={
-                      forecastHealth.status === "Online"
-                        ? "success"
-                        : forecastHealth.status === "Offline"
-                          ? "error"
-                          : "warning"
-                    }
-                    label={forecastHealth.status || "Unavailable"}
-                  />
-                </>
-              ) : (
-                <>
-                  <EmptyState message="Analytics service unavailable." />
-                  <StatusChip tone="error" label="Unavailable" />
-                </>
-              )}
-            </article>
-
-            <article style={cardStyles}>
-              <h3 style={{ margin: 0, color: "#17324d" }}>Inventory Alert Thresholds</h3>
-              <p style={mutedValueStyles}>
-                Thresholds are currently operational values tied to inventory records
-                and service logic. This page shows them read-only for safety.
-              </p>
-              <InfoRow
-                label="Configured Active Items"
-                value={`${inventoryThresholdSummary?.configured_items || 0}`}
-              />
-              <InfoRow
-                label="Distinct Threshold Values"
-                value={
-                  inventoryThresholdSummary?.distinct_thresholds?.length
-                    ? inventoryThresholdSummary.distinct_thresholds.join(", ")
-                    : "No thresholds loaded"
-                }
-              />
-            </article>
-
-            <article style={cardStyles}>
-              <h3 style={{ margin: 0, color: "#17324d" }}>Export Preferences</h3>
-              <p style={mutedValueStyles}>
-                This export format preference is saved locally for this account and can
-                be reused by future report screens safely.
-              </p>
-              <select
-                value={preferences.preferredExportFormat}
-                onChange={(event) =>
-                  setPreferences((current) => ({
-                    ...current,
-                    preferredExportFormat: event.target.value,
-                  }))
-                }
-                style={inputStyles.field}
-              >
-                <option value="csv">CSV</option>
-                <option value="excel">Excel</option>
-                <option value="pdf">PDF</option>
-              </select>
-            </article>
-          </div>
-        </section>
-      ) : null}
-
-      <section style={shellStyles.card}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            gap: "20px",
-            flexWrap: "wrap",
-          }}
-        >
-          <div style={{ display: "grid", gap: "8px", flex: "1 1 320px" }}>
-            <h3 style={{ margin: 0, color: "#17324d" }}>Local Preferences</h3>
-            <p style={mutedValueStyles}>
-              These preferences are stored locally for this signed-in role. They do
-              not change backend permission rules or core workflow behavior.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={handleSavePreferences}
-            disabled={isSavingPreferences}
-            style={pageHeaderStyles.primaryButton}
-          >
-            {isSavingPreferences ? "Saving..." : "Save Preferences"}
-          </button>
-        </div>
-
-        <div style={{ ...gridStyles, marginTop: "18px" }}>
-          <article style={cardStyles}>
-            <h3 style={{ margin: 0, color: "#17324d" }}>Notification Preferences</h3>
-            {notificationRules.length === 0 ? (
-              <EmptyState message="No notification rules are currently mapped to this role." />
-            ) : (
-              <div style={{ display: "grid", gap: "10px" }}>
-                {notificationRules.map((rule) => {
-                  const isEnabled = enabledRuleCodes.includes(rule.code);
-
-                  return (
-                    <label
-                      key={rule.id}
-                      style={{
-                        display: "flex",
-                        alignItems: "flex-start",
-                        gap: "10px",
-                        color: "#21405f",
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isEnabled}
-                        onChange={() => toggleNotificationRule(rule.code)}
-                        style={{ marginTop: "3px" }}
-                      />
-                      <span>
-                        <strong>{rule.name}</strong>
-                        <span style={{ ...mutedValueStyles, display: "block" }}>
-                          {rule.trigger_type} ({rule.is_active ? "Active" : "Inactive"})
-                        </span>
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-          </article>
-
-          <article style={cardStyles}>
-            <h3 style={{ margin: 0, color: "#17324d" }}>Preference Summary</h3>
-            <InfoRow
-              label="Notification Rules Enabled Locally"
-              value={`${enabledRuleCodes.length}`}
-            />
-            <InfoRow
-              label="Preferred Export Format"
-              value={preferences.preferredExportFormat?.toUpperCase() || "EXCEL"}
-            />
-          </article>
+        <div style={{ display: "grid", gap: "10px" }}>
+          <h3 style={{ margin: 0, color: "#17324d" }}>
+            Settings are unavailable for this role.
+          </h3>
+          <p style={mutedValueStyles}>
+            The current DISTYNC settings workspace is configured for Barangay,
+            MSWDO, and Mayor accounts only.
+          </p>
         </div>
       </section>
 

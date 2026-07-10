@@ -861,11 +861,11 @@ const MayorSettingsView = ({
               }}
             >
               <div style={{ display: "grid", gap: "8px", flex: "1 1 320px" }}>
-                <h3 style={{ margin: 0, color: "#17324d" }}>Sync Status</h3>
+                <h3 style={{ margin: 0, color: "#17324d" }}>Sync Center</h3>
                 <p style={mutedValueStyles}>
-                  Review sync health, queue activity, and recent local tracking
-                  details here. The full Sync Center remains available from the
-                  sidebar for deeper monitoring.
+                  Monitor pending queue records, sync health, and recent local
+                  synchronization activity here. Use the full Sync Center for
+                  deeper monitoring when needed.
                 </p>
               </div>
               <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
