@@ -733,8 +733,9 @@ const MayorSettingsView = ({
                   </div>
                 ) : (
                   <p style={helperTextStyles}>
-                    In-app alerts are enabled by default. Email preferences only
-                    affect this frontend settings profile right now.
+                    Keep at least one enabled channel for every notification type.
+                    Email preferences only affect this frontend settings profile
+                    right now.
                   </p>
                 )}
 

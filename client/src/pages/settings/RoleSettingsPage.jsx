@@ -13,10 +13,7 @@ import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import { useAuth } from "../../context/AuthContext";
-import {
-  fetchActiveDisasterEvents,
-  fetchBarangays,
-} from "../../features/disaster-events/disasterEventService";
+import { fetchBarangays } from "../../features/disaster-events/disasterEventService";
 import { fetchDistributionHistory } from "../../features/distribution/distributionService";
 import {
   fetchForecastHealth,
@@ -561,24 +558,19 @@ const getNotificationPreferenceValidationErrors = ({
 }) => {
   const errors = {};
   const optionStates = BARANGAY_NOTIFICATION_OPTIONS.map((option) => ({
+    label: option.label,
     inApp: Boolean(notificationChannels[option.key]?.inApp),
     email: Boolean(notificationChannels[option.key]?.email),
   }));
-
-  const enabledTypeCount = optionStates.filter((option) => option.inApp || option.email)
-    .length;
-  const hasAtLeastOneChannel =
-    optionStates.some((option) => option.inApp) ||
-    optionStates.some((option) => option.email);
   const hasAnyEmailChannel = optionStates.some((option) => option.email);
   const trimmedEmailAddress = String(emailAddress || "").trim();
+  const disabledTypes = optionStates.filter((option) => !option.inApp && !option.email);
 
-  if (enabledTypeCount === 0) {
-    errors.notificationTypes = "Please select at least one notification type.";
-  }
-
-  if (!hasAtLeastOneChannel) {
-    errors.notificationChannels = "Please select at least one notification channel.";
+  if (disabledTypes.length > 0) {
+    errors.notificationTypes =
+      disabledTypes.length === 1
+        ? `${disabledTypes[0].label} must keep at least one enabled channel.`
+        : "Each notification type must keep at least one enabled channel.";
   }
 
   if (hasAnyEmailChannel && !EMAIL_ADDRESS_PATTERN.test(trimmedEmailAddress)) {
@@ -744,72 +736,6 @@ const safeParsePayload = (value) => {
   }
 
   return typeof value === "object" ? value : {};
-};
-
-const buildDistributionSummaryRows = (rows = []) => {
-  const groupedRows = new Map();
-
-  rows.forEach((row) => {
-    const groupKey = [
-      row.receipt_no || "",
-      row.event_code || "",
-      row.disaster_event_title || "",
-      row.distribution_date ? new Date(row.distribution_date).toDateString() : row.id,
-      row.barangay_name || "",
-    ].join("|");
-
-    if (!groupedRows.has(groupKey)) {
-      groupedRows.set(groupKey, {
-        id: groupKey,
-        distributionDate: row.distribution_date || "",
-        disasterEventTitle: row.disaster_event_title || "--",
-        eventCode: row.event_code || "--",
-        reliefGoods: new Set(),
-        totalQuantityReceived: 0,
-        familyIds: new Set(),
-        rawStatuses: new Set(),
-        distributionReportLabel: row.receipt_no || "",
-        distributionReportReceipt: row.receipt_no || "",
-        photosSubmitted: 0,
-      });
-    }
-
-    const currentGroup = groupedRows.get(groupKey);
-    const reliefLabel =
-      row.relief_pack_template_name || row.released_items_summary || "--";
-
-    currentGroup.reliefGoods.add(reliefLabel);
-    currentGroup.totalQuantityReceived += Number(row.total_quantity_released || 0);
-
-    if (row.household_id) {
-      currentGroup.familyIds.add(row.household_id);
-    }
-
-    if (row.distribution_status) {
-      currentGroup.rawStatuses.add(row.distribution_status);
-    }
-  });
-
-  return Array.from(groupedRows.values()).map((group) => {
-    const hasOngoingStatus = Array.from(group.rawStatuses).some(
-      (status) => !["CLAIMED", "CANCELLED", "REVERSED"].includes(status),
-    );
-
-    return {
-      id: group.id,
-      distributionDate: group.distributionDate,
-      disasterEventTitle: group.disasterEventTitle,
-      eventCode: group.eventCode,
-      reliefGoodsReceived: Array.from(group.reliefGoods).join(", "),
-      quantityReceived: group.totalQuantityReceived,
-      familiesServed: group.familyIds.size,
-      statusLabel: hasOngoingStatus ? "Ongoing" : "Completed",
-      distributionReportLabel: group.distributionReportReceipt
-        ? `Receipt ${group.distributionReportReceipt}`
-        : "Open full history",
-      photosSubmitted: group.photosSubmitted,
-    };
-  });
 };
 
 const formatQueueEntryTitle = (entry) => {
@@ -982,22 +908,11 @@ const RoleSettingsPage = () => {
   const [notificationRules, setNotificationRules] = useState([]);
   const [assignedBarangayName, setAssignedBarangayName] = useState("--");
   const [unreadCount, setUnreadCount] = useState(0);
-  const [activeDisasterEvents, setActiveDisasterEvents] = useState([]);
   const [forecastHealth, setForecastHealth] = useState(null);
   const [inventoryThresholdSummary, setInventoryThresholdSummary] = useState(null);
   const [preferences, setPreferences] = useState(createDefaultRolePreferences());
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
-  const [distributionFilters, setDistributionFilters] = useState({
-    disaster_event_id: "",
-    status: "",
-    date_from: "",
-    date_to: "",
-    sort_order: "latest",
-  });
   const [distributionRows, setDistributionRows] = useState([]);
-  const [isLoadingDistributionHistory, setIsLoadingDistributionHistory] =
-    useState(false);
-  const [distributionErrorMessage, setDistributionErrorMessage] = useState("");
   const [syncHistory, setSyncHistory] = useState({
     transactions: [],
     conflicts: [],
@@ -1257,12 +1172,6 @@ const RoleSettingsPage = () => {
           requests.push(Promise.resolve([]));
         }
 
-        if (currentRole === ROLE_CODES.BARANGAY || currentRole === ROLE_CODES.MSWDO) {
-          requests.push(fetchActiveDisasterEvents());
-        } else {
-          requests.push(Promise.resolve([]));
-        }
-
         if (currentRole === ROLE_CODES.MAYOR) {
           requests.push(fetchForecastHealth().catch(() => null));
           requests.push(fetchInventoryItems({ is_active: true }).catch(() => []));
@@ -1275,7 +1184,6 @@ const RoleSettingsPage = () => {
           notificationRuleResponse,
           unreadResponse,
           barangayResponse,
-          activeDisasterResponse,
           forecastHealthResponse,
           inventoryItemsResponse,
         ] = await Promise.all(requests);
@@ -1294,13 +1202,6 @@ const RoleSettingsPage = () => {
         } else {
           setAssignedBarangayName("--");
         }
-
-        const activeEvents = Array.isArray(activeDisasterResponse)
-          ? activeDisasterResponse
-          : Array.isArray(activeDisasterResponse?.data)
-            ? activeDisasterResponse.data
-            : [];
-        setActiveDisasterEvents(activeEvents);
 
         setForecastHealth(forecastHealthResponse?.data || null);
 
@@ -1340,21 +1241,16 @@ const RoleSettingsPage = () => {
   }, [authenticatedUser, currentRole]);
 
   useEffect(() => {
-    if (!isBarangayRole && !isMswdoRole) {
+    if (!isBarangayRole) {
+      setDistributionRows([]);
       return;
     }
 
     let isMounted = true;
 
     const loadDistributionData = async () => {
-      setIsLoadingDistributionHistory(true);
-      setDistributionErrorMessage("");
-
       try {
         const response = await fetchDistributionHistory({
-          disaster_event_id: distributionFilters.disaster_event_id,
-          date_from: distributionFilters.date_from,
-          date_to: distributionFilters.date_to,
           limit: 100,
         });
 
@@ -1363,16 +1259,9 @@ const RoleSettingsPage = () => {
         }
 
         setDistributionRows(Array.isArray(response?.data) ? response.data : []);
-      } catch (error) {
+      } catch (_error) {
         if (isMounted) {
           setDistributionRows([]);
-          setDistributionErrorMessage(
-            error.message || "Failed to load barangay distribution history.",
-          );
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoadingDistributionHistory(false);
         }
       }
     };
@@ -1382,12 +1271,7 @@ const RoleSettingsPage = () => {
     return () => {
       isMounted = false;
     };
-  }, [
-    distributionFilters.date_from,
-    distributionFilters.date_to,
-    distributionFilters.disaster_event_id,
-    isBarangayRole,
-  ]);
+  }, [isBarangayRole]);
 
   useEffect(() => {
     if (!isBarangayRole) {
@@ -1513,7 +1397,7 @@ const RoleSettingsPage = () => {
     }
 
     if (
-      (isBarangayRole || isMayorRole) &&
+      (isBarangayRole || isMswdoRole || isMayorRole) &&
       activeSection === "notification-preferences"
     ) {
       setNotificationTouched(true);
@@ -1805,88 +1689,6 @@ const RoleSettingsPage = () => {
       ? preferences.enabledNotificationRuleCodes
       : notificationRules.map((rule) => rule.code);
 
-  const distributionHistoryRows = useMemo(() => {
-    const summaryRows = buildDistributionSummaryRows(distributionRows);
-    const filteredRows = distributionFilters.status
-      ? summaryRows.filter(
-          (row) => row.statusLabel.toUpperCase() === distributionFilters.status,
-        )
-      : summaryRows;
-
-    return filteredRows.sort((left, right) => {
-      const leftTime = left.distributionDate
-        ? new Date(left.distributionDate).getTime()
-        : 0;
-      const rightTime = right.distributionDate
-        ? new Date(right.distributionDate).getTime()
-        : 0;
-
-      return distributionFilters.sort_order === "oldest"
-        ? leftTime - rightTime
-        : rightTime - leftTime;
-    });
-  }, [distributionFilters.sort_order, distributionFilters.status, distributionRows]);
-
-  const distributionEventOptions = useMemo(() => {
-    const options = new Map();
-
-    activeDisasterEvents.forEach((eventRow) => {
-      options.set(eventRow.id, {
-        id: eventRow.id,
-        label: `${eventRow.event_code || "--"} - ${eventRow.title || "--"}`,
-      });
-    });
-
-    distributionRows.forEach((row) => {
-      if (!row.disaster_event_id) {
-        return;
-      }
-
-      if (!options.has(row.disaster_event_id)) {
-        options.set(row.disaster_event_id, {
-          id: row.disaster_event_id,
-          label: `${row.event_code || "--"} - ${row.disaster_event_title || "--"}`,
-        });
-      }
-    });
-
-    return Array.from(options.values());
-  }, [activeDisasterEvents, distributionRows]);
-
-  const syncHistoryLogRows = useMemo(() => {
-    return [
-      ...(syncHistory.transactions || []).map((transaction, index) => ({
-        id: `transaction-${transaction.id || index}`,
-        timestamp:
-          transaction.synced_at ||
-          transaction.created_at ||
-          transaction.client_timestamp ||
-          transaction.updated_at ||
-          "",
-        label: String(transaction.module_name || "record").replace(/[_-]/g, " "),
-        status:
-          transaction.sync_status ||
-          transaction.status ||
-          LOCAL_SYNC_STATUS.SYNCED,
-        detail: buildPayloadSummary(
-          safeParsePayload(transaction.payload_json || transaction.payload || {}),
-        ),
-      })),
-      ...(syncHistory.conflicts || []).map((conflict, index) => ({
-        id: `conflict-${conflict.id || index}`,
-        timestamp:
-          conflict.updated_at || conflict.created_at || conflict.resolved_at || "",
-        label: String(conflict.entity_type || "record").replace(/[_-]/g, " "),
-        status: conflict.status === "RESOLVED" ? "RESOLVED" : "CONFLICT",
-        detail: conflict.conflict_type || "Conflict detected during sync.",
-      })),
-    ].sort((left, right) => {
-      const leftTime = left.timestamp ? new Date(left.timestamp).getTime() : 0;
-      const rightTime = right.timestamp ? new Date(right.timestamp).getTime() : 0;
-      return rightTime - leftTime;
-    });
-  }, [syncHistory]);
-
   const activityLogs = useMemo(
     () =>
       buildActivityLogs({
@@ -1943,8 +1745,6 @@ const RoleSettingsPage = () => {
   );
 
   const barangaySectionCards = useMemo(() => {
-    const syncStatus = getSyncStatusMeta(syncSummary, isOnline);
-
     return BARANGAY_SETTINGS_SECTIONS.map((section) => {
       switch (section.key) {
         case "profile":
@@ -1969,18 +1769,6 @@ const RoleSettingsPage = () => {
             statusTone: enabledRuleCodes.length > 0 ? "success" : "warning",
             statusLabel: `${enabledRuleCodes.length} rules enabled`,
           };
-        case "distribution-history":
-          return {
-            ...section,
-            statusTone: distributionHistoryRows.length > 0 ? "info" : "warning",
-            statusLabel: `${distributionHistoryRows.length} records`,
-          };
-        case "sync-center":
-          return {
-            ...section,
-            statusTone: syncStatus.tone,
-            statusLabel: syncStatus.label,
-          };
         case "activity-logs":
           return {
             ...section,
@@ -2000,12 +1788,9 @@ const RoleSettingsPage = () => {
     });
   }, [
     activityLogs.length,
-    distributionHistoryRows.length,
     enabledRuleCodes.length,
-    isOnline,
     preferences.profile.fullName,
     preferences.security.twoFactorEnabled,
-    syncSummary,
   ]);
   const mswdoSectionCards = useMemo(() => {
     const syncStatus = getSyncStatusMeta(syncSummary, isOnline);
@@ -2211,16 +1996,6 @@ const RoleSettingsPage = () => {
   };
   const safeUnreadCount = Number(unreadCount || 0);
   const safeNotificationRuleCount = Number(notificationRuleCount || 0);
-  const safeDistributionFilters = ensureObject(distributionFilters, {
-    disaster_event_id: "",
-    status: "",
-    date_from: "",
-    date_to: "",
-    sort_order: "latest",
-  });
-  const safeDistributionEventOptions = ensureArray(distributionEventOptions);
-  const safeDistributionHistoryRows = ensureArray(distributionHistoryRows);
-  const safeSyncHistoryLogRows = ensureArray(syncHistoryLogRows);
   const safeActivityLogs = ensureArray(activityLogs);
   const safeLocalSyncLogRows = ensureArray(localSyncLogRows);
   const safeForecastHealth = ensureObject(forecastHealth, null);
@@ -2291,15 +2066,6 @@ const RoleSettingsPage = () => {
     handleResetNotificationPreferences,
     BARANGAY_NOTIFICATION_OPTIONS,
     handleNotificationChannelToggle,
-    distributionFilters: safeDistributionFilters,
-    setDistributionFilters,
-    distributionEventOptions: safeDistributionEventOptions,
-    distributionErrorMessage,
-    isLoadingDistributionHistory,
-    distributionHistoryRows: safeDistributionHistoryRows,
-    syncHistoryLogRows: safeSyncHistoryLogRows,
-    syncHistoryErrorMessage,
-    isLoadingSyncHistory,
     activityLogs: safeActivityLogs,
   };
 
