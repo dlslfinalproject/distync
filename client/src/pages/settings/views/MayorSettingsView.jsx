@@ -733,8 +733,9 @@ const MayorSettingsView = ({
                   </div>
                 ) : (
                   <p style={helperTextStyles}>
-                    In-app alerts are enabled by default. Email preferences only
-                    affect this frontend settings profile right now.
+                    Keep at least one enabled channel for every notification type.
+                    Email preferences only affect this frontend settings profile
+                    right now.
                   </p>
                 )}
 
@@ -860,11 +861,11 @@ const MayorSettingsView = ({
               }}
             >
               <div style={{ display: "grid", gap: "8px", flex: "1 1 320px" }}>
-                <h3 style={{ margin: 0, color: "#17324d" }}>Sync Status</h3>
+                <h3 style={{ margin: 0, color: "#17324d" }}>Sync Center</h3>
                 <p style={mutedValueStyles}>
-                  Review sync health, queue activity, and recent local tracking
-                  details here. The full Sync Center remains available from the
-                  sidebar for deeper monitoring.
+                  Monitor pending queue records, sync health, and recent local
+                  synchronization activity here. Use the full Sync Center for
+                  deeper monitoring when needed.
                 </p>
               </div>
               <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>

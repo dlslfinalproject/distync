@@ -13,10 +13,7 @@ import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import { useAuth } from "../../context/AuthContext";
-import {
-  fetchActiveDisasterEvents,
-  fetchBarangays,
-} from "../../features/disaster-events/disasterEventService";
+import { fetchBarangays } from "../../features/disaster-events/disasterEventService";
 import { fetchDistributionHistory } from "../../features/distribution/distributionService";
 import {
   fetchForecastHealth,
@@ -358,9 +355,9 @@ const MAYOR_SETTINGS_SECTIONS = [
   },
   {
     key: "sync-status",
-    label: "Sync Status",
+    label: "Sync Center",
     description:
-      "Review sync health, recent queue activity, and full sync monitoring access from the sidebar.",
+      "Monitor pending queue records, sync health, and recent synchronization activity.",
     icon: FiRefreshCw,
   },
   {
@@ -392,7 +389,7 @@ const BARANGAY_NOTIFICATION_OPTIONS = [
     key: "disasterAlerts",
     label: "Disaster Alerts",
     description:
-      "Receive local preferences for flood warnings, fire incidents, evacuation notices, and urgent LGU advisories.",
+      "Receive flood warnings, fire incidents, evacuation notices, and urgent LGU advisories.",
   },
   {
     key: "distributionSchedules",
@@ -404,19 +401,19 @@ const BARANGAY_NOTIFICATION_OPTIONS = [
     key: "reliefArrivalNotifications",
     label: "Relief Arrival Notifications",
     description:
-      "Review local preferences for supply arrival updates, release readiness, and barangay allocation notices.",
+      "Review supply arrival updates, release readiness, and allocation notices.",
   },
   {
     key: "attendanceReminders",
     label: "Attendance Reminders",
     description:
-      "Keep reminders visible for evacuation attendance submission follow-ups and attendance record completion.",
+      "Keep reminders visible for attendance submission follow-ups and record completion.",
   },
   {
     key: "systemAnnouncements",
     label: "System Announcements",
     description:
-      "Show maintenance announcements, policy updates, and general system notices relevant to barangay coordination.",
+      "Show maintenance announcements, policy updates, and general system notices relevant to your role.",
   },
 ];
 
@@ -561,24 +558,19 @@ const getNotificationPreferenceValidationErrors = ({
 }) => {
   const errors = {};
   const optionStates = BARANGAY_NOTIFICATION_OPTIONS.map((option) => ({
+    label: option.label,
     inApp: Boolean(notificationChannels[option.key]?.inApp),
     email: Boolean(notificationChannels[option.key]?.email),
   }));
-
-  const enabledTypeCount = optionStates.filter((option) => option.inApp || option.email)
-    .length;
-  const hasAtLeastOneChannel =
-    optionStates.some((option) => option.inApp) ||
-    optionStates.some((option) => option.email);
   const hasAnyEmailChannel = optionStates.some((option) => option.email);
   const trimmedEmailAddress = String(emailAddress || "").trim();
+  const disabledTypes = optionStates.filter((option) => !option.inApp && !option.email);
 
-  if (enabledTypeCount === 0) {
-    errors.notificationTypes = "Please select at least one notification type.";
-  }
-
-  if (!hasAtLeastOneChannel) {
-    errors.notificationChannels = "Please select at least one notification channel.";
+  if (disabledTypes.length > 0) {
+    errors.notificationTypes =
+      disabledTypes.length === 1
+        ? `${disabledTypes[0].label} must keep at least one enabled channel.`
+        : "Each notification type must keep at least one enabled channel.";
   }
 
   if (hasAnyEmailChannel && !EMAIL_ADDRESS_PATTERN.test(trimmedEmailAddress)) {
@@ -667,19 +659,19 @@ const getRoleMeta = (roleCode) => {
       return {
         title: "BARANGAY SETTINGS",
         description:
-          "Manage barangay coordination settings, distribution visibility, sync readiness, and local notification preferences.",
+          "Manage barangay profile, security, notification preferences, and recent local activity.",
       };
     case ROLE_CODES.MSWDO:
       return {
         title: "MSWDO SETTINGS",
         description:
-          "Manage MSWDO profile, security, notification preferences, sync visibility, and local report settings.",
+          "Manage MSWDO profile, security, notification preferences, and sync monitoring.",
       };
     case ROLE_CODES.MAYOR:
       return {
         title: "MAYOR SETTINGS",
         description:
-          "Manage mayor profile, security, notification preferences, sync visibility, and executive system summaries.",
+          "Manage mayor profile, security, notification preferences, sync monitoring, and executive system summaries.",
       };
     default:
       return {
@@ -744,72 +736,6 @@ const safeParsePayload = (value) => {
   }
 
   return typeof value === "object" ? value : {};
-};
-
-const buildDistributionSummaryRows = (rows = []) => {
-  const groupedRows = new Map();
-
-  rows.forEach((row) => {
-    const groupKey = [
-      row.receipt_no || "",
-      row.event_code || "",
-      row.disaster_event_title || "",
-      row.distribution_date ? new Date(row.distribution_date).toDateString() : row.id,
-      row.barangay_name || "",
-    ].join("|");
-
-    if (!groupedRows.has(groupKey)) {
-      groupedRows.set(groupKey, {
-        id: groupKey,
-        distributionDate: row.distribution_date || "",
-        disasterEventTitle: row.disaster_event_title || "--",
-        eventCode: row.event_code || "--",
-        reliefGoods: new Set(),
-        totalQuantityReceived: 0,
-        familyIds: new Set(),
-        rawStatuses: new Set(),
-        distributionReportLabel: row.receipt_no || "",
-        distributionReportReceipt: row.receipt_no || "",
-        photosSubmitted: 0,
-      });
-    }
-
-    const currentGroup = groupedRows.get(groupKey);
-    const reliefLabel =
-      row.relief_pack_template_name || row.released_items_summary || "--";
-
-    currentGroup.reliefGoods.add(reliefLabel);
-    currentGroup.totalQuantityReceived += Number(row.total_quantity_released || 0);
-
-    if (row.household_id) {
-      currentGroup.familyIds.add(row.household_id);
-    }
-
-    if (row.distribution_status) {
-      currentGroup.rawStatuses.add(row.distribution_status);
-    }
-  });
-
-  return Array.from(groupedRows.values()).map((group) => {
-    const hasOngoingStatus = Array.from(group.rawStatuses).some(
-      (status) => !["CLAIMED", "CANCELLED", "REVERSED"].includes(status),
-    );
-
-    return {
-      id: group.id,
-      distributionDate: group.distributionDate,
-      disasterEventTitle: group.disasterEventTitle,
-      eventCode: group.eventCode,
-      reliefGoodsReceived: Array.from(group.reliefGoods).join(", "),
-      quantityReceived: group.totalQuantityReceived,
-      familiesServed: group.familyIds.size,
-      statusLabel: hasOngoingStatus ? "Ongoing" : "Completed",
-      distributionReportLabel: group.distributionReportReceipt
-        ? `Receipt ${group.distributionReportReceipt}`
-        : "Open full history",
-      photosSubmitted: group.photosSubmitted,
-    };
-  });
 };
 
 const formatQueueEntryTitle = (entry) => {
@@ -982,22 +908,11 @@ const RoleSettingsPage = () => {
   const [notificationRules, setNotificationRules] = useState([]);
   const [assignedBarangayName, setAssignedBarangayName] = useState("--");
   const [unreadCount, setUnreadCount] = useState(0);
-  const [activeDisasterEvents, setActiveDisasterEvents] = useState([]);
   const [forecastHealth, setForecastHealth] = useState(null);
   const [inventoryThresholdSummary, setInventoryThresholdSummary] = useState(null);
   const [preferences, setPreferences] = useState(createDefaultRolePreferences());
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
-  const [distributionFilters, setDistributionFilters] = useState({
-    disaster_event_id: "",
-    status: "",
-    date_from: "",
-    date_to: "",
-    sort_order: "latest",
-  });
   const [distributionRows, setDistributionRows] = useState([]);
-  const [isLoadingDistributionHistory, setIsLoadingDistributionHistory] =
-    useState(false);
-  const [distributionErrorMessage, setDistributionErrorMessage] = useState("");
   const [syncHistory, setSyncHistory] = useState({
     transactions: [],
     conflicts: [],
@@ -1257,12 +1172,6 @@ const RoleSettingsPage = () => {
           requests.push(Promise.resolve([]));
         }
 
-        if (currentRole === ROLE_CODES.BARANGAY || currentRole === ROLE_CODES.MSWDO) {
-          requests.push(fetchActiveDisasterEvents());
-        } else {
-          requests.push(Promise.resolve([]));
-        }
-
         if (currentRole === ROLE_CODES.MAYOR) {
           requests.push(fetchForecastHealth().catch(() => null));
           requests.push(fetchInventoryItems({ is_active: true }).catch(() => []));
@@ -1275,7 +1184,6 @@ const RoleSettingsPage = () => {
           notificationRuleResponse,
           unreadResponse,
           barangayResponse,
-          activeDisasterResponse,
           forecastHealthResponse,
           inventoryItemsResponse,
         ] = await Promise.all(requests);
@@ -1294,13 +1202,6 @@ const RoleSettingsPage = () => {
         } else {
           setAssignedBarangayName("--");
         }
-
-        const activeEvents = Array.isArray(activeDisasterResponse)
-          ? activeDisasterResponse
-          : Array.isArray(activeDisasterResponse?.data)
-            ? activeDisasterResponse.data
-            : [];
-        setActiveDisasterEvents(activeEvents);
 
         setForecastHealth(forecastHealthResponse?.data || null);
 
@@ -1340,21 +1241,16 @@ const RoleSettingsPage = () => {
   }, [authenticatedUser, currentRole]);
 
   useEffect(() => {
-    if (!isBarangayRole && !isMswdoRole) {
+    if (!isBarangayRole) {
+      setDistributionRows([]);
       return;
     }
 
     let isMounted = true;
 
     const loadDistributionData = async () => {
-      setIsLoadingDistributionHistory(true);
-      setDistributionErrorMessage("");
-
       try {
         const response = await fetchDistributionHistory({
-          disaster_event_id: distributionFilters.disaster_event_id,
-          date_from: distributionFilters.date_from,
-          date_to: distributionFilters.date_to,
           limit: 100,
         });
 
@@ -1363,16 +1259,9 @@ const RoleSettingsPage = () => {
         }
 
         setDistributionRows(Array.isArray(response?.data) ? response.data : []);
-      } catch (error) {
+      } catch (_error) {
         if (isMounted) {
           setDistributionRows([]);
-          setDistributionErrorMessage(
-            error.message || "Failed to load barangay distribution history.",
-          );
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoadingDistributionHistory(false);
         }
       }
     };
@@ -1382,12 +1271,7 @@ const RoleSettingsPage = () => {
     return () => {
       isMounted = false;
     };
-  }, [
-    distributionFilters.date_from,
-    distributionFilters.date_to,
-    distributionFilters.disaster_event_id,
-    isBarangayRole,
-  ]);
+  }, [isBarangayRole]);
 
   useEffect(() => {
     if (!isBarangayRole) {
@@ -1513,7 +1397,7 @@ const RoleSettingsPage = () => {
     }
 
     if (
-      (isBarangayRole || isMayorRole) &&
+      (isBarangayRole || isMswdoRole || isMayorRole) &&
       activeSection === "notification-preferences"
     ) {
       setNotificationTouched(true);
@@ -1805,88 +1689,6 @@ const RoleSettingsPage = () => {
       ? preferences.enabledNotificationRuleCodes
       : notificationRules.map((rule) => rule.code);
 
-  const distributionHistoryRows = useMemo(() => {
-    const summaryRows = buildDistributionSummaryRows(distributionRows);
-    const filteredRows = distributionFilters.status
-      ? summaryRows.filter(
-          (row) => row.statusLabel.toUpperCase() === distributionFilters.status,
-        )
-      : summaryRows;
-
-    return filteredRows.sort((left, right) => {
-      const leftTime = left.distributionDate
-        ? new Date(left.distributionDate).getTime()
-        : 0;
-      const rightTime = right.distributionDate
-        ? new Date(right.distributionDate).getTime()
-        : 0;
-
-      return distributionFilters.sort_order === "oldest"
-        ? leftTime - rightTime
-        : rightTime - leftTime;
-    });
-  }, [distributionFilters.sort_order, distributionFilters.status, distributionRows]);
-
-  const distributionEventOptions = useMemo(() => {
-    const options = new Map();
-
-    activeDisasterEvents.forEach((eventRow) => {
-      options.set(eventRow.id, {
-        id: eventRow.id,
-        label: `${eventRow.event_code || "--"} - ${eventRow.title || "--"}`,
-      });
-    });
-
-    distributionRows.forEach((row) => {
-      if (!row.disaster_event_id) {
-        return;
-      }
-
-      if (!options.has(row.disaster_event_id)) {
-        options.set(row.disaster_event_id, {
-          id: row.disaster_event_id,
-          label: `${row.event_code || "--"} - ${row.disaster_event_title || "--"}`,
-        });
-      }
-    });
-
-    return Array.from(options.values());
-  }, [activeDisasterEvents, distributionRows]);
-
-  const syncHistoryLogRows = useMemo(() => {
-    return [
-      ...(syncHistory.transactions || []).map((transaction, index) => ({
-        id: `transaction-${transaction.id || index}`,
-        timestamp:
-          transaction.synced_at ||
-          transaction.created_at ||
-          transaction.client_timestamp ||
-          transaction.updated_at ||
-          "",
-        label: String(transaction.module_name || "record").replace(/[_-]/g, " "),
-        status:
-          transaction.sync_status ||
-          transaction.status ||
-          LOCAL_SYNC_STATUS.SYNCED,
-        detail: buildPayloadSummary(
-          safeParsePayload(transaction.payload_json || transaction.payload || {}),
-        ),
-      })),
-      ...(syncHistory.conflicts || []).map((conflict, index) => ({
-        id: `conflict-${conflict.id || index}`,
-        timestamp:
-          conflict.updated_at || conflict.created_at || conflict.resolved_at || "",
-        label: String(conflict.entity_type || "record").replace(/[_-]/g, " "),
-        status: conflict.status === "RESOLVED" ? "RESOLVED" : "CONFLICT",
-        detail: conflict.conflict_type || "Conflict detected during sync.",
-      })),
-    ].sort((left, right) => {
-      const leftTime = left.timestamp ? new Date(left.timestamp).getTime() : 0;
-      const rightTime = right.timestamp ? new Date(right.timestamp).getTime() : 0;
-      return rightTime - leftTime;
-    });
-  }, [syncHistory]);
-
   const activityLogs = useMemo(
     () =>
       buildActivityLogs({
@@ -1943,8 +1745,6 @@ const RoleSettingsPage = () => {
   );
 
   const barangaySectionCards = useMemo(() => {
-    const syncStatus = getSyncStatusMeta(syncSummary, isOnline);
-
     return BARANGAY_SETTINGS_SECTIONS.map((section) => {
       switch (section.key) {
         case "profile":
@@ -1969,18 +1769,6 @@ const RoleSettingsPage = () => {
             statusTone: enabledRuleCodes.length > 0 ? "success" : "warning",
             statusLabel: `${enabledRuleCodes.length} rules enabled`,
           };
-        case "distribution-history":
-          return {
-            ...section,
-            statusTone: distributionHistoryRows.length > 0 ? "info" : "warning",
-            statusLabel: `${distributionHistoryRows.length} records`,
-          };
-        case "sync-center":
-          return {
-            ...section,
-            statusTone: syncStatus.tone,
-            statusLabel: syncStatus.label,
-          };
         case "activity-logs":
           return {
             ...section,
@@ -2000,12 +1788,9 @@ const RoleSettingsPage = () => {
     });
   }, [
     activityLogs.length,
-    distributionHistoryRows.length,
     enabledRuleCodes.length,
-    isOnline,
     preferences.profile.fullName,
     preferences.security.twoFactorEnabled,
-    syncSummary,
   ]);
   const mswdoSectionCards = useMemo(() => {
     const syncStatus = getSyncStatusMeta(syncSummary, isOnline);
@@ -2211,16 +1996,6 @@ const RoleSettingsPage = () => {
   };
   const safeUnreadCount = Number(unreadCount || 0);
   const safeNotificationRuleCount = Number(notificationRuleCount || 0);
-  const safeDistributionFilters = ensureObject(distributionFilters, {
-    disaster_event_id: "",
-    status: "",
-    date_from: "",
-    date_to: "",
-    sort_order: "latest",
-  });
-  const safeDistributionEventOptions = ensureArray(distributionEventOptions);
-  const safeDistributionHistoryRows = ensureArray(distributionHistoryRows);
-  const safeSyncHistoryLogRows = ensureArray(syncHistoryLogRows);
   const safeActivityLogs = ensureArray(activityLogs);
   const safeLocalSyncLogRows = ensureArray(localSyncLogRows);
   const safeForecastHealth = ensureObject(forecastHealth, null);
@@ -2291,15 +2066,6 @@ const RoleSettingsPage = () => {
     handleResetNotificationPreferences,
     BARANGAY_NOTIFICATION_OPTIONS,
     handleNotificationChannelToggle,
-    distributionFilters: safeDistributionFilters,
-    setDistributionFilters,
-    distributionEventOptions: safeDistributionEventOptions,
-    distributionErrorMessage,
-    isLoadingDistributionHistory,
-    distributionHistoryRows: safeDistributionHistoryRows,
-    syncHistoryLogRows: safeSyncHistoryLogRows,
-    syncHistoryErrorMessage,
-    isLoadingSyncHistory,
     activityLogs: safeActivityLogs,
   };
 
@@ -2400,239 +2166,14 @@ const RoleSettingsPage = () => {
       ) : null}
 
       <section style={shellStyles.card}>
-        <div style={gridStyles}>
-          <article style={cardStyles}>
-            <h3 style={{ margin: 0, color: "#17324d" }}>Office Profile</h3>
-            <InfoRow
-              label="Account Name"
-              value={
-                [authenticatedUser?.first_name, authenticatedUser?.last_name]
-                  .filter(Boolean)
-                  .join(" ") || "--"
-              }
-            />
-            <InfoRow label="Email" value={authenticatedUser?.email || "--"} muted />
-            <InfoRow label="Role" value={currentRole || "--"} />
-          </article>
-
-          <article style={cardStyles}>
-            <h3 style={{ margin: 0, color: "#17324d" }}>Notification Status</h3>
-            {isLoading ? (
-              <EmptyState message="Loading notification settings..." />
-            ) : (
-              <>
-                <InfoRow label="Unread Notifications" value={`${unreadCount}`} />
-                <InfoRow
-                  label="Active Rules for This Role"
-                  value={`${notificationRuleCount}`}
-                />
-                <StatusChip
-                  tone={notificationRuleCount > 0 ? "success" : "warning"}
-                  label={
-                    notificationRuleCount > 0
-                      ? "Rules Available"
-                      : "No Role Rules Found"
-                  }
-                />
-              </>
-            )}
-          </article>
-
-          <article style={cardStyles}>
-            <h3 style={{ margin: 0, color: "#17324d" }}>Sync Status</h3>
-            <InfoRow label="Connection" value={isOnline ? "Online" : "Offline"} />
-            <InfoRow
-              label="Pending Queue Entries"
-              value={`${syncSummary[LOCAL_SYNC_STATUS.PENDING] || 0}`}
-            />
-            <InfoRow
-              label="Failed / Conflict Entries"
-              value={`${
-                (syncSummary[LOCAL_SYNC_STATUS.FAILED] || 0) +
-                (syncSummary[LOCAL_SYNC_STATUS.CONFLICT] || 0)
-              }`}
-            />
-            <StatusChip
-              tone={
-                syncSummary[LOCAL_SYNC_STATUS.FAILED] > 0 ||
-                syncSummary[LOCAL_SYNC_STATUS.CONFLICT] > 0
-                  ? "error"
-                  : syncSummary[LOCAL_SYNC_STATUS.PENDING] > 0
-                    ? "warning"
-                    : "success"
-              }
-              label={
-                syncSummary[LOCAL_SYNC_STATUS.FAILED] > 0 ||
-                syncSummary[LOCAL_SYNC_STATUS.CONFLICT] > 0
-                  ? "Needs Review"
-                  : syncSummary[LOCAL_SYNC_STATUS.PENDING] > 0
-                    ? "Pending Sync"
-                    : "Synced"
-              }
-            />
-          </article>
-        </div>
-      </section>
-
-      {currentRole === ROLE_CODES.MAYOR ? (
-        <section style={shellStyles.card}>
-          <div style={gridStyles}>
-            <article style={cardStyles}>
-              <h3 style={{ margin: 0, color: "#17324d" }}>Analytics Service</h3>
-              {isLoading ? (
-                <EmptyState message="Checking analytics service..." />
-              ) : forecastHealth ? (
-                <>
-                  <InfoRow
-                    label="Service Status"
-                    value={forecastHealth.status || "Online"}
-                  />
-                  <InfoRow
-                    label="Checked Endpoint"
-                    value={forecastHealth.analytics_url || "--"}
-                    muted
-                  />
-                  <StatusChip
-                    tone={
-                      forecastHealth.status === "Online"
-                        ? "success"
-                        : forecastHealth.status === "Offline"
-                          ? "error"
-                          : "warning"
-                    }
-                    label={forecastHealth.status || "Unavailable"}
-                  />
-                </>
-              ) : (
-                <>
-                  <EmptyState message="Analytics service unavailable." />
-                  <StatusChip tone="error" label="Unavailable" />
-                </>
-              )}
-            </article>
-
-            <article style={cardStyles}>
-              <h3 style={{ margin: 0, color: "#17324d" }}>Inventory Alert Thresholds</h3>
-              <p style={mutedValueStyles}>
-                Thresholds are currently operational values tied to inventory records
-                and service logic. This page shows them read-only for safety.
-              </p>
-              <InfoRow
-                label="Configured Active Items"
-                value={`${inventoryThresholdSummary?.configured_items || 0}`}
-              />
-              <InfoRow
-                label="Distinct Threshold Values"
-                value={
-                  inventoryThresholdSummary?.distinct_thresholds?.length
-                    ? inventoryThresholdSummary.distinct_thresholds.join(", ")
-                    : "No thresholds loaded"
-                }
-              />
-            </article>
-
-            <article style={cardStyles}>
-              <h3 style={{ margin: 0, color: "#17324d" }}>Export Preferences</h3>
-              <p style={mutedValueStyles}>
-                This export format preference is saved locally for this account and can
-                be reused by future report screens safely.
-              </p>
-              <select
-                value={preferences.preferredExportFormat}
-                onChange={(event) =>
-                  setPreferences((current) => ({
-                    ...current,
-                    preferredExportFormat: event.target.value,
-                  }))
-                }
-                style={inputStyles.field}
-              >
-                <option value="csv">CSV</option>
-                <option value="excel">Excel</option>
-                <option value="pdf">PDF</option>
-              </select>
-            </article>
-          </div>
-        </section>
-      ) : null}
-
-      <section style={shellStyles.card}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            gap: "20px",
-            flexWrap: "wrap",
-          }}
-        >
-          <div style={{ display: "grid", gap: "8px", flex: "1 1 320px" }}>
-            <h3 style={{ margin: 0, color: "#17324d" }}>Local Preferences</h3>
-            <p style={mutedValueStyles}>
-              These preferences are stored locally for this signed-in role. They do
-              not change backend permission rules or core workflow behavior.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={handleSavePreferences}
-            disabled={isSavingPreferences}
-            style={pageHeaderStyles.primaryButton}
-          >
-            {isSavingPreferences ? "Saving..." : "Save Preferences"}
-          </button>
-        </div>
-
-        <div style={{ ...gridStyles, marginTop: "18px" }}>
-          <article style={cardStyles}>
-            <h3 style={{ margin: 0, color: "#17324d" }}>Notification Preferences</h3>
-            {notificationRules.length === 0 ? (
-              <EmptyState message="No notification rules are currently mapped to this role." />
-            ) : (
-              <div style={{ display: "grid", gap: "10px" }}>
-                {notificationRules.map((rule) => {
-                  const isEnabled = enabledRuleCodes.includes(rule.code);
-
-                  return (
-                    <label
-                      key={rule.id}
-                      style={{
-                        display: "flex",
-                        alignItems: "flex-start",
-                        gap: "10px",
-                        color: "#21405f",
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isEnabled}
-                        onChange={() => toggleNotificationRule(rule.code)}
-                        style={{ marginTop: "3px" }}
-                      />
-                      <span>
-                        <strong>{rule.name}</strong>
-                        <span style={{ ...mutedValueStyles, display: "block" }}>
-                          {rule.trigger_type} ({rule.is_active ? "Active" : "Inactive"})
-                        </span>
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-          </article>
-
-          <article style={cardStyles}>
-            <h3 style={{ margin: 0, color: "#17324d" }}>Preference Summary</h3>
-            <InfoRow
-              label="Notification Rules Enabled Locally"
-              value={`${enabledRuleCodes.length}`}
-            />
-            <InfoRow
-              label="Preferred Export Format"
-              value={preferences.preferredExportFormat?.toUpperCase() || "EXCEL"}
-            />
-          </article>
+        <div style={{ display: "grid", gap: "10px" }}>
+          <h3 style={{ margin: 0, color: "#17324d" }}>
+            Settings are unavailable for this role.
+          </h3>
+          <p style={mutedValueStyles}>
+            The current DISTYNC settings workspace is configured for Barangay,
+            MSWDO, and Mayor accounts only.
+          </p>
         </div>
       </section>
 
