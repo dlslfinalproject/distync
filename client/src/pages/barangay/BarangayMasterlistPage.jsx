@@ -438,6 +438,11 @@ const BarangayMasterlistPage = () => {
       return;
     }
 
+    if (selectedHouseholds.length === 1) {
+      await handleOpenDepartureConfirmation(selectedHouseholds[0]);
+      return;
+    }
+
     setPendingDepartureHouseholdId("");
     setPendingDepartureHouseholdDetails(null);
     setPendingBulkDepartureHouseholds([]);
