@@ -36,6 +36,7 @@ const tableStyles = {
   table: {
     width: "100%",
     borderCollapse: "collapse",
+    tableLayout: "fixed",
   },
   th: {
     padding: "12px 14px",
@@ -45,7 +46,8 @@ const tableStyles = {
     textTransform: "uppercase",
     color: "#66809c",
     borderBottom: "1px solid #e0eaf4",
-    whiteSpace: "nowrap",
+    whiteSpace: "normal",
+    lineHeight: 1.35,
   },
   td: {
     padding: "14px",
@@ -54,6 +56,43 @@ const tableStyles = {
     fontSize: "14px",
     verticalAlign: "top",
     lineHeight: 1.5,
+  },
+};
+
+const centeredColumnStyles = {
+  textAlign: "center",
+  verticalAlign: "middle",
+};
+
+const headerLabelStyles = {
+  display: "inline-flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: "2px",
+  lineHeight: 1.25,
+};
+
+const columnWidthStyles = {
+  disasterEvent: {
+    width: "24%",
+  },
+  status: {
+    width: "9%",
+  },
+  affectedBarangays: {
+    width: "25%",
+  },
+  registeredHouseholds: {
+    width: "11%",
+  },
+  distributedAid: {
+    width: "11%",
+  },
+  claimStatus: {
+    width: "12%",
+  },
+  quantityReleased: {
+    width: "8%",
   },
 };
 
@@ -91,22 +130,34 @@ const sortSummaryRows = (summaryRows, sortOrder = "newest") =>
     return 0;
   });
 
-const filterRowsBySummaryStatus = (summaryRows, selectedStatus) => {
-  if (selectedStatus === "active") {
-    return summaryRows.filter((row) => row.status === "ACTIVE");
-  }
-
-  if (selectedStatus === "archived") {
-    return summaryRows.filter((row) =>
-      ["CLOSED", "ARCHIVED"].includes(row.status),
-    );
-  }
-
-  return summaryRows;
-};
-
 const formatDisasterEventTitle = (event) =>
   String(event?.title || "").trim() || "--";
+
+const renderStackedHeader = (firstLine, secondLine) => (
+  <span style={headerLabelStyles}>
+    <span>{firstLine}</span>
+    <span>{secondLine}</span>
+  </span>
+);
+
+const getDisasterEventStatusLabel = (status) =>
+  String(status || "").toUpperCase() === "ACTIVE" ? "Active" : "Ended";
+
+const getDisasterEventStatusStyles = (status) => {
+  const isActive = String(status || "").toUpperCase() === "ACTIVE";
+
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    borderRadius: "999px",
+    padding: "6px 12px",
+    border: isActive ? "1px solid #bdd8f1" : "1px solid #c9e8d7",
+    backgroundColor: isActive ? "#e9f4ff" : "#eefaf3",
+    color: isActive ? "#145995" : "#16733c",
+    fontSize: "12px",
+    fontWeight: 700,
+  };
+};
 
 const DisasterEventReportsPage = () => {
   const [disasterEvents, setDisasterEvents] = useState([]);
@@ -115,7 +166,6 @@ const DisasterEventReportsPage = () => {
   const [filters, setFilters] = useState({
     disaster_event_id: "",
     barangay_id: "",
-    status: "",
     sort_order: "newest",
   });
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
@@ -201,12 +251,8 @@ const DisasterEventReportsPage = () => {
   }, [filters.disaster_event_id, filters.barangay_id]);
 
   const sortedRows = useMemo(
-    () =>
-      sortSummaryRows(
-        filterRowsBySummaryStatus(rows, filters.status),
-        filters.sort_order,
-      ),
-    [rows, filters.status, filters.sort_order],
+    () => sortSummaryRows(rows, filters.sort_order),
+    [rows, filters.sort_order],
   );
 
   return (
@@ -276,27 +322,6 @@ const DisasterEventReportsPage = () => {
           </div>
 
           <div>
-            <label htmlFor="disaster-report-status" style={labelStyles}>
-              Status
-            </label>
-            <select
-              id="disaster-report-status"
-              value={filters.status}
-              onChange={(event) =>
-                setFilters((currentValue) => ({
-                  ...currentValue,
-                  status: event.target.value,
-                }))
-              }
-              style={inputStyles}
-            >
-              <option value="">All</option>
-              <option value="active">Active</option>
-              <option value="archived">Archived</option>
-            </select>
-          </div>
-
-          <div>
             <label htmlFor="disaster-report-sort-order" style={labelStyles}>
               Order List
             </label>
@@ -337,18 +362,63 @@ const DisasterEventReportsPage = () => {
             <table style={tableStyles.table}>
               <thead>
                 <tr>
-                  <th style={tableStyles.th}>Disaster Event</th>
-                  <th style={tableStyles.th}>Affected Barangays</th>
-                  <th style={tableStyles.th}>Registered Households</th>
-                  <th style={tableStyles.th}>Distributed Aid Count</th>
-                  <th style={tableStyles.th}>Claim Status Summary</th>
-                  <th style={tableStyles.th}>Quantity Released</th>
+                  <th style={{ ...tableStyles.th, ...columnWidthStyles.disasterEvent }}>
+                    Disaster Event
+                  </th>
+                  <th
+                    style={{
+                      ...tableStyles.th,
+                      ...centeredColumnStyles,
+                      ...columnWidthStyles.status,
+                    }}
+                  >
+                    Status
+                  </th>
+                  <th style={{ ...tableStyles.th, ...columnWidthStyles.affectedBarangays }}>
+                    Affected Barangays
+                  </th>
+                  <th
+                    style={{
+                      ...tableStyles.th,
+                      ...centeredColumnStyles,
+                      ...columnWidthStyles.registeredHouseholds,
+                    }}
+                  >
+                    {renderStackedHeader("Registered", "Households")}
+                  </th>
+                  <th
+                    style={{
+                      ...tableStyles.th,
+                      ...centeredColumnStyles,
+                      ...columnWidthStyles.distributedAid,
+                    }}
+                  >
+                    {renderStackedHeader("Distributed", "Aid Count")}
+                  </th>
+                  <th
+                    style={{
+                      ...tableStyles.th,
+                      ...centeredColumnStyles,
+                      ...columnWidthStyles.claimStatus,
+                    }}
+                  >
+                    {renderStackedHeader("Claim Status", "Summary")}
+                  </th>
+                  <th
+                    style={{
+                      ...tableStyles.th,
+                      ...centeredColumnStyles,
+                      ...columnWidthStyles.quantityReleased,
+                    }}
+                  >
+                    {renderStackedHeader("Quantity", "Released")}
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {sortedRows.map((row) => (
                   <tr key={row.id}>
-                    <td style={tableStyles.td}>
+                    <td style={{ ...tableStyles.td, ...columnWidthStyles.disasterEvent }}>
                       <div style={{ fontWeight: 700 }}>
                         {formatDisasterEventTitle(row)}
                       </div>
@@ -356,21 +426,62 @@ const DisasterEventReportsPage = () => {
                         {row.disaster_type || "--"}
                       </div>
                     </td>
-                    <td style={tableStyles.td}>
+                    <td
+                      style={{
+                        ...tableStyles.td,
+                        ...centeredColumnStyles,
+                        ...columnWidthStyles.status,
+                      }}
+                    >
+                      <span style={getDisasterEventStatusStyles(row.status)}>
+                        {getDisasterEventStatusLabel(row.status)}
+                      </span>
+                    </td>
+                    <td style={{ ...tableStyles.td, ...columnWidthStyles.affectedBarangays }}>
                       <div>{row.affected_barangays_text || "--"}</div>
                       <div style={{ color: "#60738a", fontSize: "12px" }}>
                         Count: {row.affected_barangays_count || 0}
                       </div>
                     </td>
-                    <td style={tableStyles.td}>{row.registered_households_count || 0}</td>
-                    <td style={tableStyles.td}>{row.distributed_aid_count || 0}</td>
-                    <td style={tableStyles.td}>
+                    <td
+                      style={{
+                        ...tableStyles.td,
+                        ...centeredColumnStyles,
+                        ...columnWidthStyles.registeredHouseholds,
+                      }}
+                    >
+                      {row.registered_households_count || 0}
+                    </td>
+                    <td
+                      style={{
+                        ...tableStyles.td,
+                        ...centeredColumnStyles,
+                        ...columnWidthStyles.distributedAid,
+                      }}
+                    >
+                      {row.distributed_aid_count || 0}
+                    </td>
+                    <td
+                      style={{
+                        ...tableStyles.td,
+                        ...centeredColumnStyles,
+                        ...columnWidthStyles.claimStatus,
+                      }}
+                    >
                       <div>Claimed: {row.claimed_stubs_count || 0}</div>
                       <div style={{ color: "#60738a", fontSize: "12px" }}>
                         Unclaimed: {row.unclaimed_stubs_count || 0}
                       </div>
                     </td>
-                    <td style={tableStyles.td}>{row.quantity_released_total || 0}</td>
+                    <td
+                      style={{
+                        ...tableStyles.td,
+                        ...centeredColumnStyles,
+                        ...columnWidthStyles.quantityReleased,
+                      }}
+                    >
+                      {row.quantity_released_total || 0}
+                    </td>
                   </tr>
                 ))}
               </tbody>
