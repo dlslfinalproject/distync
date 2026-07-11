@@ -104,6 +104,8 @@ const filterPanelStyles = {
 const FILTER_PANEL_GAP = 12;
 const FILTER_PANEL_VIEWPORT_PADDING = 16;
 const MIN_FILTER_PANEL_HEIGHT = 220;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DISASTER_TYPE_OPTIONS = [
   "Typhoon",
   "Flood",
@@ -256,6 +258,7 @@ const DisasterEventsPage = () => {
     type: "",
     message: "",
   });
+  const shouldApplyExportDefaultsRef = useRef(false);
   const [searchValue, setSearchValue] = useState("");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [filtersByTab, setFiltersByTab] = useState({
@@ -359,7 +362,8 @@ const DisasterEventsPage = () => {
             : false,
         ),
       )
-      .map((barangay) => barangay.id);
+      .map((barangay) => barangay.id)
+      .filter((barangayId) => UUID_PATTERN.test(String(barangayId || "")));
   }, [barangays, exportScopeEvents, selectedExportDisasterTypes]);
 
   const hasActiveFilters = Boolean(
@@ -474,6 +478,18 @@ const DisasterEventsPage = () => {
   }, [availableExportDisasterTypes, isExportModalOpen]);
 
   useEffect(() => {
+    if (!isExportModalOpen || !shouldApplyExportDefaultsRef.current) {
+      return;
+    }
+
+    if (availableExportDisasterTypes.length === 0) {
+      return;
+    }
+
+    setSelectedExportDisasterTypes(availableExportDisasterTypes);
+  }, [availableExportDisasterTypes, isExportModalOpen]);
+
+  useEffect(() => {
     if (!isExportModalOpen) {
       return;
     }
@@ -484,6 +500,31 @@ const DisasterEventsPage = () => {
       ),
     );
   }, [availableExportAffectedBarangayIds, isExportModalOpen]);
+
+  useEffect(() => {
+    if (!isExportModalOpen || !shouldApplyExportDefaultsRef.current) {
+      return;
+    }
+
+    const areDefaultTypesReady =
+      availableExportDisasterTypes.length > 0 &&
+      selectedExportDisasterTypes.length === availableExportDisasterTypes.length &&
+      availableExportDisasterTypes.every((type) =>
+        selectedExportDisasterTypes.includes(type),
+      );
+
+    if (!areDefaultTypesReady) {
+      return;
+    }
+
+    setSelectedExportAffectedBarangayIds(availableExportAffectedBarangayIds);
+    shouldApplyExportDefaultsRef.current = false;
+  }, [
+    availableExportAffectedBarangayIds,
+    availableExportDisasterTypes,
+    isExportModalOpen,
+    selectedExportDisasterTypes,
+  ]);
 
   const handleExport = async (format) => {
     setExportingFormat(format);
@@ -514,6 +555,14 @@ const DisasterEventsPage = () => {
     } finally {
       setExportingFormat("");
     }
+  };
+
+  const handleExportRecordStatusChange = (nextRecordStatus) => {
+    setSelectedExportRecordStatus(nextRecordStatus);
+    setSelectedExportDisasterTypes([]);
+    setSelectedExportAffectedBarangayIds([]);
+    setExportScopeEvents([]);
+    shouldApplyExportDefaultsRef.current = true;
   };
 
   const updateCurrentTabFilters = (nextValues) => {
@@ -841,10 +890,11 @@ const DisasterEventsPage = () => {
               setSelectedExportFormat("csv");
               setSelectedExportRecordStatus(selectedFilter);
               setSelectedExportSortOrder(selectedSortOrder);
-              setSelectedExportDisasterTypes(selectedDisasterTypes);
-              setSelectedExportAffectedBarangayIds(selectedAffectedBarangayIds);
-              setExportScopeEvents(events);
+              setSelectedExportDisasterTypes([]);
+              setSelectedExportAffectedBarangayIds([]);
+              setExportScopeEvents([]);
               setExportFeedback({ type: "", message: "" });
+              shouldApplyExportDefaultsRef.current = true;
               setIsExportModalOpen(true);
             }}
             disabled={Boolean(exportingFormat)}
@@ -922,7 +972,7 @@ const DisasterEventsPage = () => {
         selectedDisasterTypes={selectedExportDisasterTypes}
         selectedAffectedBarangayIds={selectedExportAffectedBarangayIds}
         isSubmitting={Boolean(exportingFormat)}
-        onRecordStatusChange={setSelectedExportRecordStatus}
+        onRecordStatusChange={handleExportRecordStatusChange}
         onSortOrderChange={setSelectedExportSortOrder}
         onDisasterTypeToggle={(disasterType) => {
           setSelectedExportDisasterTypes((currentValues) =>

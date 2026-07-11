@@ -5,6 +5,8 @@ import {
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const handleJsonResponse = async (response, fallbackMessage) => {
   const responseData = await response.json().catch(() => null);
@@ -146,8 +148,14 @@ export const exportDisasterEvents = async ({
     searchParams.set("disaster_types", disasterTypes.join(","));
   }
 
-  if (Array.isArray(affectedBarangayIds) && affectedBarangayIds.length > 0) {
-    searchParams.set("affected_barangay_ids", affectedBarangayIds.join(","));
+  const validAffectedBarangayIds = Array.isArray(affectedBarangayIds)
+    ? affectedBarangayIds
+        .map((barangayId) => String(barangayId || "").trim())
+        .filter((barangayId) => UUID_PATTERN.test(barangayId))
+    : [];
+
+  if (validAffectedBarangayIds.length > 0) {
+    searchParams.set("affected_barangay_ids", validAffectedBarangayIds.join(","));
   }
 
   const response = await fetch(
