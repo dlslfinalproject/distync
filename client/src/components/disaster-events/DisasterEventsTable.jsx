@@ -50,6 +50,29 @@ const tableStyles = {
     justifyContent: "center",
     cursor: "pointer",
   },
+  endedRow: {
+    backgroundColor: "#f8fbfe",
+  },
+  endedBodyCell: {
+    color: "#5f7690",
+  },
+  affectedBarangayChip: {
+    display: "inline-block",
+    minWidth: "36px",
+    textAlign: "center",
+    padding: "6px 10px",
+    borderRadius: "999px",
+    backgroundColor: "#e5f1fb",
+    color: "#356592",
+    fontSize: "12px",
+    fontWeight: 700,
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
+  },
+  endedAffectedBarangayChip: {
+    backgroundColor: "#eef5fb",
+    color: "#6a87a6",
+  },
 };
 
 const DisasterEventsTable = ({
@@ -160,6 +183,7 @@ const DisasterEventsTable = ({
 
           <tbody>
             {rows.map((row) => {
+              const isEndedRow = row.status !== "ACTIVE";
               const affectedBarangayDisplayItems =
                 getAffectedBarangayDisplayItems(
                   row.affected_barangays,
@@ -185,16 +209,39 @@ const DisasterEventsTable = ({
               ];
 
               return (
-                <tr key={row.id} style={{ borderBottom: "1px solid #edf3f8" }}>
-                  <td style={{ ...tableStyles.bodyCell, textAlign: "left" }}>
+                <tr
+                  key={row.id}
+                  style={{
+                    borderBottom: "1px solid #edf3f8",
+                    ...(isEndedRow ? tableStyles.endedRow : {}),
+                  }}
+                >
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isEndedRow ? tableStyles.endedBodyCell : {}),
+                      textAlign: "left",
+                    }}
+                  >
                     {row.title}
                   </td>
 
-                  <td style={{ ...tableStyles.bodyCell, textAlign: "left" }}>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isEndedRow ? tableStyles.endedBodyCell : {}),
+                      textAlign: "left",
+                    }}
+                  >
                     {row.disaster_type}
                   </td>
 
-                  <td style={tableStyles.bodyCell}>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isEndedRow ? tableStyles.endedBodyCell : {}),
+                    }}
+                  >
                     {affectedBarangayDisplayItems.length ? (
                       <div
                         style={{
@@ -209,17 +256,10 @@ const DisasterEventsTable = ({
                           <span
                             key={brgy.id || brgy.name || brgy || index}
                             style={{
-                              display: "inline-block",
-                              minWidth: "36px",
-                              textAlign: "center",
-                              padding: "6px 10px",
-                              borderRadius: "999px",
-                              backgroundColor: "#e5f1fb",
-                              color: "#356592",
-                              fontSize: "12px",
-                              fontWeight: 700,
-                              whiteSpace: "normal",
-                              overflowWrap: "anywhere",
+                              ...tableStyles.affectedBarangayChip,
+                              ...(isEndedRow
+                                ? tableStyles.endedAffectedBarangayChip
+                                : {}),
                             }}
                           >
                             {brgy.name || brgy}
@@ -231,17 +271,28 @@ const DisasterEventsTable = ({
                     )}
                   </td>
 
-                  <td style={tableStyles.bodyCell}>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isEndedRow ? tableStyles.endedBodyCell : {}),
+                    }}
+                  >
                     {formatDisasterEventDate(row.start_date)}
                   </td>
 
-                  <td style={tableStyles.bodyCell}>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isEndedRow ? tableStyles.endedBodyCell : {}),
+                    }}
+                  >
                     {formatDisasterEventDate(row.end_date)}
                   </td>
 
                   <td
                     style={{
                       ...tableStyles.bodyCell,
+                      ...(isEndedRow ? tableStyles.endedBodyCell : {}),
                       textAlign: "center",
                     }}
                   >
@@ -251,6 +302,7 @@ const DisasterEventsTable = ({
                   <td
                     style={{
                       ...tableStyles.bodyCell,
+                      ...(isEndedRow ? tableStyles.endedBodyCell : {}),
                       textAlign: "center",
                       position: "relative",
                     }}
