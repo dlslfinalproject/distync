@@ -1,13 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import {
-  FiActivity,
-  FiBell,
-  FiFileText,
-  FiRefreshCw,
-  FiShield,
-  FiUser,
-} from "react-icons/fi";
 import { useNavigate } from "react-router-dom";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
@@ -27,10 +19,6 @@ import {
   loadRoleSettings,
   saveRoleSettings,
 } from "../../features/settings/settingsService";
-import {
-  buildPayloadSummary,
-  formatSyncDateTime,
-} from "../../features/sync/syncManagementHelpers";
 import { fetchSyncHistory } from "../../features/sync/syncHistoryService";
 import db, { LOCAL_SYNC_STATUS } from "../../offline/db";
 import {
@@ -41,6 +29,41 @@ import {
   ROLE_CODES,
   updateAuthenticatedSessionUser,
 } from "../../utils/roleSession";
+import {
+  BARANGAY_SETTINGS_SECTIONS,
+  EDITABLE_BARANGAY_SECTION_KEYS,
+  EDITABLE_MAYOR_SECTION_KEYS,
+  EDITABLE_MSWDO_SECTION_KEYS,
+  MAYOR_SETTINGS_SECTIONS,
+  MSWDO_SETTINGS_SECTIONS,
+} from "./settingsConfig";
+import {
+  buildActivityLogs,
+  buildLocalSyncLogRows,
+  buildSecurityActivityLogs,
+  buildSyncSummary,
+  createDefaultNotificationChannels,
+  createDefaultRolePreferences,
+  getBarangayProfileValidationErrors,
+  getNotificationPreferenceValidationErrors,
+  getRoleMeta,
+  getRolePositionLabel,
+  getSecurityPasswordValidationErrors,
+  normalizePhilippineContactNumber,
+  normalizeRolePreferences,
+} from "./settingsHelpers";
+import {
+  buildBarangaySectionCards,
+  buildBarangayViewContext,
+  buildMayorSectionCards,
+  buildMayorViewContext,
+  buildMswdoSectionCards,
+  buildMswdoViewContext,
+  buildSettingsPageActions,
+  buildSharedRoleViewContext,
+  getActiveSettingsSection,
+  getSectionsForRole,
+} from "./settingsViewBuilders";
 import BarangaySettingsView from "./views/BarangaySettingsView";
 import MayorSettingsView from "./views/MayorSettingsView";
 import MswdoSettingsView from "./views/MswdoSettingsView";
@@ -261,620 +284,6 @@ const tableStyles = {
   },
 };
 
-const BARANGAY_SETTINGS_SECTIONS = [
-  {
-    key: "profile",
-    label: "Profile",
-    description: "Update local identity details, contact information, and profile photo.",
-    icon: FiUser,
-  },
-  {
-    key: "security",
-    label: "Security",
-    description: "Review device-level security preferences and password-related checks.",
-    icon: FiShield,
-  },
-  {
-    key: "notification-preferences",
-    label: "Notification Preferences",
-    description: "Control in-app and email alert preferences for barangay coordination.",
-    icon: FiBell,
-  },
-  {
-    key: "activity-logs",
-    label: "Recent Local Activity",
-    description: "Review recent sync and operational actions visible on this device.",
-    icon: FiActivity,
-  },
-];
-
-const EDITABLE_BARANGAY_SECTION_KEYS = new Set([
-  "profile",
-  "security",
-  "notification-preferences",
-]);
-
-const MSWDO_SETTINGS_SECTIONS = [
-  {
-    key: "profile",
-    label: "Profile",
-    description:
-      "Review office identity details, assigned role, contact information, and profile picture.",
-    icon: FiUser,
-  },
-  {
-    key: "security",
-    label: "Security",
-    description:
-      "Keep password review, two-factor preference, and security activity grouped together.",
-    icon: FiShield,
-  },
-  {
-    key: "notification-preferences",
-    label: "Notification Preferences",
-    description:
-      "Manage local notification rule preferences used for MSWDO coordination.",
-    icon: FiBell,
-  },
-  {
-    key: "sync-center",
-    label: "Sync Center",
-    description:
-      "Monitor pending queue records, sync health, and recent synchronization logs.",
-    icon: FiRefreshCw,
-  },
-];
-
-const EDITABLE_MSWDO_SECTION_KEYS = new Set([
-  "profile",
-  "security",
-  "notification-preferences",
-]);
-
-const MAYOR_SETTINGS_SECTIONS = [
-  {
-    key: "profile",
-    label: "Profile",
-    description:
-      "Review account identity details, assigned role, contact information, and profile picture.",
-    icon: FiUser,
-  },
-  {
-    key: "security",
-    label: "Security",
-    description:
-      "Keep password review, two-factor preference, and security activity grouped together.",
-    icon: FiShield,
-  },
-  {
-    key: "notification-preferences",
-    label: "Notification Preferences",
-    description:
-      "Manage local executive notification rule preferences for the Office of the Mayor.",
-    icon: FiBell,
-  },
-  {
-    key: "sync-status",
-    label: "Sync Center",
-    description:
-      "Monitor pending queue records, sync health, and recent synchronization activity.",
-    icon: FiRefreshCw,
-  },
-  {
-    key: "analytics-service",
-    label: "Analytics Service",
-    description:
-      "Review read-only analytics availability and service health for executive visibility.",
-    icon: FiActivity,
-  },
-  {
-    key: "inventory-alert-thresholds",
-    label: "Inventory Alert Thresholds",
-    description:
-      "Review read-only inventory threshold coverage without changing operational rules.",
-    icon: FiFileText,
-  },
-];
-
-const EDITABLE_MAYOR_SECTION_KEYS = new Set([
-  "profile",
-  "security",
-  "notification-preferences",
-]);
-
-const BARANGAY_POSITION_LABEL = "Barangay Official";
-
-const BARANGAY_NOTIFICATION_OPTIONS = [
-  {
-    key: "disasterAlerts",
-    label: "Disaster Alerts",
-    description:
-      "Receive flood warnings, fire incidents, evacuation notices, and urgent LGU advisories.",
-  },
-  {
-    key: "distributionSchedules",
-    label: "Distribution Schedules",
-    description:
-      "Track upcoming relief distribution schedules, assignment changes, and related coordination notices.",
-  },
-  {
-    key: "reliefArrivalNotifications",
-    label: "Relief Arrival Notifications",
-    description:
-      "Review supply arrival updates, release readiness, and allocation notices.",
-  },
-  {
-    key: "attendanceReminders",
-    label: "Attendance Reminders",
-    description:
-      "Keep reminders visible for attendance submission follow-ups and record completion.",
-  },
-  {
-    key: "systemAnnouncements",
-    label: "System Announcements",
-    description:
-      "Show maintenance announcements, policy updates, and general system notices relevant to your role.",
-  },
-];
-
-const createDefaultNotificationChannels = () =>
-  BARANGAY_NOTIFICATION_OPTIONS.reduce((current, option) => {
-    current[option.key] = {
-      inApp: true,
-      email: false,
-    };
-    return current;
-  }, {});
-
-const createDefaultRolePreferences = () => ({
-  enabledNotificationRuleCodes: [],
-  preferredExportFormat: "excel",
-  profile: {
-    fullName: "",
-    position: BARANGAY_POSITION_LABEL,
-    contactNumber: "",
-    emailAddress: "",
-    profilePictureDataUrl: "",
-    profilePictureFileName: "",
-  },
-  notificationChannels: createDefaultNotificationChannels(),
-  security: {
-    twoFactorEnabled: false,
-    lastLocalPasswordChangeAt: "",
-    lastTwoFactorPreferenceUpdateAt: "",
-  },
-  metadata: {
-    lastProfileUpdateAt: "",
-    lastPreferenceSaveAt: "",
-  },
-});
-
-const normalizePhilippineContactNumber = (value = "") => {
-  const rawValue = String(value || "").trim();
-
-  if (!rawValue) {
-    return "";
-  }
-
-  const compactValue = rawValue.replace(/[^\d+]/g, "");
-
-  if (compactValue.startsWith("+")) {
-    return `+${compactValue.slice(1).replace(/\D/g, "").slice(0, 12)}`;
-  }
-
-  const digitsOnly = compactValue.replace(/\D/g, "");
-
-  if (!digitsOnly) {
-    return "";
-  }
-
-  if (digitsOnly.startsWith("09")) {
-    return `+63${digitsOnly.slice(1, 11)}`;
-  }
-
-  if (digitsOnly.startsWith("639")) {
-    return `+${digitsOnly.slice(0, 12)}`;
-  }
-
-  if (digitsOnly.startsWith("9")) {
-    return `+63${digitsOnly.slice(0, 10)}`;
-  }
-
-  if (digitsOnly.startsWith("63")) {
-    return `+${digitsOnly.slice(0, 12)}`;
-  }
-
-  return `+63${digitsOnly.slice(0, 10)}`;
-};
-
-const formatPhilippineContactNumberForDisplay = (value = "") => {
-  const normalizedValue = normalizePhilippineContactNumber(value);
-
-  if (!normalizedValue.startsWith("+639")) {
-    return normalizedValue.replace(/^\+63/, "");
-  }
-
-  const localDigits = normalizedValue.slice(3, 13);
-  const firstBlock = localDigits.slice(0, 3);
-  const secondBlock = localDigits.slice(3, 6);
-  const thirdBlock = localDigits.slice(6, 10);
-
-  return [firstBlock, secondBlock, thirdBlock].filter(Boolean).join(" ");
-};
-
-const getBarangayProfileValidationErrors = (profile = {}) => {
-  const errors = {};
-  const fullName = String(profile.fullName || "").trim();
-  const contactNumber = String(profile.contactNumber || "").trim();
-
-  if (!fullName) {
-    errors.fullName = "Full name is required.";
-  }
-
-  if (!contactNumber) {
-    errors.contactNumber = "Contact number is required.";
-  } else if (!/^\+639\d{9}$/.test(contactNumber)) {
-    errors.contactNumber = "Use the format 912 345 6789 after PH +63.";
-  }
-
-  return errors;
-};
-
-const getSecurityPasswordValidationErrors = (form = {}) => {
-  const errors = {};
-  const currentPassword = String(form.currentPassword || "");
-  const newPassword = String(form.newPassword || "");
-  const confirmPassword = String(form.confirmPassword || "");
-
-  if (!currentPassword) {
-    errors.currentPassword = "Current password is required.";
-  }
-
-  if (!newPassword) {
-    errors.newPassword = "New password is required.";
-  } else if (newPassword.length < 8) {
-    errors.newPassword = "Password must be at least 8 characters long.";
-  } else if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/.test(newPassword)) {
-    errors.newPassword =
-      "Password must contain at least one uppercase letter, one lowercase letter, and one number.";
-  } else if (currentPassword && newPassword === currentPassword) {
-    errors.newPassword = "New password cannot be the same as your current password.";
-  }
-
-  if (!confirmPassword) {
-    errors.confirmPassword = "Please confirm your new password.";
-  } else if (confirmPassword !== newPassword) {
-    errors.confirmPassword = "Passwords do not match.";
-  }
-
-  return errors;
-};
-
-const EMAIL_ADDRESS_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-const getNotificationPreferenceValidationErrors = ({
-  notificationChannels = {},
-  emailAddress = "",
-}) => {
-  const errors = {};
-  const optionStates = BARANGAY_NOTIFICATION_OPTIONS.map((option) => ({
-    label: option.label,
-    inApp: Boolean(notificationChannels[option.key]?.inApp),
-    email: Boolean(notificationChannels[option.key]?.email),
-  }));
-  const hasAnyEmailChannel = optionStates.some((option) => option.email);
-  const trimmedEmailAddress = String(emailAddress || "").trim();
-  const disabledTypes = optionStates.filter((option) => !option.inApp && !option.email);
-
-  if (disabledTypes.length > 0) {
-    errors.notificationTypes =
-      disabledTypes.length === 1
-        ? `${disabledTypes[0].label} must keep at least one enabled channel.`
-        : "Each notification type must keep at least one enabled channel.";
-  }
-
-  if (hasAnyEmailChannel && !EMAIL_ADDRESS_PATTERN.test(trimmedEmailAddress)) {
-    errors.emailAddress =
-      "A valid email address is required to receive email notifications.";
-  }
-
-  return errors;
-};
-
-const normalizeRolePreferences = (value = {}) => {
-  const defaults = createDefaultRolePreferences();
-  const notificationChannels = {
-    ...defaults.notificationChannels,
-  };
-
-  Object.entries(value?.notificationChannels || {}).forEach(([key, channels]) => {
-    notificationChannels[key] = {
-      ...(defaults.notificationChannels[key] || { inApp: true, email: false }),
-      ...(channels || {}),
-    };
-  });
-
-  return {
-    ...defaults,
-    ...(value || {}),
-    enabledNotificationRuleCodes: Array.isArray(value?.enabledNotificationRuleCodes)
-      ? value.enabledNotificationRuleCodes
-      : [],
-    profile: {
-      ...defaults.profile,
-      ...(value?.profile || {}),
-    },
-    notificationChannels,
-    security: {
-      ...defaults.security,
-      ...(value?.security || {}),
-    },
-    metadata: {
-      ...defaults.metadata,
-      ...(value?.metadata || {}),
-    },
-  };
-};
-
-const formatDateTime = (value) => {
-  if (!value) {
-    return "--";
-  }
-
-  const parsedDate = new Date(value);
-
-  if (Number.isNaN(parsedDate.getTime())) {
-    return "--";
-  }
-
-  return new Intl.DateTimeFormat("en-PH", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(parsedDate);
-};
-
-const buildSyncSummary = (syncEntries) => {
-  return syncEntries.reduce(
-    (summary, entry) => {
-      summary.total += 1;
-      summary[entry.status] = (summary[entry.status] || 0) + 1;
-      return summary;
-    },
-    {
-      total: 0,
-      [LOCAL_SYNC_STATUS.PENDING]: 0,
-      [LOCAL_SYNC_STATUS.SYNCED]: 0,
-      [LOCAL_SYNC_STATUS.FAILED]: 0,
-      [LOCAL_SYNC_STATUS.CONFLICT]: 0,
-    },
-  );
-};
-
-const getRoleMeta = (roleCode) => {
-  switch (roleCode) {
-    case ROLE_CODES.BARANGAY:
-      return {
-        title: "BARANGAY SETTINGS",
-        description:
-          "Manage barangay profile, security, notification preferences, and recent local activity.",
-      };
-    case ROLE_CODES.MSWDO:
-      return {
-        title: "MSWDO SETTINGS",
-        description:
-          "Manage MSWDO profile, security, notification preferences, and sync monitoring.",
-      };
-    case ROLE_CODES.MAYOR:
-      return {
-        title: "MAYOR SETTINGS",
-        description:
-          "Manage mayor profile, security, notification preferences, sync monitoring, and executive system summaries.",
-      };
-    default:
-      return {
-        title: "SETTINGS",
-        description: "Review account and operational settings.",
-      };
-  }
-};
-
-const ROLE_DISPLAY_NAMES = {
-  [ROLE_CODES.BARANGAY]: "Barangay Official",
-  [ROLE_CODES.MSWDO]: "MSWDO Personnel",
-  [ROLE_CODES.MAYOR]: "Office of the Mayor",
-};
-
-const getSyncStatusMeta = (syncSummary, isOnline) => {
-  if (!isOnline) {
-    return {
-      tone: "warning",
-      label: "Pending",
-      description: "Offline mode is active. Local changes will sync later.",
-    };
-  }
-
-  if (
-    syncSummary[LOCAL_SYNC_STATUS.FAILED] > 0 ||
-    syncSummary[LOCAL_SYNC_STATUS.CONFLICT] > 0
-  ) {
-    return {
-      tone: "error",
-      label: "Failed",
-      description: "Some records need sync review before LGU coordination is complete.",
-    };
-  }
-
-  if (syncSummary[LOCAL_SYNC_STATUS.PENDING] > 0) {
-    return {
-      tone: "warning",
-      label: "Pending",
-      description: "Queued records are waiting to be synced with the LGU.",
-    };
-  }
-
-  return {
-    tone: "success",
-    label: "Synced",
-    description: "Barangay records are currently aligned with the LGU data flow.",
-  };
-};
-
-const safeParsePayload = (value) => {
-  if (!value) {
-    return {};
-  }
-
-  if (typeof value === "string") {
-    try {
-      return JSON.parse(value);
-    } catch (_error) {
-      return {};
-    }
-  }
-
-  return typeof value === "object" ? value : {};
-};
-
-const formatQueueEntryTitle = (entry) => {
-  const moduleLabel = entry?.moduleName
-    ? String(entry.moduleName).replace(/[_-]/g, " ")
-    : "record";
-  const actionLabel = entry?.actionKey
-    ? String(entry.actionKey).replace(/[_-]/g, " ")
-    : "queued";
-
-  return `${actionLabel} ${moduleLabel}`.replace(/\s+/g, " ").trim();
-};
-
-const buildActivityLogs = ({
-  distributionRows,
-  syncEntries,
-  syncHistory,
-}) => {
-  const localActivityEntries = syncEntries.map((entry) => ({
-    id: `queue-${entry.id}`,
-    timestamp:
-      entry.updatedAt || entry.createdAt || entry.clientTimestamp || entry.syncedAt || "",
-    title: formatQueueEntryTitle(entry),
-    detail: `Local sync queue - ${entry.status || "--"}`,
-    moduleLabel: "Sync",
-    tone:
-      entry.status === LOCAL_SYNC_STATUS.FAILED ||
-      entry.status === LOCAL_SYNC_STATUS.CONFLICT
-        ? "error"
-        : entry.status === LOCAL_SYNC_STATUS.PENDING
-          ? "warning"
-          : "success",
-  }));
-
-  const syncHistoryEntries = [
-    ...(syncHistory.transactions || []).map((transaction, index) => {
-      const payload = safeParsePayload(
-        transaction.payload_json || transaction.payload || {},
-      );
-
-      return {
-        id: `transaction-${transaction.id || index}`,
-        timestamp:
-          transaction.synced_at ||
-          transaction.created_at ||
-          transaction.client_timestamp ||
-          transaction.updated_at ||
-          "",
-        title: `Synced ${String(transaction.module_name || "record").replace(
-          /[_-]/g,
-          " ",
-        )}`,
-        detail: buildPayloadSummary(payload),
-        moduleLabel: "Sync",
-        tone:
-          transaction.sync_status === LOCAL_SYNC_STATUS.FAILED
-            ? "error"
-            : transaction.sync_status === LOCAL_SYNC_STATUS.CONFLICT
-              ? "warning"
-              : "success",
-      };
-    }),
-    ...(syncHistory.conflicts || []).map((conflict, index) => ({
-      id: `conflict-${conflict.id || index}`,
-      timestamp:
-        conflict.created_at || conflict.updated_at || conflict.resolved_at || "",
-      title: `Sync conflict review for ${String(conflict.entity_type || "record").replace(
-        /[_-]/g,
-        " ",
-      )}`,
-      detail: conflict.conflict_type || "Conflict detected during sync.",
-      moduleLabel: "Sync",
-      tone: conflict.status === "RESOLVED" ? "success" : "warning",
-    })),
-  ];
-
-  const distributionEntries = distributionRows.slice(0, 12).map((row) => ({
-    id: `distribution-${row.id}`,
-    timestamp: row.distribution_date || "",
-    title: `Recorded distribution for ${row.disaster_event_title || row.event_code || "response"}`,
-    detail:
-      row.relief_pack_template_name || row.released_items_summary || "Relief goods released",
-    moduleLabel: "Distribution",
-    tone: "info",
-  }));
-
-  return [
-    ...localActivityEntries,
-    ...syncHistoryEntries,
-    ...distributionEntries,
-  ]
-    .filter((entry) => entry.timestamp || entry.title)
-    .sort((left, right) => {
-      const leftTime = left.timestamp ? new Date(left.timestamp).getTime() : 0;
-      const rightTime = right.timestamp ? new Date(right.timestamp).getTime() : 0;
-      return rightTime - leftTime;
-    });
-};
-
-const buildSecurityActivityLogs = (preferences) => {
-  return [
-    preferences.security?.lastLocalPasswordChangeAt
-      ? {
-          id: "password-update",
-          timestamp: preferences.security.lastLocalPasswordChangeAt,
-          title: "Password change reviewed",
-          detail:
-            "Password changes were reviewed in this frontend security form for the current account.",
-          moduleLabel: "Security",
-          tone: "success",
-        }
-      : null,
-    preferences.security?.lastTwoFactorPreferenceUpdateAt
-      ? {
-          id: "two-factor-update",
-          timestamp: preferences.security.lastTwoFactorPreferenceUpdateAt,
-          title: preferences.security.twoFactorEnabled
-            ? "Two-factor preference enabled"
-            : "Two-factor preference disabled",
-          detail:
-            "Two-factor authentication preference was updated in local security settings.",
-          moduleLabel: "Security",
-          tone: preferences.security.twoFactorEnabled ? "success" : "warning",
-        }
-      : null,
-  ]
-    .filter(Boolean)
-    .sort((left, right) => {
-      const leftTime = left.timestamp ? new Date(left.timestamp).getTime() : 0;
-      const rightTime = right.timestamp ? new Date(right.timestamp).getTime() : 0;
-      return rightTime - leftTime;
-    });
-};
-
-const ensureArray = (value) => (Array.isArray(value) ? value : []);
-
-const ensureObject = (value, fallback = {}) =>
-  value && typeof value === "object" && !Array.isArray(value) ? value : fallback;
-
 const StatusChip = ({ tone = "info", label }) => (
   <span
     style={{
@@ -973,13 +382,11 @@ const RoleSettingsPage = () => {
   );
 
   useEffect(() => {
-    const availableSections = isBarangayRole
-      ? BARANGAY_SETTINGS_SECTIONS
-      : isMswdoRole
-        ? MSWDO_SETTINGS_SECTIONS
-        : isMayorRole
-          ? MAYOR_SETTINGS_SECTIONS
-        : [];
+    const availableSections = getSectionsForRole({
+      isBarangayRole,
+      isMswdoRole,
+      isMayorRole,
+    });
 
     if (availableSections.length === 0) {
       setActiveSection(null);
@@ -1080,7 +487,7 @@ const RoleSettingsPage = () => {
 
     setPreferences((current) => {
       if (
-        current.profile.position === BARANGAY_POSITION_LABEL &&
+        current.profile.position === getRolePositionLabel(ROLE_CODES.BARANGAY) &&
         current.profile.emailAddress === lockedEmailAddress &&
         current.profile.contactNumber === normalizedContactNumber
       ) {
@@ -1091,7 +498,7 @@ const RoleSettingsPage = () => {
         ...current,
         profile: {
           ...current.profile,
-          position: BARANGAY_POSITION_LABEL,
+          position: getRolePositionLabel(ROLE_CODES.BARANGAY),
           contactNumber: normalizedContactNumber,
           emailAddress: lockedEmailAddress,
         },
@@ -1360,11 +767,7 @@ const RoleSettingsPage = () => {
     const lockedEmailAddress = authenticatedUser.email || preferences.profile.emailAddress;
 
     if (isBarangayRole || isMswdoRole || isMayorRole) {
-      const lockedPosition = isBarangayRole
-        ? BARANGAY_POSITION_LABEL
-        : isMswdoRole
-          ? ROLE_DISPLAY_NAMES[ROLE_CODES.MSWDO]
-          : ROLE_DISPLAY_NAMES[ROLE_CODES.MAYOR];
+      const lockedPosition = getRolePositionLabel(currentRole);
       const validationErrors = getBarangayProfileValidationErrors({
         ...preferences.profile,
         fullName: trimmedFullName,
@@ -1415,31 +818,16 @@ const RoleSettingsPage = () => {
     setIsSavingPreferences(true);
 
     try {
-      const updatedProfile = isBarangayRole
-        ? {
-            ...preferences.profile,
-            fullName: trimmedFullName,
-            position: BARANGAY_POSITION_LABEL,
-            contactNumber: normalizedContactNumber,
-            emailAddress: lockedEmailAddress,
-          }
-        : isMswdoRole
+      const updatedProfile =
+        isBarangayRole || isMswdoRole || isMayorRole
           ? {
               ...preferences.profile,
               fullName: trimmedFullName,
-              position: ROLE_DISPLAY_NAMES[ROLE_CODES.MSWDO],
+              position: getRolePositionLabel(currentRole),
               contactNumber: normalizedContactNumber,
               emailAddress: lockedEmailAddress,
             }
-        : isMayorRole
-          ? {
-              ...preferences.profile,
-              fullName: trimmedFullName,
-              position: ROLE_DISPLAY_NAMES[ROLE_CODES.MAYOR],
-              contactNumber: normalizedContactNumber,
-              emailAddress: lockedEmailAddress,
-            }
-        : preferences.profile;
+          : preferences.profile;
       const updatedSettings = {
         ...preferences,
         profile: updatedProfile,
@@ -1703,312 +1091,91 @@ const RoleSettingsPage = () => {
     [preferences],
   );
   const localSyncLogRows = useMemo(
-    () =>
-      syncEntries
-        .map((entry) => ({
-          id: entry.id,
-          timestamp:
-            entry.updatedAt ||
-            entry.createdAt ||
-            entry.clientTimestamp ||
-            entry.syncedAt ||
-            "",
-          label: formatQueueEntryTitle(entry),
-          status: entry.status || LOCAL_SYNC_STATUS.PENDING,
-          detail: entry.moduleName
-            ? String(entry.moduleName).replace(/[_-]/g, " ")
-            : entry.actionKey || "--",
-        }))
-        .sort((left, right) => {
-          const leftTime = left.timestamp ? new Date(left.timestamp).getTime() : 0;
-          const rightTime = right.timestamp ? new Date(right.timestamp).getTime() : 0;
-          return rightTime - leftTime;
-        }),
+    () => buildLocalSyncLogRows(syncEntries),
     [syncEntries],
   );
 
   const activeBarangaySection = useMemo(
-    () =>
-      BARANGAY_SETTINGS_SECTIONS.find((section) => section.key === activeSection) ||
-      null,
+    () => getActiveSettingsSection(BARANGAY_SETTINGS_SECTIONS, activeSection),
     [activeSection],
   );
   const activeMswdoSection = useMemo(
-    () =>
-      MSWDO_SETTINGS_SECTIONS.find((section) => section.key === activeSection) || null,
+    () => getActiveSettingsSection(MSWDO_SETTINGS_SECTIONS, activeSection),
     [activeSection],
   );
   const activeMayorSection = useMemo(
-    () =>
-      MAYOR_SETTINGS_SECTIONS.find((section) => section.key === activeSection) || null,
+    () => getActiveSettingsSection(MAYOR_SETTINGS_SECTIONS, activeSection),
     [activeSection],
   );
 
-  const barangaySectionCards = useMemo(() => {
-    return BARANGAY_SETTINGS_SECTIONS.map((section) => {
-      switch (section.key) {
-        case "profile":
-          return {
-            ...section,
-            statusTone: preferences.profile.fullName ? "success" : "warning",
-            statusLabel: preferences.profile.fullName
-              ? "Profile ready"
-              : "Needs details",
-          };
-        case "security":
-          return {
-            ...section,
-            statusTone: preferences.security.twoFactorEnabled ? "success" : "info",
-            statusLabel: preferences.security.twoFactorEnabled
-              ? "2FA preferred"
-              : "Review settings",
-          };
-        case "notification-preferences":
-          return {
-            ...section,
-            statusTone: enabledRuleCodes.length > 0 ? "success" : "warning",
-            statusLabel: `${enabledRuleCodes.length} rules enabled`,
-          };
-        case "activity-logs":
-          return {
-            ...section,
-            statusTone: activityLogs.length > 0 ? "info" : "warning",
-            statusLabel:
-              activityLogs.length > 0
-                ? `${activityLogs.length} recent items`
-                : "No recent items",
-          };
-        default:
-          return {
-            ...section,
-            statusTone: "info",
-            statusLabel: "Open section",
-          };
-      }
-    });
-  }, [
-    activityLogs.length,
-    enabledRuleCodes.length,
-    preferences.profile.fullName,
-    preferences.security.twoFactorEnabled,
-  ]);
-  const mswdoSectionCards = useMemo(() => {
-    const syncStatus = getSyncStatusMeta(syncSummary, isOnline);
-
-    return MSWDO_SETTINGS_SECTIONS.map((section) => {
-      switch (section.key) {
-        case "profile":
-          return {
-            ...section,
-            statusTone: preferences.profile.fullName ? "success" : "warning",
-            statusLabel: preferences.profile.fullName
-              ? "Profile ready"
-              : "Needs details",
-          };
-        case "security":
-          return {
-            ...section,
-            statusTone: preferences.security.twoFactorEnabled ? "success" : "info",
-            statusLabel: preferences.security.twoFactorEnabled
-              ? "2FA preferred"
-              : "Review settings",
-          };
-        case "notification-preferences":
-          return {
-            ...section,
-            statusTone: enabledRuleCodes.length > 0 ? "success" : "warning",
-            statusLabel:
-              notificationRuleCount > 0
-                ? `${enabledRuleCodes.length} rules enabled`
-                : "No role rules found",
-          };
-        case "sync-center":
-          return {
-            ...section,
-            statusTone: syncStatus.tone,
-            statusLabel: syncStatus.label,
-          };
-        default:
-          return {
-            ...section,
-            statusTone: "info",
-            statusLabel: "Open section",
-          };
-      }
-    });
-  }, [
-    enabledRuleCodes.length,
-    isOnline,
-    notificationRuleCount,
-    preferences.profile.fullName,
-    preferences.security.twoFactorEnabled,
-    syncSummary,
-  ]);
-  const mayorSectionCards = useMemo(() => {
-    const syncStatus = getSyncStatusMeta(syncSummary, isOnline);
-
-    return MAYOR_SETTINGS_SECTIONS.map((section) => {
-      switch (section.key) {
-        case "profile":
-          return {
-            ...section,
-            statusTone: preferences.profile.fullName ? "success" : "warning",
-            statusLabel: preferences.profile.fullName
-              ? "Profile ready"
-              : "Needs details",
-          };
-        case "security":
-          return {
-            ...section,
-            statusTone: preferences.security.twoFactorEnabled ? "success" : "info",
-            statusLabel: preferences.security.twoFactorEnabled
-              ? "2FA preferred"
-              : "Review settings",
-          };
-        case "notification-preferences":
-          return {
-            ...section,
-            statusTone: enabledRuleCodes.length > 0 ? "success" : "warning",
-            statusLabel:
-              notificationRuleCount > 0
-                ? `${enabledRuleCodes.length} rules enabled`
-                : "No role rules found",
-          };
-        case "sync-status":
-          return {
-            ...section,
-            statusTone: syncStatus.tone,
-            statusLabel: syncStatus.label,
-          };
-        case "analytics-service":
-          return {
-            ...section,
-            statusTone: forecastHealth
-              ? forecastHealth.status === "Online"
-                ? "success"
-                : forecastHealth.status === "Offline"
-                  ? "error"
-                  : "warning"
-              : "warning",
-            statusLabel: forecastHealth?.status || "Unavailable",
-          };
-        case "inventory-alert-thresholds":
-          return {
-            ...section,
-            statusTone:
-              (inventoryThresholdSummary?.configured_items || 0) > 0
-                ? "info"
-                : "warning",
-            statusLabel: `${
-              inventoryThresholdSummary?.configured_items || 0
-            } items tracked`,
-          };
-        default:
-          return {
-            ...section,
-            statusTone: "info",
-            statusLabel: "Open section",
-          };
-      }
-    });
-  }, [
-    enabledRuleCodes.length,
-    forecastHealth,
-    inventoryThresholdSummary?.configured_items,
-    isOnline,
-    notificationRuleCount,
-    preferences.profile.fullName,
-    preferences.security.twoFactorEnabled,
-    syncSummary,
-  ]);
-
-  const barangayPageActions = activeBarangaySection
-    ? [
-        {
-          label: "Back to Categories",
-          onClick: () => setActiveSection(null),
-          variant: "secondary",
-        },
-        ...(
-          EDITABLE_BARANGAY_SECTION_KEYS.has(activeBarangaySection.key)
-            ? [
-                {
-                  label: isSavingPreferences ? "Saving..." : "Save Barangay Settings",
-                  onClick: handleSavePreferences,
-                  disabled: isSavingPreferences,
-                },
-              ]
-            : []
-        ),
-      ]
-    : [];
-  const mswdoPageActions = activeMswdoSection
-    ? [
-        {
-          label: "Back to Categories",
-          onClick: () => setActiveSection(null),
-          variant: "secondary",
-        },
-        ...(
-          EDITABLE_MSWDO_SECTION_KEYS.has(activeMswdoSection.key)
-            ? [
-                {
-                  label: isSavingPreferences ? "Saving..." : "Save MSWDO Settings",
-                  onClick: handleSavePreferences,
-                  disabled: isSavingPreferences,
-                },
-              ]
-            : []
-        ),
-      ]
-    : [];
-  const mayorPageActions = activeMayorSection
-    ? [
-        {
-          label: "Back to Categories",
-          onClick: () => setActiveSection(null),
-          variant: "secondary",
-        },
-        ...(
-          EDITABLE_MAYOR_SECTION_KEYS.has(activeMayorSection.key)
-            ? [
-                {
-                  label: isSavingPreferences ? "Saving..." : "Save Mayor Settings",
-                  onClick: handleSavePreferences,
-                  disabled: isSavingPreferences,
-                },
-              ]
-            : []
-        ),
-      ]
-    : [];
-
-  const safePreferences = normalizeRolePreferences(preferences);
-  const safeNotificationRules = ensureArray(notificationRules);
-  const safeSecurityActivityLogs = ensureArray(securityActivityLogs);
-  const safeEnabledRuleCodes = ensureArray(enabledRuleCodes);
-  const safeSyncSummary = {
-    total: Number(syncSummary?.total || 0),
-    [LOCAL_SYNC_STATUS.PENDING]: Number(syncSummary?.[LOCAL_SYNC_STATUS.PENDING] || 0),
-    [LOCAL_SYNC_STATUS.SYNCED]: Number(syncSummary?.[LOCAL_SYNC_STATUS.SYNCED] || 0),
-    [LOCAL_SYNC_STATUS.FAILED]: Number(syncSummary?.[LOCAL_SYNC_STATUS.FAILED] || 0),
-    [LOCAL_SYNC_STATUS.CONFLICT]: Number(syncSummary?.[LOCAL_SYNC_STATUS.CONFLICT] || 0),
-  };
-  const safeUnreadCount = Number(unreadCount || 0);
-  const safeNotificationRuleCount = Number(notificationRuleCount || 0);
-  const safeActivityLogs = ensureArray(activityLogs);
-  const safeLocalSyncLogRows = ensureArray(localSyncLogRows);
-  const safeForecastHealth = ensureObject(forecastHealth, null);
-  const safeInventoryThresholdSummary = {
-    configured_items: Number(inventoryThresholdSummary?.configured_items || 0),
-    distinct_thresholds: ensureArray(inventoryThresholdSummary?.distinct_thresholds),
-  };
-  const safeNotificationValidationErrors = ensureObject(
-    notificationValidationErrors,
-    {},
+  const barangaySectionCards = useMemo(
+    () =>
+      buildBarangaySectionCards({
+        preferences,
+        enabledRuleCodes,
+        activityLogs,
+      }),
+    [activityLogs, enabledRuleCodes, preferences],
+  );
+  const mswdoSectionCards = useMemo(
+    () =>
+      buildMswdoSectionCards({
+        preferences,
+        enabledRuleCodes,
+        notificationRuleCount,
+        syncSummary,
+        isOnline,
+      }),
+    [enabledRuleCodes, isOnline, notificationRuleCount, preferences, syncSummary],
+  );
+  const mayorSectionCards = useMemo(
+    () =>
+      buildMayorSectionCards({
+        preferences,
+        enabledRuleCodes,
+        notificationRuleCount,
+        syncSummary,
+        isOnline,
+        forecastHealth,
+        inventoryThresholdSummary,
+      }),
+    [
+      enabledRuleCodes,
+      forecastHealth,
+      inventoryThresholdSummary,
+      isOnline,
+      notificationRuleCount,
+      preferences,
+      syncSummary,
+    ],
   );
 
-  const sharedRoleViewContext = {
+  const barangayPageActions = buildSettingsPageActions({
+    activeSectionMeta: activeBarangaySection,
+    editableSectionKeys: EDITABLE_BARANGAY_SECTION_KEYS,
+    isSavingPreferences,
+    saveLabel: "Save Barangay Settings",
+    onBack: () => setActiveSection(null),
+    onSave: handleSavePreferences,
+  });
+  const mswdoPageActions = buildSettingsPageActions({
+    activeSectionMeta: activeMswdoSection,
+    editableSectionKeys: EDITABLE_MSWDO_SECTION_KEYS,
+    isSavingPreferences,
+    saveLabel: "Save MSWDO Settings",
+    onBack: () => setActiveSection(null),
+    onSave: handleSavePreferences,
+  });
+  const mayorPageActions = buildSettingsPageActions({
+    activeSectionMeta: activeMayorSection,
+    editableSectionKeys: EDITABLE_MAYOR_SECTION_KEYS,
+    isSavingPreferences,
+    saveLabel: "Save Mayor Settings",
+    onBack: () => setActiveSection(null),
+    onSave: handleSavePreferences,
+  });
+
+  const sharedRoleViewContext = buildSharedRoleViewContext({
     shellStyles,
     gridStyles,
     cardStyles,
@@ -2017,11 +1184,10 @@ const RoleSettingsPage = () => {
     errorTextStyles,
     tableStyles,
     pageHeaderStyles,
-    preferences: safePreferences,
+    preferences,
     profileTouched,
     profileErrors,
     authenticatedUser,
-    formatPhilippineContactNumberForDisplay,
     handleProfileFieldChange,
     handleProfileFieldBlur,
     profilePictureInputRef,
@@ -2035,61 +1201,64 @@ const RoleSettingsPage = () => {
     securityValidationErrors,
     togglePasswordVisibility,
     handleLocalPasswordReview,
-    formatDateTime,
-    formatSyncDateTime,
     InfoRow,
     EmptyState,
     isLoading,
-    securityActivityLogs: safeSecurityActivityLogs,
-    notificationRules: safeNotificationRules,
-    enabledRuleCodes: safeEnabledRuleCodes,
+    securityActivityLogs,
+  });
+
+  const barangayViewContext = buildBarangayViewContext({
+    sharedContext: sharedRoleViewContext,
+    assignedBarangayName,
+    notificationTouched,
+    notificationValidationErrors,
+    handleResetNotificationPreferences,
+    handleNotificationChannelToggle,
+    notificationRules,
+    enabledRuleCodes,
     toggleNotificationRule,
+    activityLogs,
+  });
+
+  const mswdoViewContext = buildMswdoViewContext({
+    sharedContext: sharedRoleViewContext,
+    notificationTouched,
+    notificationValidationErrors,
+    handleResetNotificationPreferences,
+    handleNotificationChannelToggle,
+    notificationRules,
+    enabledRuleCodes,
+    toggleNotificationRule,
+    unreadCount,
+    notificationRuleCount,
     navigate,
     handleSyncNow,
     isSyncingNow,
-    syncSummary: safeSyncSummary,
-    LOCAL_SYNC_STATUS,
-    getSyncStatusMeta,
+    syncSummary,
     isOnline,
-    ROLE_DISPLAY_NAMES,
-    ROLE_CODES,
-    unreadCount: safeUnreadCount,
-    notificationRuleCount: safeNotificationRuleCount,
-  };
+    localSyncLogRows,
+  });
 
-  const barangayViewContext = {
-    ...sharedRoleViewContext,
-    BARANGAY_POSITION_LABEL,
-    assignedBarangayName,
+  const mayorViewContext = buildMayorViewContext({
+    sharedContext: sharedRoleViewContext,
     notificationTouched,
-    notificationValidationErrors: safeNotificationValidationErrors,
+    notificationValidationErrors,
     handleResetNotificationPreferences,
-    BARANGAY_NOTIFICATION_OPTIONS,
     handleNotificationChannelToggle,
-    activityLogs: safeActivityLogs,
-  };
-
-  const mswdoViewContext = {
-    ...sharedRoleViewContext,
-    notificationTouched,
-    notificationValidationErrors: safeNotificationValidationErrors,
-    handleResetNotificationPreferences,
-    BARANGAY_NOTIFICATION_OPTIONS,
-    handleNotificationChannelToggle,
-    localSyncLogRows: safeLocalSyncLogRows,
-  };
-
-  const mayorViewContext = {
-    ...sharedRoleViewContext,
-    notificationTouched,
-    notificationValidationErrors: safeNotificationValidationErrors,
-    handleResetNotificationPreferences,
-    BARANGAY_NOTIFICATION_OPTIONS,
-    handleNotificationChannelToggle,
-    localSyncLogRows: safeLocalSyncLogRows,
-    forecastHealth: safeForecastHealth,
-    inventoryThresholdSummary: safeInventoryThresholdSummary,
-  };
+    notificationRules,
+    enabledRuleCodes,
+    toggleNotificationRule,
+    unreadCount,
+    notificationRuleCount,
+    navigate,
+    handleSyncNow,
+    isSyncingNow,
+    syncSummary,
+    isOnline,
+    localSyncLogRows,
+    forecastHealth,
+    inventoryThresholdSummary,
+  });
   if (isBarangayRole) {
     return (
       <BarangaySettingsView

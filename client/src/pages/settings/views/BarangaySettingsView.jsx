@@ -61,8 +61,6 @@ const BarangaySettingsView = ({
     enabledRuleCodes,
     toggleNotificationRule,
     activityLogs,
-    unreadCount,
-    notificationRuleCount,
   } = ctx;
 
   const renderSectionContent = () => {
