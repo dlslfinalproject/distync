@@ -79,6 +79,9 @@ const buildFilename = ({ scope, format, eventLabel }) => {
   )}-${getDateStamp()}.${extensionMap[format]}`;
 };
 
+const getReportTitle = (eventLabel) =>
+  eventLabel ? "Disaster Event Report" : "Disaster Events Report";
+
 const escapeCsvValue = (value) => {
   const stringValue = value === null || value === undefined ? "" : String(value);
 
@@ -121,7 +124,7 @@ const buildTitleLines = ({ scope, search, eventLabel, totalRows }) => {
   return [
     "DISTYNC",
     "Municipality of Malvar Disaster Relief Management System",
-    "Disaster Event Report",
+    getReportTitle(eventLabel),
     ...(eventLabel ? [`Disaster Event: ${eventLabel}`] : []),
     `Tab: ${SCOPE_LABELS[scope] || SCOPE_LABELS.all}`,
     `Search: ${search?.trim() || "None"}`,
@@ -183,7 +186,7 @@ const buildExcelBuffer = async ({ rows, scope, search, eventLabel }) => {
   };
   worksheet.getCell("B1").alignment = { horizontal: "left", vertical: "middle" };
   worksheet.mergeCells(2, 2, 2, EXPORT_COLUMNS.length);
-  worksheet.getCell("B2").value = "Disaster Event Report";
+  worksheet.getCell("B2").value = getReportTitle(eventLabel);
   worksheet.getCell("B2").font = {
     bold: true,
     size: 14,
@@ -290,7 +293,7 @@ const buildPdfBuffer = ({ rows, scope, search, eventLabel }) => {
       size: 18,
       color: reportExport.PDF_COLORS.white,
     });
-    addText("MSWDO Disaster Events Report", 112, 524, {
+    addText(`MSWDO ${getReportTitle(eventLabel)}`, 112, 524, {
       bold: true,
       size: 14,
       color: reportExport.PDF_COLORS.white,

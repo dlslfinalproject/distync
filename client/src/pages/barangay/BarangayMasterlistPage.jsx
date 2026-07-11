@@ -93,6 +93,10 @@ const BarangayMasterlistPage = () => {
     useState("newest");
   const [selectedExportSectorIds, setSelectedExportSectorIds] = useState([]);
   const [availableExportSectorIds, setAvailableExportSectorIds] = useState([]);
+  const [exportValidationErrors, setExportValidationErrors] = useState({
+    sectors: "",
+    barangays: "",
+  });
   const [exportFeedback, setExportFeedback] = useState({
     type: "",
     message: "",
@@ -285,10 +289,32 @@ const BarangayMasterlistPage = () => {
   ]);
 
   useEffect(() => {
-    setSelectedExportSectorIds((currentIds) =>
-      currentIds.filter((sectorId) => availableExportSectorIds.includes(sectorId)),
-    );
-  }, [availableExportSectorIds]);
+    setSelectedExportSectorIds((currentIds) => {
+      const nextIds = currentIds.filter((sectorId) =>
+        availableExportSectorIds.includes(sectorId),
+      );
+
+      if (isExportModalOpen && nextIds.length === 0) {
+        return availableExportSectorIds;
+      }
+
+      return nextIds;
+    });
+  }, [availableExportSectorIds, isExportModalOpen]);
+
+  useEffect(() => {
+    if (!isExportModalOpen) {
+      setExportValidationErrors({ sectors: "", barangays: "" });
+      return;
+    }
+
+    if (selectedExportSectorIds.length > 0) {
+      setExportValidationErrors((currentErrors) => ({
+        ...currentErrors,
+        sectors: "",
+      }));
+    }
+  }, [isExportModalOpen, selectedExportSectorIds.length]);
 
   useEffect(() => {
     const activeEvents = availableEvents.filter(
@@ -409,6 +435,11 @@ const BarangayMasterlistPage = () => {
       !selectedHouseholds.length ||
       isRecordingDeparture
     ) {
+      return;
+    }
+
+    if (selectedHouseholds.length === 1) {
+      await handleOpenDepartureConfirmation(selectedHouseholds[0]);
       return;
     }
 
@@ -658,9 +689,12 @@ const BarangayMasterlistPage = () => {
   const handleOpenExportModal = () => {
     setSelectedExportDisasterEventId(selectedEvent?.id || "");
     setSelectedExportFormat("csv");
-    setSelectedExportRecordStatus(recordStatus);
+    setSelectedExportRecordStatus(isSelectedEventEnded ? "archived" : recordStatus);
     setSelectedExportSortOrder(selectedSortOrder);
-    setSelectedExportSectorIds(selectedSectorIds);
+    setSelectedExportSectorIds(
+      selectedSectorIds.length ? selectedSectorIds : availableExportSectorIds,
+    );
+    setExportValidationErrors({ sectors: "", barangays: "" });
     setExportFeedback({ type: "", message: "" });
     setIsExportModalOpen(true);
   };
@@ -670,6 +704,14 @@ const BarangayMasterlistPage = () => {
       setExportFeedback({
         type: "error",
         message: "Select a disaster event before exporting the masterlist.",
+      });
+      return;
+    }
+
+    if (selectedExportSectorIds.length === 0) {
+      setExportValidationErrors({
+        sectors: "Select at least one sector.",
+        barangays: "",
       });
       return;
     }
@@ -855,6 +897,7 @@ const BarangayMasterlistPage = () => {
         availableSectorIds={availableExportSectorIds}
         availableBarangayIds={selectedExportBarangayIds}
         selectedFormat={selectedExportFormat}
+        validationErrors={exportValidationErrors}
         onClose={() => {
           if (!exportingFormat) {
             setIsExportModalOpen(false);
@@ -868,16 +911,26 @@ const BarangayMasterlistPage = () => {
         onRecordStatusChange={setSelectedExportRecordStatus}
         onSortOrderChange={setSelectedExportSortOrder}
         onSectorToggle={(sectorId) => {
-          setSelectedExportSectorIds((currentValues) =>
-            currentValues.includes(sectorId)
+          setSelectedExportSectorIds((currentValues) => {
+            const nextValues = currentValues.includes(sectorId)
               ? currentValues.filter((id) => id !== sectorId)
-              : [...currentValues, sectorId],
-          );
+              : [...currentValues, sectorId];
+
+            if (nextValues.length > 0) {
+              setExportValidationErrors((currentErrors) => ({
+                ...currentErrors,
+                sectors: "",
+              }));
+            }
+
+            return nextValues;
+          });
         }}
         onClearSectors={() => setSelectedExportSectorIds([])}
         onFormatChange={setSelectedExportFormat}
         sortOptions={MASTERLIST_SORT_OPTIONS}
         hideBarangaySelection
+        hideRecordStatusSelection={isSelectedEventEnded}
       />
 
       <FeedbackToast

@@ -60,6 +60,13 @@ const labelStyles = {
   fontWeight: 700,
 };
 
+const errorTextStyles = {
+  margin: "10px 0 0",
+  color: "#dc2626",
+  fontSize: "13px",
+  fontWeight: 500,
+};
+
 const chipStyles = (isSelected) => ({
   display: "inline-flex",
   alignItems: "center",
@@ -139,6 +146,7 @@ const DisasterEventExportModal = ({
   onSelectAllBarangays,
   onClearBarangays,
   onFormatChange,
+  validationErrors = {},
 }) => {
   if (!isOpen) {
     return null;
@@ -176,7 +184,7 @@ const DisasterEventExportModal = ({
         >
           <div>
             <h3 style={{ margin: 0, color: "#17324d", fontSize: "26px" }}>
-              Disaster Event Report
+              Disaster Events Report
             </h3>
           </div>
           <button
@@ -314,6 +322,10 @@ const DisasterEventExportModal = ({
                 );
               })}
             </div>
+
+            {validationErrors.disasterTypes ? (
+              <p style={errorTextStyles}>{validationErrors.disasterTypes}</p>
+            ) : null}
           </section>
 
           <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
@@ -376,6 +388,10 @@ const DisasterEventExportModal = ({
                 );
               })}
             </div>
+
+            {validationErrors.affectedBarangays ? (
+              <p style={errorTextStyles}>{validationErrors.affectedBarangays}</p>
+            ) : null}
           </section>
 
           <div

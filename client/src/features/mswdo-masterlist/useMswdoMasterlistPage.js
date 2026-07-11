@@ -319,18 +319,32 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   }, [isExportModalOpen, selectedExportDisasterEventId, selectedExportRecordStatus]);
 
   useEffect(() => {
-    setSelectedExportSectorIds((currentIds) =>
-      currentIds.filter((sectorId) => availableExportSectorIds.includes(sectorId)),
-    );
-  }, [availableExportSectorIds]);
+    setSelectedExportSectorIds((currentIds) => {
+      const nextIds = currentIds.filter((sectorId) =>
+        availableExportSectorIds.includes(sectorId),
+      );
+
+      if (isExportModalOpen && nextIds.length === 0) {
+        return availableExportSectorIds;
+      }
+
+      return nextIds;
+    });
+  }, [availableExportSectorIds, isExportModalOpen]);
 
   useEffect(() => {
-    setSelectedExportBarangayIds((currentIds) =>
-      currentIds.filter((barangayId) =>
+    setSelectedExportBarangayIds((currentIds) => {
+      const nextIds = currentIds.filter((barangayId) =>
         availableExportBarangayIds.includes(barangayId),
-      ),
-    );
-  }, [availableExportBarangayIds]);
+      );
+
+      if (isExportModalOpen && nextIds.length === 0) {
+        return availableExportBarangayIds;
+      }
+
+      return nextIds;
+    });
+  }, [availableExportBarangayIds, isExportModalOpen]);
 
   const handleExportDisasterEventChange = (nextEventId) => {
     setSelectedExportDisasterEventId(nextEventId);
@@ -410,6 +424,11 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
 
   const handleOpenBulkDepartureConfirmation = async () => {
     if (isEndedView || !selectedHouseholds.length || isRecordingDeparture) {
+      return;
+    }
+
+    if (selectedHouseholds.length === 1) {
+      await handleOpenDepartureConfirmation(selectedHouseholds[0]);
       return;
     }
 
