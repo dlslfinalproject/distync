@@ -642,79 +642,17 @@ const DisasterEventsPage = () => {
 
   return (
     <div
-      style={{ flex: 1, minWidth: 0, maxWidth: "100%", overflowX: "hidden" }}
+      style={{
+        flex: 1,
+        minWidth: 0,
+        maxWidth: "100%",
+        overflowX: "hidden",
+        display: "flex",
+        flexDirection: "column",
+        gap: "24px",
+      }}
     >
       <PageHeader title="DISASTER EVENT MANAGEMENT" />
-
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          alignItems: "center",
-          gap: "12px",
-          margin: "16px 0 24px",
-          flexWrap: "wrap",
-        }}
-      >
-        <button
-          onClick={openCreateModal}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "8px",
-            border: "none",
-            borderRadius: "14px",
-            padding: "12px 18px",
-            background: "linear-gradient(135deg, #2f6499 0%, #4c86be 100%)",
-            color: "#ffffff",
-            fontSize: "14px",
-            fontWeight: 700,
-            cursor: "pointer",
-            boxShadow: "0 12px 24px rgba(58, 97, 141, 0.18)",
-          }}
-        >
-          <span style={{ fontSize: "16px", lineHeight: 1 }}>+</span>
-          Create Disaster Event
-        </button>
-
-        <div style={{ position: "relative" }}>
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedExportFormat("csv");
-              setSelectedExportRecordStatus(selectedFilter);
-              setSelectedExportSortOrder(selectedSortOrder);
-              setSelectedExportDisasterTypes(selectedDisasterTypes);
-              setSelectedExportAffectedBarangayIds(selectedAffectedBarangayIds);
-              setExportScopeEvents(events);
-              setExportFeedback({ type: "", message: "" });
-              setIsExportModalOpen(true);
-            }}
-            disabled={Boolean(exportingFormat)}
-            style={{
-              border: "1px solid #c6d8ea",
-              borderRadius: "14px",
-              padding: "12px 18px",
-              backgroundColor: "#f8fbfe",
-              color: "#2a4c6f",
-              fontSize: "14px",
-              fontWeight: 700,
-              cursor: exportingFormat ? "not-allowed" : "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              opacity: exportingFormat ? 0.7 : 1,
-            }}
-          >
-            <span style={{ display: "flex", alignItems: "center", gap: "2px" }}>
-              <FiFileText size={16} />
-            </span>
-            {exportingFormat
-              ? `Exporting ${exportingFormat.toUpperCase()}...`
-              : "Export"}
-          </button>
-        </div>
-      </div>
 
       <section style={{ ...shellStyles.card, boxSizing: "border-box" }}>
         <div
@@ -753,10 +691,9 @@ const DisasterEventsPage = () => {
       <div
         style={{
           display: "flex",
+          justifyContent: "space-between",
           alignItems: "center",
-          gap: "12px",
-          marginTop: "16px",
-          marginBottom: "20px",
+          gap: "16px",
           flexWrap: "wrap",
         }}
       >
@@ -768,103 +705,169 @@ const DisasterEventsPage = () => {
           />
         </div>
 
-        <div style={{ position: "relative" }}>
-          <button
-            ref={filterButtonRef}
-            type="button"
-            onClick={() => setIsFilterOpen((currentValue) => !currentValue)}
-            style={pageHeaderStyles.secondaryButton}
-          >
-            <FiFilter size={16} />
-            {hasActiveFilters ? `Filter (${activeFilterCount})` : "Filter"}
-          </button>
-
-          {isFilterOpen ? (
-            <div
-              ref={filterPanelRef}
+        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+          <div style={{ position: "relative" }}>
+            <button
+              ref={filterButtonRef}
+              type="button"
+              onClick={() => setIsFilterOpen((currentValue) => !currentValue)}
               style={{
-                ...filterPanelStyles.panel,
-                top: filterPanelPosition.top,
-                left: filterPanelPosition.left,
-                maxHeight: filterPanelPosition.maxHeight,
+                ...pageHeaderStyles.secondaryButton,
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
               }}
             >
-              <h3 style={filterPanelStyles.title}>Filter Disaster Events</h3>
+              <FiFilter size={16} />
+              {hasActiveFilters ? `Filter (${activeFilterCount})` : "Filter"}
+            </button>
 
-              <label style={filterPanelStyles.field}>
-                <span style={filterPanelStyles.label}>Order List</span>
-                <select
-                  value={selectedSortOrder}
-                  onChange={(event) =>
-                    updateCurrentTabFilters({ sortOrder: event.target.value })
-                  }
-                  style={filterPanelStyles.select}
-                >
-                  {MASTERLIST_SORT_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            {isFilterOpen ? (
+              <div
+                ref={filterPanelRef}
+                style={{
+                  ...filterPanelStyles.panel,
+                  top: filterPanelPosition.top,
+                  left: filterPanelPosition.left,
+                  maxHeight: filterPanelPosition.maxHeight,
+                }}
+              >
+                <h3 style={filterPanelStyles.title}>Filter Disaster Events</h3>
 
-              <h3 style={filterPanelStyles.title}>Disaster Type</h3>
+                <label style={filterPanelStyles.field}>
+                  <span style={filterPanelStyles.label}>Order List</span>
+                  <select
+                    value={selectedSortOrder}
+                    onChange={(event) =>
+                      updateCurrentTabFilters({ sortOrder: event.target.value })
+                    }
+                    style={filterPanelStyles.select}
+                  >
+                    {MASTERLIST_SORT_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
-              <div style={filterPanelStyles.list}>
-                {disasterTypeOptions.length > 0 ? (
-                  disasterTypeOptions.map((disasterType) => (
-                    <label key={disasterType} style={filterPanelStyles.option}>
-                      <input
-                        type="checkbox"
-                        checked={selectedDisasterTypes.includes(disasterType)}
-                        onChange={() => toggleCurrentTabDisasterType(disasterType)}
-                        style={{ accentColor: "#2f6499" }}
-                      />
-                      <span>{disasterType}</span>
-                    </label>
-                  ))
-                ) : (
-                  <p style={{ margin: 0, color: "#5d7188", fontSize: "14px" }}>
-                    No disaster types are available.
-                  </p>
-                )}
+                <h3 style={filterPanelStyles.title}>Disaster Type</h3>
+
+                <div style={filterPanelStyles.list}>
+                  {disasterTypeOptions.length > 0 ? (
+                    disasterTypeOptions.map((disasterType) => (
+                      <label key={disasterType} style={filterPanelStyles.option}>
+                        <input
+                          type="checkbox"
+                          checked={selectedDisasterTypes.includes(disasterType)}
+                          onChange={() =>
+                            toggleCurrentTabDisasterType(disasterType)
+                          }
+                          style={{ accentColor: "#2f6499" }}
+                        />
+                        <span>{disasterType}</span>
+                      </label>
+                    ))
+                  ) : (
+                    <p style={{ margin: 0, color: "#5d7188", fontSize: "14px" }}>
+                      No disaster types are available.
+                    </p>
+                  )}
+                </div>
+
+                <h3 style={filterPanelStyles.title}>Affected Barangay</h3>
+
+                <div style={filterPanelStyles.list}>
+                  {barangays.length > 0 ? (
+                    barangays.map((barangay) => (
+                      <label key={barangay.id} style={filterPanelStyles.option}>
+                        <input
+                          type="checkbox"
+                          checked={selectedAffectedBarangayIds.includes(
+                            barangay.id,
+                          )}
+                          onChange={() =>
+                            toggleCurrentTabAffectedBarangay(barangay.id)
+                          }
+                          style={{ accentColor: "#2f6499" }}
+                        />
+                        <span>{barangay.name}</span>
+                      </label>
+                    ))
+                  ) : (
+                    <p style={{ margin: 0, color: "#5d7188", fontSize: "14px" }}>
+                      No barangays are available.
+                    </p>
+                  )}
+                </div>
+
+                <div style={filterPanelStyles.actions}>
+                  <button
+                    type="button"
+                    onClick={clearCurrentTabFilters}
+                    style={filterPanelStyles.clearAction}
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
+            ) : null}
+          </div>
 
-              <h3 style={filterPanelStyles.title}>Affected Barangay</h3>
+          <button
+            onClick={openCreateModal}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              border: "none",
+              borderRadius: "14px",
+              padding: "12px 18px",
+              background: "linear-gradient(135deg, #2f6499 0%, #4c86be 100%)",
+              color: "#ffffff",
+              fontSize: "14px",
+              fontWeight: 700,
+              cursor: "pointer",
+              boxShadow: "0 12px 24px rgba(58, 97, 141, 0.18)",
+            }}
+          >
+            <span style={{ fontSize: "16px", lineHeight: 1 }}>+</span>
+            Create Disaster Event
+          </button>
 
-              <div style={filterPanelStyles.list}>
-                {barangays.length > 0 ? (
-                  barangays.map((barangay) => (
-                    <label key={barangay.id} style={filterPanelStyles.option}>
-                      <input
-                        type="checkbox"
-                        checked={selectedAffectedBarangayIds.includes(barangay.id)}
-                        onChange={() =>
-                          toggleCurrentTabAffectedBarangay(barangay.id)
-                        }
-                        style={{ accentColor: "#2f6499" }}
-                      />
-                      <span>{barangay.name}</span>
-                    </label>
-                  ))
-                ) : (
-                  <p style={{ margin: 0, color: "#5d7188", fontSize: "14px" }}>
-                    No barangays are available.
-                  </p>
-                )}
-              </div>
-
-              <div style={filterPanelStyles.actions}>
-                <button
-                  type="button"
-                  onClick={clearCurrentTabFilters}
-                  style={filterPanelStyles.clearAction}
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
-          ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedExportFormat("csv");
+              setSelectedExportRecordStatus(selectedFilter);
+              setSelectedExportSortOrder(selectedSortOrder);
+              setSelectedExportDisasterTypes(selectedDisasterTypes);
+              setSelectedExportAffectedBarangayIds(selectedAffectedBarangayIds);
+              setExportScopeEvents(events);
+              setExportFeedback({ type: "", message: "" });
+              setIsExportModalOpen(true);
+            }}
+            disabled={Boolean(exportingFormat)}
+            style={{
+              border: "1px solid #c6d8ea",
+              borderRadius: "14px",
+              padding: "12px 18px",
+              backgroundColor: "#f8fbfe",
+              color: "#2a4c6f",
+              fontSize: "14px",
+              fontWeight: 700,
+              cursor: exportingFormat ? "not-allowed" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              opacity: exportingFormat ? 0.7 : 1,
+            }}
+          >
+            <FiFileText size={16} />
+            {exportingFormat
+              ? `Exporting ${exportingFormat.toUpperCase()}...`
+              : "Export"}
+          </button>
         </div>
       </div>
 
