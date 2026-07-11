@@ -147,6 +147,9 @@ const sortDisasterEvents = (events = []) => {
   });
 };
 
+const formatDisasterEventTitle = (event) =>
+  String(event?.title || "").trim() || "Untitled disaster event";
+
 const MswdoExportModal = ({
   isOpen,
   title = "Evacuee Masterlist Report",
@@ -258,7 +261,7 @@ const MswdoExportModal = ({
                   <option value="">Select disaster event</option>
                   {sortedEvents.map((event) => (
                     <option key={event.id} value={event.id}>
-                      {event.event_code} - {event.title}
+                      {formatDisasterEventTitle(event)}
                     </option>
                   ))}
                 </select>

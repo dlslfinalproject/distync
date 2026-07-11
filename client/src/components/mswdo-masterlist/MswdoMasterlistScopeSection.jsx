@@ -35,6 +35,9 @@ const tabButtonStyles = (isActive) => ({
   cursor: "pointer",
 });
 
+const formatDisasterEventTitle = (event) =>
+  String(event?.title || "").trim() || "Untitled disaster event";
+
 const MswdoMasterlistScopeSection = ({
   activeTab,
   isLoadingFilters,
@@ -99,7 +102,7 @@ const MswdoMasterlistScopeSection = ({
             </option>
             {scopedDisasterEvents.map((event) => (
               <option key={event.id} value={event.id}>
-                {event.event_code} - {event.title}
+                {formatDisasterEventTitle(event)}
               </option>
             ))}
           </select>

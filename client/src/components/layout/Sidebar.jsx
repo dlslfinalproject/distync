@@ -197,7 +197,7 @@ const roleMeta = {
   [ROLE_CODES.MSWDO]: {
     navItems: [
       { label: "Disaster Events", to: "/mswdo/disaster-events" },
-      { label: "Disaster Reports", to: "/mswdo/disaster-reports" },
+      { label: "Disaster Events Summary", to: "/mswdo/disaster-reports" },
       { label: "Evacuee Masterlist", to: "/mswdo/consolidated-masterlist" },
       { label: "Relief Goods Distribution", to: "/mswdo/stub-distribution" },
       { label: "Distribution History", to: "/mswdo/distribution-history" },

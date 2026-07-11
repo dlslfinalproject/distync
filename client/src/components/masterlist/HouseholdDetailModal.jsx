@@ -316,8 +316,7 @@ const HouseholdDetailModal = ({
                 <div>
                   <p style={modalStyles.label}>Disaster Event</p>
                   <p style={modalStyles.value}>
-                    {`${household.event_code || ""} ${household.disaster_event_title || ""}`.trim() ||
-                      "--"}
+                    {household.disaster_event_title || "--"}
                   </p>
                 </div>
                 <div>

@@ -391,9 +391,33 @@ const getDisasterEventReportSummary = async ({
     ) affected_barangays ON TRUE
     LEFT JOIN LATERAL (
       SELECT COUNT(*)::int AS registered_households_count
-      FROM households h
-      WHERE h.disaster_event_id = de.id
-      ${barangayScopedHouseholds}
+      FROM (
+        SELECT DISTINCT ON (scoped_households.household_key)
+          scoped_households.household_key
+        FROM (
+          SELECT
+            h.registered_at,
+            h.updated_at,
+            LOWER(
+              CONCAT_WS(
+                '|',
+                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_first_name, '')), '\\s+', ' ', 'g'),
+                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_middle_name, '')), '\\s+', ' ', 'g'),
+                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_last_name, '')), '\\s+', ' ', 'g'),
+                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_suffix, '')), '\\s+', ' ', 'g'),
+                COALESCE(h.sex, ''),
+                REGEXP_REPLACE(BTRIM(COALESCE(h.contact_number, '')), '\\s+', '', 'g')
+              )
+            ) AS household_key
+          FROM households h
+          WHERE h.disaster_event_id = de.id
+          ${barangayScopedHouseholds}
+        ) scoped_households
+        ORDER BY
+          scoped_households.household_key,
+          COALESCE(scoped_households.updated_at, scoped_households.registered_at) DESC,
+          scoped_households.registered_at DESC
+      ) latest_households
     ) household_counts ON TRUE
     LEFT JOIN LATERAL (
       SELECT
