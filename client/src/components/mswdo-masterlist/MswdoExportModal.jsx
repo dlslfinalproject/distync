@@ -46,6 +46,13 @@ const labelStyles = {
   fontWeight: 700,
 };
 
+const errorTextStyles = {
+  margin: "10px 0 0",
+  color: "#dc2626",
+  fontSize: "13px",
+  fontWeight: 500,
+};
+
 const chipStyles = (isSelected) => ({
   display: "inline-flex",
   alignItems: "center",
@@ -168,6 +175,7 @@ const MswdoExportModal = ({
   onFormatChange,
   sortOptions,
   hideBarangaySelection = false,
+  validationErrors = {},
 }) => {
   if (!isOpen) {
     return null;
@@ -303,17 +311,6 @@ const MswdoExportModal = ({
 
           <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
             <h3 style={sectionTitleStyles}>Sectors</h3>
-            <p
-              style={{
-                margin: "0 0 12px",
-                color: "#5f7890",
-                fontSize: "13px",
-                lineHeight: 1.5,
-              }}
-            >
-              Leave blank to include all records. Selecting one or more sectors
-              will include records that match any of the selected sectors.
-            </p>
 
             <div
               style={{
@@ -376,6 +373,9 @@ const MswdoExportModal = ({
                 );
               })}
             </div>
+            {validationErrors.sectors ? (
+              <p style={errorTextStyles}>{validationErrors.sectors}</p>
+            ) : null}
           </section>
 
           {!hideBarangaySelection ? (
@@ -441,6 +441,9 @@ const MswdoExportModal = ({
                   );
                 })}
               </div>
+              {validationErrors.barangays ? (
+                <p style={errorTextStyles}>{validationErrors.barangays}</p>
+              ) : null}
             </section>
           ) : null}
 
@@ -463,19 +466,10 @@ const MswdoExportModal = ({
             <button
               type="button"
               onClick={onSubmit}
-              disabled={
-                isSubmitting ||
-                !selectedDisasterEventId ||
-                selectedBarangayIds.length === 0
-              }
+              disabled={isSubmitting || !selectedDisasterEventId}
               style={{
                 ...pageHeaderStyles.primaryButton,
-                opacity:
-                  isSubmitting ||
-                  !selectedDisasterEventId ||
-                  selectedBarangayIds.length === 0
-                    ? 0.7
-                    : 1,
+                opacity: isSubmitting || !selectedDisasterEventId ? 0.7 : 1,
               }}
             >
               {isSubmitting ? "Exporting..." : "Export"}

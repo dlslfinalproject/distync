@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
@@ -139,6 +139,47 @@ const ConsolidatedEvacueeMasterlist = () => {
   const pendingRestoreVariant = pendingRestoreRow?.is_non_admitted_resident
     ? "admit"
     : "readmit";
+  const [exportValidationErrors, setExportValidationErrors] = useState({
+    sectors: "",
+    barangays: "",
+  });
+
+  useEffect(() => {
+    if (!isExportModalOpen) {
+      setExportValidationErrors({ sectors: "", barangays: "" });
+      return;
+    }
+
+    setExportValidationErrors((currentErrors) => ({
+      sectors: selectedExportSectorIds.length ? "" : currentErrors.sectors,
+      barangays: selectedExportBarangayIds.length
+        ? ""
+        : currentErrors.barangays,
+    }));
+  }, [
+    isExportModalOpen,
+    selectedExportBarangayIds.length,
+    selectedExportSectorIds.length,
+  ]);
+
+  const handleValidatedExport = (format) => {
+    const nextErrors = {
+      sectors: selectedExportSectorIds.length
+        ? ""
+        : "Select at least one sector.",
+      barangays: selectedExportBarangayIds.length
+        ? ""
+        : "Select at least one barangay.",
+    };
+
+    if (nextErrors.sectors || nextErrors.barangays) {
+      setExportValidationErrors(nextErrors);
+      return;
+    }
+
+    setExportValidationErrors({ sectors: "", barangays: "" });
+    handleExport(format);
+  };
 
   return (
     <>
@@ -242,6 +283,7 @@ const ConsolidatedEvacueeMasterlist = () => {
           setSelectedExportRecordStatus(selectedRecordStatus);
           setSelectedExportSortOrder(selectedSortOrder);
           setSelectedExportSectorIds(selectedSectorIds);
+          setExportValidationErrors({ sectors: "", barangays: "" });
           setExportFeedback({ type: "", message: "" });
           setIsExportModalOpen(true);
         }}
@@ -290,32 +332,55 @@ const ConsolidatedEvacueeMasterlist = () => {
         availableSectorIds={availableExportSectorIds}
         availableBarangayIds={availableExportBarangayIds}
         selectedFormat={selectedExportFormat}
+        validationErrors={exportValidationErrors}
         onClose={() => {
           if (!exportingFormat) {
             setIsExportModalOpen(false);
           }
         }}
-        onSubmit={() => handleExport(selectedExportFormat)}
+        onSubmit={() => handleValidatedExport(selectedExportFormat)}
         onDisasterEventChange={handleExportDisasterEventChange}
         onBarangayToggle={(barangayId) => {
-          setSelectedExportBarangayIds((currentValues) =>
-            currentValues.includes(barangayId)
+          setSelectedExportBarangayIds((currentValues) => {
+            const nextValues = currentValues.includes(barangayId)
               ? currentValues.filter((id) => id !== barangayId)
-              : [...currentValues, barangayId],
-          );
+              : [...currentValues, barangayId];
+
+            if (nextValues.length > 0) {
+              setExportValidationErrors((currentErrors) => ({
+                ...currentErrors,
+                barangays: "",
+              }));
+            }
+
+            return nextValues;
+          });
         }}
-        onSelectAllBarangays={() =>
-          setSelectedExportBarangayIds(availableExportBarangayIds)
-        }
+        onSelectAllBarangays={() => {
+          setSelectedExportBarangayIds(availableExportBarangayIds);
+          setExportValidationErrors((currentErrors) => ({
+            ...currentErrors,
+            barangays: "",
+          }));
+        }}
         onClearBarangays={() => setSelectedExportBarangayIds([])}
         onRecordStatusChange={setSelectedExportRecordStatus}
         onSortOrderChange={setSelectedExportSortOrder}
         onSectorToggle={(sectorId) => {
-          setSelectedExportSectorIds((currentValues) =>
-            currentValues.includes(sectorId)
+          setSelectedExportSectorIds((currentValues) => {
+            const nextValues = currentValues.includes(sectorId)
               ? currentValues.filter((id) => id !== sectorId)
-              : [...currentValues, sectorId],
-          );
+              : [...currentValues, sectorId];
+
+            if (nextValues.length > 0) {
+              setExportValidationErrors((currentErrors) => ({
+                ...currentErrors,
+                sectors: "",
+              }));
+            }
+
+            return nextValues;
+          });
         }}
         onClearSectors={() => setSelectedExportSectorIds([])}
         onFormatChange={setSelectedExportFormat}
