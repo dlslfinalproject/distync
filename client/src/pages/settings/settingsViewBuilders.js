@@ -1,12 +1,9 @@
 import { formatSyncDateTime } from "../../features/sync/syncManagementHelpers";
 import { ROLE_CODES } from "../../utils/roleSession";
 import {
-  BARANGAY_NOTIFICATION_OPTIONS,
-  BARANGAY_POSITION_LABEL,
   BARANGAY_SETTINGS_SECTIONS,
   MAYOR_SETTINGS_SECTIONS,
   MSWDO_SETTINGS_SECTIONS,
-  ROLE_DISPLAY_NAMES,
 } from "./settingsConfig";
 import {
   LOCAL_SYNC_STATUS,
@@ -17,6 +14,13 @@ import {
   getSyncStatusMeta,
   normalizeRolePreferences,
 } from "./settingsHelpers";
+import {
+  buildBarangayProfileSectionProps,
+  buildNotificationSectionProps,
+  buildOfficeProfileSectionProps,
+  buildSecuritySectionProps,
+  getSettingsDashboardDescription,
+} from "./settingsViewContent";
 
 const buildSafeSyncSummary = (syncSummary) => ({
   total: Number(syncSummary?.total || 0),
@@ -25,6 +29,39 @@ const buildSafeSyncSummary = (syncSummary) => ({
   [LOCAL_SYNC_STATUS.FAILED]: Number(syncSummary?.[LOCAL_SYNC_STATUS.FAILED] || 0),
   [LOCAL_SYNC_STATUS.CONFLICT]: Number(syncSummary?.[LOCAL_SYNC_STATUS.CONFLICT] || 0),
 });
+
+const buildDefaultSectionCard = (section, statusTone = "info", statusLabel = "Open section") => ({
+  ...section,
+  statusTone,
+  statusLabel,
+});
+
+const buildProfileSectionCard = (section, preferences) =>
+  buildDefaultSectionCard(
+    section,
+    preferences.profile.fullName ? "success" : "warning",
+    preferences.profile.fullName ? "Profile ready" : "Needs details",
+  );
+
+const buildSecuritySectionCard = (section, preferences) =>
+  buildDefaultSectionCard(
+    section,
+    preferences.security.twoFactorEnabled ? "success" : "info",
+    preferences.security.twoFactorEnabled ? "2FA preferred" : "Review settings",
+  );
+
+const buildNotificationSectionCard = (
+  section,
+  enabledRuleCodes,
+  notificationRuleCount,
+) =>
+  buildDefaultSectionCard(
+    section,
+    enabledRuleCodes.length > 0 ? "success" : "warning",
+    notificationRuleCount > 0
+      ? `${enabledRuleCodes.length} rules enabled`
+      : "No role rules found",
+  );
 
 export const getSectionsForRole = ({
   isBarangayRole,
@@ -57,42 +94,25 @@ export const buildBarangaySectionCards = ({
   return BARANGAY_SETTINGS_SECTIONS.map((section) => {
     switch (section.key) {
       case "profile":
-        return {
-          ...section,
-          statusTone: preferences.profile.fullName ? "success" : "warning",
-          statusLabel: preferences.profile.fullName
-            ? "Profile ready"
-            : "Needs details",
-        };
+        return buildProfileSectionCard(section, preferences);
       case "security":
-        return {
-          ...section,
-          statusTone: preferences.security.twoFactorEnabled ? "success" : "info",
-          statusLabel: preferences.security.twoFactorEnabled
-            ? "2FA preferred"
-            : "Review settings",
-        };
+        return buildSecuritySectionCard(section, preferences);
       case "notification-preferences":
-        return {
-          ...section,
-          statusTone: enabledRuleCodes.length > 0 ? "success" : "warning",
-          statusLabel: `${enabledRuleCodes.length} rules enabled`,
-        };
+        return buildDefaultSectionCard(
+          section,
+          enabledRuleCodes.length > 0 ? "success" : "warning",
+          `${enabledRuleCodes.length} rules enabled`,
+        );
       case "activity-logs":
-        return {
-          ...section,
-          statusTone: activityLogs.length > 0 ? "info" : "warning",
-          statusLabel:
-            activityLogs.length > 0
-              ? `${activityLogs.length} recent items`
-              : "No recent items",
-        };
+        return buildDefaultSectionCard(
+          section,
+          activityLogs.length > 0 ? "info" : "warning",
+          activityLogs.length > 0
+            ? `${activityLogs.length} recent items`
+            : "No recent items",
+        );
       default:
-        return {
-          ...section,
-          statusTone: "info",
-          statusLabel: "Open section",
-        };
+        return buildDefaultSectionCard(section);
     }
   });
 };
@@ -109,42 +129,19 @@ export const buildMswdoSectionCards = ({
   return MSWDO_SETTINGS_SECTIONS.map((section) => {
     switch (section.key) {
       case "profile":
-        return {
-          ...section,
-          statusTone: preferences.profile.fullName ? "success" : "warning",
-          statusLabel: preferences.profile.fullName
-            ? "Profile ready"
-            : "Needs details",
-        };
+        return buildProfileSectionCard(section, preferences);
       case "security":
-        return {
-          ...section,
-          statusTone: preferences.security.twoFactorEnabled ? "success" : "info",
-          statusLabel: preferences.security.twoFactorEnabled
-            ? "2FA preferred"
-            : "Review settings",
-        };
+        return buildSecuritySectionCard(section, preferences);
       case "notification-preferences":
-        return {
-          ...section,
-          statusTone: enabledRuleCodes.length > 0 ? "success" : "warning",
-          statusLabel:
-            notificationRuleCount > 0
-              ? `${enabledRuleCodes.length} rules enabled`
-              : "No role rules found",
-        };
+        return buildNotificationSectionCard(
+          section,
+          enabledRuleCodes,
+          notificationRuleCount,
+        );
       case "sync-center":
-        return {
-          ...section,
-          statusTone: syncStatus.tone,
-          statusLabel: syncStatus.label,
-        };
+        return buildDefaultSectionCard(section, syncStatus.tone, syncStatus.label);
       default:
-        return {
-          ...section,
-          statusTone: "info",
-          statusLabel: "Open section",
-        };
+        return buildDefaultSectionCard(section);
     }
   });
 };
@@ -163,65 +160,39 @@ export const buildMayorSectionCards = ({
   return MAYOR_SETTINGS_SECTIONS.map((section) => {
     switch (section.key) {
       case "profile":
-        return {
-          ...section,
-          statusTone: preferences.profile.fullName ? "success" : "warning",
-          statusLabel: preferences.profile.fullName
-            ? "Profile ready"
-            : "Needs details",
-        };
+        return buildProfileSectionCard(section, preferences);
       case "security":
-        return {
-          ...section,
-          statusTone: preferences.security.twoFactorEnabled ? "success" : "info",
-          statusLabel: preferences.security.twoFactorEnabled
-            ? "2FA preferred"
-            : "Review settings",
-        };
+        return buildSecuritySectionCard(section, preferences);
       case "notification-preferences":
-        return {
-          ...section,
-          statusTone: enabledRuleCodes.length > 0 ? "success" : "warning",
-          statusLabel:
-            notificationRuleCount > 0
-              ? `${enabledRuleCodes.length} rules enabled`
-              : "No role rules found",
-        };
+        return buildNotificationSectionCard(
+          section,
+          enabledRuleCodes,
+          notificationRuleCount,
+        );
       case "sync-status":
-        return {
-          ...section,
-          statusTone: syncStatus.tone,
-          statusLabel: syncStatus.label,
-        };
+        return buildDefaultSectionCard(section, syncStatus.tone, syncStatus.label);
       case "analytics-service":
-        return {
-          ...section,
-          statusTone: forecastHealth
+        return buildDefaultSectionCard(
+          section,
+          forecastHealth
             ? forecastHealth.status === "Online"
               ? "success"
               : forecastHealth.status === "Offline"
                 ? "error"
                 : "warning"
             : "warning",
-          statusLabel: forecastHealth?.status || "Unavailable",
-        };
+          forecastHealth?.status || "Unavailable",
+        );
       case "inventory-alert-thresholds":
-        return {
-          ...section,
-          statusTone:
-            (inventoryThresholdSummary?.configured_items || 0) > 0
-              ? "info"
-              : "warning",
-          statusLabel: `${
-            inventoryThresholdSummary?.configured_items || 0
-          } items tracked`,
-        };
+        return buildDefaultSectionCard(
+          section,
+          (inventoryThresholdSummary?.configured_items || 0) > 0
+            ? "info"
+            : "warning",
+          `${inventoryThresholdSummary?.configured_items || 0} items tracked`,
+        );
       default:
-        return {
-          ...section,
-          statusTone: "info",
-          statusLabel: "Open section",
-        };
+        return buildDefaultSectionCard(section);
     }
   });
 };
@@ -263,6 +234,8 @@ export const buildSharedRoleViewContext = ({
   gridStyles,
   cardStyles,
   inputStyles,
+  labelStyles,
+  mutedValueStyles,
   helperTextStyles,
   errorTextStyles,
   tableStyles,
@@ -284,6 +257,7 @@ export const buildSharedRoleViewContext = ({
   securityValidationErrors,
   togglePasswordVisibility,
   handleLocalPasswordReview,
+  StatusChip,
   InfoRow,
   EmptyState,
   isLoading,
@@ -293,6 +267,8 @@ export const buildSharedRoleViewContext = ({
   gridStyles,
   cardStyles,
   inputStyles,
+  labelStyles,
+  mutedValueStyles,
   helperTextStyles,
   errorTextStyles,
   tableStyles,
@@ -315,6 +291,7 @@ export const buildSharedRoleViewContext = ({
   securityValidationErrors,
   togglePasswordVisibility,
   handleLocalPasswordReview,
+  StatusChip,
   formatDateTime,
   formatSyncDateTime,
   InfoRow,
@@ -336,16 +313,28 @@ export const buildBarangayViewContext = ({
   activityLogs,
 }) => ({
   ...sharedContext,
-  BARANGAY_POSITION_LABEL,
   assignedBarangayName,
-  notificationTouched,
-  notificationValidationErrors: ensureObject(notificationValidationErrors, {}),
-  handleResetNotificationPreferences,
-  BARANGAY_NOTIFICATION_OPTIONS,
-  handleNotificationChannelToggle,
-  notificationRules: ensureArray(notificationRules),
-  enabledRuleCodes: ensureArray(enabledRuleCodes),
-  toggleNotificationRule,
+  roleCode: ROLE_CODES.BARANGAY,
+  profileSectionProps: buildBarangayProfileSectionProps({
+    ...sharedContext,
+    assignedBarangayName,
+  }),
+  securitySectionProps: buildSecuritySectionProps({
+    ...sharedContext,
+    roleCode: ROLE_CODES.BARANGAY,
+  }),
+  notificationSectionProps: buildNotificationSectionProps({
+    ...sharedContext,
+    roleCode: ROLE_CODES.BARANGAY,
+    notificationTouched,
+    notificationValidationErrors: ensureObject(notificationValidationErrors, {}),
+    handleResetNotificationPreferences,
+    handleNotificationChannelToggle,
+    notificationRules: ensureArray(notificationRules),
+    enabledRuleCodes: ensureArray(enabledRuleCodes),
+    toggleNotificationRule,
+  }),
+  dashboardDescription: getSettingsDashboardDescription(ROLE_CODES.BARANGAY),
   activityLogs: ensureArray(activityLogs),
 });
 
@@ -368,14 +357,29 @@ export const buildMswdoViewContext = ({
   localSyncLogRows,
 }) => ({
   ...sharedContext,
-  notificationTouched,
-  notificationValidationErrors: ensureObject(notificationValidationErrors, {}),
-  handleResetNotificationPreferences,
-  BARANGAY_NOTIFICATION_OPTIONS,
-  handleNotificationChannelToggle,
-  notificationRules: ensureArray(notificationRules),
-  enabledRuleCodes: ensureArray(enabledRuleCodes),
-  toggleNotificationRule,
+  roleCode: ROLE_CODES.MSWDO,
+  profileSectionProps: buildOfficeProfileSectionProps({
+    ...sharedContext,
+    roleCode: ROLE_CODES.MSWDO,
+  }),
+  securitySectionProps: buildSecuritySectionProps({
+    ...sharedContext,
+    roleCode: ROLE_CODES.MSWDO,
+  }),
+  notificationSectionProps: buildNotificationSectionProps({
+    ...sharedContext,
+    roleCode: ROLE_CODES.MSWDO,
+    notificationTouched,
+    notificationValidationErrors: ensureObject(notificationValidationErrors, {}),
+    handleResetNotificationPreferences,
+    handleNotificationChannelToggle,
+    notificationRules: ensureArray(notificationRules),
+    enabledRuleCodes: ensureArray(enabledRuleCodes),
+    toggleNotificationRule,
+    unreadCount: Number(unreadCount || 0),
+    notificationRuleCount: Number(notificationRuleCount || 0),
+  }),
+  dashboardDescription: getSettingsDashboardDescription(ROLE_CODES.MSWDO),
   unreadCount: Number(unreadCount || 0),
   notificationRuleCount: Number(notificationRuleCount || 0),
   navigate,
@@ -385,8 +389,6 @@ export const buildMswdoViewContext = ({
   LOCAL_SYNC_STATUS,
   getSyncStatusMeta,
   isOnline,
-  ROLE_DISPLAY_NAMES,
-  ROLE_CODES,
   localSyncLogRows: ensureArray(localSyncLogRows),
 });
 
@@ -411,14 +413,29 @@ export const buildMayorViewContext = ({
   inventoryThresholdSummary,
 }) => ({
   ...sharedContext,
-  notificationTouched,
-  notificationValidationErrors: ensureObject(notificationValidationErrors, {}),
-  handleResetNotificationPreferences,
-  BARANGAY_NOTIFICATION_OPTIONS,
-  handleNotificationChannelToggle,
-  notificationRules: ensureArray(notificationRules),
-  enabledRuleCodes: ensureArray(enabledRuleCodes),
-  toggleNotificationRule,
+  roleCode: ROLE_CODES.MAYOR,
+  profileSectionProps: buildOfficeProfileSectionProps({
+    ...sharedContext,
+    roleCode: ROLE_CODES.MAYOR,
+  }),
+  securitySectionProps: buildSecuritySectionProps({
+    ...sharedContext,
+    roleCode: ROLE_CODES.MAYOR,
+  }),
+  notificationSectionProps: buildNotificationSectionProps({
+    ...sharedContext,
+    roleCode: ROLE_CODES.MAYOR,
+    notificationTouched,
+    notificationValidationErrors: ensureObject(notificationValidationErrors, {}),
+    handleResetNotificationPreferences,
+    handleNotificationChannelToggle,
+    notificationRules: ensureArray(notificationRules),
+    enabledRuleCodes: ensureArray(enabledRuleCodes),
+    toggleNotificationRule,
+    unreadCount: Number(unreadCount || 0),
+    notificationRuleCount: Number(notificationRuleCount || 0),
+  }),
+  dashboardDescription: getSettingsDashboardDescription(ROLE_CODES.MAYOR),
   unreadCount: Number(unreadCount || 0),
   notificationRuleCount: Number(notificationRuleCount || 0),
   navigate,
@@ -428,8 +445,6 @@ export const buildMayorViewContext = ({
   LOCAL_SYNC_STATUS,
   getSyncStatusMeta,
   isOnline,
-  ROLE_DISPLAY_NAMES,
-  ROLE_CODES,
   localSyncLogRows: ensureArray(localSyncLogRows),
   forecastHealth: ensureObject(forecastHealth, null),
   inventoryThresholdSummary: {
