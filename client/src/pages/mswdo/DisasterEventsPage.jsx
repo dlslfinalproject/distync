@@ -254,6 +254,10 @@ const DisasterEventsPage = () => {
     useState([]);
   const [selectedExportAffectedBarangayIds, setSelectedExportAffectedBarangayIds] =
     useState([]);
+  const [exportValidationErrors, setExportValidationErrors] = useState({
+    disasterTypes: "",
+    affectedBarangays: "",
+  });
   const [exportScopeEvents, setExportScopeEvents] = useState([]);
   const [singleExportEvent, setSingleExportEvent] = useState(null);
   const [selectedSingleExportFormat, setSelectedSingleExportFormat] =
@@ -506,6 +510,25 @@ const DisasterEventsPage = () => {
   }, [availableExportAffectedBarangayIds, isExportModalOpen]);
 
   useEffect(() => {
+    if (!isExportModalOpen) {
+      return;
+    }
+
+    setExportValidationErrors((currentErrors) => ({
+      disasterTypes:
+        selectedExportDisasterTypes.length > 0 ? "" : currentErrors.disasterTypes,
+      affectedBarangays:
+        selectedExportAffectedBarangayIds.length > 0
+          ? ""
+          : currentErrors.affectedBarangays,
+    }));
+  }, [
+    isExportModalOpen,
+    selectedExportAffectedBarangayIds.length,
+    selectedExportDisasterTypes.length,
+  ]);
+
+  useEffect(() => {
     if (!isExportModalOpen || !shouldApplyExportDefaultsRef.current) {
       return;
     }
@@ -531,6 +554,26 @@ const DisasterEventsPage = () => {
   ]);
 
   const handleExport = async (format) => {
+    const validationErrors = {
+      disasterTypes:
+        selectedExportDisasterTypes.length > 0
+          ? ""
+          : "Select at least one disaster type.",
+      affectedBarangays:
+        selectedExportAffectedBarangayIds.length > 0
+          ? ""
+          : "Select at least one affected barangay.",
+    };
+
+    if (validationErrors.disasterTypes || validationErrors.affectedBarangays) {
+      setExportValidationErrors(validationErrors);
+      return;
+    }
+
+    setExportValidationErrors({
+      disasterTypes: "",
+      affectedBarangays: "",
+    });
     setExportingFormat(format);
     setIsExportModalOpen(false);
 
@@ -586,7 +629,7 @@ const DisasterEventsPage = () => {
       downloadExportFile(file);
       setExportFeedback({
         type: "success",
-        message: buildExportSuccessMessage("Disaster event report"),
+        message: buildExportSuccessMessage("Disaster events report"),
       });
     } catch (error) {
       setExportFeedback({
@@ -606,6 +649,10 @@ const DisasterEventsPage = () => {
     setSelectedExportDisasterTypes([]);
     setSelectedExportAffectedBarangayIds([]);
     setExportScopeEvents([]);
+    setExportValidationErrors({
+      disasterTypes: "",
+      affectedBarangays: "",
+    });
     shouldApplyExportDefaultsRef.current = true;
   };
 
@@ -938,6 +985,10 @@ const DisasterEventsPage = () => {
               setSelectedExportAffectedBarangayIds([]);
               setExportScopeEvents([]);
               setExportFeedback({ type: "", message: "" });
+              setExportValidationErrors({
+                disasterTypes: "",
+                affectedBarangays: "",
+              });
               shouldApplyExportDefaultsRef.current = true;
               setIsExportModalOpen(true);
             }}
@@ -1016,30 +1067,57 @@ const DisasterEventsPage = () => {
         selectedSortOrder={selectedExportSortOrder}
         selectedDisasterTypes={selectedExportDisasterTypes}
         selectedAffectedBarangayIds={selectedExportAffectedBarangayIds}
+        validationErrors={exportValidationErrors}
         isSubmitting={Boolean(exportingFormat)}
         onRecordStatusChange={handleExportRecordStatusChange}
         onSortOrderChange={setSelectedExportSortOrder}
         onDisasterTypeToggle={(disasterType) => {
-          setSelectedExportDisasterTypes((currentValues) =>
-            currentValues.includes(disasterType)
+          setSelectedExportDisasterTypes((currentValues) => {
+            const nextValues = currentValues.includes(disasterType)
               ? currentValues.filter((value) => value !== disasterType)
-              : [...currentValues, disasterType],
-          );
+              : [...currentValues, disasterType];
+
+            if (nextValues.length > 0) {
+              setExportValidationErrors((currentErrors) => ({
+                ...currentErrors,
+                disasterTypes: "",
+              }));
+            }
+
+            return nextValues;
+          });
         }}
-        onSelectAllDisasterTypes={() =>
-          setSelectedExportDisasterTypes(availableExportDisasterTypes)
-        }
+        onSelectAllDisasterTypes={() => {
+          setSelectedExportDisasterTypes(availableExportDisasterTypes);
+          setExportValidationErrors((currentErrors) => ({
+            ...currentErrors,
+            disasterTypes: "",
+          }));
+        }}
         onClearDisasterTypes={() => setSelectedExportDisasterTypes([])}
         onAffectedBarangayToggle={(barangayId) => {
-          setSelectedExportAffectedBarangayIds((currentValues) =>
-            currentValues.includes(barangayId)
+          setSelectedExportAffectedBarangayIds((currentValues) => {
+            const nextValues = currentValues.includes(barangayId)
               ? currentValues.filter((value) => value !== barangayId)
-              : [...currentValues, barangayId],
-          );
+              : [...currentValues, barangayId];
+
+            if (nextValues.length > 0) {
+              setExportValidationErrors((currentErrors) => ({
+                ...currentErrors,
+                affectedBarangays: "",
+              }));
+            }
+
+            return nextValues;
+          });
         }}
-        onSelectAllBarangays={() =>
-          setSelectedExportAffectedBarangayIds(availableExportAffectedBarangayIds)
-        }
+        onSelectAllBarangays={() => {
+          setSelectedExportAffectedBarangayIds(availableExportAffectedBarangayIds);
+          setExportValidationErrors((currentErrors) => ({
+            ...currentErrors,
+            affectedBarangays: "",
+          }));
+        }}
         onClearBarangays={() => setSelectedExportAffectedBarangayIds([])}
         onFormatChange={setSelectedExportFormat}
         onClose={() => {

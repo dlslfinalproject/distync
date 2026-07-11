@@ -6,21 +6,21 @@ import { shellStyles } from "../layout/BarangayLayout";
 const overlayStyles = {
   position: "fixed",
   inset: 0,
-  backgroundColor: "rgba(21, 40, 63, 0.48)",
+  backgroundColor: "rgba(18, 34, 51, 0.45)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   padding: "24px",
-  zIndex: 1300,
+  zIndex: 1200,
 };
 
 const modalStyles = {
-  width: "min(520px, 100%)",
-  backgroundColor: "#eef5fb",
-  borderRadius: "22px",
-  border: "1px solid #d7e2ef",
-  boxShadow: "0 24px 60px rgba(23, 50, 77, 0.18)",
-  padding: "24px",
+  width: "100%",
+  maxWidth: "460px",
+  backgroundColor: "#ffffff",
+  borderRadius: "20px",
+  boxShadow: "0 24px 48px rgba(20, 48, 78, 0.2)",
+  padding: "28px",
   boxSizing: "border-box",
 };
 
@@ -42,6 +42,19 @@ const labelStyles = {
   color: "#4f677f",
   fontSize: "13px",
   fontWeight: 700,
+};
+
+const titleStyles = {
+  margin: 0,
+  color: "#17324d",
+  fontSize: "22px",
+};
+
+const messageStyles = {
+  margin: "12px 0 0",
+  color: "#5d7188",
+  fontSize: "15px",
+  lineHeight: 1.6,
 };
 
 const getEventLabel = (eventData) =>
@@ -74,10 +87,8 @@ const DisasterEventSingleExportModal = ({
           }}
         >
           <div>
-            <h3 style={{ margin: 0, color: "#17324d", fontSize: "26px" }}>
-              Export Disaster Event Report
-            </h3>
-            <p style={{ ...shellStyles.mutedText, margin: "10px 0 0" }}>
+            <h3 style={titleStyles}>Disaster Event Report</h3>
+            <p style={messageStyles}>
               Generate a report for {getEventLabel(eventData)}?
             </p>
           </div>
