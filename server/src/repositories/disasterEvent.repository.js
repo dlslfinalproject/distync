@@ -118,6 +118,29 @@ const getAffectedBarangaysByDisasterEventId = async (disasterEventId) => {
   return result.rows;
 };
 
+const getHouseholdCountsByDisasterEventBarangayIds = async (
+  disasterEventId,
+  barangayIds,
+  dbClient = pool,
+) => {
+  if (!Array.isArray(barangayIds) || barangayIds.length === 0) {
+    return [];
+  }
+
+  const query = `
+    SELECT
+      h.barangay_id,
+      COUNT(*)::INTEGER AS household_count
+    FROM households h
+    WHERE h.disaster_event_id = $1
+      AND h.barangay_id = ANY($2::UUID[])
+    GROUP BY h.barangay_id
+  `;
+
+  const result = await dbClient.query(query, [disasterEventId, barangayIds]);
+  return result.rows;
+};
+
 const getValidBarangayCount = async () => {
   const query = `
     SELECT COUNT(*)::INTEGER AS count
@@ -418,6 +441,7 @@ module.exports = {
   getDisasterEventById,
   getLatestHouseholdActivityByDisasterEventId,
   getAffectedBarangaysByDisasterEventId,
+  getHouseholdCountsByDisasterEventBarangayIds,
   getAffectedBarangaysByDisasterEventIds,
   getValidBarangayCount,
   insertDisasterEvent,

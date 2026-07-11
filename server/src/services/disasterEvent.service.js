@@ -279,10 +279,24 @@ const getDisasterEventById = async (id) => {
     await disasterEventRepository.getAffectedBarangaysByDisasterEventId(id);
   const latestHouseholdActivityAt =
     await disasterEventRepository.getLatestHouseholdActivityByDisasterEventId(id);
+  const householdCounts =
+    await disasterEventRepository.getHouseholdCountsByDisasterEventBarangayIds(
+      id,
+      affectedBarangays.map((barangay) => barangay.id),
+    );
+  const householdCountByBarangayId = householdCounts.reduce((lookup, row) => {
+    lookup[row.barangay_id] = Number(row.household_count || 0);
+    return lookup;
+  }, {});
 
   return {
     ...disasterEvent,
-    affected_barangays: affectedBarangays,
+    affected_barangays: affectedBarangays.map((barangay) => ({
+      ...barangay,
+      registered_households_count: householdCountByBarangayId[barangay.id] || 0,
+      has_registered_records:
+        Number(householdCountByBarangayId[barangay.id] || 0) > 0,
+    })),
     latest_household_activity_at: latestHouseholdActivityAt,
   };
 };
@@ -402,6 +416,40 @@ const updateDisasterEvent = async (id, disasterEventData) => {
     );
     error.statusCode = 400;
     throw error;
+  }
+
+  const currentAffectedBarangays =
+    await disasterEventRepository.getAffectedBarangaysByDisasterEventId(id);
+  const requestedBarangayIdSet = new Set(disasterEventData.barangay_ids || []);
+  const removedBarangayIds = currentAffectedBarangays
+    .map((barangay) => barangay.id)
+    .filter((barangayId) => !requestedBarangayIdSet.has(barangayId));
+
+  if (removedBarangayIds.length > 0) {
+    const householdCounts =
+      await disasterEventRepository.getHouseholdCountsByDisasterEventBarangayIds(
+        id,
+        removedBarangayIds,
+      );
+    const lockedBarangayIds = new Set(
+      householdCounts
+        .filter((row) => Number(row.household_count || 0) > 0)
+        .map((row) => row.barangay_id),
+    );
+
+    if (lockedBarangayIds.size > 0) {
+      const lockedBarangayNames = currentAffectedBarangays
+        .filter((barangay) => lockedBarangayIds.has(barangay.id))
+        .map((barangay) => barangay.name)
+        .join(", ");
+      const error = new Error(
+        lockedBarangayNames
+          ? `Affected barangays with registered records cannot be removed: ${lockedBarangayNames}`
+          : "Affected barangays with registered records cannot be removed.",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
   }
 
   const client = await pool.connect();
