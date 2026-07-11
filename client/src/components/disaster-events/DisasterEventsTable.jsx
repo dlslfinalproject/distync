@@ -1,7 +1,8 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
 import StatusPill from "../shared/StatusPill";
-import { FiEdit2 } from "react-icons/fi";
+import TableActionsMenu from "../shared/TableActionsMenu";
+import { FiEdit2, FiFileText } from "react-icons/fi";
 import {
   formatDisasterEventDate,
   getAffectedBarangayDisplayItems,
@@ -57,6 +58,7 @@ const DisasterEventsTable = ({
   errorMessage,
   onViewEvent,
   onEditEvent,
+  onExportEvent,
   validBarangayCount = 0,
 }) => {
   if (isLoading) {
@@ -163,6 +165,24 @@ const DisasterEventsTable = ({
                   row.affected_barangays,
                   validBarangayCount,
                 );
+              const actionItems = [
+                {
+                  key: "edit",
+                  label: "Edit Disaster Event",
+                  icon: <FiEdit2 size={18} />,
+                  disabled: typeof onEditEvent !== "function",
+                  title: "Edit Disaster Event",
+                  onClick: (selectedRow) => onEditEvent?.(selectedRow.id),
+                },
+                {
+                  key: "export",
+                  label: "Export Disaster Event",
+                  icon: <FiFileText size={18} />,
+                  disabled: typeof onExportEvent !== "function",
+                  title: "Export Disaster Event",
+                  onClick: (selectedRow) => onExportEvent?.(selectedRow),
+                },
+              ];
 
               return (
                 <tr key={row.id} style={{ borderBottom: "1px solid #edf3f8" }}>
@@ -207,7 +227,7 @@ const DisasterEventsTable = ({
                         ))}
                       </div>
                     ) : (
-                      <span style={{ color: "#9aa9b8" }}>—</span>
+                      <span style={{ color: "#9aa9b8" }}>-</span>
                     )}
                   </td>
 
@@ -236,18 +256,25 @@ const DisasterEventsTable = ({
                     }}
                   >
                     {row.status === "ACTIVE" ? (
+                      <TableActionsMenu
+                        row={row}
+                        menuId={row.id}
+                        buttonTitle="Actions"
+                        buttonAriaLabel="Actions"
+                        dataPrefix="disaster-event-action"
+                        menuWidth={116}
+                        variant="icon-grid"
+                        items={actionItems}
+                      />
+                    ) : (
                       <button
                         type="button"
-                        onClick={() => onEditEvent?.(row.id)}
+                        onClick={() => onExportEvent?.(row)}
                         style={tableStyles.dropdownButton}
-                        title="Edit Disaster Event"
+                        title="Export Disaster Event"
                       >
-                        <FiEdit2 size={18} />
+                        <FiFileText size={18} />
                       </button>
-                    ) : (
-                      <span style={{ color: "#9aa9b8", fontSize: "13px" }}>
-                        —
-                      </span>
                     )}
                   </td>
                 </tr>

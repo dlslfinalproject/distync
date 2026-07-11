@@ -4,6 +4,7 @@ import { shellStyles } from "../../components/layout/BarangayLayout";
 import DisasterEventDetailModal from "../../components/disaster-events/DisasterEventDetailModal";
 import DisasterEventExportModal from "../../components/disaster-events/DisasterEventExportModal";
 import DisasterEventFormModal from "../../components/disaster-events/DisasterEventFormModal";
+import DisasterEventSingleExportModal from "../../components/disaster-events/DisasterEventSingleExportModal";
 import DisasterEventsTable from "../../components/disaster-events/DisasterEventsTable";
 import { useDisasterEvents } from "../../features/disaster-events/useDisasterEvents";
 import FeedbackToast from "../../components/shared/FeedbackToast";
@@ -254,6 +255,9 @@ const DisasterEventsPage = () => {
   const [selectedExportAffectedBarangayIds, setSelectedExportAffectedBarangayIds] =
     useState([]);
   const [exportScopeEvents, setExportScopeEvents] = useState([]);
+  const [singleExportEvent, setSingleExportEvent] = useState(null);
+  const [selectedSingleExportFormat, setSelectedSingleExportFormat] =
+    useState("csv");
   const [exportFeedback, setExportFeedback] = useState({
     type: "",
     message: "",
@@ -550,6 +554,46 @@ const DisasterEventsPage = () => {
         message: resolveExportErrorMessage(
           error,
           "Unable to export disaster events. Please try again.",
+        ),
+      });
+    } finally {
+      setExportingFormat("");
+    }
+  };
+
+  const handleOpenSingleExportModal = (eventData) => {
+    setSingleExportEvent(eventData);
+    setSelectedSingleExportFormat("csv");
+    setExportFeedback({ type: "", message: "" });
+  };
+
+  const handleSingleExport = async () => {
+    if (!singleExportEvent) {
+      return;
+    }
+
+    const format = selectedSingleExportFormat;
+    setExportingFormat(format);
+    setSingleExportEvent(null);
+
+    try {
+      const file = await exportDisasterEvents({
+        selectedFilter: "all",
+        disasterEventId: singleExportEvent.id,
+        sortOrder: "newest",
+        format,
+      });
+      downloadExportFile(file);
+      setExportFeedback({
+        type: "success",
+        message: buildExportSuccessMessage("Disaster event report"),
+      });
+    } catch (error) {
+      setExportFeedback({
+        type: "error",
+        message: resolveExportErrorMessage(
+          error,
+          "Unable to export disaster event. Please try again.",
         ),
       });
     } finally {
@@ -937,6 +981,7 @@ const DisasterEventsPage = () => {
             errorMessage={errorMessage}
             onViewEvent={openDetailModal}
             onEditEvent={openEditModal}
+            onExportEvent={handleOpenSingleExportModal}
             validBarangayCount={barangays.length}
           />
         </div>
@@ -1003,6 +1048,20 @@ const DisasterEventsPage = () => {
           }
         }}
         onSubmit={() => handleExport(selectedExportFormat)}
+      />
+
+      <DisasterEventSingleExportModal
+        isOpen={Boolean(singleExportEvent)}
+        eventData={singleExportEvent}
+        selectedFormat={selectedSingleExportFormat}
+        isSubmitting={Boolean(exportingFormat)}
+        onFormatChange={setSelectedSingleExportFormat}
+        onClose={() => {
+          if (!exportingFormat) {
+            setSingleExportEvent(null);
+          }
+        }}
+        onSubmit={handleSingleExport}
       />
 
       <FeedbackToast

@@ -566,22 +566,10 @@ const formatDisasterEventStatusLabel = (status) => {
   return normalizedStatus || "UNKNOWN";
 };
 
-const formatAffectedBarangays = (affectedBarangays, validBarangayCount) => {
+const formatAffectedBarangays = (affectedBarangays) => {
   const validAffectedBarangays = (affectedBarangays || []).filter(
     isValidAffectedBarangay,
   );
-  const uniqueAffectedBarangayIds = new Set(
-    validAffectedBarangays.map(
-      (barangay) => barangay.id || barangay.name || barangay,
-    ),
-  );
-
-  if (
-    validBarangayCount > 0 &&
-    uniqueAffectedBarangayIds.size === validBarangayCount
-  ) {
-    return "All Barangays";
-  }
 
   if (validAffectedBarangays.length === 0) {
     return "--";
@@ -680,12 +668,14 @@ const exportDisasterEvents = async ({
   scope,
   format,
   search,
+  disaster_event_id,
   sort_order,
   disaster_types,
   affected_barangay_ids,
 }) => {
-  const events = await getDisasterEventsByScope(scope);
-  const validBarangayCount = await disasterEventRepository.getValidBarangayCount();
+  const events = disaster_event_id
+    ? [await getDisasterEventById(disaster_event_id)].filter(Boolean)
+    : await getDisasterEventsByScope(scope);
   const disasterTypes = Array.isArray(disaster_types) ? disaster_types : [];
   const affectedBarangayIds = Array.isArray(affected_barangay_ids)
     ? affected_barangay_ids
@@ -705,10 +695,7 @@ const exportDisasterEvents = async ({
   ).map((event) => ({
     name: event.title || "--",
     disaster_type: event.disaster_type || "--",
-    affected_barangays: formatAffectedBarangays(
-      event.affected_barangays,
-      validBarangayCount,
-    ),
+    affected_barangays: formatAffectedBarangays(event.affected_barangays),
     start_date: disasterEventExport.formatDate(event.start_date),
     end_date: disasterEventExport.formatDate(event.end_date),
     status: formatDisasterEventStatusLabel(event.status),
@@ -718,6 +705,9 @@ const exportDisasterEvents = async ({
     rows: exportRows,
     scope,
     search,
+    eventLabel: disaster_event_id
+      ? [events[0]?.event_code, events[0]?.title].filter(Boolean).join(" - ")
+      : "",
     format,
   });
 };

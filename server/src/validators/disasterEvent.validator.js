@@ -170,8 +170,15 @@ const validateUpdateDisasterEvent = (req, res, next) => {
 
 const validateExportDisasterEvents = (req, res, next) => {
   try {
-    const { scope, format, search, disaster_types, affected_barangay_ids, sort_order } =
-      req.query;
+    const {
+      scope,
+      format,
+      search,
+      disaster_event_id,
+      disaster_types,
+      affected_barangay_ids,
+      sort_order,
+    } = req.query;
     const normalizedScope = String(scope || "all").toLowerCase();
     const normalizedFormat = String(format || "").toLowerCase();
     const normalizedSortOrder = String(sort_order || "newest").toLowerCase();
@@ -213,6 +220,12 @@ const validateExportDisasterEvents = (req, res, next) => {
       });
     }
 
+    if (disaster_event_id && !uuidPattern.test(String(disaster_event_id))) {
+      return res.status(400).json({
+        message: "disaster_event_id must be a valid UUID",
+      });
+    }
+
     const hasInvalidBarangayId = parsedAffectedBarangayIds.some(
       (barangayId) => !uuidPattern.test(barangayId),
     );
@@ -228,6 +241,8 @@ const validateExportDisasterEvents = (req, res, next) => {
       format: normalizedFormat,
       sort_order: normalizedSortOrder,
       search: typeof search === "string" ? search : "",
+      disaster_event_id:
+        typeof disaster_event_id === "string" ? disaster_event_id : "",
       disaster_types: parsedDisasterTypes,
       affected_barangay_ids: parsedAffectedBarangayIds,
     };

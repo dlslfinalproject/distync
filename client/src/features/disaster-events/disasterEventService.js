@@ -129,6 +129,7 @@ export const fetchBarangays = async () => {
 export const exportDisasterEvents = async ({
   selectedFilter,
   search,
+  disasterEventId,
   disasterTypes = [],
   affectedBarangayIds = [],
   sortOrder = "newest",
@@ -142,6 +143,11 @@ export const exportDisasterEvents = async ({
 
   if (search && search.trim()) {
     searchParams.set("search", search.trim());
+  }
+
+  const normalizedDisasterEventId = String(disasterEventId || "").trim();
+  if (normalizedDisasterEventId) {
+    searchParams.set("disaster_event_id", normalizedDisasterEventId);
   }
 
   if (Array.isArray(disasterTypes) && disasterTypes.length > 0) {
