@@ -175,6 +175,7 @@ const MswdoExportModal = ({
   onFormatChange,
   sortOptions,
   hideBarangaySelection = false,
+  hideRecordStatusSelection = false,
   validationErrors = {},
 }) => {
   if (!isOpen) {
@@ -263,19 +264,21 @@ const MswdoExportModal = ({
                 </select>
               </div>
 
-              <div>
-                <label style={labelStyles}>Registration Record</label>
-                <select
-                  value={selectedRecordStatus}
-                  onChange={(event) => onRecordStatusChange(event.target.value)}
-                  style={inputStyles}
-                  disabled={isSubmitting}
-                >
-                  <option value="active">Active</option>
-                  <option value="archived">Archived</option>
-                  <option value="all">All</option>
-                </select>
-              </div>
+              {!hideRecordStatusSelection ? (
+                <div>
+                  <label style={labelStyles}>Registration Record</label>
+                  <select
+                    value={selectedRecordStatus}
+                    onChange={(event) => onRecordStatusChange(event.target.value)}
+                    style={inputStyles}
+                    disabled={isSubmitting}
+                  >
+                    <option value="active">Active</option>
+                    <option value="archived">Archived</option>
+                    <option value="all">All</option>
+                  </select>
+                </div>
+              ) : null}
 
               <div>
                 <label style={labelStyles}>Order List</label>

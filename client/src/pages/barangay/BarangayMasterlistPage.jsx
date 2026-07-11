@@ -684,7 +684,7 @@ const BarangayMasterlistPage = () => {
   const handleOpenExportModal = () => {
     setSelectedExportDisasterEventId(selectedEvent?.id || "");
     setSelectedExportFormat("csv");
-    setSelectedExportRecordStatus(recordStatus);
+    setSelectedExportRecordStatus(isSelectedEventEnded ? "archived" : recordStatus);
     setSelectedExportSortOrder(selectedSortOrder);
     setSelectedExportSectorIds(
       selectedSectorIds.length ? selectedSectorIds : availableExportSectorIds,
@@ -925,6 +925,7 @@ const BarangayMasterlistPage = () => {
         onFormatChange={setSelectedExportFormat}
         sortOptions={MASTERLIST_SORT_OPTIONS}
         hideBarangaySelection
+        hideRecordStatusSelection={isSelectedEventEnded}
       />
 
       <FeedbackToast

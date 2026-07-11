@@ -280,7 +280,7 @@ const ConsolidatedEvacueeMasterlist = () => {
                 : [],
           );
           setSelectedExportFormat("csv");
-          setSelectedExportRecordStatus(selectedRecordStatus);
+          setSelectedExportRecordStatus(isEndedView ? "archived" : selectedRecordStatus);
           setSelectedExportSortOrder(selectedSortOrder);
           setSelectedExportSectorIds(selectedSectorIds);
           setExportValidationErrors({ sectors: "", barangays: "" });
@@ -385,6 +385,7 @@ const ConsolidatedEvacueeMasterlist = () => {
         onClearSectors={() => setSelectedExportSectorIds([])}
         onFormatChange={setSelectedExportFormat}
         sortOptions={exportSortOptions}
+        hideRecordStatusSelection={isEndedView}
       />
 
       <RegisterFamilyModal
