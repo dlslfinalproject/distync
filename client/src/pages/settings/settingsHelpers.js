@@ -1,0 +1,489 @@
+import { buildPayloadSummary } from "../../features/sync/syncManagementHelpers";
+import { LOCAL_SYNC_STATUS } from "../../offline/db";
+import { ROLE_CODES } from "../../utils/roleSession";
+import {
+  BARANGAY_NOTIFICATION_OPTIONS,
+  BARANGAY_POSITION_LABEL,
+  ROLE_DISPLAY_NAMES,
+} from "./settingsConfig";
+
+export const createDefaultNotificationChannels = () =>
+  BARANGAY_NOTIFICATION_OPTIONS.reduce((current, option) => {
+    current[option.key] = {
+      inApp: true,
+      email: false,
+    };
+    return current;
+  }, {});
+
+export const createDefaultRolePreferences = () => ({
+  enabledNotificationRuleCodes: [],
+  preferredExportFormat: "excel",
+  profile: {
+    fullName: "",
+    position: BARANGAY_POSITION_LABEL,
+    contactNumber: "",
+    emailAddress: "",
+    profilePictureDataUrl: "",
+    profilePictureFileName: "",
+  },
+  notificationChannels: createDefaultNotificationChannels(),
+  security: {
+    twoFactorEnabled: false,
+    lastLocalPasswordChangeAt: "",
+    lastTwoFactorPreferenceUpdateAt: "",
+  },
+  metadata: {
+    lastProfileUpdateAt: "",
+    lastPreferenceSaveAt: "",
+  },
+});
+
+export const normalizePhilippineContactNumber = (value = "") => {
+  const rawValue = String(value || "").trim();
+
+  if (!rawValue) {
+    return "";
+  }
+
+  const compactValue = rawValue.replace(/[^\d+]/g, "");
+
+  if (compactValue.startsWith("+")) {
+    return `+${compactValue.slice(1).replace(/\D/g, "").slice(0, 12)}`;
+  }
+
+  const digitsOnly = compactValue.replace(/\D/g, "");
+
+  if (!digitsOnly) {
+    return "";
+  }
+
+  if (digitsOnly.startsWith("09")) {
+    return `+63${digitsOnly.slice(1, 11)}`;
+  }
+
+  if (digitsOnly.startsWith("639")) {
+    return `+${digitsOnly.slice(0, 12)}`;
+  }
+
+  if (digitsOnly.startsWith("9")) {
+    return `+63${digitsOnly.slice(0, 10)}`;
+  }
+
+  if (digitsOnly.startsWith("63")) {
+    return `+${digitsOnly.slice(0, 12)}`;
+  }
+
+  return `+63${digitsOnly.slice(0, 10)}`;
+};
+
+export const formatPhilippineContactNumberForDisplay = (value = "") => {
+  const normalizedValue = normalizePhilippineContactNumber(value);
+
+  if (!normalizedValue.startsWith("+639")) {
+    return normalizedValue.replace(/^\+63/, "");
+  }
+
+  const localDigits = normalizedValue.slice(3, 13);
+  const firstBlock = localDigits.slice(0, 3);
+  const secondBlock = localDigits.slice(3, 6);
+  const thirdBlock = localDigits.slice(6, 10);
+
+  return [firstBlock, secondBlock, thirdBlock].filter(Boolean).join(" ");
+};
+
+export const getBarangayProfileValidationErrors = (profile = {}) => {
+  const errors = {};
+  const fullName = String(profile.fullName || "").trim();
+  const contactNumber = String(profile.contactNumber || "").trim();
+
+  if (!fullName) {
+    errors.fullName = "Full name is required.";
+  }
+
+  if (!contactNumber) {
+    errors.contactNumber = "Contact number is required.";
+  } else if (!/^\+639\d{9}$/.test(contactNumber)) {
+    errors.contactNumber = "Use the format 912 345 6789 after PH +63.";
+  }
+
+  return errors;
+};
+
+export const getSecurityPasswordValidationErrors = (form = {}) => {
+  const errors = {};
+  const currentPassword = String(form.currentPassword || "");
+  const newPassword = String(form.newPassword || "");
+  const confirmPassword = String(form.confirmPassword || "");
+
+  if (!currentPassword) {
+    errors.currentPassword = "Current password is required.";
+  }
+
+  if (!newPassword) {
+    errors.newPassword = "New password is required.";
+  } else if (newPassword.length < 8) {
+    errors.newPassword = "Password must be at least 8 characters long.";
+  } else if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/.test(newPassword)) {
+    errors.newPassword =
+      "Password must contain at least one uppercase letter, one lowercase letter, and one number.";
+  } else if (currentPassword && newPassword === currentPassword) {
+    errors.newPassword = "New password cannot be the same as your current password.";
+  }
+
+  if (!confirmPassword) {
+    errors.confirmPassword = "Please confirm your new password.";
+  } else if (confirmPassword !== newPassword) {
+    errors.confirmPassword = "Passwords do not match.";
+  }
+
+  return errors;
+};
+
+const EMAIL_ADDRESS_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export const getNotificationPreferenceValidationErrors = ({
+  notificationChannels = {},
+  emailAddress = "",
+}) => {
+  const errors = {};
+  const optionStates = BARANGAY_NOTIFICATION_OPTIONS.map((option) => ({
+    label: option.label,
+    inApp: Boolean(notificationChannels[option.key]?.inApp),
+    email: Boolean(notificationChannels[option.key]?.email),
+  }));
+  const hasAnyEmailChannel = optionStates.some((option) => option.email);
+  const trimmedEmailAddress = String(emailAddress || "").trim();
+  const disabledTypes = optionStates.filter((option) => !option.inApp && !option.email);
+
+  if (disabledTypes.length > 0) {
+    errors.notificationTypes =
+      disabledTypes.length === 1
+        ? `${disabledTypes[0].label} must keep at least one enabled channel.`
+        : "Each notification type must keep at least one enabled channel.";
+  }
+
+  if (hasAnyEmailChannel && !EMAIL_ADDRESS_PATTERN.test(trimmedEmailAddress)) {
+    errors.emailAddress =
+      "A valid email address is required to receive email notifications.";
+  }
+
+  return errors;
+};
+
+export const normalizeRolePreferences = (value = {}) => {
+  const defaults = createDefaultRolePreferences();
+  const notificationChannels = {
+    ...defaults.notificationChannels,
+  };
+
+  Object.entries(value?.notificationChannels || {}).forEach(([key, channels]) => {
+    notificationChannels[key] = {
+      ...(defaults.notificationChannels[key] || { inApp: true, email: false }),
+      ...(channels || {}),
+    };
+  });
+
+  return {
+    ...defaults,
+    ...(value || {}),
+    enabledNotificationRuleCodes: Array.isArray(value?.enabledNotificationRuleCodes)
+      ? value.enabledNotificationRuleCodes
+      : [],
+    profile: {
+      ...defaults.profile,
+      ...(value?.profile || {}),
+    },
+    notificationChannels,
+    security: {
+      ...defaults.security,
+      ...(value?.security || {}),
+    },
+    metadata: {
+      ...defaults.metadata,
+      ...(value?.metadata || {}),
+    },
+  };
+};
+
+export const formatDateTime = (value) => {
+  if (!value) {
+    return "--";
+  }
+
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "--";
+  }
+
+  return new Intl.DateTimeFormat("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(parsedDate);
+};
+
+export const buildSyncSummary = (syncEntries) => {
+  return syncEntries.reduce(
+    (summary, entry) => {
+      summary.total += 1;
+      summary[entry.status] = (summary[entry.status] || 0) + 1;
+      return summary;
+    },
+    {
+      total: 0,
+      [LOCAL_SYNC_STATUS.PENDING]: 0,
+      [LOCAL_SYNC_STATUS.SYNCED]: 0,
+      [LOCAL_SYNC_STATUS.FAILED]: 0,
+      [LOCAL_SYNC_STATUS.CONFLICT]: 0,
+    },
+  );
+};
+
+export const getRoleMeta = (roleCode) => {
+  switch (roleCode) {
+    case ROLE_CODES.BARANGAY:
+      return {
+        title: "BARANGAY SETTINGS",
+        description:
+          "Manage barangay profile, security, notification preferences, and recent local activity.",
+      };
+    case ROLE_CODES.MSWDO:
+      return {
+        title: "MSWDO SETTINGS",
+        description:
+          "Manage MSWDO profile, security, notification preferences, and sync monitoring.",
+      };
+    case ROLE_CODES.MAYOR:
+      return {
+        title: "MAYOR SETTINGS",
+        description:
+          "Manage mayor profile, security, notification preferences, sync monitoring, and executive system summaries.",
+      };
+    default:
+      return {
+        title: "SETTINGS",
+        description: "Review account and operational settings.",
+      };
+  }
+};
+
+export const getRolePositionLabel = (roleCode) => {
+  if (roleCode === ROLE_CODES.BARANGAY) {
+    return BARANGAY_POSITION_LABEL;
+  }
+
+  return ROLE_DISPLAY_NAMES[roleCode] || "";
+};
+
+export const getSyncStatusMeta = (syncSummary, isOnline) => {
+  if (!isOnline) {
+    return {
+      tone: "warning",
+      label: "Pending",
+      description: "Offline mode is active. Local changes will sync later.",
+    };
+  }
+
+  if (
+    syncSummary[LOCAL_SYNC_STATUS.FAILED] > 0 ||
+    syncSummary[LOCAL_SYNC_STATUS.CONFLICT] > 0
+  ) {
+    return {
+      tone: "error",
+      label: "Failed",
+      description: "Some records need sync review before LGU coordination is complete.",
+    };
+  }
+
+  if (syncSummary[LOCAL_SYNC_STATUS.PENDING] > 0) {
+    return {
+      tone: "warning",
+      label: "Pending",
+      description: "Queued records are waiting to be synced with the LGU.",
+    };
+  }
+
+  return {
+    tone: "success",
+    label: "Synced",
+    description: "Barangay records are currently aligned with the LGU data flow.",
+  };
+};
+
+export const safeParsePayload = (value) => {
+  if (!value) {
+    return {};
+  }
+
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch (_error) {
+      return {};
+    }
+  }
+
+  return typeof value === "object" ? value : {};
+};
+
+export const formatQueueEntryTitle = (entry) => {
+  const moduleLabel = entry?.moduleName
+    ? String(entry.moduleName).replace(/[_-]/g, " ")
+    : "record";
+  const actionLabel = entry?.actionKey
+    ? String(entry.actionKey).replace(/[_-]/g, " ")
+    : "queued";
+
+  return `${actionLabel} ${moduleLabel}`.replace(/\s+/g, " ").trim();
+};
+
+export const buildActivityLogs = ({
+  distributionRows,
+  syncEntries,
+  syncHistory,
+}) => {
+  const localActivityEntries = syncEntries.map((entry) => ({
+    id: `queue-${entry.id}`,
+    timestamp:
+      entry.updatedAt || entry.createdAt || entry.clientTimestamp || entry.syncedAt || "",
+    title: formatQueueEntryTitle(entry),
+    detail: `Local sync queue - ${entry.status || "--"}`,
+    moduleLabel: "Sync",
+    tone:
+      entry.status === LOCAL_SYNC_STATUS.FAILED ||
+      entry.status === LOCAL_SYNC_STATUS.CONFLICT
+        ? "error"
+        : entry.status === LOCAL_SYNC_STATUS.PENDING
+          ? "warning"
+          : "success",
+  }));
+
+  const syncHistoryEntries = [
+    ...(syncHistory.transactions || []).map((transaction, index) => {
+      const payload = safeParsePayload(
+        transaction.payload_json || transaction.payload || {},
+      );
+
+      return {
+        id: `transaction-${transaction.id || index}`,
+        timestamp:
+          transaction.synced_at ||
+          transaction.created_at ||
+          transaction.client_timestamp ||
+          transaction.updated_at ||
+          "",
+        title: `Synced ${String(transaction.module_name || "record").replace(
+          /[_-]/g,
+          " ",
+        )}`,
+        detail: buildPayloadSummary(payload),
+        moduleLabel: "Sync",
+        tone:
+          transaction.sync_status === LOCAL_SYNC_STATUS.FAILED
+            ? "error"
+            : transaction.sync_status === LOCAL_SYNC_STATUS.CONFLICT
+              ? "warning"
+              : "success",
+      };
+    }),
+    ...(syncHistory.conflicts || []).map((conflict, index) => ({
+      id: `conflict-${conflict.id || index}`,
+      timestamp:
+        conflict.created_at || conflict.updated_at || conflict.resolved_at || "",
+      title: `Sync conflict review for ${String(conflict.entity_type || "record").replace(
+        /[_-]/g,
+        " ",
+      )}`,
+      detail: conflict.conflict_type || "Conflict detected during sync.",
+      moduleLabel: "Sync",
+      tone: conflict.status === "RESOLVED" ? "success" : "warning",
+    })),
+  ];
+
+  const distributionEntries = distributionRows.slice(0, 12).map((row) => ({
+    id: `distribution-${row.id}`,
+    timestamp: row.distribution_date || "",
+    title: `Recorded distribution for ${row.disaster_event_title || row.event_code || "response"}`,
+    detail:
+      row.relief_pack_template_name || row.released_items_summary || "Relief goods released",
+    moduleLabel: "Distribution",
+    tone: "info",
+  }));
+
+  return [
+    ...localActivityEntries,
+    ...syncHistoryEntries,
+    ...distributionEntries,
+  ]
+    .filter((entry) => entry.timestamp || entry.title)
+    .sort((left, right) => {
+      const leftTime = left.timestamp ? new Date(left.timestamp).getTime() : 0;
+      const rightTime = right.timestamp ? new Date(right.timestamp).getTime() : 0;
+      return rightTime - leftTime;
+    });
+};
+
+export const buildSecurityActivityLogs = (preferences) => {
+  return [
+    preferences.security?.lastLocalPasswordChangeAt
+      ? {
+          id: "password-update",
+          timestamp: preferences.security.lastLocalPasswordChangeAt,
+          title: "Password change reviewed",
+          detail:
+            "Password changes were reviewed in this frontend security form for the current account.",
+          moduleLabel: "Security",
+          tone: "success",
+        }
+      : null,
+    preferences.security?.lastTwoFactorPreferenceUpdateAt
+      ? {
+          id: "two-factor-update",
+          timestamp: preferences.security.lastTwoFactorPreferenceUpdateAt,
+          title: preferences.security.twoFactorEnabled
+            ? "Two-factor preference enabled"
+            : "Two-factor preference disabled",
+          detail:
+            "Two-factor authentication preference was updated in local security settings.",
+          moduleLabel: "Security",
+          tone: preferences.security.twoFactorEnabled ? "success" : "warning",
+        }
+      : null,
+  ]
+    .filter(Boolean)
+    .sort((left, right) => {
+      const leftTime = left.timestamp ? new Date(left.timestamp).getTime() : 0;
+      const rightTime = right.timestamp ? new Date(right.timestamp).getTime() : 0;
+      return rightTime - leftTime;
+    });
+};
+
+export const buildLocalSyncLogRows = (syncEntries) => {
+  return syncEntries
+    .map((entry) => ({
+      id: entry.id,
+      timestamp:
+        entry.updatedAt || entry.createdAt || entry.clientTimestamp || entry.syncedAt || "",
+      label: formatQueueEntryTitle(entry),
+      status: entry.status || LOCAL_SYNC_STATUS.PENDING,
+      detail: entry.moduleName
+        ? String(entry.moduleName).replace(/[_-]/g, " ")
+        : entry.actionKey || "--",
+    }))
+    .sort((left, right) => {
+      const leftTime = left.timestamp ? new Date(left.timestamp).getTime() : 0;
+      const rightTime = right.timestamp ? new Date(right.timestamp).getTime() : 0;
+      return rightTime - leftTime;
+    });
+};
+
+export const ensureArray = (value) => (Array.isArray(value) ? value : []);
+
+export const ensureObject = (value, fallback = {}) =>
+  value && typeof value === "object" && !Array.isArray(value) ? value : fallback;
+
+export { LOCAL_SYNC_STATUS };
