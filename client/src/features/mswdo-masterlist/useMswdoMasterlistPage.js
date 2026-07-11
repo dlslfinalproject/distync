@@ -131,7 +131,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   const selectedSortOrderByTab = sortOrderByTab[activeTab] || "newest";
   const selectedRecordStatus = recordStatusByTab[activeTab] || "active";
   const activeEventLabel = selectedDisasterEvent
-    ? `${selectedDisasterEvent.event_code} - ${selectedDisasterEvent.title}`
+    ? String(selectedDisasterEvent.title || "").trim() || "No disaster event selected"
     : "No disaster event selected";
   const reliefPeriodText = formatReliefPeriod(selectedDisasterEvent);
   const canRegisterFamily = activeTab === "active";

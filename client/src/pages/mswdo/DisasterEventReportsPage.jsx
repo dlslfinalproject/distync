@@ -1,24 +1,14 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import EmptyState from "../../components/shared/EmptyState";
 import ErrorState from "../../components/shared/ErrorState";
-import ExportModal from "../../components/shared/ExportModal";
-import FeedbackToast from "../../components/shared/FeedbackToast";
 import LoadingState from "../../components/shared/LoadingState";
 import {
-  exportDisasterEventReportSummary,
   fetchAllDisasterEvents,
   fetchBarangays,
   fetchDisasterEventReportSummary,
 } from "../../features/disaster-events/disasterEventService";
-import {
-  buildExportSuccessMessage,
-  COMMON_EXPORT_FORMAT_OPTIONS,
-  downloadExportFile,
-  NO_EXPORT_DATA_MESSAGE,
-  resolveExportErrorMessage,
-} from "../../utils/exportHelpers";
 
 const inputStyles = {
   width: "100%",
@@ -67,22 +57,56 @@ const tableStyles = {
   },
 };
 
-const formatDate = (value) => {
-  if (!value) {
-    return "--";
-  }
+const SORT_OPTIONS = [
+  { value: "newest", label: "Newest-Oldest" },
+  { value: "oldest", label: "Oldest-Newest" },
+  { value: "az", label: "Sort A-Z" },
+  { value: "za", label: "Sort Z-A" },
+];
 
-  const parsedDate = new Date(value);
-  if (Number.isNaN(parsedDate.getTime())) {
-    return "--";
-  }
+const sortSummaryRows = (summaryRows, sortOrder = "newest") =>
+  [...summaryRows].sort((leftRow, rightRow) => {
+    if (sortOrder === "oldest" || sortOrder === "newest") {
+      const leftTime = new Date(
+        leftRow?.start_date || leftRow?.created_at || leftRow?.updated_at || 0,
+      ).getTime();
+      const rightTime = new Date(
+        rightRow?.start_date || rightRow?.created_at || rightRow?.updated_at || 0,
+      ).getTime();
 
-  return parsedDate.toLocaleDateString("en-PH", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
+      if (leftTime !== rightTime) {
+        return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
+      }
+    }
+
+    const leftTitle = String(leftRow?.title || "").trim().toUpperCase();
+    const rightTitle = String(rightRow?.title || "").trim().toUpperCase();
+
+    if (leftTitle !== rightTitle) {
+      return sortOrder === "za"
+        ? rightTitle.localeCompare(leftTitle)
+        : leftTitle.localeCompare(rightTitle);
+    }
+
+    return 0;
   });
+
+const filterRowsBySummaryStatus = (summaryRows, selectedStatus) => {
+  if (selectedStatus === "active") {
+    return summaryRows.filter((row) => row.status === "ACTIVE");
+  }
+
+  if (selectedStatus === "archived") {
+    return summaryRows.filter((row) =>
+      ["CLOSED", "ARCHIVED"].includes(row.status),
+    );
+  }
+
+  return summaryRows;
 };
+
+const formatDisasterEventTitle = (event) =>
+  String(event?.title || "").trim() || "--";
 
 const DisasterEventReportsPage = () => {
   const [disasterEvents, setDisasterEvents] = useState([]);
@@ -92,19 +116,11 @@ const DisasterEventReportsPage = () => {
     disaster_event_id: "",
     barangay_id: "",
     status: "",
-    date_from: "",
-    date_to: "",
+    sort_order: "newest",
   });
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
   const [isLoadingRows, setIsLoadingRows] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
-  const [exportingFormat, setExportingFormat] = useState("");
-  const [exportFeedback, setExportFeedback] = useState({
-    type: "",
-    message: "",
-  });
 
   useEffect(() => {
     let isMounted = true;
@@ -153,7 +169,8 @@ const DisasterEventReportsPage = () => {
 
       try {
         const response = await fetchDisasterEventReportSummary({
-          ...filters,
+          disaster_event_id: filters.disaster_event_id,
+          barangay_id: filters.barangay_id,
           limit: 100,
         });
 
@@ -181,50 +198,23 @@ const DisasterEventReportsPage = () => {
     return () => {
       isMounted = false;
     };
-  }, [filters]);
+  }, [filters.disaster_event_id, filters.barangay_id]);
+
+  const sortedRows = useMemo(
+    () =>
+      sortSummaryRows(
+        filterRowsBySummaryStatus(rows, filters.status),
+        filters.sort_order,
+      ),
+    [rows, filters.status, filters.sort_order],
+  );
 
   return (
     <>
       <PageHeader
-        title="DISASTER EVENT REPORTS"
-        description="Review disaster event summaries, affected barangays, registered households, and distribution coverage without changing the event workflow."
+        title="DISASTER EVENTS SUMMARY"
         actions={[]}
       />
-
-      <section
-        style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          gap: "12px",
-          flexWrap: "wrap",
-          marginBottom: "16px",
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => {
-            setSelectedExportFormat("csv");
-            setExportFeedback({ type: "", message: "" });
-            setIsExportModalOpen(true);
-          }}
-          disabled={Boolean(exportingFormat)}
-          style={{
-            border: "1px solid #c6d8ea",
-            borderRadius: "14px",
-            padding: "12px 18px",
-            backgroundColor: "#f8fbfe",
-            color: "#2a4c6f",
-            fontSize: "14px",
-            fontWeight: 700,
-            cursor: exportingFormat ? "not-allowed" : "pointer",
-            opacity: exportingFormat ? 0.7 : 1,
-          }}
-        >
-          {exportingFormat
-            ? `Exporting ${exportingFormat.toUpperCase()}...`
-            : "Export"}
-        </button>
-      </section>
 
       <section style={shellStyles.card}>
         <div
@@ -254,7 +244,7 @@ const DisasterEventReportsPage = () => {
               <option value="">All disaster events</option>
               {disasterEvents.map((row) => (
                 <option key={row.id} value={row.id}>
-                  {row.event_code} - {row.title}
+                  {formatDisasterEventTitle(row)}
                 </option>
               ))}
             </select>
@@ -300,66 +290,47 @@ const DisasterEventReportsPage = () => {
               }
               style={inputStyles}
             >
-              <option value="">All statuses</option>
-              <option value="PLANNED">Planned</option>
-              <option value="ACTIVE">Active</option>
-              <option value="CLOSED">Closed</option>
-              <option value="ARCHIVED">Archived</option>
+              <option value="">All</option>
+              <option value="active">Active</option>
+              <option value="archived">Archived</option>
             </select>
           </div>
 
           <div>
-            <label htmlFor="disaster-report-date-from" style={labelStyles}>
-              Date From
+            <label htmlFor="disaster-report-sort-order" style={labelStyles}>
+              Order List
             </label>
-            <input
-              id="disaster-report-date-from"
-              type="date"
-              value={filters.date_from}
+            <select
+              id="disaster-report-sort-order"
+              value={filters.sort_order}
               onChange={(event) =>
                 setFilters((currentValue) => ({
                   ...currentValue,
-                  date_from: event.target.value,
+                  sort_order: event.target.value,
                 }))
               }
               style={inputStyles}
-            />
-          </div>
-
-          <div>
-            <label htmlFor="disaster-report-date-to" style={labelStyles}>
-              Date To
-            </label>
-            <input
-              id="disaster-report-date-to"
-              type="date"
-              value={filters.date_to}
-              onChange={(event) =>
-                setFilters((currentValue) => ({
-                  ...currentValue,
-                  date_to: event.target.value,
-                }))
-              }
-              style={inputStyles}
-            />
+            >
+              {SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       </section>
 
       <section style={shellStyles.card}>
         <div style={{ marginBottom: "16px" }}>
-          <h3 style={{ margin: 0, color: "#17324d" }}>Disaster Event Summary</h3>
-          <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-            Event-level summary of affected barangays, registered households,
-            distributed aid, and claim status coverage.
-          </p>
+          <h3 style={{ margin: 0, color: "#17324d" }}>Disaster Events Record</h3>
         </div>
 
         {errorMessage ? <ErrorState message={errorMessage} style={{ marginBottom: "16px" }} /> : null}
 
         {isLoadingRows ? (
           <LoadingState message="Loading disaster event reports..." />
-        ) : rows.length === 0 ? (
+        ) : sortedRows.length === 0 ? (
           <EmptyState message="No disaster event reports are available yet." />
         ) : (
           <div style={{ overflowX: "auto" }}>
@@ -372,16 +343,14 @@ const DisasterEventReportsPage = () => {
                   <th style={tableStyles.th}>Distributed Aid Count</th>
                   <th style={tableStyles.th}>Claim Status Summary</th>
                   <th style={tableStyles.th}>Quantity Released</th>
-                  <th style={tableStyles.th}>Status</th>
-                  <th style={tableStyles.th}>Period</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
+                {sortedRows.map((row) => (
                   <tr key={row.id}>
                     <td style={tableStyles.td}>
                       <div style={{ fontWeight: 700 }}>
-                        {[row.event_code, row.title].filter(Boolean).join(" - ") || "--"}
+                        {formatDisasterEventTitle(row)}
                       </div>
                       <div style={{ color: "#60738a", fontSize: "12px" }}>
                         {row.disaster_type || "--"}
@@ -402,10 +371,6 @@ const DisasterEventReportsPage = () => {
                       </div>
                     </td>
                     <td style={tableStyles.td}>{row.quantity_released_total || 0}</td>
-                    <td style={tableStyles.td}>{row.status || "--"}</td>
-                    <td style={tableStyles.td}>
-                      {formatDate(row.start_date)} - {formatDate(row.end_date)}
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -413,71 +378,6 @@ const DisasterEventReportsPage = () => {
           </div>
         )}
       </section>
-
-      <ExportModal
-        isOpen={isExportModalOpen}
-        title="Export MSWDO Report"
-        description="Choose the disaster event summary format to generate."
-        reportOptions={[
-          {
-            value: "DISASTER_EVENT_SUMMARY",
-            label: "Disaster Event Summary",
-          },
-        ]}
-        formatOptions={COMMON_EXPORT_FORMAT_OPTIONS}
-        selectedReportType="DISASTER_EVENT_SUMMARY"
-        selectedFormat={selectedExportFormat}
-        isSubmitting={Boolean(exportingFormat)}
-        onReportTypeChange={() => {}}
-        onFormatChange={setSelectedExportFormat}
-        onClose={() => {
-          if (!exportingFormat) {
-            setIsExportModalOpen(false);
-          }
-        }}
-        onSubmit={async () => {
-          if (!rows.length) {
-            setIsExportModalOpen(false);
-            setExportFeedback({
-              type: "error",
-              message: NO_EXPORT_DATA_MESSAGE,
-            });
-            return;
-          }
-
-          setExportingFormat(selectedExportFormat);
-          setIsExportModalOpen(false);
-
-          try {
-            const file = await exportDisasterEventReportSummary({
-              ...filters,
-              format: selectedExportFormat,
-            });
-
-            downloadExportFile(file);
-            setExportFeedback({
-              type: "success",
-              message: buildExportSuccessMessage("Disaster event summary report"),
-            });
-          } catch (error) {
-            setExportFeedback({
-              type: "error",
-              message: resolveExportErrorMessage(
-                error,
-                "Unable to export disaster event summary.",
-              ),
-            });
-          } finally {
-            setExportingFormat("");
-          }
-        }}
-      />
-
-      <FeedbackToast
-        type={exportFeedback.type}
-        message={exportFeedback.message}
-        onClose={() => setExportFeedback({ type: "", message: "" })}
-      />
     </>
   );
 };
