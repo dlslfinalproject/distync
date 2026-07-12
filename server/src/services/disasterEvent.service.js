@@ -775,28 +775,27 @@ const getDisasterEventReportSummary = async (filters) => {
 
 const exportDisasterEventReportSummary = async (filters) => {
   await syncOverdueActiveDisasterEvents();
-  const rows = await disasterEventRepository.getDisasterEventReportSummary({
+  const rows = await disasterEventRepository.getDisasterEventReportBarangayBreakdown({
     disasterEventId: filters.disaster_event_id || null,
-    barangayId: filters.barangay_id || null,
     status: filters.status || null,
     dateFrom: filters.date_from || null,
     dateTo: filters.date_to || null,
     sortOrder: filters.sort_order || "newest",
-    limit: 1000,
+    limit: 5000,
   });
+  const selectedDisasterEventLabel =
+    filters.disaster_event_id && rows[0]?.title
+      ? rows[0].title
+      : "All disaster events";
 
   return mswdoReportExport.buildExportFile({
-    filePrefix: "mswdo-disaster-event-summary",
+    filePrefix: "mswdo-disaster-event-barangay-distribution",
     worksheetName: "Disaster Summary",
-    reportTitle: "MSWDO Disaster Event Summary",
+    reportTitle: "MSWDO Disaster Events Barangay Distribution",
     metadata: [
       {
         label: "Disaster Event",
-        value: filters.disaster_event_id || "All",
-      },
-      {
-        label: "Barangay",
-        value: filters.barangay_id || "All",
+        value: selectedDisasterEventLabel,
       },
       {
         label: "Order List",
@@ -804,10 +803,10 @@ const exportDisasterEventReportSummary = async (filters) => {
       },
     ],
     columns: [
-      { key: "event_label", label: "Disaster Event", width: 30, pdfWidth: 95 },
-      { key: "status", label: "Status", width: 14, pdfWidth: 45 },
-      { key: "disaster_type", label: "Type", width: 20, pdfWidth: 60 },
-      { key: "affected_barangays_text", label: "Affected Barangays", width: 34, pdfWidth: 120 },
+      { key: "event_label", label: "Disaster Event", width: 30, pdfWidth: 90 },
+      { key: "barangay_name", label: "Barangay", width: 22, pdfWidth: 65 },
+      { key: "status", label: "Status", width: 14, pdfWidth: 42 },
+      { key: "disaster_type", label: "Type", width: 20, pdfWidth: 55 },
       { key: "registered_households_count", label: "Registered Households", width: 18, pdfWidth: 55 },
       { key: "distributed_aid_count", label: "Distributed Aid Count", width: 18, pdfWidth: 55 },
       { key: "claim_summary", label: "Claim Status Summary", width: 24, pdfWidth: 80 },
@@ -815,9 +814,9 @@ const exportDisasterEventReportSummary = async (filters) => {
     ],
     rows: rows.map((row) => ({
       event_label: row.title || "--",
+      barangay_name: row.barangay_name || "--",
       status: formatDisasterEventStatusLabel(row.status),
       disaster_type: row.disaster_type || "--",
-      affected_barangays_text: row.affected_barangays_text || "--",
       registered_households_count: row.registered_households_count || 0,
       distributed_aid_count: row.distributed_aid_count || 0,
       claim_summary: `Claimed: ${row.claimed_stubs_count || 0} | Unclaimed: ${row.unclaimed_stubs_count || 0}`,

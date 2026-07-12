@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { FiFileText } from "react-icons/fi";
+import { FiFileText, FiX } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import EmptyState from "../../components/shared/EmptyState";
 import ErrorState from "../../components/shared/ErrorState";
-import ExportModal from "../../components/shared/ExportModal";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import LoadingState from "../../components/shared/LoadingState";
 import SearchBar from "../../components/shared/SearchBar";
@@ -42,6 +41,34 @@ const labelStyles = {
   fontWeight: 700,
   letterSpacing: "0.08em",
   textTransform: "uppercase",
+};
+
+const overlayStyles = {
+  position: "fixed",
+  inset: 0,
+  backgroundColor: "rgba(21, 40, 63, 0.48)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "24px",
+  zIndex: 1300,
+};
+
+const modalStyles = {
+  width: "min(860px, 100%)",
+  maxHeight: "90vh",
+  overflowY: "auto",
+  backgroundColor: "#eef5fb",
+  borderRadius: "22px",
+  border: "1px solid #d7e2ef",
+  boxShadow: "0 24px 60px rgba(23, 50, 77, 0.18)",
+  padding: "24px",
+  boxSizing: "border-box",
+};
+
+const sectionTitleStyles = {
+  margin: "0 0 12px",
+  color: "#17324d",
 };
 
 const toolbarStyles = {
@@ -232,7 +259,6 @@ const DisasterEventReportsPage = () => {
   const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
   const [selectedExportDisasterEventId, setSelectedExportDisasterEventId] =
     useState("");
-  const [selectedExportBarangayId, setSelectedExportBarangayId] = useState("");
   const [selectedExportSortOrder, setSelectedExportSortOrder] =
     useState("newest");
   const [isExporting, setIsExporting] = useState(false);
@@ -336,8 +362,7 @@ const DisasterEventReportsPage = () => {
     }
 
     setSelectedExportFormat("csv");
-    setSelectedExportDisasterEventId(filters.disaster_event_id);
-    setSelectedExportBarangayId(filters.barangay_id);
+    setSelectedExportDisasterEventId("");
     setSelectedExportSortOrder(filters.sort_order);
     setIsExportModalOpen(true);
   };
@@ -348,7 +373,6 @@ const DisasterEventReportsPage = () => {
     try {
       const file = await exportDisasterEventReportSummary({
         disaster_event_id: selectedExportDisasterEventId,
-        barangay_id: selectedExportBarangayId,
         sort_order: selectedExportSortOrder,
         format: selectedExportFormat,
       });
@@ -625,81 +649,145 @@ const DisasterEventReportsPage = () => {
           </div>
         )}
       </section>
-      <ExportModal
-        isOpen={isExportModalOpen}
-        title="Disaster Events Summary Report"
-        description="Choose the filters and file format for the disaster events summary report."
-        hideReportType
-        formatOptions={COMMON_EXPORT_FORMAT_OPTIONS}
-        selectedFormat={selectedExportFormat}
-        isSubmitting={isExporting}
-        onFormatChange={setSelectedExportFormat}
-        onClose={() => setIsExportModalOpen(false)}
-        onSubmit={handleExportSummary}
-      >
-        <div style={exportFilterGridStyles}>
-          <div>
-            <label htmlFor="summary-export-event" style={labelStyles}>
-              Disaster Event
-            </label>
-            <select
-              id="summary-export-event"
-              value={selectedExportDisasterEventId}
-              onChange={(event) =>
-                setSelectedExportDisasterEventId(event.target.value)
-              }
-              disabled={isExporting}
-              style={inputStyles}
+      {isExportModalOpen ? (
+        <div style={overlayStyles}>
+          <div style={modalStyles}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                gap: "16px",
+                marginBottom: "20px",
+              }}
             >
-              <option value="">All disaster events</option>
-              {disasterEvents.map((row) => (
-                <option key={row.id} value={row.id}>
-                  {formatDisasterEventTitle(row)}
-                </option>
-              ))}
-            </select>
-          </div>
+              <div>
+                <h3 style={{ margin: 0, color: "#17324d", fontSize: "26px" }}>
+                  Disaster Events Barangay Distribution Report
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => !isExporting && setIsExportModalOpen(false)}
+                style={pageHeaderStyles.secondaryButton}
+                disabled={isExporting}
+              >
+                <FiX />
+              </button>
+            </div>
 
-          <div>
-            <label htmlFor="summary-export-barangay" style={labelStyles}>
-              Barangay
-            </label>
-            <select
-              id="summary-export-barangay"
-              value={selectedExportBarangayId}
-              onChange={(event) => setSelectedExportBarangayId(event.target.value)}
-              disabled={isExporting}
-              style={inputStyles}
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "18px",
+              }}
             >
-              <option value="">All barangays</option>
-              {barangays.map((row) => (
-                <option key={row.id} value={row.id}>
-                  {row.name}
-                </option>
-              ))}
-            </select>
-          </div>
+              <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
+                <h3 style={sectionTitleStyles}>Export Details</h3>
 
-          <div>
-            <label htmlFor="summary-export-sort-order" style={labelStyles}>
-              Order List
-            </label>
-            <select
-              id="summary-export-sort-order"
-              value={selectedExportSortOrder}
-              onChange={(event) => setSelectedExportSortOrder(event.target.value)}
-              disabled={isExporting}
-              style={inputStyles}
-            >
-              {SORT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+                <div style={exportFilterGridStyles}>
+                  <div>
+                    <label htmlFor="summary-export-event" style={labelStyles}>
+                      Disaster Event
+                    </label>
+                    <select
+                      id="summary-export-event"
+                      value={selectedExportDisasterEventId}
+                      onChange={(event) =>
+                        setSelectedExportDisasterEventId(event.target.value)
+                      }
+                      disabled={isExporting}
+                      style={inputStyles}
+                    >
+                      <option value="">All disaster events</option>
+                      {disasterEvents.map((row) => (
+                        <option key={row.id} value={row.id}>
+                          {formatDisasterEventTitle(row)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="summary-export-sort-order"
+                      style={labelStyles}
+                    >
+                      Order List
+                    </label>
+                    <select
+                      id="summary-export-sort-order"
+                      value={selectedExportSortOrder}
+                      onChange={(event) =>
+                        setSelectedExportSortOrder(event.target.value)
+                      }
+                      disabled={isExporting}
+                      style={inputStyles}
+                    >
+                      {SORT_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label htmlFor="summary-export-format" style={labelStyles}>
+                      Format
+                    </label>
+                    <select
+                      id="summary-export-format"
+                      value={selectedExportFormat}
+                      onChange={(event) =>
+                        setSelectedExportFormat(event.target.value)
+                      }
+                      disabled={isExporting}
+                      style={inputStyles}
+                    >
+                      {COMMON_EXPORT_FORMAT_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </section>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: "12px",
+                  marginTop: "10px",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setIsExportModalOpen(false)}
+                  style={pageHeaderStyles.secondaryButton}
+                  disabled={isExporting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportSummary}
+                  disabled={isExporting}
+                  style={{
+                    ...pageHeaderStyles.primaryButton,
+                    opacity: isExporting ? 0.7 : 1,
+                  }}
+                >
+                  {isExporting ? "Exporting..." : "Export"}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
-      </ExportModal>
+      ) : null}
       <FeedbackToast
         type={exportFeedback.type}
         message={exportFeedback.message}
