@@ -1,14 +1,26 @@
 import React, { useEffect, useMemo, useState } from "react";
-import PageHeader from "../../components/layout/PageHeader";
+import { FiFileText } from "react-icons/fi";
+import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import EmptyState from "../../components/shared/EmptyState";
 import ErrorState from "../../components/shared/ErrorState";
+import ExportModal from "../../components/shared/ExportModal";
+import FeedbackToast from "../../components/shared/FeedbackToast";
 import LoadingState from "../../components/shared/LoadingState";
+import SearchBar from "../../components/shared/SearchBar";
 import {
+  exportDisasterEventReportSummary,
   fetchAllDisasterEvents,
   fetchBarangays,
   fetchDisasterEventReportSummary,
 } from "../../features/disaster-events/disasterEventService";
+import {
+  buildExportSuccessMessage,
+  COMMON_EXPORT_FORMAT_OPTIONS,
+  downloadExportFile,
+  NO_EXPORT_DATA_MESSAGE,
+  resolveExportErrorMessage,
+} from "../../utils/exportHelpers";
 
 const inputStyles = {
   width: "100%",
@@ -30,6 +42,26 @@ const labelStyles = {
   fontWeight: 700,
   letterSpacing: "0.08em",
   textTransform: "uppercase",
+};
+
+const toolbarStyles = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "16px",
+  flexWrap: "wrap",
+};
+
+const exportButtonStyles = (isDisabled) => ({
+  ...pageHeaderStyles.secondaryButton,
+  cursor: isDisabled ? "not-allowed" : "pointer",
+  opacity: isDisabled ? 0.65 : 1,
+});
+
+const exportFilterGridStyles = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: "16px",
 };
 
 const tableStyles = {
@@ -133,6 +165,26 @@ const sortSummaryRows = (summaryRows, sortOrder = "newest") =>
 const formatDisasterEventTitle = (event) =>
   String(event?.title || "").trim() || "--";
 
+const normalizeSearchText = (value) => String(value || "").trim().toLowerCase();
+
+const doesRowMatchSearch = (row, searchTerm) => {
+  const normalizedSearch = normalizeSearchText(searchTerm);
+
+  if (!normalizedSearch) {
+    return true;
+  }
+
+  const searchableText = [
+    formatDisasterEventTitle(row),
+    row.disaster_type,
+    row.affected_barangays_text,
+  ]
+    .map((value) => String(value || "").toLowerCase())
+    .join(" ");
+
+  return searchableText.includes(normalizedSearch);
+};
+
 const renderStackedHeader = (firstLine, secondLine) => (
   <span style={headerLabelStyles}>
     <span>{firstLine}</span>
@@ -171,6 +223,19 @@ const DisasterEventReportsPage = () => {
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
   const [isLoadingRows, setIsLoadingRows] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [exportFeedback, setExportFeedback] = useState({
+    type: "",
+    message: "",
+  });
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
+  const [selectedExportDisasterEventId, setSelectedExportDisasterEventId] =
+    useState("");
+  const [selectedExportBarangayId, setSelectedExportBarangayId] = useState("");
+  const [selectedExportSortOrder, setSelectedExportSortOrder] =
+    useState("newest");
+  const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -221,6 +286,7 @@ const DisasterEventReportsPage = () => {
         const response = await fetchDisasterEventReportSummary({
           disaster_event_id: filters.disaster_event_id,
           barangay_id: filters.barangay_id,
+          sort_order: filters.sort_order,
           limit: 100,
         });
 
@@ -248,12 +314,63 @@ const DisasterEventReportsPage = () => {
     return () => {
       isMounted = false;
     };
-  }, [filters.disaster_event_id, filters.barangay_id]);
+  }, [filters.disaster_event_id, filters.barangay_id, filters.sort_order]);
 
   const sortedRows = useMemo(
     () => sortSummaryRows(rows, filters.sort_order),
     [rows, filters.sort_order],
   );
+  const displayedRows = useMemo(
+    () => sortedRows.filter((row) => doesRowMatchSearch(row, searchTerm)),
+    [searchTerm, sortedRows],
+  );
+  const isExportDisabled = isLoadingRows || rows.length === 0;
+
+  const openExportModal = () => {
+    if (rows.length === 0) {
+      setExportFeedback({
+        type: "error",
+        message: NO_EXPORT_DATA_MESSAGE,
+      });
+      return;
+    }
+
+    setSelectedExportFormat("csv");
+    setSelectedExportDisasterEventId(filters.disaster_event_id);
+    setSelectedExportBarangayId(filters.barangay_id);
+    setSelectedExportSortOrder(filters.sort_order);
+    setIsExportModalOpen(true);
+  };
+
+  const handleExportSummary = async () => {
+    setIsExporting(true);
+
+    try {
+      const file = await exportDisasterEventReportSummary({
+        disaster_event_id: selectedExportDisasterEventId,
+        barangay_id: selectedExportBarangayId,
+        sort_order: selectedExportSortOrder,
+        format: selectedExportFormat,
+      });
+
+      downloadExportFile(file);
+      setExportFeedback({
+        type: "success",
+        message: buildExportSuccessMessage("Disaster events summary report"),
+      });
+      setIsExportModalOpen(false);
+    } catch (error) {
+      setExportFeedback({
+        type: "error",
+        message: resolveExportErrorMessage(
+          error,
+          "Unable to export the disaster events summary report.",
+        ),
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   return (
     <>
@@ -346,6 +463,25 @@ const DisasterEventReportsPage = () => {
         </div>
       </section>
 
+      <div style={toolbarStyles}>
+        <div style={{ flex: 1 }}>
+          <SearchBar
+            value={searchTerm}
+            onChange={setSearchTerm}
+            placeholder="Search disaster events name, type, or affected barangays"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={openExportModal}
+          disabled={isExportDisabled}
+          style={exportButtonStyles(isExportDisabled)}
+        >
+          <FiFileText aria-hidden="true" />
+          Export
+        </button>
+      </div>
+
       <section style={shellStyles.card}>
         <div style={{ marginBottom: "16px" }}>
           <h3 style={{ margin: 0, color: "#17324d" }}>Disaster Events Record</h3>
@@ -355,7 +491,7 @@ const DisasterEventReportsPage = () => {
 
         {isLoadingRows ? (
           <LoadingState message="Loading disaster event reports..." />
-        ) : sortedRows.length === 0 ? (
+        ) : displayedRows.length === 0 ? (
           <EmptyState message="No disaster event reports are available yet." />
         ) : (
           <div style={{ overflowX: "auto" }}>
@@ -416,7 +552,7 @@ const DisasterEventReportsPage = () => {
                 </tr>
               </thead>
               <tbody>
-                {sortedRows.map((row) => (
+                {displayedRows.map((row) => (
                   <tr key={row.id}>
                     <td style={{ ...tableStyles.td, ...columnWidthStyles.disasterEvent }}>
                       <div style={{ fontWeight: 700 }}>
@@ -489,6 +625,86 @@ const DisasterEventReportsPage = () => {
           </div>
         )}
       </section>
+      <ExportModal
+        isOpen={isExportModalOpen}
+        title="Disaster Events Summary Report"
+        description="Choose the filters and file format for the disaster events summary report."
+        hideReportType
+        formatOptions={COMMON_EXPORT_FORMAT_OPTIONS}
+        selectedFormat={selectedExportFormat}
+        isSubmitting={isExporting}
+        onFormatChange={setSelectedExportFormat}
+        onClose={() => setIsExportModalOpen(false)}
+        onSubmit={handleExportSummary}
+      >
+        <div style={exportFilterGridStyles}>
+          <div>
+            <label htmlFor="summary-export-event" style={labelStyles}>
+              Disaster Event
+            </label>
+            <select
+              id="summary-export-event"
+              value={selectedExportDisasterEventId}
+              onChange={(event) =>
+                setSelectedExportDisasterEventId(event.target.value)
+              }
+              disabled={isExporting}
+              style={inputStyles}
+            >
+              <option value="">All disaster events</option>
+              {disasterEvents.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {formatDisasterEventTitle(row)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="summary-export-barangay" style={labelStyles}>
+              Barangay
+            </label>
+            <select
+              id="summary-export-barangay"
+              value={selectedExportBarangayId}
+              onChange={(event) => setSelectedExportBarangayId(event.target.value)}
+              disabled={isExporting}
+              style={inputStyles}
+            >
+              <option value="">All barangays</option>
+              {barangays.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="summary-export-sort-order" style={labelStyles}>
+              Order List
+            </label>
+            <select
+              id="summary-export-sort-order"
+              value={selectedExportSortOrder}
+              onChange={(event) => setSelectedExportSortOrder(event.target.value)}
+              disabled={isExporting}
+              style={inputStyles}
+            >
+              {SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </ExportModal>
+      <FeedbackToast
+        type={exportFeedback.type}
+        message={exportFeedback.message}
+        onClose={() => setExportFeedback({ type: "", message: "" })}
+      />
     </>
   );
 };

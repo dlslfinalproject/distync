@@ -1,4 +1,5 @@
 const allowedStatuses = ["PLANNED", "ACTIVE", "CLOSED", "ARCHIVED"];
+const allowedSortOrders = ["newest", "oldest", "az", "za"];
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DISASTER_EVENT_EXPORT_TYPE_OPTIONS = [
@@ -264,6 +265,7 @@ const validateDisasterEventReportSummary = (req, res, next) => {
       status,
       date_from,
       date_to,
+      sort_order,
       limit,
     } = req.query;
 
@@ -297,6 +299,14 @@ const validateDisasterEventReportSummary = (req, res, next) => {
       });
     }
 
+    const normalizedSortOrder = String(sort_order || "newest").toLowerCase();
+
+    if (!allowedSortOrders.includes(normalizedSortOrder)) {
+      return res.status(400).json({
+        message: "sort_order must be one of: newest, oldest, az, za",
+      });
+    }
+
     const parsedLimit = limit ? Number.parseInt(limit, 10) : 100;
 
     if (!Number.isInteger(parsedLimit) || parsedLimit <= 0 || parsedLimit > 1000) {
@@ -312,6 +322,7 @@ const validateDisasterEventReportSummary = (req, res, next) => {
       status: typeof status === "string" ? status.toUpperCase() : "",
       date_from: typeof date_from === "string" ? date_from : "",
       date_to: typeof date_to === "string" ? date_to : "",
+      sort_order: normalizedSortOrder,
       limit: parsedLimit,
     };
 

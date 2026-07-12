@@ -308,10 +308,18 @@ const getDisasterEventReportSummary = async ({
   status = null,
   dateFrom = null,
   dateTo = null,
+  sortOrder = "newest",
   limit = 100,
 }) => {
   const values = [];
   const conditions = [];
+  const orderClauses = {
+    newest: "ORDER BY de.start_date DESC NULLS LAST, de.created_at DESC",
+    oldest: "ORDER BY de.start_date ASC NULLS LAST, de.created_at ASC",
+    az: "ORDER BY LOWER(de.title) ASC, de.start_date DESC NULLS LAST",
+    za: "ORDER BY LOWER(de.title) DESC, de.start_date DESC NULLS LAST",
+  };
+  const orderClause = orderClauses[sortOrder] || orderClauses.newest;
 
   if (disasterEventId) {
     values.push(disasterEventId);
@@ -450,7 +458,7 @@ const getDisasterEventReportSummary = async ({
         )
     ) distribution_counts ON TRUE
     ${whereClause}
-    ORDER BY de.start_date DESC, de.created_at DESC
+    ${orderClause}
     LIMIT $${limitIndex}
   `;
 

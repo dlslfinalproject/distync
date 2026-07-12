@@ -768,6 +768,7 @@ const getDisasterEventReportSummary = async (filters) => {
     status: filters.status || null,
     dateFrom: filters.date_from || null,
     dateTo: filters.date_to || null,
+    sortOrder: filters.sort_order || "newest",
     limit: filters.limit || 100,
   });
 };
@@ -780,6 +781,7 @@ const exportDisasterEventReportSummary = async (filters) => {
     status: filters.status || null,
     dateFrom: filters.date_from || null,
     dateTo: filters.date_to || null,
+    sortOrder: filters.sort_order || "newest",
     limit: 1000,
   });
 
@@ -797,36 +799,29 @@ const exportDisasterEventReportSummary = async (filters) => {
         value: filters.barangay_id || "All",
       },
       {
-        label: "Status",
-        value: filters.status || "All",
-      },
-      {
-        label: "Date Range",
-        value:
-          filters.date_from || filters.date_to
-            ? `${filters.date_from || "--"} to ${filters.date_to || "--"}`
-            : "All",
+        label: "Order List",
+        value: filters.sort_order || "newest",
       },
     ],
     columns: [
       { key: "event_label", label: "Disaster Event", width: 30, pdfWidth: 95 },
+      { key: "status", label: "Status", width: 14, pdfWidth: 45 },
       { key: "disaster_type", label: "Type", width: 20, pdfWidth: 60 },
       { key: "affected_barangays_text", label: "Affected Barangays", width: 34, pdfWidth: 120 },
       { key: "registered_households_count", label: "Registered Households", width: 18, pdfWidth: 55 },
       { key: "distributed_aid_count", label: "Distributed Aid Count", width: 18, pdfWidth: 55 },
       { key: "claim_summary", label: "Claim Status Summary", width: 24, pdfWidth: 80 },
-      { key: "status", label: "Status", width: 14, pdfWidth: 45 },
-      { key: "period_label", label: "Period", width: 24, pdfWidth: 75 },
+      { key: "quantity_released_total", label: "Quantity Released", width: 18, pdfWidth: 55 },
     ],
     rows: rows.map((row) => ({
-      event_label: [row.event_code, row.title].filter(Boolean).join(" - ") || "--",
+      event_label: row.title || "--",
+      status: formatDisasterEventStatusLabel(row.status),
       disaster_type: row.disaster_type || "--",
       affected_barangays_text: row.affected_barangays_text || "--",
       registered_households_count: row.registered_households_count || 0,
       distributed_aid_count: row.distributed_aid_count || 0,
       claim_summary: `Claimed: ${row.claimed_stubs_count || 0} | Unclaimed: ${row.unclaimed_stubs_count || 0}`,
-      status: row.status || "--",
-      period_label: `${mswdoReportExport.formatDateOnly(row.start_date)} - ${mswdoReportExport.formatDateOnly(row.end_date)}`,
+      quantity_released_total: row.quantity_released_total || 0,
     })),
     format: filters.format,
   });
