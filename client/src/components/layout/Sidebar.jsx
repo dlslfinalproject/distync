@@ -149,12 +149,12 @@ const getSidebarStyles = (isCollapsed) => ({
   },
   navTitle: {
     display: "block",
-    fontSize: "15px",
+    fontSize: "13px",
     fontWeight: 700,
     whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    maxWidth: "190px",
+    overflow: "visible",
+    textOverflow: "clip",
+    maxWidth: "none",
   },
   roleActions: {
     marginTop: 0,
@@ -188,7 +188,7 @@ const getSidebarStyles = (isCollapsed) => ({
 const roleMeta = {
   [ROLE_CODES.BARANGAY]: {
     navItems: [
-      { label: "Evacuee Masterlist", to: "/barangay/masterlist" },
+      { label: "Evacuee Masterlist Management", to: "/barangay/masterlist" },
       { label: "Relief Goods Distribution", to: "/barangay/stub-distribution" },
       { label: "Distribution History", to: "/barangay/distribution-history" },
       { label: "Sync Center", to: "/barangay/sync" },
@@ -196,9 +196,9 @@ const roleMeta = {
   },
   [ROLE_CODES.MSWDO]: {
     navItems: [
-      { label: "Disaster Events", to: "/mswdo/disaster-events" },
+      { label: "Disaster Event Management", to: "/mswdo/disaster-events" },
       { label: "Disaster Events Summary", to: "/mswdo/disaster-reports" },
-      { label: "Evacuee Masterlist", to: "/mswdo/consolidated-masterlist" },
+      { label: "Evacuee Masterlist Management", to: "/mswdo/consolidated-masterlist" },
       { label: "Relief Goods Distribution", to: "/mswdo/stub-distribution" },
       { label: "Distribution History", to: "/mswdo/distribution-history" },
       { label: "Stub / Claim History", to: "/mswdo/stub-claim-history" },
@@ -256,7 +256,7 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
                     color: isActive ? "#1f4f7d" : "#26435f",
                     border: `1px solid ${isActive ? "#b8d0e7" : "#dce7f3"}`,
                     borderRadius: "14px",
-                    padding: "14px 16px",
+                    padding: "14px 12px",
                     boxShadow: isActive
                       ? "0 10px 24px rgba(66, 108, 154, 0.12)"
                       : "0 4px 12px rgba(72, 95, 122, 0.04)",
@@ -267,7 +267,7 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "flex-start",
-                    overflow: "hidden",
+                    overflow: "visible",
                     backdropFilter: "blur(8px)",
                   }}
                 >

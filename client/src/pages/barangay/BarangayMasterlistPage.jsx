@@ -755,7 +755,7 @@ const BarangayMasterlistPage = () => {
 
   return (
     <>
-      <PageHeader title="EVACUEE MASTERLIST" actions={[]} />
+      <PageHeader title="EVACUEE MASTERLIST MANAGEMENT" actions={[]} />
 
       <BarangayDashboardOverview
         accessMode={accessMode}
