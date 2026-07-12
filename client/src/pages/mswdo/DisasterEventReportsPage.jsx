@@ -186,7 +186,18 @@ const sortSummaryRows = (summaryRows, sortOrder = "newest") =>
         : leftTitle.localeCompare(rightTitle);
     }
 
-    return 0;
+    const leftBarangay = String(
+      leftRow?.barangay_name || leftRow?.affected_barangays_text || "",
+    )
+      .trim()
+      .toUpperCase();
+    const rightBarangay = String(
+      rightRow?.barangay_name || rightRow?.affected_barangays_text || "",
+    )
+      .trim()
+      .toUpperCase();
+
+    return leftBarangay.localeCompare(rightBarangay);
   });
 
 const formatDisasterEventTitle = (event) =>
@@ -204,6 +215,7 @@ const doesRowMatchSearch = (row, searchTerm) => {
   const searchableText = [
     formatDisasterEventTitle(row),
     row.disaster_type,
+    row.barangay_name,
     row.affected_barangays_text,
   ]
     .map((value) => String(value || "").toLowerCase())
@@ -350,6 +362,7 @@ const DisasterEventReportsPage = () => {
     () => sortedRows.filter((row) => doesRowMatchSearch(row, searchTerm)),
     [searchTerm, sortedRows],
   );
+  const isSpecificDisasterEventSelected = Boolean(filters.disaster_event_id);
   const isExportDisabled = isLoadingRows || rows.length === 0;
 
   const openExportModal = () => {
@@ -535,7 +548,7 @@ const DisasterEventReportsPage = () => {
                     Status
                   </th>
                   <th style={{ ...tableStyles.th, ...columnWidthStyles.affectedBarangays }}>
-                    Affected Barangays
+                    {isSpecificDisasterEventSelected ? "Barangay" : "Affected Barangays"}
                   </th>
                   <th
                     style={{
@@ -577,7 +590,7 @@ const DisasterEventReportsPage = () => {
               </thead>
               <tbody>
                 {displayedRows.map((row) => (
-                  <tr key={row.id}>
+                  <tr key={`${row.id}-${row.barangay_id || "summary"}`}>
                     <td style={{ ...tableStyles.td, ...columnWidthStyles.disasterEvent }}>
                       <div style={{ fontWeight: 700 }}>
                         {formatDisasterEventTitle(row)}
@@ -598,10 +611,16 @@ const DisasterEventReportsPage = () => {
                       </span>
                     </td>
                     <td style={{ ...tableStyles.td, ...columnWidthStyles.affectedBarangays }}>
-                      <div>{row.affected_barangays_text || "--"}</div>
-                      <div style={{ color: "#60738a", fontSize: "12px" }}>
-                        Count: {row.affected_barangays_count || 0}
-                      </div>
+                      {isSpecificDisasterEventSelected ? (
+                        <div>{row.barangay_name || "--"}</div>
+                      ) : (
+                        <>
+                          <div>{row.affected_barangays_text || "--"}</div>
+                          <div style={{ color: "#60738a", fontSize: "12px" }}>
+                            Count: {row.affected_barangays_count || 0}
+                          </div>
+                        </>
+                      )}
                     </td>
                     <td
                       style={{

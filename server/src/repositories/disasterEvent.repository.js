@@ -468,6 +468,7 @@ const getDisasterEventReportSummary = async ({
 
 const getDisasterEventReportBarangayBreakdown = async ({
   disasterEventId = null,
+  barangayId = null,
   status = null,
   dateFrom = null,
   dateTo = null,
@@ -487,6 +488,11 @@ const getDisasterEventReportBarangayBreakdown = async ({
   if (disasterEventId) {
     values.push(disasterEventId);
     conditions.push(`de.id = $${values.length}`);
+  }
+
+  if (barangayId) {
+    values.push(barangayId);
+    conditions.push(`deb_row.barangay_id = $${values.length}`);
   }
 
   if (status) {

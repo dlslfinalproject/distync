@@ -762,6 +762,19 @@ const exportDisasterEvents = async ({
 
 const getDisasterEventReportSummary = async (filters) => {
   await syncOverdueActiveDisasterEvents();
+
+  if (filters.disaster_event_id) {
+    return disasterEventRepository.getDisasterEventReportBarangayBreakdown({
+      disasterEventId: filters.disaster_event_id,
+      barangayId: filters.barangay_id || null,
+      status: filters.status || null,
+      dateFrom: filters.date_from || null,
+      dateTo: filters.date_to || null,
+      sortOrder: filters.sort_order || "newest",
+      limit: filters.limit || 100,
+    });
+  }
+
   return disasterEventRepository.getDisasterEventReportSummary({
     disasterEventId: filters.disaster_event_id || null,
     barangayId: filters.barangay_id || null,
