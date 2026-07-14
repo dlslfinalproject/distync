@@ -150,7 +150,7 @@ const getInventoryBatchByItemIdAndBatchNo = async (inventoryItemId, batchNo) => 
   return result.rows[0] || null;
 };
 
-const insertInventoryBatch = async (batchData) => {
+const insertInventoryBatch = async (batchData, dbClient = pool) => {
   const query = `
     INSERT INTO inventory_batches (
       inventory_item_id,
@@ -200,7 +200,7 @@ const insertInventoryBatch = async (batchData) => {
     batchData.created_by,
   ];
 
-  const result = await pool.query(query, values);
+  const result = await dbClient.query(query, values);
   return result.rows[0];
 };
 

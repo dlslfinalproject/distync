@@ -166,6 +166,18 @@ const layoutStyles = {
   },
 };
 
+const scopeTabButtonStyles = (isActive) => ({
+  padding: "12px 24px",
+  border: "none",
+  background: "none",
+  fontSize: "14px",
+  fontWeight: 700,
+  textTransform: "uppercase",
+  color: isActive ? "#17324d" : "#6b8298",
+  borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
+  cursor: "pointer",
+});
+
 const FILTER_PANEL_GAP = 12;
 const FILTER_PANEL_VIEWPORT_PADDING = 16;
 const MIN_FILTER_PANEL_HEIGHT = 220;
@@ -247,12 +259,18 @@ const downloadCsvFile = (rows, selectedEvent, selectedBarangay) => {
     row.address,
     row.family_members_count,
     row.sectors_text,
-    Array.isArray(row.relief_pack_items) && row.relief_pack_items.length > 0
-      ? row.relief_pack_items
-          .map(
-            (item) =>
-              `${item.inventory_item?.item_name || "Unnamed Item"} (${item.quantity_required})`,
-          )
+    Array.isArray(row.relief_pack_templates) && row.relief_pack_templates.length > 0
+      ? row.relief_pack_templates
+          .map((template) => {
+            const itemSummary = (template.items || [])
+              .map(
+                (item) =>
+                  `${item.inventory_item?.item_name || "Unnamed Item"} (${item.quantity_required})`,
+              )
+              .join(", ");
+
+            return `${template.name || "Relief Pack"}: ${itemSummary || "No items listed"}`;
+          })
           .join("; ")
       : "Template linkage pending",
     row.distribution_status_label,
@@ -285,8 +303,9 @@ const downloadCsvFile = (rows, selectedEvent, selectedBarangay) => {
 
 const InventoryDistributionPage = () => {
   const {
-    disasterEvents,
-    barangays,
+    activeTab,
+    scopedDisasterEvents,
+    selectableBarangays,
     sectorOptions,
     selectedDisasterEvent,
     selectedBarangay,
@@ -296,6 +315,7 @@ const InventoryDistributionPage = () => {
     selectedSectorIds,
     searchTerm,
     selectedTemplate,
+    selectedStandardTemplates,
     templateNotice,
     displayedRows,
     analytics,
@@ -304,6 +324,7 @@ const InventoryDistributionPage = () => {
     isLoadingTemplate,
     errorMessage,
     hasActiveEvents,
+    handleEventScopeChange,
     setSearchTerm,
     setSelectedDisasterEventId,
     setSelectedBarangayId,
@@ -418,9 +439,8 @@ const InventoryDistributionPage = () => {
 
         <section style={shellStyles.card}>
           <p style={{ ...shellStyles.mutedText, margin: 0 }}>
-            No active disaster event is available yet. This page is ready for
-            family-level inventory distribution monitoring once an event becomes
-            active.
+            No disaster event is available yet. This page is ready for
+            family-level inventory distribution monitoring once events are available.
           </p>
         </section>
       </div>
@@ -435,6 +455,31 @@ const InventoryDistributionPage = () => {
         <section style={shellStyles.card}>
           <div
             style={{
+              display: "flex",
+              borderBottom: "1px solid #d6e2ef",
+              marginBottom: "24px",
+              gap: "8px",
+              flexWrap: "wrap",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => handleEventScopeChange("active")}
+              style={scopeTabButtonStyles(activeTab === "active")}
+            >
+              Active Events
+            </button>
+            <button
+              type="button"
+              onClick={() => handleEventScopeChange("ended")}
+              style={scopeTabButtonStyles(activeTab === "ended")}
+            >
+              Ended Events
+            </button>
+          </div>
+
+          <div
+            style={{
               display: "grid",
               gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
               gap: "16px",
@@ -446,7 +491,7 @@ const InventoryDistributionPage = () => {
                 htmlFor="inventory-distribution-event"
                 style={filterStyles.label}
               >
-                Active Disaster Event
+                {activeTab === "active" ? "Active" : "Ended"} Disaster Event
               </label>
               <div style={filterStyles.selectWrap}>
                 <select
@@ -458,10 +503,14 @@ const InventoryDistributionPage = () => {
                   disabled={isLoadingFilters}
                   style={filterStyles.field}
                 >
-                  <option value="">Select active disaster event</option>
-                  {disasterEvents.map((event) => (
+                  <option value="">
+                    {selectedBarangayId && scopedDisasterEvents.length === 0
+                      ? `No ${activeTab === "active" ? "active" : "ended"} events for this barangay`
+                      : `Select ${activeTab === "active" ? "active" : "ended"} disaster event`}
+                  </option>
+                  {scopedDisasterEvents.map((event) => (
                     <option key={event.id} value={event.id}>
-                      {event.event_code} - {event.title}
+                      {event.title}
                     </option>
                   ))}
                 </select>
@@ -487,7 +536,7 @@ const InventoryDistributionPage = () => {
                   style={filterStyles.field}
                 >
                   <option value="">All Barangays</option>
-                  {barangays.map((barangay) => (
+                  {selectableBarangays.map((barangay) => (
                     <option key={barangay.id} value={barangay.id}>
                       {barangay.name}
                     </option>
@@ -511,7 +560,11 @@ const InventoryDistributionPage = () => {
                 {selectedDisasterEvent.title}
               </p>
 
-              {selectedTemplate ? (
+              {selectedStandardTemplates.length > 1 ? (
+                <span style={layoutStyles.templateBadge}>
+                  {selectedStandardTemplates.length} Standard Packs Active
+                </span>
+              ) : selectedTemplate ? (
                 <span style={layoutStyles.templateBadge}>
                   {selectedTemplate.name}
                 </span>

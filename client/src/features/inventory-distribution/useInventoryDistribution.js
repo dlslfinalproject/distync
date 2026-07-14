@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  fetchActiveDisasterEvents,
   fetchBarangays,
   fetchConsolidatedMasterlist,
 } from "../mswdo-masterlist/mswdoMasterlistService";
+import { fetchAllDisasterEvents } from "../disaster-events/disasterEventService";
 import {
   fetchReliefPackTemplateById,
   fetchReliefPackTemplates,
@@ -52,23 +52,35 @@ const getDistributionStatus = (stubStatus) => {
   return "NOT_DISTRIBUTED";
 };
 
-const getStandardTemplate = (templates) => {
+const getStandardTemplates = (templates) => {
   if (!Array.isArray(templates) || templates.length === 0) {
-    return null;
+    return [];
   }
 
-  return (
-    templates.find(
-      (template) =>
-        template.is_active &&
-        !template.is_additional_pack &&
-        template.based_on_family_size,
-    ) ||
-    templates.find(
-      (template) => template.is_active && !template.is_additional_pack,
-    ) ||
-    null
+  const standardTemplates = templates.filter(
+    (template) => template.is_active && !template.is_additional_pack,
   );
+
+  if (standardTemplates.length === 0) {
+    return [];
+  }
+
+  return [...standardTemplates].sort((left, right) => {
+    if (left.based_on_family_size && !right.based_on_family_size) {
+      return -1;
+    }
+
+    if (!left.based_on_family_size && right.based_on_family_size) {
+      return 1;
+    }
+
+    return String(left.name || "").localeCompare(String(right.name || ""));
+  });
+};
+
+const getStandardTemplate = (templates) => {
+  const standardTemplates = getStandardTemplates(templates);
+  return standardTemplates[0] || null;
 };
 
 const getAssignedReliefPackTemplates = (householdSectorIds, templateDetails) => {
@@ -77,12 +89,7 @@ const getAssignedReliefPackTemplates = (householdSectorIds, templateDetails) => 
   }
 
   const sectorIdSet = new Set((householdSectorIds || []).filter(Boolean));
-  const standardTemplate = getStandardTemplate(templateDetails);
-  const assignedTemplates = [];
-
-  if (standardTemplate) {
-    assignedTemplates.push(standardTemplate);
-  }
+  const assignedTemplates = getStandardTemplates(templateDetails);
 
   templateDetails.forEach((template) => {
     if (
@@ -134,7 +141,27 @@ const matchesFilters = (row, selectedStatus, selectedSectorIds) => {
   return selectedSectorIds.some((sectorId) => row.sector_ids.includes(sectorId));
 };
 
+const eventIncludesBarangay = (event, barangayId) => {
+  if (!barangayId) {
+    return true;
+  }
+
+  return (event?.affected_barangays || []).some(
+    (barangay) => barangay?.id === barangayId,
+  );
+};
+
+const getScopedDisasterEvents = ({ events, activeTab, barangayId }) => {
+  const statusByTab = activeTab === "active" ? "ACTIVE" : "CLOSED";
+
+  return (events || []).filter(
+    (event) =>
+      event?.status === statusByTab && eventIncludesBarangay(event, barangayId),
+  );
+};
+
 export const useInventoryDistribution = () => {
+  const [activeTab, setActiveTab] = useState("active");
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
   const [reliefPackTemplates, setReliefPackTemplates] = useState([]);
@@ -161,7 +188,7 @@ export const useInventoryDistribution = () => {
 
       try {
         const [eventsPayload, barangaysPayload, templatePayload] = await Promise.all([
-          fetchActiveDisasterEvents(),
+          fetchAllDisasterEvents(),
           fetchBarangays(),
           fetchReliefPackTemplates({ is_active: "true" }),
         ]);
@@ -177,10 +204,6 @@ export const useInventoryDistribution = () => {
         setDisasterEvents(eventRows);
         setBarangays(barangayRows);
         setReliefPackTemplates(templateRows);
-
-        if (eventRows.length > 0) {
-          setSelectedDisasterEventId(eventRows[0].id);
-        }
 
         if (templateRows.length === 0) {
           setTemplateNotice(
@@ -274,12 +297,21 @@ export const useInventoryDistribution = () => {
 
         setTemplateDetails(loadedTemplateDetails);
 
-        const preferredTemplate = getStandardTemplate(loadedTemplateDetails);
+        const standardTemplates = getStandardTemplates(loadedTemplateDetails);
+        const preferredTemplate = standardTemplates[0] || null;
         const additionalTemplateCount = loadedTemplateDetails.filter(
           (template) => template.is_active && template.is_additional_pack,
         ).length;
 
-        if (preferredTemplate && additionalTemplateCount > 0) {
+        if (standardTemplates.length > 1 && additionalTemplateCount > 0) {
+          setTemplateNotice(
+            `Relief distribution automatically assigns ${standardTemplates.length} active standard packs to each family and adds sector-based packs for matching households.`,
+          );
+        } else if (standardTemplates.length > 1) {
+          setTemplateNotice(
+            `Relief distribution automatically assigns ${standardTemplates.length} active standard packs to each family.`,
+          );
+        } else if (preferredTemplate && additionalTemplateCount > 0) {
           setTemplateNotice(
             `Relief distribution uses the active base template "${preferredTemplate.name}" and automatically adds sector-based packs for matching households.`,
           );
@@ -320,9 +352,105 @@ export const useInventoryDistribution = () => {
     );
   }, [disasterEvents, selectedDisasterEventId]);
 
+  const scopedDisasterEvents = useMemo(() => {
+    return getScopedDisasterEvents({
+      events: disasterEvents,
+      activeTab,
+      barangayId: selectedBarangayId,
+    });
+  }, [activeTab, disasterEvents, selectedBarangayId]);
+
+  const selectableBarangays = useMemo(() => {
+    if (!selectedDisasterEvent) {
+      return barangays;
+    }
+
+    const affectedBarangayIds = Array.isArray(
+      selectedDisasterEvent.affected_barangays,
+    )
+      ? selectedDisasterEvent.affected_barangays
+          .map((barangay) => barangay?.id)
+          .filter(Boolean)
+      : [];
+
+    if (affectedBarangayIds.length === 0) {
+      return barangays;
+    }
+
+    return barangays.filter((barangay) => affectedBarangayIds.includes(barangay.id));
+  }, [barangays, selectedDisasterEvent]);
+
   const selectedBarangay = useMemo(() => {
     return barangays.find((barangay) => barangay.id === selectedBarangayId) || null;
   }, [barangays, selectedBarangayId]);
+
+  useEffect(() => {
+    if (isLoadingFilters) {
+      return;
+    }
+
+    if (scopedDisasterEvents.length === 0) {
+      if (selectedDisasterEventId) {
+        setSelectedDisasterEventId("");
+      }
+
+      return;
+    }
+
+    if (
+      !scopedDisasterEvents.some((event) => event.id === selectedDisasterEventId)
+    ) {
+      setSelectedDisasterEventId(scopedDisasterEvents[0].id);
+    }
+  }, [
+    isLoadingFilters,
+    scopedDisasterEvents,
+    selectedDisasterEventId,
+    setSelectedDisasterEventId,
+  ]);
+
+  useEffect(() => {
+    if (!selectedBarangayId) {
+      return;
+    }
+
+    const isSelectedBarangayVisible = selectableBarangays.some(
+      (barangay) => barangay.id === selectedBarangayId,
+    );
+
+    if (!isSelectedBarangayVisible) {
+      setSelectedBarangayId("");
+    }
+  }, [selectableBarangays, selectedBarangayId]);
+
+  useEffect(() => {
+    if (selectedDisasterEvent?.status === "ACTIVE" && activeTab !== "active") {
+      setActiveTab("active");
+    }
+
+    if (selectedDisasterEvent?.status === "CLOSED" && activeTab !== "ended") {
+      setActiveTab("ended");
+    }
+  }, [activeTab, selectedDisasterEvent?.status]);
+
+  const handleEventScopeChange = (nextTab) => {
+    setActiveTab(nextTab);
+
+    const nextEvents = getScopedDisasterEvents({
+      events: disasterEvents,
+      activeTab: nextTab,
+      barangayId: selectedBarangayId,
+    });
+
+    if (nextEvents.length === 0) {
+      setSelectedDisasterEventId("");
+      return;
+    }
+
+    if (!nextEvents.some((event) => event.id === selectedDisasterEventId)) {
+      setSelectedDisasterEventId(nextEvents[0].id);
+    }
+  };
 
   const sectorOptions = useMemo(() => {
     const sectorMap = new Map();
@@ -348,6 +476,10 @@ export const useInventoryDistribution = () => {
 
   const selectedTemplate = useMemo(() => {
     return getStandardTemplate(templateDetails);
+  }, [templateDetails]);
+
+  const selectedStandardTemplates = useMemo(() => {
+    return getStandardTemplates(templateDetails);
   }, [templateDetails]);
 
   const allRows = useMemo(() => {
@@ -444,8 +576,11 @@ export const useInventoryDistribution = () => {
   }, [displayedRows]);
 
   return {
+    activeTab,
     disasterEvents,
     barangays,
+    scopedDisasterEvents,
+    selectableBarangays,
     sectorOptions,
     selectedDisasterEvent,
     selectedBarangay,
@@ -455,6 +590,7 @@ export const useInventoryDistribution = () => {
     selectedSectorIds,
     searchTerm,
     selectedTemplate,
+    selectedStandardTemplates,
     templateNotice,
     displayedRows,
     analytics,
@@ -463,6 +599,7 @@ export const useInventoryDistribution = () => {
     isLoadingTemplate,
     errorMessage,
     hasActiveEvents: disasterEvents.length > 0,
+    handleEventScopeChange,
     setSearchTerm,
     setSelectedDisasterEventId,
     setSelectedBarangayId,

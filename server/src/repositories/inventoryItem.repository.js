@@ -129,7 +129,7 @@ const getInventoryItemByName = async (itemName) => {
   return result.rows[0] || null;
 };
 
-const insertInventoryItem = async (itemData) => {
+const insertInventoryItem = async (itemData, dbClient = pool) => {
   const hasReorderLevelColumn = await hasInventoryItemReorderLevelColumn();
   const query = `
     INSERT INTO inventory_items (
@@ -193,7 +193,7 @@ const insertInventoryItem = async (itemData) => {
     itemData.is_active,
   ];
 
-  const result = await pool.query(query, values);
+  const result = await dbClient.query(query, values);
   return result.rows[0];
 };
 

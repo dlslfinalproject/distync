@@ -2,7 +2,6 @@ import React from "react";
 import NotificationPreferencesSection from "../components/NotificationPreferencesSection";
 import ProfileSection from "../components/ProfileSection";
 import RoleSettingsViewShell from "../components/RoleSettingsViewShell";
-import SecuritySection from "../components/SecuritySection";
 
 const BarangaySettingsView = ({
   activeSection,
@@ -26,7 +25,6 @@ const BarangaySettingsView = ({
     EmptyState,
     activityLogs,
     profileSectionProps,
-    securitySectionProps,
     notificationSectionProps,
     dashboardDescription,
   } = ctx;
@@ -35,8 +33,6 @@ const BarangaySettingsView = ({
     switch (activeSection) {
       case "profile":
         return <ProfileSection {...profileSectionProps} />;
-      case "security":
-        return <SecuritySection {...securitySectionProps} />;
       case "notification-preferences":
         return <NotificationPreferencesSection {...notificationSectionProps} />;
       case "activity-logs":
@@ -46,8 +42,8 @@ const BarangaySettingsView = ({
               <h3 style={{ margin: 0, color: "#17324d" }}>Recent Local Activity</h3>
               <p style={mutedValueStyles}>
                 Review recent operational and sync-related activity visible in this
-                frontend. This section focuses on barangay workflow actions instead
-                of account security settings.
+                frontend. This section focuses on barangay workflow actions and
+                device-visible operational history.
               </p>
             </div>
 

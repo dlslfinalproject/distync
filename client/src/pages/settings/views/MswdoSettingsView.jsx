@@ -2,7 +2,6 @@ import React from "react";
 import NotificationPreferencesSection from "../components/NotificationPreferencesSection";
 import ProfileSection from "../components/ProfileSection";
 import RoleSettingsViewShell from "../components/RoleSettingsViewShell";
-import SecuritySection from "../components/SecuritySection";
 
 const MswdoSettingsView = ({
   activeSection,
@@ -38,7 +37,6 @@ const MswdoSettingsView = ({
     isOnline,
     localSyncLogRows,
     profileSectionProps,
-    securitySectionProps,
     notificationSectionProps,
     dashboardDescription,
   } = ctx;
@@ -47,8 +45,6 @@ const MswdoSettingsView = ({
     switch (activeSection) {
       case "profile":
         return <ProfileSection {...profileSectionProps} />;
-      case "security":
-        return <SecuritySection {...securitySectionProps} />;
       case "notification-preferences":
         return <NotificationPreferencesSection {...notificationSectionProps} />;
       case "sync-center":
