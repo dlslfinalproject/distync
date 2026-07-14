@@ -23,6 +23,17 @@ const buildSectorsText = (householdId, householdSectorsByHouseholdId, memberSect
   return uniqueSectorNames.length > 0 ? uniqueSectorNames.join(", ") : "-";
 };
 
+const buildSectorIds = (householdId, householdSectorsByHouseholdId, memberSectorsByHouseholdId) => {
+  const householdSectorIds = (householdSectorsByHouseholdId[householdId] || []).map(
+    (sector) => sector.id,
+  );
+  const memberSectorIds = (memberSectorsByHouseholdId[householdId] || []).map(
+    (sector) => sector.id,
+  );
+
+  return [...new Set([...householdSectorIds, ...memberSectorIds])];
+};
+
 const groupByKey = (items, keyName) => {
   return items.reduce((groups, item) => {
     const key = item[keyName];
@@ -267,6 +278,11 @@ const getBarangayStubDashboard = async (filters) => {
         householdSectorsByHouseholdId,
         memberSectorsByHouseholdId,
       ),
+      sector_ids: buildSectorIds(
+        row.household_id,
+        householdSectorsByHouseholdId,
+        memberSectorsByHouseholdId,
+      ),
     })),
   };
 };
@@ -317,9 +333,46 @@ const getStubDetails = async (id) => {
   const householdSectors = await stubRepository.getHouseholdSectorsByHouseholdId(
     ensuredStub.household_id,
   );
+  const memberSectors = await stubRepository.getMemberSectorsByHouseholdIds([
+    ensuredStub.household_id,
+  ]);
   const membersCount = await stubRepository.getHouseholdMembersCount(
     ensuredStub.household_id,
   );
+  const members = await stubRepository.getHouseholdMembersByHouseholdId(
+    ensuredStub.household_id,
+  );
+  const latestAttendance = await stubRepository.getLatestAttendanceByHouseholdId(
+    ensuredStub.household_id,
+    ensuredStub.disaster_event_id,
+  );
+  const latestDistributionTransaction =
+    await stubRepository.getLatestDistributionTransactionByStubId(
+      ensuredStub.id,
+    );
+  const householdMembers = members
+    .filter((member) => !member.is_family_head)
+    .map((member) => ({
+      evacuee_id: member.evacuee_id,
+      full_name: buildFullName(
+        member.first_name,
+        member.middle_name,
+        member.last_name,
+        member.suffix,
+      ),
+      sex: member.sex,
+      age: member.age,
+      age_value: member.age_value,
+      age_unit: member.age_unit,
+      relationship_to_head: member.relationship_to_head,
+      sectors: memberSectors
+        .filter((sector) => sector.evacuee_id === member.evacuee_id)
+        .map((sector) => ({
+          id: sector.id,
+          code: sector.code,
+          name: sector.name,
+        })),
+    }));
 
   return {
     id: ensuredStub.id,
@@ -350,16 +403,21 @@ const getStubDetails = async (id) => {
         ensuredStub.family_head_suffix,
       ),
       household_size: ensuredStub.household_size,
+      residency_status: ensuredStub.residency_status,
       contact_number: ensuredStub.contact_number,
       current_stay_type: ensuredStub.current_stay_type,
       current_address_details: ensuredStub.current_address_details,
+      is_active: ensuredStub.is_active,
       registered_at: ensuredStub.registered_at,
       members_count: membersCount,
+      members: householdMembers,
       family_head_photo_url: ensuredStub.family_head_photo_url || null,
       photo_captured_at: ensuredStub.photo_captured_at || null,
       photo_captured_by: ensuredStub.photo_captured_by || null,
       photo_verification_notes: ensuredStub.photo_verification_notes || null,
     },
+    distribution_transaction: latestDistributionTransaction,
+    latest_attendance: latestAttendance,
     barangay: {
       id: ensuredStub.barangay_id,
       code: ensuredStub.barangay_code,
@@ -368,6 +426,16 @@ const getStubDetails = async (id) => {
         : "Non-Resident (Outside Malvar)",
     },
     household_sectors: householdSectors,
+    member_sectors: memberSectors,
+    sectors_text: buildSectorsText(
+      ensuredStub.household_id,
+      {
+        [ensuredStub.household_id]: householdSectors,
+      },
+      {
+        [ensuredStub.household_id]: memberSectors,
+      },
+    ),
   };
 };
 

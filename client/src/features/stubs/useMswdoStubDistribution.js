@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { mapMasterlistRow } from "../masterlist/masterlistService";
 import {
   fetchActiveDisasterEvents,
   fetchBarangays,
-  fetchConsolidatedMasterlist,
   fetchDisasterEvents,
   fetchMswdoSectors,
 } from "../mswdo-masterlist/mswdoMasterlistService";
@@ -21,10 +19,6 @@ const emptyDashboard = {
   data: [],
 };
 
-const emptyMasterlistPayload = {
-  data: [],
-};
-
 const getFriendlyErrorMessage = (error) => {
   if (error?.code === "NO_STUB_EVENT_DATA") {
     return "No stub data is available for the selected disaster event and barangay.";
@@ -33,47 +27,24 @@ const getFriendlyErrorMessage = (error) => {
   return error?.message || "Unable to load the relief goods distribution page.";
 };
 
-const getMappedRows = (households, stubRows) => {
-  const stubRowsByHouseholdId = Object.fromEntries(
-    stubRows.map((row) => [row.household?.id || row.household_id, row]),
-  );
-
-  return households.reduce((rows, household) => {
-    const stubRow = stubRowsByHouseholdId[household.household_id];
-
-    if (!stubRow) {
-      return rows;
-    }
-
-    const mappedHousehold = mapMasterlistRow(household);
-    const sectorIds = [
-      ...(household.household_sectors || []).map((sector) => sector.id),
-      ...(household.members || []).flatMap((member) =>
-        (member.sectors || []).map((sector) => sector.id),
-      ),
-    ].filter(Boolean);
-
-    rows.push({
-      id: stubRow.id,
-      household_id: household.household_id,
-      family_head_name: mappedHousehold.family_head_name,
-      address: mappedHousehold.address,
-      stub_number: stubRow.stub_sequence_no || stubRow.stub_no || "-",
-      stub_no: stubRow.stub_no || household.stub?.stub_no || "-",
-      serial_no: stubRow.serial_no || household.stub?.serial_no || "-",
-      qr_code_value: stubRow.qr_code_value || "",
-      qr_generated_at: stubRow.qr_generated_at || "",
-      qr_generated_by: stubRow.qr_generated_by || "",
-      qr_status: stubRow.qr_status || "",
-      qr_notes: stubRow.qr_notes || "",
-      sectors_text: mappedHousehold.sectors_text,
-      sector_ids: [...new Set(sectorIds)],
-      status: stubRow.status,
-    });
-
-    return rows;
-  }, []);
-};
+const getMappedRows = (stubRows) =>
+  stubRows.map((stubRow) => ({
+    id: stubRow.id,
+    household_id: stubRow.household?.id || stubRow.household_id,
+    family_head_name: stubRow.household?.family_head_name || "-",
+    members_count: stubRow.household?.members_count || 0,
+    stub_number: stubRow.stub_sequence_no || stubRow.stub_no || "-",
+    stub_no: stubRow.stub_no || "-",
+    serial_no: stubRow.serial_no || "-",
+    qr_code_value: stubRow.qr_code_value || "",
+    qr_generated_at: stubRow.qr_generated_at || "",
+    qr_generated_by: stubRow.qr_generated_by || "",
+    qr_status: stubRow.qr_status || "",
+    qr_notes: stubRow.qr_notes || "",
+    sectors_text: stubRow.sectors_text || "-",
+    sector_ids: Array.isArray(stubRow.sector_ids) ? stubRow.sector_ids : [],
+    status: stubRow.status,
+  }));
 
 const getDisplayedRows = (rows, searchTerm, selectedSectorIds, selectedStubStatus) => {
   const normalizedSearchTerm = searchTerm.trim().toLowerCase();
@@ -98,7 +69,6 @@ const getDisplayedRows = (rows, searchTerm, selectedSectorIds, selectedStubStatu
 
     const searchableValues = [
       row.family_head_name,
-      row.address,
       row.stub_number,
       row.stub_no,
       row.sectors_text,
@@ -113,6 +83,22 @@ const getDisplayedRows = (rows, searchTerm, selectedSectorIds, selectedStubStatu
   });
 };
 
+const getAffectedBarangayIds = (event) => {
+  if (!Array.isArray(event?.affected_barangays)) {
+    return [];
+  }
+
+  return event.affected_barangays
+    .map((barangay) => {
+      if (typeof barangay === "string") {
+        return barangay;
+      }
+
+      return barangay?.id || barangay?.barangay_id || "";
+    })
+    .filter(Boolean);
+};
+
 export const useMswdoStubDistribution = () => {
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
@@ -123,7 +109,6 @@ export const useMswdoStubDistribution = () => {
   const [selectedStubStatus, setSelectedStubStatus] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [dashboard, setDashboard] = useState(emptyDashboard);
-  const [masterlistPayload, setMasterlistPayload] = useState(emptyMasterlistPayload);
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -193,7 +178,6 @@ export const useMswdoStubDistribution = () => {
     const loadDistributionData = async () => {
       if (!selectedDisasterEventId || !selectedBarangayId) {
         setDashboard(emptyDashboard);
-        setMasterlistPayload(emptyMasterlistPayload);
         setErrorMessage("");
         setIsLoadingData(false);
         return;
@@ -203,17 +187,11 @@ export const useMswdoStubDistribution = () => {
       setErrorMessage("");
 
       try {
-        const [dashboardPayload, masterlistData] = await Promise.all([
-          fetchBarangayStubDashboard({
-            userId: null,
-            disasterEventId: selectedDisasterEventId,
-            overrideBarangayId: selectedBarangayId,
-          }),
-          fetchConsolidatedMasterlist({
-            disasterEventId: selectedDisasterEventId,
-            barangayId: selectedBarangayId,
-          }),
-        ]);
+        const dashboardPayload = await fetchBarangayStubDashboard({
+          userId: null,
+          disasterEventId: selectedDisasterEventId,
+          overrideBarangayId: selectedBarangayId,
+        });
 
         if (!isMounted) {
           return;
@@ -223,11 +201,9 @@ export const useMswdoStubDistribution = () => {
           metrics: dashboardPayload.metrics || emptyMetrics,
           data: Array.isArray(dashboardPayload.data) ? dashboardPayload.data : [],
         });
-        setMasterlistPayload(masterlistData || emptyMasterlistPayload);
       } catch (error) {
         if (isMounted) {
           setDashboard(emptyDashboard);
-          setMasterlistPayload(emptyMasterlistPayload);
           setErrorMessage(getFriendlyErrorMessage(error));
         }
       } finally {
@@ -245,8 +221,8 @@ export const useMswdoStubDistribution = () => {
   }, [reloadKey, selectedBarangayId, selectedDisasterEventId]);
 
   const rows = useMemo(() => {
-    return getMappedRows(masterlistPayload.data || [], dashboard.data || []);
-  }, [dashboard.data, masterlistPayload.data]);
+    return getMappedRows(dashboard.data || []);
+  }, [dashboard.data]);
 
   const displayedRows = useMemo(() => {
     return getDisplayedRows(
@@ -284,13 +260,40 @@ export const useMswdoStubDistribution = () => {
     );
   }, [disasterEvents, selectedDisasterEventId]);
 
+  const selectableBarangays = useMemo(() => {
+    const affectedBarangayIds = getAffectedBarangayIds(selectedDisasterEvent);
+
+    if (affectedBarangayIds.length === 0) {
+      return [];
+    }
+
+    return barangays.filter((barangay) => affectedBarangayIds.includes(barangay.id));
+  }, [barangays, selectedDisasterEvent]);
+
   const selectedBarangay = useMemo(() => {
     return barangays.find((barangay) => barangay.id === selectedBarangayId) || null;
   }, [barangays, selectedBarangayId]);
 
+  useEffect(() => {
+    if (!selectedDisasterEventId || selectableBarangays.length === 0) {
+      if (selectedBarangayId) {
+        setSelectedBarangayId("");
+      }
+      return;
+    }
+
+    const isSelectedBarangayAvailable = selectableBarangays.some(
+      (barangay) => barangay.id === selectedBarangayId,
+    );
+
+    if (!isSelectedBarangayAvailable) {
+      setSelectedBarangayId(selectableBarangays[0].id);
+    }
+  }, [selectableBarangays, selectedBarangayId, selectedDisasterEventId]);
+
   return {
     disasterEvents,
-    barangays,
+    barangays: selectableBarangays,
     sectors,
     selectedDisasterEventId,
     selectedBarangayId,

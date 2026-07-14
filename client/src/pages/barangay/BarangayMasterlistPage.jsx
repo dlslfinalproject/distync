@@ -829,6 +829,7 @@ const BarangayMasterlistPage = () => {
         selectedHouseholds={selectedHouseholds}
         onToggleSelect={handleToggleSelect}
         onSelectAll={handleSelectAll}
+        showAddressColumn={false}
       />
 
       <RegisterFamilyModal

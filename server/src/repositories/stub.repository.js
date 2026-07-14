@@ -41,6 +41,7 @@ const getStubDashboardMetrics = async (disasterEventId, barangayId) => {
       ON latest_household_stays.household_id = s.household_id
     WHERE s.disaster_event_id = $1
       AND h.barangay_id = $2
+      AND h.current_stay_type = 'EVAC_CENTER'
       AND s.status IN ('ISSUED', 'CLAIMED')
   `;
 
@@ -90,6 +91,7 @@ const getBarangayStubDashboardRows = async (disasterEventId, barangayId) => {
     INNER JOIN households h ON h.id = s.household_id
     WHERE s.disaster_event_id = $1
       AND h.barangay_id = $2
+      AND h.current_stay_type = 'EVAC_CENTER'
       AND s.status IN ('ISSUED', 'CLAIMED')
     ORDER BY stub_sequence_no ASC
   `;
@@ -195,9 +197,11 @@ const getStubById = async (id) => {
       h.family_head_last_name,
       h.family_head_suffix,
       h.household_size,
+      h.residency_status,
       h.contact_number,
       h.current_stay_type,
       h.current_address_details,
+      h.is_active,
       h.family_head_photo_url,
       h.photo_captured_at,
       h.photo_captured_by,
@@ -242,6 +246,7 @@ const getScopedStubById = async (id, barangayId) => {
     INNER JOIN households h ON h.id = s.household_id
     WHERE s.id = $1
       AND h.barangay_id = $2
+      AND h.current_stay_type = 'EVAC_CENTER'
   `;
 
   const result = await pool.query(query, [id, barangayId]);
@@ -398,6 +403,101 @@ const getHouseholdMembersCount = async (householdId) => {
 
   const result = await pool.query(query, [householdId]);
   return result.rows[0]?.members_count || 0;
+};
+
+const getHouseholdMembersByHouseholdId = async (householdId) => {
+  const query = `
+    SELECT
+      id AS evacuee_id,
+      household_id,
+      first_name,
+      middle_name,
+      last_name,
+      suffix,
+      sex,
+      age,
+      age_value,
+      age_unit,
+      relationship_to_head,
+      is_family_head
+    FROM evacuees
+    WHERE household_id = $1
+    ORDER BY is_family_head DESC, created_at ASC
+  `;
+
+  const result = await pool.query(query, [householdId]);
+  return result.rows;
+};
+
+const getLatestAttendanceByHouseholdId = async (householdId, disasterEventId = null) => {
+  const values = [householdId];
+  let disasterEventFilter = "";
+
+  if (disasterEventId) {
+    values.push(disasterEventId);
+    disasterEventFilter = `AND disaster_event_id = $${values.length}`;
+  }
+
+  const query = `
+    SELECT
+      id,
+      disaster_event_id,
+      household_id,
+      evacuee_id,
+      evacuation_center_id,
+      time_in,
+      time_out,
+      status,
+      recorded_by,
+      remarks,
+      created_at,
+      updated_at
+    FROM evacuation_logs
+    WHERE household_id = $1
+      ${disasterEventFilter}
+    ORDER BY
+      COALESCE(time_out, time_in) DESC,
+      updated_at DESC,
+      created_at DESC
+    LIMIT 1
+  `;
+
+  const result = await pool.query(query, values);
+  return result.rows[0] || null;
+};
+
+const getLatestDistributionTransactionByStubId = async (stubId) => {
+  if (!stubId) {
+    return null;
+  }
+
+  const query = `
+    SELECT
+      dt.id,
+      dt.disaster_event_id,
+      dt.household_id,
+      dt.stub_id,
+      dt.distribution_date,
+      dt.distribution_status,
+      dt.claimed_by_name,
+      dt.receipt_no,
+      dt.receipt_status,
+      dt.received_at,
+      dt.qr_reference_value,
+      dt.qr_scanned_at,
+      dt.relief_pack_template_id,
+      rpt.name AS relief_pack_template_name,
+      dt.created_at,
+      dt.updated_at
+    FROM distribution_transactions dt
+    LEFT JOIN relief_pack_templates rpt ON rpt.id = dt.relief_pack_template_id
+    WHERE dt.stub_id = $1
+    ORDER BY dt.distribution_date DESC, dt.created_at DESC
+    LIMIT 1
+  `;
+
+  const result = await pool.query(query, [stubId]);
+  return result.rows[0] || null;
 };
 
 const updateStubQrMetadata = async (stubId, qrMetadata, dbClient = pool) => {
@@ -592,6 +692,9 @@ module.exports = {
   getHouseholdSectorsByHouseholdIds,
   getMemberSectorsByHouseholdIds,
   getHouseholdMembersCount,
+  getHouseholdMembersByHouseholdId,
+  getLatestAttendanceByHouseholdId,
+  getLatestDistributionTransactionByStubId,
   updateStubQrMetadata,
   markStubAsClaimed,
   getStubClaimHistory,

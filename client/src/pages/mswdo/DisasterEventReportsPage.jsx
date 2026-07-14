@@ -250,6 +250,22 @@ const getDisasterEventStatusStyles = (status) => {
   };
 };
 
+const getAffectedBarangayIds = (event) => {
+  if (!Array.isArray(event?.affected_barangays)) {
+    return [];
+  }
+
+  return event.affected_barangays
+    .map((barangay) => {
+      if (typeof barangay === "string") {
+        return barangay;
+      }
+
+      return barangay?.id || barangay?.barangay_id || "";
+    })
+    .filter(Boolean);
+};
+
 const DisasterEventReportsPage = () => {
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
@@ -362,8 +378,44 @@ const DisasterEventReportsPage = () => {
     () => sortedRows.filter((row) => doesRowMatchSearch(row, searchTerm)),
     [searchTerm, sortedRows],
   );
+  const selectedDisasterEvent = useMemo(
+    () =>
+      disasterEvents.find((event) => event.id === filters.disaster_event_id) ||
+      null,
+    [disasterEvents, filters.disaster_event_id],
+  );
+  const selectableBarangays = useMemo(() => {
+    if (!selectedDisasterEvent) {
+      return barangays;
+    }
+
+    const affectedBarangayIds = getAffectedBarangayIds(selectedDisasterEvent);
+
+    if (affectedBarangayIds.length === 0) {
+      return [];
+    }
+
+    return barangays.filter((barangay) => affectedBarangayIds.includes(barangay.id));
+  }, [barangays, selectedDisasterEvent]);
   const isSpecificDisasterEventSelected = Boolean(filters.disaster_event_id);
   const isExportDisabled = isLoadingRows || rows.length === 0;
+
+  useEffect(() => {
+    if (!filters.barangay_id) {
+      return;
+    }
+
+    const isSelectedBarangayAvailable = selectableBarangays.some(
+      (barangay) => barangay.id === filters.barangay_id,
+    );
+
+    if (!isSelectedBarangayAvailable) {
+      setFilters((currentValue) => ({
+        ...currentValue,
+        barangay_id: "",
+      }));
+    }
+  }, [filters.barangay_id, selectableBarangays]);
 
   const openExportModal = () => {
     if (rows.length === 0) {
@@ -467,7 +519,7 @@ const DisasterEventReportsPage = () => {
               style={inputStyles}
             >
               <option value="">All barangays</option>
-              {barangays.map((row) => (
+              {selectableBarangays.map((row) => (
                 <option key={row.id} value={row.id}>
                   {row.name}
                 </option>

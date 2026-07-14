@@ -1,6 +1,7 @@
 import React from "react";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
+import { RELATIONSHIP_OPTIONS } from "../../utils/registrationOptions";
 import QrCodePanel from "./QrCodePanel";
 
 const modalStyles = {
@@ -11,16 +12,19 @@ const modalStyles = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    padding: "24px",
+    padding: "18px",
     zIndex: 1200,
   },
   modal: {
     width: "100%",
-    maxWidth: "420px",
+    maxWidth: "520px",
+    maxHeight: "calc(100vh - 36px)",
+    overflowY: "auto",
     backgroundColor: "#ffffff",
     borderRadius: "20px",
-    padding: "28px",
+    padding: "24px",
     boxShadow: "0 24px 48px rgba(20, 48, 78, 0.2)",
+    boxSizing: "border-box",
   },
   title: {
     margin: 0,
@@ -37,41 +41,118 @@ const modalStyles = {
     display: "flex",
     justifyContent: "flex-end",
     gap: "12px",
-    marginTop: "24px",
+    marginTop: "18px",
     flexWrap: "wrap",
   },
   photoSection: {
-    marginTop: "20px",
-    padding: "16px",
+    marginTop: "16px",
+    display: "grid",
+    gap: "12px",
+    justifyItems: "center",
+  },
+  infoCard: {
+    width: "100%",
+    padding: "14px",
     borderRadius: "16px",
     border: "1px solid #e1eaf3",
     backgroundColor: "#f8fbfe",
+    boxSizing: "border-box",
+    textAlign: "center",
+  },
+  label: {
+    margin: 0,
+    color: "#60738a",
+    fontSize: "11px",
+    textTransform: "uppercase",
+    letterSpacing: "0.08em",
+    fontWeight: 700,
+  },
+  value: {
+    margin: "6px 0 0",
+    color: "#17324d",
+    fontSize: "15px",
+    fontWeight: 800,
+    lineHeight: 1.4,
+  },
+  qrCard: {
+    width: "100%",
+    padding: "14px",
+    borderRadius: "16px",
+    border: "1px solid #e1eaf3",
+    backgroundColor: "#f8fbfe",
+    boxSizing: "border-box",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "10px",
+  },
+  qrPanel: {
+    width: "100%",
+    alignItems: "center",
+  },
+  qrImage: {
+    width: "160px",
+    maxWidth: "160px",
+  },
+  qrValue: {
+    width: "100%",
+    maxWidth: "420px",
+    margin: "0 auto",
+    textAlign: "center",
+    overflowWrap: "anywhere",
+  },
+  familyHeadCard: {
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    gap: "14px",
+    padding: "12px",
+    borderRadius: "16px",
+    border: "1px solid #d7e2ef",
+    backgroundColor: "#f8fbfe",
+    boxSizing: "border-box",
+    textAlign: "left",
   },
   photoPreview: {
-    width: "100%",
-    maxWidth: "220px",
-    aspectRatio: "4 / 3",
+    width: "76px",
+    height: "76px",
     objectFit: "cover",
-    borderRadius: "14px",
+    borderRadius: "12px",
     border: "1px solid #d5e0ea",
     backgroundColor: "#eaf2f8",
+    flex: "0 0 auto",
   },
   photoPlaceholder: {
-    width: "100%",
-    maxWidth: "220px",
-    aspectRatio: "4 / 3",
-    borderRadius: "14px",
+    width: "76px",
+    height: "76px",
+    borderRadius: "12px",
     border: "1px dashed #cbd9e7",
     backgroundColor: "#f3f8fc",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     color: "#698099",
-    fontSize: "13px",
+    fontSize: "11px",
     fontWeight: 600,
     textAlign: "center",
-    padding: "14px",
+    padding: "8px",
     boxSizing: "border-box",
+    flex: "0 0 auto",
+  },
+  membersList: {
+    width: "100%",
+    margin: 0,
+    paddingLeft: "18px",
+    color: "#21405f",
+    fontSize: "14px",
+    lineHeight: 1.7,
+    textAlign: "left",
+  },
+  capturedText: {
+    margin: "6px 0 0",
+    color: "#60738a",
+    fontSize: "12px",
+    lineHeight: 1.4,
   },
 };
 
@@ -95,6 +176,14 @@ const formatPhotoCapturedAt = (value) => {
   }).format(parsedDate);
 };
 
+const formatRelationship = (value) => {
+  const relationshipOption = RELATIONSHIP_OPTIONS.find(
+    (option) => option.value === value,
+  );
+
+  return relationshipOption?.label || value || "";
+};
+
 const StubClaimConfirmModal = ({
   isOpen,
   isSubmitting,
@@ -112,6 +201,15 @@ const StubClaimConfirmModal = ({
     selectedCount > 1
       ? "Are you sure the selected stubs have been claimed?"
       : "Are you sure this stub has been claimed?";
+  const familyMembers = Array.isArray(stubDetails?.household?.members)
+    ? stubDetails.household.members
+    : [];
+  const reliefPackName =
+    stubDetails?.distribution_transaction?.relief_pack_template_name ||
+    stubDetails?.distribution_transaction?.released_items_summary ||
+    "-";
+  const reliefPackDisplay =
+    reliefPackName === "-" ? reliefPackName : reliefPackName.toUpperCase();
 
   return (
     <div style={modalStyles.overlay}>
@@ -121,28 +219,27 @@ const StubClaimConfirmModal = ({
 
         {selectedCount === 1 ? (
           <div style={modalStyles.photoSection}>
-            <p
-              style={{
-                margin: 0,
-                color: "#60738a",
-                fontSize: "12px",
-                textTransform: "uppercase",
-                letterSpacing: "0.08em",
-                fontWeight: 700,
-              }}
-            >
-              Family Head Photo Verification
-            </p>
+            <div style={modalStyles.infoCard}>
+              <p style={modalStyles.label}>Stub Number</p>
+              <p style={modalStyles.value}>{stubDetails?.stub_no || "--"}</p>
+            </div>
 
-            <p style={{ margin: "10px 0 0", color: "#17324d", fontWeight: 700 }}>
-              {stubDetails?.household?.family_head_name || "--"}
-            </p>
+            <div style={modalStyles.qrCard}>
+              <p style={modalStyles.label}>QR Code</p>
+              <QrCodePanel
+                value={stubDetails?.qr_code_value || ""}
+                emptyLabel="No QR available"
+                containerStyle={modalStyles.qrPanel}
+                imageStyle={modalStyles.qrImage}
+                valueStyle={modalStyles.qrValue}
+              />
+              <p style={modalStyles.label}>Relief Pack</p>
+              <p style={modalStyles.value}>{reliefPackDisplay}</p>
+            </div>
 
-            <div style={{ marginTop: "14px" }}>
+            <div style={modalStyles.familyHeadCard}>
               {isLoadingStubDetails ? (
-                <p style={{ ...shellStyles.mutedText, margin: 0 }}>
-                  Loading registered family head photo...
-                </p>
+                <div style={modalStyles.photoPlaceholder}>Loading photo...</div>
               ) : stubDetails?.household?.family_head_photo_url ? (
                 <img
                   src={stubDetails.household.family_head_photo_url}
@@ -152,25 +249,39 @@ const StubClaimConfirmModal = ({
               ) : (
                 <div style={modalStyles.photoPlaceholder}>No photo available</div>
               )}
+
+              <div>
+                <p style={modalStyles.label}>Family Head</p>
+                <p style={modalStyles.value}>
+                  {stubDetails?.household?.family_head_name || "--"}
+                </p>
+                {stubDetails?.household?.photo_captured_at ? (
+                  <p style={modalStyles.capturedText}>
+                    Captured:{" "}
+                    {formatPhotoCapturedAt(stubDetails.household.photo_captured_at)}
+                  </p>
+                ) : null}
+              </div>
             </div>
 
-            {stubDetails?.household?.photo_captured_at ? (
-              <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-                Captured: {formatPhotoCapturedAt(stubDetails.household.photo_captured_at)}
-              </p>
-            ) : null}
-
-            {stubDetails?.household?.photo_verification_notes ? (
-              <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-                Notes: {stubDetails.household.photo_verification_notes}
-              </p>
-            ) : null}
-
-            <div style={{ marginTop: "16px" }}>
-              <QrCodePanel
-                value={stubDetails?.qr_code_value || ""}
-                emptyLabel="No QR available"
-              />
+            <div style={modalStyles.infoCard}>
+              <p style={modalStyles.label}>Family Members</p>
+              {familyMembers.length > 0 ? (
+                <ul style={modalStyles.membersList}>
+                  {familyMembers.map((member) => (
+                    <li key={member.evacuee_id || member.full_name}>
+                      {member.full_name || "Unnamed member"}
+                      {member.relationship_to_head
+                        ? ` - ${formatRelationship(member.relationship_to_head)}`
+                        : ""}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p style={{ ...shellStyles.mutedText, margin: "8px 0 0" }}>
+                  No additional family members recorded.
+                </p>
+              )}
             </div>
           </div>
         ) : null}

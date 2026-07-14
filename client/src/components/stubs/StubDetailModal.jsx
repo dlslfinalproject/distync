@@ -4,10 +4,12 @@ import { shellStyles } from "../layout/BarangayLayout";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import {
   DISPLAY_MEMBER_SECTOR_CODES,
+  RELATIONSHIP_OPTIONS,
   formatMemberSectorLabel,
   getCanonicalMemberSectorCode,
 } from "../../utils/registrationOptions";
 import { formatStayTypeLabel } from "../../utils/stayType";
+import QrCodePanel from "./QrCodePanel";
 
 const modalStyles = {
   backdrop: {
@@ -47,6 +49,13 @@ const modalStyles = {
     padding: "10px 14px",
     fontWeight: 700,
     cursor: "pointer",
+  },
+  section: {
+    border: "1px solid #d6e2ef",
+    borderRadius: "18px",
+    backgroundColor: "#ffffff",
+    padding: "20px",
+    boxShadow: "0 10px 24px rgba(76, 101, 132, 0.06)",
   },
   grid: {
     display: "grid",
@@ -105,6 +114,20 @@ const modalStyles = {
     backgroundColor: "#ffffff",
     padding: "14px 16px",
   },
+  visualDetailsGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+    gap: "28px",
+    alignItems: "start",
+  },
+  stubInfoGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: "18px",
+  },
+  stubInfoFullWidth: {
+    gridColumn: "1 / -1",
+  },
 };
 
 const formatDateTime = (value) => {
@@ -127,6 +150,26 @@ const formatDateTime = (value) => {
   }).format(parsedDate);
 };
 
+const formatStatus = (status) => {
+  if (status === "ISSUED") {
+    return "Unclaimed";
+  }
+
+  if (status === "CLAIMED") {
+    return "Claimed";
+  }
+
+  return status || "-";
+};
+
+const formatAttendanceStatus = (status) => {
+  if (!status) {
+    return "No attendance record yet";
+  }
+
+  return status;
+};
+
 const formatContactNumber = (value) => {
   if (!value) {
     return "--";
@@ -141,21 +184,6 @@ const formatContactNumber = (value) => {
   }
 
   return value;
-};
-
-const buildFullName = (person) => {
-  if (!person) {
-    return "--";
-  }
-
-  return [
-    person.first_name,
-    person.middle_name,
-    person.last_name,
-    person.suffix,
-  ]
-    .filter(Boolean)
-    .join(" ");
 };
 
 const buildSectorsText = (sectors = []) => {
@@ -199,6 +227,36 @@ const buildSectorsText = (sectors = []) => {
   return [...orderedSectorLabels, ...remainingSectorLabels].join(", ");
 };
 
+const formatRelationship = (relationship) => {
+  if (!relationship) {
+    return "--";
+  }
+
+  return (
+    RELATIONSHIP_OPTIONS.find((option) => option.value === relationship)?.label ||
+    relationship
+  );
+};
+
+const formatMemberAge = (member) => {
+  const ageValue = member?.age_value ?? member?.age;
+  const ageUnit = String(member?.age_unit || "").toLowerCase();
+
+  if (ageValue === undefined || ageValue === null || ageValue === "") {
+    return "--";
+  }
+
+  if (ageUnit === "months") {
+    return `${ageValue} month${Number(ageValue) === 1 ? "" : "s"}`;
+  }
+
+  if (ageUnit === "years") {
+    return `${ageValue} year${Number(ageValue) === 1 ? "" : "s"}`;
+  }
+
+  return `${ageValue} ${member?.age_unit || ""}`.trim();
+};
+
 const isNonAdmittedResidentHousehold = (household, latestAttendance) => {
   const stayType = String(household?.current_stay_type || "").toUpperCase();
   const latestStatus = String(latestAttendance?.status || "").toUpperCase();
@@ -213,51 +271,41 @@ const isNonAdmittedResidentHousehold = (household, latestAttendance) => {
   );
 };
 
-const HouseholdDetailModal = ({
+const StubDetailModal = ({
   isOpen,
-  isLoading,
-  errorMessage,
-  householdDetails,
+  isLoading = false,
+  errorMessage = "",
+  stubDetails = null,
   onClose,
-  onEditHousehold,
 }) => {
   if (!isOpen) {
     return null;
   }
 
-  const household = householdDetails?.household || null;
-  const members = Array.isArray(householdDetails?.members)
-    ? householdDetails.members
+  const household = stubDetails?.household || {};
+  const barangay = stubDetails?.barangay || {};
+  const disasterEvent = stubDetails?.disaster_event || {};
+  const latestAttendance = stubDetails?.latest_attendance || null;
+  const distributionTransaction = stubDetails?.distribution_transaction || null;
+  const householdMembers = Array.isArray(household.members)
+    ? household.members
     : [];
-  const orderedMembers = members
-    .map((member, index) => ({ member, index }))
-    .sort((left, right) => {
-      if (left.member.is_family_head === right.member.is_family_head) {
-        return left.index - right.index;
-      }
-
-      return left.member.is_family_head ? -1 : 1;
-    })
-    .map(({ member }) => member);
-  const householdSectors = Array.isArray(householdDetails?.household_sectors)
-    ? householdDetails.household_sectors
+  const householdSectors = Array.isArray(stubDetails?.household_sectors)
+    ? stubDetails.household_sectors
     : [];
-  const memberSectors = orderedMembers.flatMap((member) =>
-    Array.isArray(member.sectors) ? member.sectors : [],
-  );
+  const memberSectors = Array.isArray(stubDetails?.member_sectors)
+    ? stubDetails.member_sectors
+    : [];
   const sectorsText = buildSectorsText([...memberSectors, ...householdSectors]);
-  const latestAttendance = householdDetails?.latest_attendance || null;
-  const latestAttendanceStatus = String(latestAttendance?.status || "").toUpperCase();
-  const isOperationallyActive =
-    household?.is_active !== false &&
-    !latestAttendance?.time_out &&
-    latestAttendanceStatus !== "LEFT" &&
-    latestAttendanceStatus !== "TRANSFERRED";
+  const stayTypeLabel = formatStayTypeLabel(household.current_stay_type);
+  const reliefPackName =
+    distributionTransaction?.relief_pack_template_name ||
+    distributionTransaction?.released_items_summary ||
+    "-";
   const isNonAdmittedResident = isNonAdmittedResidentHousehold(
     household,
     latestAttendance,
   );
-  const stayTypeLabel = formatStayTypeLabel(household?.current_stay_type);
 
   return (
     <div style={modalStyles.backdrop}>
@@ -268,100 +316,76 @@ const HouseholdDetailModal = ({
               Household Details
             </h2>
           </div>
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            {householdDetails?.household?.id &&
-            isOperationallyActive &&
-            typeof onEditHousehold === "function" ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => onEditHousehold?.(householdDetails.household.id)}
-                  style={pageHeaderStyles.secondaryButton}
-                  title="Edit Household"
-                >
-                  Edit Household
-                </button>
-              </>
-            ) : null}
-            <button type="button" onClick={onClose} style={modalStyles.closeButton}>
-              <FiX />
-            </button>
-          </div>
+
+          <button type="button" onClick={onClose} style={modalStyles.closeButton}>
+            <FiX size={18} />
+          </button>
         </div>
 
         {isLoading ? (
-          <section style={shellStyles.card}>
-            <p style={shellStyles.mutedText}>Loading household details...</p>
+          <section style={modalStyles.section}>
+            <p style={{ ...shellStyles.mutedText, margin: 0 }}>
+              Loading stub details...
+            </p>
           </section>
         ) : errorMessage ? (
-          <section style={shellStyles.card}>
-            <p style={{ ...shellStyles.mutedText, color: "#a14538" }}>
+          <section style={modalStyles.section}>
+            <p style={{ ...shellStyles.mutedText, margin: 0, color: "#a14d58" }}>
               {errorMessage}
             </p>
           </section>
-        ) : !household ? (
-          <section style={shellStyles.card}>
-            <p style={shellStyles.mutedText}>
-              No household details are available for this record.
-            </p>
-          </section>
         ) : (
-          <div style={{ display: "grid", gap: "20px" }}>
-            <section style={shellStyles.card}>
+          <div style={{ display: "grid", gap: "18px" }}>
+            <section style={modalStyles.section}>
               <div style={modalStyles.grid}>
                 <div>
                   <p style={modalStyles.label}>Disaster Event</p>
                   <p style={modalStyles.value}>
-                    {household.disaster_event_title || "--"}
-                  </p>
-                </div>
-                <div>
-                  <p style={modalStyles.label}>Barangay</p>
-                  <p style={modalStyles.value}>{household.barangay_name || "--"}</p>
-                </div>
-                <div>
-                  <p style={modalStyles.label}>Stay Type</p>
-                  <p style={modalStyles.value}>{stayTypeLabel || "--"}</p>
-                </div>
-                <div>
-                  <p style={modalStyles.label}>Family Head</p>
-                  <p style={modalStyles.value}>
                     {[
-                      household.family_head_first_name,
-                      household.family_head_middle_name,
-                      household.family_head_last_name,
-                      household.family_head_suffix,
+                      disasterEvent.event_code,
+                      disasterEvent.title,
                     ]
                       .filter(Boolean)
-                      .join(" ") || "--"}
+                      .join(" - ") || "-"}
                   </p>
                 </div>
+
                 <div>
-                  <p style={modalStyles.label}>Contact Number</p>
-                  <p style={modalStyles.value}>
-                    {formatContactNumber(household.contact_number)}
-                  </p>
+                  <p style={modalStyles.label}>Barangay</p>
+                  <p style={modalStyles.value}>{barangay.name || "-"}</p>
                 </div>
-                <div>
-                  <p style={modalStyles.label}>Household Size</p>
-                  <p style={modalStyles.value}>{household.household_size || 0}</p>
-                </div>
+
                 <div>
                   <p style={modalStyles.label}>Registered At</p>
                   <p style={modalStyles.value}>
                     {formatDateTime(household.registered_at)}
                   </p>
                 </div>
+
                 <div>
-                  <p style={modalStyles.label}>Record Status</p>
+                  <p style={modalStyles.label}>Family Head</p>
                   <p style={modalStyles.value}>
-                    {household.is_active === false ? "Archived" : "Active"}
+                    {household.family_head_name || "-"}
+                  </p>
+                </div>
+
+                <div>
+                  <p style={modalStyles.label}>Contact Number</p>
+                  <p style={modalStyles.value}>
+                    {formatContactNumber(household.contact_number)}
+                  </p>
+                </div>
+
+                <div>
+                  <p style={modalStyles.label}>Household Size</p>
+                  <p style={modalStyles.value}>
+                    {household.members_count ?? household.household_size ?? 0}
                   </p>
                 </div>
               </div>
             </section>
 
-            <section style={shellStyles.card}>
+            <section style={modalStyles.section}>
               <div style={modalStyles.grid}>
                 <div>
                   <p style={modalStyles.label}>Family Head Photo</p>
@@ -369,7 +393,7 @@ const HouseholdDetailModal = ({
                     {household.family_head_photo_url ? (
                       <img
                         src={household.family_head_photo_url}
-                        alt="Family head"
+                        alt="Registered family head"
                         style={modalStyles.photo}
                       />
                     ) : (
@@ -377,6 +401,7 @@ const HouseholdDetailModal = ({
                     )}
                   </div>
                 </div>
+
                 <div>
                   <p style={modalStyles.label}>
                     Household Sectors / Vulnerabilities
@@ -387,7 +412,7 @@ const HouseholdDetailModal = ({
                     Evacuation Status
                   </p>
                   <p style={modalStyles.value}>
-                    {latestAttendance?.status || "No attendance record yet"}
+                    {formatAttendanceStatus(latestAttendance?.status)}
                   </p>
 
                   <p style={{ ...modalStyles.label, marginTop: "18px" }}>
@@ -409,22 +434,73 @@ const HouseholdDetailModal = ({
               </div>
             </section>
 
-            <section style={shellStyles.card}>
+            <section style={modalStyles.section}>
+              <div style={modalStyles.visualDetailsGrid}>
+                <div>
+                  <p style={modalStyles.label}>QR Stub</p>
+                  <div style={{ marginTop: "12px", maxWidth: "280px" }}>
+                    <QrCodePanel
+                      value={stubDetails?.qr_code_value || ""}
+                      emptyLabel="No QR available"
+                      valueStyle={{ overflowWrap: "anywhere" }}
+                    />
+                  </div>
+                </div>
+
+                <div style={modalStyles.stubInfoGrid}>
+                  <div>
+                    <p style={modalStyles.label}>Stub Number</p>
+                    <p style={modalStyles.value}>{stubDetails?.stub_no || "-"}</p>
+                  </div>
+
+                  <div>
+                    <p style={modalStyles.label}>Stub Status</p>
+                    <p style={modalStyles.value}>
+                      {formatStatus(stubDetails?.status)}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p style={modalStyles.label}>Issued At</p>
+                    <p style={modalStyles.value}>
+                      {formatDateTime(stubDetails?.issued_at)}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p style={modalStyles.label}>Claimed At</p>
+                    <p style={modalStyles.value}>
+                      {formatDateTime(stubDetails?.claimed_at)}
+                    </p>
+                  </div>
+
+                  <div style={modalStyles.stubInfoFullWidth}>
+                    <p style={modalStyles.label}>Relief Pack</p>
+                    <p style={modalStyles.value}>{reliefPackName}</p>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section style={modalStyles.section}>
               <h3 style={{ margin: 0, color: "#17324d" }}>Family Members</h3>
-              {orderedMembers.length === 0 ? (
+              {householdMembers.length === 0 ? (
                 <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
                   No family members are recorded yet.
                 </p>
               ) : (
                 <div style={modalStyles.list}>
-                  {orderedMembers.map((member) => (
-                    <div key={member.id} style={modalStyles.listItem}>
+                  {householdMembers.map((member) => (
+                    <div
+                      key={member.evacuee_id || member.full_name}
+                      style={modalStyles.listItem}
+                    >
                       <p style={{ margin: 0, color: "#17324d", fontWeight: 700 }}>
-                        {buildFullName(member)}
+                        {member.full_name || "--"}
                       </p>
                       <p style={{ ...shellStyles.mutedText, marginTop: "6px" }}>
-                        {member.relationship_to_head || "--"} | {member.sex || "--"} |{" "}
-                        {member.age_value ?? member.age ?? "--"} {member.age_unit || ""}
+                        {formatRelationship(member.relationship_to_head)} |{" "}
+                        {member.sex || "--"} | {formatMemberAge(member)}
                       </p>
                       <p style={{ ...shellStyles.mutedText, marginTop: "6px" }}>
                         Sectors: {buildSectorsText(member.sectors)}
@@ -441,4 +517,4 @@ const HouseholdDetailModal = ({
   );
 };
 
-export default HouseholdDetailModal;
+export default StubDetailModal;

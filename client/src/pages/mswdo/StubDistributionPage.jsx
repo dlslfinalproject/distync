@@ -7,6 +7,7 @@ import { shellStyles } from "../../components/layout/BarangayLayout";
 import SearchBar from "../../components/shared/SearchBar";
 import StatusPill from "../../components/shared/StatusPill";
 import StubClaimConfirmModal from "../../components/stubs/StubClaimConfirmModal";
+import StubDetailModal from "../../components/stubs/StubDetailModal";
 import MswdoStubResultsTable from "../../components/stubs/MswdoStubResultsTable";
 import StubSummaryCards from "../../components/stubs/StubSummaryCards";
 import { claimStub, fetchStubDetails } from "../../features/stubs/stubService";
@@ -318,6 +319,10 @@ const StubDistributionPage = () => {
   const [pendingClaimStubDetails, setPendingClaimStubDetails] = useState(null);
   const [isLoadingPendingClaimStubDetails, setIsLoadingPendingClaimStubDetails] =
     useState(false);
+  const [selectedStubDetails, setSelectedStubDetails] = useState(null);
+  const [isStubDetailModalOpen, setIsStubDetailModalOpen] = useState(false);
+  const [isLoadingStubDetails, setIsLoadingStubDetails] = useState(false);
+  const [stubDetailsErrorMessage, setStubDetailsErrorMessage] = useState("");
   const [selectedStubIds, setSelectedStubIds] = useState([]);
   const [isBulkClaimConfirmOpen, setIsBulkClaimConfirmOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -748,6 +753,35 @@ const StubDistributionPage = () => {
     );
   };
 
+  const handleOpenStubDetails = async (row) => {
+    if (!row?.id) {
+      return;
+    }
+
+    setIsStubDetailModalOpen(true);
+    setIsLoadingStubDetails(true);
+    setSelectedStubDetails(null);
+    setStubDetailsErrorMessage("");
+
+    try {
+      const details = await fetchStubDetails(row.id);
+      setSelectedStubDetails(details);
+    } catch (error) {
+      setStubDetailsErrorMessage(
+        error.message || "Unable to load the selected stub details.",
+      );
+    } finally {
+      setIsLoadingStubDetails(false);
+    }
+  };
+
+  const handleCloseStubDetails = () => {
+    setIsStubDetailModalOpen(false);
+    setSelectedStubDetails(null);
+    setStubDetailsErrorMessage("");
+    setIsLoadingStubDetails(false);
+  };
+
   const handlePrintIssuedStubs = () => {
     const issuedRows = displayedRowsWithSyncStatus.filter((row) => row.status === "ISSUED");
 
@@ -838,10 +872,18 @@ const StubDistributionPage = () => {
               id="mswdo-stub-barangay"
               value={selectedBarangayId}
               onChange={(event) => setSelectedBarangayId(event.target.value)}
-              disabled={isLoadingFilters}
+              disabled={
+                isLoadingFilters ||
+                !selectedDisasterEventId ||
+                barangays.length === 0
+              }
               style={filterStyles.field}
             >
-              <option value="">Select barangay</option>
+              <option value="">
+                {selectedDisasterEventId
+                  ? "Select affected barangay"
+                  : "Select disaster event first"}
+              </option>
               {barangays.map((barangay) => (
                 <option key={barangay.id} value={barangay.id}>
                   {barangay.name}
@@ -1139,6 +1181,7 @@ const StubDistributionPage = () => {
         claimingStubId={claimingStubId}
         claimErrorMessage={claimErrorMessage}
         onClaimStub={handleOpenClaimConfirmation}
+        onViewStub={handleOpenStubDetails}
         onPrintStub={handlePrintSingleStub}
         isClaimReadOnly={isEndedView}
         selectedStubIds={selectedStubIds}
@@ -1154,6 +1197,14 @@ const StubDistributionPage = () => {
         onConfirm={handleConfirmClaim}
         selectedCount={isBulkClaimConfirmOpen ? selectedStubIds.length : 1}
         stubDetails={pendingClaimStubDetails}
+      />
+
+      <StubDetailModal
+        isOpen={isStubDetailModalOpen}
+        isLoading={isLoadingStubDetails}
+        errorMessage={stubDetailsErrorMessage}
+        stubDetails={selectedStubDetails}
+        onClose={handleCloseStubDetails}
       />
     </>
   );

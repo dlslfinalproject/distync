@@ -3,6 +3,7 @@ import { FaHandHolding } from "react-icons/fa6";
 import BarangayDashboardOverview from "../../components/barangay-dashboard/BarangayDashboardOverview";
 import PageHeader from "../../components/layout/PageHeader";
 import StubClaimConfirmModal from "../../components/stubs/StubClaimConfirmModal";
+import StubDetailModal from "../../components/stubs/StubDetailModal";
 import StubSearchBar from "../../components/stubs/StubSearchBar";
 import StubResultsTable from "../../components/stubs/StubResultsTable";
 import StubSummaryCards from "../../components/stubs/StubSummaryCards";
@@ -54,6 +55,16 @@ const isEndedDisasterEvent = (event, eventScope) => {
   return eventScope === "ended" || status === "CLOSED" || status === "ARCHIVED";
 };
 
+const buildStubPrintRoute = ({ stubIds = [] }) => {
+  const searchParams = new URLSearchParams();
+
+  if (stubIds.length > 0) {
+    searchParams.set("stubIds", stubIds.join(","));
+  }
+
+  return `/barangay/print/stubs?${searchParams.toString()}`;
+};
+
 const StubDistributionPage = () => {
   const { authenticatedUser } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
@@ -74,6 +85,10 @@ const StubDistributionPage = () => {
   const [pendingClaimStubDetails, setPendingClaimStubDetails] = useState(null);
   const [isLoadingPendingClaimStubDetails, setIsLoadingPendingClaimStubDetails] =
     useState(false);
+  const [selectedStubDetails, setSelectedStubDetails] = useState(null);
+  const [isStubDetailModalOpen, setIsStubDetailModalOpen] = useState(false);
+  const [isLoadingStubDetails, setIsLoadingStubDetails] = useState(false);
+  const [stubDetailsErrorMessage, setStubDetailsErrorMessage] = useState("");
   const [selectedStubIds, setSelectedStubIds] = useState([]);
   const [isBulkClaimConfirmOpen, setIsBulkClaimConfirmOpen] = useState(false);
 
@@ -389,6 +404,56 @@ const StubDistributionPage = () => {
     }
   };
 
+  const openStubPrintPage = (printUrl) => {
+    const printWindow = window.open(printUrl, "_blank", "noopener,noreferrer");
+
+    if (!printWindow) {
+      window.alert("Allow pop-ups to open the printable stub page.");
+    }
+  };
+
+  const handlePrintSingleStub = (row) => {
+    if (!row?.id) {
+      window.alert("No printable stub data is available for the selected record.");
+      return;
+    }
+
+    openStubPrintPage(
+      buildStubPrintRoute({
+        stubIds: [row.id],
+      }),
+    );
+  };
+
+  const handleOpenStubDetails = async (row) => {
+    if (!row?.id) {
+      return;
+    }
+
+    setIsStubDetailModalOpen(true);
+    setIsLoadingStubDetails(true);
+    setSelectedStubDetails(null);
+    setStubDetailsErrorMessage("");
+
+    try {
+      const details = await fetchStubDetails(row.id);
+      setSelectedStubDetails(details);
+    } catch (error) {
+      setStubDetailsErrorMessage(
+        error.message || "Unable to load the selected stub details.",
+      );
+    } finally {
+      setIsLoadingStubDetails(false);
+    }
+  };
+
+  const handleCloseStubDetails = () => {
+    setIsStubDetailModalOpen(false);
+    setSelectedStubDetails(null);
+    setStubDetailsErrorMessage("");
+    setIsLoadingStubDetails(false);
+  };
+
   return (
     <>
       <PageHeader title="RELIEF GOODS DISTRIBUTION" />
@@ -498,6 +563,8 @@ const StubDistributionPage = () => {
         selectedStubIds={selectedStubIds}
         onToggleSelect={handleToggleSelect}
         onSelectAll={handleSelectAll}
+        onViewStub={handleOpenStubDetails}
+        onPrintStub={handlePrintSingleStub}
       />
 
       <StubClaimConfirmModal
@@ -508,6 +575,14 @@ const StubDistributionPage = () => {
         onConfirm={handleConfirmClaim}
         selectedCount={isBulkClaimConfirmOpen ? selectedStubIds.length : 1}
         stubDetails={pendingClaimStubDetails}
+      />
+
+      <StubDetailModal
+        isOpen={isStubDetailModalOpen}
+        isLoading={isLoadingStubDetails}
+        errorMessage={stubDetailsErrorMessage}
+        stubDetails={selectedStubDetails}
+        onClose={handleCloseStubDetails}
       />
     </>
   );

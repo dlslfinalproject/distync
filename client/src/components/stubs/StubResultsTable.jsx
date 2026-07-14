@@ -1,6 +1,10 @@
 import React from "react";
 import { FaHandHolding } from "react-icons/fa6";
+import { FiEye, FiPrinter } from "react-icons/fi";
 import { shellStyles } from "../layout/BarangayLayout";
+import TableActionsMenu from "../shared/TableActionsMenu";
+import { formatOrderedSectorText } from "../../utils/sectorDisplay";
+import QrCodePanel from "./QrCodePanel";
 
 const tableStyles = {
   table: {
@@ -22,7 +26,7 @@ const tableStyles = {
     color: "#21405f",
     borderBottom: "1px solid #edf3f8",
     fontSize: "14px",
-    verticalAlign: "top",
+    verticalAlign: "middle",
   },
   statusButton: {
     border: "1px solid #c6d8ea",
@@ -46,6 +50,17 @@ const tableStyles = {
     color: "#356592",
     fontSize: "12px",
     fontWeight: 700,
+  },
+  stubSequenceText: {
+    color: "#17324d",
+    fontSize: "14px",
+    fontWeight: 700,
+  },
+  stubCodeText: {
+    marginTop: "6px",
+    color: "#69839c",
+    fontSize: "12px",
+    lineHeight: 1.4,
   },
 };
 
@@ -118,6 +133,8 @@ const StubResultsTable = ({
   selectedStubIds,
   onToggleSelect,
   onSelectAll,
+  onViewStub = () => {},
+  onPrintStub = () => {},
 }) => {
   const safeSelectedStubIds = Array.isArray(selectedStubIds)
     ? selectedStubIds
@@ -228,7 +245,7 @@ const StubResultsTable = ({
                   textAlign: "center",
                 }}
               >
-                Stub Number
+                Household Size
               </th>
               <th style={tableStyles.headerCell}>Sectors</th>
               <th
@@ -237,7 +254,31 @@ const StubResultsTable = ({
                   textAlign: "center",
                 }}
               >
+                Stub Number
+              </th>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  textAlign: "center",
+                }}
+              >
+                QR Stub
+              </th>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  textAlign: "center",
+                }}
+              >
                 Status
+              </th>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  textAlign: "center",
+                }}
+              >
+                Action
               </th>
             </tr>
           </thead>
@@ -245,6 +286,20 @@ const StubResultsTable = ({
             {rows.map((row) => {
               const isSelectable = !isClaimReadOnly && row.status === "ISSUED";
               const isSelected = safeSelectedStubIds.includes(row.id);
+              const actionItems = [
+                {
+                  key: "view",
+                  label: "View Details",
+                  icon: <FiEye size={18} />,
+                  onClick: (selectedRow) => onViewStub(selectedRow),
+                },
+                {
+                  key: "print",
+                  label: "Print QR Stub",
+                  icon: <FiPrinter size={18} />,
+                  onClick: (selectedRow) => onPrintStub(selectedRow),
+                },
+              ];
 
               return (
                 <tr key={row.id}>
@@ -263,12 +318,7 @@ const StubResultsTable = ({
                     />
                   </td>
                   <td style={tableStyles.bodyCell}>
-                    <strong style={{ display: "block", marginBottom: "4px" }}>
-                      {row.household?.family_head_name || "-"}
-                    </strong>
-                    <span style={{ color: "#69839c" }}>
-                      {row.household?.members_count || 0} members
-                    </span>
+                    {row.household?.family_head_name || "-"}
                   </td>
                   <td
                     style={{
@@ -277,10 +327,38 @@ const StubResultsTable = ({
                     }}
                   >
                     <span style={tableStyles.membersBadge}>
-                      {row.stub_sequence_no}
+                      {row.household?.members_count || 0}
                     </span>
                   </td>
-                  <td style={tableStyles.bodyCell}>{row.sectors_text}</td>
+                  <td style={tableStyles.bodyCell}>
+                    {formatOrderedSectorText(row.sectors_text)}
+                  </td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      textAlign: "center",
+                    }}
+                  >
+                    <div style={tableStyles.stubSequenceText}>
+                      Stub #{row.stub_sequence_no || "-"}
+                    </div>
+                    <div style={tableStyles.stubCodeText}>
+                      {row.stub_no}
+                    </div>
+                  </td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      textAlign: "center",
+                    }}
+                  >
+                    <div style={{ width: "112px", margin: "0 auto" }}>
+                      <QrCodePanel
+                        value={row.qr_code_value || ""}
+                        emptyLabel="QR unavailable"
+                      />
+                    </div>
+                  </td>
                   <td
                     style={{
                       ...tableStyles.bodyCell,
@@ -312,6 +390,24 @@ const StubResultsTable = ({
                         {getStatusLabel(row.status)}
                       </span>
                     )}
+                  </td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      textAlign: "center",
+                      verticalAlign: "middle",
+                    }}
+                  >
+                    <TableActionsMenu
+                      row={row}
+                      menuId={`stub-${row.id}`}
+                      buttonTitle="Actions"
+                      buttonAriaLabel="Actions"
+                      dataPrefix="stub-action"
+                      menuWidth={116}
+                      variant="icon-grid"
+                      items={actionItems}
+                    />
                   </td>
                 </tr>
               );

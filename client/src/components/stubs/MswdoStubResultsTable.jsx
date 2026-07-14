@@ -1,34 +1,33 @@
 import React from "react";
 import { FaHandHolding } from "react-icons/fa6";
-import { FiPrinter } from "react-icons/fi";
+import { FiEye, FiPrinter } from "react-icons/fi";
 import { shellStyles } from "../layout/BarangayLayout";
+import TableActionsMenu from "../shared/TableActionsMenu";
+import { formatOrderedSectorText } from "../../utils/sectorDisplay";
 import QrCodePanel from "./QrCodePanel";
-import SyncStatusBadge from "../shared/SyncStatusBadge";
 
 const tableStyles = {
   table: {
     width: "100%",
-    maxWidth: "100%",
     borderCollapse: "collapse",
-    tableLayout: "fixed",
+    minWidth: "980px",
   },
   headerCell: {
-    padding: "14px 12px",
+    padding: "14px 16px",
     textAlign: "left",
     fontSize: "12px",
     letterSpacing: "0.08em",
     textTransform: "uppercase",
     color: "#66809c",
     borderBottom: "1px solid #e0eaf4",
-    whiteSpace: "normal",
-    lineHeight: 1.4,
+    whiteSpace: "nowrap",
   },
   bodyCell: {
-    padding: "16px 12px",
+    padding: "16px",
     color: "#21405f",
     borderBottom: "1px solid #edf3f8",
     fontSize: "14px",
-    verticalAlign: "top",
+    verticalAlign: "middle",
     lineHeight: 1.5,
     whiteSpace: "normal",
     overflowWrap: "anywhere",
@@ -46,21 +45,6 @@ const tableStyles = {
     justifyContent: "center",
     cursor: "pointer",
   },
-  printButton: {
-    border: "1px solid #c6d8ea",
-    borderRadius: "12px",
-    minHeight: "36px",
-    padding: "8px 12px",
-    backgroundColor: "#ffffff",
-    color: "#24496e",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "8px",
-    cursor: "pointer",
-    fontSize: "12px",
-    fontWeight: 700,
-  },
   stubBadge: {
     display: "inline-block",
     minWidth: "36px",
@@ -71,6 +55,17 @@ const tableStyles = {
     color: "#356592",
     fontSize: "12px",
     fontWeight: 700,
+  },
+  stubSequenceText: {
+    color: "#17324d",
+    fontSize: "14px",
+    fontWeight: 700,
+  },
+  stubCodeText: {
+    marginTop: "6px",
+    color: "#69839c",
+    fontSize: "12px",
+    lineHeight: 1.4,
   },
 };
 
@@ -143,6 +138,7 @@ const MswdoStubResultsTable = ({
   selectedStubIds,
   onToggleSelect,
   onSelectAll,
+  onViewStub = () => {},
 }) => {
   const safeSelectedStubIds = Array.isArray(selectedStubIds) ? selectedStubIds : [];
 
@@ -234,7 +230,7 @@ const MswdoStubResultsTable = ({
         </p>
       ) : null}
 
-      <div style={{ width: "100%", minWidth: 0 }}>
+      <div style={{ overflowX: "auto" }}>
         <table style={tableStyles.table}>
           <thead>
             <tr>
@@ -252,40 +248,43 @@ const MswdoStubResultsTable = ({
                   disabled={!selectableRows.length}
                 />
               </th>
-              <th style={{ ...tableStyles.headerCell, width: "18%" }}>
-                Family Head
-              </th>
-              <th style={{ ...tableStyles.headerCell, width: "18%" }}>
-                Address
-              </th>
+              <th style={tableStyles.headerCell}>Family Head</th>
               <th
                 style={{
                   ...tableStyles.headerCell,
-                  width: "14%",
+                  textAlign: "center",
+                }}
+              >
+                Household Size
+              </th>
+              <th style={tableStyles.headerCell}>Sectors</th>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
                   textAlign: "center",
                 }}
               >
                 Stub Number
               </th>
-              <th style={{ ...tableStyles.headerCell, width: "34%" }}>
-                Sectors
-              </th>
               <th
                 style={{
                   ...tableStyles.headerCell,
-                  width: "12%",
                   textAlign: "center",
                 }}
               >
-                Sync
-              </th>
-              <th style={{ ...tableStyles.headerCell, width: "18%" }}>
                 QR Stub
               </th>
               <th
                 style={{
                   ...tableStyles.headerCell,
-                  width: "14%",
+                  textAlign: "center",
+                }}
+              >
+                Status
+              </th>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
                   textAlign: "center",
                 }}
               >
@@ -297,6 +296,20 @@ const MswdoStubResultsTable = ({
             {rows.map((row) => {
               const isSelectable = !isClaimReadOnly && row.status === "ISSUED";
               const isSelected = safeSelectedStubIds.includes(row.id);
+              const actionItems = [
+                {
+                  key: "view",
+                  label: "View Details",
+                  icon: <FiEye size={18} />,
+                  onClick: (selectedRow) => onViewStub(selectedRow),
+                },
+                {
+                  key: "print",
+                  label: "Print QR Stub",
+                  icon: <FiPrinter size={18} />,
+                  onClick: (selectedRow) => onPrintStub(selectedRow),
+                },
+              ];
 
               return (
                 <tr key={row.id}>
@@ -315,36 +328,42 @@ const MswdoStubResultsTable = ({
                     />
                   </td>
                   <td style={tableStyles.bodyCell}>{row.family_head_name}</td>
-                  <td style={tableStyles.bodyCell}>{row.address}</td>
                   <td
                     style={{
                       ...tableStyles.bodyCell,
                       textAlign: "center",
                     }}
                   >
-                    <span style={tableStyles.stubBadge}>{row.stub_number}</span>
-                    <div style={{ marginTop: "8px", color: "#69839c", fontSize: "12px" }}>
+                    <span style={tableStyles.stubBadge}>{row.members_count || 0}</span>
+                  </td>
+                  <td style={tableStyles.bodyCell}>
+                    {formatOrderedSectorText(row.sectors_text)}
+                  </td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      textAlign: "center",
+                    }}
+                  >
+                    <div style={tableStyles.stubSequenceText}>
+                      Stub #{row.stub_number || "-"}
+                    </div>
+                    <div style={tableStyles.stubCodeText}>
                       {row.stub_no}
                     </div>
                   </td>
-                  <td style={tableStyles.bodyCell}>{row.sectors_text}</td>
                   <td
                     style={{
                       ...tableStyles.bodyCell,
                       textAlign: "center",
                     }}
                   >
-                    <SyncStatusBadge status={row.sync_status} compact />
-                  </td>
-                  <td
-                    style={{
-                      ...tableStyles.bodyCell,
-                    }}
-                  >
-                    <QrCodePanel
-                      value={row.qr_code_value}
-                      emptyLabel="QR unavailable"
-                    />
+                    <div style={{ width: "112px", margin: "0 auto" }}>
+                      <QrCodePanel
+                        value={row.qr_code_value}
+                        emptyLabel="QR unavailable"
+                      />
+                    </div>
                   </td>
                   <td
                     style={{
@@ -353,43 +372,43 @@ const MswdoStubResultsTable = ({
                       verticalAlign: "middle",
                     }}
                   >
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "10px",
-                        alignItems: "center",
-                      }}
-                    >
+                    {row.status === "ISSUED" && !isClaimReadOnly ? (
                       <button
                         type="button"
-                        onClick={() => onPrintStub(row)}
-                        style={tableStyles.printButton}
+                        onClick={() => onClaimStub(row.id)}
+                        disabled={claimingStubId === row.id}
+                        title="Mark as Claimed"
+                        style={{
+                          ...tableStyles.statusButton,
+                          opacity: claimingStubId === row.id ? 0.7 : 1,
+                          cursor: claimingStubId === row.id ? "wait" : "pointer",
+                        }}
                       >
-                        <FiPrinter size={14} />
-                        Print
+                        <FaHandHolding size={18} />
                       </button>
-
-                      {row.status === "ISSUED" && !isClaimReadOnly ? (
-                        <button
-                          type="button"
-                          onClick={() => onClaimStub(row.id)}
-                          disabled={claimingStubId === row.id}
-                          title="Mark as Claimed"
-                          style={{
-                            ...tableStyles.statusButton,
-                            opacity: claimingStubId === row.id ? 0.7 : 1,
-                            cursor: claimingStubId === row.id ? "wait" : "pointer",
-                          }}
-                        >
-                          <FaHandHolding size={18} />
-                        </button>
-                      ) : (
-                        <span style={getStatusChipStyles(row.status)}>
-                          {getStatusLabel(row.status)}
-                        </span>
-                      )}
-                    </div>
+                    ) : (
+                      <span style={getStatusChipStyles(row.status)}>
+                        {getStatusLabel(row.status)}
+                      </span>
+                    )}
+                  </td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      textAlign: "center",
+                      verticalAlign: "middle",
+                    }}
+                  >
+                    <TableActionsMenu
+                      row={row}
+                      menuId={`mswdo-stub-${row.id}`}
+                      buttonTitle="Actions"
+                      buttonAriaLabel="Actions"
+                      dataPrefix="mswdo-stub-action"
+                      menuWidth={116}
+                      variant="icon-grid"
+                      items={actionItems}
+                    />
                   </td>
                 </tr>
               );

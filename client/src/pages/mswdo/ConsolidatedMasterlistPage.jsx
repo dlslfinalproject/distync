@@ -303,6 +303,7 @@ const ConsolidatedEvacueeMasterlist = () => {
         selectedHouseholds={selectedHouseholds}
         onToggleSelect={handleToggleSelect}
         onSelectAll={handleSelectAll}
+        showAddressColumn={!selectedBarangayId}
       />
 
       <MasterlistDepartureConfirmModal

@@ -1,7 +1,7 @@
 import React from "react";
 import { FiEdit2, FiEye, FiLogIn, FiLogOut } from "react-icons/fi";
 import { shellStyles } from "../layout/BarangayLayout";
-import SyncStatusBadge from "../shared/SyncStatusBadge";
+import SyncStatusIcon from "../shared/SyncStatusIcon";
 import EmptyState from "../shared/EmptyState";
 import ErrorState from "../shared/ErrorState";
 import LoadingState from "../shared/LoadingState";
@@ -107,6 +107,7 @@ const MasterlistTable = ({
   selectedHouseholds,
   onToggleSelect,
   onSelectAll,
+  showAddressColumn = true,
 }) => {
   const safeSelectedHouseholds = Array.isArray(selectedHouseholds)
     ? selectedHouseholds
@@ -273,24 +274,18 @@ const MasterlistTable = ({
                 </th>
               ) : null}
               <th style={tableStyles.headerCell}>Family Head</th>
-              <th style={tableStyles.headerCell}>Address</th>
+              {showAddressColumn ? (
+                <th style={tableStyles.headerCell}>Address</th>
+              ) : null}
               <th
                 style={{
                   ...tableStyles.headerCell,
                   textAlign: "center",
                 }}
               >
-                Members
+                Household Size
               </th>
               <th style={tableStyles.headerCell}>Sectors</th>
-              <th
-                style={{
-                  ...tableStyles.headerCell,
-                  textAlign: "center",
-                }}
-              >
-                Sync
-              </th>
               <th
                 style={{
                   ...tableStyles.headerCell,
@@ -358,16 +353,28 @@ const MasterlistTable = ({
                       ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
                     }}
                   >
-                    {row.family_head_name}
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <span>{row.family_head_name}</span>
+                      <SyncStatusIcon status={row.sync_status} />
+                    </div>
                   </td>
-                  <td
-                    style={{
-                      ...tableStyles.bodyCell,
-                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
-                    }}
-                  >
-                    {row.address}
-                  </td>
+                  {showAddressColumn ? (
+                    <td
+                      style={{
+                        ...tableStyles.bodyCell,
+                        ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
+                      }}
+                    >
+                      {row.address}
+                    </td>
+                  ) : null}
                   <td
                     style={{
                       ...tableStyles.bodyCell,
@@ -391,14 +398,6 @@ const MasterlistTable = ({
                     }}
                   >
                     {row.sectors_text}
-                  </td>
-                  <td
-                    style={{
-                      ...tableStyles.bodyCell,
-                      textAlign: "center",
-                    }}
-                  >
-                    <SyncStatusBadge status={row.sync_status} compact />
                   </td>
                   <td
                     style={{

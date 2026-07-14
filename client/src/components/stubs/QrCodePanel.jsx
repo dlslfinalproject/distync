@@ -45,7 +45,13 @@ const styles = {
   },
 };
 
-const QrCodePanel = ({ value, emptyLabel = "No QR available" }) => {
+const QrCodePanel = ({
+  value,
+  emptyLabel = "No QR available",
+  containerStyle = {},
+  imageStyle = {},
+  valueStyle = {},
+}) => {
   const [qrCodeImageUrl, setQrCodeImageUrl] = useState("");
 
   useEffect(() => {
@@ -60,8 +66,6 @@ const QrCodePanel = ({ value, emptyLabel = "No QR available" }) => {
       try {
         const qrCodeValue = String(value || "").trim();
         const qrPayloadUrl = buildStubQrUrl(qrCodeValue);
-
-        console.log("QR VALUE:", qrCodeValue);
 
         const imageUrl = await QRCode.toDataURL(qrPayloadUrl, {
           width: 220,
@@ -90,17 +94,23 @@ const QrCodePanel = ({ value, emptyLabel = "No QR available" }) => {
   }, [value]);
 
   if (!value) {
-    return <div style={styles.placeholder}>{emptyLabel}</div>;
+    return <div style={{ ...styles.placeholder, ...imageStyle }}>{emptyLabel}</div>;
   }
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, ...containerStyle }}>
       {qrCodeImageUrl ? (
-        <img src={qrCodeImageUrl} alt="Stub QR code" style={styles.image} />
+        <img
+          src={qrCodeImageUrl}
+          alt="Stub QR code"
+          style={{ ...styles.image, ...imageStyle }}
+        />
       ) : (
-        <div style={styles.placeholder}>Unable to render QR code</div>
+        <div style={{ ...styles.placeholder, ...imageStyle }}>
+          Unable to render QR code
+        </div>
       )}
-      <p style={styles.value}>{value}</p>
+      <p style={{ ...styles.value, ...valueStyle }}>{value}</p>
     </div>
   );
 };

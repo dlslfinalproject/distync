@@ -146,6 +146,14 @@ const AppRoutes = () => {
           }
         />
         <Route
+          path="/barangay/print/stubs"
+          element={
+            <RoleProtectedRoute>
+              <PrintStubsPage />
+            </RoleProtectedRoute>
+          }
+        />
+        <Route
           path="/inventory"
           element={
             <RoleProtectedRoute>

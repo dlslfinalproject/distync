@@ -1068,28 +1068,30 @@ const registerHousehold = async (requestData) => {
       );
     }
 
-    const stubNumbers =
-      await householdRegistrationRepository.generateStubNumbers(client);
+    if (requestDataWithDerivedAgeGroups.current_stay_type === "EVAC_CENTER") {
+      const stubNumbers =
+        await householdRegistrationRepository.generateStubNumbers(client);
 
-    await householdRegistrationRepository.insertStub(
-      {
-        disaster_event_id: requestDataWithDerivedAgeGroups.disaster_event_id,
-        household_id: createdHousehold.id,
-        stub_no: stubNumbers.stub_no,
-        serial_no: stubNumbers.serial_no,
-        status: "ISSUED",
-        issued_by: requestDataWithDerivedAgeGroups.registered_by,
-        qr_code_value: buildStubQrCodeValue({
-          disasterEventId: requestDataWithDerivedAgeGroups.disaster_event_id,
-          householdId: createdHousehold.id,
-          stubNo: stubNumbers.stub_no,
-        }),
-        qr_generated_by: requestDataWithDerivedAgeGroups.registered_by,
-        qr_status: "ACTIVE",
-        qr_notes: null,
-      },
-      client,
-    );
+      await householdRegistrationRepository.insertStub(
+        {
+          disaster_event_id: requestDataWithDerivedAgeGroups.disaster_event_id,
+          household_id: createdHousehold.id,
+          stub_no: stubNumbers.stub_no,
+          serial_no: stubNumbers.serial_no,
+          status: "ISSUED",
+          issued_by: requestDataWithDerivedAgeGroups.registered_by,
+          qr_code_value: buildStubQrCodeValue({
+            disasterEventId: requestDataWithDerivedAgeGroups.disaster_event_id,
+            householdId: createdHousehold.id,
+            stubNo: stubNumbers.stub_no,
+          }),
+          qr_generated_by: requestDataWithDerivedAgeGroups.registered_by,
+          qr_status: "ACTIVE",
+          qr_notes: null,
+        },
+        client,
+      );
+    }
 
     if (shouldAutoArchiveWithoutAttendance) {
       await householdRegistrationRepository.archiveHousehold(
