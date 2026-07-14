@@ -2,7 +2,6 @@ import React from "react";
 import NotificationPreferencesSection from "../components/NotificationPreferencesSection";
 import ProfileSection from "../components/ProfileSection";
 import RoleSettingsViewShell from "../components/RoleSettingsViewShell";
-import SecuritySection from "../components/SecuritySection";
 
 const getMayorSettingsGridTemplateColumns = () => {
   if (typeof window === "undefined") {
@@ -57,7 +56,6 @@ const MayorSettingsView = ({
     forecastHealth,
     inventoryThresholdSummary,
     profileSectionProps,
-    securitySectionProps,
     notificationSectionProps,
     dashboardDescription,
   } = ctx;
@@ -96,8 +94,6 @@ const MayorSettingsView = ({
     switch (activeSection) {
       case "profile":
         return <ProfileSection {...profileSectionProps} />;
-      case "security":
-        return <SecuritySection {...securitySectionProps} />;
       case "notification-preferences":
         return <NotificationPreferencesSection {...notificationSectionProps} />;
       case "sync-status":

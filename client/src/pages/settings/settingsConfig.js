@@ -3,7 +3,6 @@ import {
   FiBell,
   FiFileText,
   FiRefreshCw,
-  FiShield,
   FiUser,
 } from "react-icons/fi";
 import { ROLE_CODES } from "../../utils/roleSession";
@@ -57,12 +56,6 @@ export const BARANGAY_SETTINGS_SECTIONS = [
     icon: FiUser,
   },
   {
-    key: "security",
-    label: "Security",
-    description: "Review device-level security preferences and password-related checks.",
-    icon: FiShield,
-  },
-  {
     key: "notification-preferences",
     label: "Notification Preferences",
     description: "Control in-app and email alert preferences for barangay coordination.",
@@ -78,7 +71,6 @@ export const BARANGAY_SETTINGS_SECTIONS = [
 
 export const EDITABLE_BARANGAY_SECTION_KEYS = new Set([
   "profile",
-  "security",
   "notification-preferences",
 ]);
 
@@ -89,13 +81,6 @@ export const MSWDO_SETTINGS_SECTIONS = [
     description:
       "Review office identity details, assigned role, contact information, and profile picture.",
     icon: FiUser,
-  },
-  {
-    key: "security",
-    label: "Security",
-    description:
-      "Keep password review, two-factor preference, and security activity grouped together.",
-    icon: FiShield,
   },
   {
     key: "notification-preferences",
@@ -115,7 +100,6 @@ export const MSWDO_SETTINGS_SECTIONS = [
 
 export const EDITABLE_MSWDO_SECTION_KEYS = new Set([
   "profile",
-  "security",
   "notification-preferences",
 ]);
 
@@ -126,13 +110,6 @@ export const MAYOR_SETTINGS_SECTIONS = [
     description:
       "Review account identity details, assigned role, contact information, and profile picture.",
     icon: FiUser,
-  },
-  {
-    key: "security",
-    label: "Security",
-    description:
-      "Keep password review, two-factor preference, and security activity grouped together.",
-    icon: FiShield,
   },
   {
     key: "notification-preferences",
@@ -166,6 +143,5 @@ export const MAYOR_SETTINGS_SECTIONS = [
 
 export const EDITABLE_MAYOR_SECTION_KEYS = new Set([
   "profile",
-  "security",
   "notification-preferences",
 ]);
