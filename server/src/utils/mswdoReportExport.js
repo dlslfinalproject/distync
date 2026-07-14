@@ -285,7 +285,14 @@ const buildPdfBuffer = ({ reportTitle, metadata, columns, rows }) => {
   const pageWidth = 842;
   const marginX = 40;
   const contentWidth = 762;
-  const columnWidths = columns.map((column) => column.pdfWidth || 110);
+  const baseColumnWidths = columns.map((column) => column.pdfWidth || 110);
+  const totalColumnWidth = baseColumnWidths.reduce(
+    (total, width) => total + width,
+    0,
+  );
+  const widthScale =
+    totalColumnWidth > 0 ? contentWidth / totalColumnWidth : 1;
+  const columnWidths = baseColumnWidths.map((width) => width * widthScale);
 
   const addText = (text, x, y, options = {}) => {
     page.drawText(text, x, y, {
@@ -339,11 +346,22 @@ const buildPdfBuffer = ({ reportTitle, metadata, columns, rows }) => {
 
     cursorY -= 10;
     let headerX = marginX;
+    const wrappedHeaders = columns.map((column, index) =>
+      wrapText(
+        column.label,
+        Math.max(8, Math.floor(columnWidths[index] / 5.5)),
+      ),
+    );
+    const headerHeight =
+      Math.max(...wrappedHeaders.map((lines) => lines.length), 1) * 11 + 6;
+
     columns.forEach((column, index) => {
-      addText(column.label, headerX + 4, cursorY, { bold: true });
+      wrappedHeaders[index].forEach((line, lineIndex) => {
+        addText(line, headerX + 4, cursorY - lineIndex * 11, { bold: true });
+      });
       headerX += columnWidths[index];
     });
-    cursorY -= 14;
+    cursorY -= headerHeight;
   };
 
   const finishPage = () => {

@@ -24,6 +24,9 @@ const inputStyles = {
   },
 };
 
+const formatDisasterEventTitle = (event) =>
+  String(event?.title || "").trim() || "Untitled disaster event";
+
 const MswdoMasterlistToolbar = ({
   disasterEvents,
   barangays,
@@ -59,7 +62,7 @@ const MswdoMasterlistToolbar = ({
             <option value="">Select disaster event</option>
             {disasterEvents.map((event) => (
               <option key={event.id} value={event.id}>
-                {event.event_code} - {event.title}
+                {formatDisasterEventTitle(event)}
               </option>
             ))}
           </select>

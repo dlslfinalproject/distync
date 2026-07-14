@@ -417,7 +417,11 @@ const MasterlistTable = ({
                     }}
                   >
                     {isDepartureReadOnly ? (
-                      departureReadOnlyText || "-"
+                      row.is_non_admitted_resident ? (
+                        "-"
+                      ) : row.departure_time_value
+                        ? row.departure_time_text
+                        : departureReadOnlyText || "-"
                     ) : row.is_local_only ? (
                       <span style={{ color: "#60738a", fontSize: "12px", fontWeight: 700 }}>
                         Waiting for sync

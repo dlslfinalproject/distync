@@ -79,6 +79,9 @@ const fieldStyles = {
   },
 };
 
+const formatDisasterEventTitle = (event) =>
+  String(event?.title || "").trim() || "Selected disaster event";
+
 const HouseholdFormSection = ({ form }) => {
   const selectedEvent = form.activeDisasterEvents.find(
     (eventItem) => eventItem.id === form.selectedDisasterEventId,
@@ -126,7 +129,7 @@ const HouseholdFormSection = ({ form }) => {
         </p>
         <p style={{ margin: "8px 0 0", color: "#17324d", fontSize: "14px", fontWeight: 700 }}>
           {selectedEvent
-            ? `${selectedEvent.event_code} - ${selectedEvent.title}`
+            ? formatDisasterEventTitle(selectedEvent)
             : form.isOffline
               ? "Offline mode: please select an active disaster event while online first."
               : "Select an active disaster event from the masterlist page first."}

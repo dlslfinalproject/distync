@@ -64,18 +64,23 @@ const getDateStamp = () => {
     .replace(/-/g, "");
 };
 
-const buildFilename = ({ scope, format }) => {
+const buildFilename = ({ scope, format, eventLabel }) => {
   const extensionMap = {
     csv: "csv",
     excel: "xlsx",
     pdf: "pdf",
   };
 
+  const reportScope = eventLabel || SCOPE_LABELS[scope];
+
   return `mswdo-disaster-events-${slugifyFilePart(
-    SCOPE_LABELS[scope],
+    reportScope,
     "all-events",
   )}-${getDateStamp()}.${extensionMap[format]}`;
 };
+
+const getReportTitle = (eventLabel) =>
+  eventLabel ? "Disaster Event Report" : "Disaster Events Report";
 
 const escapeCsvValue = (value) => {
   const stringValue = value === null || value === undefined ? "" : String(value);
@@ -115,11 +120,12 @@ const wrapText = (value, maxLength) => {
   return lines.length ? lines : ["--"];
 };
 
-const buildTitleLines = ({ scope, search, totalRows }) => {
+const buildTitleLines = ({ scope, search, eventLabel, totalRows }) => {
   return [
     "DISTYNC",
     "Municipality of Malvar Disaster Relief Management System",
-    "MSWDO Disaster Events Report",
+    getReportTitle(eventLabel),
+    ...(eventLabel ? [`Disaster Event: ${eventLabel}`] : []),
     `Tab: ${SCOPE_LABELS[scope] || SCOPE_LABELS.all}`,
     `Search: ${search?.trim() || "None"}`,
     `Generated: ${formatGeneratedAt()}`,
@@ -127,10 +133,11 @@ const buildTitleLines = ({ scope, search, totalRows }) => {
   ];
 };
 
-const buildCsvBuffer = ({ rows, scope, search }) => {
+const buildCsvBuffer = ({ rows, scope, search, eventLabel }) => {
   const titleLines = buildTitleLines({
     scope,
     search,
+    eventLabel,
     totalRows: rows.length,
   });
   const columnLine = EXPORT_COLUMNS.map((column) =>
@@ -144,7 +151,7 @@ const buildCsvBuffer = ({ rows, scope, search }) => {
   return Buffer.from(content, "utf8");
 };
 
-const buildExcelBuffer = async ({ rows, scope, search }) => {
+const buildExcelBuffer = async ({ rows, scope, search, eventLabel }) => {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "DISTYNC";
   workbook.created = new Date();
@@ -179,7 +186,7 @@ const buildExcelBuffer = async ({ rows, scope, search }) => {
   };
   worksheet.getCell("B1").alignment = { horizontal: "left", vertical: "middle" };
   worksheet.mergeCells(2, 2, 2, EXPORT_COLUMNS.length);
-  worksheet.getCell("B2").value = "MSWDO Disaster Events Report";
+  worksheet.getCell("B2").value = getReportTitle(eventLabel);
   worksheet.getCell("B2").font = {
     bold: true,
     size: 14,
@@ -194,7 +201,7 @@ const buildExcelBuffer = async ({ rows, scope, search }) => {
   worksheet.getRow(1).height = 28;
   worksheet.getRow(2).height = 24;
 
-  buildTitleLines({ scope, search, totalRows: rows.length })
+  buildTitleLines({ scope, search, eventLabel, totalRows: rows.length })
     .slice(3)
     .forEach((line, index) => {
       const row = worksheet.getRow(index + 4);
@@ -257,7 +264,7 @@ const buildExcelBuffer = async ({ rows, scope, search }) => {
   return Buffer.from(buffer);
 };
 
-const buildPdfBuffer = ({ rows, scope, search }) => {
+const buildPdfBuffer = ({ rows, scope, search, eventLabel }) => {
   const pages = [];
   let page = null;
   let cursorY = 555;
@@ -286,7 +293,7 @@ const buildPdfBuffer = ({ rows, scope, search }) => {
       size: 18,
       color: reportExport.PDF_COLORS.white,
     });
-    addText("MSWDO Disaster Events Report", 112, 524, {
+    addText(`MSWDO ${getReportTitle(eventLabel)}`, 112, 524, {
       bold: true,
       size: 14,
       color: reportExport.PDF_COLORS.white,
@@ -296,6 +303,10 @@ const buildPdfBuffer = ({ rows, scope, search }) => {
     addText(`Search: ${search?.trim() || "None"}`, 230, cursorY);
     addText(`Rows: ${rows.length}`, 460, cursorY);
     addText(`Generated: ${formatGeneratedAt()}`, 580, cursorY);
+    if (eventLabel) {
+      cursorY -= 14;
+      addText(`Disaster Event: ${eventLabel}`, 40, cursorY, { bold: true });
+    }
     cursorY -= 24;
 
     EXPORT_COLUMNS.forEach((column, index) => {
@@ -315,7 +326,7 @@ const buildPdfBuffer = ({ rows, scope, search }) => {
   rows.forEach((row) => {
     const nameLines = wrapText(row.name, 22).slice(0, 2);
     const typeLines = wrapText(row.disaster_type, 18).slice(0, 2);
-    const affectedLines = wrapText(row.affected_barangays, 35).slice(0, 3);
+    const affectedLines = wrapText(row.affected_barangays, 35);
     const rowHeight =
       Math.max(nameLines.length, typeLines.length, affectedLines.length, 1) * 11 + 8;
 
@@ -340,19 +351,19 @@ const buildPdfBuffer = ({ rows, scope, search }) => {
   return reportExport.createPdfDocument(pages, reportExport.PDF_IMAGE_REGISTRY);
 };
 
-const buildExportFile = async ({ rows, scope, search, format }) => {
+const buildExportFile = async ({ rows, scope, search, eventLabel, format }) => {
   const builders = {
     csv: buildCsvBuffer,
     excel: buildExcelBuffer,
     pdf: buildPdfBuffer,
   };
 
-  const buffer = await builders[format]({ rows, scope, search });
+  const buffer = await builders[format]({ rows, scope, search, eventLabel });
 
   return {
     buffer,
     contentType: CONTENT_TYPES[format],
-    filename: buildFilename({ scope, format }),
+    filename: buildFilename({ scope, format, eventLabel }),
   };
 };
 

@@ -111,6 +111,14 @@ const mapServerErrorToFieldError = (message) => {
     };
   }
 
+  if (/registered records cannot be removed/i.test(normalizedMessage)) {
+    return {
+      fieldName: "barangay_ids",
+      message:
+        "Barangays with registered records cannot be unselected.",
+    };
+  }
+
   if (/end_date must not be earlier than start_date/i.test(normalizedMessage)) {
     return {
       fieldName: "end_date",
@@ -195,6 +203,13 @@ const DisasterEventFormModal = ({
   if (!isOpen) return null;
 
   const allBarangayIds = barangays.map((barangay) => barangay.id);
+  const lockedBarangayIds = new Set(
+    isEditMode
+      ? (initialValues?.affected_barangays || [])
+          .filter((barangay) => barangay.has_registered_records)
+          .map((barangay) => barangay.id)
+      : [],
+  );
   const areAllBarangaysSelected =
     allBarangayIds.length > 0 &&
     allBarangayIds.every((barangayId) =>
@@ -216,6 +231,14 @@ const DisasterEventFormModal = ({
   };
 
   const handleBarangayToggle = (barangayId, isChecked) => {
+    if (isEditMode && !isChecked && lockedBarangayIds.has(barangayId)) {
+      setFieldErrors((currentErrors) => ({
+        ...currentErrors,
+        barangay_ids: "Barangays with registered records cannot be unselected.",
+      }));
+      return;
+    }
+
     setFormValues((currentValues) => ({
       ...currentValues,
       barangay_ids: isChecked
@@ -230,14 +253,21 @@ const DisasterEventFormModal = ({
   };
 
   const handleToggleAllBarangays = () => {
+    const nextBarangayIds = areAllBarangaysSelected
+      ? allBarangayIds.filter((barangayId) => lockedBarangayIds.has(barangayId))
+      : allBarangayIds;
+
     setFormValues((currentValues) => ({
       ...currentValues,
-      barangay_ids: areAllBarangaysSelected ? [] : allBarangayIds,
+      barangay_ids: nextBarangayIds,
     }));
 
     setFieldErrors((currentErrors) => ({
       ...currentErrors,
-      barangay_ids: "",
+      barangay_ids:
+        areAllBarangaysSelected && lockedBarangayIds.size > 0
+          ? "Barangays with registered records cannot be unselected."
+          : "",
     }));
   };
 
@@ -533,33 +563,39 @@ const DisasterEventFormModal = ({
                 gap: "12px",
               }}
             >
-              {barangays.map((barangay) => (
-                <label
-                  key={barangay.id}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    border: "1px solid #d4dfeb",
-                    borderRadius: "999px",
-                    padding: "10px 14px",
-                    backgroundColor: "#f8fbfe",
-                    color: "#385a7b",
-                    fontSize: "13px",
-                    fontWeight: 600,
-                    cursor: "pointer",
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={formValues.barangay_ids.includes(barangay.id)}
-                    onChange={(e) =>
-                      handleBarangayToggle(barangay.id, e.target.checked)
-                    }
-                  />
-                  {barangay.name}
-                </label>
-              ))}
+              {barangays.map((barangay) => {
+                const isLockedBarangay = lockedBarangayIds.has(barangay.id);
+
+                return (
+                  <label
+                    key={barangay.id}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      border: "1px solid #d4dfeb",
+                      borderRadius: "999px",
+                      padding: "10px 14px",
+                      backgroundColor: isLockedBarangay ? "#eef5fc" : "#f8fbfe",
+                      color: isLockedBarangay ? "#6a87a6" : "#385a7b",
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      cursor: isLockedBarangay ? "not-allowed" : "pointer",
+                      opacity: isLockedBarangay ? 0.82 : 1,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={formValues.barangay_ids.includes(barangay.id)}
+                      onChange={(e) =>
+                        handleBarangayToggle(barangay.id, e.target.checked)
+                      }
+                      disabled={isLockedBarangay}
+                    />
+                    {barangay.name}
+                  </label>
+                );
+              })}
             </div>
           </section>
 

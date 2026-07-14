@@ -9,6 +9,9 @@ const {
 const {
   HOUSEHOLD_CONDITION_CODES,
   MANUAL_MEMBER_SECTOR_CODES,
+  buildAgeSectorLookupCodes,
+  getCanonicalAgeSectorCodeFromValue,
+  getCanonicalMemberSectorCode,
   getMemberFlagsFromSectorCodes,
 } = require("../utils/registrationOptions");
 
@@ -33,6 +36,19 @@ const buildStubQrCodeValue = ({ disasterEventId, householdId, stubNo }) => {
 const deduplicateIds = (ids) => {
   return [...new Set(ids)];
 };
+
+const buildAgeSectorIdsByCode = (ageSectorRows = []) =>
+  ageSectorRows.reduce((lookupByCode, sector) => {
+    const canonicalCode =
+      getCanonicalAgeSectorCodeFromValue(sector.code) ||
+      getCanonicalAgeSectorCodeFromValue(sector.name);
+
+    if (canonicalCode && !lookupByCode[canonicalCode]) {
+      lookupByCode[canonicalCode] = sector.id;
+    }
+
+    return lookupByCode;
+  }, {});
 
 const validateSectorUsage = (
   householdSectors,
@@ -429,7 +445,7 @@ const updateHouseholdDetails = async ({
     ]),
   );
   const ageSectorRows = await householdRegistrationRepository.getSectorsByCodes(
-    deduplicateIds([
+    buildAgeSectorLookupCodes([
       requestDataWithDerivedAgeGroups.family_head.derived_age_sector_code,
       ...requestDataWithDerivedAgeGroups.members.map(
         (member) => member.derived_age_sector_code,
@@ -441,7 +457,7 @@ const updateHouseholdDetails = async ({
     ...requestDataWithDerivedAgeGroups.members.map(
       (member) => member.derived_age_sector_code,
     ),
-  ]);
+  ].map(getCanonicalMemberSectorCode));
 
   validateSectorUsage(
     householdSectors,
@@ -449,11 +465,26 @@ const updateHouseholdDetails = async ({
     requestDataWithDerivedAgeGroups,
   );
 
-  const ageSectorIdsByCode = Object.fromEntries(
-    ageSectorRows.map((sector) => [sector.code, sector.id]),
-  );
+  let ageSectorIdsByCode = buildAgeSectorIdsByCode(ageSectorRows);
 
-  if (ageSectorRows.length !== expectedAgeSectorCodes.length) {
+  if (
+    expectedAgeSectorCodes.some(
+      (sectorCode) => !ageSectorIdsByCode[sectorCode],
+    )
+  ) {
+    const fallbackAgeSectorRows =
+      await householdRegistrationRepository.getAgeGroupSectors();
+    ageSectorIdsByCode = {
+      ...buildAgeSectorIdsByCode(fallbackAgeSectorRows),
+      ...ageSectorIdsByCode,
+    };
+  }
+
+  if (
+    expectedAgeSectorCodes.some(
+      (sectorCode) => !ageSectorIdsByCode[sectorCode],
+    )
+  ) {
     const error = new Error(
       "One or more derived age-based sectors are missing from the sector master list",
     );
@@ -865,7 +896,7 @@ const registerHousehold = async (requestData) => {
   );
 
   const ageSectorRows = await householdRegistrationRepository.getSectorsByCodes(
-    deduplicateIds([
+    buildAgeSectorLookupCodes([
       requestDataWithDerivedAgeGroups.family_head.derived_age_sector_code,
       ...requestDataWithDerivedAgeGroups.members.map(
         (member) => member.derived_age_sector_code,
@@ -878,7 +909,7 @@ const registerHousehold = async (requestData) => {
     ...requestDataWithDerivedAgeGroups.members.map(
       (member) => member.derived_age_sector_code,
     ),
-  ]);
+  ].map(getCanonicalMemberSectorCode));
 
   validateSectorUsage(
     householdSectors,
@@ -886,11 +917,26 @@ const registerHousehold = async (requestData) => {
     requestDataWithDerivedAgeGroups,
   );
 
-  const ageSectorIdsByCode = Object.fromEntries(
-    ageSectorRows.map((sector) => [sector.code, sector.id]),
-  );
+  let ageSectorIdsByCode = buildAgeSectorIdsByCode(ageSectorRows);
 
-  if (ageSectorRows.length !== expectedAgeSectorCodes.length) {
+  if (
+    expectedAgeSectorCodes.some(
+      (sectorCode) => !ageSectorIdsByCode[sectorCode],
+    )
+  ) {
+    const fallbackAgeSectorRows =
+      await householdRegistrationRepository.getAgeGroupSectors();
+    ageSectorIdsByCode = {
+      ...buildAgeSectorIdsByCode(fallbackAgeSectorRows),
+      ...ageSectorIdsByCode,
+    };
+  }
+
+  if (
+    expectedAgeSectorCodes.some(
+      (sectorCode) => !ageSectorIdsByCode[sectorCode],
+    )
+  ) {
     const error = new Error(
       "One or more derived age-based sectors are missing from the sector master list",
     );

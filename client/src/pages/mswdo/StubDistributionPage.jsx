@@ -196,6 +196,9 @@ const formatReliefPeriod = (event) => {
   return start;
 };
 
+const formatDisasterEventTitle = (event) =>
+  String(event?.title || "").trim() || "No disaster event selected";
+
 const getStatusLabel = (status) => {
   if (status === "CLAIMED") {
     return "Claimed";
@@ -368,9 +371,7 @@ const StubDistributionPage = () => {
     return disasterEvents.filter((event) => allowedStatuses.includes(event.status));
   }, [activeTab, disasterEvents]);
 
-  const activeEventLabel = selectedDisasterEvent
-    ? `${selectedDisasterEvent.event_code} - ${selectedDisasterEvent.title}`
-    : "No disaster event selected";
+  const activeEventLabel = formatDisasterEventTitle(selectedDisasterEvent);
   const isEndedView = activeTab === "ended";
   const activeFilterCount =
     selectedSectorIds.length + (selectedStubStatus ? 1 : 0);
@@ -823,7 +824,7 @@ const StubDistributionPage = () => {
               </option>
               {scopedDisasterEvents.map((event) => (
                 <option key={event.id} value={event.id}>
-                  {event.event_code} - {event.title}
+                  {formatDisasterEventTitle(event)}
                 </option>
               ))}
             </select>

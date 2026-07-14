@@ -1,7 +1,8 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
 import StatusPill from "../shared/StatusPill";
-import { FiEdit2 } from "react-icons/fi";
+import TableActionsMenu from "../shared/TableActionsMenu";
+import { FiEdit2, FiFileText } from "react-icons/fi";
 import {
   formatDisasterEventDate,
   getAffectedBarangayDisplayItems,
@@ -49,6 +50,29 @@ const tableStyles = {
     justifyContent: "center",
     cursor: "pointer",
   },
+  endedRow: {
+    backgroundColor: "#f8fbfe",
+  },
+  endedBodyCell: {
+    color: "#5f7690",
+  },
+  affectedBarangayChip: {
+    display: "inline-block",
+    minWidth: "36px",
+    textAlign: "center",
+    padding: "6px 10px",
+    borderRadius: "999px",
+    backgroundColor: "#e5f1fb",
+    color: "#356592",
+    fontSize: "12px",
+    fontWeight: 700,
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
+  },
+  endedAffectedBarangayChip: {
+    backgroundColor: "#eef5fb",
+    color: "#6a87a6",
+  },
 };
 
 const DisasterEventsTable = ({
@@ -57,6 +81,7 @@ const DisasterEventsTable = ({
   errorMessage,
   onViewEvent,
   onEditEvent,
+  onExportEvent,
   validBarangayCount = 0,
 }) => {
   if (isLoading) {
@@ -158,23 +183,65 @@ const DisasterEventsTable = ({
 
           <tbody>
             {rows.map((row) => {
+              const isEndedRow = row.status !== "ACTIVE";
               const affectedBarangayDisplayItems =
                 getAffectedBarangayDisplayItems(
                   row.affected_barangays,
                   validBarangayCount,
                 );
+              const actionItems = [
+                {
+                  key: "edit",
+                  label: "Edit Disaster Event",
+                  icon: <FiEdit2 size={18} />,
+                  disabled: typeof onEditEvent !== "function",
+                  title: "Edit Disaster Event",
+                  onClick: (selectedRow) => onEditEvent?.(selectedRow.id),
+                },
+                {
+                  key: "export",
+                  label: "Export Disaster Event",
+                  icon: <FiFileText size={18} />,
+                  disabled: typeof onExportEvent !== "function",
+                  title: "Export Disaster Event",
+                  onClick: (selectedRow) => onExportEvent?.(selectedRow),
+                },
+              ];
 
               return (
-                <tr key={row.id} style={{ borderBottom: "1px solid #edf3f8" }}>
-                  <td style={{ ...tableStyles.bodyCell, textAlign: "left" }}>
+                <tr
+                  key={row.id}
+                  style={{
+                    borderBottom: "1px solid #edf3f8",
+                    ...(isEndedRow ? tableStyles.endedRow : {}),
+                  }}
+                >
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isEndedRow ? tableStyles.endedBodyCell : {}),
+                      textAlign: "left",
+                    }}
+                  >
                     {row.title}
                   </td>
 
-                  <td style={{ ...tableStyles.bodyCell, textAlign: "left" }}>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isEndedRow ? tableStyles.endedBodyCell : {}),
+                      textAlign: "left",
+                    }}
+                  >
                     {row.disaster_type}
                   </td>
 
-                  <td style={tableStyles.bodyCell}>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isEndedRow ? tableStyles.endedBodyCell : {}),
+                    }}
+                  >
                     {affectedBarangayDisplayItems.length ? (
                       <div
                         style={{
@@ -189,17 +256,10 @@ const DisasterEventsTable = ({
                           <span
                             key={brgy.id || brgy.name || brgy || index}
                             style={{
-                              display: "inline-block",
-                              minWidth: "36px",
-                              textAlign: "center",
-                              padding: "6px 10px",
-                              borderRadius: "999px",
-                              backgroundColor: "#e5f1fb",
-                              color: "#356592",
-                              fontSize: "12px",
-                              fontWeight: 700,
-                              whiteSpace: "normal",
-                              overflowWrap: "anywhere",
+                              ...tableStyles.affectedBarangayChip,
+                              ...(isEndedRow
+                                ? tableStyles.endedAffectedBarangayChip
+                                : {}),
                             }}
                           >
                             {brgy.name || brgy}
@@ -207,21 +267,32 @@ const DisasterEventsTable = ({
                         ))}
                       </div>
                     ) : (
-                      <span style={{ color: "#9aa9b8" }}>—</span>
+                      <span style={{ color: "#9aa9b8" }}>-</span>
                     )}
                   </td>
 
-                  <td style={tableStyles.bodyCell}>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isEndedRow ? tableStyles.endedBodyCell : {}),
+                    }}
+                  >
                     {formatDisasterEventDate(row.start_date)}
                   </td>
 
-                  <td style={tableStyles.bodyCell}>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isEndedRow ? tableStyles.endedBodyCell : {}),
+                    }}
+                  >
                     {formatDisasterEventDate(row.end_date)}
                   </td>
 
                   <td
                     style={{
                       ...tableStyles.bodyCell,
+                      ...(isEndedRow ? tableStyles.endedBodyCell : {}),
                       textAlign: "center",
                     }}
                   >
@@ -231,23 +302,31 @@ const DisasterEventsTable = ({
                   <td
                     style={{
                       ...tableStyles.bodyCell,
+                      ...(isEndedRow ? tableStyles.endedBodyCell : {}),
                       textAlign: "center",
                       position: "relative",
                     }}
                   >
                     {row.status === "ACTIVE" ? (
+                      <TableActionsMenu
+                        row={row}
+                        menuId={row.id}
+                        buttonTitle="Actions"
+                        buttonAriaLabel="Actions"
+                        dataPrefix="disaster-event-action"
+                        menuWidth={116}
+                        variant="icon-grid"
+                        items={actionItems}
+                      />
+                    ) : (
                       <button
                         type="button"
-                        onClick={() => onEditEvent?.(row.id)}
+                        onClick={() => onExportEvent?.(row)}
                         style={tableStyles.dropdownButton}
-                        title="Edit Disaster Event"
+                        title="Export Disaster Event"
                       >
-                        <FiEdit2 size={18} />
+                        <FiFileText size={18} />
                       </button>
-                    ) : (
-                      <span style={{ color: "#9aa9b8", fontSize: "13px" }}>
-                        —
-                      </span>
                     )}
                   </td>
                 </tr>

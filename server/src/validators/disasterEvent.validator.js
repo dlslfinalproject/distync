@@ -1,6 +1,19 @@
 const allowedStatuses = ["PLANNED", "ACTIVE", "CLOSED", "ARCHIVED"];
+const allowedSortOrders = ["newest", "oldest", "az", "za"];
 const uuidPattern =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const DISASTER_EVENT_EXPORT_TYPE_OPTIONS = [
+  "Typhoon",
+  "Flood",
+  "Earthquake",
+  "Landslide",
+  "Volcanic Eruption",
+  "Storm Surge",
+  "Drought / El Niño",
+  "Tsunami",
+  "Fire",
+  "Other",
+];
 
 const isValidDateString = (value) => {
   if (typeof value !== "string") {
@@ -158,10 +171,26 @@ const validateUpdateDisasterEvent = (req, res, next) => {
 
 const validateExportDisasterEvents = (req, res, next) => {
   try {
-    const { scope, format, search, disaster_type, affected_barangay_id } =
-      req.query;
+    const {
+      scope,
+      format,
+      search,
+      disaster_event_id,
+      disaster_types,
+      affected_barangay_ids,
+      sort_order,
+    } = req.query;
     const normalizedScope = String(scope || "all").toLowerCase();
     const normalizedFormat = String(format || "").toLowerCase();
+    const normalizedSortOrder = String(sort_order || "newest").toLowerCase();
+    const parsedDisasterTypes = String(disaster_types || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const parsedAffectedBarangayIds = String(affected_barangay_ids || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
 
     if (!["active", "closed", "all"].includes(normalizedScope)) {
       return res.status(400).json({
@@ -175,24 +204,48 @@ const validateExportDisasterEvents = (req, res, next) => {
       });
     }
 
-    if (
-      affected_barangay_id &&
-      !uuidPattern.test(String(affected_barangay_id))
-    ) {
+    if (!["newest", "oldest", "az", "za"].includes(normalizedSortOrder)) {
       return res.status(400).json({
-        message: "affected_barangay_id must be a valid UUID",
+        message: "sort_order must be one of: newest, oldest, az, za",
+      });
+    }
+
+    const hasInvalidDisasterType = parsedDisasterTypes.some(
+      (disasterType) =>
+        !DISASTER_EVENT_EXPORT_TYPE_OPTIONS.includes(disasterType),
+    );
+
+    if (hasInvalidDisasterType) {
+      return res.status(400).json({
+        message: "disaster_types contains an invalid disaster type",
+      });
+    }
+
+    if (disaster_event_id && !uuidPattern.test(String(disaster_event_id))) {
+      return res.status(400).json({
+        message: "disaster_event_id must be a valid UUID",
+      });
+    }
+
+    const hasInvalidBarangayId = parsedAffectedBarangayIds.some(
+      (barangayId) => !uuidPattern.test(barangayId),
+    );
+
+    if (hasInvalidBarangayId) {
+      return res.status(400).json({
+        message: "affected_barangay_ids must contain valid UUID values",
       });
     }
 
     req.validatedQuery = {
       scope: normalizedScope,
       format: normalizedFormat,
+      sort_order: normalizedSortOrder,
       search: typeof search === "string" ? search : "",
-      disaster_type: typeof disaster_type === "string" ? disaster_type : "",
-      affected_barangay_id:
-        typeof affected_barangay_id === "string"
-          ? affected_barangay_id
-          : "",
+      disaster_event_id:
+        typeof disaster_event_id === "string" ? disaster_event_id : "",
+      disaster_types: parsedDisasterTypes,
+      affected_barangay_ids: parsedAffectedBarangayIds,
     };
 
     return next();
@@ -212,6 +265,7 @@ const validateDisasterEventReportSummary = (req, res, next) => {
       status,
       date_from,
       date_to,
+      sort_order,
       limit,
     } = req.query;
 
@@ -245,6 +299,14 @@ const validateDisasterEventReportSummary = (req, res, next) => {
       });
     }
 
+    const normalizedSortOrder = String(sort_order || "newest").toLowerCase();
+
+    if (!allowedSortOrders.includes(normalizedSortOrder)) {
+      return res.status(400).json({
+        message: "sort_order must be one of: newest, oldest, az, za",
+      });
+    }
+
     const parsedLimit = limit ? Number.parseInt(limit, 10) : 100;
 
     if (!Number.isInteger(parsedLimit) || parsedLimit <= 0 || parsedLimit > 1000) {
@@ -260,6 +322,7 @@ const validateDisasterEventReportSummary = (req, res, next) => {
       status: typeof status === "string" ? status.toUpperCase() : "",
       date_from: typeof date_from === "string" ? date_from : "",
       date_to: typeof date_to === "string" ? date_to : "",
+      sort_order: normalizedSortOrder,
       limit: parsedLimit,
     };
 

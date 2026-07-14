@@ -118,6 +118,29 @@ const getAffectedBarangaysByDisasterEventId = async (disasterEventId) => {
   return result.rows;
 };
 
+const getHouseholdCountsByDisasterEventBarangayIds = async (
+  disasterEventId,
+  barangayIds,
+  dbClient = pool,
+) => {
+  if (!Array.isArray(barangayIds) || barangayIds.length === 0) {
+    return [];
+  }
+
+  const query = `
+    SELECT
+      h.barangay_id,
+      COUNT(*)::INTEGER AS household_count
+    FROM households h
+    WHERE h.disaster_event_id = $1
+      AND h.barangay_id = ANY($2::UUID[])
+    GROUP BY h.barangay_id
+  `;
+
+  const result = await dbClient.query(query, [disasterEventId, barangayIds]);
+  return result.rows;
+};
+
 const getValidBarangayCount = async () => {
   const query = `
     SELECT COUNT(*)::INTEGER AS count
@@ -285,10 +308,18 @@ const getDisasterEventReportSummary = async ({
   status = null,
   dateFrom = null,
   dateTo = null,
+  sortOrder = "newest",
   limit = 100,
 }) => {
   const values = [];
   const conditions = [];
+  const orderClauses = {
+    newest: "ORDER BY de.start_date DESC NULLS LAST, de.created_at DESC",
+    oldest: "ORDER BY de.start_date ASC NULLS LAST, de.created_at ASC",
+    az: "ORDER BY LOWER(de.title) ASC, de.start_date DESC NULLS LAST",
+    za: "ORDER BY LOWER(de.title) DESC, de.start_date DESC NULLS LAST",
+  };
+  const orderClause = orderClauses[sortOrder] || orderClauses.newest;
 
   if (disasterEventId) {
     values.push(disasterEventId);
@@ -368,9 +399,33 @@ const getDisasterEventReportSummary = async ({
     ) affected_barangays ON TRUE
     LEFT JOIN LATERAL (
       SELECT COUNT(*)::int AS registered_households_count
-      FROM households h
-      WHERE h.disaster_event_id = de.id
-      ${barangayScopedHouseholds}
+      FROM (
+        SELECT DISTINCT ON (scoped_households.household_key)
+          scoped_households.household_key
+        FROM (
+          SELECT
+            h.registered_at,
+            h.updated_at,
+            LOWER(
+              CONCAT_WS(
+                '|',
+                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_first_name, '')), '\\s+', ' ', 'g'),
+                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_middle_name, '')), '\\s+', ' ', 'g'),
+                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_last_name, '')), '\\s+', ' ', 'g'),
+                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_suffix, '')), '\\s+', ' ', 'g'),
+                COALESCE(h.sex, ''),
+                REGEXP_REPLACE(BTRIM(COALESCE(h.contact_number, '')), '\\s+', '', 'g')
+              )
+            ) AS household_key
+          FROM households h
+          WHERE h.disaster_event_id = de.id
+          ${barangayScopedHouseholds}
+        ) scoped_households
+        ORDER BY
+          scoped_households.household_key,
+          COALESCE(scoped_households.updated_at, scoped_households.registered_at) DESC,
+          scoped_households.registered_at DESC
+      ) latest_households
     ) household_counts ON TRUE
     LEFT JOIN LATERAL (
       SELECT
@@ -403,7 +458,146 @@ const getDisasterEventReportSummary = async ({
         )
     ) distribution_counts ON TRUE
     ${whereClause}
-    ORDER BY de.start_date DESC, de.created_at DESC
+    ${orderClause}
+    LIMIT $${limitIndex}
+  `;
+
+  const result = await pool.query(query, values);
+  return result.rows;
+};
+
+const getDisasterEventReportBarangayBreakdown = async ({
+  disasterEventId = null,
+  barangayId = null,
+  status = null,
+  dateFrom = null,
+  dateTo = null,
+  sortOrder = "newest",
+  limit = 1000,
+}) => {
+  const values = [];
+  const conditions = [];
+  const orderClauses = {
+    newest: "ORDER BY de.start_date DESC NULLS LAST, de.created_at DESC, b.name ASC",
+    oldest: "ORDER BY de.start_date ASC NULLS LAST, de.created_at ASC, b.name ASC",
+    az: "ORDER BY LOWER(de.title) ASC, b.name ASC",
+    za: "ORDER BY LOWER(de.title) DESC, b.name ASC",
+  };
+  const orderClause = orderClauses[sortOrder] || orderClauses.newest;
+
+  if (disasterEventId) {
+    values.push(disasterEventId);
+    conditions.push(`de.id = $${values.length}`);
+  }
+
+  if (barangayId) {
+    values.push(barangayId);
+    conditions.push(`deb_row.barangay_id = $${values.length}`);
+  }
+
+  if (status) {
+    values.push(status);
+    conditions.push(`de.status = $${values.length}`);
+  }
+
+  if (dateFrom) {
+    values.push(dateFrom);
+    conditions.push(`de.start_date >= $${values.length}`);
+  }
+
+  if (dateTo) {
+    values.push(dateTo);
+    conditions.push(`de.start_date <= $${values.length}`);
+  }
+
+  values.push(limit);
+  const limitIndex = values.length;
+  const whereClause =
+    conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  const query = `
+    SELECT
+      de.id,
+      de.event_code,
+      de.title,
+      de.disaster_type,
+      de.start_date,
+      de.end_date,
+      de.status,
+      b.id AS barangay_id,
+      b.name AS barangay_name,
+      COALESCE(household_counts.registered_households_count, 0)::int AS registered_households_count,
+      COALESCE(distribution_counts.distributed_aid_count, 0)::int AS distributed_aid_count,
+      COALESCE(stub_counts.claimed_stubs_count, 0)::int AS claimed_stubs_count,
+      COALESCE(stub_counts.unclaimed_stubs_count, 0)::int AS unclaimed_stubs_count,
+      COALESCE(distribution_counts.quantity_released_total, 0)::int AS quantity_released_total
+    FROM disaster_events de
+    INNER JOIN disaster_event_barangays deb_row
+      ON deb_row.disaster_event_id = de.id
+    INNER JOIN barangays b
+      ON b.id = deb_row.barangay_id
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*)::int AS registered_households_count
+      FROM (
+        SELECT DISTINCT ON (scoped_households.household_key)
+          scoped_households.household_key
+        FROM (
+          SELECT
+            h.registered_at,
+            h.updated_at,
+            LOWER(
+              CONCAT_WS(
+                '|',
+                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_first_name, '')), '\\s+', ' ', 'g'),
+                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_middle_name, '')), '\\s+', ' ', 'g'),
+                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_last_name, '')), '\\s+', ' ', 'g'),
+                REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_suffix, '')), '\\s+', ' ', 'g'),
+                COALESCE(h.sex, ''),
+                REGEXP_REPLACE(BTRIM(COALESCE(h.contact_number, '')), '\\s+', '', 'g')
+              )
+            ) AS household_key
+          FROM households h
+          WHERE h.disaster_event_id = de.id
+            AND h.barangay_id = deb_row.barangay_id
+        ) scoped_households
+        ORDER BY
+          scoped_households.household_key,
+          COALESCE(scoped_households.updated_at, scoped_households.registered_at) DESC,
+          scoped_households.registered_at DESC
+      ) latest_households
+    ) household_counts ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT
+        COUNT(*) FILTER (WHERE s.status = 'CLAIMED')::int AS claimed_stubs_count,
+        COUNT(*) FILTER (WHERE s.status = 'ISSUED')::int AS unclaimed_stubs_count
+      FROM stubs s
+      WHERE s.disaster_event_id = de.id
+        AND EXISTS (
+          SELECT 1
+          FROM households hs
+          WHERE hs.id = s.household_id
+            AND hs.barangay_id = deb_row.barangay_id
+        )
+    ) stub_counts ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT
+        COUNT(DISTINCT dt.id) FILTER (
+          WHERE dt.distribution_status = 'CLAIMED'
+        )::int AS distributed_aid_count,
+        COALESCE(SUM(dti.quantity_released), 0)::int AS quantity_released_total
+      FROM distribution_transactions dt
+      LEFT JOIN distribution_transaction_items dti
+        ON dti.distribution_transaction_id = dt.id
+      WHERE dt.disaster_event_id = de.id
+        AND EXISTS (
+          SELECT 1
+          FROM households hd
+          WHERE hd.id = dt.household_id
+            AND hd.barangay_id = deb_row.barangay_id
+        )
+    ) distribution_counts ON TRUE
+    ${whereClause}
+    ${orderClause}
     LIMIT $${limitIndex}
   `;
 
@@ -418,6 +612,7 @@ module.exports = {
   getDisasterEventById,
   getLatestHouseholdActivityByDisasterEventId,
   getAffectedBarangaysByDisasterEventId,
+  getHouseholdCountsByDisasterEventBarangayIds,
   getAffectedBarangaysByDisasterEventIds,
   getValidBarangayCount,
   insertDisasterEvent,
@@ -425,4 +620,5 @@ module.exports = {
   deleteDisasterEventBarangaysByDisasterEventId,
   updateDisasterEventById,
   getDisasterEventReportSummary,
+  getDisasterEventReportBarangayBreakdown,
 };

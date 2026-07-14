@@ -28,7 +28,7 @@ export const getEndedEventDateTimeText = (event, formatDateTime) => {
     return "-";
   }
 
-  return formatDateTime(event.updated_at || event.end_date);
+  return formatDateTime(event.ended_at || event.end_date || event.updated_at);
 };
 
 const FILTER_PANEL_GAP = 12;

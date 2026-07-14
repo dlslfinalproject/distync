@@ -2,21 +2,26 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import DisasterEventDetailModal from "../../components/disaster-events/DisasterEventDetailModal";
+import DisasterEventExportModal from "../../components/disaster-events/DisasterEventExportModal";
 import DisasterEventFormModal from "../../components/disaster-events/DisasterEventFormModal";
+import DisasterEventSingleExportModal from "../../components/disaster-events/DisasterEventSingleExportModal";
 import DisasterEventsTable from "../../components/disaster-events/DisasterEventsTable";
 import { useDisasterEvents } from "../../features/disaster-events/useDisasterEvents";
-import ExportModal from "../../components/shared/ExportModal";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import SearchBar from "../../components/shared/SearchBar";
 import { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { FiFileText, FiFilter } from "react-icons/fi";
-import { exportDisasterEvents } from "../../features/disaster-events/disasterEventService";
+import {
+  exportDisasterEvents,
+  fetchActiveDisasterEvents,
+  fetchAllDisasterEvents,
+  fetchDisasterEventById,
+  fetchEndedDisasterEvents,
+} from "../../features/disaster-events/disasterEventService";
 import { MASTERLIST_SORT_OPTIONS } from "../../features/masterlist/masterlistService";
 import {
   buildExportSuccessMessage,
-  COMMON_EXPORT_FORMAT_OPTIONS,
   downloadExportFile,
-  NO_EXPORT_DATA_MESSAGE,
   resolveExportErrorMessage,
 } from "../../utils/exportHelpers";
 
@@ -100,6 +105,8 @@ const filterPanelStyles = {
 const FILTER_PANEL_GAP = 12;
 const FILTER_PANEL_VIEWPORT_PADDING = 16;
 const MIN_FILTER_PANEL_HEIGHT = 220;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DISASTER_TYPE_OPTIONS = [
   "Typhoon",
   "Flood",
@@ -110,7 +117,15 @@ const DISASTER_TYPE_OPTIONS = [
   "Drought / El Niño",
   "Tsunami",
   "Fire",
+  "Other",
 ];
+
+const sortBarangaysByName = (barangays = []) =>
+  [...barangays].sort((leftBarangay, rightBarangay) =>
+    String(leftBarangay?.name || "").localeCompare(
+      String(rightBarangay?.name || ""),
+    ),
+  );
 
 const sortDisasterEventRows = (rows, sortOrder = "newest") => {
   const safeRows = Array.isArray(rows) ? [...rows] : [];
@@ -231,10 +246,27 @@ const DisasterEventsPage = () => {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState("");
   const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
+  const [selectedExportRecordStatus, setSelectedExportRecordStatus] =
+    useState("active");
+  const [selectedExportSortOrder, setSelectedExportSortOrder] =
+    useState("newest");
+  const [selectedExportDisasterTypes, setSelectedExportDisasterTypes] =
+    useState([]);
+  const [selectedExportAffectedBarangayIds, setSelectedExportAffectedBarangayIds] =
+    useState([]);
+  const [exportValidationErrors, setExportValidationErrors] = useState({
+    disasterTypes: "",
+    affectedBarangays: "",
+  });
+  const [exportScopeEvents, setExportScopeEvents] = useState([]);
+  const [singleExportEvent, setSingleExportEvent] = useState(null);
+  const [selectedSingleExportFormat, setSelectedSingleExportFormat] =
+    useState("csv");
   const [exportFeedback, setExportFeedback] = useState({
     type: "",
     message: "",
   });
+  const shouldApplyExportDefaultsRef = useRef(false);
   const [searchValue, setSearchValue] = useState("");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [filtersByTab, setFiltersByTab] = useState({
@@ -292,6 +324,56 @@ const DisasterEventsPage = () => {
     });
   }, [events]);
 
+  const availableExportDisasterTypes = useMemo(() => {
+    const hasCustomDisasterType = exportScopeEvents.some((event) => {
+      const disasterType = String(event?.disaster_type || "").trim();
+      return disasterType && !DISASTER_TYPE_OPTIONS.includes(disasterType);
+    });
+
+    return DISASTER_TYPE_OPTIONS.filter((disasterType) => {
+      if (disasterType === "Other") {
+        return hasCustomDisasterType;
+      }
+
+      return exportScopeEvents.some(
+        (event) => String(event?.disaster_type || "").trim() === disasterType,
+      );
+    });
+  }, [exportScopeEvents]);
+
+  const availableExportAffectedBarangayIds = useMemo(() => {
+    const filteredScopeEvents = exportScopeEvents.filter((event) => {
+      if (selectedExportDisasterTypes.length === 0) {
+        return true;
+      }
+
+      const disasterType = String(event?.disaster_type || "").trim();
+      const isCustomDisasterType =
+        disasterType && !DISASTER_TYPE_OPTIONS.includes(disasterType);
+
+      return selectedExportDisasterTypes.some((selectedType) => {
+        if (selectedType === "Other") {
+          return isCustomDisasterType;
+        }
+
+        return disasterType === selectedType;
+      });
+    });
+
+    return sortBarangaysByName(barangays)
+      .filter((barangay) =>
+        filteredScopeEvents.some((event) =>
+          Array.isArray(event?.affected_barangays)
+            ? event.affected_barangays.some(
+                (affectedBarangay) => affectedBarangay?.id === barangay.id,
+              )
+            : false,
+        ),
+      )
+      .map((barangay) => barangay.id)
+      .filter((barangayId) => UUID_PATTERN.test(String(barangayId || "")));
+  }, [barangays, exportScopeEvents, selectedExportDisasterTypes]);
+
   const hasActiveFilters = Boolean(
     selectedDisasterTypes.length > 0 ||
       selectedAffectedBarangayIds.length > 0 ||
@@ -337,29 +419,171 @@ const DisasterEventsPage = () => {
     selectedSortOrder,
   ]);
 
-  const handleExport = async (format) => {
-    if (filteredEvents.length === 0) {
-      setExportFeedback({
-        type: "error",
-        message: NO_EXPORT_DATA_MESSAGE,
-      });
-      setIsExportModalOpen(false);
+  useEffect(() => {
+    if (!isExportModalOpen) {
       return;
     }
 
+    let isCancelled = false;
+
+    const loadExportScopeEvents = async () => {
+      try {
+        let eventRows;
+
+        if (selectedExportRecordStatus === "closed") {
+          eventRows = await fetchEndedDisasterEvents();
+        } else if (selectedExportRecordStatus === "all") {
+          eventRows = await fetchAllDisasterEvents();
+        } else {
+          eventRows = await fetchActiveDisasterEvents();
+        }
+
+        if (!isCancelled) {
+          const detailedRows = await Promise.all(
+            (Array.isArray(eventRows) ? eventRows : []).map(async (event) => {
+              try {
+                const detail = await fetchDisasterEventById(event.id);
+
+                return {
+                  ...event,
+                  affected_barangays: detail?.affected_barangays || [],
+                };
+              } catch (_error) {
+                return {
+                  ...event,
+                  affected_barangays: Array.isArray(event?.affected_barangays)
+                    ? event.affected_barangays
+                    : [],
+                };
+              }
+            }),
+          );
+
+          setExportScopeEvents(detailedRows);
+        }
+      } catch (_error) {
+        if (!isCancelled) {
+          setExportScopeEvents([]);
+        }
+      }
+    };
+
+    loadExportScopeEvents();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [isExportModalOpen, selectedExportRecordStatus]);
+
+  useEffect(() => {
+    if (!isExportModalOpen) {
+      return;
+    }
+
+    setSelectedExportDisasterTypes((currentValues) =>
+      currentValues.filter((value) => availableExportDisasterTypes.includes(value)),
+    );
+  }, [availableExportDisasterTypes, isExportModalOpen]);
+
+  useEffect(() => {
+    if (!isExportModalOpen || !shouldApplyExportDefaultsRef.current) {
+      return;
+    }
+
+    if (availableExportDisasterTypes.length === 0) {
+      return;
+    }
+
+    setSelectedExportDisasterTypes(availableExportDisasterTypes);
+  }, [availableExportDisasterTypes, isExportModalOpen]);
+
+  useEffect(() => {
+    if (!isExportModalOpen) {
+      return;
+    }
+
+    setSelectedExportAffectedBarangayIds((currentValues) =>
+      currentValues.filter((value) =>
+        availableExportAffectedBarangayIds.includes(value),
+      ),
+    );
+  }, [availableExportAffectedBarangayIds, isExportModalOpen]);
+
+  useEffect(() => {
+    if (!isExportModalOpen) {
+      return;
+    }
+
+    setExportValidationErrors((currentErrors) => ({
+      disasterTypes:
+        selectedExportDisasterTypes.length > 0 ? "" : currentErrors.disasterTypes,
+      affectedBarangays:
+        selectedExportAffectedBarangayIds.length > 0
+          ? ""
+          : currentErrors.affectedBarangays,
+    }));
+  }, [
+    isExportModalOpen,
+    selectedExportAffectedBarangayIds.length,
+    selectedExportDisasterTypes.length,
+  ]);
+
+  useEffect(() => {
+    if (!isExportModalOpen || !shouldApplyExportDefaultsRef.current) {
+      return;
+    }
+
+    const areDefaultTypesReady =
+      availableExportDisasterTypes.length > 0 &&
+      selectedExportDisasterTypes.length === availableExportDisasterTypes.length &&
+      availableExportDisasterTypes.every((type) =>
+        selectedExportDisasterTypes.includes(type),
+      );
+
+    if (!areDefaultTypesReady) {
+      return;
+    }
+
+    setSelectedExportAffectedBarangayIds(availableExportAffectedBarangayIds);
+    shouldApplyExportDefaultsRef.current = false;
+  }, [
+    availableExportAffectedBarangayIds,
+    availableExportDisasterTypes,
+    isExportModalOpen,
+    selectedExportDisasterTypes,
+  ]);
+
+  const handleExport = async (format) => {
+    const validationErrors = {
+      disasterTypes:
+        selectedExportDisasterTypes.length > 0
+          ? ""
+          : "Select at least one disaster type.",
+      affectedBarangays:
+        selectedExportAffectedBarangayIds.length > 0
+          ? ""
+          : "Select at least one affected barangay.",
+    };
+
+    if (validationErrors.disasterTypes || validationErrors.affectedBarangays) {
+      setExportValidationErrors(validationErrors);
+      return;
+    }
+
+    setExportValidationErrors({
+      disasterTypes: "",
+      affectedBarangays: "",
+    });
     setExportingFormat(format);
     setIsExportModalOpen(false);
 
     try {
       const file = await exportDisasterEvents({
-        selectedFilter,
+        selectedFilter: selectedExportRecordStatus,
         search: searchValue,
-        disasterType:
-          selectedDisasterTypes.length === 1 ? selectedDisasterTypes[0] : "",
-        affectedBarangayId:
-          selectedAffectedBarangayIds.length === 1
-            ? selectedAffectedBarangayIds[0]
-            : "",
+        disasterTypes: selectedExportDisasterTypes,
+        affectedBarangayIds: selectedExportAffectedBarangayIds,
+        sortOrder: selectedExportSortOrder,
         format,
       });
       downloadExportFile(file);
@@ -378,6 +602,58 @@ const DisasterEventsPage = () => {
     } finally {
       setExportingFormat("");
     }
+  };
+
+  const handleOpenSingleExportModal = (eventData) => {
+    setSingleExportEvent(eventData);
+    setSelectedSingleExportFormat("csv");
+    setExportFeedback({ type: "", message: "" });
+  };
+
+  const handleSingleExport = async () => {
+    if (!singleExportEvent) {
+      return;
+    }
+
+    const format = selectedSingleExportFormat;
+    setExportingFormat(format);
+    setSingleExportEvent(null);
+
+    try {
+      const file = await exportDisasterEvents({
+        selectedFilter: "all",
+        disasterEventId: singleExportEvent.id,
+        sortOrder: "newest",
+        format,
+      });
+      downloadExportFile(file);
+      setExportFeedback({
+        type: "success",
+        message: buildExportSuccessMessage("Disaster events report"),
+      });
+    } catch (error) {
+      setExportFeedback({
+        type: "error",
+        message: resolveExportErrorMessage(
+          error,
+          "Unable to export disaster event. Please try again.",
+        ),
+      });
+    } finally {
+      setExportingFormat("");
+    }
+  };
+
+  const handleExportRecordStatusChange = (nextRecordStatus) => {
+    setSelectedExportRecordStatus(nextRecordStatus);
+    setSelectedExportDisasterTypes([]);
+    setSelectedExportAffectedBarangayIds([]);
+    setExportScopeEvents([]);
+    setExportValidationErrors({
+      disasterTypes: "",
+      affectedBarangays: "",
+    });
+    shouldApplyExportDefaultsRef.current = true;
   };
 
   const updateCurrentTabFilters = (nextValues) => {
@@ -506,74 +782,17 @@ const DisasterEventsPage = () => {
 
   return (
     <div
-      style={{ flex: 1, minWidth: 0, maxWidth: "100%", overflowX: "hidden" }}
+      style={{
+        flex: 1,
+        minWidth: 0,
+        maxWidth: "100%",
+        overflowX: "hidden",
+        display: "flex",
+        flexDirection: "column",
+        gap: "24px",
+      }}
     >
       <PageHeader title="DISASTER EVENT MANAGEMENT" />
-
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          alignItems: "center",
-          gap: "12px",
-          margin: "16px 0 24px",
-          flexWrap: "wrap",
-        }}
-      >
-        <button
-          onClick={openCreateModal}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "8px",
-            border: "none",
-            borderRadius: "14px",
-            padding: "12px 18px",
-            background: "linear-gradient(135deg, #2f6499 0%, #4c86be 100%)",
-            color: "#ffffff",
-            fontSize: "14px",
-            fontWeight: 700,
-            cursor: "pointer",
-            boxShadow: "0 12px 24px rgba(58, 97, 141, 0.18)",
-          }}
-        >
-          <span style={{ fontSize: "16px", lineHeight: 1 }}>+</span>
-          Create Disaster Event
-        </button>
-
-        <div style={{ position: "relative" }}>
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedExportFormat("csv");
-              setExportFeedback({ type: "", message: "" });
-              setIsExportModalOpen(true);
-            }}
-            disabled={Boolean(exportingFormat)}
-            style={{
-              border: "1px solid #c6d8ea",
-              borderRadius: "14px",
-              padding: "12px 18px",
-              backgroundColor: "#f8fbfe",
-              color: "#2a4c6f",
-              fontSize: "14px",
-              fontWeight: 700,
-              cursor: exportingFormat ? "not-allowed" : "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              opacity: exportingFormat ? 0.7 : 1,
-            }}
-          >
-            <span style={{ display: "flex", alignItems: "center", gap: "2px" }}>
-              <FiFileText size={16} />
-            </span>
-            {exportingFormat
-              ? `Exporting ${exportingFormat.toUpperCase()}...`
-              : "Export"}
-          </button>
-        </div>
-      </div>
 
       <section style={{ ...shellStyles.card, boxSizing: "border-box" }}>
         <div
@@ -612,10 +831,9 @@ const DisasterEventsPage = () => {
       <div
         style={{
           display: "flex",
+          justifyContent: "space-between",
           alignItems: "center",
-          gap: "12px",
-          marginTop: "16px",
-          marginBottom: "20px",
+          gap: "16px",
           flexWrap: "wrap",
         }}
       >
@@ -627,103 +845,174 @@ const DisasterEventsPage = () => {
           />
         </div>
 
-        <div style={{ position: "relative" }}>
-          <button
-            ref={filterButtonRef}
-            type="button"
-            onClick={() => setIsFilterOpen((currentValue) => !currentValue)}
-            style={pageHeaderStyles.secondaryButton}
-          >
-            <FiFilter size={16} />
-            {hasActiveFilters ? `Filter (${activeFilterCount})` : "Filter"}
-          </button>
-
-          {isFilterOpen ? (
-            <div
-              ref={filterPanelRef}
+        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+          <div style={{ position: "relative" }}>
+            <button
+              ref={filterButtonRef}
+              type="button"
+              onClick={() => setIsFilterOpen((currentValue) => !currentValue)}
               style={{
-                ...filterPanelStyles.panel,
-                top: filterPanelPosition.top,
-                left: filterPanelPosition.left,
-                maxHeight: filterPanelPosition.maxHeight,
+                ...pageHeaderStyles.secondaryButton,
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
               }}
             >
-              <h3 style={filterPanelStyles.title}>Filter Disaster Events</h3>
+              <FiFilter size={16} />
+              {hasActiveFilters ? `Filter (${activeFilterCount})` : "Filter"}
+            </button>
 
-              <label style={filterPanelStyles.field}>
-                <span style={filterPanelStyles.label}>Order List</span>
-                <select
-                  value={selectedSortOrder}
-                  onChange={(event) =>
-                    updateCurrentTabFilters({ sortOrder: event.target.value })
-                  }
-                  style={filterPanelStyles.select}
-                >
-                  {MASTERLIST_SORT_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            {isFilterOpen ? (
+              <div
+                ref={filterPanelRef}
+                style={{
+                  ...filterPanelStyles.panel,
+                  top: filterPanelPosition.top,
+                  left: filterPanelPosition.left,
+                  maxHeight: filterPanelPosition.maxHeight,
+                }}
+              >
+                <h3 style={filterPanelStyles.title}>Filter Disaster Events</h3>
 
-              <h3 style={filterPanelStyles.title}>Disaster Type</h3>
+                <label style={filterPanelStyles.field}>
+                  <span style={filterPanelStyles.label}>Order List</span>
+                  <select
+                    value={selectedSortOrder}
+                    onChange={(event) =>
+                      updateCurrentTabFilters({ sortOrder: event.target.value })
+                    }
+                    style={filterPanelStyles.select}
+                  >
+                    {MASTERLIST_SORT_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
-              <div style={filterPanelStyles.list}>
-                {disasterTypeOptions.length > 0 ? (
-                  disasterTypeOptions.map((disasterType) => (
-                    <label key={disasterType} style={filterPanelStyles.option}>
-                      <input
-                        type="checkbox"
-                        checked={selectedDisasterTypes.includes(disasterType)}
-                        onChange={() => toggleCurrentTabDisasterType(disasterType)}
-                        style={{ accentColor: "#2f6499" }}
-                      />
-                      <span>{disasterType}</span>
-                    </label>
-                  ))
-                ) : (
-                  <p style={{ margin: 0, color: "#5d7188", fontSize: "14px" }}>
-                    No disaster types are available.
-                  </p>
-                )}
+                <h3 style={filterPanelStyles.title}>Disaster Type</h3>
+
+                <div style={filterPanelStyles.list}>
+                  {disasterTypeOptions.length > 0 ? (
+                    disasterTypeOptions.map((disasterType) => (
+                      <label key={disasterType} style={filterPanelStyles.option}>
+                        <input
+                          type="checkbox"
+                          checked={selectedDisasterTypes.includes(disasterType)}
+                          onChange={() =>
+                            toggleCurrentTabDisasterType(disasterType)
+                          }
+                          style={{ accentColor: "#2f6499" }}
+                        />
+                        <span>{disasterType}</span>
+                      </label>
+                    ))
+                  ) : (
+                    <p style={{ margin: 0, color: "#5d7188", fontSize: "14px" }}>
+                      No disaster types are available.
+                    </p>
+                  )}
+                </div>
+
+                <h3 style={filterPanelStyles.title}>Affected Barangay</h3>
+
+                <div style={filterPanelStyles.list}>
+                  {barangays.length > 0 ? (
+                    barangays.map((barangay) => (
+                      <label key={barangay.id} style={filterPanelStyles.option}>
+                        <input
+                          type="checkbox"
+                          checked={selectedAffectedBarangayIds.includes(
+                            barangay.id,
+                          )}
+                          onChange={() =>
+                            toggleCurrentTabAffectedBarangay(barangay.id)
+                          }
+                          style={{ accentColor: "#2f6499" }}
+                        />
+                        <span>{barangay.name}</span>
+                      </label>
+                    ))
+                  ) : (
+                    <p style={{ margin: 0, color: "#5d7188", fontSize: "14px" }}>
+                      No barangays are available.
+                    </p>
+                  )}
+                </div>
+
+                <div style={filterPanelStyles.actions}>
+                  <button
+                    type="button"
+                    onClick={clearCurrentTabFilters}
+                    style={filterPanelStyles.clearAction}
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
+            ) : null}
+          </div>
 
-              <h3 style={filterPanelStyles.title}>Affected Barangay</h3>
+          <button
+            onClick={openCreateModal}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              border: "none",
+              borderRadius: "14px",
+              padding: "12px 18px",
+              background: "linear-gradient(135deg, #2f6499 0%, #4c86be 100%)",
+              color: "#ffffff",
+              fontSize: "14px",
+              fontWeight: 700,
+              cursor: "pointer",
+              boxShadow: "0 12px 24px rgba(58, 97, 141, 0.18)",
+            }}
+          >
+            <span style={{ fontSize: "16px", lineHeight: 1 }}>+</span>
+            Create Disaster Event
+          </button>
 
-              <div style={filterPanelStyles.list}>
-                {barangays.length > 0 ? (
-                  barangays.map((barangay) => (
-                    <label key={barangay.id} style={filterPanelStyles.option}>
-                      <input
-                        type="checkbox"
-                        checked={selectedAffectedBarangayIds.includes(barangay.id)}
-                        onChange={() =>
-                          toggleCurrentTabAffectedBarangay(barangay.id)
-                        }
-                        style={{ accentColor: "#2f6499" }}
-                      />
-                      <span>{barangay.name}</span>
-                    </label>
-                  ))
-                ) : (
-                  <p style={{ margin: 0, color: "#5d7188", fontSize: "14px" }}>
-                    No barangays are available.
-                  </p>
-                )}
-              </div>
-
-              <div style={filterPanelStyles.actions}>
-                <button
-                  type="button"
-                  onClick={clearCurrentTabFilters}
-                  style={filterPanelStyles.clearAction}
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
-          ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedExportFormat("csv");
+              setSelectedExportRecordStatus(selectedFilter);
+              setSelectedExportSortOrder(selectedSortOrder);
+              setSelectedExportDisasterTypes([]);
+              setSelectedExportAffectedBarangayIds([]);
+              setExportScopeEvents([]);
+              setExportFeedback({ type: "", message: "" });
+              setExportValidationErrors({
+                disasterTypes: "",
+                affectedBarangays: "",
+              });
+              shouldApplyExportDefaultsRef.current = true;
+              setIsExportModalOpen(true);
+            }}
+            disabled={Boolean(exportingFormat)}
+            style={{
+              border: "1px solid #c6d8ea",
+              borderRadius: "14px",
+              padding: "12px 18px",
+              backgroundColor: "#f8fbfe",
+              color: "#2a4c6f",
+              fontSize: "14px",
+              fontWeight: 700,
+              cursor: exportingFormat ? "not-allowed" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              opacity: exportingFormat ? 0.7 : 1,
+            }}
+          >
+            <FiFileText size={16} />
+            {exportingFormat
+              ? `Exporting ${exportingFormat.toUpperCase()}...`
+              : "Export"}
+          </button>
         </div>
       </div>
 
@@ -743,6 +1032,7 @@ const DisasterEventsPage = () => {
             errorMessage={errorMessage}
             onViewEvent={openDetailModal}
             onEditEvent={openEditModal}
+            onExportEvent={handleOpenSingleExportModal}
             validBarangayCount={barangays.length}
           />
         </div>
@@ -767,21 +1057,68 @@ const DisasterEventsPage = () => {
         onClose={closeDetailModal}
       />
 
-      <ExportModal
+      <DisasterEventExportModal
         isOpen={isExportModalOpen}
-        title="Export MSWDO Report"
-        description="Choose the disaster event report format to generate."
-        reportOptions={[
-          {
-            value: "DISASTER_EVENTS",
-            label: "Disaster Events Report",
-          },
-        ]}
-        formatOptions={COMMON_EXPORT_FORMAT_OPTIONS}
-        selectedReportType="DISASTER_EVENTS"
+        barangays={barangays}
+        availableDisasterTypes={availableExportDisasterTypes}
+        availableAffectedBarangayIds={availableExportAffectedBarangayIds}
         selectedFormat={selectedExportFormat}
+        selectedRecordStatus={selectedExportRecordStatus}
+        selectedSortOrder={selectedExportSortOrder}
+        selectedDisasterTypes={selectedExportDisasterTypes}
+        selectedAffectedBarangayIds={selectedExportAffectedBarangayIds}
+        validationErrors={exportValidationErrors}
         isSubmitting={Boolean(exportingFormat)}
-        onReportTypeChange={() => {}}
+        onRecordStatusChange={handleExportRecordStatusChange}
+        onSortOrderChange={setSelectedExportSortOrder}
+        onDisasterTypeToggle={(disasterType) => {
+          setSelectedExportDisasterTypes((currentValues) => {
+            const nextValues = currentValues.includes(disasterType)
+              ? currentValues.filter((value) => value !== disasterType)
+              : [...currentValues, disasterType];
+
+            if (nextValues.length > 0) {
+              setExportValidationErrors((currentErrors) => ({
+                ...currentErrors,
+                disasterTypes: "",
+              }));
+            }
+
+            return nextValues;
+          });
+        }}
+        onSelectAllDisasterTypes={() => {
+          setSelectedExportDisasterTypes(availableExportDisasterTypes);
+          setExportValidationErrors((currentErrors) => ({
+            ...currentErrors,
+            disasterTypes: "",
+          }));
+        }}
+        onClearDisasterTypes={() => setSelectedExportDisasterTypes([])}
+        onAffectedBarangayToggle={(barangayId) => {
+          setSelectedExportAffectedBarangayIds((currentValues) => {
+            const nextValues = currentValues.includes(barangayId)
+              ? currentValues.filter((value) => value !== barangayId)
+              : [...currentValues, barangayId];
+
+            if (nextValues.length > 0) {
+              setExportValidationErrors((currentErrors) => ({
+                ...currentErrors,
+                affectedBarangays: "",
+              }));
+            }
+
+            return nextValues;
+          });
+        }}
+        onSelectAllBarangays={() => {
+          setSelectedExportAffectedBarangayIds(availableExportAffectedBarangayIds);
+          setExportValidationErrors((currentErrors) => ({
+            ...currentErrors,
+            affectedBarangays: "",
+          }));
+        }}
+        onClearBarangays={() => setSelectedExportAffectedBarangayIds([])}
         onFormatChange={setSelectedExportFormat}
         onClose={() => {
           if (!exportingFormat) {
@@ -789,6 +1126,20 @@ const DisasterEventsPage = () => {
           }
         }}
         onSubmit={() => handleExport(selectedExportFormat)}
+      />
+
+      <DisasterEventSingleExportModal
+        isOpen={Boolean(singleExportEvent)}
+        eventData={singleExportEvent}
+        selectedFormat={selectedSingleExportFormat}
+        isSubmitting={Boolean(exportingFormat)}
+        onFormatChange={setSelectedSingleExportFormat}
+        onClose={() => {
+          if (!exportingFormat) {
+            setSingleExportEvent(null);
+          }
+        }}
+        onSubmit={handleSingleExport}
       />
 
       <FeedbackToast
@@ -801,3 +1152,5 @@ const DisasterEventsPage = () => {
 };
 
 export default DisasterEventsPage;
+
+

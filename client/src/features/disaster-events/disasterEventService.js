@@ -5,6 +5,8 @@ import {
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const handleJsonResponse = async (response, fallbackMessage) => {
   const responseData = await response.json().catch(() => null);
@@ -127,12 +129,15 @@ export const fetchBarangays = async () => {
 export const exportDisasterEvents = async ({
   selectedFilter,
   search,
-  disasterType,
-  affectedBarangayId,
+  disasterEventId,
+  disasterTypes = [],
+  affectedBarangayIds = [],
+  sortOrder = "newest",
   format,
 }) => {
   const searchParams = new URLSearchParams({
     scope: selectedFilter,
+    sort_order: sortOrder,
     format,
   });
 
@@ -140,12 +145,23 @@ export const exportDisasterEvents = async ({
     searchParams.set("search", search.trim());
   }
 
-  if (disasterType && disasterType.trim()) {
-    searchParams.set("disaster_type", disasterType.trim());
+  const normalizedDisasterEventId = String(disasterEventId || "").trim();
+  if (normalizedDisasterEventId) {
+    searchParams.set("disaster_event_id", normalizedDisasterEventId);
   }
 
-  if (affectedBarangayId && affectedBarangayId.trim()) {
-    searchParams.set("affected_barangay_id", affectedBarangayId.trim());
+  if (Array.isArray(disasterTypes) && disasterTypes.length > 0) {
+    searchParams.set("disaster_types", disasterTypes.join(","));
+  }
+
+  const validAffectedBarangayIds = Array.isArray(affectedBarangayIds)
+    ? affectedBarangayIds
+        .map((barangayId) => String(barangayId || "").trim())
+        .filter((barangayId) => UUID_PATTERN.test(barangayId))
+    : [];
+
+  if (validAffectedBarangayIds.length > 0) {
+    searchParams.set("affected_barangay_ids", validAffectedBarangayIds.join(","));
   }
 
   const response = await fetch(

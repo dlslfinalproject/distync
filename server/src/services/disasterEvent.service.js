@@ -8,6 +8,17 @@ const mswdoReportExport = require("../utils/mswdoReportExport");
 const allowedStatuses = ["PLANNED", "ACTIVE", "CLOSED", "ARCHIVED"];
 const nonResidentBarangayCode = "NON_RESIDENT_OUTSIDE_MALVAR";
 const PH_TIME_ZONE = "Asia/Manila";
+const DISASTER_EVENT_TYPE_OPTIONS = [
+  "Typhoon",
+  "Flood",
+  "Earthquake",
+  "Landslide",
+  "Volcanic Eruption",
+  "Storm Surge",
+  "Drought / El Niño",
+  "Tsunami",
+  "Fire",
+];
 const requiresCompletedEndDate = (status) =>
   status === "CLOSED" || status === "ARCHIVED";
 
@@ -57,9 +68,11 @@ const normalizeDateOnlyString = (value) => {
   }
 
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return `${value.getUTCFullYear()}-${String(
-      value.getUTCMonth() + 1,
-    ).padStart(2, "0")}-${String(value.getUTCDate()).padStart(2, "0")}`;
+    const { year, month, day } = getManilaDateParts(value);
+    return `${String(year).padStart(4, "0")}-${String(month).padStart(
+      2,
+      "0",
+    )}-${String(day).padStart(2, "0")}`;
   }
 
   return "";
@@ -76,7 +89,7 @@ const buildScheduledClosureTimestamp = (endDate) => {
   }
 
   return new Date(
-    Date.UTC(year, month - 1, day + 1, 0, 0, 0) - 8 * 60 * 60 * 1000,
+    Date.UTC(year, month - 1, day, 23, 59, 59, 999) - 8 * 60 * 60 * 1000,
   ).toISOString();
 };
 
@@ -266,10 +279,24 @@ const getDisasterEventById = async (id) => {
     await disasterEventRepository.getAffectedBarangaysByDisasterEventId(id);
   const latestHouseholdActivityAt =
     await disasterEventRepository.getLatestHouseholdActivityByDisasterEventId(id);
+  const householdCounts =
+    await disasterEventRepository.getHouseholdCountsByDisasterEventBarangayIds(
+      id,
+      affectedBarangays.map((barangay) => barangay.id),
+    );
+  const householdCountByBarangayId = householdCounts.reduce((lookup, row) => {
+    lookup[row.barangay_id] = Number(row.household_count || 0);
+    return lookup;
+  }, {});
 
   return {
     ...disasterEvent,
-    affected_barangays: affectedBarangays,
+    affected_barangays: affectedBarangays.map((barangay) => ({
+      ...barangay,
+      registered_households_count: householdCountByBarangayId[barangay.id] || 0,
+      has_registered_records:
+        Number(householdCountByBarangayId[barangay.id] || 0) > 0,
+    })),
     latest_household_activity_at: latestHouseholdActivityAt,
   };
 };
@@ -389,6 +416,40 @@ const updateDisasterEvent = async (id, disasterEventData) => {
     );
     error.statusCode = 400;
     throw error;
+  }
+
+  const currentAffectedBarangays =
+    await disasterEventRepository.getAffectedBarangaysByDisasterEventId(id);
+  const requestedBarangayIdSet = new Set(disasterEventData.barangay_ids || []);
+  const removedBarangayIds = currentAffectedBarangays
+    .map((barangay) => barangay.id)
+    .filter((barangayId) => !requestedBarangayIdSet.has(barangayId));
+
+  if (removedBarangayIds.length > 0) {
+    const householdCounts =
+      await disasterEventRepository.getHouseholdCountsByDisasterEventBarangayIds(
+        id,
+        removedBarangayIds,
+      );
+    const lockedBarangayIds = new Set(
+      householdCounts
+        .filter((row) => Number(row.household_count || 0) > 0)
+        .map((row) => row.barangay_id),
+    );
+
+    if (lockedBarangayIds.size > 0) {
+      const lockedBarangayNames = currentAffectedBarangays
+        .filter((barangay) => lockedBarangayIds.has(barangay.id))
+        .map((barangay) => barangay.name)
+        .join(", ");
+      const error = new Error(
+        lockedBarangayNames
+          ? `Affected barangays with registered records cannot be removed: ${lockedBarangayNames}`
+          : "Affected barangays with registered records cannot be removed.",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
   }
 
   const client = await pool.connect();
@@ -553,22 +614,10 @@ const formatDisasterEventStatusLabel = (status) => {
   return normalizedStatus || "UNKNOWN";
 };
 
-const formatAffectedBarangays = (affectedBarangays, validBarangayCount) => {
+const formatAffectedBarangays = (affectedBarangays) => {
   const validAffectedBarangays = (affectedBarangays || []).filter(
     isValidAffectedBarangay,
   );
-  const uniqueAffectedBarangayIds = new Set(
-    validAffectedBarangays.map(
-      (barangay) => barangay.id || barangay.name || barangay,
-    ),
-  );
-
-  if (
-    validBarangayCount > 0 &&
-    uniqueAffectedBarangayIds.size === validBarangayCount
-  ) {
-    return "All Barangays";
-  }
 
   if (validAffectedBarangays.length === 0) {
     return "--";
@@ -598,127 +647,193 @@ const matchesDisasterEventSearch = (event, search) => {
 
 const matchesDisasterEventFilters = ({
   event,
-  disasterType,
-  affectedBarangayId,
+  disasterTypes,
+  affectedBarangayIds,
 }) => {
+  const normalizedDisasterType = String(event?.disaster_type || "").trim();
+  const isCustomDisasterType =
+    normalizedDisasterType &&
+    !DISASTER_EVENT_TYPE_OPTIONS.includes(normalizedDisasterType);
   const matchesDisasterType =
-    !disasterType || event.disaster_type === disasterType;
+    !Array.isArray(disasterTypes) ||
+    disasterTypes.length === 0 ||
+    disasterTypes.some((disasterType) => {
+      if (disasterType === "Other") {
+        return isCustomDisasterType;
+      }
+
+      return normalizedDisasterType === disasterType;
+    });
   const matchesAffectedBarangay =
-    !affectedBarangayId ||
+    !Array.isArray(affectedBarangayIds) ||
+    affectedBarangayIds.length === 0 ||
     (event.affected_barangays || []).some(
-      (barangay) => barangay.id === affectedBarangayId,
+      (barangay) => affectedBarangayIds.includes(barangay.id),
     );
 
   return matchesDisasterType && matchesAffectedBarangay;
+};
+
+const sortDisasterEventsForExport = (events, sortOrder = "newest") => {
+  const safeEvents = Array.isArray(events) ? [...events] : [];
+
+  return safeEvents.sort((leftEvent, rightEvent) => {
+    if (sortOrder === "oldest" || sortOrder === "newest") {
+      const leftTime = new Date(
+        leftEvent?.start_date || leftEvent?.created_at || leftEvent?.updated_at || 0,
+      ).getTime();
+      const rightTime = new Date(
+        rightEvent?.start_date || rightEvent?.created_at || rightEvent?.updated_at || 0,
+      ).getTime();
+
+      if (leftTime !== rightTime) {
+        return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
+      }
+    }
+
+    const leftTitle = String(leftEvent?.title || "").trim().toUpperCase();
+    const rightTitle = String(rightEvent?.title || "").trim().toUpperCase();
+
+    if (leftTitle !== rightTitle) {
+      if (sortOrder === "za") {
+        return rightTitle.localeCompare(leftTitle);
+      }
+
+      return leftTitle.localeCompare(rightTitle);
+    }
+
+    const leftTime = new Date(
+      leftEvent?.start_date || leftEvent?.created_at || leftEvent?.updated_at || 0,
+    ).getTime();
+    const rightTime = new Date(
+      rightEvent?.start_date || rightEvent?.created_at || rightEvent?.updated_at || 0,
+    ).getTime();
+    return rightTime - leftTime;
+  });
 };
 
 const exportDisasterEvents = async ({
   scope,
   format,
   search,
-  disaster_type,
-  affected_barangay_id,
+  disaster_event_id,
+  sort_order,
+  disaster_types,
+  affected_barangay_ids,
 }) => {
-  const events = await getDisasterEventsByScope(scope);
-  const validBarangayCount = await disasterEventRepository.getValidBarangayCount();
-  const disasterType = String(disaster_type || "").trim();
-  const affectedBarangayId = String(affected_barangay_id || "").trim();
-  const exportRows = events
-    .filter((event) => matchesDisasterEventSearch(event, search))
-    .filter((event) =>
-      matchesDisasterEventFilters({
-        event,
-        disasterType,
-        affectedBarangayId,
-      }),
-    )
-    .map((event) => ({
-      name: event.title || "--",
-      disaster_type: event.disaster_type || "--",
-      affected_barangays: formatAffectedBarangays(
-        event.affected_barangays,
-        validBarangayCount,
-      ),
-      start_date: disasterEventExport.formatDate(event.start_date),
-      end_date: disasterEventExport.formatDate(event.end_date),
-      status: formatDisasterEventStatusLabel(event.status),
-    }));
+  const events = disaster_event_id
+    ? [await getDisasterEventById(disaster_event_id)].filter(Boolean)
+    : await getDisasterEventsByScope(scope);
+  const disasterTypes = Array.isArray(disaster_types) ? disaster_types : [];
+  const affectedBarangayIds = Array.isArray(affected_barangay_ids)
+    ? affected_barangay_ids
+    : [];
+  const exportRows = sortDisasterEventsForExport(
+    events
+      .filter((event) => matchesDisasterEventSearch(event, search))
+      .filter((event) =>
+        matchesDisasterEventFilters({
+          event,
+          disasterTypes,
+          affectedBarangayIds,
+        }),
+      )
+    ,
+    sort_order,
+  ).map((event) => ({
+    name: event.title || "--",
+    disaster_type: event.disaster_type || "--",
+    affected_barangays: formatAffectedBarangays(event.affected_barangays),
+    start_date: disasterEventExport.formatDate(event.start_date),
+    end_date: disasterEventExport.formatDate(event.end_date),
+    status: formatDisasterEventStatusLabel(event.status),
+  }));
 
   return disasterEventExport.buildExportFile({
     rows: exportRows,
     scope,
     search,
+    eventLabel: disaster_event_id
+      ? [events[0]?.event_code, events[0]?.title].filter(Boolean).join(" - ")
+      : "",
     format,
   });
 };
 
 const getDisasterEventReportSummary = async (filters) => {
   await syncOverdueActiveDisasterEvents();
+
+  if (filters.disaster_event_id) {
+    return disasterEventRepository.getDisasterEventReportBarangayBreakdown({
+      disasterEventId: filters.disaster_event_id,
+      barangayId: filters.barangay_id || null,
+      status: filters.status || null,
+      dateFrom: filters.date_from || null,
+      dateTo: filters.date_to || null,
+      sortOrder: filters.sort_order || "newest",
+      limit: filters.limit || 100,
+    });
+  }
+
   return disasterEventRepository.getDisasterEventReportSummary({
     disasterEventId: filters.disaster_event_id || null,
     barangayId: filters.barangay_id || null,
     status: filters.status || null,
     dateFrom: filters.date_from || null,
     dateTo: filters.date_to || null,
+    sortOrder: filters.sort_order || "newest",
     limit: filters.limit || 100,
   });
 };
 
 const exportDisasterEventReportSummary = async (filters) => {
   await syncOverdueActiveDisasterEvents();
-  const rows = await disasterEventRepository.getDisasterEventReportSummary({
+  const rows = await disasterEventRepository.getDisasterEventReportBarangayBreakdown({
     disasterEventId: filters.disaster_event_id || null,
-    barangayId: filters.barangay_id || null,
     status: filters.status || null,
     dateFrom: filters.date_from || null,
     dateTo: filters.date_to || null,
-    limit: 1000,
+    sortOrder: filters.sort_order || "newest",
+    limit: 5000,
   });
+  const selectedDisasterEventLabel =
+    filters.disaster_event_id && rows[0]?.title
+      ? rows[0].title
+      : "All disaster events";
 
   return mswdoReportExport.buildExportFile({
-    filePrefix: "mswdo-disaster-event-summary",
+    filePrefix: "mswdo-disaster-event-barangay-distribution",
     worksheetName: "Disaster Summary",
-    reportTitle: "MSWDO Disaster Event Summary",
+    reportTitle: "MSWDO Disaster Events Barangay Distribution",
     metadata: [
       {
         label: "Disaster Event",
-        value: filters.disaster_event_id || "All",
+        value: selectedDisasterEventLabel,
       },
       {
-        label: "Barangay",
-        value: filters.barangay_id || "All",
-      },
-      {
-        label: "Status",
-        value: filters.status || "All",
-      },
-      {
-        label: "Date Range",
-        value:
-          filters.date_from || filters.date_to
-            ? `${filters.date_from || "--"} to ${filters.date_to || "--"}`
-            : "All",
+        label: "Order List",
+        value: filters.sort_order || "newest",
       },
     ],
     columns: [
-      { key: "event_label", label: "Disaster Event", width: 30, pdfWidth: 95 },
-      { key: "disaster_type", label: "Type", width: 20, pdfWidth: 60 },
-      { key: "affected_barangays_text", label: "Affected Barangays", width: 34, pdfWidth: 120 },
+      { key: "event_label", label: "Disaster Event", width: 30, pdfWidth: 90 },
+      { key: "barangay_name", label: "Barangay", width: 22, pdfWidth: 65 },
+      { key: "status", label: "Status", width: 14, pdfWidth: 42 },
+      { key: "disaster_type", label: "Type", width: 20, pdfWidth: 55 },
       { key: "registered_households_count", label: "Registered Households", width: 18, pdfWidth: 55 },
       { key: "distributed_aid_count", label: "Distributed Aid Count", width: 18, pdfWidth: 55 },
       { key: "claim_summary", label: "Claim Status Summary", width: 24, pdfWidth: 80 },
-      { key: "status", label: "Status", width: 14, pdfWidth: 45 },
-      { key: "period_label", label: "Period", width: 24, pdfWidth: 75 },
+      { key: "quantity_released_total", label: "Quantity Released", width: 18, pdfWidth: 55 },
     ],
     rows: rows.map((row) => ({
-      event_label: [row.event_code, row.title].filter(Boolean).join(" - ") || "--",
+      event_label: row.title || "--",
+      barangay_name: row.barangay_name || "--",
+      status: formatDisasterEventStatusLabel(row.status),
       disaster_type: row.disaster_type || "--",
-      affected_barangays_text: row.affected_barangays_text || "--",
       registered_households_count: row.registered_households_count || 0,
       distributed_aid_count: row.distributed_aid_count || 0,
       claim_summary: `Claimed: ${row.claimed_stubs_count || 0} | Unclaimed: ${row.unclaimed_stubs_count || 0}`,
-      status: row.status || "--",
-      period_label: `${mswdoReportExport.formatDateOnly(row.start_date)} - ${mswdoReportExport.formatDateOnly(row.end_date)}`,
+      quantity_released_total: row.quantity_released_total || 0,
     })),
     format: filters.format,
   });

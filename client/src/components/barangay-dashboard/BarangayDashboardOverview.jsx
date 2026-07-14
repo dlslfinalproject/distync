@@ -93,6 +93,9 @@ const getEventCodeSortValue = (event) => {
   return Number(`${match[1]}${match[2]}`);
 };
 
+const formatDisasterEventTitle = (event) =>
+  String(event?.title || "").trim() || "No disaster event selected";
+
 const BarangayDashboardOverview = ({
   accessMode,
   allowFallback,
@@ -219,7 +222,7 @@ const BarangayDashboardOverview = ({
               </option>
               {sortedAvailableEvents.map((event) => (
                 <option key={event.id} value={event.id}>
-                  {event.event_code} - {event.title}
+                  {formatDisasterEventTitle(event)}
                 </option>
               ))}
             </select>
@@ -288,9 +291,7 @@ const BarangayDashboardOverview = ({
               fontWeight: 800,
             }}
           >
-            {selectedEvent
-              ? `${selectedEvent.event_code} - ${selectedEvent.title}`
-              : "No disaster event selected"}
+            {formatDisasterEventTitle(selectedEvent)}
           </p>
 
           <div style={{ display: "flex", gap: "24px", marginTop: "14px" }}>
