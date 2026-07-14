@@ -36,11 +36,6 @@ const createDefaultRoleSettings = () => {
       profilePictureFileName: "",
     },
     notificationChannels: createDefaultNotificationChannels(),
-    security: {
-      twoFactorEnabled: false,
-      lastLocalPasswordChangeAt: "",
-      lastTwoFactorPreferenceUpdateAt: "",
-    },
     metadata: {
       lastProfileUpdateAt: "",
       lastPreferenceSaveAt: "",
@@ -58,14 +53,6 @@ const sanitizeString = (value, fallbackValue = "") => {
   }
 
   return value.trim();
-};
-
-const sanitizeBoolean = (value, fallbackValue = false) => {
-  if (typeof value !== "boolean") {
-    return fallbackValue;
-  }
-
-  return value;
 };
 
 const sanitizeNotificationChannels = (value = {}) => {
@@ -165,18 +152,6 @@ const buildPersistedSnapshot = (settings = {}) => {
     notificationChannels: sanitizeNotificationChannels(
       settings.notificationChannels,
     ),
-    security: {
-      twoFactorEnabled: sanitizeBoolean(
-        settings?.security?.twoFactorEnabled,
-        false,
-      ),
-      lastLocalPasswordChangeAt: sanitizeString(
-        settings?.security?.lastLocalPasswordChangeAt,
-      ),
-      lastTwoFactorPreferenceUpdateAt: sanitizeString(
-        settings?.security?.lastTwoFactorPreferenceUpdateAt,
-      ),
-    },
     metadata: {
       lastProfileUpdateAt: sanitizeString(settings?.metadata?.lastProfileUpdateAt),
       lastPreferenceSaveAt: sanitizeString(
@@ -205,15 +180,6 @@ const buildPersistedSettingsFromRecord = (record = {}) => {
     notificationChannels: sanitizeNotificationChannels(
       record.notification_channels_json,
     ),
-    security: {
-      twoFactorEnabled: sanitizeBoolean(record.two_factor_enabled, false),
-      lastLocalPasswordChangeAt: normalizeTimestampValue(
-        record.last_local_password_change_at,
-      ),
-      lastTwoFactorPreferenceUpdateAt: normalizeTimestampValue(
-        record.last_two_factor_preference_update_at,
-      ),
-    },
     metadata: {
       lastProfileUpdateAt: normalizeTimestampValue(record.last_profile_update_at),
       lastPreferenceSaveAt: normalizeTimestampValue(
@@ -251,10 +217,6 @@ const buildRoleSettingsResponse = ({
     notificationChannels: sanitizeNotificationChannels(
       normalizedSnapshot.notificationChannels,
     ),
-    security: {
-      ...defaults.security,
-      ...normalizedSnapshot.security,
-    },
     metadata: {
       ...defaults.metadata,
       ...normalizedSnapshot.metadata,
@@ -275,13 +237,6 @@ const buildUserRoleSettingsPayload = (settings = {}) => {
     ),
     preferredExportFormat: sanitizePreferredExportFormat(
       settings.preferredExportFormat,
-    ),
-    twoFactorEnabled: sanitizeBoolean(settings?.security?.twoFactorEnabled, false),
-    lastLocalPasswordChangeAt: parseTimestampValue(
-      settings?.security?.lastLocalPasswordChangeAt,
-    ),
-    lastTwoFactorPreferenceUpdateAt: parseTimestampValue(
-      settings?.security?.lastTwoFactorPreferenceUpdateAt,
     ),
     lastProfileUpdateAt: parseTimestampValue(settings?.metadata?.lastProfileUpdateAt),
     lastPreferenceSaveAt:
@@ -406,10 +361,6 @@ const saveCurrentSettings = async ({
       notificationChannels: sanitizeNotificationChannels(
         incomingSnapshot.notificationChannels,
       ),
-      security: {
-        ...previousSettings.security,
-        ...incomingSnapshot.security,
-      },
       metadata: {
         ...previousSettings.metadata,
         ...incomingSnapshot.metadata,

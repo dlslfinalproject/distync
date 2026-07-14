@@ -40,7 +40,6 @@ import {
 import {
   buildActivityLogs,
   buildLocalSyncLogRows,
-  buildSecurityActivityLogs,
   buildSyncSummary,
   createDefaultNotificationChannels,
   createDefaultRolePreferences,
@@ -48,7 +47,6 @@ import {
   getNotificationPreferenceValidationErrors,
   getRoleMeta,
   getRolePositionLabel,
-  getSecurityPasswordValidationErrors,
   normalizePhilippineContactNumber,
   normalizeRolePreferences,
 } from "./settingsHelpers";
@@ -204,26 +202,6 @@ const inputStyles = {
     borderRadius: "0 12px 12px 0",
     flex: 1,
   },
-  passwordWrapper: {
-    position: "relative",
-  },
-  passwordField: {
-    paddingRight: "44px",
-  },
-  visibilityButton: {
-    position: "absolute",
-    top: "50%",
-    right: "12px",
-    transform: "translateY(-50%)",
-    border: "none",
-    background: "transparent",
-    padding: 0,
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#60738a",
-    cursor: "pointer",
-  },
   textarea: {
     minHeight: "96px",
     resize: "vertical",
@@ -329,21 +307,6 @@ const RoleSettingsPage = () => {
   const [isLoadingSyncHistory, setIsLoadingSyncHistory] = useState(false);
   const [syncHistoryErrorMessage, setSyncHistoryErrorMessage] = useState("");
   const [isSyncingNow, setIsSyncingNow] = useState(false);
-  const [securityForm, setSecurityForm] = useState({
-    currentPassword: "",
-    newPassword: "",
-    confirmPassword: "",
-  });
-  const [securityTouched, setSecurityTouched] = useState({
-    currentPassword: false,
-    newPassword: false,
-    confirmPassword: false,
-  });
-  const [securityVisibility, setSecurityVisibility] = useState({
-    currentPassword: false,
-    newPassword: false,
-    confirmPassword: false,
-  });
   const [notificationTouched, setNotificationTouched] = useState(false);
   const [activeSection, setActiveSection] = useState(null);
   const [toast, setToast] = useState({
@@ -367,10 +330,6 @@ const RoleSettingsPage = () => {
   const isBarangayRole = currentRole === ROLE_CODES.BARANGAY;
   const isMswdoRole = currentRole === ROLE_CODES.MSWDO;
   const isMayorRole = currentRole === ROLE_CODES.MAYOR;
-  const securityValidationErrors = useMemo(
-    () => getSecurityPasswordValidationErrors(securityForm),
-    [securityForm],
-  );
   const notificationValidationErrors = useMemo(
     () =>
       getNotificationPreferenceValidationErrors({
@@ -544,16 +503,6 @@ const RoleSettingsPage = () => {
 
   useEffect(() => {
     if (!isBarangayRole) {
-      setSecurityTouched({
-        currentPassword: false,
-        newPassword: false,
-        confirmPassword: false,
-      });
-      setSecurityVisibility({
-        currentPassword: false,
-        newPassword: false,
-        confirmPassword: false,
-      });
       setNotificationTouched(false);
     }
   }, [isBarangayRole]);
@@ -969,66 +918,6 @@ const RoleSettingsPage = () => {
     fileReader.readAsDataURL(selectedFile);
   };
 
-  const handlePasswordFieldBlur = (field) => {
-    setSecurityTouched((current) => ({
-      ...current,
-      [field]: true,
-    }));
-  };
-
-  const togglePasswordVisibility = (field) => {
-    setSecurityVisibility((current) => ({
-      ...current,
-      [field]: !current[field],
-    }));
-  };
-
-  const handleLocalPasswordReview = () => {
-    setSecurityTouched({
-      currentPassword: true,
-      newPassword: true,
-      confirmPassword: true,
-    });
-
-    if (Object.values(securityValidationErrors).some(Boolean)) {
-      setToast({
-        type: "error",
-        title: "Password Update Incomplete",
-        message: "Review the password fields and try again.",
-      });
-      return;
-    }
-
-    setPreferences((current) => ({
-      ...current,
-      security: {
-        ...current.security,
-        lastLocalPasswordChangeAt: new Date().toISOString(),
-      },
-    }));
-    setSecurityForm({
-      currentPassword: "",
-      newPassword: "",
-      confirmPassword: "",
-    });
-    setSecurityTouched({
-      currentPassword: false,
-      newPassword: false,
-      confirmPassword: false,
-    });
-    setSecurityVisibility({
-      currentPassword: false,
-      newPassword: false,
-      confirmPassword: false,
-    });
-    setToast({
-      type: "success",
-      title: "Password Updated",
-      message:
-        "Password changed successfully. This frontend-only review did not modify backend authentication.",
-    });
-  };
-
   const handleSyncNow = async () => {
     if (typeof navigator !== "undefined" && !navigator.onLine) {
       setToast({
@@ -1085,10 +974,6 @@ const RoleSettingsPage = () => {
         syncHistory,
       }).slice(0, 16),
     [distributionRows, syncEntries, syncHistory],
-  );
-  const securityActivityLogs = useMemo(
-    () => buildSecurityActivityLogs(preferences),
-    [preferences],
   );
   const localSyncLogRows = useMemo(
     () => buildLocalSyncLogRows(syncEntries),
@@ -1195,19 +1080,10 @@ const RoleSettingsPage = () => {
     profilePictureInputRef,
     handleProfilePictureChange,
     setPreferences,
-    securityVisibility,
-    securityForm,
-    setSecurityForm,
-    handlePasswordFieldBlur,
-    securityTouched,
-    securityValidationErrors,
-    togglePasswordVisibility,
-    handleLocalPasswordReview,
     StatusChip,
     InfoRow,
     EmptyState,
     isLoading,
-    securityActivityLogs,
   });
 
   const barangayViewContext = buildBarangayViewContext({

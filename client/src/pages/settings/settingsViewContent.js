@@ -14,42 +14,6 @@ const DASHBOARD_DESCRIPTIONS = {
     "Choose a category below to keep the Mayor Settings workspace focused and uncluttered. Detailed forms and system summaries only appear after you open a section.",
 };
 
-const SECURITY_SECTION_COPY = {
-  [ROLE_CODES.BARANGAY]: {
-    description:
-      "Keep account protection and authentication controls grouped here. Password validation in this screen is frontend-only and does not modify backend authentication behavior.",
-    passwordDescription:
-      "Update the password form with stronger client-side validation while keeping the authentication backend unchanged.",
-    fieldIds: {
-      currentPassword: "security-current-password",
-      newPassword: "security-new-password",
-      confirmPassword: "security-confirm-password",
-    },
-  },
-  [ROLE_CODES.MSWDO]: {
-    description:
-      "Keep password review and account protection settings grouped here without changing backend authentication behavior.",
-    passwordDescription:
-      "Review password changes with frontend-only validation while keeping the live authentication flow untouched.",
-    fieldIds: {
-      currentPassword: "mswdo-security-current-password",
-      newPassword: "mswdo-security-new-password",
-      confirmPassword: "mswdo-security-confirm-password",
-    },
-  },
-  [ROLE_CODES.MAYOR]: {
-    description:
-      "Keep password review and account protection settings grouped here without changing backend authentication behavior.",
-    passwordDescription:
-      "Review password changes with frontend-only validation while keeping the live authentication flow untouched.",
-    fieldIds: {
-      currentPassword: "mayor-security-current-password",
-      newPassword: "mayor-security-new-password",
-      confirmPassword: "mayor-security-confirm-password",
-    },
-  },
-};
-
 const NOTIFICATION_SECTION_COPY = {
   [ROLE_CODES.BARANGAY]: {
     description:
@@ -96,17 +60,8 @@ const buildSharedSectionComponentProps = (ctx) => ({
   profilePictureInputRef: ctx.profilePictureInputRef,
   handleProfilePictureChange: ctx.handleProfilePictureChange,
   setPreferences: ctx.setPreferences,
-  securityVisibility: ctx.securityVisibility,
-  securityForm: ctx.securityForm,
-  setSecurityForm: ctx.setSecurityForm,
-  handlePasswordFieldBlur: ctx.handlePasswordFieldBlur,
-  securityTouched: ctx.securityTouched,
-  securityValidationErrors: ctx.securityValidationErrors,
-  togglePasswordVisibility: ctx.togglePasswordVisibility,
-  handleLocalPasswordReview: ctx.handleLocalPasswordReview,
   formatDateTime: ctx.formatDateTime,
   isLoading: ctx.isLoading,
-  securityActivityLogs: ctx.securityActivityLogs,
   notificationTouched: ctx.notificationTouched,
   notificationValidationErrors: ctx.notificationValidationErrors,
   handleResetNotificationPreferences: ctx.handleResetNotificationPreferences,
@@ -294,11 +249,6 @@ export const buildOfficeProfileSectionProps = (ctx) => {
       "Upload a profile photo for local UI personalization.",
   };
 };
-
-export const buildSecuritySectionProps = (ctx) => ({
-  ...buildSharedSectionComponentProps(ctx),
-  ...SECURITY_SECTION_COPY[ctx.roleCode],
-});
 
 export const buildNotificationSectionProps = (ctx) => ({
   ...buildSharedSectionComponentProps(ctx),

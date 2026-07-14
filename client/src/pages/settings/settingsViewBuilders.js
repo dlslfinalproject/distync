@@ -18,7 +18,6 @@ import {
   buildBarangayProfileSectionProps,
   buildNotificationSectionProps,
   buildOfficeProfileSectionProps,
-  buildSecuritySectionProps,
   getSettingsDashboardDescription,
 } from "./settingsViewContent";
 
@@ -41,13 +40,6 @@ const buildProfileSectionCard = (section, preferences) =>
     section,
     preferences.profile.fullName ? "success" : "warning",
     preferences.profile.fullName ? "Profile ready" : "Needs details",
-  );
-
-const buildSecuritySectionCard = (section, preferences) =>
-  buildDefaultSectionCard(
-    section,
-    preferences.security.twoFactorEnabled ? "success" : "info",
-    preferences.security.twoFactorEnabled ? "2FA preferred" : "Review settings",
   );
 
 const buildNotificationSectionCard = (
@@ -95,8 +87,6 @@ export const buildBarangaySectionCards = ({
     switch (section.key) {
       case "profile":
         return buildProfileSectionCard(section, preferences);
-      case "security":
-        return buildSecuritySectionCard(section, preferences);
       case "notification-preferences":
         return buildDefaultSectionCard(
           section,
@@ -130,8 +120,6 @@ export const buildMswdoSectionCards = ({
     switch (section.key) {
       case "profile":
         return buildProfileSectionCard(section, preferences);
-      case "security":
-        return buildSecuritySectionCard(section, preferences);
       case "notification-preferences":
         return buildNotificationSectionCard(
           section,
@@ -161,8 +149,6 @@ export const buildMayorSectionCards = ({
     switch (section.key) {
       case "profile":
         return buildProfileSectionCard(section, preferences);
-      case "security":
-        return buildSecuritySectionCard(section, preferences);
       case "notification-preferences":
         return buildNotificationSectionCard(
           section,
@@ -249,19 +235,10 @@ export const buildSharedRoleViewContext = ({
   profilePictureInputRef,
   handleProfilePictureChange,
   setPreferences,
-  securityVisibility,
-  securityForm,
-  setSecurityForm,
-  handlePasswordFieldBlur,
-  securityTouched,
-  securityValidationErrors,
-  togglePasswordVisibility,
-  handleLocalPasswordReview,
   StatusChip,
   InfoRow,
   EmptyState,
   isLoading,
-  securityActivityLogs,
 }) => ({
   shellStyles,
   gridStyles,
@@ -283,21 +260,12 @@ export const buildSharedRoleViewContext = ({
   profilePictureInputRef,
   handleProfilePictureChange,
   setPreferences,
-  securityVisibility,
-  securityForm,
-  setSecurityForm,
-  handlePasswordFieldBlur,
-  securityTouched,
-  securityValidationErrors,
-  togglePasswordVisibility,
-  handleLocalPasswordReview,
   StatusChip,
   formatDateTime,
   formatSyncDateTime,
   InfoRow,
   EmptyState,
   isLoading,
-  securityActivityLogs: ensureArray(securityActivityLogs),
 });
 
 export const buildBarangayViewContext = ({
@@ -318,10 +286,6 @@ export const buildBarangayViewContext = ({
   profileSectionProps: buildBarangayProfileSectionProps({
     ...sharedContext,
     assignedBarangayName,
-  }),
-  securitySectionProps: buildSecuritySectionProps({
-    ...sharedContext,
-    roleCode: ROLE_CODES.BARANGAY,
   }),
   notificationSectionProps: buildNotificationSectionProps({
     ...sharedContext,
@@ -359,10 +323,6 @@ export const buildMswdoViewContext = ({
   ...sharedContext,
   roleCode: ROLE_CODES.MSWDO,
   profileSectionProps: buildOfficeProfileSectionProps({
-    ...sharedContext,
-    roleCode: ROLE_CODES.MSWDO,
-  }),
-  securitySectionProps: buildSecuritySectionProps({
     ...sharedContext,
     roleCode: ROLE_CODES.MSWDO,
   }),
@@ -415,10 +375,6 @@ export const buildMayorViewContext = ({
   ...sharedContext,
   roleCode: ROLE_CODES.MAYOR,
   profileSectionProps: buildOfficeProfileSectionProps({
-    ...sharedContext,
-    roleCode: ROLE_CODES.MAYOR,
-  }),
-  securitySectionProps: buildSecuritySectionProps({
     ...sharedContext,
     roleCode: ROLE_CODES.MAYOR,
   }),

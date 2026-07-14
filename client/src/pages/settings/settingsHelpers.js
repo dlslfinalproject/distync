@@ -28,11 +28,6 @@ export const createDefaultRolePreferences = () => ({
     profilePictureFileName: "",
   },
   notificationChannels: createDefaultNotificationChannels(),
-  security: {
-    twoFactorEnabled: false,
-    lastLocalPasswordChangeAt: "",
-    lastTwoFactorPreferenceUpdateAt: "",
-  },
   metadata: {
     lastProfileUpdateAt: "",
     lastPreferenceSaveAt: "",
@@ -110,36 +105,6 @@ export const getBarangayProfileValidationErrors = (profile = {}) => {
   return errors;
 };
 
-export const getSecurityPasswordValidationErrors = (form = {}) => {
-  const errors = {};
-  const currentPassword = String(form.currentPassword || "");
-  const newPassword = String(form.newPassword || "");
-  const confirmPassword = String(form.confirmPassword || "");
-
-  if (!currentPassword) {
-    errors.currentPassword = "Current password is required.";
-  }
-
-  if (!newPassword) {
-    errors.newPassword = "New password is required.";
-  } else if (newPassword.length < 8) {
-    errors.newPassword = "Password must be at least 8 characters long.";
-  } else if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/.test(newPassword)) {
-    errors.newPassword =
-      "Password must contain at least one uppercase letter, one lowercase letter, and one number.";
-  } else if (currentPassword && newPassword === currentPassword) {
-    errors.newPassword = "New password cannot be the same as your current password.";
-  }
-
-  if (!confirmPassword) {
-    errors.confirmPassword = "Please confirm your new password.";
-  } else if (confirmPassword !== newPassword) {
-    errors.confirmPassword = "Passwords do not match.";
-  }
-
-  return errors;
-};
-
 const EMAIL_ADDRESS_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export const getNotificationPreferenceValidationErrors = ({
@@ -195,10 +160,6 @@ export const normalizeRolePreferences = (value = {}) => {
       ...(value?.profile || {}),
     },
     notificationChannels,
-    security: {
-      ...defaults.security,
-      ...(value?.security || {}),
-    },
     metadata: {
       ...defaults.metadata,
       ...(value?.metadata || {}),
@@ -249,19 +210,19 @@ export const getRoleMeta = (roleCode) => {
       return {
         title: "BARANGAY SETTINGS",
         description:
-          "Manage barangay profile, security, notification preferences, and recent local activity.",
+          "Manage barangay profile, notification preferences, and recent local activity.",
       };
     case ROLE_CODES.MSWDO:
       return {
         title: "MSWDO SETTINGS",
         description:
-          "Manage MSWDO profile, security, notification preferences, and sync monitoring.",
+          "Manage MSWDO profile, notification preferences, and sync monitoring.",
       };
     case ROLE_CODES.MAYOR:
       return {
         title: "MAYOR SETTINGS",
         description:
-          "Manage mayor profile, security, notification preferences, sync monitoring, and executive system summaries.",
+          "Manage mayor profile, notification preferences, sync monitoring, and executive system summaries.",
       };
     default:
       return {
@@ -420,41 +381,6 @@ export const buildActivityLogs = ({
     ...distributionEntries,
   ]
     .filter((entry) => entry.timestamp || entry.title)
-    .sort((left, right) => {
-      const leftTime = left.timestamp ? new Date(left.timestamp).getTime() : 0;
-      const rightTime = right.timestamp ? new Date(right.timestamp).getTime() : 0;
-      return rightTime - leftTime;
-    });
-};
-
-export const buildSecurityActivityLogs = (preferences) => {
-  return [
-    preferences.security?.lastLocalPasswordChangeAt
-      ? {
-          id: "password-update",
-          timestamp: preferences.security.lastLocalPasswordChangeAt,
-          title: "Password change reviewed",
-          detail:
-            "Password changes were reviewed in this frontend security form for the current account.",
-          moduleLabel: "Security",
-          tone: "success",
-        }
-      : null,
-    preferences.security?.lastTwoFactorPreferenceUpdateAt
-      ? {
-          id: "two-factor-update",
-          timestamp: preferences.security.lastTwoFactorPreferenceUpdateAt,
-          title: preferences.security.twoFactorEnabled
-            ? "Two-factor preference enabled"
-            : "Two-factor preference disabled",
-          detail:
-            "Two-factor authentication preference was updated in local security settings.",
-          moduleLabel: "Security",
-          tone: preferences.security.twoFactorEnabled ? "success" : "warning",
-        }
-      : null,
-  ]
-    .filter(Boolean)
     .sort((left, right) => {
       const leftTime = left.timestamp ? new Date(left.timestamp).getTime() : 0;
       const rightTime = right.timestamp ? new Date(right.timestamp).getTime() : 0;
