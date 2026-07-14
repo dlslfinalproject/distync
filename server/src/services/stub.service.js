@@ -57,6 +57,12 @@ const buildStableStubQrCodeValue = (stub) => {
   ].join("|");
 };
 
+const formatStubDisplayNo = (sequenceNo) => {
+  const normalizedSequence = Number(sequenceNo || 0);
+
+  return normalizedSequence > 0 ? `STUB#${normalizedSequence}` : null;
+};
+
 const ensureStubQrMetadata = async (stub, qrGeneratedBy) => {
   if (stub.qr_code_value) {
     return stub;
@@ -82,6 +88,7 @@ const formatSearchResult = (stub) => {
   return {
     id: stub.id,
     stub_no: stub.stub_no,
+    display_stub_no: formatStubDisplayNo(stub.stub_sequence_no),
     serial_no: stub.serial_no,
     status: stub.status,
     issued_at: stub.issued_at,
@@ -251,6 +258,7 @@ const getBarangayStubDashboard = async (filters) => {
     data: rowsWithQr.map((row) => ({
       id: row.id,
       stub_no: row.stub_no,
+      display_stub_no: formatStubDisplayNo(row.stub_sequence_no),
       serial_no: row.serial_no,
       stub_sequence_no: row.stub_sequence_no,
       status: row.status,
@@ -377,6 +385,7 @@ const getStubDetails = async (id) => {
   return {
     id: ensuredStub.id,
     stub_no: ensuredStub.stub_no,
+    display_stub_no: formatStubDisplayNo(ensuredStub.stub_sequence_no),
     serial_no: ensuredStub.serial_no,
     status: ensuredStub.status,
     issued_by: ensuredStub.issued_by,
@@ -484,6 +493,7 @@ const verifyStub = async (identifier) => {
       stub: {
         id: ensuredStub.id,
         stub_no: ensuredStub.stub_no,
+        display_stub_no: formatStubDisplayNo(ensuredStub.stub_sequence_no),
         serial_no: ensuredStub.serial_no,
         status: ensuredStub.status,
         issued_at: ensuredStub.issued_at,

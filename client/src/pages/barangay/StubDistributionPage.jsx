@@ -35,6 +35,7 @@ const getFilteredRows = (rows, searchTerm) => {
   return rows.filter((row) => {
     const searchableValues = [
       row.household?.family_head_name,
+      row.display_stub_no,
       row.stub_sequence_no,
       row.stub_no,
       row.serial_no,
@@ -279,6 +280,11 @@ const StubDistributionPage = () => {
       return;
     }
 
+    if (selectedStubIds.length === 1) {
+      handleOpenClaimConfirmation(selectedStubIds[0]);
+      return;
+    }
+
     setClaimErrorMessage("");
     setPendingClaimStubId("");
     setPendingClaimStubDetails(null);
@@ -403,6 +409,12 @@ const StubDistributionPage = () => {
       setClaimingStubId("");
     }
   };
+
+  const selectedClaimRows = useMemo(() => {
+    const selectedStubIdSet = new Set(selectedStubIds);
+
+    return filteredRows.filter((row) => selectedStubIdSet.has(row.id));
+  }, [filteredRows, selectedStubIds]);
 
   const openStubPrintPage = (printUrl) => {
     const printWindow = window.open(printUrl, "_blank", "noopener,noreferrer");
@@ -574,6 +586,7 @@ const StubDistributionPage = () => {
         onCancel={handleCancelClaim}
         onConfirm={handleConfirmClaim}
         selectedCount={isBulkClaimConfirmOpen ? selectedStubIds.length : 1}
+        selectedStubs={selectedClaimRows}
         stubDetails={pendingClaimStubDetails}
       />
 

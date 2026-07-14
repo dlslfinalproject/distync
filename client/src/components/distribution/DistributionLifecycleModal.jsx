@@ -74,7 +74,7 @@ const DistributionLifecycleModal = ({
       <div>
         <div style={modalStyles.detailLabel}>Stub / QR</div>
         <div style={modalStyles.detailValue}>
-          Stub: {row.stub_no || "--"}
+          Stub: {row.display_stub_no || "--"}
           {"\n"}
           QR: {row.qr_reference_value || row.serial_no || "--"}
         </div>

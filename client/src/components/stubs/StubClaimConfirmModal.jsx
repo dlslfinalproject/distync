@@ -154,6 +154,41 @@ const modalStyles = {
     fontSize: "12px",
     lineHeight: 1.4,
   },
+  bulkList: {
+    width: "100%",
+    marginTop: "16px",
+    display: "grid",
+    gap: "10px",
+    maxHeight: "320px",
+    overflowY: "auto",
+    paddingRight: "4px",
+    boxSizing: "border-box",
+  },
+  bulkItem: {
+    width: "100%",
+    padding: "12px",
+    borderRadius: "16px",
+    border: "1px solid #e1eaf3",
+    backgroundColor: "#f8fbfe",
+    boxSizing: "border-box",
+    display: "grid",
+    gridTemplateColumns: "1fr auto",
+    gap: "8px 12px",
+    alignItems: "center",
+  },
+  bulkName: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "15px",
+    fontWeight: 800,
+    lineHeight: 1.4,
+  },
+  bulkMeta: {
+    margin: 0,
+    color: "#60738a",
+    fontSize: "12px",
+    lineHeight: 1.5,
+  },
 };
 
 const formatPhotoCapturedAt = (value) => {
@@ -184,12 +219,51 @@ const formatRelationship = (value) => {
   return relationshipOption?.label || value || "";
 };
 
+const getReliefPackDisplay = (value) => {
+  const normalizedValue = String(value || "").trim();
+
+  return normalizedValue ? normalizedValue.toUpperCase() : "-";
+};
+
+const getDisplayStubNumber = (stub) => {
+  if (stub?.display_stub_no) {
+    return stub.display_stub_no;
+  }
+
+  const sequenceNo = Number(stub?.stub_sequence_no || stub?.stub_number || 0);
+
+  return sequenceNo > 0 ? `STUB#${sequenceNo}` : "--";
+};
+
+const getSelectedStubSummary = (stub) => {
+  const reliefPackName =
+    stub?.relief_pack_template_name ||
+    stub?.released_items_summary ||
+    stub?.distribution_transaction?.relief_pack_template_name ||
+    stub?.distribution_transaction?.released_items_summary ||
+    "";
+
+  return {
+    id: stub?.id || stub?.stub_id || stub?.stub_no,
+    familyHeadName:
+      stub?.household?.family_head_name || stub?.family_head_name || "--",
+    stubNumber: getDisplayStubNumber(stub),
+    householdSize:
+      stub?.household?.members_count ??
+      stub?.members_count ??
+      stub?.household_size ??
+      0,
+    reliefPackDisplay: getReliefPackDisplay(reliefPackName),
+  };
+};
+
 const StubClaimConfirmModal = ({
   isOpen,
   isSubmitting,
   isLoadingStubDetails = false,
   onCancel,
   onConfirm,
+  selectedStubs = [],
   selectedCount = 1,
   stubDetails = null,
 }) => {
@@ -208,8 +282,8 @@ const StubClaimConfirmModal = ({
     stubDetails?.distribution_transaction?.relief_pack_template_name ||
     stubDetails?.distribution_transaction?.released_items_summary ||
     "-";
-  const reliefPackDisplay =
-    reliefPackName === "-" ? reliefPackName : reliefPackName.toUpperCase();
+  const reliefPackDisplay = getReliefPackDisplay(reliefPackName);
+  const selectedStubSummaries = selectedStubs.map(getSelectedStubSummary);
 
   return (
     <div style={modalStyles.overlay}>
@@ -221,7 +295,9 @@ const StubClaimConfirmModal = ({
           <div style={modalStyles.photoSection}>
             <div style={modalStyles.infoCard}>
               <p style={modalStyles.label}>Stub Number</p>
-              <p style={modalStyles.value}>{stubDetails?.stub_no || "--"}</p>
+              <p style={modalStyles.value}>
+                {getDisplayStubNumber(stubDetails)}
+              </p>
             </div>
 
             <div style={modalStyles.qrCard}>
@@ -284,7 +360,33 @@ const StubClaimConfirmModal = ({
               )}
             </div>
           </div>
-        ) : null}
+        ) : (
+          <div style={modalStyles.bulkList}>
+            {selectedStubSummaries.length > 0 ? (
+              selectedStubSummaries.map((stub, index) => (
+                <div key={stub.id || `${stub.stubNumber}-${index}`} style={modalStyles.bulkItem}>
+                  <div>
+                    <p style={modalStyles.bulkName}>{stub.familyHeadName}</p>
+                    <p style={modalStyles.bulkMeta}>
+                      Stub Number: {stub.stubNumber}
+                    </p>
+                    <p style={modalStyles.bulkMeta}>
+                      Relief Pack: {stub.reliefPackDisplay}
+                    </p>
+                  </div>
+                  <div style={{ textAlign: "center" }}>
+                    <p style={modalStyles.label}>Household Size</p>
+                    <p style={modalStyles.value}>{stub.householdSize}</p>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div style={modalStyles.infoCard}>
+                <p style={modalStyles.value}>{selectedCount} selected stubs</p>
+              </div>
+            )}
+          </div>
+        )}
 
         <div style={modalStyles.actions}>
           <button

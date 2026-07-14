@@ -104,7 +104,7 @@ const StubSummaryCard = ({ stubContext, isLoadingStubDetails = false }) => {
 
         <div>
           <p style={labelStyles}>Stub Number</p>
-          <p style={valueStyles}>{stubContext.stub_no}</p>
+          <p style={valueStyles}>{stubContext.display_stub_no || "--"}</p>
           <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
             Serial: {stubContext.serial_no || "--"}
           </p>

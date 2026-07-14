@@ -109,6 +109,14 @@ const getStatusChipStyles = (status, isActionable = false) => {
   };
 };
 
+const formatDisplayStubNo = (row) => {
+  if (row.display_stub_no) {
+    return row.display_stub_no;
+  }
+
+  return row.stub_sequence_no ? `STUB#${row.stub_sequence_no}` : "-";
+};
+
 const getStatusLabel = (status) => {
   if (status === "CLAIMED") {
     return "Claimed";
@@ -340,10 +348,7 @@ const StubResultsTable = ({
                     }}
                   >
                     <div style={tableStyles.stubSequenceText}>
-                      Stub #{row.stub_sequence_no || "-"}
-                    </div>
-                    <div style={tableStyles.stubCodeText}>
-                      {row.stub_no}
+                      {formatDisplayStubNo(row)}
                     </div>
                   </td>
                   <td

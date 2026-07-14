@@ -112,7 +112,7 @@ const StubVerificationResult = ({ result, selectedStub }) => {
             {result.household?.family_head_name || "--"}
           </p>
           <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-            Stub: {result.stub.stub_no} | Serial: {result.stub.serial_no}
+            Stub: {result.stub.display_stub_no || "--"} | Serial: {result.stub.serial_no}
           </p>
           <p style={{ ...shellStyles.mutedText, marginTop: "4px" }}>
             Status: {result.stub.status} | Barangay: {result.household?.barangay_name || "--"}

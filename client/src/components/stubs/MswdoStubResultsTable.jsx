@@ -112,6 +112,16 @@ const getStatusChipStyles = (status) => {
   };
 };
 
+const formatDisplayStubNo = (row) => {
+  if (row.display_stub_no) {
+    return row.display_stub_no;
+  }
+
+  const sequenceNo = Number(row.stub_sequence_no || row.stub_number || 0);
+
+  return sequenceNo > 0 ? `STUB#${sequenceNo}` : "-";
+};
+
 const getStatusLabel = (status) => {
   if (status === "CLAIMED") {
     return "Claimed";
@@ -346,10 +356,7 @@ const MswdoStubResultsTable = ({
                     }}
                   >
                     <div style={tableStyles.stubSequenceText}>
-                      Stub #{row.stub_number || "-"}
-                    </div>
-                    <div style={tableStyles.stubCodeText}>
-                      {row.stub_no}
+                      {formatDisplayStubNo(row)}
                     </div>
                   </td>
                   <td

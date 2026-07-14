@@ -180,8 +180,8 @@ const parseStubIds = (value) => {
 
 const sortStubDetails = (stubDetails) => {
   return [...stubDetails].sort((left, right) => {
-    const leftValue = left?.stub_no || "";
-    const rightValue = right?.stub_no || "";
+    const leftValue = left?.display_stub_no || "";
+    const rightValue = right?.display_stub_no || "";
 
     return leftValue.localeCompare(rightValue);
   });
@@ -390,7 +390,9 @@ const PrintStubsPage = () => {
                   style={pageStyles.card}
                 >
                   <p style={pageStyles.eyebrow}>DISTYNC Stub</p>
-                  <h2 style={pageStyles.stubNumber}>{stub.stub_no}</h2>
+                  <h2 style={pageStyles.stubNumber}>
+                    {stub.display_stub_no || "--"}
+                  </h2>
 
                   <div style={pageStyles.qrColumn}>
                     <div style={pageStyles.qrWrap}>

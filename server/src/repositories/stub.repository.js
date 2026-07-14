@@ -1,5 +1,24 @@
 const pool = require("../config/db");
 
+const stubSequenceSelect = `
+      (
+        SELECT COUNT(*)::int
+        FROM stubs sequence_stubs
+        INNER JOIN households sequence_households
+          ON sequence_households.id = sequence_stubs.household_id
+        WHERE sequence_stubs.disaster_event_id = s.disaster_event_id
+          AND sequence_households.barangay_id IS NOT DISTINCT FROM h.barangay_id
+          AND sequence_households.current_stay_type = 'EVAC_CENTER'
+          AND sequence_stubs.status IN ('ISSUED', 'CLAIMED')
+          AND (
+            sequence_stubs.issued_at < s.issued_at
+            OR (
+              sequence_stubs.issued_at = s.issued_at
+              AND sequence_stubs.id <= s.id
+            )
+          )
+      ) AS stub_sequence_no`;
+
 const getStubDashboardMetrics = async (disasterEventId, barangayId) => {
   const query = `
     WITH latest_household_stays AS (
@@ -83,10 +102,7 @@ const getBarangayStubDashboardRows = async (disasterEventId, barangayId) => {
         FROM evacuees e
         WHERE e.household_id = h.id
       ) AS members_count,
-      ROW_NUMBER() OVER (
-        PARTITION BY s.disaster_event_id, h.barangay_id
-        ORDER BY s.issued_at ASC, s.updated_at ASC, s.id ASC
-      ) AS stub_sequence_no
+      ${stubSequenceSelect}
     FROM stubs s
     INNER JOIN households h ON h.id = s.household_id
     WHERE s.disaster_event_id = $1
@@ -131,6 +147,7 @@ const getStubSearchResults = async (q, disasterEventId = null, barangayId = null
       s.qr_generated_by,
       s.qr_status,
       s.qr_notes,
+      ${stubSequenceSelect},
       h.family_head_first_name,
       h.family_head_middle_name,
       h.family_head_last_name,
@@ -189,6 +206,7 @@ const getStubById = async (id) => {
       s.qr_generated_by,
       s.qr_status,
       s.qr_notes,
+      ${stubSequenceSelect},
       de.event_code,
       de.title AS disaster_event_title,
       de.disaster_type,
@@ -237,6 +255,7 @@ const getScopedStubById = async (id, barangayId) => {
       s.qr_generated_by,
       s.qr_status,
       s.qr_notes,
+      ${stubSequenceSelect},
       h.barangay_id,
       h.family_head_first_name,
       h.family_head_middle_name,
@@ -274,6 +293,7 @@ const getStubByStubNoOrSerialNo = async ({ stub_no, serial_no }) => {
       s.qr_generated_by,
       s.qr_status,
       s.qr_notes,
+      ${stubSequenceSelect},
       h.family_head_first_name,
       h.family_head_middle_name,
       h.family_head_last_name,
@@ -313,6 +333,7 @@ const getStubByQrCodeValue = async (qrCodeValue) => {
       s.qr_generated_by,
       s.qr_status,
       s.qr_notes,
+      ${stubSequenceSelect},
       h.family_head_first_name,
       h.family_head_middle_name,
       h.family_head_last_name,

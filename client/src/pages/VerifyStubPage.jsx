@@ -288,6 +288,7 @@ const buildBarangayDistributionLink = (stubDetails) => {
     stub_id: stubDetails.id,
     household_id: stubDetails.household?.id || "",
     disaster_event_id: stubDetails.disaster_event?.id || "",
+    display_stub_no: stubDetails.display_stub_no || "",
     stub_no: stubDetails.stub_no || "",
     qr_code_value: stubDetails.qr_code_value || "",
   });
@@ -475,7 +476,9 @@ const VerifyStubPage = () => {
                 <div style={pageStyles.detailsList}>
                   <div style={pageStyles.detailRow}>
                     <p style={pageStyles.detailLabel}>Stub Number</p>
-                    <p style={pageStyles.detailValue}>{stubDetails.stub_no || "--"}</p>
+                    <p style={pageStyles.detailValue}>
+                      {stubDetails.display_stub_no || "--"}
+                    </p>
                   </div>
 
                   <div style={pageStyles.detailRow}>

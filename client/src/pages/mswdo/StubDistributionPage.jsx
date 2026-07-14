@@ -233,7 +233,10 @@ const downloadCsvFile = (rows, eventCode, barangayName) => {
   const csvRows = rows.map((row) => [
     row.family_head_name,
     row.address,
-    row.stub_number,
+    row.display_stub_no ||
+      (Number(row.stub_sequence_no || row.stub_number || 0) > 0
+        ? `STUB#${Number(row.stub_sequence_no || row.stub_number)}`
+        : "-"),
     row.sectors_text,
     getStatusLabel(row.status),
   ]);
@@ -368,6 +371,13 @@ const StubDistributionPage = () => {
       };
     });
   }, [displayedRows, syncQueueEntries]);
+  const selectedClaimRows = useMemo(() => {
+    const selectedStubIdSet = new Set(selectedStubIds);
+
+    return displayedRowsWithSyncStatus.filter((row) =>
+      selectedStubIdSet.has(row.id),
+    );
+  }, [displayedRowsWithSyncStatus, selectedStubIds]);
 
   const scopedDisasterEvents = useMemo(() => {
     const allowedStatuses =
@@ -577,6 +587,11 @@ const StubDistributionPage = () => {
 
   const handleOpenBulkClaimConfirmation = () => {
     if (isEndedView || !selectedStubIds.length || claimingStubId) {
+      return;
+    }
+
+    if (selectedStubIds.length === 1) {
+      handleOpenClaimConfirmation(selectedStubIds[0]);
       return;
     }
 
@@ -1196,6 +1211,7 @@ const StubDistributionPage = () => {
         onCancel={handleCancelClaim}
         onConfirm={handleConfirmClaim}
         selectedCount={isBulkClaimConfirmOpen ? selectedStubIds.length : 1}
+        selectedStubs={selectedClaimRows}
         stubDetails={pendingClaimStubDetails}
       />
 

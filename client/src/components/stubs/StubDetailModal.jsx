@@ -11,6 +11,18 @@ import {
 import { formatStayTypeLabel } from "../../utils/stayType";
 import QrCodePanel from "./QrCodePanel";
 
+const getDisplayStubNumber = (stubDetails) => {
+  if (stubDetails?.display_stub_no) {
+    return stubDetails.display_stub_no;
+  }
+
+  const sequenceNo = Number(
+    stubDetails?.stub_sequence_no || stubDetails?.stub_number || 0,
+  );
+
+  return sequenceNo > 0 ? `STUB#${sequenceNo}` : "-";
+};
+
 const modalStyles = {
   backdrop: {
     position: "fixed",
@@ -450,7 +462,9 @@ const StubDetailModal = ({
                 <div style={modalStyles.stubInfoGrid}>
                   <div>
                     <p style={modalStyles.label}>Stub Number</p>
-                    <p style={modalStyles.value}>{stubDetails?.stub_no || "-"}</p>
+                    <p style={modalStyles.value}>
+                      {getDisplayStubNumber(stubDetails)}
+                    </p>
                   </div>
 
                   <div>

@@ -33,7 +33,11 @@ const getMappedRows = (stubRows) =>
     household_id: stubRow.household?.id || stubRow.household_id,
     family_head_name: stubRow.household?.family_head_name || "-",
     members_count: stubRow.household?.members_count || 0,
-    stub_number: stubRow.stub_sequence_no || stubRow.stub_no || "-",
+    display_stub_no:
+      stubRow.display_stub_no ||
+      (stubRow.stub_sequence_no ? `STUB#${stubRow.stub_sequence_no}` : ""),
+    stub_sequence_no: stubRow.stub_sequence_no || null,
+    stub_number: stubRow.stub_sequence_no || "-",
     stub_no: stubRow.stub_no || "-",
     serial_no: stubRow.serial_no || "-",
     qr_code_value: stubRow.qr_code_value || "",
@@ -69,6 +73,7 @@ const getDisplayedRows = (rows, searchTerm, selectedSectorIds, selectedStubStatu
 
     const searchableValues = [
       row.family_head_name,
+      row.display_stub_no,
       row.stub_number,
       row.stub_no,
       row.sectors_text,
