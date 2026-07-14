@@ -52,23 +52,35 @@ const getDistributionStatus = (stubStatus) => {
   return "NOT_DISTRIBUTED";
 };
 
-const getStandardTemplate = (templates) => {
+const getStandardTemplates = (templates) => {
   if (!Array.isArray(templates) || templates.length === 0) {
-    return null;
+    return [];
   }
 
-  return (
-    templates.find(
-      (template) =>
-        template.is_active &&
-        !template.is_additional_pack &&
-        template.based_on_family_size,
-    ) ||
-    templates.find(
-      (template) => template.is_active && !template.is_additional_pack,
-    ) ||
-    null
+  const standardTemplates = templates.filter(
+    (template) => template.is_active && !template.is_additional_pack,
   );
+
+  if (standardTemplates.length === 0) {
+    return [];
+  }
+
+  return [...standardTemplates].sort((left, right) => {
+    if (left.based_on_family_size && !right.based_on_family_size) {
+      return -1;
+    }
+
+    if (!left.based_on_family_size && right.based_on_family_size) {
+      return 1;
+    }
+
+    return String(left.name || "").localeCompare(String(right.name || ""));
+  });
+};
+
+const getStandardTemplate = (templates) => {
+  const standardTemplates = getStandardTemplates(templates);
+  return standardTemplates[0] || null;
 };
 
 const getAssignedReliefPackTemplates = (householdSectorIds, templateDetails) => {
@@ -77,12 +89,7 @@ const getAssignedReliefPackTemplates = (householdSectorIds, templateDetails) => 
   }
 
   const sectorIdSet = new Set((householdSectorIds || []).filter(Boolean));
-  const standardTemplate = getStandardTemplate(templateDetails);
-  const assignedTemplates = [];
-
-  if (standardTemplate) {
-    assignedTemplates.push(standardTemplate);
-  }
+  const assignedTemplates = getStandardTemplates(templateDetails);
 
   templateDetails.forEach((template) => {
     if (
@@ -274,12 +281,21 @@ export const useInventoryDistribution = () => {
 
         setTemplateDetails(loadedTemplateDetails);
 
-        const preferredTemplate = getStandardTemplate(loadedTemplateDetails);
+        const standardTemplates = getStandardTemplates(loadedTemplateDetails);
+        const preferredTemplate = standardTemplates[0] || null;
         const additionalTemplateCount = loadedTemplateDetails.filter(
           (template) => template.is_active && template.is_additional_pack,
         ).length;
 
-        if (preferredTemplate && additionalTemplateCount > 0) {
+        if (standardTemplates.length > 1 && additionalTemplateCount > 0) {
+          setTemplateNotice(
+            `Relief distribution automatically assigns ${standardTemplates.length} active standard packs to each family and adds sector-based packs for matching households.`,
+          );
+        } else if (standardTemplates.length > 1) {
+          setTemplateNotice(
+            `Relief distribution automatically assigns ${standardTemplates.length} active standard packs to each family.`,
+          );
+        } else if (preferredTemplate && additionalTemplateCount > 0) {
           setTemplateNotice(
             `Relief distribution uses the active base template "${preferredTemplate.name}" and automatically adds sector-based packs for matching households.`,
           );
@@ -348,6 +364,10 @@ export const useInventoryDistribution = () => {
 
   const selectedTemplate = useMemo(() => {
     return getStandardTemplate(templateDetails);
+  }, [templateDetails]);
+
+  const selectedStandardTemplates = useMemo(() => {
+    return getStandardTemplates(templateDetails);
   }, [templateDetails]);
 
   const allRows = useMemo(() => {
@@ -455,6 +475,7 @@ export const useInventoryDistribution = () => {
     selectedSectorIds,
     searchTerm,
     selectedTemplate,
+    selectedStandardTemplates,
     templateNotice,
     displayedRows,
     analytics,

@@ -247,12 +247,18 @@ const downloadCsvFile = (rows, selectedEvent, selectedBarangay) => {
     row.address,
     row.family_members_count,
     row.sectors_text,
-    Array.isArray(row.relief_pack_items) && row.relief_pack_items.length > 0
-      ? row.relief_pack_items
-          .map(
-            (item) =>
-              `${item.inventory_item?.item_name || "Unnamed Item"} (${item.quantity_required})`,
-          )
+    Array.isArray(row.relief_pack_templates) && row.relief_pack_templates.length > 0
+      ? row.relief_pack_templates
+          .map((template) => {
+            const itemSummary = (template.items || [])
+              .map(
+                (item) =>
+                  `${item.inventory_item?.item_name || "Unnamed Item"} (${item.quantity_required})`,
+              )
+              .join(", ");
+
+            return `${template.name || "Relief Pack"}: ${itemSummary || "No items listed"}`;
+          })
           .join("; ")
       : "Template linkage pending",
     row.distribution_status_label,
@@ -296,6 +302,7 @@ const InventoryDistributionPage = () => {
     selectedSectorIds,
     searchTerm,
     selectedTemplate,
+    selectedStandardTemplates,
     templateNotice,
     displayedRows,
     analytics,
@@ -511,7 +518,11 @@ const InventoryDistributionPage = () => {
                 {selectedDisasterEvent.title}
               </p>
 
-              {selectedTemplate ? (
+              {selectedStandardTemplates.length > 1 ? (
+                <span style={layoutStyles.templateBadge}>
+                  {selectedStandardTemplates.length} Standard Packs Active
+                </span>
+              ) : selectedTemplate ? (
                 <span style={layoutStyles.templateBadge}>
                   {selectedTemplate.name}
                 </span>
