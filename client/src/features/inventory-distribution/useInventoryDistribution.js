@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  fetchActiveDisasterEvents,
   fetchBarangays,
   fetchConsolidatedMasterlist,
 } from "../mswdo-masterlist/mswdoMasterlistService";
+import { fetchAllDisasterEvents } from "../disaster-events/disasterEventService";
 import {
   fetchReliefPackTemplateById,
   fetchReliefPackTemplates,
@@ -141,7 +141,27 @@ const matchesFilters = (row, selectedStatus, selectedSectorIds) => {
   return selectedSectorIds.some((sectorId) => row.sector_ids.includes(sectorId));
 };
 
+const eventIncludesBarangay = (event, barangayId) => {
+  if (!barangayId) {
+    return true;
+  }
+
+  return (event?.affected_barangays || []).some(
+    (barangay) => barangay?.id === barangayId,
+  );
+};
+
+const getScopedDisasterEvents = ({ events, activeTab, barangayId }) => {
+  const statusByTab = activeTab === "active" ? "ACTIVE" : "CLOSED";
+
+  return (events || []).filter(
+    (event) =>
+      event?.status === statusByTab && eventIncludesBarangay(event, barangayId),
+  );
+};
+
 export const useInventoryDistribution = () => {
+  const [activeTab, setActiveTab] = useState("active");
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
   const [reliefPackTemplates, setReliefPackTemplates] = useState([]);
@@ -168,7 +188,7 @@ export const useInventoryDistribution = () => {
 
       try {
         const [eventsPayload, barangaysPayload, templatePayload] = await Promise.all([
-          fetchActiveDisasterEvents(),
+          fetchAllDisasterEvents(),
           fetchBarangays(),
           fetchReliefPackTemplates({ is_active: "true" }),
         ]);
@@ -184,10 +204,6 @@ export const useInventoryDistribution = () => {
         setDisasterEvents(eventRows);
         setBarangays(barangayRows);
         setReliefPackTemplates(templateRows);
-
-        if (eventRows.length > 0) {
-          setSelectedDisasterEventId(eventRows[0].id);
-        }
 
         if (templateRows.length === 0) {
           setTemplateNotice(
@@ -336,9 +352,105 @@ export const useInventoryDistribution = () => {
     );
   }, [disasterEvents, selectedDisasterEventId]);
 
+  const scopedDisasterEvents = useMemo(() => {
+    return getScopedDisasterEvents({
+      events: disasterEvents,
+      activeTab,
+      barangayId: selectedBarangayId,
+    });
+  }, [activeTab, disasterEvents, selectedBarangayId]);
+
+  const selectableBarangays = useMemo(() => {
+    if (!selectedDisasterEvent) {
+      return barangays;
+    }
+
+    const affectedBarangayIds = Array.isArray(
+      selectedDisasterEvent.affected_barangays,
+    )
+      ? selectedDisasterEvent.affected_barangays
+          .map((barangay) => barangay?.id)
+          .filter(Boolean)
+      : [];
+
+    if (affectedBarangayIds.length === 0) {
+      return barangays;
+    }
+
+    return barangays.filter((barangay) => affectedBarangayIds.includes(barangay.id));
+  }, [barangays, selectedDisasterEvent]);
+
   const selectedBarangay = useMemo(() => {
     return barangays.find((barangay) => barangay.id === selectedBarangayId) || null;
   }, [barangays, selectedBarangayId]);
+
+  useEffect(() => {
+    if (isLoadingFilters) {
+      return;
+    }
+
+    if (scopedDisasterEvents.length === 0) {
+      if (selectedDisasterEventId) {
+        setSelectedDisasterEventId("");
+      }
+
+      return;
+    }
+
+    if (
+      !scopedDisasterEvents.some((event) => event.id === selectedDisasterEventId)
+    ) {
+      setSelectedDisasterEventId(scopedDisasterEvents[0].id);
+    }
+  }, [
+    isLoadingFilters,
+    scopedDisasterEvents,
+    selectedDisasterEventId,
+    setSelectedDisasterEventId,
+  ]);
+
+  useEffect(() => {
+    if (!selectedBarangayId) {
+      return;
+    }
+
+    const isSelectedBarangayVisible = selectableBarangays.some(
+      (barangay) => barangay.id === selectedBarangayId,
+    );
+
+    if (!isSelectedBarangayVisible) {
+      setSelectedBarangayId("");
+    }
+  }, [selectableBarangays, selectedBarangayId]);
+
+  useEffect(() => {
+    if (selectedDisasterEvent?.status === "ACTIVE" && activeTab !== "active") {
+      setActiveTab("active");
+    }
+
+    if (selectedDisasterEvent?.status === "CLOSED" && activeTab !== "ended") {
+      setActiveTab("ended");
+    }
+  }, [activeTab, selectedDisasterEvent?.status]);
+
+  const handleEventScopeChange = (nextTab) => {
+    setActiveTab(nextTab);
+
+    const nextEvents = getScopedDisasterEvents({
+      events: disasterEvents,
+      activeTab: nextTab,
+      barangayId: selectedBarangayId,
+    });
+
+    if (nextEvents.length === 0) {
+      setSelectedDisasterEventId("");
+      return;
+    }
+
+    if (!nextEvents.some((event) => event.id === selectedDisasterEventId)) {
+      setSelectedDisasterEventId(nextEvents[0].id);
+    }
+  };
 
   const sectorOptions = useMemo(() => {
     const sectorMap = new Map();
@@ -464,8 +576,11 @@ export const useInventoryDistribution = () => {
   }, [displayedRows]);
 
   return {
+    activeTab,
     disasterEvents,
     barangays,
+    scopedDisasterEvents,
+    selectableBarangays,
     sectorOptions,
     selectedDisasterEvent,
     selectedBarangay,
@@ -484,6 +599,7 @@ export const useInventoryDistribution = () => {
     isLoadingTemplate,
     errorMessage,
     hasActiveEvents: disasterEvents.length > 0,
+    handleEventScopeChange,
     setSearchTerm,
     setSelectedDisasterEventId,
     setSelectedBarangayId,
