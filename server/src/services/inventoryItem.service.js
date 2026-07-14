@@ -1,3 +1,4 @@
+const pool = require("../config/db");
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const inventoryBatchRepository = require("../repositories/inventoryBatch.repository");
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
@@ -144,6 +145,62 @@ const summarizeInventoryItem = (item) =>
     "is_perishable",
     "is_active",
   ]);
+
+const summarizeInventoryBatch = (batch) =>
+  pickDefined(batch, [
+    "inventory_item_id",
+    "batch_no",
+    "source_type",
+    "quantity_received",
+    "quantity_available",
+    "expiration_date",
+    "received_at",
+    "storage_location",
+    "status",
+    "created_by",
+  ]);
+
+const summarizeInventoryTransaction = (transaction) =>
+  pickDefined(transaction, [
+    "disaster_event_id",
+    "inventory_batch_id",
+    "transaction_type",
+    "quantity",
+    "reference_type",
+    "reference_id",
+    "performed_by",
+    "performed_at",
+    "remarks",
+  ]);
+
+const getInitialBatchStatus = (expirationDate) => {
+  if (!expirationDate) {
+    return "AVAILABLE";
+  }
+
+  const today = new Date();
+  const todayDateOnly = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+  );
+  const resolvedExpirationDate = new Date(expirationDate);
+
+  if (resolvedExpirationDate < todayDateOnly) {
+    return "EXPIRED";
+  }
+
+  return "AVAILABLE";
+};
+
+const buildOpeningBatchNumber = (itemCode) => {
+  const timestamp = Date.now();
+  const normalizedItemCode = String(itemCode || "ITEM")
+    .replace(/[^A-Z0-9-]+/gi, "-")
+    .toUpperCase();
+
+  return `${normalizedItemCode}-OPEN-${timestamp}`;
+};
 
 const buildInventoryTrackingMap = (inventoryItems, inventoryBatches, inventoryTransactions) => {
   const trackingMap = new Map();
@@ -515,19 +572,84 @@ const createInventoryItem = async (itemData, actor = null) => {
   };
 
   await ensureUniqueFields(inventoryItemToCreate);
-  const createdItem =
-    await inventoryItemRepository.insertInventoryItem(inventoryItemToCreate);
+  const client = await pool.connect();
 
-  await logAuditSafely({
-    actor,
-    action: "INVENTORY_ITEM_CREATE",
-    entityType: "INVENTORY_ITEM",
-    entityId: createdItem.id,
-    oldValues: {},
-    newValues: summarizeInventoryItem(createdItem),
-  });
+  try {
+    await client.query("BEGIN");
 
-  return createdItem;
+    const createdItem =
+      await inventoryItemRepository.insertInventoryItem(inventoryItemToCreate, client);
+
+    const totalInitialQuantity =
+      Number(createdItem.packaging_count || 0) * Number(createdItem.quantity || 0);
+
+    const createdBatch = await inventoryBatchRepository.insertInventoryBatch(
+      {
+        inventory_item_id: createdItem.id,
+        batch_no: buildOpeningBatchNumber(createdItem.item_code),
+        supplier_id: null,
+        source_type: "OTHER",
+        quantity_received: totalInitialQuantity,
+        quantity_available: totalInitialQuantity,
+        expiration_date: createdItem.expiration_date || null,
+        storage_location: "Mayor's Office Inventory",
+        status: getInitialBatchStatus(createdItem.expiration_date),
+        created_by: actor?.userId || null,
+      },
+      client,
+    );
+
+    const createdTransaction =
+      await inventoryTransactionRepository.insertInventoryTransaction(
+        {
+          disaster_event_id: null,
+          inventory_batch_id: createdBatch.id,
+          transaction_type: "INFLOW",
+          quantity: totalInitialQuantity,
+          reference_type: "MANUAL",
+          reference_id: createdItem.id,
+          performed_by: actor?.userId || null,
+          remarks: "Opening stock recorded during inventory item creation",
+        },
+        client,
+      );
+
+    await client.query("COMMIT");
+
+    await logAuditSafely({
+      actor,
+      action: "INVENTORY_ITEM_CREATE",
+      entityType: "INVENTORY_ITEM",
+      entityId: createdItem.id,
+      oldValues: {},
+      newValues: summarizeInventoryItem(createdItem),
+    });
+
+    await logAuditSafely({
+      actor,
+      action: "INVENTORY_BATCH_CREATE",
+      entityType: "INVENTORY_BATCH",
+      entityId: createdBatch.id,
+      oldValues: {},
+      newValues: summarizeInventoryBatch(createdBatch),
+    });
+
+    await logAuditSafely({
+      actor,
+      action: "INVENTORY_TRANSACTION_CREATE",
+      entityType: "INVENTORY_TRANSACTION",
+      entityId: createdTransaction.id,
+      oldValues: {},
+      newValues: summarizeInventoryTransaction(createdTransaction),
+    });
+
+    return createdItem;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 };
 
 const updateInventoryItem = async (id, itemData, actor = null) => {

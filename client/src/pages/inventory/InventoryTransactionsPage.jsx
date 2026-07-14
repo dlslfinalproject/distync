@@ -11,6 +11,7 @@ import {
   exportInventoryTransactions,
   fetchInventoryTransactions,
 } from "../../features/inventory-transactions/inventoryTransactionService";
+import { fetchDistributionHistory } from "../../features/distribution/distributionService";
 import { fetchInventoryItems } from "../../features/inventory-items/inventoryItemService";
 import { fetchInventoryBatches } from "../../features/inventory-batches/inventoryBatchService";
 import {
@@ -274,6 +275,41 @@ const buildQueuedInventoryTransaction = (entry, inventoryItems) => {
   };
 };
 
+const buildDistributionOutflowRows = (distributionHistoryRows) => {
+  if (!Array.isArray(distributionHistoryRows) || distributionHistoryRows.length === 0) {
+    return [];
+  }
+
+  return distributionHistoryRows
+    .filter((row) => row?.distribution_status === "CLAIMED")
+    .map((row) => ({
+      id: row.id,
+      transaction_direction: "OUTFLOW",
+      transaction_type: "OUTFLOW",
+      inventory_item: {
+        item_name: row.released_items_summary || row.relief_pack_template_name || "--",
+        item_code: row.relief_pack_template_name
+          ? "Distributed relief pack"
+          : "Distributed inventory item",
+      },
+      quantity: Number(row.total_quantity_released || 0),
+      performed_at: row.distribution_date,
+      source_label: "Distribution",
+      source_details: row.barangay_name
+        ? `${row.barangay_name} distribution release`
+        : "Distribution release",
+      reference_type: "DISTRIBUTION",
+      remarks:
+        row.relief_pack_template_name ||
+        row.released_items_summary ||
+        row.receipt_no ||
+        "",
+      sync_status: row.sync_status || "synced",
+      is_local_only: false,
+      inventory_item_id: null,
+    }));
+};
+
 const normalizeQuantity = (value) => {
   const numericValue = Number(value);
   return Number.isFinite(numericValue) ? numericValue : 0;
@@ -346,6 +382,29 @@ const formatDateTime = (value) => {
   }).format(new Date(value));
 };
 
+const matchesSearch = (row, searchValue) => {
+  const normalizedSearch = String(searchValue || "").trim().toLowerCase();
+
+  if (!normalizedSearch) {
+    return true;
+  }
+
+  const searchableFields = [
+    row.id,
+    row.transaction_type,
+    row.transaction_direction,
+    row.inventory_item?.item_name,
+    row.inventory_item?.item_code,
+    row.source_label,
+    row.source_details,
+    row.remarks,
+  ];
+
+  return searchableFields.some((fieldValue) =>
+    String(fieldValue || "").toLowerCase().includes(normalizedSearch),
+  );
+};
+
 const getAuditChangedFields = (entry) => {
   const changedFields = entry.details?.changed_fields;
   return changedFields && changedFields !== "-" ? changedFields : "No field details";
@@ -368,6 +427,7 @@ const InventoryTransactionsPage = () => {
     source: "",
   });
   const [inventoryTransactions, setInventoryTransactions] = useState([]);
+  const [distributionHistoryRows, setDistributionHistoryRows] = useState([]);
   const [inventoryItems, setInventoryItems] = useState([]);
   const [inventoryBatches, setInventoryBatches] = useState([]);
   const [inventoryAuditLogs, setInventoryAuditLogs] = useState([]);
@@ -392,19 +452,27 @@ const InventoryTransactionsPage = () => {
     setErrorMessage("");
 
     try {
-      const [transactionResponse, itemResponse, batchResponse, systemLogResponse] =
-        await Promise.all([
-          fetchInventoryTransactions({
-            search: activeFilters.search,
-            inventory_item_id: activeFilters.inventory_item_id,
-            transaction_type: activeFilters.transaction_type,
-          }),
-          fetchInventoryItems(),
-          fetchInventoryBatches(),
-          fetchSystemLogReview({ type: "audit", limit: 100 }),
-        ]);
+      const [
+        transactionResponse,
+        distributionResponse,
+        itemResponse,
+        batchResponse,
+        systemLogResponse,
+      ] = await Promise.all([
+        fetchInventoryTransactions(),
+        fetchDistributionHistory({
+          limit: 200,
+          status: "CLAIMED",
+        }),
+        fetchInventoryItems(),
+        fetchInventoryBatches(),
+        fetchSystemLogReview({ type: "audit", limit: 100 }),
+      ]);
 
       setInventoryTransactions(transactionResponse || []);
+      setDistributionHistoryRows(
+        Array.isArray(distributionResponse?.data) ? distributionResponse.data : [],
+      );
       setInventoryItems(itemResponse || []);
       setInventoryBatches(batchResponse || []);
       setInventoryAuditLogs(
@@ -508,15 +576,50 @@ const InventoryTransactionsPage = () => {
     return [...optimisticRows, ...syncedRows];
   }, [batchById, inventoryItems, inventoryTransactions, syncQueueEntries]);
 
+  const mergedTransactionRows = useMemo(() => {
+    const distributionOutflowRows = buildDistributionOutflowRows(distributionHistoryRows);
+
+    return [...distributionOutflowRows, ...inventoryTransactionsWithSyncStatus].sort(
+      (left, right) =>
+        new Date(right.performed_at || 0).getTime() -
+        new Date(left.performed_at || 0).getTime(),
+    );
+  }, [distributionHistoryRows, inventoryTransactionsWithSyncStatus]);
+
   const displayedRows = useMemo(() => {
-    return inventoryTransactionsWithSyncStatus.filter((row) => {
+    return mergedTransactionRows.filter((row) => {
+      if (!matchesSearch(row, filters.search)) {
+        return false;
+      }
+
+      if (
+        filters.inventory_item_id &&
+        row.inventory_item?.id !== filters.inventory_item_id
+      ) {
+        return false;
+      }
+
+      if (
+        filters.transaction_type &&
+        row.transaction_type !== filters.transaction_type &&
+        row.transaction_direction !== filters.transaction_type
+      ) {
+        return false;
+      }
+
       if (filters.source && row.source_label.toUpperCase() !== filters.source) {
         return false;
       }
 
       return true;
     });
-  }, [filters.source, inventoryTransactionsWithSyncStatus]);
+  }, [
+    filters.inventory_item_id,
+    filters.search,
+    filters.source,
+    filters.transaction_type,
+    mergedTransactionRows,
+  ]);
 
   const trackingMap = useMemo(() => {
     return buildInventoryTrackingMap(
@@ -530,7 +633,7 @@ const InventoryTransactionsPage = () => {
     if (
       !inventoryItems.length &&
       !inventoryBatches.length &&
-      !inventoryTransactionsWithSyncStatus.length
+      !mergedTransactionRows.length
     ) {
       return sampleSummaryMetrics;
     }
@@ -556,7 +659,7 @@ const InventoryTransactionsPage = () => {
       );
     }).length;
 
-    const transactionsToday = inventoryTransactionsWithSyncStatus.filter((transaction) =>
+    const transactionsToday = mergedTransactionRows.filter((transaction) =>
       isSameCalendarDate(transaction.performed_at, today),
     ).length;
 
@@ -566,13 +669,13 @@ const InventoryTransactionsPage = () => {
       expiredItems,
       transactionsToday,
     };
-  }, [inventoryBatches, inventoryItems, inventoryTransactionsWithSyncStatus, trackingMap]);
+  }, [inventoryBatches, inventoryItems, mergedTransactionRows, trackingMap]);
 
   const expirationMetrics = useMemo(() => {
     if (
       !inventoryItems.length &&
       !inventoryBatches.length &&
-      !inventoryTransactionsWithSyncStatus.length
+      !mergedTransactionRows.length
     ) {
       return sampleExpirationMetrics;
     }
@@ -607,7 +710,7 @@ const InventoryTransactionsPage = () => {
     if (
       !inventoryItems.length &&
       !inventoryBatches.length &&
-      !inventoryTransactionsWithSyncStatus.length
+      !mergedTransactionRows.length
     ) {
       return sampleReconciliationMetrics;
     }
@@ -616,7 +719,7 @@ const InventoryTransactionsPage = () => {
       return sum + normalizeQuantity(batch.quantity_received);
     }, 0);
 
-    const additiveAdjustments = inventoryTransactionsWithSyncStatus.reduce(
+    const additiveAdjustments = mergedTransactionRows.reduce(
       (sum, transaction) => {
         if (["RETURN", "ADJUSTMENT"].includes(transaction.transaction_type)) {
           return sum + normalizeQuantity(transaction.quantity);
@@ -627,7 +730,7 @@ const InventoryTransactionsPage = () => {
       0,
     );
 
-    const subtractiveAdjustments = inventoryTransactionsWithSyncStatus.reduce(
+    const subtractiveAdjustments = mergedTransactionRows.reduce(
       (sum, transaction) => {
         if (
           ["OUTFLOW", "EXPIRED", "DAMAGED", "MISSING", "SPOILED", "STOLEN"].includes(
@@ -653,10 +756,10 @@ const InventoryTransactionsPage = () => {
       actualStock,
       difference: actualStock - expectedOnHand,
     };
-  }, [inventoryBatches, inventoryTransactionsWithSyncStatus]);
+  }, [inventoryBatches, mergedTransactionRows]);
 
   const latestAuditEntries = useMemo(() => {
-    if (!inventoryAuditLogs.length && !inventoryTransactionsWithSyncStatus.length) {
+    if (!inventoryAuditLogs.length && !mergedTransactionRows.length) {
       return sampleAuditEntries;
     }
 
@@ -669,7 +772,7 @@ const InventoryTransactionsPage = () => {
       !errorMessage &&
       !inventoryItems.length &&
       !inventoryBatches.length &&
-      !inventoryTransactionsWithSyncStatus.length &&
+      !mergedTransactionRows.length &&
       !inventoryAuditLogs.length
     );
   }, [
@@ -677,7 +780,7 @@ const InventoryTransactionsPage = () => {
     inventoryAuditLogs.length,
     inventoryBatches.length,
     inventoryItems.length,
-    inventoryTransactionsWithSyncStatus.length,
+    mergedTransactionRows.length,
     isLoading,
   ]);
 
@@ -803,7 +906,8 @@ const InventoryTransactionsPage = () => {
               <h3 style={sectionTitleStyles}>Inventory Transactions</h3>
               <p style={{ ...summaryHelperStyles, marginTop: "8px" }}>
                 Shows the unique transaction ID, inflow or outflow classification,
-                inventory item, quantity, transaction date, and source.
+                item, quantity, and transaction date. Logged or scanned stock is
+                listed as inflow, while claimed distributed goods are listed as outflow.
               </p>
               {isPreviewMode ? (
                 <p style={{ ...summaryHelperStyles, marginTop: "8px", color: "#2f6499" }}>
