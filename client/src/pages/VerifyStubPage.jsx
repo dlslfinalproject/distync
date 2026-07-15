@@ -279,6 +279,20 @@ const buildSectorText = (stubDetails) => {
   return sectorNames.join(", ");
 };
 
+const buildReliefPackText = (stubDetails) => {
+  const assignedPackNames = (stubDetails?.assigned_relief_packs || [])
+    .map((template) => template?.name)
+    .filter(Boolean)
+    .join(", ");
+
+  return (
+    stubDetails?.distribution_transaction?.relief_pack_template_name ||
+    stubDetails?.relief_pack_name ||
+    assignedPackNames ||
+    "--"
+  );
+};
+
 const buildBarangayDistributionLink = (stubDetails) => {
   if (!stubDetails) {
     return "/barangay/distribution-transaction";
@@ -516,6 +530,13 @@ const VerifyStubPage = () => {
                     <p style={pageStyles.detailLabel}>Household Size</p>
                     <p style={pageStyles.detailValue}>
                       {stubDetails.household?.household_size ?? "--"}
+                    </p>
+                  </div>
+
+                  <div style={pageStyles.detailRow}>
+                    <p style={pageStyles.detailLabel}>Relief Pack</p>
+                    <p style={pageStyles.detailValue}>
+                      {buildReliefPackText(stubDetails)}
                     </p>
                   </div>
 
