@@ -66,7 +66,23 @@ const filterPanelStyles = {
     gap: "10px",
     marginTop: "18px",
   },
+  clearAction: {
+    border: "none",
+    backgroundColor: "transparent",
+    color: "#2f6499",
+    fontSize: "14px",
+    fontWeight: 800,
+    cursor: "pointer",
+    padding: 0,
+  },
 };
+
+const STUB_SORT_OPTIONS = [
+  { value: "newest", label: "Newest-Oldest" },
+  { value: "oldest", label: "Oldest-Newest" },
+  { value: "az", label: "Sort A-Z" },
+  { value: "za", label: "Sort Z-A" },
+];
 
 const FILTER_PANEL_GAP = 12;
 const FILTER_PANEL_VIEWPORT_PADDING = 16;
@@ -130,9 +146,11 @@ const StubSearchBar = ({
   sectorOptions = [],
   selectedSectorNames = [],
   stubStatusOptions = [],
-  selectedStubStatus = "",
+  selectedStubStatus = "ISSUED",
+  selectedSortOrder = "oldest",
   onToggleSector,
   onSelectStubStatus,
+  onSortOrderChange,
   onClearFilters,
   filterScopeKey = "",
   actions = null,
@@ -146,7 +164,7 @@ const StubSearchBar = ({
   const filterButtonRef = useRef(null);
   const filterPanelRef = useRef(null);
   const activeFilterCount =
-    selectedSectorNames.length + Number(Boolean(selectedStubStatus));
+    selectedSectorNames.length + Number(selectedSortOrder !== "oldest");
 
   const updateFilterPanelPosition = () => {
     if (!filterButtonRef.current) {
@@ -245,6 +263,39 @@ const StubSearchBar = ({
       </div>
 
       <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            color: "#17324d",
+            fontWeight: 700,
+          }}
+        >
+          <span style={{ fontSize: "14px" }}>Status</span>
+          <select
+            value={selectedStubStatus}
+            onChange={(event) => onSelectStubStatus?.(event.target.value)}
+            style={{
+              minWidth: "120px",
+              borderRadius: "12px",
+              border: "1px solid #c7d6e5",
+              backgroundColor: "#ffffff",
+              color: "#17324d",
+              padding: "10px 12px",
+              fontSize: "14px",
+              fontWeight: 600,
+            }}
+          >
+            {stubStatusOptions.map((statusOption) => (
+              <option key={statusOption.value} value={statusOption.value}>
+                {statusOption.label}
+              </option>
+            ))}
+            <option value="">All</option>
+          </select>
+        </label>
+
         <div>
           <button
             ref={filterButtonRef}
@@ -271,39 +322,43 @@ const StubSearchBar = ({
                 maxHeight: filterPanelPosition.maxHeight,
               }}
             >
-              <h3 style={filterPanelStyles.title}>Filter Stub Records</h3>
+              <h3 style={filterPanelStyles.title}>Filter Records</h3>
 
               <label style={filterPanelStyles.field}>
-                <span style={filterPanelStyles.label}>Stub Status</span>
+                <span style={filterPanelStyles.label}>Order List</span>
                 <select
-                  value={selectedStubStatus}
-                  onChange={(event) => onSelectStubStatus(event.target.value)}
+                  value={selectedSortOrder}
+                  onChange={(event) => onSortOrderChange?.(event.target.value)}
                   style={filterPanelStyles.select}
                 >
-                  <option value="">All Stub Statuses</option>
-                  {stubStatusOptions.map((statusOption) => (
-                    <option key={statusOption.value} value={statusOption.value}>
-                      {statusOption.label}
+                  {STUB_SORT_OPTIONS.map((sortOption) => (
+                    <option key={sortOption.value} value={sortOption.value}>
+                      {sortOption.label}
                     </option>
                   ))}
                 </select>
               </label>
 
               <div style={filterPanelStyles.field}>
-                <span style={filterPanelStyles.label}>Sector</span>
+                <h3 style={filterPanelStyles.title}>Filter by Sector</h3>
                 <div style={filterPanelStyles.list}>
                   {sectorOptions.length > 0 ? (
-                    sectorOptions.map((sectorName) => (
-                      <label key={sectorName} style={filterPanelStyles.option}>
-                        <input
-                          type="checkbox"
-                          checked={selectedSectorNames.includes(sectorName)}
-                          onChange={() => onToggleSector(sectorName)}
-                          style={{ accentColor: "#2f6499" }}
-                        />
-                        <span>{sectorName}</span>
-                      </label>
-                    ))
+                    sectorOptions.map((sectorOption) => {
+                      const sectorValue = getSectorOptionValue(sectorOption);
+                      const sectorLabel = getSectorOptionLabel(sectorOption);
+
+                      return (
+                        <label key={sectorValue} style={filterPanelStyles.option}>
+                          <input
+                            type="checkbox"
+                            checked={selectedSectorNames.includes(sectorValue)}
+                            onChange={() => onToggleSector(sectorValue)}
+                            style={{ accentColor: "#2f6499" }}
+                          />
+                          <span>{sectorLabel}</span>
+                        </label>
+                      );
+                    })
                   ) : (
                     <p style={{ margin: 0, color: "#5d7188", fontSize: "14px" }}>
                       No sectors are available.
@@ -316,16 +371,9 @@ const StubSearchBar = ({
                 <button
                   type="button"
                   onClick={onClearFilters}
-                  style={pageHeaderStyles.secondaryButton}
+                  style={filterPanelStyles.clearAction}
                 >
                   Clear
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsFilterOpen(false)}
-                  style={pageHeaderStyles.primaryButton}
-                >
-                  Apply
                 </button>
               </div>
             </div>
@@ -334,6 +382,28 @@ const StubSearchBar = ({
         {actions}
       </div>
     </section>
+  );
+};
+
+const getSectorOptionValue = (sectorOption) => {
+  if (typeof sectorOption === "string") {
+    return sectorOption;
+  }
+
+  return sectorOption?.id || sectorOption?.code || sectorOption?.name || "";
+};
+
+const getSectorOptionLabel = (sectorOption) => {
+  if (typeof sectorOption === "string") {
+    return sectorOption;
+  }
+
+  return (
+    sectorOption?.display_name ||
+    sectorOption?.label ||
+    sectorOption?.name ||
+    sectorOption?.code ||
+    ""
   );
 };
 

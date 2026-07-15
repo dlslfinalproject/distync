@@ -1,21 +1,25 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { FaHandHolding } from "react-icons/fa6";
-import { FiFilter, FiPrinter } from "react-icons/fi";
+import { FiPrinter } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
-import SearchBar from "../../components/shared/SearchBar";
 import StatusPill from "../../components/shared/StatusPill";
 import StubClaimConfirmModal from "../../components/stubs/StubClaimConfirmModal";
 import StubDetailModal from "../../components/stubs/StubDetailModal";
 import MswdoStubResultsTable from "../../components/stubs/MswdoStubResultsTable";
 import StubPrintSheetModal from "../../components/stubs/StubPrintSheetModal";
+import StubSearchBar from "../../components/stubs/StubSearchBar";
 import StubSummaryCards from "../../components/stubs/StubSummaryCards";
 import { claimStub, fetchStubDetails } from "../../features/stubs/stubService";
 import { useMswdoStubDistribution } from "../../features/stubs/useMswdoStubDistribution";
 import db from "../../offline/db";
 import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
+import { buildMasterlistFilterSectorOptions } from "../../utils/registrationOptions";
+
+const DEFAULT_STUB_STATUS = "ISSUED";
+const DEFAULT_STUB_SORT_ORDER = "oldest";
 
 const filterStyles = {
   field: {
@@ -37,127 +41,6 @@ const filterStyles = {
     letterSpacing: "0.08em",
     textTransform: "uppercase",
   },
-};
-
-const filterPanelStyles = {
-  panel: {
-    position: "fixed",
-    width: "min(380px, calc(100vw - 32px))",
-    backgroundColor: "#ffffff",
-    border: "1px solid #d6e2ef",
-    borderRadius: "18px",
-    boxShadow: "0 18px 36px rgba(31, 64, 95, 0.16)",
-    padding: "18px",
-    zIndex: 1200,
-    display: "flex",
-    flexDirection: "column",
-    gap: "14px",
-    overflowY: "auto",
-    boxSizing: "border-box",
-  },
-  title: {
-    margin: 0,
-    color: "#17324d",
-    fontSize: "16px",
-    fontWeight: 800,
-  },
-  field: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-    marginTop: "14px",
-  },
-  label: {
-    color: "#55718b",
-    fontSize: "12px",
-    fontWeight: 800,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
-  },
-  select: {
-    minHeight: "42px",
-    border: "1px solid #d0ddeb",
-    borderRadius: "12px",
-    padding: "10px 12px",
-    fontSize: "14px",
-    color: "#1f405f",
-    backgroundColor: "#f8fbfe",
-    boxSizing: "border-box",
-  },
-  list: {
-    display: "grid",
-    gap: "10px",
-    overflow: "visible",
-    paddingRight: "4px",
-  },
-  option: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    color: "#1f405f",
-    fontSize: "14px",
-  },
-  actions: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: "10px",
-    marginTop: "18px",
-  },
-};
-
-const FILTER_PANEL_GAP = 12;
-const FILTER_PANEL_VIEWPORT_PADDING = 16;
-const MIN_FILTER_PANEL_HEIGHT = 220;
-
-const getFilterPanelPosition = ({ triggerRect, panelHeight }) => {
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-  const constrainedPanelWidth = Math.min(
-    380,
-    viewportWidth - FILTER_PANEL_VIEWPORT_PADDING * 2,
-  );
-  const safePanelHeight = Math.max(panelHeight || 0, MIN_FILTER_PANEL_HEIGHT);
-  const spaceBelow =
-    viewportHeight - triggerRect.bottom - FILTER_PANEL_VIEWPORT_PADDING;
-  const spaceAbove = triggerRect.top - FILTER_PANEL_VIEWPORT_PADDING;
-  const shouldOpenBelow =
-    spaceBelow >= MIN_FILTER_PANEL_HEIGHT || spaceBelow >= spaceAbove;
-
-  let left = triggerRect.right - constrainedPanelWidth;
-  left = Math.min(
-    Math.max(left, FILTER_PANEL_VIEWPORT_PADDING),
-    viewportWidth - constrainedPanelWidth - FILTER_PANEL_VIEWPORT_PADDING,
-  );
-
-  if (shouldOpenBelow) {
-    const top = Math.max(
-      FILTER_PANEL_VIEWPORT_PADDING,
-      triggerRect.bottom + FILTER_PANEL_GAP,
-    );
-    const availableHeight =
-      viewportHeight - top - FILTER_PANEL_VIEWPORT_PADDING;
-
-    return {
-      top,
-      left,
-      maxHeight: Math.max(availableHeight, 0),
-    };
-  }
-
-  const maxHeight = Math.max(
-    triggerRect.top - FILTER_PANEL_GAP - FILTER_PANEL_VIEWPORT_PADDING,
-    0,
-  );
-  const top = Math.max(
-    FILTER_PANEL_VIEWPORT_PADDING,
-    triggerRect.top - FILTER_PANEL_GAP - Math.min(safePanelHeight, maxHeight),
-  );
-
-  return {
-    top,
-    left,
-    maxHeight,
-  };
 };
 
 const tabButtonStyles = (isActive) => ({
@@ -201,22 +84,37 @@ const formatReliefPeriod = (event) => {
 const formatDisasterEventTitle = (event) =>
   String(event?.title || "").trim() || "No disaster event selected";
 
-const getStatusLabel = (status) => {
-  if (status === "CLAIMED") {
-    return "Claimed";
+const stubStatusOptions = [
+  { value: "CLAIMED", label: "Claimed" },
+  { value: "ISSUED", label: "Unclaimed" },
+];
+
+const getStubSortTime = (row) => {
+  const timestamp = row.qr_generated_at || row.issued_at || row.created_at || "";
+  const parsedTime = timestamp ? new Date(timestamp).getTime() : 0;
+
+  if (Number.isFinite(parsedTime) && parsedTime > 0) {
+    return parsedTime;
   }
 
-  if (status === "ISSUED") {
-    return "Unclaimed";
-  }
-
-  return status || "-";
+  return Number(row.stub_sequence_no || row.stub_number || 0);
 };
 
-const stubStatusOptions = [
-  { value: "ISSUED", label: "Unclaimed" },
-  { value: "CLAIMED", label: "Claimed" },
-];
+const sortStubRows = (rows, sortOrder = DEFAULT_STUB_SORT_ORDER) =>
+  [...rows].sort((left, right) => {
+    if (sortOrder === "az" || sortOrder === "za") {
+      const leftName = String(left.family_head_name || "");
+      const rightName = String(right.family_head_name || "");
+      const comparison = leftName.localeCompare(rightName);
+
+      return sortOrder === "za" ? -comparison : comparison;
+    }
+
+    const leftTime = getStubSortTime(left);
+    const rightTime = getStubSortTime(right);
+
+    return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
+  });
 
 const buildStubPrintRoute = ({
   stubIds = [],
@@ -276,7 +174,6 @@ const StubDistributionPage = () => {
   } = useMswdoStubDistribution();
 
   const [activeTab, setActiveTab] = useState("active");
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [claimingStubId, setClaimingStubId] = useState("");
   const [claimErrorMessage, setClaimErrorMessage] = useState("");
   const [pendingClaimStubId, setPendingClaimStubId] = useState("");
@@ -293,27 +190,25 @@ const StubDistributionPage = () => {
   const [filtersByTab, setFiltersByTab] = useState({
     active: {
       sectorIds: [],
-      stubStatus: "",
+      stubStatus: DEFAULT_STUB_STATUS,
+      sortOrder: DEFAULT_STUB_SORT_ORDER,
     },
     ended: {
       sectorIds: [],
-      stubStatus: "",
+      stubStatus: DEFAULT_STUB_STATUS,
+      sortOrder: DEFAULT_STUB_SORT_ORDER,
     },
   });
-  const [filterPanelPosition, setFilterPanelPosition] = useState({
-    top: 0,
-    left: 0,
-    maxHeight: 320,
-  });
-  const filterButtonRef = useRef(null);
-  const filterPanelRef = useRef(null);
   const syncQueueEntries =
     useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
 
   const selectedSectorIds = filtersByTab[activeTab]?.sectorIds || [];
-  const selectedStubStatus = filtersByTab[activeTab]?.stubStatus || "";
+  const selectedStubStatus =
+    filtersByTab[activeTab]?.stubStatus || DEFAULT_STUB_STATUS;
+  const selectedSortOrder =
+    filtersByTab[activeTab]?.sortOrder || DEFAULT_STUB_SORT_ORDER;
   const displayedRowsWithSyncStatus = useMemo(() => {
-    return displayedRows.map((row) => {
+    return sortStubRows(displayedRows, selectedSortOrder).map((row) => {
       const matchingEntry = findSyncEntry(syncQueueEntries, (entry) => {
         if (entry.moduleName !== "stubs") {
           return false;
@@ -331,7 +226,7 @@ const StubDistributionPage = () => {
         sync_status: buildSyncDescriptor(matchingEntry).status,
       };
     });
-  }, [displayedRows, syncQueueEntries]);
+  }, [displayedRows, selectedSortOrder, syncQueueEntries]);
   const selectedClaimRows = useMemo(() => {
     const selectedStubIdSet = new Set(selectedStubIds);
 
@@ -349,9 +244,14 @@ const StubDistributionPage = () => {
 
   const activeEventLabel = formatDisasterEventTitle(selectedDisasterEvent);
   const isEndedView = activeTab === "ended";
-  const activeFilterCount =
-    selectedSectorIds.length + (selectedStubStatus ? 1 : 0);
-  const hasActiveFilters = activeFilterCount > 0;
+  const sectorFilterOptions = useMemo(
+    () =>
+      buildMasterlistFilterSectorOptions(sectors).map((sector) => ({
+        ...sector,
+        id: sector.source_sector_id || sector.id,
+      })),
+    [sectors],
+  );
 
   useEffect(() => {
     if (
@@ -388,67 +288,6 @@ const StubDistributionPage = () => {
   }, [activeTab, selectedBarangayId, selectedDisasterEventId]);
 
   useEffect(() => {
-    if (!isFilterOpen) {
-      return;
-    }
-
-    updateFilterPanelPosition();
-
-    const handleWindowChange = () => {
-      updateFilterPanelPosition();
-    };
-
-    window.addEventListener("resize", handleWindowChange);
-    window.addEventListener("scroll", handleWindowChange, true);
-
-    return () => {
-      window.removeEventListener("resize", handleWindowChange);
-      window.removeEventListener("scroll", handleWindowChange, true);
-    };
-  }, [activeTab, isFilterOpen, activeFilterCount]);
-
-  useEffect(() => {
-    if (!isFilterOpen) {
-      return;
-    }
-
-    const handleOutsideClick = (event) => {
-      if (
-        filterPanelRef.current?.contains(event.target) ||
-        filterButtonRef.current?.contains(event.target)
-      ) {
-        return;
-      }
-
-      setIsFilterOpen(false);
-    };
-
-    document.addEventListener("mousedown", handleOutsideClick);
-
-    return () => {
-      document.removeEventListener("mousedown", handleOutsideClick);
-    };
-  }, [isFilterOpen]);
-
-  useEffect(() => {
-    setIsFilterOpen(false);
-  }, [activeTab, selectedBarangayId, selectedDisasterEventId]);
-
-  useEffect(() => {
-    if (!isFilterOpen) {
-      return;
-    }
-
-    const animationFrameId = window.requestAnimationFrame(() => {
-      updateFilterPanelPosition();
-    });
-
-    return () => {
-      window.cancelAnimationFrame(animationFrameId);
-    };
-  }, [isFilterOpen, activeFilterCount]);
-
-  useEffect(() => {
     const visibleStubIds = new Set(displayedRowsWithSyncStatus.map((row) => row.id));
     setSelectedStubIds((currentValues) =>
       currentValues.filter((stubId) => visibleStubIds.has(stubId)),
@@ -482,20 +321,20 @@ const StubDistributionPage = () => {
       ...currentFilters,
       [activeTab]: {
         sectorIds: [],
-        stubStatus: "",
+        stubStatus: DEFAULT_STUB_STATUS,
+        sortOrder: DEFAULT_STUB_SORT_ORDER,
       },
     }));
   };
 
-  const updateFilterPanelPosition = () => {
-    if (!filterButtonRef.current) {
-      return;
-    }
-
-    const triggerRect = filterButtonRef.current.getBoundingClientRect();
-    const panelHeight = filterPanelRef.current?.getBoundingClientRect().height || 0;
-
-    setFilterPanelPosition(getFilterPanelPosition({ triggerRect, panelHeight }));
+  const setSortOrderFilter = (sortOrder) => {
+    setFiltersByTab((currentFilters) => ({
+      ...currentFilters,
+      [activeTab]: {
+        ...currentFilters[activeTab],
+        sortOrder,
+      },
+    }));
   };
 
   const handleEventScopeChange = (nextTab) => {
@@ -875,142 +714,47 @@ const StubDistributionPage = () => {
         <StubSummaryCards cards={summaryCards} />
       ) : null}
 
-      <section
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: "16px",
-          flexWrap: "wrap",
-        }}
-      >
-        <div style={{ flex: 1 }}>
-          <SearchBar
-            value={searchTerm}
-            onChange={setSearchTerm}
-            placeholder="Search family head, sectors, or stub number"
-          />
-        </div>
-
-        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-          <div>
+      <section>
+        <StubSearchBar
+          searchValue={searchTerm}
+          onSearchChange={setSearchTerm}
+          onSearchSubmit={() => {}}
+          sectorOptions={sectorFilterOptions}
+          selectedSectorNames={selectedSectorIds}
+          stubStatusOptions={stubStatusOptions}
+          selectedStubStatus={selectedStubStatus}
+          selectedSortOrder={selectedSortOrder}
+          onToggleSector={toggleSectorFilter}
+          onSelectStubStatus={(stubStatus) =>
+            setFiltersByTab((currentFilters) => ({
+              ...currentFilters,
+              [activeTab]: {
+                ...currentFilters[activeTab],
+                stubStatus,
+              },
+            }))
+          }
+          onSortOrderChange={setSortOrderFilter}
+          onClearFilters={clearFilters}
+          filterScopeKey={`${activeTab}-${selectedDisasterEventId}-${selectedBarangayId}`}
+          actions={
             <button
-              ref={filterButtonRef}
               type="button"
-              onClick={() => setIsFilterOpen((currentValue) => !currentValue)}
+              onClick={() => setIsPrintSheetModalOpen(true)}
+              disabled={!hasSelectedEvent || !hasSelectedBarangay}
               style={{
                 ...pageHeaderStyles.secondaryButton,
                 display: "flex",
                 alignItems: "center",
                 gap: "8px",
+                opacity: !hasSelectedEvent || !hasSelectedBarangay ? 0.7 : 1,
               }}
             >
-              <FiFilter size={16} />
-              {hasActiveFilters ? `Filter (${activeFilterCount})` : "Filter"}
+              <FiPrinter size={16} />
+              Print
             </button>
-
-            {isFilterOpen ? (
-              <div
-                ref={filterPanelRef}
-                style={{
-                  ...filterPanelStyles.panel,
-                  top: filterPanelPosition.top,
-                  left: filterPanelPosition.left,
-                  maxHeight: filterPanelPosition.maxHeight,
-                }}
-              >
-                <h3 style={filterPanelStyles.title}>Filter Stub Records</h3>
-
-                <label style={filterPanelStyles.field}>
-                  <span style={filterPanelStyles.label}>Stub Status</span>
-                  <select
-                    value={selectedStubStatus}
-                    onChange={(event) =>
-                      setFiltersByTab((currentFilters) => ({
-                        ...currentFilters,
-                        [activeTab]: {
-                          ...currentFilters[activeTab],
-                          stubStatus: event.target.value,
-                        },
-                      }))
-                    }
-                    style={filterPanelStyles.select}
-                  >
-                    <option value="">All Stub Statuses</option>
-                    {stubStatusOptions.map((statusOption) => (
-                      <option key={statusOption.value} value={statusOption.value}>
-                        {statusOption.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <div style={filterPanelStyles.field}>
-                  <span style={filterPanelStyles.label}>Sector</span>
-                  <div style={filterPanelStyles.list}>
-                    {sectors.length > 0 ? (
-                      sectors.map((sector) => (
-                      <label key={sector.id} style={filterPanelStyles.option}>
-                        <input
-                          type="checkbox"
-                          checked={selectedSectorIds.includes(sector.id)}
-                          onChange={() => toggleSectorFilter(sector.id)}
-                          style={{ accentColor: "#2f6499" }}
-                        />
-                        <span>{sector.name}</span>
-                      </label>
-                      ))
-                    ) : (
-                      <p style={{ ...shellStyles.mutedText, margin: 0 }}>
-                        No sectors are available.
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div style={filterPanelStyles.actions}>
-                  <button
-                    type="button"
-                    onClick={clearFilters}
-                    style={pageHeaderStyles.secondaryButton}
-                  >
-                    Clear
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsFilterOpen(false)}
-                    style={pageHeaderStyles.primaryButton}
-                  >
-                    Apply
-                  </button>
-                </div>
-              </div>
-            ) : null}
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setIsPrintSheetModalOpen(true)}
-            disabled={
-              !hasSelectedEvent ||
-              !hasSelectedBarangay
-            }
-            style={{
-              ...pageHeaderStyles.secondaryButton,
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              opacity:
-                !hasSelectedEvent ||
-                !hasSelectedBarangay
-                  ? 0.7
-                  : 1,
-            }}
-          >
-            <FiPrinter size={16} />
-            Print
-          </button>
-        </div>
+          }
+        />
       </section>
 
       {!isEndedView && selectedStubIds.length > 0 ? (

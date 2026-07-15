@@ -6,6 +6,7 @@ import {
   fetchMswdoSectors,
 } from "../mswdo-masterlist/mswdoMasterlistService";
 import { fetchBarangayStubDashboard } from "./stubService";
+import { getCanonicalSectorCodeFromText } from "../../utils/sectorDisplay";
 
 const emptyMetrics = {
   total_issued_stubs: 0,
@@ -55,9 +56,14 @@ const getDisplayedRows = (rows, searchTerm, selectedSectorIds, selectedStubStatu
   const selectedSectorIdSet = new Set(selectedSectorIds);
 
   return rows.filter((row) => {
+    const rowSectorCodes = String(row.sectors_text || "")
+      .split(",")
+      .map((sectorName) => getCanonicalSectorCodeFromText(sectorName))
+      .filter(Boolean);
     const matchesSectorFilter =
       selectedSectorIds.length === 0 ||
-      (row.sector_ids || []).some((sectorId) => selectedSectorIdSet.has(sectorId));
+      (row.sector_ids || []).some((sectorId) => selectedSectorIdSet.has(sectorId)) ||
+      rowSectorCodes.some((sectorCode) => selectedSectorIdSet.has(sectorCode));
 
     if (!matchesSectorFilter) {
       return false;

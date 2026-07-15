@@ -38,7 +38,7 @@ const canonicalCodeByAlias = new Map([
   ["SOLO_PARENTS", "SOLO_PARENT"],
 ]);
 
-const getCanonicalSectorCodeFromText = (sectorText) => {
+export const getCanonicalSectorCodeFromText = (sectorText) => {
   const normalizedToken = normalizeSectorToken(sectorText);
   const directCode = getCanonicalMemberSectorCode(normalizedToken);
 

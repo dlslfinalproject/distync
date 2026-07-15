@@ -15,15 +15,20 @@ import { useStubDashboard } from "../../features/stubs/useStubDashboard";
 import { claimStub, fetchStubDetails } from "../../features/stubs/stubService";
 import { fetchMswdoSectors } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { shellStyles } from "../../components/layout/BarangayLayout";
+import { buildMasterlistFilterSectorOptions } from "../../utils/registrationOptions";
+import { getCanonicalSectorCodeFromText } from "../../utils/sectorDisplay";
 
-const getSectorNames = (sectorsText) => {
+const DEFAULT_STUB_STATUS = "ISSUED";
+const DEFAULT_STUB_SORT_ORDER = "oldest";
+
+const getSectorCodes = (sectorsText) => {
   if (!sectorsText || sectorsText === "-") {
     return [];
   }
 
   return String(sectorsText)
     .split(",")
-    .map((sectorName) => sectorName.trim())
+    .map((sectorName) => getCanonicalSectorCodeFromText(sectorName))
     .filter(Boolean);
 };
 
@@ -49,6 +54,33 @@ const getFilteredRows = (rows, searchTerm) => {
     );
   });
 };
+
+const getStubSortTime = (row) => {
+  const timestamp = row.qr_generated_at || row.issued_at || row.created_at || "";
+  const parsedTime = timestamp ? new Date(timestamp).getTime() : 0;
+
+  if (Number.isFinite(parsedTime) && parsedTime > 0) {
+    return parsedTime;
+  }
+
+  return Number(row.stub_sequence_no || 0);
+};
+
+const sortStubRows = (rows, sortOrder = DEFAULT_STUB_SORT_ORDER) =>
+  [...rows].sort((left, right) => {
+    if (sortOrder === "az" || sortOrder === "za") {
+      const leftName = String(left.household?.family_head_name || "");
+      const rightName = String(right.household?.family_head_name || "");
+      const comparison = leftName.localeCompare(rightName);
+
+      return sortOrder === "za" ? -comparison : comparison;
+    }
+
+    const leftTime = getStubSortTime(left);
+    const rightTime = getStubSortTime(right);
+
+    return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
+  });
 
 const isEndedDisasterEvent = (event, eventScope) => {
   const status = String(event?.status || "").toUpperCase();
@@ -93,11 +125,13 @@ const StubDistributionPage = () => {
   const [filtersByScope, setFiltersByScope] = useState({
     active: {
       sectorNames: [],
-      stubStatus: "",
+      stubStatus: DEFAULT_STUB_STATUS,
+      sortOrder: DEFAULT_STUB_SORT_ORDER,
     },
     ended: {
       sectorNames: [],
-      stubStatus: "",
+      stubStatus: DEFAULT_STUB_STATUS,
+      sortOrder: DEFAULT_STUB_SORT_ORDER,
     },
   });
   const [sectorOptions, setSectorOptions] = useState([]);
@@ -161,10 +195,11 @@ const StubDistributionPage = () => {
     const searchedRows = getFilteredRows(stubRows, searchTerm);
     const currentFilters = filtersByScope[eventScope] || {
       sectorNames: [],
-      stubStatus: "",
+      stubStatus: DEFAULT_STUB_STATUS,
+      sortOrder: DEFAULT_STUB_SORT_ORDER,
     };
 
-    return searchedRows.filter((row) => {
+    const matchingRows = searchedRows.filter((row) => {
       const matchesStatus =
         !currentFilters.stubStatus || row.status === currentFilters.stubStatus;
 
@@ -176,12 +211,17 @@ const StubDistributionPage = () => {
         return true;
       }
 
-      const rowSectorNames = getSectorNames(row.sectors_text);
+      const rowSectorNames = getSectorCodes(row.sectors_text);
 
       return currentFilters.sectorNames.some((sectorName) =>
         rowSectorNames.includes(sectorName),
       );
     });
+
+    return sortStubRows(
+      matchingRows,
+      currentFilters.sortOrder || DEFAULT_STUB_SORT_ORDER,
+    );
   }, [eventScope, filtersByScope, searchTerm, stubRows]);
 
   useEffect(() => {
@@ -196,14 +236,13 @@ const StubDistributionPage = () => {
         }
 
         setSectorOptions(
-          (Array.isArray(sectors) ? sectors : [])
-            .map((sector) => String(sector.name || "").trim())
-            .filter(Boolean)
-            .sort((left, right) => left.localeCompare(right)),
+          buildMasterlistFilterSectorOptions(
+            Array.isArray(sectors) ? sectors : [],
+          ),
         );
       } catch (_error) {
         if (isMounted) {
-          setSectorOptions([]);
+          setSectorOptions(buildMasterlistFilterSectorOptions([]));
         }
       }
     };
@@ -226,12 +265,13 @@ const StubDistributionPage = () => {
 
   const currentFilters = filtersByScope[eventScope] || {
     sectorNames: [],
-    stubStatus: "",
+    stubStatus: DEFAULT_STUB_STATUS,
+    sortOrder: DEFAULT_STUB_SORT_ORDER,
   };
 
   const stubStatusOptions = [
-    { value: "ISSUED", label: "Unclaimed" },
     { value: "CLAIMED", label: "Claimed" },
+    { value: "ISSUED", label: "Unclaimed" },
   ];
 
   const toggleSectorFilter = (sectorName) => {
@@ -263,7 +303,18 @@ const StubDistributionPage = () => {
       ...currentValues,
       [eventScope]: {
         sectorNames: [],
-        stubStatus: "",
+        stubStatus: DEFAULT_STUB_STATUS,
+        sortOrder: DEFAULT_STUB_SORT_ORDER,
+      },
+    }));
+  };
+
+  const setSortOrderFilter = (sortOrder) => {
+    setFiltersByScope((currentValues) => ({
+      ...currentValues,
+      [eventScope]: {
+        ...currentValues[eventScope],
+        sortOrder,
       },
     }));
   };
@@ -539,8 +590,12 @@ const StubDistributionPage = () => {
             selectedSectorNames={currentFilters.sectorNames}
             stubStatusOptions={stubStatusOptions}
             selectedStubStatus={currentFilters.stubStatus}
+            selectedSortOrder={
+              currentFilters.sortOrder || DEFAULT_STUB_SORT_ORDER
+            }
             onToggleSector={toggleSectorFilter}
             onSelectStubStatus={setStubStatusFilter}
+            onSortOrderChange={setSortOrderFilter}
             onClearFilters={clearFilters}
             filterScopeKey={eventScope}
             actions={
