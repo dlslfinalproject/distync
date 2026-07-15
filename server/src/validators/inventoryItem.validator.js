@@ -127,6 +127,36 @@ const validateInventoryItemId = (req, res, next) => {
   }
 };
 
+const validateInventoryItemBarcodeLookup = (req, res, next) => {
+  try {
+    const { barcode } = req.params;
+    const normalizedBarcode = String(barcode || "").replace(/\s+/g, "").trim();
+
+    if (!normalizedBarcode) {
+      return res.status(400).json({
+        message: "barcode is required",
+      });
+    }
+
+    if (!/^\d{8,18}$/.test(normalizedBarcode)) {
+      return res.status(400).json({
+        message: "barcode must contain 8 to 18 digits",
+      });
+    }
+
+    req.validatedParams = {
+      barcode: normalizedBarcode,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate inventory barcode lookup",
+      error: error.message,
+    });
+  }
+};
+
 const validateGetInventoryItems = (req, res, next) => {
   try {
     const { category, search, is_active, is_perishable } = req.query;
@@ -528,6 +558,7 @@ const validateForecastRunIdParam = (req, res, next) => {
 
 module.exports = {
   validateInventoryItemId,
+  validateInventoryItemBarcodeLookup,
   validateExportInventoryItems,
   validateGetInventoryItems,
   validateInventoryItemPayload,

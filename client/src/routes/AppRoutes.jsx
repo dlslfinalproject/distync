@@ -12,7 +12,6 @@ import BarangayMasterlistPage from "../pages/barangay/BarangayMasterlistPage";
 import DistributionTransactionPage from "../pages/barangay/DistributionTransactionPage";
 import StubDistributionPage from "../pages/barangay/StubDistributionPage";
 import VerifyStubPage from "../pages/VerifyStubPage";
-import DonationManagementPage from "../pages/DonationManagementPage";
 import InventoryBatchesPage from "../pages/inventory/InventoryBatchesPage";
 import InventoryItemsPage from "../pages/inventory/InventoryItemsPage";
 import InventoryDistributionPage from "../pages/inventory/InventoryDistributionPage";
@@ -184,7 +183,6 @@ const AppRoutes = () => {
             element={<DistributionHistoryPage />}
           />
           <Route path="system-logs" element={<SystemLogReviewPage />} />
-          <Route path="donations" element={<DonationManagementPage />} />
           <Route path="settings" element={<RoleSettingsPage />} />
         </Route>
         <Route path="/donations" element={<DonationInformationPage />} />

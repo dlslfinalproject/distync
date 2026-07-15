@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
 import { FiX } from "react-icons/fi";
@@ -155,6 +155,7 @@ const InventoryItemFormModal = ({
   onSubmit,
 }) => {
   const [formValues, setFormValues] = useState(createDefaultForm());
+  const barcodeInputRef = useRef(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -178,6 +179,46 @@ const InventoryItemFormModal = ({
       setFormValues(createDefaultForm());
     }
   }, [isOpen, itemData]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    const focusTimer = window.setTimeout(() => {
+      barcodeInputRef.current?.focus();
+      barcodeInputRef.current?.select();
+    }, 50);
+
+    return () => window.clearTimeout(focusTimer);
+  }, [isOpen]);
+
+  const handleChange = useCallback((fieldName, value) => {
+    setFormValues((prev) => {
+      if (fieldName === "tracking_method") {
+        const nextValues = {
+          ...prev,
+          tracking_method: value,
+        };
+
+        if (value === "Count-Based") {
+          nextValues.unit_of_measure = "pc";
+          nextValues.unit_of_measure_value = "";
+        }
+
+        return nextValues;
+      }
+
+      if (fieldName === "unit_of_measure" && prev.tracking_method === "Count-Based") {
+        return {
+          ...prev,
+          unit_of_measure: "pc",
+        };
+      }
+
+      return { ...prev, [fieldName]: value };
+    });
+  }, []);
 
   if (!isOpen) return null;
 
@@ -206,33 +247,6 @@ const InventoryItemFormModal = ({
   const computedTotalDisplay = hasComputedTotalInputs
     ? formatComputedValue(computedTotalStock)
     : "Enter the number of packages and quantity per package to calculate the total.";
-
-  const handleChange = (fieldName, value) => {
-    setFormValues((prev) => {
-      if (fieldName === "tracking_method") {
-        const nextValues = {
-          ...prev,
-          tracking_method: value,
-        };
-
-        if (value === "Count-Based") {
-          nextValues.unit_of_measure = "pc";
-          nextValues.unit_of_measure_value = "";
-        }
-
-        return nextValues;
-      }
-
-      if (fieldName === "unit_of_measure" && prev.tracking_method === "Count-Based") {
-        return {
-          ...prev,
-          unit_of_measure: "pc",
-        };
-      }
-
-      return { ...prev, [fieldName]: value };
-    });
-  };
 
   const handleSubmit = (event) => {
     event.preventDefault();
@@ -317,6 +331,7 @@ const InventoryItemFormModal = ({
                   Barcode
                 </label>
                 <input
+                  ref={barcodeInputRef}
                   id="barcode"
                   type="text"
                   placeholder="Scan or enter barcode"

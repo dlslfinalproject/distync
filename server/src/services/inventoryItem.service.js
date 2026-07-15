@@ -8,6 +8,10 @@ const inventoryItemExport = require("../utils/inventoryItemExport");
 const mayorReportExport = require("../utils/mayorReportExport");
 const { logAuditSafely, pickDefined } = require("../utils/systemLog");
 
+const OPEN_FOOD_FACTS_API_BASE_URL =
+  process.env.OPEN_FOOD_FACTS_API_BASE_URL ||
+  "https://world.openfoodfacts.org";
+
 const buildItemCodeSeed = (itemName) => {
   const normalizedName = itemName
     .toUpperCase()
@@ -202,6 +206,40 @@ const buildOpeningBatchNumber = (itemCode) => {
   return `${normalizedItemCode}-OPEN-${timestamp}`;
 };
 
+const inferCategoryFromLookup = (lookupPayload) => {
+  const categoryText = [
+    lookupPayload?.categories,
+    Array.isArray(lookupPayload?.categories_tags)
+      ? lookupPayload.categories_tags.join(" ")
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (
+    categoryText.includes("fresh") ||
+    categoryText.includes("meat") ||
+    categoryText.includes("fish") ||
+    categoryText.includes("vegetable") ||
+    categoryText.includes("fruit") ||
+    categoryText.includes("dairy")
+  ) {
+    return "Perishable";
+  }
+
+  return "Non-Perishable";
+};
+
+const buildLookupDisplayName = (lookupPayload) => {
+  const nameParts = [
+    lookupPayload?.product_name,
+    lookupPayload?.brands,
+  ].filter(Boolean);
+
+  return nameParts.join(" - ") || lookupPayload?.generic_name || null;
+};
+
 const buildInventoryTrackingMap = (inventoryItems, inventoryBatches, inventoryTransactions) => {
   const trackingMap = new Map();
 
@@ -372,6 +410,52 @@ const buildInventoryConditionRows = async ({
 
 const getInventoryItems = async (filters) => {
   return inventoryItemRepository.getInventoryItems(filters);
+};
+
+const lookupInventoryItemByBarcode = async (barcode) => {
+  const response = await fetch(
+    `${OPEN_FOOD_FACTS_API_BASE_URL}/api/v3/product/${encodeURIComponent(barcode)}.json`,
+    {
+      method: "GET",
+      headers: {
+        "User-Agent": "DISTYNC/1.0 (inventory-barcode-lookup)",
+        Accept: "application/json",
+      },
+    },
+  );
+
+  if (!response.ok) {
+    const error = new Error("Failed to fetch barcode details from online catalog");
+    error.statusCode = 502;
+    throw error;
+  }
+
+  const payload = await response.json().catch(() => null);
+  const product = payload?.product || null;
+
+  if (!product) {
+    return {
+      found: false,
+      barcode,
+      source: "OPEN_FOOD_FACTS",
+      item: null,
+    };
+  }
+
+  return {
+    found: true,
+    barcode,
+    source: "OPEN_FOOD_FACTS",
+    item: {
+      barcode,
+      item_name: buildLookupDisplayName(product),
+      category: inferCategoryFromLookup(product),
+      brand: product.brands || null,
+      packaging: product.packaging || null,
+      quantity_label: product.quantity || null,
+      image_url: product.image_front_url || null,
+    },
+  };
 };
 
 const exportInventoryItems = async (filters) => {
@@ -687,6 +771,7 @@ const updateInventoryItem = async (id, itemData, actor = null) => {
 
 module.exports = {
   getInventoryItems,
+  lookupInventoryItemByBarcode,
   exportInventoryItems,
   exportInventoryConditionReport,
   getInventoryItemById,
