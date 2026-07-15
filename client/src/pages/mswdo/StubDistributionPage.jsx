@@ -825,29 +825,29 @@ const StubDistributionPage = () => {
                 <FiPrinter size={16} />
                 Print
               </button>
-              <button
-                type="button"
-                onClick={() => setIsQrScanModalOpen(true)}
-                disabled={
-                  isEndedView ||
-                  !hasSelectedEvent ||
-                  !hasSelectedBarangay ||
-                  isResolvingScannedQr
-                }
-                style={{
-                  ...pageHeaderStyles.primaryButton,
-                  opacity:
-                    isEndedView ||
+              {!isEndedView ? (
+                <button
+                  type="button"
+                  onClick={() => setIsQrScanModalOpen(true)}
+                  disabled={
                     !hasSelectedEvent ||
                     !hasSelectedBarangay ||
                     isResolvingScannedQr
-                      ? 0.7
-                      : 1,
-                }}
-              >
-                <MdQrCodeScanner size={18} />
-                Scan QR
-              </button>
+                  }
+                  style={{
+                    ...pageHeaderStyles.primaryButton,
+                    opacity:
+                      !hasSelectedEvent ||
+                      !hasSelectedBarangay ||
+                      isResolvingScannedQr
+                        ? 0.7
+                        : 1,
+                  }}
+                >
+                  <MdQrCodeScanner size={18} />
+                  Scan QR
+                </button>
+              ) : null}
             </>
           }
         />

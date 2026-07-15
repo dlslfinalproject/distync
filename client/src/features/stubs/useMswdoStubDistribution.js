@@ -245,19 +245,19 @@ export const useMswdoStubDistribution = () => {
   const summaryCards = useMemo(() => {
     return [
       {
-        label: "Total Number of Issued Stubs",
+        label: "Total Issued Stubs",
         value: dashboard.metrics.total_issued_stubs || 0,
       },
       {
-        label: "Total Number of Beneficiaries Family",
+        label: "Beneficiary Families",
         value: dashboard.metrics.beneficiary_families || 0,
       },
       {
-        label: "Total Number of Claimed Stubs",
+        label: "Claimed Stubs",
         value: dashboard.metrics.claimed_stubs || 0,
       },
       {
-        label: "Total Number of Unclaimed Stubs",
+        label: "Unclaimed Stubs",
         value: dashboard.metrics.unclaimed_stubs || 0,
       },
     ];

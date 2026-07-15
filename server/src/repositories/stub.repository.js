@@ -21,43 +21,13 @@ const stubSequenceSelect = `
 
 const getStubDashboardMetrics = async (disasterEventId, barangayId) => {
   const query = `
-    WITH latest_household_stays AS (
-      SELECT
-        ranked.household_id,
-        ranked.status,
-        ranked.time_out
-      FROM (
-        SELECT
-          el.household_id,
-          el.status,
-          el.time_out,
-          ROW_NUMBER() OVER (
-            PARTITION BY el.household_id
-            ORDER BY
-              COALESCE(el.time_out, el.time_in) DESC,
-              el.updated_at DESC,
-              el.created_at DESC
-          ) AS row_number
-        FROM evacuation_logs el
-        INNER JOIN households h ON h.id = el.household_id
-        WHERE el.disaster_event_id = $1
-          AND h.barangay_id = $2
-      ) ranked
-      WHERE ranked.row_number = 1
-    )
     SELECT
       COUNT(s.id)::int AS total_issued_stubs,
       COUNT(*) FILTER (WHERE s.status = 'CLAIMED')::int AS claimed_stubs,
       COUNT(*) FILTER (WHERE s.status = 'ISSUED')::int AS unclaimed_stubs,
-      COUNT(DISTINCT s.household_id) FILTER (
-        WHERE h.current_stay_type = 'EVAC_CENTER'
-          AND latest_household_stays.status = 'PRESENT'
-          AND latest_household_stays.time_out IS NULL
-      )::int AS beneficiary_families
+      COUNT(DISTINCT s.household_id)::int AS beneficiary_families
     FROM stubs s
     JOIN households h ON h.id = s.household_id
-    LEFT JOIN latest_household_stays
-      ON latest_household_stays.household_id = s.household_id
     WHERE s.disaster_event_id = $1
       AND h.barangay_id = $2
       AND h.current_stay_type = 'EVAC_CENTER'
