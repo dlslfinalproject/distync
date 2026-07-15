@@ -312,6 +312,11 @@ const StubDetailModal = ({
   const stayTypeLabel = formatStayTypeLabel(household.current_stay_type);
   const reliefPackName =
     distributionTransaction?.relief_pack_template_name ||
+    stubDetails?.relief_pack_name ||
+    stubDetails?.assigned_relief_packs
+      ?.map((template) => template?.name)
+      .filter(Boolean)
+      .join(", ") ||
     distributionTransaction?.released_items_summary ||
     "-";
   const isNonAdmittedResident = isNonAdmittedResidentHousehold(

@@ -5,6 +5,7 @@ const forecastService = require("../services/forecast.service");
 const inventoryItemService = require("../services/inventoryItem.service");
 const {
   validateExportInventoryItems,
+  validateInventoryItemBarcodeLookup,
   validateForecastHistoryQuery,
   validateForecastLatestQuery,
   validateForecastRunIdParam,
@@ -171,6 +172,28 @@ router.get(
       message: error.message || "Failed to export inventory items",
     });
   }
+  },
+);
+
+router.get(
+  "/lookup/barcode/:barcode",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateInventoryItemBarcodeLookup,
+  async (req, res) => {
+    try {
+      const lookupResult =
+        await inventoryItemService.lookupInventoryItemByBarcode(
+          req.validatedParams.barcode,
+        );
+
+      return res.status(200).json({
+        data: lookupResult,
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        message: error.message || "Failed to look up barcode details",
+      });
+    }
   },
 );
 

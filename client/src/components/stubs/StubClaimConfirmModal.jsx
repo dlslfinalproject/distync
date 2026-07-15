@@ -238,7 +238,9 @@ const getDisplayStubNumber = (stub) => {
 const getSelectedStubSummary = (stub) => {
   const reliefPackName =
     stub?.relief_pack_template_name ||
+    stub?.relief_pack_name ||
     stub?.released_items_summary ||
+    stub?.assigned_relief_packs?.map((template) => template?.name).filter(Boolean).join(", ") ||
     stub?.distribution_transaction?.relief_pack_template_name ||
     stub?.distribution_transaction?.released_items_summary ||
     "";
@@ -280,6 +282,11 @@ const StubClaimConfirmModal = ({
     : [];
   const reliefPackName =
     stubDetails?.distribution_transaction?.relief_pack_template_name ||
+    stubDetails?.relief_pack_name ||
+    stubDetails?.assigned_relief_packs
+      ?.map((template) => template?.name)
+      .filter(Boolean)
+      .join(", ") ||
     stubDetails?.distribution_transaction?.released_items_summary ||
     "-";
   const reliefPackDisplay = getReliefPackDisplay(reliefPackName);

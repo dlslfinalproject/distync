@@ -128,6 +128,15 @@ export const fetchInventoryItemDetail = async (inventoryItemId) => {
   return handleJsonResponse(response, "Failed to fetch inventory item detail");
 };
 
+export const lookupInventoryItemByBarcode = async (barcode) => {
+  const normalizedBarcode = String(barcode || "").replace(/\s+/g, "").trim();
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/inventory-items/lookup/barcode/${encodeURIComponent(normalizedBarcode)}`,
+  );
+
+  return handleJsonResponse(response, "Failed to look up barcode details");
+};
+
 export const createInventoryItem = async (payload) => {
   return performSyncableMutation({
     moduleName: "mayor-inventory",

@@ -1,4 +1,5 @@
 const masterlistRepository = require("../repositories/masterlist.repository");
+const reliefPackTemplateRepository = require("../repositories/reliefPackTemplate.repository");
 const stubRepository = require("../repositories/stub.repository");
 const mswdoReportExport = require("../utils/mswdoReportExport");
 
@@ -32,6 +33,56 @@ const buildSectorIds = (householdId, householdSectorsByHouseholdId, memberSector
   );
 
   return [...new Set([...householdSectorIds, ...memberSectorIds])];
+};
+
+const getStandardReliefPackTemplates = (templates) => {
+  if (!Array.isArray(templates) || templates.length === 0) {
+    return [];
+  }
+
+  const standardTemplates = templates.filter(
+    (template) => template?.is_active && !template?.is_additional_pack,
+  );
+
+  if (standardTemplates.length === 0) {
+    return [];
+  }
+
+  return [...standardTemplates].sort((left, right) => {
+    if (left.based_on_family_size && !right.based_on_family_size) {
+      return -1;
+    }
+
+    if (!left.based_on_family_size && right.based_on_family_size) {
+      return 1;
+    }
+
+    return String(left.name || "").localeCompare(String(right.name || ""));
+  });
+};
+
+const getAssignedReliefPackTemplates = (householdSectorIds, templates) => {
+  if (!Array.isArray(templates) || templates.length === 0) {
+    return [];
+  }
+
+  const sectorIdSet = new Set((householdSectorIds || []).filter(Boolean));
+  const assignedTemplates = getStandardReliefPackTemplates(templates);
+
+  templates.forEach((template) => {
+    if (
+      !template?.is_active ||
+      !template?.is_additional_pack ||
+      !template?.sector_id ||
+      !sectorIdSet.has(template.sector_id)
+    ) {
+      return;
+    }
+
+    assignedTemplates.push(template);
+  });
+
+  return assignedTemplates;
 };
 
 const groupByKey = (items, keyName) => {
@@ -344,6 +395,13 @@ const getStubDetails = async (id) => {
   const memberSectors = await stubRepository.getMemberSectorsByHouseholdIds([
     ensuredStub.household_id,
   ]);
+  const reliefPackTemplates =
+    await reliefPackTemplateRepository.getReliefPackTemplates({
+      is_active: true,
+      based_on_family_size: null,
+      based_on_sector: null,
+      search: "",
+    });
   const membersCount = await stubRepository.getHouseholdMembersCount(
     ensuredStub.household_id,
   );
@@ -381,6 +439,28 @@ const getStubDetails = async (id) => {
           name: sector.name,
         })),
     }));
+  const householdSectorIds = buildSectorIds(
+    ensuredStub.household_id,
+    {
+      [ensuredStub.household_id]: householdSectors,
+    },
+    {
+      [ensuredStub.household_id]: memberSectors,
+    },
+  );
+  const assignedReliefPacks = getAssignedReliefPackTemplates(
+    householdSectorIds,
+    reliefPackTemplates,
+  ).map((template) => ({
+    id: template.id,
+    name: template.name,
+    is_additional_pack: Boolean(template.is_additional_pack),
+    sector_id: template.sector_id || null,
+  }));
+  const assignedReliefPackNames = assignedReliefPacks
+    .map((template) => template.name)
+    .filter(Boolean)
+    .join(", ");
 
   return {
     id: ensuredStub.id,
@@ -426,6 +506,11 @@ const getStubDetails = async (id) => {
       photo_verification_notes: ensuredStub.photo_verification_notes || null,
     },
     distribution_transaction: latestDistributionTransaction,
+    assigned_relief_packs: assignedReliefPacks,
+    relief_pack_name:
+      latestDistributionTransaction?.relief_pack_template_name ||
+      assignedReliefPackNames ||
+      null,
     latest_attendance: latestAttendance,
     barangay: {
       id: ensuredStub.barangay_id,

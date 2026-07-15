@@ -17,6 +17,7 @@ import {
   fetchInventoryItemDetail,
   exportInventoryItems,
   fetchInventoryItems,
+  lookupInventoryItemByBarcode,
   updateInventoryItem,
 } from "../../features/inventory-items/inventoryItemService";
 import { fetchInventoryBatches } from "../../features/inventory-batches/inventoryBatchService";
@@ -409,13 +410,31 @@ const InventoryItemsPage = () => {
       return;
     }
 
-    setCreateModalItemData({
-      barcode: trimmedBarcode,
-    });
     setIsScanModalOpen(false);
     setModalErrorMessage("");
     setModalMode("create");
-    setIsModalOpen(true);
+
+    void (async () => {
+      try {
+        const lookupResponse = await lookupInventoryItemByBarcode(trimmedBarcode);
+        const suggestedItem = lookupResponse?.data?.item || null;
+
+        setCreateModalItemData({
+          barcode: trimmedBarcode,
+          item_name: suggestedItem?.item_name || "",
+          category:
+            String(suggestedItem?.category || "").toLowerCase() === "perishable"
+              ? "perishable"
+              : "non-perishable",
+        });
+      } catch (_error) {
+        setCreateModalItemData({
+          barcode: trimmedBarcode,
+        });
+      } finally {
+        setIsModalOpen(true);
+      }
+    })();
   };
 
   const handleExport = async (format, extraFilters = {}) => {
