@@ -1,18 +1,25 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { FaHandHolding } from "react-icons/fa6";
 import { FiPrinter } from "react-icons/fi";
+import { MdQrCodeScanner } from "react-icons/md";
 import BarangayDashboardOverview from "../../components/barangay-dashboard/BarangayDashboardOverview";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
+import FeedbackToast from "../../components/shared/FeedbackToast";
 import StubClaimConfirmModal from "../../components/stubs/StubClaimConfirmModal";
 import StubDetailModal from "../../components/stubs/StubDetailModal";
 import StubPrintSheetModal from "../../components/stubs/StubPrintSheetModal";
+import StubQrScanModal from "../../components/stubs/StubQrScanModal";
 import StubSearchBar from "../../components/stubs/StubSearchBar";
 import StubResultsTable from "../../components/stubs/StubResultsTable";
 import StubSummaryCards from "../../components/stubs/StubSummaryCards";
 import { useAuth } from "../../context/AuthContext";
 import { useBarangayDashboard } from "../../features/barangay-dashboard/useBarangayDashboard";
 import { useStubDashboard } from "../../features/stubs/useStubDashboard";
-import { claimStub, fetchStubDetails } from "../../features/stubs/stubService";
+import {
+  claimStub,
+  fetchStubDetails,
+  verifyStub,
+} from "../../features/stubs/stubService";
 import { fetchMswdoSectors } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import { buildMasterlistFilterSectorOptions } from "../../utils/registrationOptions";
@@ -148,6 +155,13 @@ const StubDistributionPage = () => {
   const [selectedStubIds, setSelectedStubIds] = useState([]);
   const [isBulkClaimConfirmOpen, setIsBulkClaimConfirmOpen] = useState(false);
   const [isPrintSheetModalOpen, setIsPrintSheetModalOpen] = useState(false);
+  const [isQrScanModalOpen, setIsQrScanModalOpen] = useState(false);
+  const [isResolvingScannedQr, setIsResolvingScannedQr] = useState(false);
+  const [scanToast, setScanToast] = useState({
+    message: "",
+    type: "info",
+    title: "",
+  });
 
   const {
     accessMode,
@@ -260,6 +274,7 @@ const StubDistributionPage = () => {
       setPendingClaimStubId("");
       setPendingClaimStubDetails(null);
       setIsBulkClaimConfirmOpen(false);
+      setIsQrScanModalOpen(false);
     }
   }, [isSelectedEventEnded, selectedEvent?.id]);
 
@@ -495,6 +510,62 @@ const StubDistributionPage = () => {
 
   const selectedBarangayForPrintId = assignedBarangay?.id || overrideBarangayId || "";
 
+  const handleScannedQr = async (qrCodeValue) => {
+    if (isSelectedEventEnded || isResolvingScannedQr) {
+      return;
+    }
+
+    setIsResolvingScannedQr(true);
+    setClaimErrorMessage("");
+
+    try {
+      const verification = await verifyStub({ qrCodeValue });
+      const resolvedStubId = verification?.data?.stub?.id;
+
+      if (!resolvedStubId) {
+        throw new Error("QR lookup did not return a valid stub record.");
+      }
+
+      const stubDetails = await fetchStubDetails(resolvedStubId);
+      const stubEventId = stubDetails?.disaster_event?.id || "";
+      const stubBarangayId = stubDetails?.barangay?.id || "";
+
+      if (stubEventId !== selectedEvent?.id) {
+        throw new Error("This QR stub does not belong to the selected disaster event.");
+      }
+
+      if (stubBarangayId !== selectedBarangayForPrintId) {
+        throw new Error("This QR stub does not belong to your assigned barangay.");
+      }
+
+      if (!verification?.data?.is_claimable || stubDetails?.status !== "ISSUED") {
+        throw new Error(
+          verification?.data?.reason ||
+            "This QR stub has already been claimed or is not claimable.",
+        );
+      }
+
+      setPendingClaimStubId(resolvedStubId);
+      setPendingClaimStubDetails(stubDetails);
+      setIsBulkClaimConfirmOpen(false);
+      setSelectedStubIds([]);
+      setIsQrScanModalOpen(false);
+      setScanToast({
+        type: "success",
+        title: "QR Verified",
+        message: "QR stub verified successfully. Please confirm relief distribution.",
+      });
+    } catch (error) {
+      setScanToast({
+        type: "error",
+        title: "Scan Failed",
+        message: error.message || "Unable to verify the scanned QR stub.",
+      });
+    } finally {
+      setIsResolvingScannedQr(false);
+    }
+  };
+
   const handlePrintStubSheet = ({
     disasterEventId,
     barangayId,
@@ -599,22 +670,47 @@ const StubDistributionPage = () => {
             onClearFilters={clearFilters}
             filterScopeKey={eventScope}
             actions={
-              <button
-                type="button"
-                onClick={() => setIsPrintSheetModalOpen(true)}
-                disabled={!hasSelectedEvent || !selectedBarangayForPrintId}
-                style={{
-                  ...pageHeaderStyles.secondaryButton,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  opacity:
-                    !hasSelectedEvent || !selectedBarangayForPrintId ? 0.7 : 1,
-                }}
-              >
-                <FiPrinter size={16} />
-                Print
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => setIsPrintSheetModalOpen(true)}
+                  disabled={!hasSelectedEvent || !selectedBarangayForPrintId}
+                  style={{
+                    ...pageHeaderStyles.secondaryButton,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    opacity:
+                      !hasSelectedEvent || !selectedBarangayForPrintId ? 0.7 : 1,
+                  }}
+                >
+                  <FiPrinter size={16} />
+                  Print
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsQrScanModalOpen(true)}
+                  disabled={
+                    isSelectedEventEnded ||
+                    !hasSelectedEvent ||
+                    !selectedBarangayForPrintId ||
+                    isResolvingScannedQr
+                  }
+                  style={{
+                    ...pageHeaderStyles.primaryButton,
+                    opacity:
+                      isSelectedEventEnded ||
+                      !hasSelectedEvent ||
+                      !selectedBarangayForPrintId ||
+                      isResolvingScannedQr
+                        ? 0.7
+                        : 1,
+                  }}
+                >
+                  <MdQrCodeScanner size={18} />
+                  Scan QR
+                </button>
+              </>
             }
           />
         </div>
@@ -703,6 +799,20 @@ const StubDistributionPage = () => {
         showBarangaySelection={false}
         onClose={() => setIsPrintSheetModalOpen(false)}
         onPrint={handlePrintStubSheet}
+      />
+
+      <StubQrScanModal
+        isOpen={isQrScanModalOpen}
+        isProcessing={isResolvingScannedQr}
+        onClose={() => setIsQrScanModalOpen(false)}
+        onScan={handleScannedQr}
+      />
+
+      <FeedbackToast
+        message={scanToast.message}
+        type={scanToast.type}
+        title={scanToast.title}
+        onClose={() => setScanToast({ message: "", type: "info", title: "" })}
       />
     </>
   );
