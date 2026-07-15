@@ -51,6 +51,7 @@ const QrCodePanel = ({
   containerStyle = {},
   imageStyle = {},
   valueStyle = {},
+  showValue = true,
 }) => {
   const [qrCodeImageUrl, setQrCodeImageUrl] = useState("");
 
@@ -110,7 +111,9 @@ const QrCodePanel = ({
           Unable to render QR code
         </div>
       )}
-      <p style={{ ...styles.value, ...valueStyle }}>{value}</p>
+      {showValue ? (
+        <p style={{ ...styles.value, ...valueStyle }}>{value}</p>
+      ) : null}
     </div>
   );
 };

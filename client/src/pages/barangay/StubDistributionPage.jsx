@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { FaHandHolding } from "react-icons/fa6";
+import { FiPrinter } from "react-icons/fi";
 import BarangayDashboardOverview from "../../components/barangay-dashboard/BarangayDashboardOverview";
-import PageHeader from "../../components/layout/PageHeader";
+import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import StubClaimConfirmModal from "../../components/stubs/StubClaimConfirmModal";
 import StubDetailModal from "../../components/stubs/StubDetailModal";
+import StubPrintSheetModal from "../../components/stubs/StubPrintSheetModal";
 import StubSearchBar from "../../components/stubs/StubSearchBar";
 import StubResultsTable from "../../components/stubs/StubResultsTable";
 import StubSummaryCards from "../../components/stubs/StubSummaryCards";
@@ -35,12 +37,9 @@ const getFilteredRows = (rows, searchTerm) => {
   return rows.filter((row) => {
     const searchableValues = [
       row.household?.family_head_name,
+      row.sectors_text,
       row.display_stub_no,
       row.stub_sequence_no,
-      row.stub_no,
-      row.serial_no,
-      row.sectors_text,
-      row.status,
     ];
 
     return searchableValues.some((value) =>
@@ -56,11 +55,33 @@ const isEndedDisasterEvent = (event, eventScope) => {
   return eventScope === "ended" || status === "CLOSED" || status === "ARCHIVED";
 };
 
-const buildStubPrintRoute = ({ stubIds = [] }) => {
+const buildStubPrintRoute = ({
+  stubIds = [],
+  eventId = "",
+  barangayId = "",
+  status = "",
+  sortOrder = "",
+}) => {
   const searchParams = new URLSearchParams();
 
   if (stubIds.length > 0) {
     searchParams.set("stubIds", stubIds.join(","));
+  }
+
+  if (eventId) {
+    searchParams.set("eventId", eventId);
+  }
+
+  if (barangayId) {
+    searchParams.set("barangayId", barangayId);
+  }
+
+  if (status) {
+    searchParams.set("status", status);
+  }
+
+  if (sortOrder) {
+    searchParams.set("sort_order", sortOrder);
   }
 
   return `/barangay/print/stubs?${searchParams.toString()}`;
@@ -92,6 +113,7 @@ const StubDistributionPage = () => {
   const [stubDetailsErrorMessage, setStubDetailsErrorMessage] = useState("");
   const [selectedStubIds, setSelectedStubIds] = useState([]);
   const [isBulkClaimConfirmOpen, setIsBulkClaimConfirmOpen] = useState(false);
+  const [isPrintSheetModalOpen, setIsPrintSheetModalOpen] = useState(false);
 
   const {
     accessMode,
@@ -417,22 +439,24 @@ const StubDistributionPage = () => {
   }, [filteredRows, selectedStubIds]);
 
   const openStubPrintPage = (printUrl) => {
-    const printWindow = window.open(printUrl, "_blank", "noopener,noreferrer");
-
-    if (!printWindow) {
-      window.alert("Allow pop-ups to open the printable stub page.");
-    }
+    window.open(printUrl, "_blank", "noopener,noreferrer");
   };
 
-  const handlePrintSingleStub = (row) => {
-    if (!row?.id) {
-      window.alert("No printable stub data is available for the selected record.");
-      return;
-    }
+  const selectedBarangayForPrintId = assignedBarangay?.id || overrideBarangayId || "";
 
+  const handlePrintStubSheet = ({
+    disasterEventId,
+    barangayId,
+    stubStatus,
+    orderList,
+  }) => {
+    setIsPrintSheetModalOpen(false);
     openStubPrintPage(
       buildStubPrintRoute({
-        stubIds: [row.id],
+        eventId: disasterEventId,
+        barangayId,
+        status: stubStatus,
+        sortOrder: orderList,
       }),
     );
   };
@@ -519,6 +543,24 @@ const StubDistributionPage = () => {
             onSelectStubStatus={setStubStatusFilter}
             onClearFilters={clearFilters}
             filterScopeKey={eventScope}
+            actions={
+              <button
+                type="button"
+                onClick={() => setIsPrintSheetModalOpen(true)}
+                disabled={!hasSelectedEvent || !selectedBarangayForPrintId}
+                style={{
+                  ...pageHeaderStyles.secondaryButton,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  opacity:
+                    !hasSelectedEvent || !selectedBarangayForPrintId ? 0.7 : 1,
+                }}
+              >
+                <FiPrinter size={16} />
+                Print
+              </button>
+            }
           />
         </div>
       </section>
@@ -576,7 +618,6 @@ const StubDistributionPage = () => {
         onToggleSelect={handleToggleSelect}
         onSelectAll={handleSelectAll}
         onViewStub={handleOpenStubDetails}
-        onPrintStub={handlePrintSingleStub}
       />
 
       <StubClaimConfirmModal
@@ -596,6 +637,17 @@ const StubDistributionPage = () => {
         errorMessage={stubDetailsErrorMessage}
         stubDetails={selectedStubDetails}
         onClose={handleCloseStubDetails}
+      />
+
+      <StubPrintSheetModal
+        isOpen={isPrintSheetModalOpen}
+        disasterEvents={availableEvents}
+        barangays={assignedBarangay ? [assignedBarangay] : []}
+        selectedDisasterEventId={selectedEvent?.id || selectedDisasterEventId}
+        selectedBarangayId={selectedBarangayForPrintId}
+        showBarangaySelection={false}
+        onClose={() => setIsPrintSheetModalOpen(false)}
+        onPrint={handlePrintStubSheet}
       />
     </>
   );

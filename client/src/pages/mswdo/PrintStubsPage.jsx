@@ -40,7 +40,7 @@ const printStyles = `
     }
 
     .stub-print-grid {
-      gap: 4mm !important;
+      gap: 2mm !important;
     }
 
     .stub-print-card {
@@ -129,17 +129,17 @@ const pageStyles = {
   },
   cards: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-    gap: "12px",
+    gridTemplateColumns: "repeat(auto-fill, minmax(128px, 1fr))",
+    gap: "8px",
   },
   card: {
     backgroundColor: "#ffffff",
-    border: "1px solid #17324d",
-    borderRadius: "10px",
-    padding: "12px",
-    boxShadow: "0 6px 16px rgba(76, 101, 132, 0.08)",
+    border: "1px dashed #17324d",
+    borderRadius: "8px",
+    padding: "8px",
+    boxShadow: "0 4px 12px rgba(76, 101, 132, 0.08)",
     display: "grid",
-    gap: "10px",
+    gap: "6px",
     justifyItems: "center",
     alignContent: "start",
   },
@@ -155,8 +155,17 @@ const pageStyles = {
   stubNumber: {
     margin: 0,
     color: "#17324d",
-    fontSize: "18px",
+    fontSize: "15px",
     fontWeight: 800,
+  },
+  familyHead: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "12px",
+    fontWeight: 700,
+    lineHeight: 1.25,
+    textAlign: "center",
+    overflowWrap: "anywhere",
   },
   qrColumn: {
     display: "flex",
@@ -167,7 +176,7 @@ const pageStyles = {
   },
   qrWrap: {
     width: "100%",
-    maxWidth: "180px",
+    maxWidth: "104px",
   },
 };
 
@@ -178,12 +187,46 @@ const parseStubIds = (value) => {
     .filter(Boolean);
 };
 
-const sortStubDetails = (stubDetails) => {
-  return [...stubDetails].sort((left, right) => {
-    const leftValue = left?.display_stub_no || "";
-    const rightValue = right?.display_stub_no || "";
+const getStubIssuedDate = (stub) => {
+  const timestamp = stub?.issued_at || stub?.created_at || "";
+  const parsedDate = new Date(timestamp);
 
-    return leftValue.localeCompare(rightValue);
+  return Number.isNaN(parsedDate.getTime()) ? 0 : parsedDate.getTime();
+};
+
+const getStubFamilyHeadName = (stub) =>
+  String(stub?.household?.family_head_name || "").trim();
+
+const getStubSequenceNumber = (stub) => {
+  const displayValue = String(stub?.display_stub_no || "");
+  const displayMatch = displayValue.match(/\d+/);
+
+  if (displayMatch) {
+    return Number(displayMatch[0]);
+  }
+
+  return Number(stub?.stub_sequence_no || stub?.stub_number || 0);
+};
+
+const sortStubDetails = (stubDetails, sortOrder) => {
+  return [...stubDetails].sort((left, right) => {
+    if (sortOrder === "newest_oldest") {
+      return getStubIssuedDate(right) - getStubIssuedDate(left);
+    }
+
+    if (sortOrder === "oldest_newest") {
+      return getStubIssuedDate(left) - getStubIssuedDate(right);
+    }
+
+    if (sortOrder === "az" || sortOrder === "za") {
+      const compareResult = getStubFamilyHeadName(left).localeCompare(
+        getStubFamilyHeadName(right),
+      );
+
+      return sortOrder === "az" ? compareResult : -compareResult;
+    }
+
+    return getStubSequenceNumber(left) - getStubSequenceNumber(right);
   });
 };
 
@@ -226,6 +269,7 @@ const PrintStubsPage = () => {
   const eventId = searchParams.get("eventId") || "";
   const barangayId = searchParams.get("barangayId") || "";
   const statusFilter = (searchParams.get("status") || "").toUpperCase();
+  const sortOrder = searchParams.get("sort_order") || "oldest_newest";
 
   useEffect(() => {
     let isMounted = true;
@@ -275,6 +319,7 @@ const PrintStubsPage = () => {
 
         const printableStubDetails = sortStubDetails(
           loadedStubDetails.filter(Boolean),
+          sortOrder,
         );
 
         if (!printableStubDetails.length) {
@@ -303,7 +348,7 @@ const PrintStubsPage = () => {
     return () => {
       isMounted = false;
     };
-  }, [barangayId, eventId, requestedStubIds, statusFilter]);
+  }, [barangayId, eventId, requestedStubIds, sortOrder, statusFilter]);
 
   useEffect(() => {
     if (isLoading || errorMessage || !stubDetails.length || hasTriggeredAutoPrint) {
@@ -399,9 +444,17 @@ const PrintStubsPage = () => {
                       <QrCodePanel
                         value={stub.qr_code_value}
                         emptyLabel="No QR available"
+                        showValue={false}
+                        imageStyle={{
+                          borderRadius: "6px",
+                          padding: "5px",
+                        }}
                       />
                     </div>
                   </div>
+                  <p style={pageStyles.familyHead}>
+                    {stub.household?.family_head_name || "--"}
+                  </p>
                 </article>
               );
             })}

@@ -135,6 +135,7 @@ const StubSearchBar = ({
   onSelectStubStatus,
   onClearFilters,
   filterScopeKey = "",
+  actions = null,
 }) => {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [filterPanelPosition, setFilterPanelPosition] = useState({
@@ -239,11 +240,11 @@ const StubSearchBar = ({
               onSearchSubmit();
             }
           }}
-          placeholder="Search stub number or family head"
+          placeholder="Search family head, sectors, or stub number"
         />
       </div>
 
-      <div style={{ display: "flex", gap: "12px" }}>
+      <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
         <div>
           <button
             ref={filterButtonRef}
@@ -330,6 +331,7 @@ const StubSearchBar = ({
             </div>
           ) : null}
         </div>
+        {actions}
       </div>
     </section>
   );

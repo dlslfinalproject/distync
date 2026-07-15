@@ -73,11 +73,9 @@ const getDisplayedRows = (rows, searchTerm, selectedSectorIds, selectedStubStatu
 
     const searchableValues = [
       row.family_head_name,
+      row.sectors_text,
       row.display_stub_no,
       row.stub_number,
-      row.stub_no,
-      row.sectors_text,
-      row.status,
     ];
 
     return searchableValues.some((value) =>
@@ -299,6 +297,7 @@ export const useMswdoStubDistribution = () => {
   return {
     disasterEvents,
     barangays: selectableBarangays,
+    allBarangays: barangays,
     sectors,
     selectedDisasterEventId,
     selectedBarangayId,

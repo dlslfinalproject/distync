@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { FaHandHolding } from "react-icons/fa6";
-import { FiFileText, FiFilter, FiPrinter } from "react-icons/fi";
+import { FiFilter, FiPrinter } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import SearchBar from "../../components/shared/SearchBar";
@@ -9,6 +9,7 @@ import StatusPill from "../../components/shared/StatusPill";
 import StubClaimConfirmModal from "../../components/stubs/StubClaimConfirmModal";
 import StubDetailModal from "../../components/stubs/StubDetailModal";
 import MswdoStubResultsTable from "../../components/stubs/MswdoStubResultsTable";
+import StubPrintSheetModal from "../../components/stubs/StubPrintSheetModal";
 import StubSummaryCards from "../../components/stubs/StubSummaryCards";
 import { claimStub, fetchStubDetails } from "../../features/stubs/stubService";
 import { useMswdoStubDistribution } from "../../features/stubs/useMswdoStubDistribution";
@@ -217,56 +218,12 @@ const stubStatusOptions = [
   { value: "CLAIMED", label: "Claimed" },
 ];
 
-const buildCsvCell = (value) => {
-  return `"${String(value || "").replace(/"/g, '""')}"`;
-};
-
-const downloadCsvFile = (rows, eventCode, barangayName) => {
-  const header = [
-    "Family Head",
-    "Address",
-    "Stub Number",
-    "Sectors",
-    "Status",
-  ];
-
-  const csvRows = rows.map((row) => [
-    row.family_head_name,
-    row.address,
-    row.display_stub_no ||
-      (Number(row.stub_sequence_no || row.stub_number || 0) > 0
-        ? `STUB#${Number(row.stub_sequence_no || row.stub_number)}`
-        : "-"),
-    row.sectors_text,
-    getStatusLabel(row.status),
-  ]);
-
-  const csvContent = [header, ...csvRows]
-    .map((cells) => cells.map(buildCsvCell).join(","))
-    .join("\n");
-
-  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-  const downloadUrl = window.URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  const safeEventCode = (eventCode || "event").replace(/[^a-z0-9-_]+/gi, "-");
-  const safeBarangayName = (barangayName || "barangay").replace(
-    /[^a-z0-9-_]+/gi,
-    "-",
-  );
-
-  anchor.href = downloadUrl;
-  anchor.download = `stub-distribution-${safeEventCode}-${safeBarangayName}.csv`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  window.URL.revokeObjectURL(downloadUrl);
-};
-
 const buildStubPrintRoute = ({
   stubIds = [],
   eventId = "",
   barangayId = "",
   status = "",
+  sortOrder = "",
 }) => {
   const searchParams = new URLSearchParams();
 
@@ -286,6 +243,10 @@ const buildStubPrintRoute = ({
     searchParams.set("status", status);
   }
 
+  if (sortOrder) {
+    searchParams.set("sort_order", sortOrder);
+  }
+
   return `/mswdo/print/stubs?${searchParams.toString()}`;
 };
 
@@ -293,11 +254,11 @@ const StubDistributionPage = () => {
   const {
     disasterEvents,
     barangays,
+    allBarangays,
     sectors,
     selectedDisasterEventId,
     selectedBarangayId,
     selectedDisasterEvent,
-    selectedBarangay,
     searchTerm,
     displayedRows,
     summaryCards,
@@ -328,7 +289,7 @@ const StubDistributionPage = () => {
   const [stubDetailsErrorMessage, setStubDetailsErrorMessage] = useState("");
   const [selectedStubIds, setSelectedStubIds] = useState([]);
   const [isBulkClaimConfirmOpen, setIsBulkClaimConfirmOpen] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
+  const [isPrintSheetModalOpen, setIsPrintSheetModalOpen] = useState(false);
   const [filtersByTab, setFiltersByTab] = useState({
     active: {
       sectorIds: [],
@@ -718,54 +679,8 @@ const StubDistributionPage = () => {
     }
   };
 
-  const handleExport = () => {
-    if (!selectedDisasterEventId) {
-      window.alert("Select a disaster event before exporting stub records.");
-      return;
-    }
-
-    if (!selectedBarangayId) {
-      window.alert("Select a barangay before exporting stub records.");
-      return;
-    }
-
-    if (!displayedRowsWithSyncStatus.length) {
-      window.alert("No stub records are available to export for the current filters.");
-      return;
-    }
-
-    setIsExporting(true);
-
-    try {
-      downloadCsvFile(
-        displayedRowsWithSyncStatus,
-        selectedDisasterEvent?.event_code || "event",
-        selectedBarangay?.name || "barangay",
-      );
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
   const openStubPrintPage = (printUrl) => {
-    const printWindow = window.open(printUrl, "_blank", "noopener,noreferrer");
-
-    if (!printWindow) {
-      window.alert("Allow pop-ups to open the printable stub page.");
-    }
-  };
-
-  const handlePrintSingleStub = (row) => {
-    if (!row?.id) {
-      window.alert("No printable stub data is available for the selected record.");
-      return;
-    }
-
-    openStubPrintPage(
-      buildStubPrintRoute({
-        stubIds: [row.id],
-      }),
-    );
+    window.open(printUrl, "_blank", "noopener,noreferrer");
   };
 
   const handleOpenStubDetails = async (row) => {
@@ -797,24 +712,19 @@ const StubDistributionPage = () => {
     setIsLoadingStubDetails(false);
   };
 
-  const handlePrintIssuedStubs = () => {
-    const issuedRows = displayedRowsWithSyncStatus.filter((row) => row.status === "ISSUED");
-
-    if (!issuedRows.length) {
-      window.alert("No issued stubs are available to print.");
-      return;
-    }
-
-    if (!selectedDisasterEventId || !selectedBarangayId) {
-      window.alert("Select an active disaster event and barangay before printing.");
-      return;
-    }
-
+  const handlePrintStubSheet = ({
+    disasterEventId,
+    barangayId,
+    stubStatus,
+    orderList,
+  }) => {
+    setIsPrintSheetModalOpen(false);
     openStubPrintPage(
       buildStubPrintRoute({
-        eventId: selectedDisasterEventId,
-        barangayId: selectedBarangayId,
-        status: "ISSUED",
+        eventId: disasterEventId,
+        barangayId,
+        status: stubStatus,
+        sortOrder: orderList,
       }),
     );
   };
@@ -978,7 +888,7 @@ const StubDistributionPage = () => {
           <SearchBar
             value={searchTerm}
             onChange={setSearchTerm}
-            placeholder="Search family head, address, stub number, or sectors"
+            placeholder="Search family head, sectors, or stub number"
           />
         </div>
 
@@ -1080,70 +990,26 @@ const StubDistributionPage = () => {
 
           <button
             type="button"
-            onClick={handleExport}
+            onClick={() => setIsPrintSheetModalOpen(true)}
             disabled={
               !hasSelectedEvent ||
-              !hasSelectedBarangay ||
-              !displayedRowsWithSyncStatus.length ||
-              isExporting
+              !hasSelectedBarangay
             }
             style={{
-              border: "1px solid #c6d8ea",
-              borderRadius: "14px",
-              padding: "12px 18px",
-              backgroundColor: "#f8fbfe",
-              color: "#2a4c6f",
-              fontSize: "14px",
-              fontWeight: 700,
-              cursor:
-                !hasSelectedEvent ||
-                !hasSelectedBarangay ||
-                !displayedRowsWithSyncStatus.length ||
-                isExporting
-                  ? "not-allowed"
-                  : "pointer",
+              ...pageHeaderStyles.secondaryButton,
               display: "flex",
               alignItems: "center",
               gap: "8px",
               opacity:
                 !hasSelectedEvent ||
-                !hasSelectedBarangay ||
-                !displayedRowsWithSyncStatus.length ||
-                isExporting
+                !hasSelectedBarangay
                   ? 0.7
                   : 1,
             }}
           >
-            <FiFileText size={16} />
-            {isExporting ? "Exporting..." : "Export"}
+            <FiPrinter size={16} />
+            Print
           </button>
-
-          {activeTab === "active" ? (
-            <button
-              type="button"
-              onClick={handlePrintIssuedStubs}
-              disabled={
-                !hasSelectedEvent ||
-                !hasSelectedBarangay ||
-                !displayedRowsWithSyncStatus.some((row) => row.status === "ISSUED")
-              }
-              style={{
-                ...pageHeaderStyles.secondaryButton,
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                opacity:
-                  !hasSelectedEvent ||
-                  !hasSelectedBarangay ||
-                  !displayedRowsWithSyncStatus.some((row) => row.status === "ISSUED")
-                    ? 0.7
-                    : 1,
-              }}
-            >
-              <FiPrinter size={16} />
-              Print Issued Stubs
-            </button>
-          ) : null}
         </div>
       </section>
 
@@ -1197,7 +1063,6 @@ const StubDistributionPage = () => {
         claimErrorMessage={claimErrorMessage}
         onClaimStub={handleOpenClaimConfirmation}
         onViewStub={handleOpenStubDetails}
-        onPrintStub={handlePrintSingleStub}
         isClaimReadOnly={isEndedView}
         selectedStubIds={selectedStubIds}
         onToggleSelect={handleToggleSelect}
@@ -1221,6 +1086,17 @@ const StubDistributionPage = () => {
         errorMessage={stubDetailsErrorMessage}
         stubDetails={selectedStubDetails}
         onClose={handleCloseStubDetails}
+      />
+
+      <StubPrintSheetModal
+        isOpen={isPrintSheetModalOpen}
+        disasterEvents={scopedDisasterEvents}
+        barangays={allBarangays}
+        selectedDisasterEventId={selectedDisasterEventId}
+        selectedBarangayId={selectedBarangayId}
+        showBarangaySelection
+        onClose={() => setIsPrintSheetModalOpen(false)}
+        onPrint={handlePrintStubSheet}
       />
     </>
   );

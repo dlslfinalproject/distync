@@ -1,8 +1,7 @@
 import React from "react";
 import { FaHandHolding } from "react-icons/fa6";
-import { FiEye, FiPrinter } from "react-icons/fi";
+import { FiEye } from "react-icons/fi";
 import { shellStyles } from "../layout/BarangayLayout";
-import TableActionsMenu from "../shared/TableActionsMenu";
 import { formatOrderedSectorText } from "../../utils/sectorDisplay";
 import QrCodePanel from "./QrCodePanel";
 
@@ -34,6 +33,18 @@ const tableStyles = {
     wordBreak: "break-word",
   },
   statusButton: {
+    border: "1px solid #c6d8ea",
+    borderRadius: "12px",
+    width: "40px",
+    height: "40px",
+    backgroundColor: "#f7fbfe",
+    color: "#24496e",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+  },
+  actionButton: {
     border: "1px solid #c6d8ea",
     borderRadius: "12px",
     width: "40px",
@@ -143,7 +154,6 @@ const MswdoStubResultsTable = ({
   claimingStubId,
   claimErrorMessage,
   onClaimStub,
-  onPrintStub,
   isClaimReadOnly = false,
   selectedStubIds,
   onToggleSelect,
@@ -298,7 +308,7 @@ const MswdoStubResultsTable = ({
                   textAlign: "center",
                 }}
               >
-                Actions
+                Action
               </th>
             </tr>
           </thead>
@@ -306,20 +316,6 @@ const MswdoStubResultsTable = ({
             {rows.map((row) => {
               const isSelectable = !isClaimReadOnly && row.status === "ISSUED";
               const isSelected = safeSelectedStubIds.includes(row.id);
-              const actionItems = [
-                {
-                  key: "view",
-                  label: "View Details",
-                  icon: <FiEye size={18} />,
-                  onClick: (selectedRow) => onViewStub(selectedRow),
-                },
-                {
-                  key: "print",
-                  label: "Print QR Stub",
-                  icon: <FiPrinter size={18} />,
-                  onClick: (selectedRow) => onPrintStub(selectedRow),
-                },
-              ];
 
               return (
                 <tr key={row.id}>
@@ -406,16 +402,15 @@ const MswdoStubResultsTable = ({
                       verticalAlign: "middle",
                     }}
                   >
-                    <TableActionsMenu
-                      row={row}
-                      menuId={`mswdo-stub-${row.id}`}
-                      buttonTitle="Actions"
-                      buttonAriaLabel="Actions"
-                      dataPrefix="mswdo-stub-action"
-                      menuWidth={116}
-                      variant="icon-grid"
-                      items={actionItems}
-                    />
+                    <button
+                      type="button"
+                      onClick={() => onViewStub(row)}
+                      title="View Details"
+                      aria-label="View Details"
+                      style={tableStyles.actionButton}
+                    >
+                      <FiEye size={18} />
+                    </button>
                   </td>
                 </tr>
               );
