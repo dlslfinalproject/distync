@@ -24,7 +24,25 @@ const ANALYTICS_TIMEOUT_MS = Number.parseInt(
 );
 
 const normalizeAnalyticsServiceUrl = (value) => {
-  return String(value || "").trim().replace(/\/+$/, "");
+  const normalizedValue = String(value || "").trim().replace(/\/+$/, "");
+
+  if (!normalizedValue) {
+    return normalizedValue;
+  }
+
+  try {
+    const parsedUrl = new URL(normalizedValue);
+
+    // Uvicorn is commonly started on 127.0.0.1 in local Windows setups.
+    // Normalizing localhost here avoids loopback resolution mismatches.
+    if (parsedUrl.hostname === "localhost") {
+      parsedUrl.hostname = "127.0.0.1";
+    }
+
+    return parsedUrl.toString().replace(/\/+$/, "");
+  } catch (_error) {
+    return normalizedValue;
+  }
 };
 
 const buildUsageSeries = (usageRows, itemIds) => {
@@ -61,7 +79,263 @@ const buildUsageSeries = (usageRows, itemIds) => {
   return usageMap;
 };
 
+const buildDemandMap = (demandRows) => {
+  return new Map(
+    (demandRows || []).map((row) => [
+      row.inventory_item_id,
+      {
+        quantity_per_household: Number(row.quantity_per_household || 0),
+        projected_household_demand: Number(row.projected_household_demand || 0),
+      },
+    ]),
+  );
+};
+
+const formatUsageTrend = (trendRows) => {
+  return (trendRows || []).map((row) => ({
+    usage_date: row.usage_date,
+    total_quantity: Number(row.total_quantity || 0),
+  }));
+};
+
+const getResolvedForecastedUsage = ({
+  analyticsForecastedUsage,
+  projectedHouseholdDemand,
+}) => {
+  return Math.max(
+    Number(analyticsForecastedUsage || 0),
+    Number(projectedHouseholdDemand || 0),
+  );
+};
+
+const getResolvedRiskLevel = ({
+  currentAvailableStock,
+  forecastedUsage,
+  projectedHouseholdDemand,
+  daysUntilDepletion,
+}) => {
+  if (currentAvailableStock <= 0) {
+    return "CRITICAL";
+  }
+
+  if (daysUntilDepletion !== null && daysUntilDepletion <= 7) {
+    return "CRITICAL";
+  }
+
+  if (daysUntilDepletion !== null && daysUntilDepletion <= 14) {
+    return "HIGH";
+  }
+
+  if (
+    forecastedUsage > currentAvailableStock ||
+    projectedHouseholdDemand > currentAvailableStock
+  ) {
+    return "HIGH";
+  }
+
+  return "MEDIUM";
+};
+
+const enrichForecastResult = ({
+  result,
+  demandContext,
+  forecastHorizonDays,
+  fallbackModelName,
+}) => {
+  const currentAvailableStock = Number(result.current_available_stock || 0);
+  const averageDailyUsage = Number(result.average_daily_usage || 0);
+  const analyticsForecastedUsage = Number(result.forecasted_usage || 0);
+  const projectedHouseholdDemand = Number(
+    demandContext?.projected_household_demand || 0,
+  );
+  const quantityPerHousehold = Number(demandContext?.quantity_per_household || 0);
+  const resolvedForecastedUsage = getResolvedForecastedUsage({
+    analyticsForecastedUsage,
+    projectedHouseholdDemand,
+  });
+  const projectedRemainingStock = Math.max(
+    0,
+    currentAvailableStock - resolvedForecastedUsage,
+  );
+  const recommendedReorderQuantity = Math.max(
+    Number(result.recommended_reorder_quantity || 0),
+    Math.ceil(Math.max(0, resolvedForecastedUsage - currentAvailableStock)),
+  );
+  const dailyForecast = Number(
+    result.daily_forecast ||
+      (forecastHorizonDays > 0 ? resolvedForecastedUsage / forecastHorizonDays : 0),
+  );
+  const daysUntilDepletion =
+    currentAvailableStock <= 0
+      ? 0
+      : dailyForecast > 0
+        ? Math.ceil(currentAvailableStock / dailyForecast)
+        : null;
+  const projectedDepletionDate =
+    result.projected_depletion_date ||
+    (daysUntilDepletion !== null
+      ? new Date(
+          Date.now() + daysUntilDepletion * 24 * 60 * 60 * 1000,
+        )
+          .toISOString()
+          .slice(0, 10)
+      : null);
+
+  return {
+    ...result,
+    current_available_stock: currentAvailableStock,
+    average_daily_usage: averageDailyUsage,
+    forecasted_usage: resolvedForecastedUsage,
+    projected_depletion_date: projectedDepletionDate,
+    recommended_reorder_quantity: recommendedReorderQuantity,
+    projected_household_demand: projectedHouseholdDemand,
+    quantity_per_household: quantityPerHousehold,
+    projected_remaining_stock: projectedRemainingStock,
+    days_until_depletion: daysUntilDepletion,
+    shortage_within_seven_days:
+      daysUntilDepletion !== null && daysUntilDepletion <= 7,
+    risk_level: getResolvedRiskLevel({
+      currentAvailableStock,
+      forecastedUsage: resolvedForecastedUsage,
+      projectedHouseholdDemand,
+      daysUntilDepletion,
+    }),
+    selected_model: result.selected_model || fallbackModelName || DEFAULT_FORECAST_MODEL,
+    daily_forecast: dailyForecast,
+  };
+};
+
+const buildForecastDashboard = ({
+  disasterEvent,
+  forecastResults,
+  eventContext,
+  usageTrend,
+}) => {
+  const enrichedResults = [...(forecastResults || [])].sort(
+    (left, right) => right.forecasted_usage - left.forecasted_usage,
+  );
+  const criticalItems = enrichedResults.filter(
+    (result) => result.risk_level === "CRITICAL" || result.risk_level === "HIGH",
+  );
+  const totalForecastedDemand = enrichedResults.reduce(
+    (sum, result) => sum + Number(result.forecasted_usage || 0),
+    0,
+  );
+  const totalRecommendedReorder = enrichedResults.reduce(
+    (sum, result) => sum + Number(result.recommended_reorder_quantity || 0),
+    0,
+  );
+  const shortageItems = enrichedResults.filter(
+    (result) => Number(result.recommended_reorder_quantity || 0) > 0,
+  );
+  const demandPreview = enrichedResults.slice(0, 6).map((result) => ({
+    inventory_item_id: result.inventory_item_id,
+    item_name: result.item_name,
+    item_code: result.item_code,
+    projected_household_demand: Number(result.projected_household_demand || 0),
+    forecasted_usage: Number(result.forecasted_usage || 0),
+    recommended_reorder_quantity: Number(result.recommended_reorder_quantity || 0),
+    unit_of_measure: result.unit_of_measure,
+  }));
+  const projectedStockLevels = enrichedResults.slice(0, 8).map((result) => ({
+    inventory_item_id: result.inventory_item_id,
+    item_name: result.item_name,
+    current_available_stock: Number(result.current_available_stock || 0),
+    projected_remaining_stock: Number(result.projected_remaining_stock || 0),
+    forecasted_usage: Number(result.forecasted_usage || 0),
+  }));
+
+  return {
+    disaster_event: {
+      id: disasterEvent?.id || null,
+      event_code: disasterEvent?.event_code || "",
+      title: disasterEvent?.title || "",
+      status: disasterEvent?.status || "",
+      start_date: disasterEvent?.start_date || null,
+      end_date: disasterEvent?.end_date || null,
+      ended_at: disasterEvent?.ended_at || null,
+    },
+    summary: {
+      evacuee_count: Number(eventContext?.evacuee_count || 0),
+      household_count: Number(eventContext?.household_count || 0),
+      attendance_record_count: Number(eventContext?.attendance_record_count || 0),
+      present_evacuee_count: Number(eventContext?.present_evacuee_count || 0),
+      distribution_transaction_count: Number(
+        eventContext?.distribution_transaction_count || 0,
+      ),
+      total_released_quantity: Number(eventContext?.total_released_quantity || 0),
+      active_standard_pack_count: Number(
+        eventContext?.active_standard_pack_count || 0,
+      ),
+      total_forecasted_demand: totalForecastedDemand,
+      total_recommended_reorder: totalRecommendedReorder,
+      critical_item_count: criticalItems.length,
+      shortage_item_count: shortageItems.length,
+      seven_day_shortage_count: enrichedResults.filter(
+        (result) => result.shortage_within_seven_days,
+      ).length,
+    },
+    charts: {
+      inventory_usage_trend: formatUsageTrend(usageTrend),
+      forecasted_demand: demandPreview,
+      projected_stock_levels: projectedStockLevels,
+    },
+    recommendations: shortageItems.slice(0, 8).map((result) => ({
+      inventory_item_id: result.inventory_item_id,
+      item_name: result.item_name,
+      recommended_reorder_quantity: Number(
+        result.recommended_reorder_quantity || 0,
+      ),
+      risk_level: result.risk_level,
+      projected_depletion_date: result.projected_depletion_date,
+      shortage_within_seven_days: Boolean(result.shortage_within_seven_days),
+      unit_of_measure: result.unit_of_measure,
+    })),
+  };
+};
+
 const mapStoredForecastRun = (forecastRun, resultRows) => {
+  const mappedResults = resultRows.map((row) => {
+    let parsedNotes = {};
+
+    try {
+      parsedNotes = row.confidence_notes ? JSON.parse(row.confidence_notes) : {};
+    } catch (_error) {
+      parsedNotes = {};
+    }
+
+    return {
+      inventory_item_id: row.inventory_item_id,
+      item_name: row.item_name,
+      item_code: row.item_code,
+      category: row.category,
+      unit_of_measure: row.unit_of_measure,
+      current_available_stock: Number(parsedNotes.current_available_stock || 0),
+      average_daily_usage: Number(parsedNotes.average_daily_usage || 0),
+      forecasted_usage: Number(row.predicted_quantity_needed || 0),
+      projected_depletion_date: row.predicted_depletion_date,
+      recommended_reorder_quantity: Number(row.recommended_reorder_quantity || 0),
+      projected_household_demand: Number(
+        parsedNotes.projected_household_demand || 0,
+      ),
+      quantity_per_household: Number(parsedNotes.quantity_per_household || 0),
+      projected_remaining_stock: Number(
+        parsedNotes.projected_remaining_stock || 0,
+      ),
+      days_until_depletion:
+        parsedNotes.days_until_depletion === null ||
+        parsedNotes.days_until_depletion === undefined
+          ? null
+          : Number(parsedNotes.days_until_depletion || 0),
+      shortage_within_seven_days: Boolean(
+        parsedNotes.shortage_within_seven_days || false,
+      ),
+      risk_level: parsedNotes.risk_level || "LOW",
+      selected_model: parsedNotes.model_name || forecastRun.model_name,
+      daily_forecast: Number(parsedNotes.daily_forecast || 0),
+    };
+  });
+
   return {
     forecast_run: {
       id: forecastRun.id,
@@ -76,30 +350,111 @@ const mapStoredForecastRun = (forecastRun, resultRows) => {
       model_name: forecastRun.model_name,
       parameters_json: forecastRun.parameters_json || {},
     },
-    results: resultRows.map((row) => {
-      let parsedNotes = {};
-
-      try {
-        parsedNotes = row.confidence_notes ? JSON.parse(row.confidence_notes) : {};
-      } catch (_error) {
-        parsedNotes = {};
-      }
-
-      return {
-        inventory_item_id: row.inventory_item_id,
-        item_name: row.item_name,
-        item_code: row.item_code,
-        category: row.category,
-        unit_of_measure: row.unit_of_measure,
-        current_available_stock: Number(parsedNotes.current_available_stock || 0),
-        average_daily_usage: Number(parsedNotes.average_daily_usage || 0),
-        forecasted_usage: Number(row.predicted_quantity_needed || 0),
-        projected_depletion_date: row.predicted_depletion_date,
-        recommended_reorder_quantity: Number(row.recommended_reorder_quantity || 0),
-        risk_level: parsedNotes.risk_level || "LOW",
-        selected_model: parsedNotes.model_name || forecastRun.model_name,
-      };
-    }),
+    dashboard: {
+      disaster_event: {
+        id: forecastRun.disaster_event_id,
+        event_code: forecastRun.event_code,
+        title: forecastRun.disaster_event_title,
+      },
+      summary: {
+        evacuee_count: Number(
+          forecastRun.parameters_json?.event_context?.evacuee_count || 0,
+        ),
+        household_count: Number(
+          forecastRun.parameters_json?.event_context?.household_count || 0,
+        ),
+        attendance_record_count: Number(
+          forecastRun.parameters_json?.event_context?.attendance_record_count || 0,
+        ),
+        present_evacuee_count: Number(
+          forecastRun.parameters_json?.event_context?.present_evacuee_count || 0,
+        ),
+        distribution_transaction_count: Number(
+          forecastRun.parameters_json?.event_context?.distribution_transaction_count || 0,
+        ),
+        total_released_quantity: Number(
+          forecastRun.parameters_json?.event_context?.total_released_quantity || 0,
+        ),
+        active_standard_pack_count: Number(
+          forecastRun.parameters_json?.event_context?.active_standard_pack_count || 0,
+        ),
+        total_forecasted_demand: mappedResults.reduce(
+          (sum, result) => sum + Number(result.forecasted_usage || 0),
+          0,
+        ),
+        total_recommended_reorder: mappedResults.reduce(
+          (sum, result) =>
+            sum + Number(result.recommended_reorder_quantity || 0),
+          0,
+        ),
+        critical_item_count: mappedResults.filter(
+          (result) =>
+            result.risk_level === "CRITICAL" || result.risk_level === "HIGH",
+        ).length,
+        shortage_item_count: mappedResults.filter(
+          (result) => Number(result.recommended_reorder_quantity || 0) > 0,
+        ).length,
+        seven_day_shortage_count: mappedResults.filter(
+          (result) => result.shortage_within_seven_days,
+        ).length,
+      },
+      charts: {
+        inventory_usage_trend:
+          forecastRun.parameters_json?.inventory_usage_trend || [],
+        forecasted_demand: [...mappedResults]
+          .sort((left, right) => right.forecasted_usage - left.forecasted_usage)
+          .slice(0, 6)
+          .map((result) => ({
+            inventory_item_id: result.inventory_item_id,
+            item_name: result.item_name,
+            item_code: result.item_code,
+            projected_household_demand: Number(
+              result.projected_household_demand || 0,
+            ),
+            forecasted_usage: Number(result.forecasted_usage || 0),
+            recommended_reorder_quantity: Number(
+              result.recommended_reorder_quantity || 0,
+            ),
+            unit_of_measure: result.unit_of_measure,
+          })),
+        projected_stock_levels: [...mappedResults]
+          .sort((left, right) => right.forecasted_usage - left.forecasted_usage)
+          .slice(0, 8)
+          .map((result) => ({
+            inventory_item_id: result.inventory_item_id,
+            item_name: result.item_name,
+            current_available_stock: Number(
+              result.current_available_stock || 0,
+            ),
+            projected_remaining_stock: Number(
+              result.projected_remaining_stock || 0,
+            ),
+            forecasted_usage: Number(result.forecasted_usage || 0),
+          })),
+      },
+      recommendations: [...mappedResults]
+        .filter((result) => Number(result.recommended_reorder_quantity || 0) > 0)
+        .sort(
+          (left, right) =>
+            Number(right.recommended_reorder_quantity || 0) -
+            Number(left.recommended_reorder_quantity || 0),
+        )
+        .slice(0, 8)
+        .map((result) => ({
+          inventory_item_id: result.inventory_item_id,
+          item_name: result.item_name,
+          recommended_reorder_quantity: Number(
+            result.recommended_reorder_quantity || 0,
+          ),
+          risk_level: result.risk_level,
+          projected_depletion_date: result.projected_depletion_date,
+          shortage_within_seven_days: Boolean(
+            result.shortage_within_seven_days,
+          ),
+          unit_of_measure: result.unit_of_measure,
+        })),
+    },
+    results: mappedResults,
   };
 };
 
@@ -333,6 +688,21 @@ const buildResultConfidenceNotes = ({
     daily_forecast: Number(analyticsResult.daily_forecast || 0),
     forecast_horizon_days: forecastHorizonDays,
     lookback_days: lookbackDays,
+    projected_household_demand: Number(
+      analyticsResult.projected_household_demand || 0,
+    ),
+    quantity_per_household: Number(analyticsResult.quantity_per_household || 0),
+    projected_remaining_stock: Number(
+      analyticsResult.projected_remaining_stock || 0,
+    ),
+    days_until_depletion:
+      analyticsResult.days_until_depletion === null ||
+      analyticsResult.days_until_depletion === undefined
+        ? null
+        : Number(analyticsResult.days_until_depletion || 0),
+    shortage_within_seven_days: Boolean(
+      analyticsResult.shortage_within_seven_days || false,
+    ),
     model_name: analyticsResult.selected_model || DEFAULT_FORECAST_MODEL,
   });
 };
@@ -349,8 +719,17 @@ const buildResponseResults = (analyticsResults) => {
     forecasted_usage: Number(result.forecasted_usage || 0),
     projected_depletion_date: result.projected_depletion_date,
     recommended_reorder_quantity: Number(result.recommended_reorder_quantity || 0),
+    projected_household_demand: Number(result.projected_household_demand || 0),
+    quantity_per_household: Number(result.quantity_per_household || 0),
+    projected_remaining_stock: Number(result.projected_remaining_stock || 0),
+    days_until_depletion:
+      result.days_until_depletion === null || result.days_until_depletion === undefined
+        ? null
+        : Number(result.days_until_depletion || 0),
+    shortage_within_seven_days: Boolean(result.shortage_within_seven_days || false),
     risk_level: result.risk_level || "LOW",
     selected_model: result.selected_model || DEFAULT_FORECAST_MODEL,
+    daily_forecast: Number(result.daily_forecast || 0),
   }));
 };
 
@@ -358,7 +737,17 @@ const runInventoryForecast = async ({ disaster_event_id, model_name, run_by }) =
   const resolvedModelName = model_name || DEFAULT_FORECAST_MODEL;
   const disasterEvent = await ensureDisasterEvent(disaster_event_id);
   const forecastItems = await forecastRepository.getInventoryForecastItems();
+  const eventContext = await forecastRepository.getForecastEventContext(
+    disaster_event_id,
+  );
+  const demandRows = await forecastRepository.getReliefPackDemandByEvent(
+    disaster_event_id,
+  );
   const usageRows = await forecastRepository.getInventoryUsageSeries(
+    disaster_event_id,
+    LOOKBACK_DAYS,
+  );
+  const usageTrendRows = await forecastRepository.getInventoryUsageTrend(
     disaster_event_id,
     LOOKBACK_DAYS,
   );
@@ -366,6 +755,7 @@ const runInventoryForecast = async ({ disaster_event_id, model_name, run_by }) =
     usageRows,
     forecastItems.map((item) => item.id),
   );
+  const demandMap = buildDemandMap(demandRows);
 
   const analyticsPayload = buildAnalyticsPayload({
     forecastItems,
@@ -375,6 +765,25 @@ const runInventoryForecast = async ({ disaster_event_id, model_name, run_by }) =
   const analyticsForecast = await callAnalyticsInventoryForecast(analyticsPayload, {
     userId: run_by,
     roleCode: "MAYOR",
+  });
+  const enrichedResults = analyticsForecast.results.map((result) =>
+    enrichForecastResult({
+      result,
+      demandContext: demandMap.get(result.inventory_item_id),
+      forecastHorizonDays: analyticsForecast.forecast_horizon_days,
+      fallbackModelName: resolvedModelName,
+    }),
+  );
+  const dashboard = buildForecastDashboard({
+    disasterEvent: {
+      ...disasterEvent,
+      start_date: eventContext?.start_date || null,
+      end_date: eventContext?.end_date || null,
+      ended_at: eventContext?.ended_at || null,
+    },
+    forecastResults: enrichedResults,
+    eventContext,
+    usageTrend: usageTrendRows,
   });
   const client = await pool.connect();
 
@@ -395,12 +804,32 @@ const runInventoryForecast = async ({ disaster_event_id, model_name, run_by }) =
           moving_average_window: MOVING_AVERAGE_WINDOW,
           exponential_smoothing_alpha: EXPONENTIAL_SMOOTHING_ALPHA,
           analytics_service_url: normalizeAnalyticsServiceUrl(ANALYTICS_SERVICE_URL),
+          event_context: {
+            household_count: Number(eventContext?.household_count || 0),
+            evacuee_count: Number(eventContext?.evacuee_count || 0),
+            attendance_record_count: Number(
+              eventContext?.attendance_record_count || 0,
+            ),
+            present_evacuee_count: Number(
+              eventContext?.present_evacuee_count || 0,
+            ),
+            distribution_transaction_count: Number(
+              eventContext?.distribution_transaction_count || 0,
+            ),
+            total_released_quantity: Number(
+              eventContext?.total_released_quantity || 0,
+            ),
+            active_standard_pack_count: Number(
+              eventContext?.active_standard_pack_count || 0,
+            ),
+          },
+          inventory_usage_trend: dashboard.charts.inventory_usage_trend,
         },
       },
       client,
     );
 
-    for (const analyticsResult of analyticsForecast.results) {
+    for (const analyticsResult of enrichedResults) {
       await forecastRepository.insertForecastResult(
         {
           forecast_run_id: createdForecastRun.id,
@@ -436,7 +865,8 @@ const runInventoryForecast = async ({ disaster_event_id, model_name, run_by }) =
         model_name: resolvedModelName,
         parameters_json: createdForecastRun.parameters_json || {},
       },
-      results: buildResponseResults(analyticsForecast.results),
+      dashboard,
+      results: buildResponseResults(enrichedResults),
     };
   } catch (error) {
     await client.query("ROLLBACK");
@@ -459,6 +889,55 @@ const getLatestInventoryForecast = async (disasterEventId) => {
 
   const resultRows = await forecastRepository.getForecastResultsByRunId(latestRun.id);
   return mapStoredForecastRun(latestRun, resultRows);
+};
+
+const getInventoryForecastContext = async (disasterEventId) => {
+  const disasterEvent = await ensureDisasterEvent(disasterEventId);
+  const eventContext = await forecastRepository.getForecastEventContext(
+    disasterEventId,
+  );
+  const demandRows = await forecastRepository.getReliefPackDemandByEvent(
+    disasterEventId,
+  );
+  const usageTrendRows = await forecastRepository.getInventoryUsageTrend(
+    disasterEventId,
+    LOOKBACK_DAYS,
+  );
+
+  return {
+    disaster_event: {
+      id: disasterEvent.id,
+      event_code: disasterEvent.event_code,
+      title: disasterEvent.title,
+      status: disasterEvent.status,
+      start_date: eventContext?.start_date || null,
+      end_date: eventContext?.end_date || null,
+      ended_at: eventContext?.ended_at || null,
+    },
+    summary: {
+      household_count: Number(eventContext?.household_count || 0),
+      evacuee_count: Number(eventContext?.evacuee_count || 0),
+      attendance_record_count: Number(eventContext?.attendance_record_count || 0),
+      present_evacuee_count: Number(eventContext?.present_evacuee_count || 0),
+      distribution_transaction_count: Number(
+        eventContext?.distribution_transaction_count || 0,
+      ),
+      total_released_quantity: Number(eventContext?.total_released_quantity || 0),
+      active_standard_pack_count: Number(
+        eventContext?.active_standard_pack_count || 0,
+      ),
+    },
+    demand_preview: (demandRows || []).slice(0, 8).map((row) => ({
+      inventory_item_id: row.inventory_item_id,
+      item_code: row.item_code,
+      item_name: row.item_name,
+      category: row.category,
+      unit_of_measure: row.unit_of_measure,
+      quantity_per_household: Number(row.quantity_per_household || 0),
+      projected_household_demand: Number(row.projected_household_demand || 0),
+    })),
+    usage_trend: formatUsageTrend(usageTrendRows),
+  };
 };
 
 const getInventoryForecastHistory = async ({
@@ -490,6 +969,7 @@ const getInventoryForecastRunDetails = async (forecastRunId) => {
       ...mapForecastRunSummary(forecastRun),
       parameters_json: forecastRun.parameters_json || {},
     },
+    dashboard: mappedResults.dashboard,
     results: mappedResults.results,
   };
 };
@@ -501,6 +981,7 @@ module.exports = {
   LOOKBACK_DAYS,
   runInventoryForecast,
   getLatestInventoryForecast,
+  getInventoryForecastContext,
   getAnalyticsServiceHealth,
   getInventoryForecastHistory,
   getInventoryForecastRunDetails,

@@ -15,6 +15,7 @@ import VerifyStubPage from "../pages/VerifyStubPage";
 import InventoryBatchesPage from "../pages/inventory/InventoryBatchesPage";
 import InventoryItemsPage from "../pages/inventory/InventoryItemsPage";
 import InventoryDistributionPage from "../pages/inventory/InventoryDistributionPage";
+import InventoryForecastsPage from "../pages/inventory/InventoryForecastsPage";
 import MayorNotificationsPage from "../pages/inventory/MayorNotificationsPage";
 import SyncManagementPage from "../pages/SyncManagementPage";
 import InventoryTransactionsPage from "../pages/inventory/InventoryTransactionsPage";
@@ -177,6 +178,10 @@ const AppRoutes = () => {
           <Route
             path="distribution"
             element={<InventoryDistributionPage />}
+          />
+          <Route
+            path="forecasts"
+            element={<InventoryForecastsPage />}
           />
           <Route
             path="distribution-history"

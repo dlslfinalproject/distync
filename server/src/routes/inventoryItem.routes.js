@@ -18,6 +18,27 @@ const {
 const router = express.Router();
 
 router.get(
+  "/forecast/context",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateForecastLatestQuery,
+  async (req, res) => {
+    try {
+      const forecastContext = await forecastService.getInventoryForecastContext(
+        req.validatedQuery.disaster_event_id,
+      );
+
+      return res.status(200).json({
+        data: forecastContext,
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        message: error.message || "Failed to fetch forecast context",
+      });
+    }
+  },
+);
+
+router.get(
   "/forecast/health",
   requireRoles(ROLE_CODES.MAYOR),
   async (_req, res) => {
