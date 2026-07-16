@@ -236,7 +236,7 @@ const getFilterPanelPosition = ({ triggerRect, panelHeight }) => {
 const distributionStatusOptions = [
   { value: "", label: "All Statuses" },
   { value: "CLAIMED", label: "Claimed" },
-  { value: "PENDING", label: "Pending / For Claim" },
+  { value: "PENDING", label: "For Claim" },
   { value: "NOT_DISTRIBUTED", label: "Not Distributed" },
 ];
 
@@ -401,32 +401,27 @@ const InventoryDistributionPage = () => {
       {
         label: "Total Families",
         value: analytics.totalFamiliesServed,
-        description:
-          "Families to receive relief packs for the selected event and barangay view.",
+        description: "",
         accentColor: "#2f6499",
       },
       {
         label: "Claimed Relief Packs",
         value: analytics.claimedCount,
-        description:
-          "Relief packs that have already been claimed by families.",
+        description: "",
         accentColor: "#c9792b",
       },
       {
         label: "Unclaimed Relief Packs",
         value: analytics.pendingCount,
-        description:
-          "Relief packs that are still pending pickup by families.",
+        description: "",
         accentColor: "#2d7a4f",
       },
       {
-        label: "Sector Distribution",
+        label: "Top Sector",
         value: analytics.topSector
           ? `${analytics.topSector.name} (${analytics.topSector.count})`
           : "No tagged sector",
-        description: analytics.topSector
-          ? `Top tagged sector among filtered families. ${analytics.sectorBreakdown.length} sector group(s) are currently visible.`
-          : "Sector counts will appear once tagged family records are available in the selected view.",
+        description: "",
         accentColor: "#7b61a8",
       },
     ];
@@ -439,8 +434,7 @@ const InventoryDistributionPage = () => {
 
         <section style={shellStyles.card}>
           <p style={{ ...shellStyles.mutedText, margin: 0 }}>
-            No disaster event is available yet. This page is ready for
-            family-level inventory distribution monitoring once events are available.
+            No disaster event is available yet.
           </p>
         </section>
       </div>
@@ -573,12 +567,12 @@ const InventoryDistributionPage = () => {
 
             <p style={{ ...shellStyles.mutedText, margin: "10px 0 0" }}>
               {templateNotice ||
-                "Relief pack item details will appear here once a template is linked to the selected distribution flow."}
+                "No relief pack template is linked yet."}
             </p>
 
             {(isLoadingTemplate || isLoadingFilters) && !errorMessage ? (
               <p style={{ ...shellStyles.mutedText, margin: "10px 0 0" }}>
-                Loading relief pack preview...
+                Loading relief pack...
               </p>
             ) : null}
           </section>
@@ -634,9 +628,7 @@ const InventoryDistributionPage = () => {
                       maxHeight: filterPanelPosition.maxHeight,
                     }}
                   >
-                    <h3 style={filterPanelStyles.title}>
-                      Filter Distribution Records
-                    </h3>
+                    <h3 style={filterPanelStyles.title}>Filters</h3>
 
                     <label style={filterPanelStyles.field}>
                       <span style={filterPanelStyles.label}>Status</span>

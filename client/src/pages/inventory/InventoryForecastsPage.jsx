@@ -36,7 +36,6 @@ const InventoryForecastsPage = () => {
     >
       <PageHeader
         title="INVENTORY FORECASTS"
-        description="Forecast future relief requirements using household counts, evacuee records, attendance, distribution history, and inventory consumption for each disaster event."
       />
 
       <section style={shellStyles.card}>

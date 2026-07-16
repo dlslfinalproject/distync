@@ -122,7 +122,7 @@ const InventoryExportModal = ({
           <div style={exportModalStyles.modal}>
             <h3 style={exportModalStyles.title}>Export Inventory Report</h3>
             <p style={exportModalStyles.description}>
-              Choose which inventory report to export and the file format to generate.
+              Select a report and file format.
             </p>
 
             {exportNoticeMessage ? (

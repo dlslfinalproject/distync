@@ -52,7 +52,7 @@ const ReliefPackTemplatesTable = ({
       <section style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Relief Pack Templates</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          Loading relief pack templates...
+          Loading relief packs...
         </p>
       </section>
     );
@@ -84,10 +84,6 @@ const ReliefPackTemplatesTable = ({
     <section style={shellStyles.card}>
       <div style={{ marginBottom: "18px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>Relief Pack Templates</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-          Select a template to view details, edit the header, or replace the full
-          item list.
-        </p>
       </div>
 
       <div style={{ overflowX: "auto" }}>

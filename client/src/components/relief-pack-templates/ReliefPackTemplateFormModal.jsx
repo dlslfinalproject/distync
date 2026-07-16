@@ -499,7 +499,7 @@ const ReliefPackTemplateFormModal = ({
 
                 <div>
                   <label style={labelStyles} htmlFor="relief-pack-family">
-                    Recommended Family Size
+                    Family Size Covered
                   </label>
                   <input
                     id="relief-pack-family"
@@ -517,7 +517,7 @@ const ReliefPackTemplateFormModal = ({
                 {formValues.packType === "additional" ? (
                   <div style={{ gridColumn: "1 / -1" }}>
                     <label style={labelStyles} htmlFor="relief-pack-sector">
-                      Auto-Assign to Sector
+                      Sector Match
                     </label>
                     <select
                       id="relief-pack-sector"
@@ -535,7 +535,7 @@ const ReliefPackTemplateFormModal = ({
                       ))}
                     </select>
                     <p style={helperTextStyles}>
-                      This additional pack will be automatically matched to families tagged with the selected sector.
+                      Applies to families tagged with this sector.
                     </p>
                   </div>
                 ) : null}
@@ -563,7 +563,7 @@ const ReliefPackTemplateFormModal = ({
 
                 <div>
                   <label style={labelStyles} htmlFor="relief-pack-quantity">
-                    Quantity
+                    Quantity per Pack
                   </label>
                   <input
                     id="relief-pack-quantity"
@@ -600,7 +600,7 @@ const ReliefPackTemplateFormModal = ({
 
             <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
               <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
-                Pack Items
+                Items in Pack
               </h3>
 
               {packItems.length === 0 ? (

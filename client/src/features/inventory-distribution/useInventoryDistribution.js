@@ -160,7 +160,7 @@ const mapStubDashboardRow = (row, fallbackBarangay = null) => ({
   relief_pack_name: row.relief_pack_name || "--",
   distribution_status: row.status === "CLAIMED" ? "CLAIMED" : "PENDING",
   distribution_status_label:
-    row.status === "CLAIMED" ? "Claimed" : "Pending / For Claim",
+    row.status === "CLAIMED" ? "Claimed" : "For Claim",
   raw_stub_status: row.status || "",
   display_stub_no: row.display_stub_no || "",
   qr_code_value: row.qr_code_value || "",

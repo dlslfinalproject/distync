@@ -759,7 +759,7 @@ const ReliefPackTemplatesPage = () => {
 
                   <div style={summaryBoxStyle}>
                     <p style={{ margin: 0, fontWeight: 700, fontSize: "15px" }}>
-                      Packs We Can Create
+                      Packs Available
                     </p>
                     <h1
                       style={{
@@ -820,7 +820,7 @@ const ReliefPackTemplatesPage = () => {
                       </div>
                     ) : (
                       <p style={{ fontSize: "12px", margin: "12px 0 0" }}>
-                        No active disaster event demand found.
+                        No active event demand found.
                       </p>
                     )}
                   </div>
@@ -828,7 +828,7 @@ const ReliefPackTemplatesPage = () => {
                   {template.metrics.shortageItems.length > 0 ? (
                     <div style={alertBoxStyle}>
                       <p style={{ margin: 0, fontWeight: 800, fontSize: "15px" }}>
-                        Low Stocks
+                        Stock Shortages
                       </p>
                       {template.metrics.shortageItems.slice(0, 3).map((item) => (
                         <p
@@ -839,7 +839,7 @@ const ReliefPackTemplatesPage = () => {
                             fontWeight: 600,
                           }}
                         >
-                          {item.item_name} is low by {item.shortage_quantity} than demand
+                          Need {item.shortage_quantity} more {item.item_name}
                         </p>
                       ))}
                     </div>
@@ -880,7 +880,7 @@ const ReliefPackTemplatesPage = () => {
               onClick={loadReliefPackPage}
             >
               <FiFilter size={16} />
-              Filter
+              Refresh
             </button>
           </div>
 
@@ -902,7 +902,7 @@ const ReliefPackTemplatesPage = () => {
                 <table style={tableStyles.table}>
                   <thead>
                     <tr>
-                      <th style={tableStyles.headerCell}>Pack Name</th>
+                      <th style={tableStyles.headerCell}>Name</th>
                       <th style={tableStyles.headerCell}>Items</th>
                       <th style={tableStyles.headerCell}>Quantity Per Item</th>
                       <th

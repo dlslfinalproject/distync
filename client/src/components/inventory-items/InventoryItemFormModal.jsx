@@ -225,17 +225,17 @@ const InventoryItemFormModal = ({
   const trackingMethod = formValues.tracking_method || "Count-Based";
   const usesWeightOrVolume = isWeightOrVolumeBased(trackingMethod);
   const unitValueLabel = usesWeightOrVolume
-    ? "Weight or Volume per Item"
-    : "Quantity Represented";
+    ? "Amount per Item"
+    : "Units per Item";
   const unitValueHelperText = usesWeightOrVolume
-    ? "Example: 25 for a 25 kg sack of rice."
-    : "Optional for count-based items. How many countable units this item represents, if applicable.";
+    ? "Example: 25 for a 25 kg sack."
+    : "Optional for count-based items.";
   const quantityFieldLabel = usesWeightOrVolume
-    ? "Weight/Volume per Package"
-    : "Quantity per Package";
+    ? "Packages per Container"
+    : "Units per Package";
   const quantityFieldPlaceholder = usesWeightOrVolume
-    ? "Example: 1 sack or 1 bottle per package"
-    : "How many items per pack, box, case, etc.";
+    ? "Example: 1 sack or bottle"
+    : "Example: 12 pieces per box";
   const computedTotalLabel = "Total Stock";
   const packageCountValue = parsePositiveNumberOrZero(formValues.packaging_count);
   const quantityPerPackageValue = parsePositiveNumberOrZero(formValues.quantity);
@@ -246,7 +246,7 @@ const InventoryItemFormModal = ({
   const hasComputedTotalInputs = packageCountValue > 0 && quantityPerPackageValue > 0;
   const computedTotalDisplay = hasComputedTotalInputs
     ? formatComputedValue(computedTotalStock)
-    : "Enter the number of packages and quantity per package to calculate the total.";
+    : "Enter package count and units per package.";
 
   const handleSubmit = (event) => {
     event.preventDefault();
@@ -401,8 +401,8 @@ const InventoryItemFormModal = ({
                 </select>
                 <div style={helperTextStyles}>
                   {usesWeightOrVolume
-                    ? "Required for weight- or volume-based items."
-                    : "Set to pc for count-based items."}
+                    ? "Required for weight or volume tracking."
+                    : "Count-based items use pc."}
                 </div>
               </div>
 
@@ -471,7 +471,7 @@ const InventoryItemFormModal = ({
                   id="packaging_count"
                   type="number"
                   min="1"
-                  placeholder="How many sacks, boxes, packs, etc."
+                  placeholder="Example: 20 boxes"
                   value={formValues.packaging_count}
                   onChange={(e) =>
                     handleChange("packaging_count", e.target.value)
@@ -480,7 +480,7 @@ const InventoryItemFormModal = ({
                   required
                 />
                 <div style={helperTextStyles}>
-                  How many boxes, packs, sacks, or containers are being recorded?
+                  Number of packages currently on hand.
                 </div>
               </div>
 
@@ -499,7 +499,7 @@ const InventoryItemFormModal = ({
                   required
                 />
                 <div style={helperTextStyles}>
-                  How many base units are in each package?
+                  Units contained in each package.
                 </div>
               </div>
 

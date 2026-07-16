@@ -148,9 +148,7 @@ const InventoryItemScanModal = ({
           <div>
             <h3 style={styles.scanModalTitle}>Scan Item</h3>
             <p style={styles.scanModalDescription}>
-              Use a physical warehouse barcode scanner or enter the barcode
-              manually. This field stays focused so most USB or Bluetooth
-              scanners can type directly into it.
+              Scan a barcode or enter it manually.
             </p>
           </div>
 
@@ -172,14 +170,9 @@ const InventoryItemScanModal = ({
         >
           <section style={styles.scannerHintCard}>
             <h3 style={styles.scanModalSectionTitle}>Warehouse Scanner Input</h3>
-            <p style={styles.scannerStatus}>Scanner-ready input is active.</p>
+            <p style={styles.scannerStatus}>Ready to scan.</p>
             <p style={styles.helperText}>
-              Connect a barcode scanner and scan the relief good label. Most
-              physical scanners send the barcode like keyboard input and may
-              automatically submit with the Enter key.
-            </p>
-            <p style={styles.helperText}>
-              If no scanner is available, type the barcode manually and continue.
+              Keep the barcode field selected while scanning.
             </p>
           </section>
 
@@ -216,7 +209,7 @@ const InventoryItemScanModal = ({
                     }
                   }}
                   style={scanModalInputStyle}
-                  placeholder="Scan or enter barcode number"
+                  placeholder="Scan or enter barcode"
                 />
 
                 {matchedItemName && (
@@ -225,10 +218,6 @@ const InventoryItemScanModal = ({
                   </p>
                 )}
 
-                <p style={styles.helperText}>
-                  Keep this field selected while scanning so the hardware scanner
-                  can place the barcode here immediately.
-                </p>
               </div>
             </div>
           </section>
