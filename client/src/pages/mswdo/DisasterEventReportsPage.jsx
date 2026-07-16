@@ -142,16 +142,13 @@ const columnWidthStyles = {
     width: "25%",
   },
   registeredHouseholds: {
-    width: "11%",
+    width: "13%",
   },
   distributedAid: {
-    width: "11%",
+    width: "13%",
   },
   claimStatus: {
-    width: "12%",
-  },
-  quantityReleased: {
-    width: "8%",
+    width: "15%",
   },
 };
 
@@ -629,15 +626,6 @@ const DisasterEventReportsPage = () => {
                   >
                     {renderStackedHeader("Claim Status", "Summary")}
                   </th>
-                  <th
-                    style={{
-                      ...tableStyles.th,
-                      ...centeredColumnStyles,
-                      ...columnWidthStyles.quantityReleased,
-                    }}
-                  >
-                    {renderStackedHeader("Quantity", "Released")}
-                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -703,15 +691,6 @@ const DisasterEventReportsPage = () => {
                       <div style={{ color: "#60738a", fontSize: "12px" }}>
                         Unclaimed: {row.unclaimed_stubs_count || 0}
                       </div>
-                    </td>
-                    <td
-                      style={{
-                        ...tableStyles.td,
-                        ...centeredColumnStyles,
-                        ...columnWidthStyles.quantityReleased,
-                      }}
-                    >
-                      {row.quantity_released_total || 0}
                     </td>
                   </tr>
                 ))}

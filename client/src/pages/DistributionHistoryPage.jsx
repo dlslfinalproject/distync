@@ -1,15 +1,16 @@
 import React, { useEffect, useMemo, useState } from "react";
-import PageHeader, { pageHeaderStyles } from "../components/layout/PageHeader";
+import PageHeader from "../components/layout/PageHeader";
 import { shellStyles } from "../components/layout/BarangayLayout";
 import { useAuth } from "../context/AuthContext";
 import { ROLE_CODES } from "../utils/roleSession";
 import {
   fetchDistributionHistory,
   exportDistributionHistory,
-  updateDistributionLifecycle,
 } from "../features/distribution/distributionService";
+import { fetchStubDetails } from "../features/stubs/stubService";
 import {
   fetchAllDisasterEvents,
+  fetchBarangayDisasterEventOptions,
   fetchBarangays,
 } from "../features/disaster-events/disasterEventService";
 import ExportModal from "../components/shared/ExportModal";
@@ -17,8 +18,9 @@ import EmptyState from "../components/shared/EmptyState";
 import ErrorState from "../components/shared/ErrorState";
 import FeedbackToast from "../components/shared/FeedbackToast";
 import LoadingState from "../components/shared/LoadingState";
-import TableActionsMenu from "../components/shared/TableActionsMenu";
-import DistributionLifecycleModal from "../components/distribution/DistributionLifecycleModal";
+import StubDetailModal from "../components/stubs/StubDetailModal";
+import { FiEye, FiSearch } from "react-icons/fi";
+import { formatOrderedSectorText } from "../utils/sectorDisplay";
 import {
   buildExportSuccessMessage,
   COMMON_EXPORT_FORMAT_OPTIONS,
@@ -94,54 +96,61 @@ const formatDateTime = (value) => {
   });
 };
 
-const statusBadgeStyles = (status) => {
-  if (status === "CLAIMED") {
-    return {
-      backgroundColor: "#dcfce7",
-      color: "#15803d",
-    };
-  }
-
-  if (status === "CANCELLED") {
-    return {
-      backgroundColor: "#fee2e2",
-      color: "#b91c1c",
-    };
-  }
-
-  if (status === "REVERSED") {
-    return {
-      backgroundColor: "#fef3c7",
-      color: "#b45309",
-    };
-  }
-
-  return {
-    backgroundColor: "#e2e8f0",
-    color: "#475569",
-  };
+const formatDisplayStubNumber = (row) => {
+  const sequenceNo = Number(row?.stub_sequence_no || 0);
+  return sequenceNo > 0 ? `STUB#${sequenceNo}` : row?.stub_no || "--";
 };
 
-const StatusBadge = ({ status }) => (
-  <span
-    style={{
-      display: "inline-flex",
-      alignItems: "center",
-      borderRadius: "999px",
-      padding: "4px 10px",
-      fontSize: "12px",
-      fontWeight: 700,
-      ...statusBadgeStyles(status),
-    }}
-  >
-    {status || "--"}
-  </span>
-);
+const ORDER_LIST_OPTIONS = [
+  { value: "newest", label: "Newest-Oldest" },
+  { value: "oldest", label: "Oldest-Newest" },
+  { value: "az", label: "Sort A-Z" },
+  { value: "za", label: "Sort Z-A" },
+];
+
+const getRowTime = (row) => {
+  const parsedTime = new Date(row?.distribution_date || 0).getTime();
+  return Number.isNaN(parsedTime) ? 0 : parsedTime;
+};
+
+const sortDistributionHistoryRows = (rows, sortOrder = "newest") => {
+  return [...rows].sort((leftRow, rightRow) => {
+    if (sortOrder === "az" || sortOrder === "za") {
+      const comparison = String(leftRow.family_head_name || "").localeCompare(
+        String(rightRow.family_head_name || ""),
+        undefined,
+        { sensitivity: "base" },
+      );
+
+      return sortOrder === "za" ? -comparison : comparison;
+    }
+
+    const leftTime = getRowTime(leftRow);
+    const rightTime = getRowTime(rightRow);
+
+    return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
+  });
+};
+
+const getAffectedBarangayIds = (event) => {
+  if (!Array.isArray(event?.affected_barangays)) {
+    return [];
+  }
+
+  return event.affected_barangays
+    .map((barangay) => {
+      if (typeof barangay === "string") {
+        return barangay;
+      }
+
+      return barangay?.id || barangay?.barangay_id || "";
+    })
+    .filter(Boolean);
+};
 
 const DistributionHistoryPage = () => {
   const { currentRole } = useAuth();
   const isBarangay = currentRole === ROLE_CODES.BARANGAY;
-  const isMayor = currentRole === ROLE_CODES.MAYOR;
   const isMswdo = currentRole === ROLE_CODES.MSWDO;
 
   const [disasterEvents, setDisasterEvents] = useState([]);
@@ -150,7 +159,7 @@ const DistributionHistoryPage = () => {
   const [filters, setFilters] = useState({
     disaster_event_id: "",
     barangay_id: "",
-    status: "",
+    status: "CLAIMED",
     date_from: "",
     date_to: "",
   });
@@ -164,16 +173,12 @@ const DistributionHistoryPage = () => {
     type: "",
     message: "",
   });
-  const [actionFeedback, setActionFeedback] = useState({
-    type: "",
-    title: "",
-    message: "",
-  });
-  const [lifecycleModalMode, setLifecycleModalMode] = useState("");
-  const [selectedHistoryRow, setSelectedHistoryRow] = useState(null);
-  const [lifecycleRemarks, setLifecycleRemarks] = useState("");
-  const [isSubmittingLifecycleAction, setIsSubmittingLifecycleAction] =
-    useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortOrder, setSortOrder] = useState("newest");
+  const [isStubDetailModalOpen, setIsStubDetailModalOpen] = useState(false);
+  const [selectedStubDetails, setSelectedStubDetails] = useState(null);
+  const [isLoadingStubDetails, setIsLoadingStubDetails] = useState(false);
+  const [stubDetailsErrorMessage, setStubDetailsErrorMessage] = useState("");
 
   useEffect(() => {
     let isMounted = true;
@@ -183,7 +188,9 @@ const DistributionHistoryPage = () => {
 
       try {
         const [eventRows, barangayRows] = await Promise.all([
-          fetchAllDisasterEvents(),
+          isBarangay
+            ? fetchBarangayDisasterEventOptions()
+            : fetchAllDisasterEvents(),
           isBarangay ? Promise.resolve([]) : fetchBarangays(),
         ]);
 
@@ -248,150 +255,106 @@ const DistributionHistoryPage = () => {
     };
   }, [filters]);
 
-  const pageDescription = useMemo(() => {
-    if (isBarangay) {
-      return "Review distribution records for your assigned barangay, including household, stub, pack, release details, and guarded correction actions.";
+  const selectedDisasterEvent = useMemo(
+    () =>
+      disasterEvents.find((eventRow) => eventRow.id === filters.disaster_event_id) ||
+      null,
+    [disasterEvents, filters.disaster_event_id],
+  );
+
+  const barangayOptions = useMemo(() => {
+    if (!selectedDisasterEvent) {
+      return barangays;
     }
 
-    if (isMayor) {
-      return "Review read-only disaster distribution records across barangays for monitoring and oversight.";
+    const affectedBarangayIds = getAffectedBarangayIds(selectedDisasterEvent);
+
+    if (affectedBarangayIds.length === 0) {
+      return [];
     }
 
-    return "Review disaster distribution records across barangays, including stub claims, item releases, and guarded correction actions.";
-  }, [isBarangay, isMayor]);
+    const affectedBarangayIdSet = new Set(affectedBarangayIds);
 
-  const canManageLifecycle = !isMayor;
+    return barangays.filter((barangay) => affectedBarangayIdSet.has(barangay.id));
+  }, [barangays, selectedDisasterEvent]);
 
-  const openLifecycleModal = (mode, row) => {
-    setSelectedHistoryRow(row);
-    setLifecycleModalMode(mode);
-    setLifecycleRemarks("");
-    setActionFeedback({ type: "", title: "", message: "" });
-  };
-
-  const closeLifecycleModal = (force = false) => {
-    if (isSubmittingLifecycleAction && !force) {
+  useEffect(() => {
+    if (isBarangay || !filters.barangay_id || !selectedDisasterEvent) {
       return;
     }
 
-    setLifecycleModalMode("");
-    setSelectedHistoryRow(null);
-    setLifecycleRemarks("");
-  };
+    const isSelectedBarangayAffected = barangayOptions.some(
+      (barangay) => barangay.id === filters.barangay_id,
+    );
 
-  const handleLifecycleSubmit = async () => {
-    if (!selectedHistoryRow || !lifecycleModalMode) {
-      return;
+    if (!isSelectedBarangayAffected) {
+      setFilters((currentValue) => ({
+        ...currentValue,
+        barangay_id: "",
+      }));
     }
+  }, [barangayOptions, filters.barangay_id, isBarangay, selectedDisasterEvent]);
 
-    if (!lifecycleRemarks.trim()) {
-      setActionFeedback({
-        type: "error",
-        title: "Action Error",
-        message: "Remarks are required before cancelling or reversing a distribution.",
-      });
-      return;
-    }
+  const visibleHistoryRows = useMemo(() => {
+    const normalizedSearchTerm = searchTerm.trim().toLowerCase();
 
-    setIsSubmittingLifecycleAction(true);
+    const filteredRows = normalizedSearchTerm
+      ? historyRows.filter((row) => {
+          const searchableValues = [
+            row.family_head_name,
+            row.barangay_name,
+            row.sectors_text,
+            row.stub_no,
+            formatDisplayStubNumber(row),
+            row.serial_no,
+            row.disaster_event_title,
+            row.event_code,
+            row.relief_pack_template_name,
+            row.released_items_summary,
+            row.verified_by_name,
+          ];
+
+          return searchableValues.some((value) =>
+            String(value || "")
+              .toLowerCase()
+              .includes(normalizedSearchTerm),
+          );
+        })
+      : historyRows;
+
+    return sortDistributionHistoryRows(filteredRows, sortOrder);
+  }, [historyRows, searchTerm, sortOrder]);
+
+  const handleViewDetails = async (row) => {
+    setIsStubDetailModalOpen(true);
+    setSelectedStubDetails(null);
+    setStubDetailsErrorMessage("");
+    setIsLoadingStubDetails(true);
 
     try {
-      const response = await updateDistributionLifecycle({
-        transactionId: selectedHistoryRow.id,
-        action: lifecycleModalMode === "reverse" ? "REVERSED" : "CANCELLED",
-        remarks: lifecycleRemarks.trim(),
-      });
-
-      const updatedRow = response?.data || {};
-
-      setHistoryRows((currentRows) =>
-        currentRows.map((row) =>
-          row.id === selectedHistoryRow.id
-            ? {
-                ...row,
-                distribution_status:
-                  updatedRow.distribution_status || row.distribution_status,
-                receipt_status: updatedRow.receipt_status || row.receipt_status,
-                remarks: updatedRow.remarks || row.remarks,
-              }
-            : row,
-        ),
-      );
-
-      setActionFeedback({
-        type: "success",
-        title: "Distribution Updated",
-        message:
-          lifecycleModalMode === "reverse"
-            ? "Distribution reversed successfully."
-            : "Distribution cancelled successfully.",
-      });
-      closeLifecycleModal(true);
+      const response = await fetchStubDetails(row.stub_id);
+      setSelectedStubDetails(response?.data || response);
     } catch (error) {
-      setActionFeedback({
-        type: "error",
-        title: "Action Error",
-        message:
-          error.message || "Failed to update the selected distribution record.",
-      });
+      setStubDetailsErrorMessage(
+        error.message || "Failed to load household details.",
+      );
     } finally {
-      setIsSubmittingLifecycleAction(false);
+      setIsLoadingStubDetails(false);
     }
+  };
+
+  const closeStubDetailModal = () => {
+    setIsStubDetailModalOpen(false);
+    setSelectedStubDetails(null);
+    setStubDetailsErrorMessage("");
   };
 
   return (
     <>
       <PageHeader
         title="DISTRIBUTION HISTORY"
-        description={pageDescription}
         actions={[]}
       />
-
-      <section
-        style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          alignItems: "center",
-          gap: "12px",
-          flexWrap: "wrap",
-          marginBottom: "16px",
-        }}
-      >
-        {isMswdo ? (
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedExportFormat("csv");
-              setExportFeedback({ type: "", message: "" });
-              setIsExportModalOpen(true);
-            }}
-            disabled={Boolean(exportingFormat)}
-            style={{
-              border: "1px solid #c6d8ea",
-              borderRadius: "14px",
-              padding: "12px 18px",
-              backgroundColor: "#f8fbfe",
-              color: "#2a4c6f",
-              fontSize: "14px",
-              fontWeight: 700,
-              cursor: exportingFormat ? "not-allowed" : "pointer",
-              opacity: exportingFormat ? 0.7 : 1,
-            }}
-          >
-            {exportingFormat
-              ? `Exporting ${exportingFormat.toUpperCase()}...`
-              : "Export"}
-          </button>
-        ) : null}
-
-        <button
-          type="button"
-          onClick={() => setFilters((currentValue) => ({ ...currentValue }))}
-          style={pageHeaderStyles.secondaryButton}
-        >
-          Refresh
-        </button>
-      </section>
 
       <section style={shellStyles.card}>
         <div
@@ -413,6 +376,7 @@ const DistributionHistoryPage = () => {
                 setFilters((currentValue) => ({
                   ...currentValue,
                   disaster_event_id: event.target.value,
+                  barangay_id: "",
                 }))
               }
               disabled={isLoadingFilters}
@@ -421,7 +385,7 @@ const DistributionHistoryPage = () => {
               <option value="">All disaster events</option>
               {disasterEvents.map((eventRow) => (
                 <option key={eventRow.id} value={eventRow.id}>
-                  {eventRow.event_code} - {eventRow.title}
+                  {eventRow.title}
                 </option>
               ))}
             </select>
@@ -445,7 +409,7 @@ const DistributionHistoryPage = () => {
                 style={inputStyles}
               >
                 <option value="">All barangays</option>
-                {barangays.map((barangay) => (
+                {barangayOptions.map((barangay) => (
                   <option key={barangay.id} value={barangay.id}>
                     {barangay.name}
                   </option>
@@ -453,28 +417,6 @@ const DistributionHistoryPage = () => {
               </select>
             </div>
           ) : null}
-
-          <div>
-            <label htmlFor="distribution-history-status" style={labelStyles}>
-              Status
-            </label>
-            <select
-              id="distribution-history-status"
-              value={filters.status}
-              onChange={(event) =>
-                setFilters((currentValue) => ({
-                  ...currentValue,
-                  status: event.target.value,
-                }))
-              }
-              style={inputStyles}
-            >
-              <option value="">All statuses</option>
-              <option value="CLAIMED">Claimed</option>
-              <option value="CANCELLED">Cancelled</option>
-              <option value="REVERSED">Reversed</option>
-            </select>
-          </div>
 
           <div>
             <label htmlFor="distribution-history-date-from" style={labelStyles}>
@@ -511,125 +453,191 @@ const DistributionHistoryPage = () => {
               style={inputStyles}
             />
           </div>
+
+          <div>
+            <label htmlFor="distribution-history-order-list" style={labelStyles}>
+              Order List
+            </label>
+            <select
+              id="distribution-history-order-list"
+              value={sortOrder}
+              onChange={(event) => setSortOrder(event.target.value)}
+              style={inputStyles}
+            >
+              {ORDER_LIST_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
+      </section>
+
+      <section
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "12px",
+          flexWrap: "wrap",
+          margin: "18px 0",
+        }}
+      >
+        <div
+          style={{
+            position: "relative",
+            flex: "1 1 420px",
+          }}
+        >
+          <FiSearch
+            size={18}
+            style={{
+              position: "absolute",
+              left: "16px",
+              top: "50%",
+              transform: "translateY(-50%)",
+              color: "#7892aa",
+            }}
+          />
+          <input
+            type="search"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Search family head, sectors, or stub number"
+            style={{
+              ...inputStyles,
+              paddingLeft: "44px",
+              backgroundColor: "#ffffff",
+            }}
+          />
+        </div>
+
+        {isMswdo ? (
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedExportFormat("csv");
+              setExportFeedback({ type: "", message: "" });
+              setIsExportModalOpen(true);
+            }}
+            disabled={Boolean(exportingFormat)}
+            style={{
+              border: "1px solid #c6d8ea",
+              borderRadius: "14px",
+              minHeight: "46px",
+              padding: "12px 18px",
+              backgroundColor: "#f8fbfe",
+              color: "#2a4c6f",
+              fontSize: "14px",
+              fontWeight: 700,
+              cursor: exportingFormat ? "not-allowed" : "pointer",
+              opacity: exportingFormat ? 0.7 : 1,
+            }}
+          >
+            {exportingFormat
+              ? `Exporting ${exportingFormat.toUpperCase()}...`
+              : "Export"}
+          </button>
+        ) : null}
       </section>
 
       <section style={shellStyles.card}>
         <div style={{ marginBottom: "16px" }}>
           <h3 style={{ margin: 0, color: "#17324d" }}>Distribution Records</h3>
-          <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-            Read-only history of claimed and recorded disaster distributions.
-          </p>
         </div>
 
         {errorMessage ? <ErrorState message={errorMessage} style={{ marginBottom: "16px" }} /> : null}
 
         {isLoadingHistory ? (
           <LoadingState message="Loading distribution history..." />
-        ) : historyRows.length === 0 ? (
+        ) : visibleHistoryRows.length === 0 ? (
           <EmptyState message="No distribution records yet for the current filters." />
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={tableStyles.table}>
               <thead>
                 <tr>
-                  <th style={tableStyles.th}>Household / Family Head</th>
-                  <th style={tableStyles.th}>Stub / QR</th>
-                  <th style={tableStyles.th}>Disaster Event</th>
-                  <th style={tableStyles.th}>Relief Item / Pack</th>
-                  <th style={tableStyles.th}>Quantity</th>
-                  <th style={tableStyles.th}>Claimed / Recorded By</th>
-                  <th style={tableStyles.th}>Barangay</th>
-                  <th style={tableStyles.th}>Status</th>
-                  <th style={tableStyles.th}>Date / Time</th>
-                  <th style={tableStyles.th}>Actions</th>
+                  <th style={tableStyles.th}>Family Head</th>
+                  {!isBarangay ? <th style={tableStyles.th}>Barangay</th> : null}
+                  <th style={{ ...tableStyles.th, textAlign: "center" }}>
+                    Household Size
+                  </th>
+                  <th style={tableStyles.th}>Sectors</th>
+                  <th style={tableStyles.th}>Stub Number</th>
+                  <th style={tableStyles.th}>Relief Pack</th>
+                  <th style={tableStyles.th}>Claimed At</th>
+                  <th style={tableStyles.th}>Verified By</th>
+                  <th style={{ ...tableStyles.th, textAlign: "center" }}>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {historyRows.map((row) => (
+                {visibleHistoryRows.map((row) => (
                   <tr key={row.id}>
                     <td style={tableStyles.td}>
-                      <div style={{ fontWeight: 700 }}>{row.family_head_name || "--"}</div>
-                      <div style={{ color: "#60738a", fontSize: "12px" }}>
-                        Household ID: {row.household_id || "--"}
-                      </div>
+                      {row.family_head_name || "--"}
+                    </td>
+                    {!isBarangay ? (
+                      <td style={tableStyles.td}>{row.barangay_name || "--"}</td>
+                    ) : null}
+                    <td style={{ ...tableStyles.td, textAlign: "center" }}>
+                      <span
+                        style={{
+                          display: "inline-block",
+                          minWidth: "36px",
+                          textAlign: "center",
+                          padding: "6px 10px",
+                          borderRadius: "999px",
+                          backgroundColor: "#e5f1fb",
+                          color: "#356592",
+                          fontSize: "12px",
+                          fontWeight: 700,
+                        }}
+                      >
+                        {row.members_count ?? row.household_size ?? 0}
+                      </span>
                     </td>
                     <td style={tableStyles.td}>
-                      <div>Stub: {row.stub_no || "--"}</div>
-                      <div style={{ color: "#60738a", fontSize: "12px" }}>
-                        QR: {row.qr_reference_value || row.serial_no || "--"}
-                      </div>
+                      {formatOrderedSectorText(row.sectors_text)}
                     </td>
                     <td style={tableStyles.td}>
-                      <div>{row.event_code || "--"}</div>
-                      <div style={{ color: "#60738a", fontSize: "12px" }}>
-                        {row.disaster_event_title || "--"}
-                      </div>
+                      {formatDisplayStubNumber(row)}
                     </td>
                     <td style={tableStyles.td}>
-                      <div>{row.relief_pack_template_name || row.released_items_summary || "--"}</div>
+                      <div>
+                        {row.relief_pack_template_name ||
+                          row.released_items_summary ||
+                          "--"}
+                      </div>
                       <div style={{ color: "#60738a", fontSize: "12px" }}>
                         {row.relief_pack_template_name && row.released_items_summary
                           ? row.released_items_summary
-                          : row.relief_pack_template_name
-                            ? "Pack-based release"
-                            : "Item-based release"}
-                      </div>
-                    </td>
-                    <td style={tableStyles.td}>{row.total_quantity_released || 0}</td>
-                    <td style={tableStyles.td}>
-                      <div>Claimed: {row.claimed_by_name || "--"}</div>
-                      <div style={{ color: "#60738a", fontSize: "12px" }}>
-                        Recorded by: {row.verified_by_name || "--"}
-                      </div>
-                    </td>
-                    <td style={tableStyles.td}>{row.barangay_name || "--"}</td>
-                    <td style={tableStyles.td}>
-                      <StatusBadge status={row.distribution_status} />
-                      <div style={{ color: "#60738a", fontSize: "12px", marginTop: "6px" }}>
-                        Receipt: {row.receipt_status || "--"}
+                          : ""}
                       </div>
                     </td>
                     <td style={tableStyles.td}>
-                      <div>{formatDateTime(row.distribution_date)}</div>
-                      <div style={{ color: "#60738a", fontSize: "12px" }}>
-                        Receipt: {row.receipt_no || "--"}
-                      </div>
+                      {formatDateTime(row.distribution_date)}
                     </td>
-                    <td style={tableStyles.td}>
-                      <TableActionsMenu
-                        row={row}
-                        menuId={row.id}
-                        dataPrefix="distribution-history-action"
-                        items={[
-                          {
-                            key: "view",
-                            label: "View Reason / Status",
-                            onClick: (selectedRow) =>
-                              openLifecycleModal("view", selectedRow),
-                          },
-                          {
-                            key: "cancel",
-                            label: "Cancel",
-                            tone: "warning",
-                            hidden:
-                              !canManageLifecycle ||
-                              row.distribution_status !== "CLAIMED",
-                            onClick: (selectedRow) =>
-                              openLifecycleModal("cancel", selectedRow),
-                          },
-                          {
-                            key: "reverse",
-                            label: "Reverse",
-                            tone: "warning",
-                            hidden:
-                              !canManageLifecycle ||
-                              row.distribution_status !== "CLAIMED",
-                            onClick: (selectedRow) =>
-                              openLifecycleModal("reverse", selectedRow),
-                          },
-                        ]}
-                      />
+                    <td style={tableStyles.td}>{row.verified_by_name || "--"}</td>
+                    <td style={{ ...tableStyles.td, textAlign: "center" }}>
+                      <button
+                        type="button"
+                        onClick={() => handleViewDetails(row)}
+                        title="View Details"
+                        style={{
+                          border: "1px solid #c6d8ea",
+                          borderRadius: "12px",
+                          width: "40px",
+                          height: "40px",
+                          backgroundColor: "#f7fbfe",
+                          color: "#24496e",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <FiEye size={18} />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -641,7 +649,7 @@ const DistributionHistoryPage = () => {
 
       <ExportModal
         isOpen={isExportModalOpen}
-        title="Export MSWDO Report"
+        title="Distribution History Report"
         description="Choose the distribution history format to generate."
         reportOptions={[
           {
@@ -704,24 +712,12 @@ const DistributionHistoryPage = () => {
         onClose={() => setExportFeedback({ type: "", message: "" })}
       />
 
-      <FeedbackToast
-        type={actionFeedback.type}
-        title={actionFeedback.title}
-        message={actionFeedback.message}
-        onClose={() =>
-          setActionFeedback({ type: "", title: "", message: "" })
-        }
-      />
-
-      <DistributionLifecycleModal
-        mode={lifecycleModalMode}
-        isOpen={Boolean(lifecycleModalMode && selectedHistoryRow)}
-        isSubmitting={isSubmittingLifecycleAction}
-        remarks={lifecycleRemarks}
-        onChangeRemarks={setLifecycleRemarks}
-        row={selectedHistoryRow}
-        onCancel={closeLifecycleModal}
-        onConfirm={handleLifecycleSubmit}
+      <StubDetailModal
+        isOpen={isStubDetailModalOpen}
+        isLoading={isLoadingStubDetails}
+        errorMessage={stubDetailsErrorMessage}
+        stubDetails={selectedStubDetails}
+        onClose={closeStubDetailModal}
       />
     </>
   );

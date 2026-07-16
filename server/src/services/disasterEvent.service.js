@@ -1,6 +1,7 @@
 const pool = require("../config/db");
 const disasterEventRepository = require("../repositories/disasterEvent.repository");
 const householdRegistrationRepository = require("../repositories/householdRegistration.repository");
+const settingsRepository = require("../repositories/settings.repository");
 const disasterEventExport = require("../utils/disasterEventExport");
 const notificationService = require("../modules/notifications/notification.service");
 const mswdoReportExport = require("../utils/mswdoReportExport");
@@ -253,6 +254,30 @@ const getClosedDisasterEvents = async () => {
   await syncOverdueActiveDisasterEvents();
   const disasterEvents = await disasterEventRepository.getClosedDisasterEvents();
   return attachAffectedBarangays(disasterEvents);
+};
+
+const getDisasterEventsByBarangayId = async (barangayId) => {
+  if (!barangayId) {
+    const error = new Error("Assigned barangay is required");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  await syncOverdueActiveDisasterEvents();
+  const disasterEvents =
+    await disasterEventRepository.getDisasterEventsByBarangayId(barangayId);
+  return attachAffectedBarangays(disasterEvents);
+};
+
+const getDisasterEventsForBarangayRequester = async (requester) => {
+  let barangayId = requester?.defaultBarangayId || null;
+
+  if (!barangayId && requester?.userId) {
+    const user = await settingsRepository.getUserById(requester.userId);
+    barangayId = user?.default_barangay_id || null;
+  }
+
+  return getDisasterEventsByBarangayId(barangayId);
 };
 
 const getDisasterEventsByScope = async (scope) => {
@@ -843,6 +868,8 @@ module.exports = {
   getAllDisasterEvents,
   getActiveDisasterEvents,
   getClosedDisasterEvents,
+  getDisasterEventsByBarangayId,
+  getDisasterEventsForBarangayRequester,
   getDisasterEventById,
   createDisasterEvent,
   updateDisasterEvent,

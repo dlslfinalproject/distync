@@ -1,6 +1,8 @@
 const pool = require("../config/db");
 const distributionTransactionRepository = require("../repositories/distributionTransaction.repository");
 const notificationService = require("../modules/notifications/notification.service");
+const stubRepository = require("../repositories/stub.repository");
+const settingsRepository = require("../repositories/settings.repository");
 const { logAuditSafely, pickDefined } = require("../utils/systemLog");
 const mswdoReportExport = require("../utils/mswdoReportExport");
 
@@ -8,11 +10,90 @@ const buildFullName = (firstName, middleName, lastName, suffix) => {
   return [firstName, middleName, lastName, suffix].filter(Boolean).join(" ");
 };
 
+const formatStubDisplayNo = (sequenceNo, fallbackStubNo = null) => {
+  const parsedSequenceNo = Number(sequenceNo || 0);
+  return parsedSequenceNo > 0 ? `STUB#${parsedSequenceNo}` : fallbackStubNo || "--";
+};
+
+const groupByKey = (rows, key) => {
+  return rows.reduce((groupedRows, row) => {
+    const groupKey = row[key];
+
+    if (!groupKey) {
+      return groupedRows;
+    }
+
+    if (!groupedRows[groupKey]) {
+      groupedRows[groupKey] = [];
+    }
+
+    groupedRows[groupKey].push(row);
+    return groupedRows;
+  }, {});
+};
+
+const buildSectorsText = (
+  householdId,
+  householdSectorsByHouseholdId,
+  memberSectorsByHouseholdId,
+) => {
+  const householdSectorNames = (householdSectorsByHouseholdId[householdId] || []).map(
+    (sector) => sector.name,
+  );
+  const memberSectorNames = (memberSectorsByHouseholdId[householdId] || []).map(
+    (sector) => sector.name,
+  );
+  const uniqueSectorNames = [
+    ...new Set([...householdSectorNames, ...memberSectorNames]),
+  ];
+
+  return uniqueSectorNames.length > 0 ? uniqueSectorNames.join(", ") : "-";
+};
+
+const attachHistorySectors = async (rows) => {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return [];
+  }
+
+  const householdIds = [...new Set(rows.map((row) => row.household_id).filter(Boolean))];
+  const [householdSectors, memberSectors] = await Promise.all([
+    stubRepository.getHouseholdSectorsByHouseholdIds(householdIds),
+    stubRepository.getMemberSectorsByHouseholdIds(householdIds),
+  ]);
+  const householdSectorsByHouseholdId = groupByKey(
+    householdSectors,
+    "household_id",
+  );
+  const memberSectorsByHouseholdId = groupByKey(memberSectors, "household_id");
+
+  return rows.map((row) => ({
+    ...row,
+    sectors_text: buildSectorsText(
+      row.household_id,
+      householdSectorsByHouseholdId,
+      memberSectorsByHouseholdId,
+    ),
+  }));
+};
+
 const ACTIVE_QR_STATUS = "ACTIVE";
 const BARANGAY_ROLE_CODE = "BARANGAY";
 const ROLE_CODES = {
   BARANGAY: "BARANGAY",
   MSWDO: "MSWDO",
+};
+
+const resolveRequesterBarangayId = async (requester) => {
+  if (requester?.defaultBarangayId) {
+    return requester.defaultBarangayId;
+  }
+
+  if (!requester?.userId) {
+    return null;
+  }
+
+  const user = await settingsRepository.getUserById(requester.userId);
+  return user?.default_barangay_id || null;
 };
 
 const assertBarangayDistributionScope = (stub, requester) => {
@@ -588,8 +669,11 @@ const claimDistributionTransactionFromQr = async (requestData) => {
 const getDistributionHistory = async ({ requester, filters }) => {
   const roleCode = requester?.roleCode;
   const isBarangay = roleCode === BARANGAY_ROLE_CODE;
+  const requesterBarangayId = isBarangay
+    ? await resolveRequesterBarangayId(requester)
+    : null;
 
-  if (isBarangay && !requester?.defaultBarangayId) {
+  if (isBarangay && !requesterBarangayId) {
     const error = new Error(
       "Barangay distribution history requires an account with an assigned barangay.",
     );
@@ -597,9 +681,9 @@ const getDistributionHistory = async ({ requester, filters }) => {
     throw error;
   }
 
-  return distributionTransactionRepository.getDistributionHistory({
+  const rows = await distributionTransactionRepository.getDistributionHistory({
     barangayId: isBarangay
-      ? requester.defaultBarangayId
+      ? requesterBarangayId
       : filters.barangay_id || null,
     disasterEventId: filters.disaster_event_id || null,
     status: filters.status || null,
@@ -607,6 +691,8 @@ const getDistributionHistory = async ({ requester, filters }) => {
     dateTo: filters.date_to || null,
     limit: filters.limit || 100,
   });
+
+  return attachHistorySectors(rows);
 };
 
 const exportDistributionHistory = async ({ requester, filters }) => {
@@ -616,12 +702,12 @@ const exportDistributionHistory = async ({ requester, filters }) => {
     throw error;
   }
 
-  const rows = await distributionTransactionRepository.getDistributionHistoryExportRows({
-    barangayId: filters.barangay_id || null,
-    disasterEventId: filters.disaster_event_id || null,
-    status: filters.status || null,
-    dateFrom: filters.date_from || null,
-    dateTo: filters.date_to || null,
+  const rows = await getDistributionHistory({
+    requester,
+    filters: {
+      ...filters,
+      limit: 1000,
+    },
   });
 
   return mswdoReportExport.buildExportFile({
@@ -665,7 +751,10 @@ const exportDistributionHistory = async ({ requester, filters }) => {
       barangay_name: row.barangay_name || "--",
       event_label: [row.event_code, row.disaster_event_title].filter(Boolean).join(" - ") || "--",
       stub_reference:
-        [row.stub_no ? `Stub: ${row.stub_no}` : "", row.qr_reference_value ? `QR: ${row.qr_reference_value}` : ""]
+        [
+          `Stub: ${formatStubDisplayNo(row.stub_sequence_no, row.stub_no)}`,
+          row.qr_reference_value ? `QR: ${row.qr_reference_value}` : "",
+        ]
           .filter(Boolean)
           .join(" | ") || "--",
       relief_summary:

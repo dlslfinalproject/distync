@@ -50,6 +50,23 @@ const getClosedDisasterEvents = async () => {
   return result.rows;
 };
 
+const getDisasterEventsByBarangayId = async (barangayId) => {
+  const query = `
+    ${selectDisasterEventColumns}
+    WHERE status = ANY($1::TEXT[])
+      AND EXISTS (
+        SELECT 1
+        FROM disaster_event_barangays deb
+        WHERE deb.disaster_event_id = disaster_events.id
+          AND deb.barangay_id = $2
+      )
+    ORDER BY created_at DESC
+  `;
+
+  const result = await pool.query(query, [["ACTIVE", "CLOSED"], barangayId]);
+  return result.rows;
+};
+
 const getDisasterEventById = async (id) => {
   const query = `
     ${selectDisasterEventColumns}
@@ -609,6 +626,7 @@ module.exports = {
   getAllDisasterEvents,
   getActiveDisasterEvents,
   getClosedDisasterEvents,
+  getDisasterEventsByBarangayId,
   getDisasterEventById,
   getLatestHouseholdActivityByDisasterEventId,
   getAffectedBarangaysByDisasterEventId,

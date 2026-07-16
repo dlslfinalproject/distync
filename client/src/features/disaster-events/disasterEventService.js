@@ -45,6 +45,16 @@ export const fetchEndedDisasterEvents = async () => {
   return handleJsonResponse(response, "Failed to fetch ended disaster events");
 };
 
+export const fetchBarangayDisasterEventOptions = async () => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/disaster-events/barangay-options`,
+  );
+  return handleJsonResponse(
+    response,
+    "Failed to fetch barangay disaster event options",
+  );
+};
+
 export const fetchDisasterEventById = async (eventId) => {
   const response = await fetch(`${API_BASE_URL}/api/v1/disaster-events/${eventId}`);
   return handleJsonResponse(response, "Failed to fetch disaster event details");
