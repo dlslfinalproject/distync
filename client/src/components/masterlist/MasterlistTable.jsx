@@ -159,7 +159,7 @@ const MasterlistTable = ({
         <div style={{ marginTop: "10px" }}>
           <EmptyState
             compact
-            message="No registered families were found for the current filters."
+            message="No matching records found. Try adjusting your search or filters."
           />
         </div>
       </section>

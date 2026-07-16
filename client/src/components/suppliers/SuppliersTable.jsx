@@ -68,7 +68,7 @@ const SuppliersTable = ({ rows, isLoading, errorMessage, onEditSupplier }) => {
       <section style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Suppliers</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          No suppliers were found for the current filters.
+          No matching records found. Try adjusting your search or filters.
         </p>
       </section>
     );

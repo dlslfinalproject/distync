@@ -331,7 +331,7 @@ const SyncManagementPage = () => {
 
         {filteredQueueEntries.length === 0 ? (
           <p style={shellStyles.mutedText}>
-            No local sync queue entries match the current filter.
+            No matching records found. Try adjusting your search or filters.
           </p>
         ) : (
           <div style={{ overflowX: "auto" }}>
@@ -419,7 +419,7 @@ const SyncManagementPage = () => {
           </p>
         ) : filteredTransactions.length === 0 ? (
           <p style={shellStyles.mutedText}>
-            No sync history matches the current filter.
+            No matching records found. Try adjusting your search or filters.
           </p>
         ) : (
           <div style={{ overflowX: "auto" }}>
@@ -489,7 +489,7 @@ const SyncManagementPage = () => {
           <p style={shellStyles.mutedText}>Loading conflicts...</p>
         ) : filteredConflicts.length === 0 ? (
           <p style={shellStyles.mutedText}>
-            No conflicts match the current filter.
+            No matching records found. Try adjusting your search or filters.
           </p>
         ) : (
           <div style={{ overflowX: "auto" }}>

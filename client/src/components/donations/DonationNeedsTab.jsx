@@ -31,7 +31,7 @@ const DonationNeedsTab = ({
         <p style={shellStyles.mutedText}>Loading donation needs...</p>
       ) : filteredDonationNeeds.length === 0 ? (
         <p style={shellStyles.mutedText}>
-          No donation needs are available for the current filters.
+          No matching records found. Try adjusting your search or filters.
         </p>
       ) : (
         <div style={{ overflowX: "auto" }}>

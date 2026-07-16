@@ -93,7 +93,7 @@ const InventoryTransactionsTable = ({ rows, isLoading, errorMessage }) => {
     return (
       <div style={{ marginTop: "8px" }}>
         <p style={{ ...shellStyles.mutedText, marginTop: 0 }}>
-          No inventory tracking records were found for the current filters.
+          No matching records found. Try adjusting your search or filters.
         </p>
       </div>
     );

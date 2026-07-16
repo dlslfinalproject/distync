@@ -217,7 +217,7 @@ const MswdoStubResultsTable = ({
       <section style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Stub Information</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          No stub records were found for the selected disaster event and barangay.
+          No matching records found. Try adjusting your search or filters.
         </p>
       </section>
     );

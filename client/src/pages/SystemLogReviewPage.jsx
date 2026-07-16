@@ -231,7 +231,7 @@ const SystemLogReviewPage = () => {
         {isLoading ? (
           <EmptyState message="Loading audit log review..." />
         ) : reviewData.audit_logs.length === 0 ? (
-          <EmptyState message="No audit logs found for the selected filter." />
+          <EmptyState message="No matching records found. Try adjusting your search or filters." />
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={tableStyles.table}>
@@ -284,7 +284,7 @@ const SystemLogReviewPage = () => {
         {isLoading ? (
           <EmptyState message="Loading error log review..." />
         ) : reviewData.error_logs.length === 0 ? (
-          <EmptyState message="No error logs found for the selected filter." />
+          <EmptyState message="No matching records found. Try adjusting your search or filters." />
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={tableStyles.table}>

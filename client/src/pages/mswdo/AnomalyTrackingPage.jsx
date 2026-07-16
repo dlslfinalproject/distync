@@ -307,7 +307,7 @@ const AnomalyTrackingPage = () => {
         {isLoadingRows ? (
           <LoadingState message="Loading anomaly tracking..." />
         ) : rows.length === 0 ? (
-          <EmptyState message="No anomalies are available for the current filters." />
+          <EmptyState message="No matching records found. Try adjusting your search or filters." />
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={tableStyles.table}>

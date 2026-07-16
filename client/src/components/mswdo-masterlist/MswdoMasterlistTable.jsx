@@ -128,8 +128,7 @@ const MswdoMasterlistTable = ({
       <section style={{ ...shellStyles.card, width: "100%", minWidth: 0 }}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Monitoring Table</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          No household records were found for the selected disaster event and
-          filters.
+          No matching records found. Try adjusting your search or filters.
         </p>
       </section>
     );

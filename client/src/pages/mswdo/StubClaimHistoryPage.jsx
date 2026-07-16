@@ -364,7 +364,7 @@ const StubClaimHistoryPage = () => {
         {isLoadingRows ? (
           <LoadingState message="Loading stub and claim history..." />
         ) : rows.length === 0 ? (
-          <EmptyState message="No stub or claim history is available for the current filters." />
+          <EmptyState message="No matching records found. Try adjusting your search or filters." />
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={tableStyles.table}>

@@ -117,7 +117,7 @@ const DisasterEventsTable = ({
       <div style={{ width: "100%" }}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Disaster Events</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          No disaster events were found for the current filter.
+          No matching records found. Try adjusting your search or filters.
         </p>
       </div>
     );

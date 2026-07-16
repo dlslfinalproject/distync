@@ -551,7 +551,7 @@ const DistributionHistoryPage = () => {
         {isLoadingHistory ? (
           <LoadingState message="Loading distribution history..." />
         ) : visibleHistoryRows.length === 0 ? (
-          <EmptyState message="No distribution records yet for the current filters." />
+          <EmptyState message="No matching records found. Try adjusting your search or filters." />
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={tableStyles.table}>

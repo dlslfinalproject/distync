@@ -578,7 +578,7 @@ const DisasterEventReportsPage = () => {
         {isLoadingRows ? (
           <LoadingState message="Loading disaster event reports..." />
         ) : displayedRows.length === 0 ? (
-          <EmptyState message="No disaster event reports are available yet." />
+          <EmptyState message="No matching records found. Try adjusting your search or filters." />
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={tableStyles.table}>
