@@ -207,11 +207,11 @@ const updateInventoryBatchQuantityAndStatus = async (
   return result.rows[0] || null;
 };
 
-const updateStubAsClaimed = async (stubId, dbClient) => {
+const updateStubAsClaimed = async (stubId, dbClient, claimedAt = null) => {
   const query = `
     UPDATE stubs
     SET status = 'CLAIMED',
-        claimed_at = NOW(),
+        claimed_at = COALESCE($2::timestamptz, NOW()),
         updated_at = NOW()
     WHERE id = $1
     RETURNING
@@ -228,7 +228,7 @@ const updateStubAsClaimed = async (stubId, dbClient) => {
       updated_at
   `;
 
-  const result = await dbClient.query(query, [stubId]);
+  const result = await dbClient.query(query, [stubId, claimedAt]);
   return result.rows[0] || null;
 };
 

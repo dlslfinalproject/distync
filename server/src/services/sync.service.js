@@ -24,6 +24,7 @@ const SYNC_STATUS = {
 };
 
 const CONFLICT_STATUS = {
+  OPEN: "OPEN",
   RESOLVED: "RESOLVED",
 };
 
@@ -55,10 +56,12 @@ const ACTION_HANDLERS = {
     entityType: "HOUSEHOLD",
     operationType: "CREATE",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    execute: async ({ payload, auth }) =>
+    execute: async ({ payload, auth, clientTimestamp }) =>
       householdRegistrationService.registerHousehold({
         ...payload,
         registered_by: auth.userId,
+        synced_client_timestamp: clientTimestamp,
+        enforce_sync_duplicate_guard: true,
       }),
   },
   HOUSEHOLD_UPDATE: {
@@ -81,10 +84,14 @@ const ACTION_HANDLERS = {
     entityType: "HOUSEHOLD",
     operationType: "TIME_OUT",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    execute: async ({ entityServerId, payload, auth }) =>
+    execute: async ({ entityServerId, payload, auth, clientTimestamp }) =>
       householdRegistrationService.departHousehold(
         entityServerId,
-        payload,
+        {
+          ...payload,
+          departure_time: payload.departure_time || clientTimestamp,
+          allow_duplicate_departure_resolution: true,
+        },
         getRequesterForSync(auth),
       ),
   },
@@ -92,10 +99,12 @@ const ACTION_HANDLERS = {
     entityType: "STUB",
     operationType: "CLAIM",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    execute: async ({ entityServerId, auth }) =>
+    execute: async ({ entityServerId, auth, clientTimestamp }) =>
       stubService.claimBarangayStub({
         id: entityServerId,
         user_id: auth.roleCode === ROLE_CODES.BARANGAY ? auth.userId : null,
+        verified_by: auth.userId,
+        claimed_at: clientTimestamp,
         override_barangay_id: null,
       }),
   },
@@ -409,6 +418,7 @@ const processSingleSyncEntry = async (entry, auth) => {
       entityLocalId: entry.entity_local_id,
       payload: entry.payload,
       auth,
+      clientTimestamp: entry.client_timestamp,
     });
 
     const resolvedEntityServerId =
@@ -442,6 +452,67 @@ const processSingleSyncEntry = async (entry, auth) => {
       conflict: conflictState.conflictRecord,
     };
   } catch (error) {
+    const isDuplicateConflict =
+      error.code === "DUPLICATE_HOUSEHOLD_REGISTRATION" ||
+      error.code === "DUPLICATE_HOUSEHOLD_DEPARTURE" ||
+      error.code === "STUB_ALREADY_CLAIMED";
+
+    if (isDuplicateConflict) {
+      const requiresManualReview = error.code === "STUB_ALREADY_CLAIMED";
+      const conflictTransaction = await syncRepository.updateSyncTransaction(
+        syncTransaction.id,
+        {
+          entity_server_id: entry.entity_server_id || error.entityServerId || null,
+          server_timestamp: new Date().toISOString(),
+          sync_status: SYNC_STATUS.CONFLICT,
+          error_message: error.message || "Duplicate offline action was ignored",
+        },
+      );
+
+      let conflictRecord = null;
+
+      try {
+        conflictRecord = await syncRepository.insertSyncConflict({
+          sync_transaction_id: syncTransaction.id,
+          entity_type: actionConfig.entityType,
+          entity_server_id:
+            entry.entity_server_id || error.entityServerId || null,
+          conflict_type: error.code,
+          local_payload_json: entry.payload,
+          server_payload_json: error.serverPayload || {},
+          resolution_strategy: requiresManualReview
+            ? "MANUAL_REVIEW_REQUIRED"
+            : "EARLIEST_TIMESTAMP",
+          resolved_payload_json: {
+            winner: requiresManualReview ? null : "SERVER",
+            reason: error.message,
+          },
+          resolved_by: requiresManualReview ? null : auth.userId,
+          resolved_at: requiresManualReview ? null : new Date().toISOString(),
+          status: requiresManualReview
+            ? CONFLICT_STATUS.OPEN
+            : CONFLICT_STATUS.RESOLVED,
+        });
+      } catch (conflictError) {
+        await logErrorSafely({
+          actor: auth,
+          moduleName: "sync",
+          errorCode: "SYNC_DUPLICATE_CONFLICT_RECORD_FAILED",
+          errorMessage: `Failed to record duplicate conflict for ${entry.action_key}`,
+          error: conflictError,
+        });
+      }
+
+      return {
+        client_sync_id: entry.client_sync_id,
+        sync_transaction_id: syncTransaction.id,
+        sync_status: SYNC_STATUS.CONFLICT,
+        message: error.message || "Duplicate offline action was ignored",
+        data: conflictTransaction,
+        conflict: conflictRecord,
+      };
+    }
+
     await syncRepository.updateSyncTransaction(syncTransaction.id, {
       entity_server_id: entry.entity_server_id || null,
       server_timestamp: new Date().toISOString(),
@@ -470,8 +541,13 @@ const processSingleSyncEntry = async (entry, auth) => {
 
 const processSyncEntries = async ({ entries, auth }) => {
   const results = [];
+  const orderedEntries = [...entries].sort((a, b) => {
+    const aTime = getComparableTimestamp(a.client_timestamp)?.getTime() || 0;
+    const bTime = getComparableTimestamp(b.client_timestamp)?.getTime() || 0;
+    return aTime - bTime;
+  });
 
-  for (const entry of entries) {
+  for (const entry of orderedEntries) {
     const result = await processSingleSyncEntry(entry, auth);
     results.push(result);
   }

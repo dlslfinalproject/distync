@@ -3,6 +3,7 @@ import { FaHandHolding } from "react-icons/fa6";
 import { FiEye } from "react-icons/fi";
 import { shellStyles } from "../layout/BarangayLayout";
 import { formatOrderedSectorText } from "../../utils/sectorDisplay";
+import SyncStatusIcon from "../shared/SyncStatusIcon";
 import QrCodePanel from "./QrCodePanel";
 
 const tableStyles = {
@@ -73,6 +74,12 @@ const tableStyles = {
     fontSize: "12px",
     lineHeight: 1.4,
   },
+  familyHeadCell: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    flexWrap: "wrap",
+  },
 };
 
 const getStatusChipStyles = (status, isActionable = false) => {
@@ -129,6 +136,14 @@ const formatDisplayStubNo = (row) => {
 };
 
 const getStatusLabel = (status) => {
+  if (status === "PENDING_SYNC") {
+    return "Pending Sync";
+  }
+
+  if (status === "FAILED_SYNC") {
+    return "Sync Failed";
+  }
+
   if (status === "CLAIMED") {
     return "Claimed";
   }
@@ -210,7 +225,7 @@ const StubResultsTable = ({
 
   const selectableRows = isClaimReadOnly
     ? []
-    : rows.filter((row) => row.status === "ISSUED");
+    : rows.filter((row) => row.status === "ISSUED" && !row.is_local_only);
 
   const areAllSelected =
     selectableRows.length > 0 &&
@@ -302,7 +317,8 @@ const StubResultsTable = ({
           </thead>
           <tbody>
             {rows.map((row) => {
-              const isSelectable = !isClaimReadOnly && row.status === "ISSUED";
+              const isSelectable =
+                !isClaimReadOnly && row.status === "ISSUED" && !row.is_local_only;
               const isSelected = safeSelectedStubIds.includes(row.id);
 
               return (
@@ -322,7 +338,10 @@ const StubResultsTable = ({
                     />
                   </td>
                   <td style={tableStyles.bodyCell}>
-                    {row.household?.family_head_name || "-"}
+                    <div style={tableStyles.familyHeadCell}>
+                      <span>{row.household?.family_head_name || "-"}</span>
+                      <SyncStatusIcon status={row.sync_status} />
+                    </div>
                   </td>
                   <td
                     style={{
@@ -370,7 +389,11 @@ const StubResultsTable = ({
                       verticalAlign: "middle",
                     }}
                   >
-                    {isClaimReadOnly && row.status === "ISSUED" ? (
+                    {row.is_local_only ? (
+                      <span style={getStatusChipStyles("PENDING_SYNC")}>
+                        Pending Sync
+                      </span>
+                    ) : isClaimReadOnly && row.status === "ISSUED" ? (
                       <span style={getStatusChipStyles("ISSUED")}>
                         Unclaimed
                       </span>
@@ -405,9 +428,14 @@ const StubResultsTable = ({
                     <button
                       type="button"
                       onClick={() => onViewStub(row)}
-                      title="View Details"
+                      title={row.is_local_only ? "Available after sync" : "View Details"}
                       aria-label="View Details"
-                      style={tableStyles.actionButton}
+                      disabled={row.is_local_only}
+                      style={{
+                        ...tableStyles.actionButton,
+                        cursor: row.is_local_only ? "not-allowed" : "pointer",
+                        opacity: row.is_local_only ? 0.55 : 1,
+                      }}
                     >
                       <FiEye size={18} />
                     </button>

@@ -29,6 +29,41 @@ const NON_ADMITTED_RESIDENT_STAY_TYPES = new Set([
   "OTHER_SAFE_PLACE",
 ]);
 
+const buildDuplicateRegistrationError = (duplicateHousehold) => {
+  const error = new Error(
+    "Duplicate household registration detected. Earlier registration was kept.",
+  );
+  error.statusCode = 409;
+  error.code = "DUPLICATE_HOUSEHOLD_REGISTRATION";
+  error.entityServerId = duplicateHousehold?.id || null;
+  error.serverPayload = duplicateHousehold || null;
+  return error;
+};
+
+const buildDuplicateDepartureError = (householdId, latestAttendance) => {
+  const error = new Error(
+    "Duplicate household departure detected. Earlier departure time was kept.",
+  );
+  error.statusCode = 409;
+  error.code = "DUPLICATE_HOUSEHOLD_DEPARTURE";
+  error.entityServerId = householdId;
+  error.serverPayload = latestAttendance || null;
+  return error;
+};
+
+const isEarlierTimestamp = (candidateTimestamp, existingTimestamp) => {
+  if (!candidateTimestamp || !existingTimestamp) {
+    return false;
+  }
+
+  const candidateTime = new Date(candidateTimestamp).getTime();
+  const existingTime = new Date(existingTimestamp).getTime();
+
+  return Number.isFinite(candidateTime) &&
+    Number.isFinite(existingTime) &&
+    candidateTime < existingTime;
+};
+
 const buildStubQrCodeValue = ({ disasterEventId, householdId, stubNo }) => {
   return `DISTYNC-STUB|${disasterEventId}|${householdId}|${stubNo}`;
 };
@@ -863,6 +898,7 @@ const registerHousehold = async (requestData) => {
 
   const requestDataWithDerivedAgeGroups = {
     ...registrationData,
+    registered_at: registrationData.synced_client_timestamp || null,
     family_head_photo_url: registrationData.family_head_photo_url || null,
     photo_captured_at: registrationData.family_head_photo_url
       ? new Date().toISOString()
@@ -882,6 +918,35 @@ const registerHousehold = async (requestData) => {
   };
   const shouldAutoArchiveWithoutAttendance =
     isNonAdmittedResidentRecord(requestDataWithDerivedAgeGroups);
+
+  if (
+    registrationData.enforce_sync_duplicate_guard &&
+    registrationData.synced_client_timestamp
+  ) {
+    const duplicateHousehold =
+      await householdRegistrationRepository.findDuplicateHouseholdRegistration({
+        disasterEventId: requestDataWithDerivedAgeGroups.disaster_event_id,
+        barangayId: requestDataWithDerivedAgeGroups.barangay_id,
+        familyHead: requestDataWithDerivedAgeGroups.family_head,
+      });
+
+    if (duplicateHousehold) {
+      if (
+        isEarlierTimestamp(
+          registrationData.synced_client_timestamp,
+          duplicateHousehold.registered_at,
+        )
+      ) {
+        await householdRegistrationRepository.updateHouseholdRegistrationTimestamp(
+          duplicateHousehold.id,
+          registrationData.synced_client_timestamp,
+        );
+        return buildRegistrationResponse(duplicateHousehold.id);
+      }
+
+      throw buildDuplicateRegistrationError(duplicateHousehold);
+    }
+  }
 
   const householdSectors = await householdRegistrationRepository.getSectorsByIds(
     deduplicateIds(requestDataWithDerivedAgeGroups.household_sector_ids),
@@ -1001,6 +1066,7 @@ const registerHousehold = async (requestData) => {
           status: "PRESENT",
           recorded_by: requestDataWithDerivedAgeGroups.registered_by,
           remarks: "Automatic arrival recorded during household registration",
+          time_in: requestDataWithDerivedAgeGroups.registered_at,
         },
         client,
       );
@@ -1048,6 +1114,7 @@ const registerHousehold = async (requestData) => {
             status: "PRESENT",
             recorded_by: requestDataWithDerivedAgeGroups.registered_by,
             remarks: "Automatic arrival recorded during household registration",
+            time_in: requestDataWithDerivedAgeGroups.registered_at,
           },
           client,
         );
@@ -1148,6 +1215,41 @@ const departHousehold = async (
   }
 
   if (!household.is_active) {
+    if (departureDetails?.allow_duplicate_departure_resolution) {
+      const latestAttendance =
+        await householdRegistrationRepository.getLatestAttendanceByHouseholdId(
+          householdId,
+          household.disaster_event_id,
+        );
+
+      if (latestAttendance?.time_out) {
+        if (
+          isEarlierTimestamp(
+            departureDetails.departure_time,
+            latestAttendance.time_out,
+          )
+        ) {
+          const updatedLogs =
+            await householdRegistrationRepository.updateHouseholdDepartureTimestamp(
+              householdId,
+              departureDetails.departure_time,
+            );
+
+          return {
+            household_id: householdId,
+            affected_logs_count: updatedLogs.length,
+            archived_members_count: 0,
+            latest_departure_time:
+              updatedLogs[0]?.time_out || latestAttendance.time_out,
+            status: "ARCHIVED",
+            household,
+          };
+        }
+
+        throw buildDuplicateDepartureError(householdId, latestAttendance);
+      }
+    }
+
     const error = new Error("Archived households cannot be marked as departed");
     error.statusCode = 400;
     throw error;
