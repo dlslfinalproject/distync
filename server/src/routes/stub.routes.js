@@ -16,7 +16,7 @@ const router = express.Router();
 
 router.get(
   "/barangay-dashboard",
-  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO),
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
   validateGetBarangayStubDashboard,
   async (req, res) => {
     try {
