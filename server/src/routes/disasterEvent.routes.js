@@ -55,6 +55,28 @@ router.get("/ended", requireRoles(ROLE_CODES.MSWDO), async (req, res) => {
 });
 
 router.get(
+  "/barangay-options",
+  requireRoles(ROLE_CODES.BARANGAY),
+  async (req, res) => {
+    try {
+      const disasterEvents =
+        await disasterEventService.getDisasterEventsForBarangayRequester(
+          req.auth,
+        );
+
+      return res.status(200).json(disasterEvents);
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+
+      return res.status(statusCode).json({
+        message:
+          error.message || "Failed to fetch barangay disaster event options",
+      });
+    }
+  },
+);
+
+router.get(
   "/reports/summary",
   requireRoles(ROLE_CODES.MSWDO),
   validateDisasterEventReportSummary,

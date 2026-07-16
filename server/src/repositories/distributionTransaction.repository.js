@@ -433,6 +433,29 @@ const getDistributionHistory = async ({
       b.name AS barangay_name,
       s.stub_no,
       s.serial_no,
+      (
+        SELECT COUNT(*)::int
+        FROM stubs sequence_stubs
+        INNER JOIN households sequence_households
+          ON sequence_households.id = sequence_stubs.household_id
+        WHERE sequence_stubs.disaster_event_id = s.disaster_event_id
+          AND sequence_households.barangay_id IS NOT DISTINCT FROM h.barangay_id
+          AND sequence_households.current_stay_type = 'EVAC_CENTER'
+          AND sequence_stubs.status IN ('ISSUED', 'CLAIMED')
+          AND (
+            sequence_stubs.issued_at < s.issued_at
+            OR (
+              sequence_stubs.issued_at = s.issued_at
+              AND sequence_stubs.id <= s.id
+            )
+          )
+      ) AS stub_sequence_no,
+      h.household_size,
+      (
+        SELECT COUNT(*)::int
+        FROM evacuees e
+        WHERE e.household_id = h.id
+      ) AS members_count,
       CONCAT_WS(
         ' ',
         h.family_head_first_name,
