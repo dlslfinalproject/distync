@@ -89,11 +89,6 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
             <h2 style={{ ...pageHeaderStyles.title, fontSize: "30px" }}>
               {form.isEditMode ? "Edit Household" : "Register Family"}
             </h2>
-            <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-              {form.isEditMode
-                ? "Update the household profile and manage members below. You can add, edit, or remove incorrectly encoded members before saving."
-                : "Complete the household, family head, member, and condition details below."}
-            </p>
           </div>
           <button
             type="button"
