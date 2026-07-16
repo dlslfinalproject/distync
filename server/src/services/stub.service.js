@@ -285,6 +285,13 @@ const getBarangayStubDashboard = async (filters) => {
     await stubRepository.getHouseholdSectorsByHouseholdIds(householdIds);
   const memberSectors =
     await stubRepository.getMemberSectorsByHouseholdIds(householdIds);
+  const reliefPackTemplates =
+    await reliefPackTemplateRepository.getReliefPackTemplates({
+      is_active: true,
+      based_on_family_size: null,
+      based_on_sector: null,
+      search: "",
+    });
   const householdSectorsByHouseholdId = groupByKey(
     householdSectors,
     "household_id",
@@ -308,43 +315,62 @@ const getBarangayStubDashboard = async (filters) => {
     disaster_event: scopedDisasterEvent,
     metrics,
     count: rows.length,
-    data: rowsWithQr.map((row) => ({
-      id: row.id,
-      stub_no: row.stub_no,
-      display_stub_no: formatStubDisplayNo(row.stub_sequence_no),
-      serial_no: row.serial_no,
-      stub_sequence_no: row.stub_sequence_no,
-      status: row.status,
-      issued_at: row.issued_at,
-      qr_code_value: row.qr_code_value || null,
-      qr_generated_at: row.qr_generated_at || null,
-      qr_generated_by: row.qr_generated_by || null,
-      qr_status: row.qr_status || null,
-      qr_notes: row.qr_notes || null,
-      household: {
-        id: row.household_id,
-        family_head_name: buildFullName(
-          row.family_head_first_name,
-          row.family_head_middle_name,
-          row.family_head_last_name,
-          row.family_head_suffix,
+    data: rowsWithQr.map((row) => {
+      const sectorIds = buildSectorIds(
+        row.household_id,
+        householdSectorsByHouseholdId,
+        memberSectorsByHouseholdId,
+      );
+      const assignedReliefPacks = getAssignedReliefPackTemplates(
+        sectorIds,
+        reliefPackTemplates,
+      ).map((template) => ({
+        id: template.id,
+        name: template.name,
+        is_additional_pack: Boolean(template.is_additional_pack),
+        sector_id: template.sector_id || null,
+      }));
+      const reliefPackName = assignedReliefPacks
+        .map((template) => template.name)
+        .filter(Boolean)
+        .join(", ");
+
+      return {
+        id: row.id,
+        stub_no: row.stub_no,
+        display_stub_no: formatStubDisplayNo(row.stub_sequence_no),
+        serial_no: row.serial_no,
+        stub_sequence_no: row.stub_sequence_no,
+        status: row.status,
+        issued_at: row.issued_at,
+        qr_code_value: row.qr_code_value || null,
+        qr_generated_at: row.qr_generated_at || null,
+        qr_generated_by: row.qr_generated_by || null,
+        qr_status: row.qr_status || null,
+        qr_notes: row.qr_notes || null,
+        household: {
+          id: row.household_id,
+          family_head_name: buildFullName(
+            row.family_head_first_name,
+            row.family_head_middle_name,
+            row.family_head_last_name,
+            row.family_head_suffix,
+          ),
+          members_count: row.members_count,
+          family_head_photo_url: row.family_head_photo_url || null,
+          photo_captured_at: row.photo_captured_at || null,
+          photo_verification_notes: row.photo_verification_notes || null,
+        },
+        sectors_text: buildSectorsText(
+          row.household_id,
+          householdSectorsByHouseholdId,
+          memberSectorsByHouseholdId,
         ),
-        members_count: row.members_count,
-        family_head_photo_url: row.family_head_photo_url || null,
-        photo_captured_at: row.photo_captured_at || null,
-        photo_verification_notes: row.photo_verification_notes || null,
-      },
-      sectors_text: buildSectorsText(
-        row.household_id,
-        householdSectorsByHouseholdId,
-        memberSectorsByHouseholdId,
-      ),
-      sector_ids: buildSectorIds(
-        row.household_id,
-        householdSectorsByHouseholdId,
-        memberSectorsByHouseholdId,
-      ),
-    })),
+        sector_ids: sectorIds,
+        assigned_relief_packs: assignedReliefPacks,
+        relief_pack_name: reliefPackName || "--",
+      };
+    }),
   };
 };
 

@@ -47,6 +47,7 @@ export const fetchMswdoSectors = async () => {
 export const fetchConsolidatedMasterlist = async ({
   disasterEventId,
   barangayId,
+  eventScope,
   recordStatus = "active",
 }) => {
   if (!disasterEventId) {
@@ -67,6 +68,10 @@ export const fetchConsolidatedMasterlist = async ({
 
   if (barangayId) {
     searchParams.set("barangay_id", barangayId);
+  }
+
+  if (eventScope) {
+    searchParams.set("event_scope", eventScope);
   }
 
   const requestedRecordStatus =

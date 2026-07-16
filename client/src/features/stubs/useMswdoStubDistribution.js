@@ -46,6 +46,10 @@ const getMappedRows = (stubRows) =>
     qr_generated_by: stubRow.qr_generated_by || "",
     qr_status: stubRow.qr_status || "",
     qr_notes: stubRow.qr_notes || "",
+    relief_pack_name: stubRow.relief_pack_name || "--",
+    assigned_relief_packs: Array.isArray(stubRow.assigned_relief_packs)
+      ? stubRow.assigned_relief_packs
+      : [],
     sectors_text: stubRow.sectors_text || "-",
     sector_ids: Array.isArray(stubRow.sector_ids) ? stubRow.sector_ids : [],
     status: stubRow.status,

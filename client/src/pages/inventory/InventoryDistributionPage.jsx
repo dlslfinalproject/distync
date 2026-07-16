@@ -399,24 +399,24 @@ const InventoryDistributionPage = () => {
   const summaryCards = useMemo(() => {
     return [
       {
-        label: "Total Families Served",
+        label: "Total Families",
         value: analytics.totalFamiliesServed,
         description:
-          "Families with relief packs already distributed for the selected event and barangay view.",
+          "Families to receive relief packs for the selected event and barangay view.",
         accentColor: "#2f6499",
       },
       {
-        label: "Total Relief Packs Distributed",
-        value: analytics.totalReliefPacksDistributed,
+        label: "Claimed Relief Packs",
+        value: analytics.claimedCount,
         description:
-          "Distributed relief packs based on issued or claimed household stub records.",
+          "Relief packs that have already been claimed by families.",
         accentColor: "#c9792b",
       },
       {
-        label: "Claimed vs Unclaimed",
-        value: `${analytics.claimedCount} / ${analytics.pendingCount}`,
+        label: "Unclaimed Relief Packs",
+        value: analytics.pendingCount,
         description:
-          "Claimed families are listed first, while unclaimed families remain pending for release pickup.",
+          "Relief packs that are still pending pickup by families.",
         accentColor: "#2d7a4f",
       },
       {

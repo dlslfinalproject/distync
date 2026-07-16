@@ -140,6 +140,10 @@ const renderReliefPackItems = (row) => {
     );
   }
 
+  if (row.relief_pack_name && row.relief_pack_name !== "--") {
+    return row.relief_pack_name;
+  }
+
   if (!Array.isArray(row.relief_pack_items) || row.relief_pack_items.length === 0) {
     return (
       <span style={tableStyles.mutedText}>

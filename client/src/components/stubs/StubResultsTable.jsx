@@ -266,6 +266,7 @@ const StubResultsTable = ({
                 Household Size
               </th>
               <th style={tableStyles.headerCell}>Sectors</th>
+              <th style={tableStyles.headerCell}>Relief Pack</th>
               <th
                 style={{
                   ...tableStyles.headerCell,
@@ -336,6 +337,9 @@ const StubResultsTable = ({
                   </td>
                   <td style={tableStyles.bodyCell}>
                     {formatOrderedSectorText(row.sectors_text)}
+                  </td>
+                  <td style={tableStyles.bodyCell}>
+                    {row.relief_pack_name || "--"}
                   </td>
                   <td
                     style={{
