@@ -62,6 +62,157 @@ const getInventoryUsageSeries = async (
   return result.rows;
 };
 
+const getForecastEventContext = async (disasterEventId, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      SELECT
+        de.id,
+        de.event_code,
+        de.title,
+        de.status,
+        de.start_date,
+        de.end_date,
+        de.ended_at,
+        COALESCE(household_summary.household_count, 0) AS household_count,
+        COALESCE(evacuee_summary.evacuee_count, 0) AS evacuee_count,
+        COALESCE(attendance_summary.attendance_record_count, 0) AS attendance_record_count,
+        COALESCE(attendance_summary.present_evacuee_count, 0) AS present_evacuee_count,
+        COALESCE(distribution_summary.distribution_transaction_count, 0) AS distribution_transaction_count,
+        COALESCE(distribution_summary.total_released_quantity, 0) AS total_released_quantity,
+        COALESCE(template_summary.active_standard_pack_count, 0) AS active_standard_pack_count
+      FROM disaster_events de
+      LEFT JOIN (
+        SELECT
+          disaster_event_id,
+          COUNT(*)::integer AS household_count
+        FROM households
+        WHERE disaster_event_id = $1
+        GROUP BY disaster_event_id
+      ) AS household_summary
+        ON household_summary.disaster_event_id = de.id
+      LEFT JOIN (
+        SELECT
+          h.disaster_event_id,
+          COUNT(e.id)::integer AS evacuee_count
+        FROM households h
+        INNER JOIN evacuees e ON e.household_id = h.id
+        WHERE h.disaster_event_id = $1
+        GROUP BY h.disaster_event_id
+      ) AS evacuee_summary
+        ON evacuee_summary.disaster_event_id = de.id
+      LEFT JOIN (
+        SELECT
+          el.disaster_event_id,
+          COUNT(*)::integer AS attendance_record_count,
+          COUNT(DISTINCT CASE
+            WHEN el.status = 'PRESENT' AND el.time_out IS NULL THEN el.evacuee_id
+            ELSE NULL
+          END)::integer AS present_evacuee_count
+        FROM evacuation_logs el
+        WHERE el.disaster_event_id = $1
+        GROUP BY el.disaster_event_id
+      ) AS attendance_summary
+        ON attendance_summary.disaster_event_id = de.id
+      LEFT JOIN (
+        SELECT
+          dt.disaster_event_id,
+          COUNT(DISTINCT dt.id)::integer AS distribution_transaction_count,
+          COALESCE(SUM(dti.quantity_released), 0)::numeric AS total_released_quantity
+        FROM distribution_transactions dt
+        LEFT JOIN distribution_transaction_items dti
+          ON dti.distribution_transaction_id = dt.id
+        WHERE dt.disaster_event_id = $1
+        GROUP BY dt.disaster_event_id
+      ) AS distribution_summary
+        ON distribution_summary.disaster_event_id = de.id
+      LEFT JOIN (
+        SELECT COUNT(*)::integer AS active_standard_pack_count
+        FROM relief_pack_templates
+        WHERE is_active = TRUE
+          AND is_additional_pack = FALSE
+      ) AS template_summary
+        ON TRUE
+      WHERE de.id = $1
+      LIMIT 1
+    `,
+    [disasterEventId],
+  );
+
+  return result.rows[0] || null;
+};
+
+const getReliefPackDemandByEvent = async (disasterEventId, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      WITH household_summary AS (
+        SELECT COUNT(*)::numeric AS household_count
+        FROM households
+        WHERE disaster_event_id = $1
+      )
+      SELECT
+        ii.id AS inventory_item_id,
+        ii.item_code,
+        ii.item_name,
+        ii.category,
+        ii.unit_of_measure,
+        SUM(rpti.quantity_required)::numeric AS quantity_per_household,
+        (SUM(rpti.quantity_required) * household_summary.household_count)::numeric
+          AS projected_household_demand
+      FROM relief_pack_templates rpt
+      INNER JOIN relief_pack_template_items rpti
+        ON rpti.template_id = rpt.id
+      INNER JOIN inventory_items ii
+        ON ii.id = rpti.inventory_item_id
+      CROSS JOIN household_summary
+      WHERE rpt.is_active = TRUE
+        AND rpt.is_additional_pack = FALSE
+      GROUP BY
+        ii.id,
+        ii.item_code,
+        ii.item_name,
+        ii.category,
+        ii.unit_of_measure,
+        household_summary.household_count
+      ORDER BY projected_household_demand DESC, ii.item_name ASC
+    `,
+    [disasterEventId],
+  );
+
+  return result.rows;
+};
+
+const getInventoryUsageTrend = async (
+  disasterEventId,
+  lookbackDays,
+  dbClient = pool,
+) => {
+  const result = await dbClient.query(
+    `
+      WITH date_series AS (
+        SELECT generate_series(
+          CURRENT_DATE - ($2::integer - 1),
+          CURRENT_DATE,
+          INTERVAL '1 day'
+        )::date AS usage_date
+      )
+      SELECT
+        date_series.usage_date,
+        COALESCE(SUM(it.quantity), 0)::numeric AS total_quantity
+      FROM date_series
+      LEFT JOIN inventory_transactions it
+        ON DATE(it.performed_at) = date_series.usage_date
+       AND it.disaster_event_id = $1
+       AND it.transaction_type = 'OUTFLOW'
+       AND it.reference_type = 'DISTRIBUTION'
+      GROUP BY date_series.usage_date
+      ORDER BY date_series.usage_date ASC
+    `,
+    [disasterEventId, lookbackDays],
+  );
+
+  return result.rows;
+};
+
 const insertForecastRun = async (payload, dbClient = pool) => {
   const result = await dbClient.query(
     `
@@ -282,6 +433,9 @@ module.exports = {
   getDisasterEventById,
   getInventoryForecastItems,
   getInventoryUsageSeries,
+  getForecastEventContext,
+  getReliefPackDemandByEvent,
+  getInventoryUsageTrend,
   insertForecastRun,
   insertForecastResult,
   getLatestForecastRunByDisasterEvent,

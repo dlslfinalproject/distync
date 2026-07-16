@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchAllDisasterEvents } from "../disaster-events/disasterEventService";
 import {
-  fetchForecastHealth,
+  fetchInventoryForecastContext,
   fetchForecastHistory,
   fetchForecastRunDetails,
   fetchLatestInventoryForecast,
@@ -14,10 +14,11 @@ export const useInventoryForecast = () => {
   const [selectedForecastEventId, setSelectedForecastEventId] = useState("");
   const [selectedForecastModel, setSelectedForecastModel] =
     useState("MOVING_AVERAGE");
+  const [forecastContext, setForecastContext] = useState(null);
   const [forecastRunData, setForecastRunData] = useState(null);
   const [forecastHistory, setForecastHistory] = useState([]);
   const [forecastHistoryDetails, setForecastHistoryDetails] = useState(null);
-  const [forecastHealth, setForecastHealth] = useState(null);
+  const [isForecastContextLoading, setIsForecastContextLoading] = useState(false);
   const [isForecastLoading, setIsForecastLoading] = useState(false);
   const [isForecastHistoryLoading, setIsForecastHistoryLoading] =
     useState(false);
@@ -66,29 +67,42 @@ export const useInventoryForecast = () => {
   useEffect(() => {
     let isMounted = true;
 
-    const loadForecastHealth = async () => {
+    const loadForecastContext = async () => {
+      if (!selectedForecastEventId) {
+        setForecastContext(null);
+        return;
+      }
+
+      setIsForecastContextLoading(true);
+
       try {
-        const response = await fetchForecastHealth();
+        const response = await fetchInventoryForecastContext(
+          selectedForecastEventId,
+        );
 
         if (isMounted) {
-          setForecastHealth(response?.data || null);
+          setForecastContext(response?.data || null);
         }
-      } catch (_error) {
+      } catch (error) {
         if (isMounted) {
-          setForecastHealth({
-            status: "UNAVAILABLE",
-            is_available: false,
-          });
+          setForecastContext(null);
+          setForecastErrorMessage(
+            error.message || "Failed to load forecast event context.",
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setIsForecastContextLoading(false);
         }
       }
     };
 
-    loadForecastHealth();
+    loadForecastContext();
 
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [selectedForecastEventId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -225,10 +239,11 @@ export const useInventoryForecast = () => {
     forecastEvents,
     selectedForecastEventId,
     selectedForecastModel,
+    forecastContext,
     forecastRunData,
     forecastHistory,
     forecastHistoryDetails,
-    forecastHealth,
+    isForecastContextLoading,
     isForecastLoading,
     isForecastHistoryLoading,
     isForecastHistoryDetailLoading,

@@ -231,6 +231,17 @@ export const fetchLatestInventoryForecast = async (disasterEventId) => {
   return handleJsonResponse(response, "Failed to fetch latest inventory forecast");
 };
 
+export const fetchInventoryForecastContext = async (disasterEventId) => {
+  const searchParams = new URLSearchParams({
+    disaster_event_id: disasterEventId,
+  });
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/inventory-items/forecast/context?${searchParams.toString()}`,
+  );
+
+  return handleJsonResponse(response, "Failed to fetch inventory forecast context");
+};
+
 export const fetchForecastHealth = async () => {
   const response = await fetch(`${API_BASE_URL}/api/v1/inventory-items/forecast/health`);
 
