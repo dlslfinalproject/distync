@@ -779,7 +779,7 @@ const exportDisasterEvents = async ({
     scope,
     search,
     eventLabel: disaster_event_id
-      ? [events[0]?.event_code, events[0]?.title].filter(Boolean).join(" - ")
+      ? String(events[0]?.title || "").trim()
       : "",
     format,
   });

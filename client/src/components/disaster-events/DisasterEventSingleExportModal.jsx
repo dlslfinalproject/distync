@@ -58,8 +58,7 @@ const messageStyles = {
 };
 
 const getEventLabel = (eventData) =>
-  [eventData?.event_code, eventData?.title].filter(Boolean).join(" - ") ||
-  "this disaster event";
+  String(eventData?.title || "").trim() || "this disaster event";
 
 const DisasterEventSingleExportModal = ({
   isOpen,

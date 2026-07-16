@@ -298,31 +298,7 @@ const DisasterEventsPage = () => {
   const selectedDisasterTypes = currentTabFilters.disasterTypes || [];
   const selectedAffectedBarangayIds = currentTabFilters.affectedBarangayIds || [];
 
-  const disasterTypeOptions = useMemo(() => {
-    const eventDisasterTypes = events
-      .map((event) => String(event.disaster_type || "").trim())
-      .filter(Boolean);
-    const uniqueDisasterTypes = [...new Set([...DISASTER_TYPE_OPTIONS, ...eventDisasterTypes])];
-
-    return uniqueDisasterTypes.sort((leftType, rightType) => {
-      const leftIndex = DISASTER_TYPE_OPTIONS.indexOf(leftType);
-      const rightIndex = DISASTER_TYPE_OPTIONS.indexOf(rightType);
-
-      if (leftIndex !== -1 && rightIndex !== -1) {
-        return leftIndex - rightIndex;
-      }
-
-      if (leftIndex !== -1) {
-        return -1;
-      }
-
-      if (rightIndex !== -1) {
-        return 1;
-      }
-
-      return leftType.localeCompare(rightType);
-    });
-  }, [events]);
+  const disasterTypeOptions = DISASTER_TYPE_OPTIONS;
 
   const availableExportDisasterTypes = useMemo(() => {
     const hasCustomDisasterType = exportScopeEvents.some((event) => {
@@ -397,9 +373,16 @@ const DisasterEventsPage = () => {
             .includes(search),
         );
 
+      const eventDisasterType = String(event.disaster_type || "").trim();
+      const isCustomDisasterType =
+        eventDisasterType && !DISASTER_TYPE_OPTIONS.includes(eventDisasterType);
       const matchesDisasterType =
         selectedDisasterTypes.length === 0 ||
-        selectedDisasterTypes.includes(event.disaster_type);
+        selectedDisasterTypes.some((selectedType) =>
+          selectedType === "Other"
+            ? isCustomDisasterType
+            : eventDisasterType === selectedType,
+        );
 
       const matchesAffectedBarangay =
         selectedAffectedBarangayIds.length === 0 ||
