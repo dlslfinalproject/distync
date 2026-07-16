@@ -414,7 +414,7 @@ const SummaryCard = ({ label, value, helper }) => (
   <article style={summaryCardStyles}>
     <p style={summaryEyebrowStyles}>{label}</p>
     <p style={summaryValueStyles}>{value}</p>
-    <p style={summaryHelperStyles}>{helper}</p>
+    {helper ? <p style={summaryHelperStyles}>{helper}</p> : null}
   </article>
 );
 
@@ -843,22 +843,22 @@ const InventoryTransactionsPage = () => {
         <SummaryCard
           label="Current Stock On Hand"
           value={summaryMetrics.currentStockOnHand}
-          helper="Total available stock currently recorded across inventory batches."
+          helper=""
         />
         <SummaryCard
           label="Low Stock Items"
           value={summaryMetrics.lowStockItems}
-          helper="Items that have reached or dropped below their reorder level."
+          helper=""
         />
         <SummaryCard
           label="Expired Items"
           value={summaryMetrics.expiredItems}
-          helper="Items with expired stock already recorded or currently past expiry."
+          helper=""
         />
         <SummaryCard
           label="Transactions Today"
           value={summaryMetrics.transactionsToday}
-          helper="Inventory movement records created or synced for today."
+          helper=""
         />
       </section>
 
@@ -874,10 +874,6 @@ const InventoryTransactionsPage = () => {
         >
           <div>
             <h3 style={sectionTitleStyles}>Tracking Overview</h3>
-            <p style={{ ...summaryHelperStyles, marginTop: "8px" }}>
-              Review inventory movement, expiration monitoring, reconciliation,
-              and audit activity using the current Mayor&apos;s Office records.
-            </p>
           </div>
         </div>
       </section>
@@ -904,15 +900,9 @@ const InventoryTransactionsPage = () => {
           <>
             <div style={{ marginBottom: "18px" }}>
               <h3 style={sectionTitleStyles}>Inventory Transactions</h3>
-              <p style={{ ...summaryHelperStyles, marginTop: "8px" }}>
-                Shows the unique transaction ID, inflow or outflow classification,
-                item, quantity, and transaction date. Logged or scanned stock is
-                listed as inflow, while claimed distributed goods are listed as outflow.
-              </p>
               {isPreviewMode ? (
                 <p style={{ ...summaryHelperStyles, marginTop: "8px", color: "#2f6499" }}>
-                  Preview mode is showing sample records because no live inventory
-                  tracking entries are available yet.
+                  Showing sample records until live stock movement is available.
                 </p>
               ) : null}
             </div>
@@ -1047,13 +1037,11 @@ const InventoryTransactionsPage = () => {
             <div style={{ marginBottom: "18px" }}>
               <h3 style={sectionTitleStyles}>Audit Trail</h3>
               <p style={{ ...summaryHelperStyles, marginTop: "8px" }}>
-                Shows who changed inventory records, when the change happened, and
-                which fields were affected.
+                Changes made to inventory records.
               </p>
               {isPreviewMode ? (
                 <p style={{ ...summaryHelperStyles, marginTop: "8px", color: "#2f6499" }}>
-                  Preview mode is showing sample audit entries because no live
-                  inventory audit logs are available yet.
+                  Showing sample audit entries until live audit logs are available.
                 </p>
               ) : null}
             </div>
@@ -1133,7 +1121,7 @@ const InventoryTransactionsPage = () => {
       <ExportModal
         isOpen={isExportModalOpen}
         title="Export Inventory Report"
-        description="Choose the inventory transactions report format to generate."
+        description="Select the export format."
         reportOptions={[
           {
             value: "INVENTORY_TRANSACTIONS",

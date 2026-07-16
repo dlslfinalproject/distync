@@ -117,7 +117,7 @@ const InventoryItemsTable = ({
           {isLoading ? (
             <tr>
               <td colSpan="7" style={styles.emptyStateCell}>
-                Loading...
+                Loading inventory items...
               </td>
             </tr>
           ) : errorMessage ? (
@@ -132,7 +132,7 @@ const InventoryItemsTable = ({
           ) : rows.length === 0 ? (
             <tr>
               <td colSpan="7" style={styles.emptyStateCell}>
-                No items found
+                No inventory items found
               </td>
             </tr>
           ) : (

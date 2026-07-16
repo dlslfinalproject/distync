@@ -73,7 +73,7 @@ const InventoryTransactionsTable = ({ rows, isLoading, errorMessage }) => {
     return (
       <div style={{ marginTop: "8px" }}>
         <p style={{ ...shellStyles.mutedText, marginTop: 0 }}>
-          Loading inventory tracking records...
+          Loading stock movement records...
         </p>
       </div>
     );

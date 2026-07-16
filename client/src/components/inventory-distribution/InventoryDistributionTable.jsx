@@ -59,7 +59,7 @@ const getStatusMeta = (status) => {
 
   if (status === "PENDING") {
     return {
-      label: "Pending / For Claim",
+      label: "For Claim",
       icon: <FiClock size={14} />,
       style: {
         backgroundColor: "#fff4db",
@@ -175,7 +175,7 @@ const InventoryDistributionTable = ({
       <section style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Inventory Distribution</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          Select an active disaster event to load family-level distribution records.
+          Select a disaster event to load distribution records.
         </p>
       </section>
     );
@@ -186,7 +186,7 @@ const InventoryDistributionTable = ({
       <section style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Inventory Distribution</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          Loading inventory distribution records...
+          Loading distribution records...
         </p>
       </section>
     );

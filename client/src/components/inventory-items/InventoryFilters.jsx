@@ -99,7 +99,7 @@ const InventoryFilters = ({ filters, onFilterChange }) => {
           <SearchBar
             value={filters.search}
             onChange={(value) => onFilterChange("search", value)}
-            placeholder="Search item ID, name, or barcode"
+            placeholder="Search item name, code, or barcode"
           />
         </div>
       </div>
@@ -119,7 +119,7 @@ const InventoryFilters = ({ filters, onFilterChange }) => {
           ))}
         </div>
 
-        <span>Monitor:</span>
+        <span>Stock Status:</span>
         <div style={chipGroupStyle}>
           {["All", "Low Stock", "Expiring", "Out of Stock"].map((status) => (
             <button

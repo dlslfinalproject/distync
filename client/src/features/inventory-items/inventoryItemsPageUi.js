@@ -93,35 +93,35 @@ export const getInventoryPageTabs = () => {
 };
 
 export const getInventorySectionTitle = (activeTab) => {
-  return "INVENTORY ITEM RECORDS";
+  return "ITEM RECORDS";
 };
 
 export const getInventoryAnalyticsCards = (inventoryAnalytics) => {
   return [
     {
-      title: "Items With Stock On Hand",
+      title: "Items in Stock",
       value: inventoryAnalytics.availableItems,
-      detail: "Registered relief goods that still have remaining available stock.",
+      detail: "Relief goods with available stock.",
     },
     {
       title: "Low Stock Items",
       value: inventoryAnalytics.lowStockItems,
-      detail: "Inventory items already at or below their minimum stock threshold.",
+      detail: "Items at or below reorder level.",
     },
     {
-      title: "Items Already Distributed",
+      title: "Distributed Items",
       value: inventoryAnalytics.distributedItems,
-      detail: "Inventory items that already have recorded distribution activity.",
+      detail: "Items with distribution records.",
     },
     {
-      title: "Expiring Inventory Items",
+      title: "Expiring Items",
       value: inventoryAnalytics.expiringSoonItems,
-      detail: "Inventory items with stock nearing expiration that need closer monitoring.",
+      detail: "Items nearing expiration.",
     },
     {
       title: "Out of Stock Items",
       value: inventoryAnalytics.outOfStockItems,
-      detail: "Registered inventory items that currently have no stock on hand.",
+      detail: "Items with no stock on hand.",
     },
     {
       title: "Perishable Goods",

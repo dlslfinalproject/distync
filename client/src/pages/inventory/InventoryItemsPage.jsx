@@ -246,7 +246,7 @@ const InventoryItemsPage = () => {
   const summaryCards = useMemo(
     () => [
       {
-        label: "Total Inventory Items",
+        label: "Total Items",
         value: inventoryAnalytics.totalItems,
         accentColor: "#2f6499",
       },
@@ -569,7 +569,7 @@ const InventoryItemsPage = () => {
       <ExportModal
         isOpen={isExportModalOpen}
         title="Export Inventory Report"
-        description="Choose which inventory report to export and the file format to generate."
+        description="Select a report and file format."
         reportOptions={inventoryExportReportOptions}
         formatOptions={COMMON_EXPORT_FORMAT_OPTIONS}
         selectedReportType={selectedExportReportType}

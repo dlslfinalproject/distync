@@ -106,17 +106,16 @@ const InventoryItemDetailModal = ({
   return (
     <DetailsModalShell
       isOpen={isOpen}
-      title="Inventory Item Detail"
-      description="Review batches, related transactions, latest forecast summary, and audit history for this inventory item."
+      title="Stock Item Details"
       onClose={onClose}
       maxWidth="960px"
     >
       {isLoading ? (
-        <LoadingState message="Loading inventory item detail..." />
+        <LoadingState message="Loading stock item details..." />
       ) : errorMessage ? (
         <ErrorState compact message={errorMessage} />
       ) : !item ? (
-        <EmptyState compact message="Inventory item detail is unavailable." />
+        <EmptyState compact message="Stock item details are unavailable." />
       ) : (
         <div style={{ display: "grid", gap: "18px" }}>
           <section
@@ -130,8 +129,8 @@ const InventoryItemDetailModal = ({
               ["Item", `${item.item_name || "--"} (${item.item_code || "--"})`],
               ["Category", item.category || "--"],
               ["Unit", formatUnitOfMeasurement(item)],
-              ["Quantity", getTotalItemQuantity(item)],
-              ["Minimum Stock Level", item.low_stock_threshold ?? "--"],
+              ["Stock On Hand", getTotalItemQuantity(item)],
+              ["Reorder Level", item.low_stock_threshold ?? "--"],
               ["Expiry Date", formatDate(item.expiration_date)],
             ].map(([label, value]) => (
               <div key={label} style={modalStyles.sectionCard}>
@@ -156,9 +155,9 @@ const InventoryItemDetailModal = ({
                 {[
                   ["Disaster Event", `${forecastSummary.disaster_event?.event_code || "--"} - ${forecastSummary.disaster_event?.title || "--"}`],
                   ["Model", forecastSummary.model_name || "--"],
-                  ["Forecasted Usage", String(forecastSummary.forecasted_usage ?? 0)],
+                  ["Forecast Need", String(forecastSummary.forecasted_usage ?? 0)],
                   ["Projected Depletion", formatDate(forecastSummary.projected_depletion_date)],
-                  ["Recommended Reorder", String(forecastSummary.recommended_reorder_quantity ?? 0)],
+                  ["Add Stock", String(forecastSummary.recommended_reorder_quantity ?? 0)],
                   ["Risk Level", forecastSummary.risk_level || "--"],
                 ].map(([label, value]) => (
                   <div key={label}>
