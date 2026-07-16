@@ -81,10 +81,14 @@ router.post(
             ...req.validatedBody,
             user_id: req.auth.userId,
             override_barangay_id: null,
+            verified_by: req.auth.userId,
+            requester: req.auth,
           }
         : {
             ...req.validatedBody,
             user_id: null,
+            verified_by: req.auth.userId,
+            requester: req.auth,
           };
 
     const result = await stubService.claimBarangayStub(claimBody);

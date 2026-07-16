@@ -1,4 +1,6 @@
 const masterlistRepository = require("../repositories/masterlist.repository");
+const pool = require("../config/db");
+const distributionTransactionRepository = require("../repositories/distributionTransaction.repository");
 const reliefPackTemplateRepository = require("../repositories/reliefPackTemplate.repository");
 const stubRepository = require("../repositories/stub.repository");
 const mswdoReportExport = require("../utils/mswdoReportExport");
@@ -367,17 +369,97 @@ const claimBarangayStub = async (params) => {
     throw error;
   }
 
-  const updatedStub = await stubRepository.markStubAsClaimed(params.id);
+  const client = await pool.connect();
 
-  return {
-    message: "Stub marked as claimed successfully.",
-    data: {
-      id: updatedStub.id,
-      status: updatedStub.status,
-      claimed_at: updatedStub.claimed_at,
-      updated_at: updatedStub.updated_at,
-    },
-  };
+  try {
+    await client.query("BEGIN");
+
+    const lockedStub = await distributionTransactionRepository.getStubByIdForUpdate(
+      params.id,
+      client,
+    );
+
+    if (!lockedStub || lockedStub.barangay_id !== effectiveBarangay.id) {
+      const error = new Error("Stub not found for this barangay");
+      error.statusCode = 404;
+      error.code = "STUB_NOT_FOUND";
+      throw error;
+    }
+
+    if (lockedStub.status !== "ISSUED") {
+      const error = new Error("Only unclaimed stubs can be marked as claimed.");
+      error.statusCode = 409;
+      error.code = "STUB_ALREADY_CLAIMED";
+      throw error;
+    }
+
+    const receiptNo =
+      await distributionTransactionRepository.getDistributionReceiptSequence(
+        client,
+      );
+    const receivedAt = new Date().toISOString();
+
+    const distributionTransaction =
+      await distributionTransactionRepository.insertDistributionTransaction(
+        {
+          disaster_event_id: lockedStub.disaster_event_id,
+          household_id: lockedStub.household_id,
+          stub_id: lockedStub.id,
+          distribution_status: "CLAIMED",
+          claimed_by_name: buildFullName(
+            lockedStub.family_head_first_name,
+            lockedStub.family_head_middle_name,
+            lockedStub.family_head_last_name,
+            lockedStub.family_head_suffix,
+          ),
+          verified_by: params.verified_by || null,
+          device_id: null,
+          is_offline_encoded: false,
+          sync_status: "SYNCED",
+          qr_reference_value: lockedStub.qr_code_value || null,
+          qr_scanned_at: null,
+          qr_scanned_by: null,
+          receipt_no: receiptNo,
+          receipt_status: "GENERATED",
+          received_at: receivedAt,
+          relief_pack_template_id: null,
+          remarks: "Claimed through Relief Goods Distribution confirmation",
+        },
+        client,
+      );
+
+    const updatedStub = await distributionTransactionRepository.updateStubAsClaimed(
+      params.id,
+      client,
+    );
+
+    await client.query("COMMIT");
+
+    return {
+      message: "Stub marked as claimed successfully.",
+      data: {
+        id: updatedStub.id,
+        status: updatedStub.status,
+        claimed_at: updatedStub.claimed_at,
+        updated_at: updatedStub.updated_at,
+        distribution_transaction_id: distributionTransaction.id,
+        distribution_status: distributionTransaction.distribution_status,
+      },
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+
+    if (error.code === "23505") {
+      const duplicateError = new Error("This stub has already been used for distribution");
+      duplicateError.statusCode = 409;
+      duplicateError.code = "STUB_ALREADY_CLAIMED";
+      throw duplicateError;
+    }
+
+    throw error;
+  } finally {
+    client.release();
+  }
 };
 
 const getStubDetails = async (id) => {
