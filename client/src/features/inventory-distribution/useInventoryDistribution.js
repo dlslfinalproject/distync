@@ -9,7 +9,6 @@ import {
   fetchReliefPackTemplateById,
   fetchReliefPackTemplates,
 } from "../relief-pack-templates/reliefPackTemplateService";
-import { buildSectorsText, mapMasterlistRow } from "../masterlist/masterlistService";
 
 const emptyMasterlistPayload = {
   disaster_event: null,
@@ -31,36 +30,30 @@ const emptyStubDashboardPayload = {
   data: [],
 };
 
-const getHouseholdSectorIds = (household) => {
-  return [
-    ...(household.household_sectors || []).map((sector) => sector.id),
-    ...(household.members || []).flatMap((member) =>
-      (member.sectors || []).map((sector) => sector.id),
-    ),
-  ].filter(Boolean);
-};
-
-const getHouseholdSectorNames = (household) => {
-  return [
-    ...(household.household_sectors || []).map((sector) => sector.name),
-    ...(household.members || []).flatMap((member) =>
-      (member.sectors || []).map((sector) => sector.name),
-    ),
-  ]
-    .filter(Boolean)
-    .filter((value, index, values) => values.indexOf(value) === index);
-};
-
-const getDistributionStatus = (stubStatus) => {
-  if (stubStatus === "CLAIMED") {
-    return "CLAIMED";
-  }
-
-  if (stubStatus === "ISSUED") {
-    return "PENDING";
-  }
-
-  return "NOT_DISTRIBUTED";
+const combineStubDashboardPayloads = (payloads) => {
+  return (payloads || []).reduce(
+    (combinedPayload, payload) => ({
+      metrics: {
+        total_issued_stubs:
+          combinedPayload.metrics.total_issued_stubs +
+          Number(payload?.metrics?.total_issued_stubs || 0),
+        claimed_stubs:
+          combinedPayload.metrics.claimed_stubs +
+          Number(payload?.metrics?.claimed_stubs || 0),
+        unclaimed_stubs:
+          combinedPayload.metrics.unclaimed_stubs +
+          Number(payload?.metrics?.unclaimed_stubs || 0),
+        beneficiary_families:
+          combinedPayload.metrics.beneficiary_families +
+          Number(payload?.metrics?.beneficiary_families || 0),
+      },
+      data: [
+        ...combinedPayload.data,
+        ...(Array.isArray(payload?.data) ? payload.data : []),
+      ],
+    }),
+    emptyStubDashboardPayload,
+  );
 };
 
 const getStandardTemplates = (templates) => {
@@ -92,30 +85,6 @@ const getStandardTemplates = (templates) => {
 const getStandardTemplate = (templates) => {
   const standardTemplates = getStandardTemplates(templates);
   return standardTemplates[0] || null;
-};
-
-const getAssignedReliefPackTemplates = (householdSectorIds, templateDetails) => {
-  if (!Array.isArray(templateDetails) || templateDetails.length === 0) {
-    return [];
-  }
-
-  const sectorIdSet = new Set((householdSectorIds || []).filter(Boolean));
-  const assignedTemplates = getStandardTemplates(templateDetails);
-
-  templateDetails.forEach((template) => {
-    if (
-      !template?.is_active ||
-      !template?.is_additional_pack ||
-      !template?.sector_id ||
-      !sectorIdSet.has(template.sector_id)
-    ) {
-      return;
-    }
-
-    assignedTemplates.push(template);
-  });
-
-  return assignedTemplates;
 };
 
 const matchesSearch = (row, searchTerm) => {
@@ -172,6 +141,32 @@ const getScopedDisasterEvents = ({ events, activeTab, barangayId }) => {
   );
 };
 
+const mapStubDashboardRow = (row, fallbackBarangay = null) => ({
+  household_id: row.household?.id || row.household_id || row.id,
+  family_head_name: row.household?.family_head_name || "-",
+  address: row.barangay_name || fallbackBarangay?.name || "-",
+  family_members_count: row.household?.members_count || 0,
+  sector_ids: Array.isArray(row.sector_ids) ? row.sector_ids : [],
+  sector_names: String(row.sectors_text || "-")
+    .split(",")
+    .map((sectorName) => sectorName.trim())
+    .filter(Boolean)
+    .filter((sectorName) => sectorName !== "-"),
+  sectors_text: row.sectors_text || "-",
+  barangay_id: row.barangay_id || fallbackBarangay?.id || null,
+  barangay_name: row.barangay_name || fallbackBarangay?.name || "",
+  relief_pack_templates: [],
+  relief_pack_items: [],
+  relief_pack_name: row.relief_pack_name || "--",
+  distribution_status: row.status === "CLAIMED" ? "CLAIMED" : "PENDING",
+  distribution_status_label:
+    row.status === "CLAIMED" ? "Claimed" : "Pending / For Claim",
+  raw_stub_status: row.status || "",
+  display_stub_no: row.display_stub_no || "",
+  qr_code_value: row.qr_code_value || "",
+  stub_id: row.id,
+});
+
 export const useInventoryDistribution = () => {
   const [activeTab, setActiveTab] = useState("active");
   const [disasterEvents, setDisasterEvents] = useState([]);
@@ -186,6 +181,8 @@ export const useInventoryDistribution = () => {
   const [stubDashboardPayload, setStubDashboardPayload] = useState(
     emptyStubDashboardPayload,
   );
+  const [allBarangaysStubDashboardPayload, setAllBarangaysStubDashboardPayload] =
+    useState(emptyStubDashboardPayload);
   const [templateDetails, setTemplateDetails] = useState([]);
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
   const [isLoadingMasterlist, setIsLoadingMasterlist] = useState(false);
@@ -262,6 +259,7 @@ export const useInventoryDistribution = () => {
           disasterEventId: selectedDisasterEventId,
           barangayId: selectedBarangayId || null,
           eventScope: activeTab,
+          recordStatus: activeTab === "ended" ? "all" : "active",
         });
 
         if (isMounted) {
@@ -287,42 +285,6 @@ export const useInventoryDistribution = () => {
       isMounted = false;
     };
   }, [activeTab, selectedBarangayId, selectedDisasterEventId]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadStubDashboard = async () => {
-      if (!selectedDisasterEventId || !selectedBarangayId) {
-        setStubDashboardPayload(emptyStubDashboardPayload);
-        return;
-      }
-
-      try {
-        const payload = await fetchBarangayStubDashboard({
-          userId: null,
-          disasterEventId: selectedDisasterEventId,
-          overrideBarangayId: selectedBarangayId,
-        });
-
-        if (isMounted) {
-          setStubDashboardPayload({
-            metrics: payload?.metrics || emptyStubDashboardPayload.metrics,
-            data: Array.isArray(payload?.data) ? payload.data : [],
-          });
-        }
-      } catch (_error) {
-        if (isMounted) {
-          setStubDashboardPayload(emptyStubDashboardPayload);
-        }
-      }
-    };
-
-    loadStubDashboard();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [selectedBarangayId, selectedDisasterEventId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -437,6 +399,77 @@ export const useInventoryDistribution = () => {
   }, [barangays, selectedBarangayId]);
 
   useEffect(() => {
+    let isMounted = true;
+
+    const loadStubDashboard = async () => {
+      if (!selectedDisasterEventId) {
+        setStubDashboardPayload(emptyStubDashboardPayload);
+        setAllBarangaysStubDashboardPayload(emptyStubDashboardPayload);
+        return;
+      }
+
+      if (selectedBarangayId) {
+        try {
+          const payload = await fetchBarangayStubDashboard({
+            userId: null,
+            disasterEventId: selectedDisasterEventId,
+            overrideBarangayId: selectedBarangayId,
+          });
+
+          if (isMounted) {
+            setStubDashboardPayload({
+              metrics: payload?.metrics || emptyStubDashboardPayload.metrics,
+              data: Array.isArray(payload?.data) ? payload.data : [],
+            });
+            setAllBarangaysStubDashboardPayload(emptyStubDashboardPayload);
+          }
+        } catch (_error) {
+          if (isMounted) {
+            setStubDashboardPayload(emptyStubDashboardPayload);
+          }
+        }
+
+        return;
+      }
+
+      if (selectableBarangays.length === 0) {
+        setStubDashboardPayload(emptyStubDashboardPayload);
+        setAllBarangaysStubDashboardPayload(emptyStubDashboardPayload);
+        return;
+      }
+
+      try {
+        const payloads = await Promise.all(
+          selectableBarangays.map((barangay) =>
+            fetchBarangayStubDashboard({
+              userId: null,
+              disasterEventId: selectedDisasterEventId,
+              overrideBarangayId: barangay.id,
+            }).catch(() => emptyStubDashboardPayload),
+          ),
+        );
+
+        if (isMounted) {
+          setStubDashboardPayload(emptyStubDashboardPayload);
+          setAllBarangaysStubDashboardPayload(
+            combineStubDashboardPayloads(payloads),
+          );
+        }
+      } catch (_error) {
+        if (isMounted) {
+          setAllBarangaysStubDashboardPayload(emptyStubDashboardPayload);
+        }
+      }
+    };
+
+    loadStubDashboard();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectableBarangays, selectedBarangayId, selectedDisasterEventId]);
+
+  useEffect(() => {
     if (isLoadingFilters) {
       return;
     }
@@ -507,28 +540,6 @@ export const useInventoryDistribution = () => {
     }
   };
 
-  const sectorOptions = useMemo(() => {
-    const sectorMap = new Map();
-
-    (masterlistPayload.data || []).forEach((household) => {
-      [
-        ...(household.household_sectors || []),
-        ...(household.members || []).flatMap((member) => member.sectors || []),
-      ].forEach((sector) => {
-        if (sector?.id && sector?.name && !sectorMap.has(sector.id)) {
-          sectorMap.set(sector.id, {
-            id: sector.id,
-            name: sector.name,
-          });
-        }
-      });
-    });
-
-    return [...sectorMap.values()].sort((left, right) =>
-      left.name.localeCompare(right.name),
-    );
-  }, [masterlistPayload.data]);
-
   const selectedTemplate = useMemo(() => {
     return getStandardTemplate(templateDetails);
   }, [templateDetails]);
@@ -538,86 +549,61 @@ export const useInventoryDistribution = () => {
   }, [templateDetails]);
 
   const stubBasedRows = useMemo(() => {
-    return (stubDashboardPayload.data || []).map((row) => ({
-      household_id: row.household?.id || row.household_id || row.id,
-      family_head_name: row.household?.family_head_name || "-",
-      address: row.barangay_name || selectedBarangay?.name || "-",
-      family_members_count: row.household?.members_count || 0,
-      sector_ids: Array.isArray(row.sector_ids) ? row.sector_ids : [],
-      sector_names: String(row.sectors_text || "-")
-        .split(",")
-        .map((sectorName) => sectorName.trim())
-        .filter(Boolean)
-        .filter((sectorName) => sectorName !== "-"),
-      sectors_text: row.sectors_text || "-",
-      barangay_id: selectedBarangay?.id || null,
-      barangay_name: selectedBarangay?.name || "",
-      relief_pack_templates: [],
-      relief_pack_items: [],
-      relief_pack_name: row.relief_pack_name || "--",
-      distribution_status: row.status === "CLAIMED" ? "CLAIMED" : "PENDING",
-      distribution_status_label:
-        row.status === "CLAIMED" ? "Claimed" : "Pending / For Claim",
-      raw_stub_status: row.status || "",
-      display_stub_no: row.display_stub_no || "",
-      qr_code_value: row.qr_code_value || "",
-      stub_id: row.id,
-    }));
+    return (stubDashboardPayload.data || []).map((row) =>
+      mapStubDashboardRow(row, selectedBarangay),
+    );
   }, [selectedBarangay?.id, selectedBarangay?.name, stubDashboardPayload.data]);
+
+  const allBarangayStubRows = useMemo(() => {
+    return (allBarangaysStubDashboardPayload.data || []).map((row) =>
+      mapStubDashboardRow(row),
+    );
+  }, [allBarangaysStubDashboardPayload.data]);
 
   const allRows = useMemo(() => {
     if (selectedBarangayId) {
       return stubBasedRows;
     }
 
-    return (masterlistPayload.data || []).map((household) => {
-      const mappedRow = mapMasterlistRow(household);
-      const sectorNames = getHouseholdSectorNames(household);
-      const sectorIds = [...new Set(getHouseholdSectorIds(household))];
-      const stubStatus = household.stub?.status || "";
-      const distributionStatus = getDistributionStatus(stubStatus);
-      const barangayName = household.barangay?.name || "";
-      const addressParts = [mappedRow.address];
+    return allBarangayStubRows;
+  }, [allBarangayStubRows, selectedBarangayId, stubBasedRows]);
 
-      if (
-        barangayName &&
-        !String(mappedRow.address || "").toLowerCase().includes(barangayName.toLowerCase())
-      ) {
-        addressParts.push(barangayName);
-      }
+  const sectorOptions = useMemo(() => {
+    const sectorMap = new Map();
 
-      const assignedTemplates = getAssignedReliefPackTemplates(
-        sectorIds,
-        templateDetails,
-      );
-      const flattenedReliefPackItems = assignedTemplates.flatMap(
-        (template) => template.items || [],
-      );
+    if (selectedBarangayId) {
+      (masterlistPayload.data || []).forEach((household) => {
+        [
+          ...(household.household_sectors || []),
+          ...(household.members || []).flatMap((member) => member.sectors || []),
+        ].forEach((sector) => {
+          if (sector?.id && sector?.name && !sectorMap.has(sector.id)) {
+            sectorMap.set(sector.id, {
+              id: sector.id,
+              name: sector.name,
+            });
+          }
+        });
+      });
+    } else {
+      allRows.forEach((row) => {
+        row.sector_ids.forEach((sectorId, index) => {
+          const sectorName = row.sector_names[index];
 
-      return {
-        household_id: household.household_id,
-        family_head_name: mappedRow.family_head_name,
-        address: addressParts.filter(Boolean).join(" | "),
-        family_members_count: household.household_size || mappedRow.members_count || 0,
-        sector_ids: sectorIds,
-        sector_names: sectorNames,
-        sectors_text: buildSectorsText(household),
-        barangay_id: household.barangay?.id || null,
-        barangay_name: barangayName,
-        relief_pack_templates: assignedTemplates,
-        relief_pack_items: flattenedReliefPackItems,
-        relief_pack_name: assignedTemplates[0]?.name || "",
-        distribution_status: distributionStatus,
-        distribution_status_label:
-          distributionStatus === "CLAIMED"
-            ? "Claimed"
-            : distributionStatus === "PENDING"
-              ? "Pending / For Claim"
-              : "Not Distributed",
-        raw_stub_status: stubStatus,
-      };
-    });
-  }, [masterlistPayload.data, selectedBarangayId, stubBasedRows, templateDetails]);
+          if (sectorId && sectorName && !sectorMap.has(sectorId)) {
+            sectorMap.set(sectorId, {
+              id: sectorId,
+              name: sectorName,
+            });
+          }
+        });
+      });
+    }
+
+    return [...sectorMap.values()].sort((left, right) =>
+      left.name.localeCompare(right.name),
+    );
+  }, [allRows, masterlistPayload.data, selectedBarangayId]);
 
   const displayedRows = useMemo(() => {
     return allRows.filter(
@@ -660,13 +646,16 @@ export const useInventoryDistribution = () => {
       };
     }
 
-    const claimedCount = displayedRows.filter(
-      (row) => row.distribution_status === "CLAIMED",
-    ).length;
-    const pendingCount = displayedRows.filter(
-      (row) => row.distribution_status === "PENDING",
-    ).length;
-    const totalDistributed = claimedCount + pendingCount;
+    const claimedCount = Number(
+      allBarangaysStubDashboardPayload.metrics.claimed_stubs || 0,
+    );
+    const pendingCount = Number(
+      allBarangaysStubDashboardPayload.metrics.unclaimed_stubs || 0,
+    );
+    const totalDistributed = Number(
+      allBarangaysStubDashboardPayload.metrics.beneficiary_families ||
+        claimedCount + pendingCount,
+    );
 
     const sectorCounts = displayedRows.reduce((counts, row) => {
       row.sector_names.forEach((sectorName) => {
@@ -688,11 +677,16 @@ export const useInventoryDistribution = () => {
       totalReliefPacksDistributed: totalDistributed,
       claimedCount,
       pendingCount,
-      notDistributedCount: displayedRows.length - totalDistributed,
+      notDistributedCount: 0,
       sectorBreakdown: sortedSectorCounts,
       topSector: sortedSectorCounts[0] || null,
     };
-  }, [displayedRows, selectedBarangayId, stubDashboardPayload.metrics]);
+  }, [
+    allBarangaysStubDashboardPayload.metrics,
+    displayedRows,
+    selectedBarangayId,
+    stubDashboardPayload.metrics,
+  ]);
 
   return {
     activeTab,
