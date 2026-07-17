@@ -682,26 +682,56 @@ const getPublicDonationDisasterSummaries = async (
         de.start_date,
         de.end_date,
         de.status,
+        de.created_at,
         de.updated_at,
+        COALESCE(affected_barangays.affected_barangays, '[]'::json) AS affected_barangays,
         COALESCE(barangay_summary.affected_barangays_count, 0)::int AS affected_barangays_count,
         COALESCE(household_summary.registered_households_count, 0)::int AS registered_households_count,
-        COALESCE(household_summary.affected_individuals_count, 0)::int AS affected_individuals_count,
+        COALESCE(individual_summary.affected_individuals_count, 0)::int AS affected_individuals_count,
         COALESCE(need_summary.published_need_count, 0)::int AS published_need_count,
         COALESCE(need_summary.published_needed_quantity, 0)::int AS published_needed_quantity
       FROM disaster_events de
       LEFT JOIN LATERAL (
-        SELECT COUNT(*)::int AS affected_barangays_count
+        SELECT COALESCE(
+          JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'id', barangay_rows.id,
+              'name', barangay_rows.name
+            )
+            ORDER BY barangay_rows.name
+          ),
+          '[]'::json
+        ) AS affected_barangays
+        FROM (
+          SELECT DISTINCT b.id, b.name
+          FROM disaster_event_barangays deb
+          INNER JOIN barangays b ON b.id = deb.barangay_id
+          WHERE deb.disaster_event_id = de.id
+            AND b.is_active = TRUE
+        ) barangay_rows
+      ) affected_barangays ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT COUNT(DISTINCT deb.barangay_id)::int AS affected_barangays_count
         FROM disaster_event_barangays deb
+        INNER JOIN barangays b ON b.id = deb.barangay_id
         WHERE deb.disaster_event_id = de.id
+          AND b.is_active = TRUE
       ) barangay_summary ON TRUE
       LEFT JOIN LATERAL (
         SELECT
-          COUNT(*)::int AS registered_households_count,
-          COALESCE(SUM(h.household_size), 0)::int AS affected_individuals_count
+          COUNT(DISTINCT h.id)::int AS registered_households_count
         FROM households h
         WHERE h.disaster_event_id = de.id
           AND h.is_active = TRUE
       ) household_summary ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT COUNT(DISTINCT e.id)::int AS affected_individuals_count
+        FROM households h
+        INNER JOIN evacuees e ON e.household_id = h.id
+        WHERE h.disaster_event_id = de.id
+          AND h.is_active = TRUE
+          AND e.is_active = TRUE
+      ) individual_summary ON TRUE
       LEFT JOIN LATERAL (
         SELECT
           COUNT(*)::int AS published_need_count,
@@ -714,6 +744,118 @@ const getPublicDonationDisasterSummaries = async (
       ORDER BY de.start_date DESC, de.created_at DESC
     `,
     values,
+  );
+
+  return result.rows;
+};
+
+const getPublicForecastSuggestions = async (disasterEventId, dbClient = pool) => {
+  if (!disasterEventId) {
+    return [];
+  }
+
+  const result = await dbClient.query(
+    `
+      WITH latest_run AS (
+        SELECT id, disaster_event_id, run_at
+        FROM forecast_runs
+        WHERE disaster_event_id = $1
+        ORDER BY run_at DESC, id DESC
+        LIMIT 1
+      ),
+      latest_results AS (
+        SELECT DISTINCT ON (fr.inventory_item_id)
+          fr.id,
+          fr.inventory_item_id,
+          fr.predicted_quantity_needed,
+          fr.predicted_depletion_date,
+          fr.recommended_reorder_quantity,
+          fr.confidence_notes,
+          fr.created_at,
+          lr.id AS forecast_run_id,
+          lr.run_at,
+          ii.item_name,
+          ii.item_code,
+          ii.category,
+          ii.unit_of_measure
+        FROM latest_run lr
+        INNER JOIN forecast_results fr ON fr.forecast_run_id = lr.id
+        INNER JOIN inventory_items ii ON ii.id = fr.inventory_item_id
+        WHERE ii.is_active = TRUE
+        ORDER BY fr.inventory_item_id, fr.created_at DESC, fr.id DESC
+      )
+      SELECT *
+      FROM latest_results
+      ORDER BY recommended_reorder_quantity DESC NULLS LAST, item_name ASC
+    `,
+    [disasterEventId],
+  );
+
+  return result.rows;
+};
+
+const getPublicRecentDonationSummaries = async (
+  disasterEventId,
+  limit = 6,
+  dbClient = pool,
+) => {
+  if (!disasterEventId) {
+    return [];
+  }
+
+  const result = await dbClient.query(
+    `
+      SELECT
+        MD5(d.id::text) AS public_key,
+        d.donor_name,
+        d.donor_type,
+        d.received_at,
+        d.status,
+        COALESCE(item_summary.total_quantity_received, 0)::int AS total_quantity_received,
+        COALESCE(item_summary.item_count, 0)::int AS item_count,
+        COALESCE(item_summary.items, '[]'::json) AS items,
+        CASE
+          WHEN affected_barangays.affected_barangays_count = 1
+            THEN affected_barangays.single_barangay_name
+          WHEN affected_barangays.affected_barangays_count > 1
+            THEN 'Multiple affected barangays'
+          ELSE NULL
+        END AS recipient_barangay_name
+      FROM donations d
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(DISTINCT di.id)::int AS item_count,
+          COALESCE(SUM(di.quantity_received), 0)::int AS total_quantity_received,
+          COALESCE(
+            JSON_AGG(
+              JSON_BUILD_OBJECT(
+                'item_name', ii.item_name,
+                'quantity_received', di.quantity_received,
+                'unit_of_measure', ii.unit_of_measure
+              )
+              ORDER BY ii.item_name
+            ),
+            '[]'::json
+          ) AS items
+        FROM donation_items di
+        INNER JOIN inventory_items ii ON ii.id = di.inventory_item_id
+        WHERE di.donation_id = d.id
+      ) item_summary ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(DISTINCT b.id)::int AS affected_barangays_count,
+          MIN(b.name) AS single_barangay_name
+        FROM disaster_event_barangays deb
+        INNER JOIN barangays b ON b.id = deb.barangay_id
+        WHERE deb.disaster_event_id = d.disaster_event_id
+          AND b.is_active = TRUE
+      ) affected_barangays ON TRUE
+      WHERE d.disaster_event_id = $1
+        AND d.status <> 'CANCELLED'
+      ORDER BY d.received_at DESC, d.created_at DESC
+      LIMIT $2
+    `,
+    [disasterEventId, limit],
   );
 
   return result.rows;
@@ -939,6 +1081,8 @@ module.exports = {
   insertInventoryTransaction,
   getPublicDonationDisasterSummaries,
   getPublicDonationNeeds,
+  getPublicForecastSuggestions,
+  getPublicRecentDonationSummaries,
   getDonationSummaryTotals,
   getDonationItemTransparencySummary,
   getDonationTransparencyExportRows,
