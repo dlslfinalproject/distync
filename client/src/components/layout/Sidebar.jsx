@@ -201,7 +201,6 @@ const roleMeta = {
       { label: "Evacuee Masterlist Management", to: "/mswdo/consolidated-masterlist" },
       { label: "Relief Goods Distribution", to: "/mswdo/stub-distribution" },
       { label: "Distribution History", to: "/mswdo/distribution-history" },
-      { label: "Stub / Claim History", to: "/mswdo/stub-claim-history" },
       { label: "Anomaly Tracking", to: "/mswdo/anomalies" },
       { label: "Analytics Dashboard", to: "/mswdo/analytics" },
       { label: "Sync Center", to: "/mswdo/sync" },

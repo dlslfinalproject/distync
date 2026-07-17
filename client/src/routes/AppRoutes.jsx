@@ -32,7 +32,6 @@ import DisasterEventReportsPage from "../pages/mswdo/DisasterEventReportsPage";
 import DisasterEventsPage from "../pages/mswdo/DisasterEventsPage";
 import PrintStubsPage from "../pages/mswdo/PrintStubsPage";
 import StubDistributionPageMswdo from "../pages/mswdo/StubDistributionPage";
-import StubClaimHistoryPage from "../pages/mswdo/StubClaimHistoryPage";
 import RoleSwitcherPage from "../pages/RoleSwitcherPage";
 import RoleSettingsPage from "../pages/settings/RoleSettingsPage";
 import { useAuth } from "../context/AuthContext";
@@ -124,14 +123,10 @@ const AppRoutes = () => {
             path="distribution-history"
             element={<DistributionHistoryPage />}
           />
-        <Route
-          path="stub-claim-history"
-          element={<StubClaimHistoryPage />}
-        />
-        <Route path="disaster-events" element={<DisasterEventsPage />} />
-        <Route
-          path="disaster-reports"
-          element={<DisasterEventReportsPage />}
+          <Route path="disaster-events" element={<DisasterEventsPage />} />
+          <Route
+            path="disaster-reports"
+            element={<DisasterEventReportsPage />}
           />
           <Route path="anomalies" element={<AnomalyTrackingPage />} />
           <Route path="notifications" element={<MayorNotificationsPage />} />
