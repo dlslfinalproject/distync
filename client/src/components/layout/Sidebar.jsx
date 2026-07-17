@@ -201,7 +201,6 @@ const roleMeta = {
       { label: "Evacuee Masterlist Management", to: "/mswdo/consolidated-masterlist" },
       { label: "Relief Goods Distribution", to: "/mswdo/stub-distribution" },
       { label: "Distribution History", to: "/mswdo/distribution-history" },
-      { label: "Stub / Claim History", to: "/mswdo/stub-claim-history" },
       { label: "Anomaly Tracking", to: "/mswdo/anomalies" },
       { label: "Analytics Dashboard", to: "/mswdo/analytics" },
       { label: "Sync Center", to: "/mswdo/sync" },
@@ -214,6 +213,7 @@ const roleMeta = {
       { label: "Inventory Tracking", to: "/inventory/transactions" },
       { label: "Inventory Distribution", to: "/inventory/distribution" },
       { label: "Inventory Forecasts", to: "/inventory/forecasts" },
+      { label: "Donation Management", to: "/inventory/donations" },
     ],
   },
 };

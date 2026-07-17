@@ -54,6 +54,43 @@ const panelStyles = {
     fontSize: "13px",
     lineHeight: 1.6,
   },
+  executiveGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+    gap: "18px",
+    alignItems: "stretch",
+  },
+  executiveCard: {
+    borderRadius: "20px",
+    border: "1px solid #d6e2ef",
+    backgroundColor: "#ffffff",
+    padding: "20px 22px",
+    display: "grid",
+    gap: "14px",
+  },
+  insightCard: {
+    borderRadius: "18px",
+    border: "1px solid #dbe6f0",
+    backgroundColor: "#f8fbff",
+    padding: "16px",
+  },
+  insightValue: {
+    margin: "6px 0 0",
+    color: "#17324d",
+    fontSize: "30px",
+    lineHeight: 1.05,
+    fontWeight: 800,
+  },
+  interpretationBanner: {
+    borderRadius: "18px",
+    border: "1px solid #d6e2ef",
+    backgroundColor: "#f8fbff",
+    padding: "16px 18px",
+    color: "#17324d",
+    fontSize: "15px",
+    fontWeight: 700,
+    lineHeight: 1.45,
+  },
   label: {
     display: "block",
     marginBottom: "8px",
@@ -77,18 +114,18 @@ const panelStyles = {
   },
   sourceGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(115px, 1fr))",
     gap: "12px",
   },
   sourcePill: {
     borderRadius: "16px",
     border: "1px solid #dbe6f0",
     backgroundColor: "#ffffff",
-    padding: "14px 16px",
+    padding: "12px 14px",
   },
   statGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(185px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
     gap: "14px",
   },
   statCard: {
@@ -97,6 +134,14 @@ const panelStyles = {
     backgroundColor: "#ffffff",
     border: "1px solid #d7e2ef",
     boxShadow: "0 8px 18px rgba(58, 97, 141, 0.08)",
+  },
+  statButton: {
+    width: "100%",
+    minHeight: "112px",
+    textAlign: "left",
+    cursor: "pointer",
+    appearance: "none",
+    fontFamily: "inherit",
   },
   statValue: {
     margin: "10px 0 0",
@@ -107,27 +152,21 @@ const panelStyles = {
   },
   priorityGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))",
     gap: "18px",
     alignItems: "start",
   },
   chartGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
     gap: "18px",
-  },
-  detailGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
-    gap: "18px",
-    alignItems: "start",
   },
   chartShell: {
     borderRadius: "20px",
     border: "1px solid #d6e2ef",
     backgroundColor: "#ffffff",
     padding: "20px 22px",
-    minHeight: "340px",
+    minHeight: "300px",
     display: "flex",
     flexDirection: "column",
     gap: "14px",
@@ -137,7 +176,7 @@ const panelStyles = {
   },
   table: {
     width: "100%",
-    minWidth: "720px",
+    minWidth: "980px",
     borderCollapse: "collapse",
   },
   compactTable: {
@@ -146,8 +185,8 @@ const panelStyles = {
   },
   th: {
     textAlign: "left",
-    padding: "12px 10px",
-    fontSize: "12px",
+    padding: "10px 9px",
+    fontSize: "11px",
     color: "#58708a",
     fontWeight: 800,
     letterSpacing: "0.07em",
@@ -156,11 +195,19 @@ const panelStyles = {
     whiteSpace: "nowrap",
   },
   td: {
-    padding: "14px 10px",
-    fontSize: "14px",
+    padding: "9px",
+    fontSize: "13px",
     color: "#334155",
     borderBottom: "1px solid #e7edf5",
-    verticalAlign: "top",
+    verticalAlign: "middle",
+  },
+  itemNameCell: {
+    maxWidth: "220px",
+    color: "#17324d",
+    display: "block",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
   emptyState: {
     margin: 0,
@@ -176,6 +223,18 @@ const panelStyles = {
     padding: "12px 14px",
     textAlign: "left",
     cursor: "pointer",
+  },
+  detailsBox: {
+    borderRadius: "20px",
+    border: "1px solid #d6e2ef",
+    backgroundColor: "#ffffff",
+    padding: "18px 22px",
+  },
+  detailsSummary: {
+    cursor: "pointer",
+    color: "#17324d",
+    fontSize: "18px",
+    fontWeight: 800,
   },
 };
 
@@ -204,6 +263,25 @@ const getRiskLevelStyle = (riskLevel) => ({
 
 const formatNumber = (value) => {
   return new Intl.NumberFormat().format(Number(value || 0));
+};
+
+const getRiskPriority = (riskLevel) => {
+  const priorities = {
+    CRITICAL: 4,
+    HIGH: 3,
+    MEDIUM: 2,
+    LOW: 1,
+  };
+
+  return priorities[String(riskLevel || "").toUpperCase()] || 0;
+};
+
+const getDepletionPriority = (daysUntilDepletion) => {
+  if (daysUntilDepletion === null || daysUntilDepletion === undefined) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return Number(daysUntilDepletion);
 };
 
 const formatMetricValue = (value) => {
@@ -552,6 +630,35 @@ const ForecastingPanel = ({
   const usageTrendRows = activeDashboard?.charts?.inventory_usage_trend || [];
   const demandRows = activeDashboard?.charts?.forecasted_demand || [];
   const stockRows = activeDashboard?.charts?.projected_stock_levels || [];
+  const priorityResultRows = [...resultRows].sort((left, right) => {
+    const riskDifference =
+      getRiskPriority(right.risk_level) - getRiskPriority(left.risk_level);
+
+    if (riskDifference !== 0) {
+      return riskDifference;
+    }
+
+    const shortageDifference =
+      Number(Boolean(right.shortage_within_seven_days)) -
+      Number(Boolean(left.shortage_within_seven_days));
+
+    if (shortageDifference !== 0) {
+      return shortageDifference;
+    }
+
+    const depletionDifference =
+      getDepletionPriority(left.days_until_depletion) -
+      getDepletionPriority(right.days_until_depletion);
+
+    if (depletionDifference !== 0) {
+      return depletionDifference;
+    }
+
+    return (
+      Number(right.recommended_reorder_quantity || 0) -
+      Number(left.recommended_reorder_quantity || 0)
+    );
+  });
   const sortedRestockRows = [...resultRows].sort(
     (left, right) =>
       Number(right.recommended_reorder_quantity || 0) -
@@ -568,9 +675,26 @@ const ForecastingPanel = ({
     (row) => Number(row.recommended_reorder_quantity || 0) > 0,
   );
   const donorNeedRows = recommendationRows.slice(0, 6);
-  const displayRecommendations = recommendationRows.slice(0, 5);
   const modelHasResults = resultRows.length > 0;
   const selectedModelLabel = getForecastModelLabel(selectedForecastModel);
+  const totalForecastNeed = resultRows.reduce(
+    (total, row) => total + Number(row.forecasted_usage || 0),
+    0,
+  );
+  const totalAddStock = resultRows.reduce(
+    (total, row) => total + Number(row.recommended_reorder_quantity || 0),
+    0,
+  );
+  const criticalItemCount = resultRows.filter(
+    (row) => row.risk_level === "CRITICAL",
+  ).length;
+  const interpretationText = !modelHasResults
+    ? "Run a forecast to generate stock-up priorities and donor-facing needs."
+    : eventSummary.seven_day_shortage_count > 0
+      ? `${eventSummary.seven_day_shortage_count} item(s) may run short within 7 days. Prioritize restocking and donor requests for the listed items.`
+      : totalAddStock > 0
+        ? "Some items need replenishment, but no immediate 7-day shortage is flagged."
+        : "Current stock can cover the forecasted need for this event.";
 
   const sourceCards = [
     {
@@ -602,33 +726,63 @@ const ForecastingPanel = ({
 
   const forecastCards = [
     {
-      label: "Items Forecasted",
+      label: "Items Checked",
       value: modelHasResults ? resultRows.length : "--",
       accent: accentMap.blue,
+      targetId: "forecast-detailed-results",
+      opensDetails: true,
     },
     {
       label: "Items to Restock",
       value: modelHasResults ? eventSummary.shortage_item_count || 0 : "--",
       accent: accentMap.orange,
+      targetId: "forecast-stock-actions",
     },
     {
       label: "7-Day Risk Items",
       value: modelHasResults ? eventSummary.seven_day_shortage_count || 0 : "--",
       accent: accentMap.red,
+      targetId: "forecast-detailed-results",
+      opensDetails: true,
     },
     {
-      label: "Highest Priority",
+      label: "Critical Items",
+      value: modelHasResults ? criticalItemCount : "--",
+      accent: accentMap.red,
+      targetId: "forecast-detailed-results",
+      opensDetails: true,
+    },
+    {
+      label: "Top Priority",
       value: topRestockRow?.item_name || "--",
       accent: accentMap.orange,
+      targetId: "forecast-stock-actions",
     },
     {
-      label: "Top Add Qty",
-      value: modelHasResults
-        ? topRestockRow?.recommended_reorder_quantity || 0
-        : "--",
+      label: "Total Add Stock",
+      value: modelHasResults ? totalAddStock : "--",
       accent: accentMap.green,
+      targetId: "forecast-stock-actions",
     },
   ];
+
+  const handleForecastCardClick = (card) => {
+    if (!card.targetId) {
+      return;
+    }
+
+    const target = document.getElementById(card.targetId);
+
+    if (!target) {
+      return;
+    }
+
+    if (card.opensDetails && target.tagName === "DETAILS") {
+      target.open = true;
+    }
+
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   return (
     <div style={panelStyles.page}>
@@ -715,24 +869,72 @@ const ForecastingPanel = ({
         </div>
       ) : null}
 
-      <div style={panelStyles.softCard}>
-        <div style={panelStyles.sectionHeader}>
+      <div style={panelStyles.executiveGrid}>
+        <div style={panelStyles.executiveCard}>
           <div>
-            <span style={panelStyles.label}>Selected Disaster Event</span>
-            <h3 style={{ margin: 0, color: "#17324d", fontSize: "22px" }}>
+            <span style={panelStyles.label}>Forecast Brief</span>
+            <h3 style={{ margin: 0, color: "#17324d", fontSize: "22px", lineHeight: 1.25 }}>
               {eventInfo?.event_code ? `${eventInfo.event_code} - ` : ""}
               {eventInfo?.title || "No selected disaster event"}
             </h3>
           </div>
-          <div style={{ textAlign: "right" }}>
-            <span style={panelStyles.label}>Model</span>
-            <strong style={{ color: "#17324d", fontSize: "16px" }}>
-              {selectedModelLabel}
-            </strong>
+
+          <div style={panelStyles.interpretationBanner}>{interpretationText}</div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+            <div style={panelStyles.insightCard}>
+              <p style={panelStyles.label}>Model</p>
+              <p style={{ margin: "6px 0 0", color: "#17324d", fontSize: "16px", fontWeight: 800 }}>
+                {selectedModelLabel}
+              </p>
+            </div>
+            <div style={panelStyles.insightCard}>
+              <p style={panelStyles.label}>Total Need</p>
+              <p style={panelStyles.insightValue}>
+                {modelHasResults ? formatNumber(totalForecastNeed) : "--"}
+              </p>
+            </div>
           </div>
         </div>
 
-        <div style={{ ...panelStyles.sourceGrid, marginTop: "16px" }}>
+        <div style={panelStyles.executiveCard}>
+          <div style={panelStyles.statGrid}>
+            {forecastCards.map((card) => (
+              <button
+                key={card.label}
+                type="button"
+                onClick={() => handleForecastCardClick(card)}
+                aria-label={`View details for ${card.label}`}
+                style={{
+                  ...panelStyles.statCard,
+                  ...panelStyles.statButton,
+                  boxShadow: "none",
+                  borderTop: `4px solid ${card.accent}`,
+                }}
+              >
+                <p style={panelStyles.label}>{card.label}</p>
+                <p
+                  style={{
+                    ...panelStyles.statValue,
+                    fontSize: typeof card.value === "string" ? "22px" : "32px",
+                    lineHeight: typeof card.value === "string" ? 1.2 : 1,
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {formatMetricValue(card.value)}
+                </p>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div style={panelStyles.softCard}>
+        <div style={panelStyles.sectionHeader}>
+          <h4 style={panelStyles.sectionTitle}>Data Used</h4>
+        </div>
+
+        <div style={{ ...panelStyles.sourceGrid, marginTop: "14px" }}>
           {sourceCards.map((card) => (
             <div
               key={card.label}
@@ -742,42 +944,7 @@ const ForecastingPanel = ({
               }}
             >
               <p style={{ ...panelStyles.label, marginBottom: "6px" }}>{card.label}</p>
-              <p style={{ margin: 0, color: "#17324d", fontSize: "26px", fontWeight: 800 }}>
-                {formatMetricValue(card.value)}
-              </p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div style={panelStyles.section}>
-        <div style={panelStyles.sectionHeader}>
-          <div>
-            <h4 style={panelStyles.sectionTitle}>Forecast Summary</h4>
-            <p style={panelStyles.sectionText}>
-              The quick read before checking item-level details.
-            </p>
-          </div>
-        </div>
-
-        <div style={panelStyles.statGrid}>
-          {forecastCards.map((card) => (
-            <div
-              key={card.label}
-              style={{
-                ...panelStyles.statCard,
-                borderTop: `4px solid ${card.accent}`,
-              }}
-            >
-              <p style={panelStyles.label}>{card.label}</p>
-              <p
-                style={{
-                  ...panelStyles.statValue,
-                  fontSize: typeof card.value === "string" ? "24px" : "34px",
-                  lineHeight: typeof card.value === "string" ? 1.2 : 1,
-                  wordBreak: "break-word",
-                }}
-              >
+              <p style={{ margin: 0, color: "#17324d", fontSize: "24px", fontWeight: 800 }}>
                 {formatMetricValue(card.value)}
               </p>
             </div>
@@ -789,14 +956,11 @@ const ForecastingPanel = ({
         <div style={panelStyles.sectionHeader}>
           <div>
             <h4 style={panelStyles.sectionTitle}>Priority Actions</h4>
-            <p style={panelStyles.sectionText}>
-              Stock-up actions are for inventory staff; donor requests can guide donor-facing needs.
-            </p>
           </div>
         </div>
 
         <div style={panelStyles.priorityGrid}>
-          <div style={panelStyles.card}>
+          <div id="forecast-stock-actions" style={panelStyles.card}>
             <h4 style={panelStyles.sectionTitle}>Stock Action List</h4>
             {!resultRows.length ? (
               <p style={{ ...panelStyles.emptyState, marginTop: "14px" }}>
@@ -848,7 +1012,7 @@ const ForecastingPanel = ({
             )}
           </div>
 
-          <div style={panelStyles.card}>
+          <div id="forecast-donor-requests" style={panelStyles.card}>
             <h4 style={panelStyles.sectionTitle}>Donor Request List</h4>
             {!donorNeedRows.length ? (
               <p style={{ ...panelStyles.emptyState, marginTop: "14px" }}>
@@ -892,7 +1056,7 @@ const ForecastingPanel = ({
         </div>
       </div>
 
-      <div style={panelStyles.section}>
+      <div id="forecast-trends" style={panelStyles.section}>
         <div style={panelStyles.sectionHeader}>
           <div>
             <h4 style={panelStyles.sectionTitle}>Trend and Stock View</h4>
@@ -937,181 +1101,134 @@ const ForecastingPanel = ({
         </div>
       </div>
 
-      <div style={panelStyles.detailGrid}>
-        <div style={panelStyles.card}>
-          <h4 style={{ margin: "0 0 14px", color: "#17324d", fontSize: "18px" }}>
-            Forecast Results by Item
-          </h4>
-          <div style={panelStyles.tableWrap}>
-            <table style={panelStyles.table}>
-              <thead>
+      <details id="forecast-detailed-results" style={panelStyles.detailsBox}>
+        <summary style={panelStyles.detailsSummary}>Detailed Results by Item</summary>
+        <div style={{ ...panelStyles.tableWrap, marginTop: "16px" }}>
+          <table style={panelStyles.table}>
+            <thead>
+              <tr>
+                {[
+                  "Item",
+                  "Current Stock",
+                  "Per Household",
+                  "Forecast Need",
+                  "Pack Need",
+                  "After Forecast",
+                  "Add Stock",
+                  "Shortage",
+                  "Risk",
+                ].map((header) => (
+                  <th key={header} style={panelStyles.th}>
+                    {header}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {isForecastLoading ? (
                 <tr>
-                  {[
-                    "Item",
-                    "Current Stock",
-                    "Per Household",
-                    "Forecast Need",
-                    "Pack Need",
-                    "After Forecast",
-                    "Add Stock",
-                    "Shortage",
-                    "Risk",
-                  ].map((header) => (
-                    <th key={header} style={panelStyles.th}>
-                      {header}
-                    </th>
-                  ))}
+                  <td colSpan="9" style={panelStyles.td}>
+                    Loading latest forecast...
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {isForecastLoading ? (
-                  <tr>
-                    <td colSpan="9" style={panelStyles.td}>
-                      Loading latest forecast...
-                    </td>
-                  </tr>
-                ) : isForecastHistoryDetailLoading ? (
-                  <tr>
-                    <td colSpan="9" style={panelStyles.td}>
-                      Loading forecast run details...
-                    </td>
-                  </tr>
-                ) : !resultRows.length ? (
-                  <tr>
-                    <td colSpan="9" style={panelStyles.td}>
-                      Run a forecast to see item needs, shortage warnings, and suggested stock additions.
-                    </td>
-                  </tr>
-                ) : (
-                  resultRows.map((result) => (
-                    <tr key={result.inventory_item_id}>
-                      <td style={panelStyles.td}>
-                        <strong style={{ color: "#17324d" }}>{result.item_name}</strong>
-                        <div style={{ marginTop: "4px", fontSize: "12px", color: "#60738a" }}>
-                          {result.item_code || "--"} | {getForecastModelLabel(result.selected_model)}
-                        </div>
-                      </td>
-                      <td style={panelStyles.td}>{formatNumber(result.current_available_stock)}</td>
-                      <td style={panelStyles.td}>{formatNumber(result.quantity_per_household)}</td>
-                      <td style={panelStyles.td}>{formatNumber(result.forecasted_usage)}</td>
-                      <td style={panelStyles.td}>{formatNumber(result.projected_household_demand)}</td>
-                      <td style={panelStyles.td}>{formatNumber(result.projected_remaining_stock)}</td>
-                      <td style={panelStyles.td}>{formatNumber(result.recommended_reorder_quantity)}</td>
-                      <td style={panelStyles.td}>
-                        {result.shortage_within_seven_days
-                          ? `Shortage in ${result.days_until_depletion || 0} day(s)`
-                          : result.days_until_depletion === null
-                            ? "No short-term shortage"
-                            : `${result.days_until_depletion} day(s) remaining`}
-                      </td>
-                      <td style={panelStyles.td}>
-                        <span style={getRiskLevelStyle(result.risk_level)}>
-                          {result.risk_level}
-                        </span>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div style={{ display: "grid", gap: "18px" }}>
-          <div style={panelStyles.card}>
-            <h4 style={{ margin: "0 0 10px", color: "#17324d", fontSize: "18px" }}>
-              Recommendations
-            </h4>
-            {!displayRecommendations.length ? (
-              <p style={panelStyles.emptyState}>
-                No shortage recommendations are available yet for the selected forecast.
-              </p>
-            ) : (
-              <div style={{ display: "grid", gap: "10px" }}>
-                {displayRecommendations.map((row) => (
-                  <div
-                    key={row.inventory_item_id}
-                    style={{
-                      borderRadius: "14px",
-                      border: "1px solid #dbe6f0",
-                      backgroundColor: "#f8fbff",
-                      padding: "12px 14px",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: "10px",
-                        alignItems: "center",
-                      }}
-                    >
-                      <strong style={{ color: "#17324d" }}>{row.item_name}</strong>
-                      <span style={getRiskLevelStyle(row.risk_level)}>{row.risk_level}</span>
-                    </div>
-                    <p style={{ margin: "8px 0 0", color: "#5d7188", fontSize: "13px", lineHeight: 1.6 }}>
-                      Add {formatNumber(row.recommended_reorder_quantity)} {row.unit_of_measure || "units"}
-                    </p>
-                    <p style={{ margin: "6px 0 0", color: "#5d7188", fontSize: "12px" }}>
-                      Projected depletion: {formatDate(row.projected_depletion_date)}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div style={panelStyles.card}>
-            <h4 style={{ margin: "0 0 12px", color: "#17324d", fontSize: "18px" }}>
-              Forecast History
-            </h4>
-            {isForecastHistoryLoading ? (
-              <p style={panelStyles.emptyState}>Loading forecast history...</p>
-            ) : !forecastHistory.length ? (
-              <p style={panelStyles.emptyState}>No saved forecast runs yet for this disaster event.</p>
-            ) : (
-              <div style={{ display: "grid", gap: "10px" }}>
-                {forecastHistory.slice(0, 5).map((run) => (
-                  <button
-                    key={run.id}
-                    type="button"
-                    onClick={() => onSelectForecastHistoryRun(run.id)}
-                    style={panelStyles.historyButton}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: "12px",
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <strong style={{ color: "#17324d" }}>
-                        {run.disaster_event?.event_code} - {run.disaster_event?.title}
+              ) : isForecastHistoryDetailLoading ? (
+                <tr>
+                  <td colSpan="9" style={panelStyles.td}>
+                    Loading forecast run details...
+                  </td>
+                </tr>
+              ) : !resultRows.length ? (
+                <tr>
+                  <td colSpan="9" style={panelStyles.td}>
+                    Run a forecast to see item needs, shortage warnings, and suggested stock additions.
+                  </td>
+                </tr>
+              ) : (
+                priorityResultRows.map((result) => (
+                  <tr key={result.inventory_item_id}>
+                    <td style={panelStyles.td}>
+                      <strong
+                        style={panelStyles.itemNameCell}
+                        title={`${result.item_name} (${result.item_code || "--"} | ${getForecastModelLabel(result.selected_model)})`}
+                      >
+                        {result.item_name}
                       </strong>
-                      <span style={{ color: "#5d7188", fontSize: "12px" }}>
-                        {new Date(run.run_at).toLocaleString()}
+                    </td>
+                    <td style={panelStyles.td}>{formatNumber(result.current_available_stock)}</td>
+                    <td style={panelStyles.td}>{formatNumber(result.quantity_per_household)}</td>
+                    <td style={panelStyles.td}>{formatNumber(result.forecasted_usage)}</td>
+                    <td style={panelStyles.td}>{formatNumber(result.projected_household_demand)}</td>
+                    <td style={panelStyles.td}>{formatNumber(result.projected_remaining_stock)}</td>
+                    <td style={panelStyles.td}>{formatNumber(result.recommended_reorder_quantity)}</td>
+                    <td style={panelStyles.td}>
+                      {result.shortage_within_seven_days
+                        ? `Shortage in ${result.days_until_depletion || 0} day(s)`
+                        : result.days_until_depletion === null
+                          ? "No short-term shortage"
+                          : `${result.days_until_depletion} day(s) remaining`}
+                    </td>
+                    <td style={panelStyles.td}>
+                      <span style={getRiskLevelStyle(result.risk_level)}>
+                        {result.risk_level}
                       </span>
-                    </div>
-                    <div
-                      style={{
-                        marginTop: "6px",
-                        display: "flex",
-                        gap: "12px",
-                        flexWrap: "wrap",
-                        color: "#5d7188",
-                        fontSize: "12px",
-                      }}
-                    >
-                      <span>Model: {getForecastModelLabel(run.model_name)}</span>
-                      <span>Generated By: {run.generated_by}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
+      </details>
+
+      <div style={panelStyles.card}>
+        <h4 style={{ margin: "0 0 12px", color: "#17324d", fontSize: "18px" }}>
+          Forecast History
+        </h4>
+        {isForecastHistoryLoading ? (
+          <p style={panelStyles.emptyState}>Loading forecast history...</p>
+        ) : !forecastHistory.length ? (
+          <p style={panelStyles.emptyState}>No saved forecast runs yet for this disaster event.</p>
+        ) : (
+          <div style={{ display: "grid", gap: "10px" }}>
+            {forecastHistory.slice(0, 5).map((run) => (
+              <button
+                key={run.id}
+                type="button"
+                onClick={() => onSelectForecastHistoryRun(run.id)}
+                style={panelStyles.historyButton}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: "12px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <strong style={{ color: "#17324d" }}>
+                    {run.disaster_event?.event_code} - {run.disaster_event?.title}
+                  </strong>
+                  <span style={{ color: "#5d7188", fontSize: "12px" }}>
+                    {new Date(run.run_at).toLocaleString()}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    marginTop: "6px",
+                    display: "flex",
+                    gap: "12px",
+                    flexWrap: "wrap",
+                    color: "#5d7188",
+                    fontSize: "12px",
+                  }}
+                >
+                  <span>Model: {getForecastModelLabel(run.model_name)}</span>
+                  <span>Generated By: {run.generated_by}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

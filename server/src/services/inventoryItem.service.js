@@ -664,6 +664,21 @@ const createInventoryItem = async (itemData, actor = null) => {
     const createdItem =
       await inventoryItemRepository.insertInventoryItem(inventoryItemToCreate, client);
 
+    if (itemData.skip_opening_stock) {
+      await client.query("COMMIT");
+
+      await logAuditSafely({
+        actor,
+        action: "INVENTORY_ITEM_CREATE",
+        entityType: "INVENTORY_ITEM",
+        entityId: createdItem.id,
+        oldValues: {},
+        newValues: summarizeInventoryItem(createdItem),
+      });
+
+      return createdItem;
+    }
+
     const totalInitialQuantity =
       Number(createdItem.packaging_count || 0) * Number(createdItem.quantity || 0);
 
