@@ -6,8 +6,6 @@ import DonationFilters from "../components/donations/DonationFilters";
 import DonationPageStatus from "../components/donations/DonationPageStatus";
 import DonationPageTabs from "../components/donations/DonationPageTabs";
 import DonationModal from "../components/donations/DonationModal";
-import DonationNeedModal from "../components/donations/DonationNeedModal";
-import DonationNeedsTab from "../components/donations/DonationNeedsTab";
 import DonationsTab from "../components/donations/DonationsTab";
 import DonationDetailModal from "../components/donations/DonationDetailModal";
 import DonorTransparencyTab from "../components/donations/DonorTransparencyTab";
@@ -21,34 +19,13 @@ import {
   fetchReliefPackTemplates,
 } from "../features/relief-pack-templates/reliefPackTemplateService";
 import {
-  createDonation,
-  fetchDonationDetail,
-  createDonationItem,
-  createDonationNeed,
-  deleteDonation,
-  deleteDonationItem,
-  deleteDonationNeed,
   exportDonationTransparencySummary,
-  fetchDonationById,
-  fetchDonationNeeds,
   fetchDonationPortalData,
   fetchDonations,
-  updateDonation,
-  updateDonationItem,
-  updateDonationNeed,
 } from "../features/donations/donationService";
-import {
-  mergeDonationsWithSyncStatus,
-  mergeDonationNeedsWithSyncStatus,
-} from "../features/donations/donationSync";
-import {
-  createDonationForm,
-  createDonationItemForm,
-  createNeedForm,
-} from "../features/donations/donationUi";
+import { mergeDonationsWithSyncStatus } from "../features/donations/donationSync";
 import {
   defaultPortalData,
-  filterDonationNeeds,
   filterDonations,
   getAvailableDonationTabs,
   getDonationPageMeta,
@@ -72,16 +49,14 @@ const DonationManagementPage = () => {
   const availableTabs = getAvailableDonationTabs(canManageDonations);
 
   const [activeTab, setActiveTab] = useState(
-    canManageDonations ? "donations" : "needs",
+    canManageDonations ? "donations" : "transparency",
   );
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [inventoryItems, setInventoryItems] = useState([]);
   const [reliefPackTemplates, setReliefPackTemplates] = useState([]);
-  const [donationNeeds, setDonationNeeds] = useState([]);
   const [donations, setDonations] = useState([]);
   const [portalData, setPortalData] = useState(defaultPortalData);
   const [selectedEventId, setSelectedEventId] = useState("");
-  const [needSearch, setNeedSearch] = useState("");
   const [donationSearch, setDonationSearch] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [pageErrorMessage, setPageErrorMessage] = useState("");
@@ -108,7 +83,6 @@ const DonationManagementPage = () => {
         eventRows,
         inventoryItemRows,
         reliefPackTemplateRows,
-        donationNeedRows,
         donationRows,
         donationPortal,
       ] =
@@ -120,10 +94,6 @@ const DonationManagementPage = () => {
           canManageDonations
             ? fetchReliefPackTemplates({ is_active: "true" })
             : Promise.resolve([]),
-          fetchDonationNeeds({
-            disaster_event_id: eventId || undefined,
-            search: needSearch || undefined,
-          }),
           canManageDonations
             ? fetchDonations({
                 disaster_event_id: eventId || undefined,
@@ -145,7 +115,6 @@ const DonationManagementPage = () => {
           )
         : [];
       setReliefPackTemplates(activeReliefPackTemplates);
-      setDonationNeeds(Array.isArray(donationNeedRows) ? donationNeedRows : []);
       setDonations(Array.isArray(donationRows) ? donationRows : []);
       setPortalData(donationPortal || defaultPortalData);
 
@@ -161,7 +130,7 @@ const DonationManagementPage = () => {
 
   useEffect(() => {
     if (!canManageDonations) {
-      setActiveTab("needs");
+      setActiveTab("transparency");
     }
 
     loadPageData(selectedEventId);
@@ -177,16 +146,6 @@ const DonationManagementPage = () => {
     return () => unsubscribe();
   }, [selectedEventId]);
 
-  const donationNeedsWithSyncStatus = useMemo(() => {
-    return mergeDonationNeedsWithSyncStatus({
-      donationNeeds,
-      syncQueueEntries,
-      selectedEventId,
-      inventoryItems,
-      disasterEvents,
-    });
-  }, [disasterEvents, donationNeeds, inventoryItems, selectedEventId, syncQueueEntries]);
-
   const donationsWithSyncStatus = useMemo(() => {
     return mergeDonationsWithSyncStatus({
       donations,
@@ -196,10 +155,6 @@ const DonationManagementPage = () => {
       disasterEvents,
     });
   }, [disasterEvents, donations, inventoryItems, selectedEventId, syncQueueEntries]);
-
-  const filteredDonationNeeds = useMemo(() => {
-    return filterDonationNeeds(donationNeedsWithSyncStatus, needSearch);
-  }, [donationNeedsWithSyncStatus, needSearch]);
 
   const filteredDonations = useMemo(() => {
     return filterDonations(donationsWithSyncStatus, donationSearch);
@@ -212,10 +167,6 @@ const DonationManagementPage = () => {
   const {
     deleteConfirmation,
     isDeleteSubmitting,
-    isNeedModalOpen,
-    needForm,
-    needErrorMessage,
-    isNeedSubmitting,
     isDonationModalOpen,
     isDonationDetailModalOpen,
     isDonationDetailLoading,
@@ -227,15 +178,12 @@ const DonationManagementPage = () => {
     isDonationSubmitting,
     donationItemDraft,
     editingDonationItemId,
-    setNeedForm,
     setDonationForm,
     setDonationItemDraft,
-    openNeedModal,
-    closeNeedModal,
     openDonationModal,
     closeDonationModal,
     openDonationDetailModal,
-    submitDonationNeed,
+    closeDonationDetailModal,
     submitDonation,
     addDraftDonationItem,
     addPackItemToDraft,
@@ -246,7 +194,6 @@ const DonationManagementPage = () => {
     removeDraftDonationItem,
     removeExistingDonationItem,
     addExistingDonationItem,
-    handleDeleteDonationNeed,
     handleDeleteDonation,
     handleCancelDeleteConfirmation,
     handleConfirmDelete,
@@ -313,16 +260,12 @@ const DonationManagementPage = () => {
           canManageDonations={canManageDonations}
           selectedEventId={selectedEventId}
           disasterEvents={disasterEvents}
-          needSearch={needSearch}
           donationSearch={donationSearch}
           onSelectedEventChange={(nextEventId) => {
             setSelectedEventId(nextEventId);
             loadPageData(nextEventId);
           }}
-          onNeedSearchChange={setNeedSearch}
           onDonationSearchChange={setDonationSearch}
-          onRefresh={() => loadPageData(selectedEventId)}
-          onOpenNeedModal={() => openNeedModal()}
           onOpenDonationModal={() => openDonationModal()}
           isExportingTransparency={isExportingTransparency}
           onOpenTransparencyExport={() => {
@@ -344,17 +287,6 @@ const DonationManagementPage = () => {
         />
       </section>
 
-      {activeTab === "needs" ? (
-        <DonationNeedsTab
-          isLoading={isLoading}
-          filteredDonationNeeds={filteredDonationNeeds}
-          selectedEventLabel={selectedEventLabel}
-          canManageDonations={canManageDonations}
-          onOpenNeedModal={openNeedModal}
-          onDeleteDonationNeed={handleDeleteDonationNeed}
-        />
-      ) : null}
-
       {activeTab === "donations" ? (
         <DonationsTab
           isLoading={isLoading}
@@ -370,25 +302,6 @@ const DonationManagementPage = () => {
         <DonorTransparencyTab
           portalData={portalData}
           selectedEventLabel={selectedEventLabel}
-        />
-      ) : null}
-
-      {canManageDonations ? (
-        <DonationNeedModal
-          isOpen={isNeedModalOpen}
-          formValues={needForm}
-          inventoryItems={inventoryItems}
-          disasterEvents={disasterEvents}
-          isSubmitting={isNeedSubmitting}
-          errorMessage={needErrorMessage}
-          onClose={closeNeedModal}
-          onChange={(fieldName, value) =>
-            setNeedForm((currentValues) => ({
-              ...currentValues,
-              [fieldName]: value,
-            }))
-          }
-          onSubmit={submitDonationNeed}
         />
       ) : null}
 
@@ -478,11 +391,7 @@ const DonationManagementPage = () => {
         isLoading={isDonationDetailLoading}
         errorMessage={donationDetailErrorMessage}
         detail={selectedDonationDetail}
-        onClose={() => {
-          setIsDonationDetailModalOpen(false);
-          setSelectedDonationDetail(null);
-          setDonationDetailErrorMessage("");
-        }}
+        onClose={closeDonationDetailModal}
       />
     </>
   );

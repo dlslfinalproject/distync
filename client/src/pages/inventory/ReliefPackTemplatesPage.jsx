@@ -361,6 +361,33 @@ const formatTemplateItemQuantity = (item) => {
   return `${quantityRequired} pc${quantityRequired === 1 ? "" : "s"}`;
 };
 
+const getTemplateSourceTypes = (template, inventoryBatches) => {
+  const templateItemIds = new Set(
+    (template?.items || [])
+      .map((item) => item.inventory_item_id)
+      .filter(Boolean),
+  );
+
+  if (templateItemIds.size === 0) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      (inventoryBatches || [])
+        .filter((batch) => templateItemIds.has(batch.inventory_item_id))
+        .map((batch) => String(batch.source_type || "").toUpperCase())
+        .filter(Boolean),
+    ),
+  );
+};
+
+const isDonatedReliefPackTemplate = (template, inventoryBatches) => {
+  const sourceTypes = getTemplateSourceTypes(template, inventoryBatches);
+
+  return sourceTypes.length > 0 && sourceTypes.every((sourceType) => sourceType === "DONATED");
+};
+
 const ReliefPackTemplatesPage = () => {
   const { authenticatedUser } = useAuth();
   const [activeTab, setActiveTab] = useState("relief-packs");
@@ -552,6 +579,17 @@ const ReliefPackTemplatesPage = () => {
       );
     });
   }, [filters.search, templateCards]);
+
+  const templateAccessMap = useMemo(() => {
+    return new Map(
+      templates.map((template) => [
+        template.id,
+        {
+          isDonatedTemplate: isDonatedReliefPackTemplate(template, inventoryBatches),
+        },
+      ]),
+    );
+  }, [templates, inventoryBatches]);
 
   const handleOpenCreateModal = () => {
     setModalMode("create");
@@ -933,10 +971,18 @@ const ReliefPackTemplatesPage = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredTemplateCards.map((template) => (
-                      <tr key={template.id}>
+                    {filteredTemplateCards.map((template) => {
+                      const templateAccess = templateAccessMap.get(template.id) || {
+                        isDonatedTemplate: false,
+                      };
+
+                      return (
+                        <tr key={template.id}>
                         <td style={tableStyles.bodyCell}>
                           <div style={{ fontWeight: 700 }}>{template.name}</div>
+                          {templateAccess.isDonatedTemplate ? (
+                            <span style={tableStyles.helperText}>Donated relief pack</span>
+                          ) : null}
                         </td>
                         <td style={tableStyles.bodyCell}>
                           {(template.items || []).length > 0 ? (
@@ -1013,26 +1059,31 @@ const ReliefPackTemplatesPage = () => {
                                 onClick: (selectedRow) =>
                                   handleOpenViewModal(selectedRow.id),
                               },
-                              {
-                                key: "edit",
-                                label: "Edit Relief Pack",
-                                icon: <FiEdit2 size={18} />,
-                                onClick: (selectedRow) =>
-                                  handleOpenEditModal(selectedRow.id),
-                              },
-                              {
-                                key: "delete",
-                                label: "Delete Relief Pack",
-                                icon: <FiTrash2 size={18} />,
-                                tone: "destructive",
-                                onClick: (selectedRow) =>
-                                  handleDeleteTemplate(selectedRow.id),
-                              },
+                              ...(!templateAccess.isDonatedTemplate
+                                ? [
+                                    {
+                                      key: "edit",
+                                      label: "Edit Relief Pack",
+                                      icon: <FiEdit2 size={18} />,
+                                      onClick: (selectedRow) =>
+                                        handleOpenEditModal(selectedRow.id),
+                                    },
+                                    {
+                                      key: "delete",
+                                      label: "Delete Relief Pack",
+                                      icon: <FiTrash2 size={18} />,
+                                      tone: "destructive",
+                                      onClick: (selectedRow) =>
+                                        handleDeleteTemplate(selectedRow.id),
+                                    },
+                                  ]
+                                : []),
                             ]}
                           />
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

@@ -13,33 +13,9 @@ export const getAvailableDonationTabs = (canManageDonations) => {
   return canManageDonations
     ? [
         { key: "donations", label: "Donations" },
-        { key: "needs", label: "Donation Needs" },
         { key: "transparency", label: "Transparency Summary" },
       ]
-    : [
-        { key: "needs", label: "Donation Needs" },
-        { key: "transparency", label: "Transparency Summary" },
-      ];
-};
-
-export const filterDonationNeeds = (donationNeedsWithSyncStatus, needSearch) => {
-  if (!needSearch.trim()) {
-    return donationNeedsWithSyncStatus;
-  }
-
-  const normalizedSearch = needSearch.trim().toLowerCase();
-
-  return donationNeedsWithSyncStatus.filter((need) =>
-    [
-      need.inventory_item?.item_name,
-      need.inventory_item?.item_code,
-      need.disaster_event?.title,
-      need.disaster_event?.event_code,
-      need.notes,
-    ]
-      .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(normalizedSearch)),
-  );
+    : [{ key: "transparency", label: "Transparency Summary" }];
 };
 
 export const filterDonations = (donationsWithSyncStatus, donationSearch) => {
@@ -71,12 +47,10 @@ export const getDonationPageMeta = (canManageDonations) => {
   return canManageDonations
     ? {
         title: "DONATION MANAGEMENT",
-        description:
-          "Manage published donation needs, record received donations, and review donor transparency summaries using live database-backed data.",
       }
     : {
         title: "DONATION SUMMARY",
         description:
-          "Review published donation needs and donor transparency summaries using live database-backed data.",
+          "Review donor transparency summaries using live database-backed data.",
       };
 };

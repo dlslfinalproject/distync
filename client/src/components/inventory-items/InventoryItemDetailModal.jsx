@@ -86,6 +86,20 @@ const formatDateTime = (value) => {
   });
 };
 
+const formatSourceLabel = (sourceType) => {
+  const normalizedSourceType = String(sourceType || "").toUpperCase();
+
+  if (!normalizedSourceType) {
+    return "--";
+  }
+
+  if (normalizedSourceType === "DONATED") {
+    return "Donor";
+  }
+
+  return "Malvar LGU";
+};
+
 const InventoryItemDetailModal = ({
   isOpen,
   isLoading,
@@ -102,6 +116,15 @@ const InventoryItemDetailModal = ({
   const transactions = detail?.related_transactions || [];
   const auditHistory = detail?.audit_history || [];
   const forecastSummary = detail?.forecast_summary || null;
+  const sourceLabels = Array.from(
+    new Set(batches.map((batch) => formatSourceLabel(batch.source_type)).filter(Boolean)),
+  );
+  const itemSourceLabel =
+    sourceLabels.length === 0
+      ? "--"
+      : sourceLabels.length === 1
+        ? sourceLabels[0]
+        : "Mixed";
 
   return (
     <DetailsModalShell
@@ -130,6 +153,7 @@ const InventoryItemDetailModal = ({
               ["Category", item.category || "--"],
               ["Unit", formatUnitOfMeasurement(item)],
               ["Stock On Hand", getTotalItemQuantity(item)],
+              ["Source", itemSourceLabel],
               ["Reorder Level", item.low_stock_threshold ?? "--"],
               ["Expiry Date", formatDate(item.expiration_date)],
             ].map(([label, value]) => (
@@ -193,7 +217,9 @@ const InventoryItemDetailModal = ({
                     {batches.map((batch) => (
                       <tr key={batch.id}>
                         <td style={modalStyles.td}>{batch.batch_no || "--"}</td>
-                        <td style={modalStyles.td}>{batch.source_type || "--"}</td>
+                        <td style={modalStyles.td}>
+                          {formatSourceLabel(batch.source_type)}
+                        </td>
                         <td style={modalStyles.td}>{batch.quantity_available ?? 0}</td>
                         <td style={modalStyles.td}>{formatDate(batch.expiration_date)}</td>
                         <td style={modalStyles.td}>{batch.status || "--"}</td>

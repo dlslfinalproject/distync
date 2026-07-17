@@ -9,13 +9,9 @@ const DonationFilters = ({
   canManageDonations,
   selectedEventId,
   disasterEvents,
-  needSearch,
   donationSearch,
   onSelectedEventChange,
-  onNeedSearchChange,
   onDonationSearchChange,
-  onRefresh,
-  onOpenNeedModal,
   onOpenDonationModal,
   isExportingTransparency,
   onOpenTransparencyExport,
@@ -44,25 +40,16 @@ const DonationFilters = ({
           ))}
         </select>
 
-        {activeTab === "needs" ? (
-          <SearchBar
-            value={needSearch}
-            onChange={onNeedSearchChange}
-            placeholder="Search needs by item, event, or notes"
-          />
-        ) : activeTab === "donations" ? (
+        {activeTab === "donations" ? (
           <SearchBar
             value={donationSearch}
             onChange={onDonationSearchChange}
-            placeholder="Search donations by donor, event, or remarks"
+            placeholder="Search donations by donor or event"
           />
         ) : null}
       </div>
 
       <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-        <button type="button" onClick={onRefresh} style={pageHeaderStyles.secondaryButton}>
-          Refresh
-        </button>
         {canManageDonations && activeTab === "transparency" ? (
           <button
             type="button"
@@ -76,17 +63,13 @@ const DonationFilters = ({
               : "Export"}
           </button>
         ) : null}
-        {canManageDonations && activeTab === "needs" ? (
-          <button type="button" onClick={onOpenNeedModal} style={pageHeaderStyles.primaryButton}>
-            Create Donation Need
-          </button>
-        ) : canManageDonations && activeTab === "donations" ? (
+        {canManageDonations && activeTab === "donations" ? (
           <button
             type="button"
             onClick={onOpenDonationModal}
             style={pageHeaderStyles.primaryButton}
           >
-            Record Donation
+            Add Donation
           </button>
         ) : null}
       </div>

@@ -100,6 +100,7 @@ const InventoryItemsTable = ({
             {[
               "Item Name",
               "Category",
+              "Source",
               "Quantity",
               "Shelf Life",
               "Minimum Stock Level",
@@ -116,14 +117,14 @@ const InventoryItemsTable = ({
         <tbody>
           {isLoading ? (
             <tr>
-              <td colSpan="7" style={styles.emptyStateCell}>
+              <td colSpan="8" style={styles.emptyStateCell}>
                 Loading inventory items...
               </td>
             </tr>
           ) : errorMessage ? (
             <tr>
               <td
-                colSpan="7"
+                colSpan="8"
                 style={{ ...styles.emptyStateCell, color: "#b91c1c" }}
               >
                 {errorMessage}
@@ -131,7 +132,7 @@ const InventoryItemsTable = ({
             </tr>
           ) : rows.length === 0 ? (
             <tr>
-              <td colSpan="7" style={styles.emptyStateCell}>
+              <td colSpan="8" style={styles.emptyStateCell}>
                 No inventory items found
               </td>
             </tr>
@@ -155,6 +156,7 @@ const InventoryItemsTable = ({
                     </div>
                   </td>
                   <td style={styles.td}>{item.category ?? "--"}</td>
+                  <td style={styles.td}>{item.source_label || "--"}</td>
                   <td style={styles.td}>{getTotalItemQuantity(item)}</td>
                   <td style={styles.td}>
                     <div style={styles.shelfLifeText}>

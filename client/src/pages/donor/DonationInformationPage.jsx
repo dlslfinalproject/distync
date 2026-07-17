@@ -1,37 +1,52 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   FiAlertCircle,
   FiArrowLeft,
+  FiBarChart2,
   FiCheckCircle,
-  FiGlobe,
+  FiChevronDown,
+  FiChevronUp,
   FiHome,
+  FiInfo,
   FiMail,
   FiMapPin,
   FiPackage,
   FiPhone,
+  FiTrendingUp,
   FiUsers,
 } from "react-icons/fi";
+import LoadingState from "../../components/shared/LoadingState";
 import distyncLogo from "../../assets/distync-logo.png";
 import { fetchDonationPortalData } from "../../features/donations/donationService";
+import {
+  formatDonationDateOnly,
+} from "../../features/donations/donationFormatters";
 
 const COLORS = {
   cardBg: "#ffffff",
+  pageBg: "#edf4fb",
   softBg: "#eef5fb",
   border: "#d6e2ef",
   text: "#17324d",
-  subtext: "#6b8298",
+  subtext: "#60738a",
   primary: "#2f6499",
+  primaryDark: "#244f78",
   danger: "#c94b4b",
   dangerSoft: "#fdecec",
-  warning: "#d48a1f",
+  warning: "#b87516",
   warningSoft: "#fff4df",
   success: "#2e7d5b",
   successSoft: "#eaf7f0",
+  neutralSoft: "#f6f9fc",
 };
 
 const LGU_CONTACT = {
+  systemName: "DISTYNC",
   municipality: "Municipality of Malvar, Batangas",
+  locationName: "Municipality of Malvar, Batangas",
+  address: "Malvar, Batangas",
+  receivingUnit: "Official LGU donation coordination desk",
   telephonePrimary: "+63 43 778 5101",
   telephoneSecondary: "+63 917 825 0356",
   emailPrimary: "lgumalvarbatangas@gmail.com",
@@ -39,20 +54,63 @@ const LGU_CONTACT = {
   website: "www.malvarbatangas.gov.ph",
 };
 
+// Temporary public drop-off data until an official public configuration source is available.
+const DROP_OFF_LOCATION = {
+  buildingName: "Municipal Hall of Malvar",
+  addressLines: [
+    "J. Leviste Street",
+    "Poblacion, Malvar, Batangas 4233",
+  ],
+  officeLines: [
+    "Office of the Municipal Mayor",
+    "Donation Coordination Desk",
+  ],
+  receivingHours: ["Monday-Friday", "8:00 AM-5:00 PM"],
+  phone: LGU_CONTACT.telephonePrimary,
+  email: LGU_CONTACT.emailPrimary,
+  mapsUrl: "",
+};
+
+const PRIORITY_GROUPS = [
+  {
+    key: "HIGH",
+    title: "High Priority",
+    badge: "HIGH PRIORITY",
+    iconColor: COLORS.danger,
+    background: COLORS.dangerSoft,
+    border: "#f2b8b8",
+  },
+  {
+    key: "MEDIUM",
+    title: "Medium Priority",
+    badge: "MEDIUM PRIORITY",
+    iconColor: COLORS.warning,
+    background: COLORS.warningSoft,
+    border: "#ebcf91",
+  },
+  {
+    key: "LOW",
+    title: "Low Priority",
+    badge: "LOW PRIORITY",
+    iconColor: COLORS.success,
+    background: COLORS.successSoft,
+    border: "#b7dcc7",
+  },
+];
+
 const styles = {
   page: {
     width: "100%",
     minWidth: 0,
     background: "transparent",
-    padding: "clamp(16px, 3vw, 32px)",
+    padding: "24px",
     boxSizing: "border-box",
-    fontFamily: "Inter, Segoe UI, sans-serif",
+    fontFamily: "Poppins, Inter, Segoe UI, sans-serif",
     color: COLORS.text,
   },
   pageInner: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "24px",
+    display: "grid",
+    gap: "18px",
     width: "100%",
     maxWidth: "1180px",
     margin: "0 auto",
@@ -62,309 +120,152 @@ const styles = {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    gap: "16px",
+    gap: "14px",
     background: "#cfd9ee",
     border: "1px solid #c5d3e5",
-    borderRadius: "20px",
-    padding: "18px 22px",
+    borderRadius: "16px",
+    padding: "16px 18px",
     boxShadow: "0 10px 24px rgba(23, 50, 77, 0.06)",
     flexWrap: "wrap",
   },
   brandWrap: {
     display: "flex",
     alignItems: "center",
-    gap: "14px",
+    gap: "12px",
     minWidth: 0,
   },
   brandLogo: {
-    width: "54px",
-    height: "54px",
+    width: "48px",
+    height: "48px",
     objectFit: "contain",
     flexShrink: 0,
   },
   brandTitle: {
     margin: 0,
-    fontSize: "26px",
+    fontSize: "24px",
     fontWeight: 800,
     color: "#344567",
     lineHeight: 1,
   },
   brandSubtitle: {
-    margin: "6px 0 0",
-    fontSize: "14px",
+    margin: "5px 0 0",
+    fontSize: "13px",
     color: "#415674",
     fontWeight: 600,
   },
   portalLabel: {
     margin: 0,
-    fontSize: "16px",
+    fontSize: "15px",
     fontWeight: 700,
     color: "#415674",
-  },
-  backButtonWrap: {
-    display: "flex",
-    justifyContent: "flex-start",
   },
   backButton: {
     display: "inline-flex",
     alignItems: "center",
     gap: "8px",
+    width: "fit-content",
     border: "1px solid #c6d8ea",
-    borderRadius: "14px",
-    padding: "12px 18px",
+    borderRadius: "12px",
+    padding: "10px 15px",
     backgroundColor: "#f8fbfe",
     color: "#2a4c6f",
     fontSize: "14px",
     fontWeight: 700,
     cursor: "pointer",
-    minHeight: "44px",
+    minHeight: "42px",
   },
-  contentStack: {
-    display: "grid",
-    gap: "20px",
-    minWidth: 0,
-  },
-  heroCard: {
+  section: {
     background: COLORS.cardBg,
     border: `1px solid ${COLORS.border}`,
-    borderRadius: "20px",
-    padding: "clamp(30px, 4vw, 40px)",
+    borderRadius: "16px",
+    padding: "22px",
+    boxShadow: "0 10px 24px rgba(23, 50, 77, 0.05)",
+    minWidth: 0,
+  },
+  hero: {
+    background:
+      "linear-gradient(135deg, rgba(255,255,255,0.96) 0%, rgba(238,245,251,0.98) 100%)",
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "16px",
+    padding: "24px",
     boxShadow: "0 10px 30px rgba(23, 50, 77, 0.06)",
-    minWidth: 0,
   },
-  heroTop: {
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: "18px",
-    textAlign: "center",
-  },
-  heroContent: {
-    minWidth: 0,
-    maxWidth: "880px",
-  },
-  heroAside: {
+  heroGrid: {
     display: "grid",
-    gap: "12px",
-    width: "100%",
-    justifyItems: "center",
+    gridTemplateColumns: "minmax(0, 1.45fr) minmax(260px, 0.55fr)",
+    gap: "20px",
+    alignItems: "center",
   },
   eyebrow: {
     margin: 0,
     fontSize: "12px",
-    fontWeight: 700,
+    fontWeight: 800,
     letterSpacing: "0.08em",
     textTransform: "uppercase",
-    color: COLORS.subtext,
+    color: COLORS.primary,
   },
   title: {
-    margin: "8px 0 6px",
-    fontSize: "clamp(28px, 4vw, 36px)",
+    margin: "8px 0",
+    fontSize: "34px",
+    lineHeight: 1.12,
     fontWeight: 800,
     color: COLORS.text,
-    lineHeight: 1.1,
   },
   subtitle: {
     margin: 0,
-    fontSize: "clamp(15px, 1.8vw, 18px)",
+    fontSize: "15px",
     color: COLORS.subtext,
-    lineHeight: 1.6,
-    maxWidth: "700px",
+    lineHeight: 1.7,
+    maxWidth: "760px",
   },
-  statusWrap: {
-    display: "flex",
-    gap: "10px",
-    flexWrap: "wrap",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  badge: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "8px",
-    padding: "10px 14px",
-    borderRadius: "999px",
-    fontSize: "13px",
-    fontWeight: 700,
-  },
-  heroAsideCard: {
-    background: COLORS.softBg,
-    border: `1px solid ${COLORS.border}`,
-    borderRadius: "18px",
-    padding: "18px 18px 16px",
-    minWidth: 0,
-    maxWidth: "360px",
-    width: "100%",
-    textAlign: "left",
-  },
-  heroAsideLabel: {
-    margin: 0,
-    fontSize: "12px",
-    fontWeight: 700,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
-    color: COLORS.subtext,
-  },
-  heroAsideValue: {
-    margin: "8px 0 0",
-    fontSize: "30px",
-    lineHeight: 1,
-    fontWeight: 800,
-    color: COLORS.text,
-  },
-  heroAsideText: {
-    margin: "10px 0 0",
-    fontSize: "14px",
-    lineHeight: 1.6,
-    color: COLORS.subtext,
-  },
-  summaryRow: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
-    gap: "16px",
-  },
-  summaryCard: {
-    background: COLORS.softBg,
-    border: `1px solid ${COLORS.border}`,
-    borderRadius: "18px",
-    padding: "18px 18px 16px",
+  notice: {
     display: "flex",
     alignItems: "flex-start",
     gap: "10px",
-    minWidth: 0,
-  },
-  summaryLabel: {
-    margin: 0,
-    fontSize: "12px",
-    fontWeight: 700,
-    textTransform: "uppercase",
-    color: COLORS.subtext,
-    letterSpacing: "0.04em",
-  },
-  summaryText: {
-    margin: "4px 0 0",
-    fontSize: "14px",
+    marginTop: "16px",
+    padding: "13px 14px",
+    borderRadius: "12px",
+    background: COLORS.warningSoft,
     color: COLORS.text,
-    lineHeight: 1.5,
-    wordBreak: "break-word",
+    border: "1px solid #edd5a5",
+    fontSize: "13px",
+    lineHeight: 1.6,
   },
-  neededSection: {
-    background: COLORS.cardBg,
-    border: `1px solid ${COLORS.border}`,
-    borderRadius: "20px",
-    padding: "24px",
-    boxShadow: "0 10px 24px rgba(23, 50, 77, 0.04)",
-  },
-  neededGrid: {
+  heroAside: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-    gap: "16px",
+    gap: "10px",
+    padding: "16px",
+    borderRadius: "14px",
+    background: "rgba(255, 255, 255, 0.72)",
+    border: `1px solid ${COLORS.border}`,
   },
-  neededCard: {
-    borderRadius: "16px",
-    padding: "18px",
-    border: "1px solid transparent",
-    minWidth: 0,
-  },
-  neededTag: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: "26px",
-    padding: "4px 10px",
-    borderRadius: "999px",
-    fontSize: "11px",
+  asideLabel: {
+    margin: 0,
+    color: COLORS.subtext,
+    fontSize: "12px",
     fontWeight: 800,
+    letterSpacing: "0.06em",
     textTransform: "uppercase",
-    letterSpacing: "0.04em",
-    marginBottom: "14px",
   },
-  neededTitle: {
-    margin: "0 0 8px",
-    fontSize: "18px",
-    fontWeight: 800,
-    color: COLORS.text,
-  },
-  neededQuantity: {
-    margin: "0 0 6px",
-    fontSize: "34px",
+  asideValue: {
+    margin: 0,
+    fontSize: "32px",
     lineHeight: 1,
     fontWeight: 800,
-    color: "#344567",
-  },
-  neededMeta: {
-    margin: 0,
-    fontSize: "14px",
-    lineHeight: 1.5,
-    color: COLORS.subtext,
-  },
-  dropOffSection: {
-    background: COLORS.cardBg,
-    border: `1px solid ${COLORS.border}`,
-    borderRadius: "20px",
-    padding: "clamp(24px, 4vw, 34px)",
-    boxShadow: "0 10px 24px rgba(23, 50, 77, 0.04)",
-    textAlign: "center",
-  },
-  dropOffCard: {
-    margin: "0 auto",
-    maxWidth: "520px",
-    background: COLORS.softBg,
-    border: `1px solid ${COLORS.border}`,
-    borderRadius: "18px",
-    padding: "22px 24px",
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: "16px",
-    textAlign: "left",
-    flexWrap: "wrap",
-  },
-  dropOffTitle: {
-    margin: 0,
-    fontSize: "clamp(28px, 4vw, 44px)",
-    fontWeight: 800,
-    color: "#344567",
-    lineHeight: 1.05,
-  },
-  dropOffSubtitle: {
-    margin: "10px 0 24px",
-    fontSize: "15px",
-    color: COLORS.subtext,
-    lineHeight: 1.6,
-  },
-  dropOffLocationName: {
-    margin: 0,
-    fontSize: "18px",
-    fontWeight: 800,
-    color: "#344567",
-  },
-  dropOffLocationText: {
-    margin: "6px 0 0",
-    fontSize: "14px",
-    lineHeight: 1.6,
-    color: COLORS.subtext,
-  },
-  disasterCard: {
-    background: COLORS.cardBg,
-    border: `1px solid ${COLORS.border}`,
-    borderRadius: "18px",
-    padding: "22px",
-    boxShadow: "0 10px 24px rgba(23, 50, 77, 0.04)",
-    minWidth: 0,
+    color: COLORS.primaryDark,
   },
   sectionHeader: {
     display: "flex",
     justifyContent: "space-between",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: "12px",
     marginBottom: "16px",
     flexWrap: "wrap",
   },
   sectionTitle: {
     margin: 0,
-    fontSize: "24px",
+    fontSize: "22px",
+    lineHeight: 1.2,
     fontWeight: 800,
     color: COLORS.text,
   },
@@ -372,231 +273,381 @@ const styles = {
     margin: "6px 0 0",
     fontSize: "14px",
     color: COLORS.subtext,
+    lineHeight: 1.6,
   },
-  summaryGrid: {
+  badge: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "7px",
+    padding: "8px 11px",
+    borderRadius: "999px",
+    fontSize: "12px",
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  },
+  eventGrid: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1.25fr) minmax(260px, 0.75fr)",
+    gap: "18px",
+    alignItems: "start",
+  },
+  detailGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-    gap: "16px",
-    marginBottom: "20px",
-  },
-  metricCard: {
-    background: COLORS.softBg,
-    border: `1px solid ${COLORS.border}`,
-    borderRadius: "18px",
-    padding: "20px",
-  },
-  metricTop: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
     gap: "12px",
-    marginBottom: "12px",
+    marginTop: "16px",
   },
-  metricLabel: {
+  detailItem: {
+    background: COLORS.neutralSoft,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "12px",
+    padding: "13px 14px",
+    minWidth: 0,
+  },
+  label: {
     margin: 0,
-    fontSize: "13px",
-    fontWeight: 700,
+    fontSize: "12px",
     color: COLORS.subtext,
+    fontWeight: 800,
     textTransform: "uppercase",
     letterSpacing: "0.04em",
   },
-  metricValue: {
-    margin: 0,
-    fontSize: "34px",
+  value: {
+    margin: "5px 0 0",
+    fontSize: "15px",
+    color: COLORS.text,
+    fontWeight: 700,
+    lineHeight: 1.4,
+    overflowWrap: "anywhere",
+  },
+  barangayList: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "8px",
+    marginTop: "12px",
+  },
+  barangayChip: {
+    display: "inline-flex",
+    alignItems: "center",
+    borderRadius: "999px",
+    padding: "7px 10px",
+    background: COLORS.softBg,
+    border: `1px solid ${COLORS.border}`,
+    color: COLORS.text,
+    fontSize: "13px",
+    fontWeight: 700,
+  },
+  ghostButton: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "6px",
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "999px",
+    padding: "7px 10px",
+    background: "#fff",
+    color: COLORS.primaryDark,
+    fontSize: "13px",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+  summaryGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+    gap: "14px",
+  },
+  summaryCard: {
+    background: COLORS.softBg,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "14px",
+    padding: "18px",
+    minWidth: 0,
+  },
+  summaryTop: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "10px",
+  },
+  summaryValue: {
+    margin: "12px 0 0",
+    fontSize: "30px",
     fontWeight: 800,
     color: COLORS.text,
     lineHeight: 1,
   },
-  metricSubtext: {
-    margin: "8px 0 0",
-    fontSize: "14px",
-    color: COLORS.subtext,
-  },
-  contentGrid: {
+  priorityStack: {
     display: "grid",
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-    gap: "18px",
-    minWidth: 0,
+    gap: "12px",
   },
-  subSection: {
-    background: COLORS.cardBg,
-    border: `1px solid ${COLORS.border}`,
-    borderRadius: "16px",
-    padding: "18px",
-    minWidth: 0,
-  },
-  subSectionTitle: {
-    margin: "0 0 12px",
-    fontSize: "18px",
-    fontWeight: 800,
-    color: COLORS.text,
-  },
-  urgentList: {
-    display: "grid",
-    gap: "10px",
-  },
-  urgentCard: {
-    borderRadius: "14px",
-    padding: "14px 16px",
-    border: `1px solid ${COLORS.border}`,
-  },
-  urgentTitle: {
-    margin: "0 0 4px",
-    fontSize: "16px",
-    fontWeight: 800,
-    color: COLORS.text,
-  },
-  urgentMeta: {
-    margin: 0,
-    color: COLORS.subtext,
-    fontSize: "14px",
-  },
-  areaList: {
-    display: "grid",
-    gap: "10px",
-  },
-  areaCard: {
-    background: COLORS.softBg,
+  details: {
     border: `1px solid ${COLORS.border}`,
     borderRadius: "14px",
-    padding: "14px 16px",
+    overflow: "hidden",
+    background: "#fff",
   },
-  areaName: {
-    margin: "0 0 8px",
-    fontSize: "16px",
-    fontWeight: 800,
-    color: COLORS.text,
-  },
-  areaRow: {
+  detailsSummary: {
     display: "flex",
     justifyContent: "space-between",
-    gap: "12px",
-    alignItems: "baseline",
-    fontSize: "14px",
-    color: COLORS.text,
-    marginTop: "4px",
-  },
-  emptyStateCard: {
-    background: COLORS.cardBg,
-    border: `1px solid ${COLORS.border}`,
-    borderRadius: "20px",
-    padding: "40px 24px",
-    textAlign: "center",
-    boxShadow: "0 10px 24px rgba(23, 50, 77, 0.04)",
-  },
-  emptyIconWrap: {
-    width: "72px",
-    height: "72px",
-    borderRadius: "999px",
-    background: COLORS.successSoft,
-    color: COLORS.success,
-    display: "flex",
     alignItems: "center",
-    justifyContent: "center",
-    margin: "0 auto 16px",
+    gap: "12px",
+    padding: "15px 16px",
+    cursor: "pointer",
+    listStyle: "none",
   },
-  emptyTitle: {
-    margin: 0,
-    fontSize: "28px",
-    fontWeight: 800,
-    color: COLORS.text,
+  itemGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: "12px",
+    padding: "0 16px 16px",
   },
-  emptyText: {
-    margin: "12px auto 0",
-    maxWidth: "700px",
-    fontSize: "15px",
-    color: COLORS.subtext,
-    lineHeight: 1.7,
-  },
-  updatedText: {
-    marginTop: "16px",
-    fontSize: "13px",
-    color: "#8ca0b4",
-  },
-  messageCard: {
-    background: COLORS.cardBg,
+  itemCard: {
+    borderRadius: "12px",
+    padding: "14px",
     border: `1px solid ${COLORS.border}`,
-    borderRadius: "20px",
-    padding: "28px 24px",
-    boxShadow: "0 10px 24px rgba(23, 50, 77, 0.04)",
+    background: COLORS.neutralSoft,
+    minWidth: 0,
   },
-  messageTitle: {
+  itemTitle: {
     margin: 0,
-    fontSize: "24px",
-    fontWeight: 800,
     color: COLORS.text,
+    fontSize: "16px",
+    lineHeight: 1.35,
+    fontWeight: 800,
   },
-  messageText: {
+  itemQuantity: {
     margin: "10px 0 0",
-    fontSize: "15px",
-    lineHeight: 1.7,
+    fontSize: "25px",
+    lineHeight: 1,
+    fontWeight: 800,
+    color: COLORS.primaryDark,
+  },
+  itemNote: {
+    margin: "9px 0 0",
     color: COLORS.subtext,
+    fontSize: "13px",
+    lineHeight: 1.5,
   },
-  inlineEmptyText: {
-    margin: 0,
-    fontSize: "14px",
-    lineHeight: 1.6,
-    color: COLORS.subtext,
+  donationList: {
+    display: "grid",
+    gap: "12px",
   },
-  footer: {
-    background: "#cfd9ee",
-    border: "1px solid #c5d3e5",
-    borderRadius: "20px",
-    padding: "clamp(20px, 3vw, 28px)",
-    boxShadow: "0 10px 24px rgba(23, 50, 77, 0.04)",
+  donationCard: {
+    background: COLORS.neutralSoft,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "12px",
+    padding: "14px",
+    minWidth: 0,
   },
-  footerTop: {
+  donationTop: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    gap: "16px",
+    gap: "12px",
     flexWrap: "wrap",
-    marginBottom: "18px",
   },
-  footerTitle: {
+  donationName: {
     margin: 0,
-    fontSize: "20px",
+    fontSize: "16px",
     fontWeight: 800,
     color: COLORS.text,
   },
-  footerSubtitle: {
-    margin: "6px 0 0",
+  donationMeta: {
+    margin: "5px 0 0",
+    color: COLORS.subtext,
+    fontSize: "13px",
+    lineHeight: 1.5,
+  },
+  tableWrap: {
+    overflowX: "auto",
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "12px",
+    marginTop: "14px",
+  },
+  table: {
+    width: "100%",
+    minWidth: "520px",
+    borderCollapse: "collapse",
+  },
+  th: {
+    padding: "12px 14px",
+    textAlign: "left",
+    fontSize: "12px",
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
+    color: COLORS.subtext,
+    borderBottom: `1px solid ${COLORS.border}`,
+    background: COLORS.softBg,
+  },
+  td: {
+    padding: "14px",
+    borderBottom: "1px solid #edf3f8",
+    fontSize: "14px",
+    color: COLORS.text,
+    verticalAlign: "top",
+  },
+  numericCell: {
+    textAlign: "right",
+    whiteSpace: "nowrap",
+  },
+  emptyState: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: "12px",
+    padding: "16px",
+    background: COLORS.neutralSoft,
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "12px",
+    color: COLORS.subtext,
     fontSize: "14px",
     lineHeight: 1.6,
-    color: COLORS.subtext,
-    maxWidth: "640px",
+  },
+  footer: {
+    background:
+      "linear-gradient(135deg, rgba(255,255,255,0.96) 0%, rgba(238,245,251,0.98) 100%)",
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "16px",
+    padding: 0,
+    boxShadow: "0 10px 30px rgba(23, 50, 77, 0.06)",
+    overflow: "hidden",
   },
   footerGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-    gap: "14px",
+    gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+    gap: "16px",
+    alignItems: "start",
+    padding: "18px 20px 15px",
   },
-  footerCard: {
-    background: "rgba(255, 255, 255, 0.55)",
-    border: "1px solid rgba(197, 211, 229, 0.95)",
-    borderRadius: "16px",
-    padding: "16px 18px",
+  footerBrand: {
     display: "flex",
-    alignItems: "flex-start",
-    gap: "12px",
+    alignItems: "center",
+    gap: "9px",
     minWidth: 0,
   },
-  footerLabel: {
-    margin: 0,
-    fontSize: "12px",
-    fontWeight: 700,
-    letterSpacing: "0.06em",
-    textTransform: "uppercase",
-    color: COLORS.subtext,
+  footerLogo: {
+    width: "36px",
+    height: "36px",
+    objectFit: "contain",
+    flexShrink: 0,
   },
-  footerValue: {
-    margin: "6px 0 0",
-    fontSize: "14px",
-    lineHeight: 1.6,
-    color: "#344567",
-    wordBreak: "break-word",
+  footerColumnTitle: {
+    margin: "0 0 8px",
+    color: COLORS.primaryDark,
+    fontSize: "13px",
+    lineHeight: 1.3,
+    fontWeight: 800,
+  },
+  footerTitleText: {
+    margin: 0,
+    color: COLORS.text,
+    fontSize: "17px",
+    lineHeight: 1,
+    fontWeight: 800,
+  },
+  footerSubtitleText: {
+    margin: "3px 0 0",
+    color: COLORS.subtext,
+    fontSize: "12px",
+    lineHeight: 1.4,
+    fontWeight: 400,
+  },
+  footerText: {
+    margin: "7px 0 0",
+    color: COLORS.subtext,
+    fontSize: "13px",
+    lineHeight: 1.5,
+    overflowWrap: "anywhere",
+  },
+  footerDetailList: {
+    display: "grid",
+    gap: "8px",
+    margin: 0,
+  },
+  footerDetailLabel: {
+    margin: 0,
+    color: COLORS.primaryDark,
+    fontSize: "12px",
+    lineHeight: 1.3,
+    fontWeight: 800,
+  },
+  footerDetailValue: {
+    margin: "2px 0 0",
+    color: COLORS.subtext,
+    fontSize: "13px",
+    lineHeight: 1.42,
+    fontWeight: 400,
+    overflowWrap: "anywhere",
+  },
+  footerContactList: {
+    display: "grid",
+    gap: "8px",
+    maxWidth: "260px",
+  },
+  footerContactRow: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: "8px",
+    color: COLORS.subtext,
+    fontSize: "13px",
+    lineHeight: 1.45,
+    fontWeight: 400,
+    overflowWrap: "anywhere",
+  },
+  footerAction: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    width: "100%",
+    minHeight: "38px",
+    border: "none",
+    borderRadius: "10px",
+    padding: "9px 12px",
+    background: COLORS.primary,
+    color: "#ffffff",
+    textDecoration: "none",
+    fontSize: "13px",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  footerLinkList: {
+    display: "grid",
+    gap: "4px",
+    margin: 0,
+    padding: 0,
+    listStyle: "none",
+  },
+  footerLink: {
+    display: "inline-flex",
+    width: "fit-content",
+    minHeight: "28px",
+    alignItems: "center",
+    color: COLORS.primaryDark,
+    fontSize: "13px",
+    lineHeight: 1.4,
+    fontWeight: 400,
+    textDecoration: "none",
+  },
+  footerBottom: {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: "12px",
+    padding: "11px 20px",
+    background: COLORS.softBg,
+    borderTop: `1px solid ${COLORS.border}`,
+    flexWrap: "wrap",
+  },
+  footerBottomText: {
+    margin: 0,
+    color: COLORS.subtext,
+    fontSize: "12px",
+    lineHeight: 1.5,
+    fontWeight: 400,
+    overflowWrap: "anywhere",
   },
 };
+
+const formatNumber = (value) => Number(value || 0).toLocaleString("en-PH");
 
 const formatDate = (value) => {
   if (!value) {
@@ -604,10 +655,16 @@ const formatDate = (value) => {
   }
 
   return new Intl.DateTimeFormat("en-PH", {
-    month: "long",
+    month: "short",
     day: "numeric",
     year: "numeric",
   }).format(new Date(value));
+};
+
+const formatDateRange = (startDate, endDate) => {
+  const start = formatDate(startDate);
+  const end = endDate ? formatDate(endDate) : "Ongoing";
+  return `${start} - ${end}`;
 };
 
 const formatUpdatedAt = (value) => {
@@ -616,7 +673,7 @@ const formatUpdatedAt = (value) => {
   }
 
   return new Intl.DateTimeFormat("en-PH", {
-    month: "long",
+    month: "short",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
@@ -624,67 +681,16 @@ const formatUpdatedAt = (value) => {
   }).format(new Date(value));
 };
 
-const formatDateRange = (startDate, endDate) => {
-  return `${formatDate(startDate)} - ${endDate ? formatDate(endDate) : "Ongoing"}`;
-};
-
 const formatStatusLabel = (status) => {
   if (!status) {
     return "Unknown";
   }
 
-  const normalizedStatus = String(status).toLowerCase();
-  return normalizedStatus.charAt(0).toUpperCase() + normalizedStatus.slice(1);
-};
-
-const getUrgentStyles = (level) => {
-  if (level === "critical" || level === "URGENT") {
-    return {
-      background: COLORS.dangerSoft,
-      color: COLORS.danger,
-    };
-  }
-
-  return {
-    background: COLORS.warningSoft,
-    color: COLORS.warning,
-  };
-};
-
-const getNeedPalette = (level) => {
-  if (level === "URGENT" || level === "critical") {
-    return {
-      background: "#efc7cb",
-      border: "#d4a1a8",
-      tagBackground: "#d54141",
-      tagColor: "#ffffff",
-    };
-  }
-
-  if (level === "HIGH") {
-    return {
-      background: "#f5dcc8",
-      border: "#e4b58a",
-      tagBackground: "#ee7a31",
-      tagColor: "#ffffff",
-    };
-  }
-
-  if (level === "MEDIUM") {
-    return {
-      background: "#f4ebc6",
-      border: "#e0cd87",
-      tagBackground: "#c89210",
-      tagColor: "#ffffff",
-    };
-  }
-
-  return {
-    background: "#d7eadf",
-    border: "#99c1ab",
-    tagBackground: "#2e7d5b",
-    tagColor: "#ffffff",
-  };
+  return String(status)
+    .toLowerCase()
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 };
 
 const getLatestTimestamp = (timestamps) => {
@@ -699,314 +705,653 @@ const getLatestTimestamp = (timestamps) => {
   return new Date(Math.max(...validTimestamps)).toISOString();
 };
 
-const buildActiveDisasterRows = ({
-  disasterEvents,
-  donationNeeds,
-}) => {
-  const needsByEventId = new Map();
+const getPriorityMeta = (priorityLevel) =>
+  PRIORITY_GROUPS.find((group) => group.key === priorityLevel) ||
+  PRIORITY_GROUPS[2];
 
-  (donationNeeds || []).forEach((need) => {
-    const eventId = need.disaster_event_id;
+const buildDonationSummary = (donation) => {
+  const items = Array.isArray(donation.items) ? donation.items : [];
 
-    if (!eventId) {
-      return;
-    }
+  if (items.length === 0) {
+    return `${formatNumber(donation.total_quantity_received)} item${
+      Number(donation.total_quantity_received || 0) === 1 ? "" : "s"
+    } received`;
+  }
 
-    const bucket = needsByEventId.get(eventId) || [];
-    bucket.push(need);
-    needsByEventId.set(eventId, bucket);
-  });
-
-  return (disasterEvents || []).map((event) => {
-    const eventNeeds = needsByEventId.get(event.id) || [];
-    const urgentNeeds = eventNeeds
-      .map((need) => ({
-        id: need.id,
-        name: need.inventory_item?.item_name || "--",
-        needed: Number(need.quantity_needed || 0),
-        unit: need.inventory_item?.unit_of_measure || "items",
-        level: need.priority_level === "URGENT" ? "critical" : "high",
-      }))
-      .sort((left, right) => {
-        if (left.level !== right.level) {
-          return left.level === "critical" ? -1 : 1;
-        }
-
-        return right.needed - left.needed;
-      })
-      .slice(0, 4);
-
-    return {
-      id: event.id,
-      eventName: event.title || "Active Disaster Event",
-      status: formatStatusLabel(event.status),
-      dateRange: formatDateRange(event.start_date, event.end_date),
-      affectedAreasCount: Number(event.affected_barangays_count || 0),
-      affectedFamilies: Number(event.registered_households_count || 0),
-      affectedIndividuals: Number(event.affected_individuals_count || 0),
-      neededItemsTotal: Number(event.published_needed_quantity || 0),
-      urgentNeeds,
-      areaBreakdown: [],
-    };
-  });
-};
-
-const TopBar = () => {
-  return (
-    <div style={styles.topBar}>
-      <div style={styles.brandWrap}>
-        <img src={distyncLogo} alt="DISTYNC logo" style={styles.brandLogo} />
-        <div>
-          <p style={styles.brandTitle}>DISTYNC</p>
-          <p style={styles.brandSubtitle}>Disaster Relief Management</p>
-        </div>
-      </div>
-
-      <p style={styles.portalLabel}>Donation Portal</p>
-    </div>
-  );
-};
-
-const HeroSection = ({ activeCount, lastUpdatedAt }) => {
-  const hasActiveDisasters = activeCount > 0;
-
-  return (
-    <section style={styles.heroCard}>
-      <div style={styles.heroTop}>
-        <div style={styles.heroContent}>
-          <p style={styles.eyebrow}>Donors & NGOs Portal</p>
-          <h1 style={styles.dropOffTitle}>YOUR DONATION CAN SAVE LIVES!</h1>
-          <p style={styles.subtitle}>
-            {hasActiveDisasters
-              ? "We are facing a disaster crisis and urgently need community support to help displaced families get through this challenging time."
-              : "This portal remains available for public monitoring and future donation coordination for Malvar, Batangas."}
-          </p>
-        </div>
-
-        <div style={styles.heroAside}>
-          <div style={styles.heroAsideCard}>
-            <p style={styles.heroAsideLabel}>Current Situation</p>
-            <p style={styles.heroAsideValue}>{activeCount}</p>
-            <p style={styles.heroAsideText}>
-              {hasActiveDisasters
-                ? "Active disaster events currently need monitoring and donor visibility."
-                : "No active disaster events are open right now, but the LGU remains prepared for response."}
-            </p>
-          </div>
-
-          <div style={styles.statusWrap}>
-            {hasActiveDisasters ? (
-              <span
-                style={{
-                  ...styles.badge,
-                  background: COLORS.dangerSoft,
-                  color: COLORS.danger,
-                }}
-              >
-                <FiAlertCircle size={16} />
-                {activeCount} Active Disasters
-              </span>
-            ) : (
-              <span
-                style={{
-                  ...styles.badge,
-                  background: COLORS.successSoft,
-                  color: COLORS.success,
-                }}
-              >
-                <FiCheckCircle size={16} />
-                Monitoring Only
-              </span>
-            )}
-
-            <span
-              style={{
-                ...styles.badge,
-                background: COLORS.softBg,
-                color: COLORS.text,
-              }}
-            >
-              Updated {formatUpdatedAt(lastUpdatedAt)}
-            </span>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-};
-
-const OverviewSummary = ({ activeCount, hasActiveDisasters, lastUpdatedAt }) => {
-  return (
-    <section style={styles.summaryRow}>
-      <div style={styles.summaryCard}>
-        <FiAlertCircle size={18} color={COLORS.primary} />
-        <div>
-          <p style={styles.summaryLabel}>Portal Status</p>
-          <p style={styles.summaryText}>
-            {hasActiveDisasters
-              ? "Live disaster information is currently available for donor action."
-              : "No active disaster event is currently open for donation monitoring."}
-          </p>
-        </div>
-      </div>
-
-      <div style={styles.summaryCard}>
-        <FiUsers size={18} color={COLORS.primary} />
-        <div>
-          <p style={styles.summaryLabel}>Active Disaster Count</p>
-          <p style={styles.summaryText}>
-            {activeCount} active event{activeCount === 1 ? "" : "s"} visible in the portal.
-          </p>
-        </div>
-      </div>
-
-      <div style={styles.summaryCard}>
-        <FiCheckCircle size={18} color={COLORS.primary} />
-        <div>
-          <p style={styles.summaryLabel}>Last Refresh</p>
-          <p style={styles.summaryText}>{formatUpdatedAt(lastUpdatedAt)}</p>
-        </div>
-      </div>
-    </section>
-  );
-};
-
-const CriticallyNeededItemsSection = ({ donationNeeds, activeDisasters }) => {
-  const fallbackItems = activeDisasters
-    .flatMap((disaster) =>
-      (disaster.urgentNeeds || []).map((item) => ({
-        id: `${disaster.id}-${item.id}`,
-        inventory_item: { item_name: item.name, unit_of_measure: item.unit },
-        quantity_needed: item.needed,
-        priority_level: item.level === "critical" ? "URGENT" : "HIGH",
-        notes: `For: ${disaster.eventName}`,
-      })),
+  return items
+    .slice(0, 2)
+    .map(
+      (item) =>
+        `${formatNumber(item.quantity_received)} ${item.unit_of_measure || "items"} ${item.item_name}`,
     )
-    .slice(0, 6);
+    .join(", ")
+    .concat(items.length > 2 ? `, +${items.length - 2} more` : "");
+};
 
-  const items = ((donationNeeds || []).length > 0 ? donationNeeds : fallbackItems)
-    .slice()
-    .sort((left, right) => Number(right.quantity_needed || 0) - Number(left.quantity_needed || 0))
-    .slice(0, 6);
+const groupSuggestionsByPriority = (suggestions) =>
+  PRIORITY_GROUPS.reduce((groups, priorityGroup) => {
+    groups[priorityGroup.key] = (suggestions || []).filter(
+      (item) => item.priority_level === priorityGroup.key,
+    );
+    return groups;
+  }, {});
+
+const TopBar = () => (
+  <header style={styles.topBar}>
+    <div style={styles.brandWrap}>
+      <img src={distyncLogo} alt="DISTYNC logo" style={styles.brandLogo} />
+      <div>
+        <p style={styles.brandTitle}>DISTYNC</p>
+        <p style={styles.brandSubtitle}>Disaster Relief Management</p>
+      </div>
+    </div>
+
+    <p style={styles.portalLabel}>Donor & NGO Public Portal</p>
+  </header>
+);
+
+const HeroSection = ({ activeEvent, lastUpdatedAt }) => (
+  <section style={styles.hero} aria-labelledby="donor-hero-title">
+    <div style={styles.heroGrid} className="donor-portal-layout">
+      <div>
+        <p style={styles.eyebrow}>Public In-Kind Donation Information</p>
+        <h1 id="donor-hero-title" style={styles.title}>
+          Support Malvar Disaster Relief Operations
+        </h1>
+        <p style={styles.subtitle}>
+          Donors and NGOs can use this page to identify current in-kind donation
+          needs, review the active relief operation, and coordinate support with
+          official municipal contact channels.
+        </p>
+        <div style={styles.notice} role="note">
+          <FiInfo size={18} color={COLORS.warning} aria-hidden="true" />
+          <span>
+            Displayed forecasted quantities are recommendations only and may
+            change as disaster conditions, affected population, distribution
+            activity, and inventory levels are updated.
+          </span>
+        </div>
+      </div>
+
+      <aside style={styles.heroAside} aria-label="Current portal status">
+        <p style={styles.asideLabel}>Current Relief Operation</p>
+        <p style={styles.asideValue}>{activeEvent ? "Active" : "Monitoring"}</p>
+        <p style={styles.sectionText}>
+          {activeEvent
+            ? activeEvent.title || "Active disaster relief operation"
+            : "There is currently no active disaster relief operation."}
+        </p>
+        <span
+          style={{
+            ...styles.badge,
+            width: "fit-content",
+            background: activeEvent ? COLORS.dangerSoft : COLORS.successSoft,
+            color: activeEvent ? COLORS.danger : COLORS.success,
+          }}
+        >
+          {activeEvent ? <FiAlertCircle size={15} /> : <FiCheckCircle size={15} />}
+          Updated {formatUpdatedAt(lastUpdatedAt)}
+        </span>
+      </aside>
+    </div>
+  </section>
+);
+
+const ActiveDisasterSection = ({ event, showAllBarangays, onToggleBarangays }) => {
+  if (!event) {
+    return (
+      <section style={styles.section} aria-labelledby="active-event-title">
+        <h2 id="active-event-title" style={styles.sectionTitle}>
+          Recent Active Disaster Event
+        </h2>
+        <div style={{ ...styles.emptyState, marginTop: "14px" }}>
+          <FiCheckCircle size={20} color={COLORS.success} aria-hidden="true" />
+          <span>There is currently no active disaster relief operation.</span>
+        </div>
+      </section>
+    );
+  }
+
+  const barangays = Array.isArray(event.affected_barangays)
+    ? event.affected_barangays
+    : [];
+  const visibleBarangays = showAllBarangays ? barangays : barangays.slice(0, 6);
 
   return (
-    <section style={styles.neededSection}>
+    <section style={styles.section} aria-labelledby="active-event-title">
       <div style={styles.sectionHeader}>
         <div>
-          <h2 style={styles.sectionTitle}>Critically Needed Items</h2>
+          <h2 id="active-event-title" style={styles.sectionTitle}>
+            Recent Active Disaster Event
+          </h2>
           <p style={styles.sectionText}>
-            Priority donation needs for the current disaster situation across Malvar.
+            Public information for the most recent active operation.
           </p>
         </div>
+        <span
+          style={{
+            ...styles.badge,
+            background: COLORS.dangerSoft,
+            color: COLORS.danger,
+          }}
+        >
+          <FiAlertCircle size={15} />
+          {formatStatusLabel(event.status)}
+        </span>
       </div>
 
-      <div style={styles.neededGrid}>
-        {items.length === 0 ? (
-          <p style={styles.inlineEmptyText}>
-            No prioritized donation items are available yet from the current records.
+      <div style={styles.eventGrid} className="donor-portal-layout">
+        <div>
+          <h3 style={{ ...styles.sectionTitle, fontSize: "20px" }}>
+            {event.title || "Active disaster relief operation"}
+          </h3>
+          <p style={styles.sectionText}>
+            {event.description || "No public description has been recorded yet."}
           </p>
-        ) : (
-          items.map((item) => {
-            const palette = getNeedPalette(item.priority_level);
 
-            return (
-              <article
-                key={item.id}
-                style={{
-                  ...styles.neededCard,
-                  background: palette.background,
-                  borderColor: palette.border,
-                }}
-              >
-                <span
-                  style={{
-                    ...styles.neededTag,
-                    background: palette.tagBackground,
-                    color: palette.tagColor,
-                  }}
+          <div style={styles.detailGrid}>
+            <div style={styles.detailItem}>
+              <p style={styles.label}>Disaster Type</p>
+              <p style={styles.value}>{event.disaster_type || "--"}</p>
+            </div>
+            <div style={styles.detailItem}>
+              <p style={styles.label}>Relief Period</p>
+              <p style={styles.value}>
+                {formatDateRange(event.start_date, event.end_date)}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <aside aria-label="Affected barangays">
+          <p style={styles.label}>Affected Barangays</p>
+          {barangays.length === 0 ? (
+            <p style={{ ...styles.sectionText, marginTop: "10px" }}>
+              No affected barangay is recorded for this operation.
+            </p>
+          ) : (
+            <>
+              <div style={styles.barangayList}>
+                {visibleBarangays.map((barangay) => (
+                  <span
+                    key={barangay.id || barangay.name}
+                    style={styles.barangayChip}
+                  >
+                    {barangay.name}
+                  </span>
+                ))}
+              </div>
+              {barangays.length > 6 ? (
+                <button
+                  type="button"
+                  style={{ ...styles.ghostButton, marginTop: "12px" }}
+                  onClick={onToggleBarangays}
+                  aria-expanded={showAllBarangays}
                 >
-                  {item.priority_level}
-                </span>
-                <h3 style={styles.neededTitle}>
-                  {item.inventory_item?.item_name || "Unknown Item"}
-                </h3>
-                <p style={styles.neededQuantity}>
-                  {Number(item.quantity_needed || 0).toLocaleString()}
-                </p>
-                <p style={styles.neededMeta}>
-                  {item.inventory_item?.unit_of_measure || "items"} needed
-                </p>
-                <p style={{ ...styles.neededMeta, marginTop: "8px" }}>
-                  {item.notes || "No additional notes provided."}
-                </p>
-              </article>
-            );
-          })
-        )}
+                  {showAllBarangays ? <FiChevronUp /> : <FiChevronDown />}
+                  {showAllBarangays ? "Show Less" : `View All (${barangays.length})`}
+                </button>
+              ) : null}
+            </>
+          )}
+        </aside>
       </div>
     </section>
   );
 };
 
-const DropOffLocationSection = () => {
+const ImpactSummarySection = ({ event }) => (
+  <section style={styles.section} aria-labelledby="impact-summary-title">
+    <div style={styles.sectionHeader}>
+      <div>
+        <h2 id="impact-summary-title" style={styles.sectionTitle}>
+          Disaster Impact Summary
+        </h2>
+        <p style={styles.sectionText}>
+          Totals are based on the selected active disaster event.
+        </p>
+      </div>
+    </div>
+
+    <div style={styles.summaryGrid}>
+      <div style={styles.summaryCard}>
+        <div style={styles.summaryTop}>
+          <p style={styles.label}>Affected Barangays</p>
+          <FiMapPin size={20} color={COLORS.primary} aria-hidden="true" />
+        </div>
+        <p style={styles.summaryValue}>
+          {formatNumber(event?.affected_barangays_count)}
+        </p>
+        <p style={styles.sectionText}>Barangays included in the operation</p>
+      </div>
+      <div style={styles.summaryCard}>
+        <div style={styles.summaryTop}>
+          <p style={styles.label}>Affected Families</p>
+          <FiHome size={20} color={COLORS.primary} aria-hidden="true" />
+        </div>
+        <p style={styles.summaryValue}>
+          {formatNumber(event?.registered_households_count)}
+        </p>
+        <p style={styles.sectionText}>Families or households registered</p>
+      </div>
+      <div style={styles.summaryCard}>
+        <div style={styles.summaryTop}>
+          <p style={styles.label}>Affected Individuals</p>
+          <FiUsers size={20} color={COLORS.primary} aria-hidden="true" />
+        </div>
+        <p style={styles.summaryValue}>
+          {formatNumber(event?.affected_individuals_count)}
+        </p>
+        <p style={styles.sectionText}>Individuals linked to active households</p>
+      </div>
+    </div>
+  </section>
+);
+
+const NeededItemsSection = ({ suggestions }) => {
+  const groupedSuggestions = useMemo(
+    () => groupSuggestionsByPriority(suggestions),
+    [suggestions],
+  );
+  const hasSuggestions = (suggestions || []).length > 0;
+
   return (
-    <section style={styles.dropOffSection}>
-      <h2 style={styles.sectionTitle}>Drop-off Coordination</h2>
-      <p style={styles.dropOffSubtitle}>
-        Donations may be coordinated through the official municipal channels listed below.
-      </p>
-      <div style={styles.dropOffCard}>
-        <FiMapPin size={42} color={COLORS.primary} />
+    <section style={styles.section} aria-labelledby="needed-items-title">
+      <div style={styles.sectionHeader}>
         <div>
-          <p style={styles.dropOffLocationName}>{LGU_CONTACT.municipality}</p>
-          <p style={styles.dropOffLocationText}>
-            Please confirm delivery instructions with the LGU before dispatching goods.
+          <h2 id="needed-items-title" style={styles.sectionTitle}>
+            Needed Items
+          </h2>
+          <p style={styles.sectionText}>
+            Forecast-based donation suggestions grouped by priority level.
           </p>
         </div>
       </div>
+
+      <div style={{ ...styles.notice, marginTop: 0, marginBottom: "14px" }} role="note">
+        <FiTrendingUp size={18} color={COLORS.warning} aria-hidden="true" />
+        <span>
+          Suggested donation quantities are generated using the system's
+          forecasting module based on disaster impact, affected population,
+          historical relief distribution, and inventory data. These values are
+          recommendations only and may change as new information becomes
+          available.
+        </span>
+      </div>
+
+      {!hasSuggestions ? (
+        <div style={styles.emptyState}>
+          <FiInfo size={20} color={COLORS.primary} aria-hidden="true" />
+          <span>
+            There are currently no donation suggestions available for this
+            disaster event.
+          </span>
+        </div>
+      ) : (
+        <div style={styles.priorityStack}>
+          {PRIORITY_GROUPS.map((priorityGroup) => {
+            const items = groupedSuggestions[priorityGroup.key] || [];
+
+            return (
+              <details
+                key={priorityGroup.key}
+                style={styles.details}
+                open={priorityGroup.key !== "LOW"}
+              >
+                <summary style={styles.detailsSummary}>
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      fontWeight: 800,
+                      color: COLORS.text,
+                    }}
+                  >
+                    <FiPackage
+                      size={18}
+                      color={priorityGroup.iconColor}
+                      aria-hidden="true"
+                    />
+                    {priorityGroup.title}
+                  </span>
+                  <span
+                    style={{
+                      ...styles.badge,
+                      background: priorityGroup.background,
+                      border: `1px solid ${priorityGroup.border}`,
+                      color: priorityGroup.iconColor,
+                    }}
+                  >
+                    {items.length} item{items.length === 1 ? "" : "s"}
+                  </span>
+                </summary>
+
+                {items.length === 0 ? (
+                  <div style={{ padding: "0 16px 16px" }}>
+                    <p style={styles.sectionText}>
+                      No {priorityGroup.title.toLowerCase()} suggestions are
+                      available.
+                    </p>
+                  </div>
+                ) : (
+                  <div style={styles.itemGrid}>
+                    {items.map((item) => {
+                      const priorityMeta = getPriorityMeta(item.priority_level);
+
+                      return (
+                        <article
+                          key={item.inventory_item_id || item.item_name}
+                          style={{
+                            ...styles.itemCard,
+                            borderColor: priorityMeta.border,
+                            background: priorityMeta.background,
+                          }}
+                        >
+                          <span
+                            style={{
+                              ...styles.badge,
+                              background: "#fff",
+                              color: priorityMeta.iconColor,
+                              padding: "5px 9px",
+                            }}
+                          >
+                            {priorityMeta.badge}
+                          </span>
+                          <h3 style={{ ...styles.itemTitle, marginTop: "12px" }}>
+                            {item.item_name || "Donation item"}
+                          </h3>
+                          <p style={styles.itemQuantity}>
+                            {formatNumber(item.suggested_quantity)}
+                          </p>
+                          <p style={styles.itemNote}>
+                            {item.unit_of_measure || "items"} suggested
+                          </p>
+                          {item.note ? (
+                            <p style={styles.itemNote}>{item.note}</p>
+                          ) : null}
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </details>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+};
+
+const TransparencySection = ({ recentDonations, transparencySummary }) => {
+  return (
+    <section style={styles.section} aria-labelledby="transparency-title">
+      <div style={styles.sectionHeader}>
+        <div>
+          <h2 id="transparency-title" style={styles.sectionTitle}>
+            Recent Donation Transparency
+          </h2>
+          <p style={styles.sectionText}>
+            Public in-kind donation records and aggregate item movement.
+          </p>
+        </div>
+      </div>
+
+      <div style={styles.summaryGrid}>
+        <div style={styles.summaryCard}>
+          <p style={styles.label}>Donations Received</p>
+          <p style={styles.summaryValue}>
+            {formatNumber(transparencySummary?.total_donations_received)}
+          </p>
+        </div>
+        <div style={styles.summaryCard}>
+          <p style={styles.label}>Items Received</p>
+          <p style={styles.summaryValue}>
+            {formatNumber(transparencySummary?.total_quantity_received)}
+          </p>
+        </div>
+      </div>
+
+      <h3 style={{ ...styles.sectionTitle, fontSize: "18px", marginTop: "18px" }}>
+        Recent Recorded Donations
+      </h3>
+      {(recentDonations || []).length === 0 ? (
+        <div style={{ ...styles.emptyState, marginTop: "12px" }}>
+          <FiInfo size={20} color={COLORS.primary} aria-hidden="true" />
+          <span>No public donation records are available yet.</span>
+        </div>
+      ) : (
+        <div style={{ ...styles.donationList, marginTop: "12px" }}>
+          {recentDonations.map((donation, index) => (
+            <article
+              key={donation.public_key || `${donation.donation_date}-${index}`}
+              style={styles.donationCard}
+            >
+              <div style={styles.donationTop}>
+                <div>
+                  <h3 style={styles.donationName}>{donation.donor_name}</h3>
+                  <p style={styles.donationMeta}>
+                    {donation.recipient_barangay || "Not specified"} |{" "}
+                    {formatDonationDateOnly(donation.donation_date)}
+                  </p>
+                </div>
+                <span
+                  style={{
+                    ...styles.badge,
+                    background: COLORS.successSoft,
+                    color: COLORS.success,
+                  }}
+                >
+                  {formatStatusLabel(donation.status)}
+                </span>
+              </div>
+              <p style={styles.donationMeta}>{buildDonationSummary(donation)}</p>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+};
+
+const DonationUtilizationSection = ({ transparencySummary }) => {
+  const donatedItemRows = transparencySummary?.received_vs_distributed || [];
+
+  return (
+    <section style={styles.section} aria-labelledby="utilization-title">
+      <div style={styles.sectionHeader}>
+        <div>
+          <h2 id="utilization-title" style={styles.sectionTitle}>
+            Donation Utilization
+          </h2>
+          <p style={styles.sectionText}>
+            Summary of donated items that have been received, distributed, and
+            currently remaining based on completed inventory transactions.
+          </p>
+        </div>
+      </div>
+
+      {donatedItemRows.length === 0 ? (
+        <div style={styles.emptyState}>
+          <FiBarChart2 size={20} color={COLORS.primary} aria-hidden="true" />
+          <span>No donated inventory summary is available yet.</span>
+        </div>
+      ) : (
+        <div style={styles.tableWrap}>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>Item</th>
+                <th style={{ ...styles.th, ...styles.numericCell }}>Received</th>
+                <th style={{ ...styles.th, ...styles.numericCell }}>
+                  Distributed
+                </th>
+                <th style={{ ...styles.th, ...styles.numericCell }}>Remaining</th>
+              </tr>
+            </thead>
+            <tbody>
+              {donatedItemRows.slice(0, 6).map((row) => (
+                <tr key={row.inventory_item_id || row.item_name}>
+                  <td style={styles.td}>{row.item_name || "--"}</td>
+                  <td style={{ ...styles.td, ...styles.numericCell }}>
+                    {formatNumber(row.quantity_received)}{" "}
+                    {row.unit_of_measure || "items"}
+                  </td>
+                  <td style={{ ...styles.td, ...styles.numericCell }}>
+                    {formatNumber(row.quantity_distributed)}{" "}
+                    {row.unit_of_measure || "items"}
+                  </td>
+                  <td style={{ ...styles.td, ...styles.numericCell }}>
+                    {formatNumber(row.quantity_remaining)}{" "}
+                    {row.unit_of_measure || "items"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 };
 
 const PortalFooter = () => {
+  const currentYear = new Date().getFullYear();
+  const footerInfo = {
+    systemName: LGU_CONTACT.systemName,
+    systemSubtitle: "Disaster Relief Management System",
+    municipality: LGU_CONTACT.municipality,
+    buildingName: DROP_OFF_LOCATION.buildingName,
+    addressLines: DROP_OFF_LOCATION.addressLines,
+    officeLines: DROP_OFF_LOCATION.officeLines,
+    receivingHours: DROP_OFF_LOCATION.receivingHours,
+    phone: DROP_OFF_LOCATION.phone,
+    email: DROP_OFF_LOCATION.email,
+    mapsUrl: DROP_OFF_LOCATION.mapsUrl,
+  };
+  const footerLinks = [
+    { label: "Active Disaster", href: "#active-event-title" },
+    { label: "Needed Items", href: "#needed-items-title" },
+    { label: "Donation Transparency", href: "#transparency-title" },
+    { label: "Donation Utilization", href: "#utilization-title" },
+    { label: "Drop-off Location", href: "#drop-off-title" },
+  ];
+
   return (
     <footer style={styles.footer}>
-      <div style={styles.footerTop}>
-        <div>
-          <h2 style={styles.footerTitle}>LGU Contact Information</h2>
-          <p style={styles.footerSubtitle}>
-            For coordination, verification, or follow-up on donation support,
-            please contact the Municipality of Malvar through the channels below.
+      <div style={styles.footerGrid}>
+        <section aria-labelledby="footer-about-title">
+          <h2 id="footer-about-title" style={styles.footerColumnTitle}>
+            About DISTYNC
+          </h2>
+          <div style={styles.footerBrand}>
+            <img src={distyncLogo} alt="DISTYNC logo" style={styles.footerLogo} />
+            <div>
+              <p style={styles.footerTitleText}>
+                {footerInfo.systemName}
+              </p>
+              <p style={styles.footerSubtitleText}>
+                {footerInfo.systemSubtitle}
+              </p>
+            </div>
+          </div>
+          <p style={styles.footerText}>
+            Public in-kind donation information portal for{" "}
+            {footerInfo.municipality}.
           </p>
-        </div>
+        </section>
+
+        <section aria-labelledby="drop-off-title">
+          <h2 id="drop-off-title" style={styles.footerColumnTitle}>
+            Donation Coordination
+          </h2>
+          <div style={styles.footerDetailList}>
+            <div>
+              <p style={styles.footerDetailLabel}>Receiving Office</p>
+              <p style={styles.footerDetailValue}>
+                {footerInfo.officeLines.map((line) => (
+                  <React.Fragment key={line}>
+                    {line}
+                    <br />
+                  </React.Fragment>
+                ))}
+              </p>
+            </div>
+            <div>
+              <p style={styles.footerDetailLabel}>Drop-off Location</p>
+              <p style={styles.footerDetailValue}>
+                {footerInfo.buildingName}
+                <br />
+                {footerInfo.addressLines.map((line) => (
+                  <React.Fragment key={line}>
+                    {line}
+                    <br />
+                  </React.Fragment>
+                ))}
+              </p>
+            </div>
+            <div>
+              <p style={styles.footerDetailLabel}>Receiving Hours</p>
+              <p style={styles.footerDetailValue}>
+                {footerInfo.receivingHours.join(", ")}
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <nav aria-labelledby="footer-links-title">
+          <h2 id="footer-links-title" style={styles.footerColumnTitle}>
+            Quick Links
+          </h2>
+          <ul style={styles.footerLinkList}>
+            {footerLinks.map((link) => (
+              <li key={link.href}>
+                <a href={link.href} style={styles.footerLink}>
+                  {link.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+
+        <section aria-labelledby="footer-contact-title">
+          <h2 id="footer-contact-title" style={styles.footerColumnTitle}>
+            Contact Information
+          </h2>
+          <div style={styles.footerContactList}>
+            <div style={styles.footerContactRow}>
+              <FiPhone size={15} aria-hidden="true" />
+              <span>{footerInfo.phone}</span>
+            </div>
+            <div style={styles.footerContactRow}>
+              <FiMail size={15} aria-hidden="true" />
+              <span>{footerInfo.email}</span>
+            </div>
+            {footerInfo.mapsUrl ? (
+              <a
+                href={footerInfo.mapsUrl}
+                style={styles.footerAction}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <FiMapPin size={15} aria-hidden="true" />
+                Get Directions
+              </a>
+            ) : (
+              <button type="button" style={styles.footerAction}>
+                <FiMapPin size={15} aria-hidden="true" />
+                Get Directions
+              </button>
+            )}
+          </div>
+        </section>
       </div>
 
-      <div style={styles.footerGrid}>
-        <div style={styles.footerCard}>
-          <FiPhone size={18} color={COLORS.primary} />
-          <div>
-            <p style={styles.footerLabel}>Telephone No.</p>
-            <p style={styles.footerValue}>{LGU_CONTACT.telephonePrimary}</p>
-            <p style={styles.footerValue}>{LGU_CONTACT.telephoneSecondary}</p>
-          </div>
-        </div>
-
-        <div style={styles.footerCard}>
-          <FiMail size={18} color={COLORS.primary} />
-          <div>
-            <p style={styles.footerLabel}>Emails</p>
-            <p style={styles.footerValue}>{LGU_CONTACT.emailPrimary}</p>
-            <p style={styles.footerValue}>{LGU_CONTACT.emailSecondary}</p>
-          </div>
-        </div>
-
-        <div style={styles.footerCard}>
-          <FiGlobe size={18} color={COLORS.primary} />
-          <div>
-            <p style={styles.footerLabel}>Website</p>
-            <p style={styles.footerValue}>{LGU_CONTACT.website}</p>
-          </div>
-        </div>
+      <div style={styles.footerBottom}>
+        <p style={styles.footerBottomText}>
+          (c) {currentYear} DISTYNC - {footerInfo.municipality}
+        </p>
       </div>
     </footer>
   );
@@ -1014,11 +1359,14 @@ const PortalFooter = () => {
 
 const DonationInformationPage = () => {
   const navigate = useNavigate();
+  const [showAllBarangays, setShowAllBarangays] = useState(false);
   const [pageState, setPageState] = useState({
     isLoading: true,
     errorMessage: "",
     activeDisasters: [],
-    donationNeeds: [],
+    forecastSuggestions: [],
+    recentDonations: [],
+    transparencySummary: {},
     lastUpdatedAt: new Date().toISOString(),
   });
 
@@ -1039,38 +1387,34 @@ const DonationInformationPage = () => {
           return;
         }
 
-        const publicDisasterEvents = Array.isArray(publicPortalData?.disaster_events)
+        const disasterEvents = Array.isArray(publicPortalData?.disaster_events)
           ? publicPortalData.disaster_events
           : [];
-        const publicDonationNeeds = Array.isArray(publicPortalData?.donation_needs)
-          ? publicPortalData.donation_needs
+        const forecastSuggestions = Array.isArray(
+          publicPortalData?.forecast_suggestions,
+        )
+          ? publicPortalData.forecast_suggestions
           : [];
-
-        if (publicDisasterEvents.length === 0) {
-          setPageState({
-            isLoading: false,
-            errorMessage: "",
-            activeDisasters: [],
-            donationNeeds: publicDonationNeeds,
-            lastUpdatedAt: new Date().toISOString(),
-          });
-          return;
-        }
-        const activeDisasters = buildActiveDisasterRows({
-          disasterEvents: publicDisasterEvents,
-          donationNeeds: publicDonationNeeds,
-        });
+        const recentDonations = Array.isArray(publicPortalData?.recent_donations)
+          ? publicPortalData.recent_donations
+          : [];
+        const transparencySummary =
+          publicPortalData?.transparency_summary &&
+          typeof publicPortalData.transparency_summary === "object"
+            ? publicPortalData.transparency_summary
+            : {};
 
         setPageState({
           isLoading: false,
           errorMessage: "",
-          activeDisasters,
-          donationNeeds: publicDonationNeeds,
+          activeDisasters: disasterEvents,
+          forecastSuggestions,
+          recentDonations,
+          transparencySummary,
           lastUpdatedAt: getLatestTimestamp([
-            ...publicDisasterEvents.map((event) => event.updated_at),
-            ...publicDonationNeeds.map(
-              (need) => need.updated_at || need.published_at,
-            ),
+            ...disasterEvents.map((event) => event.updated_at || event.created_at),
+            ...forecastSuggestions.map((item) => item.forecasted_at),
+            ...recentDonations.map((donation) => donation.donation_date),
           ]),
         });
       } catch (error) {
@@ -1082,7 +1426,9 @@ const DonationInformationPage = () => {
           isLoading: false,
           errorMessage: error.message || "Failed to load donation information.",
           activeDisasters: [],
-          donationNeeds: [],
+          forecastSuggestions: [],
+          recentDonations: [],
+          transparencySummary: {},
           lastUpdatedAt: new Date().toISOString(),
         });
       }
@@ -1095,250 +1441,71 @@ const DonationInformationPage = () => {
     };
   }, []);
 
-  const { isLoading, errorMessage, activeDisasters, donationNeeds, lastUpdatedAt } =
-    pageState;
-  const hasActiveDisasters = activeDisasters.length > 0;
+  const {
+    isLoading,
+    errorMessage,
+    activeDisasters,
+    forecastSuggestions,
+    recentDonations,
+    transparencySummary,
+    lastUpdatedAt,
+  } = pageState;
+  const activeEvent = activeDisasters[0] || null;
 
   return (
-    <div style={styles.page}>
+    <main style={styles.page}>
       <div style={styles.pageInner}>
-        <div style={styles.backButtonWrap}>
-          <button
-            type="button"
-            onClick={() => navigate("/access")}
-            style={styles.backButton}
-          >
-            <FiArrowLeft size={16} />
-            Back
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => navigate("/access")}
+          style={styles.backButton}
+        >
+          <FiArrowLeft size={16} aria-hidden="true" />
+          Back
+        </button>
 
         <TopBar />
+        <HeroSection activeEvent={activeEvent} lastUpdatedAt={lastUpdatedAt} />
 
-        <HeroSection
-          activeCount={activeDisasters.length}
-          lastUpdatedAt={lastUpdatedAt}
-        />
+        {isLoading ? (
+          <section style={styles.section} aria-live="polite">
+            <LoadingState message="Loading public donation information..." />
+          </section>
+        ) : null}
 
-        <OverviewSummary
-          activeCount={activeDisasters.length}
-          hasActiveDisasters={hasActiveDisasters}
-          lastUpdatedAt={lastUpdatedAt}
-        />
+        {!isLoading && errorMessage ? (
+          <section style={styles.section} aria-live="polite">
+            <div style={styles.emptyState}>
+              <FiAlertCircle size={20} color={COLORS.danger} aria-hidden="true" />
+              <span>{errorMessage}</span>
+            </div>
+          </section>
+        ) : null}
 
-        <div style={styles.contentStack}>
-          {!isLoading && !errorMessage ? (
-            <CriticallyNeededItemsSection
-              donationNeeds={donationNeeds}
-              activeDisasters={activeDisasters}
+        {!isLoading && !errorMessage ? (
+          <>
+            <ActiveDisasterSection
+              event={activeEvent}
+              showAllBarangays={showAllBarangays}
+              onToggleBarangays={() =>
+                setShowAllBarangays((currentValue) => !currentValue)
+              }
             />
-          ) : null}
-
-          {isLoading ? (
-            <section style={styles.messageCard}>
-              <h2 style={styles.messageTitle}>
-                Loading Disaster Response Overview
-              </h2>
-              <p style={styles.messageText}>
-                Fetching the latest active disaster, masterlist, inventory, and donation records used by the public portal.
-              </p>
-            </section>
-          ) : null}
-
-          {!isLoading && errorMessage ? (
-            <section style={styles.messageCard}>
-              <h2 style={styles.messageTitle}>
-                Unable to Load Donation Information
-              </h2>
-              <p style={styles.messageText}>{errorMessage}</p>
-            </section>
-          ) : null}
-
-          {!isLoading && !errorMessage && !hasActiveDisasters ? (
-            <section style={styles.emptyStateCard}>
-              <div style={styles.emptyIconWrap}>
-                <FiCheckCircle size={36} />
-              </div>
-
-              <h2 style={styles.emptyTitle}>No Active Disaster Events</h2>
-              <p style={styles.emptyText}>
-                There are currently no ongoing disaster events in Malvar,
-                Batangas. The LGU continues to monitor conditions and remains
-                prepared to respond to emergencies when needed.
-              </p>
-              <p style={styles.updatedText}>
-                Last updated: {formatUpdatedAt(lastUpdatedAt)}
-              </p>
-            </section>
-          ) : null}
-
-          {!isLoading && !errorMessage && hasActiveDisasters
-            ? activeDisasters.map((disaster) => (
-                <section key={disaster.id} style={styles.disasterCard}>
-                  <div style={styles.sectionHeader}>
-                    <div>
-                      <h2 style={styles.sectionTitle}>{disaster.eventName}</h2>
-                      <p style={styles.sectionText}>{disaster.dateRange}</p>
-                    </div>
-
-                    <div style={styles.statusWrap}>
-                      <span
-                        style={{
-                          ...styles.badge,
-                          background: COLORS.dangerSoft,
-                          color: COLORS.danger,
-                        }}
-                      >
-                        <FiAlertCircle size={16} />
-                        {disaster.status}
-                      </span>
-                      <span
-                        style={{
-                          ...styles.badge,
-                          background: COLORS.softBg,
-                          color: COLORS.text,
-                        }}
-                      >
-                        <FiMapPin size={16} />
-                        {disaster.affectedAreasCount} Affected Areas
-                      </span>
-                    </div>
-                  </div>
-
-                  <div style={styles.summaryGrid}>
-                    <div style={styles.metricCard}>
-                      <div style={styles.metricTop}>
-                        <p style={styles.metricLabel}>Affected Families</p>
-                        <FiHome size={20} color={COLORS.primary} />
-                      </div>
-                      <h3 style={styles.metricValue}>
-                        {disaster.affectedFamilies.toLocaleString()}
-                      </h3>
-                      <p style={styles.metricSubtext}>
-                        Households needing assistance
-                      </p>
-                    </div>
-
-                    <div style={styles.metricCard}>
-                      <div style={styles.metricTop}>
-                        <p style={styles.metricLabel}>Affected Individuals</p>
-                        <FiUsers size={20} color={COLORS.primary} />
-                      </div>
-                      <h3 style={styles.metricValue}>
-                        {disaster.affectedIndividuals.toLocaleString()}
-                      </h3>
-                      <p style={styles.metricSubtext}>
-                        People currently affected
-                      </p>
-                    </div>
-
-                    <div style={styles.metricCard}>
-                      <div style={styles.metricTop}>
-                        <p style={styles.metricLabel}>Needed Items</p>
-                        <FiPackage size={20} color={COLORS.primary} />
-                      </div>
-                      <h3 style={styles.metricValue}>
-                        {disaster.neededItemsTotal.toLocaleString()}
-                      </h3>
-                      <p style={styles.metricSubtext}>
-                        Total items currently required
-                      </p>
-                    </div>
-                  </div>
-
-                  <div style={styles.contentGrid}>
-                    <div style={styles.subSection}>
-                      <h3 style={styles.subSectionTitle}>Urgent Needs</h3>
-                      <div style={styles.urgentList}>
-                        {disaster.urgentNeeds.length === 0 ? (
-                          <p style={styles.inlineEmptyText}>
-                            No event-linked inventory summary is available yet for
-                            this active disaster.
-                          </p>
-                        ) : (
-                          disaster.urgentNeeds.map((item) => {
-                            const urgentStyle = getUrgentStyles(item.level);
-
-                            return (
-                              <div
-                                key={item.id}
-                                style={{
-                                  ...styles.urgentCard,
-                                  background: urgentStyle.background,
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    display: "flex",
-                                    justifyContent: "space-between",
-                                    alignItems: "flex-start",
-                                    gap: "12px",
-                                    flexWrap: "wrap",
-                                  }}
-                                >
-                                  <div>
-                                    <h4 style={styles.urgentTitle}>
-                                      {item.name}
-                                    </h4>
-                                    <p style={styles.urgentMeta}>
-                                      {item.needed.toLocaleString()} {item.unit} needed
-                                    </p>
-                                  </div>
-
-                                  <span
-                                    style={{
-                                      fontSize: "12px",
-                                      fontWeight: 800,
-                                      textTransform: "uppercase",
-                                      color: urgentStyle.color,
-                                    }}
-                                  >
-                                    {item.level}
-                                  </span>
-                                </div>
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-
-                    <div style={styles.subSection}>
-                      <h3 style={styles.subSectionTitle}>Affected Areas</h3>
-                      <div style={styles.areaList}>
-                        {disaster.areaBreakdown.length === 0 ? (
-                          <p style={styles.inlineEmptyText}>
-                            No barangay-level impact summary is available yet for
-                            this active disaster.
-                          </p>
-                        ) : (
-                          disaster.areaBreakdown.map((area) => (
-                            <div key={area.area} style={styles.areaCard}>
-                              <h4 style={styles.areaName}>{area.area}</h4>
-                              <div style={styles.areaRow}>
-                                <span>Families</span>
-                                <strong>{area.families.toLocaleString()}</strong>
-                              </div>
-                              <div style={styles.areaRow}>
-                                <span>Individuals</span>
-                                <strong>{area.individuals.toLocaleString()}</strong>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </section>
-              ))
-            : null}
-        </div>
-
-        <DropOffLocationSection />
+            <ImpactSummarySection event={activeEvent} />
+            <NeededItemsSection suggestions={forecastSuggestions} />
+            <TransparencySection
+              recentDonations={recentDonations}
+              transparencySummary={transparencySummary}
+            />
+            <DonationUtilizationSection
+              transparencySummary={transparencySummary}
+            />
+          </>
+        ) : null}
 
         <PortalFooter />
       </div>
-    </div>
+    </main>
   );
 };
 

@@ -74,6 +74,32 @@ const getMonitorQuantity = (item, trackingStats) => {
   return itemTotalQuantity;
 };
 
+const getInventorySourceLabel = (itemId, inventoryBatches) => {
+  const relatedBatches = inventoryBatches.filter(
+    (batch) => String(batch.inventory_item_id) === String(itemId),
+  );
+
+  if (relatedBatches.length === 0) {
+    return "--";
+  }
+
+  const sourceTypes = new Set(
+    relatedBatches
+      .map((batch) => String(batch.source_type || "").toUpperCase())
+      .filter(Boolean),
+  );
+
+  if (sourceTypes.size === 0) {
+    return "--";
+  }
+
+  if (sourceTypes.size > 1) {
+    return "Mixed";
+  }
+
+  return sourceTypes.has("DONATED") ? "Donor" : "Malvar LGU";
+};
+
 const InventoryItemsPage = () => {
   const [filters, setFilters] = useState({
     search: "",
@@ -283,29 +309,38 @@ const InventoryItemsPage = () => {
   }, [inventoryItemsWithSyncStatus, scanForm.barcodeNumber]);
 
   const visibleInventoryItems = useMemo(() => {
-    if (filters.status === "All") {
-      return inventoryItemsWithSyncStatus;
-    }
-
-    return inventoryItemsWithSyncStatus.filter((item) => {
+    const filteredItems =
+      filters.status === "All"
+        ? inventoryItemsWithSyncStatus
+        : inventoryItemsWithSyncStatus.filter((item) => {
       const trackingStats =
         inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
 
-      if (filters.status === "Low Stock") {
-        return isLowStockItem(item, trackingStats);
-      }
+          if (filters.status === "Low Stock") {
+            return isLowStockItem(item, trackingStats);
+          }
 
-      if (filters.status === "Expiring") {
-        return trackingStats.hasExpiringStock || isItemExpiring(item);
-      }
+          if (filters.status === "Expiring") {
+            return trackingStats.hasExpiringStock || isItemExpiring(item);
+          }
 
-      if (filters.status === "Out of Stock") {
-        return getMonitorQuantity(item, trackingStats) <= 0;
-      }
+          if (filters.status === "Out of Stock") {
+            return getMonitorQuantity(item, trackingStats) <= 0;
+          }
 
-      return getItemStatus(item, trackingStats) === filters.status;
-    });
-  }, [inventoryItemsWithSyncStatus, inventoryTrackingMap, filters.status]);
+          return getItemStatus(item, trackingStats) === filters.status;
+        });
+
+    return filteredItems.map((item) => ({
+      ...item,
+      source_label: getInventorySourceLabel(item.id, inventoryBatches),
+    }));
+  }, [
+    inventoryItemsWithSyncStatus,
+    inventoryTrackingMap,
+    inventoryBatches,
+    filters.status,
+  ]);
 
   const handleFilterChange = (name, value) => {
     setFilters((previousFilters) => ({
