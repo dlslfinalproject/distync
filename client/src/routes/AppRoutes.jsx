@@ -9,6 +9,7 @@ import BarangayLayout from "../components/layout/BarangayLayout";
 import RoleProtectedRoute from "./RoleProtectedRoute";
 import AccessPage from "../pages/AccessPage";
 import BarangayMasterlistPage from "../pages/barangay/BarangayMasterlistPage";
+import BarangayAnomalyTrackingPage from "../pages/barangay/BarangayAnomalyTrackingPage";
 import DistributionTransactionPage from "../pages/barangay/DistributionTransactionPage";
 import StubDistributionPage from "../pages/barangay/StubDistributionPage";
 import VerifyStubPage from "../pages/VerifyStubPage";
@@ -87,6 +88,7 @@ const AppRoutes = () => {
             path="distribution-history"
             element={<DistributionHistoryPage />}
           />
+          <Route path="anomalies" element={<BarangayAnomalyTrackingPage />} />
           <Route
             path="stub-distribution"
             element={<StubDistributionPage />}

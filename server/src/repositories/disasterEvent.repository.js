@@ -63,7 +63,10 @@ const getDisasterEventsByBarangayId = async (barangayId) => {
     ORDER BY created_at DESC
   `;
 
-  const result = await pool.query(query, [["ACTIVE", "CLOSED"], barangayId]);
+  const result = await pool.query(query, [
+    ["ACTIVE", "CLOSED", "ARCHIVED"],
+    barangayId,
+  ]);
   return result.rows;
 };
 

@@ -1,11 +1,13 @@
-import React, { useEffect, useState } from "react";
-import PageHeader from "../../components/layout/PageHeader";
-import { shellStyles } from "../../components/layout/BarangayLayout";
+import React, { useEffect, useMemo, useState } from "react";
+import { FiAlertTriangle, FiEye, FiFilter, FiSearch } from "react-icons/fi";
+import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
+import { pageSpacingStyles, shellStyles } from "../../components/layout/BarangayLayout";
 import EmptyState from "../../components/shared/EmptyState";
 import ErrorState from "../../components/shared/ErrorState";
 import LoadingState from "../../components/shared/LoadingState";
 import {
   fetchAllDisasterEvents,
+  fetchBarangayDisasterEventOptions,
   fetchBarangays,
 } from "../../features/disaster-events/disasterEventService";
 import { fetchMswdoAnomalies } from "../../features/mswdo-reports/mswdoReportService";
@@ -14,7 +16,7 @@ const inputStyles = {
   width: "100%",
   minHeight: "46px",
   padding: "12px 14px",
-  borderRadius: "12px",
+  borderRadius: "14px",
   border: "1px solid #cfddeb",
   backgroundColor: "#f8fbfe",
   color: "#1f3b57",
@@ -38,7 +40,7 @@ const tableStyles = {
     borderCollapse: "collapse",
   },
   th: {
-    padding: "12px 14px",
+    padding: "14px 16px",
     textAlign: "left",
     fontSize: "12px",
     letterSpacing: "0.08em",
@@ -48,12 +50,135 @@ const tableStyles = {
     whiteSpace: "nowrap",
   },
   td: {
-    padding: "14px",
+    padding: "16px",
     borderBottom: "1px solid #edf3f8",
-    color: "#21405f",
+    color: "#17324d",
     fontSize: "14px",
-    verticalAlign: "top",
+    verticalAlign: "middle",
     lineHeight: 1.5,
+  },
+};
+
+const searchInputStyles = {
+  ...inputStyles,
+  paddingLeft: "44px",
+  backgroundColor: "#ffffff",
+};
+
+const filterPopoverStyles = {
+  wrapper: {
+    position: "relative",
+  },
+  popover: {
+    position: "absolute",
+    top: "calc(100% + 12px)",
+    right: 0,
+    width: "320px",
+    padding: "20px",
+    borderRadius: "18px",
+    border: "1px solid #d6e2ee",
+    backgroundColor: "#ffffff",
+    boxShadow: "0 18px 36px rgba(31, 62, 92, 0.16)",
+    zIndex: 20,
+  },
+  title: {
+    margin: "0 0 16px",
+    color: "#17324d",
+    fontSize: "18px",
+    fontWeight: 800,
+  },
+};
+
+const anomalyTypes = [
+  { value: "all", label: "All anomaly types" },
+  { value: "SUSPICIOUS_DISTRIBUTION_ACTIVITY", label: "Suspicious Distribution Activity" },
+  { value: "SYNC_FAILED", label: "Failed Sync" },
+  { value: "SYNC_CONFLICT", label: "Sync Conflict" },
+  { value: "DUPLICATE_CLAIM_ATTEMPT", label: "Duplicate Claim Attempt" },
+  { value: "FAILED_STUB_OR_QR_VERIFICATION", label: "Failed Stub or QR Verification" },
+];
+
+const statusFilters = [
+  { value: "all", label: "All" },
+  { value: "open", label: "Open" },
+  { value: "resolved", label: "Resolved" },
+  { value: "failed", label: "Failed" },
+];
+
+const orderOptions = [
+  { value: "newest", label: "Newest-Oldest" },
+  { value: "oldest", label: "Oldest-Newest" },
+  { value: "az", label: "Sort A-Z" },
+  { value: "za", label: "Sort Z-A" },
+];
+
+const modalStyles = {
+  overlay: {
+    position: "fixed",
+    inset: 0,
+    backgroundColor: "rgba(18, 34, 51, 0.45)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "24px",
+    zIndex: 1400,
+  },
+  modal: {
+    width: "100%",
+    maxWidth: "760px",
+    maxHeight: "85vh",
+    overflowY: "auto",
+    backgroundColor: "#ffffff",
+    borderRadius: "22px",
+    padding: "28px",
+    boxShadow: "0 24px 48px rgba(20, 48, 78, 0.2)",
+  },
+  title: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "24px",
+    lineHeight: 1.2,
+  },
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: "16px",
+    marginTop: "20px",
+  },
+  card: {
+    padding: "16px",
+    borderRadius: "16px",
+    backgroundColor: "#f8fbfe",
+    border: "1px solid #d6e2ee",
+  },
+  value: {
+    color: "#17324d",
+    fontSize: "14px",
+    lineHeight: 1.6,
+    wordBreak: "break-word",
+  },
+  actions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    marginTop: "24px",
+  },
+};
+
+const statusPalette = {
+  open: {
+    backgroundColor: "#fff4dc",
+    borderColor: "#f2d49a",
+    color: "#8a5a00",
+  },
+  resolved: {
+    backgroundColor: "#e8f7ee",
+    borderColor: "#c3e8d0",
+    color: "#0b7a3b",
+  },
+  failed: {
+    backgroundColor: "#fdecec",
+    borderColor: "#f5c2c7",
+    color: "#b23b47",
   },
 };
 
@@ -76,20 +201,360 @@ const formatDateTime = (value) => {
   });
 };
 
-const AnomalyTrackingPage = () => {
+const formatEventLabel = (row) => row?.title || row?.disaster_event_title || "--";
+
+const normalizeBarangayName = (value) => String(value || "").trim().toLowerCase();
+
+const mergeUniqueEvents = (...eventGroups) => {
+  const eventMap = new Map();
+
+  eventGroups.flat().forEach((event) => {
+    if (!event?.id || eventMap.has(String(event.id))) {
+      return;
+    }
+
+    eventMap.set(String(event.id), event);
+  });
+
+  return [...eventMap.values()];
+};
+
+const getEventBarangayScope = (event) => {
+  const ids = new Set();
+  const names = new Set();
+
+  const addBarangay = (barangay) => {
+    if (!barangay) {
+      return;
+    }
+
+    if (typeof barangay === "object") {
+      if (barangay.id) {
+        ids.add(String(barangay.id));
+      }
+
+      if (barangay.barangay_id) {
+        ids.add(String(barangay.barangay_id));
+      }
+
+      if (barangay.name) {
+        names.add(normalizeBarangayName(barangay.name));
+      }
+
+      if (barangay.barangay_name) {
+        names.add(normalizeBarangayName(barangay.barangay_name));
+      }
+
+      return;
+    }
+
+    ids.add(String(barangay));
+    names.add(normalizeBarangayName(barangay));
+  };
+
+  const addBarangayNamesFromText = (value) => {
+    if (!value || /all barangays/i.test(String(value))) {
+      return;
+    }
+
+    String(value)
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean)
+      .forEach((name) => names.add(normalizeBarangayName(name)));
+  };
+
+  [
+    event?.affected_barangays,
+    event?.affectedBarangays,
+    event?.barangays,
+    event?.affected_barangay_ids,
+    event?.affectedBarangayIds,
+    event?.barangay_ids,
+  ].forEach((collection) => {
+    if (Array.isArray(collection)) {
+      collection.forEach(addBarangay);
+    }
+  });
+
+  [
+    event?.affected_barangays_text,
+    event?.affectedBarangaysText,
+    event?.affected_barangay_names,
+    event?.affectedBarangayNames,
+  ].forEach(addBarangayNamesFromText);
+
+  return { ids, names };
+};
+
+const isBarangayInEventScope = (barangay, scope) => {
+  if (!scope || (scope.ids.size === 0 && scope.names.size === 0)) {
+    return true;
+  }
+
+  return (
+    scope.ids.has(String(barangay.id)) ||
+    scope.names.has(normalizeBarangayName(barangay.name))
+  );
+};
+
+const formatAnomalyType = (value) => {
+  const match = anomalyTypes.find((type) => type.value === value);
+  if (match) {
+    return match.label;
+  }
+
+  return String(value || "--")
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+};
+
+const getStatusCategory = (row) => {
+  const status = String(row?.status || "").toUpperCase();
+  const resolution = String(row?.resolution_status || "").toUpperCase();
+
+  if (status === "FAILED" || status === "ERROR") {
+    return "failed";
+  }
+
+  if (status === "OPEN" || resolution.includes("PENDING") || resolution.includes("RECOMMENDED")) {
+    return "open";
+  }
+
+  return "resolved";
+};
+
+const getStatusLabel = (row) => {
+  const category = getStatusCategory(row);
+
+  if (category === "open") {
+    return "Open";
+  }
+
+  if (category === "failed") {
+    return "Failed";
+  }
+
+  return "Resolved";
+};
+
+const StatusPill = ({ row }) => {
+  const category = getStatusCategory(row);
+  const palette = statusPalette[category] || statusPalette.open;
+
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "5px 10px",
+        borderRadius: "999px",
+        border: `1px solid ${palette.borderColor}`,
+        backgroundColor: palette.backgroundColor,
+        color: palette.color,
+        fontSize: "12px",
+        fontWeight: 700,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {getStatusLabel(row)}
+    </span>
+  );
+};
+
+const AnomalyDetailModal = ({ anomaly, onClose }) => {
+  if (!anomaly) {
+    return null;
+  }
+
+  return (
+    <div style={modalStyles.overlay}>
+      <div style={modalStyles.modal}>
+        <h3 style={modalStyles.title}>Anomaly Details</h3>
+
+        <div style={modalStyles.grid}>
+          <div style={modalStyles.card}>
+            <div style={labelStyles}>Anomaly Type</div>
+            <div style={modalStyles.value}>{formatAnomalyType(anomaly.anomaly_type)}</div>
+          </div>
+
+          <div style={modalStyles.card}>
+            <div style={labelStyles}>Status</div>
+            <div style={modalStyles.value}>
+              <StatusPill row={anomaly} />
+            </div>
+          </div>
+
+          <div style={modalStyles.card}>
+            <div style={labelStyles}>Disaster Event</div>
+            <div style={modalStyles.value}>{formatEventLabel(anomaly)}</div>
+          </div>
+
+          <div style={modalStyles.card}>
+            <div style={labelStyles}>Barangay</div>
+            <div style={modalStyles.value}>{anomaly.barangay_name || "--"}</div>
+          </div>
+
+          <div style={modalStyles.card}>
+            <div style={labelStyles}>Household / Stub</div>
+            <div style={modalStyles.value}>{anomaly.family_head_name || "--"}</div>
+          </div>
+
+          <div style={modalStyles.card}>
+            <div style={labelStyles}>Detected At</div>
+            <div style={modalStyles.value}>{formatDateTime(anomaly.occurred_at)}</div>
+          </div>
+
+          <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
+            <div style={labelStyles}>Reason</div>
+            <div style={modalStyles.value}>{anomaly.anomaly_reason || "--"}</div>
+          </div>
+
+          <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
+            <div style={labelStyles}>Resolution Notes</div>
+            <div style={modalStyles.value}>{anomaly.resolution_status || "--"}</div>
+          </div>
+        </div>
+
+        <div style={modalStyles.actions}>
+          <button type="button" onClick={onClose} style={pageHeaderStyles.secondaryButton}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AnomalyTrackingPage = ({
+  scope = "mswdo",
+  assignedBarangay = null,
+  assignedBarangayId = "",
+  scopedDisasterEvents = [],
+  scopeErrorMessage = "",
+}) => {
+  const isBarangayScope = scope === "barangay";
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
   const [rows, setRows] = useState([]);
   const [filters, setFilters] = useState({
     disaster_event_id: "",
     barangay_id: "",
-    status: "",
     date_from: "",
     date_to: "",
   });
+  const [viewState, setViewState] = useState({
+    search: "",
+    anomaly_type: "all",
+    status: "all",
+    order: "newest",
+  });
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [selectedAnomaly, setSelectedAnomaly] = useState(null);
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
   const [isLoadingRows, setIsLoadingRows] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+
+  const resolvedAssignedBarangay = useMemo(() => {
+    if (!isBarangayScope) {
+      return null;
+    }
+
+    if (assignedBarangay?.id) {
+      return assignedBarangay;
+    }
+
+    const matchingBarangay = barangays.find(
+      (barangay) => String(barangay.id) === String(assignedBarangayId),
+    );
+
+    if (matchingBarangay) {
+      return matchingBarangay;
+    }
+
+    return assignedBarangayId ? { id: assignedBarangayId, name: "" } : null;
+  }, [assignedBarangay, assignedBarangayId, barangays, isBarangayScope]);
+
+  const scopedBarangays = useMemo(() => {
+    if (!isBarangayScope) {
+      return barangays;
+    }
+
+    return resolvedAssignedBarangay ? [resolvedAssignedBarangay] : [];
+  }, [barangays, isBarangayScope, resolvedAssignedBarangay]);
+
+  const availableDisasterEvents = useMemo(() => {
+    if (!isBarangayScope) {
+      return disasterEvents;
+    }
+
+    return mergeUniqueEvents(disasterEvents, scopedDisasterEvents);
+  }, [disasterEvents, isBarangayScope, scopedDisasterEvents]);
+
+  const selectedDisasterEvent = useMemo(
+    () =>
+      availableDisasterEvents.find(
+        (event) => String(event.id) === String(filters.disaster_event_id),
+      ) || null,
+    [availableDisasterEvents, filters.disaster_event_id],
+  );
+
+  const availableBarangays = useMemo(() => {
+    if (!selectedDisasterEvent) {
+      return scopedBarangays;
+    }
+
+    const eventBarangayScope = getEventBarangayScope(selectedDisasterEvent);
+    return scopedBarangays.filter((barangay) =>
+      isBarangayInEventScope(barangay, eventBarangayScope),
+    );
+  }, [scopedBarangays, selectedDisasterEvent]);
+
+  useEffect(() => {
+    if (!isBarangayScope) {
+      return;
+    }
+
+    setFilters((currentValue) => {
+      const nextBarangayId = resolvedAssignedBarangay?.id || "";
+
+      if (currentValue.barangay_id === nextBarangayId) {
+        return currentValue;
+      }
+
+      return {
+        ...currentValue,
+        barangay_id: nextBarangayId,
+      };
+    });
+  }, [isBarangayScope, resolvedAssignedBarangay?.id]);
+
+  useEffect(() => {
+    if (!isBarangayScope || !filters.disaster_event_id) {
+      return;
+    }
+
+    const selectedEventIsAvailable = availableDisasterEvents.some(
+      (event) => String(event.id) === String(filters.disaster_event_id),
+    );
+
+    if (selectedEventIsAvailable) {
+      return;
+    }
+
+    setFilters((currentValue) => ({
+      ...currentValue,
+      disaster_event_id: "",
+      barangay_id: resolvedAssignedBarangay?.id || "",
+    }));
+  }, [
+    availableDisasterEvents,
+    filters.disaster_event_id,
+    isBarangayScope,
+    resolvedAssignedBarangay?.id,
+  ]);
 
   useEffect(() => {
     let isMounted = true;
@@ -99,7 +564,9 @@ const AnomalyTrackingPage = () => {
 
       try {
         const [eventRows, barangayRows] = await Promise.all([
-          fetchAllDisasterEvents(),
+          isBarangayScope
+            ? fetchBarangayDisasterEventOptions()
+            : fetchAllDisasterEvents(),
           fetchBarangays(),
         ]);
 
@@ -125,19 +592,31 @@ const AnomalyTrackingPage = () => {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [isBarangayScope]);
 
   useEffect(() => {
     let isMounted = true;
 
     const loadRows = async () => {
+      if (isBarangayScope && !resolvedAssignedBarangay?.id) {
+        setRows([]);
+        setErrorMessage(
+          scopeErrorMessage || "No assigned barangay. Please contact administrator.",
+        );
+        setIsLoadingRows(false);
+        return;
+      }
+
       setIsLoadingRows(true);
       setErrorMessage("");
 
       try {
         const response = await fetchMswdoAnomalies({
           ...filters,
-          limit: 100,
+          barangay_id: isBarangayScope
+            ? resolvedAssignedBarangay.id
+            : filters.barangay_id,
+          limit: 500,
         });
 
         if (!isMounted) {
@@ -162,25 +641,91 @@ const AnomalyTrackingPage = () => {
     return () => {
       isMounted = false;
     };
-  }, [filters]);
+  }, [filters, isBarangayScope, resolvedAssignedBarangay?.id, scopeErrorMessage]);
+
+  const filteredRows = useMemo(() => {
+    const searchValue = viewState.search.trim().toLowerCase();
+
+    return rows
+      .filter((row) => {
+        if (viewState.anomaly_type !== "all" && row.anomaly_type !== viewState.anomaly_type) {
+          return false;
+        }
+
+        if (viewState.status !== "all" && getStatusCategory(row) !== viewState.status) {
+          return false;
+        }
+
+        if (!searchValue) {
+          return true;
+        }
+
+        const searchableText = [
+          formatAnomalyType(row.anomaly_type),
+          formatEventLabel(row),
+          row.barangay_name,
+          row.family_head_name,
+          row.anomaly_reason,
+          row.status,
+          row.resolution_status,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+
+        return searchableText.includes(searchValue);
+      })
+      .sort((firstRow, secondRow) => {
+        if (viewState.order === "az" || viewState.order === "za") {
+          const firstLabel = `${formatEventLabel(firstRow)} ${firstRow.family_head_name || ""}`;
+          const secondLabel = `${formatEventLabel(secondRow)} ${secondRow.family_head_name || ""}`;
+          const comparison = firstLabel.localeCompare(secondLabel);
+          return viewState.order === "az" ? comparison : comparison * -1;
+        }
+
+        const firstDate = new Date(firstRow.occurred_at || 0).getTime();
+        const secondDate = new Date(secondRow.occurred_at || 0).getTime();
+
+        return viewState.order === "oldest" ? firstDate - secondDate : secondDate - firstDate;
+      });
+  }, [rows, viewState]);
+
+  const summary = useMemo(() => {
+    return rows.reduce(
+      (currentSummary, row) => {
+        currentSummary.total += 1;
+
+        const category = getStatusCategory(row);
+
+        if (category === "open") {
+          currentSummary.open += 1;
+        }
+
+        if (category === "failed") {
+          currentSummary.failed += 1;
+        }
+
+        if (category === "resolved") {
+          currentSummary.resolved += 1;
+        }
+
+        return currentSummary;
+      },
+      {
+        total: 0,
+        open: 0,
+        failed: 0,
+        resolved: 0,
+      },
+    );
+  }, [rows]);
 
   return (
-    <>
-      <PageHeader
-        title="ANOMALY TRACKING"
-        description="Review suspicious distribution activity, sync-related anomalies, and any captured duplicate or failed verification signals."
-        actions={[]}
-      />
+    <div style={pageSpacingStyles.pageStack}>
+      <PageHeader title="ANOMALY TRACKING MANAGEMENT" actions={[]} />
 
       <section style={shellStyles.card}>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: "16px",
-            alignItems: "end",
-          }}
-        >
+        <div style={pageSpacingStyles.filterGrid}>
           <div>
             <label htmlFor="anomaly-event" style={labelStyles}>
               Disaster Event
@@ -192,65 +737,70 @@ const AnomalyTrackingPage = () => {
                 setFilters((currentValue) => ({
                   ...currentValue,
                   disaster_event_id: event.target.value,
+                  barangay_id: isBarangayScope
+                    ? resolvedAssignedBarangay?.id || ""
+                    : "",
                 }))
               }
               disabled={isLoadingFilters}
               style={inputStyles}
             >
               <option value="">All disaster events</option>
-              {disasterEvents.map((row) => (
+              {availableDisasterEvents.map((row) => (
                 <option key={row.id} value={row.id}>
-                  {row.event_code} - {row.title}
+                  {row.title}
                 </option>
               ))}
             </select>
           </div>
 
-          <div>
-            <label htmlFor="anomaly-barangay" style={labelStyles}>
-              Barangay
-            </label>
-            <select
-              id="anomaly-barangay"
-              value={filters.barangay_id}
-              onChange={(event) =>
-                setFilters((currentValue) => ({
-                  ...currentValue,
-                  barangay_id: event.target.value,
-                }))
-              }
-              disabled={isLoadingFilters}
-              style={inputStyles}
-            >
-              <option value="">All barangays</option>
-              {barangays.map((row) => (
-                <option key={row.id} value={row.id}>
-                  {row.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          {!isBarangayScope ? (
+            <div>
+              <label htmlFor="anomaly-barangay" style={labelStyles}>
+                Barangay
+              </label>
+              <select
+                id="anomaly-barangay"
+                value={filters.barangay_id}
+                onChange={(event) =>
+                  setFilters((currentValue) => ({
+                    ...currentValue,
+                    barangay_id: event.target.value,
+                  }))
+                }
+                disabled={isLoadingFilters}
+                style={inputStyles}
+              >
+                <option value="">All barangays</option>
+                {availableBarangays.map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {row.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
 
           <div>
-            <label htmlFor="anomaly-status" style={labelStyles}>
-              Status
+            <label htmlFor="anomaly-type" style={labelStyles}>
+              Anomaly Type
             </label>
             <select
-              id="anomaly-status"
-              value={filters.status}
+              id="anomaly-type"
+              value={viewState.anomaly_type}
               onChange={(event) =>
-                setFilters((currentValue) => ({
+                setViewState((currentValue) => ({
                   ...currentValue,
-                  status: event.target.value,
+                  anomaly_type: event.target.value,
                 }))
               }
               style={inputStyles}
             >
-              <option value="">All statuses</option>
-              <option value="OPEN">Open</option>
-              <option value="FAILED">Failed</option>
-              <option value="ERROR">Error</option>
-              <option value="WARNING">Warning</option>
+              {anomalyTypes.map((type) => (
+                <option key={type.value} value={type.value}>
+                  {type.label}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -292,56 +842,212 @@ const AnomalyTrackingPage = () => {
         </div>
       </section>
 
+      <div style={shellStyles.statGrid}>
+        <div style={shellStyles.card}>
+          <p style={shellStyles.mutedText}>Total Anomalies</p>
+          <p style={shellStyles.statValue}>{summary.total}</p>
+        </div>
+        <div style={shellStyles.card}>
+          <p style={shellStyles.mutedText}>Open Review</p>
+          <p style={shellStyles.statValue}>{summary.open}</p>
+        </div>
+        <div style={shellStyles.card}>
+          <p style={shellStyles.mutedText}>Failed Sync / Error</p>
+          <p style={shellStyles.statValue}>{summary.failed}</p>
+        </div>
+        <div style={shellStyles.card}>
+          <p style={shellStyles.mutedText}>Resolved / Logged</p>
+          <p style={shellStyles.statValue}>{summary.resolved}</p>
+        </div>
+      </div>
+
+      <div style={pageSpacingStyles.toolbar}>
+        <div style={{ position: "relative", flex: "1 1 420px", minWidth: "260px" }}>
+          <FiSearch
+            size={18}
+            style={{
+              position: "absolute",
+              left: "16px",
+              top: "50%",
+              transform: "translateY(-50%)",
+              color: "#6f8aa6",
+            }}
+          />
+          <input
+            type="search"
+            value={viewState.search}
+            onChange={(event) =>
+              setViewState((currentValue) => ({
+                ...currentValue,
+                search: event.target.value,
+              }))
+            }
+            placeholder="Search anomaly type, family head, barangay, event, or reason"
+            style={searchInputStyles}
+          />
+        </div>
+
+        <div style={pageSpacingStyles.actionGroup}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              color: "#17324d",
+              fontWeight: 700,
+            }}
+          >
+            <label
+              htmlFor="anomaly-status"
+              style={{ margin: 0, fontSize: "14px" }}
+            >
+              Status
+            </label>
+            <select
+              id="anomaly-status"
+              value={viewState.status}
+              onChange={(event) =>
+                setViewState((currentValue) => ({
+                  ...currentValue,
+                  status: event.target.value,
+                }))
+              }
+              style={{
+                minWidth: "120px",
+                borderRadius: "12px",
+                border: "1px solid #c7d6e5",
+                backgroundColor: "#ffffff",
+                color: "#17324d",
+                padding: "10px 12px",
+                fontSize: "14px",
+                fontWeight: 600,
+              }}
+            >
+              {statusFilters.map((status) => (
+                <option key={status.value} value={status.value}>
+                  {status.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={filterPopoverStyles.wrapper}>
+            <button
+              type="button"
+              onClick={() => setIsFilterOpen((currentValue) => !currentValue)}
+              style={{
+                ...pageHeaderStyles.secondaryButton,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "10px",
+              }}
+            >
+              <FiFilter size={18} />
+              Filter
+            </button>
+
+            {isFilterOpen ? (
+              <div style={filterPopoverStyles.popover}>
+                <h3 style={filterPopoverStyles.title}>Filter Records</h3>
+                <label htmlFor="anomaly-order" style={labelStyles}>
+                  Order List
+                </label>
+                <select
+                  id="anomaly-order"
+                  value={viewState.order}
+                  onChange={(event) =>
+                    setViewState((currentValue) => ({
+                      ...currentValue,
+                      order: event.target.value,
+                    }))
+                  }
+                  style={inputStyles}
+                >
+                  {orderOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
       <section style={shellStyles.card}>
-        <div style={{ marginBottom: "16px" }}>
-          <h3 style={{ margin: 0, color: "#17324d" }}>Operational Anomalies</h3>
-          <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-            Duplicate claim attempts and failed QR or stub verification appear here
-            when they are captured by system logs. Sync anomalies and suspicious
-            multiple distributions are surfaced directly from current records.
-          </p>
+        <div style={pageSpacingStyles.tableHeader}>
+          <h3 style={{ margin: 0, color: "#17324d" }}>Anomaly Records</h3>
         </div>
 
         {errorMessage ? <ErrorState message={errorMessage} style={{ marginBottom: "16px" }} /> : null}
 
         {isLoadingRows ? (
           <LoadingState message="Loading anomaly tracking..." />
-        ) : rows.length === 0 ? (
+        ) : filteredRows.length === 0 ? (
           <EmptyState message="No matching records found. Try adjusting your search or filters." />
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={tableStyles.table}>
               <thead>
                 <tr>
-                  <th style={tableStyles.th}>Type</th>
+                  <th style={tableStyles.th}>Anomaly Type</th>
                   <th style={tableStyles.th}>Disaster Event</th>
-                  <th style={tableStyles.th}>Barangay / Household</th>
+                  <th style={tableStyles.th}>Barangay</th>
+                  <th style={tableStyles.th}>Household / Stub</th>
                   <th style={tableStyles.th}>Reason</th>
                   <th style={tableStyles.th}>Status</th>
-                  <th style={tableStyles.th}>Resolution</th>
-                  <th style={tableStyles.th}>Date / Time</th>
+                  <th style={tableStyles.th}>Detected At</th>
+                  <th style={{ ...tableStyles.th, textAlign: "center" }}>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
+                {filteredRows.map((row) => (
                   <tr key={`${row.anomaly_type}-${row.reference_id}`}>
-                    <td style={tableStyles.td}>{row.anomaly_type || "--"}</td>
                     <td style={tableStyles.td}>
-                      <div>{row.event_code || "--"}</div>
-                      <div style={{ color: "#60738a", fontSize: "12px" }}>
-                        {row.disaster_event_title || "--"}
-                      </div>
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          fontWeight: 700,
+                        }}
+                      >
+                        <FiAlertTriangle size={16} color="#9a6400" />
+                        {formatAnomalyType(row.anomaly_type)}
+                      </span>
+                    </td>
+                    <td style={tableStyles.td}>{formatEventLabel(row)}</td>
+                    <td style={tableStyles.td}>{row.barangay_name || "--"}</td>
+                    <td style={tableStyles.td}>{row.family_head_name || "--"}</td>
+                    <td style={{ ...tableStyles.td, minWidth: "260px" }}>
+                      {row.anomaly_reason || "--"}
                     </td>
                     <td style={tableStyles.td}>
-                      <div>{row.barangay_name || "--"}</div>
-                      <div style={{ color: "#60738a", fontSize: "12px" }}>
-                        {row.family_head_name || "No household reference"}
-                      </div>
+                      <StatusPill row={row} />
                     </td>
-                    <td style={tableStyles.td}>{row.anomaly_reason || "--"}</td>
-                    <td style={tableStyles.td}>{row.status || "--"}</td>
-                    <td style={tableStyles.td}>{row.resolution_status || "--"}</td>
                     <td style={tableStyles.td}>{formatDateTime(row.occurred_at)}</td>
+                    <td style={{ ...tableStyles.td, textAlign: "center" }}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedAnomaly(row)}
+                        title="View details"
+                        style={{
+                          width: "46px",
+                          height: "46px",
+                          borderRadius: "14px",
+                          border: "1px solid #c6d8ea",
+                          backgroundColor: "#f8fbfe",
+                          color: "#24496e",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <FiEye size={18} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -349,7 +1055,12 @@ const AnomalyTrackingPage = () => {
           </div>
         )}
       </section>
-    </>
+
+      <AnomalyDetailModal
+        anomaly={selectedAnomaly}
+        onClose={() => setSelectedAnomaly(null)}
+      />
+    </div>
   );
 };
 

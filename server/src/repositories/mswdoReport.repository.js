@@ -171,7 +171,19 @@ const getMswdoAnomalyTracking = async ({
     ...syncConditions,
   ].join(" AND ");
   const errorWhere = errorConditions.length > 0 ? `AND ${errorConditions.join(" AND ")}` : "";
-  const statusWhere = statusIndex ? `WHERE status = $${statusIndex}` : "";
+  const finalConditions = [];
+
+  if (statusIndex) {
+    finalConditions.push(`status = $${statusIndex}`);
+  }
+
+  if (barangayId) {
+    finalConditions.push("barangay_name IS NOT NULL");
+  }
+
+  const finalWhere = finalConditions.length
+    ? `WHERE ${finalConditions.join(" AND ")}`
+    : "";
 
   const query = `
     WITH suspicious_distribution AS (
@@ -291,7 +303,7 @@ const getMswdoAnomalyTracking = async ({
       UNION ALL
       SELECT * FROM failed_stub_verification
     ) anomalies
-    ${statusWhere}
+    ${finalWhere}
     ORDER BY occurred_at DESC
     LIMIT $${limitIndex}
   `;
