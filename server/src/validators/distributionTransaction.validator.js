@@ -256,10 +256,12 @@ const validateGetDistributionHistory = (req, res, next) => {
       status,
       date_from,
       date_to,
+      sort_order,
       limit,
     } = req.query;
 
     const allowedDistributionStatuses = ["CLAIMED", "CANCELLED", "REVERSED"];
+    const allowedSortOrders = ["newest", "oldest", "az", "za"];
 
     if (disaster_event_id && !isValidUuid(disaster_event_id)) {
       return res.status(400).json({
@@ -291,6 +293,12 @@ const validateGetDistributionHistory = (req, res, next) => {
       });
     }
 
+    if (sort_order && !allowedSortOrders.includes(sort_order)) {
+      return res.status(400).json({
+        message: "sort_order must be one of: newest, oldest, az, za",
+      });
+    }
+
     const parsedLimit = limit ? Number.parseInt(limit, 10) : 100;
 
     if (!Number.isInteger(parsedLimit) || parsedLimit <= 0 || parsedLimit > 500) {
@@ -305,6 +313,7 @@ const validateGetDistributionHistory = (req, res, next) => {
       status: status || null,
       date_from: date_from || null,
       date_to: date_to || null,
+      sort_order: sort_order || "newest",
       limit: parsedLimit,
     };
 

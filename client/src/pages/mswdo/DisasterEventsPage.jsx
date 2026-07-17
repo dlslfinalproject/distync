@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import PageHeader from "../../components/layout/PageHeader";
-import { shellStyles } from "../../components/layout/BarangayLayout";
+import {
+  pageSpacingStyles,
+  shellStyles,
+} from "../../components/layout/BarangayLayout";
 import DisasterEventDetailModal from "../../components/disaster-events/DisasterEventDetailModal";
 import DisasterEventExportModal from "../../components/disaster-events/DisasterEventExportModal";
 import DisasterEventFormModal from "../../components/disaster-events/DisasterEventFormModal";
@@ -764,17 +767,7 @@ const DisasterEventsPage = () => {
   });
 
   return (
-    <div
-      style={{
-        flex: 1,
-        minWidth: 0,
-        maxWidth: "100%",
-        overflowX: "hidden",
-        display: "flex",
-        flexDirection: "column",
-        gap: "24px",
-      }}
-    >
+    <div style={pageSpacingStyles.pageStack}>
       <PageHeader title="DISASTER EVENT MANAGEMENT" />
 
       <section style={{ ...shellStyles.card, boxSizing: "border-box" }}>
@@ -812,13 +805,7 @@ const DisasterEventsPage = () => {
       </section>
 
       <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: "16px",
-          flexWrap: "wrap",
-        }}
+        style={pageSpacingStyles.toolbar}
       >
         <div style={{ flex: 1 }}>
           <SearchBar
@@ -828,7 +815,7 @@ const DisasterEventsPage = () => {
           />
         </div>
 
-        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+        <div style={pageSpacingStyles.actionGroup}>
           <div style={{ position: "relative" }}>
             <button
               ref={filterButtonRef}
@@ -1003,7 +990,6 @@ const DisasterEventsPage = () => {
         style={{
           ...shellStyles.card,
           marginTop: "0",
-          padding: "24px",
           boxSizing: "border-box",
           overflow: "visible",
         }}

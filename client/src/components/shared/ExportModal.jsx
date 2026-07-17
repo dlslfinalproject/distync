@@ -39,6 +39,7 @@ const ExportModal = ({
   selectedReportType = "",
   selectedFormat = "csv",
   hideReportType = false,
+  placeFormatLast = false,
   isSubmitting = false,
   onReportTypeChange,
   onFormatChange,
@@ -49,6 +50,24 @@ const ExportModal = ({
   if (!isOpen) {
     return null;
   }
+
+  const formatField = (
+    <div>
+      <label style={labelStyles}>{formatLabel}</label>
+      <select
+        value={selectedFormat}
+        onChange={(event) => onFormatChange?.(event.target.value)}
+        style={selectStyles}
+        disabled={isSubmitting}
+      >
+        {formatOptions.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
 
   return (
     <FormModalShell
@@ -95,23 +114,11 @@ const ExportModal = ({
           </div>
         ) : null}
 
-        <div>
-          <label style={labelStyles}>{formatLabel}</label>
-          <select
-            value={selectedFormat}
-            onChange={(event) => onFormatChange?.(event.target.value)}
-            style={selectStyles}
-            disabled={isSubmitting}
-          >
-            {formatOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        {!placeFormatLast ? formatField : null}
 
         {children}
+
+        {placeFormatLast ? formatField : null}
       </div>
     </FormModalShell>
   );

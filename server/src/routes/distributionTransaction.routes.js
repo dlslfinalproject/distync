@@ -38,7 +38,7 @@ router.get(
 
 router.get(
   "/history/export",
-  requireRoles(ROLE_CODES.MSWDO),
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO),
   validateGetDistributionHistory,
   validateExportDistributionHistory,
   async (req, res) => {

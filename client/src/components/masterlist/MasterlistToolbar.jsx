@@ -254,7 +254,7 @@ const MasterlistToolbar = ({
         />
       </div>
 
-      <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
         {!hideRecordStatus ? (
           <label
             style={{

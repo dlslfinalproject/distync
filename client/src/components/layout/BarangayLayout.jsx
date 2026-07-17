@@ -68,6 +68,40 @@ export const shellStyles = {
   },
 };
 
+export const pageSpacingStyles = {
+  pageStack: {
+    flex: 1,
+    minWidth: 0,
+    maxWidth: "100%",
+    overflowX: "hidden",
+    display: "flex",
+    flexDirection: "column",
+    gap: "24px",
+  },
+  filterGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: "16px",
+    alignItems: "end",
+  },
+  toolbar: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "16px",
+    flexWrap: "wrap",
+  },
+  actionGroup: {
+    display: "flex",
+    alignItems: "center",
+    gap: "16px",
+    flexWrap: "wrap",
+  },
+  tableHeader: {
+    marginBottom: "16px",
+  },
+};
+
 const BarangayLayout = () => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const lastNonSettingsCollapseStateRef = useRef(false);

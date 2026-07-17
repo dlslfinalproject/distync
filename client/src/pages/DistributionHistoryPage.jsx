@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import PageHeader from "../components/layout/PageHeader";
-import { shellStyles } from "../components/layout/BarangayLayout";
+import {
+  pageSpacingStyles,
+  shellStyles,
+} from "../components/layout/BarangayLayout";
 import { useAuth } from "../context/AuthContext";
 import { ROLE_CODES } from "../utils/roleSession";
 import {
@@ -19,13 +22,12 @@ import ErrorState from "../components/shared/ErrorState";
 import FeedbackToast from "../components/shared/FeedbackToast";
 import LoadingState from "../components/shared/LoadingState";
 import StubDetailModal from "../components/stubs/StubDetailModal";
-import { FiEye, FiSearch } from "react-icons/fi";
+import { FiEye, FiFileText, FiSearch } from "react-icons/fi";
 import { formatOrderedSectorText } from "../utils/sectorDisplay";
 import {
   buildExportSuccessMessage,
   COMMON_EXPORT_FORMAT_OPTIONS,
   downloadExportFile,
-  NO_EXPORT_DATA_MESSAGE,
   resolveExportErrorMessage,
 } from "../utils/exportHelpers";
 
@@ -49,6 +51,14 @@ const labelStyles = {
   fontWeight: 700,
   letterSpacing: "0.08em",
   textTransform: "uppercase",
+};
+
+const exportLabelStyles = {
+  display: "block",
+  marginBottom: "8px",
+  color: "#4f677f",
+  fontSize: "13px",
+  fontWeight: 700,
 };
 
 const tableStyles = {
@@ -113,6 +123,11 @@ const getRowTime = (row) => {
   return Number.isNaN(parsedTime) ? 0 : parsedTime;
 };
 
+const getSummaryRowTime = (row) => {
+  const parsedTime = new Date(row?.latest_distribution_date || 0).getTime();
+  return Number.isNaN(parsedTime) ? 0 : parsedTime;
+};
+
 const sortDistributionHistoryRows = (rows, sortOrder = "newest") => {
   return [...rows].sort((leftRow, rightRow) => {
     if (sortOrder === "az" || sortOrder === "za") {
@@ -127,6 +142,83 @@ const sortDistributionHistoryRows = (rows, sortOrder = "newest") => {
 
     const leftTime = getRowTime(leftRow);
     const rightTime = getRowTime(rightRow);
+
+    return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
+  });
+};
+
+const buildDistributionSummaryRows = (rows) => {
+  const summaryByEventId = new Map();
+
+  rows.forEach((row) => {
+    const eventId = row.disaster_event_id || "unknown-event";
+    const existingSummary = summaryByEventId.get(eventId) || {
+      id: eventId,
+      event_code: row.event_code || "",
+      disaster_event_title: row.disaster_event_title || "--",
+      barangayNames: new Set(),
+      householdIds: new Set(),
+      reliefPacks: new Set(),
+      claimedCount: 0,
+      totalQuantityReleased: 0,
+      latest_distribution_date: null,
+    };
+
+    if (row.barangay_name) {
+      existingSummary.barangayNames.add(row.barangay_name);
+    }
+
+    if (row.household_id) {
+      existingSummary.householdIds.add(row.household_id);
+    }
+
+    const reliefPack = row.relief_pack_template_name || row.released_items_summary;
+
+    if (reliefPack) {
+      existingSummary.reliefPacks.add(reliefPack);
+    }
+
+    existingSummary.claimedCount += 1;
+    existingSummary.totalQuantityReleased += Number(row.total_quantity_released || 0);
+
+    const currentLatestTime = getSummaryRowTime(existingSummary);
+    const rowTime = getRowTime(row);
+
+    if (rowTime > currentLatestTime) {
+      existingSummary.latest_distribution_date = row.distribution_date;
+    }
+
+    summaryByEventId.set(eventId, existingSummary);
+  });
+
+  return Array.from(summaryByEventId.values()).map((summary) => ({
+    id: summary.id,
+    event_code: summary.event_code,
+    disaster_event_title: summary.disaster_event_title,
+    barangay_summary: Array.from(summary.barangayNames).sort().join(", ") || "--",
+    barangay_count: summary.barangayNames.size,
+    claimed_family_count: summary.householdIds.size,
+    claimed_count: summary.claimedCount,
+    relief_pack_summary: Array.from(summary.reliefPacks).sort().join(", ") || "--",
+    total_quantity_released: summary.totalQuantityReleased,
+    latest_distribution_date: summary.latest_distribution_date,
+  }));
+};
+
+const sortDistributionSummaryRows = (rows, sortOrder = "newest") => {
+  return [...rows].sort((leftRow, rightRow) => {
+    if (sortOrder === "az" || sortOrder === "za") {
+      const comparison = String(leftRow.disaster_event_title || "").localeCompare(
+        String(rightRow.disaster_event_title || ""),
+        undefined,
+        { sensitivity: "base" },
+      );
+
+      return sortOrder === "za" ? -comparison : comparison;
+    }
+
+    const leftTime = getSummaryRowTime(leftRow);
+    const rightTime = getSummaryRowTime(rightRow);
 
     return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
   });
@@ -151,7 +243,6 @@ const getAffectedBarangayIds = (event) => {
 const DistributionHistoryPage = () => {
   const { currentRole } = useAuth();
   const isBarangay = currentRole === ROLE_CODES.BARANGAY;
-  const isMswdo = currentRole === ROLE_CODES.MSWDO;
 
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
@@ -168,6 +259,13 @@ const DistributionHistoryPage = () => {
   const [errorMessage, setErrorMessage] = useState("");
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
+  const [exportFilters, setExportFilters] = useState({
+    disaster_event_id: "",
+    barangay_id: "",
+    date_from: "",
+    date_to: "",
+    sort_order: "newest",
+  });
   const [exportingFormat, setExportingFormat] = useState("");
   const [exportFeedback, setExportFeedback] = useState({
     type: "",
@@ -228,7 +326,8 @@ const DistributionHistoryPage = () => {
       try {
         const response = await fetchDistributionHistory({
           ...filters,
-          limit: 100,
+          sort_order: sortOrder,
+          limit: 500,
         });
 
         if (!isMounted) {
@@ -253,7 +352,7 @@ const DistributionHistoryPage = () => {
     return () => {
       isMounted = false;
     };
-  }, [filters]);
+  }, [filters, sortOrder]);
 
   const selectedDisasterEvent = useMemo(
     () =>
@@ -278,6 +377,30 @@ const DistributionHistoryPage = () => {
     return barangays.filter((barangay) => affectedBarangayIdSet.has(barangay.id));
   }, [barangays, selectedDisasterEvent]);
 
+  const selectedExportDisasterEvent = useMemo(
+    () =>
+      disasterEvents.find(
+        (eventRow) => eventRow.id === exportFilters.disaster_event_id,
+      ) || null,
+    [disasterEvents, exportFilters.disaster_event_id],
+  );
+
+  const exportBarangayOptions = useMemo(() => {
+    if (!selectedExportDisasterEvent) {
+      return barangays;
+    }
+
+    const affectedBarangayIds = getAffectedBarangayIds(selectedExportDisasterEvent);
+
+    if (affectedBarangayIds.length === 0) {
+      return [];
+    }
+
+    const affectedBarangayIdSet = new Set(affectedBarangayIds);
+
+    return barangays.filter((barangay) => affectedBarangayIdSet.has(barangay.id));
+  }, [barangays, selectedExportDisasterEvent]);
+
   useEffect(() => {
     if (isBarangay || !filters.barangay_id || !selectedDisasterEvent) {
       return;
@@ -294,6 +417,28 @@ const DistributionHistoryPage = () => {
       }));
     }
   }, [barangayOptions, filters.barangay_id, isBarangay, selectedDisasterEvent]);
+
+  useEffect(() => {
+    if (isBarangay || !exportFilters.barangay_id || !selectedExportDisasterEvent) {
+      return;
+    }
+
+    const isSelectedBarangayAffected = exportBarangayOptions.some(
+      (barangay) => barangay.id === exportFilters.barangay_id,
+    );
+
+    if (!isSelectedBarangayAffected) {
+      setExportFilters((currentValue) => ({
+        ...currentValue,
+        barangay_id: "",
+      }));
+    }
+  }, [
+    exportBarangayOptions,
+    exportFilters.barangay_id,
+    isBarangay,
+    selectedExportDisasterEvent,
+  ]);
 
   const visibleHistoryRows = useMemo(() => {
     const normalizedSearchTerm = searchTerm.trim().toLowerCase();
@@ -324,6 +469,19 @@ const DistributionHistoryPage = () => {
 
     return sortDistributionHistoryRows(filteredRows, sortOrder);
   }, [historyRows, searchTerm, sortOrder]);
+
+  const isSummaryMode = !filters.disaster_event_id;
+
+  const visibleSummaryRows = useMemo(
+    () =>
+      sortDistributionSummaryRows(
+        buildDistributionSummaryRows(visibleHistoryRows),
+        sortOrder,
+      ),
+    [visibleHistoryRows, sortOrder],
+  );
+
+  const displayedRows = isSummaryMode ? visibleSummaryRows : visibleHistoryRows;
 
   const handleViewDetails = async (row) => {
     setIsStubDetailModalOpen(true);
@@ -358,12 +516,7 @@ const DistributionHistoryPage = () => {
 
       <section style={shellStyles.card}>
         <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: "16px",
-            alignItems: "end",
-          }}
+          style={pageSpacingStyles.filterGrid}
         >
           <div>
             <label htmlFor="distribution-history-event" style={labelStyles}>
@@ -420,7 +573,7 @@ const DistributionHistoryPage = () => {
 
           <div>
             <label htmlFor="distribution-history-date-from" style={labelStyles}>
-              Date From
+              Date From (Optional)
             </label>
             <input
               id="distribution-history-date-from"
@@ -438,7 +591,7 @@ const DistributionHistoryPage = () => {
 
           <div>
             <label htmlFor="distribution-history-date-to" style={labelStyles}>
-              Date To
+              Date To (Optional)
             </label>
             <input
               id="distribution-history-date-to"
@@ -476,11 +629,7 @@ const DistributionHistoryPage = () => {
 
       <section
         style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "12px",
-          flexWrap: "wrap",
-          margin: "18px 0",
+          ...pageSpacingStyles.toolbar,
         }}
       >
         <div
@@ -512,37 +661,46 @@ const DistributionHistoryPage = () => {
           />
         </div>
 
-        {isMswdo ? (
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedExportFormat("csv");
-              setExportFeedback({ type: "", message: "" });
-              setIsExportModalOpen(true);
-            }}
-            disabled={Boolean(exportingFormat)}
-            style={{
-              border: "1px solid #c6d8ea",
-              borderRadius: "14px",
-              minHeight: "46px",
-              padding: "12px 18px",
-              backgroundColor: "#f8fbfe",
-              color: "#2a4c6f",
-              fontSize: "14px",
-              fontWeight: 700,
-              cursor: exportingFormat ? "not-allowed" : "pointer",
-              opacity: exportingFormat ? 0.7 : 1,
-            }}
-          >
-            {exportingFormat
-              ? `Exporting ${exportingFormat.toUpperCase()}...`
-              : "Export"}
-          </button>
-        ) : null}
+        <button
+          type="button"
+          onClick={() => {
+            setSelectedExportFormat("csv");
+            setExportFilters({
+              disaster_event_id: filters.disaster_event_id,
+              barangay_id: isBarangay ? "" : filters.barangay_id,
+              date_from: filters.date_from,
+              date_to: filters.date_to,
+              sort_order: sortOrder,
+            });
+            setExportFeedback({ type: "", message: "" });
+            setIsExportModalOpen(true);
+          }}
+          disabled={Boolean(exportingFormat)}
+          style={{
+            border: "1px solid #c6d8ea",
+            borderRadius: "14px",
+            minHeight: "46px",
+            padding: "12px 18px",
+            backgroundColor: "#f8fbfe",
+            color: "#2a4c6f",
+            fontSize: "14px",
+            fontWeight: 700,
+            cursor: exportingFormat ? "not-allowed" : "pointer",
+            opacity: exportingFormat ? 0.7 : 1,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+          }}
+        >
+          <FiFileText size={16} />
+          {exportingFormat
+            ? `Exporting ${exportingFormat.toUpperCase()}...`
+            : "Export"}
+        </button>
       </section>
 
       <section style={shellStyles.card}>
-        <div style={{ marginBottom: "16px" }}>
+        <div style={pageSpacingStyles.tableHeader}>
           <h3 style={{ margin: 0, color: "#17324d" }}>Distribution Records</h3>
         </div>
 
@@ -550,8 +708,58 @@ const DistributionHistoryPage = () => {
 
         {isLoadingHistory ? (
           <LoadingState message="Loading distribution history..." />
-        ) : visibleHistoryRows.length === 0 ? (
+        ) : displayedRows.length === 0 ? (
           <EmptyState message="No matching records found. Try adjusting your search or filters." />
+        ) : isSummaryMode ? (
+          <div style={{ overflowX: "auto" }}>
+            <table style={tableStyles.table}>
+              <thead>
+                <tr>
+                  <th style={tableStyles.th}>Disaster Event</th>
+                  <th style={tableStyles.th}>Barangays</th>
+                  <th style={{ ...tableStyles.th, textAlign: "center" }}>
+                    Claimed Families
+                  </th>
+                  <th style={{ ...tableStyles.th, textAlign: "center" }}>
+                    Claimed Stubs
+                  </th>
+                  <th style={tableStyles.th}>Relief Pack</th>
+                  <th style={{ ...tableStyles.th, textAlign: "center" }}>
+                    Quantity Released
+                  </th>
+                  <th style={tableStyles.th}>Latest Claim</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleSummaryRows.map((row) => (
+                  <tr key={row.id}>
+                    <td style={tableStyles.td}>
+                      {row.disaster_event_title || "--"}
+                    </td>
+                    <td style={tableStyles.td}>
+                      <div>{row.barangay_summary}</div>
+                      <div style={{ color: "#60738a", fontSize: "12px" }}>
+                        Count: {row.barangay_count}
+                      </div>
+                    </td>
+                    <td style={{ ...tableStyles.td, textAlign: "center" }}>
+                      {row.claimed_family_count}
+                    </td>
+                    <td style={{ ...tableStyles.td, textAlign: "center" }}>
+                      {row.claimed_count}
+                    </td>
+                    <td style={tableStyles.td}>{row.relief_pack_summary}</td>
+                    <td style={{ ...tableStyles.td, textAlign: "center" }}>
+                      {row.total_quantity_released || 0}
+                    </td>
+                    <td style={tableStyles.td}>
+                      {formatDateTime(row.latest_distribution_date)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={tableStyles.table}>
@@ -650,16 +858,12 @@ const DistributionHistoryPage = () => {
       <ExportModal
         isOpen={isExportModalOpen}
         title="Distribution History Report"
-        description="Choose the distribution history format to generate."
-        reportOptions={[
-          {
-            value: "DISTRIBUTION_HISTORY",
-            label: "Distribution History",
-          },
-        ]}
+        description=""
         formatOptions={COMMON_EXPORT_FORMAT_OPTIONS}
         selectedReportType="DISTRIBUTION_HISTORY"
         selectedFormat={selectedExportFormat}
+        hideReportType
+        placeFormatLast
         isSubmitting={Boolean(exportingFormat)}
         onReportTypeChange={() => {}}
         onFormatChange={setSelectedExportFormat}
@@ -669,21 +873,17 @@ const DistributionHistoryPage = () => {
           }
         }}
         onSubmit={async () => {
-          if (!historyRows.length) {
-            setIsExportModalOpen(false);
-            setExportFeedback({
-              type: "error",
-              message: NO_EXPORT_DATA_MESSAGE,
-            });
-            return;
-          }
-
           setExportingFormat(selectedExportFormat);
           setIsExportModalOpen(false);
 
           try {
             const file = await exportDistributionHistory({
-              ...filters,
+              disaster_event_id: exportFilters.disaster_event_id,
+              barangay_id: isBarangay ? "" : exportFilters.barangay_id,
+              status: "CLAIMED",
+              date_from: exportFilters.date_from,
+              date_to: exportFilters.date_to,
+              sort_order: exportFilters.sort_order,
               format: selectedExportFormat,
             });
 
@@ -704,7 +904,130 @@ const DistributionHistoryPage = () => {
             setExportingFormat("");
           }
         }}
-      />
+      >
+        <div>
+          <label htmlFor="distribution-history-export-event" style={exportLabelStyles}>
+            Disaster Event
+          </label>
+          <select
+            id="distribution-history-export-event"
+            value={exportFilters.disaster_event_id}
+            onChange={(event) =>
+              setExportFilters((currentValue) => ({
+                ...currentValue,
+                disaster_event_id: event.target.value,
+                barangay_id: "",
+              }))
+            }
+            style={inputStyles}
+            disabled={Boolean(exportingFormat)}
+          >
+            <option value="">All disaster events</option>
+            {disasterEvents.map((eventRow) => (
+              <option key={eventRow.id} value={eventRow.id}>
+                {eventRow.title}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {!isBarangay ? (
+          <div>
+            <label htmlFor="distribution-history-export-barangay" style={exportLabelStyles}>
+              Barangay
+            </label>
+            <select
+              id="distribution-history-export-barangay"
+              value={exportFilters.barangay_id}
+              onChange={(event) =>
+                setExportFilters((currentValue) => ({
+                  ...currentValue,
+                  barangay_id: event.target.value,
+                }))
+              }
+              style={inputStyles}
+              disabled={Boolean(exportingFormat)}
+            >
+              <option value="">All barangays</option>
+              {exportBarangayOptions.map((barangay) => (
+                <option key={barangay.id} value={barangay.id}>
+                  {barangay.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+            gap: "14px",
+          }}
+        >
+          <div>
+            <label htmlFor="distribution-history-export-date-from" style={exportLabelStyles}>
+              Date From (Optional)
+            </label>
+            <input
+              id="distribution-history-export-date-from"
+              type="date"
+              value={exportFilters.date_from}
+              onChange={(event) =>
+                setExportFilters((currentValue) => ({
+                  ...currentValue,
+                  date_from: event.target.value,
+                }))
+              }
+              style={inputStyles}
+              disabled={Boolean(exportingFormat)}
+            />
+          </div>
+
+          <div>
+            <label htmlFor="distribution-history-export-date-to" style={exportLabelStyles}>
+              Date To (Optional)
+            </label>
+            <input
+              id="distribution-history-export-date-to"
+              type="date"
+              value={exportFilters.date_to}
+              onChange={(event) =>
+                setExportFilters((currentValue) => ({
+                  ...currentValue,
+                  date_to: event.target.value,
+                }))
+              }
+              style={inputStyles}
+              disabled={Boolean(exportingFormat)}
+            />
+          </div>
+        </div>
+
+        <div>
+          <label htmlFor="distribution-history-export-order-list" style={exportLabelStyles}>
+            Order List
+          </label>
+          <select
+            id="distribution-history-export-order-list"
+            value={exportFilters.sort_order}
+            onChange={(event) =>
+              setExportFilters((currentValue) => ({
+                ...currentValue,
+                sort_order: event.target.value,
+              }))
+            }
+            style={inputStyles}
+            disabled={Boolean(exportingFormat)}
+          >
+            {ORDER_LIST_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </ExportModal>
 
       <FeedbackToast
         type={exportFeedback.type}

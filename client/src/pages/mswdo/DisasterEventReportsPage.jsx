@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { FiFileText, FiX } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
-import { shellStyles } from "../../components/layout/BarangayLayout";
+import {
+  pageSpacingStyles,
+  shellStyles,
+} from "../../components/layout/BarangayLayout";
 import EmptyState from "../../components/shared/EmptyState";
 import ErrorState from "../../components/shared/ErrorState";
 import FeedbackToast from "../../components/shared/FeedbackToast";
@@ -43,6 +46,14 @@ const labelStyles = {
   textTransform: "uppercase",
 };
 
+const exportLabelStyles = {
+  display: "block",
+  marginBottom: "8px",
+  color: "#4f677f",
+  fontSize: "13px",
+  fontWeight: 700,
+};
+
 const overlayStyles = {
   position: "fixed",
   inset: 0,
@@ -71,13 +82,7 @@ const sectionTitleStyles = {
   color: "#17324d",
 };
 
-const toolbarStyles = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: "16px",
-  flexWrap: "wrap",
-};
+const toolbarStyles = pageSpacingStyles.toolbar;
 
 const exportButtonStyles = (isDisabled) => ({
   ...pageHeaderStyles.secondaryButton,
@@ -86,9 +91,7 @@ const exportButtonStyles = (isDisabled) => ({
 });
 
 const exportFilterGridStyles = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-  gap: "16px",
+  ...pageSpacingStyles.filterGrid,
 };
 
 const tableStyles = {
@@ -467,12 +470,7 @@ const DisasterEventReportsPage = () => {
 
       <section style={shellStyles.card}>
         <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: "16px",
-            alignItems: "end",
-          }}
+          style={pageSpacingStyles.filterGrid}
         >
           <div>
             <label htmlFor="disaster-report-event" style={labelStyles}>
@@ -569,7 +567,7 @@ const DisasterEventReportsPage = () => {
       </div>
 
       <section style={shellStyles.card}>
-        <div style={{ marginBottom: "16px" }}>
+        <div style={pageSpacingStyles.tableHeader}>
           <h3 style={{ margin: 0, color: "#17324d" }}>Disaster Events Record</h3>
         </div>
 
@@ -738,7 +736,7 @@ const DisasterEventReportsPage = () => {
 
                 <div style={exportFilterGridStyles}>
                   <div>
-                    <label htmlFor="summary-export-event" style={labelStyles}>
+                    <label htmlFor="summary-export-event" style={exportLabelStyles}>
                       Disaster Event
                     </label>
                     <select
@@ -762,7 +760,7 @@ const DisasterEventReportsPage = () => {
                   <div>
                     <label
                       htmlFor="summary-export-sort-order"
-                      style={labelStyles}
+                      style={exportLabelStyles}
                     >
                       Order List
                     </label>
@@ -784,7 +782,7 @@ const DisasterEventReportsPage = () => {
                   </div>
 
                   <div>
-                    <label htmlFor="summary-export-format" style={labelStyles}>
+                    <label htmlFor="summary-export-format" style={exportLabelStyles}>
                       Format
                     </label>
                     <select

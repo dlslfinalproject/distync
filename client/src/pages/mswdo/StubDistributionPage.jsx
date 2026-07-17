@@ -4,7 +4,10 @@ import { FaHandHolding } from "react-icons/fa6";
 import { FiPrinter } from "react-icons/fi";
 import { MdQrCodeScanner } from "react-icons/md";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
-import { shellStyles } from "../../components/layout/BarangayLayout";
+import {
+  pageSpacingStyles,
+  shellStyles,
+} from "../../components/layout/BarangayLayout";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import StatusPill from "../../components/shared/StatusPill";
 import StubClaimConfirmModal from "../../components/stubs/StubClaimConfirmModal";
@@ -672,12 +675,7 @@ const StubDistributionPage = () => {
         </div>
 
         <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: "16px",
-            alignItems: "end",
-          }}
+          style={pageSpacingStyles.filterGrid}
         >
           <div>
             <label htmlFor="mswdo-stub-event" style={filterStyles.label}>
