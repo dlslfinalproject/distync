@@ -22,6 +22,7 @@ import InventoryTransactionsPage from "../pages/inventory/InventoryTransactionsP
 import ReliefPackTemplatesPage from "../pages/inventory/ReliefPackTemplatesPage";
 import SuppliersPage from "../pages/inventory/SuppliersPage";
 import DonationInformationPage from "../pages/donor/DonationInformationPage";
+import DonationManagementPage from "../pages/DonationManagementPage";
 import DistributionHistoryPage from "../pages/DistributionHistoryPage";
 import SystemLogReviewPage from "../pages/SystemLogReviewPage";
 import AnalyticsDashboardPage from "../pages/mswdo/AnalyticsDashboardPage";
@@ -178,6 +179,7 @@ const AppRoutes = () => {
             path="forecasts"
             element={<InventoryForecastsPage />}
           />
+          <Route path="donations" element={<DonationManagementPage />} />
           <Route
             path="distribution-history"
             element={<DistributionHistoryPage />}

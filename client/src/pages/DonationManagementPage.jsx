@@ -17,6 +17,10 @@ import FeedbackToast from "../components/shared/FeedbackToast";
 import { fetchAllDisasterEvents } from "../features/disaster-events/disasterEventService";
 import { fetchInventoryItems } from "../features/inventory-items/inventoryItemService";
 import {
+  fetchReliefPackTemplateById,
+  fetchReliefPackTemplates,
+} from "../features/relief-pack-templates/reliefPackTemplateService";
+import {
   createDonation,
   fetchDonationDetail,
   createDonationItem,
@@ -72,6 +76,7 @@ const DonationManagementPage = () => {
   );
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [inventoryItems, setInventoryItems] = useState([]);
+  const [reliefPackTemplates, setReliefPackTemplates] = useState([]);
   const [donationNeeds, setDonationNeeds] = useState([]);
   const [donations, setDonations] = useState([]);
   const [portalData, setPortalData] = useState(defaultPortalData);
@@ -99,11 +104,21 @@ const DonationManagementPage = () => {
     setPageErrorMessage("");
 
     try {
-      const [eventRows, inventoryItemRows, donationNeedRows, donationRows, donationPortal] =
+      const [
+        eventRows,
+        inventoryItemRows,
+        reliefPackTemplateRows,
+        donationNeedRows,
+        donationRows,
+        donationPortal,
+      ] =
         await Promise.all([
           fetchAllDisasterEvents(),
           canManageDonations
             ? fetchInventoryItems({ is_active: true })
+            : Promise.resolve([]),
+          canManageDonations
+            ? fetchReliefPackTemplates({ is_active: "true" })
             : Promise.resolve([]),
           fetchDonationNeeds({
             disaster_event_id: eventId || undefined,
@@ -122,6 +137,14 @@ const DonationManagementPage = () => {
 
       setDisasterEvents(Array.isArray(eventRows) ? eventRows : []);
       setInventoryItems(Array.isArray(inventoryItemRows) ? inventoryItemRows : []);
+      const activeReliefPackTemplates = Array.isArray(reliefPackTemplateRows)
+        ? await Promise.all(
+            reliefPackTemplateRows.map((template) =>
+              fetchReliefPackTemplateById(template.id).catch(() => template),
+            ),
+          )
+        : [];
+      setReliefPackTemplates(activeReliefPackTemplates);
       setDonationNeeds(Array.isArray(donationNeedRows) ? donationNeedRows : []);
       setDonations(Array.isArray(donationRows) ? donationRows : []);
       setPortalData(donationPortal || defaultPortalData);
@@ -215,6 +238,8 @@ const DonationManagementPage = () => {
     submitDonationNeed,
     submitDonation,
     addDraftDonationItem,
+    addPackItemToDraft,
+    removePackItemFromDraft,
     startEditDonationItem,
     cancelEditDonationItem,
     saveExistingDonationItem,
@@ -228,6 +253,7 @@ const DonationManagementPage = () => {
   } = useDonationManagementModals({
     selectedEventId,
     inventoryItems,
+    reliefPackTemplates,
     loadPageData,
     setSuccessMessage,
     setPageErrorMessage,
@@ -372,6 +398,7 @@ const DonationManagementPage = () => {
           formValues={donationForm}
           itemDraft={donationItemDraft}
           inventoryItems={inventoryItems}
+          reliefPackTemplates={reliefPackTemplates}
           disasterEvents={disasterEvents}
           isSubmitting={isDonationSubmitting}
           errorMessage={donationErrorMessage}
@@ -394,6 +421,8 @@ const DonationManagementPage = () => {
           onEditExistingItem={saveExistingDonationItem}
           onDeleteExistingItem={removeExistingDonationItem}
           onRemoveDraftItem={removeDraftDonationItem}
+          onAddPackItemDraft={addPackItemToDraft}
+          onRemovePackItemDraft={removePackItemFromDraft}
           onStartEditItem={startEditDonationItem}
           onCancelEditItem={cancelEditDonationItem}
           onSubmit={submitDonation}

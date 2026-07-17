@@ -298,6 +298,7 @@ const validateInventoryItemPayload = (req, res, next) => {
       barcode,
       is_perishable,
       is_active,
+      skip_opening_stock,
     } = req.body;
 
     if (
@@ -404,6 +405,15 @@ const validateInventoryItemPayload = (req, res, next) => {
       });
     }
 
+    if (
+      skip_opening_stock !== undefined &&
+      typeof skip_opening_stock !== "boolean"
+    ) {
+      return res.status(400).json({
+        message: "skip_opening_stock must be a boolean when provided",
+      });
+    }
+
     const normalizedCategory = normalizeCategory(category);
 
     req.validatedBody = {
@@ -430,6 +440,7 @@ const validateInventoryItemPayload = (req, res, next) => {
             ? false
             : false),
       is_active: is_active ?? true,
+      skip_opening_stock: skip_opening_stock ?? false,
     };
 
     return next();

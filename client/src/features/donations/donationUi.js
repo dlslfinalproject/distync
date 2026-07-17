@@ -120,7 +120,20 @@ export const createNeedForm = () => ({
 });
 
 export const createDonationItemForm = () => ({
+  entry_type: "ITEM",
+  item_definition_mode: "EXISTING",
   inventory_item_id: "",
+  new_item_name: "",
+  new_item_category: "perishable",
+  new_item_unit_of_measure: "pc",
+  new_item_packaging: "pack",
+  pack_definition_mode: "EXISTING",
+  relief_pack_template_id: "",
+  new_pack_name: "",
+  pack_item_inventory_item_id: "",
+  pack_item_quantity_required: 1,
+  relief_pack_items: [],
+  relief_pack_quantity: 1,
   quantity_received: 1,
   remarks: "",
   expiration_date: "",
