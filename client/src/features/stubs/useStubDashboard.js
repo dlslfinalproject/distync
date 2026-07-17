@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchBarangayStubDashboard } from "./stubService";
+import { getPendingLocalStubRows } from "./stubOfflineRows";
 
 const emptyMetrics = {
   total_issued_stubs: 0,
@@ -43,8 +44,11 @@ export const useStubDashboard = ({
   disasterEventId,
   overrideBarangayId,
   allowFallback,
+  assignedBarangayId,
+  sectorOptions = [],
 }) => {
   const [dashboard, setDashboard] = useState(emptyDashboard);
+  const [pendingLocalRows, setPendingLocalRows] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
@@ -73,6 +77,21 @@ export const useStubDashboard = ({
         });
 
         if (isMounted) {
+          const serverRows = Array.isArray(response.data) ? response.data : [];
+          const scopedBarangayId =
+            response.assigned_barangay_id ||
+            overrideBarangayId ||
+            assignedBarangayId ||
+            null;
+          const localRows = await getPendingLocalStubRows({
+            disasterEventId,
+            barangayId: scopedBarangayId,
+            sectorOptions,
+            existingHouseholdIds: serverRows.map(
+              (row) => row.household?.id || row.household_id,
+            ),
+          });
+
           setDashboard({
             assigned_barangay: response.assigned_barangay || null,
             assigned_barangay_id: response.assigned_barangay_id || null,
@@ -80,13 +99,23 @@ export const useStubDashboard = ({
             disaster_event: response.disaster_event || null,
             metrics: response.metrics || emptyMetrics,
             count: response.count || 0,
-            data: Array.isArray(response.data) ? response.data : [],
+            data: serverRows,
           });
+          setPendingLocalRows(localRows);
         }
       } catch (error) {
         if (isMounted) {
+          const localRows = await getPendingLocalStubRows({
+            disasterEventId,
+            barangayId: overrideBarangayId || assignedBarangayId || null,
+            sectorOptions,
+          });
+
           setDashboard(emptyDashboard);
-          setErrorMessage(getFriendlyStubDashboardErrorMessage(error));
+          setPendingLocalRows(localRows);
+          setErrorMessage(
+            localRows.length > 0 ? "" : getFriendlyStubDashboardErrorMessage(error),
+          );
         }
       } finally {
         if (isMounted) {
@@ -100,7 +129,34 @@ export const useStubDashboard = ({
     return () => {
       isMounted = false;
     };
-  }, [allowFallback, disasterEventId, overrideBarangayId, reloadKey, userId]);
+  }, [
+    allowFallback,
+    assignedBarangayId,
+    disasterEventId,
+    overrideBarangayId,
+    reloadKey,
+    sectorOptions,
+    userId,
+  ]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const handleSyncQueueUpdated = () => {
+      setReloadKey((currentValue) => currentValue + 1);
+    };
+
+    window.addEventListener("distync-sync-queue-updated", handleSyncQueueUpdated);
+
+    return () => {
+      window.removeEventListener(
+        "distync-sync-queue-updated",
+        handleSyncQueueUpdated,
+      );
+    };
+  }, []);
 
   const summaryCards = useMemo(() => {
     return [
@@ -124,7 +180,7 @@ export const useStubDashboard = ({
   }, [dashboard.metrics]);
 
   return {
-    rows: dashboard.data,
+    rows: [...pendingLocalRows, ...dashboard.data],
     summaryCards,
     isLoading,
     errorMessage,

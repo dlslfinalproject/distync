@@ -74,6 +74,15 @@ const modalStyles = {
     fontWeight: 800,
     lineHeight: 1.4,
   },
+  centeredValue: {
+    margin: "6px 0 0",
+    color: "#17324d",
+    fontSize: "15px",
+    fontWeight: 800,
+    lineHeight: 1.4,
+    textAlign: "center",
+    width: "100%",
+  },
   qrCard: {
     width: "100%",
     padding: "14px",
@@ -317,7 +326,7 @@ const StubClaimConfirmModal = ({
                 valueStyle={modalStyles.qrValue}
               />
               <p style={modalStyles.label}>Relief Pack</p>
-              <p style={modalStyles.value}>{reliefPackDisplay}</p>
+              <p style={modalStyles.centeredValue}>{reliefPackDisplay}</p>
             </div>
 
             <div style={modalStyles.familyHeadCard}>

@@ -6,6 +6,7 @@ import {
   fetchMswdoSectors,
 } from "../mswdo-masterlist/mswdoMasterlistService";
 import { fetchBarangayStubDashboard } from "./stubService";
+import { getPendingLocalStubRows } from "./stubOfflineRows";
 import { getCanonicalSectorCodeFromText } from "../../utils/sectorDisplay";
 
 const emptyMetrics = {
@@ -122,6 +123,7 @@ export const useMswdoStubDistribution = () => {
   const [selectedStubStatus, setSelectedStubStatus] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [dashboard, setDashboard] = useState(emptyDashboard);
+  const [pendingLocalRows, setPendingLocalRows] = useState([]);
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -210,14 +212,36 @@ export const useMswdoStubDistribution = () => {
           return;
         }
 
+        const serverRows = Array.isArray(dashboardPayload.data)
+          ? dashboardPayload.data
+          : [];
+        const localRows = await getPendingLocalStubRows({
+          disasterEventId: selectedDisasterEventId,
+          barangayId: selectedBarangayId,
+          sectorOptions: sectors,
+          existingHouseholdIds: serverRows.map(
+            (row) => row.household?.id || row.household_id,
+          ),
+        });
+
         setDashboard({
           metrics: dashboardPayload.metrics || emptyMetrics,
-          data: Array.isArray(dashboardPayload.data) ? dashboardPayload.data : [],
+          data: serverRows,
         });
+        setPendingLocalRows(localRows);
       } catch (error) {
         if (isMounted) {
+          const localRows = await getPendingLocalStubRows({
+            disasterEventId: selectedDisasterEventId,
+            barangayId: selectedBarangayId,
+            sectorOptions: sectors,
+          });
+
           setDashboard(emptyDashboard);
-          setErrorMessage(getFriendlyErrorMessage(error));
+          setPendingLocalRows(localRows);
+          setErrorMessage(
+            localRows.length > 0 ? "" : getFriendlyErrorMessage(error),
+          );
         }
       } finally {
         if (isMounted) {
@@ -231,11 +255,30 @@ export const useMswdoStubDistribution = () => {
     return () => {
       isMounted = false;
     };
-  }, [reloadKey, selectedBarangayId, selectedDisasterEventId]);
+  }, [reloadKey, sectors, selectedBarangayId, selectedDisasterEventId]);
 
   const rows = useMemo(() => {
-    return getMappedRows(dashboard.data || []);
-  }, [dashboard.data]);
+    return [...pendingLocalRows, ...getMappedRows(dashboard.data || [])];
+  }, [dashboard.data, pendingLocalRows]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const handleSyncQueueUpdated = () => {
+      setReloadKey((currentValue) => currentValue + 1);
+    };
+
+    window.addEventListener("distync-sync-queue-updated", handleSyncQueueUpdated);
+
+    return () => {
+      window.removeEventListener(
+        "distync-sync-queue-updated",
+        handleSyncQueueUpdated,
+      );
+    };
+  }, []);
 
   const displayedRows = useMemo(() => {
     return getDisplayedRows(

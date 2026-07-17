@@ -237,7 +237,9 @@ const StubDistributionPage = () => {
 
       return {
         ...row,
-        sync_status: buildSyncDescriptor(matchingEntry).status,
+        sync_status: row.is_local_only
+          ? row.sync_status
+          : buildSyncDescriptor(matchingEntry).status,
       };
     });
   }, [displayedRows, selectedSortOrder, syncQueueEntries]);

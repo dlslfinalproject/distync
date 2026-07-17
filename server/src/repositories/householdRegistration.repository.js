@@ -228,7 +228,9 @@ const insertHousehold = async (householdData, dbClient) => {
       updated_at
     )
     VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW(), NOW()
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+      $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+      COALESCE($21::timestamptz, NOW()), NOW()
     )
     RETURNING
       id,
@@ -278,10 +280,81 @@ const insertHousehold = async (householdData, dbClient) => {
     householdData.photo_captured_at || null,
     householdData.photo_captured_by || null,
     householdData.photo_verification_notes || null,
+    householdData.registered_at || null,
   ];
 
   const result = await dbClient.query(query, values);
   return result.rows[0];
+};
+
+const findDuplicateHouseholdRegistration = async (
+  { disasterEventId, barangayId, familyHead },
+  dbClient = pool,
+) => {
+  const query = `
+    SELECT
+      id,
+      disaster_event_id,
+      barangay_id,
+      family_head_first_name,
+      family_head_middle_name,
+      family_head_last_name,
+      family_head_suffix,
+      registered_at,
+      updated_at
+    FROM households
+    WHERE disaster_event_id = $1
+      AND barangay_id = $2
+      AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(family_head_first_name, '')), '\\s+', ' ', 'g')) =
+          LOWER(REGEXP_REPLACE(BTRIM(COALESCE($3, '')), '\\s+', ' ', 'g'))
+      AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(family_head_middle_name, '')), '\\s+', ' ', 'g')) =
+          LOWER(REGEXP_REPLACE(BTRIM(COALESCE($4, '')), '\\s+', ' ', 'g'))
+      AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(family_head_last_name, '')), '\\s+', ' ', 'g')) =
+          LOWER(REGEXP_REPLACE(BTRIM(COALESCE($5, '')), '\\s+', ' ', 'g'))
+      AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(family_head_suffix, '')), '\\s+', ' ', 'g')) =
+          LOWER(REGEXP_REPLACE(BTRIM(COALESCE($6, '')), '\\s+', ' ', 'g'))
+    ORDER BY registered_at ASC, id ASC
+    LIMIT 1
+  `;
+
+  const result = await dbClient.query(query, [
+    disasterEventId,
+    barangayId,
+    familyHead.first_name || null,
+    familyHead.middle_name || null,
+    familyHead.last_name || null,
+    familyHead.suffix || null,
+  ]);
+  return result.rows[0] || null;
+};
+
+const updateHouseholdRegistrationTimestamp = async (
+  householdId,
+  registeredAt,
+  dbClient = pool,
+) => {
+  const query = `
+    WITH updated_household AS (
+      UPDATE households
+      SET registered_at = LEAST(registered_at, $2::timestamptz),
+          updated_at = NOW()
+      WHERE id = $1
+      RETURNING *
+    ),
+    updated_logs AS (
+      UPDATE evacuation_logs
+      SET time_in = LEAST(time_in, $2::timestamptz),
+          updated_at = NOW()
+      WHERE household_id = $1
+        AND time_in IS NOT NULL
+      RETURNING id
+    )
+    SELECT *
+    FROM updated_household
+  `;
+
+  const result = await dbClient.query(query, [householdId, registeredAt]);
+  return result.rows[0] || null;
 };
 
 const updateHousehold = async (householdId, householdData, dbClient) => {
@@ -667,7 +740,10 @@ const insertEvacuationLog = async (logData, dbClient) => {
       created_at,
       updated_at
     )
-    VALUES ($1, $2, $3, $4, NOW(), NULL, $5, $6, $7, NOW(), NOW())
+    VALUES (
+      $1, $2, $3, $4, COALESCE($8::timestamptz, NOW()), NULL,
+      $5, $6, $7, NOW(), NOW()
+    )
     RETURNING
       id,
       disaster_event_id,
@@ -691,6 +767,7 @@ const insertEvacuationLog = async (logData, dbClient) => {
     logData.status,
     logData.recorded_by,
     logData.remarks,
+    logData.time_in || null,
   ];
 
   const result = await dbClient.query(query, values);
@@ -731,7 +808,7 @@ const markHouseholdDeparture = async (
   const query = `
     UPDATE evacuation_logs
     SET
-      time_out = NOW(),
+      time_out = GREATEST(COALESCE($3::timestamptz, NOW()), time_in),
       status = 'LEFT',
       remarks = COALESCE($2, remarks),
       updated_at = NOW()
@@ -756,8 +833,40 @@ const markHouseholdDeparture = async (
   const result = await dbClient.query(query, [
     householdId,
     departureDetails.remarks ?? null,
+    departureDetails.departure_time || null,
   ]);
 
+  return result.rows;
+};
+
+const updateHouseholdDepartureTimestamp = async (
+  householdId,
+  departureTimestamp,
+  dbClient = pool,
+) => {
+  const query = `
+    UPDATE evacuation_logs
+    SET time_out = LEAST(time_out, GREATEST($2::timestamptz, time_in)),
+        updated_at = NOW()
+    WHERE household_id = $1
+      AND time_out IS NOT NULL
+      AND $2::timestamptz < time_out
+    RETURNING
+      id,
+      disaster_event_id,
+      household_id,
+      evacuee_id,
+      evacuation_center_id,
+      time_in,
+      time_out,
+      status,
+      recorded_by,
+      remarks,
+      created_at,
+      updated_at
+  `;
+
+  const result = await dbClient.query(query, [householdId, departureTimestamp]);
   return result.rows;
 };
 
@@ -1323,6 +1432,8 @@ module.exports = {
   getAgeGroupSectors,
   generateStubNumbers,
   insertHousehold,
+  findDuplicateHouseholdRegistration,
+  updateHouseholdRegistrationTimestamp,
   updateHousehold,
   insertEvacuee,
   updateEvacuee,
@@ -1336,6 +1447,7 @@ module.exports = {
   insertEvacuationLog,
   getActiveEvacuationLogsByHouseholdId,
   markHouseholdDeparture,
+  updateHouseholdDepartureTimestamp,
   markDisasterEventHouseholdDepartures,
   getHouseholdSummaryById,
   getEvacueesByHouseholdId,

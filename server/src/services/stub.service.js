@@ -423,7 +423,7 @@ const claimBarangayStub = async (params) => {
       await distributionTransactionRepository.getDistributionReceiptSequence(
         client,
       );
-    const receivedAt = new Date().toISOString();
+    const receivedAt = params.claimed_at || new Date().toISOString();
 
     const distributionTransaction =
       await distributionTransactionRepository.insertDistributionTransaction(
@@ -457,6 +457,7 @@ const claimBarangayStub = async (params) => {
     const updatedStub = await distributionTransactionRepository.updateStubAsClaimed(
       params.id,
       client,
+      params.claimed_at || null,
     );
 
     await client.query("COMMIT");

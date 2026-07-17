@@ -200,6 +200,8 @@ const StubDistributionPage = () => {
     disasterEventId: selectedEvent?.id || "",
     overrideBarangayId,
     allowFallback,
+    assignedBarangayId: assignedBarangay?.id || "",
+    sectorOptions,
   });
 
 
