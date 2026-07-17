@@ -20,6 +20,12 @@ const priorityRank = {
   LOW: 4,
 };
 
+const forecastPriorityRank = {
+  HIGH: 1,
+  MEDIUM: 2,
+  LOW: 3,
+};
+
 const mapDonationNeed = (row) => {
   return {
     id: row.id,
@@ -146,6 +152,96 @@ const mapAuditLogRow = (row) => ({
   actor_name: [row.first_name, row.last_name].filter(Boolean).join(" ").trim() || row.email || "Unknown User",
   old_values_json: row.old_values_json || {},
   new_values_json: row.new_values_json || {},
+});
+
+const parseJsonNotes = (value) => {
+  try {
+    return value ? JSON.parse(value) : {};
+  } catch (_error) {
+    return {};
+  }
+};
+
+const resolveForecastPriority = (riskLevel) => {
+  const normalizedRiskLevel = String(riskLevel || "").toUpperCase();
+
+  if (normalizedRiskLevel === "CRITICAL" || normalizedRiskLevel === "HIGH") {
+    return "HIGH";
+  }
+
+  if (normalizedRiskLevel === "MEDIUM") {
+    return "MEDIUM";
+  }
+
+  return "LOW";
+};
+
+const buildForecastSuggestionNote = (notes) => {
+  if (notes.shortage_within_seven_days) {
+    return "Recommended because stock may run short within the next seven days.";
+  }
+
+  if (Number(notes.projected_remaining_stock || 0) <= 0) {
+    return "Recommended because projected demand may exceed available stock.";
+  }
+
+  return null;
+};
+
+const mapPublicForecastSuggestion = (row) => {
+  const notes = parseJsonNotes(row.confidence_notes);
+  const suggestedQuantity = Math.max(
+    0,
+    Math.ceil(Number(row.recommended_reorder_quantity || 0)),
+  );
+
+  if (suggestedQuantity <= 0) {
+    return null;
+  }
+
+  return {
+    inventory_item_id: row.inventory_item_id,
+    item_name: row.item_name,
+    item_code: row.item_code,
+    category: row.category,
+    unit_of_measure: row.unit_of_measure || "items",
+    suggested_quantity: suggestedQuantity,
+    priority_level: resolveForecastPriority(notes.risk_level),
+    note: buildForecastSuggestionNote(notes),
+    forecasted_at: row.run_at,
+  };
+};
+
+const resolvePublicDonorName = (donorName, index) => {
+  const trimmedDonorName = String(donorName || "").trim();
+
+  if (!trimmedDonorName) {
+    return `Donor #${index + 1}`;
+  }
+
+  if (/anonymous|anon/i.test(trimmedDonorName)) {
+    return "Anonymous Donor";
+  }
+
+  return trimmedDonorName;
+};
+
+const mapPublicDonationSummary = (row, index) => ({
+  public_key: row.public_key || `donation-${index + 1}`,
+  donor_name: resolvePublicDonorName(row.donor_name, index),
+  donor_type: row.donor_type || "OTHER",
+  recipient_barangay: row.recipient_barangay_name || "Not specified",
+  donation_date: row.received_at,
+  status: row.status,
+  item_count: Number(row.item_count || 0),
+  total_quantity_received: Number(row.total_quantity_received || 0),
+  items: Array.isArray(row.items)
+    ? row.items.map((item) => ({
+        item_name: item.item_name || "Donation item",
+        quantity_received: Number(item.quantity_received || 0),
+        unit_of_measure: item.unit_of_measure || "items",
+      }))
+    : [],
 });
 
 const getBatchStatus = (expirationDate, quantityAvailable) => {
@@ -1081,17 +1177,61 @@ const deleteDonationRecord = async (id, performedBy) => {
 };
 
 const getPublicDonationPortal = async (disasterEventId = null) => {
-  const [activeDisasterSummaries, activeNeeds, summaryTotals, perItemSummary] =
-    await Promise.all([
-      donationRepository.getPublicDonationDisasterSummaries(disasterEventId),
-      donationRepository.getPublicDonationNeeds(disasterEventId),
-      donationRepository.getDonationSummaryTotals(disasterEventId),
-      donationRepository.getDonationItemTransparencySummary(disasterEventId),
-    ]);
+  const activeDisasterSummaries =
+    await donationRepository.getPublicDonationDisasterSummaries(disasterEventId);
+  const selectedDisasterEventId =
+    disasterEventId || activeDisasterSummaries[0]?.id || null;
+
+  const [
+    activeNeeds,
+    summaryTotals,
+    perItemSummary,
+    forecastSuggestionRows,
+    recentDonationRows,
+  ] = selectedDisasterEventId
+    ? await Promise.all([
+        donationRepository.getPublicDonationNeeds(selectedDisasterEventId),
+        donationRepository.getDonationSummaryTotals(selectedDisasterEventId),
+        donationRepository.getDonationItemTransparencySummary(
+          selectedDisasterEventId,
+        ),
+        donationRepository.getPublicForecastSuggestions(selectedDisasterEventId),
+        donationRepository.getPublicRecentDonationSummaries(
+          selectedDisasterEventId,
+          6,
+        ),
+      ])
+    : [
+        [],
+        {
+          total_donations_received: 0,
+          total_quantity_received: 0,
+          total_donated_items_distributed: 0,
+          remaining_donated_inventory: 0,
+        },
+        [],
+        [],
+        [],
+      ];
+
+  const forecastSuggestions = forecastSuggestionRows
+    .map(mapPublicForecastSuggestion)
+    .filter(Boolean)
+    .sort((left, right) => {
+      const priorityDifference =
+        (forecastPriorityRank[left.priority_level] || 999) -
+        (forecastPriorityRank[right.priority_level] || 999);
+
+      if (priorityDifference !== 0) {
+        return priorityDifference;
+      }
+
+      return right.suggested_quantity - left.suggested_quantity;
+    });
 
   return {
     disaster_events: activeDisasterSummaries,
-    selected_disaster_event_id: disasterEventId,
+    selected_disaster_event_id: selectedDisasterEventId,
     donation_needs: activeNeeds
       .map(mapDonationNeed)
       .sort((left, right) => {
@@ -1107,6 +1247,8 @@ const getPublicDonationPortal = async (disasterEventId = null) => {
           right.inventory_item.item_name,
         );
       }),
+    forecast_suggestions: forecastSuggestions,
+    recent_donations: recentDonationRows.map(mapPublicDonationSummary),
     transparency_summary: {
       ...summaryTotals,
       received_vs_distributed: perItemSummary.map((row) => ({
