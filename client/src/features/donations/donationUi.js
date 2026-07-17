@@ -121,13 +121,13 @@ export const createNeedForm = () => ({
 
 export const createDonationItemForm = () => ({
   entry_type: "ITEM",
-  item_definition_mode: "EXISTING",
+  item_definition_mode: "NEW",
   inventory_item_id: "",
   new_item_name: "",
   new_item_category: "perishable",
   new_item_unit_of_measure: "pc",
   new_item_packaging: "pack",
-  pack_definition_mode: "EXISTING",
+  pack_definition_mode: "NEW",
   relief_pack_template_id: "",
   new_pack_name: "",
   pack_item_inventory_item_id: "",

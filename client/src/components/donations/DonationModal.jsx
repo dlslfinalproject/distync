@@ -1,9 +1,6 @@
 import React from "react";
 import { pageHeaderStyles } from "../layout/PageHeader";
-import TableActionsMenu from "../shared/TableActionsMenu";
-import { formatDonationDateOnly } from "../../features/donations/donationFormatters";
 import {
-  donationStatuses,
   donorTypes,
   inputStyles,
   labelStyles,
@@ -36,7 +33,24 @@ const categoryOptions = [
 ];
 
 const unitOptions = ["pc", "kg", "g", "L", "mL"];
-const packagingOptions = ["pack", "box", "carton", "case", "sack", "bottle"];
+const getReliefPackItemTotal = (packItem, packQuantity) =>
+  Number(packItem?.quantity_required || 0) * Number(packQuantity || 0);
+
+const summaryCardStyles = {
+  border: "1px solid #dbe6f0",
+  borderRadius: "14px",
+  backgroundColor: "#f8fbff",
+  padding: "14px 16px",
+};
+
+const sectionHeaderRowStyles = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "16px",
+  flexWrap: "wrap",
+  marginBottom: "16px",
+};
 
 const DonationModal = ({
   isOpen,
@@ -67,24 +81,12 @@ const DonationModal = ({
   }
 
   const isEditingDonation = Boolean(formValues.id);
-  const selectedReliefPackTemplate = reliefPackTemplates.find(
-    (template) => template.id === itemDraft.relief_pack_template_id,
-  );
   const isAddingReliefPack = itemDraft.entry_type === "RELIEF_PACK";
-  const isDefiningNewItem =
-    !editingItemId &&
-    !isAddingReliefPack &&
-    itemDraft.item_definition_mode === "NEW";
-  const isDefiningNewPack =
-    !editingItemId &&
-    isAddingReliefPack &&
-    itemDraft.pack_definition_mode === "NEW";
-  const selectedReliefPackItems = isDefiningNewPack
-    ? itemDraft.relief_pack_items
-    : selectedReliefPackTemplate?.items || [];
-  const selectedReliefPackName = isDefiningNewPack
-    ? itemDraft.new_pack_name || "New Relief Pack"
-    : selectedReliefPackTemplate?.name;
+  const isDefiningNewItem = !editingItemId && !isAddingReliefPack;
+  const isDefiningNewPack = !editingItemId && isAddingReliefPack;
+  const selectedReliefPackItems = itemDraft.relief_pack_items;
+  const selectedReliefPackName = itemDraft.new_pack_name || "New Relief Pack";
+  const selectedPackQuantity = Number(itemDraft.relief_pack_quantity || 0);
 
   return (
     <div style={overlayStyles}>
@@ -100,7 +102,7 @@ const DonationModal = ({
         >
           <div>
             <h3 style={{ margin: 0, color: "#17324d", fontSize: "26px" }}>
-              {isEditingDonation ? "Update Donation Record" : "Record Donation"}
+              {isEditingDonation ? "Update Donation" : "Receive Donation"}
             </h3>
           </div>
           <button type="button" onClick={onClose} style={pageHeaderStyles.secondaryButton}>
@@ -185,29 +187,13 @@ const DonationModal = ({
                   ))}
                 </select>
               </div>
-
-              <div>
-                <label htmlFor="donation_status" style={labelStyles}>
-                  Status
-                </label>
-                <select
-                  id="donation_status"
-                  value={formValues.status}
-                  onChange={(event) => onFormChange("status", event.target.value)}
-                  style={inputStyles}
-                >
-                  {donationStatuses.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </select>
-              </div>
             </div>
           </section>
 
           <section style={sectionStyles}>
-            <h3 style={sectionTitleStyles}>Donation Items</h3>
+            <div style={sectionHeaderRowStyles}>
+              <h3 style={{ ...sectionTitleStyles, margin: 0 }}>Donation Items</h3>
+            </div>
 
             <div
               style={{
@@ -227,52 +213,14 @@ const DonationModal = ({
                   style={inputStyles}
                   disabled={Boolean(editingItemId)}
                 >
-                  <option value="ITEM">Item</option>
+                  <option value="ITEM">Loose Item</option>
                   <option value="RELIEF_PACK">Relief Pack</option>
                 </select>
               </div>
 
-              {!editingItemId && !isAddingReliefPack ? (
-                <div>
-                  <label htmlFor="item_definition_mode" style={labelStyles}>
-                    Item Source
-                  </label>
-                  <select
-                    id="item_definition_mode"
-                    value={itemDraft.item_definition_mode}
-                    onChange={(event) =>
-                      onItemDraftChange("item_definition_mode", event.target.value)
-                    }
-                    style={inputStyles}
-                  >
-                    <option value="EXISTING">Use Existing Item</option>
-                    <option value="NEW">Define New Item</option>
-                  </select>
-                </div>
-              ) : null}
-
-              {!editingItemId && isAddingReliefPack ? (
-                <div>
-                  <label htmlFor="pack_definition_mode" style={labelStyles}>
-                    Relief Pack Source
-                  </label>
-                  <select
-                    id="pack_definition_mode"
-                    value={itemDraft.pack_definition_mode}
-                    onChange={(event) =>
-                      onItemDraftChange("pack_definition_mode", event.target.value)
-                    }
-                    style={inputStyles}
-                  >
-                    <option value="EXISTING">Use Existing Pack</option>
-                    <option value="NEW">Define New Pack</option>
-                  </select>
-                </div>
-              ) : null}
-
               <div>
                 <label htmlFor="item_inventory_item_id" style={labelStyles}>
-                  {isAddingReliefPack ? "Relief Pack" : "Inventory Item"}
+                  {isAddingReliefPack ? "Relief Pack Name" : "Inventory Item"}
                 </label>
                 {isDefiningNewItem ? (
                   <input
@@ -288,25 +236,8 @@ const DonationModal = ({
                     value={itemDraft.new_pack_name}
                     onChange={(event) => onItemDraftChange("new_pack_name", event.target.value)}
                     style={inputStyles}
-                    placeholder="Enter pack name"
+                    placeholder="Enter relief pack name"
                   />
-                ) : isAddingReliefPack ? (
-                  <select
-                    id="item_relief_pack_template_id"
-                    value={itemDraft.relief_pack_template_id}
-                    onChange={(event) =>
-                      onItemDraftChange("relief_pack_template_id", event.target.value)
-                    }
-                    style={inputStyles}
-                    disabled={Boolean(editingItemId)}
-                  >
-                    <option value="">Select relief pack</option>
-                    {reliefPackTemplates.map((template) => (
-                      <option key={template.id} value={template.id}>
-                        {template.name}
-                      </option>
-                    ))}
-                  </select>
                 ) : (
                   <select
                     id="item_inventory_item_id"
@@ -367,31 +298,12 @@ const DonationModal = ({
                     </select>
                   </div>
 
-                  <div>
-                    <label htmlFor="new_item_packaging" style={labelStyles}>
-                      Packaging
-                    </label>
-                    <select
-                      id="new_item_packaging"
-                      value={itemDraft.new_item_packaging}
-                      onChange={(event) =>
-                        onItemDraftChange("new_item_packaging", event.target.value)
-                      }
-                      style={inputStyles}
-                    >
-                      {packagingOptions.map((packaging) => (
-                        <option key={packaging} value={packaging}>
-                          {packaging}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
                 </>
               ) : null}
 
               <div>
                 <label htmlFor="item_quantity" style={labelStyles}>
-                  {isAddingReliefPack ? "Relief Pack Quantity" : "Quantity Received"}
+                  {isAddingReliefPack ? "Number of Packs Received" : "Quantity Received"}
                 </label>
                 <input
                   id="item_quantity"
@@ -414,23 +326,29 @@ const DonationModal = ({
                 />
               </div>
 
-              <div>
-                <label htmlFor="item_expiration_date" style={labelStyles}>
-                  Expiration Date
-                </label>
-                <input
-                  id="item_expiration_date"
-                  type="date"
-                  value={itemDraft.expiration_date}
-                  onChange={(event) => onItemDraftChange("expiration_date", event.target.value)}
-                  style={inputStyles}
-                />
-              </div>
+              {!isAddingReliefPack ? (
+                <div>
+                  <label htmlFor="item_expiration_date" style={labelStyles}>
+                    Expiration Date
+                  </label>
+                  <input
+                    id="item_expiration_date"
+                    type="date"
+                    value={itemDraft.expiration_date}
+                    onChange={(event) => onItemDraftChange("expiration_date", event.target.value)}
+                    style={inputStyles}
+                  />
+                </div>
+              ) : null}
 
+            </div>
+
+            {!isAddingReliefPack ? (
               <div
                 style={{
                   display: "flex",
-                  alignItems: "end",
+                  justifyContent: "flex-end",
+                  marginTop: "16px",
                 }}
               >
                 <button
@@ -438,85 +356,137 @@ const DonationModal = ({
                   onClick={editingItemId ? onEditExistingItem : onAddItemDraft}
                   style={{
                     ...pageHeaderStyles.primaryButton,
-                    width: "100%",
                     minHeight: "48px",
+                    minWidth: "220px",
                   }}
                 >
-                  {editingItemId
-                    ? "Save Item"
-                    : isAddingReliefPack
-                      ? "+ Add Relief Pack"
-                      : "+ Add Item"}
+                  {editingItemId ? "Save Item" : "+ Add Item"}
                 </button>
               </div>
-            </div>
+            ) : null}
 
             {isDefiningNewPack ? (
               <div
                 style={{
                   marginTop: "16px",
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                  gap: "16px",
+                  paddingTop: "16px",
+                  borderTop: "1px solid #dbe6f0",
                 }}
               >
-                <div>
-                  <label htmlFor="pack_item_inventory_item_id" style={labelStyles}>
-                    Add Item to Pack
-                  </label>
-                  <select
-                    id="pack_item_inventory_item_id"
-                    value={itemDraft.pack_item_inventory_item_id}
-                    onChange={(event) =>
-                      onItemDraftChange("pack_item_inventory_item_id", event.target.value)
-                    }
-                    style={inputStyles}
-                  >
-                    <option value="">Select item</option>
-                    {inventoryItems.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.item_name}
-                      </option>
-                    ))}
-                  </select>
+                <h4
+                  style={{
+                    margin: "0 0 14px",
+                    color: "#17324d",
+                    fontSize: "16px",
+                  }}
+                >
+                  Items Included in This Relief Pack
+                </h4>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                    gap: "16px",
+                  }}
+                >
+                  <div>
+                    <label htmlFor="pack_item_name" style={labelStyles}>
+                      Item Name
+                    </label>
+                    <input
+                      id="pack_item_name"
+                      value={itemDraft.new_item_name}
+                      onChange={(event) => onItemDraftChange("new_item_name", event.target.value)}
+                      style={inputStyles}
+                      placeholder="Enter item name"
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="pack_item_category" style={labelStyles}>
+                      Category
+                    </label>
+                    <select
+                      id="pack_item_category"
+                      value={itemDraft.new_item_category}
+                      onChange={(event) =>
+                        onItemDraftChange("new_item_category", event.target.value)
+                      }
+                      style={inputStyles}
+                    >
+                      {categoryOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label htmlFor="pack_item_unit" style={labelStyles}>
+                      Unit of Measure
+                    </label>
+                    <select
+                      id="pack_item_unit"
+                      value={itemDraft.new_item_unit_of_measure}
+                      onChange={(event) =>
+                        onItemDraftChange("new_item_unit_of_measure", event.target.value)
+                      }
+                      style={inputStyles}
+                    >
+                      {unitOptions.map((unit) => (
+                        <option key={unit} value={unit}>
+                          {unit}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label htmlFor="pack_item_quantity_required" style={labelStyles}>
+                      Quantity per Pack
+                    </label>
+                    <input
+                      id="pack_item_quantity_required"
+                      type="number"
+                      min="1"
+                      value={itemDraft.pack_item_quantity_required}
+                      onChange={(event) =>
+                        onItemDraftChange(
+                          "pack_item_quantity_required",
+                          Number.parseInt(event.target.value || "1", 10),
+                        )
+                      }
+                      style={inputStyles}
+                    />
+                  </div>
+
                 </div>
 
-                <div>
-                  <label htmlFor="pack_item_quantity_required" style={labelStyles}>
-                    Quantity per Pack
-                  </label>
-                  <input
-                    id="pack_item_quantity_required"
-                    type="number"
-                    min="1"
-                    value={itemDraft.pack_item_quantity_required}
-                    onChange={(event) =>
-                      onItemDraftChange(
-                        "pack_item_quantity_required",
-                        Number.parseInt(event.target.value || "1", 10),
-                      )
-                    }
-                    style={inputStyles}
-                  />
-                </div>
-
-                <div style={{ display: "flex", alignItems: "end" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    marginTop: "16px",
+                  }}
+                >
                   <button
                     type="button"
                     onClick={onAddPackItemDraft}
                     style={{
                       ...pageHeaderStyles.secondaryButton,
-                      width: "100%",
+                      minWidth: "220px",
                       minHeight: "48px",
                     }}
                   >
-                    + Add Pack Item
+                    + Add Item to Pack
                   </button>
                 </div>
               </div>
             ) : null}
 
-            {isAddingReliefPack && (selectedReliefPackTemplate || isDefiningNewPack) ? (
+            {isAddingReliefPack && isDefiningNewPack ? (
               <div
                 style={{
                   marginTop: "14px",
@@ -529,13 +499,13 @@ const DonationModal = ({
                 <strong style={{ color: "#17324d" }}>{selectedReliefPackName}</strong>
                 {selectedReliefPackItems.length === 0 ? (
                   <p style={{ margin: "8px 0 0", color: "#60738a", fontSize: "14px" }}>
-                    This relief pack has no items yet.
+                    No items have been added to this relief pack yet.
                   </p>
                 ) : (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "10px" }}>
                     {selectedReliefPackItems.map((templateItem) => (
                       <span
-                        key={templateItem.id || templateItem.inventory_item_id}
+                        key={templateItem.draft_id || templateItem.item_name}
                         style={{
                           borderRadius: "999px",
                           backgroundColor: "#ffffff",
@@ -546,14 +516,15 @@ const DonationModal = ({
                           fontWeight: 700,
                         }}
                       >
-                        {templateItem.inventory_item?.item_name || "Inventory item"} x{" "}
-                        {Number(templateItem.quantity_required || 0) *
-                          Number(itemDraft.relief_pack_quantity || 0)}
+                        {templateItem.item_name || "Inventory item"} x{" "}
+                        {getReliefPackItemTotal(templateItem, selectedPackQuantity)} total
                         {isDefiningNewPack ? (
                           <button
                             type="button"
                             onClick={() =>
-                              onRemovePackItemDraft(templateItem.inventory_item_id)
+                              onRemovePackItemDraft(
+                                templateItem.draft_id || templateItem.item_name,
+                              )
                             }
                             style={{
                               marginLeft: "8px",
@@ -564,7 +535,7 @@ const DonationModal = ({
                               fontWeight: 800,
                             }}
                             aria-label={`Remove ${
-                              templateItem.inventory_item?.item_name || "item"
+                              templateItem.item_name || "item"
                             }`}
                           >
                             x
@@ -574,6 +545,86 @@ const DonationModal = ({
                     ))}
                   </div>
                 )}
+              </div>
+            ) : null}
+
+            {formValues.items.length > 0 ? (
+              <div
+                style={{
+                  marginTop: "18px",
+                  display: "grid",
+                  gap: "12px",
+                }}
+              >
+                <h4 style={{ margin: 0, color: "#17324d", fontSize: "16px" }}>
+                  Items Added to This Donation
+                </h4>
+                {formValues.items.map((item) => (
+                  <div
+                    key={item.draft_id || item.id}
+                    style={{
+                      ...summaryCardStyles,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: "16px",
+                      alignItems: "flex-start",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div style={{ display: "grid", gap: "6px" }}>
+                      {item.entry_type === "RELIEF_PACK" ? (
+                        <>
+                          <strong style={{ color: "#17324d" }}>
+                            {item.relief_pack_name}
+                          </strong>
+                          <span style={{ color: "#60738a", fontSize: "14px" }}>
+                            {item.relief_pack_quantity} relief packs
+                          </span>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                            {(item.relief_pack_items || []).map((packItem) => (
+                              <span
+                                key={packItem.draft_id || packItem.item_name}
+                                style={{
+                                  borderRadius: "999px",
+                                  backgroundColor: "#ffffff",
+                                  border: "1px solid #dbe6f0",
+                                  padding: "6px 10px",
+                                  color: "#2f4e6d",
+                                  fontSize: "13px",
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {packItem.item_name} x{" "}
+                                {getReliefPackItemTotal(
+                                  packItem,
+                                  item.relief_pack_quantity,
+                                )}{" "}
+                                total
+                              </span>
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <strong style={{ color: "#17324d" }}>{item.item_name}</strong>
+                          <span style={{ color: "#60738a", fontSize: "14px" }}>
+                            {item.quantity_received} {item.unit_of_measure}
+                          </span>
+                        </>
+                      )}
+                    </div>
+
+                    {!item.id ? (
+                      <button
+                        type="button"
+                        onClick={() => onRemoveDraftItem(item)}
+                        style={pageHeaderStyles.secondaryButton}
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
               </div>
             ) : null}
 
@@ -614,109 +665,6 @@ const DonationModal = ({
               </div>
             ) : null}
 
-            <div style={{ overflowX: "auto", marginTop: "18px" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    {["Item", "Quantity", "Batch", "Expiry", "Actions"].map((label) => (
-                      <th
-                        key={label}
-                        style={{
-                          padding: "12px 14px",
-                          textAlign: "left",
-                          fontSize: "12px",
-                          letterSpacing: "0.08em",
-                          textTransform: "uppercase",
-                          color: "#66809c",
-                          borderBottom: "1px solid #e0eaf4",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {formValues.items.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={5}
-                        style={{
-                          padding: "18px 14px",
-                          color: "#60738a",
-                          fontSize: "14px",
-                        }}
-                      >
-                        No donation items have been added yet.
-                      </td>
-                    </tr>
-                  ) : (
-                    formValues.items.map((item, index) => (
-                      <tr key={item.id || `${item.inventory_item_id}-${item.quantity_received}-${index}`}>
-                        <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                          {item.inventory_item?.item_name ||
-                            inventoryItems.find((row) => row.id === item.inventory_item_id)?.item_name ||
-                            "--"}
-                        </td>
-                        <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                          {item.quantity_received}
-                        </td>
-                        <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                          {item.inventory_batch?.batch_no || "Auto-generated"}
-                        </td>
-                        <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                          {formatDonationDateOnly(
-                            item.expiration_date || item.inventory_batch?.expiration_date,
-                          )}
-                        </td>
-                        <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                          <div
-                            style={{
-                              display: "flex",
-                              justifyContent: "center",
-                              alignItems: "center",
-                              minHeight: "36px",
-                            }}
-                          >
-                            <TableActionsMenu
-                              row={item}
-                              menuId={`donation-item-actions-${item.id || `${item.inventory_item_id}-${item.quantity_received}`}`}
-                              buttonTitle="Donation item actions"
-                              buttonAriaLabel="Donation item actions"
-                              items={
-                                item.id
-                                  ? [
-                                      {
-                                        key: "edit",
-                                        label: "Edit",
-                                        onClick: (row) => onStartEditItem(row),
-                                      },
-                                      {
-                                        key: "delete",
-                                        label: "Delete",
-                                        tone: "destructive",
-                                        onClick: (row) => onDeleteExistingItem(row),
-                                      },
-                                    ]
-                                  : [
-                                      {
-                                        key: "remove",
-                                        label: "Remove",
-                                        tone: "destructive",
-                                        onClick: (row) => onRemoveDraftItem(row),
-                                      },
-                                    ]
-                              }
-                            />
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
           </section>
 
           {errorMessage ? (
@@ -757,7 +705,7 @@ const DonationModal = ({
                 ? "Saving..."
                 : isEditingDonation
                   ? "Update Donation"
-                  : "Record Donation"}
+                  : "Add Donation"}
             </button>
           </div>
         </form>
