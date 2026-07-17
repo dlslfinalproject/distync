@@ -112,7 +112,7 @@ export const createInventoryTransaction = async (payload) => {
     moduleName: "mayor-inventory",
     actionKey: "INVENTORY_TRANSACTION_CREATE",
     entityType: "INVENTORY_TRANSACTION",
-    entityLocalId: payload?.inventory_batch_id || null,
+    entityLocalId: payload?.client_transaction_id || null,
     payload,
     requiredFields: ["inventory_batch_id", "transaction_type", "quantity"],
     request: async () => {

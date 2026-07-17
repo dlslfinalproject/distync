@@ -258,13 +258,15 @@ const sampleReconciliationMetrics = {
   difference: -30,
 };
 
-const buildQueuedInventoryTransaction = (entry, inventoryItems) => {
+const buildQueuedInventoryTransaction = (entry, inventoryBatches) => {
+  const linkedBatch =
+    inventoryBatches.find((batch) => batch.id === entry.payload?.inventory_batch_id) ||
+    null;
+
   return {
     id: entry.entityLocalId || entry.id,
     performed_at: entry.clientTimestamp,
-    inventory_item:
-      inventoryItems.find((item) => item.id === entry.payload?.inventory_item_id) ||
-      null,
+    inventory_item: linkedBatch?.inventory_item || null,
     inventory_batch_id: entry.payload?.inventory_batch_id || null,
     transaction_type: entry.payload?.transaction_type || "ADJUSTMENT",
     quantity: entry.payload?.quantity || 0,
@@ -515,6 +517,7 @@ const InventoryTransactionsPage = () => {
           source_type: batch.source_type,
           supplier_id: batch.supplier_id,
           supplier_name: batch.supplier?.name || "",
+          inventory_item: batch.inventory_item || null,
         },
       ]),
     );
@@ -559,7 +562,7 @@ const InventoryTransactionsPage = () => {
         );
       })
       .map((entry) => {
-        const queuedRow = buildQueuedInventoryTransaction(entry, inventoryItems);
+        const queuedRow = buildQueuedInventoryTransaction(entry, inventoryBatches);
         const linkedBatch = batchById.get(queuedRow.inventory_batch_id);
 
         return {
@@ -574,7 +577,7 @@ const InventoryTransactionsPage = () => {
       });
 
     return [...optimisticRows, ...syncedRows];
-  }, [batchById, inventoryItems, inventoryTransactions, syncQueueEntries]);
+  }, [batchById, inventoryBatches, inventoryTransactions, syncQueueEntries]);
 
   const mergedTransactionRows = useMemo(() => {
     const distributionOutflowRows = buildDistributionOutflowRows(distributionHistoryRows);
