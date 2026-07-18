@@ -296,7 +296,9 @@ const getMswdoMasterlistDashboard = async (filters) => {
         : [],
       sector_distribution: Array.isArray(metrics.sector_distribution_dataset)
         ? metrics.sector_distribution_dataset.map((item) => ({
+            code: item.code,
             name: item.name,
+            sector_group: item.sector_group,
             value: Number(item.value || 0),
           }))
         : [],

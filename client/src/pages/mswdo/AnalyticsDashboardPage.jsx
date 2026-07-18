@@ -1,13 +1,9 @@
 import React from "react";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
-import AnalyticsSummaryCards from "../../components/mswdo-analytics/AnalyticsSummaryCards";
+import AverageHouseholdSizeChart from "../../components/mswdo-analytics/AverageHouseholdSizeChart";
 import BarangayBarChart from "../../components/mswdo-analytics/BarangayBarChart";
 import DistributionPieChart from "../../components/mswdo-analytics/DistributionPieChart";
-import SectorDistributionChart from "../../components/mswdo-analytics/SectorDistributionChart";
-import StayTypeChart from "../../components/mswdo-analytics/StayTypeChart";
-import VerticalBarChart from "../../components/mswdo-analytics/VerticalBarChart";
-import LineTrendChart from "../../components/mswdo-analytics/LineTrendChart";
 import { useMswdoAnalytics } from "../../features/mswdo-analytics/useMswdoAnalytics";
 
 const filterStyles = {
@@ -32,24 +28,36 @@ const filterStyles = {
   },
 };
 
+const analyticsGridStyles = {
+  donutAndBar: {
+    display: "grid",
+    gridTemplateColumns: "minmax(260px, 0.65fr) minmax(0, 1.35fr)",
+    gap: "20px",
+  },
+  barAndDonut: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1.35fr) minmax(260px, 0.65fr)",
+    gap: "20px",
+  },
+};
+
 const AnalyticsDashboardPage = () => {
   const {
     disasterEvents,
     barangays,
     selectedDisasterEventId,
     selectedBarangayId,
-    selectedDisasterEvent,
     summaryMetrics,
     evacueesPerBarangay,
     familiesPerBarangay,
     sexDistribution,
-    ageGroupDistribution,
-    sectorDistribution,
+    ageBasedSectorDistribution,
+    nonAgeBasedSectorDistribution,
+    householdConditionDistribution,
     stayTypeDistribution,
     admittedVsDepartedDistribution,
+    barangayCoverageDistribution,
     evacuationCenterDistribution,
-    reliefDistributionPerBarangay,
-    dailyAdmissionTrend,
     isLoadingFilters,
     isLoadingDashboard,
     errorMessage,
@@ -58,15 +66,15 @@ const AnalyticsDashboardPage = () => {
     setSelectedDisasterEventId,
     setSelectedBarangayId,
   } = useMswdoAnalytics();
-
-  const activeEventLabel = selectedDisasterEvent
-    ? `${selectedDisasterEvent.event_code} - ${selectedDisasterEvent.title}`
-    : "No disaster event selected";
+  const evacuationCenterChartHeight = Math.max(
+    380,
+    evacuationCenterDistribution.length * 54 + 110,
+  );
 
   return (
     <>
       <PageHeader
-        title="DESCRIPTIVE ANALYTICS DASHBOARD"
+        title="EVACUEE ANALYTICS DASHBOARD"
       />
 
       <section style={shellStyles.card}>
@@ -92,7 +100,7 @@ const AnalyticsDashboardPage = () => {
               <option value="">Select disaster event</option>
               {disasterEvents.map((event) => (
                 <option key={event.id} value={event.id}>
-                  {event.event_code} - {event.title}
+                  {event.title}
                 </option>
               ))}
             </select>
@@ -116,19 +124,6 @@ const AnalyticsDashboardPage = () => {
                 </option>
               ))}
             </select>
-          </div>
-
-          <div
-            style={{
-              border: "1px solid #d6e2ef",
-              borderRadius: "14px",
-              padding: "12px 14px",
-              backgroundColor: "#f8fbfe",
-              color: "#64809a",
-              fontSize: "14px",
-            }}
-          >
-            {activeEventLabel}
           </div>
         </div>
       </section>
@@ -171,28 +166,29 @@ const AnalyticsDashboardPage = () => {
 
       {hasSelectedEvent && !isLoadingDashboard && !errorMessage && hasData ? (
         <>
-          <AnalyticsSummaryCards summaryMetrics={summaryMetrics} />
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-              gap: "20px",
-            }}
-          >
-            <BarangayBarChart
-              title="Evacuees per Barangay"
-              description="Evacuee individuals grouped by barangay for the current MSWDO analytics scope."
-              data={evacueesPerBarangay}
-              dataKey="value"
-              color="#4f86be"
+          <div style={analyticsGridStyles.donutAndBar}>
+            <DistributionPieChart
+              title="Barangays Covered"
+              data={barangayCoverageDistribution}
+              emptyMessage="No barangay coverage data available for this view."
+              colors={["#2f6499", "#cbd5e1"]}
+              highlightHighest={false}
             />
             <BarangayBarChart
-              title="Families per Barangay"
-              description="Household counts by barangay for the selected disaster event and barangay filters."
+              title="Affected Families per Barangay"
               data={familiesPerBarangay}
               dataKey="value"
-              color="#7ea7cf"
+            />
+          </div>
+
+          <div style={analyticsGridStyles.donutAndBar}>
+            <AverageHouseholdSizeChart
+              value={summaryMetrics.averageHouseholdSize}
+            />
+            <BarangayBarChart
+              title="Affected Individuals per Barangay"
+              data={evacueesPerBarangay}
+              dataKey="value"
             />
           </div>
 
@@ -205,27 +201,27 @@ const AnalyticsDashboardPage = () => {
           >
             <DistributionPieChart
               title="Sex Distribution"
-              description="Male and female evacuee counts within the selected analytics scope."
               data={sexDistribution}
               emptyMessage="No sex distribution data available for this view."
+              colors={["#2f6499", "#d977a8", "#94a3b8"]}
+              highlightHighest={false}
+              colorMap={{
+                Male: "#2f6499",
+                Female: "#d977a8",
+              }}
             />
-            <VerticalBarChart
-              title="Age Group Distribution"
-              description="Evacuees grouped into age brackets using the available birth date or age fields."
-              data={ageGroupDistribution}
-              color="#95b7d8"
+            <DistributionPieChart
+              title="Age-Based Sector Distribution"
+              data={ageBasedSectorDistribution}
+              emptyMessage="No age-based sector data available for this view."
+              innerRadius={0}
             />
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-              gap: "20px",
-            }}
-          >
-            <SectorDistributionChart data={sectorDistribution} />
-            <StayTypeChart data={stayTypeDistribution} />
+            <DistributionPieChart
+              title="Non-Age-Based Sector Distribution"
+              data={nonAgeBasedSectorDistribution}
+              emptyMessage="No non-age-based sector data available for this view."
+              innerRadius={0}
+            />
           </div>
 
           <div
@@ -236,40 +232,38 @@ const AnalyticsDashboardPage = () => {
             }}
           >
             <DistributionPieChart
-              title="Admitted vs Departed Distribution"
-              description="Latest-log-per-evacuee distribution of admitted versus departed evacuees."
+              title="Household Conditions"
+              data={householdConditionDistribution}
+              emptyMessage="No household condition data available for this view."
+              innerRadius={0}
+            />
+            <DistributionPieChart
+              title="Stay Type Distribution"
+              data={stayTypeDistribution}
+              emptyMessage="No stay type distribution data available for this view."
+              colors={["#2f6499", "#14b8a6", "#f59e0b", "#7c8fd6"]}
+              innerRadius={0}
+            />
+            <DistributionPieChart
+              title="Evacuation Status"
               data={admittedVsDepartedDistribution}
               emptyMessage="No admitted or departed breakdown is available for this view."
-            />
-            <BarangayBarChart
-              title="Evacuees per Evacuation Center"
-              description="Currently admitted evacuees grouped by evacuation center."
-              data={evacuationCenterDistribution}
-              dataKey="value"
-              color="#5f9ec9"
+              colors={["#2f6499", "#cbd5e1"]}
+              colorMap={{
+                Admitted: "#2f6499",
+                Departed: "#cbd5e1",
+              }}
+              highlightHighest={false}
+              innerRadius={0}
             />
           </div>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-              gap: "20px",
-            }}
-          >
-            <BarangayBarChart
-              title="Relief Distribution per Barangay"
-              description="Total released relief-item quantities grouped by barangay."
-              data={reliefDistributionPerBarangay}
-              dataKey="value"
-              color="#88b9d8"
-            />
-            <LineTrendChart
-              title="Daily Admission Trend"
-              description="Daily evacuee admissions based on evacuation log time-in records."
-              data={dailyAdmissionTrend}
-            />
-          </div>
+          <BarangayBarChart
+            title="Evacuees per Evacuation Center"
+            data={evacuationCenterDistribution}
+            dataKey="value"
+            height={evacuationCenterChartHeight}
+          />
         </>
       ) : null}
     </>
