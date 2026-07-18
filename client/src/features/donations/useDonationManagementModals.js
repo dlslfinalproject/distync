@@ -134,7 +134,7 @@ export const useDonationManagementModals = ({
         donor_type: donation.donor_type,
         contact_information: donation.contact_information || "",
         received_at: donation.received_at
-          ? new Date(donation.received_at).toISOString().slice(0, 16)
+          ? new Date(donation.received_at).toISOString().slice(0, 10)
           : "",
         status: donation.status,
         remarks: donation.remarks || "",
@@ -197,9 +197,7 @@ export const useDonationManagementModals = ({
         donor_name: donationForm.donor_name.trim(),
         donor_type: donationForm.donor_type,
         contact_information: null,
-        received_at: donationForm.received_at
-          ? new Date(donationForm.received_at).toISOString()
-          : null,
+        received_at: donationForm.received_at || null,
         status: donationForm.status,
         remarks: null,
       };
@@ -362,7 +360,7 @@ export const useDonationManagementModals = ({
         ...currentDraft,
         relief_pack_items: nextPackItems,
         new_item_name: "",
-        pack_item_quantity_required: 1,
+        pack_item_quantity_required: "1",
       };
     });
   };
@@ -433,8 +431,8 @@ export const useDonationManagementModals = ({
       entry_type: "ITEM",
       inventory_item_id: item.inventory_item_id,
       relief_pack_template_id: "",
-      relief_pack_quantity: 1,
-      quantity_received: item.quantity_received,
+      relief_pack_quantity: "1",
+      quantity_received: String(item.quantity_received || ""),
       remarks: "",
       expiration_date: item.inventory_batch?.expiration_date
         ? item.inventory_batch.expiration_date.slice(0, 10)

@@ -5,6 +5,13 @@ import {
   fetchDisasterEvents,
   fetchMasterlistOperationalAnalytics,
 } from "./mswdoAnalyticsService";
+import {
+  AGE_BASED_MEMBER_SECTOR_CODES,
+  DISPLAY_MEMBER_SECTOR_CODES,
+  HOUSEHOLD_CONDITION_CODES,
+  formatMasterlistFilterSectorLabel,
+  getCanonicalMemberSectorCode,
+} from "../../utils/registrationOptions";
 
 const emptyOperationalPayload = {
   disaster_event: null,
@@ -68,13 +75,51 @@ const mapSimpleDistribution = (items = []) => {
   );
 };
 
+const getSectorChartCode = (item) => {
+  return getCanonicalMemberSectorCode(item?.code || item?.name || "");
+};
+
+const mapSectorDistribution = (items = []) => {
+  return items
+    .map((item) => {
+      const code = getSectorChartCode(item);
+
+      return {
+        code,
+        name: formatMasterlistFilterSectorLabel(code) || item.name || "Unknown",
+        sectorGroup: item.sector_group || item.sectorGroup || "",
+        value: Number(item.value || 0),
+      };
+    })
+    .filter((item) => item.value > 0);
+};
+
+const orderSectorDistribution = (items, orderedCodes) => {
+  const orderIndexByCode = new Map(
+    orderedCodes.map((sectorCode, index) => [sectorCode, index]),
+  );
+
+  return [...items].sort((left, right) => {
+    const leftIndex = orderIndexByCode.get(left.code) ?? Number.MAX_SAFE_INTEGER;
+    const rightIndex = orderIndexByCode.get(right.code) ?? Number.MAX_SAFE_INTEGER;
+
+    if (leftIndex !== rightIndex) {
+      return leftIndex - rightIndex;
+    }
+
+    return left.name.localeCompare(right.name);
+  });
+};
+
 const mapPerBarangayCounts = (items, valueKey) => {
-  return sortByValueDescending(
-    items.map((item) => ({
+  return items
+    .map((item) => ({
       name: item.barangay_name,
       value: Number(item[valueKey] || 0),
-    })),
-  );
+    }))
+    .sort((firstItem, secondItem) =>
+      firstItem.name.localeCompare(secondItem.name),
+    );
 };
 
 const mapAdmittedVsDepartedDistribution = (summary) => {
@@ -90,12 +135,66 @@ const mapAdmittedVsDepartedDistribution = (summary) => {
   ].filter((item) => item.value > 0);
 };
 
-const mapDailyAdmissionTrend = (items = []) => {
-  return items.map((item) => ({
-    name: item.name || "Unknown",
-    value: Number(item.value || 0),
-    date: item.date || null,
-  }));
+const mapBarangayCoverageDistribution = ({
+  barangayCount,
+  coveredCount,
+  selectedBarangayId,
+}) => {
+  const safeCoveredCount = Number(coveredCount || 0);
+
+  if (selectedBarangayId) {
+    return safeCoveredCount > 0
+      ? [
+          {
+            name: "Covered",
+            value: safeCoveredCount,
+          },
+        ]
+      : [];
+  }
+
+  const safeBarangayCount = Number(barangayCount || 0);
+
+  if (safeBarangayCount === 0 && safeCoveredCount === 0) {
+    return [];
+  }
+
+  const totalBarangays = Math.max(safeBarangayCount, safeCoveredCount);
+  const notCoveredCount = Math.max(totalBarangays - safeCoveredCount, 0);
+
+  return [
+    {
+      name: "Covered",
+      value: safeCoveredCount,
+    },
+    {
+      name: "Not Covered",
+      value: notCoveredCount,
+    },
+  ].filter((item) => item.value > 0);
+};
+
+const getAffectedBarangayIds = (event) => {
+  const barangayRows = event?.affected_barangays || event?.barangays || [];
+  const barangayIds = event?.affected_barangay_ids || event?.barangay_ids || [];
+
+  if (Array.isArray(barangayIds) && barangayIds.length > 0) {
+    return barangayIds.filter(Boolean);
+  }
+
+  if (!Array.isArray(barangayRows)) {
+    return [];
+  }
+
+  return barangayRows
+    .map((barangay) => {
+      if (typeof barangay === "string") {
+        return barangay;
+      }
+
+      return barangay?.id || barangay?.barangay_id || barangay?.barangay?.id || "";
+    })
+    .filter(Boolean);
 };
 
 export const useMswdoAnalytics = () => {
@@ -200,6 +299,32 @@ export const useMswdoAnalytics = () => {
     return disasterEvents.find((event) => event.id === selectedDisasterEventId) || null;
   }, [disasterEvents, selectedDisasterEventId]);
 
+  const selectableBarangays = useMemo(() => {
+    const affectedBarangayIds = getAffectedBarangayIds(selectedDisasterEvent);
+
+    if (affectedBarangayIds.length === 0) {
+      return barangays;
+    }
+
+    const affectedBarangayIdSet = new Set(affectedBarangayIds);
+
+    return barangays.filter((barangay) => affectedBarangayIdSet.has(barangay.id));
+  }, [barangays, selectedDisasterEvent]);
+
+  useEffect(() => {
+    if (!selectedBarangayId) {
+      return;
+    }
+
+    const isSelectedBarangayAvailable = selectableBarangays.some(
+      (barangay) => barangay.id === selectedBarangayId,
+    );
+
+    if (!isSelectedBarangayAvailable) {
+      setSelectedBarangayId("");
+    }
+  }, [selectableBarangays, selectedBarangayId]);
+
   const summaryMetrics = useMemo(() => {
     return mapSummaryMetrics(operationalPayload.summary_metrics || {});
   }, [operationalPayload.summary_metrics]);
@@ -228,8 +353,37 @@ export const useMswdoAnalytics = () => {
   }, [operationalPayload.charts?.age_group_distribution]);
 
   const sectorDistribution = useMemo(() => {
-    return mapSimpleDistribution(operationalPayload.charts?.sector_distribution);
+    return mapSectorDistribution(operationalPayload.charts?.sector_distribution);
   }, [operationalPayload.charts?.sector_distribution]);
+
+  const ageBasedSectorDistribution = useMemo(() => {
+    return orderSectorDistribution(
+      sectorDistribution.filter((item) =>
+        AGE_BASED_MEMBER_SECTOR_CODES.includes(item.code),
+      ),
+      AGE_BASED_MEMBER_SECTOR_CODES,
+    );
+  }, [sectorDistribution]);
+
+  const nonAgeBasedSectorDistribution = useMemo(() => {
+    const nonAgeBasedCodes = DISPLAY_MEMBER_SECTOR_CODES.filter(
+      (sectorCode) => !AGE_BASED_MEMBER_SECTOR_CODES.includes(sectorCode),
+    );
+
+    return orderSectorDistribution(
+      sectorDistribution.filter((item) => nonAgeBasedCodes.includes(item.code)),
+      nonAgeBasedCodes,
+    );
+  }, [sectorDistribution]);
+
+  const householdConditionDistribution = useMemo(() => {
+    return orderSectorDistribution(
+      sectorDistribution.filter((item) =>
+        HOUSEHOLD_CONDITION_CODES.includes(item.code),
+      ),
+      HOUSEHOLD_CONDITION_CODES,
+    );
+  }, [sectorDistribution]);
 
   const stayTypeDistribution = useMemo(() => {
     return mapSimpleDistribution(operationalPayload.charts?.stay_type_distribution);
@@ -241,25 +395,23 @@ export const useMswdoAnalytics = () => {
     );
   }, [operationalPayload.summary_metrics]);
 
+  const barangayCoverageDistribution = useMemo(() => {
+    return mapBarangayCoverageDistribution({
+      barangayCount: barangays.length,
+      coveredCount: summaryMetrics.totalBarangaysCovered,
+      selectedBarangayId,
+    });
+  }, [barangays.length, selectedBarangayId, summaryMetrics.totalBarangaysCovered]);
+
   const evacuationCenterDistribution = useMemo(() => {
     return mapSimpleDistribution(
       operationalPayload.charts?.evacuation_center_distribution,
     );
   }, [operationalPayload.charts?.evacuation_center_distribution]);
 
-  const reliefDistributionPerBarangay = useMemo(() => {
-    return mapSimpleDistribution(
-      operationalPayload.charts?.relief_distribution_per_barangay,
-    );
-  }, [operationalPayload.charts?.relief_distribution_per_barangay]);
-
-  const dailyAdmissionTrend = useMemo(() => {
-    return mapDailyAdmissionTrend(operationalPayload.charts?.daily_admission_trend);
-  }, [operationalPayload.charts?.daily_admission_trend]);
-
   return {
     disasterEvents,
-    barangays,
+    barangays: selectableBarangays,
     selectedDisasterEventId,
     selectedBarangayId,
     selectedDisasterEvent,
@@ -268,12 +420,13 @@ export const useMswdoAnalytics = () => {
     familiesPerBarangay,
     sexDistribution,
     ageGroupDistribution,
-    sectorDistribution,
+    ageBasedSectorDistribution,
+    nonAgeBasedSectorDistribution,
+    householdConditionDistribution,
     stayTypeDistribution,
     admittedVsDepartedDistribution,
+    barangayCoverageDistribution,
     evacuationCenterDistribution,
-    reliefDistributionPerBarangay,
-    dailyAdmissionTrend,
     isLoadingFilters,
     isLoadingDashboard,
     errorMessage,
