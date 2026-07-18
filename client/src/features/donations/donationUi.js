@@ -1,8 +1,8 @@
 export const donorTypes = [
   "INDIVIDUAL",
   "NGO",
-  "PRIVATE_ORGANIZATION",
-  "GOVERNMENT_PARTNER",
+  "PRIVATE ORGANIZATION",
+  "GOVERNMENT PARTNER",
   "OTHER",
 ];
 
@@ -131,10 +131,10 @@ export const createDonationItemForm = () => ({
   relief_pack_template_id: "",
   new_pack_name: "",
   pack_item_inventory_item_id: "",
-  pack_item_quantity_required: 1,
+  pack_item_quantity_required: "1",
   relief_pack_items: [],
-  relief_pack_quantity: 1,
-  quantity_received: 1,
+  relief_pack_quantity: "1",
+  quantity_received: "1",
   remarks: "",
   expiration_date: "",
   storage_location: "",
