@@ -1,9 +1,45 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
+import { FiEdit2, FiEye, FiTrash2 } from "react-icons/fi";
 import { formatDonationDateTime } from "../../features/donations/donationFormatters";
-import DonationStatusBadge from "./DonationStatusBadge";
 import DonationSyncBadge from "./DonationSyncBadges";
 import TableActionsMenu from "../shared/TableActionsMenu";
+
+const tableStyles = {
+  table: {
+    width: "100%",
+    borderCollapse: "collapse",
+    minWidth: "980px",
+  },
+  headerCell: {
+    padding: "14px 16px",
+    textAlign: "left",
+    fontSize: "12px",
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    color: "#66809c",
+    borderBottom: "1px solid #e0eaf4",
+    whiteSpace: "nowrap",
+  },
+  bodyCell: {
+    padding: "16px",
+    color: "#21405f",
+    borderBottom: "1px solid #edf3f8",
+    fontSize: "14px",
+    verticalAlign: "top",
+    lineHeight: 1.5,
+    wordBreak: "break-word",
+  },
+  mutedText: {
+    color: "#6b8298",
+    fontSize: "13px",
+  },
+  centeredBodyCell: {
+    textAlign: "center",
+    verticalAlign: "middle",
+    whiteSpace: "nowrap",
+  },
+};
 
 const getDonationItemSummary = (donation) => {
   const items = donation.items || [];
@@ -83,23 +119,14 @@ const DonationsTab = ({
         </p>
       ) : (
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <table style={tableStyles.table}>
             <thead>
               <tr>
-                {["Received At", "Donor", "Item / Relief Pack", "Quantity", "Source", "Status", "Actions"].map(
+                {["Donor", "Item", "Quantity", "Date", "Sync", "Actions"].map(
                   (label) => (
                     <th
                       key={label}
-                      style={{
-                        padding: "12px 14px",
-                        textAlign: "left",
-                        fontSize: "12px",
-                        letterSpacing: "0.08em",
-                        textTransform: "uppercase",
-                        color: "#66809c",
-                        borderBottom: "1px solid #e0eaf4",
-                        whiteSpace: "nowrap",
-                      }}
+                      style={tableStyles.headerCell}
                     >
                       {label}
                     </th>
@@ -113,30 +140,29 @@ const DonationsTab = ({
 
                 return (
                   <tr key={donation.id}>
-                    <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                      {formatDonationDateTime(donation.received_at)}
-                    </td>
-                    <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
+                    <td style={tableStyles.bodyCell}>
                       <div style={{ fontWeight: 700 }}>{donation.donor_name}</div>
-                      <div style={{ color: "#60738a", fontSize: "13px" }}>{donation.donor_type}</div>
+                      <div style={tableStyles.mutedText}>{donation.donor_type}</div>
                     </td>
-                    <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
+                    <td style={tableStyles.bodyCell}>
                       <div style={{ fontWeight: 700 }}>{itemSummary.label}</div>
-                      <div style={{ color: "#60738a", fontSize: "13px" }}>{itemSummary.detail}</div>
+                      <div style={tableStyles.mutedText}>{itemSummary.detail}</div>
                     </td>
-                    <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8", fontWeight: 800 }}>
+                    <td style={{ ...tableStyles.bodyCell, fontWeight: 800 }}>
                       {itemSummary.quantityLabel}
                     </td>
-                    <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                      Donor
+                    <td style={tableStyles.bodyCell}>
+                      {formatDonationDateTime(donation.received_at)}
                     </td>
-                    <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
-                      <div style={{ display: "grid", gap: "6px" }}>
-                        <DonationStatusBadge label={donation.status} />
-                        <DonationSyncBadge status={donation.sync_status} />
-                      </div>
+                    <td style={tableStyles.bodyCell}>
+                      <DonationSyncBadge status={donation.sync_status} />
                     </td>
-                    <td style={{ padding: "14px", borderBottom: "1px solid #edf3f8" }}>
+                    <td
+                      style={{
+                        ...tableStyles.bodyCell,
+                        ...tableStyles.centeredBodyCell,
+                      }}
+                    >
                       <div
                         style={{
                           display: "flex",
@@ -157,10 +183,13 @@ const DonationsTab = ({
                               ? "Donation actions unavailable until synced"
                               : "Donation actions"
                           }
+                          variant="icon-grid"
+                          menuWidth={156}
                           items={[
                             {
                               key: "view-details",
                               label: "View Details",
+                              icon: <FiEye size={18} />,
                               onClick: (row) => onOpenDonationDetail(row.id),
                               disabled: donation.is_local_only,
                               title: donation.is_local_only ? "Available after sync" : undefined,
@@ -168,6 +197,7 @@ const DonationsTab = ({
                             {
                               key: "edit",
                               label: "Edit",
+                              icon: <FiEdit2 size={18} />,
                               onClick: (row) => onOpenDonationModal(row.id),
                               disabled: donation.is_local_only,
                               title: donation.is_local_only ? "Available after sync" : undefined,
@@ -175,6 +205,7 @@ const DonationsTab = ({
                             {
                               key: "delete",
                               label: "Delete",
+                              icon: <FiTrash2 size={18} />,
                               tone: "destructive",
                               onClick: (row) => onDeleteDonation(row),
                               disabled: donation.is_local_only,

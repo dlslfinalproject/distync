@@ -4,6 +4,7 @@ import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import InventoryItemFormModal from "../../components/inventory-items/InventoryItemFormModal";
 import InventoryItemDetailModal from "../../components/inventory-items/InventoryItemDetailModal";
+import InventoryItemStatusLogModal from "../../components/inventory-items/InventoryItemStatusLogModal";
 import BarcodeScanModal from "../../components/inventory-items/BarcodeScanModal";
 import InventoryPageActions from "../../components/inventory-items/InventoryPageActions";
 import InventoryItemsTable from "../../components/inventory-items/InventoryItemsTable";
@@ -21,7 +22,10 @@ import {
   updateInventoryItem,
 } from "../../features/inventory-items/inventoryItemService";
 import { fetchInventoryBatches } from "../../features/inventory-batches/inventoryBatchService";
-import { fetchInventoryTransactions } from "../../features/inventory-transactions/inventoryTransactionService";
+import {
+  createInventoryTransaction,
+  fetchInventoryTransactions,
+} from "../../features/inventory-transactions/inventoryTransactionService";
 import db from "../../offline/db";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
 import {
@@ -121,6 +125,9 @@ const InventoryItemsPage = () => {
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [detailErrorMessage, setDetailErrorMessage] = useState("");
   const [selectedItemDetail, setSelectedItemDetail] = useState(null);
+  const [isStatusLogModalOpen, setIsStatusLogModalOpen] = useState(false);
+  const [statusLogItem, setStatusLogItem] = useState(null);
+  const [statusLogErrorMessage, setStatusLogErrorMessage] = useState("");
   const [scanForm, setScanForm] = useState({
     barcodeNumber: "",
   });
@@ -425,6 +432,22 @@ const InventoryItemsPage = () => {
     setIsScanModalOpen(false);
   };
 
+  const handleOpenStatusLogModal = (itemRow) => {
+    setStatusLogItem(itemRow);
+    setStatusLogErrorMessage("");
+    setIsStatusLogModalOpen(true);
+  };
+
+  const handleCloseStatusLogModal = (forceClose = false) => {
+    if (isSubmitting && !forceClose) {
+      return;
+    }
+
+    setIsStatusLogModalOpen(false);
+    setStatusLogItem(null);
+    setStatusLogErrorMessage("");
+  };
+
   const handleScanInputChange = (field, value) => {
     setScanForm((previousForm) => ({
       ...previousForm,
@@ -542,6 +565,40 @@ const InventoryItemsPage = () => {
     );
   };
 
+  const selectedStatusLogBatches = useMemo(() => {
+    if (!statusLogItem?.id) {
+      return [];
+    }
+
+    return inventoryBatches.filter((batch) => {
+      return (
+        String(batch.inventory_item_id) === String(statusLogItem.id) &&
+        Number(batch.quantity_available || 0) > 0
+      );
+    });
+  }, [inventoryBatches, statusLogItem]);
+
+  const handleSubmitStatusLog = async (payload) => {
+    setIsSubmitting(true);
+    setStatusLogErrorMessage("");
+
+    try {
+      const response = await createInventoryTransaction(payload);
+
+      if (!response?.queued_offline) {
+        await loadInventoryData();
+      }
+
+      handleCloseStatusLogModal(true);
+    } catch (error) {
+      setStatusLogErrorMessage(
+        error.message || "Failed to save inventory status log.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div
       style={{ flex: 1, minWidth: 0, maxWidth: "100%", overflowX: "hidden" }}
@@ -575,6 +632,7 @@ const InventoryItemsPage = () => {
           errorMessage={errorMessage}
           onEditItem={handleOpenEditModal}
           onViewDetails={handleOpenItemDetail}
+          onLogStatus={handleOpenStatusLogModal}
         />
       </section>
 
@@ -599,6 +657,16 @@ const InventoryItemsPage = () => {
         onClose={handleCloseScanModal}
         onSubmit={handleSubmitScanModal}
         onInputChange={handleScanInputChange}
+      />
+
+      <InventoryItemStatusLogModal
+        isOpen={isStatusLogModalOpen}
+        item={statusLogItem}
+        inventoryBatches={selectedStatusLogBatches}
+        isSubmitting={isSubmitting}
+        errorMessage={statusLogErrorMessage}
+        onClose={handleCloseStatusLogModal}
+        onSubmit={handleSubmitStatusLog}
       />
 
       <ExportModal

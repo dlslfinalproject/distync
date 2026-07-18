@@ -163,7 +163,7 @@ const DonationModal = ({
                 </label>
                 <input
                   id="received_at"
-                  type="datetime-local"
+                  type="date"
                   value={formValues.received_at}
                   onChange={(event) => onFormChange("received_at", event.target.value)}
                   style={inputStyles}
@@ -319,7 +319,7 @@ const DonationModal = ({
                       isAddingReliefPack
                         ? "relief_pack_quantity"
                         : "quantity_received",
-                      Number.parseInt(event.target.value || "1", 10),
+                      event.target.value,
                     )
                   }
                   style={inputStyles}
@@ -455,7 +455,7 @@ const DonationModal = ({
                       onChange={(event) =>
                         onItemDraftChange(
                           "pack_item_quantity_required",
-                          Number.parseInt(event.target.value || "1", 10),
+                          event.target.value,
                         )
                       }
                       style={inputStyles}

@@ -1,5 +1,5 @@
 import React from "react";
-import { FiEdit2, FiEye } from "react-icons/fi";
+import { FiAlertCircle, FiEdit2, FiEye } from "react-icons/fi";
 import { getTotalItemQuantity } from "../../features/inventory-items/inventoryItemFormatting";
 import { getItemStatusStyle } from "../../features/inventory-items/inventoryItemStockStatus";
 import TableActionsMenu from "../shared/TableActionsMenu";
@@ -91,6 +91,7 @@ const InventoryItemsTable = ({
   errorMessage,
   onEditItem,
   onViewDetails,
+  onLogStatus,
 }) => {
   return (
     <div style={styles.tableWrap}>
@@ -195,6 +196,13 @@ const InventoryItemsTable = ({
                           disabled: typeof onViewDetails !== "function",
                           onClick: (selectedRow) =>
                             onViewDetails?.(selectedRow.id),
+                        },
+                        {
+                          key: "status-log",
+                          label: "Log Status",
+                          icon: <FiAlertCircle size={18} />,
+                          disabled: typeof onLogStatus !== "function",
+                          onClick: (selectedRow) => onLogStatus?.(selectedRow),
                         },
                         {
                           key: "edit",
