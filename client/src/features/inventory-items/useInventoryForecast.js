@@ -9,6 +9,22 @@ import {
 } from "./inventoryItemService";
 import { getForecastModelLabel } from "./inventoryItemExportOptions";
 
+const getEventTimestamp = (event, fieldName) => {
+  const timestamp = new Date(event?.[fieldName] || 0).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+const compareMostRecentForecastEvent = (left, right) => {
+  const startDateDifference =
+    getEventTimestamp(right, "start_date") - getEventTimestamp(left, "start_date");
+
+  if (startDateDifference !== 0) {
+    return startDateDifference;
+  }
+
+  return getEventTimestamp(right, "created_at") - getEventTimestamp(left, "created_at");
+};
+
 export const useInventoryForecast = () => {
   const [forecastEvents, setForecastEvents] = useState([]);
   const [selectedForecastEventId, setSelectedForecastEventId] = useState("");
@@ -43,9 +59,10 @@ export const useInventoryForecast = () => {
         setForecastEvents(normalizedEvents);
 
         if (normalizedEvents.length > 0) {
-          const preferredEvent =
-            normalizedEvents.find((event) => event.status === "ACTIVE") ||
-            normalizedEvents[0];
+          const activeEvents = normalizedEvents
+            .filter((event) => event.status === "ACTIVE")
+            .sort(compareMostRecentForecastEvent);
+          const preferredEvent = activeEvents[0] || normalizedEvents[0];
           setSelectedForecastEventId(preferredEvent.id);
         }
       } catch (error) {

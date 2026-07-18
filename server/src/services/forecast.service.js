@@ -294,6 +294,65 @@ const buildForecastDashboard = ({
   };
 };
 
+const resolvePublicForecastPriority = (riskLevel) => {
+  const normalizedRiskLevel = String(riskLevel || "").toUpperCase();
+
+  if (normalizedRiskLevel === "CRITICAL" || normalizedRiskLevel === "HIGH") {
+    return "HIGH";
+  }
+
+  if (normalizedRiskLevel === "MEDIUM") {
+    return "MEDIUM";
+  }
+
+  return "LOW";
+};
+
+const buildPublicForecastSuggestionNote = (result) => {
+  if (result.shortage_within_seven_days) {
+    return "Recommended because stock may run short within the next seven days.";
+  }
+
+  if (Number(result.projected_remaining_stock || 0) <= 0) {
+    return "Recommended because projected demand may exceed available stock.";
+  }
+
+  return null;
+};
+
+const buildPublicForecastSuggestions = (storedForecast) => {
+  const forecastedAt = storedForecast?.forecast_run?.run_at || null;
+  const results = Array.isArray(storedForecast?.results)
+    ? storedForecast.results
+    : [];
+
+  return [...results]
+    .filter((result) => Number(result.forecasted_usage || 0) > 0)
+    .sort((left, right) => {
+      const quantityDifference =
+        Number(right.forecasted_usage || 0) - Number(left.forecasted_usage || 0);
+
+      if (quantityDifference !== 0) {
+        return quantityDifference;
+      }
+
+      return String(left.item_name || "").localeCompare(
+        String(right.item_name || ""),
+      );
+    })
+    .map((result) => ({
+      inventory_item_id: result.inventory_item_id,
+      item_name: result.item_name,
+      item_code: result.item_code,
+      category: result.category,
+      unit_of_measure: result.unit_of_measure || "items",
+      suggested_quantity: Math.ceil(Number(result.forecasted_usage || 0)),
+      priority_level: resolvePublicForecastPriority(result.risk_level),
+      note: buildPublicForecastSuggestionNote(result),
+      forecasted_at: forecastedAt,
+    }));
+};
+
 const mapStoredForecastRun = (forecastRun, resultRows) => {
   const mappedResults = resultRows.map((row) => {
     let parsedNotes = {};
@@ -985,4 +1044,5 @@ module.exports = {
   getAnalyticsServiceHealth,
   getInventoryForecastHistory,
   getInventoryForecastRunDetails,
+  buildPublicForecastSuggestions,
 };
