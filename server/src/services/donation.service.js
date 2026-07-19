@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const donationRepository = require("../repositories/donation.repository");
+const forecastService = require("./forecast.service");
 const mayorReportExport = require("../utils/mayorReportExport");
 const notificationService = require("../modules/notifications/notification.service");
 const {
@@ -18,12 +19,6 @@ const priorityRank = {
   HIGH: 2,
   MEDIUM: 3,
   LOW: 4,
-};
-
-const forecastPriorityRank = {
-  HIGH: 1,
-  MEDIUM: 2,
-  LOW: 3,
 };
 
 const mapDonationNeed = (row) => {
@@ -153,64 +148,6 @@ const mapAuditLogRow = (row) => ({
   old_values_json: row.old_values_json || {},
   new_values_json: row.new_values_json || {},
 });
-
-const parseJsonNotes = (value) => {
-  try {
-    return value ? JSON.parse(value) : {};
-  } catch (_error) {
-    return {};
-  }
-};
-
-const resolveForecastPriority = (riskLevel) => {
-  const normalizedRiskLevel = String(riskLevel || "").toUpperCase();
-
-  if (normalizedRiskLevel === "CRITICAL" || normalizedRiskLevel === "HIGH") {
-    return "HIGH";
-  }
-
-  if (normalizedRiskLevel === "MEDIUM") {
-    return "MEDIUM";
-  }
-
-  return "LOW";
-};
-
-const buildForecastSuggestionNote = (notes) => {
-  if (notes.shortage_within_seven_days) {
-    return "Recommended because stock may run short within the next seven days.";
-  }
-
-  if (Number(notes.projected_remaining_stock || 0) <= 0) {
-    return "Recommended because projected demand may exceed available stock.";
-  }
-
-  return null;
-};
-
-const mapPublicForecastSuggestion = (row) => {
-  const notes = parseJsonNotes(row.confidence_notes);
-  const suggestedQuantity = Math.max(
-    0,
-    Math.ceil(Number(row.recommended_reorder_quantity || 0)),
-  );
-
-  if (suggestedQuantity <= 0) {
-    return null;
-  }
-
-  return {
-    inventory_item_id: row.inventory_item_id,
-    item_name: row.item_name,
-    item_code: row.item_code,
-    category: row.category,
-    unit_of_measure: row.unit_of_measure || "items",
-    suggested_quantity: suggestedQuantity,
-    priority_level: resolveForecastPriority(notes.risk_level),
-    note: buildForecastSuggestionNote(notes),
-    forecasted_at: row.run_at,
-  };
-};
 
 const resolvePublicDonorName = (donorName, index) => {
   const trimmedDonorName = String(donorName || "").trim();
@@ -1186,7 +1123,7 @@ const getPublicDonationPortal = async (disasterEventId = null) => {
     activeNeeds,
     summaryTotals,
     perItemSummary,
-    forecastSuggestionRows,
+    latestForecast,
     recentDonationRows,
   ] = selectedDisasterEventId
     ? await Promise.all([
@@ -1195,7 +1132,7 @@ const getPublicDonationPortal = async (disasterEventId = null) => {
         donationRepository.getDonationItemTransparencySummary(
           selectedDisasterEventId,
         ),
-        donationRepository.getPublicForecastSuggestions(selectedDisasterEventId),
+        forecastService.getLatestInventoryForecast(selectedDisasterEventId),
         donationRepository.getPublicRecentDonationSummaries(
           selectedDisasterEventId,
           6,
@@ -1210,24 +1147,12 @@ const getPublicDonationPortal = async (disasterEventId = null) => {
           remaining_donated_inventory: 0,
         },
         [],
-        [],
+        null,
         [],
       ];
 
-  const forecastSuggestions = forecastSuggestionRows
-    .map(mapPublicForecastSuggestion)
-    .filter(Boolean)
-    .sort((left, right) => {
-      const priorityDifference =
-        (forecastPriorityRank[left.priority_level] || 999) -
-        (forecastPriorityRank[right.priority_level] || 999);
-
-      if (priorityDifference !== 0) {
-        return priorityDifference;
-      }
-
-      return right.suggested_quantity - left.suggested_quantity;
-    });
+  const forecastSuggestions =
+    forecastService.buildPublicForecastSuggestions(latestForecast);
 
   return {
     disaster_events: activeDisasterSummaries,
