@@ -146,75 +146,20 @@ const buildExcelBuffer = async ({
   reportExport.addWorkbookLogo(workbook, worksheet);
 
   const lastColumnIndex = Math.max(columns.length, 6);
-  worksheet.mergeCells(1, 2, 1, lastColumnIndex);
-  worksheet.getCell("B1").value = "DISTYNC";
-  worksheet.getCell("B1").font = {
-    bold: true,
-    size: 18,
-    color: { argb: "FFFFFFFF" },
-  };
-  worksheet.getCell("B1").fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF17324D" },
-  };
-  worksheet.getCell("B1").alignment = { horizontal: "left", vertical: "middle" };
-
-  worksheet.mergeCells(2, 2, 2, lastColumnIndex);
-  worksheet.getCell("B2").value = sourceName;
-  worksheet.getCell("B2").font = {
-    bold: true,
-    size: 14,
-    color: { argb: "FFFFFFFF" },
-  };
-  worksheet.getCell("B2").fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF17324D" },
-  };
-  worksheet.getCell("B2").alignment = { horizontal: "left", vertical: "middle" };
-
-  worksheet.mergeCells(3, 2, 3, lastColumnIndex);
-  worksheet.getCell("B3").value = "Municipality of Malvar, Batangas";
-  worksheet.getCell("B3").font = {
-    bold: true,
-    size: 12,
-    color: { argb: "FFFFFFFF" },
-  };
-  worksheet.getCell("B3").fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF17324D" },
-  };
-  worksheet.getCell("B3").alignment = { horizontal: "left", vertical: "middle" };
-
-  worksheet.mergeCells(4, 2, 4, lastColumnIndex);
-  worksheet.getCell("B4").value = reportTitle;
-  worksheet.getCell("B4").font = {
-    bold: true,
-    size: 12,
-    color: { argb: "FF17324D" },
-  };
-  worksheet.getCell("B4").alignment = { horizontal: "left", vertical: "middle" };
-
-  worksheet.getRow(1).height = 28;
-  worksheet.getRow(2).height = 24;
-  worksheet.getRow(3).height = 20;
-  worksheet.getRow(4).height = 20;
-
-  const contextLines = [
-    ...metadata.map((item) => `${item.label}: ${item.value}`),
-    `Generated: ${formatDateTime(new Date())}`,
-    `Total Rows: ${rows.length}`,
-  ];
-
-  contextLines.forEach((line, index) => {
-    const row = worksheet.getRow(index + 6);
-    row.getCell(1).value = line;
-    row.getCell(1).font = { bold: index === 0 };
+  const headerEndRowNumber = reportExport.buildExcelReportHeader({
+    worksheet,
+    lastColumnIndex,
+    sourceName,
+    reportTitle,
+    metadata: [
+      ...metadata,
+      { label: "Generated", value: formatDateTime(new Date()) },
+      { label: "Total Rows", value: rows.length },
+    ],
   });
 
-  const headerRowNumber = 10;
+  const headerRowNumber = headerEndRowNumber + 1;
+  worksheet.views = [{ state: "frozen", ySplit: headerRowNumber }];
   const headerRow = worksheet.getRow(headerRowNumber);
   columns.forEach((column, index) => {
     const cell = headerRow.getCell(index + 1);

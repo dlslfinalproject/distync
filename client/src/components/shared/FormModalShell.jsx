@@ -1,29 +1,39 @@
 import React from "react";
+import { FiX } from "react-icons/fi";
 
 const overlayStyles = {
   position: "fixed",
   inset: 0,
-  backgroundColor: "rgba(18, 34, 51, 0.45)",
+  backgroundColor: "rgba(23, 50, 77, 0.42)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   padding: "24px",
-  zIndex: 1300,
+  zIndex: 1500,
 };
 
 const contentStyles = {
   width: "100%",
   backgroundColor: "#ffffff",
-  borderRadius: "20px",
+  borderRadius: "24px",
   padding: "28px",
-  boxShadow: "0 24px 48px rgba(20, 48, 78, 0.2)",
+  boxShadow: "0 24px 54px rgba(31, 64, 95, 0.22)",
   boxSizing: "border-box",
+};
+
+const headerStyles = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: "16px",
+  marginBottom: "22px",
 };
 
 const titleStyles = {
   margin: 0,
   color: "#17324d",
-  fontSize: "24px",
+  fontSize: "26px",
+  fontWeight: 800,
 };
 
 const descriptionStyles = {
@@ -34,15 +44,29 @@ const descriptionStyles = {
 };
 
 const bodyStyles = {
-  marginTop: "22px",
+  marginTop: 0,
 };
 
 const footerStyles = {
   display: "flex",
   justifyContent: "flex-end",
   gap: "12px",
-  marginTop: "24px",
+  marginTop: "26px",
   flexWrap: "wrap",
+};
+
+const closeButtonStyles = {
+  border: "1px solid #c6d8ea",
+  borderRadius: "14px",
+  width: "42px",
+  height: "42px",
+  backgroundColor: "#f8fbfe",
+  color: "#24496e",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  cursor: "pointer",
+  flexShrink: 0,
 };
 
 const FormModalShell = ({
@@ -52,7 +76,9 @@ const FormModalShell = ({
   children,
   footer,
   maxWidth = "480px",
-  zIndex = 1300,
+  zIndex = 1500,
+  onClose,
+  isCloseDisabled = false,
 }) => {
   if (!isOpen) {
     return null;
@@ -71,8 +97,28 @@ const FormModalShell = ({
           maxWidth,
         }}
       >
-        {title ? <h3 style={titleStyles}>{title}</h3> : null}
-        {description ? <p style={descriptionStyles}>{description}</p> : null}
+        {title || onClose ? (
+          <div style={headerStyles}>
+            <div>
+              {title ? <h3 style={titleStyles}>{title}</h3> : null}
+              {description ? <p style={descriptionStyles}>{description}</p> : null}
+            </div>
+            {onClose ? (
+              <button
+                type="button"
+                onClick={onClose}
+                style={closeButtonStyles}
+                disabled={isCloseDisabled}
+                aria-label="Close modal"
+              >
+                <FiX size={20} />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {!title && !onClose && description ? (
+          <p style={descriptionStyles}>{description}</p>
+        ) : null}
         <div style={bodyStyles}>{children}</div>
         {footer ? <div style={footerStyles}>{footer}</div> : null}
       </div>

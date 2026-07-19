@@ -6,23 +6,22 @@ import { shellStyles } from "../layout/BarangayLayout";
 const overlayStyles = {
   position: "fixed",
   inset: 0,
-  backgroundColor: "rgba(21, 40, 63, 0.48)",
+  backgroundColor: "rgba(23, 50, 77, 0.42)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   padding: "24px",
-  zIndex: 1300,
+  zIndex: 1500,
 };
 
 const modalStyles = {
   width: "min(640px, 100%)",
   maxHeight: "90vh",
   overflowY: "auto",
-  backgroundColor: "#eef5fb",
-  borderRadius: "22px",
-  border: "1px solid #d7e2ef",
-  boxShadow: "0 24px 60px rgba(23, 50, 77, 0.18)",
-  padding: "24px",
+  backgroundColor: "#ffffff",
+  borderRadius: "24px",
+  boxShadow: "0 24px 54px rgba(31, 64, 95, 0.22)",
+  padding: "28px",
   boxSizing: "border-box",
 };
 
@@ -31,35 +30,37 @@ const inputStyles = {
   minHeight: "48px",
   padding: "12px 14px",
   borderRadius: "14px",
-  border: "1px solid #d2deea",
+  border: "1px solid #cbdbea",
   boxSizing: "border-box",
   fontSize: "14px",
-  color: "#21405f",
-  backgroundColor: "#ffffff",
+  color: "#17324d",
+  backgroundColor: "#f8fbfe",
 };
 
 const labelStyles = {
   display: "block",
   marginBottom: "8px",
-  color: "#4f677f",
-  fontSize: "13px",
-  fontWeight: 700,
+  color: "#48627d",
+  fontSize: "12px",
+  fontWeight: 800,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
 };
 
 const errorTextStyles = {
-  margin: "10px 0 0",
+  margin: "8px 0 0",
   color: "#dc2626",
-  fontSize: "13px",
-  fontWeight: 500,
+  fontSize: "12px",
+  lineHeight: 1.4,
 };
 
 const closeButtonStyles = {
   border: "1px solid #c6d8ea",
   borderRadius: "14px",
-  width: "46px",
-  height: "46px",
+  width: "42px",
+  height: "42px",
   backgroundColor: "#f8fbfe",
-  color: "#2a4c6f",
+  color: "#24496e",
   cursor: "pointer",
   display: "inline-flex",
   alignItems: "center",
@@ -208,7 +209,14 @@ const AnalyticsExportModal = ({
             marginBottom: "20px",
           }}
         >
-          <h3 style={{ margin: 0, color: "#17324d", fontSize: "24px" }}>
+          <h3
+            style={{
+              margin: 0,
+              color: "#17324d",
+              fontSize: "26px",
+              fontWeight: 800,
+            }}
+          >
             Evacuee Analytics Report
           </h3>
           <button
@@ -223,7 +231,14 @@ const AnalyticsExportModal = ({
         </div>
 
         <section style={{ ...shellStyles.card, marginBottom: "18px" }}>
-          <h4 style={{ margin: "0 0 14px", color: "#17324d" }}>
+          <h4
+            style={{
+              margin: "0 0 14px",
+              color: "#17324d",
+              fontSize: "18px",
+              fontWeight: 800,
+            }}
+          >
             Export Details
           </h4>
           <div

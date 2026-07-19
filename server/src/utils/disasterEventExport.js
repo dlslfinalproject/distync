@@ -173,72 +173,22 @@ const buildExcelBuffer = async ({ rows, scope, search, eventLabel }) => {
   }));
   reportExport.addWorkbookLogo(workbook, worksheet);
 
-  worksheet.mergeCells(1, 2, 1, EXPORT_COLUMNS.length);
-  worksheet.getCell("B1").value = "DISTYNC";
-  worksheet.getCell("B1").font = {
-    bold: true,
-    size: 18,
-    color: { argb: "FFFFFFFF" },
-  };
-  worksheet.getCell("B1").fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF17324D" },
-  };
-  worksheet.getCell("B1").alignment = { horizontal: "left", vertical: "middle" };
-  worksheet.mergeCells(2, 2, 2, EXPORT_COLUMNS.length);
-  worksheet.getCell("B2").value = "MSWDO";
-  worksheet.getCell("B2").font = {
-    bold: true,
-    size: 14,
-    color: { argb: "FFFFFFFF" },
-  };
-  worksheet.getCell("B2").fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF17324D" },
-  };
-  worksheet.getCell("B2").alignment = { horizontal: "left", vertical: "middle" };
-  worksheet.mergeCells(3, 2, 3, EXPORT_COLUMNS.length);
-  worksheet.getCell("B3").value = "Municipality of Malvar, Batangas";
-  worksheet.getCell("B3").font = {
-    bold: true,
-    size: 11,
-    color: { argb: "FFFFFFFF" },
-  };
-  worksheet.getCell("B3").fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF17324D" },
-  };
-  worksheet.getCell("B3").alignment = { horizontal: "left", vertical: "middle" };
-  worksheet.mergeCells(4, 2, 4, EXPORT_COLUMNS.length);
-  worksheet.getCell("B4").value = getReportTitle(eventLabel);
-  worksheet.getCell("B4").font = {
-    bold: true,
-    size: 14,
-    color: { argb: "FFFFFFFF" },
-  };
-  worksheet.getCell("B4").fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF17324D" },
-  };
-  worksheet.getCell("B4").alignment = { horizontal: "left", vertical: "middle" };
-  worksheet.getRow(1).height = 28;
-  worksheet.getRow(2).height = 24;
-  worksheet.getRow(3).height = 20;
-  worksheet.getRow(4).height = 24;
+  const headerEndRowNumber = reportExport.buildExcelReportHeader({
+    worksheet,
+    lastColumnIndex: EXPORT_COLUMNS.length,
+    sourceName: "MSWDO",
+    reportTitle: getReportTitle(eventLabel),
+    metadata: [
+      ...(eventLabel ? [{ label: "Disaster Event", value: eventLabel }] : []),
+      { label: "Tab", value: SCOPE_LABELS[scope] || SCOPE_LABELS.all },
+      { label: "Search", value: search?.trim() || "None" },
+      { label: "Generated", value: formatGeneratedAt() },
+      { label: "Total Rows", value: rows.length },
+    ],
+  });
 
-  buildTitleLines({ scope, search, eventLabel, totalRows: rows.length })
-    .slice(4)
-    .forEach((line, index) => {
-      const row = worksheet.getRow(index + 6);
-      row.getCell(1).value = line;
-      row.getCell(1).font = { bold: index === 0 };
-    });
-
-  const headerRowNumber = 11;
+  const headerRowNumber = headerEndRowNumber + 1;
+  worksheet.views = [{ state: "frozen", ySplit: headerRowNumber }];
   const headerRow = worksheet.getRow(headerRowNumber);
   EXPORT_COLUMNS.forEach((column, index) => {
     const cell = headerRow.getCell(index + 1);

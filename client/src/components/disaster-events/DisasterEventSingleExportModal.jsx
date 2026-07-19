@@ -6,20 +6,19 @@ import { shellStyles } from "../layout/BarangayLayout";
 const overlayStyles = {
   position: "fixed",
   inset: 0,
-  backgroundColor: "rgba(18, 34, 51, 0.45)",
+  backgroundColor: "rgba(23, 50, 77, 0.42)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   padding: "24px",
-  zIndex: 1200,
+  zIndex: 1500,
 };
 
 const modalStyles = {
-  width: "100%",
-  maxWidth: "460px",
+  width: "min(560px, 100%)",
   backgroundColor: "#ffffff",
-  borderRadius: "20px",
-  boxShadow: "0 24px 48px rgba(20, 48, 78, 0.2)",
+  borderRadius: "24px",
+  boxShadow: "0 24px 54px rgba(31, 64, 95, 0.22)",
   padding: "28px",
   boxSizing: "border-box",
 };
@@ -29,25 +28,28 @@ const inputStyles = {
   minHeight: "48px",
   padding: "12px 14px",
   borderRadius: "14px",
-  border: "1px solid #d2deea",
+  border: "1px solid #cbdbea",
   boxSizing: "border-box",
   fontSize: "14px",
-  color: "#21405f",
-  backgroundColor: "#ffffff",
+  color: "#17324d",
+  backgroundColor: "#f8fbfe",
 };
 
 const labelStyles = {
   display: "block",
   marginBottom: "8px",
-  color: "#4f677f",
-  fontSize: "13px",
-  fontWeight: 700,
+  color: "#48627d",
+  fontSize: "12px",
+  fontWeight: 800,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
 };
 
 const titleStyles = {
   margin: 0,
   color: "#17324d",
-  fontSize: "22px",
+  fontSize: "26px",
+  fontWeight: 800,
 };
 
 const messageStyles = {
@@ -55,6 +57,20 @@ const messageStyles = {
   color: "#5d7188",
   fontSize: "15px",
   lineHeight: 1.6,
+};
+
+const closeButtonStyles = {
+  border: "1px solid #c6d8ea",
+  borderRadius: "14px",
+  width: "42px",
+  height: "42px",
+  backgroundColor: "#f8fbfe",
+  color: "#24496e",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  cursor: "pointer",
+  flexShrink: 0,
 };
 
 const getEventLabel = (eventData) =>
@@ -94,10 +110,11 @@ const DisasterEventSingleExportModal = ({
           <button
             type="button"
             onClick={onClose}
-            style={pageHeaderStyles.secondaryButton}
+            style={closeButtonStyles}
             disabled={isSubmitting}
+            aria-label="Close modal"
           >
-            <FiX />
+            <FiX size={20} />
           </button>
         </div>
 

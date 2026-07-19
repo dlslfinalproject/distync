@@ -26,12 +26,12 @@ import {
 
 const inputStyles = {
   width: "100%",
-  minHeight: "46px",
+  minHeight: "48px",
   padding: "12px 14px",
-  borderRadius: "12px",
-  border: "1px solid #cfddeb",
+  borderRadius: "14px",
+  border: "1px solid #cbdbea",
   backgroundColor: "#f8fbfe",
-  color: "#1f3b57",
+  color: "#17324d",
   fontSize: "14px",
   boxSizing: "border-box",
 };
@@ -49,37 +49,53 @@ const labelStyles = {
 const exportLabelStyles = {
   display: "block",
   marginBottom: "8px",
-  color: "#4f677f",
-  fontSize: "13px",
-  fontWeight: 700,
+  color: "#48627d",
+  fontSize: "12px",
+  fontWeight: 800,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
 };
 
 const overlayStyles = {
   position: "fixed",
   inset: 0,
-  backgroundColor: "rgba(21, 40, 63, 0.48)",
+  backgroundColor: "rgba(23, 50, 77, 0.42)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   padding: "24px",
-  zIndex: 1300,
+  zIndex: 1500,
 };
 
 const modalStyles = {
   width: "min(860px, 100%)",
   maxHeight: "90vh",
   overflowY: "auto",
-  backgroundColor: "#eef5fb",
-  borderRadius: "22px",
-  border: "1px solid #d7e2ef",
-  boxShadow: "0 24px 60px rgba(23, 50, 77, 0.18)",
-  padding: "24px",
+  backgroundColor: "#ffffff",
+  borderRadius: "24px",
+  boxShadow: "0 24px 54px rgba(31, 64, 95, 0.22)",
+  padding: "28px",
   boxSizing: "border-box",
 };
 
 const sectionTitleStyles = {
-  margin: "0 0 12px",
+  margin: "0 0 14px",
   color: "#17324d",
+  fontSize: "18px",
+  fontWeight: 800,
+};
+
+const closeButtonStyles = {
+  border: "1px solid #c6d8ea",
+  borderRadius: "14px",
+  width: "42px",
+  height: "42px",
+  backgroundColor: "#f8fbfe",
+  color: "#24496e",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  cursor: "pointer",
 };
 
 const toolbarStyles = pageSpacingStyles.toolbar;
@@ -710,17 +726,29 @@ const DisasterEventReportsPage = () => {
               }}
             >
               <div>
-                <h3 style={{ margin: 0, color: "#17324d", fontSize: "26px" }}>
+                <h3
+                  style={{
+                    margin: 0,
+                    color: "#17324d",
+                    fontSize: "26px",
+                    fontWeight: 800,
+                  }}
+                >
                   Disaster Events Barangay Distribution Report
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => !isExporting && setIsExportModalOpen(false)}
-                style={pageHeaderStyles.secondaryButton}
+                style={{
+                  ...closeButtonStyles,
+                  cursor: isExporting ? "not-allowed" : "pointer",
+                  opacity: isExporting ? 0.7 : 1,
+                }}
                 disabled={isExporting}
+                aria-label="Close modal"
               >
-                <FiX />
+                <FiX size={20} />
               </button>
             </div>
 

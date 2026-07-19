@@ -10,9 +10,11 @@ const fieldGroupStyles = {
 const labelStyles = {
   display: "block",
   marginBottom: "8px",
-  color: "#4f677f",
-  fontSize: "13px",
-  fontWeight: 700,
+  color: "#48627d",
+  fontSize: "12px",
+  fontWeight: 800,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
 };
 
 const selectStyles = {
@@ -20,11 +22,11 @@ const selectStyles = {
   minHeight: "48px",
   padding: "12px 14px",
   borderRadius: "14px",
-  border: "1px solid #d2deea",
+  border: "1px solid #cbdbea",
   boxSizing: "border-box",
   fontSize: "14px",
-  color: "#21405f",
-  backgroundColor: "#ffffff",
+  color: "#17324d",
+  backgroundColor: "#f8fbfe",
   outline: "none",
 };
 
@@ -74,6 +76,9 @@ const ExportModal = ({
       isOpen={isOpen}
       title={title}
       description={description}
+      maxWidth="560px"
+      onClose={onClose}
+      isCloseDisabled={isSubmitting}
       footer={
         <>
           <button
