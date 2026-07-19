@@ -1,5 +1,6 @@
 const masterlistRepository = require("../repositories/masterlist.repository");
 const disasterEventService = require("./disasterEvent.service");
+const { ROLE_CODES } = require("../modules/auth/auth.middleware");
 const {
   buildCsvBuffer,
   buildExcelBuffer,
@@ -386,7 +387,7 @@ const isOperationallyActiveHousehold = (household) => {
     return false;
   }
 
-  if (latestStatus === "LEFT" || latestStatus === "TRANSFERRED") {
+  if (latestStatus === "LEFT") {
     return false;
   }
 
@@ -538,11 +539,16 @@ const exportMswdoMasterlist = async (filters) => {
         ? sortedExportRows[0]?.barangay_name || "Selected barangay"
         : "Selected Barangays"
       : "All Barangays";
+  const sourceName =
+    filters.source_role === ROLE_CODES.BARANGAY
+      ? `Barangay ${sortedExportRows[0]?.barangay_name || barangayLabel}`
+      : "MSWDO";
 
   const titleLines = buildExportTitleLines({
     eventLabel,
     barangayLabel,
     searchTerm: filters.search,
+    sourceName,
   });
 
   const filename = buildExportFilename({
@@ -579,6 +585,7 @@ const exportMswdoMasterlist = async (filters) => {
         barangayLabel,
         searchTerm: filters.search,
         includeBarangayColumn,
+        sourceName,
       }),
     };
   }
@@ -597,6 +604,7 @@ const exportMswdoMasterlist = async (filters) => {
       barangayLabel,
       searchTerm: filters.search,
       includeBarangayColumn,
+      sourceName,
     }),
   };
 };

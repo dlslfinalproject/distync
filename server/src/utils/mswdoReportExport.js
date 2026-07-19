@@ -59,10 +59,15 @@ const escapeCsvValue = (value) => {
   return stringValue;
 };
 
-const buildHeaderLines = ({ reportTitle, metadata = [], totalRows }) => {
+const buildHeaderLines = ({
+  reportTitle,
+  metadata = [],
+  totalRows,
+  sourceName = "MSWDO",
+}) => {
   return [
     "DISTYNC",
-    "Municipal Social Welfare and Development Office",
+    sourceName,
     "Municipality of Malvar, Batangas",
     reportTitle,
     ...metadata.map((item) => `${item.label}: ${item.value}`),
@@ -85,11 +90,12 @@ const buildFilename = (filePrefix, format) => {
   return `${filePrefix}-${getDateStamp()}.${extensionMap[format]}`;
 };
 
-const buildCsvBuffer = ({ reportTitle, metadata, columns, rows }) => {
+const buildCsvBuffer = ({ reportTitle, metadata, columns, rows, sourceName }) => {
   const titleLines = buildHeaderLines({
     reportTitle,
     metadata,
     totalRows: rows.length,
+    sourceName,
   });
   const columnLine = columns.map((column) => escapeCsvValue(column.label)).join(",");
   const dataLines = rows.map((row) =>
@@ -114,6 +120,7 @@ const buildExcelBuffer = async ({
   metadata,
   columns,
   rows,
+  sourceName = "MSWDO",
 }) => {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "DISTYNC";
@@ -154,7 +161,7 @@ const buildExcelBuffer = async ({
   worksheet.getCell("B1").alignment = { horizontal: "left", vertical: "middle" };
 
   worksheet.mergeCells(2, 2, 2, lastColumnIndex);
-  worksheet.getCell("B2").value = "Municipal Social Welfare and Development Office";
+  worksheet.getCell("B2").value = sourceName;
   worksheet.getCell("B2").font = {
     bold: true,
     size: 14,
@@ -278,7 +285,7 @@ const wrapText = (value, maxLength) => {
   return lines.length ? lines : ["--"];
 };
 
-const buildPdfBuffer = ({ reportTitle, metadata, columns, rows }) => {
+const buildPdfBuffer = ({ reportTitle, metadata, columns, rows, sourceName = "MSWDO" }) => {
   const pages = [];
   let page = null;
   let cursorY = 555;
@@ -307,6 +314,7 @@ const buildPdfBuffer = ({ reportTitle, metadata, columns, rows }) => {
       reportTitle,
       metadata,
       totalRows: rows.length,
+      sourceName,
     });
 
     page = reportExport.createPdfBuilder({ width: pageWidth, height: 595 });
@@ -322,7 +330,7 @@ const buildPdfBuffer = ({ reportTitle, metadata, columns, rows }) => {
       size: 18,
       color: reportExport.PDF_COLORS.white,
     });
-    addText("MSWDO", 112, 529, {
+    addText(sourceName, 112, 529, {
       bold: true,
       size: 14,
       color: reportExport.PDF_COLORS.white,
@@ -404,6 +412,7 @@ const buildExportFile = async ({
   filePrefix,
   worksheetName,
   reportTitle,
+  sourceName = "MSWDO",
   metadata = [],
   columns = [],
   rows = [],
@@ -421,6 +430,7 @@ const buildExportFile = async ({
     metadata,
     columns,
     rows,
+    sourceName,
   });
 
   return {

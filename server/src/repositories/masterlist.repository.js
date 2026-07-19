@@ -257,7 +257,7 @@ const getBarangayDashboardMetrics = async (disasterEventId, barangayId) => {
         SELECT COUNT(*)::int
         FROM deduplicated_evacuees de
         WHERE de.current_stay_type = 'EVAC_CENTER'
-          AND de.status IN ('LEFT', 'TRANSFERRED')
+          AND de.status = 'LEFT'
           AND de.time_out IS NOT NULL
       ) AS total_departed_evacuees
   `;
@@ -547,7 +547,7 @@ const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) =
           SELECT COUNT(*)::int
           FROM deduplicated_summary_evacuees dse
           WHERE dse.current_stay_type = 'EVAC_CENTER'
-            AND dse.status IN ('LEFT', 'TRANSFERRED')
+            AND dse.status = 'LEFT'
             AND dse.time_out IS NOT NULL
         ) AS total_departed_evacuees,
         (
@@ -577,7 +577,7 @@ const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) =
         )::int AS admitted_evacuees_count,
         COUNT(*) FILTER (
           WHERE dse.current_stay_type = 'EVAC_CENTER'
-            AND dse.status IN ('LEFT', 'TRANSFERRED')
+            AND dse.status = 'LEFT'
             AND dse.time_out IS NOT NULL
         )::int AS departed_evacuees_count
       FROM deduplicated_summary_households dsh

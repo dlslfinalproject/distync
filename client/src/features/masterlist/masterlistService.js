@@ -237,7 +237,7 @@ export const isOperationallyActiveHousehold = (household) => {
     return false;
   }
 
-  if (latestStatus === "LEFT" || latestStatus === "TRANSFERRED") {
+  if (latestStatus === "LEFT") {
     return false;
   }
 

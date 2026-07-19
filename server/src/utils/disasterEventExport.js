@@ -123,7 +123,8 @@ const wrapText = (value, maxLength) => {
 const buildTitleLines = ({ scope, search, eventLabel, totalRows }) => {
   return [
     "DISTYNC",
-    "Municipality of Malvar Disaster Relief Management System",
+    "MSWDO",
+    "Municipality of Malvar, Batangas",
     getReportTitle(eventLabel),
     ...(eventLabel ? [`Disaster Event: ${eventLabel}`] : []),
     `Tab: ${SCOPE_LABELS[scope] || SCOPE_LABELS.all}`,
@@ -157,7 +158,7 @@ const buildExcelBuffer = async ({ rows, scope, search, eventLabel }) => {
   workbook.created = new Date();
 
   const worksheet = workbook.addWorksheet("Disaster Events", {
-    views: [{ state: "frozen", ySplit: 9 }],
+    views: [{ state: "frozen", ySplit: 11 }],
     pageSetup: {
       orientation: "landscape",
       fitToPage: true,
@@ -186,7 +187,7 @@ const buildExcelBuffer = async ({ rows, scope, search, eventLabel }) => {
   };
   worksheet.getCell("B1").alignment = { horizontal: "left", vertical: "middle" };
   worksheet.mergeCells(2, 2, 2, EXPORT_COLUMNS.length);
-  worksheet.getCell("B2").value = getReportTitle(eventLabel);
+  worksheet.getCell("B2").value = "MSWDO";
   worksheet.getCell("B2").font = {
     bold: true,
     size: 14,
@@ -198,18 +199,46 @@ const buildExcelBuffer = async ({ rows, scope, search, eventLabel }) => {
     fgColor: { argb: "FF17324D" },
   };
   worksheet.getCell("B2").alignment = { horizontal: "left", vertical: "middle" };
+  worksheet.mergeCells(3, 2, 3, EXPORT_COLUMNS.length);
+  worksheet.getCell("B3").value = "Municipality of Malvar, Batangas";
+  worksheet.getCell("B3").font = {
+    bold: true,
+    size: 11,
+    color: { argb: "FFFFFFFF" },
+  };
+  worksheet.getCell("B3").fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FF17324D" },
+  };
+  worksheet.getCell("B3").alignment = { horizontal: "left", vertical: "middle" };
+  worksheet.mergeCells(4, 2, 4, EXPORT_COLUMNS.length);
+  worksheet.getCell("B4").value = getReportTitle(eventLabel);
+  worksheet.getCell("B4").font = {
+    bold: true,
+    size: 14,
+    color: { argb: "FFFFFFFF" },
+  };
+  worksheet.getCell("B4").fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FF17324D" },
+  };
+  worksheet.getCell("B4").alignment = { horizontal: "left", vertical: "middle" };
   worksheet.getRow(1).height = 28;
   worksheet.getRow(2).height = 24;
+  worksheet.getRow(3).height = 20;
+  worksheet.getRow(4).height = 24;
 
   buildTitleLines({ scope, search, eventLabel, totalRows: rows.length })
-    .slice(3)
+    .slice(4)
     .forEach((line, index) => {
-      const row = worksheet.getRow(index + 4);
+      const row = worksheet.getRow(index + 6);
       row.getCell(1).value = line;
       row.getCell(1).font = { bold: index === 0 };
     });
 
-  const headerRowNumber = 9;
+  const headerRowNumber = 11;
   const headerRow = worksheet.getRow(headerRowNumber);
   EXPORT_COLUMNS.forEach((column, index) => {
     const cell = headerRow.getCell(index + 1);
@@ -283,7 +312,7 @@ const buildPdfBuffer = ({ rows, scope, search, eventLabel }) => {
   };
   const startPage = () => {
     page = reportExport.createPdfBuilder({ width: 842, height: 595 });
-    page.fillRect(40, 505, 762, 64, reportExport.PDF_COLORS.navy);
+    page.fillRect(40, 505, 762, 70, reportExport.PDF_COLORS.navy);
     page.fillRect(58, 519, 40, 40, reportExport.PDF_COLORS.white);
     if (reportExport.PDF_IMAGE_REGISTRY.distyncLogo) {
       page.drawImage("distyncLogo", 60, 521, 36, 36);
@@ -293,7 +322,17 @@ const buildPdfBuffer = ({ rows, scope, search, eventLabel }) => {
       size: 18,
       color: reportExport.PDF_COLORS.white,
     });
-    addText(`MSWDO ${getReportTitle(eventLabel)}`, 112, 524, {
+    addText("MSWDO", 112, 528, {
+      bold: true,
+      size: 14,
+      color: reportExport.PDF_COLORS.white,
+    });
+    addText("Municipality of Malvar, Batangas", 112, 514, {
+      bold: true,
+      size: 10,
+      color: reportExport.PDF_COLORS.white,
+    });
+    addText(getReportTitle(eventLabel), 430, 528, {
       bold: true,
       size: 14,
       color: reportExport.PDF_COLORS.white,

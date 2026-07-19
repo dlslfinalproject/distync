@@ -1159,7 +1159,7 @@ const updateEvacuationLogCorrection = async (
       status = $3,
       time_out = CASE
         WHEN $3 = 'PRESENT' THEN NULL
-        WHEN $3 IN ('LEFT', 'TRANSFERRED') AND time_out IS NULL THEN NOW()
+        WHEN $3 = 'LEFT' AND time_out IS NULL THEN NOW()
         ELSE time_out
       END,
       remarks = $4,

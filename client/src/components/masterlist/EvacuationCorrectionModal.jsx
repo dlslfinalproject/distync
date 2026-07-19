@@ -118,7 +118,6 @@ const EvacuationCorrectionModal = ({
               >
                 <option value="PRESENT">Present</option>
                 <option value="LEFT">Left</option>
-                <option value="TRANSFERRED">Transferred</option>
               </select>
             </label>
 

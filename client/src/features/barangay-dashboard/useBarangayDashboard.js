@@ -234,7 +234,7 @@ export const useBarangayDashboard = ({ userId }) => {
         label: "Departed Evacuees",
         value: payload.metrics.total_departed_evacuees || 0,
         helperText:
-          "Individuals whose latest evacuation record shows LEFT or TRANSFERRED from an evacuation center.",
+          "Individuals whose latest evacuation record shows LEFT from an evacuation center.",
       },
     ];
   }, [payload.metrics]);

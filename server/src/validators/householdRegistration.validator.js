@@ -647,9 +647,9 @@ const validateCorrectEvacuationLog = (req, res, next) => {
       });
     }
 
-    if (!["PRESENT", "LEFT", "TRANSFERRED"].includes(status)) {
+    if (!["PRESENT", "LEFT"].includes(status)) {
       return res.status(400).json({
-        message: "status must be PRESENT, LEFT, or TRANSFERRED",
+        message: "status must be PRESENT or LEFT",
       });
     }
 

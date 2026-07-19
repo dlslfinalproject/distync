@@ -377,6 +377,8 @@ const buildExcelHeaderSection = ({
   searchTerm,
   generatedAtLabel,
   totalRows,
+  sourceName = "MSWDO",
+  reportTitle = "Evacuee Masterlist Report",
 }) => {
   worksheet.mergeCells(`B1:${lastColumnLetter}1`);
   worksheet.getCell("B1").value = "DISTYNC";
@@ -396,7 +398,7 @@ const buildExcelHeaderSection = ({
   };
 
   worksheet.mergeCells(`B2:${lastColumnLetter}2`);
-  worksheet.getCell("B2").value = "MSWDO Evacuee Masterlist Report";
+  worksheet.getCell("B2").value = sourceName;
   worksheet.getCell("B2").font = {
     bold: true,
     size: 14,
@@ -416,6 +418,7 @@ const buildExcelHeaderSection = ({
   worksheet.getRow(2).height = 24;
 
   const contextRows = [
+    ["Report", reportTitle],
     ["Disaster Event", eventLabel],
     ["Barangay Filter", barangayLabel],
     ["Generated", generatedAtLabel],
@@ -553,6 +556,8 @@ const buildExcelBuffer = async ({
   barangayLabel,
   searchTerm,
   includeBarangayColumn,
+  sourceName = "MSWDO",
+  reportTitle = "Evacuee Masterlist Report",
 }) => {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "DISTYNC";
@@ -608,6 +613,8 @@ const buildExcelBuffer = async ({
     searchTerm,
     generatedAtLabel,
     totalRows: rows.length,
+    sourceName,
+    reportTitle,
   });
 
   currentRowNumber += 1;
@@ -682,6 +689,8 @@ const buildExcelBuffer = async ({
     searchTerm,
     generatedAtLabel,
     totalRows: rows.length,
+    sourceName,
+    reportTitle,
   });
 
   const tableTitleRowNumber = 9;
@@ -1162,9 +1171,19 @@ const drawHeader = (page, context, layout) => {
     size: 18,
     color: PDF_COLORS.white,
   });
-  page.drawText("MSWDO Evacuee Masterlist Report", layout.marginX + 74, layout.cursorY - 46, {
+  page.drawText(context.sourceName || "MSWDO", layout.marginX + 74, layout.cursorY - 42, {
     font: "F2",
-    size: 16,
+    size: 14,
+    color: PDF_COLORS.white,
+  });
+  page.drawText("Municipality of Malvar, Batangas", layout.marginX + 74, layout.cursorY - 58, {
+    font: "F2",
+    size: 10,
+    color: PDF_COLORS.white,
+  });
+  page.drawText(context.reportTitle || "Evacuee Masterlist Report", layout.marginX + 360, layout.cursorY - 42, {
+    font: "F2",
+    size: 14,
     color: PDF_COLORS.white,
   });
 
@@ -1423,6 +1442,8 @@ const buildPdfBuffer = ({
   barangayLabel,
   searchTerm,
   includeBarangayColumn,
+  sourceName = "MSWDO",
+  reportTitle = "Evacuee Masterlist Report",
 }) => {
   const generatedAtLabel = new Intl.DateTimeFormat("en-PH", {
     month: "short",
@@ -1441,6 +1462,8 @@ const buildPdfBuffer = ({
       eventLabel,
       barangayLabel,
       generatedAtLabel,
+      sourceName,
+      reportTitle,
       logoImageName: PDF_IMAGE_REGISTRY.distyncLogo ? "distyncLogo" : null,
       searchTerm,
       totalRows: rows.length,
@@ -1502,9 +1525,18 @@ const buildExcelFilename = ({ eventCode, barangayName }) => {
   )}_${slugifyFilePart(barangayName, "all-barangays")}_${dateStamp}.xlsx`;
 };
 
-const buildExportTitleLines = ({ eventLabel, barangayLabel, searchTerm }) => {
+const buildExportTitleLines = ({
+  eventLabel,
+  barangayLabel,
+  searchTerm,
+  sourceName = "MSWDO",
+  reportTitle = "Evacuee Masterlist Report",
+}) => {
   const titleLines = [
-    "DISTYNC MSWDO Evacuee Masterlist Report",
+    "DISTYNC",
+    sourceName,
+    "Municipality of Malvar, Batangas",
+    reportTitle,
     `Disaster Event: ${eventLabel}`,
     `Barangay Filter: ${barangayLabel}`,
   ];

@@ -251,8 +251,7 @@ const HouseholdDetailModal = ({
   const isOperationallyActive =
     household?.is_active !== false &&
     !latestAttendance?.time_out &&
-    latestAttendanceStatus !== "LEFT" &&
-    latestAttendanceStatus !== "TRANSFERRED";
+    latestAttendanceStatus !== "LEFT";
   const isNonAdmittedResident = isNonAdmittedResidentHousehold(
     household,
     latestAttendance,

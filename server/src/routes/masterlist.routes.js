@@ -84,8 +84,12 @@ router.get(
             barangay_ids: req.auth.defaultBarangayId
               ? [req.auth.defaultBarangayId]
               : [],
+            source_role: req.auth.roleCode,
           }
-        : req.validatedQuery;
+        : {
+            ...req.validatedQuery,
+            source_role: req.auth.roleCode,
+          };
 
     const file = await masterlistService.exportMswdoMasterlist(
       protectedQuery,

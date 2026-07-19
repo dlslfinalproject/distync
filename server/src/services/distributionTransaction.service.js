@@ -39,6 +39,15 @@ const sortDistributionHistoryRows = (rows, sortOrder = "newest") => {
   });
 };
 
+const buildReportSourceName = (requester, rows = []) => {
+  if (requester?.roleCode !== ROLE_CODES.BARANGAY) {
+    return "MSWDO";
+  }
+
+  const barangayName = rows.find((row) => row.barangay_name)?.barangay_name;
+  return barangayName ? `Barangay ${barangayName}` : "Barangay";
+};
+
 const buildDistributionHistorySummaryRows = (rows) => {
   const summaryByEventId = new Map();
 
@@ -823,6 +832,7 @@ const exportDistributionHistory = async ({ requester, filters }) => {
 
   const isSummaryExport = !filters.disaster_event_id;
   const sortedRows = sortDistributionHistoryRows(rows, filters.sort_order || "newest");
+  const sourceName = buildReportSourceName(requester, sortedRows);
 
   if (isSummaryExport) {
     const summaryRows = sortDistributionHistorySummaryRows(
@@ -840,6 +850,7 @@ const exportDistributionHistory = async ({ requester, filters }) => {
         requester?.roleCode === ROLE_CODES.BARANGAY
           ? "Barangay Distribution History Summary"
           : "MSWDO Distribution History Summary",
+      sourceName,
       metadata: [
         {
           label: "Disaster Event",
@@ -899,6 +910,7 @@ const exportDistributionHistory = async ({ requester, filters }) => {
       requester?.roleCode === ROLE_CODES.BARANGAY
         ? "Barangay Distribution History"
         : "MSWDO Distribution History",
+    sourceName,
     metadata: [
       {
         label: "Disaster Event",

@@ -1507,8 +1507,7 @@ const restoreHousehold = async ({ householdId, requester, restoreData }) => {
   const latestAttendanceStatus = String(latestAttendance?.status || "").toUpperCase();
   const hasDepartedLatestAttendance =
     Boolean(latestAttendance?.time_out) ||
-    latestAttendanceStatus === "LEFT" ||
-    latestAttendanceStatus === "TRANSFERRED";
+    latestAttendanceStatus === "LEFT";
 
   if (
     restoreMode !== RESTORE_MODES.RETURN_TO_EVAC_CENTER ||

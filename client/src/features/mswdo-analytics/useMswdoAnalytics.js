@@ -412,6 +412,7 @@ export const useMswdoAnalytics = () => {
   return {
     disasterEvents,
     barangays: selectableBarangays,
+    allBarangays: barangays,
     selectedDisasterEventId,
     selectedBarangayId,
     selectedDisasterEvent,
