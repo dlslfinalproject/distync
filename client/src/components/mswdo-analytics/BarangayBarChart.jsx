@@ -36,6 +36,39 @@ const chartStyles = {
     fontWeight: 700,
     whiteSpace: "nowrap",
   },
+  emptyWrapper: {
+    minHeight: "320px",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    textAlign: "center",
+    color: "#60738a",
+  },
+  emptyIcon: {
+    width: "132px",
+    height: "92px",
+    borderRadius: "18px",
+    border: "2px dashed #cfddeb",
+    background:
+      "linear-gradient(180deg, transparent 0 22%, #dbe8f5 22% 34%, transparent 34% 48%, #eef5fb 48% 60%, transparent 60% 74%, #f8fbfe 74% 86%, transparent 86%)",
+    boxShadow: "inset 0 0 0 14px #ffffff",
+    marginBottom: "18px",
+  },
+  emptyMessage: {
+    margin: 0,
+    color: "#4f6c88",
+    fontSize: "15px",
+    lineHeight: 1.5,
+    maxWidth: "280px",
+  },
+  emptyHint: {
+    margin: "6px 0 0",
+    color: "#8aa0b6",
+    fontSize: "13px",
+    lineHeight: 1.45,
+    maxWidth: "300px",
+  },
 };
 
 const HIGHLIGHT_COLOR = "#2f6499";
@@ -136,7 +169,15 @@ const BarangayBarChart = ({ title, description, data, dataKey, height = 320 }) =
           </ResponsiveContainer>
         </div>
       ) : (
-        <p style={shellStyles.mutedText}>No chart data available for this view.</p>
+        <div style={chartStyles.emptyWrapper}>
+          <div aria-hidden="true" style={chartStyles.emptyIcon} />
+          <p style={chartStyles.emptyMessage}>
+            No matching data available for this view.
+          </p>
+          <p style={chartStyles.emptyHint}>
+            Try changing the disaster event or barangay filter.
+          </p>
+        </div>
       )}
     </section>
   );

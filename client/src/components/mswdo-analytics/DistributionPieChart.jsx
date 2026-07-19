@@ -27,6 +27,43 @@ const COLORS = [
   "#84cc16",
 ];
 const HIGHEST_VALUE_COLOR = "#2f6499";
+const DEFAULT_EMPTY_MESSAGE = "No matching data available for this view.";
+
+const emptyStateStyles = {
+  wrapper: {
+    minHeight: "320px",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    textAlign: "center",
+    color: "#60738a",
+  },
+  icon: {
+    width: "112px",
+    height: "112px",
+    borderRadius: "999px",
+    border: "2px dashed #cfddeb",
+    background:
+      "conic-gradient(from 40deg, #dbe8f5 0deg 110deg, #eef5fb 110deg 250deg, #f8fbfe 250deg 360deg)",
+    boxShadow: "inset 0 0 0 22px #ffffff",
+    marginBottom: "18px",
+  },
+  message: {
+    margin: 0,
+    color: "#4f6c88",
+    fontSize: "15px",
+    lineHeight: 1.5,
+    maxWidth: "280px",
+  },
+  hint: {
+    margin: "6px 0 0",
+    color: "#8aa0b6",
+    fontSize: "13px",
+    lineHeight: 1.45,
+    maxWidth: "300px",
+  },
+};
 
 const getHighestValue = (data) => {
   return Math.max(...data.map((item) => Number(item.value || 0)));
@@ -98,7 +135,7 @@ const DistributionPieChart = ({
   title,
   description,
   data,
-  emptyMessage,
+  emptyMessage = DEFAULT_EMPTY_MESSAGE,
   colors = COLORS,
   highlightHighest = true,
   colorMap,
@@ -162,7 +199,13 @@ const DistributionPieChart = ({
           </ResponsiveContainer>
         </div>
       ) : (
-        <p style={shellStyles.mutedText}>{emptyMessage}</p>
+        <div style={emptyStateStyles.wrapper}>
+          <div aria-hidden="true" style={emptyStateStyles.icon} />
+          <p style={emptyStateStyles.message}>{emptyMessage}</p>
+          <p style={emptyStateStyles.hint}>
+            Try changing the disaster event or barangay filter.
+          </p>
+        </div>
       )}
     </section>
   );

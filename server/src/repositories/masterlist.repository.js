@@ -249,13 +249,15 @@ const getBarangayDashboardMetrics = async (disasterEventId, barangayId) => {
       (
         SELECT COUNT(*)::int
         FROM deduplicated_evacuees de
-        WHERE de.status = 'PRESENT'
+        WHERE de.current_stay_type = 'EVAC_CENTER'
+          AND de.status = 'PRESENT'
           AND de.time_out IS NULL
       ) AS currently_admitted_evacuees,
       (
         SELECT COUNT(*)::int
         FROM deduplicated_evacuees de
-        WHERE de.status IN ('LEFT', 'TRANSFERRED')
+        WHERE de.current_stay_type = 'EVAC_CENTER'
+          AND de.status IN ('LEFT', 'TRANSFERRED')
           AND de.time_out IS NOT NULL
       ) AS total_departed_evacuees
   `;
@@ -510,7 +512,7 @@ const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) =
           WHEN fh.current_stay_type = 'OTHER_SAFE_PLACE' THEN 'Other Safe Place'
           ELSE 'Unspecified'
         END AS name,
-        COUNT(*)::int AS value
+        COALESCE(SUM(fh.household_size), 0)::int AS value
       FROM deduplicated_summary_households fh
       GROUP BY 1
       ORDER BY value DESC, name ASC
@@ -537,13 +539,15 @@ const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) =
         (
           SELECT COUNT(*)::int
           FROM deduplicated_summary_evacuees dse
-          WHERE dse.status = 'PRESENT'
+          WHERE dse.current_stay_type = 'EVAC_CENTER'
+            AND dse.status = 'PRESENT'
             AND dse.time_out IS NULL
         ) AS currently_admitted_evacuees,
         (
           SELECT COUNT(*)::int
           FROM deduplicated_summary_evacuees dse
-          WHERE dse.status IN ('LEFT', 'TRANSFERRED')
+          WHERE dse.current_stay_type = 'EVAC_CENTER'
+            AND dse.status IN ('LEFT', 'TRANSFERRED')
             AND dse.time_out IS NOT NULL
         ) AS total_departed_evacuees,
         (
@@ -567,11 +571,13 @@ const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) =
       SELECT
         dsh.barangay_id,
         COUNT(*) FILTER (
-          WHERE dse.status = 'PRESENT'
+          WHERE dse.current_stay_type = 'EVAC_CENTER'
+            AND dse.status = 'PRESENT'
             AND dse.time_out IS NULL
         )::int AS admitted_evacuees_count,
         COUNT(*) FILTER (
-          WHERE dse.status IN ('LEFT', 'TRANSFERRED')
+          WHERE dse.current_stay_type = 'EVAC_CENTER'
+            AND dse.status IN ('LEFT', 'TRANSFERRED')
             AND dse.time_out IS NOT NULL
         )::int AS departed_evacuees_count
       FROM deduplicated_summary_households dsh
@@ -599,8 +605,7 @@ const getMswdoMasterlistAnalytics = async (disasterEventId, barangayId = null) =
         COUNT(*)::int AS value
       FROM deduplicated_summary_evacuees dse
       INNER JOIN evacuation_centers ec ON ec.id = dse.evacuation_center_id
-      WHERE dse.status = 'PRESENT'
-        AND dse.time_out IS NULL
+      WHERE dse.current_stay_type = 'EVAC_CENTER'
       GROUP BY ec.id, ec.name
       ORDER BY value DESC, ec.name ASC
     ),

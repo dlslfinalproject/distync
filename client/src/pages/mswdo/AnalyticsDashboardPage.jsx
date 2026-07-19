@@ -170,7 +170,6 @@ const AnalyticsDashboardPage = () => {
             <DistributionPieChart
               title="Barangays Covered"
               data={barangayCoverageDistribution}
-              emptyMessage="No barangay coverage data available for this view."
               colors={["#2f6499", "#cbd5e1"]}
               highlightHighest={false}
             />
@@ -202,7 +201,6 @@ const AnalyticsDashboardPage = () => {
             <DistributionPieChart
               title="Sex Distribution"
               data={sexDistribution}
-              emptyMessage="No sex distribution data available for this view."
               colors={["#2f6499", "#d977a8", "#94a3b8"]}
               highlightHighest={false}
               colorMap={{
@@ -213,13 +211,11 @@ const AnalyticsDashboardPage = () => {
             <DistributionPieChart
               title="Age-Based Sector Distribution"
               data={ageBasedSectorDistribution}
-              emptyMessage="No age-based sector data available for this view."
               innerRadius={0}
             />
             <DistributionPieChart
               title="Non-Age-Based Sector Distribution"
               data={nonAgeBasedSectorDistribution}
-              emptyMessage="No non-age-based sector data available for this view."
               innerRadius={0}
             />
           </div>
@@ -234,20 +230,17 @@ const AnalyticsDashboardPage = () => {
             <DistributionPieChart
               title="Household Conditions"
               data={householdConditionDistribution}
-              emptyMessage="No household condition data available for this view."
               innerRadius={0}
             />
             <DistributionPieChart
               title="Stay Type Distribution"
               data={stayTypeDistribution}
-              emptyMessage="No stay type distribution data available for this view."
               colors={["#2f6499", "#14b8a6", "#f59e0b", "#7c8fd6"]}
               innerRadius={0}
             />
             <DistributionPieChart
               title="Evacuation Status"
               data={admittedVsDepartedDistribution}
-              emptyMessage="No admitted or departed breakdown is available for this view."
               colors={["#2f6499", "#cbd5e1"]}
               colorMap={{
                 Admitted: "#2f6499",
@@ -259,7 +252,7 @@ const AnalyticsDashboardPage = () => {
           </div>
 
           <BarangayBarChart
-            title="Evacuees per Evacuation Center"
+            title="Evacuees per Evacuation Center (Accumulated)"
             data={evacuationCenterDistribution}
             dataKey="value"
             height={evacuationCenterChartHeight}
