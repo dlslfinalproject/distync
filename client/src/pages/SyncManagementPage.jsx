@@ -54,6 +54,12 @@ const ORDER_OPTIONS = [
   { value: "za", label: "Sort Z-A" },
 ];
 
+const SYNC_SECTION_TABS = [
+  { value: "QUEUE", label: "Offline Queue" },
+  { value: "AUDIT", label: "Sync Audit Trail" },
+  { value: "CONFLICTS", label: "Conflict Review" },
+];
+
 const EMPTY_MESSAGE = "No matching records found. Try adjusting your search or filters.";
 
 const fieldStyles = {
@@ -96,6 +102,18 @@ const filterPopoverStyles = {
   boxShadow: "0 22px 44px rgba(31, 64, 95, 0.18)",
   zIndex: 20,
 };
+
+const syncTabButtonStyles = (isActive) => ({
+  padding: "12px 24px",
+  border: "none",
+  borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
+  background: "none",
+  color: isActive ? "#17324d" : "#6b8298",
+  cursor: "pointer",
+  fontSize: "14px",
+  fontWeight: 700,
+  whiteSpace: "nowrap",
+});
 
 const tableStyles = {
   table: {
@@ -228,6 +246,7 @@ const SyncManagementPage = () => {
   const [isLoadingConflictDetail, setIsLoadingConflictDetail] = useState(false);
   const [selectedConflictDetail, setSelectedConflictDetail] = useState(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [activeSyncTab, setActiveSyncTab] = useState("QUEUE");
   const [filters, setFilters] = useState({
     dateFrom: "",
     dateTo: "",
@@ -575,7 +594,7 @@ const SyncManagementPage = () => {
           onClick={() => handleRetrySync()}
           disabled={!isOnline || failedQueueEntries.length === 0 || isRetrying}
           style={{
-            ...toolbarButtonStyles,
+            ...pageHeaderStyles.primaryButton,
             opacity: !isOnline || failedQueueEntries.length === 0 || isRetrying ? 0.7 : 1,
             cursor:
               !isOnline || failedQueueEntries.length === 0 || isRetrying
@@ -588,6 +607,30 @@ const SyncManagementPage = () => {
         </button>
       </div>
 
+      <section style={{ ...shellStyles.card, padding: "22px 36px 0" }}>
+        <div
+          style={{
+            borderBottom: "1px solid #d6e2ef",
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "8px",
+            overflowX: "auto",
+          }}
+        >
+          {SYNC_SECTION_TABS.map((tab) => (
+            <button
+              key={tab.value}
+              type="button"
+              onClick={() => setActiveSyncTab(tab.value)}
+              style={syncTabButtonStyles(activeSyncTab === tab.value)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {activeSyncTab === "QUEUE" ? (
       <section style={shellStyles.card}>
         <h3 style={{ margin: "0 0 16px", color: "#17324d" }}>Offline Queue</h3>
 
@@ -653,7 +696,9 @@ const SyncManagementPage = () => {
           </div>
         )}
       </section>
+      ) : null}
 
+      {activeSyncTab === "AUDIT" ? (
       <section style={shellStyles.card}>
         <h3 style={{ margin: "0 0 16px", color: "#17324d" }}>Sync Audit Trail</h3>
 
@@ -709,7 +754,9 @@ const SyncManagementPage = () => {
           </div>
         )}
       </section>
+      ) : null}
 
+      {activeSyncTab === "CONFLICTS" ? (
       <section style={shellStyles.card}>
         <h3 style={{ margin: "0 0 16px", color: "#17324d" }}>Conflict Review</h3>
 
@@ -781,6 +828,7 @@ const SyncManagementPage = () => {
           </div>
         )}
       </section>
+      ) : null}
 
       <SyncConflictDetailModal
         isOpen={Boolean(selectedConflictDetail)}
