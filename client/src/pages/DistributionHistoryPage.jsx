@@ -573,7 +573,7 @@ const DistributionHistoryPage = () => {
 
           <div>
             <label htmlFor="distribution-history-date-from" style={labelStyles}>
-              Date From (Optional)
+              Date From
             </label>
             <input
               id="distribution-history-date-from"
@@ -591,7 +591,7 @@ const DistributionHistoryPage = () => {
 
           <div>
             <label htmlFor="distribution-history-date-to" style={labelStyles}>
-              Date To (Optional)
+              Date To
             </label>
             <input
               id="distribution-history-date-to"

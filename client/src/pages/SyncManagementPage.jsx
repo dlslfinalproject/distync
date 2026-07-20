@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
+import { FiFilter, FiRefreshCw, FiSearch } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../components/layout/PageHeader";
 import { shellStyles } from "../components/layout/BarangayLayout";
 import SyncStatusBadge from "../components/shared/SyncStatusBadge";
@@ -18,23 +19,82 @@ import {
 import {
   buildConflictPayloadSummary,
   buildPayloadSummary,
+  buildSyncSearchText,
   formatSyncDateTime,
   getConflictReasonLabel,
   getResolutionStatusLabel,
+  getSyncRecordDetails,
   getWinningSide,
   isSafeRetryableStatus,
+  matchesRecordTypeFilter,
   matchesSyncFilter,
-  SYNC_FILTERS,
 } from "../features/sync/syncManagementHelpers";
 
-const noteStyles = {
-  padding: "16px 18px",
-  borderRadius: "16px",
-  backgroundColor: "#f8fbff",
-  border: "1px solid #d7e2ef",
-  color: "#365472",
-  fontSize: "14px",
-  lineHeight: 1.6,
+const RECORD_TYPE_OPTIONS = [
+  { value: "ALL", label: "All Records" },
+  { value: "EVACUEE_MASTERLIST", label: "Evacuee Masterlist" },
+  { value: "RELIEF_GOODS_DISTRIBUTION", label: "Relief Goods Distribution" },
+  { value: "DISASTER_EVENT", label: "Disaster Event Management" },
+  { value: "INVENTORY", label: "Inventory" },
+];
+
+const STATUS_OPTIONS = [
+  { value: "ALL", label: "All" },
+  { value: LOCAL_SYNC_STATUS.PENDING, label: "Pending" },
+  { value: LOCAL_SYNC_STATUS.SYNCED, label: "Synced" },
+  { value: LOCAL_SYNC_STATUS.FAILED, label: "Failed" },
+  { value: LOCAL_SYNC_STATUS.CONFLICT, label: "Conflict" },
+  { value: "RESOLVED", label: "Resolved" },
+];
+
+const ORDER_OPTIONS = [
+  { value: "newest", label: "Newest-Oldest" },
+  { value: "oldest", label: "Oldest-Newest" },
+  { value: "az", label: "Sort A-Z" },
+  { value: "za", label: "Sort Z-A" },
+];
+
+const EMPTY_MESSAGE = "No matching records found. Try adjusting your search or filters.";
+
+const fieldStyles = {
+  label: {
+    display: "block",
+    marginBottom: "8px",
+    color: "#5f7892",
+    fontSize: "12px",
+    fontWeight: 700,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+  },
+  input: {
+    width: "100%",
+    minHeight: "48px",
+    border: "1px solid #cfddeb",
+    borderRadius: "12px",
+    backgroundColor: "#f8fbff",
+    color: "#17324d",
+    fontSize: "14px",
+    padding: "12px 14px",
+    boxSizing: "border-box",
+  },
+};
+
+const toolbarButtonStyles = {
+  ...pageHeaderStyles.secondaryButton,
+  boxShadow: "0 16px 30px rgba(31, 64, 96, 0.08)",
+};
+
+const filterPopoverStyles = {
+  position: "absolute",
+  right: 0,
+  top: "calc(100% + 12px)",
+  width: "min(340px, calc(100vw - 48px))",
+  padding: "20px",
+  border: "1px solid #d6e3f1",
+  borderRadius: "20px",
+  backgroundColor: "#ffffff",
+  boxShadow: "0 22px 44px rgba(31, 64, 95, 0.18)",
+  zIndex: 20,
 };
 
 const tableStyles = {
@@ -57,20 +117,10 @@ const tableStyles = {
     borderBottom: "1px solid #edf3f8",
     color: "#21405f",
     fontSize: "14px",
-    verticalAlign: "top",
     lineHeight: 1.5,
+    verticalAlign: "middle",
   },
 };
-
-const filterButtonStyles = (isActive) => ({
-  border: "none",
-  borderRadius: "999px",
-  padding: "10px 16px",
-  backgroundColor: isActive ? "#dbe8f6" : "#eef5fc",
-  color: isActive ? "#17324d" : "#40617f",
-  fontWeight: 700,
-  cursor: "pointer",
-});
 
 const detailTextStyles = {
   color: "#60738a",
@@ -78,6 +128,94 @@ const detailTextStyles = {
   lineHeight: 1.5,
   marginTop: "4px",
 };
+
+const getRecordDateValue = (record = {}) =>
+  record.clientTimestamp ||
+  record.client_timestamp ||
+  record.createdAt ||
+  record.created_at ||
+  record.updatedAt ||
+  record.updated_at ||
+  record.server_timestamp ||
+  record.resolved_at;
+
+const isWithinDateRange = (record, dateFrom, dateTo) => {
+  if (!dateFrom && !dateTo) {
+    return true;
+  }
+
+  const recordDate = new Date(getRecordDateValue(record));
+
+  if (Number.isNaN(recordDate.getTime())) {
+    return false;
+  }
+
+  if (dateFrom) {
+    const fromDate = new Date(`${dateFrom}T00:00:00`);
+
+    if (recordDate < fromDate) {
+      return false;
+    }
+  }
+
+  if (dateTo) {
+    const toDate = new Date(`${dateTo}T23:59:59`);
+
+    if (recordDate > toDate) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
+const getConflictFilterStatus = (conflict) =>
+  conflict?.status === "RESOLVED" ? "RESOLVED" : LOCAL_SYNC_STATUS.CONFLICT;
+
+const getSortableText = (record) => {
+  const details = getSyncRecordDetails(record);
+  return `${details.recordType} ${details.subject} ${details.actionLabel}`.toLowerCase();
+};
+
+const sortSyncRecords = (records, order) =>
+  [...records].sort((firstRecord, secondRecord) => {
+    if (order === "az" || order === "za") {
+      const comparison = getSortableText(firstRecord).localeCompare(
+        getSortableText(secondRecord),
+      );
+      return order === "az" ? comparison : -comparison;
+    }
+
+    const firstTime = new Date(getRecordDateValue(firstRecord)).getTime() || 0;
+    const secondTime = new Date(getRecordDateValue(secondRecord)).getTime() || 0;
+
+    return order === "oldest" ? firstTime - secondTime : secondTime - firstTime;
+  });
+
+const applySyncFilters = (records, filters, statusAccessor) => {
+  const searchText = filters.search.trim().toLowerCase();
+
+  return sortSyncRecords(
+    records.filter((record) => {
+      const status = statusAccessor(record);
+
+      return (
+        matchesSyncFilter(status, filters.status) &&
+        matchesRecordTypeFilter(record, filters.recordType) &&
+        isWithinDateRange(record, filters.dateFrom, filters.dateTo) &&
+        (!searchText || buildSyncSearchText(record).includes(searchText))
+      );
+    }),
+    filters.order,
+  );
+};
+
+const renderSummaryCard = (label, value) => (
+  <div style={shellStyles.card}>
+    <p style={shellStyles.mutedText}>{label}</p>
+    <p style={shellStyles.statValue}>{value}</p>
+  </div>
+);
 
 const SyncManagementPage = () => {
   const [syncHistory, setSyncHistory] = useState({
@@ -88,8 +226,16 @@ const SyncManagementPage = () => {
   const [errorMessage, setErrorMessage] = useState("");
   const [isRetrying, setIsRetrying] = useState(false);
   const [isLoadingConflictDetail, setIsLoadingConflictDetail] = useState(false);
-  const [activeFilter, setActiveFilter] = useState("ALL");
   const [selectedConflictDetail, setSelectedConflictDetail] = useState(null);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [filters, setFilters] = useState({
+    dateFrom: "",
+    dateTo: "",
+    order: "newest",
+    recordType: "ALL",
+    search: "",
+    status: "ALL",
+  });
   const [feedback, setFeedback] = useState({
     type: "",
     title: "",
@@ -100,36 +246,7 @@ const SyncManagementPage = () => {
     useLiveQuery(() => db.syncQueue.orderBy("updatedAt").reverse().toArray(), [], []) ||
     [];
 
-  const isOnline =
-    typeof navigator === "undefined" ? true : navigator.onLine;
-
-  const summary = useMemo(() => {
-    return syncQueueEntries.reduce(
-      (currentSummary, entry) => {
-        currentSummary.total += 1;
-
-        if (entry.status === LOCAL_SYNC_STATUS.PENDING) {
-          currentSummary.pending += 1;
-        }
-
-        if (entry.status === LOCAL_SYNC_STATUS.FAILED) {
-          currentSummary.failed += 1;
-        }
-
-        if (entry.status === LOCAL_SYNC_STATUS.CONFLICT) {
-          currentSummary.conflicts += 1;
-        }
-
-        return currentSummary;
-      },
-      {
-        total: 0,
-        pending: 0,
-        failed: 0,
-        conflicts: 0,
-      },
-    );
-  }, [syncQueueEntries]);
+  const isOnline = typeof navigator === "undefined" ? true : navigator.onLine;
 
   const failedQueueEntries = useMemo(
     () =>
@@ -139,26 +256,50 @@ const SyncManagementPage = () => {
     [syncQueueEntries],
   );
 
-  const filteredQueueEntries = useMemo(() => {
-    return syncQueueEntries.filter((entry) =>
-      matchesSyncFilter(entry.status, activeFilter),
+  const summary = useMemo(() => {
+    const unresolvedConflicts = syncHistory.conflicts.filter(
+      (conflict) => conflict.status !== "RESOLVED",
     );
-  }, [activeFilter, syncQueueEntries]);
-
-  const filteredTransactions = useMemo(() => {
-    return syncHistory.transactions.filter((transaction) =>
-      matchesSyncFilter(transaction.sync_status, activeFilter),
+    const failedTransactions = syncHistory.transactions.filter(
+      (transaction) => transaction.sync_status === LOCAL_SYNC_STATUS.FAILED,
     );
-  }, [activeFilter, syncHistory.transactions]);
+    const syncedTransactions = syncHistory.transactions.filter(
+      (transaction) => transaction.sync_status === LOCAL_SYNC_STATUS.SYNCED,
+    );
 
-  const filteredConflicts = useMemo(() => {
-    return syncHistory.conflicts.filter((conflict) =>
-      matchesSyncFilter(
-        conflict.status === "RESOLVED" ? "RESOLVED" : LOCAL_SYNC_STATUS.CONFLICT,
-        activeFilter,
+    return {
+      conflicts:
+        syncQueueEntries.filter(
+          (entry) => entry.status === LOCAL_SYNC_STATUS.CONFLICT,
+        ).length + unresolvedConflicts.length,
+      failed: failedQueueEntries.length + failedTransactions.length,
+      pending: syncQueueEntries.filter(
+        (entry) => entry.status === LOCAL_SYNC_STATUS.PENDING,
+      ).length,
+      synced: syncedTransactions.length,
+    };
+  }, [failedQueueEntries.length, syncHistory.conflicts, syncHistory.transactions, syncQueueEntries]);
+
+  const filteredQueueEntries = useMemo(
+    () => applySyncFilters(syncQueueEntries, filters, (entry) => entry.status),
+    [filters, syncQueueEntries],
+  );
+
+  const filteredTransactions = useMemo(
+    () =>
+      applySyncFilters(
+        syncHistory.transactions,
+        filters,
+        (transaction) => transaction.sync_status,
       ),
-    );
-  }, [activeFilter, syncHistory.conflicts]);
+    [filters, syncHistory.transactions],
+  );
+
+  const filteredConflicts = useMemo(
+    () =>
+      applySyncFilters(syncHistory.conflicts, filters, getConflictFilterStatus),
+    [filters, syncHistory.conflicts],
+  );
 
   const loadSyncHistory = async () => {
     setIsLoadingHistory(true);
@@ -193,8 +334,19 @@ const SyncManagementPage = () => {
     return () => unsubscribe();
   }, []);
 
-  const handleRetrySync = async () => {
-    if (!failedQueueEntries.length) {
+  const updateFilter = (key, value) => {
+    setFilters((currentFilters) => ({
+      ...currentFilters,
+      [key]: value,
+    }));
+  };
+
+  const handleRetrySync = async (entryIds = null) => {
+    const retryTargets = entryIds
+      ? failedQueueEntries.filter((entry) => entryIds.includes(entry.id))
+      : failedQueueEntries;
+
+    if (!retryTargets.length) {
       return;
     }
 
@@ -203,7 +355,7 @@ const SyncManagementPage = () => {
     try {
       try {
         await auditSyncRetryRequest(
-          failedQueueEntries.map((entry) => ({
+          retryTargets.map((entry) => ({
             id: entry.id,
             sync_transaction_id: entry.syncTransactionId || null,
             module_name: entry.moduleName || null,
@@ -216,7 +368,7 @@ const SyncManagementPage = () => {
         // Retry should still proceed even if review logging is temporarily unavailable.
       }
 
-      await retryFailedSyncEntries(failedQueueEntries.map((entry) => entry.id));
+      await retryFailedSyncEntries(retryTargets.map((entry) => entry.id));
       await loadSyncHistory();
       setFeedback({
         type: "success",
@@ -261,142 +413,241 @@ const SyncManagementPage = () => {
     }
   };
 
+  const renderRecordCells = (record) => {
+    const details = getSyncRecordDetails(record);
+
+    return (
+      <>
+        <td style={tableStyles.td}>{details.recordType}</td>
+        <td style={tableStyles.td}>{details.actionLabel}</td>
+        <td style={tableStyles.td}>
+          <div>{details.subject}</div>
+          <div style={detailTextStyles}>
+            {details.stubNumber !== "--" ? details.stubNumber : details.familyHeadName}
+          </div>
+        </td>
+        <td style={tableStyles.td}>{details.barangay}</td>
+        <td style={tableStyles.td}>{details.disasterEvent}</td>
+      </>
+    );
+  };
+
   return (
     <>
-      <PageHeader
-        title="SYNC CENTER"
-        description="Review queued offline actions, failed sync attempts, and conflict results across your current module."
-        actions={[
-          {
-            label: isRetrying ? "Retrying..." : "Retry failed syncs",
-            variant: "secondary",
-            onClick: handleRetrySync,
-            disabled: !isOnline || failedQueueEntries.length === 0 || isRetrying,
-          },
-        ]}
-      />
+      <PageHeader title="SYNC CENTER" />
 
       <section style={shellStyles.card}>
-        <div style={shellStyles.statGrid}>
-          <div>
-            <p style={shellStyles.mutedText}>Pending Queue</p>
-            <p style={shellStyles.statValue}>{summary.pending}</p>
-          </div>
-          <div>
-            <p style={shellStyles.mutedText}>Failed Sync</p>
-            <p style={shellStyles.statValue}>{failedQueueEntries.length}</p>
-          </div>
-          <div>
-            <p style={shellStyles.mutedText}>Conflicts</p>
-            <p style={shellStyles.statValue}>{summary.conflicts}</p>
-          </div>
-          <div>
-            <p style={shellStyles.mutedText}>Connection</p>
-            <p style={shellStyles.statValue}>{isOnline ? "Online" : "Offline"}</p>
-          </div>
-        </div>
-      </section>
-
-      <section style={shellStyles.card}>
-        <div style={noteStyles}>
-          Delete/deactivate operations require online connection to avoid unsafe
-          rollback conflicts. Offline sync is currently limited to safe create
-          and update actions only.
-        </div>
-      </section>
-
-      <section style={shellStyles.card}>
-        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-          {SYNC_FILTERS.map((filter) => (
-            <button
-              key={filter.key}
-              type="button"
-              onClick={() => setActiveFilter(filter.key)}
-              style={filterButtonStyles(activeFilter === filter.key)}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: "18px",
+          }}
+        >
+          <label>
+            <span style={fieldStyles.label}>Record Type</span>
+            <select
+              value={filters.recordType}
+              onChange={(event) => updateFilter("recordType", event.target.value)}
+              style={fieldStyles.input}
             >
-              {filter.label}
-            </button>
-          ))}
+              {RECORD_TYPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span style={fieldStyles.label}>Sync Status</span>
+            <select
+              value={filters.status}
+              onChange={(event) => updateFilter("status", event.target.value)}
+              style={fieldStyles.input}
+            >
+              {STATUS_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span style={fieldStyles.label}>Date From</span>
+            <input
+              type="date"
+              value={filters.dateFrom}
+              onChange={(event) => updateFilter("dateFrom", event.target.value)}
+              style={fieldStyles.input}
+            />
+          </label>
+
+          <label>
+            <span style={fieldStyles.label}>Date To</span>
+            <input
+              type="date"
+              value={filters.dateTo}
+              onChange={(event) => updateFilter("dateTo", event.target.value)}
+              style={fieldStyles.input}
+            />
+          </label>
         </div>
       </section>
 
-      <section style={shellStyles.card}>
-        <div style={{ marginBottom: "16px" }}>
-          <h3 style={{ margin: 0, color: "#17324d" }}>Local Sync Queue</h3>
-          <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-            Queued offline actions are stored in IndexedDB and retried when the
-            device goes back online.
-          </p>
+      <section style={shellStyles.statGrid}>
+        {renderSummaryCard("Pending Queue", summary.pending)}
+        {renderSummaryCard("Synced Records", summary.synced)}
+        {renderSummaryCard("Failed Sync", summary.failed)}
+        {renderSummaryCard("Needs Review", summary.conflicts)}
+      </section>
+
+      <div
+        style={{
+          alignItems: "center",
+          display: "grid",
+          gap: "16px",
+          gridTemplateColumns: "minmax(260px, 1fr) auto auto",
+        }}
+      >
+        <div style={{ position: "relative" }}>
+          <FiSearch
+            size={18}
+            style={{
+              position: "absolute",
+              left: "16px",
+              top: "50%",
+              transform: "translateY(-50%)",
+              color: "#7892aa",
+              pointerEvents: "none",
+            }}
+          />
+          <input
+            type="search"
+            value={filters.search}
+            onChange={(event) => updateFilter("search", event.target.value)}
+            placeholder="Search family head, stub number, barangay, action, or event"
+            style={{
+              ...fieldStyles.input,
+              paddingLeft: "44px",
+              backgroundColor: "#ffffff",
+              boxShadow: "0 16px 30px rgba(31, 64, 96, 0.08)",
+            }}
+          />
         </div>
+
+        <div style={{ position: "relative" }}>
+          <button
+            type="button"
+            onClick={() => setIsFilterOpen((isOpen) => !isOpen)}
+            style={toolbarButtonStyles}
+          >
+            <FiFilter size={18} />
+            Filter
+          </button>
+
+          {isFilterOpen ? (
+            <div style={filterPopoverStyles}>
+              <h3 style={{ margin: "0 0 16px", color: "#17324d" }}>
+                Filter Records
+              </h3>
+              <label>
+                <span style={fieldStyles.label}>Order List</span>
+                <select
+                  value={filters.order}
+                  onChange={(event) => updateFilter("order", event.target.value)}
+                  style={fieldStyles.input}
+                >
+                  {ORDER_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          ) : null}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => handleRetrySync()}
+          disabled={!isOnline || failedQueueEntries.length === 0 || isRetrying}
+          style={{
+            ...toolbarButtonStyles,
+            opacity: !isOnline || failedQueueEntries.length === 0 || isRetrying ? 0.7 : 1,
+            cursor:
+              !isOnline || failedQueueEntries.length === 0 || isRetrying
+                ? "not-allowed"
+                : "pointer",
+          }}
+        >
+          <FiRefreshCw size={18} />
+          {isRetrying ? "Retrying..." : "Retry Failed Syncs"}
+        </button>
+      </div>
+
+      <section style={shellStyles.card}>
+        <h3 style={{ margin: "0 0 16px", color: "#17324d" }}>Offline Queue</h3>
 
         {filteredQueueEntries.length === 0 ? (
-          <p style={shellStyles.mutedText}>
-            No matching records found. Try adjusting your search or filters.
-          </p>
+          <p style={shellStyles.mutedText}>{EMPTY_MESSAGE}</p>
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={tableStyles.table}>
               <thead>
                 <tr>
-                  <th style={tableStyles.th}>Module</th>
-                  <th style={tableStyles.th}>Table</th>
+                  <th style={tableStyles.th}>Record Type</th>
                   <th style={tableStyles.th}>Action</th>
+                  <th style={tableStyles.th}>Family / Stub</th>
+                  <th style={tableStyles.th}>Barangay</th>
+                  <th style={tableStyles.th}>Disaster Event</th>
                   <th style={tableStyles.th}>Status</th>
-                  <th style={tableStyles.th}>Created</th>
-                  <th style={tableStyles.th}>Synced</th>
-                  <th style={tableStyles.th}>Details</th>
+                  <th style={tableStyles.th}>Queued At</th>
+                  <th style={tableStyles.th}>Notes</th>
                   <th style={tableStyles.th}>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredQueueEntries.map((entry) => (
-                  <tr key={entry.id}>
-                    <td style={tableStyles.td}>{entry.moduleName || "--"}</td>
-                    <td style={tableStyles.td}>{entry.entityType || "--"}</td>
-                    <td style={tableStyles.td}>{entry.actionKey || "--"}</td>
-                    <td style={tableStyles.td}>
-                      <SyncStatusBadge status={entry.status} />
-                    </td>
-                    <td style={tableStyles.td}>
-                      {formatSyncDateTime(entry.clientTimestamp || entry.createdAt)}
-                    </td>
-                    <td style={tableStyles.td}>
-                      {formatSyncDateTime(entry.syncedAt)}
-                    </td>
-                    <td style={tableStyles.td}>
-                      <div>{buildPayloadSummary(entry.payload)}</div>
-                      <div style={detailTextStyles}>
-                        {entry.lastError ||
-                          entry.serverMessage ||
-                          entry.entityServerId ||
-                          entry.entityLocalId ||
-                          "--"}
-                      </div>
-                    </td>
-                    <td style={tableStyles.td}>
-                      <button
-                        type="button"
-                        onClick={handleRetrySync}
-                        disabled={
-                          !isOnline ||
-                          !isSafeRetryableStatus(entry.status) ||
-                          isRetrying
-                        }
-                        style={{
-                          ...pageHeaderStyles.secondaryButton,
-                          opacity:
+                {filteredQueueEntries.map((entry) => {
+                  const details = getSyncRecordDetails(entry);
+
+                  return (
+                    <tr key={entry.id}>
+                      {renderRecordCells(entry)}
+                      <td style={tableStyles.td}>
+                        <SyncStatusBadge status={entry.status} />
+                      </td>
+                      <td style={tableStyles.td}>
+                        {formatSyncDateTime(entry.clientTimestamp || entry.createdAt)}
+                      </td>
+                      <td style={tableStyles.td}>{details.notes}</td>
+                      <td style={tableStyles.td}>
+                        <button
+                          type="button"
+                          onClick={() => handleRetrySync([entry.id])}
+                          disabled={
                             !isOnline ||
                             !isSafeRetryableStatus(entry.status) ||
                             isRetrying
-                              ? 0.7
-                              : 1,
-                        }}
-                      >
-                        Retry failed syncs
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                          }
+                          style={{
+                            ...pageHeaderStyles.secondaryButton,
+                            opacity:
+                              !isOnline ||
+                              !isSafeRetryableStatus(entry.status) ||
+                              isRetrying
+                                ? 0.7
+                                : 1,
+                          }}
+                        >
+                          Retry
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -404,12 +655,7 @@ const SyncManagementPage = () => {
       </section>
 
       <section style={shellStyles.card}>
-        <div style={{ marginBottom: "16px" }}>
-          <h3 style={{ margin: 0, color: "#17324d" }}>Sync History</h3>
-          <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-            Server-side `sync_transactions` records for the current user.
-          </p>
-        </div>
+        <h3 style={{ margin: "0 0 16px", color: "#17324d" }}>Sync Audit Trail</h3>
 
         {isLoadingHistory ? (
           <p style={shellStyles.mutedText}>Loading sync history...</p>
@@ -418,45 +664,33 @@ const SyncManagementPage = () => {
             {errorMessage}
           </p>
         ) : filteredTransactions.length === 0 ? (
-          <p style={shellStyles.mutedText}>
-            No matching records found. Try adjusting your search or filters.
-          </p>
+          <p style={shellStyles.mutedText}>{EMPTY_MESSAGE}</p>
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={tableStyles.table}>
               <thead>
                 <tr>
-                  <th style={tableStyles.th}>Module / Table</th>
-                  <th style={tableStyles.th}>Entity</th>
-                  <th style={tableStyles.th}>Operation</th>
+                  <th style={tableStyles.th}>Record Type</th>
+                  <th style={tableStyles.th}>Action</th>
+                  <th style={tableStyles.th}>Family / Stub</th>
+                  <th style={tableStyles.th}>Barangay</th>
+                  <th style={tableStyles.th}>Disaster Event</th>
                   <th style={tableStyles.th}>Status</th>
-                  <th style={tableStyles.th}>Created</th>
-                  <th style={tableStyles.th}>Synced</th>
-                  <th style={tableStyles.th}>Details</th>
+                  <th style={tableStyles.th}>Queued At</th>
+                  <th style={tableStyles.th}>Synced At</th>
+                  <th style={tableStyles.th}>Notes</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredTransactions.map((transaction) => (
                   <tr key={transaction.id}>
-                    <td style={tableStyles.td}>
-                      <div>sync_transactions</div>
-                      <div style={detailTextStyles}>{transaction.entity_type || "--"}</div>
-                    </td>
-                    <td style={tableStyles.td}>
-                      {transaction.entity_type}
-                      <div style={{ color: "#60738a", fontSize: "12px" }}>
-                        {transaction.entity_server_id ||
-                          transaction.entity_local_id ||
-                          "--"}
-                      </div>
-                    </td>
-                    <td style={tableStyles.td}>{transaction.operation_type}</td>
+                    {renderRecordCells(transaction)}
                     <td style={tableStyles.td}>
                       <SyncStatusBadge status={transaction.sync_status} />
                     </td>
                     <td style={tableStyles.td}>
                       {formatSyncDateTime(
-                        transaction.created_at || transaction.client_timestamp,
+                        transaction.client_timestamp || transaction.created_at,
                       )}
                     </td>
                     <td style={tableStyles.td}>
@@ -477,90 +711,71 @@ const SyncManagementPage = () => {
       </section>
 
       <section style={shellStyles.card}>
-        <div style={{ marginBottom: "16px" }}>
-          <h3 style={{ margin: 0, color: "#17324d" }}>Conflict Log</h3>
-          <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-            Latest timestamp conflict resolution results stored in
-            `sync_conflicts`.
-          </p>
-        </div>
+        <h3 style={{ margin: "0 0 16px", color: "#17324d" }}>Conflict Review</h3>
 
         {isLoadingHistory ? (
           <p style={shellStyles.mutedText}>Loading conflicts...</p>
         ) : filteredConflicts.length === 0 ? (
-          <p style={shellStyles.mutedText}>
-            No matching records found. Try adjusting your search or filters.
-          </p>
+          <p style={shellStyles.mutedText}>{EMPTY_MESSAGE}</p>
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={tableStyles.table}>
               <thead>
                 <tr>
-                  <th style={tableStyles.th}>Table</th>
-                  <th style={tableStyles.th}>Entity</th>
-                  <th style={tableStyles.th}>Conflict Type</th>
+                  <th style={tableStyles.th}>Record Type</th>
+                  <th style={tableStyles.th}>Family / Stub</th>
+                  <th style={tableStyles.th}>Reason</th>
+                  <th style={tableStyles.th}>Local Record</th>
+                  <th style={tableStyles.th}>Server Record</th>
+                  <th style={tableStyles.th}>Decision</th>
                   <th style={tableStyles.th}>Status</th>
-                  <th style={tableStyles.th}>Conflict Reason</th>
-                  <th style={tableStyles.th}>Local Summary</th>
-                  <th style={tableStyles.th}>Server Summary</th>
-                  <th style={tableStyles.th}>Winning Side</th>
-                  <th style={tableStyles.th}>Resolution Status</th>
                   <th style={tableStyles.th}>Resolved At</th>
                   <th style={tableStyles.th}>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredConflicts.map((conflict) => (
-                  <tr key={conflict.id}>
-                    <td style={tableStyles.td}>sync_conflicts</td>
-                    <td style={tableStyles.td}>
-                      {conflict.entity_type}
-                      <div style={{ color: "#60738a", fontSize: "12px" }}>
-                        {conflict.entity_server_id || "--"}
-                      </div>
-                    </td>
-                    <td style={tableStyles.td}>{conflict.conflict_type}</td>
-                    <td style={tableStyles.td}>
-                      <SyncStatusBadge
-                        status={conflict.status === "RESOLVED" ? "RESOLVED" : "CONFLICT"}
-                      />
-                    </td>
-                    <td style={tableStyles.td}>
-                      {getConflictReasonLabel(conflict)}
-                      <div style={detailTextStyles}>
-                        {conflict.error_message || conflict.resolution_strategy || "--"}
-                      </div>
-                    </td>
-                    <td style={tableStyles.td}>
-                      {buildConflictPayloadSummary(conflict.local_payload_json)}
-                    </td>
-                    <td style={tableStyles.td}>
-                      {buildConflictPayloadSummary(conflict.server_payload_json)}
-                    </td>
-                    <td style={tableStyles.td}>
-                      {getWinningSide(conflict)}
-                    </td>
-                    <td style={tableStyles.td}>
-                      {getResolutionStatusLabel(conflict)}
-                      <div style={detailTextStyles}>
-                        {conflict.resolution_strategy || "--"}
-                      </div>
-                    </td>
-                    <td style={tableStyles.td}>
-                      {formatSyncDateTime(conflict.resolved_at)}
-                    </td>
-                    <td style={tableStyles.td}>
-                      <button
-                        type="button"
-                        onClick={() => handleOpenConflictDetail(conflict.id)}
-                        disabled={isLoadingConflictDetail}
-                        style={pageHeaderStyles.secondaryButton}
-                      >
-                        View Detail
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {filteredConflicts.map((conflict) => {
+                  const details = getSyncRecordDetails(conflict);
+
+                  return (
+                    <tr key={conflict.id}>
+                      <td style={tableStyles.td}>{details.recordType}</td>
+                      <td style={tableStyles.td}>{details.subject}</td>
+                      <td style={tableStyles.td}>
+                        {getConflictReasonLabel(conflict)}
+                        <div style={detailTextStyles}>
+                          {conflict.error_message || conflict.resolution_strategy || "--"}
+                        </div>
+                      </td>
+                      <td style={tableStyles.td}>
+                        {buildConflictPayloadSummary(conflict.local_payload_json)}
+                      </td>
+                      <td style={tableStyles.td}>
+                        {buildConflictPayloadSummary(conflict.server_payload_json)}
+                      </td>
+                      <td style={tableStyles.td}>{getWinningSide(conflict)}</td>
+                      <td style={tableStyles.td}>
+                        <SyncStatusBadge status={getConflictFilterStatus(conflict)} />
+                        <div style={detailTextStyles}>
+                          {getResolutionStatusLabel(conflict)}
+                        </div>
+                      </td>
+                      <td style={tableStyles.td}>
+                        {formatSyncDateTime(conflict.resolved_at)}
+                      </td>
+                      <td style={tableStyles.td}>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenConflictDetail(conflict.id)}
+                          disabled={isLoadingConflictDetail}
+                          style={pageHeaderStyles.secondaryButton}
+                        >
+                          View Details
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
