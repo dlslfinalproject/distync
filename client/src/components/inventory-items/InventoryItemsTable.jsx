@@ -6,48 +6,89 @@ import TableActionsMenu from "../shared/TableActionsMenu";
 
 const styles = {
   tableWrap: {
-    marginTop: "10px",
+    marginTop: "0",
     overflowX: "auto",
   },
   table: {
     width: "100%",
+    minWidth: "1040px",
     borderCollapse: "collapse",
     background: "transparent",
   },
   th: {
     textAlign: "left",
-    padding: "10px 8px",
-    fontSize: "13px",
-    color: "#17324d",
+    padding: "14px 16px",
+    fontSize: "12px",
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    color: "#66809c",
     fontWeight: 700,
-    borderBottom: "none",
+    borderBottom: "1px solid #e0eaf4",
     whiteSpace: "nowrap",
   },
-  tr: {
-    borderBottom: "1px solid #e7edf5",
-  },
   td: {
-    padding: "10px 8px",
-    fontSize: "13px",
-    color: "#334155",
+    padding: "16px",
+    fontSize: "14px",
+    color: "#21405f",
     verticalAlign: "middle",
+    borderBottom: "1px solid #edf3f8",
+    lineHeight: 1.5,
+    wordBreak: "break-word",
+  },
+  centerCell: {
+    textAlign: "center",
+  },
+  actionCell: {
+    width: "88px",
+    minWidth: "88px",
+    textAlign: "center",
+    whiteSpace: "nowrap",
   },
   emptyStateCell: {
-    padding: "16px 8px",
+    padding: "18px 16px",
     fontSize: "14px",
-    color: "#334155",
+    color: "#5f7690",
+    borderBottom: "none",
   },
   secondaryText: {
     marginTop: "4px",
-    color: "#6b8298",
-    fontSize: "12px",
+    color: "#5f7690",
+    fontSize: "13px",
   },
   shelfLifeText: {
-    color: "#4f677f",
-    fontSize: "13px",
+    color: "#21405f",
+    fontSize: "14px",
     lineHeight: 1.5,
   },
+  statusPill: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "6px 12px",
+    borderRadius: "999px",
+    fontSize: "12px",
+    fontWeight: 700,
+    lineHeight: 1,
+  },
 };
+
+const tableHeaders = [
+  "Item Name",
+  "Category",
+  "Source",
+  "Quantity",
+  "Shelf Life",
+  "Minimum Stock Level",
+  "Active Status",
+  "Actions",
+];
+
+const centeredHeaders = new Set([
+  "Quantity",
+  "Minimum Stock Level",
+  "Active Status",
+  "Actions",
+]);
 
 const getShelfLifeDisplay = (expirationDate) => {
   if (!expirationDate) {
@@ -98,17 +139,15 @@ const InventoryItemsTable = ({
       <table style={styles.table}>
         <thead>
           <tr>
-            {[
-              "Item Name",
-              "Category",
-              "Source",
-              "Quantity",
-              "Shelf Life",
-              "Minimum Stock Level",
-              "Active Status",
-              "Actions",
-            ].map((header) => (
-              <th key={header} style={styles.th}>
+            {tableHeaders.map((header) => (
+              <th
+                key={header}
+                style={{
+                  ...styles.th,
+                  ...(centeredHeaders.has(header) ? styles.centerCell : null),
+                  ...(header === "Actions" ? styles.actionCell : null),
+                }}
+              >
                 {header}
               </th>
             ))}
@@ -149,7 +188,7 @@ const InventoryItemsTable = ({
                 "Unnamed Item";
 
               return (
-                <tr key={item.id || index} style={styles.tr}>
+                <tr key={item.id || index}>
                   <td style={styles.td}>
                     <div>{itemName}</div>
                     <div style={styles.secondaryText}>
@@ -158,20 +197,21 @@ const InventoryItemsTable = ({
                   </td>
                   <td style={styles.td}>{item.category ?? "--"}</td>
                   <td style={styles.td}>{item.source_label || "--"}</td>
-                  <td style={styles.td}>{getTotalItemQuantity(item)}</td>
+                  <td style={{ ...styles.td, ...styles.centerCell }}>
+                    {getTotalItemQuantity(item)}
+                  </td>
                   <td style={styles.td}>
                     <div style={styles.shelfLifeText}>
                       {getShelfLifeDisplay(item.expiration_date)}
                     </div>
                   </td>
-                  <td style={styles.td}>{item.reorder_level ?? "--"}</td>
-                  <td style={styles.td}>
+                  <td style={{ ...styles.td, ...styles.centerCell }}>
+                    {item.reorder_level ?? "--"}
+                  </td>
+                  <td style={{ ...styles.td, ...styles.centerCell }}>
                     <span
                       style={{
-                        padding: "4px 10px",
-                        borderRadius: "8px",
-                        fontSize: "12px",
-                        fontWeight: 600,
+                        ...styles.statusPill,
                         background: activeStatusStyle.background,
                         color: activeStatusStyle.color,
                       }}
@@ -179,7 +219,7 @@ const InventoryItemsTable = ({
                       {activeStatus}
                     </span>
                   </td>
-                  <td style={styles.td}>
+                  <td style={{ ...styles.td, ...styles.actionCell }}>
                     <TableActionsMenu
                       row={item}
                       menuId={item.id || `inventory-item-${index}`}

@@ -5,9 +5,11 @@ const DonationPageTabs = ({ availableTabs, activeTab, onTabChange }) => {
     <div
       style={{
         display: "flex",
-        gap: "10px",
+        gap: "28px",
         flexWrap: "wrap",
         marginTop: "18px",
+        paddingBottom: "2px",
+        borderBottom: "1px solid #d7e2ef",
       }}
     >
       {availableTabs.map((tab) => (
@@ -17,11 +19,14 @@ const DonationPageTabs = ({ availableTabs, activeTab, onTabChange }) => {
           onClick={() => onTabChange(tab.key)}
           style={{
             border: "none",
-            borderRadius: "999px",
-            padding: "10px 16px",
-            backgroundColor: activeTab === tab.key ? "#dbe8f6" : "#eef5fc",
-            color: activeTab === tab.key ? "#17324d" : "#40617f",
-            fontWeight: 700,
+            borderBottom:
+              activeTab === tab.key ? "3px solid #2f6499" : "3px solid transparent",
+            padding: "0 0 14px",
+            backgroundColor: "transparent",
+            color: activeTab === tab.key ? "#17324d" : "#6d86a0",
+            fontSize: "14px",
+            fontWeight: 800,
+            letterSpacing: "0.02em",
             cursor: "pointer",
           }}
         >

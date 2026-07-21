@@ -10,9 +10,6 @@ const baseUserSelect = `
     last_name,
     default_barangay_id,
     is_active,
-    password_hash,
-    auth_provider,
-    demo_access_enabled,
     last_login_at
   FROM users
 `;
@@ -34,39 +31,6 @@ const getUserByEmail = async (email) => {
   `;
 
   const result = await pool.query(query, [email]);
-  return result.rows[0] || null;
-};
-
-const getDemoLoginCandidateByEmail = async (email, password) => {
-  const query = `
-    SELECT
-      u.id,
-      u.google_sub,
-      u.email,
-      u.first_name,
-      u.middle_name,
-      u.last_name,
-      u.default_barangay_id,
-      u.is_active,
-      u.password_hash,
-      u.auth_provider,
-      u.demo_access_enabled,
-      u.last_login_at,
-      r.code AS role_code,
-      CASE
-        WHEN u.password_hash IS NOT NULL
-        THEN u.password_hash = crypt($2, u.password_hash)
-        ELSE FALSE
-      END AS password_match
-    FROM users u
-    LEFT JOIN user_roles ur ON ur.user_id = u.id
-    LEFT JOIN roles r ON r.id = ur.role_id
-    WHERE LOWER(u.email) = LOWER($1)
-    ORDER BY ur.assigned_at ASC NULLS LAST
-    LIMIT 1
-  `;
-
-  const result = await pool.query(query, [email, password]);
   return result.rows[0] || null;
 };
 
@@ -137,7 +101,6 @@ const getFirstActiveUserByRoleCode = async (roleCode) => {
 };
 
 module.exports = {
-  getDemoLoginCandidateByEmail,
   getFirstActiveUserByRoleCode,
   getRoleByUserId,
   getUserByEmail,

@@ -209,25 +209,18 @@ export const getRoleMeta = (roleCode) => {
     case ROLE_CODES.BARANGAY:
       return {
         title: "BARANGAY SETTINGS",
-        description:
-          "Manage barangay profile, notification preferences, and recent local activity.",
       };
     case ROLE_CODES.MSWDO:
       return {
         title: "MSWDO SETTINGS",
-        description:
-          "Manage MSWDO profile, notification preferences, and sync monitoring.",
       };
     case ROLE_CODES.MAYOR:
       return {
         title: "MAYOR SETTINGS",
-        description:
-          "Manage mayor profile, notification preferences, sync monitoring, and executive system summaries.",
       };
     default:
       return {
         title: "SETTINGS",
-        description: "Review account and operational settings.",
       };
   }
 };
