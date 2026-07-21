@@ -52,19 +52,16 @@ export const BARANGAY_SETTINGS_SECTIONS = [
   {
     key: "profile",
     label: "Profile",
-    description: "Update local identity details, contact information, and profile photo.",
     icon: FiUser,
   },
   {
     key: "notification-preferences",
     label: "Notification Preferences",
-    description: "Control in-app and email alert preferences for barangay coordination.",
     icon: FiBell,
   },
   {
     key: "activity-logs",
     label: "Recent Local Activity",
-    description: "Review recent sync and operational actions visible on this device.",
     icon: FiActivity,
   },
 ];
@@ -78,22 +75,16 @@ export const MSWDO_SETTINGS_SECTIONS = [
   {
     key: "profile",
     label: "Profile",
-    description:
-      "Review office identity details, assigned role, contact information, and profile picture.",
     icon: FiUser,
   },
   {
     key: "notification-preferences",
     label: "Notification Preferences",
-    description:
-      "Manage local notification rule preferences used for MSWDO coordination.",
     icon: FiBell,
   },
   {
     key: "sync-center",
     label: "Sync Center",
-    description:
-      "Monitor pending queue records, sync health, and recent synchronization logs.",
     icon: FiRefreshCw,
   },
 ];
@@ -107,36 +98,26 @@ export const MAYOR_SETTINGS_SECTIONS = [
   {
     key: "profile",
     label: "Profile",
-    description:
-      "Review account identity details, assigned role, contact information, and profile picture.",
     icon: FiUser,
   },
   {
     key: "notification-preferences",
     label: "Notification Preferences",
-    description:
-      "Manage local executive notification rule preferences for the Office of the Mayor.",
     icon: FiBell,
   },
   {
     key: "sync-status",
     label: "Sync Center",
-    description:
-      "Monitor pending queue records, sync health, and recent synchronization activity.",
     icon: FiRefreshCw,
   },
   {
     key: "analytics-service",
     label: "Analytics Service",
-    description:
-      "Review read-only analytics availability and service health for executive visibility.",
     icon: FiActivity,
   },
   {
     key: "inventory-alert-thresholds",
     label: "Inventory Alert Thresholds",
-    description:
-      "Review read-only inventory threshold coverage without changing operational rules.",
     icon: FiFileText,
   },
 ];

@@ -1,4 +1,5 @@
 const path = require("path");
+const crypto = require("crypto");
 require("dotenv").config({ path: path.resolve(__dirname, "../../.env") });
 
 const pool = require("../config/db");
@@ -294,6 +295,13 @@ const buildForecastDashboard = ({
   };
 };
 
+const createPublicKey = (prefix, value) =>
+  `${prefix}-${crypto
+    .createHash("sha256")
+    .update(String(value || ""))
+    .digest("hex")
+    .slice(0, 16)}`;
+
 const resolvePublicForecastPriority = (riskLevel) => {
   const normalizedRiskLevel = String(riskLevel || "").toUpperCase();
 
@@ -341,9 +349,8 @@ const buildPublicForecastSuggestions = (storedForecast) => {
       );
     })
     .map((result) => ({
-      inventory_item_id: result.inventory_item_id,
+      public_key: createPublicKey("forecast-item", result.inventory_item_id),
       item_name: result.item_name,
-      item_code: result.item_code,
       category: result.category,
       unit_of_measure: result.unit_of_measure || "items",
       suggested_quantity: Math.ceil(Number(result.forecasted_usage || 0)),

@@ -5,6 +5,11 @@ const SETTINGS_AUDIT_ACTION = "UPSERT_ROLE_SETTINGS";
 const SETTINGS_ENTITY_TYPE = "ROLE_SETTINGS";
 const ALLOWED_ROLE_CODES = new Set(["BARANGAY", "MSWDO", "MAYOR"]);
 const ALLOWED_EXPORT_FORMATS = new Set(["csv", "excel", "pdf"]);
+const ROLE_POSITION_LABELS = {
+  BARANGAY: "Barangay Official",
+  MSWDO: "MSWDO Personnel",
+  MAYOR: "Office of the Mayor",
+};
 const NOTIFICATION_OPTION_KEYS = [
   "disasterAlerts",
   "distributionSchedules",
@@ -12,6 +17,9 @@ const NOTIFICATION_OPTION_KEYS = [
   "attendanceReminders",
   "systemAnnouncements",
 ];
+
+const isPlainObject = (value) =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
 const createDefaultNotificationChannels = () => {
   return NOTIFICATION_OPTION_KEYS.reduce((current, key) => {
@@ -41,6 +49,10 @@ const createDefaultRoleSettings = () => {
       lastPreferenceSaveAt: "",
     },
   };
+};
+
+const getRolePositionLabel = (roleCode) => {
+  return ROLE_POSITION_LABELS[roleCode] || "";
 };
 
 const buildFullNameFromUser = (user = {}) => {
@@ -161,6 +173,33 @@ const buildPersistedSnapshot = (settings = {}) => {
   };
 };
 
+const buildEditableSettingsSnapshot = (settings = {}) => {
+  const profile = isPlainObject(settings.profile) ? settings.profile : {};
+  const metadata = isPlainObject(settings.metadata) ? settings.metadata : {};
+
+  return {
+    enabledNotificationRuleCodes: sanitizeEnabledNotificationRuleCodes(
+      settings.enabledNotificationRuleCodes,
+    ),
+    preferredExportFormat: sanitizePreferredExportFormat(
+      settings.preferredExportFormat,
+    ),
+    profile: {
+      fullName: sanitizeString(profile.fullName),
+      contactNumber: sanitizeString(profile.contactNumber),
+      profilePictureDataUrl: sanitizeString(profile.profilePictureDataUrl),
+      profilePictureFileName: sanitizeString(profile.profilePictureFileName),
+    },
+    notificationChannels: sanitizeNotificationChannels(
+      settings.notificationChannels,
+    ),
+    metadata: {
+      lastProfileUpdateAt: sanitizeString(metadata.lastProfileUpdateAt),
+      lastPreferenceSaveAt: sanitizeString(metadata.lastPreferenceSaveAt),
+    },
+  };
+};
+
 const buildPersistedSettingsFromRecord = (record = {}) => {
   return {
     enabledNotificationRuleCodes: sanitizeEnabledNotificationRuleCodes(
@@ -206,13 +245,14 @@ const buildRoleSettingsResponse = ({
       ...defaults.profile,
       ...normalizedSnapshot.profile,
       fullName: profileFullName,
+      position:
+        getRolePositionLabel(roleCode) || normalizedSnapshot.profile.position,
       contactNumber: sanitizeString(
         user?.contact_number || normalizedSnapshot.profile.contactNumber,
       ),
       emailAddress: sanitizeString(
         user?.email || normalizedSnapshot.profile.emailAddress,
       ),
-      position: sanitizeString(normalizedSnapshot.profile.position),
     },
     notificationChannels: sanitizeNotificationChannels(
       normalizedSnapshot.notificationChannels,
@@ -299,6 +339,16 @@ const ensureUserExists = (user) => {
   throw error;
 };
 
+const ensureUserIsActive = (user) => {
+  if (user?.is_active) {
+    return;
+  }
+
+  const error = new Error("This account is inactive and cannot manage settings.");
+  error.statusCode = 403;
+  throw error;
+};
+
 const getCurrentSettings = async ({ userId, roleCode }) => {
   ensureAllowedRole(roleCode);
 
@@ -311,6 +361,7 @@ const getCurrentSettings = async ({ userId, roleCode }) => {
   ]);
 
   ensureUserExists(user);
+  ensureUserIsActive(user);
 
   return buildRoleSettingsResponse({
     roleCode,
@@ -334,6 +385,7 @@ const saveCurrentSettings = async ({
 
     const user = await settingsRepository.getUserById(userId, dbClient);
     ensureUserExists(user);
+    ensureUserIsActive(user);
 
     const existingRoleSettings = await settingsRepository.getUserRoleSettings(
       {
@@ -349,13 +401,14 @@ const saveCurrentSettings = async ({
       snapshot: buildPersistedSettingsFromRecord(existingRoleSettings || {}),
     });
 
-    const incomingSnapshot = buildPersistedSnapshot(settings || {});
+    const incomingSnapshot = buildEditableSettingsSnapshot(settings || {});
     const mergedSnapshot = {
       ...previousSettings,
       ...incomingSnapshot,
       profile: {
         ...previousSettings.profile,
         ...incomingSnapshot.profile,
+        position: getRolePositionLabel(roleCode),
         emailAddress: user.email,
       },
       notificationChannels: sanitizeNotificationChannels(

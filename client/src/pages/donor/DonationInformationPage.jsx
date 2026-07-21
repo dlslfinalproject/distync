@@ -7,6 +7,7 @@ import {
   FiCheckCircle,
   FiChevronDown,
   FiChevronUp,
+  FiGlobe,
   FiHome,
   FiInfo,
   FiMail,
@@ -16,6 +17,7 @@ import {
   FiTrendingUp,
   FiUsers,
 } from "react-icons/fi";
+import { FaFacebookF } from "react-icons/fa";
 import LoadingState from "../../components/shared/LoadingState";
 import distyncLogo from "../../assets/distync-logo.png";
 import { fetchDonationPortalData } from "../../features/donations/donationService";
@@ -52,23 +54,39 @@ const LGU_CONTACT = {
   emailPrimary: "lgumalvarbatangas@gmail.com",
   emailSecondary: "info@malvarbatangas.gov.ph",
   website: "www.malvarbatangas.gov.ph",
+  websiteUrl: "https://www.malvarbatangas.gov.ph",
+  facebookLabel: "Municipality of Malvar",
+  facebookUrl: "https://www.facebook.com/share/1M3yVXbjF1/?mibextid=wwXIfr",
 };
 
-// Temporary public drop-off data until an official public configuration source is available.
-const DROP_OFF_LOCATION = {
-  buildingName: "Municipal Hall of Malvar",
-  addressLines: [
+const DEFAULT_PUBLIC_CONTACT_CONFIG = {
+  system_name: LGU_CONTACT.systemName,
+  municipality: LGU_CONTACT.municipality,
+  website: LGU_CONTACT.website,
+  website_url: LGU_CONTACT.websiteUrl,
+  facebook_label: LGU_CONTACT.facebookLabel,
+  facebook_url: LGU_CONTACT.facebookUrl,
+  drop_off: {
+    location_name: "Municipal Hall of Malvar",
+    address_lines: [
     "J. Leviste Street",
     "Poblacion, Malvar, Batangas 4233",
   ],
-  officeLines: [
+    office_lines: [
     "Office of the Municipal Mayor",
     "Donation Coordination Desk",
   ],
-  receivingHours: ["Monday-Friday", "8:00 AM-5:00 PM"],
-  phone: LGU_CONTACT.telephonePrimary,
-  email: LGU_CONTACT.emailPrimary,
-  mapsUrl: "",
+    receiving_hours: ["Monday-Friday", "8:00 AM-5:00 PM"],
+    phone: LGU_CONTACT.telephonePrimary,
+    email: LGU_CONTACT.emailPrimary,
+    maps_url: "",
+  },
+  notices: {
+    privacy:
+      "Public information is aggregated and does not include private beneficiary records.",
+    in_kind_only:
+      "DISTYNC provides information for in-kind relief donations only. Cash donations and online payments are not processed through this portal.",
+  },
 };
 
 const PRIORITY_GROUPS = [
@@ -502,20 +520,31 @@ const styles = {
     lineHeight: 1.6,
   },
   footer: {
+    width: "calc(100% + 48px)",
+    margin: "24px -24px -24px",
     background:
-      "linear-gradient(135deg, rgba(255,255,255,0.96) 0%, rgba(238,245,251,0.98) 100%)",
-    border: `1px solid ${COLORS.border}`,
-    borderRadius: "16px",
+      "linear-gradient(135deg, #17324d 0%, #244f78 58%, #2f6499 100%)",
     padding: 0,
-    boxShadow: "0 10px 30px rgba(23, 50, 77, 0.06)",
+    boxShadow: "0 -12px 28px rgba(23, 50, 77, 0.12)",
     overflow: "hidden",
+  },
+  footerInner: {
+    width: "100%",
+    maxWidth: "1180px",
+    margin: "0 auto",
+    padding: "32px 28px 24px",
+    boxSizing: "border-box",
   },
   footerGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
-    gap: "16px",
+    gridTemplateColumns:
+      "minmax(210px, 0.82fr) minmax(520px, 1.55fr) minmax(250px, 0.9fr)",
+    columnGap: "42px",
+    rowGap: "24px",
     alignItems: "start",
-    padding: "18px 20px 15px",
+  },
+  footerColumn: {
+    minWidth: 0,
   },
   footerBrand: {
     display: "flex",
@@ -530,65 +559,66 @@ const styles = {
     flexShrink: 0,
   },
   footerColumnTitle: {
-    margin: "0 0 8px",
-    color: COLORS.primaryDark,
-    fontSize: "13px",
+    margin: "0 0 10px",
+    color: "#ffffff",
+    fontSize: "15px",
     lineHeight: 1.3,
     fontWeight: 800,
   },
   footerTitleText: {
     margin: 0,
-    color: COLORS.text,
+    color: "#ffffff",
     fontSize: "17px",
     lineHeight: 1,
     fontWeight: 800,
   },
   footerSubtitleText: {
     margin: "3px 0 0",
-    color: COLORS.subtext,
+    color: "#d8e6f4",
     fontSize: "12px",
     lineHeight: 1.4,
     fontWeight: 400,
   },
   footerText: {
-    margin: "7px 0 0",
-    color: COLORS.subtext,
+    margin: "8px 0 0",
+    color: "#d8e6f4",
     fontSize: "13px",
     lineHeight: 1.5,
+    maxWidth: "235px",
     overflowWrap: "anywhere",
   },
   footerDetailList: {
     display: "grid",
-    gap: "8px",
+    gap: "7px",
     margin: 0,
+  },
+  footerCoordinationBlock: {
+    display: "grid",
+    gap: "13px",
+  },
+  footerCoordinationPair: {
+    display: "grid",
+    gridTemplateColumns: "minmax(220px, 0.95fr) minmax(260px, 1.05fr)",
+    columnGap: "28px",
+    rowGap: "14px",
+    alignItems: "start",
+  },
+  footerDetailGroup: {
+    display: "grid",
+    gap: "3px",
   },
   footerDetailLabel: {
     margin: 0,
-    color: COLORS.primaryDark,
+    color: "#ffffff",
     fontSize: "12px",
     lineHeight: 1.3,
-    fontWeight: 800,
+    fontWeight: 600,
   },
   footerDetailValue: {
-    margin: "2px 0 0",
-    color: COLORS.subtext,
+    margin: 0,
+    color: "#d8e6f4",
     fontSize: "13px",
     lineHeight: 1.42,
-    fontWeight: 400,
-    overflowWrap: "anywhere",
-  },
-  footerContactList: {
-    display: "grid",
-    gap: "8px",
-    maxWidth: "260px",
-  },
-  footerContactRow: {
-    display: "flex",
-    alignItems: "flex-start",
-    gap: "8px",
-    color: COLORS.subtext,
-    fontSize: "13px",
-    lineHeight: 1.45,
     fontWeight: 400,
     overflowWrap: "anywhere",
   },
@@ -597,55 +627,170 @@ const styles = {
     alignItems: "center",
     justifyContent: "center",
     gap: "8px",
-    width: "100%",
-    minHeight: "38px",
+    width: "fit-content",
+    minHeight: "36px",
     border: "none",
     borderRadius: "10px",
-    padding: "9px 12px",
-    background: COLORS.primary,
-    color: "#ffffff",
+    marginTop: "8px",
+    padding: "8px 15px",
+    background: "#ffffff",
+    color: COLORS.primaryDark,
     textDecoration: "none",
     fontSize: "13px",
     fontWeight: 700,
     cursor: "pointer",
+    boxShadow: "0 8px 16px rgba(0, 0, 0, 0.16)",
+    transition: "background 160ms ease, transform 160ms ease",
   },
-  footerLinkList: {
-    display: "grid",
-    gap: "4px",
-    margin: 0,
-    padding: 0,
-    listStyle: "none",
+  footerActionDisabled: {
+    background: "rgba(255, 255, 255, 0.12)",
+    color: "#ffffff",
+    border: "1px solid rgba(255, 255, 255, 0.32)",
+    boxShadow: "none",
+    cursor: "not-allowed",
   },
   footerLink: {
     display: "inline-flex",
     width: "fit-content",
-    minHeight: "28px",
+    minHeight: "23px",
     alignItems: "center",
-    color: COLORS.primaryDark,
+    color: "#eaf3fb",
     fontSize: "13px",
     lineHeight: 1.4,
     fontWeight: 400,
     textDecoration: "none",
+    cursor: "pointer",
+    transition: "color 160ms ease, transform 160ms ease",
+  },
+  footerCompactContact: {
+    display: "grid",
+    gap: "8px",
+    marginTop: "10px",
+  },
+  footerContactRow: {
+    display: "grid",
+    gridTemplateColumns: "18px minmax(0, 1fr)",
+    alignItems: "start",
+    columnGap: "9px",
+    color: "#d8e6f4",
+    fontSize: "12px",
+    lineHeight: 1.45,
+    fontWeight: 400,
+    overflowWrap: "anywhere",
+  },
+  footerContactLink: {
+    display: "grid",
+    gridTemplateColumns: "18px minmax(0, 1fr)",
+    alignItems: "start",
+    columnGap: "9px",
+    color: "#d8e6f4",
+    fontSize: "12px",
+    lineHeight: 1.45,
+    fontWeight: 400,
+    textDecoration: "none",
+    overflowWrap: "anywhere",
+    wordBreak: "break-word",
+    transition: "color 160ms ease, transform 160ms ease",
+  },
+  footerContactText: {
+    display: "block",
+    minWidth: 0,
+    overflowWrap: "anywhere",
   },
   footerBottom: {
+    background: "rgba(9, 26, 44, 0.5)",
+    borderTop: "1px solid rgba(255, 255, 255, 0.16)",
+  },
+  footerQuickLinksBand: {
+    borderTop: "1px solid rgba(255, 255, 255, 0.16)",
+    background: "rgba(9, 26, 44, 0.18)",
+  },
+  footerQuickLinksInner: {
+    width: "100%",
+    maxWidth: "1180px",
+    margin: "0 auto",
+    padding: "14px 28px",
+    boxSizing: "border-box",
+  },
+  footerHorizontalLinks: {
     display: "flex",
-    justifyContent: "center",
     alignItems: "center",
-    gap: "12px",
-    padding: "11px 20px",
-    background: COLORS.softBg,
-    borderTop: `1px solid ${COLORS.border}`,
+    justifyContent: "center",
+    gap: "10px 52px",
     flexWrap: "wrap",
+    margin: 0,
+    padding: 0,
+    listStyle: "none",
+  },
+  footerBottomInner: {
+    display: "flex",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: "12px",
+    alignItems: "center",
+    width: "100%",
+    maxWidth: "1180px",
+    margin: "0 auto",
+    padding: "10px 28px 12px",
+    boxSizing: "border-box",
   },
   footerBottomText: {
     margin: 0,
-    color: COLORS.subtext,
+    color: "#d8e6f4",
     fontSize: "12px",
     lineHeight: 1.5,
     fontWeight: 400,
     overflowWrap: "anywhere",
   },
 };
+
+const portalFooterCss = `
+  .portal-footer-link:hover {
+    color: #ffffff;
+    transform: translateX(3px);
+    text-decoration: underline;
+  }
+
+  .portal-footer-contact-link:hover {
+    color: #ffffff;
+    transform: translateX(2px);
+    text-decoration: underline;
+  }
+
+  .portal-footer-action:hover:not(:disabled) {
+    background: #eaf3fb;
+    transform: translateY(-1px);
+  }
+
+  .portal-footer-link:focus-visible,
+  .portal-footer-contact-link:focus-visible,
+  .portal-footer-action:focus-visible {
+    outline: 3px solid rgba(255, 255, 255, 0.42);
+    outline-offset: 3px;
+  }
+
+  @media (max-width: 1180px) {
+    .portal-footer-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+      column-gap: 24px !important;
+    }
+
+    .portal-footer-coordination-pair {
+      grid-template-columns: 1fr !important;
+      gap: 13px !important;
+    }
+
+  }
+
+  @media (max-width: 640px) {
+    .portal-footer-grid,
+    .portal-footer-coordination-pair,
+    .portal-footer-bottom-inner {
+      grid-template-columns: 1fr !important;
+    }
+
+  }
+`;
 
 const formatNumber = (value) => Number(value || 0).toLocaleString("en-PH");
 
@@ -874,7 +1019,7 @@ const ActiveDisasterSection = ({ event, showAllBarangays, onToggleBarangays }) =
               <div style={styles.barangayList}>
                 {visibleBarangays.map((barangay) => (
                   <span
-                    key={barangay.id || barangay.name}
+                    key={barangay.public_key || barangay.name}
                     style={styles.barangayChip}
                   >
                     {barangay.name}
@@ -978,6 +1123,12 @@ const NeededItemsSection = ({ suggestions }) => {
           available.
         </span>
       </div>
+      <p style={{ ...styles.sectionText, marginBottom: "14px" }}>
+        Priority is based on the same forecast risk level used by the Office of
+        the Mayor: critical or high-risk items appear as High Priority, medium
+        risk appears as Medium Priority, and lower-risk forecast needs appear as
+        Low Priority.
+      </p>
 
       {!hasSuggestions ? (
         <div style={styles.emptyState}>
@@ -1041,7 +1192,7 @@ const NeededItemsSection = ({ suggestions }) => {
 
                       return (
                         <article
-                          key={item.inventory_item_id || item.item_name}
+                          key={item.public_key || item.item_name}
                           style={{
                             ...styles.itemCard,
                             borderColor: priorityMeta.border,
@@ -1192,7 +1343,7 @@ const DonationUtilizationSection = ({ transparencySummary }) => {
             </thead>
             <tbody>
               {donatedItemRows.slice(0, 6).map((row) => (
-                <tr key={row.inventory_item_id || row.item_name}>
+                <tr key={row.public_key || row.item_name}>
                   <td style={styles.td}>{row.item_name || "--"}</td>
                   <td style={{ ...styles.td, ...styles.numericCell }}>
                     {formatNumber(row.quantity_received)}{" "}
@@ -1216,19 +1367,32 @@ const DonationUtilizationSection = ({ transparencySummary }) => {
   );
 };
 
-const PortalFooter = () => {
+const PortalFooter = ({ publicContactConfig }) => {
   const currentYear = new Date().getFullYear();
+  const contactConfig = publicContactConfig || DEFAULT_PUBLIC_CONTACT_CONFIG;
+  const dropOffConfig =
+    contactConfig.drop_off || DEFAULT_PUBLIC_CONTACT_CONFIG.drop_off;
   const footerInfo = {
-    systemName: LGU_CONTACT.systemName,
+    systemName: contactConfig.system_name || LGU_CONTACT.systemName,
     systemSubtitle: "Disaster Relief Management System",
-    municipality: LGU_CONTACT.municipality,
-    buildingName: DROP_OFF_LOCATION.buildingName,
-    addressLines: DROP_OFF_LOCATION.addressLines,
-    officeLines: DROP_OFF_LOCATION.officeLines,
-    receivingHours: DROP_OFF_LOCATION.receivingHours,
-    phone: DROP_OFF_LOCATION.phone,
-    email: DROP_OFF_LOCATION.email,
-    mapsUrl: DROP_OFF_LOCATION.mapsUrl,
+    municipality: contactConfig.municipality || LGU_CONTACT.municipality,
+    buildingName: dropOffConfig.location_name,
+    addressLines: Array.isArray(dropOffConfig.address_lines)
+      ? dropOffConfig.address_lines
+      : [],
+    officeLines: Array.isArray(dropOffConfig.office_lines)
+      ? dropOffConfig.office_lines
+      : [],
+    receivingHours: Array.isArray(dropOffConfig.receiving_hours)
+      ? dropOffConfig.receiving_hours
+      : [],
+    phone: dropOffConfig.phone,
+    email: dropOffConfig.email,
+    mapsUrl: dropOffConfig.maps_url,
+    websiteLabel: contactConfig.website || LGU_CONTACT.website,
+    websiteUrl: contactConfig.website_url || LGU_CONTACT.websiteUrl,
+    facebookLabel: contactConfig.facebook_label || LGU_CONTACT.facebookLabel,
+    facebookUrl: contactConfig.facebook_url || LGU_CONTACT.facebookUrl,
   };
   const footerLinks = [
     { label: "Active Disaster", href: "#active-event-title" },
@@ -1240,118 +1404,186 @@ const PortalFooter = () => {
 
   return (
     <footer style={styles.footer}>
-      <div style={styles.footerGrid}>
-        <section aria-labelledby="footer-about-title">
-          <h2 id="footer-about-title" style={styles.footerColumnTitle}>
-            About DISTYNC
-          </h2>
-          <div style={styles.footerBrand}>
-            <img src={distyncLogo} alt="DISTYNC logo" style={styles.footerLogo} />
-            <div>
-              <p style={styles.footerTitleText}>
-                {footerInfo.systemName}
-              </p>
-              <p style={styles.footerSubtitleText}>
-                {footerInfo.systemSubtitle}
-              </p>
+      <style>{portalFooterCss}</style>
+      <div style={styles.footerInner}>
+        <div className="portal-footer-grid" style={styles.footerGrid}>
+          <section aria-labelledby="footer-about-title" style={styles.footerColumn}>
+            <h2 id="footer-about-title" style={styles.footerColumnTitle}>
+              About DISTYNC
+            </h2>
+            <div style={styles.footerBrand}>
+              <img src={distyncLogo} alt="DISTYNC logo" style={styles.footerLogo} />
+              <div>
+                <p style={styles.footerTitleText}>
+                  {footerInfo.systemName}
+                </p>
+                <p style={styles.footerSubtitleText}>
+                  {footerInfo.systemSubtitle}
+                </p>
+              </div>
             </div>
-          </div>
-          <p style={styles.footerText}>
-            Public in-kind donation information portal for{" "}
-            {footerInfo.municipality}.
-          </p>
-        </section>
+            <p style={styles.footerText}>
+              Public in-kind donation portal supporting transparent and coordinated
+              disaster relief operations in Malvar, Batangas.
+            </p>
+          </section>
 
-        <section aria-labelledby="drop-off-title">
-          <h2 id="drop-off-title" style={styles.footerColumnTitle}>
-            Donation Coordination
-          </h2>
-          <div style={styles.footerDetailList}>
-            <div>
-              <p style={styles.footerDetailLabel}>Receiving Office</p>
-              <p style={styles.footerDetailValue}>
-                {footerInfo.officeLines.map((line) => (
-                  <React.Fragment key={line}>
-                    {line}
-                    <br />
-                  </React.Fragment>
-                ))}
-              </p>
+          <section
+            aria-labelledby="footer-donation-coordination-title"
+            style={styles.footerColumn}
+          >
+            <h2
+              id="footer-donation-coordination-title"
+              style={styles.footerColumnTitle}
+            >
+              Donation Coordination
+            </h2>
+            <div
+              className="portal-footer-coordination-pair"
+              style={styles.footerCoordinationPair}
+            >
+              <div style={styles.footerCoordinationBlock}>
+                <div style={styles.footerDetailGroup}>
+                  <p style={styles.footerDetailLabel}>Receiving Office</p>
+                  <p style={styles.footerDetailValue}>
+                    {footerInfo.officeLines.map((line) => (
+                      <React.Fragment key={line}>
+                        {line}
+                        <br />
+                      </React.Fragment>
+                    ))}
+                  </p>
+                </div>
+                <div style={styles.footerDetailGroup}>
+                  <p style={styles.footerDetailLabel}>Receiving Hours</p>
+                  <p style={styles.footerDetailValue}>
+                    {footerInfo.receivingHours.map((line) => (
+                      <React.Fragment key={line}>
+                        {line}
+                        <br />
+                      </React.Fragment>
+                    ))}
+                  </p>
+                </div>
+              </div>
+              <div style={styles.footerDetailGroup}>
+                <p id="drop-off-title" style={styles.footerDetailLabel}>
+                  Drop-off Location
+                </p>
+                <p style={styles.footerDetailValue}>
+                  {footerInfo.buildingName}
+                  <br />
+                  {footerInfo.addressLines.map((line) => (
+                    <React.Fragment key={line}>
+                      {line}
+                      <br />
+                    </React.Fragment>
+                  ))}
+                </p>
+                {footerInfo.mapsUrl ? (
+                  <a
+                    href={footerInfo.mapsUrl}
+                    className="portal-footer-action"
+                    style={styles.footerAction}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <FiMapPin size={15} aria-hidden="true" />
+                    Get Directions
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    className="portal-footer-action"
+                    style={{ ...styles.footerAction, ...styles.footerActionDisabled }}
+                    disabled
+                    aria-disabled="true"
+                  >
+                    <FiMapPin size={15} aria-hidden="true" />
+                    Directions unavailable
+                  </button>
+                )}
+              </div>
             </div>
-            <div>
-              <p style={styles.footerDetailLabel}>Drop-off Location</p>
-              <p style={styles.footerDetailValue}>
-                {footerInfo.buildingName}
-                <br />
-                {footerInfo.addressLines.map((line) => (
-                  <React.Fragment key={line}>
-                    {line}
-                    <br />
-                  </React.Fragment>
-                ))}
-              </p>
-            </div>
-            <div>
-              <p style={styles.footerDetailLabel}>Receiving Hours</p>
-              <p style={styles.footerDetailValue}>
-                {footerInfo.receivingHours.join(", ")}
-              </p>
-            </div>
-          </div>
-        </section>
+          </section>
 
-        <nav aria-labelledby="footer-links-title">
-          <h2 id="footer-links-title" style={styles.footerColumnTitle}>
-            Quick Links
-          </h2>
-          <ul style={styles.footerLinkList}>
+          <section aria-labelledby="footer-contact-title" style={styles.footerColumn}>
+            <h2 id="footer-contact-title" style={styles.footerColumnTitle}>
+              Contact Information
+            </h2>
+            <div
+              aria-label="Contact information"
+              style={styles.footerCompactContact}
+            >
+              <div style={styles.footerContactRow}>
+                <FiPhone size={14} aria-hidden="true" />
+                <span style={styles.footerContactText}>{footerInfo.phone}</span>
+              </div>
+              <div style={styles.footerContactRow}>
+                <FiMail size={14} aria-hidden="true" />
+                <span style={styles.footerContactText}>{footerInfo.email}</span>
+              </div>
+              {footerInfo.websiteUrl ? (
+                <a
+                  href={footerInfo.websiteUrl}
+                  className="portal-footer-contact-link"
+                  style={styles.footerContactLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <FiGlobe size={14} aria-hidden="true" />
+                  <span style={styles.footerContactText}>
+                    {footerInfo.websiteLabel}
+                  </span>
+                </a>
+              ) : null}
+              {footerInfo.facebookUrl ? (
+                <a
+                  href={footerInfo.facebookUrl}
+                  className="portal-footer-contact-link"
+                  style={styles.footerContactLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <FaFacebookF size={14} aria-hidden="true" />
+                  <span style={styles.footerContactText}>
+                    {footerInfo.facebookLabel}
+                  </span>
+                </a>
+              ) : null}
+            </div>
+          </section>
+
+        </div>
+      </div>
+
+      <nav
+        aria-label="Footer quick links"
+        style={styles.footerQuickLinksBand}
+      >
+        <div style={styles.footerQuickLinksInner}>
+          <ul style={styles.footerHorizontalLinks}>
             {footerLinks.map((link) => (
               <li key={link.href}>
-                <a href={link.href} style={styles.footerLink}>
+                <a
+                  href={link.href}
+                  className="portal-footer-link"
+                  style={styles.footerLink}
+                >
                   {link.label}
                 </a>
               </li>
             ))}
           </ul>
-        </nav>
+        </div>
+      </nav>
 
-        <section aria-labelledby="footer-contact-title">
-          <h2 id="footer-contact-title" style={styles.footerColumnTitle}>
-            Contact Information
-          </h2>
-          <div style={styles.footerContactList}>
-            <div style={styles.footerContactRow}>
-              <FiPhone size={15} aria-hidden="true" />
-              <span>{footerInfo.phone}</span>
-            </div>
-            <div style={styles.footerContactRow}>
-              <FiMail size={15} aria-hidden="true" />
-              <span>{footerInfo.email}</span>
-            </div>
-            {footerInfo.mapsUrl ? (
-              <a
-                href={footerInfo.mapsUrl}
-                style={styles.footerAction}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <FiMapPin size={15} aria-hidden="true" />
-                Get Directions
-              </a>
-            ) : (
-              <button type="button" style={styles.footerAction}>
-                <FiMapPin size={15} aria-hidden="true" />
-                Get Directions
-              </button>
-            )}
-          </div>
-        </section>
-      </div>
-
-      <div style={styles.footerBottom}>
-        <p style={styles.footerBottomText}>
-          (c) {currentYear} DISTYNC - {footerInfo.municipality}
-        </p>
+      <div className="portal-footer-bottom" style={styles.footerBottom}>
+        <div className="portal-footer-bottom-inner" style={styles.footerBottomInner}>
+          <p style={styles.footerBottomText}>
+            © {currentYear} DISTYNC - {footerInfo.municipality}
+          </p>
+        </div>
       </div>
     </footer>
   );
@@ -1367,6 +1599,7 @@ const DonationInformationPage = () => {
     forecastSuggestions: [],
     recentDonations: [],
     transparencySummary: {},
+    publicContactConfig: DEFAULT_PUBLIC_CONTACT_CONFIG,
     lastUpdatedAt: new Date().toISOString(),
   });
 
@@ -1403,6 +1636,11 @@ const DonationInformationPage = () => {
           typeof publicPortalData.transparency_summary === "object"
             ? publicPortalData.transparency_summary
             : {};
+        const publicContactConfig =
+          publicPortalData?.public_contact_config &&
+          typeof publicPortalData.public_contact_config === "object"
+            ? publicPortalData.public_contact_config
+            : DEFAULT_PUBLIC_CONTACT_CONFIG;
 
         setPageState({
           isLoading: false,
@@ -1411,6 +1649,7 @@ const DonationInformationPage = () => {
           forecastSuggestions,
           recentDonations,
           transparencySummary,
+          publicContactConfig,
           lastUpdatedAt: getLatestTimestamp([
             ...disasterEvents.map((event) => event.updated_at || event.created_at),
             ...forecastSuggestions.map((item) => item.forecasted_at),
@@ -1429,6 +1668,7 @@ const DonationInformationPage = () => {
           forecastSuggestions: [],
           recentDonations: [],
           transparencySummary: {},
+          publicContactConfig: DEFAULT_PUBLIC_CONTACT_CONFIG,
           lastUpdatedAt: new Date().toISOString(),
         });
       }
@@ -1448,6 +1688,7 @@ const DonationInformationPage = () => {
     forecastSuggestions,
     recentDonations,
     transparencySummary,
+    publicContactConfig,
     lastUpdatedAt,
   } = pageState;
   const activeEvent = activeDisasters[0] || null;
@@ -1503,8 +1744,9 @@ const DonationInformationPage = () => {
           </>
         ) : null}
 
-        <PortalFooter />
       </div>
+
+      <PortalFooter publicContactConfig={publicContactConfig} />
     </main>
   );
 };
