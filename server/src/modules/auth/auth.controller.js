@@ -22,38 +22,6 @@ const loginWithGoogle = async (req, res) => {
   }
 };
 
-const loginWithDemoCredentials = async (req, res) => {
-  try {
-    const email = String(req.body?.email || "").trim().toLowerCase();
-    const password = String(req.body?.password || "");
-
-    if (!email) {
-      return res.status(400).json({
-        message: "email is required",
-      });
-    }
-
-    if (!password) {
-      return res.status(400).json({
-        message: "password is required",
-      });
-    }
-
-    const sessionPayload = await authService.authenticateWithDemoCredentials({
-      email,
-      password,
-    });
-
-    return res.status(200).json(sessionPayload);
-  } catch (error) {
-    const statusCode = error.statusCode || 500;
-
-    return res.status(statusCode).json({
-      message: error.message || "Failed to authenticate demo credentials",
-    });
-  }
-};
-
 const loginDevelopmentRole = async (req, res) => {
   try {
     const roleCode = String(req.body?.role || "").trim().toUpperCase();
@@ -78,7 +46,6 @@ const loginDevelopmentRole = async (req, res) => {
 };
 
 module.exports = {
-  loginWithDemoCredentials,
   loginDevelopmentRole,
   loginWithGoogle,
 };

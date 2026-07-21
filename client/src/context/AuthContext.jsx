@@ -16,7 +16,6 @@ import {
   setCurrentRole,
 } from "../utils/roleSession";
 import {
-  authenticateWithDemoCredentials,
   authenticateWithDevelopmentRole,
   authenticateWithGoogleIdToken,
   clearGooglePromptState,
@@ -115,32 +114,6 @@ export const AuthProvider = ({ children }) => {
     }
   }, [accessMode, syncAuthState]);
 
-  const signInWithDemoCredentials = useCallback(async ({
-    email,
-    password,
-  }) => {
-    setIsAuthLoading(true);
-    setAuthError("");
-
-    try {
-      const sessionPayload = await authenticateWithDemoCredentials({
-        email,
-        password,
-      });
-      clearAllAccessSessions();
-      setCurrentRole(sessionPayload.user.role);
-      setAuthenticatedSession(sessionPayload);
-      syncAuthState();
-      return sessionPayload;
-    } catch (error) {
-      const message = error.message || "Failed to sign in with demo credentials";
-      setAuthError(message);
-      throw error;
-    } finally {
-      setIsAuthLoading(false);
-    }
-  }, [syncAuthState]);
-
   const clearSession = useCallback(() => {
     clearGooglePromptState();
     clearAllAccessSessions();
@@ -161,7 +134,6 @@ export const AuthProvider = ({ children }) => {
       continueAsDonor,
       clearSession,
       selectDevelopmentRole,
-      signInWithDemoCredentials,
       signInWithGoogleCredential,
       syncAuthState,
     };

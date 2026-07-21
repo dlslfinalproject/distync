@@ -1,9 +1,5 @@
 const authRepository = require("./auth.repository");
-const {
-  ACCESS_MODES,
-  getServerAccessMode,
-  isDevelopmentBypassEnabled,
-} = require("../../config/accessMode");
+const { isDevelopmentBypassEnabled } = require("../../config/accessMode");
 const { TOKEN_EXPIRY, createAccessToken } = require("./auth.token");
 
 const AUTHORIZED_ROLE_CODES = new Set(["MSWDO", "BARANGAY", "MAYOR"]);
@@ -105,7 +101,7 @@ const buildSessionPayload = (user, roleCode) => {
 
 const resolveAuthorizedRoleForUser = async (user) => {
   if (!user.is_active) {
-    const error = new Error("This DISTYNC account is currently inactive.");
+    const error = new Error("This account is not authorized to access DISTYNC.");
     error.statusCode = 403;
     throw error;
   }
@@ -113,15 +109,13 @@ const resolveAuthorizedRoleForUser = async (user) => {
   const role = await authRepository.getRoleByUserId(user.id);
 
   if (!role) {
-    const error = new Error("This DISTYNC account does not have an assigned role.");
+    const error = new Error("This account is not authorized to access DISTYNC.");
     error.statusCode = 403;
     throw error;
   }
 
   if (!AUTHORIZED_ROLE_CODES.has(role.code)) {
-    const error = new Error(
-      "This account is not allowed to use authorized staff access.",
-    );
+    const error = new Error("This account is not authorized to access DISTYNC.");
     error.statusCode = 403;
     throw error;
   }
@@ -138,9 +132,7 @@ const authenticateWithGoogle = async (idToken) => {
     const userByEmail = await authRepository.getUserByEmail(verifiedIdentity.email);
 
     if (!userByEmail) {
-      const error = new Error(
-        "This Google account is not yet authorized for DISTYNC.",
-      );
+      const error = new Error("This account is not authorized to access DISTYNC.");
       error.statusCode = 403;
       throw error;
     }
@@ -149,9 +141,7 @@ const authenticateWithGoogle = async (idToken) => {
       userByEmail.google_sub &&
       userByEmail.google_sub !== verifiedIdentity.sub
     ) {
-      const error = new Error(
-        "This Google account does not match the authorized DISTYNC account.",
-      );
+      const error = new Error("This account is not authorized to access DISTYNC.");
       error.statusCode = 403;
       throw error;
     }
@@ -170,65 +160,6 @@ const authenticateWithGoogle = async (idToken) => {
   const roleCode = await resolveAuthorizedRoleForUser(user);
 
   return buildSessionPayload(user, roleCode);
-};
-
-const authenticateWithDemoCredentials = async ({ email, password }) => {
-  if (getServerAccessMode() !== ACCESS_MODES.DEMO) {
-    const error = new Error("Demo credential login is only available in Demo access mode.");
-    error.statusCode = 403;
-    throw error;
-  }
-
-  const candidate = await authRepository.getDemoLoginCandidateByEmail(
-    email,
-    password,
-  );
-
-  if (!candidate) {
-    const error = new Error("Invalid demo email or password.");
-    error.statusCode = 401;
-    throw error;
-  }
-
-  if (!candidate.is_active) {
-    const error = new Error("This DISTYNC account is currently inactive.");
-    error.statusCode = 403;
-    throw error;
-  }
-
-  if (candidate.demo_access_enabled !== true) {
-    const error = new Error("Demo access is not enabled for this account.");
-    error.statusCode = 403;
-    throw error;
-  }
-
-  if (String(candidate.auth_provider || "").toUpperCase() !== "EMAIL") {
-    const error = new Error("This account is not configured for demo email sign-in.");
-    error.statusCode = 403;
-    throw error;
-  }
-
-  if (candidate.password_match !== true) {
-    const error = new Error("Invalid demo email or password.");
-    error.statusCode = 401;
-    throw error;
-  }
-
-  if (!candidate.role_code) {
-    const error = new Error("This DISTYNC account does not have an assigned role.");
-    error.statusCode = 403;
-    throw error;
-  }
-
-  if (!AUTHORIZED_ROLE_CODES.has(candidate.role_code)) {
-    const error = new Error(
-      "This account is not allowed to use authorized staff access.",
-    );
-    error.statusCode = 403;
-    throw error;
-  }
-
-  return buildSessionPayload(candidate, candidate.role_code);
 };
 
 const authenticateDevelopmentRole = async (roleCode) => {
@@ -260,7 +191,6 @@ const authenticateDevelopmentRole = async (roleCode) => {
 };
 
 module.exports = {
-  authenticateWithDemoCredentials,
   authenticateDevelopmentRole,
   authenticateWithGoogle,
 };
