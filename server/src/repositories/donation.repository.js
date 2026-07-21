@@ -871,6 +871,13 @@ const getDonationSummaryTotals = async (disasterEventId, dbClient = pool) => {
     values.push(disasterEventId);
     donationConditions.push(`d.disaster_event_id = $${values.length}`);
     distributionConditions.push(`it.disaster_event_id = $${values.length}`);
+    distributionConditions.push(`EXISTS (
+      SELECT 1
+      FROM donation_items di
+      INNER JOIN donations d ON d.id = di.donation_id
+      WHERE di.inventory_batch_id = ib.id
+        AND d.disaster_event_id = $${values.length}
+    )`);
     batchConditions.push(`EXISTS (
       SELECT 1
       FROM donation_items di
@@ -956,7 +963,18 @@ const getDonationItemTransparencySummary = async (
             AND ib2.source_type = 'DONATED'
             AND it.transaction_type = 'OUTFLOW'
             AND it.reference_type = 'DISTRIBUTION'
-            ${disasterEventId ? `AND it.disaster_event_id = $1` : ""}
+            ${
+              disasterEventId
+                ? `AND it.disaster_event_id = $1
+                   AND EXISTS (
+                     SELECT 1
+                     FROM donation_items di2
+                     INNER JOIN donations d2 ON d2.id = di2.donation_id
+                     WHERE di2.inventory_batch_id = ib2.id
+                       AND d2.disaster_event_id = $1
+                   )`
+                : ""
+            }
         ), 0) AS quantity_distributed
       FROM donation_items di
       INNER JOIN donations d ON d.id = di.donation_id

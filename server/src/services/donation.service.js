@@ -1,4 +1,5 @@
 const pool = require("../config/db");
+const crypto = require("crypto");
 const donationRepository = require("../repositories/donation.repository");
 const forecastService = require("./forecast.service");
 const mayorReportExport = require("../utils/mayorReportExport");
@@ -19,6 +20,59 @@ const priorityRank = {
   HIGH: 2,
   MEDIUM: 3,
   LOW: 4,
+};
+
+const createPublicKey = (prefix, value) =>
+  `${prefix}-${crypto
+    .createHash("sha256")
+    .update(String(value || ""))
+    .digest("hex")
+    .slice(0, 16)}`;
+
+const buildGoogleMapsSearchUrl = (locationName, addressLines) => {
+  const query = [locationName, ...addressLines].filter(Boolean).join(", ");
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+};
+
+const getPublicContactConfig = () => {
+  const locationName =
+    process.env.PUBLIC_DONATION_LOCATION_NAME || "Municipal Hall of Malvar";
+  const addressLines = [
+    process.env.PUBLIC_DONATION_ADDRESS_LINE_1 || "J. Leviste Street",
+    process.env.PUBLIC_DONATION_ADDRESS_LINE_2 ||
+      "Poblacion, Malvar, Batangas 4233",
+  ].filter(Boolean);
+
+  return {
+    system_name: "DISTYNC",
+    municipality: "Municipality of Malvar, Batangas",
+    drop_off: {
+      location_name: locationName,
+      address_lines: addressLines,
+      office_lines: [
+        process.env.PUBLIC_DONATION_OFFICE_LINE_1 ||
+          "Office of the Municipal Mayor",
+        process.env.PUBLIC_DONATION_OFFICE_LINE_2 ||
+          "Donation Coordination Desk",
+      ].filter(Boolean),
+      receiving_hours: [
+        process.env.PUBLIC_DONATION_RECEIVING_DAYS || "Monday-Friday",
+        process.env.PUBLIC_DONATION_RECEIVING_TIME || "8:00 AM-5:00 PM",
+      ].filter(Boolean),
+      phone: process.env.PUBLIC_DONATION_PHONE || "+63 43 778 5101",
+      email:
+        process.env.PUBLIC_DONATION_EMAIL || "lgumalvarbatangas@gmail.com",
+      maps_url:
+        process.env.PUBLIC_DONATION_MAPS_URL ||
+        buildGoogleMapsSearchUrl(locationName, addressLines),
+    },
+    notices: {
+      privacy:
+        "Public information is aggregated and does not include private beneficiary records.",
+      in_kind_only:
+        "DISTYNC provides information for in-kind relief donations only. Cash donations and online payments are not processed through this portal.",
+    },
+  };
 };
 
 const mapDonationNeed = (row) => {
@@ -152,16 +206,34 @@ const mapAuditLogRow = (row) => ({
 const resolvePublicDonorName = (donorName, index) => {
   const trimmedDonorName = String(donorName || "").trim();
 
-  if (!trimmedDonorName) {
-    return `Donor #${index + 1}`;
-  }
-
   if (/anonymous|anon/i.test(trimmedDonorName)) {
     return "Anonymous Donor";
   }
 
-  return trimmedDonorName;
+  return `Donor #${index + 1}`;
 };
+
+const mapPublicDisasterSummary = (row) => ({
+  public_key: createPublicKey("event", row.id),
+  event_code: row.event_code,
+  title: row.title,
+  disaster_type: row.disaster_type,
+  description: row.description,
+  start_date: row.start_date,
+  end_date: row.end_date,
+  status: row.status,
+  created_at: row.created_at,
+  updated_at: row.updated_at,
+  affected_barangays: Array.isArray(row.affected_barangays)
+    ? row.affected_barangays.map((barangay) => ({
+        public_key: createPublicKey("barangay", barangay.id || barangay.name),
+        name: barangay.name,
+      }))
+    : [],
+  affected_barangays_count: Number(row.affected_barangays_count || 0),
+  registered_households_count: Number(row.registered_households_count || 0),
+  affected_individuals_count: Number(row.affected_individuals_count || 0),
+});
 
 const mapPublicDonationSummary = (row, index) => ({
   public_key: row.public_key || `donation-${index + 1}`,
@@ -1120,14 +1192,12 @@ const getPublicDonationPortal = async (disasterEventId = null) => {
     disasterEventId || activeDisasterSummaries[0]?.id || null;
 
   const [
-    activeNeeds,
     summaryTotals,
     perItemSummary,
     latestForecast,
     recentDonationRows,
   ] = selectedDisasterEventId
     ? await Promise.all([
-        donationRepository.getPublicDonationNeeds(selectedDisasterEventId),
         donationRepository.getDonationSummaryTotals(selectedDisasterEventId),
         donationRepository.getDonationItemTransparencySummary(
           selectedDisasterEventId,
@@ -1139,7 +1209,6 @@ const getPublicDonationPortal = async (disasterEventId = null) => {
         ),
       ])
     : [
-        [],
         {
           total_donations_received: 0,
           total_quantity_received: 0,
@@ -1155,30 +1224,17 @@ const getPublicDonationPortal = async (disasterEventId = null) => {
     forecastService.buildPublicForecastSuggestions(latestForecast);
 
   return {
-    disaster_events: activeDisasterSummaries,
-    selected_disaster_event_id: selectedDisasterEventId,
-    donation_needs: activeNeeds
-      .map(mapDonationNeed)
-      .sort((left, right) => {
-        const priorityDifference =
-          (priorityRank[left.priority_level] || 999) -
-          (priorityRank[right.priority_level] || 999);
-
-        if (priorityDifference !== 0) {
-          return priorityDifference;
-        }
-
-        return left.inventory_item.item_name.localeCompare(
-          right.inventory_item.item_name,
-        );
-      }),
+    public_contact_config: getPublicContactConfig(),
+    disaster_events: activeDisasterSummaries.map(mapPublicDisasterSummary),
+    selected_disaster_event_key: selectedDisasterEventId
+      ? createPublicKey("event", selectedDisasterEventId)
+      : null,
     forecast_suggestions: forecastSuggestions,
     recent_donations: recentDonationRows.map(mapPublicDonationSummary),
     transparency_summary: {
       ...summaryTotals,
       received_vs_distributed: perItemSummary.map((row) => ({
-        inventory_item_id: row.inventory_item_id,
-        item_code: row.item_code,
+        public_key: createPublicKey("utilization-item", row.inventory_item_id),
         item_name: row.item_name,
         unit_of_measure: row.unit_of_measure,
         quantity_received: row.quantity_received,
