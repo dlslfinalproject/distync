@@ -39,58 +39,38 @@ const tableStyles = {
     verticalAlign: "middle",
     whiteSpace: "nowrap",
   },
+  stackedList: {
+    display: "grid",
+    gap: "8px",
+  },
+  stackedListRow: {
+    color: "#17324d",
+    fontWeight: 700,
+    lineHeight: 1.45,
+  },
 };
 
-const getDonationItemSummary = (donation) => {
+const getDonationItemDetails = (donation) => {
   const items = donation.items || [];
 
   if (items.length === 0) {
     return {
-      label: "--",
-      detail: "No item entries",
-      quantityLabel: "0",
+      itemLines: ["--"],
+      quantityLines: ["0"],
     };
   }
 
-  const reliefPackRemarks = items
-    .map((item) => item.remarks || "")
-    .filter((remarks) => remarks.startsWith("Relief Pack:"));
-
-  if (reliefPackRemarks.length === items.length) {
-    const reliefPackLabel = reliefPackRemarks[0]
-      .replace("Relief Pack:", "")
-      .split(".")[0]
-      .trim();
-    const packQuantity = reliefPackLabel.match(/\sx\s(\d+)$/i)?.[1];
-    const reliefPackName = reliefPackLabel.replace(/\sx\s\d+$/i, "").trim();
-
-    return {
-      label: reliefPackName || "Relief Pack",
-      detail: `${items.length} inventory item(s) from donor`,
-      quantityLabel: packQuantity
-        ? `${packQuantity} relief pack(s)`
-        : `${donation.total_quantity_received} item unit(s)`,
-    };
-  }
-
-  if (items.length === 1) {
-    return {
-      label: items[0].inventory_item?.item_name || "Inventory item",
-      detail: "Donated item",
-      quantityLabel: `${items[0].quantity_received} ${
-        items[0].inventory_item?.unit_of_measure || "unit(s)"
-      }`,
-    };
-  }
+  const itemLines = items.map(
+    (item) => item.inventory_item?.item_name || "Inventory item",
+  );
+  const quantityLines = items.map(
+    (item) =>
+      `${item.quantity_received} ${item.inventory_item?.unit_of_measure || "unit(s)"}`,
+  );
 
   return {
-    label: `${items.length} donated item entries`,
-    detail: items
-      .slice(0, 3)
-      .map((item) => item.inventory_item?.item_name)
-      .filter(Boolean)
-      .join(", "),
-    quantityLabel: `${donation.total_quantity_received} item unit(s)`,
+    itemLines,
+    quantityLines,
   };
 };
 
@@ -122,7 +102,7 @@ const DonationsTab = ({
           <table style={tableStyles.table}>
             <thead>
               <tr>
-                {["Donor", "Item", "Quantity", "Date", "Sync", "Actions"].map(
+                {["Donor", "Item", "Quantity Per Item", "Date", "Sync", "Actions"].map(
                   (label) => (
                     <th
                       key={label}
@@ -136,7 +116,7 @@ const DonationsTab = ({
             </thead>
             <tbody>
               {filteredDonations.map((donation) => {
-                const itemSummary = getDonationItemSummary(donation);
+                const itemDetails = getDonationItemDetails(donation);
 
                 return (
                   <tr key={donation.id}>
@@ -145,11 +125,25 @@ const DonationsTab = ({
                       <div style={tableStyles.mutedText}>{donation.donor_type}</div>
                     </td>
                     <td style={tableStyles.bodyCell}>
-                      <div style={{ fontWeight: 700 }}>{itemSummary.label}</div>
-                      <div style={tableStyles.mutedText}>{itemSummary.detail}</div>
+                      <div style={tableStyles.stackedList}>
+                        {itemDetails.itemLines.map((line, index) => (
+                          <div
+                            key={`${donation.id}-item-${index}`}
+                            style={tableStyles.stackedListRow}
+                          >
+                            {line}
+                          </div>
+                        ))}
+                      </div>
                     </td>
-                    <td style={{ ...tableStyles.bodyCell, fontWeight: 800 }}>
-                      {itemSummary.quantityLabel}
+                    <td style={tableStyles.bodyCell}>
+                      <div style={tableStyles.stackedList}>
+                        {itemDetails.quantityLines.map((line, index) => (
+                          <div key={`${donation.id}-quantity-${index}`} style={tableStyles.stackedListRow}>
+                            {line}
+                          </div>
+                        ))}
+                      </div>
                     </td>
                     <td style={tableStyles.bodyCell}>
                       {formatDonationDateTime(donation.received_at)}

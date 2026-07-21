@@ -42,6 +42,81 @@ import {
   NO_EXPORT_DATA_MESSAGE,
   resolveExportErrorMessage,
 } from "../utils/exportHelpers";
+import { formatDonationDateTime } from "../features/donations/donationFormatters";
+
+const getDonationItemSummary = (donation) => {
+  const items = donation.items || [];
+
+  if (items.length === 0) {
+    return {
+      label: "--",
+      quantityLabel: "0",
+    };
+  }
+
+  const reliefPackRemarks = items
+    .map((item) => item.remarks || "")
+    .filter((remarks) => remarks.startsWith("Relief Pack:"));
+
+  if (reliefPackRemarks.length === items.length) {
+    const reliefPackLabel = reliefPackRemarks[0]
+      .replace("Relief Pack:", "")
+      .split(".")[0]
+      .trim();
+    const packQuantity = reliefPackLabel.match(/\sx\s(\d+)$/i)?.[1];
+    const reliefPackName = reliefPackLabel.replace(/\sx\s\d+$/i, "").trim();
+
+    return {
+      label: reliefPackName || "Relief Pack",
+      quantityLabel: packQuantity
+        ? `${packQuantity} relief pack(s)`
+        : `${donation.total_quantity_received} item unit(s)`,
+    };
+  }
+
+  if (items.length === 1) {
+    return {
+      label: items[0].inventory_item?.item_name || "Inventory item",
+      quantityLabel: `${items[0].quantity_received} ${
+        items[0].inventory_item?.unit_of_measure || "unit(s)"
+      }`,
+    };
+  }
+
+  return {
+    label: `${items.length} donated item entries`,
+    quantityLabel: `${donation.total_quantity_received} item unit(s)`,
+  };
+};
+
+const escapeCsvValue = (value) => {
+  const normalizedValue = String(value ?? "");
+  const escapedValue = normalizedValue.replace(/"/g, "\"\"");
+  return `"${escapedValue}"`;
+};
+
+const buildDonationCsv = (rows) => {
+  const headers = ["Donor", "Donor Type", "Item", "Quantity", "Date", "Sync"];
+  const lines = [
+    headers.map(escapeCsvValue).join(","),
+    ...rows.map((donation) => {
+      const itemSummary = getDonationItemSummary(donation);
+
+      return [
+        donation.donor_name || "--",
+        donation.donor_type || "--",
+        itemSummary.label,
+        itemSummary.quantityLabel,
+        formatDonationDateTime(donation.received_at),
+        donation.sync_status || "--",
+      ]
+        .map(escapeCsvValue)
+        .join(",");
+    }),
+  ];
+
+  return lines.join("\n");
+};
 
 const DonationManagementPage = () => {
   const { currentRole } = useAuth();
@@ -248,6 +323,45 @@ const DonationManagementPage = () => {
     }
   };
 
+  const handleExportDonations = () => {
+    setPageErrorMessage("");
+    setSuccessMessage("");
+
+    if (filteredDonations.length === 0) {
+      setExportFeedback({
+        type: "error",
+        message: NO_EXPORT_DATA_MESSAGE,
+      });
+      return;
+    }
+
+    try {
+      const csvContent = buildDonationCsv(filteredDonations);
+      const eventLabel = selectedEventLabel
+        .replace(/[^a-z0-9]+/gi, "-")
+        .replace(/^-+|-+$/g, "")
+        .toLowerCase();
+      const file = {
+        blob: new Blob([csvContent], { type: "text/csv;charset=utf-8;" }),
+        filename: `donations-${eventLabel || "all-events"}.csv`,
+      };
+
+      downloadFile(file);
+      setExportFeedback({
+        type: "success",
+        message: buildExportSuccessMessage("Donation records"),
+      });
+    } catch (error) {
+      setExportFeedback({
+        type: "error",
+        message: resolveExportErrorMessage(
+          error,
+          "Failed to export donation records.",
+        ),
+      });
+    }
+  };
+
   const pageMeta = getDonationPageMeta(canManageDonations);
 
   return (
@@ -255,6 +369,12 @@ const DonationManagementPage = () => {
       <PageHeader title={pageMeta.title} description={pageMeta.description} />
 
       <section style={shellStyles.card}>
+        <DonationPageTabs
+          availableTabs={availableTabs}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+        />
+
         <DonationFilters
           activeTab={activeTab}
           canManageDonations={canManageDonations}
@@ -267,18 +387,14 @@ const DonationManagementPage = () => {
           }}
           onDonationSearchChange={setDonationSearch}
           onOpenDonationModal={() => openDonationModal()}
+          onExportDonations={handleExportDonations}
           isExportingTransparency={isExportingTransparency}
           onOpenTransparencyExport={() => {
             setSelectedTransparencyExportFormat("csv");
             setExportFeedback({ type: "", message: "" });
             setIsTransparencyExportModalOpen(true);
           }}
-        />
-
-        <DonationPageTabs
-          availableTabs={availableTabs}
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
+          showDonationActions={false}
         />
 
         <DonationPageStatus
@@ -286,6 +402,33 @@ const DonationManagementPage = () => {
           errorMessage={pageErrorMessage}
         />
       </section>
+
+      {activeTab === "donations" ? (
+        <section style={shellStyles.card}>
+          <DonationFilters
+            activeTab={activeTab}
+            canManageDonations={canManageDonations}
+            selectedEventId={selectedEventId}
+            disasterEvents={disasterEvents}
+            donationSearch={donationSearch}
+            onSelectedEventChange={(nextEventId) => {
+              setSelectedEventId(nextEventId);
+              loadPageData(nextEventId);
+            }}
+            onDonationSearchChange={setDonationSearch}
+            onOpenDonationModal={() => openDonationModal()}
+            onExportDonations={handleExportDonations}
+            isExportingTransparency={isExportingTransparency}
+            onOpenTransparencyExport={() => {
+              setSelectedTransparencyExportFormat("csv");
+              setExportFeedback({ type: "", message: "" });
+              setIsTransparencyExportModalOpen(true);
+            }}
+            showEventSelector={false}
+            showTransparencyActions={false}
+          />
+        </section>
+      ) : null}
 
       {activeTab === "donations" ? (
         <DonationsTab

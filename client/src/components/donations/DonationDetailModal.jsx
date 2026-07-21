@@ -5,11 +5,31 @@ import ErrorState from "../shared/ErrorState";
 import LoadingState from "../shared/LoadingState";
 
 const modalStyles = {
-  card: {
-    borderRadius: "16px",
+  summaryCard: {
+    borderRadius: "18px",
     border: "1px solid #d6e2ee",
-    backgroundColor: "#f8fbfe",
+    backgroundColor: "#ffffff",
+    padding: "18px 16px",
+    minHeight: "96px",
+  },
+  sectionCard: {
+    borderRadius: "18px",
+    border: "1px solid #d6e2ee",
+    backgroundColor: "#ffffff",
     padding: "16px",
+  },
+  sectionHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "12px",
+    marginBottom: "14px",
+  },
+  sectionTitle: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "17px",
+    fontWeight: 800,
   },
   label: {
     fontSize: "12px",
@@ -21,8 +41,9 @@ const modalStyles = {
   },
   value: {
     color: "#21405f",
-    fontSize: "14px",
-    lineHeight: 1.5,
+    fontSize: "15px",
+    lineHeight: 1.6,
+    wordBreak: "break-word",
   },
   table: {
     width: "100%",
@@ -80,12 +101,14 @@ const DonationDetailModal = ({
   const stockUpdateHistory = detail?.stock_update_history || [];
   const auditHistory = detail?.audit_history || [];
   const items = donation?.items || [];
+  const eventLabel = [donation?.disaster_event?.event_code, donation?.disaster_event?.title]
+    .filter(Boolean)
+    .join(" - ");
 
   return (
     <DetailsModalShell
       isOpen={isOpen}
       title="Donation Detail"
-      description="Review donor information, linked donation items, stock update history, and audit history for this donation record."
       onClose={onClose}
       maxWidth="980px"
     >
@@ -110,18 +133,18 @@ const DonationDetailModal = ({
               ["Contact Info", donation.contact_information || "--"],
               ["Status", donation.status || "--"],
               ["Received At", formatDateTime(donation.received_at)],
-              ["Event", `${donation.disaster_event?.event_code || "--"} - ${donation.disaster_event?.title || "--"}`],
+              ["Event", eventLabel || "--"],
             ].map(([label, value]) => (
-              <div key={label} style={modalStyles.card}>
+              <div key={label} style={modalStyles.summaryCard}>
                 <div style={modalStyles.label}>{label}</div>
                 <div style={modalStyles.value}>{value}</div>
               </div>
             ))}
           </section>
 
-          <section style={modalStyles.card}>
-            <div style={{ marginBottom: "14px" }}>
-              <h4 style={{ margin: 0, color: "#17324d" }}>Donation Items</h4>
+          <section style={modalStyles.sectionCard}>
+            <div style={modalStyles.sectionHeader}>
+              <h4 style={modalStyles.sectionTitle}>Donation Items</h4>
             </div>
             {items.length === 0 ? (
               <EmptyState compact message="No donation items yet." />
@@ -153,9 +176,9 @@ const DonationDetailModal = ({
             )}
           </section>
 
-          <section style={modalStyles.card}>
-            <div style={{ marginBottom: "14px" }}>
-              <h4 style={{ margin: 0, color: "#17324d" }}>Stock Update History</h4>
+          <section style={modalStyles.sectionCard}>
+            <div style={modalStyles.sectionHeader}>
+              <h4 style={modalStyles.sectionTitle}>Stock Update History</h4>
             </div>
             {stockUpdateHistory.length === 0 ? (
               <EmptyState compact message="No stock update history yet." />
@@ -195,9 +218,9 @@ const DonationDetailModal = ({
             )}
           </section>
 
-          <section style={modalStyles.card}>
-            <div style={{ marginBottom: "14px" }}>
-              <h4 style={{ margin: 0, color: "#17324d" }}>Audit History</h4>
+          <section style={modalStyles.sectionCard}>
+            <div style={modalStyles.sectionHeader}>
+              <h4 style={modalStyles.sectionTitle}>Audit History</h4>
             </div>
             {auditHistory.length === 0 ? (
               <EmptyState compact message="No audit history yet." />
