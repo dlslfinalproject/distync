@@ -108,7 +108,7 @@ const InventoryItemsPage = () => {
   const [filters, setFilters] = useState({
     search: "",
     category: "All",
-    status: "All",
+    status: [],
   });
   const [inventoryItems, setInventoryItems] = useState([]);
   const [inventoryBatches, setInventoryBatches] = useState([]);
@@ -281,22 +281,18 @@ const InventoryItemsPage = () => {
       {
         label: "Total Items",
         value: inventoryAnalytics.totalItems,
-        accentColor: "#2f6499",
       },
       {
         label: "Low Stock Items",
         value: inventoryAnalytics.lowStockItems,
-        accentColor: "#c9792b",
       },
       {
         label: "Expiring Soon",
         value: inventoryAnalytics.expiringSoonItems,
-        accentColor: "#2d7a4f",
       },
       {
         label: "Out of Stock",
         value: inventoryAnalytics.outOfStockItems,
-        accentColor: "#b91c1c",
       },
     ],
     [inventoryAnalytics],
@@ -316,27 +312,35 @@ const InventoryItemsPage = () => {
   }, [inventoryItemsWithSyncStatus, scanForm.barcodeNumber]);
 
   const visibleInventoryItems = useMemo(() => {
+    const selectedStockStatuses = Array.isArray(filters.status)
+      ? filters.status
+      : filters.status && filters.status !== "All"
+        ? [filters.status]
+        : [];
+
     const filteredItems =
-      filters.status === "All"
+      selectedStockStatuses.length === 0
         ? inventoryItemsWithSyncStatus
         : inventoryItemsWithSyncStatus.filter((item) => {
-      const trackingStats =
-        inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
+            const trackingStats =
+              inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
 
-          if (filters.status === "Low Stock") {
-            return isLowStockItem(item, trackingStats);
-          }
+            return selectedStockStatuses.some((status) => {
+              if (status === "Low Stock") {
+                return isLowStockItem(item, trackingStats);
+              }
 
-          if (filters.status === "Expiring") {
-            return trackingStats.hasExpiringStock || isItemExpiring(item);
-          }
+              if (status === "Expiring") {
+                return trackingStats.hasExpiringStock || isItemExpiring(item);
+              }
 
-          if (filters.status === "Out of Stock") {
-            return getMonitorQuantity(item, trackingStats) <= 0;
-          }
+              if (status === "Out of Stock") {
+                return getMonitorQuantity(item, trackingStats) <= 0;
+              }
 
-          return getItemStatus(item, trackingStats) === filters.status;
-        });
+              return getItemStatus(item, trackingStats) === status;
+            });
+          });
 
     return filteredItems.map((item) => ({
       ...item,
@@ -516,11 +520,19 @@ const InventoryItemsPage = () => {
     setIsExportModalOpen(false);
 
     try {
+      const selectedStockStatuses = Array.isArray(filters.status)
+        ? filters.status
+        : filters.status && filters.status !== "All"
+          ? [filters.status]
+          : [];
+
       const file = await exportInventoryItems({
         format,
         filters: {
           ...buildInventoryItemFilters(filters),
-          status: filters.status === "Expiring" ? "Expiring" : "All",
+          status: selectedStockStatuses.includes("Expiring")
+            ? "Expiring"
+            : "All",
           ...extraFilters,
         },
       });
@@ -604,27 +616,42 @@ const InventoryItemsPage = () => {
       style={{ flex: 1, minWidth: 0, maxWidth: "100%", overflowX: "hidden" }}
     >
       <PageHeader
-        title="INVENTORY MANAGEMENT"
+        title="INVENTORY ITEMS MANAGEMENT"
       />
 
-      <InventoryPageActions
-        exportingFormat={exportingFormat}
-        onOpenScanModal={handleOpenScanModal}
-        onOpenCreateModal={handleOpenCreateModal}
-        onOpenExportModal={handleOpenExportModal}
-      />
+      <div style={inventoryPageStyles.pageTopActions}>
+        <InventoryPageActions
+          exportingFormat={exportingFormat}
+          onOpenScanModal={handleOpenScanModal}
+          onOpenCreateModal={handleOpenCreateModal}
+          onOpenExportModal={handleOpenExportModal}
+          showExport={false}
+        />
+      </div>
 
-      <InventoryOverviewCards summaryCards={summaryCards} />
+      <div style={inventoryPageStyles.overviewSection}>
+        <InventoryOverviewCards summaryCards={summaryCards} />
+      </div>
+
+      <div style={inventoryPageStyles.managementToolbar}>
+        <InventoryFilters
+          filters={filters}
+          onFilterChange={handleFilterChange}
+        />
+
+        <InventoryPageActions
+          exportingFormat={exportingFormat}
+          onOpenScanModal={handleOpenScanModal}
+          onOpenCreateModal={handleOpenCreateModal}
+          onOpenExportModal={handleOpenExportModal}
+          showScanAndAdd={false}
+        />
+      </div>
 
       <section style={shellStyles.card}>
         <h3 style={inventoryPageStyles.sectionTitle}>
           {getInventorySectionTitle()}
         </h3>
-
-        <InventoryFilters
-          filters={filters}
-          onFilterChange={handleFilterChange}
-        />
 
         <InventoryItemsTable
           rows={visibleInventoryItems}

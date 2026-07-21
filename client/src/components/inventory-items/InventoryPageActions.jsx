@@ -12,39 +12,47 @@ const InventoryPageActions = ({
   onOpenScanModal,
   onOpenCreateModal,
   onOpenExportModal,
+  showScanAndAdd = true,
+  showExport = true,
 }) => {
   return (
     <div style={inventoryPageStyles.topActionsRow}>
-      <button type="button" style={primaryTopBtn} onClick={onOpenScanModal}>
-        <MdQrCodeScanner size={16} />
-        Scan Item
-      </button>
+      {showScanAndAdd && (
+        <>
+          <button type="button" style={primaryTopBtn} onClick={onOpenScanModal}>
+            <MdQrCodeScanner size={16} />
+            Scan Item
+          </button>
 
-      <button type="button" style={primaryTopBtn} onClick={onOpenCreateModal}>
-        <span style={inventoryPageStyles.addItemIconWrap}>
-          <FiPackage size={16} />
-          <span style={inventoryPageStyles.addItemPlus}>
-            <FiPlus size={10} strokeWidth={3} />
-          </span>
-        </span>
-        Add Item
-      </button>
+          <button type="button" style={primaryTopBtn} onClick={onOpenCreateModal}>
+            <span style={inventoryPageStyles.addItemIconWrap}>
+              <FiPackage size={16} />
+              <span style={inventoryPageStyles.addItemPlus}>
+                <FiPlus size={10} strokeWidth={3} />
+              </span>
+            </span>
+            Add Item
+          </button>
+        </>
+      )}
 
-      <button
-        type="button"
-        onClick={onOpenExportModal}
-        disabled={Boolean(exportingFormat)}
-        style={{
-          ...secondaryTopBtn,
-          opacity: exportingFormat ? 0.7 : 1,
-          cursor: exportingFormat ? "not-allowed" : "pointer",
-        }}
-      >
-        <FiFileText size={16} />
-        {exportingFormat
-          ? `Exporting ${exportingFormat.toUpperCase()}...`
-          : "Export"}
-      </button>
+      {showExport && (
+        <button
+          type="button"
+          onClick={onOpenExportModal}
+          disabled={Boolean(exportingFormat)}
+          style={{
+            ...secondaryTopBtn,
+            opacity: exportingFormat ? 0.7 : 1,
+            cursor: exportingFormat ? "not-allowed" : "pointer",
+          }}
+        >
+          <FiFileText size={16} />
+          {exportingFormat
+            ? `Exporting ${exportingFormat.toUpperCase()}...`
+            : "Export"}
+        </button>
+      )}
     </div>
   );
 };

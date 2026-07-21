@@ -1,139 +1,236 @@
-import React from "react";
+import React, { useState } from "react";
+import { FiFilter } from "react-icons/fi";
 import SearchBar from "../shared/SearchBar";
 
 const COLORS = {
   primary: "#17324d",
-  muted: "#6b8298",
-  chipBg: "#d7dee9",
+  muted: "#5f7892",
+  border: "#c6d8ea",
+  panel: "#ffffff",
+  softPanel: "#f8fbfe",
 };
 
-const activeChipPalette = {
-  All: {
-    backgroundColor: COLORS.primary,
-    color: "#ffffff",
-  },
-  Perishable: {
-    backgroundColor: "#fef3c7",
-    color: "#92400e",
-  },
-  "Non-Perishable": {
-    backgroundColor: "#e6f5ec",
-    color: "#2d7a4f",
-  },
-  Available: {
-    backgroundColor: "#e0f2fe",
-    color: "#075985",
-  },
-  Expired: {
-    backgroundColor: "#fee2e2",
-    color: "#b91c1c",
-  },
-  Expiring: {
-    backgroundColor: "#ede9fe",
-    color: "#6d28d9",
-  },
-  "Low Stock": {
-    backgroundColor: "#fff7ed",
-    color: "#c2410c",
-  },
-  "Out of Stock": {
-    backgroundColor: "#fee2e2",
-    color: "#b91c1c",
-  },
-};
-
-const chipGroupStyle = {
-  display: "flex",
-  background: COLORS.chipBg,
-  borderRadius: "7px",
-  padding: "2px",
-  gap: "1px",
-  flexWrap: "wrap",
-};
+const categoryOptions = ["All", "Perishable", "Non-Perishable"];
+const stockStatusOptions = ["Low Stock", "Expiring", "Out of Stock"];
 
 const styles = {
-  filterRow: {
+  controlsGroup: {
     display: "flex",
-    gap: "12px",
     alignItems: "center",
-    marginBottom: "8px",
+    gap: "12px",
+    flex: "1 1 520px",
     flexWrap: "wrap",
+    minWidth: 0,
   },
-  inlineFilters: {
+  searchWrap: {
+    flex: "1 1 420px",
+    minWidth: "260px",
+  },
+  inlineSelectGroup: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    flex: "0 0 auto",
+  },
+  inlineSelectLabel: {
+    color: COLORS.primary,
+    fontSize: "14px",
+    fontWeight: 800,
+  },
+  inlineSelect: {
+    minWidth: "180px",
+    minHeight: "48px",
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "14px",
+    padding: "0 14px",
+    background: COLORS.softPanel,
+    color: COLORS.primary,
+    fontSize: "14px",
+    outline: "none",
+    boxSizing: "border-box",
+  },
+  filterWrap: {
+    position: "relative",
+    flex: "0 0 auto",
+  },
+  filterButton: {
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "14px",
+    padding: "12px 18px",
+    backgroundColor: COLORS.softPanel,
+    color: COLORS.primary,
+    fontSize: "14px",
+    fontWeight: 700,
+    cursor: "pointer",
     display: "flex",
     alignItems: "center",
     gap: "8px",
-    marginTop: "2px",
-    flexWrap: "wrap",
+    boxShadow: "0 8px 18px rgba(75, 101, 132, 0.05)",
+  },
+  filterPopover: {
+    position: "absolute",
+    top: "calc(100% + 10px)",
+    right: 0,
+    zIndex: 20,
+    width: "320px",
+    padding: "18px",
+    border: "1px solid #d6e2ef",
+    borderRadius: "18px",
+    background: COLORS.panel,
+    boxShadow: "0 18px 40px rgba(23, 50, 77, 0.16)",
+    boxSizing: "border-box",
+  },
+  popoverTitle: {
+    margin: "0 0 16px",
     color: COLORS.primary,
-    fontSize: "13px",
+    fontSize: "18px",
+    fontWeight: 800,
+  },
+  fieldGroup: {
+    marginBottom: "14px",
+  },
+  filterLabel: {
+    display: "block",
+    marginBottom: "8px",
+    color: COLORS.muted,
+    fontSize: "12px",
+    fontWeight: 800,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+  },
+  checkboxList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+  },
+  checkboxOption: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    color: "#2a4c6f",
+    fontSize: "14px",
     fontWeight: 600,
-    marginBottom: "16px",
+    cursor: "pointer",
+  },
+  checkboxInput: {
+    width: "16px",
+    height: "16px",
+    margin: 0,
+    accentColor: "#2f75b5",
+    cursor: "pointer",
+  },
+  popoverFooter: {
+    display: "flex",
+    justifyContent: "flex-end",
+    marginTop: "12px",
+  },
+  clearButton: {
+    border: "none",
+    padding: 0,
+    background: "transparent",
+    color: "#2a4c6f",
+    fontSize: "14px",
+    fontWeight: 700,
+    textDecoration: "underline",
+    cursor: "pointer",
   },
 };
 
-const getChipStyle = (label, isActive) => {
-  const activePalette = activeChipPalette[label] || activeChipPalette.All;
-
-  return {
-    border: "none",
-    borderRadius: "6px",
-    padding: "3px 10px",
-    fontSize: "11px",
-    fontWeight: 600,
-    cursor: "pointer",
-    backgroundColor: isActive
-      ? activePalette.backgroundColor
-      : "transparent",
-    color: isActive ? activePalette.color : COLORS.muted,
-    transition: "all 0.2s",
-    lineHeight: 1.2,
-  };
-};
-
 const InventoryFilters = ({ filters, onFilterChange }) => {
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const selectedStockStatuses = Array.isArray(filters.status)
+    ? filters.status
+    : filters.status && filters.status !== "All"
+      ? [filters.status]
+      : [];
+
+  const handleClearFilters = () => {
+    onFilterChange("status", []);
+  };
+
+  const handleStockStatusToggle = (status) => {
+    const nextStatuses = selectedStockStatuses.includes(status)
+      ? selectedStockStatuses.filter((selectedStatus) => selectedStatus !== status)
+      : [...selectedStockStatuses, status];
+
+    onFilterChange("status", nextStatuses);
+  };
+
   return (
-    <>
-      <div style={styles.filterRow}>
-        <div style={{ flex: 1 }}>
-          <SearchBar
-            value={filters.search}
-            onChange={(value) => onFilterChange("search", value)}
-            placeholder="Search item name, code, or barcode"
-          />
-        </div>
+    <div style={styles.controlsGroup}>
+      <div style={styles.searchWrap}>
+        <SearchBar
+          value={filters.search}
+          onChange={(value) => onFilterChange("search", value)}
+          placeholder="Search item name, code, or barcode"
+        />
       </div>
 
-      <div style={styles.inlineFilters}>
-        <span>Category:</span>
-        <div style={chipGroupStyle}>
-          {["All", "Perishable", "Non-Perishable"].map((category) => (
-            <button
-              key={category}
-              type="button"
-              style={getChipStyle(category, filters.category === category)}
-              onClick={() => onFilterChange("category", category)}
-            >
+      <div style={styles.inlineSelectGroup}>
+        <label
+          htmlFor="inventory-category-filter"
+          style={styles.inlineSelectLabel}
+        >
+          Category
+        </label>
+        <select
+          id="inventory-category-filter"
+          value={filters.category}
+          onChange={(event) => onFilterChange("category", event.target.value)}
+          style={styles.inlineSelect}
+        >
+          {categoryOptions.map((category) => (
+            <option key={category} value={category}>
               {category}
-            </button>
+            </option>
           ))}
-        </div>
-
-        <span>Stock Status:</span>
-        <div style={chipGroupStyle}>
-          {["All", "Low Stock", "Expiring", "Out of Stock"].map((status) => (
-            <button
-              key={status}
-              type="button"
-              style={getChipStyle(status, filters.status === status)}
-              onClick={() => onFilterChange("status", status)}
-            >
-              {status}
-            </button>
-          ))}
-        </div>
+        </select>
       </div>
-    </>
+
+      <div style={styles.filterWrap}>
+        <button
+          type="button"
+          style={styles.filterButton}
+          onClick={() => setIsFilterOpen((isOpen) => !isOpen)}
+        >
+          <FiFilter size={18} />
+          Filter
+        </button>
+
+        {isFilterOpen && (
+          <div style={styles.filterPopover}>
+            <h3 style={styles.popoverTitle}>Filter Records</h3>
+
+            <div style={styles.fieldGroup}>
+              <span style={styles.filterLabel}>Stock Status</span>
+              <div style={styles.checkboxList}>
+                {stockStatusOptions.map((status) => (
+                  <label key={status} style={styles.checkboxOption}>
+                    <input
+                      type="checkbox"
+                      checked={selectedStockStatuses.includes(status)}
+                      onChange={() => handleStockStatusToggle(status)}
+                      style={styles.checkboxInput}
+                    />
+                    <span>{status}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div style={styles.popoverFooter}>
+              <button
+                type="button"
+                style={styles.clearButton}
+                onClick={handleClearFilters}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 };
 

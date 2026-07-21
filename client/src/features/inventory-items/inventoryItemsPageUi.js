@@ -1,6 +1,7 @@
 export const primaryTopBtn = {
   display: "inline-flex",
   alignItems: "center",
+  justifyContent: "center",
   gap: "8px",
   border: "none",
   borderRadius: "14px",
@@ -24,17 +25,32 @@ export const secondaryTopBtn = {
   cursor: "pointer",
   display: "inline-flex",
   alignItems: "center",
+  justifyContent: "center",
   gap: "8px",
 };
 
 export const inventoryPageStyles = {
+  pageTopActions: {
+    marginTop: "18px",
+  },
+  overviewSection: {
+    marginTop: "24px",
+  },
+  managementToolbar: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    margin: "0 0 24px",
+    flexWrap: "wrap",
+  },
   topActionsRow: {
     display: "flex",
     justifyContent: "flex-end",
     alignItems: "center",
-    margin: "16px 0 24px",
+    margin: 0,
     flexWrap: "wrap",
     gap: "12px",
+    flex: "0 0 auto",
   },
   tabContainer: {
     display: "flex",
@@ -44,11 +60,11 @@ export const inventoryPageStyles = {
     flexWrap: "wrap",
   },
   sectionTitle: {
-    margin: "0 0 12px 0",
-    fontWeight: 800,
-    fontSize: "24px",
-    color: "#2f3f5d",
-    lineHeight: 1.1,
+    margin: "0 0 16px 0",
+    fontWeight: 700,
+    fontSize: "20px",
+    color: "#17324d",
+    lineHeight: 1.2,
   },
   addItemIconWrap: {
     position: "relative",
@@ -93,7 +109,7 @@ export const getInventoryPageTabs = () => {
 };
 
 export const getInventorySectionTitle = (activeTab) => {
-  return "ITEM RECORDS";
+  return "Items Record";
 };
 
 export const getInventoryAnalyticsCards = (inventoryAnalytics) => {
