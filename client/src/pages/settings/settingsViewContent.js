@@ -97,8 +97,6 @@ export const getSettingsDashboardDescription = (roleCode) =>
 
 export const buildBarangayProfileSectionProps = (ctx) => ({
   ...buildSharedSectionComponentProps(ctx),
-  description:
-    "Keep barangay account identity details accurate while leaving the assigned role, linked barangay, and account email locked for this account.",
   summaryRows: [
     {
       title: "Profile Summary",
@@ -141,29 +139,19 @@ export const buildBarangayProfileSectionProps = (ctx) => ({
     },
   ],
   fullNameId: "barangay-profile-full-name",
-  fullNameHelper: "Keep this updated for spelling or naming corrections.",
   positionField: {
     id: "barangay-profile-position",
     label: "Position",
     value: BARANGAY_POSITION_LABEL,
-    helper:
-      "Assigned role for this account. Barangay users cannot edit this field.",
   },
   assignmentField: {
     id: "barangay-profile-name",
     label: "Barangay Name",
     value: ctx.assignedBarangayName,
-    helper:
-      "This barangay assignment is linked to the account and stays locked.",
   },
   contactId: "barangay-profile-contact",
-  contactHelper: "Enter the mobile number after the fixed `+63` prefix.",
   emailId: "barangay-profile-email",
-  emailHelper:
-    "Account email is locked to protect sign-in and verification integrity.",
-  pictureAlt: "Barangay profile preview",
-  pictureDescriptionFallback:
-    "Upload a profile photo for local UI personalization.",
+  pictureAlt: "Barangay profile preview"
 });
 
 export const buildOfficeProfileSectionProps = (ctx) => {
@@ -177,9 +165,6 @@ export const buildOfficeProfileSectionProps = (ctx) => {
 
   return {
     ...buildSharedSectionComponentProps(ctx),
-    description: isMayor
-      ? "Keep Office of the Mayor account identity details accurate while leaving the assigned role and account email locked for this account."
-      : "Keep MSWDO account identity details accurate while leaving assigned role and office information locked for this account.",
     summaryRows: [
       {
         title: "Profile Summary",
@@ -222,15 +207,10 @@ export const buildOfficeProfileSectionProps = (ctx) => {
       },
     ],
     fullNameId: isMayor ? "mayor-profile-full-name" : "mswdo-profile-full-name",
-    fullNameHelper: isMayor
-      ? "Keep this updated for naming corrections and display consistency."
-      : "Keep this updated for spelling or naming corrections.",
     positionField: {
       id: isMayor ? "mayor-profile-position" : "mswdo-profile-position",
       label: isMayor ? "Position" : "Position / Designation",
       value: positionLabel,
-      helper:
-        "Assigned role labels remain read-only in the current system setup.",
     },
     assignmentField: {
       id: isMayor ? "mayor-profile-office" : "mswdo-profile-office",
@@ -238,15 +218,8 @@ export const buildOfficeProfileSectionProps = (ctx) => {
       value: officeLabel,
     },
     contactId: isMayor ? "mayor-profile-contact" : "mswdo-profile-contact",
-    contactHelper: isMayor
-      ? "Use the same Philippine contact number format used across DISTYNC."
-      : "Use the same Philippine format used across DISTYNC registrations.",
     emailId: isMayor ? "mayor-profile-email" : "mswdo-profile-email",
-    emailHelper:
-      "Account email stays locked to preserve sign-in and verification integrity.",
-    pictureAlt: isMayor ? "Mayor profile preview" : "MSWDO profile preview",
-    pictureDescriptionFallback:
-      "Upload a profile photo for local UI personalization.",
+    pictureAlt: isMayor ? "Mayor profile preview" : "MSWDO profile preview"
   };
 };
 

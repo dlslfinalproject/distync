@@ -129,14 +129,6 @@ const RoleSettingsViewShell = ({
         </SettingsSectionErrorBoundary>
       ) : (
         <section style={shellStyles.card}>
-          <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
-            <p style={labelStyles}>Settings Dashboard</p>
-            <h3 style={{ margin: 0, color: "#17324d" }}>
-              Open one settings function at a time
-            </h3>
-            <p style={mutedValueStyles}>{dashboardDescription}</p>
-          </div>
-
           <div style={settingsHubStyles.grid}>
             {sectionCards.map((section) => {
               const Icon = section.icon;

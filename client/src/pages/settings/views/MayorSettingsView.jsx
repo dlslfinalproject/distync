@@ -242,9 +242,6 @@ const MayorSettingsView = ({
           <section style={shellStyles.card}>
             <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
               <h3 style={{ margin: 0, color: "#17324d" }}>Analytics Service</h3>
-              <p style={mutedValueStyles}>
-                Review read-only analytics availability for executive visibility.
-              </p>
             </div>
 
             <div style={gridStyles}>
@@ -291,19 +288,11 @@ const MayorSettingsView = ({
               <h3 style={{ margin: 0, color: "#17324d" }}>
                 Inventory Alert Thresholds
               </h3>
-              <p style={mutedValueStyles}>
-                Review read-only inventory threshold coverage without changing live
-                operational rules.
-              </p>
             </div>
 
             <div style={gridStyles}>
               <article style={cardStyles}>
                 <h4 style={{ margin: 0, color: "#17324d" }}>Threshold Coverage</h4>
-                <p style={mutedValueStyles}>
-                  Thresholds are currently operational values tied to inventory records
-                  and service logic. This section shows them read-only for safety.
-                </p>
                 <InfoRow
                   label="Configured Active Items"
                   value={`${inventoryThresholdSummary?.configured_items || 0}`}
