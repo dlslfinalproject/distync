@@ -1,4 +1,11 @@
 {
+  "scripts": {
+    "dev": "npm run dev:server",
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev",
+    "build": "npm --prefix client run build",
+    "start": "npm --prefix server run start"
+  },
   "devDependencies": {
     "eslint": "^10.1.0",
     "prettier": "^3.8.1"

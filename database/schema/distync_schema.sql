@@ -72,9 +72,7 @@ CREATE TABLE public.users (
   is_active boolean NOT NULL DEFAULT true,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
-  password_hash text,
   auth_provider character varying NOT NULL DEFAULT 'GOOGLE'::character varying,
-  demo_access_enabled boolean NOT NULL DEFAULT false,
   last_login_at timestamp with time zone,
   CONSTRAINT users_pkey PRIMARY KEY (id),
   CONSTRAINT users_default_barangay_id_fkey FOREIGN KEY (default_barangay_id) REFERENCES public.barangays(id)
