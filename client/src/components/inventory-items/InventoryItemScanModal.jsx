@@ -64,13 +64,6 @@ const styles = {
     color: "#17324d",
     fontSize: "26px",
   },
-  scanModalDescription: {
-    margin: "8px 0 0",
-    color: COLORS.muted,
-    fontSize: "14px",
-    lineHeight: 1.5,
-    maxWidth: "560px",
-  },
   scanModalSectionTitle: {
     margin: "0 0 12px",
     color: "#17324d",
@@ -99,12 +92,6 @@ const styles = {
     backgroundColor: "#f8fbfe",
     border: "1px solid #d7e2ef",
     borderRadius: "18px",
-  },
-  scannerStatus: {
-    margin: 0,
-    color: "#17324d",
-    fontSize: "14px",
-    fontWeight: 700,
   },
 };
 
@@ -147,9 +134,6 @@ const InventoryItemScanModal = ({
         <div style={styles.scanModalHeader}>
           <div>
             <h3 style={styles.scanModalTitle}>Scan Item</h3>
-            <p style={styles.scanModalDescription}>
-              Scan a barcode or enter it manually.
-            </p>
           </div>
 
           <button
@@ -169,8 +153,7 @@ const InventoryItemScanModal = ({
           }}
         >
           <section style={styles.scannerHintCard}>
-            <h3 style={styles.scanModalSectionTitle}>Warehouse Scanner Input</h3>
-            <p style={styles.scannerStatus}>Ready to scan.</p>
+            <h3 style={styles.scanModalSectionTitle}>Ready to Scan</h3>
             <p style={styles.helperText}>
               Keep the barcode field selected while scanning.
             </p>

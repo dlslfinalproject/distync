@@ -58,28 +58,34 @@ const errorBoxStyles = {
   border: "1px solid #ffe4e6",
 };
 
-const helperTextStyles = {
-  marginTop: "6px",
-  color: "#6b8298",
-  fontSize: "12px",
-  lineHeight: 1.5,
-};
-
-const summaryBoxStyles = {
-  minHeight: "48px",
-  padding: "12px 14px",
-  borderRadius: "14px",
-  border: "1px solid #d2deea",
-  boxSizing: "border-box",
-  fontSize: "14px",
-  color: "#21405f",
-  backgroundColor: "#f8fbfe",
+const formFooterStyles = {
   display: "flex",
   alignItems: "center",
+  justifyContent: "space-between",
+  gap: "16px",
+  padding: "18px 20px",
+  borderRadius: "18px",
+  border: "1px solid #d7e2ef",
+  backgroundColor: "#ffffff",
+  boxShadow: "0 16px 34px rgba(23, 50, 77, 0.08)",
+  flexWrap: "wrap",
+};
+
+const footerTotalStyles = {
+  margin: 0,
+  color: "#4f677f",
+  fontSize: "15px",
+};
+
+const footerActionsStyles = {
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: "12px",
+  flexWrap: "wrap",
 };
 
 const unitOfMeasureOptions = ["kg", "g", "L", "mL", "pc"];
-const packagingOptions = ["sack", "box", "carton", "case", "pack", "bottle"];
+const packagingOptions = ["piece", "pack", "box", "case", "carton", "sack", "bottle"];
 
 const weightOrVolumeUnits = new Set(["kg", "g", "L", "mL"]);
 
@@ -119,6 +125,38 @@ const inferTrackingMethod = (unitOfMeasure) => {
 
 const isWeightOrVolumeBased = (trackingMethod) =>
   trackingMethod === "Weight/Volume-Based";
+
+const formatPackagingLabel = (packaging) => {
+  if (!packaging) {
+    return "Packaging";
+  }
+
+  return packaging.charAt(0).toUpperCase() + packaging.slice(1);
+};
+
+const formatPackagingExample = (packaging) => {
+  if (!packaging) {
+    return "Enter quantity on hand";
+  }
+
+  if (packaging === "piece") {
+    return "Example: 20 pieces";
+  }
+
+  if (packaging === "box") {
+    return "Example: 20 boxes";
+  }
+
+  return `Example: 20 ${packaging}s`;
+};
+
+const getStockMultiplierValue = (formValues, isPiecePackaging) => {
+  if (isPiecePackaging) {
+    return 1;
+  }
+
+  return parsePositiveNumberOrZero(formValues.quantity);
+};
 
 const parsePositiveNumberOrZero = (value) => {
   const parsedValue = Number(value);
@@ -216,6 +254,14 @@ const InventoryItemFormModal = ({
         };
       }
 
+      if (fieldName === "packaging") {
+        return {
+          ...prev,
+          packaging: value,
+          quantity: value === "piece" ? "1" : prev.quantity,
+        };
+      }
+
       return { ...prev, [fieldName]: value };
     });
   }, []);
@@ -224,21 +270,24 @@ const InventoryItemFormModal = ({
 
   const trackingMethod = formValues.tracking_method || "Count-Based";
   const usesWeightOrVolume = isWeightOrVolumeBased(trackingMethod);
+  const isPerishable = normalizeCategoryValue(formValues.category) === "perishable";
+  const selectedPackagingLabel = formatPackagingLabel(formValues.packaging);
+  const isPiecePackaging = formValues.packaging === "piece";
   const unitValueLabel = usesWeightOrVolume
     ? "Amount per Item"
     : "Units per Item";
-  const unitValueHelperText = usesWeightOrVolume
-    ? "Example: 25 for a 25 kg sack."
-    : "Optional for count-based items.";
   const quantityFieldLabel = usesWeightOrVolume
-    ? "Packages per Container"
-    : "Units per Package";
+    ? `Items per ${selectedPackagingLabel}`
+    : `Units per ${selectedPackagingLabel}`;
   const quantityFieldPlaceholder = usesWeightOrVolume
-    ? "Example: 1 sack or bottle"
-    : "Example: 12 pieces per box";
+    ? `Example: 1 item per ${formValues.packaging || "package"}`
+    : `Example: 12 pieces per ${formValues.packaging || "package"}`;
   const computedTotalLabel = "Total Stock";
   const packageCountValue = parsePositiveNumberOrZero(formValues.packaging_count);
-  const quantityPerPackageValue = parsePositiveNumberOrZero(formValues.quantity);
+  const quantityPerPackageValue = getStockMultiplierValue(
+    formValues,
+    isPiecePackaging
+  );
   const computedTotalStock =
     packageCountValue > 0 && quantityPerPackageValue > 0
       ? packageCountValue * quantityPerPackageValue
@@ -246,7 +295,7 @@ const InventoryItemFormModal = ({
   const hasComputedTotalInputs = packageCountValue > 0 && quantityPerPackageValue > 0;
   const computedTotalDisplay = hasComputedTotalInputs
     ? formatComputedValue(computedTotalStock)
-    : "Enter package count and units per package.";
+    : "";
 
   const handleSubmit = (event) => {
     event.preventDefault();
@@ -258,6 +307,7 @@ const InventoryItemFormModal = ({
       unit_of_measure_value:
         formValues.unit_of_measure_value ||
         (trackingMethod === "Count-Based" ? "1" : ""),
+      quantity: isPiecePackaging ? "1" : formValues.quantity,
     };
 
     onSubmit(normalizedFormValues);
@@ -326,83 +376,116 @@ const InventoryItemFormModal = ({
                 />
               </div>
 
-              <div style={{ gridColumn: "1 / -1" }}>
-                <label htmlFor="barcode" style={labelStyles}>
-                  Barcode
-                </label>
-                <input
-                  ref={barcodeInputRef}
-                  id="barcode"
-                  type="text"
-                  placeholder="Scan or enter barcode"
-                  value={formValues.barcode}
-                  onChange={(e) => handleChange("barcode", e.target.value)}
-                  style={inputStyles}
-                />
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  display: "grid",
+                  gridTemplateColumns: "minmax(260px, 2fr) minmax(180px, 1fr)",
+                  gap: "18px",
+                }}
+              >
+                <div>
+                  <label htmlFor="barcode" style={labelStyles}>
+                    Barcode
+                  </label>
+                  <input
+                    ref={barcodeInputRef}
+                    id="barcode"
+                    type="text"
+                    placeholder="Scan or enter barcode"
+                    value={formValues.barcode}
+                    onChange={(e) => handleChange("barcode", e.target.value)}
+                    style={inputStyles}
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="category" style={labelStyles}>
+                    Category
+                  </label>
+                  <select
+                    id="category"
+                    value={formValues.category}
+                    onChange={(e) => handleChange("category", e.target.value)}
+                    style={inputStyles}
+                    required
+                  >
+                    <option value="perishable">Perishable</option>
+                    <option value="non-perishable">Non-Perishable</option>
+                  </select>
+                </div>
               </div>
 
-              <div>
-                <label htmlFor="category" style={labelStyles}>
-                  Category
-                </label>
-                <select
-                  id="category"
-                  value={formValues.category}
-                  onChange={(e) => handleChange("category", e.target.value)}
-                  style={inputStyles}
-                  required
-                >
-                  <option value="perishable">Perishable</option>
-                  <option value="non-perishable">Non-Perishable</option>
-                </select>
-              </div>
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  display: "grid",
+                  gridTemplateColumns: "repeat(3, minmax(180px, 1fr))",
+                  gap: "18px",
+                }}
+              >
+                <div>
+                  <label htmlFor="tracking_method" style={labelStyles}>
+                    Tracking Method
+                  </label>
+                  <select
+                    id="tracking_method"
+                    value={trackingMethod}
+                    onChange={(e) => handleChange("tracking_method", e.target.value)}
+                    style={inputStyles}
+                  >
+                    <option value="Count-Based">Count-Based</option>
+                    <option value="Weight/Volume-Based">Weight/Volume-Based</option>
+                  </select>
+                </div>
 
-              <div>
-                <label htmlFor="tracking_method" style={labelStyles}>
-                  Tracking Method
-                </label>
-                <select
-                  id="tracking_method"
-                  value={trackingMethod}
-                  onChange={(e) => handleChange("tracking_method", e.target.value)}
-                  style={inputStyles}
-                >
-                  <option value="Count-Based">Count-Based</option>
-                  <option value="Weight/Volume-Based">Weight/Volume-Based</option>
-                </select>
-              </div>
+                <div>
+                  <label htmlFor="unit_of_measure" style={labelStyles}>
+                    Unit of Measure
+                  </label>
+                  <select
+                    id="unit_of_measure"
+                    value={formValues.unit_of_measure}
+                    onChange={(e) =>
+                      handleChange("unit_of_measure", e.target.value)
+                    }
+                    style={inputStyles}
+                    required={usesWeightOrVolume}
+                    disabled={!usesWeightOrVolume}
+                  >
+                    {usesWeightOrVolume ? (
+                      <>
+                        <option value="">Select unit of measure</option>
+                        {unitOfMeasureOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </>
+                    ) : (
+                      <option value="pc">pc</option>
+                    )}
+                  </select>
+                </div>
 
-              <div>
-                <label htmlFor="unit_of_measure" style={labelStyles}>
-                  Unit of Measure
-                </label>
-                <select
-                  id="unit_of_measure"
-                  value={formValues.unit_of_measure}
-                  onChange={(e) =>
-                    handleChange("unit_of_measure", e.target.value)
-                  }
-                  style={inputStyles}
-                  required={usesWeightOrVolume}
-                  disabled={!usesWeightOrVolume}
-                >
-                  {usesWeightOrVolume ? (
-                    <>
-                      <option value="">Select unit of measure</option>
-                      {unitOfMeasureOptions.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </>
-                  ) : (
-                    <option value="pc">pc</option>
-                  )}
-                </select>
-                <div style={helperTextStyles}>
-                  {usesWeightOrVolume
-                    ? "Required for weight or volume tracking."
-                    : "Count-based items use pc."}
+                <div>
+                  <label htmlFor="packaging" style={labelStyles}>
+                    Packaging
+                  </label>
+                  <select
+                    id="packaging"
+                    value={formValues.packaging}
+                    onChange={(e) => handleChange("packaging", e.target.value)}
+                    style={inputStyles}
+                    required
+                  >
+                    <option value="">Select packaging</option>
+                    {packagingOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -424,29 +507,8 @@ const InventoryItemFormModal = ({
                     style={inputStyles}
                     required
                   />
-                  <div style={helperTextStyles}>{unitValueHelperText}</div>
                 </div>
               ) : null}
-
-              <div>
-                <label htmlFor="packaging" style={labelStyles}>
-                  Packaging
-                </label>
-                <select
-                  id="packaging"
-                  value={formValues.packaging}
-                  onChange={(e) => handleChange("packaging", e.target.value)}
-                  style={inputStyles}
-                  required
-                >
-                  <option value="">Select packaging</option>
-                  {packagingOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </div>
             </div>
           </section>
 
@@ -465,13 +527,13 @@ const InventoryItemFormModal = ({
             >
               <div>
                 <label htmlFor="packaging_count" style={labelStyles}>
-                  Number of Packages
+                  Quantity on Hand
                 </label>
                 <input
                   id="packaging_count"
                   type="number"
                   min="1"
-                  placeholder="Example: 20 boxes"
+                  placeholder={formatPackagingExample(formValues.packaging)}
                   value={formValues.packaging_count}
                   onChange={(e) =>
                     handleChange("packaging_count", e.target.value)
@@ -479,38 +541,25 @@ const InventoryItemFormModal = ({
                   style={inputStyles}
                   required
                 />
-                <div style={helperTextStyles}>
-                  Number of packages currently on hand.
-                </div>
               </div>
 
-              <div>
-                <label htmlFor="quantity" style={labelStyles}>
-                  {quantityFieldLabel}
-                </label>
-                <input
-                  id="quantity"
-                  type="number"
-                  min="1"
-                  placeholder={quantityFieldPlaceholder}
-                  value={formValues.quantity}
-                  onChange={(e) => handleChange("quantity", e.target.value)}
-                  style={inputStyles}
-                  required
-                />
-                <div style={helperTextStyles}>
-                  Units contained in each package.
+              {!isPiecePackaging ? (
+                <div>
+                  <label htmlFor="quantity" style={labelStyles}>
+                    {quantityFieldLabel}
+                  </label>
+                  <input
+                    id="quantity"
+                    type="number"
+                    min="1"
+                    placeholder={quantityFieldPlaceholder}
+                    value={formValues.quantity}
+                    onChange={(e) => handleChange("quantity", e.target.value)}
+                    style={inputStyles}
+                    required
+                  />
                 </div>
-              </div>
-
-              <div>
-                <label htmlFor="computed_total_stock" style={labelStyles}>
-                  {computedTotalLabel}
-                </label>
-                <div id="computed_total_stock" style={summaryBoxStyles}>
-                  {computedTotalDisplay}
-                </div>
-              </div>
+              ) : null}
 
               <div>
                 <label htmlFor="reorder_level" style={labelStyles}>
@@ -532,7 +581,9 @@ const InventoryItemFormModal = ({
 
               <div>
                 <label htmlFor="expiration_date" style={labelStyles}>
-                  Expiration Date
+                  {isPerishable
+                    ? "Expiration Date"
+                    : "Expiration Date (If Applicable)"}
                 </label>
                 <input
                   id="expiration_date"
@@ -542,6 +593,7 @@ const InventoryItemFormModal = ({
                     handleChange("expiration_date", e.target.value)
                   }
                   style={inputStyles}
+                  required={isPerishable}
                 />
               </div>
             </div>
@@ -550,37 +602,35 @@ const InventoryItemFormModal = ({
           {errorMessage && <div style={errorBoxStyles}>{errorMessage}</div>}
 
           {/* ACTIONS */}
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "flex-end",
-              gap: "12px",
-              marginTop: "10px",
-              flexWrap: "wrap",
-            }}
-          >
-            <button
-              type="button"
-              onClick={onClose}
-              style={pageHeaderStyles.secondaryButton}
-            >
-              Cancel
-            </button>
+          <div style={formFooterStyles}>
+            <p style={footerTotalStyles}>
+              {computedTotalLabel}: <strong>{computedTotalDisplay}</strong>
+            </p>
 
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              style={{
-                ...pageHeaderStyles.primaryButton,
-                opacity: isSubmitting ? 0.7 : 1,
-              }}
-            >
-              {isSubmitting
-                ? "Processing..."
-                : mode === "edit"
-                ? "Save Changes"
-                : "Add to Inventory"}
-            </button>
+            <div style={footerActionsStyles}>
+              <button
+                type="button"
+                onClick={onClose}
+                style={pageHeaderStyles.secondaryButton}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                style={{
+                  ...pageHeaderStyles.primaryButton,
+                  opacity: isSubmitting ? 0.7 : 1,
+                }}
+              >
+                {isSubmitting
+                  ? "Processing..."
+                  : mode === "edit"
+                  ? "Save Changes"
+                  : "Add to Inventory"}
+              </button>
+            </div>
           </div>
         </form>
       </div>
