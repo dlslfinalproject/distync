@@ -238,6 +238,53 @@ const insertDisasterEvent = async (disasterEventData, dbClient) => {
   return result.rows[0];
 };
 
+const generateDisasterEventCode = async (startDate, dbClient) => {
+  const eventYear = startDate
+    ? new Date(startDate).getUTCFullYear()
+    : new Date().getUTCFullYear();
+
+  const query = `
+    WITH existing_max AS (
+      SELECT COALESCE(
+        MAX(
+          CAST(
+            SUBSTRING(event_code FROM '^DE-\\d{4}-(\\d{4})$') AS INTEGER
+          )
+        ),
+        0
+      ) AS last_number
+      FROM disaster_events
+      WHERE event_code ~ ('^DE-' || $1::TEXT || '-\\d{4}$')
+    ),
+    upserted AS (
+      INSERT INTO disaster_event_code_counters (
+        event_year,
+        last_number,
+        updated_at
+      )
+      SELECT
+        $1::INTEGER,
+        GREATEST(1, (SELECT last_number FROM existing_max) + 1),
+        NOW()
+      ON CONFLICT (event_year) DO UPDATE
+        SET
+          last_number = GREATEST(
+            disaster_event_code_counters.last_number,
+            (SELECT last_number FROM existing_max)
+          ) + 1,
+          updated_at = NOW()
+      RETURNING last_number
+    )
+    SELECT last_number
+    FROM upserted
+  `;
+
+  const result = await dbClient.query(query, [eventYear]);
+  const nextNumber = result.rows[0]?.last_number;
+
+  return `DE-${eventYear}-${String(nextNumber || 0).padStart(4, "0")}`;
+};
+
 const insertDisasterEventBarangays = async (
   disasterEventId,
   barangayIds,
@@ -637,6 +684,7 @@ module.exports = {
   getAffectedBarangaysByDisasterEventIds,
   getValidBarangayCount,
   insertDisasterEvent,
+  generateDisasterEventCode,
   insertDisasterEventBarangays,
   deleteDisasterEventBarangaysByDisasterEventId,
   updateDisasterEventById,

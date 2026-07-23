@@ -7,17 +7,17 @@ import TableActionsMenu from "../shared/TableActionsMenu";
 const styles = {
   tableWrap: {
     marginTop: "0",
-    overflowX: "auto",
+    overflowX: "hidden",
   },
   table: {
     width: "100%",
-    minWidth: "1040px",
     borderCollapse: "collapse",
     background: "transparent",
+    tableLayout: "fixed",
   },
   th: {
-    textAlign: "left",
-    padding: "14px 16px",
+    textAlign: "center",
+    padding: "14px 10px",
     fontSize: "12px",
     letterSpacing: "0.08em",
     textTransform: "uppercase",
@@ -27,20 +27,22 @@ const styles = {
     whiteSpace: "nowrap",
   },
   td: {
-    padding: "16px",
+    padding: "16px 10px",
     fontSize: "14px",
     color: "#21405f",
     verticalAlign: "middle",
     borderBottom: "1px solid #edf3f8",
     lineHeight: 1.5,
     wordBreak: "break-word",
+    textAlign: "center",
   },
   centerCell: {
     textAlign: "center",
   },
+  leftCell: {
+    textAlign: "left",
+  },
   actionCell: {
-    width: "88px",
-    minWidth: "88px",
     textAlign: "center",
     whiteSpace: "nowrap",
   },
@@ -54,11 +56,28 @@ const styles = {
     marginTop: "4px",
     color: "#5f7690",
     fontSize: "13px",
+    textAlign: "left",
+  },
+  itemCellContent: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-start",
+    textAlign: "left",
+    width: "100%",
+    minWidth: 0,
+  },
+  itemNameText: {
+    width: "100%",
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
   shelfLifeText: {
     color: "#21405f",
     fontSize: "14px",
     lineHeight: 1.5,
+    textAlign: "center",
   },
   statusPill: {
     display: "inline-flex",
@@ -74,19 +93,18 @@ const styles = {
 
 const tableHeaders = [
   "Item Name",
-  "Category",
   "Source",
   "Quantity",
   "Shelf Life",
   "Minimum Stock Level",
-  "Active Status",
+  "Status",
   "Actions",
 ];
 
 const centeredHeaders = new Set([
   "Quantity",
   "Minimum Stock Level",
-  "Active Status",
+  "Status",
   "Actions",
 ]);
 
@@ -144,6 +162,7 @@ const InventoryItemsTable = ({
                 key={header}
                 style={{
                   ...styles.th,
+                  ...(header === "Item Name" ? styles.leftCell : null),
                   ...(centeredHeaders.has(header) ? styles.centerCell : null),
                   ...(header === "Actions" ? styles.actionCell : null),
                 }}
@@ -157,14 +176,14 @@ const InventoryItemsTable = ({
         <tbody>
           {isLoading ? (
             <tr>
-              <td colSpan="8" style={styles.emptyStateCell}>
+              <td colSpan="7" style={styles.emptyStateCell}>
                 Loading inventory items...
               </td>
             </tr>
           ) : errorMessage ? (
             <tr>
               <td
-                colSpan="8"
+                colSpan="7"
                 style={{ ...styles.emptyStateCell, color: "#b91c1c" }}
               >
                 {errorMessage}
@@ -172,14 +191,14 @@ const InventoryItemsTable = ({
             </tr>
           ) : rows.length === 0 ? (
             <tr>
-              <td colSpan="8" style={styles.emptyStateCell}>
+              <td colSpan="7" style={styles.emptyStateCell}>
                 No inventory items found
               </td>
             </tr>
           ) : (
             rows.map((item, index) => {
-              const activeStatus = item.is_active === false ? "Inactive" : "Active";
-              const activeStatusStyle = getItemStatusStyle(activeStatus);
+              const stockStatus = item.stock_status_label || "In Stock";
+              const stockStatusStyle = getItemStatusStyle(stockStatus);
 
               const itemName =
                 item.item_name ??
@@ -189,13 +208,14 @@ const InventoryItemsTable = ({
 
               return (
                 <tr key={item.id || index}>
-                  <td style={styles.td}>
-                    <div>{itemName}</div>
-                    <div style={styles.secondaryText}>
-                      {item.packaging ? `Packaging: ${item.packaging}` : "Packaging: --"}
+                  <td style={{ ...styles.td, ...styles.leftCell }}>
+                    <div style={styles.itemCellContent}>
+                      <div style={styles.itemNameText}>{itemName}</div>
+                      <div style={styles.secondaryText}>
+                        {item.packaging ? `Packaging: ${item.packaging}` : "Packaging: --"}
+                      </div>
                     </div>
                   </td>
-                  <td style={styles.td}>{item.category ?? "--"}</td>
                   <td style={styles.td}>{item.source_label || "--"}</td>
                   <td style={{ ...styles.td, ...styles.centerCell }}>
                     {getTotalItemQuantity(item)}
@@ -212,11 +232,11 @@ const InventoryItemsTable = ({
                     <span
                       style={{
                         ...styles.statusPill,
-                        background: activeStatusStyle.background,
-                        color: activeStatusStyle.color,
+                        background: stockStatusStyle.background,
+                        color: stockStatusStyle.color,
                       }}
                     >
-                      {activeStatus}
+                      {stockStatus}
                     </span>
                   </td>
                   <td style={{ ...styles.td, ...styles.actionCell }}>

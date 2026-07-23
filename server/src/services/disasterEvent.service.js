@@ -358,6 +358,14 @@ const createDisasterEvent = async (disasterEventData) => {
   try {
     await client.query("BEGIN");
 
+    if (!disasterEventData.event_code) {
+      disasterEventData.event_code =
+        await disasterEventRepository.generateDisasterEventCode(
+          disasterEventData.start_date,
+          client,
+        );
+    }
+
     const createdDisasterEvent = await disasterEventRepository.insertDisasterEvent(
       disasterEventData,
       client,
