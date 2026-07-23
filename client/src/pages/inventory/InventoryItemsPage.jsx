@@ -45,10 +45,7 @@ import {
 import {
   buildInventoryTrackingMap,
   createEmptyTrackingStats,
-  getItemStatus,
   getTrackedExpirationDate,
-  isItemExpiring,
-  isDateExpired,
 } from "../../features/inventory-items/inventoryItemStockStatus";
 import { mergeInventoryItemsWithSyncStatus } from "../../features/inventory-items/inventoryItemSync";
 import {
@@ -64,6 +61,59 @@ const isLowStockItem = (item, trackingStats) => {
   const onHand = getMonitorQuantity(item, trackingStats);
 
   return reorderLevel > 0 && onHand > 0 && onHand <= reorderLevel;
+};
+
+const normalizeCalendarDate = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  const normalizedValue =
+    typeof value === "string" ? value.slice(0, 10) : value;
+  const parsedDate = new Date(`${normalizedValue}T00:00:00`);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return null;
+  }
+
+  return parsedDate;
+};
+
+const getTodayDate = () => {
+  const today = new Date();
+  return new Date(today.getFullYear(), today.getMonth(), today.getDate());
+};
+
+const isExpiredItem = (item, trackingStats) => {
+  const trackedExpirationDate = getTrackedExpirationDate(item, trackingStats);
+  const normalizedExpirationDate = normalizeCalendarDate(trackedExpirationDate);
+  const onHand = getMonitorQuantity(item, trackingStats);
+
+  if (Number(trackingStats?.expiredOnHand || 0) > 0) {
+    return true;
+  }
+
+  if (!normalizedExpirationDate || onHand <= 0) {
+    return false;
+  }
+
+  return normalizedExpirationDate.getTime() <= getTodayDate().getTime();
+};
+
+const isNearExpiryItem = (item, trackingStats) => {
+  const trackedExpirationDate = getTrackedExpirationDate(item, trackingStats);
+  const normalizedExpirationDate = normalizeCalendarDate(trackedExpirationDate);
+  const onHand = getMonitorQuantity(item, trackingStats);
+
+  if (!normalizedExpirationDate || onHand <= 0 || isExpiredItem(item, trackingStats)) {
+    return false;
+  }
+
+  const millisecondsUntilExpiration =
+    normalizedExpirationDate.getTime() - getTodayDate().getTime();
+  const daysUntilExpiration = millisecondsUntilExpiration / (1000 * 60 * 60 * 24);
+
+  return daysUntilExpiration > 0 && daysUntilExpiration <= 30;
 };
 
 const getMonitorQuantity = (item, trackingStats) => {
@@ -102,6 +152,24 @@ const getInventorySourceLabel = (itemId, inventoryBatches) => {
   }
 
   return sourceTypes.has("DONATED") ? "Donor" : "Malvar LGU";
+};
+
+const getDisplayStockStatus = (item, trackingStats) => {
+  const onHand = getMonitorQuantity(item, trackingStats);
+
+  if (isExpiredItem(item, trackingStats)) {
+    return "Expired";
+  }
+
+  if (isNearExpiryItem(item, trackingStats)) {
+    return "Near Expiry";
+  }
+
+  if (onHand <= 0 || isLowStockItem(item, trackingStats)) {
+    return "Low Stock";
+  }
+
+  return "In Stock";
 };
 
 const InventoryItemsPage = () => {
@@ -215,11 +283,7 @@ const InventoryItemsPage = () => {
       const trackingStats =
         inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
 
-      return (
-        trackingStats.expired > 0 ||
-        trackingStats.expiredOnHand > 0 ||
-        isDateExpired(getTrackedExpirationDate(item, trackingStats))
-      );
+      return isExpiredItem(item, trackingStats);
     }).length;
     const totalOnHand = inventoryItemsWithSyncStatus.reduce((sum, item) => {
       const trackingStats =
@@ -249,7 +313,7 @@ const InventoryItemsPage = () => {
       const trackingStats =
         inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
 
-      return trackingStats.hasExpiringStock || isItemExpiring(item);
+      return isNearExpiryItem(item, trackingStats);
     }).length;
     const outOfStockItems = inventoryItemsWithSyncStatus.filter((item) => {
       const trackingStats =
@@ -287,12 +351,12 @@ const InventoryItemsPage = () => {
         value: inventoryAnalytics.lowStockItems,
       },
       {
-        label: "Expiring Soon",
+        label: "Near Expiry",
         value: inventoryAnalytics.expiringSoonItems,
       },
       {
-        label: "Out of Stock",
-        value: inventoryAnalytics.outOfStockItems,
+        label: "Expired",
+        value: inventoryAnalytics.expiredItems,
       },
     ],
     [inventoryAnalytics],
@@ -330,22 +394,32 @@ const InventoryItemsPage = () => {
                 return isLowStockItem(item, trackingStats);
               }
 
-              if (status === "Expiring") {
-                return trackingStats.hasExpiringStock || isItemExpiring(item);
+              if (status === "Near Expiry" || status === "Expiring") {
+                return isNearExpiryItem(item, trackingStats);
+              }
+
+              if (status === "Expired") {
+                return isExpiredItem(item, trackingStats);
               }
 
               if (status === "Out of Stock") {
                 return getMonitorQuantity(item, trackingStats) <= 0;
               }
 
-              return getItemStatus(item, trackingStats) === status;
+              return false;
             });
           });
 
-    return filteredItems.map((item) => ({
-      ...item,
-      source_label: getInventorySourceLabel(item.id, inventoryBatches),
-    }));
+    return filteredItems.map((item) => {
+      const trackingStats =
+        inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
+
+      return {
+        ...item,
+        source_label: getInventorySourceLabel(item.id, inventoryBatches),
+        stock_status_label: getDisplayStockStatus(item, trackingStats),
+      };
+    });
   }, [
     inventoryItemsWithSyncStatus,
     inventoryTrackingMap,
@@ -531,6 +605,7 @@ const InventoryItemsPage = () => {
         filters: {
           ...buildInventoryItemFilters(filters),
           status: selectedStockStatuses.includes("Expiring")
+            || selectedStockStatuses.includes("Near Expiry")
             ? "Expiring"
             : "All",
           ...extraFilters,

@@ -188,10 +188,10 @@ export const getItemStatus = (item, trackingStats) => {
 };
 
 export const getItemStatusStyle = (status) => {
-  if (status === "Distributed") {
+  if (status === "Low Stock") {
     return {
-      background: "#dbeafe",
-      color: "#1d4ed8",
+      background: "#ffedd5",
+      color: "#c2410c",
     };
   }
 
@@ -202,14 +202,7 @@ export const getItemStatusStyle = (status) => {
     };
   }
 
-  if (status === "Inactive") {
-    return {
-      background: "#f1f5f9",
-      color: "#475569",
-    };
-  }
-
-  if (status === "Expiring") {
+  if (status === "Near Expiry") {
     return {
       background: "#ede9fe",
       color: "#6d28d9",
