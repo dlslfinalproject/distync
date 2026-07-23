@@ -39,6 +39,13 @@ const inputStyles = {
   outline: "none",
 };
 
+const lockedInputStyles = {
+  ...inputStyles,
+  backgroundColor: "#eef5fb",
+  color: "#5f7891",
+  cursor: "not-allowed",
+};
+
 const labelStyles = {
   display: "block",
   marginBottom: "8px",
@@ -525,6 +532,19 @@ const InventoryItemFormModal = ({
                 gap: "18px",
               }}
             >
+              <div>
+                <label htmlFor="batch_number" style={labelStyles}>
+                  Batch Number
+                </label>
+                <input
+                  id="batch_number"
+                  type="text"
+                  value="Auto-generated after saving"
+                  readOnly
+                  style={lockedInputStyles}
+                />
+              </div>
+
               <div>
                 <label htmlFor="packaging_count" style={labelStyles}>
                   Quantity on Hand
