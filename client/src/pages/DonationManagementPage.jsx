@@ -218,13 +218,7 @@ const DonationManagementPage = () => {
     setPageErrorMessage("");
 
     try {
-      const [
-        eventRows,
-        inventoryItemRows,
-        reliefPackTemplateRows,
-        donationRows,
-        donationPortal,
-      ] =
+      const [eventRows, inventoryItemRows, reliefPackTemplateRows] =
         await Promise.all([
           fetchAllDisasterEvents(),
           canManageDonations
@@ -233,16 +227,23 @@ const DonationManagementPage = () => {
           canManageDonations
             ? fetchReliefPackTemplates({ is_active: "true" })
             : Promise.resolve([]),
-          canManageDonations
-            ? fetchDonations({
-                disaster_event_id: eventId || undefined,
-                search: donationSearch || undefined,
-              })
-            : Promise.resolve([]),
-          fetchDonationPortalData({
-            disaster_event_id: eventId || undefined,
-          }),
         ]);
+
+      const resolvedEventId =
+        eventId ||
+        (Array.isArray(eventRows) && eventRows.length > 0 ? eventRows[0].id : "");
+
+      const [donationRows, donationPortal] = await Promise.all([
+        canManageDonations
+          ? fetchDonations({
+              disaster_event_id: resolvedEventId || undefined,
+              search: donationSearch || undefined,
+            })
+          : Promise.resolve([]),
+        fetchDonationPortalData({
+          disaster_event_id: resolvedEventId || undefined,
+        }),
+      ]);
 
       setDisasterEvents(Array.isArray(eventRows) ? eventRows : []);
       setInventoryItems(Array.isArray(inventoryItemRows) ? inventoryItemRows : []);
@@ -257,8 +258,8 @@ const DonationManagementPage = () => {
       setDonations(Array.isArray(donationRows) ? donationRows : []);
       setPortalData(donationPortal || defaultPortalData);
 
-      if (!eventId && Array.isArray(eventRows) && eventRows.length > 0) {
-        setSelectedEventId(eventRows[0].id);
+      if (resolvedEventId && resolvedEventId !== selectedEventId) {
+        setSelectedEventId(resolvedEventId);
       }
     } catch (error) {
       setPageErrorMessage(error.message || "Failed to load donation management data.");
