@@ -39,6 +39,13 @@ const inputStyles = {
   outline: "none",
 };
 
+const lockedInputStyles = {
+  ...inputStyles,
+  backgroundColor: "#eef5fb",
+  color: "#5f7891",
+  cursor: "not-allowed",
+};
+
 const labelStyles = {
   display: "block",
   marginBottom: "8px",
@@ -56,6 +63,13 @@ const errorBoxStyles = {
   fontSize: "13px",
   fontWeight: 500,
   border: "1px solid #ffe4e6",
+};
+
+const fieldErrorTextStyles = {
+  margin: "6px 0 0",
+  color: "#c53030",
+  fontSize: "12px",
+  lineHeight: 1.4,
 };
 
 const formFooterStyles = {
@@ -168,6 +182,21 @@ const parsePositiveNumberOrZero = (value) => {
   return parsedValue;
 };
 
+const isBlank = (value) => String(value ?? "").trim() === "";
+
+const isPositiveNumber = (value) => {
+  const parsedValue = Number(value);
+  return Number.isFinite(parsedValue) && parsedValue > 0;
+};
+
+const isValidDateValue = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+const getTodayDateInputValue = () => {
+  const today = new Date();
+  today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+  return today.toISOString().slice(0, 10);
+};
+
 const formatComputedValue = (value) => {
   if (!Number.isFinite(value)) {
     return "--";
@@ -193,6 +222,7 @@ const InventoryItemFormModal = ({
   onSubmit,
 }) => {
   const [formValues, setFormValues] = useState(createDefaultForm());
+  const [fieldErrors, setFieldErrors] = useState({});
   const barcodeInputRef = useRef(null);
 
   useEffect(() => {
@@ -216,6 +246,7 @@ const InventoryItemFormModal = ({
     } else {
       setFormValues(createDefaultForm());
     }
+    setFieldErrors({});
   }, [isOpen, itemData]);
 
   useEffect(() => {
@@ -232,6 +263,28 @@ const InventoryItemFormModal = ({
   }, [isOpen]);
 
   const handleChange = useCallback((fieldName, value) => {
+    setFieldErrors((prev) => {
+      const fieldsToClear = [fieldName];
+
+      if (fieldName === "category") {
+        fieldsToClear.push("expiration_date");
+      }
+
+      if (fieldName === "tracking_method") {
+        fieldsToClear.push("unit_of_measure", "unit_of_measure_value");
+      }
+
+      if (fieldName === "packaging") {
+        fieldsToClear.push("packaging_count", "quantity");
+      }
+
+      const nextErrors = { ...prev };
+      fieldsToClear.forEach((field) => {
+        delete nextErrors[field];
+      });
+      return nextErrors;
+    });
+
     setFormValues((prev) => {
       if (fieldName === "tracking_method") {
         const nextValues = {
@@ -297,8 +350,89 @@ const InventoryItemFormModal = ({
     ? formatComputedValue(computedTotalStock)
     : "";
 
+  const validateFormValues = (values) => {
+    const nextErrors = {};
+    const resolvedTrackingMethod = values.tracking_method || "Count-Based";
+    const resolvedUsesWeightOrVolume =
+      isWeightOrVolumeBased(resolvedTrackingMethod);
+    const resolvedIsPiecePackaging = values.packaging === "piece";
+    const resolvedIsPerishable =
+      normalizeCategoryValue(values.category) === "perishable";
+
+    if (isBlank(values.item_name)) {
+      nextErrors.item_name = "Item name is required.";
+    }
+
+    if (isBlank(values.category)) {
+      nextErrors.category = "Category is required.";
+    }
+
+    if (isBlank(values.tracking_method)) {
+      nextErrors.tracking_method = "Tracking method is required.";
+    }
+
+    if (resolvedUsesWeightOrVolume && isBlank(values.unit_of_measure)) {
+      nextErrors.unit_of_measure = "Unit of measure is required.";
+    }
+
+    if (resolvedUsesWeightOrVolume) {
+      if (isBlank(values.unit_of_measure_value)) {
+        nextErrors.unit_of_measure_value = "Amount per item is required.";
+      } else if (!isPositiveNumber(values.unit_of_measure_value)) {
+        nextErrors.unit_of_measure_value =
+          "Amount per item must be greater than 0.";
+      }
+    }
+
+    if (isBlank(values.packaging)) {
+      nextErrors.packaging = "Packaging is required.";
+    }
+
+    if (isBlank(values.packaging_count)) {
+      nextErrors.packaging_count = "Quantity on hand is required.";
+    } else if (!isPositiveNumber(values.packaging_count)) {
+      nextErrors.packaging_count = "Quantity on hand must be greater than 0.";
+    }
+
+    if (!resolvedIsPiecePackaging) {
+      if (isBlank(values.quantity)) {
+        nextErrors.quantity = "Units per packaging is required.";
+      } else if (!isPositiveNumber(values.quantity)) {
+        nextErrors.quantity =
+          "Units per packaging must be greater than 0.";
+      }
+    }
+
+    if (isBlank(values.reorder_level)) {
+      nextErrors.reorder_level = "Reorder level is required.";
+    } else if (!isPositiveNumber(values.reorder_level)) {
+      nextErrors.reorder_level = "Reorder level must be greater than 0.";
+    }
+
+    if (resolvedIsPerishable && isBlank(values.expiration_date)) {
+      nextErrors.expiration_date = "Expiration date is required.";
+    } else if (!isBlank(values.expiration_date)) {
+      if (!isValidDateValue(values.expiration_date)) {
+        nextErrors.expiration_date = "Enter a valid expiration date.";
+      } else if (values.expiration_date < getTodayDateInputValue()) {
+        nextErrors.expiration_date =
+          "Expiration date cannot be earlier than today.";
+      }
+    }
+
+    return nextErrors;
+  };
+
   const handleSubmit = (event) => {
     event.preventDefault();
+
+    const nextFieldErrors = validateFormValues(formValues);
+    setFieldErrors(nextFieldErrors);
+
+    if (Object.keys(nextFieldErrors).length > 0) {
+      return;
+    }
+
     const normalizedFormValues = {
       ...formValues,
       unit_of_measure:
@@ -342,6 +476,7 @@ const InventoryItemFormModal = ({
 
         <form
           onSubmit={handleSubmit}
+          noValidate
           style={{
             display: "flex",
             flexDirection: "column",
@@ -372,8 +507,11 @@ const InventoryItemFormModal = ({
                   value={formValues.item_name}
                   onChange={(e) => handleChange("item_name", e.target.value)}
                   style={inputStyles}
-                  required
+                  aria-invalid={Boolean(fieldErrors.item_name)}
                 />
+                {fieldErrors.item_name ? (
+                  <p style={fieldErrorTextStyles}>{fieldErrors.item_name}</p>
+                ) : null}
               </div>
 
               <div
@@ -396,7 +534,11 @@ const InventoryItemFormModal = ({
                     value={formValues.barcode}
                     onChange={(e) => handleChange("barcode", e.target.value)}
                     style={inputStyles}
+                    aria-invalid={Boolean(fieldErrors.barcode)}
                   />
+                  {fieldErrors.barcode ? (
+                    <p style={fieldErrorTextStyles}>{fieldErrors.barcode}</p>
+                  ) : null}
                 </div>
 
                 <div>
@@ -408,11 +550,14 @@ const InventoryItemFormModal = ({
                     value={formValues.category}
                     onChange={(e) => handleChange("category", e.target.value)}
                     style={inputStyles}
-                    required
+                    aria-invalid={Boolean(fieldErrors.category)}
                   >
                     <option value="perishable">Perishable</option>
                     <option value="non-perishable">Non-Perishable</option>
                   </select>
+                  {fieldErrors.category ? (
+                    <p style={fieldErrorTextStyles}>{fieldErrors.category}</p>
+                  ) : null}
                 </div>
               </div>
 
@@ -433,10 +578,16 @@ const InventoryItemFormModal = ({
                     value={trackingMethod}
                     onChange={(e) => handleChange("tracking_method", e.target.value)}
                     style={inputStyles}
+                    aria-invalid={Boolean(fieldErrors.tracking_method)}
                   >
                     <option value="Count-Based">Count-Based</option>
                     <option value="Weight/Volume-Based">Weight/Volume-Based</option>
                   </select>
+                  {fieldErrors.tracking_method ? (
+                    <p style={fieldErrorTextStyles}>
+                      {fieldErrors.tracking_method}
+                    </p>
+                  ) : null}
                 </div>
 
                 <div>
@@ -450,8 +601,8 @@ const InventoryItemFormModal = ({
                       handleChange("unit_of_measure", e.target.value)
                     }
                     style={inputStyles}
-                    required={usesWeightOrVolume}
                     disabled={!usesWeightOrVolume}
+                    aria-invalid={Boolean(fieldErrors.unit_of_measure)}
                   >
                     {usesWeightOrVolume ? (
                       <>
@@ -466,6 +617,11 @@ const InventoryItemFormModal = ({
                       <option value="pc">pc</option>
                     )}
                   </select>
+                  {fieldErrors.unit_of_measure ? (
+                    <p style={fieldErrorTextStyles}>
+                      {fieldErrors.unit_of_measure}
+                    </p>
+                  ) : null}
                 </div>
 
                 <div>
@@ -477,7 +633,7 @@ const InventoryItemFormModal = ({
                     value={formValues.packaging}
                     onChange={(e) => handleChange("packaging", e.target.value)}
                     style={inputStyles}
-                    required
+                    aria-invalid={Boolean(fieldErrors.packaging)}
                   >
                     <option value="">Select packaging</option>
                     {packagingOptions.map((option) => (
@@ -486,6 +642,9 @@ const InventoryItemFormModal = ({
                       </option>
                     ))}
                   </select>
+                  {fieldErrors.packaging ? (
+                    <p style={fieldErrorTextStyles}>{fieldErrors.packaging}</p>
+                  ) : null}
                 </div>
               </div>
 
@@ -505,8 +664,13 @@ const InventoryItemFormModal = ({
                       handleChange("unit_of_measure_value", e.target.value)
                     }
                     style={inputStyles}
-                    required
+                    aria-invalid={Boolean(fieldErrors.unit_of_measure_value)}
                   />
+                  {fieldErrors.unit_of_measure_value ? (
+                    <p style={fieldErrorTextStyles}>
+                      {fieldErrors.unit_of_measure_value}
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -526,6 +690,19 @@ const InventoryItemFormModal = ({
               }}
             >
               <div>
+                <label htmlFor="batch_number" style={labelStyles}>
+                  Batch Number
+                </label>
+                <input
+                  id="batch_number"
+                  type="text"
+                  value="Auto-generated after saving"
+                  readOnly
+                  style={lockedInputStyles}
+                />
+              </div>
+
+              <div>
                 <label htmlFor="packaging_count" style={labelStyles}>
                   Quantity on Hand
                 </label>
@@ -539,8 +716,13 @@ const InventoryItemFormModal = ({
                     handleChange("packaging_count", e.target.value)
                   }
                   style={inputStyles}
-                  required
+                  aria-invalid={Boolean(fieldErrors.packaging_count)}
                 />
+                {fieldErrors.packaging_count ? (
+                  <p style={fieldErrorTextStyles}>
+                    {fieldErrors.packaging_count}
+                  </p>
+                ) : null}
               </div>
 
               {!isPiecePackaging ? (
@@ -556,8 +738,11 @@ const InventoryItemFormModal = ({
                     value={formValues.quantity}
                     onChange={(e) => handleChange("quantity", e.target.value)}
                     style={inputStyles}
-                    required
+                    aria-invalid={Boolean(fieldErrors.quantity)}
                   />
+                  {fieldErrors.quantity ? (
+                    <p style={fieldErrorTextStyles}>{fieldErrors.quantity}</p>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -575,8 +760,13 @@ const InventoryItemFormModal = ({
                     handleChange("reorder_level", e.target.value)
                   }
                   style={inputStyles}
-                  required
+                  aria-invalid={Boolean(fieldErrors.reorder_level)}
                 />
+                {fieldErrors.reorder_level ? (
+                  <p style={fieldErrorTextStyles}>
+                    {fieldErrors.reorder_level}
+                  </p>
+                ) : null}
               </div>
 
               <div>
@@ -593,8 +783,13 @@ const InventoryItemFormModal = ({
                     handleChange("expiration_date", e.target.value)
                   }
                   style={inputStyles}
-                  required={isPerishable}
+                  aria-invalid={Boolean(fieldErrors.expiration_date)}
                 />
+                {fieldErrors.expiration_date ? (
+                  <p style={fieldErrorTextStyles}>
+                    {fieldErrors.expiration_date}
+                  </p>
+                ) : null}
               </div>
             </div>
           </section>
@@ -628,7 +823,7 @@ const InventoryItemFormModal = ({
                   ? "Processing..."
                   : mode === "edit"
                   ? "Save Changes"
-                  : "Add to Inventory"}
+                  : "Add"}
               </button>
             </div>
           </div>

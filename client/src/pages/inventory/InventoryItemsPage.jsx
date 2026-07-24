@@ -21,7 +21,10 @@ import {
   lookupInventoryItemByBarcode,
   updateInventoryItem,
 } from "../../features/inventory-items/inventoryItemService";
-import { fetchInventoryBatches } from "../../features/inventory-batches/inventoryBatchService";
+import {
+  createInventoryBatch,
+  fetchInventoryBatches,
+} from "../../features/inventory-batches/inventoryBatchService";
 import {
   createInventoryTransaction,
   fetchInventoryTransactions,
@@ -128,6 +131,121 @@ const getMonitorQuantity = (item, trackingStats) => {
   return itemTotalQuantity;
 };
 
+const INITIAL_SCAN_FORM = {
+  barcodeNumber: "",
+  quantityOnHand: "",
+  expirationDate: "",
+};
+
+const INVENTORY_BATCH_SOURCE_TYPES = [
+  "PURCHASED",
+  "DONATED",
+  "DSWD",
+  "LGU",
+  "OTHER",
+];
+
+const getPositiveIntegerValue = (value) => {
+  const parsedValue = Number(value);
+
+  if (!Number.isInteger(parsedValue) || parsedValue <= 0) {
+    return null;
+  }
+
+  return parsedValue;
+};
+
+const getNormalizedInventoryText = (value) =>
+  String(value || "").trim().toLowerCase();
+
+const getFirstPositiveNumber = (values) => {
+  for (const value of values) {
+    const parsedValue = Number(value);
+
+    if (Number.isFinite(parsedValue) && parsedValue > 0) {
+      return parsedValue;
+    }
+  }
+
+  return null;
+};
+
+const getUnitsPerPackageValue = (item) => {
+  if (getNormalizedInventoryText(item?.packaging) === "piece") {
+    return 1;
+  }
+
+  const isMeasurementBased = getNormalizedInventoryText(
+    item?.tracking_method,
+  ).includes("measurement");
+  const candidateValues = isMeasurementBased
+    ? [
+        item?.unit_of_measure_value,
+        item?.quantity,
+        item?.units_per_package,
+        item?.quantity_per_package,
+      ]
+    : [
+        item?.quantity,
+        item?.units_per_package,
+        item?.quantity_per_package,
+        item?.unit_of_measure_value,
+      ];
+
+  return getFirstPositiveNumber(candidateValues) || 1;
+};
+
+const isPerishableItem = (item) =>
+  String(item?.category || "").trim().toUpperCase() === "PERISHABLE" ||
+  Boolean(item?.is_perishable);
+
+const getInventoryBatchSourceType = (item) => {
+  const sourceLabel = String(item?.source_type || item?.source || "")
+    .trim()
+    .toUpperCase();
+
+  if (sourceLabel.includes("DONOR")) {
+    return "DONATED";
+  }
+
+  if (sourceLabel.includes("LGU") || sourceLabel.includes("MALVAR")) {
+    return "LGU";
+  }
+
+  const normalizedSourceType = sourceLabel.replace(/[^A-Z]/g, "_");
+
+  return INVENTORY_BATCH_SOURCE_TYPES.includes(normalizedSourceType)
+    ? normalizedSourceType
+    : "OTHER";
+};
+
+const buildScannedInventoryBatchNumber = (item, relatedBatches = []) => {
+  const identifier =
+    String(item?.item_code || item?.barcode || item?.id || "ITEM")
+      .replace(/[^a-z0-9]/gi, "")
+      .slice(-8)
+      .toUpperCase() || "ITEM";
+  const batchPrefix = `${identifier}-BATCH-`;
+  const existingSequences = relatedBatches
+    .map((batch) => {
+      const batchNumber = String(batch?.batch_no || "").toUpperCase();
+
+      if (!batchNumber.startsWith(batchPrefix)) {
+        return null;
+      }
+
+      const parsedValue = Number(batchNumber.replace(batchPrefix, ""));
+      return Number.isInteger(parsedValue) && parsedValue > 0
+        ? parsedValue
+        : null;
+    })
+    .filter(Boolean);
+  const nextSequence =
+    Math.max(relatedBatches.length, 0, ...existingSequences) + 1;
+
+  return `${batchPrefix}${String(nextSequence).padStart(3, "0")}`;
+};
+
 const getInventorySourceLabel = (itemId, inventoryBatches) => {
   const relatedBatches = inventoryBatches.filter(
     (batch) => String(batch.inventory_item_id) === String(itemId),
@@ -196,9 +314,10 @@ const InventoryItemsPage = () => {
   const [isStatusLogModalOpen, setIsStatusLogModalOpen] = useState(false);
   const [statusLogItem, setStatusLogItem] = useState(null);
   const [statusLogErrorMessage, setStatusLogErrorMessage] = useState("");
-  const [scanForm, setScanForm] = useState({
-    barcodeNumber: "",
-  });
+  const [scanForm, setScanForm] = useState(INITIAL_SCAN_FORM);
+  const [scanErrorMessage, setScanErrorMessage] = useState("");
+  const [isSubmittingScanRestock, setIsSubmittingScanRestock] =
+    useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [selectedExportReportType, setSelectedExportReportType] =
     useState("INVENTORY_ITEMS");
@@ -375,6 +494,45 @@ const InventoryItemsPage = () => {
     );
   }, [inventoryItemsWithSyncStatus, scanForm.barcodeNumber]);
 
+  const matchedScannedItemTrackingStats = useMemo(() => {
+    if (!matchedScannedItem?.id) {
+      return createEmptyTrackingStats();
+    }
+
+    return (
+      inventoryTrackingMap.get(matchedScannedItem.id) ||
+      createEmptyTrackingStats()
+    );
+  }, [inventoryTrackingMap, matchedScannedItem?.id]);
+
+  const matchedScannedItemCurrentStock = matchedScannedItem
+    ? getMonitorQuantity(matchedScannedItem, matchedScannedItemTrackingStats)
+    : 0;
+
+  const matchedScannedItemBatches = useMemo(() => {
+    if (!matchedScannedItem?.id) {
+      return [];
+    }
+
+    return inventoryBatches.filter((batch) => {
+      return (
+        String(batch.inventory_item_id || batch.item_id || "") ===
+        String(matchedScannedItem.id)
+      );
+    });
+  }, [inventoryBatches, matchedScannedItem?.id]);
+
+  const matchedScannedItemBatchNumber = useMemo(() => {
+    if (!matchedScannedItem?.id) {
+      return "";
+    }
+
+    return buildScannedInventoryBatchNumber(
+      matchedScannedItem,
+      matchedScannedItemBatches,
+    );
+  }, [matchedScannedItem, matchedScannedItemBatches]);
+
   const visibleInventoryItems = useMemo(() => {
     const selectedStockStatuses = Array.isArray(filters.status)
       ? filters.status
@@ -485,9 +643,8 @@ const InventoryItemsPage = () => {
   };
 
   const handleOpenScanModal = () => {
-    setScanForm({
-      barcodeNumber: "",
-    });
+    setScanForm(INITIAL_SCAN_FORM);
+    setScanErrorMessage("");
     setIsScanModalOpen(true);
   };
 
@@ -508,7 +665,12 @@ const InventoryItemsPage = () => {
   };
 
   const handleCloseScanModal = () => {
+    if (isSubmittingScanRestock) {
+      return;
+    }
+
     setIsScanModalOpen(false);
+    setScanErrorMessage("");
   };
 
   const handleOpenStatusLogModal = (itemRow) => {
@@ -528,26 +690,80 @@ const InventoryItemsPage = () => {
   };
 
   const handleScanInputChange = (field, value) => {
-    setScanForm((previousForm) => ({
-      ...previousForm,
-      [field]: value,
-    }));
+    setScanErrorMessage("");
+    setScanForm((previousForm) => {
+      if (field === "barcodeNumber") {
+        return {
+          ...INITIAL_SCAN_FORM,
+          barcodeNumber: value,
+        };
+      }
+
+      return {
+        ...previousForm,
+        [field]: value,
+      };
+    });
   };
 
-  const handleSubmitScanModal = () => {
+  const handleSubmitScanModal = async () => {
     const trimmedBarcode = scanForm.barcodeNumber.trim();
 
-    if (!trimmedBarcode) {
+    if (!trimmedBarcode || isSubmittingScanRestock) {
       return;
     }
 
     if (matchedScannedItem?.id) {
-      setIsScanModalOpen(false);
-      void handleOpenItemDetail(matchedScannedItem.id);
+      const packageCount = getPositiveIntegerValue(scanForm.quantityOnHand);
+
+      if (!packageCount) {
+        setScanErrorMessage(
+          "Quantity on hand must be a whole number greater than 0.",
+        );
+        return;
+      }
+
+      if (isPerishableItem(matchedScannedItem) && !scanForm.expirationDate) {
+        setScanErrorMessage("Expiration date is required for perishable items.");
+        return;
+      }
+
+      const quantityReceived =
+        packageCount * getUnitsPerPackageValue(matchedScannedItem);
+
+      setIsSubmittingScanRestock(true);
+      setScanErrorMessage("");
+
+      try {
+        const response = await createInventoryBatch({
+          inventory_item_id: matchedScannedItem.id,
+          batch_no:
+            matchedScannedItemBatchNumber ||
+            buildScannedInventoryBatchNumber(
+              matchedScannedItem,
+              matchedScannedItemBatches,
+            ),
+          source_type: getInventoryBatchSourceType(matchedScannedItem),
+          quantity_received: quantityReceived,
+          expiration_date: scanForm.expirationDate || null,
+        });
+
+        if (!response?.queued_offline && !response?.queuedOffline) {
+          await loadInventoryData();
+        }
+
+        setScanForm(INITIAL_SCAN_FORM);
+        setIsScanModalOpen(false);
+      } catch (error) {
+        setScanErrorMessage(error.message || "Failed to add stock to this item.");
+      } finally {
+        setIsSubmittingScanRestock(false);
+      }
       return;
     }
 
     setIsScanModalOpen(false);
+    setScanErrorMessage("");
     setModalErrorMessage("");
     setModalMode("create");
 
@@ -767,7 +983,12 @@ const InventoryItemsPage = () => {
       <BarcodeScanModal
         isOpen={isScanModalOpen}
         scanForm={scanForm}
+        matchedItem={matchedScannedItem}
         matchedItemName={matchedScannedItem?.item_name || ""}
+        currentStock={matchedScannedItemCurrentStock}
+        generatedBatchNumber={matchedScannedItemBatchNumber}
+        errorMessage={scanErrorMessage}
+        isSubmitting={isSubmittingScanRestock}
         onClose={handleCloseScanModal}
         onSubmit={handleSubmitScanModal}
         onInputChange={handleScanInputChange}
