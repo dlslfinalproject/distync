@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { FiX } from "react-icons/fi";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
@@ -124,22 +124,23 @@ const styles = {
     alignItems: "center",
     justifyContent: "space-between",
     gap: "16px",
-    marginTop: "4px",
     padding: "18px 20px",
-    border: "1px solid #d7e2ef",
     borderRadius: "18px",
-    backgroundColor: "#f8fbfe",
+    border: "1px solid #d7e2ef",
+    backgroundColor: "#ffffff",
+    boxShadow: "0 16px 34px rgba(23, 50, 77, 0.08)",
+    flexWrap: "wrap",
   },
   totalStockLabel: {
     margin: 0,
     color: "#4f677f",
     fontSize: "15px",
   },
-  totalStockValue: {
-    margin: 0,
-    color: "#17324d",
-    fontSize: "20px",
-    fontWeight: 800,
+  footerActions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "12px",
+    flexWrap: "wrap",
   },
   errorText: {
     margin: "8px 0 0",
@@ -248,6 +249,25 @@ const getCalculatedAddedStock = (scanForm, item) => {
   return packageCount * getUnitsPerPackageValue(item);
 };
 
+const isBlank = (value) => String(value ?? "").trim() === "";
+
+const getTodayDateInputValue = () => {
+  const now = new Date();
+  const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 10);
+};
+
+const isValidDateInput = (value) => {
+  const normalizedValue = String(value || "").trim();
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedValue)) {
+    return false;
+  }
+
+  const parsedDate = new Date(`${normalizedValue}T00:00:00`);
+  return !Number.isNaN(parsedDate.getTime());
+};
+
 const InventoryItemScanModal = ({
   isOpen,
   scanForm,
@@ -262,6 +282,7 @@ const InventoryItemScanModal = ({
   onInputChange,
 }) => {
   const barcodeInputRef = useRef(null);
+  const [fieldErrors, setFieldErrors] = useState({});
 
   useEffect(() => {
     if (!isOpen) {
@@ -275,6 +296,12 @@ const InventoryItemScanModal = ({
 
     return () => window.clearTimeout(focusTimer);
   }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setFieldErrors({});
+    }
+  }, [isOpen, matchedItem?.id]);
 
   if (!isOpen) {
     return null;
@@ -295,6 +322,63 @@ const InventoryItemScanModal = ({
       ? "Adding Stock..."
       : "Add Stock"
     : "Continue to Add Item";
+
+  const clearFieldError = (fieldName) => {
+    setFieldErrors((currentErrors) => {
+      if (!currentErrors[fieldName]) {
+        return currentErrors;
+      }
+
+      const nextErrors = { ...currentErrors };
+      delete nextErrors[fieldName];
+      return nextErrors;
+    });
+  };
+
+  const handleInputChange = (fieldName, value) => {
+    clearFieldError(fieldName);
+    onInputChange(fieldName, value);
+  };
+
+  const validateScanForm = () => {
+    const nextErrors = {};
+
+    if (isBlank(trimmedBarcode)) {
+      nextErrors.barcodeNumber = "Barcode number is required.";
+    }
+
+    if (hasMatchedItem) {
+      const quantityOnHand = Number(scanForm.quantityOnHand);
+
+      if (isBlank(scanForm.quantityOnHand)) {
+        nextErrors.quantityOnHand = "Quantity on hand is required.";
+      } else if (!Number.isInteger(quantityOnHand) || quantityOnHand < 1) {
+        nextErrors.quantityOnHand = "Quantity on hand must be at least 1.";
+      }
+
+      if (isPerishable && isBlank(scanForm.expirationDate)) {
+        nextErrors.expirationDate = "Expiration date is required.";
+      } else if (!isBlank(scanForm.expirationDate)) {
+        if (!isValidDateInput(scanForm.expirationDate)) {
+          nextErrors.expirationDate = "Enter a valid expiration date.";
+        } else if (scanForm.expirationDate < getTodayDateInputValue()) {
+          nextErrors.expirationDate =
+            "Expiration date cannot be earlier than today.";
+        }
+      }
+    }
+
+    setFieldErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  };
+
+  const handleSubmit = () => {
+    if (!validateScanForm()) {
+      return;
+    }
+
+    onSubmit();
+  };
 
   return (
     <div style={scanModalOverlayStyle}>
@@ -320,9 +404,6 @@ const InventoryItemScanModal = ({
             gap: "18px",
           }}
         >
-          <section style={styles.scannerHintCard}>
-            <h3 style={styles.scanModalSectionTitle}>Ready to Scan</h3>
-          </section>
 
           <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
             <h3 style={styles.scanModalSectionTitle}>Barcode Details</h3>
@@ -345,20 +426,25 @@ const InventoryItemScanModal = ({
                   spellCheck={false}
                   value={scanForm.barcodeNumber}
                   onChange={(event) =>
-                    onInputChange(
+                    handleInputChange(
                       "barcodeNumber",
                       normalizeBarcodeInput(event.target.value),
                     )
                   }
                   onKeyDown={(event) => {
-                    if (event.key === "Enter" && trimmedBarcode) {
+                    if (event.key === "Enter") {
                       event.preventDefault();
-                      onSubmit();
+                      handleSubmit();
                     }
                   }}
                   style={scanModalInputStyle}
                   placeholder="Scan or enter barcode"
+                  aria-invalid={Boolean(fieldErrors.barcodeNumber)}
                 />
+
+                {fieldErrors.barcodeNumber && (
+                  <p style={styles.errorText}>{fieldErrors.barcodeNumber}</p>
+                )}
 
                 {matchedItemName && (
                   <p style={styles.feedbackText}>
@@ -372,7 +458,7 @@ const InventoryItemScanModal = ({
                   </p>
                 )}
 
-                {!hasMatchedItem && errorMessage && (
+                {!fieldErrors.barcodeNumber && !hasMatchedItem && errorMessage && (
                   <p style={styles.errorText}>{errorMessage}</p>
                 )}
               </div>
@@ -481,11 +567,17 @@ const InventoryItemScanModal = ({
                       step="1"
                       value={scanForm.quantityOnHand || ""}
                       onChange={(event) =>
-                        onInputChange("quantityOnHand", event.target.value)
+                        handleInputChange("quantityOnHand", event.target.value)
                       }
                       style={scanModalInputStyle}
                       placeholder="Enter quantity"
+                      aria-invalid={Boolean(fieldErrors.quantityOnHand)}
                     />
+                    {fieldErrors.quantityOnHand && (
+                      <p style={styles.errorText}>
+                        {fieldErrors.quantityOnHand}
+                      </p>
+                    )}
                   </div>
 
                   <div>
@@ -518,10 +610,16 @@ const InventoryItemScanModal = ({
                       type="date"
                       value={scanForm.expirationDate || ""}
                       onChange={(event) =>
-                        onInputChange("expirationDate", event.target.value)
+                        handleInputChange("expirationDate", event.target.value)
                       }
                       style={scanModalInputStyle}
+                      aria-invalid={Boolean(fieldErrors.expirationDate)}
                     />
+                    {fieldErrors.expirationDate && (
+                      <p style={styles.errorText}>
+                        {fieldErrors.expirationDate}
+                      </p>
+                    )}
                   </div>
 
                   <div>
@@ -535,36 +633,65 @@ const InventoryItemScanModal = ({
                   </div>
                 </div>
 
-                <div style={styles.totalStockCard}>
-                  <p style={styles.totalStockLabel}>Total Added Stock:</p>
-                  <p style={styles.totalStockValue}>
-                    {totalAddedStock} {unitLabel}
-                  </p>
-                </div>
-
                 {errorMessage && <p style={styles.errorText}>{errorMessage}</p>}
               </section>
             </>
           )}
 
-          <div style={styles.scanModalFooter}>
-            <button
-              type="button"
-              onClick={onClose}
-              style={pageHeaderStyles.secondaryButton}
-            >
-              Cancel
-            </button>
+          {hasMatchedItem ? (
+            <div style={styles.totalStockCard}>
+              <p style={styles.totalStockLabel}>
+                Total Added Stock:{" "}
+                <strong>
+                  {totalAddedStock} {unitLabel}
+                </strong>
+              </p>
 
-            <button
-              type="button"
-              style={pageHeaderStyles.primaryButton}
-              onClick={onSubmit}
-              disabled={!trimmedBarcode || isSubmitting}
-            >
-              {submitLabel}
-            </button>
-          </div>
+              <div style={styles.footerActions}>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  style={pageHeaderStyles.secondaryButton}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  style={{
+                    ...pageHeaderStyles.primaryButton,
+                    opacity: isSubmitting ? 0.7 : 1,
+                  }}
+                  onClick={handleSubmit}
+                  disabled={isSubmitting}
+                >
+                  {submitLabel}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={styles.scanModalFooter}>
+              <button
+                type="button"
+                onClick={onClose}
+                style={pageHeaderStyles.secondaryButton}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                style={{
+                  ...pageHeaderStyles.primaryButton,
+                  opacity: isSubmitting ? 0.7 : 1,
+                }}
+                onClick={handleSubmit}
+                disabled={isSubmitting}
+              >
+                {submitLabel}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

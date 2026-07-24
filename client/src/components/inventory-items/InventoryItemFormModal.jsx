@@ -363,10 +363,6 @@ const InventoryItemFormModal = ({
       nextErrors.item_name = "Item name is required.";
     }
 
-    if (isBlank(values.barcode)) {
-      nextErrors.barcode = "Barcode is required.";
-    }
-
     if (isBlank(values.category)) {
       nextErrors.category = "Category is required.";
     }
@@ -827,7 +823,7 @@ const InventoryItemFormModal = ({
                   ? "Processing..."
                   : mode === "edit"
                   ? "Save Changes"
-                  : "Add to Inventory"}
+                  : "Add"}
               </button>
             </div>
           </div>
