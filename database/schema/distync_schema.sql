@@ -515,6 +515,24 @@ CREATE TABLE public.donation_needs (
   CONSTRAINT donation_needs_published_by_fkey FOREIGN KEY (published_by) REFERENCES public.users(id)
 );
 
+CREATE TABLE public.default_emergency_donation_needs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  inventory_item_id uuid,
+  item_name character varying NOT NULL,
+  category character varying,
+  unit_of_measure character varying NOT NULL DEFAULT 'items'::character varying,
+  suggested_quantity integer CHECK (suggested_quantity IS NULL OR suggested_quantity >= 0),
+  priority_level character varying NOT NULL DEFAULT 'MEDIUM'::character varying CHECK (priority_level::text = ANY (ARRAY['LOW'::character varying, 'MEDIUM'::character varying, 'HIGH'::character varying, 'URGENT'::character varying]::text[])),
+  notes text,
+  disaster_type character varying,
+  display_order integer NOT NULL DEFAULT 0,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT default_emergency_donation_needs_pkey PRIMARY KEY (id),
+  CONSTRAINT default_emergency_donation_needs_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id)
+);
+
 -- =========================================================
 -- 7) NOTIFICATIONS
 -- =========================================================

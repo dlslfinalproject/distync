@@ -72,6 +72,14 @@ const donationItemSelect = `
   LEFT JOIN inventory_batches ib ON ib.id = di.inventory_batch_id
 `;
 
+const normalizeDisasterEventFilter = (disasterEventId) => {
+  if (Array.isArray(disasterEventId)) {
+    return disasterEventId.filter(Boolean);
+  }
+
+  return disasterEventId ? [disasterEventId] : [];
+};
+
 const getDisasterEventById = async (id, dbClient = pool) => {
   const result = await dbClient.query(
     `
@@ -631,10 +639,11 @@ const insertInventoryTransaction = async (payload, dbClient) => {
 const getPublicDonationNeeds = async (disasterEventId, dbClient = pool) => {
   const values = [];
   const conditions = ["dn.is_active = TRUE"];
+  const disasterEventIds = normalizeDisasterEventFilter(disasterEventId);
 
-  if (disasterEventId) {
-    values.push(disasterEventId);
-    conditions.push(`dn.disaster_event_id = $${values.length}`);
+  if (disasterEventIds.length > 0) {
+    values.push(disasterEventIds);
+    conditions.push(`dn.disaster_event_id = ANY($${values.length}::uuid[])`);
   } else {
     conditions.push(`de.status = 'ACTIVE'`);
   }
@@ -659,12 +668,67 @@ const getPublicDonationNeeds = async (disasterEventId, dbClient = pool) => {
   return result.rows;
 };
 
+const getDefaultEmergencyDonationNeeds = async (
+  disasterTypes = [],
+  dbClient = pool,
+) => {
+  const normalizedDisasterTypes = [...new Set(
+    (disasterTypes || [])
+      .map((disasterType) => String(disasterType || "").trim())
+      .filter(Boolean),
+  )];
+  const values = [];
+  const conditions = ["dedn.is_active = TRUE"];
+
+  if (normalizedDisasterTypes.length > 0) {
+    values.push(normalizedDisasterTypes);
+    conditions.push(
+      `(dedn.disaster_type IS NULL OR dedn.disaster_type = ANY($${values.length}::text[]))`,
+    );
+  } else {
+    conditions.push("dedn.disaster_type IS NULL");
+  }
+
+  const result = await dbClient.query(
+    `
+      SELECT
+        dedn.id,
+        dedn.inventory_item_id,
+        COALESCE(ii.item_name, dedn.item_name) AS item_name,
+        COALESCE(ii.category, dedn.category) AS category,
+        COALESCE(ii.unit_of_measure, dedn.unit_of_measure) AS unit_of_measure,
+        dedn.suggested_quantity,
+        dedn.priority_level,
+        dedn.notes,
+        dedn.disaster_type,
+        dedn.display_order,
+        dedn.updated_at
+      FROM default_emergency_donation_needs dedn
+      LEFT JOIN inventory_items ii
+        ON ii.id = dedn.inventory_item_id
+       AND ii.is_active = TRUE
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY
+        CASE WHEN dedn.disaster_type IS NULL THEN 1 ELSE 0 END,
+        dedn.display_order ASC,
+        COALESCE(ii.item_name, dedn.item_name) ASC
+    `,
+    values,
+  );
+
+  return result.rows;
+};
+
 const getPublicDonationDisasterSummaries = async (
   disasterEventId,
   dbClient = pool,
 ) => {
   const values = [];
-  const conditions = [`de.status = 'ACTIVE'`];
+  const conditions = [
+    `UPPER(de.status) IN ('ACTIVE', 'ONGOING')`,
+    `(de.start_date IS NULL OR de.start_date <= CURRENT_DATE)`,
+    `(de.end_date IS NULL OR de.end_date >= CURRENT_DATE)`,
+  ];
 
   if (disasterEventId) {
     values.push(disasterEventId);
@@ -741,7 +805,14 @@ const getPublicDonationDisasterSummaries = async (
           AND dn.is_active = TRUE
       ) need_summary ON TRUE
       WHERE ${conditions.join(" AND ")}
-      ORDER BY de.start_date DESC, de.created_at DESC
+      ORDER BY
+        de.start_date DESC NULLS LAST,
+        GREATEST(
+          COALESCE(de.updated_at, de.created_at),
+          de.created_at
+        ) DESC,
+        de.created_at DESC
+      LIMIT 3
     `,
     values,
   );
@@ -799,9 +870,13 @@ const getPublicRecentDonationSummaries = async (
   limit = 6,
   dbClient = pool,
 ) => {
-  if (!disasterEventId) {
+  const disasterEventIds = normalizeDisasterEventFilter(disasterEventId);
+
+  if (disasterEventIds.length === 0) {
     return [];
   }
+
+  const values = [disasterEventIds, limit];
 
   const result = await dbClient.query(
     `
@@ -850,12 +925,12 @@ const getPublicRecentDonationSummaries = async (
         WHERE deb.disaster_event_id = d.disaster_event_id
           AND b.is_active = TRUE
       ) affected_barangays ON TRUE
-      WHERE d.disaster_event_id = $1
+      WHERE d.disaster_event_id = ANY($1::uuid[])
         AND d.status <> 'CANCELLED'
       ORDER BY d.received_at DESC, d.created_at DESC
       LIMIT $2
     `,
-    [disasterEventId, limit],
+    values,
   );
 
   return result.rows;
@@ -866,24 +941,27 @@ const getDonationSummaryTotals = async (disasterEventId, dbClient = pool) => {
   const donationConditions = [];
   const distributionConditions = [`ib.source_type = 'DONATED'`, `it.transaction_type = 'OUTFLOW'`, `it.reference_type = 'DISTRIBUTION'`];
   const batchConditions = [`ib.source_type = 'DONATED'`];
+  const disasterEventIds = normalizeDisasterEventFilter(disasterEventId);
 
-  if (disasterEventId) {
-    values.push(disasterEventId);
-    donationConditions.push(`d.disaster_event_id = $${values.length}`);
-    distributionConditions.push(`it.disaster_event_id = $${values.length}`);
+  if (disasterEventIds.length > 0) {
+    values.push(disasterEventIds);
+    donationConditions.push(`d.disaster_event_id = ANY($${values.length}::uuid[])`);
+    distributionConditions.push(
+      `it.disaster_event_id = ANY($${values.length}::uuid[])`,
+    );
     distributionConditions.push(`EXISTS (
       SELECT 1
       FROM donation_items di
       INNER JOIN donations d ON d.id = di.donation_id
       WHERE di.inventory_batch_id = ib.id
-        AND d.disaster_event_id = $${values.length}
+        AND d.disaster_event_id = ANY($${values.length}::uuid[])
     )`);
     batchConditions.push(`EXISTS (
       SELECT 1
       FROM donation_items di
       INNER JOIN donations d ON d.id = di.donation_id
       WHERE di.inventory_batch_id = ib.id
-        AND d.disaster_event_id = $${values.length}
+        AND d.disaster_event_id = ANY($${values.length}::uuid[])
     )`);
   }
 
@@ -940,10 +1018,11 @@ const getDonationItemTransparencySummary = async (
 ) => {
   const values = [];
   const conditions = [`ib.source_type = 'DONATED'`];
+  const disasterEventIds = normalizeDisasterEventFilter(disasterEventId);
 
-  if (disasterEventId) {
-    values.push(disasterEventId);
-    conditions.push(`d.disaster_event_id = $${values.length}`);
+  if (disasterEventIds.length > 0) {
+    values.push(disasterEventIds);
+    conditions.push(`d.disaster_event_id = ANY($${values.length}::uuid[])`);
   }
 
   const result = await dbClient.query(
@@ -964,14 +1043,14 @@ const getDonationItemTransparencySummary = async (
             AND it.transaction_type = 'OUTFLOW'
             AND it.reference_type = 'DISTRIBUTION'
             ${
-              disasterEventId
-                ? `AND it.disaster_event_id = $1
+              disasterEventIds.length > 0
+                ? `AND it.disaster_event_id = ANY($1::uuid[])
                    AND EXISTS (
                      SELECT 1
                      FROM donation_items di2
                      INNER JOIN donations d2 ON d2.id = di2.donation_id
                      WHERE di2.inventory_batch_id = ib2.id
-                       AND d2.disaster_event_id = $1
+                       AND d2.disaster_event_id = ANY($1::uuid[])
                    )`
                 : ""
             }
@@ -1099,6 +1178,7 @@ module.exports = {
   insertInventoryTransaction,
   getPublicDonationDisasterSummaries,
   getPublicDonationNeeds,
+  getDefaultEmergencyDonationNeeds,
   getPublicForecastSuggestions,
   getPublicRecentDonationSummaries,
   getDonationSummaryTotals,
