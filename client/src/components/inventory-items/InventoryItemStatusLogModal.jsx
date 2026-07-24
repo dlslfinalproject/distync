@@ -63,6 +63,7 @@ const InventoryItemStatusLogModal = ({
   isOpen,
   item,
   inventoryBatches,
+  availableQuantity = 0,
   isSubmitting,
   errorMessage,
   onClose,
@@ -78,20 +79,12 @@ const InventoryItemStatusLogModal = ({
     setFormValues(createDefaultForm(inventoryBatches));
   }, [isOpen, inventoryBatches]);
 
-  const selectedBatch = useMemo(
-    () =>
-      inventoryBatches.find(
-        (batch) => String(batch.id) === String(formValues.inventory_batch_id),
-      ) || null,
-    [inventoryBatches, formValues.inventory_batch_id],
-  );
-
   if (!isOpen) {
     return null;
   }
 
   const itemName = item?.item_name || item?.name || "Inventory Item";
-  const hasAvailableBatch = inventoryBatches.length > 0;
+  const hasAvailableStock = Number(availableQuantity || 0) > 0;
 
   const handleChange = (fieldName, value) => {
     setFormValues((currentValues) => ({
@@ -104,7 +97,8 @@ const InventoryItemStatusLogModal = ({
     event.preventDefault();
 
     onSubmit({
-      inventory_batch_id: formValues.inventory_batch_id,
+      inventory_batch_id: formValues.inventory_batch_id || null,
+      inventory_item_id: item?.id || null,
       transaction_type: formValues.transaction_type,
       quantity: Number.parseInt(formValues.quantity, 10),
       reference_type: "MANUAL",
@@ -186,7 +180,7 @@ const InventoryItemStatusLogModal = ({
                 id="status_quantity"
                 type="number"
                 min="1"
-                max={selectedBatch?.quantity_available || undefined}
+                max={availableQuantity || undefined}
                 value={formValues.quantity}
                 onChange={(event) => handleChange("quantity", event.target.value)}
                 style={inputStyles}
@@ -225,7 +219,7 @@ const InventoryItemStatusLogModal = ({
             </div>
           ) : null}
 
-          {!hasAvailableBatch ? (
+          {!hasAvailableStock ? (
             <div
               style={{
                 marginTop: "18px",
@@ -260,10 +254,10 @@ const InventoryItemStatusLogModal = ({
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || !hasAvailableBatch}
+              disabled={isSubmitting || !hasAvailableStock}
               style={{
                 ...pageHeaderStyles.primaryButton,
-                opacity: isSubmitting || !hasAvailableBatch ? 0.7 : 1,
+                opacity: isSubmitting || !hasAvailableStock ? 0.7 : 1,
               }}
             >
               {isSubmitting ? "Saving..." : "Save Status Log"}

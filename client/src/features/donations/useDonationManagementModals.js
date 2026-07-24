@@ -30,7 +30,7 @@ const buildDonationDefinedItemPayload = (draft) => ({
   packaging: draft.packaging || draft.new_item_packaging,
   packaging_count: 1,
   quantity: 1,
-  reorder_level: 1,
+  reorder_level: null,
   expiration_date: draft.expiration_date || null,
   barcode: null,
   is_active: true,

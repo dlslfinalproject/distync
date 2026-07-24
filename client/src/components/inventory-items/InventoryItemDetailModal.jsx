@@ -4,8 +4,8 @@ import EmptyState from "../shared/EmptyState";
 import ErrorState from "../shared/ErrorState";
 import LoadingState from "../shared/LoadingState";
 import {
+  formatNumericValue,
   formatUnitOfMeasurement,
-  getTotalItemQuantity,
 } from "../../features/inventory-items/inventoryItemFormatting";
 
 const modalStyles = {
@@ -100,6 +100,59 @@ const formatSourceLabel = (sourceType) => {
   return "Malvar LGU";
 };
 
+const formatTransactionReason = (transaction) => {
+  if (transaction.reference_type === "DISTRIBUTION") {
+    return "Distributed";
+  }
+
+  const transactionType = String(transaction.transaction_type || "").toUpperCase();
+
+  if (!transactionType) {
+    return "--";
+  }
+
+  return transactionType
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+};
+
+const OUTFLOW_TYPES = new Set([
+  "OUTFLOW",
+  "EXPIRED",
+  "DAMAGED",
+  "MISSING",
+  "SPOILED",
+  "STOLEN",
+]);
+
+const INFLOW_TYPES = new Set(["INFLOW", "RETURN", "ADJUSTMENT"]);
+
+const formatTransactionDirection = (transaction) => {
+  if (transaction.reference_type === "DISTRIBUTION") {
+    return "Outflow";
+  }
+
+  const transactionType = String(transaction.transaction_type || "").toUpperCase();
+
+  if (OUTFLOW_TYPES.has(transactionType)) {
+    return "Outflow";
+  }
+
+  if (INFLOW_TYPES.has(transactionType)) {
+    return "Inflow";
+  }
+
+  if (!transactionType) {
+    return "--";
+  }
+
+  return transactionType
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+};
+
 const InventoryItemDetailModal = ({
   isOpen,
   isLoading,
@@ -152,7 +205,7 @@ const InventoryItemDetailModal = ({
               ["Item", `${item.item_name || "--"} (${item.item_code || "--"})`],
               ["Category", item.category || "--"],
               ["Unit", formatUnitOfMeasurement(item)],
-              ["Stock On Hand", getTotalItemQuantity(item)],
+              ["Stock On Hand", formatNumericValue(Number(item.current_stock || 0))],
               ["Source", itemSourceLabel],
               ["Reorder Level", item.low_stock_threshold ?? "--"],
               ["Expiry Date", formatDate(item.expiration_date)],
@@ -243,6 +296,7 @@ const InventoryItemDetailModal = ({
                   <thead>
                     <tr>
                       <th style={modalStyles.th}>Type</th>
+                      <th style={modalStyles.th}>Reason</th>
                       <th style={modalStyles.th}>Quantity</th>
                       <th style={modalStyles.th}>Batch</th>
                       <th style={modalStyles.th}>Performed By</th>
@@ -253,7 +307,12 @@ const InventoryItemDetailModal = ({
                   <tbody>
                     {transactions.map((transaction) => (
                       <tr key={transaction.id}>
-                        <td style={modalStyles.td}>{transaction.transaction_type || "--"}</td>
+                        <td style={modalStyles.td}>
+                          {formatTransactionDirection(transaction)}
+                        </td>
+                        <td style={modalStyles.td}>
+                          {formatTransactionReason(transaction)}
+                        </td>
                         <td style={modalStyles.td}>{transaction.quantity ?? 0}</td>
                         <td style={modalStyles.td}>{transaction.batch_no || "--"}</td>
                         <td style={modalStyles.td}>

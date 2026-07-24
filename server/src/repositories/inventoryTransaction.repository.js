@@ -116,6 +116,36 @@ const getInventoryBatchByIdForUpdate = async (id, dbClient) => {
   return result.rows[0] || null;
 };
 
+const getAvailableInventoryBatchesByItemIdForUpdate = async (inventoryItemId, dbClient) => {
+  const query = `
+    SELECT
+      ib.id,
+      ib.inventory_item_id,
+      ib.batch_no,
+      ib.quantity_received,
+      ib.quantity_available,
+      ib.expiration_date,
+      ib.status,
+      ii.item_code,
+      ii.item_name,
+      ii.category,
+      ii.unit_of_measure
+    FROM inventory_batches ib
+    INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
+    WHERE ib.inventory_item_id = $1
+      AND COALESCE(ib.quantity_available, 0) > 0
+    ORDER BY
+      CASE WHEN ib.expiration_date IS NULL THEN 1 ELSE 0 END,
+      ib.expiration_date ASC,
+      ib.received_at ASC,
+      ib.created_at ASC
+    FOR UPDATE
+  `;
+
+  const result = await dbClient.query(query, [inventoryItemId]);
+  return result.rows;
+};
+
 const getDisasterEventById = async (id) => {
   const query = `
     SELECT id, event_code, title
@@ -214,6 +244,7 @@ module.exports = {
   getInventoryTransactions,
   getInventoryTransactionById,
   getInventoryBatchByIdForUpdate,
+  getAvailableInventoryBatchesByItemIdForUpdate,
   getDisasterEventById,
   getUserById,
   insertInventoryTransaction,

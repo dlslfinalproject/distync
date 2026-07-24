@@ -21,7 +21,10 @@ import {
   lookupInventoryItemByBarcode,
   updateInventoryItem,
 } from "../../features/inventory-items/inventoryItemService";
-import { fetchInventoryBatches } from "../../features/inventory-batches/inventoryBatchService";
+import {
+  createInventoryBatch,
+  fetchInventoryBatches,
+} from "../../features/inventory-batches/inventoryBatchService";
 import {
   createInventoryTransaction,
   fetchInventoryTransactions,
@@ -45,10 +48,7 @@ import {
 import {
   buildInventoryTrackingMap,
   createEmptyTrackingStats,
-  getItemStatus,
   getTrackedExpirationDate,
-  isItemExpiring,
-  isDateExpired,
 } from "../../features/inventory-items/inventoryItemStockStatus";
 import { mergeInventoryItemsWithSyncStatus } from "../../features/inventory-items/inventoryItemSync";
 import {
@@ -66,6 +66,59 @@ const isLowStockItem = (item, trackingStats) => {
   return reorderLevel > 0 && onHand > 0 && onHand <= reorderLevel;
 };
 
+const normalizeCalendarDate = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  const normalizedValue =
+    typeof value === "string" ? value.slice(0, 10) : value;
+  const parsedDate = new Date(`${normalizedValue}T00:00:00`);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return null;
+  }
+
+  return parsedDate;
+};
+
+const getTodayDate = () => {
+  const today = new Date();
+  return new Date(today.getFullYear(), today.getMonth(), today.getDate());
+};
+
+const isExpiredItem = (item, trackingStats) => {
+  const trackedExpirationDate = getTrackedExpirationDate(item, trackingStats);
+  const normalizedExpirationDate = normalizeCalendarDate(trackedExpirationDate);
+  const onHand = getMonitorQuantity(item, trackingStats);
+
+  if (Number(trackingStats?.expiredOnHand || 0) > 0) {
+    return true;
+  }
+
+  if (!normalizedExpirationDate || onHand <= 0) {
+    return false;
+  }
+
+  return normalizedExpirationDate.getTime() <= getTodayDate().getTime();
+};
+
+const isNearExpiryItem = (item, trackingStats) => {
+  const trackedExpirationDate = getTrackedExpirationDate(item, trackingStats);
+  const normalizedExpirationDate = normalizeCalendarDate(trackedExpirationDate);
+  const onHand = getMonitorQuantity(item, trackingStats);
+
+  if (!normalizedExpirationDate || onHand <= 0 || isExpiredItem(item, trackingStats)) {
+    return false;
+  }
+
+  const millisecondsUntilExpiration =
+    normalizedExpirationDate.getTime() - getTodayDate().getTime();
+  const daysUntilExpiration = millisecondsUntilExpiration / (1000 * 60 * 60 * 24);
+
+  return daysUntilExpiration > 0 && daysUntilExpiration <= 30;
+};
+
 const getMonitorQuantity = (item, trackingStats) => {
   const trackedOnHand = Number(trackingStats?.onHand || 0);
   const trackedReceived = Number(trackingStats?.totalReceived || 0);
@@ -76,6 +129,121 @@ const getMonitorQuantity = (item, trackingStats) => {
   }
 
   return itemTotalQuantity;
+};
+
+const INITIAL_SCAN_FORM = {
+  barcodeNumber: "",
+  quantityOnHand: "",
+  expirationDate: "",
+};
+
+const INVENTORY_BATCH_SOURCE_TYPES = [
+  "PURCHASED",
+  "DONATED",
+  "DSWD",
+  "LGU",
+  "OTHER",
+];
+
+const getPositiveIntegerValue = (value) => {
+  const parsedValue = Number(value);
+
+  if (!Number.isInteger(parsedValue) || parsedValue <= 0) {
+    return null;
+  }
+
+  return parsedValue;
+};
+
+const getNormalizedInventoryText = (value) =>
+  String(value || "").trim().toLowerCase();
+
+const getFirstPositiveNumber = (values) => {
+  for (const value of values) {
+    const parsedValue = Number(value);
+
+    if (Number.isFinite(parsedValue) && parsedValue > 0) {
+      return parsedValue;
+    }
+  }
+
+  return null;
+};
+
+const getUnitsPerPackageValue = (item) => {
+  if (getNormalizedInventoryText(item?.packaging) === "piece") {
+    return 1;
+  }
+
+  const isMeasurementBased = getNormalizedInventoryText(
+    item?.tracking_method,
+  ).includes("measurement");
+  const candidateValues = isMeasurementBased
+    ? [
+        item?.unit_of_measure_value,
+        item?.quantity,
+        item?.units_per_package,
+        item?.quantity_per_package,
+      ]
+    : [
+        item?.quantity,
+        item?.units_per_package,
+        item?.quantity_per_package,
+        item?.unit_of_measure_value,
+      ];
+
+  return getFirstPositiveNumber(candidateValues) || 1;
+};
+
+const isPerishableItem = (item) =>
+  String(item?.category || "").trim().toUpperCase() === "PERISHABLE" ||
+  Boolean(item?.is_perishable);
+
+const getInventoryBatchSourceType = (item) => {
+  const sourceLabel = String(item?.source_type || item?.source || "")
+    .trim()
+    .toUpperCase();
+
+  if (sourceLabel.includes("DONOR")) {
+    return "DONATED";
+  }
+
+  if (sourceLabel.includes("LGU") || sourceLabel.includes("MALVAR")) {
+    return "LGU";
+  }
+
+  const normalizedSourceType = sourceLabel.replace(/[^A-Z]/g, "_");
+
+  return INVENTORY_BATCH_SOURCE_TYPES.includes(normalizedSourceType)
+    ? normalizedSourceType
+    : "OTHER";
+};
+
+const buildScannedInventoryBatchNumber = (item, relatedBatches = []) => {
+  const identifier =
+    String(item?.item_code || item?.barcode || item?.id || "ITEM")
+      .replace(/[^a-z0-9]/gi, "")
+      .slice(-8)
+      .toUpperCase() || "ITEM";
+  const batchPrefix = `${identifier}-BATCH-`;
+  const existingSequences = relatedBatches
+    .map((batch) => {
+      const batchNumber = String(batch?.batch_no || "").toUpperCase();
+
+      if (!batchNumber.startsWith(batchPrefix)) {
+        return null;
+      }
+
+      const parsedValue = Number(batchNumber.replace(batchPrefix, ""));
+      return Number.isInteger(parsedValue) && parsedValue > 0
+        ? parsedValue
+        : null;
+    })
+    .filter(Boolean);
+  const nextSequence =
+    Math.max(relatedBatches.length, 0, ...existingSequences) + 1;
+
+  return `${batchPrefix}${String(nextSequence).padStart(3, "0")}`;
 };
 
 const getInventorySourceLabel = (itemId, inventoryBatches) => {
@@ -104,6 +272,24 @@ const getInventorySourceLabel = (itemId, inventoryBatches) => {
   return sourceTypes.has("DONATED") ? "Donor" : "Malvar LGU";
 };
 
+const getDisplayStockStatus = (item, trackingStats) => {
+  const onHand = getMonitorQuantity(item, trackingStats);
+
+  if (isExpiredItem(item, trackingStats)) {
+    return "Expired";
+  }
+
+  if (isNearExpiryItem(item, trackingStats)) {
+    return "Near Expiry";
+  }
+
+  if (onHand <= 0 || isLowStockItem(item, trackingStats)) {
+    return "Low Stock";
+  }
+
+  return "In Stock";
+};
+
 const InventoryItemsPage = () => {
   const [filters, setFilters] = useState({
     search: "",
@@ -128,9 +314,10 @@ const InventoryItemsPage = () => {
   const [isStatusLogModalOpen, setIsStatusLogModalOpen] = useState(false);
   const [statusLogItem, setStatusLogItem] = useState(null);
   const [statusLogErrorMessage, setStatusLogErrorMessage] = useState("");
-  const [scanForm, setScanForm] = useState({
-    barcodeNumber: "",
-  });
+  const [scanForm, setScanForm] = useState(INITIAL_SCAN_FORM);
+  const [scanErrorMessage, setScanErrorMessage] = useState("");
+  const [isSubmittingScanRestock, setIsSubmittingScanRestock] =
+    useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [selectedExportReportType, setSelectedExportReportType] =
     useState("INVENTORY_ITEMS");
@@ -215,11 +402,7 @@ const InventoryItemsPage = () => {
       const trackingStats =
         inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
 
-      return (
-        trackingStats.expired > 0 ||
-        trackingStats.expiredOnHand > 0 ||
-        isDateExpired(getTrackedExpirationDate(item, trackingStats))
-      );
+      return isExpiredItem(item, trackingStats);
     }).length;
     const totalOnHand = inventoryItemsWithSyncStatus.reduce((sum, item) => {
       const trackingStats =
@@ -249,7 +432,7 @@ const InventoryItemsPage = () => {
       const trackingStats =
         inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
 
-      return trackingStats.hasExpiringStock || isItemExpiring(item);
+      return isNearExpiryItem(item, trackingStats);
     }).length;
     const outOfStockItems = inventoryItemsWithSyncStatus.filter((item) => {
       const trackingStats =
@@ -287,12 +470,12 @@ const InventoryItemsPage = () => {
         value: inventoryAnalytics.lowStockItems,
       },
       {
-        label: "Expiring Soon",
+        label: "Near Expiry",
         value: inventoryAnalytics.expiringSoonItems,
       },
       {
-        label: "Out of Stock",
-        value: inventoryAnalytics.outOfStockItems,
+        label: "Expired",
+        value: inventoryAnalytics.expiredItems,
       },
     ],
     [inventoryAnalytics],
@@ -310,6 +493,45 @@ const InventoryItemsPage = () => {
       }) || null
     );
   }, [inventoryItemsWithSyncStatus, scanForm.barcodeNumber]);
+
+  const matchedScannedItemTrackingStats = useMemo(() => {
+    if (!matchedScannedItem?.id) {
+      return createEmptyTrackingStats();
+    }
+
+    return (
+      inventoryTrackingMap.get(matchedScannedItem.id) ||
+      createEmptyTrackingStats()
+    );
+  }, [inventoryTrackingMap, matchedScannedItem?.id]);
+
+  const matchedScannedItemCurrentStock = matchedScannedItem
+    ? getMonitorQuantity(matchedScannedItem, matchedScannedItemTrackingStats)
+    : 0;
+
+  const matchedScannedItemBatches = useMemo(() => {
+    if (!matchedScannedItem?.id) {
+      return [];
+    }
+
+    return inventoryBatches.filter((batch) => {
+      return (
+        String(batch.inventory_item_id || batch.item_id || "") ===
+        String(matchedScannedItem.id)
+      );
+    });
+  }, [inventoryBatches, matchedScannedItem?.id]);
+
+  const matchedScannedItemBatchNumber = useMemo(() => {
+    if (!matchedScannedItem?.id) {
+      return "";
+    }
+
+    return buildScannedInventoryBatchNumber(
+      matchedScannedItem,
+      matchedScannedItemBatches,
+    );
+  }, [matchedScannedItem, matchedScannedItemBatches]);
 
   const visibleInventoryItems = useMemo(() => {
     const selectedStockStatuses = Array.isArray(filters.status)
@@ -330,22 +552,33 @@ const InventoryItemsPage = () => {
                 return isLowStockItem(item, trackingStats);
               }
 
-              if (status === "Expiring") {
-                return trackingStats.hasExpiringStock || isItemExpiring(item);
+              if (status === "Near Expiry" || status === "Expiring") {
+                return isNearExpiryItem(item, trackingStats);
+              }
+
+              if (status === "Expired") {
+                return isExpiredItem(item, trackingStats);
               }
 
               if (status === "Out of Stock") {
                 return getMonitorQuantity(item, trackingStats) <= 0;
               }
 
-              return getItemStatus(item, trackingStats) === status;
+              return false;
             });
           });
 
-    return filteredItems.map((item) => ({
-      ...item,
-      source_label: getInventorySourceLabel(item.id, inventoryBatches),
-    }));
+    return filteredItems.map((item) => {
+      const trackingStats =
+        inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
+
+      return {
+        ...item,
+        current_stock_quantity: getMonitorQuantity(item, trackingStats),
+        source_label: getInventorySourceLabel(item.id, inventoryBatches),
+        stock_status_label: getDisplayStockStatus(item, trackingStats),
+      };
+    });
   }, [
     inventoryItemsWithSyncStatus,
     inventoryTrackingMap,
@@ -410,9 +643,8 @@ const InventoryItemsPage = () => {
   };
 
   const handleOpenScanModal = () => {
-    setScanForm({
-      barcodeNumber: "",
-    });
+    setScanForm(INITIAL_SCAN_FORM);
+    setScanErrorMessage("");
     setIsScanModalOpen(true);
   };
 
@@ -433,7 +665,12 @@ const InventoryItemsPage = () => {
   };
 
   const handleCloseScanModal = () => {
+    if (isSubmittingScanRestock) {
+      return;
+    }
+
     setIsScanModalOpen(false);
+    setScanErrorMessage("");
   };
 
   const handleOpenStatusLogModal = (itemRow) => {
@@ -453,26 +690,80 @@ const InventoryItemsPage = () => {
   };
 
   const handleScanInputChange = (field, value) => {
-    setScanForm((previousForm) => ({
-      ...previousForm,
-      [field]: value,
-    }));
+    setScanErrorMessage("");
+    setScanForm((previousForm) => {
+      if (field === "barcodeNumber") {
+        return {
+          ...INITIAL_SCAN_FORM,
+          barcodeNumber: value,
+        };
+      }
+
+      return {
+        ...previousForm,
+        [field]: value,
+      };
+    });
   };
 
-  const handleSubmitScanModal = () => {
+  const handleSubmitScanModal = async () => {
     const trimmedBarcode = scanForm.barcodeNumber.trim();
 
-    if (!trimmedBarcode) {
+    if (!trimmedBarcode || isSubmittingScanRestock) {
       return;
     }
 
     if (matchedScannedItem?.id) {
-      setIsScanModalOpen(false);
-      void handleOpenItemDetail(matchedScannedItem.id);
+      const packageCount = getPositiveIntegerValue(scanForm.quantityOnHand);
+
+      if (!packageCount) {
+        setScanErrorMessage(
+          "Quantity on hand must be a whole number greater than 0.",
+        );
+        return;
+      }
+
+      if (isPerishableItem(matchedScannedItem) && !scanForm.expirationDate) {
+        setScanErrorMessage("Expiration date is required for perishable items.");
+        return;
+      }
+
+      const quantityReceived =
+        packageCount * getUnitsPerPackageValue(matchedScannedItem);
+
+      setIsSubmittingScanRestock(true);
+      setScanErrorMessage("");
+
+      try {
+        const response = await createInventoryBatch({
+          inventory_item_id: matchedScannedItem.id,
+          batch_no:
+            matchedScannedItemBatchNumber ||
+            buildScannedInventoryBatchNumber(
+              matchedScannedItem,
+              matchedScannedItemBatches,
+            ),
+          source_type: getInventoryBatchSourceType(matchedScannedItem),
+          quantity_received: quantityReceived,
+          expiration_date: scanForm.expirationDate || null,
+        });
+
+        if (!response?.queued_offline && !response?.queuedOffline) {
+          await loadInventoryData();
+        }
+
+        setScanForm(INITIAL_SCAN_FORM);
+        setIsScanModalOpen(false);
+      } catch (error) {
+        setScanErrorMessage(error.message || "Failed to add stock to this item.");
+      } finally {
+        setIsSubmittingScanRestock(false);
+      }
       return;
     }
 
     setIsScanModalOpen(false);
+    setScanErrorMessage("");
     setModalErrorMessage("");
     setModalMode("create");
 
@@ -531,6 +822,7 @@ const InventoryItemsPage = () => {
         filters: {
           ...buildInventoryItemFilters(filters),
           status: selectedStockStatuses.includes("Expiring")
+            || selectedStockStatuses.includes("Near Expiry")
             ? "Expiring"
             : "All",
           ...extraFilters,
@@ -589,6 +881,17 @@ const InventoryItemsPage = () => {
       );
     });
   }, [inventoryBatches, statusLogItem]);
+
+  const statusLogAvailableQuantity = useMemo(() => {
+    if (!statusLogItem) {
+      return 0;
+    }
+
+    const trackingStats =
+      inventoryTrackingMap.get(statusLogItem.id) || createEmptyTrackingStats();
+
+    return getMonitorQuantity(statusLogItem, trackingStats);
+  }, [inventoryTrackingMap, statusLogItem]);
 
   const handleSubmitStatusLog = async (payload) => {
     setIsSubmitting(true);
@@ -680,7 +983,12 @@ const InventoryItemsPage = () => {
       <BarcodeScanModal
         isOpen={isScanModalOpen}
         scanForm={scanForm}
+        matchedItem={matchedScannedItem}
         matchedItemName={matchedScannedItem?.item_name || ""}
+        currentStock={matchedScannedItemCurrentStock}
+        generatedBatchNumber={matchedScannedItemBatchNumber}
+        errorMessage={scanErrorMessage}
+        isSubmitting={isSubmittingScanRestock}
         onClose={handleCloseScanModal}
         onSubmit={handleSubmitScanModal}
         onInputChange={handleScanInputChange}
@@ -690,6 +998,7 @@ const InventoryItemsPage = () => {
         isOpen={isStatusLogModalOpen}
         item={statusLogItem}
         inventoryBatches={selectedStatusLogBatches}
+        availableQuantity={statusLogAvailableQuantity}
         isSubmitting={isSubmitting}
         errorMessage={statusLogErrorMessage}
         onClose={handleCloseStatusLogModal}
