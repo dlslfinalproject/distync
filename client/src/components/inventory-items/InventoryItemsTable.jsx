@@ -1,6 +1,9 @@
 import React from "react";
 import { FiAlertCircle, FiEdit2, FiEye } from "react-icons/fi";
-import { getTotalItemQuantity } from "../../features/inventory-items/inventoryItemFormatting";
+import {
+  formatNumericValue,
+  getTotalItemQuantityValue,
+} from "../../features/inventory-items/inventoryItemFormatting";
 import { getItemStatusStyle } from "../../features/inventory-items/inventoryItemStockStatus";
 import TableActionsMenu from "../shared/TableActionsMenu";
 
@@ -205,6 +208,8 @@ const InventoryItemsTable = ({
                 item.name ??
                 item.product_name ??
                 "Unnamed Item";
+              const displayQuantity =
+                item.current_stock_quantity ?? getTotalItemQuantityValue(item);
 
               return (
                 <tr key={item.id || index}>
@@ -218,7 +223,7 @@ const InventoryItemsTable = ({
                   </td>
                   <td style={styles.td}>{item.source_label || "--"}</td>
                   <td style={{ ...styles.td, ...styles.centerCell }}>
-                    {getTotalItemQuantity(item)}
+                    {formatNumericValue(displayQuantity)}
                   </td>
                   <td style={styles.td}>
                     <div style={styles.shelfLifeText}>

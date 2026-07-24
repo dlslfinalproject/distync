@@ -68,6 +68,47 @@ const getDirectionStyles = (direction) => {
   };
 };
 
+const formatTransactionReason = (row) => {
+  const transactionDirection = String(row.transaction_direction || "").toUpperCase();
+  const sourceLabel = String(row.source_label || "").toUpperCase();
+
+  if (transactionDirection === "INFLOW") {
+    if (sourceLabel === "DONATION") {
+      return "Donation";
+    }
+
+    return "Stock Up";
+  }
+
+  if (row.reference_type === "DISTRIBUTION") {
+    return "Distributed";
+  }
+
+  const transactionType = String(row.transaction_type || "").toUpperCase();
+
+  if (!transactionType) {
+    return "--";
+  }
+
+  return transactionType
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+};
+
+const formatTransactionDirection = (direction) => {
+  const normalizedDirection = String(direction || "").toUpperCase();
+
+  if (!normalizedDirection) {
+    return "--";
+  }
+
+  return normalizedDirection
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+};
+
 const InventoryTransactionsTable = ({ rows, isLoading, errorMessage }) => {
   if (isLoading) {
     return (
@@ -106,6 +147,7 @@ const InventoryTransactionsTable = ({ rows, isLoading, errorMessage }) => {
           <tr>
             <th style={tableStyles.headerCell}>Item</th>
             <th style={tableStyles.headerCell}>Transaction Type</th>
+            <th style={tableStyles.headerCell}>Reason</th>
             <th style={tableStyles.headerCell}>Quantity</th>
             <th style={tableStyles.headerCell}>Date</th>
           </tr>
@@ -118,14 +160,6 @@ const InventoryTransactionsTable = ({ rows, isLoading, errorMessage }) => {
                 {row.inventory_item?.item_code ? (
                   <span style={tableStyles.helperText}>
                     {row.inventory_item.item_code}
-                  </span>
-                ) : null}
-                {row.source_label ? (
-                  <span style={tableStyles.helperText}>
-                    {row.source_label}
-                    {row.source_details && row.source_details !== row.source_label
-                      ? ` | ${row.source_details}`
-                      : ""}
                   </span>
                 ) : null}
               </td>
@@ -141,9 +175,10 @@ const InventoryTransactionsTable = ({ rows, isLoading, errorMessage }) => {
                     ...getDirectionStyles(row.transaction_direction),
                   }}
                 >
-                  {row.transaction_direction || "--"}
+                  {formatTransactionDirection(row.transaction_direction)}
                 </span>
               </td>
+              <td style={tableStyles.bodyCell}>{formatTransactionReason(row)}</td>
               <td style={tableStyles.bodyCell}>{row.quantity ?? 0}</td>
               <td style={tableStyles.bodyCell}>
                 <div>{formatDateTime(row.performed_at)}</div>

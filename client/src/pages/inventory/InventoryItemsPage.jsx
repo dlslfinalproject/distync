@@ -416,6 +416,7 @@ const InventoryItemsPage = () => {
 
       return {
         ...item,
+        current_stock_quantity: getMonitorQuantity(item, trackingStats),
         source_label: getInventorySourceLabel(item.id, inventoryBatches),
         stock_status_label: getDisplayStockStatus(item, trackingStats),
       };
@@ -665,6 +666,17 @@ const InventoryItemsPage = () => {
     });
   }, [inventoryBatches, statusLogItem]);
 
+  const statusLogAvailableQuantity = useMemo(() => {
+    if (!statusLogItem) {
+      return 0;
+    }
+
+    const trackingStats =
+      inventoryTrackingMap.get(statusLogItem.id) || createEmptyTrackingStats();
+
+    return getMonitorQuantity(statusLogItem, trackingStats);
+  }, [inventoryTrackingMap, statusLogItem]);
+
   const handleSubmitStatusLog = async (payload) => {
     setIsSubmitting(true);
     setStatusLogErrorMessage("");
@@ -765,6 +777,7 @@ const InventoryItemsPage = () => {
         isOpen={isStatusLogModalOpen}
         item={statusLogItem}
         inventoryBatches={selectedStatusLogBatches}
+        availableQuantity={statusLogAvailableQuantity}
         isSubmitting={isSubmitting}
         errorMessage={statusLogErrorMessage}
         onClose={handleCloseStatusLogModal}

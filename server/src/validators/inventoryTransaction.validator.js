@@ -133,6 +133,7 @@ const validateCreateInventoryTransaction = (req, res, next) => {
     const {
       disaster_event_id,
       inventory_batch_id,
+      inventory_item_id,
       transaction_type,
       quantity,
       reference_type,
@@ -141,9 +142,34 @@ const validateCreateInventoryTransaction = (req, res, next) => {
       remarks,
     } = req.body;
 
-    if (!isValidUuid(inventory_batch_id)) {
+    if (
+      (inventory_batch_id === undefined || inventory_batch_id === null || inventory_batch_id === "") &&
+      (inventory_item_id === undefined || inventory_item_id === null || inventory_item_id === "")
+    ) {
       return res.status(400).json({
-        message: "inventory_batch_id is required and must be a valid UUID",
+        message: "inventory_batch_id or inventory_item_id is required",
+      });
+    }
+
+    if (
+      inventory_batch_id !== undefined &&
+      inventory_batch_id !== null &&
+      inventory_batch_id !== "" &&
+      !isValidUuid(inventory_batch_id)
+    ) {
+      return res.status(400).json({
+        message: "inventory_batch_id must be a valid UUID when provided",
+      });
+    }
+
+    if (
+      inventory_item_id !== undefined &&
+      inventory_item_id !== null &&
+      inventory_item_id !== "" &&
+      !isValidUuid(inventory_item_id)
+    ) {
+      return res.status(400).json({
+        message: "inventory_item_id must be a valid UUID when provided",
       });
     }
 
@@ -197,7 +223,8 @@ const validateCreateInventoryTransaction = (req, res, next) => {
 
     req.validatedBody = {
       disaster_event_id: disaster_event_id ?? null,
-      inventory_batch_id,
+      inventory_batch_id: inventory_batch_id ?? null,
+      inventory_item_id: inventory_item_id ?? null,
       transaction_type,
       quantity,
       reference_type: reference_type ?? "MANUAL",

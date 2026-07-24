@@ -2,7 +2,15 @@ const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const allowedUnitOfMeasureValues = ["kg", "g", "L", "mL", "pc"];
-const allowedPackagingValues = ["sack", "box", "carton", "case", "pack", "bottle"];
+const allowedPackagingValues = [
+  "piece",
+  "sack",
+  "box",
+  "carton",
+  "case",
+  "pack",
+  "bottle",
+];
 const categoryValueMap = {
   perishable: "Perishable",
   "non-perishable": "Non-Perishable",
@@ -370,7 +378,10 @@ const validateInventoryItemPayload = (req, res, next) => {
     }
 
     const parsedExpirationDate = parseOptionalDate(expiration_date);
-    const parsedReorderLevel = parsePositiveInteger(reorder_level);
+    const parsedReorderLevel =
+      reorder_level === undefined || reorder_level === null || reorder_level === ""
+        ? null
+        : parsePositiveInteger(reorder_level);
 
     if (parsedExpirationDate === "invalid") {
       return res.status(400).json({
@@ -378,7 +389,7 @@ const validateInventoryItemPayload = (req, res, next) => {
       });
     }
 
-    if (!parsedReorderLevel) {
+    if (!parsedReorderLevel && !skip_opening_stock) {
       return res.status(400).json({
         message: "reorder_level is required and must be a positive integer",
       });

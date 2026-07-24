@@ -1,5 +1,7 @@
 const pool = require("../config/db");
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
+const inventoryBatchRepository = require("../repositories/inventoryBatch.repository");
+const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const mayorReportExport = require("../utils/mayorReportExport");
 const notificationService = require("../modules/notifications/notification.service");
 const { logAuditSafely, pickDefined } = require("../utils/systemLog");
@@ -42,6 +44,47 @@ const getNextBatchStatus = (expirationDate, quantityAvailable) => {
   }
 
   return "AVAILABLE";
+};
+
+const buildStatusLogBatchNumber = (itemCode) => {
+  const normalizedItemCode = String(itemCode || "ITEM")
+    .replace(/[^A-Z0-9-]+/gi, "-")
+    .toUpperCase();
+
+  return `${normalizedItemCode}-STATUS-${Date.now()}`;
+};
+
+const buildUpdatedItemStockSnapshot = (inventoryItem, onHandQuantity) => {
+  const normalizedOnHandQuantity = Math.max(Number(onHandQuantity || 0), 0);
+  const normalizedPackaging = String(inventoryItem?.packaging || "").toLowerCase();
+  const unitsPerPackage = Number(inventoryItem?.quantity || 0);
+  const existingPackagingCount = Number(inventoryItem?.packaging_count || 0);
+
+  if (normalizedPackaging === "piece" || unitsPerPackage <= 1) {
+    return {
+      quantity: 1,
+      packaging_count: normalizedOnHandQuantity > 0 ? normalizedOnHandQuantity : null,
+    };
+  }
+
+  if (normalizedOnHandQuantity === 0) {
+    return {
+      quantity: inventoryItem?.quantity || null,
+      packaging_count: null,
+    };
+  }
+
+  if (normalizedOnHandQuantity % unitsPerPackage === 0) {
+    return {
+      quantity: inventoryItem?.quantity || null,
+      packaging_count: normalizedOnHandQuantity / unitsPerPackage,
+    };
+  }
+
+  return {
+    quantity: inventoryItem?.quantity || null,
+    packaging_count: existingPackagingCount > 0 ? existingPackagingCount : null,
+  };
 };
 
 const mapInventoryTransaction = (transaction) => {
@@ -143,11 +186,76 @@ const createInventoryTransaction = async (transactionData) => {
   try {
     await client.query("BEGIN");
 
-    const inventoryBatch =
-      await inventoryTransactionRepository.getInventoryBatchByIdForUpdate(
-        transactionData.inventory_batch_id,
+    let inventoryBatch = null;
+    let inventoryItem = null;
+    let createdFallbackBatch = null;
+
+    if (transactionData.inventory_batch_id) {
+      inventoryBatch =
+        await inventoryTransactionRepository.getInventoryBatchByIdForUpdate(
+          transactionData.inventory_batch_id,
+          client,
+        );
+
+      if (inventoryBatch?.inventory_item_id) {
+        inventoryItem = await inventoryItemRepository.getInventoryItemByIdForUpdate(
+          inventoryBatch.inventory_item_id,
+          client,
+        );
+      }
+    } else if (transactionData.inventory_item_id) {
+      inventoryItem = await inventoryItemRepository.getInventoryItemByIdForUpdate(
+        transactionData.inventory_item_id,
         client,
       );
+
+      if (!inventoryItem) {
+        const error = new Error("Inventory item not found");
+        error.statusCode = 404;
+        throw error;
+      }
+
+      const availableBatches =
+        await inventoryTransactionRepository.getAvailableInventoryBatchesByItemIdForUpdate(
+          transactionData.inventory_item_id,
+          client,
+        );
+
+      if (availableBatches.length > 0) {
+        inventoryBatch = availableBatches[0];
+      } else if (
+        subtractiveTransactionTypes.has(transactionData.transaction_type) &&
+        Number(inventoryItem.quantity || 0) >= Number(transactionData.quantity || 0)
+      ) {
+        createdFallbackBatch = await inventoryBatchRepository.insertInventoryBatch(
+          {
+            inventory_item_id: inventoryItem.id,
+            batch_no: buildStatusLogBatchNumber(inventoryItem.item_code),
+            supplier_id: null,
+            source_type: "OTHER",
+            quantity_received: Number(inventoryItem.quantity || 0),
+            quantity_available: Number(inventoryItem.quantity || 0),
+            expiration_date: inventoryItem.expiration_date || null,
+            storage_location: "Mayor's Office Inventory",
+            status: getNextBatchStatus(
+              inventoryItem.expiration_date,
+              Number(inventoryItem.quantity || 0),
+            ),
+            created_by: transactionData.performed_by || null,
+          },
+          client,
+        );
+
+        inventoryBatch = {
+          ...createdFallbackBatch,
+          inventory_item_id: inventoryItem.id,
+          item_code: inventoryItem.item_code,
+          item_name: inventoryItem.item_name,
+          category: inventoryItem.category,
+          unit_of_measure: inventoryItem.unit_of_measure,
+        };
+      }
+    }
 
     if (!inventoryBatch) {
       const error = new Error("Inventory batch not found");
@@ -178,14 +286,39 @@ const createInventoryTransaction = async (transactionData) => {
 
     const createdTransaction =
       await inventoryTransactionRepository.insertInventoryTransaction(
-        transactionData,
+        {
+          ...transactionData,
+          inventory_batch_id: inventoryBatch.id,
+        },
         client,
       );
 
     await inventoryTransactionRepository.updateInventoryBatchQuantityAndStatus(
-      transactionData.inventory_batch_id,
+      inventoryBatch.id,
       newQuantityAvailable,
       newBatchStatus,
+      client,
+    );
+
+    const recomputedQuantityResult = await client.query(
+      `
+        SELECT COALESCE(SUM(quantity_available), 0)::integer AS total_quantity
+        FROM inventory_batches
+        WHERE inventory_item_id = $1
+      `,
+      [inventoryBatch.inventory_item_id],
+    );
+    const nextItemQuantity = Number(
+      recomputedQuantityResult.rows[0]?.total_quantity || 0,
+    );
+    const nextItemSnapshot = buildUpdatedItemStockSnapshot(
+      inventoryItem,
+      nextItemQuantity,
+    );
+
+    await inventoryItemRepository.updateInventoryItemStockSnapshot(
+      inventoryBatch.inventory_item_id,
+      nextItemSnapshot,
       client,
     );
 
@@ -219,6 +352,30 @@ const createInventoryTransaction = async (transactionData) => {
       oldValues: {},
       newValues: summarizeInventoryTransaction(createdTransaction),
     });
+
+    if (createdFallbackBatch) {
+      await logAuditSafely({
+        actor: {
+          userId: transactionData.performed_by,
+          roleCode: "MAYOR",
+        },
+        action: "INVENTORY_BATCH_CREATE",
+        entityType: "INVENTORY_BATCH",
+        entityId: createdFallbackBatch.id,
+        oldValues: {},
+        newValues: pickDefined(createdFallbackBatch, [
+          "inventory_item_id",
+          "batch_no",
+          "source_type",
+          "quantity_received",
+          "quantity_available",
+          "expiration_date",
+          "storage_location",
+          "status",
+          "created_by",
+        ]),
+      });
+    }
 
     return {
       transaction_id: createdTransaction.id,
