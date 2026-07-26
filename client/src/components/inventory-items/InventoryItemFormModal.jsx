@@ -552,35 +552,41 @@ const InventoryItemFormModal = ({
       nextErrors.tracking_method = "Tracking method is required.";
     }
 
-    if (resolvedUsesWeightOrVolume && isBlank(values.unit_of_measure)) {
+    if (
+      !isEditMode &&
+      resolvedUsesWeightOrVolume &&
+      isBlank(values.unit_of_measure)
+    ) {
       nextErrors.unit_of_measure = "Unit of measure is required.";
     }
 
+    if (!isEditMode) {
       if (resolvedUsesWeightOrVolume) {
         if (isBlank(values.unit_of_measure_value)) {
-        nextErrors.unit_of_measure_value =
-          "Amount per piece/container is required.";
+          nextErrors.unit_of_measure_value =
+            "Amount per piece/container is required.";
         } else if (!isPositiveNumber(values.unit_of_measure_value)) {
           nextErrors.unit_of_measure_value =
-          "Amount per piece/container must be greater than 0.";
+            "Amount per piece/container must be greater than 0.";
         }
       }
 
-    if (isBlank(values.packaging)) {
-      nextErrors.packaging = "Packaging is required.";
-    }
+      if (isBlank(values.packaging)) {
+        nextErrors.packaging = "Packaging is required.";
+      }
 
-    if (isBlank(values.packaging_count)) {
-      nextErrors.packaging_count = "Quantity on hand is required.";
-    } else if (!isPositiveNumber(values.packaging_count)) {
-      nextErrors.packaging_count = "Quantity on hand must be greater than 0.";
-    }
+      if (isBlank(values.packaging_count)) {
+        nextErrors.packaging_count = "Quantity on hand is required.";
+      } else if (!isPositiveNumber(values.packaging_count)) {
+        nextErrors.packaging_count = "Quantity on hand must be greater than 0.";
+      }
 
-    if (!resolvedIsPiecePackaging) {
-      if (isBlank(values.quantity)) {
-        nextErrors.quantity = "Units per packaging is required.";
-      } else if (!isPositiveNumber(values.quantity)) {
-        nextErrors.quantity = "Units per packaging must be greater than 0.";
+      if (!resolvedIsPiecePackaging) {
+        if (isBlank(values.quantity)) {
+          nextErrors.quantity = "Units per packaging is required.";
+        } else if (!isPositiveNumber(values.quantity)) {
+          nextErrors.quantity = "Units per packaging must be greater than 0.";
+        }
       }
     }
 
@@ -592,9 +598,9 @@ const InventoryItemFormModal = ({
       }
     }
 
-    if (resolvedIsPerishable && isBlank(values.expiration_date)) {
+    if (!isEditMode && resolvedIsPerishable && isBlank(values.expiration_date)) {
       nextErrors.expiration_date = "Expiration date is required.";
-    } else if (!isBlank(values.expiration_date)) {
+    } else if (!isEditMode && !isBlank(values.expiration_date)) {
       if (!isValidDateValue(values.expiration_date)) {
         nextErrors.expiration_date = "Enter a valid expiration date.";
       } else if (values.expiration_date < getTodayDateInputValue()) {
@@ -626,6 +632,12 @@ const InventoryItemFormModal = ({
         (trackingMethod === "Count-Based" ? "1" : ""),
       quantity:
         isPiecePackaging ? "1" : formValues.quantity,
+      expiration_date: isEditMode
+        ? null
+        : isBlank(formValues.expiration_date)
+          ? null
+          : formValues.expiration_date,
+      barcode: isBlank(formValues.barcode) ? null : formValues.barcode.trim(),
       existing_item_id: matchedExistingItem?.id || null,
       restock_match_type: isBarcodeStockFormMode
         ? "barcode_stock_form"
