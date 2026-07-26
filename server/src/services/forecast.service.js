@@ -328,6 +328,15 @@ const buildPublicForecastSuggestionNote = (result) => {
   return null;
 };
 
+const resolvePublicSuggestedQuantity = (result) => {
+  const forecastedUsage = Number(result.forecasted_usage || 0);
+  const recommendedReorderQuantity = Number(
+    result.recommended_reorder_quantity || 0,
+  );
+
+  return forecastedUsage > 0 ? forecastedUsage : recommendedReorderQuantity;
+};
+
 const buildPublicForecastSuggestions = (storedForecast) => {
   const forecastedAt = storedForecast?.forecast_run?.run_at || null;
   const results = Array.isArray(storedForecast?.results)
@@ -335,10 +344,11 @@ const buildPublicForecastSuggestions = (storedForecast) => {
     : [];
 
   return [...results]
-    .filter((result) => Number(result.forecasted_usage || 0) > 0)
+    .filter((result) => resolvePublicSuggestedQuantity(result) > 0)
     .sort((left, right) => {
       const quantityDifference =
-        Number(right.forecasted_usage || 0) - Number(left.forecasted_usage || 0);
+        resolvePublicSuggestedQuantity(right) -
+        resolvePublicSuggestedQuantity(left);
 
       if (quantityDifference !== 0) {
         return quantityDifference;
@@ -353,7 +363,7 @@ const buildPublicForecastSuggestions = (storedForecast) => {
       item_name: result.item_name,
       category: result.category,
       unit_of_measure: result.unit_of_measure || "items",
-      suggested_quantity: Math.ceil(Number(result.forecasted_usage || 0)),
+      suggested_quantity: Math.ceil(resolvePublicSuggestedQuantity(result)),
       priority_level: resolvePublicForecastPriority(result.risk_level),
       note: buildPublicForecastSuggestionNote(result),
       forecasted_at: forecastedAt,

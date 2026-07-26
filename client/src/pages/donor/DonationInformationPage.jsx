@@ -5,8 +5,6 @@ import {
   FiArrowLeft,
   FiBarChart2,
   FiCheckCircle,
-  FiChevronDown,
-  FiChevronUp,
   FiGlobe,
   FiHome,
   FiInfo,
@@ -303,24 +301,80 @@ const styles = {
     fontWeight: 800,
     whiteSpace: "nowrap",
   },
-  eventGrid: {
+  eventCardsGrid: {
     display: "grid",
-    gridTemplateColumns: "minmax(0, 1.25fr) minmax(260px, 0.75fr)",
-    gap: "18px",
+    gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+    gap: "14px",
     alignItems: "start",
   },
-  detailGrid: {
+  eventCard: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
     gap: "12px",
-    marginTop: "16px",
-  },
-  detailItem: {
     background: COLORS.neutralSoft,
     border: `1px solid ${COLORS.border}`,
-    borderRadius: "12px",
-    padding: "13px 14px",
+    borderRadius: "14px",
+    padding: "16px",
     minWidth: 0,
+  },
+  eventCardHeader: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: "10px",
+  },
+  eventCardTitle: {
+    margin: 0,
+    color: COLORS.text,
+    fontSize: "17px",
+    lineHeight: 1.35,
+    fontWeight: 800,
+    overflowWrap: "anywhere",
+  },
+  eventCardMeta: {
+    margin: "4px 0 0",
+    color: COLORS.subtext,
+    fontSize: "13px",
+    lineHeight: 1.45,
+    fontWeight: 600,
+  },
+  eventDescription: {
+    margin: 0,
+    color: COLORS.subtext,
+    fontSize: "13px",
+    lineHeight: 1.55,
+    overflowWrap: "anywhere",
+  },
+  eventStatsGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: "8px",
+  },
+  eventStat: {
+    background: "#ffffff",
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "10px",
+    padding: "10px",
+    minWidth: 0,
+  },
+  eventStatTop: {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    color: COLORS.primary,
+  },
+  eventStatValue: {
+    margin: "6px 0 0",
+    color: COLORS.text,
+    fontSize: "18px",
+    lineHeight: 1,
+    fontWeight: 800,
+  },
+  eventStatLabel: {
+    margin: "4px 0 0",
+    color: COLORS.subtext,
+    fontSize: "11px",
+    lineHeight: 1.35,
+    fontWeight: 600,
   },
   label: {
     margin: 0,
@@ -330,43 +384,22 @@ const styles = {
     textTransform: "uppercase",
     letterSpacing: "0.04em",
   },
-  value: {
-    margin: "5px 0 0",
-    fontSize: "15px",
-    color: COLORS.text,
-    fontWeight: 700,
-    lineHeight: 1.4,
-    overflowWrap: "anywhere",
-  },
   barangayList: {
     display: "flex",
     flexWrap: "wrap",
-    gap: "8px",
-    marginTop: "12px",
+    gap: "7px",
+    marginTop: "8px",
   },
   barangayChip: {
     display: "inline-flex",
     alignItems: "center",
     borderRadius: "999px",
-    padding: "7px 10px",
+    padding: "6px 9px",
     background: COLORS.softBg,
     border: `1px solid ${COLORS.border}`,
     color: COLORS.text,
-    fontSize: "13px",
+    fontSize: "12px",
     fontWeight: 700,
-  },
-  ghostButton: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "6px",
-    border: `1px solid ${COLORS.border}`,
-    borderRadius: "999px",
-    padding: "7px 10px",
-    background: "#fff",
-    color: COLORS.primaryDark,
-    fontSize: "13px",
-    fontWeight: 800,
-    cursor: "pointer",
   },
   summaryGrid: {
     display: "grid",
@@ -587,11 +620,6 @@ const styles = {
     maxWidth: "235px",
     overflowWrap: "anywhere",
   },
-  footerDetailList: {
-    display: "grid",
-    gap: "7px",
-    margin: 0,
-  },
   footerCoordinationBlock: {
     display: "grid",
     gap: "13px",
@@ -783,6 +811,10 @@ const portalFooterCss = `
   }
 
   @media (max-width: 640px) {
+    .donor-event-stats-grid {
+      grid-template-columns: 1fr !important;
+    }
+
     .portal-footer-grid,
     .portal-footer-coordination-pair,
     .portal-footer-bottom-inner {
@@ -850,6 +882,75 @@ const getLatestTimestamp = (timestamps) => {
   return new Date(Math.max(...validTimestamps)).toISOString();
 };
 
+const getDateOnlyTime = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return null;
+  }
+
+  return new Date(
+    parsedDate.getFullYear(),
+    parsedDate.getMonth(),
+    parsedDate.getDate(),
+  ).getTime();
+};
+
+const getEventFallbackTime = (event) => {
+  const updatedTime = new Date(event?.updated_at || 0).getTime();
+  const createdTime = new Date(event?.created_at || 0).getTime();
+
+  return Math.max(
+    Number.isFinite(updatedTime) ? updatedTime : 0,
+    Number.isFinite(createdTime) ? createdTime : 0,
+  );
+};
+
+const getRecentActiveEvents = (events) => {
+  const today = new Date();
+  const todayTime = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+  ).getTime();
+
+  return [...(events || [])]
+    .filter((event) => {
+      const status = String(event?.status || "").toUpperCase();
+      const startTime = getDateOnlyTime(event?.start_date);
+      const endTime = getDateOnlyTime(event?.end_date);
+
+      return (
+        (status === "ACTIVE" || status === "ONGOING") &&
+        (startTime === null || startTime <= todayTime) &&
+        (endTime === null || endTime >= todayTime)
+      );
+    })
+    .sort((left, right) => {
+      const leftStartTime = getDateOnlyTime(left.start_date);
+      const rightStartTime = getDateOnlyTime(right.start_date);
+
+      if (leftStartTime !== rightStartTime) {
+        if (leftStartTime === null) {
+          return 1;
+        }
+
+        if (rightStartTime === null) {
+          return -1;
+        }
+
+        return rightStartTime - leftStartTime;
+      }
+
+      return getEventFallbackTime(right) - getEventFallbackTime(left);
+    })
+    .slice(0, 3);
+};
+
 const getPriorityMeta = (priorityLevel) =>
   PRIORITY_GROUPS.find((group) => group.key === priorityLevel) ||
   PRIORITY_GROUPS[2];
@@ -881,6 +982,30 @@ const groupSuggestionsByPriority = (suggestions) =>
     return groups;
   }, {});
 
+const DEFAULT_NEEDED_ITEMS_META = {
+  source_type: "EMPTY",
+  title: "Emergency Donation Needs",
+  description:
+    "Donation recommendations will appear when preparedness defaults, published needs, or forecast results are available.",
+  notice:
+    "No public donation suggestions are available yet for the active relief operations.",
+  suggestions: [],
+};
+
+const normalizeNeededItemsPayload = (payload) => {
+  if (payload && typeof payload === "object") {
+    return {
+      source_type: payload.source_type || DEFAULT_NEEDED_ITEMS_META.source_type,
+      title: payload.title || DEFAULT_NEEDED_ITEMS_META.title,
+      description: payload.description || DEFAULT_NEEDED_ITEMS_META.description,
+      notice: payload.notice || DEFAULT_NEEDED_ITEMS_META.notice,
+      suggestions: Array.isArray(payload.suggestions) ? payload.suggestions : [],
+    };
+  }
+
+  return DEFAULT_NEEDED_ITEMS_META;
+};
+
 const TopBar = () => (
   <header style={styles.topBar}>
     <div style={styles.brandWrap}>
@@ -895,59 +1020,74 @@ const TopBar = () => (
   </header>
 );
 
-const HeroSection = ({ activeEvent, lastUpdatedAt }) => (
-  <section style={styles.hero} aria-labelledby="donor-hero-title">
-    <div style={styles.heroGrid} className="donor-portal-layout">
-      <div>
-        <p style={styles.eyebrow}>Public In-Kind Donation Information</p>
-        <h1 id="donor-hero-title" style={styles.title}>
-          Support Malvar Disaster Relief Operations
-        </h1>
-        <p style={styles.subtitle}>
-          Donors and NGOs can use this page to identify current in-kind donation
-          needs, review the active relief operation, and coordinate support with
-          official municipal contact channels.
-        </p>
-        <div style={styles.notice} role="note">
-          <FiInfo size={18} color={COLORS.warning} aria-hidden="true" />
-          <span>
-            Displayed forecasted quantities are recommendations only and may
-            change as disaster conditions, affected population, distribution
-            activity, and inventory levels are updated.
-          </span>
+const HeroSection = ({ activeEvents, lastUpdatedAt }) => {
+  const activeEventCount = (activeEvents || []).length;
+  const hasActiveEvents = activeEventCount > 0;
+
+  return (
+    <section style={styles.hero} aria-labelledby="donor-hero-title">
+      <div style={styles.heroGrid} className="donor-portal-layout">
+        <div>
+          <p style={styles.eyebrow}>Public In-Kind Donation Information</p>
+          <h1 id="donor-hero-title" style={styles.title}>
+            Support Malvar Disaster Relief Operations
+          </h1>
+          <p style={styles.subtitle}>
+            Donors and NGOs can use this page to identify current in-kind
+            donation needs, review the active relief operation, and coordinate
+            support with official municipal contact channels.
+          </p>
+          <div style={styles.notice} role="note">
+            <FiInfo size={18} color={COLORS.warning} aria-hidden="true" />
+            <span>
+              Displayed forecasted quantities are recommendations only and may
+              change as disaster conditions, affected population, distribution
+              activity, and inventory levels are updated.
+            </span>
+          </div>
         </div>
+
+        <aside style={styles.heroAside} aria-label="Current portal status">
+          <p style={styles.asideLabel}>Current Relief Operations</p>
+          <p style={styles.asideValue}>
+            {hasActiveEvents ? formatNumber(activeEventCount) : "Monitoring"}
+          </p>
+          <p style={styles.sectionText}>
+            {hasActiveEvents
+              ? `${activeEventCount} active relief operation${
+                  activeEventCount === 1 ? "" : "s"
+                } currently shown.`
+              : "There is currently no active disaster relief operation."}
+          </p>
+          <span
+            style={{
+              ...styles.badge,
+              width: "fit-content",
+              background: hasActiveEvents
+                ? COLORS.dangerSoft
+                : COLORS.successSoft,
+              color: hasActiveEvents ? COLORS.danger : COLORS.success,
+            }}
+          >
+            {hasActiveEvents ? (
+              <FiAlertCircle size={15} />
+            ) : (
+              <FiCheckCircle size={15} />
+            )}
+            Updated {formatUpdatedAt(lastUpdatedAt)}
+          </span>
+        </aside>
       </div>
+    </section>
+  );
+};
 
-      <aside style={styles.heroAside} aria-label="Current portal status">
-        <p style={styles.asideLabel}>Current Relief Operation</p>
-        <p style={styles.asideValue}>{activeEvent ? "Active" : "Monitoring"}</p>
-        <p style={styles.sectionText}>
-          {activeEvent
-            ? activeEvent.title || "Active disaster relief operation"
-            : "There is currently no active disaster relief operation."}
-        </p>
-        <span
-          style={{
-            ...styles.badge,
-            width: "fit-content",
-            background: activeEvent ? COLORS.dangerSoft : COLORS.successSoft,
-            color: activeEvent ? COLORS.danger : COLORS.success,
-          }}
-        >
-          {activeEvent ? <FiAlertCircle size={15} /> : <FiCheckCircle size={15} />}
-          Updated {formatUpdatedAt(lastUpdatedAt)}
-        </span>
-      </aside>
-    </div>
-  </section>
-);
-
-const ActiveDisasterSection = ({ event, showAllBarangays, onToggleBarangays }) => {
-  if (!event) {
+const ActiveDisastersSection = ({ events }) => {
+  if (!events.length) {
     return (
       <section style={styles.section} aria-labelledby="active-event-title">
         <h2 id="active-event-title" style={styles.sectionTitle}>
-          Recent Active Disaster Event
+          Recent Active Disaster Relief Operations
         </h2>
         <div style={{ ...styles.emptyState, marginTop: "14px" }}>
           <FiCheckCircle size={20} color={COLORS.success} aria-hidden="true" />
@@ -957,158 +1097,143 @@ const ActiveDisasterSection = ({ event, showAllBarangays, onToggleBarangays }) =
     );
   }
 
-  const barangays = Array.isArray(event.affected_barangays)
-    ? event.affected_barangays
-    : [];
-  const visibleBarangays = showAllBarangays ? barangays : barangays.slice(0, 6);
-
   return (
     <section style={styles.section} aria-labelledby="active-event-title">
       <div style={styles.sectionHeader}>
         <div>
           <h2 id="active-event-title" style={styles.sectionTitle}>
-            Recent Active Disaster Event
+            Recent Active Disaster Relief Operations
           </h2>
           <p style={styles.sectionText}>
-            Public information for the most recent active operation.
+            Public information for up to three current active relief operations.
           </p>
         </div>
-        <span
-          style={{
-            ...styles.badge,
-            background: COLORS.dangerSoft,
-            color: COLORS.danger,
-          }}
-        >
-          <FiAlertCircle size={15} />
-          {formatStatusLabel(event.status)}
-        </span>
       </div>
 
-      <div style={styles.eventGrid} className="donor-portal-layout">
-        <div>
-          <h3 style={{ ...styles.sectionTitle, fontSize: "20px" }}>
-            {event.title || "Active disaster relief operation"}
-          </h3>
-          <p style={styles.sectionText}>
-            {event.description || "No public description has been recorded yet."}
-          </p>
+      <div style={styles.eventCardsGrid}>
+        {events.map((event) => {
+          const barangays = Array.isArray(event.affected_barangays)
+            ? event.affected_barangays
+            : [];
 
-          <div style={styles.detailGrid}>
-            <div style={styles.detailItem}>
-              <p style={styles.label}>Disaster Type</p>
-              <p style={styles.value}>{event.disaster_type || "--"}</p>
-            </div>
-            <div style={styles.detailItem}>
-              <p style={styles.label}>Relief Period</p>
-              <p style={styles.value}>
-                {formatDateRange(event.start_date, event.end_date)}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <aside aria-label="Affected barangays">
-          <p style={styles.label}>Affected Barangays</p>
-          {barangays.length === 0 ? (
-            <p style={{ ...styles.sectionText, marginTop: "10px" }}>
-              No affected barangay is recorded for this operation.
-            </p>
-          ) : (
-            <>
-              <div style={styles.barangayList}>
-                {visibleBarangays.map((barangay) => (
-                  <span
-                    key={barangay.public_key || barangay.name}
-                    style={styles.barangayChip}
-                  >
-                    {barangay.name}
-                  </span>
-                ))}
-              </div>
-              {barangays.length > 6 ? (
-                <button
-                  type="button"
-                  style={{ ...styles.ghostButton, marginTop: "12px" }}
-                  onClick={onToggleBarangays}
-                  aria-expanded={showAllBarangays}
+          return (
+            <article
+              key={event.public_key || event.event_code || event.title}
+              style={styles.eventCard}
+            >
+              <div style={styles.eventCardHeader}>
+                <div>
+                  <h3 style={styles.eventCardTitle}>
+                    {event.title || "Active disaster relief operation"}
+                  </h3>
+                  <p style={styles.eventCardMeta}>
+                    {event.disaster_type || "Disaster event"} |{" "}
+                    {formatDateRange(event.start_date, event.end_date)}
+                  </p>
+                </div>
+                <span
+                  style={{
+                    ...styles.badge,
+                    padding: "6px 9px",
+                    background: COLORS.dangerSoft,
+                    color: COLORS.danger,
+                  }}
                 >
-                  {showAllBarangays ? <FiChevronUp /> : <FiChevronDown />}
-                  {showAllBarangays ? "Show Less" : `View All (${barangays.length})`}
-                </button>
-              ) : null}
-            </>
-          )}
-        </aside>
+                  {formatStatusLabel(event.status)}
+                </span>
+              </div>
+
+              <p style={styles.eventDescription}>
+                {event.description ||
+                  "No public description has been recorded yet."}
+              </p>
+
+              <div
+                className="donor-event-stats-grid"
+                style={styles.eventStatsGrid}
+              >
+                <div style={styles.eventStat}>
+                  <div style={styles.eventStatTop}>
+                    <FiMapPin size={14} aria-hidden="true" />
+                    <span style={styles.label}>Areas</span>
+                  </div>
+                  <p style={styles.eventStatValue}>
+                    {formatNumber(event.affected_barangays_count)}
+                  </p>
+                  <p style={styles.eventStatLabel}>Barangays</p>
+                </div>
+                <div style={styles.eventStat}>
+                  <div style={styles.eventStatTop}>
+                    <FiHome size={14} aria-hidden="true" />
+                    <span style={styles.label}>Families</span>
+                  </div>
+                  <p style={styles.eventStatValue}>
+                    {formatNumber(event.registered_households_count)}
+                  </p>
+                  <p style={styles.eventStatLabel}>Households</p>
+                </div>
+                <div style={styles.eventStat}>
+                  <div style={styles.eventStatTop}>
+                    <FiUsers size={14} aria-hidden="true" />
+                    <span style={styles.label}>Individuals</span>
+                  </div>
+                  <p style={styles.eventStatValue}>
+                    {formatNumber(event.affected_individuals_count)}
+                  </p>
+                  <p style={styles.eventStatLabel}>People</p>
+                </div>
+              </div>
+
+              <div>
+                <p style={styles.label}>Affected Barangays</p>
+                {barangays.length === 0 ? (
+                  <p style={{ ...styles.sectionText, marginTop: "8px" }}>
+                    No affected barangay is recorded for this operation.
+                  </p>
+                ) : (
+                  <div style={styles.barangayList}>
+                    {barangays.slice(0, 6).map((barangay) => (
+                      <span
+                        key={barangay.public_key || barangay.name}
+                        style={styles.barangayChip}
+                      >
+                        {barangay.name}
+                      </span>
+                    ))}
+                    {barangays.length > 6 ? (
+                      <span style={styles.barangayChip}>
+                        +{barangays.length - 6} more
+                      </span>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            </article>
+          );
+        })}
       </div>
     </section>
   );
 };
 
-const ImpactSummarySection = ({ event }) => (
-  <section style={styles.section} aria-labelledby="impact-summary-title">
-    <div style={styles.sectionHeader}>
-      <div>
-        <h2 id="impact-summary-title" style={styles.sectionTitle}>
-          Disaster Impact Summary
-        </h2>
-        <p style={styles.sectionText}>
-          Totals are based on the selected active disaster event.
-        </p>
-      </div>
-    </div>
-
-    <div style={styles.summaryGrid}>
-      <div style={styles.summaryCard}>
-        <div style={styles.summaryTop}>
-          <p style={styles.label}>Affected Barangays</p>
-          <FiMapPin size={20} color={COLORS.primary} aria-hidden="true" />
-        </div>
-        <p style={styles.summaryValue}>
-          {formatNumber(event?.affected_barangays_count)}
-        </p>
-        <p style={styles.sectionText}>Barangays included in the operation</p>
-      </div>
-      <div style={styles.summaryCard}>
-        <div style={styles.summaryTop}>
-          <p style={styles.label}>Affected Families</p>
-          <FiHome size={20} color={COLORS.primary} aria-hidden="true" />
-        </div>
-        <p style={styles.summaryValue}>
-          {formatNumber(event?.registered_households_count)}
-        </p>
-        <p style={styles.sectionText}>Families or households registered</p>
-      </div>
-      <div style={styles.summaryCard}>
-        <div style={styles.summaryTop}>
-          <p style={styles.label}>Affected Individuals</p>
-          <FiUsers size={20} color={COLORS.primary} aria-hidden="true" />
-        </div>
-        <p style={styles.summaryValue}>
-          {formatNumber(event?.affected_individuals_count)}
-        </p>
-        <p style={styles.sectionText}>Individuals linked to active households</p>
-      </div>
-    </div>
-  </section>
-);
-
-const NeededItemsSection = ({ suggestions }) => {
+const NeededItemsSection = ({ neededItems }) => {
+  const suggestions = neededItems?.suggestions || [];
   const groupedSuggestions = useMemo(
     () => groupSuggestionsByPriority(suggestions),
     [suggestions],
   );
-  const hasSuggestions = (suggestions || []).length > 0;
+  const hasSuggestions = suggestions.length > 0;
+  const isForecastSource = neededItems?.source_type === "FORECAST";
 
   return (
     <section style={styles.section} aria-labelledby="needed-items-title">
       <div style={styles.sectionHeader}>
         <div>
           <h2 id="needed-items-title" style={styles.sectionTitle}>
-            Needed Items
+            {neededItems?.title || DEFAULT_NEEDED_ITEMS_META.title}
           </h2>
           <p style={styles.sectionText}>
-            Forecast-based donation suggestions grouped by priority level.
+            {neededItems?.description || DEFAULT_NEEDED_ITEMS_META.description}
           </p>
         </div>
       </div>
@@ -1116,26 +1241,23 @@ const NeededItemsSection = ({ suggestions }) => {
       <div style={{ ...styles.notice, marginTop: 0, marginBottom: "14px" }} role="note">
         <FiTrendingUp size={18} color={COLORS.warning} aria-hidden="true" />
         <span>
-          Suggested donation quantities are generated using the system's
-          forecasting module based on disaster impact, affected population,
-          historical relief distribution, and inventory data. These values are
-          recommendations only and may change as new information becomes
-          available.
+          {neededItems?.notice || DEFAULT_NEEDED_ITEMS_META.notice}
         </span>
       </div>
-      <p style={{ ...styles.sectionText, marginBottom: "14px" }}>
-        Priority is based on the same forecast risk level used by the Office of
-        the Mayor: critical or high-risk items appear as High Priority, medium
-        risk appears as Medium Priority, and lower-risk forecast needs appear as
-        Low Priority.
-      </p>
+      {isForecastSource ? (
+        <p style={{ ...styles.sectionText, marginBottom: "14px" }}>
+          Priority is based on the same forecast risk level used by the Office of
+          the Mayor: critical or high-risk items appear as High Priority, medium
+          risk appears as Medium Priority, and lower-risk forecast needs appear
+          as Low Priority.
+        </p>
+      ) : null}
 
       {!hasSuggestions ? (
         <div style={styles.emptyState}>
           <FiInfo size={20} color={COLORS.primary} aria-hidden="true" />
           <span>
-            There are currently no donation suggestions available for this
-            disaster event.
+            {neededItems?.notice || DEFAULT_NEEDED_ITEMS_META.notice}
           </span>
         </div>
       ) : (
@@ -1189,6 +1311,9 @@ const NeededItemsSection = ({ suggestions }) => {
                   <div style={styles.itemGrid}>
                     {items.map((item) => {
                       const priorityMeta = getPriorityMeta(item.priority_level);
+                      const quantityValue = Number(item.suggested_quantity);
+                      const hasQuantity =
+                        Number.isFinite(quantityValue) && quantityValue > 0;
 
                       return (
                         <article
@@ -1213,10 +1338,14 @@ const NeededItemsSection = ({ suggestions }) => {
                             {item.item_name || "Donation item"}
                           </h3>
                           <p style={styles.itemQuantity}>
-                            {formatNumber(item.suggested_quantity)}
+                            {hasQuantity
+                              ? formatNumber(quantityValue)
+                              : "Preparedness Recommendation"}
                           </p>
                           <p style={styles.itemNote}>
-                            {item.unit_of_measure || "items"} suggested
+                            {hasQuantity
+                              ? `${item.unit_of_measure || "items"} suggested`
+                              : item.unit_of_measure || "Preparedness item"}
                           </p>
                           {item.note ? (
                             <p style={styles.itemNote}>{item.note}</p>
@@ -1591,12 +1720,11 @@ const PortalFooter = ({ publicContactConfig }) => {
 
 const DonationInformationPage = () => {
   const navigate = useNavigate();
-  const [showAllBarangays, setShowAllBarangays] = useState(false);
   const [pageState, setPageState] = useState({
     isLoading: true,
     errorMessage: "",
     activeDisasters: [],
-    forecastSuggestions: [],
+    neededItems: DEFAULT_NEEDED_ITEMS_META,
     recentDonations: [],
     transparencySummary: {},
     publicContactConfig: DEFAULT_PUBLIC_CONTACT_CONFIG,
@@ -1623,11 +1751,23 @@ const DonationInformationPage = () => {
         const disasterEvents = Array.isArray(publicPortalData?.disaster_events)
           ? publicPortalData.disaster_events
           : [];
+        const recentActiveDisasters = getRecentActiveEvents(disasterEvents);
         const forecastSuggestions = Array.isArray(
           publicPortalData?.forecast_suggestions,
         )
           ? publicPortalData.forecast_suggestions
           : [];
+        const neededItems = publicPortalData?.needed_items
+          ? normalizeNeededItemsPayload(publicPortalData.needed_items)
+          : {
+              ...DEFAULT_NEEDED_ITEMS_META,
+              source_type: forecastSuggestions.length > 0 ? "FORECAST" : "EMPTY",
+              title:
+                forecastSuggestions.length > 0
+                  ? "Forecasted Donation Needs"
+                  : DEFAULT_NEEDED_ITEMS_META.title,
+              suggestions: forecastSuggestions,
+            };
         const recentDonations = Array.isArray(publicPortalData?.recent_donations)
           ? publicPortalData.recent_donations
           : [];
@@ -1645,14 +1785,16 @@ const DonationInformationPage = () => {
         setPageState({
           isLoading: false,
           errorMessage: "",
-          activeDisasters: disasterEvents,
-          forecastSuggestions,
+          activeDisasters: recentActiveDisasters,
+          neededItems,
           recentDonations,
           transparencySummary,
           publicContactConfig,
           lastUpdatedAt: getLatestTimestamp([
-            ...disasterEvents.map((event) => event.updated_at || event.created_at),
-            ...forecastSuggestions.map((item) => item.forecasted_at),
+            ...recentActiveDisasters.map(
+              (event) => event.updated_at || event.created_at,
+            ),
+            ...neededItems.suggestions.map((item) => item.forecasted_at),
             ...recentDonations.map((donation) => donation.donation_date),
           ]),
         });
@@ -1665,7 +1807,7 @@ const DonationInformationPage = () => {
           isLoading: false,
           errorMessage: error.message || "Failed to load donation information.",
           activeDisasters: [],
-          forecastSuggestions: [],
+          neededItems: DEFAULT_NEEDED_ITEMS_META,
           recentDonations: [],
           transparencySummary: {},
           publicContactConfig: DEFAULT_PUBLIC_CONTACT_CONFIG,
@@ -1685,13 +1827,12 @@ const DonationInformationPage = () => {
     isLoading,
     errorMessage,
     activeDisasters,
-    forecastSuggestions,
+    neededItems,
     recentDonations,
     transparencySummary,
     publicContactConfig,
     lastUpdatedAt,
   } = pageState;
-  const activeEvent = activeDisasters[0] || null;
 
   return (
     <main style={styles.page}>
@@ -1706,7 +1847,7 @@ const DonationInformationPage = () => {
         </button>
 
         <TopBar />
-        <HeroSection activeEvent={activeEvent} lastUpdatedAt={lastUpdatedAt} />
+        <HeroSection activeEvents={activeDisasters} lastUpdatedAt={lastUpdatedAt} />
 
         {isLoading ? (
           <section style={styles.section} aria-live="polite">
@@ -1725,15 +1866,8 @@ const DonationInformationPage = () => {
 
         {!isLoading && !errorMessage ? (
           <>
-            <ActiveDisasterSection
-              event={activeEvent}
-              showAllBarangays={showAllBarangays}
-              onToggleBarangays={() =>
-                setShowAllBarangays((currentValue) => !currentValue)
-              }
-            />
-            <ImpactSummarySection event={activeEvent} />
-            <NeededItemsSection suggestions={forecastSuggestions} />
+            <NeededItemsSection neededItems={neededItems} />
+            <ActiveDisastersSection events={activeDisasters} />
             <TransparencySection
               recentDonations={recentDonations}
               transparencySummary={transparencySummary}

@@ -114,7 +114,7 @@ export const createInventoryTransaction = async (payload) => {
     entityType: "INVENTORY_TRANSACTION",
     entityLocalId: payload?.client_transaction_id || null,
     payload,
-    requiredFields: ["inventory_batch_id", "transaction_type", "quantity"],
+    requiredFields: ["transaction_type", "quantity"],
     request: async () => {
       const response = await fetch(`${API_BASE_URL}/api/v1/inventory-transactions`, {
         method: "POST",

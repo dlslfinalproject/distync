@@ -1,6 +1,7 @@
 const pool = require("../config/db");
 const crypto = require("crypto");
 const donationRepository = require("../repositories/donation.repository");
+const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const forecastService = require("./forecast.service");
 const mayorReportExport = require("../utils/mayorReportExport");
 const notificationService = require("../modules/notifications/notification.service");
@@ -20,6 +21,37 @@ const priorityRank = {
   HIGH: 2,
   MEDIUM: 3,
   LOW: 4,
+};
+
+const neededItemSourceMeta = {
+  FORECAST: {
+    title: "Forecasted Donation Needs",
+    description:
+      "These recommendations are generated from DISTYNC's inventory forecasting using the latest available disaster response and inventory data.",
+    notice:
+      "Suggested donation quantities are generated using the system's forecasting module based on disaster impact, affected population, historical relief distribution, and inventory data. These values are recommendations only and may change when a new forecast is generated.",
+  },
+  DEFAULT_EMERGENCY: {
+    title: "Emergency Donation Needs",
+    description:
+      "These recommendations are based on the municipality's standard disaster preparedness guidelines while operational data is still being collected.",
+    notice:
+      "These items are preparedness recommendations, not forecast quantities. They help donors identify commonly needed relief goods before enough operational data is available for forecasting.",
+  },
+  PUBLISHED_NEEDS: {
+    title: "Published Donation Needs",
+    description:
+      "These recommendations are based on manually published donation needs for the active relief operations.",
+    notice:
+      "These items were published by authorized LGU users while forecast recommendations are not available.",
+  },
+  EMPTY: {
+    title: "Emergency Donation Needs",
+    description:
+      "Donation recommendations will appear when preparedness defaults, published needs, or forecast results are available.",
+    notice:
+      "No public donation suggestions are available yet for the active relief operations.",
+  },
 };
 
 const createPublicKey = (prefix, value) =>
@@ -253,6 +285,254 @@ const mapPublicDonationSummary = (row, index) => ({
     : [],
 });
 
+const combinePublicForecastSuggestions = (latestForecasts) => {
+  const combinedSuggestions = new Map();
+
+  latestForecasts
+    .filter(Boolean)
+    .flatMap((forecast) => forecastService.buildPublicForecastSuggestions(forecast))
+    .forEach((suggestion) => {
+      const suggestionKey =
+        suggestion.public_key ||
+        `${suggestion.item_name || "item"}:${suggestion.unit_of_measure || "items"}`;
+      const existingSuggestion = combinedSuggestions.get(suggestionKey);
+
+      if (!existingSuggestion) {
+        combinedSuggestions.set(suggestionKey, { ...suggestion });
+        return;
+      }
+
+      const existingPriorityRank =
+        priorityRank[existingSuggestion.priority_level] || priorityRank.LOW;
+      const incomingPriorityRank =
+        priorityRank[suggestion.priority_level] || priorityRank.LOW;
+      const latestForecastedAt =
+        new Date(suggestion.forecasted_at || 0).getTime() >
+        new Date(existingSuggestion.forecasted_at || 0).getTime()
+          ? suggestion.forecasted_at
+          : existingSuggestion.forecasted_at;
+
+      combinedSuggestions.set(suggestionKey, {
+        ...existingSuggestion,
+        suggested_quantity:
+          Number(existingSuggestion.suggested_quantity || 0) +
+          Number(suggestion.suggested_quantity || 0),
+        priority_level:
+          incomingPriorityRank < existingPriorityRank
+            ? suggestion.priority_level
+            : existingSuggestion.priority_level,
+        note: "Combined recommendation across active relief operations.",
+        forecasted_at: latestForecastedAt,
+      });
+    });
+
+  return Array.from(combinedSuggestions.values()).sort((left, right) => {
+    const priorityDifference =
+      (priorityRank[left.priority_level] || priorityRank.LOW) -
+      (priorityRank[right.priority_level] || priorityRank.LOW);
+
+    if (priorityDifference !== 0) {
+      return priorityDifference;
+    }
+
+    const quantityDifference =
+      Number(right.suggested_quantity || 0) -
+      Number(left.suggested_quantity || 0);
+
+    if (quantityDifference !== 0) {
+      return quantityDifference;
+    }
+
+    return String(left.item_name || "").localeCompare(
+      String(right.item_name || ""),
+    );
+  });
+};
+
+const resolvePublicDonationNeedPriority = (priorityLevel) => {
+  const normalizedPriorityLevel = String(priorityLevel || "").toUpperCase();
+
+  if (normalizedPriorityLevel === "URGENT" || normalizedPriorityLevel === "HIGH") {
+    return "HIGH";
+  }
+
+  if (normalizedPriorityLevel === "MEDIUM") {
+    return "MEDIUM";
+  }
+
+  return "LOW";
+};
+
+const buildPublicDonationNeedSuggestions = (donationNeeds) => {
+  const combinedNeeds = new Map();
+
+  (donationNeeds || []).forEach((need) => {
+    const quantityNeeded = Math.max(0, Number(need.quantity_needed || 0));
+
+    if (quantityNeeded <= 0 || !need.inventory_item?.item_name) {
+      return;
+    }
+
+    const itemKey =
+      need.inventory_item?.id ||
+      `${need.inventory_item.item_name}:${need.inventory_item.unit_of_measure}`;
+    const existingNeed = combinedNeeds.get(itemKey);
+    const priorityLevel = resolvePublicDonationNeedPriority(need.priority_level);
+
+    if (!existingNeed) {
+      combinedNeeds.set(itemKey, {
+        public_key: createPublicKey("published-need-item", itemKey),
+        item_name: need.inventory_item.item_name,
+        category: need.inventory_item.category,
+        unit_of_measure: need.inventory_item.unit_of_measure || "items",
+        suggested_quantity: Math.ceil(quantityNeeded),
+        priority_level: priorityLevel,
+        note:
+          "Published donation need shown while forecast recommendations are not available.",
+        forecasted_at: need.updated_at || need.published_at || null,
+      });
+      return;
+    }
+
+    const existingPriorityRank =
+      priorityRank[existingNeed.priority_level] || priorityRank.LOW;
+    const incomingPriorityRank = priorityRank[priorityLevel] || priorityRank.LOW;
+    const latestUpdatedAt =
+      new Date(need.updated_at || need.published_at || 0).getTime() >
+      new Date(existingNeed.forecasted_at || 0).getTime()
+        ? need.updated_at || need.published_at || null
+        : existingNeed.forecasted_at;
+
+    combinedNeeds.set(itemKey, {
+      ...existingNeed,
+      suggested_quantity:
+        Number(existingNeed.suggested_quantity || 0) + Math.ceil(quantityNeeded),
+      priority_level:
+        incomingPriorityRank < existingPriorityRank
+          ? priorityLevel
+          : existingNeed.priority_level,
+      forecasted_at: latestUpdatedAt,
+    });
+  });
+
+  return Array.from(combinedNeeds.values()).sort((left, right) => {
+    const priorityDifference =
+      (priorityRank[left.priority_level] || priorityRank.LOW) -
+      (priorityRank[right.priority_level] || priorityRank.LOW);
+
+    if (priorityDifference !== 0) {
+      return priorityDifference;
+    }
+
+    const quantityDifference =
+      Number(right.suggested_quantity || 0) -
+      Number(left.suggested_quantity || 0);
+
+    if (quantityDifference !== 0) {
+      return quantityDifference;
+    }
+
+    return String(left.item_name || "").localeCompare(
+      String(right.item_name || ""),
+    );
+  });
+};
+
+const buildDefaultEmergencySuggestions = (defaultNeeds) => {
+  const combinedDefaults = new Map();
+
+  (defaultNeeds || []).forEach((need) => {
+    if (!need.item_name) {
+      return;
+    }
+
+    const itemKey =
+      need.inventory_item_id ||
+      `${need.item_name}:${need.unit_of_measure || "items"}`;
+    const existingDefault = combinedDefaults.get(itemKey);
+    const priorityLevel = resolvePublicDonationNeedPriority(need.priority_level);
+    const suggestedQuantity =
+      need.suggested_quantity === null || need.suggested_quantity === undefined
+        ? null
+        : Math.max(0, Number(need.suggested_quantity || 0));
+
+    if (existingDefault) {
+      return;
+    }
+
+    combinedDefaults.set(itemKey, {
+      public_key: createPublicKey("default-emergency-item", itemKey),
+      item_name: need.item_name,
+      category: need.category,
+      unit_of_measure: need.unit_of_measure || "items",
+      suggested_quantity: suggestedQuantity,
+      priority_level: priorityLevel,
+      note: need.notes || "Standard emergency preparedness item.",
+      forecasted_at: need.updated_at || null,
+    });
+  });
+
+  return Array.from(combinedDefaults.values()).sort((left, right) => {
+    const priorityDifference =
+      (priorityRank[left.priority_level] || priorityRank.LOW) -
+      (priorityRank[right.priority_level] || priorityRank.LOW);
+
+    if (priorityDifference !== 0) {
+      return priorityDifference;
+    }
+
+    return String(left.item_name || "").localeCompare(
+      String(right.item_name || ""),
+    );
+  });
+};
+
+const buildNeededItemsPayload = (sourceType, suggestions) => {
+  const resolvedSourceType = neededItemSourceMeta[sourceType]
+    ? sourceType
+    : "EMPTY";
+  const meta = neededItemSourceMeta[resolvedSourceType];
+
+  return {
+    source_type: resolvedSourceType,
+    title: meta.title,
+    description: meta.description,
+    notice: meta.notice,
+    suggestions: suggestions || [],
+  };
+};
+
+const resolvePublicNeededItems = ({
+  latestForecasts,
+  defaultEmergencyNeeds,
+  publicDonationNeeds,
+}) => {
+  const forecastSuggestions = combinePublicForecastSuggestions(latestForecasts);
+
+  if (forecastSuggestions.length > 0) {
+    return buildNeededItemsPayload("FORECAST", forecastSuggestions);
+  }
+
+  const defaultEmergencySuggestions =
+    buildDefaultEmergencySuggestions(defaultEmergencyNeeds);
+
+  if (defaultEmergencySuggestions.length > 0) {
+    return buildNeededItemsPayload(
+      "DEFAULT_EMERGENCY",
+      defaultEmergencySuggestions,
+    );
+  }
+
+  const publishedNeedSuggestions =
+    buildPublicDonationNeedSuggestions(publicDonationNeeds);
+
+  if (publishedNeedSuggestions.length > 0) {
+    return buildNeededItemsPayload("PUBLISHED_NEEDS", publishedNeedSuggestions);
+  }
+
+  return buildNeededItemsPayload("EMPTY", []);
+};
+
 const getBatchStatus = (expirationDate, quantityAvailable) => {
   if (expirationDate) {
     const today = new Date();
@@ -277,6 +557,70 @@ const getBatchStatus = (expirationDate, quantityAvailable) => {
   }
 
   return "AVAILABLE";
+};
+
+const buildUpdatedItemStockSnapshot = (inventoryItem, onHandQuantity) => {
+  const normalizedOnHandQuantity = Math.max(Number(onHandQuantity || 0), 0);
+  const normalizedPackaging = String(inventoryItem?.packaging || "").toLowerCase();
+  const unitsPerPackage = Number(inventoryItem?.quantity || 0);
+  const existingPackagingCount = Number(inventoryItem?.packaging_count || 0);
+
+  if (normalizedPackaging === "piece" || unitsPerPackage <= 1) {
+    return {
+      quantity: 1,
+      packaging_count:
+        normalizedOnHandQuantity > 0 ? normalizedOnHandQuantity : null,
+    };
+  }
+
+  if (normalizedOnHandQuantity === 0) {
+    return {
+      quantity: inventoryItem?.quantity || null,
+      packaging_count: null,
+    };
+  }
+
+  if (normalizedOnHandQuantity % unitsPerPackage === 0) {
+    return {
+      quantity: inventoryItem?.quantity || null,
+      packaging_count: normalizedOnHandQuantity / unitsPerPackage,
+    };
+  }
+
+  return {
+    quantity: inventoryItem?.quantity || null,
+    packaging_count: existingPackagingCount > 0 ? existingPackagingCount : null,
+  };
+};
+
+const refreshInventoryItemStockSnapshot = async (inventoryItemId, dbClient) => {
+  const inventoryItem = await inventoryItemRepository.getInventoryItemByIdForUpdate(
+    inventoryItemId,
+    dbClient,
+  );
+
+  if (!inventoryItem) {
+    return null;
+  }
+
+  const recomputedQuantityResult = await dbClient.query(
+    `
+      SELECT COALESCE(SUM(quantity_available), 0)::integer AS total_quantity
+      FROM inventory_batches
+      WHERE inventory_item_id = $1
+    `,
+    [inventoryItemId],
+  );
+
+  const nextItemQuantity = Number(
+    recomputedQuantityResult.rows[0]?.total_quantity || 0,
+  );
+
+  return inventoryItemRepository.updateInventoryItemStockSnapshot(
+    inventoryItemId,
+    buildUpdatedItemStockSnapshot(inventoryItem, nextItemQuantity),
+    dbClient,
+  );
 };
 
 const buildDonationBatchNumber = ({ donationId, inventoryItemId }) => {
@@ -483,6 +827,8 @@ const createDonationItemWithInventory = async ({
     dbClient,
   );
 
+  await refreshInventoryItemStockSnapshot(inventoryItem.id, dbClient);
+
   return createdDonationItem.id;
 };
 
@@ -552,6 +898,8 @@ const removeDonationItemWithinTransaction = async ({
     },
     dbClient,
   );
+
+  await refreshInventoryItemStockSnapshot(inventoryItem.id, dbClient);
 
   await donationRepository.deleteDonationItem(donationItem.id, dbClient);
 
@@ -1016,6 +1364,11 @@ const updateDonationItem = async (id, payload, performedBy) => {
       );
     }
 
+    await refreshInventoryItemStockSnapshot(
+      existingDonationItem.inventory_item_id,
+      client,
+    );
+
     await client.query("COMMIT");
 
     const donationItem = await donationRepository.getDonationItemById(id, pool);
@@ -1188,25 +1541,35 @@ const deleteDonationRecord = async (id, performedBy) => {
 const getPublicDonationPortal = async (disasterEventId = null) => {
   const activeDisasterSummaries =
     await donationRepository.getPublicDonationDisasterSummaries(disasterEventId);
-  const selectedDisasterEventId =
-    disasterEventId || activeDisasterSummaries[0]?.id || null;
+  const selectedDisasterEventId = activeDisasterSummaries[0]?.id || null;
+  const activeDisasterEventIds = activeDisasterSummaries.map((event) => event.id);
 
   const [
     summaryTotals,
     perItemSummary,
-    latestForecast,
     recentDonationRows,
-  ] = selectedDisasterEventId
+    latestForecasts,
+    defaultEmergencyNeedRows,
+    publicDonationNeedRows,
+  ] = activeDisasterEventIds.length > 0
     ? await Promise.all([
-        donationRepository.getDonationSummaryTotals(selectedDisasterEventId),
+        donationRepository.getDonationSummaryTotals(activeDisasterEventIds),
         donationRepository.getDonationItemTransparencySummary(
-          selectedDisasterEventId,
+          activeDisasterEventIds,
         ),
-        forecastService.getLatestInventoryForecast(selectedDisasterEventId),
         donationRepository.getPublicRecentDonationSummaries(
-          selectedDisasterEventId,
+          activeDisasterEventIds,
           6,
         ),
+        Promise.all(
+          activeDisasterEventIds.map((activeDisasterEventId) =>
+            forecastService.getLatestInventoryForecast(activeDisasterEventId),
+          ),
+        ),
+        donationRepository.getDefaultEmergencyDonationNeeds(
+          activeDisasterSummaries.map((event) => event.disaster_type),
+        ),
+        donationRepository.getPublicDonationNeeds(activeDisasterEventIds),
       ])
     : [
         {
@@ -1216,12 +1579,17 @@ const getPublicDonationPortal = async (disasterEventId = null) => {
           remaining_donated_inventory: 0,
         },
         [],
-        null,
+        [],
+        [],
+        [],
         [],
       ];
 
-  const forecastSuggestions =
-    forecastService.buildPublicForecastSuggestions(latestForecast);
+  const neededItems = resolvePublicNeededItems({
+    latestForecasts,
+    defaultEmergencyNeeds: defaultEmergencyNeedRows,
+    publicDonationNeeds: publicDonationNeedRows,
+  });
 
   return {
     public_contact_config: getPublicContactConfig(),
@@ -1229,7 +1597,8 @@ const getPublicDonationPortal = async (disasterEventId = null) => {
     selected_disaster_event_key: selectedDisasterEventId
       ? createPublicKey("event", selectedDisasterEventId)
       : null,
-    forecast_suggestions: forecastSuggestions,
+    needed_items: neededItems,
+    forecast_suggestions: neededItems.suggestions,
     recent_donations: recentDonationRows.map(mapPublicDonationSummary),
     transparency_summary: {
       ...summaryTotals,
