@@ -3,34 +3,65 @@ import DetailsModalShell from "../shared/DetailsModalShell";
 import EmptyState from "../shared/EmptyState";
 import ErrorState from "../shared/ErrorState";
 import LoadingState from "../shared/LoadingState";
+import { shellStyles } from "../layout/BarangayLayout";
 import {
+  formatNumericValue,
   formatUnitOfMeasurement,
-  getTotalItemQuantity,
 } from "../../features/inventory-items/inventoryItemFormatting";
 
 const modalStyles = {
+  shellPanel: {
+    backgroundColor: "#eef5fb",
+    border: "1px solid #d7e2ef",
+    boxShadow: "0 24px 60px rgba(23, 50, 77, 0.18)",
+  },
   sectionCard: {
-    borderRadius: "16px",
-    border: "1px solid #d6e2ee",
-    backgroundColor: "#f8fbfe",
-    padding: "16px",
+    ...shellStyles.card,
+    backgroundColor: "#ffffff",
+  },
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+    gap: "16px",
+  },
+  itemInfoGrid: {
+    display: "grid",
+    gridTemplateColumns: "minmax(300px, 2.4fr) repeat(3, minmax(110px, 0.8fr))",
+    gap: "16px",
+    alignItems: "start",
   },
   label: {
+    margin: 0,
+    color: "#66809c",
     fontSize: "12px",
     fontWeight: 700,
     letterSpacing: "0.08em",
     textTransform: "uppercase",
-    color: "#66809c",
-    marginBottom: "6px",
   },
   value: {
+    margin: "8px 0 0",
     color: "#21405f",
-    fontSize: "14px",
-    lineHeight: 1.5,
+    fontSize: "15px",
+    lineHeight: 1.55,
+  },
+  list: {
+    display: "grid",
+    gap: "12px",
+  },
+  listItem: {
+    borderRadius: "14px",
+    border: "1px solid #d9e5f0",
+    backgroundColor: "#eef5fb",
+    padding: "14px 16px",
+  },
+  tableWrap: {
+    overflowX: "auto",
+    marginTop: "12px",
   },
   table: {
     width: "100%",
     borderCollapse: "collapse",
+    minWidth: "760px",
   },
   th: {
     padding: "10px 12px",
@@ -40,6 +71,7 @@ const modalStyles = {
     borderBottom: "1px solid #dfe8f2",
     textTransform: "uppercase",
     letterSpacing: "0.08em",
+    whiteSpace: "nowrap",
   },
   td: {
     padding: "12px",
@@ -48,6 +80,15 @@ const modalStyles = {
     fontSize: "14px",
     verticalAlign: "top",
   },
+  badge: {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "6px 10px",
+    borderRadius: "999px",
+    fontSize: "12px",
+    fontWeight: 700,
+    lineHeight: 1,
+  },
 };
 
 const formatDate = (value) => {
@@ -55,7 +96,10 @@ const formatDate = (value) => {
     return "--";
   }
 
-  const parsedDate = new Date(value);
+  const normalizedValue =
+    typeof value === "string" ? value.slice(0, 10) : value;
+  const parsedDate = new Date(`${normalizedValue}T00:00:00`);
+
   if (Number.isNaN(parsedDate.getTime())) {
     return "--";
   }
@@ -67,30 +111,85 @@ const formatDate = (value) => {
   });
 };
 
-const formatDateTime = (value) => {
+const getTodayDate = () => {
+  const today = new Date();
+  return new Date(today.getFullYear(), today.getMonth(), today.getDate());
+};
+
+const normalizeCalendarDate = (value) => {
   if (!value) {
-    return "--";
+    return null;
   }
 
-  const parsedDate = new Date(value);
+  const normalizedValue =
+    typeof value === "string" ? value.slice(0, 10) : value;
+  const parsedDate = new Date(`${normalizedValue}T00:00:00`);
+
   if (Number.isNaN(parsedDate.getTime())) {
-    return "--";
+    return null;
   }
 
-  return parsedDate.toLocaleString("en-PH", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return parsedDate;
+};
+
+const getBatchStatus = (batch) => {
+  const quantityAvailable = Number(batch?.quantity_available || 0);
+  const expirationDate = normalizeCalendarDate(batch?.expiration_date);
+  const today = getTodayDate();
+
+  if (quantityAvailable <= 0) {
+    return "Depleted";
+  }
+
+  if (expirationDate && expirationDate.getTime() <= today.getTime()) {
+    return "Expired";
+  }
+
+  if (expirationDate) {
+    const daysUntilExpiration =
+      (expirationDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
+
+    if (daysUntilExpiration > 0 && daysUntilExpiration <= 30) {
+      return "Near Expiry";
+    }
+  }
+
+  return "Available";
+};
+
+const getBatchStatusStyle = (status) => {
+  if (status === "Near Expiry") {
+    return {
+      backgroundColor: "#ffedd5",
+      color: "#c2410c",
+    };
+  }
+
+  if (status === "Expired") {
+    return {
+      backgroundColor: "#fee2e2",
+      color: "#b91c1c",
+    };
+  }
+
+  if (status === "Depleted") {
+    return {
+      backgroundColor: "#e5e7eb",
+      color: "#4b5563",
+    };
+  }
+
+  return {
+    backgroundColor: "#dcfce7",
+    color: "#166534",
+  };
 };
 
 const formatSourceLabel = (sourceType) => {
-  const normalizedSourceType = String(sourceType || "").toUpperCase();
+  const normalizedSourceType = String(sourceType || "").trim().toUpperCase();
 
   if (!normalizedSourceType) {
-    return "--";
+    return "Malvar LGU";
   }
 
   if (normalizedSourceType === "DONATED") {
@@ -98,6 +197,25 @@ const formatSourceLabel = (sourceType) => {
   }
 
   return "Malvar LGU";
+};
+
+const getTotalStockOnHand = (batches) => {
+  return batches.reduce((sum, batch) => {
+    return sum + Number(batch?.quantity_available || 0);
+  }, 0);
+};
+
+const getStockFormKey = (stockForm) => {
+  return stockForm?.id || `${stockForm?.barcode || "no-barcode"}-${stockForm?.packaging || "packaging"}`;
+};
+
+const getSortableTimestamp = (value) => {
+  if (!value) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const parsedValue = new Date(value).getTime();
+  return Number.isNaN(parsedValue) ? Number.POSITIVE_INFINITY : parsedValue;
 };
 
 const InventoryItemDetailModal = ({
@@ -112,191 +230,158 @@ const InventoryItemDetailModal = ({
   }
 
   const item = detail?.item || null;
-  const batches = detail?.related_batches || [];
-  const transactions = detail?.related_transactions || [];
-  const auditHistory = detail?.audit_history || [];
-  const forecastSummary = detail?.forecast_summary || null;
-  const sourceLabels = Array.from(
-    new Set(batches.map((batch) => formatSourceLabel(batch.source_type)).filter(Boolean)),
-  );
-  const itemSourceLabel =
-    sourceLabels.length === 0
-      ? "--"
-      : sourceLabels.length === 1
-        ? sourceLabels[0]
-        : "Mixed";
+  const stockForms = Array.isArray(detail?.stock_forms) ? detail.stock_forms : [];
+  const batches = Array.isArray(detail?.related_batches)
+    ? [...detail.related_batches].sort((leftBatch, rightBatch) => {
+        return (
+          getSortableTimestamp(leftBatch?.received_at || leftBatch?.created_at) -
+          getSortableTimestamp(rightBatch?.received_at || rightBatch?.created_at)
+        );
+      })
+    : [];
+  const totalStockOnHand = formatNumericValue(getTotalStockOnHand(batches));
 
   return (
     <DetailsModalShell
       isOpen={isOpen}
-      title="Stock Item Details"
+      title="View Details"
       onClose={onClose}
-      maxWidth="960px"
+      maxWidth="980px"
+      closeMode="icon"
+      titleStyle={{ fontSize: "30px", fontWeight: 700 }}
+      panelStyle={modalStyles.shellPanel}
     >
       {isLoading ? (
-        <LoadingState message="Loading stock item details..." />
+        <LoadingState message="Loading item details..." />
       ) : errorMessage ? (
         <ErrorState compact message={errorMessage} />
       ) : !item ? (
-        <EmptyState compact message="Stock item details are unavailable." />
+        <EmptyState compact message="Item details are unavailable." />
       ) : (
-        <div style={{ display: "grid", gap: "18px" }}>
-          <section
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: "16px",
-            }}
-          >
-            {[
-              ["Item", `${item.item_name || "--"} (${item.item_code || "--"})`],
-              ["Category", item.category || "--"],
-              ["Unit", formatUnitOfMeasurement(item)],
-              ["Stock On Hand", getTotalItemQuantity(item)],
-              ["Source", itemSourceLabel],
-              ["Reorder Level", item.low_stock_threshold ?? "--"],
-              ["Expiry Date", formatDate(item.expiration_date)],
-            ].map(([label, value]) => (
-              <div key={label} style={modalStyles.sectionCard}>
-                <div style={modalStyles.label}>{label}</div>
-                <div style={modalStyles.value}>{value}</div>
+        <div style={{ display: "grid", gap: "20px" }}>
+          <section style={modalStyles.sectionCard}>
+            <h3 style={{ margin: 0, color: "#17324d" }}>Item Information</h3>
+
+            <div style={{ ...modalStyles.itemInfoGrid, marginTop: "16px" }}>
+              <div style={{ minWidth: 0 }}>
+                <p style={modalStyles.label}>Item Name</p>
+                <p style={modalStyles.value}>{item.item_name || "--"}</p>
               </div>
-            ))}
+              <div>
+                <p style={modalStyles.label}>Category</p>
+                <p style={modalStyles.value}>{item.category || "--"}</p>
+              </div>
+              <div>
+                <p style={modalStyles.label}>Total Stock</p>
+                <p style={modalStyles.value}>
+                  {totalStockOnHand} {item.unit_of_measure || "pc"}
+                </p>
+              </div>
+              <div>
+                <p style={modalStyles.label}>Reorder Level</p>
+                <p style={modalStyles.value}>
+                  {item.low_stock_threshold ?? item.reorder_level ?? "--"}
+                </p>
+              </div>
+            </div>
           </section>
 
           <section style={modalStyles.sectionCard}>
-            <div style={{ marginBottom: "14px" }}>
-              <h4 style={{ margin: 0, color: "#17324d" }}>Forecast Summary</h4>
-            </div>
-            {forecastSummary ? (
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                  gap: "14px",
-                }}
-              >
-                {[
-                  ["Disaster Event", `${forecastSummary.disaster_event?.event_code || "--"} - ${forecastSummary.disaster_event?.title || "--"}`],
-                  ["Model", forecastSummary.model_name || "--"],
-                  ["Forecast Need", String(forecastSummary.forecasted_usage ?? 0)],
-                  ["Projected Depletion", formatDate(forecastSummary.projected_depletion_date)],
-                  ["Add Stock", String(forecastSummary.recommended_reorder_quantity ?? 0)],
-                  ["Risk Level", forecastSummary.risk_level || "--"],
-                ].map(([label, value]) => (
-                  <div key={label}>
-                    <div style={modalStyles.label}>{label}</div>
-                    <div style={modalStyles.value}>{value}</div>
+            <h3 style={{ margin: 0, color: "#17324d" }}>
+              Stock Forms / Barcode / Packaging Forms
+            </h3>
+
+            {stockForms.length === 0 ? (
+              <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
+                No stock forms are recorded yet.
+              </p>
+            ) : (
+              <div style={{ ...modalStyles.list, marginTop: "16px" }}>
+                {stockForms.map((stockForm) => (
+                  <div key={getStockFormKey(stockForm)} style={modalStyles.listItem}>
+                    <div style={modalStyles.grid}>
+                      <div>
+                        <p style={modalStyles.label}>Barcode</p>
+                        <p style={modalStyles.value}>{stockForm.barcode || "--"}</p>
+                      </div>
+                      <div>
+                        <p style={modalStyles.label}>Packaging</p>
+                        <p style={modalStyles.value}>{stockForm.packaging || "--"}</p>
+                      </div>
+                      <div>
+                        <p style={modalStyles.label}>Units per Packaging</p>
+                        <p style={modalStyles.value}>
+                          {stockForm.units_per_packaging ?? "--"}
+                        </p>
+                      </div>
+                      <div>
+                        <p style={modalStyles.label}>Unit of Measure</p>
+                        <p style={modalStyles.value}>
+                          {formatUnitOfMeasurement(stockForm)}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
-            ) : (
-              <EmptyState compact message="No forecast summary available yet." />
             )}
           </section>
 
           <section style={modalStyles.sectionCard}>
-            <div style={{ marginBottom: "14px" }}>
-              <h4 style={{ margin: 0, color: "#17324d" }}>Related Batches</h4>
-            </div>
+            <h3 style={{ margin: 0, color: "#17324d" }}>Batch Information</h3>
+
             {batches.length === 0 ? (
-              <EmptyState compact message="No linked batches yet." />
+              <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
+                No batches are recorded yet.
+              </p>
             ) : (
-              <div style={{ overflowX: "auto" }}>
+              <div style={modalStyles.tableWrap}>
                 <table style={modalStyles.table}>
                   <thead>
                     <tr>
-                      <th style={modalStyles.th}>Batch No</th>
+                      <th style={modalStyles.th}>Batch Number</th>
+                      <th style={modalStyles.th}>Stock</th>
+                      <th style={modalStyles.th}>Packaging</th>
+                      <th style={modalStyles.th}>Expiry Date</th>
                       <th style={modalStyles.th}>Source</th>
-                      <th style={modalStyles.th}>Available</th>
-                      <th style={modalStyles.th}>Expiry</th>
                       <th style={modalStyles.th}>Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {batches.map((batch) => (
-                      <tr key={batch.id}>
-                        <td style={modalStyles.td}>{batch.batch_no || "--"}</td>
-                        <td style={modalStyles.td}>
-                          {formatSourceLabel(batch.source_type)}
-                        </td>
-                        <td style={modalStyles.td}>{batch.quantity_available ?? 0}</td>
-                        <td style={modalStyles.td}>{formatDate(batch.expiration_date)}</td>
-                        <td style={modalStyles.td}>{batch.status || "--"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+                    {batches.map((batch) => {
+                      const batchStatus = getBatchStatus(batch);
+                      const batchPackaging =
+                        batch.inventory_item_stock_form?.packaging ||
+                        batch.stock_form_packaging ||
+                        "--";
 
-          <section style={modalStyles.sectionCard}>
-            <div style={{ marginBottom: "14px" }}>
-              <h4 style={{ margin: 0, color: "#17324d" }}>Related Transactions</h4>
-            </div>
-            {transactions.length === 0 ? (
-              <EmptyState compact message="No transactions yet." />
-            ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table style={modalStyles.table}>
-                  <thead>
-                    <tr>
-                      <th style={modalStyles.th}>Type</th>
-                      <th style={modalStyles.th}>Quantity</th>
-                      <th style={modalStyles.th}>Batch</th>
-                      <th style={modalStyles.th}>Performed By</th>
-                      <th style={modalStyles.th}>Date</th>
-                      <th style={modalStyles.th}>Remarks</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {transactions.map((transaction) => (
-                      <tr key={transaction.id}>
-                        <td style={modalStyles.td}>{transaction.transaction_type || "--"}</td>
-                        <td style={modalStyles.td}>{transaction.quantity ?? 0}</td>
-                        <td style={modalStyles.td}>{transaction.batch_no || "--"}</td>
-                        <td style={modalStyles.td}>
-                          {[transaction.performed_by_first_name, transaction.performed_by_last_name]
-                            .filter(Boolean)
-                            .join(" ") || "--"}
-                        </td>
-                        <td style={modalStyles.td}>{formatDateTime(transaction.performed_at)}</td>
-                        <td style={modalStyles.td}>{transaction.remarks || "--"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-
-          <section style={modalStyles.sectionCard}>
-            <div style={{ marginBottom: "14px" }}>
-              <h4 style={{ margin: 0, color: "#17324d" }}>Audit History</h4>
-            </div>
-            {auditHistory.length === 0 ? (
-              <EmptyState compact message="No audit history yet." />
-            ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table style={modalStyles.table}>
-                  <thead>
-                    <tr>
-                      <th style={modalStyles.th}>Action</th>
-                      <th style={modalStyles.th}>Performed By</th>
-                      <th style={modalStyles.th}>Role</th>
-                      <th style={modalStyles.th}>Timestamp</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {auditHistory.map((entry) => (
-                      <tr key={entry.id}>
-                        <td style={modalStyles.td}>{entry.action || "--"}</td>
-                        <td style={modalStyles.td}>{entry.actor_name || "--"}</td>
-                        <td style={modalStyles.td}>{entry.role_code || "--"}</td>
-                        <td style={modalStyles.td}>{formatDateTime(entry.created_at)}</td>
-                      </tr>
-                    ))}
+                      return (
+                        <tr key={batch.id}>
+                          <td style={modalStyles.td}>{batch.batch_no || "--"}</td>
+                          <td style={modalStyles.td}>
+                            {formatNumericValue(Number(batch.quantity_available || 0))}{" "}
+                            {item.unit_of_measure || "pc"}
+                          </td>
+                          <td style={modalStyles.td}>{batchPackaging}</td>
+                          <td style={modalStyles.td}>
+                            {formatDate(batch.expiration_date)}
+                          </td>
+                          <td style={modalStyles.td}>
+                            {formatSourceLabel(batch.source_type)}
+                          </td>
+                          <td style={modalStyles.td}>
+                            <span
+                              style={{
+                                ...modalStyles.badge,
+                                ...getBatchStatusStyle(batchStatus),
+                              }}
+                            >
+                              {batchStatus}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

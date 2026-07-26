@@ -1,4 +1,5 @@
 const inventoryBatchRepository = require("../repositories/inventoryBatch.repository");
+const inventoryItemStockFormRepository = require("../repositories/inventoryItemStockForm.repository");
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
 const systemLogRepository = require("../repositories/systemLog.repository");
 const mayorReportExport = require("../utils/mayorReportExport");
@@ -9,6 +10,7 @@ const mapInventoryBatch = (batch) => {
   return {
     id: batch.id,
     inventory_item_id: batch.inventory_item_id,
+    inventory_item_stock_form_id: batch.inventory_item_stock_form_id,
     batch_no: batch.batch_no,
     supplier_id: batch.supplier_id,
     source_type: batch.source_type,
@@ -31,6 +33,17 @@ const mapInventoryBatch = (batch) => {
       is_perishable: batch.is_perishable,
       is_active: batch.is_active,
     },
+    inventory_item_stock_form: batch.inventory_item_stock_form_id
+      ? {
+          id: batch.inventory_item_stock_form_id,
+          barcode: batch.stock_form_barcode,
+          packaging: batch.stock_form_packaging,
+          units_per_packaging: batch.stock_form_units_per_packaging,
+          unit_of_measure: batch.stock_form_unit_of_measure,
+          unit_of_measure_value: batch.stock_form_unit_of_measure_value,
+          is_active: batch.stock_form_is_active,
+        }
+      : null,
     supplier: batch.supplier_id
       ? {
           id: batch.supplier_id,
@@ -48,6 +61,7 @@ const mapInventoryBatch = (batch) => {
 const summarizeInventoryBatch = (batch) =>
   pickDefined(batch, [
     "inventory_item_id",
+    "inventory_item_stock_form_id",
     "batch_no",
     "supplier_id",
     "source_type",
@@ -78,6 +92,58 @@ const getInitialStatus = (expirationDate) => {
   }
 
   return "AVAILABLE";
+};
+
+const normalizeStockFormDefinition = (batchData, inventoryItem) => {
+  const packaging = String(
+    batchData.stock_form_packaging || inventoryItem.packaging || "piece",
+  )
+    .trim()
+    .toLowerCase();
+  const unitsPerPackaging = Number(
+    batchData.stock_form_units_per_packaging ??
+      (packaging === "piece" ? 1 : null),
+  );
+  const unitOfMeasure = String(
+    batchData.stock_form_unit_of_measure || inventoryItem.unit_of_measure || "pc",
+  ).trim();
+  const rawUnitValue =
+    batchData.stock_form_unit_of_measure_value ??
+    inventoryItem.unit_of_measure_value ??
+    null;
+  const unitOfMeasureValue =
+    rawUnitValue === null || rawUnitValue === undefined || rawUnitValue === ""
+      ? null
+      : Number(rawUnitValue);
+
+  if (!packaging) {
+    return null;
+  }
+
+  if (!Number.isInteger(unitsPerPackaging) || unitsPerPackaging <= 0) {
+    return null;
+  }
+
+  if (!unitOfMeasure) {
+    return null;
+  }
+
+  if (
+    unitOfMeasureValue !== null &&
+    (!Number.isFinite(unitOfMeasureValue) || unitOfMeasureValue <= 0)
+  ) {
+    return null;
+  }
+
+  return {
+    inventory_item_id: inventoryItem.id,
+    barcode: batchData.stock_form_barcode || null,
+    packaging,
+    units_per_packaging: unitsPerPackaging,
+    unit_of_measure: unitOfMeasure,
+    unit_of_measure_value: unitOfMeasureValue,
+    is_active: true,
+  };
 };
 
 const getInventoryBatches = async (filters) => {
@@ -182,6 +248,66 @@ const createInventoryBatch = async (batchData) => {
     }
   }
 
+  let resolvedStockFormId = batchData.inventory_item_stock_form_id || null;
+
+  if (resolvedStockFormId) {
+    const stockForm =
+      await inventoryItemStockFormRepository.getInventoryItemStockFormById(
+        resolvedStockFormId,
+      );
+
+    if (!stockForm) {
+      const error = new Error(
+        "inventory_item_stock_form_id does not refer to an existing stock form",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (String(stockForm.inventory_item_id) !== String(batchData.inventory_item_id)) {
+      const error = new Error(
+        "inventory_item_stock_form_id does not belong to the selected inventory_item_id",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+  } else {
+    const stockForms =
+      await inventoryItemStockFormRepository.getInventoryItemStockFormsByItemId(
+        batchData.inventory_item_id,
+      );
+
+    const stockFormDefinition = normalizeStockFormDefinition(
+      batchData,
+      inventoryItem,
+    );
+
+    if (stockFormDefinition) {
+      const matchedStockForm =
+        await inventoryItemStockFormRepository.getInventoryItemStockFormByDefinition(
+          stockFormDefinition,
+        );
+
+      if (matchedStockForm) {
+        resolvedStockFormId = matchedStockForm.id;
+      } else {
+        const createdStockForm =
+          await inventoryItemStockFormRepository.insertInventoryItemStockForm(
+            stockFormDefinition,
+          );
+        resolvedStockFormId = createdStockForm.id;
+      }
+    } else if (stockForms.length === 1) {
+      resolvedStockFormId = stockForms[0].id;
+    } else if (stockForms.length > 1) {
+      const error = new Error(
+        "inventory_item_stock_form_id is required when the item has multiple stock forms",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+
   const existingBatch =
     await inventoryBatchRepository.getInventoryBatchByItemIdAndBatchNo(
       batchData.inventory_item_id,
@@ -196,6 +322,7 @@ const createInventoryBatch = async (batchData) => {
 
   const createdBatch = await inventoryBatchRepository.insertInventoryBatch({
     ...batchData,
+    inventory_item_stock_form_id: resolvedStockFormId,
     quantity_available: batchData.quantity_received,
     status: getInitialStatus(batchData.expiration_date),
   });

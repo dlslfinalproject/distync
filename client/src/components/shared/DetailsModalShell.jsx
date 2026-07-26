@@ -1,5 +1,6 @@
 import React from "react";
 import { pageHeaderStyles } from "../layout/PageHeader";
+import { FiX } from "react-icons/fi";
 
 const overlayStyles = {
   position: "fixed",
@@ -30,6 +31,9 @@ const DetailsModalShell = ({
   children,
   onClose,
   maxWidth = "960px",
+  titleStyle = null,
+  closeMode = "button",
+  panelStyle = null,
 }) => {
   if (!isOpen) {
     return null;
@@ -41,6 +45,7 @@ const DetailsModalShell = ({
         style={{
           ...modalStyles,
           maxWidth,
+          ...(panelStyle || null),
         }}
       >
         <div
@@ -52,7 +57,14 @@ const DetailsModalShell = ({
           }}
         >
           <div>
-            <h3 style={{ margin: 0, color: "#17324d", fontSize: "24px" }}>
+            <h3
+              style={{
+                margin: 0,
+                color: "#17324d",
+                fontSize: "24px",
+                ...titleStyle,
+              }}
+            >
               {title}
             </h3>
             {description ? (
@@ -68,13 +80,31 @@ const DetailsModalShell = ({
               </p>
             ) : null}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            style={pageHeaderStyles.secondaryButton}
-          >
-            Close
-          </button>
+          {closeMode === "icon" ? (
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                ...pageHeaderStyles.secondaryButton,
+                minWidth: "44px",
+                width: "44px",
+                height: "44px",
+                padding: 0,
+                borderRadius: "14px",
+              }}
+              aria-label="Close details"
+            >
+              <FiX />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onClose}
+              style={pageHeaderStyles.secondaryButton}
+            >
+              Close
+            </button>
+          )}
         </div>
 
         <div style={{ marginTop: "20px" }}>{children}</div>

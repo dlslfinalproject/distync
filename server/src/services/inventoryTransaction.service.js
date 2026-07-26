@@ -60,6 +60,7 @@ const mapInventoryTransaction = (transaction) => {
     inventory_batch: {
       id: transaction.inventory_batch_id,
       batch_no: transaction.batch_no,
+      inventory_item_stock_form_id: transaction.inventory_item_stock_form_id,
       status: transaction.batch_status,
       quantity_available: transaction.quantity_available,
     },
@@ -68,6 +69,16 @@ const mapInventoryTransaction = (transaction) => {
       item_code: transaction.item_code,
       item_name: transaction.item_name,
     },
+    inventory_item_stock_form: transaction.inventory_item_stock_form_id
+      ? {
+          id: transaction.inventory_item_stock_form_id,
+          barcode: transaction.stock_form_barcode,
+          packaging: transaction.stock_form_packaging,
+          units_per_packaging: transaction.stock_form_units_per_packaging,
+          unit_of_measure: transaction.stock_form_unit_of_measure,
+          unit_of_measure_value: transaction.stock_form_unit_of_measure_value,
+        }
+      : null,
     performer: transaction.performed_by
       ? {
           id: transaction.performed_by,

@@ -19,7 +19,7 @@ const scanModalOverlayStyle = {
 };
 
 const scanModalStyle = {
-  width: "min(720px, 100%)",
+  width: "min(860px, 100%)",
   maxHeight: "90vh",
   overflowY: "auto",
   backgroundColor: "#eef5fb",
@@ -192,34 +192,43 @@ const getFirstPositiveNumber = (values) => {
   return null;
 };
 
-const getUnitsPerPackageValue = (item) => {
-  if (getNormalizedInventoryText(item?.packaging) === "piece") {
+const getUnitsPerPackageValue = (itemOrStockForm) => {
+  if (getNormalizedInventoryText(itemOrStockForm?.packaging) === "piece") {
     return 1;
   }
 
   const isMeasurementBased = getNormalizedInventoryText(
-    item?.tracking_method,
+    itemOrStockForm?.tracking_method,
   ).includes("measurement");
 
   const candidateValues = isMeasurementBased
     ? [
-        item?.unit_of_measure_value,
-        item?.quantity,
-        item?.units_per_package,
-        item?.quantity_per_package,
+        itemOrStockForm?.unit_of_measure_value,
+        itemOrStockForm?.units_per_package,
+        itemOrStockForm?.quantity_per_package,
+        itemOrStockForm?.units_per_packaging,
+        itemOrStockForm?.quantity_per_packaging,
+        itemOrStockForm?.quantity,
       ]
     : [
-        item?.quantity,
-        item?.units_per_package,
-        item?.quantity_per_package,
-        item?.unit_of_measure_value,
+        itemOrStockForm?.units_per_package,
+        itemOrStockForm?.quantity_per_package,
+        itemOrStockForm?.units_per_packaging,
+        itemOrStockForm?.quantity_per_packaging,
+        itemOrStockForm?.quantity,
+        itemOrStockForm?.unit_of_measure_value,
       ];
 
   return getFirstPositiveNumber(candidateValues) || 1;
 };
 
-const getItemUnitLabel = (item) => {
-  return item?.unit_of_measure || item?.base_unit || "pc";
+const getItemUnitLabel = (item, stockForm = null) => {
+  return (
+    stockForm?.unit_of_measure ||
+    item?.unit_of_measure ||
+    item?.base_unit ||
+    "pc"
+  );
 };
 
 const getTrackingMethodLabel = (item) => {
@@ -239,14 +248,14 @@ const isPerishableInventoryItem = (item) => {
   );
 };
 
-const getCalculatedAddedStock = (scanForm, item) => {
+const getCalculatedAddedStock = (scanForm, item, stockForm = null) => {
   const packageCount = Number(scanForm.quantityOnHand || 0);
 
   if (!Number.isFinite(packageCount) || packageCount <= 0) {
     return 0;
   }
 
-  return packageCount * getUnitsPerPackageValue(item);
+  return packageCount * getUnitsPerPackageValue(stockForm || item);
 };
 
 const isBlank = (value) => String(value ?? "").trim() === "";
@@ -272,6 +281,7 @@ const InventoryItemScanModal = ({
   isOpen,
   scanForm,
   matchedItem,
+  matchedStockForm,
   matchedItemName,
   currentStock = 0,
   generatedBatchNumber = "",
@@ -310,10 +320,10 @@ const InventoryItemScanModal = ({
   const trimmedBarcode = normalizeBarcodeInput(scanForm.barcodeNumber);
   const hasMatchedItem = Boolean(matchedItem?.id);
   const isPerishable = isPerishableInventoryItem(matchedItem);
-  const unitLabel = getItemUnitLabel(matchedItem);
-  const unitsPerPackage = getUnitsPerPackageValue(matchedItem);
+  const unitLabel = getItemUnitLabel(matchedItem, matchedStockForm);
+  const unitsPerPackage = getUnitsPerPackageValue(matchedStockForm || matchedItem);
   const totalAddedStock = hasMatchedItem
-    ? getCalculatedAddedStock(scanForm, matchedItem)
+    ? getCalculatedAddedStock(scanForm, matchedItem, matchedStockForm)
     : 0;
   const generatedBatchDisplay =
     generatedBatchNumber || "Auto-generated after saving";
@@ -448,7 +458,7 @@ const InventoryItemScanModal = ({
 
                 {matchedItemName && (
                   <p style={styles.feedbackText}>
-                    Existing item found: {matchedItemName}
+                    Existing item found: <strong>{matchedItemName}</strong>
                   </p>
                 )}
 
@@ -473,7 +483,7 @@ const InventoryItemScanModal = ({
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "2fr 1fr",
+                    gridTemplateColumns: "repeat(3, minmax(180px, 1fr))",
                     gap: "18px",
                   }}
                 >
@@ -491,7 +501,9 @@ const InventoryItemScanModal = ({
                     <label style={scanModalLabelStyle}>Barcode</label>
                     <input
                       type="text"
-                      value={formatValue(matchedItem.barcode || trimmedBarcode)}
+                      value={formatValue(
+                        matchedStockForm?.barcode || matchedItem.barcode || trimmedBarcode,
+                      )}
                       readOnly
                       style={scanModalLockedInputStyle}
                     />
@@ -531,7 +543,9 @@ const InventoryItemScanModal = ({
                     <label style={scanModalLabelStyle}>Packaging</label>
                     <input
                       type="text"
-                      value={formatLabel(matchedItem.packaging)}
+                      value={formatLabel(
+                        matchedStockForm?.packaging || matchedItem.packaging,
+                      )}
                       readOnly
                       style={scanModalLockedInputStyle}
                     />

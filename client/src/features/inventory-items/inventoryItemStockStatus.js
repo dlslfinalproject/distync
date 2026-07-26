@@ -67,6 +67,7 @@ export const createEmptyTrackingStats = () => ({
   distributed: 0,
   expired: 0,
   expiredOnHand: 0,
+  nearExpiryOnHand: 0,
   damaged: 0,
   missing: 0,
   spoiled: 0,
@@ -111,10 +112,15 @@ export const buildInventoryTrackingMap = (
 
       if (isItemExpiring({ expiration_date: batch.expiration_date })) {
         tracking.hasExpiringStock = true;
+        tracking.nearExpiryOnHand += normalizeQuantity(batch.quantity_available);
       }
 
       if (isDateExpired(batch.expiration_date)) {
         tracking.expiredOnHand += normalizeQuantity(batch.quantity_available);
+        tracking.nearExpiryOnHand = Math.max(
+          0,
+          tracking.nearExpiryOnHand - normalizeQuantity(batch.quantity_available),
+        );
       }
     }
   });
@@ -206,6 +212,13 @@ export const getItemStatusStyle = (status) => {
     return {
       background: "#ede9fe",
       color: "#6d28d9",
+    };
+  }
+
+  if (status === "Depleted") {
+    return {
+      background: "#e5e7eb",
+      color: "#4b5563",
     };
   }
 

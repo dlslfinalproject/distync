@@ -2,13 +2,20 @@ const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const allowedUnitOfMeasureValues = ["kg", "g", "L", "mL", "pc"];
-const allowedPackagingValues = ["sack", "box", "carton", "case", "pack", "bottle"];
+const allowedPackagingValues = ["piece", "sack", "box", "carton", "case", "pack", "bottle"];
 const categoryValueMap = {
   perishable: "Perishable",
   "non-perishable": "Non-Perishable",
 };
 const allowedExportFormats = ["pdf", "excel", "csv"];
-const allowedStatusFilters = ["All", "Active", "Inactive", "Expiring"];
+const allowedStatusFilters = [
+  "All",
+  "Available",
+  "Low Stock",
+  "Near Expiry",
+  "Expired",
+  "Depleted",
+];
 const allowedConditionReportTypes = [
   "LOW_STOCK",
   "NEAR_EXPIRY",
@@ -233,7 +240,8 @@ const validateExportInventoryItems = (req, res, next) => {
 
     if (!normalizedStatus) {
       return res.status(400).json({
-        message: "status must be one of: All, Active, Inactive, Expiring",
+        message:
+          "status must be one of: All, Available, Low Stock, Near Expiry, Expired, Depleted",
       });
     }
 

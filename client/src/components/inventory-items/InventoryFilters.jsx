@@ -3,13 +3,19 @@ import SearchBar from "../shared/SearchBar";
 
 const COLORS = {
   primary: "#17324d",
-  muted: "#5f7892",
-  border: "#c6d8ea",
-  softPanel: "#f8fbfe",
+  border: "#c7d6e5",
+  white: "#ffffff",
 };
 
 const categoryOptions = ["All", "Perishable", "Non-Perishable"];
-const stockStatusOptions = ["All", "Low Stock", "Near Expiry", "Expired"];
+const stockStatusOptions = [
+  "All",
+  "Available",
+  "Low Stock",
+  "Near Expiry",
+  "Expired",
+  "Depleted",
+];
 
 const styles = {
   controlsGroup: {
@@ -24,51 +30,29 @@ const styles = {
     flex: "1 1 420px",
     minWidth: "260px",
   },
-  inlineSelectGroup: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    flex: "0 0 auto",
-  },
-  inlineSelectLabel: {
-    color: COLORS.primary,
-    fontSize: "14px",
-    fontWeight: 800,
-  },
-  inlineSelect: {
-    minWidth: "180px",
-    minHeight: "48px",
-    border: `1px solid ${COLORS.border}`,
-    borderRadius: "14px",
-    padding: "0 14px",
-    background: COLORS.softPanel,
-    color: COLORS.primary,
-    fontSize: "14px",
-    outline: "none",
-    boxSizing: "border-box",
-  },
   inlineSelectWrap: {
     display: "flex",
     alignItems: "center",
-    gap: "10px",
+    gap: "8px",
     flex: "0 0 auto",
   },
   inlineSelectLabel: {
     color: COLORS.primary,
     fontSize: "14px",
-    fontWeight: 800,
+    fontWeight: 700,
   },
   inlineSelect: {
-    minWidth: "180px",
-    minHeight: "48px",
+    minWidth: "120px",
     border: `1px solid ${COLORS.border}`,
-    borderRadius: "14px",
-    padding: "0 14px",
-    background: COLORS.softPanel,
+    borderRadius: "12px",
+    padding: "10px 12px",
+    background: COLORS.white,
     color: COLORS.primary,
     fontSize: "14px",
+    fontWeight: 600,
     outline: "none",
     boxSizing: "border-box",
+    appearance: "auto",
   },
 };
 
@@ -83,11 +67,11 @@ const InventoryFilters = ({ filters, onFilterChange }) => {
         <SearchBar
           value={filters.search}
           onChange={(value) => onFilterChange("search", value)}
-          placeholder="Search item name, code, or barcode"
+          placeholder="Search item name, barcode, packaging, or code"
         />
       </div>
 
-      <div style={styles.inlineSelectGroup}>
+      <div style={styles.inlineSelectWrap}>
         <label
           htmlFor="inventory-category-filter"
           style={styles.inlineSelectLabel}

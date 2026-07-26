@@ -113,6 +113,12 @@ const validateCreateInventoryBatch = (req, res, next) => {
   try {
     const {
       inventory_item_id,
+      inventory_item_stock_form_id,
+      stock_form_barcode,
+      stock_form_packaging,
+      stock_form_units_per_packaging,
+      stock_form_unit_of_measure,
+      stock_form_unit_of_measure_value,
       batch_no,
       supplier_id,
       source_type,
@@ -125,6 +131,70 @@ const validateCreateInventoryBatch = (req, res, next) => {
     if (!isValidUuid(inventory_item_id)) {
       return res.status(400).json({
         message: "inventory_item_id is required and must be a valid UUID",
+      });
+    }
+
+    if (
+      inventory_item_stock_form_id !== undefined &&
+      inventory_item_stock_form_id !== null &&
+      !isValidUuid(inventory_item_stock_form_id)
+    ) {
+      return res.status(400).json({
+        message: "inventory_item_stock_form_id must be a valid UUID or null",
+      });
+    }
+
+    if (
+      stock_form_barcode !== undefined &&
+      stock_form_barcode !== null &&
+      typeof stock_form_barcode !== "string"
+    ) {
+      return res.status(400).json({
+        message: "stock_form_barcode must be a string or null",
+      });
+    }
+
+    if (
+      stock_form_packaging !== undefined &&
+      stock_form_packaging !== null &&
+      (typeof stock_form_packaging !== "string" || !stock_form_packaging.trim())
+    ) {
+      return res.status(400).json({
+        message: "stock_form_packaging must be a non-empty string when provided",
+      });
+    }
+
+    if (
+      stock_form_units_per_packaging !== undefined &&
+      stock_form_units_per_packaging !== null &&
+      (!Number.isInteger(stock_form_units_per_packaging) ||
+        stock_form_units_per_packaging <= 0)
+    ) {
+      return res.status(400).json({
+        message: "stock_form_units_per_packaging must be a positive integer or null",
+      });
+    }
+
+    if (
+      stock_form_unit_of_measure !== undefined &&
+      stock_form_unit_of_measure !== null &&
+      (typeof stock_form_unit_of_measure !== "string" ||
+        !stock_form_unit_of_measure.trim())
+    ) {
+      return res.status(400).json({
+        message: "stock_form_unit_of_measure must be a non-empty string when provided",
+      });
+    }
+
+    if (
+      stock_form_unit_of_measure_value !== undefined &&
+      stock_form_unit_of_measure_value !== null &&
+      (!Number.isFinite(Number(stock_form_unit_of_measure_value)) ||
+        Number(stock_form_unit_of_measure_value) <= 0)
+    ) {
+      return res.status(400).json({
+        message:
+          "stock_form_unit_of_measure_value must be a positive number or null",
       });
     }
 
@@ -180,6 +250,23 @@ const validateCreateInventoryBatch = (req, res, next) => {
 
     req.validatedBody = {
       inventory_item_id,
+      inventory_item_stock_form_id: inventory_item_stock_form_id ?? null,
+      stock_form_barcode:
+        typeof stock_form_barcode === "string" && stock_form_barcode.trim()
+          ? stock_form_barcode.trim()
+          : null,
+      stock_form_packaging:
+        typeof stock_form_packaging === "string" && stock_form_packaging.trim()
+          ? stock_form_packaging.trim()
+          : null,
+      stock_form_units_per_packaging: stock_form_units_per_packaging ?? null,
+      stock_form_unit_of_measure:
+        typeof stock_form_unit_of_measure === "string" &&
+        stock_form_unit_of_measure.trim()
+          ? stock_form_unit_of_measure.trim()
+          : null,
+      stock_form_unit_of_measure_value:
+        stock_form_unit_of_measure_value ?? null,
       batch_no: batch_no.trim(),
       supplier_id: supplier_id ?? null,
       source_type,

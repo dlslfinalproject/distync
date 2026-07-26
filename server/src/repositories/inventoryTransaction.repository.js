@@ -14,17 +14,25 @@ const baseSelectQuery = `
     it.remarks,
     it.created_at,
     ib.batch_no,
+    ib.inventory_item_stock_form_id,
     ib.status AS batch_status,
     ib.quantity_available,
     ib.expiration_date,
     ii.id AS inventory_item_id,
     ii.item_code,
     ii.item_name,
+    stock_forms.barcode AS stock_form_barcode,
+    stock_forms.packaging AS stock_form_packaging,
+    stock_forms.units_per_packaging AS stock_form_units_per_packaging,
+    stock_forms.unit_of_measure AS stock_form_unit_of_measure,
+    stock_forms.unit_of_measure_value AS stock_form_unit_of_measure_value,
     u.first_name AS performed_by_first_name,
     u.last_name AS performed_by_last_name
   FROM inventory_transactions it
   INNER JOIN inventory_batches ib ON ib.id = it.inventory_batch_id
   INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
+  LEFT JOIN inventory_item_stock_forms stock_forms
+    ON stock_forms.id = ib.inventory_item_stock_form_id
   LEFT JOIN users u ON u.id = it.performed_by
 `;
 
@@ -97,6 +105,7 @@ const getInventoryBatchByIdForUpdate = async (id, dbClient) => {
     SELECT
       ib.id,
       ib.inventory_item_id,
+      ib.inventory_item_stock_form_id,
       ib.batch_no,
       ib.quantity_received,
       ib.quantity_available,
@@ -105,11 +114,18 @@ const getInventoryBatchByIdForUpdate = async (id, dbClient) => {
       ii.item_code,
       ii.item_name,
       ii.category,
-      ii.unit_of_measure
+      ii.unit_of_measure,
+      stock_forms.barcode AS stock_form_barcode,
+      stock_forms.packaging AS stock_form_packaging,
+      stock_forms.units_per_packaging AS stock_form_units_per_packaging,
+      stock_forms.unit_of_measure AS stock_form_unit_of_measure,
+      stock_forms.unit_of_measure_value AS stock_form_unit_of_measure_value
     FROM inventory_batches ib
     INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
+    LEFT JOIN inventory_item_stock_forms stock_forms
+      ON stock_forms.id = ib.inventory_item_stock_form_id
     WHERE ib.id = $1
-    FOR UPDATE
+    FOR UPDATE OF ib
   `;
 
   const result = await dbClient.query(query, [id]);

@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
+const inventoryItemStockFormRepository = require("../repositories/inventoryItemStockForm.repository");
 const inventoryBatchRepository = require("../repositories/inventoryBatch.repository");
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
 const forecastRepository = require("../repositories/forecast.repository");
@@ -62,77 +63,6 @@ const ensureUniqueFields = async (itemData, currentItemId = null) => {
   }
 };
 
-const isItemExpiring = (item) => {
-  if (!item.expiration_date) {
-    return false;
-  }
-
-  const expirationDate = new Date(item.expiration_date);
-  const comparisonDate = new Date();
-
-  expirationDate.setHours(0, 0, 0, 0);
-  comparisonDate.setHours(0, 0, 0, 0);
-
-  if (Number.isNaN(expirationDate.getTime())) {
-    return false;
-  }
-
-  const millisecondsUntilExpiration =
-    expirationDate.getTime() - comparisonDate.getTime();
-  const daysUntilExpiration = millisecondsUntilExpiration / (1000 * 60 * 60 * 24);
-
-  return daysUntilExpiration >= 0 && daysUntilExpiration <= 30;
-};
-
-const getItemStatus = (item) => {
-  if (!item.is_active) {
-    return "Inactive";
-  }
-
-  if (isItemExpiring(item)) {
-    return "Expiring";
-  }
-
-  return "Active";
-};
-
-const filterInventoryItemsByStatus = (items, selectedStatus) => {
-  if (!selectedStatus || selectedStatus === "All") {
-    return items;
-  }
-
-  return items.filter((item) => getItemStatus(item) === selectedStatus);
-};
-
-const formatPlural = (value, label) => {
-  return `${value} ${label}${Number(value) > 1 ? "s" : ""}`;
-};
-
-const formatItemQuantity = (item) => {
-  const packagingPart =
-    item.packaging_count && item.packaging
-      ? formatPlural(item.packaging_count, item.packaging)
-      : item.packaging || "--";
-  const unitPart =
-    item.unit_of_measure_value && item.unit_of_measure
-      ? `${item.unit_of_measure_value} ${item.unit_of_measure}`
-      : item.unit_of_measure || "--";
-
-  if (item.quantity) {
-    return `${packagingPart} | ${item.quantity} per packaging | ${unitPart}`;
-  }
-
-  return `${packagingPart} | ${unitPart}`;
-};
-
-const mapInventoryItemToExportRow = (item) => ({
-  item_name: item.item_name || "--",
-  category: item.category || "--",
-  quantity: formatItemQuantity(item),
-  expiration_date: inventoryItemExport.formatDate(item.expiration_date),
-  status: getItemStatus(item),
-});
-
 const summarizeInventoryItem = (item) =>
   pickDefined(item, [
     "item_code",
@@ -147,6 +77,17 @@ const summarizeInventoryItem = (item) =>
     "expiration_date",
     "barcode",
     "is_perishable",
+    "is_active",
+  ]);
+
+const summarizeInventoryItemStockForm = (stockForm) =>
+  pickDefined(stockForm, [
+    "inventory_item_id",
+    "barcode",
+    "packaging",
+    "units_per_packaging",
+    "unit_of_measure",
+    "unit_of_measure_value",
     "is_active",
   ]);
 
@@ -205,6 +146,26 @@ const buildOpeningBatchNumber = (itemCode) => {
 
   return `${normalizedItemCode}-OPEN-${timestamp}`;
 };
+
+const getUnitsPerPackagingValue = (itemData) => {
+  const parsedValue = Number(itemData.quantity || 0);
+
+  if (Number.isInteger(parsedValue) && parsedValue > 0) {
+    return parsedValue;
+  }
+
+  return 1;
+};
+
+const buildStockFormPayloadFromItem = (item, itemData = item) => ({
+  inventory_item_id: item.id,
+  barcode: itemData.barcode || null,
+  packaging: itemData.packaging || "piece",
+  units_per_packaging: getUnitsPerPackagingValue(itemData),
+  unit_of_measure: itemData.unit_of_measure || item.unit_of_measure,
+  unit_of_measure_value: itemData.unit_of_measure_value || null,
+  is_active: itemData.is_active ?? item.is_active ?? true,
+});
 
 const inferCategoryFromLookup = (lookupPayload) => {
   const categoryText = [
@@ -409,7 +370,17 @@ const buildInventoryConditionRows = async ({
 };
 
 const getInventoryItems = async (filters) => {
-  return inventoryItemRepository.getInventoryItems(filters);
+  const inventoryItems = await inventoryItemRepository.getInventoryItems(filters);
+
+  return Promise.all(
+    inventoryItems.map(async (item) => ({
+      ...item,
+      stock_forms:
+        await inventoryItemStockFormRepository.getInventoryItemStockFormsByItemId(
+          item.id,
+        ),
+    })),
+  );
 };
 
 const lookupInventoryItemByBarcode = async (barcode) => {
@@ -459,11 +430,183 @@ const lookupInventoryItemByBarcode = async (barcode) => {
 };
 
 const exportInventoryItems = async (filters) => {
-  const inventoryItems = await inventoryItemRepository.getInventoryItems(filters);
-  const exportRows = filterInventoryItemsByStatus(
-    inventoryItems,
-    filters.status,
-  ).map(mapInventoryItemToExportRow);
+  const [inventoryItems, inventoryBatches] = await Promise.all([
+    inventoryItemRepository.getInventoryItems({
+      ...filters,
+      search: null,
+    }),
+    inventoryBatchRepository.getInventoryBatches({}),
+  ]);
+
+  const itemMap = new Map(
+    inventoryItems.map((item) => [String(item.id), item]),
+  );
+  const batchesByItemId = inventoryBatches.reduce((lookup, batch) => {
+    const itemId = String(batch.inventory_item_id || "");
+
+    if (!itemMap.has(itemId)) {
+      return lookup;
+    }
+
+    if (!lookup.has(itemId)) {
+      lookup.set(itemId, []);
+    }
+
+    lookup.get(itemId).push(batch);
+    return lookup;
+  }, new Map());
+
+  const normalizeText = (value) => String(value || "").trim().toLowerCase();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const inferTrackingMethodLabel = (item, batch) => {
+    const unitOfMeasure = item?.unit_of_measure || batch?.stock_form_unit_of_measure || "";
+    const unitOfMeasureValue = Number(
+      item?.unit_of_measure_value || batch?.stock_form_unit_of_measure_value || 0,
+    );
+
+    if (unitOfMeasureValue > 0 && normalizeText(unitOfMeasure) !== "pc") {
+      return "Weight/Volume-Based";
+    }
+
+    return "Count-Based";
+  };
+
+  const formatSourceLabel = (sourceType) => {
+    const normalizedSource = String(sourceType || "").trim().toUpperCase();
+
+    if (!normalizedSource || normalizedSource === "LGU") {
+      return "Malvar LGU";
+    }
+
+    if (normalizedSource === "DONATED") {
+      return "Donated";
+    }
+
+    if (normalizedSource === "DSWD") {
+      return "DSWD";
+    }
+
+    if (normalizedSource === "PURCHASED") {
+      return "Purchased";
+    }
+
+    return normalizedSource
+      .split("_")
+      .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+      .join(" ");
+  };
+
+  const getBatchStatus = (batch, itemTotalStock, reorderLevel) => {
+    const quantityAvailable = Number(batch?.quantity_available || 0);
+
+    if (quantityAvailable <= 0) {
+      return "Depleted";
+    }
+
+    if (batch?.expiration_date) {
+      const expirationDate = new Date(batch.expiration_date);
+      expirationDate.setHours(0, 0, 0, 0);
+
+      if (!Number.isNaN(expirationDate.getTime())) {
+        if (expirationDate.getTime() <= today.getTime()) {
+          return "Expired";
+        }
+
+        const daysUntilExpiration =
+          (expirationDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
+
+        if (daysUntilExpiration > 0 && daysUntilExpiration <= 30) {
+          return "Near Expiry";
+        }
+      }
+    }
+
+    if (reorderLevel > 0 && itemTotalStock > 0 && itemTotalStock <= reorderLevel) {
+      return "Low Stock";
+    }
+
+    return "Available";
+  };
+
+  const searchTerm = normalizeText(filters.search);
+  const selectedStatus = String(filters.status || "All").trim().toLowerCase();
+
+  const exportRows = [...batchesByItemId.entries()].flatMap(([itemId, batches]) => {
+    const item = itemMap.get(itemId);
+
+    if (!item) {
+      return [];
+    }
+
+    const sortedBatches = [...batches].sort((leftBatch, rightBatch) => {
+      const leftTimestamp = new Date(
+        leftBatch?.received_at || leftBatch?.created_at || 0,
+      ).getTime();
+      const rightTimestamp = new Date(
+        rightBatch?.received_at || rightBatch?.created_at || 0,
+      ).getTime();
+
+      return leftTimestamp - rightTimestamp;
+    });
+
+    const itemTotalStock = sortedBatches.reduce((sum, batch) => {
+      return sum + Number(batch.quantity_available || 0);
+    }, 0);
+    const reorderLevel = Number(item.reorder_level || 0);
+
+    return sortedBatches
+      .map((batch) => {
+        const stockStatus = getBatchStatus(batch, itemTotalStock, reorderLevel);
+
+        return {
+          item_name: item.item_name || "--",
+          category: item.category || "--",
+          tracking_method: inferTrackingMethodLabel(item, batch),
+          barcode: batch?.stock_form_barcode || item?.barcode || "Not Applicable",
+          packaging:
+            batch?.stock_form_packaging || item?.packaging || "Not Applicable",
+          units_per_packaging:
+            Number(batch?.stock_form_units_per_packaging || item?.quantity || 0) ||
+            (normalizeText(batch?.stock_form_packaging || item?.packaging) === "piece"
+              ? 1
+              : "Not Applicable"),
+          unit_of_measure:
+            batch?.stock_form_unit_of_measure || item?.unit_of_measure || "pc",
+          batch_no: batch.batch_no || "--",
+          current_stock: `${Number(batch.quantity_available || 0)} ${item.unit_of_measure || "pc"}`,
+          reorder_level: reorderLevel > 0 ? reorderLevel : "Not Applicable",
+          expiration_date: inventoryItemExport.formatDate(batch.expiration_date),
+          source: formatSourceLabel(batch.source_type),
+          stock_status: stockStatus,
+        };
+      })
+      .filter((row) => {
+        const matchesStatus =
+          selectedStatus === "all" ||
+          normalizeText(row.stock_status) === selectedStatus;
+        const searchableValues = [
+          row.item_name,
+          row.category,
+          row.tracking_method,
+          row.barcode,
+          row.packaging,
+          row.units_per_packaging,
+          row.unit_of_measure,
+          row.batch_no,
+          row.current_stock,
+          row.expiration_date,
+          row.source,
+          row.stock_status,
+        ];
+        const matchesSearch =
+          !searchTerm ||
+          searchableValues.some((value) => normalizeText(value).includes(searchTerm));
+
+        return matchesStatus && matchesSearch;
+      });
+  });
 
   if (exportRows.length === 0) {
     const error = new Error(
@@ -642,6 +785,9 @@ const getInventoryItemDetail = async (id) => {
       current_stock: currentStock,
       low_stock_threshold: item.reorder_level ?? null,
     },
+    stock_forms: await inventoryItemStockFormRepository.getInventoryItemStockFormsByItemId(
+      id,
+    ),
     related_batches: relatedBatches,
     related_transactions: relatedTransactions,
     forecast_summary: forecastSummary,
@@ -664,6 +810,12 @@ const createInventoryItem = async (itemData, actor = null) => {
     const createdItem =
       await inventoryItemRepository.insertInventoryItem(inventoryItemToCreate, client);
 
+    const createdStockForm =
+      await inventoryItemStockFormRepository.insertInventoryItemStockForm(
+        buildStockFormPayloadFromItem(createdItem, inventoryItemToCreate),
+        client,
+      );
+
     if (itemData.skip_opening_stock) {
       await client.query("COMMIT");
 
@@ -676,6 +828,15 @@ const createInventoryItem = async (itemData, actor = null) => {
         newValues: summarizeInventoryItem(createdItem),
       });
 
+      await logAuditSafely({
+        actor,
+        action: "INVENTORY_ITEM_STOCK_FORM_CREATE",
+        entityType: "INVENTORY_ITEM_STOCK_FORM",
+        entityId: createdStockForm.id,
+        oldValues: {},
+        newValues: summarizeInventoryItemStockForm(createdStockForm),
+      });
+
       return createdItem;
     }
 
@@ -685,9 +846,10 @@ const createInventoryItem = async (itemData, actor = null) => {
     const createdBatch = await inventoryBatchRepository.insertInventoryBatch(
       {
         inventory_item_id: createdItem.id,
+        inventory_item_stock_form_id: createdStockForm.id,
         batch_no: buildOpeningBatchNumber(createdItem.item_code),
         supplier_id: null,
-        source_type: "OTHER",
+        source_type: "LGU",
         quantity_received: totalInitialQuantity,
         quantity_available: totalInitialQuantity,
         expiration_date: createdItem.expiration_date || null,
@@ -735,6 +897,15 @@ const createInventoryItem = async (itemData, actor = null) => {
 
     await logAuditSafely({
       actor,
+      action: "INVENTORY_ITEM_STOCK_FORM_CREATE",
+      entityType: "INVENTORY_ITEM_STOCK_FORM",
+      entityId: createdStockForm.id,
+      oldValues: {},
+      newValues: summarizeInventoryItemStockForm(createdStockForm),
+    });
+
+    await logAuditSafely({
+      actor,
       action: "INVENTORY_TRANSACTION_CREATE",
       entityType: "INVENTORY_TRANSACTION",
       entityId: createdTransaction.id,
@@ -771,6 +942,25 @@ const updateInventoryItem = async (id, itemData, actor = null) => {
     id,
     inventoryItemToUpdate,
   );
+
+  const existingStockForms =
+    await inventoryItemStockFormRepository.getInventoryItemStockFormsByItemId(id);
+  const primaryStockForm = existingStockForms[0] || null;
+  const nextStockFormPayload = buildStockFormPayloadFromItem(
+    updatedItem,
+    inventoryItemToUpdate,
+  );
+
+  if (primaryStockForm) {
+    await inventoryItemStockFormRepository.updateInventoryItemStockForm(
+      primaryStockForm.id,
+      nextStockFormPayload,
+    );
+  } else {
+    await inventoryItemStockFormRepository.insertInventoryItemStockForm(
+      nextStockFormPayload,
+    );
+  }
 
   await logAuditSafely({
     actor,

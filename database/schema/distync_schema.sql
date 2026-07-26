@@ -395,9 +395,27 @@ CREATE TABLE public.inventory_items (
   CONSTRAINT inventory_items_pkey PRIMARY KEY (id)
 );
 
+CREATE TABLE public.inventory_item_stock_forms (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  inventory_item_id uuid NOT NULL,
+  barcode character varying,
+  packaging character varying NOT NULL,
+  units_per_packaging integer NOT NULL CHECK (units_per_packaging > 0),
+  unit_of_measure character varying NOT NULL,
+  unit_of_measure_value numeric CHECK (unit_of_measure_value IS NULL OR unit_of_measure_value > 0::numeric),
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT inventory_item_stock_forms_pkey PRIMARY KEY (id),
+  CONSTRAINT inventory_item_stock_forms_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id),
+  CONSTRAINT inventory_item_stock_forms_barcode_key UNIQUE (barcode),
+  CONSTRAINT inventory_item_stock_forms_unique_packaging UNIQUE (inventory_item_id, packaging, units_per_packaging, unit_of_measure, unit_of_measure_value)
+);
+
 CREATE TABLE public.inventory_batches (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   inventory_item_id uuid NOT NULL,
+  inventory_item_stock_form_id uuid,
   batch_no character varying NOT NULL,
   supplier_id uuid,
   source_type character varying NOT NULL DEFAULT 'LGU'::character varying CHECK (source_type::text = ANY (ARRAY['PURCHASED'::character varying, 'DONATED'::character varying, 'DSWD'::character varying, 'LGU'::character varying, 'OTHER'::character varying]::text[])),
@@ -412,6 +430,7 @@ CREATE TABLE public.inventory_batches (
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT inventory_batches_pkey PRIMARY KEY (id),
   CONSTRAINT inventory_batches_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id),
+  CONSTRAINT inventory_batches_inventory_item_stock_form_id_fkey FOREIGN KEY (inventory_item_stock_form_id) REFERENCES public.inventory_item_stock_forms(id),
   CONSTRAINT inventory_batches_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES public.suppliers(id),
   CONSTRAINT inventory_batches_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id)
 );

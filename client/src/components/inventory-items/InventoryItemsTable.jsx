@@ -1,8 +1,8 @@
 import React from "react";
 import { FiAlertCircle, FiEdit2, FiEye } from "react-icons/fi";
-import { getTotalItemQuantity } from "../../features/inventory-items/inventoryItemFormatting";
-import { getItemStatusStyle } from "../../features/inventory-items/inventoryItemStockStatus";
+import { formatNumericValue } from "../../features/inventory-items/inventoryItemFormatting";
 import TableActionsMenu from "../shared/TableActionsMenu";
+import StatusPill from "../shared/StatusPill";
 
 const styles = {
   tableWrap: {
@@ -43,6 +43,8 @@ const styles = {
     textAlign: "left",
   },
   actionCell: {
+    width: "88px",
+    minWidth: "88px",
     textAlign: "center",
     whiteSpace: "nowrap",
   },
@@ -57,6 +59,26 @@ const styles = {
     color: "#5f7690",
     fontSize: "13px",
     textAlign: "left",
+  },
+  pillWrap: {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: "8px",
+  },
+  infoPill: {
+    display: "inline-block",
+    minWidth: "36px",
+    textAlign: "center",
+    padding: "6px 10px",
+    borderRadius: "999px",
+    fontSize: "12px",
+    fontWeight: 700,
+    backgroundColor: "#e5f1fb",
+    color: "#356592",
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
   },
   itemCellContent: {
     display: "flex",
@@ -73,76 +95,26 @@ const styles = {
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   },
-  shelfLifeText: {
-    color: "#21405f",
-    fontSize: "14px",
-    lineHeight: 1.5,
-    textAlign: "center",
-  },
-  statusPill: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "6px 12px",
-    borderRadius: "999px",
-    fontSize: "12px",
-    fontWeight: 700,
-    lineHeight: 1,
-  },
 };
 
 const tableHeaders = [
   "Item Name",
-  "Source",
-  "Quantity",
-  "Shelf Life",
-  "Minimum Stock Level",
-  "Status",
+  "Category",
+  "Total Stock",
+  "Stock Forms",
+  "Reorder Level",
+  "Stock Status",
   "Actions",
 ];
 
 const centeredHeaders = new Set([
-  "Quantity",
-  "Minimum Stock Level",
-  "Status",
+  "Category",
+  "Total Stock",
+  "Stock Forms",
+  "Reorder Level",
+  "Stock Status",
   "Actions",
 ]);
-
-const getShelfLifeDisplay = (expirationDate) => {
-  if (!expirationDate) {
-    return "--";
-  }
-
-  const today = new Date();
-  const comparisonDate = new Date(
-    today.getFullYear(),
-    today.getMonth(),
-    today.getDate(),
-  );
-  const parsedExpirationDate = new Date(expirationDate);
-
-  if (Number.isNaN(parsedExpirationDate.getTime())) {
-    return "--";
-  }
-
-  const targetDate = new Date(
-    parsedExpirationDate.getFullYear(),
-    parsedExpirationDate.getMonth(),
-    parsedExpirationDate.getDate(),
-  );
-
-  if (Number.isNaN(targetDate.getTime())) {
-    return "--";
-  }
-
-  const diffInDays = Math.ceil(
-    (targetDate.getTime() - comparisonDate.getTime()) / (1000 * 60 * 60 * 24),
-  );
-
-  const remainingDays = Math.max(diffInDays, 0);
-
-  return `${remainingDays} day${remainingDays === 1 ? "" : "s"}`;
-};
 
 const InventoryItemsTable = ({
   rows,
@@ -197,8 +169,12 @@ const InventoryItemsTable = ({
             </tr>
           ) : (
             rows.map((item, index) => {
-              const stockStatus = item.stock_status_label || "In Stock";
-              const stockStatusStyle = getItemStatusStyle(stockStatus);
+              const stockStatuses = Array.isArray(item.stock_statuses)
+                ? item.stock_statuses
+                : [{ key: item.stock_status_label || "Available", label: item.stock_status_label || "Available" }];
+              const stockForms = Array.isArray(item.stock_form_labels)
+                ? item.stock_form_labels
+                : [];
 
               const itemName =
                 item.item_name ??
@@ -211,33 +187,43 @@ const InventoryItemsTable = ({
                   <td style={{ ...styles.td, ...styles.leftCell }}>
                     <div style={styles.itemCellContent}>
                       <div style={styles.itemNameText}>{itemName}</div>
-                      <div style={styles.secondaryText}>
-                        {item.packaging ? `Packaging: ${item.packaging}` : "Packaging: --"}
-                      </div>
                     </div>
                   </td>
-                  <td style={styles.td}>{item.source_label || "--"}</td>
                   <td style={{ ...styles.td, ...styles.centerCell }}>
-                    {getTotalItemQuantity(item)}
+                    {item.category || "--"}
                   </td>
-                  <td style={styles.td}>
-                    <div style={styles.shelfLifeText}>
-                      {getShelfLifeDisplay(item.expiration_date)}
+                  <td style={{ ...styles.td, ...styles.centerCell }}>
+                    {formatNumericValue(Number(item.total_stock_on_hand || 0))}
+                  </td>
+                  <td style={{ ...styles.td, ...styles.centerCell }}>
+                    <div style={styles.pillWrap}>
+                      {stockForms.length === 0 ? (
+                        <span style={styles.infoPill}>--</span>
+                      ) : (
+                        stockForms.map((stockFormLabel) => (
+                          <span key={stockFormLabel} style={styles.infoPill}>
+                            {stockFormLabel}
+                          </span>
+                        ))
+                      )}
                     </div>
                   </td>
                   <td style={{ ...styles.td, ...styles.centerCell }}>
                     {item.reorder_level ?? "--"}
                   </td>
                   <td style={{ ...styles.td, ...styles.centerCell }}>
-                    <span
-                      style={{
-                        ...styles.statusPill,
-                        background: stockStatusStyle.background,
-                        color: stockStatusStyle.color,
-                      }}
-                    >
-                      {stockStatus}
-                    </span>
+                    <div style={styles.pillWrap}>
+                      {stockStatuses.map((stockStatus) => {
+                        return (
+                          <StatusPill
+                            key={`${item.id || index}-${stockStatus.key}`}
+                            status={stockStatus.key}
+                            label={stockStatus.label}
+                            style={{ fontSize: "12px" }}
+                          />
+                        );
+                      })}
+                    </div>
                   </td>
                   <td style={{ ...styles.td, ...styles.actionCell }}>
                     <TableActionsMenu
@@ -246,7 +232,7 @@ const InventoryItemsTable = ({
                       buttonTitle="Actions"
                       buttonAriaLabel="Actions"
                       dataPrefix="inventory-item-action"
-                      menuWidth={116}
+                      menuWidth={168}
                       variant="icon-grid"
                       items={[
                         {
@@ -258,19 +244,19 @@ const InventoryItemsTable = ({
                             onViewDetails?.(selectedRow.id),
                         },
                         {
-                          key: "status-log",
-                          label: "Log Status",
-                          icon: <FiAlertCircle size={18} />,
-                          disabled: typeof onLogStatus !== "function",
-                          onClick: (selectedRow) => onLogStatus?.(selectedRow),
-                        },
-                        {
                           key: "edit",
                           label: "Edit Item",
                           icon: <FiEdit2 size={18} />,
                           disabled: typeof onEditItem !== "function",
                           title: "Edit Item",
                           onClick: (selectedRow) => onEditItem?.(selectedRow),
+                        },
+                        {
+                          key: "status-log",
+                          label: "Log Status",
+                          icon: <FiAlertCircle size={18} />,
+                          disabled: typeof onLogStatus !== "function",
+                          onClick: (selectedRow) => onLogStatus?.(selectedRow),
                         },
                       ]}
                     />

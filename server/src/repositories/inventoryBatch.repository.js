@@ -4,6 +4,7 @@ const baseSelectQuery = `
   SELECT
     ib.id,
     ib.inventory_item_id,
+    ib.inventory_item_stock_form_id,
     ib.batch_no,
     ib.supplier_id,
     ib.source_type,
@@ -23,6 +24,12 @@ const baseSelectQuery = `
     ii.barcode,
     ii.is_perishable,
     ii.is_active,
+    stock_forms.barcode AS stock_form_barcode,
+    stock_forms.packaging AS stock_form_packaging,
+    stock_forms.units_per_packaging AS stock_form_units_per_packaging,
+    stock_forms.unit_of_measure AS stock_form_unit_of_measure,
+    stock_forms.unit_of_measure_value AS stock_form_unit_of_measure_value,
+    stock_forms.is_active AS stock_form_is_active,
     s.name AS supplier_name,
     s.contact_person AS supplier_contact_person,
     s.contact_number AS supplier_contact_number,
@@ -31,6 +38,8 @@ const baseSelectQuery = `
     s.notes AS supplier_notes
   FROM inventory_batches ib
   INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
+  LEFT JOIN inventory_item_stock_forms stock_forms
+    ON stock_forms.id = ib.inventory_item_stock_form_id
   LEFT JOIN suppliers s ON s.id = ib.supplier_id
 `;
 
@@ -140,6 +149,7 @@ const getInventoryBatchByItemIdAndBatchNo = async (inventoryItemId, batchNo) => 
     SELECT
       id,
       inventory_item_id,
+      inventory_item_stock_form_id,
       batch_no
     FROM inventory_batches
     WHERE inventory_item_id = $1
@@ -154,6 +164,7 @@ const insertInventoryBatch = async (batchData, dbClient = pool) => {
   const query = `
     INSERT INTO inventory_batches (
       inventory_item_id,
+      inventory_item_stock_form_id,
       batch_no,
       supplier_id,
       source_type,
@@ -168,11 +179,12 @@ const insertInventoryBatch = async (batchData, dbClient = pool) => {
       updated_at
     )
     VALUES (
-      $1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, NOW(), NOW()
+      $1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9, $10, $11, NOW(), NOW()
     )
     RETURNING
       id,
       inventory_item_id,
+      inventory_item_stock_form_id,
       batch_no,
       supplier_id,
       source_type,
@@ -189,6 +201,7 @@ const insertInventoryBatch = async (batchData, dbClient = pool) => {
 
   const values = [
     batchData.inventory_item_id,
+    batchData.inventory_item_stock_form_id,
     batchData.batch_no,
     batchData.supplier_id,
     batchData.source_type,

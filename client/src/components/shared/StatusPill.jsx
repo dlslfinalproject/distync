@@ -53,6 +53,46 @@ const getStatusPillStyles = (status) => {
     };
   }
 
+  if (normalizedStatus === "AVAILABLE") {
+    return {
+      backgroundColor: "#e8f3ff",
+      color: "#1f5f99",
+      border: "1px solid #c8dcf0",
+    };
+  }
+
+  if (normalizedStatus === "LOW STOCK") {
+    return {
+      backgroundColor: "#fff4db",
+      color: "#9a6700",
+      border: "1px solid #f2dfb2",
+    };
+  }
+
+  if (normalizedStatus === "NEAR EXPIRY") {
+    return {
+      backgroundColor: "#fdf0e3",
+      color: "#b45309",
+      border: "1px solid #f3d6b4",
+    };
+  }
+
+  if (normalizedStatus === "EXPIRED") {
+    return {
+      backgroundColor: "#f6ebeb",
+      color: "#9d4d58",
+      border: "1px solid #efd4d8",
+    };
+  }
+
+  if (normalizedStatus === "DEPLETED") {
+    return {
+      backgroundColor: "#eef2f6",
+      color: "#5f7288",
+      border: "1px solid #d7e2ef",
+    };
+  }
+
   return {
     backgroundColor: "#eef2f6",
     color: "#5f7288",

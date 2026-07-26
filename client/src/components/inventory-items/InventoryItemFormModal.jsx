@@ -72,6 +72,13 @@ const fieldErrorTextStyles = {
   lineHeight: 1.4,
 };
 
+const matchNoticeStyles = {
+  margin: "10px 0 0",
+  color: "#17324d",
+  fontSize: "13px",
+  fontWeight: 600,
+};
+
 const formFooterStyles = {
   display: "flex",
   alignItems: "center",
@@ -98,10 +105,20 @@ const footerActionsStyles = {
   flexWrap: "wrap",
 };
 
+const editFooterActionsStyles = {
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: "12px",
+  flexWrap: "wrap",
+};
+
 const unitOfMeasureOptions = ["kg", "g", "L", "mL", "pc"];
 const packagingOptions = ["piece", "pack", "box", "case", "carton", "sack", "bottle"];
 
 const weightOrVolumeUnits = new Set(["kg", "g", "L", "mL"]);
+
+const getNormalizedInventoryText = (value) =>
+  String(value || "").trim().toLowerCase();
 
 const normalizeCategoryValue = (category) => {
   if (typeof category !== "string") {
@@ -215,7 +232,10 @@ const formatComputedValue = (value) => {
 const InventoryItemFormModal = ({
   isOpen,
   mode,
+  source = "manual",
   itemData,
+  inventoryItems = [],
+  getCurrentStockForItem = null,
   isSubmitting,
   errorMessage,
   onClose,
@@ -224,9 +244,13 @@ const InventoryItemFormModal = ({
   const [formValues, setFormValues] = useState(createDefaultForm());
   const [fieldErrors, setFieldErrors] = useState({});
   const barcodeInputRef = useRef(null);
+  const previousMatchedItemKeyRef = useRef("");
+  const shouldShowBarcodeField = source === "scan" || mode === "edit";
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      return;
+    }
 
     if (itemData) {
       const resolvedUnitOfMeasure = itemData.unit_of_measure || itemData.unit || "";
@@ -241,11 +265,13 @@ const InventoryItemFormModal = ({
         category: normalizeCategoryValue(itemData.category),
         expiration_date: itemData.expiration_date ?? itemData.expiryDate ?? "",
         reorder_level: itemData.reorder_level ?? "",
-        tracking_method: inferTrackingMethod(resolvedUnitOfMeasure),
+        tracking_method:
+          itemData.tracking_method || inferTrackingMethod(resolvedUnitOfMeasure),
       });
     } else {
       setFormValues(createDefaultForm());
     }
+
     setFieldErrors({});
   }, [isOpen, itemData]);
 
@@ -255,12 +281,111 @@ const InventoryItemFormModal = ({
     }
 
     const focusTimer = window.setTimeout(() => {
-      barcodeInputRef.current?.focus();
-      barcodeInputRef.current?.select();
+      if (shouldShowBarcodeField) {
+        barcodeInputRef.current?.focus();
+        barcodeInputRef.current?.select();
+      }
     }, 50);
 
     return () => window.clearTimeout(focusTimer);
-  }, [isOpen]);
+  }, [isOpen, shouldShowBarcodeField]);
+
+  const trimmedBarcode = shouldShowBarcodeField ? formValues.barcode.trim() : "";
+  const trimmedItemName = formValues.item_name.trim();
+
+  const matchedExistingItem =
+    mode === "create" && trimmedItemName
+      ? inventoryItems.find((item) => {
+          const hasBarcodeStockForm = Array.isArray(item?.stock_forms)
+            ? item.stock_forms.some((stockForm) => String(stockForm?.barcode || "").trim())
+            : false;
+          const isSameItemName =
+            getNormalizedInventoryText(item?.item_name) ===
+            getNormalizedInventoryText(trimmedItemName);
+
+          if (!isSameItemName) {
+            return false;
+          }
+
+          if (source === "scan" && trimmedBarcode) {
+            return true;
+          }
+
+          return (
+            !String(item?.barcode || "").trim() &&
+            !hasBarcodeStockForm
+          );
+        }) || null
+      : null;
+
+  const isBarcodeStockFormMode =
+    source === "scan" && Boolean(trimmedBarcode) && Boolean(matchedExistingItem);
+  const isNameMatchedRestock = Boolean(matchedExistingItem);
+  const isRestockMode = mode === "create" && Boolean(matchedExistingItem);
+
+  useEffect(() => {
+    if (!isOpen || mode !== "create") {
+      previousMatchedItemKeyRef.current = "";
+      return;
+    }
+
+    const matchedItemKey = matchedExistingItem?.id || "";
+
+    if (previousMatchedItemKeyRef.current === matchedItemKey) {
+      return;
+    }
+
+    previousMatchedItemKeyRef.current = matchedItemKey;
+
+    if (!matchedExistingItem) {
+      return;
+    }
+
+    const resolvedUnitOfMeasure =
+      matchedExistingItem.unit_of_measure || matchedExistingItem.unit || "";
+    const resolvedTrackingMethod =
+      matchedExistingItem.tracking_method ||
+      inferTrackingMethod(resolvedUnitOfMeasure);
+
+    const defaultStockForm =
+      Array.isArray(matchedExistingItem.stock_forms) &&
+      matchedExistingItem.stock_forms.length > 0
+        ? matchedExistingItem.stock_forms[0]
+        : null;
+
+    setFormValues((prev) => ({
+      ...prev,
+      item_name: matchedExistingItem.item_name || prev.item_name,
+      barcode: isBarcodeStockFormMode
+        ? prev.barcode
+        : matchedExistingItem.barcode || prev.barcode,
+      category: normalizeCategoryValue(matchedExistingItem.category),
+      tracking_method: resolvedTrackingMethod,
+      unit_of_measure:
+        resolvedTrackingMethod === "Count-Based"
+          ? "pc"
+          : resolvedUnitOfMeasure || prev.unit_of_measure,
+      unit_of_measure_value:
+        matchedExistingItem.unit_of_measure_value || prev.unit_of_measure_value,
+      packaging:
+        defaultStockForm?.packaging ||
+        matchedExistingItem.packaging ||
+        prev.packaging,
+      quantity: String(
+        defaultStockForm?.units_per_packaging ||
+          matchedExistingItem.quantity ||
+          ((defaultStockForm?.packaging || matchedExistingItem.packaging) === "piece"
+            ? 1
+            : ""),
+      ),
+      reorder_level:
+        matchedExistingItem.reorder_level != null
+          ? String(matchedExistingItem.reorder_level)
+          : prev.reorder_level,
+      expiration_date: "",
+    }));
+    setFieldErrors({});
+  }, [isBarcodeStockFormMode, isOpen, matchedExistingItem, mode]);
 
   const handleChange = useCallback((fieldName, value) => {
     setFieldErrors((prev) => {
@@ -319,36 +444,92 @@ const InventoryItemFormModal = ({
     });
   }, []);
 
-  if (!isOpen) return null;
+  if (!isOpen) {
+    return null;
+  }
 
   const trackingMethod = formValues.tracking_method || "Count-Based";
+  const isEditMode = mode === "edit";
   const usesWeightOrVolume = isWeightOrVolumeBased(trackingMethod);
   const isPerishable = normalizeCategoryValue(formValues.category) === "perishable";
   const selectedPackagingLabel = formatPackagingLabel(formValues.packaging);
   const isPiecePackaging = formValues.packaging === "piece";
+  const shouldShowUnitsPerPackagingField = !isPiecePackaging;
   const unitValueLabel = usesWeightOrVolume
-    ? "Amount per Item"
-    : "Units per Item";
+    ? "Amount per Piece/Container"
+    : "Units per Packaging";
+  const unitValuePlaceholder = usesWeightOrVolume
+    ? `Example: 25 ${formValues.unit_of_measure || "kg"} per piece/container`
+    : "";
   const quantityFieldLabel = usesWeightOrVolume
-    ? `Items per ${selectedPackagingLabel}`
+    ? "Items per Package"
     : `Units per ${selectedPackagingLabel}`;
   const quantityFieldPlaceholder = usesWeightOrVolume
-    ? `Example: 1 item per ${formValues.packaging || "package"}`
+    ? `Example: 1 ${formValues.packaging || "package"} contains 1 item`
     : `Example: 12 pieces per ${formValues.packaging || "package"}`;
-  const computedTotalLabel = "Total Stock";
+  const quantityOnHandLabel = usesWeightOrVolume
+    ? "Packages Received"
+    : "Quantity on Hand";
+  const quantityOnHandPlaceholder = usesWeightOrVolume
+    ? formatPackagingExample(formValues.packaging).replace(
+        /^Example:\s*/i,
+        "Example: received ",
+      )
+    : formatPackagingExample(formValues.packaging);
+  const computedTotalLabel = usesWeightOrVolume
+    ? "Total Measured Stock"
+    : "Total Added Stock";
   const packageCountValue = parsePositiveNumberOrZero(formValues.packaging_count);
   const quantityPerPackageValue = getStockMultiplierValue(
     formValues,
-    isPiecePackaging
+    isPiecePackaging,
   );
   const computedTotalStock =
     packageCountValue > 0 && quantityPerPackageValue > 0
       ? packageCountValue * quantityPerPackageValue
       : 0;
   const hasComputedTotalInputs = packageCountValue > 0 && quantityPerPackageValue > 0;
-  const computedTotalDisplay = hasComputedTotalInputs
-    ? formatComputedValue(computedTotalStock)
-    : "";
+  const computedTotalUnit =
+    trackingMethod === "Count-Based"
+      ? formValues.unit_of_measure || "pc"
+      : formValues.unit_of_measure || "";
+  const titleText =
+    isEditMode
+      ? "Edit Inventory Item"
+      : isRestockMode
+        ? isBarcodeStockFormMode
+          ? "Add Barcode Stock Form"
+          : "Restock Existing Item"
+        : "Add Item";
+  const stockSectionTitle = isEditMode
+    ? "Item Settings"
+    : isRestockMode
+      ? "Restock Details"
+      : "Stock Details";
+  const matchedItemLabel = matchedExistingItem?.item_name || trimmedItemName;
+  const identityFieldStyles =
+    isRestockMode && !isEditMode ? lockedInputStyles : inputStyles;
+  const barcodeFieldStyles =
+    isEditMode || isBarcodeStockFormMode ? lockedInputStyles : inputStyles;
+  const packagingFieldStyles = isEditMode ? lockedInputStyles : inputStyles;
+  const quantityFieldStyles = isEditMode ? lockedInputStyles : inputStyles;
+  const reorderLevelFieldStyles = isRestockMode && !isEditMode
+    ? lockedInputStyles
+    : inputStyles;
+  const currentStockValue =
+    matchedExistingItem && typeof getCurrentStockForItem === "function"
+      ? Number(getCurrentStockForItem(matchedExistingItem) || 0)
+      : 0;
+  const currentStockUnit =
+    trackingMethod === "Count-Based"
+      ? matchedExistingItem?.unit_of_measure || formValues.unit_of_measure || "pc"
+      : matchedExistingItem?.unit_of_measure || formValues.unit_of_measure || "";
+  const currentStockDisplay = `${formatComputedValue(currentStockValue)}${
+    currentStockUnit ? ` ${currentStockUnit}` : ""
+  }`;
+  const computedTotalDisplay = `${formatComputedValue(
+    hasComputedTotalInputs ? computedTotalStock : 0,
+  )}${computedTotalUnit ? ` ${computedTotalUnit}` : ""}`;
 
   const validateFormValues = (values) => {
     const nextErrors = {};
@@ -375,14 +556,15 @@ const InventoryItemFormModal = ({
       nextErrors.unit_of_measure = "Unit of measure is required.";
     }
 
-    if (resolvedUsesWeightOrVolume) {
-      if (isBlank(values.unit_of_measure_value)) {
-        nextErrors.unit_of_measure_value = "Amount per item is required.";
-      } else if (!isPositiveNumber(values.unit_of_measure_value)) {
+      if (resolvedUsesWeightOrVolume) {
+        if (isBlank(values.unit_of_measure_value)) {
         nextErrors.unit_of_measure_value =
-          "Amount per item must be greater than 0.";
+          "Amount per piece/container is required.";
+        } else if (!isPositiveNumber(values.unit_of_measure_value)) {
+          nextErrors.unit_of_measure_value =
+          "Amount per piece/container must be greater than 0.";
+        }
       }
-    }
 
     if (isBlank(values.packaging)) {
       nextErrors.packaging = "Packaging is required.";
@@ -398,15 +580,16 @@ const InventoryItemFormModal = ({
       if (isBlank(values.quantity)) {
         nextErrors.quantity = "Units per packaging is required.";
       } else if (!isPositiveNumber(values.quantity)) {
-        nextErrors.quantity =
-          "Units per packaging must be greater than 0.";
+        nextErrors.quantity = "Units per packaging must be greater than 0.";
       }
     }
 
-    if (isBlank(values.reorder_level)) {
-      nextErrors.reorder_level = "Reorder level is required.";
-    } else if (!isPositiveNumber(values.reorder_level)) {
-      nextErrors.reorder_level = "Reorder level must be greater than 0.";
+    if (!isRestockMode || isEditMode) {
+      if (isBlank(values.reorder_level)) {
+        nextErrors.reorder_level = "Reorder level is required.";
+      } else if (!isPositiveNumber(values.reorder_level)) {
+        nextErrors.reorder_level = "Reorder level must be greater than 0.";
+      }
     }
 
     if (resolvedIsPerishable && isBlank(values.expiration_date)) {
@@ -441,10 +624,28 @@ const InventoryItemFormModal = ({
       unit_of_measure_value:
         formValues.unit_of_measure_value ||
         (trackingMethod === "Count-Based" ? "1" : ""),
-      quantity: isPiecePackaging ? "1" : formValues.quantity,
+      quantity:
+        isPiecePackaging ? "1" : formValues.quantity,
+      existing_item_id: matchedExistingItem?.id || null,
+      restock_match_type: isBarcodeStockFormMode
+        ? "barcode_stock_form"
+        : isNameMatchedRestock
+          ? "item_name"
+          : null,
     };
 
     onSubmit(normalizedFormValues);
+  };
+
+  const handleCancel = () => {
+    if (isRestockMode) {
+      setFormValues(createDefaultForm());
+      setFieldErrors({});
+      previousMatchedItemKeyRef.current = "";
+      return;
+    }
+
+    onClose();
   };
 
   return (
@@ -461,7 +662,7 @@ const InventoryItemFormModal = ({
         >
           <div>
             <h3 style={{ margin: 0, color: "#17324d", fontSize: "26px" }}>
-              {mode === "edit" ? "Edit Inventory Item" : "Add Item"}
+              {titleText}
             </h3>
           </div>
 
@@ -483,7 +684,6 @@ const InventoryItemFormModal = ({
             gap: "18px",
           }}
         >
-          {/* SECTION 1 */}
           <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
             <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
               Item Information
@@ -506,180 +706,267 @@ const InventoryItemFormModal = ({
                   placeholder="Enter item name"
                   value={formValues.item_name}
                   onChange={(e) => handleChange("item_name", e.target.value)}
-                  style={inputStyles}
+                  style={identityFieldStyles}
+                  disabled={isRestockMode && !isEditMode}
                   aria-invalid={Boolean(fieldErrors.item_name)}
                 />
                 {fieldErrors.item_name ? (
                   <p style={fieldErrorTextStyles}>{fieldErrors.item_name}</p>
                 ) : null}
+                {isRestockMode ? (
+                  <p style={matchNoticeStyles}>
+                    Existing item found: <strong>{matchedItemLabel}</strong>
+                  </p>
+                ) : null}
               </div>
 
-              <div
-                style={{
-                  gridColumn: "1 / -1",
-                  display: "grid",
-                  gridTemplateColumns: "minmax(260px, 2fr) minmax(180px, 1fr)",
-                  gap: "18px",
-                }}
-              >
-                <div>
-                  <label htmlFor="barcode" style={labelStyles}>
-                    Barcode
-                  </label>
-                  <input
-                    ref={barcodeInputRef}
-                    id="barcode"
-                    type="text"
-                    placeholder="Scan or enter barcode"
-                    value={formValues.barcode}
-                    onChange={(e) => handleChange("barcode", e.target.value)}
-                    style={inputStyles}
-                    aria-invalid={Boolean(fieldErrors.barcode)}
-                  />
-                  {fieldErrors.barcode ? (
-                    <p style={fieldErrorTextStyles}>{fieldErrors.barcode}</p>
+              {shouldShowBarcodeField ? (
+                <div
+                  style={{
+                    gridColumn: "1 / -1",
+                    display: "grid",
+                    gridTemplateColumns: isEditMode
+                      ? "repeat(2, minmax(220px, 1fr))"
+                      : "minmax(260px, 2fr) minmax(180px, 1fr)",
+                    gap: "18px",
+                  }}
+                >
+                  <div>
+                    <label htmlFor="barcode" style={labelStyles}>
+                      Barcode
+                    </label>
+                    <input
+                      ref={barcodeInputRef}
+                      id="barcode"
+                      type="text"
+                      placeholder={
+                        isEditMode && !formValues.barcode.trim()
+                          ? "No barcode assigned"
+                          : "Scan or enter barcode"
+                      }
+                      value={formValues.barcode}
+                      onChange={(e) => handleChange("barcode", e.target.value)}
+                      style={barcodeFieldStyles}
+                      disabled={isEditMode || isBarcodeStockFormMode}
+                      aria-invalid={Boolean(fieldErrors.barcode)}
+                    />
+                    {fieldErrors.barcode ? (
+                      <p style={fieldErrorTextStyles}>{fieldErrors.barcode}</p>
+                    ) : null}
+                  </div>
+
+                  <div>
+                    <label htmlFor="category" style={labelStyles}>
+                      Category
+                    </label>
+                    <select
+                      id="category"
+                      value={formValues.category}
+                      onChange={(e) => handleChange("category", e.target.value)}
+                      style={identityFieldStyles}
+                      disabled={isRestockMode && !isEditMode}
+                      aria-invalid={Boolean(fieldErrors.category)}
+                    >
+                      <option value="perishable">Perishable</option>
+                      <option value="non-perishable">Non-Perishable</option>
+                    </select>
+                    {fieldErrors.category ? (
+                      <p style={fieldErrorTextStyles}>{fieldErrors.category}</p>
+                    ) : null}
+                  </div>
+
+                  <div style={isEditMode ? undefined : { gridColumn: "1 / -1" }}>
+                    <label htmlFor="tracking_method" style={labelStyles}>
+                      Tracking Method
+                    </label>
+                    <select
+                      id="tracking_method"
+                      value={trackingMethod}
+                      onChange={(e) => handleChange("tracking_method", e.target.value)}
+                      style={identityFieldStyles}
+                      disabled={isRestockMode || isEditMode}
+                      aria-invalid={Boolean(fieldErrors.tracking_method)}
+                    >
+                      <option value="Count-Based">Count-Based</option>
+                      <option value="Weight/Volume-Based">Weight/Volume-Based</option>
+                    </select>
+                    {fieldErrors.tracking_method ? (
+                      <p style={fieldErrorTextStyles}>
+                        {fieldErrors.tracking_method}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  {isEditMode ? (
+                    <div>
+                      <label htmlFor="edit_unit_of_measure" style={labelStyles}>
+                        {usesWeightOrVolume ? "Base Unit" : "Unit of Measure"}
+                      </label>
+                      <input
+                        id="edit_unit_of_measure"
+                        type="text"
+                        value={formValues.unit_of_measure || "pc"}
+                        readOnly
+                        style={lockedInputStyles}
+                      />
+                    </div>
                   ) : null}
                 </div>
+              ) : (
+                <div
+                  style={{
+                    gridColumn: "1 / -1",
+                    display: "grid",
+                    gridTemplateColumns: "repeat(2, minmax(180px, 1fr))",
+                    gap: "18px",
+                  }}
+                >
+                  <div>
+                    <label htmlFor="category" style={labelStyles}>
+                      Category
+                    </label>
+                    <select
+                      id="category"
+                      value={formValues.category}
+                      onChange={(e) => handleChange("category", e.target.value)}
+                      style={identityFieldStyles}
+                      disabled={isRestockMode && !isEditMode}
+                      aria-invalid={Boolean(fieldErrors.category)}
+                    >
+                      <option value="perishable">Perishable</option>
+                      <option value="non-perishable">Non-Perishable</option>
+                    </select>
+                    {fieldErrors.category ? (
+                      <p style={fieldErrorTextStyles}>{fieldErrors.category}</p>
+                    ) : null}
+                  </div>
 
-                <div>
-                  <label htmlFor="category" style={labelStyles}>
-                    Category
-                  </label>
-                  <select
-                    id="category"
-                    value={formValues.category}
-                    onChange={(e) => handleChange("category", e.target.value)}
-                    style={inputStyles}
-                    aria-invalid={Boolean(fieldErrors.category)}
-                  >
-                    <option value="perishable">Perishable</option>
-                    <option value="non-perishable">Non-Perishable</option>
-                  </select>
-                  {fieldErrors.category ? (
-                    <p style={fieldErrorTextStyles}>{fieldErrors.category}</p>
-                  ) : null}
+                  <div>
+                    <label htmlFor="tracking_method" style={labelStyles}>
+                      Tracking Method
+                    </label>
+                    <select
+                      id="tracking_method"
+                      value={trackingMethod}
+                      onChange={(e) => handleChange("tracking_method", e.target.value)}
+                      style={identityFieldStyles}
+                      disabled={isRestockMode || isEditMode}
+                      aria-invalid={Boolean(fieldErrors.tracking_method)}
+                    >
+                      <option value="Count-Based">Count-Based</option>
+                      <option value="Weight/Volume-Based">Weight/Volume-Based</option>
+                    </select>
+                    {fieldErrors.tracking_method ? (
+                      <p style={fieldErrorTextStyles}>
+                        {fieldErrors.tracking_method}
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
+              )}
 
-              <div
-                style={{
-                  gridColumn: "1 / -1",
-                  display: "grid",
-                  gridTemplateColumns: "repeat(3, minmax(180px, 1fr))",
-                  gap: "18px",
-                }}
-              >
-                <div>
-                  <label htmlFor="tracking_method" style={labelStyles}>
-                    Tracking Method
-                  </label>
-                  <select
-                    id="tracking_method"
-                    value={trackingMethod}
-                    onChange={(e) => handleChange("tracking_method", e.target.value)}
-                    style={inputStyles}
-                    aria-invalid={Boolean(fieldErrors.tracking_method)}
-                  >
-                    <option value="Count-Based">Count-Based</option>
-                    <option value="Weight/Volume-Based">Weight/Volume-Based</option>
-                  </select>
-                  {fieldErrors.tracking_method ? (
-                    <p style={fieldErrorTextStyles}>
-                      {fieldErrors.tracking_method}
-                    </p>
-                  ) : null}
-                </div>
+              {!isEditMode ? (
+                <div
+                  style={{
+                    gridColumn: "1 / -1",
+                    display: "grid",
+                    gridTemplateColumns: usesWeightOrVolume
+                      ? "repeat(3, minmax(180px, 1fr))"
+                      : "repeat(2, minmax(180px, 1fr))",
+                    gap: "18px",
+                  }}
+                >
+                  <div>
+                    <label htmlFor="unit_of_measure" style={labelStyles}>
+                      {usesWeightOrVolume ? "Base Unit" : "Unit of Measure"}
+                    </label>
+                    <select
+                      id="unit_of_measure"
+                      value={formValues.unit_of_measure}
+                      onChange={(e) =>
+                        handleChange("unit_of_measure", e.target.value)
+                      }
+                      style={isRestockMode || isEditMode ? lockedInputStyles : inputStyles}
+                      disabled={!usesWeightOrVolume || isRestockMode || isEditMode}
+                      aria-invalid={Boolean(fieldErrors.unit_of_measure)}
+                    >
+                      {usesWeightOrVolume ? (
+                        <>
+                          <option value="">Select base unit</option>
+                          {unitOfMeasureOptions.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </>
+                      ) : (
+                        <option value="pc">pc</option>
+                      )}
+                    </select>
+                    {fieldErrors.unit_of_measure ? (
+                      <p style={fieldErrorTextStyles}>
+                        {fieldErrors.unit_of_measure}
+                      </p>
+                    ) : null}
+                  </div>
 
-                <div>
-                  <label htmlFor="unit_of_measure" style={labelStyles}>
-                    Unit of Measure
-                  </label>
-                  <select
-                    id="unit_of_measure"
-                    value={formValues.unit_of_measure}
-                    onChange={(e) =>
-                      handleChange("unit_of_measure", e.target.value)
-                    }
-                    style={inputStyles}
-                    disabled={!usesWeightOrVolume}
-                    aria-invalid={Boolean(fieldErrors.unit_of_measure)}
-                  >
-                    {usesWeightOrVolume ? (
-                      <>
-                        <option value="">Select unit of measure</option>
-                        {unitOfMeasureOptions.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
-                        ))}
-                      </>
-                    ) : (
-                      <option value="pc">pc</option>
-                    )}
-                  </select>
-                  {fieldErrors.unit_of_measure ? (
-                    <p style={fieldErrorTextStyles}>
-                      {fieldErrors.unit_of_measure}
-                    </p>
-                  ) : null}
-                </div>
-
-                <div>
-                  <label htmlFor="packaging" style={labelStyles}>
-                    Packaging
-                  </label>
-                  <select
-                    id="packaging"
-                    value={formValues.packaging}
-                    onChange={(e) => handleChange("packaging", e.target.value)}
-                    style={inputStyles}
-                    aria-invalid={Boolean(fieldErrors.packaging)}
-                  >
-                    <option value="">Select packaging</option>
-                    {packagingOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                  {fieldErrors.packaging ? (
-                    <p style={fieldErrorTextStyles}>{fieldErrors.packaging}</p>
-                  ) : null}
-                </div>
-              </div>
-
-              {usesWeightOrVolume ? (
-                <div>
-                  <label htmlFor="unit_of_measure_value" style={labelStyles}>
-                    {unitValueLabel}
-                  </label>
-                  <input
-                    id="unit_of_measure_value"
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    placeholder="Example: 5 for 5 kg"
-                    value={formValues.unit_of_measure_value}
-                    onChange={(e) =>
-                      handleChange("unit_of_measure_value", e.target.value)
-                    }
-                    style={inputStyles}
-                    aria-invalid={Boolean(fieldErrors.unit_of_measure_value)}
-                  />
-                  {fieldErrors.unit_of_measure_value ? (
-                    <p style={fieldErrorTextStyles}>
-                      {fieldErrors.unit_of_measure_value}
-                    </p>
+                  <div>
+                    <label htmlFor="packaging" style={labelStyles}>
+                      Packaging
+                    </label>
+                    <select
+                      id="packaging"
+                      value={formValues.packaging}
+                      onChange={(e) => handleChange("packaging", e.target.value)}
+                      style={packagingFieldStyles}
+                      disabled={isEditMode}
+                      aria-invalid={Boolean(fieldErrors.packaging)}
+                    >
+                      <option value="">Select packaging</option>
+                      {packagingOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                    {fieldErrors.packaging ? (
+                      <p style={fieldErrorTextStyles}>{fieldErrors.packaging}</p>
+                    ) : null}
+                  </div>
+                  {usesWeightOrVolume ? (
+                  <div>
+                    <label htmlFor="unit_of_measure_value" style={labelStyles}>
+                      {unitValueLabel}
+                    </label>
+                    <input
+                      id="unit_of_measure_value"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      placeholder={unitValuePlaceholder}
+                      value={formValues.unit_of_measure_value}
+                      onChange={(e) =>
+                        handleChange("unit_of_measure_value", e.target.value)
+                      }
+                      style={isRestockMode || isEditMode ? lockedInputStyles : inputStyles}
+                      disabled={isRestockMode || isEditMode}
+                      aria-invalid={Boolean(fieldErrors.unit_of_measure_value)}
+                    />
+                    {fieldErrors.unit_of_measure_value ? (
+                      <p style={fieldErrorTextStyles}>
+                        {fieldErrors.unit_of_measure_value}
+                      </p>
+                    ) : null}
+                  </div>
                   ) : null}
                 </div>
               ) : null}
             </div>
           </section>
 
-          {/* SECTION 2 */}
           <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
             <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
-              Stock Details
+              {stockSectionTitle}
             </h3>
 
             <div
@@ -689,61 +976,65 @@ const InventoryItemFormModal = ({
                 gap: "18px",
               }}
             >
-              <div>
-                <label htmlFor="batch_number" style={labelStyles}>
-                  Batch Number
-                </label>
-                <input
-                  id="batch_number"
-                  type="text"
-                  value="Auto-generated after saving"
-                  readOnly
-                  style={lockedInputStyles}
-                />
-              </div>
+              {!isEditMode ? (
+                <>
+                  <div>
+                    <label htmlFor="batch_number" style={labelStyles}>
+                      Batch Number
+                    </label>
+                    <input
+                      id="batch_number"
+                      type="text"
+                      value="Auto-generated after saving"
+                      readOnly
+                      style={lockedInputStyles}
+                    />
+                  </div>
 
-              <div>
-                <label htmlFor="packaging_count" style={labelStyles}>
-                  Quantity on Hand
-                </label>
-                <input
-                  id="packaging_count"
-                  type="number"
-                  min="1"
-                  placeholder={formatPackagingExample(formValues.packaging)}
-                  value={formValues.packaging_count}
-                  onChange={(e) =>
-                    handleChange("packaging_count", e.target.value)
-                  }
-                  style={inputStyles}
-                  aria-invalid={Boolean(fieldErrors.packaging_count)}
-                />
-                {fieldErrors.packaging_count ? (
-                  <p style={fieldErrorTextStyles}>
-                    {fieldErrors.packaging_count}
-                  </p>
-                ) : null}
-              </div>
+                  <div>
+                    <label htmlFor="packaging_count" style={labelStyles}>
+                      {quantityOnHandLabel}
+                    </label>
+                    <input
+                      id="packaging_count"
+                      type="number"
+                      min="1"
+                      placeholder={quantityOnHandPlaceholder}
+                      value={formValues.packaging_count}
+                      onChange={(e) =>
+                        handleChange("packaging_count", e.target.value)
+                      }
+                      style={inputStyles}
+                      aria-invalid={Boolean(fieldErrors.packaging_count)}
+                    />
+                    {fieldErrors.packaging_count ? (
+                      <p style={fieldErrorTextStyles}>
+                        {fieldErrors.packaging_count}
+                      </p>
+                    ) : null}
+                  </div>
 
-              {!isPiecePackaging ? (
-                <div>
-                  <label htmlFor="quantity" style={labelStyles}>
-                    {quantityFieldLabel}
-                  </label>
-                  <input
-                    id="quantity"
-                    type="number"
-                    min="1"
-                    placeholder={quantityFieldPlaceholder}
-                    value={formValues.quantity}
-                    onChange={(e) => handleChange("quantity", e.target.value)}
-                    style={inputStyles}
-                    aria-invalid={Boolean(fieldErrors.quantity)}
-                  />
-                  {fieldErrors.quantity ? (
-                    <p style={fieldErrorTextStyles}>{fieldErrors.quantity}</p>
+                  {shouldShowUnitsPerPackagingField ? (
+                    <div>
+                      <label htmlFor="quantity" style={labelStyles}>
+                        {quantityFieldLabel}
+                      </label>
+                      <input
+                        id="quantity"
+                        type="number"
+                        min="1"
+                        placeholder={quantityFieldPlaceholder}
+                        value={formValues.quantity}
+                        onChange={(e) => handleChange("quantity", e.target.value)}
+                        style={quantityFieldStyles}
+                        aria-invalid={Boolean(fieldErrors.quantity)}
+                      />
+                      {fieldErrors.quantity ? (
+                        <p style={fieldErrorTextStyles}>{fieldErrors.quantity}</p>
+                      ) : null}
+                    </div>
                   ) : null}
-                </div>
+                </>
               ) : null}
 
               <div>
@@ -759,7 +1050,8 @@ const InventoryItemFormModal = ({
                   onChange={(e) =>
                     handleChange("reorder_level", e.target.value)
                   }
-                  style={inputStyles}
+                  style={reorderLevelFieldStyles}
+                  disabled={isRestockMode && !isEditMode}
                   aria-invalid={Boolean(fieldErrors.reorder_level)}
                 />
                 {fieldErrors.reorder_level ? (
@@ -769,43 +1061,61 @@ const InventoryItemFormModal = ({
                 ) : null}
               </div>
 
-              <div>
-                <label htmlFor="expiration_date" style={labelStyles}>
-                  {isPerishable
-                    ? "Expiration Date"
-                    : "Expiration Date (If Applicable)"}
-                </label>
-                <input
-                  id="expiration_date"
-                  type="date"
-                  value={formValues.expiration_date}
-                  onChange={(e) =>
-                    handleChange("expiration_date", e.target.value)
-                  }
-                  style={inputStyles}
-                  aria-invalid={Boolean(fieldErrors.expiration_date)}
-                />
-                {fieldErrors.expiration_date ? (
-                  <p style={fieldErrorTextStyles}>
-                    {fieldErrors.expiration_date}
-                  </p>
-                ) : null}
-              </div>
+              {!isEditMode ? (
+                <div>
+                  <label htmlFor="expiration_date" style={labelStyles}>
+                    {isPerishable
+                      ? "Expiration Date"
+                      : "Expiration Date (If Applicable)"}
+                  </label>
+                  <input
+                    id="expiration_date"
+                    type="date"
+                    value={formValues.expiration_date}
+                    onChange={(e) =>
+                      handleChange("expiration_date", e.target.value)
+                    }
+                    style={inputStyles}
+                    aria-invalid={Boolean(fieldErrors.expiration_date)}
+                  />
+                  {fieldErrors.expiration_date ? (
+                    <p style={fieldErrorTextStyles}>
+                      {fieldErrors.expiration_date}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {isRestockMode ? (
+                <div>
+                  <label htmlFor="current_stock" style={labelStyles}>
+                    Current Stock
+                  </label>
+                  <input
+                    id="current_stock"
+                    type="text"
+                    value={currentStockDisplay}
+                    readOnly
+                    style={lockedInputStyles}
+                  />
+                </div>
+              ) : null}
             </div>
           </section>
 
           {errorMessage && <div style={errorBoxStyles}>{errorMessage}</div>}
 
-          {/* ACTIONS */}
-          <div style={formFooterStyles}>
-            <p style={footerTotalStyles}>
-              {computedTotalLabel}: <strong>{computedTotalDisplay}</strong>
-            </p>
+          <div style={isEditMode ? editFooterActionsStyles : formFooterStyles}>
+            {!isEditMode ? (
+              <p style={footerTotalStyles}>
+                {computedTotalLabel}: <strong>{computedTotalDisplay}</strong>
+              </p>
+            ) : null}
 
             <div style={footerActionsStyles}>
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleCancel}
                 style={pageHeaderStyles.secondaryButton}
               >
                 Cancel
@@ -822,8 +1132,10 @@ const InventoryItemFormModal = ({
                 {isSubmitting
                   ? "Processing..."
                   : mode === "edit"
-                  ? "Save Changes"
-                  : "Add"}
+                    ? "Save Changes"
+                    : isRestockMode
+                      ? "Add Restock Entry"
+                      : "Add"}
               </button>
             </div>
           </div>
