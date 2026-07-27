@@ -5,6 +5,7 @@ import { shellStyles } from "../../components/layout/BarangayLayout";
 import InventoryItemFormModal from "../../components/inventory-items/InventoryItemFormModal";
 import InventoryItemDetailModal from "../../components/inventory-items/InventoryItemDetailModal";
 import InventoryItemStatusLogModal from "../../components/inventory-items/InventoryItemStatusLogModal";
+import InventoryBatchExpiryModal from "../../components/inventory-items/InventoryBatchExpiryModal";
 import InventoryExportModal from "../../components/inventory-items/InventoryExportModal";
 import BarcodeScanModal from "../../components/inventory-items/BarcodeScanModal";
 import InventoryPageActions from "../../components/inventory-items/InventoryPageActions";
@@ -24,6 +25,7 @@ import {
 import {
   createInventoryBatch,
   fetchInventoryBatches,
+  updateInventoryBatchExpiry,
 } from "../../features/inventory-batches/inventoryBatchService";
 import {
   createInventoryTransaction,
@@ -134,6 +136,13 @@ const INITIAL_SCAN_FORM = {
   expirationDate: "",
 };
 
+const INVENTORY_SORT_OPTIONS = {
+  NEWEST: "newest",
+  OLDEST: "oldest",
+  AZ: "az",
+  ZA: "za",
+};
+
 const INVENTORY_BATCH_SOURCE_TYPES = [
   "PURCHASED",
   "DONATED",
@@ -228,6 +237,15 @@ const getUnitsPerPackageValue = (item) => {
 
 const getItemStockForms = (item) =>
   Array.isArray(item?.stock_forms) ? item.stock_forms : [];
+
+const getSortableTimestamp = (value) => {
+  if (!value) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  const parsedValue = new Date(value).getTime();
+  return Number.isNaN(parsedValue) ? Number.NEGATIVE_INFINITY : parsedValue;
+};
 
 const isPerishableItem = (item) =>
   String(item?.category || "").trim().toUpperCase() === "PERISHABLE" ||
@@ -367,6 +385,7 @@ const InventoryItemsPage = () => {
     search: "",
     category: "All",
     status: [],
+    sortOrder: INVENTORY_SORT_OPTIONS.NEWEST,
   });
   const [inventoryItems, setInventoryItems] = useState([]);
   const [inventoryBatches, setInventoryBatches] = useState([]);
@@ -384,6 +403,10 @@ const InventoryItemsPage = () => {
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [detailErrorMessage, setDetailErrorMessage] = useState("");
   const [selectedItemDetail, setSelectedItemDetail] = useState(null);
+  const [isBatchExpiryModalOpen, setIsBatchExpiryModalOpen] = useState(false);
+  const [selectedBatchForExpiryEdit, setSelectedBatchForExpiryEdit] = useState(null);
+  const [batchExpiryErrorMessage, setBatchExpiryErrorMessage] = useState("");
+  const [isSubmittingBatchExpiry, setIsSubmittingBatchExpiry] = useState(false);
   const [isStatusLogModalOpen, setIsStatusLogModalOpen] = useState(false);
   const [statusLogItem, setStatusLogItem] = useState(null);
   const [statusLogErrorMessage, setStatusLogErrorMessage] = useState("");
@@ -647,9 +670,30 @@ const InventoryItemsPage = () => {
       return matchesSearch && matchesCategory && matchesStatus;
     });
 
-    return filteredItems.map((item) => {
+    const filteredRows = filteredItems.map((item) => {
       const trackingStats =
         inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
+      const relatedBatches = inventoryBatches.filter(
+        (batch) => String(batch?.inventory_item_id) === String(item.id),
+      );
+      const latestBatchTimestamp = relatedBatches.reduce((latestTimestamp, batch) => {
+        return Math.max(
+          latestTimestamp,
+          getSortableTimestamp(batch?.received_at || batch?.created_at),
+        );
+      }, Number.NEGATIVE_INFINITY);
+      const earliestBatchTimestamp = relatedBatches.reduce((earliestTimestamp, batch) => {
+        const batchTimestamp = getSortableTimestamp(
+          batch?.received_at || batch?.created_at,
+        );
+
+        if (batchTimestamp === Number.NEGATIVE_INFINITY) {
+          return earliestTimestamp;
+        }
+
+        return Math.min(earliestTimestamp, batchTimestamp);
+      }, Number.POSITIVE_INFINITY);
+      const fallbackTimestamp = getSortableTimestamp(item?.updated_at || item?.created_at);
 
       return {
         ...item,
@@ -657,12 +701,55 @@ const InventoryItemsPage = () => {
         stock_form_labels: getStockFormLabels(item),
         stock_status_label: getDisplayStockStatus(item, trackingStats),
         stock_statuses: getDisplayStockStatuses(item, trackingStats),
+        latest_activity_at:
+          latestBatchTimestamp !== Number.NEGATIVE_INFINITY
+            ? latestBatchTimestamp
+            : fallbackTimestamp,
+        earliest_activity_at:
+          earliestBatchTimestamp !== Number.POSITIVE_INFINITY
+            ? earliestBatchTimestamp
+            : fallbackTimestamp,
       };
+    });
+
+    const normalizedSortOrder = filters.sortOrder || INVENTORY_SORT_OPTIONS.NEWEST;
+
+    return [...filteredRows].sort((leftItem, rightItem) => {
+      if (normalizedSortOrder === INVENTORY_SORT_OPTIONS.OLDEST) {
+        return (
+          Number(leftItem.earliest_activity_at || 0) -
+          Number(rightItem.earliest_activity_at || 0)
+        );
+      }
+
+      if (normalizedSortOrder === INVENTORY_SORT_OPTIONS.AZ) {
+        return String(leftItem.item_name || "").localeCompare(
+          String(rightItem.item_name || ""),
+          undefined,
+          { sensitivity: "base" },
+        );
+      }
+
+      if (normalizedSortOrder === INVENTORY_SORT_OPTIONS.ZA) {
+        return String(rightItem.item_name || "").localeCompare(
+          String(leftItem.item_name || ""),
+          undefined,
+          { sensitivity: "base" },
+        );
+      }
+
+      return (
+        Number(rightItem.latest_activity_at || 0) -
+        Number(leftItem.latest_activity_at || 0)
+      );
     });
   }, [
     inventoryItemsWithSyncStatus,
     inventoryTrackingMap,
     inventoryBatches,
+    filters.category,
+    filters.search,
+    filters.sortOrder,
     filters.status,
   ]);
 
@@ -1010,6 +1097,51 @@ const InventoryItemsPage = () => {
     });
   };
 
+  const handleOpenBatchExpiryModal = (batch) => {
+    setSelectedBatchForExpiryEdit(batch);
+    setBatchExpiryErrorMessage("");
+    setIsBatchExpiryModalOpen(true);
+  };
+
+  const handleCloseBatchExpiryModal = () => {
+    if (isSubmittingBatchExpiry) {
+      return;
+    }
+
+    setIsBatchExpiryModalOpen(false);
+    setSelectedBatchForExpiryEdit(null);
+    setBatchExpiryErrorMessage("");
+  };
+
+  const handleSubmitBatchExpiry = async (payload) => {
+    if (!selectedBatchForExpiryEdit?.id) {
+      return;
+    }
+
+    setIsSubmittingBatchExpiry(true);
+    setBatchExpiryErrorMessage("");
+
+    try {
+      await updateInventoryBatchExpiry(selectedBatchForExpiryEdit.id, payload);
+      await loadInventoryData();
+
+      if (selectedItemDetail?.item?.id) {
+        const detailResponse = await fetchInventoryItemDetail(
+          selectedItemDetail.item.id,
+        );
+        setSelectedItemDetail(detailResponse?.data || null);
+      }
+
+      handleCloseBatchExpiryModal();
+    } catch (error) {
+      setBatchExpiryErrorMessage(
+        error.message || "Failed to update batch expiry date.",
+      );
+    } finally {
+      setIsSubmittingBatchExpiry(false);
+    }
+  };
+
   const selectedStatusLogBatches = useMemo(() => {
     if (!statusLogItem?.id) {
       return [];
@@ -1169,6 +1301,17 @@ const InventoryItemsPage = () => {
         onSubmit={handleSubmitStatusLog}
       />
 
+      <InventoryBatchExpiryModal
+        isOpen={isBatchExpiryModalOpen}
+        batch={selectedBatchForExpiryEdit}
+        itemUnit={selectedItemDetail?.item?.unit_of_measure || "pc"}
+        isPerishable={Boolean(selectedItemDetail?.item?.is_perishable)}
+        isSubmitting={isSubmittingBatchExpiry}
+        errorMessage={batchExpiryErrorMessage}
+        onClose={handleCloseBatchExpiryModal}
+        onSubmit={handleSubmitBatchExpiry}
+      />
+
       <InventoryExportModal
         isOpen={isExportModalOpen}
         isSubmitting={Boolean(exportingFormat)}
@@ -1197,6 +1340,7 @@ const InventoryItemsPage = () => {
         isLoading={isDetailLoading}
         errorMessage={detailErrorMessage}
         detail={selectedItemDetail}
+        onEditBatch={handleOpenBatchExpiryModal}
         onClose={() => {
           setIsDetailModalOpen(false);
           setSelectedItemDetail(null);

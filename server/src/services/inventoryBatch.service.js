@@ -94,6 +94,34 @@ const getInitialStatus = (expirationDate) => {
   return "AVAILABLE";
 };
 
+const getBatchStatusFromQuantityAndExpiry = (quantityAvailable, expirationDate) => {
+  const resolvedQuantity = Number(quantityAvailable || 0);
+
+  if (resolvedQuantity <= 0) {
+    return "DEPLETED";
+  }
+
+  if (expirationDate) {
+    const today = new Date();
+    const todayDateOnly = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate(),
+    );
+    const resolvedExpirationDate = new Date(expirationDate);
+
+    if (resolvedExpirationDate < todayDateOnly) {
+      return "EXPIRED";
+    }
+  }
+
+  if (resolvedQuantity <= 10) {
+    return "LOW_STOCK";
+  }
+
+  return "AVAILABLE";
+};
+
 const normalizeStockFormDefinition = (batchData, inventoryItem) => {
   const packaging = String(
     batchData.stock_form_packaging || inventoryItem.packaging || "piece",
@@ -354,6 +382,51 @@ const createInventoryBatch = async (batchData) => {
   return mappedBatch;
 };
 
+const updateInventoryBatchExpiry = async (id, payload, actor = null) => {
+  const existingBatch = await inventoryBatchRepository.getInventoryBatchById(id);
+
+  if (!existingBatch) {
+    const error = new Error("Inventory batch not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const nextStatus = getBatchStatusFromQuantityAndExpiry(
+    existingBatch.quantity_available,
+    payload.expiration_date,
+  );
+
+  const updatedBatch = await inventoryBatchRepository.updateInventoryBatchExpiry(
+    id,
+    {
+      expiration_date: payload.expiration_date,
+      status: nextStatus,
+    },
+  );
+
+  const fullBatch = await inventoryBatchRepository.getInventoryBatchById(
+    updatedBatch.id,
+  );
+  const mappedBatch = mapInventoryBatch(fullBatch);
+
+  await notificationService.emitSafely(() =>
+    notificationService.emitBatchAlerts({
+      batch: mappedBatch,
+    }),
+  );
+
+  await logAuditSafely({
+    actor,
+    action: "INVENTORY_BATCH_UPDATE",
+    entityType: "INVENTORY_BATCH",
+    entityId: mappedBatch.id,
+    oldValues: summarizeInventoryBatch(existingBatch),
+    newValues: summarizeInventoryBatch(mappedBatch),
+  });
+
+  return mappedBatch;
+};
+
 const exportInventoryBatches = async (filters, format) => {
   const batches = await getInventoryBatches(filters);
 
@@ -397,5 +470,6 @@ module.exports = {
   getInventoryBatchById,
   getInventoryBatchDetail,
   createInventoryBatch,
+  updateInventoryBatchExpiry,
   exportInventoryBatches,
 };

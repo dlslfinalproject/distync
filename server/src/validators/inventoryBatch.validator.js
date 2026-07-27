@@ -285,8 +285,36 @@ const validateCreateInventoryBatch = (req, res, next) => {
   }
 };
 
+const validateUpdateInventoryBatchExpiry = (req, res, next) => {
+  try {
+    const { expiration_date } = req.body;
+
+    if (
+      expiration_date !== undefined &&
+      expiration_date !== null &&
+      !isValidDateString(expiration_date)
+    ) {
+      return res.status(400).json({
+        message: "expiration_date must be a valid date or null",
+      });
+    }
+
+    req.validatedBody = {
+      expiration_date: expiration_date ?? null,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate inventory batch expiry payload",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   validateInventoryBatchId,
   validateGetInventoryBatches,
   validateCreateInventoryBatch,
+  validateUpdateInventoryBatchExpiry,
 };

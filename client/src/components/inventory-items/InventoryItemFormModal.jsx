@@ -79,6 +79,49 @@ const matchNoticeStyles = {
   fontWeight: 600,
 };
 
+const autocompleteStyles = {
+  wrap: {
+    position: "relative",
+  },
+  list: {
+    position: "absolute",
+    top: "calc(100% + 8px)",
+    left: 0,
+    right: 0,
+    margin: 0,
+    padding: "8px",
+    listStyle: "none",
+    borderRadius: "16px",
+    border: "1px solid #d2deea",
+    backgroundColor: "#ffffff",
+    boxShadow: "0 18px 36px rgba(31, 64, 95, 0.14)",
+    zIndex: 20,
+    display: "grid",
+    gap: "6px",
+    maxHeight: "220px",
+    overflowY: "auto",
+    boxSizing: "border-box",
+  },
+  itemButton: {
+    width: "100%",
+    border: "none",
+    borderRadius: "12px",
+    backgroundColor: "#ffffff",
+    color: "#17324d",
+    textAlign: "left",
+    padding: "10px 12px",
+    fontSize: "14px",
+    cursor: "pointer",
+  },
+  itemMeta: {
+    display: "block",
+    marginTop: "4px",
+    color: "#5f7891",
+    fontSize: "12px",
+    fontWeight: 600,
+  },
+};
+
 const formFooterStyles = {
   display: "flex",
   alignItems: "center",
@@ -243,7 +286,11 @@ const InventoryItemFormModal = ({
 }) => {
   const [formValues, setFormValues] = useState(createDefaultForm());
   const [fieldErrors, setFieldErrors] = useState({});
+  const [selectedExistingItemId, setSelectedExistingItemId] = useState(null);
+  const [isAutocompleteOpen, setIsAutocompleteOpen] = useState(false);
+  const itemNameInputRef = useRef(null);
   const barcodeInputRef = useRef(null);
+  const autocompleteRef = useRef(null);
   const previousMatchedItemKeyRef = useRef("");
   const shouldShowBarcodeField = source === "scan" || mode === "edit";
 
@@ -272,6 +319,8 @@ const InventoryItemFormModal = ({
       setFormValues(createDefaultForm());
     }
 
+    setSelectedExistingItemId(itemData?.id || null);
+    setIsAutocompleteOpen(false);
     setFieldErrors({});
   }, [isOpen, itemData]);
 
@@ -292,30 +341,42 @@ const InventoryItemFormModal = ({
 
   const trimmedBarcode = shouldShowBarcodeField ? formValues.barcode.trim() : "";
   const trimmedItemName = formValues.item_name.trim();
-
-  const matchedExistingItem =
-    mode === "create" && trimmedItemName
-      ? inventoryItems.find((item) => {
+  const eligibleExistingItems =
+    mode === "create"
+      ? inventoryItems.filter((item) => {
           const hasBarcodeStockForm = Array.isArray(item?.stock_forms)
             ? item.stock_forms.some((stockForm) => String(stockForm?.barcode || "").trim())
             : false;
-          const isSameItemName =
-            getNormalizedInventoryText(item?.item_name) ===
-            getNormalizedInventoryText(trimmedItemName);
-
-          if (!isSameItemName) {
-            return false;
-          }
 
           if (source === "scan" && trimmedBarcode) {
             return true;
           }
 
-          return (
-            !String(item?.barcode || "").trim() &&
-            !hasBarcodeStockForm
-          );
-        }) || null
+          return !String(item?.barcode || "").trim() && !hasBarcodeStockForm;
+        })
+      : [];
+  const autocompleteSuggestions =
+    mode === "create" && trimmedItemName
+      ? eligibleExistingItems
+          .filter((item) =>
+            getNormalizedInventoryText(item?.item_name).includes(
+              getNormalizedInventoryText(trimmedItemName),
+            ),
+          )
+          .sort((leftItem, rightItem) =>
+            String(leftItem?.item_name || "").localeCompare(
+              String(rightItem?.item_name || ""),
+              undefined,
+              { sensitivity: "base" },
+            ),
+          )
+          .slice(0, 8)
+      : [];
+  const matchedExistingItem =
+    mode === "create" && selectedExistingItemId
+      ? eligibleExistingItems.find(
+          (item) => String(item?.id) === String(selectedExistingItemId),
+        ) || null
       : null;
 
   const isBarcodeStockFormMode =
@@ -387,6 +448,29 @@ const InventoryItemFormModal = ({
     setFieldErrors({});
   }, [isBarcodeStockFormMode, isOpen, matchedExistingItem, mode]);
 
+  useEffect(() => {
+    if (!isOpen || mode !== "create") {
+      return undefined;
+    }
+
+    const handleOutsideClick = (event) => {
+      if (
+        itemNameInputRef.current?.contains(event.target) ||
+        autocompleteRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+
+      setIsAutocompleteOpen(false);
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [isOpen, mode]);
+
   const handleChange = useCallback((fieldName, value) => {
     setFieldErrors((prev) => {
       const fieldsToClear = [fieldName];
@@ -411,6 +495,13 @@ const InventoryItemFormModal = ({
     });
 
     setFormValues((prev) => {
+      if (fieldName === "item_name") {
+        return {
+          ...prev,
+          item_name: value,
+        };
+      }
+
       if (fieldName === "tracking_method") {
         const nextValues = {
           ...prev,
@@ -443,6 +534,31 @@ const InventoryItemFormModal = ({
       return { ...prev, [fieldName]: value };
     });
   }, []);
+
+  const handleItemNameChange = (value) => {
+    if (selectedExistingItemId) {
+      setSelectedExistingItemId(null);
+      previousMatchedItemKeyRef.current = "";
+    }
+
+    handleChange("item_name", value);
+    setIsAutocompleteOpen(Boolean(value.trim()));
+  };
+
+  const handleSelectExistingItem = (item) => {
+    setSelectedExistingItemId(item.id);
+    previousMatchedItemKeyRef.current = "";
+    setFormValues((prev) => ({
+      ...prev,
+      item_name: item.item_name || prev.item_name,
+    }));
+    setFieldErrors((prev) => {
+      const nextErrors = { ...prev };
+      delete nextErrors.item_name;
+      return nextErrors;
+    });
+    setIsAutocompleteOpen(false);
+  };
 
   if (!isOpen) {
     return null;
@@ -708,22 +824,47 @@ const InventoryItemFormModal = ({
                 gap: "18px",
               }}
             >
-              <div style={{ gridColumn: "1 / -1" }}>
+              <div style={{ ...autocompleteStyles.wrap, gridColumn: "1 / -1" }}>
                 <label htmlFor="item_name" style={labelStyles}>
                   Item Name
                 </label>
                 <input
+                  ref={itemNameInputRef}
                   id="item_name"
                   type="text"
                   placeholder="Enter item name"
                   value={formValues.item_name}
-                  onChange={(e) => handleChange("item_name", e.target.value)}
+                  onChange={(e) => handleItemNameChange(e.target.value)}
+                  onFocus={() => {
+                    if (!isEditMode && !isRestockMode && autocompleteSuggestions.length > 0) {
+                      setIsAutocompleteOpen(true);
+                    }
+                  }}
                   style={identityFieldStyles}
                   disabled={isRestockMode && !isEditMode}
                   aria-invalid={Boolean(fieldErrors.item_name)}
+                  autoComplete="off"
                 />
                 {fieldErrors.item_name ? (
                   <p style={fieldErrorTextStyles}>{fieldErrors.item_name}</p>
+                ) : null}
+                {!isEditMode && !isRestockMode && isAutocompleteOpen && autocompleteSuggestions.length > 0 ? (
+                  <ul ref={autocompleteRef} style={autocompleteStyles.list}>
+                    {autocompleteSuggestions.map((item) => (
+                      <li key={item.id}>
+                        <button
+                          type="button"
+                          onClick={() => handleSelectExistingItem(item)}
+                          style={autocompleteStyles.itemButton}
+                        >
+                          <span>{item.item_name}</span>
+                          <span style={autocompleteStyles.itemMeta}>
+                            {item.category || "Item"}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
                 ) : null}
                 {isRestockMode ? (
                   <p style={matchNoticeStyles}>

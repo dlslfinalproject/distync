@@ -1,4 +1,5 @@
 import React from "react";
+import { FiEdit2 } from "react-icons/fi";
 import DetailsModalShell from "../shared/DetailsModalShell";
 import EmptyState from "../shared/EmptyState";
 import ErrorState from "../shared/ErrorState";
@@ -79,6 +80,23 @@ const modalStyles = {
     color: "#21405f",
     fontSize: "14px",
     verticalAlign: "top",
+  },
+  actionCell: {
+    textAlign: "center",
+    verticalAlign: "middle",
+  },
+  actionButton: {
+    border: "1px solid #c6d8ea",
+    borderRadius: "12px",
+    width: "36px",
+    height: "36px",
+    padding: 0,
+    backgroundColor: "#f8fbfe",
+    color: "#2a4c6f",
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
   },
   badge: {
     display: "inline-flex",
@@ -223,6 +241,7 @@ const InventoryItemDetailModal = ({
   isLoading,
   errorMessage,
   detail,
+  onEditBatch,
   onClose,
 }) => {
   if (!isOpen) {
@@ -345,6 +364,7 @@ const InventoryItemDetailModal = ({
                       <th style={modalStyles.th}>Expiry Date</th>
                       <th style={modalStyles.th}>Source</th>
                       <th style={modalStyles.th}>Status</th>
+                      <th style={modalStyles.th}>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -378,6 +398,22 @@ const InventoryItemDetailModal = ({
                             >
                               {batchStatus}
                             </span>
+                          </td>
+                          <td
+                            style={{
+                              ...modalStyles.td,
+                              ...modalStyles.actionCell,
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => onEditBatch?.(batch)}
+                              style={modalStyles.actionButton}
+                              title="Edit Batch"
+                              aria-label="Edit Batch"
+                            >
+                              <FiEdit2 size={14} />
+                            </button>
                           </td>
                         </tr>
                       );

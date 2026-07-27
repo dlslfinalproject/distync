@@ -147,6 +147,27 @@ export const createInventoryBatch = async (payload) => {
   });
 };
 
+export const updateInventoryBatchExpiry = async (
+  inventoryBatchId,
+  payload,
+) => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/inventory-batches/${inventoryBatchId}/expiry`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  return handleJsonResponse(
+    response,
+    "Failed to update inventory batch expiry",
+  );
+};
+
 export const fetchInventoryItems = async () => {
   const response = await fetch(
     `${API_BASE_URL}/api/v1/inventory-items?is_active=true`,

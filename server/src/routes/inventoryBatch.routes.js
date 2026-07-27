@@ -7,6 +7,7 @@ const {
   validateInventoryBatchId,
   validateGetInventoryBatches,
   validateCreateInventoryBatch,
+  validateUpdateInventoryBatchExpiry,
 } = require("../validators/inventoryBatch.validator");
 
 const router = express.Router();
@@ -155,6 +156,33 @@ router.post(
       message: error.message || "Failed to create inventory batch",
     });
   }
+  },
+);
+
+router.put(
+  "/:id/expiry",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateInventoryBatchId,
+  validateUpdateInventoryBatchExpiry,
+  async (req, res) => {
+    try {
+      const inventoryBatch = await inventoryBatchService.updateInventoryBatchExpiry(
+        req.params.id,
+        req.validatedBody,
+        req.auth,
+      );
+
+      return res.status(200).json({
+        message: "Inventory batch expiry updated successfully",
+        data: inventoryBatch,
+      });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+
+      return res.status(statusCode).json({
+        message: error.message || "Failed to update inventory batch expiry",
+      });
+    }
   },
 );
 
