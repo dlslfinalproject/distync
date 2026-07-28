@@ -35,12 +35,135 @@ const categoryOptions = [
 const unitOptions = ["pc", "kg", "g", "L", "mL"];
 const getReliefPackItemTotal = (packItem, packQuantity) =>
   Number(packItem?.quantity_required || 0) * Number(packQuantity || 0);
+const RELIEF_PACK_REMARK_PREFIX = "Relief Pack:";
+
+const getDonationItemDisplayName = (item) =>
+  item?.item_name || item?.inventory_item?.item_name || "Inventory item";
+
+const getDonationItemDisplayUnit = (item) =>
+  item?.unit_of_measure || item?.inventory_item?.unit_of_measure || "";
+
+const parseReliefPackRemark = (remarks) => {
+  const normalizedRemarks = String(remarks || "").trim();
+
+  if (
+    normalizedRemarks &&
+    normalizedRemarks.toLowerCase().startsWith(
+      RELIEF_PACK_REMARK_PREFIX.toLowerCase(),
+    )
+  ) {
+    const remarkBody = normalizedRemarks
+      .slice(RELIEF_PACK_REMARK_PREFIX.length)
+      .trim();
+    const quantityMatch = remarkBody.match(/^(.*?)(?:\s+x\s+(\d+))$/i);
+
+    if (quantityMatch) {
+      return {
+        name: quantityMatch[1].trim(),
+        quantity: Number(quantityMatch[2]),
+      };
+    }
+
+    return {
+      name: remarkBody,
+      quantity: null,
+    };
+  }
+
+  return null;
+};
 
 const summaryCardStyles = {
   border: "1px solid #dbe6f0",
   borderRadius: "14px",
   backgroundColor: "#f8fbff",
   padding: "14px 16px",
+};
+
+const getQuantityLabel = (quantity, unit) =>
+  `${quantity ?? 0}${unit ? ` ${unit}` : ""}`;
+
+const buildDonationItemGroups = (items) => {
+  const groups = [];
+  const persistedPackGroups = new Map();
+  let packIndex = 0;
+
+  items.forEach((item) => {
+    if (item?.entry_type === "RELIEF_PACK") {
+      packIndex += 1;
+      groups.push({
+        key: item.draft_id || item.id || `pack-${packIndex}`,
+        type: "pack",
+        title: item.relief_pack_name || `Pack ${packIndex}`,
+        subtitle: "",
+        supportingText: `${item.relief_pack_quantity} relief packs`,
+        lines: (item.relief_pack_items || []).map((packItem) => ({
+          key: packItem.draft_id || packItem.item_name,
+          label: packItem.item_name || "Inventory item",
+          quantity: getQuantityLabel(
+            getReliefPackItemTotal(packItem, item.relief_pack_quantity),
+            packItem.unit_of_measure,
+          ),
+        })),
+        canRemove: !item.id,
+        sourceItem: item,
+      });
+      return;
+    }
+
+    const persistedPackMeta = parseReliefPackRemark(item?.remarks);
+
+    if (persistedPackMeta) {
+      const persistedPackKey = `${persistedPackMeta.name}::${
+        persistedPackMeta.quantity ?? ""
+      }`;
+      let group = persistedPackGroups.get(persistedPackKey);
+
+      if (!group) {
+        packIndex += 1;
+        group = {
+          key: item.id || `saved-pack-${packIndex}`,
+          type: "pack",
+          title: persistedPackMeta.name || `Pack ${packIndex}`,
+          subtitle: "",
+          supportingText: persistedPackMeta.quantity
+            ? `${persistedPackMeta.quantity} relief packs`
+            : "",
+          lines: [],
+          canRemove: false,
+          sourceItem: item,
+        };
+        persistedPackGroups.set(persistedPackKey, group);
+        groups.push(group);
+      }
+
+      group.lines.push({
+        key: item.id || `${group.key}-${group.lines.length}`,
+        label: getDonationItemDisplayName(item),
+        quantity: getQuantityLabel(
+          item.quantity_received,
+          getDonationItemDisplayUnit(item),
+        ),
+      });
+      return;
+    }
+
+    groups.push({
+      key: item.draft_id || item.id || getDonationItemDisplayName(item),
+      type: "item",
+      title: getDonationItemDisplayName(item),
+      subtitle: "",
+      supportingText: getQuantityLabel(
+        item.quantity_received,
+        getDonationItemDisplayUnit(item),
+      ),
+      lines: [],
+      canRemove: !item.id,
+      sourceItem: item,
+    });
+  });
+
+  return groups;
 };
 
 const sectionHeaderRowStyles = {
@@ -87,6 +210,15 @@ const DonationModal = ({
   const selectedReliefPackItems = itemDraft.relief_pack_items;
   const selectedReliefPackName = itemDraft.new_pack_name || "New Relief Pack";
   const selectedPackQuantity = Number(itemDraft.relief_pack_quantity || 0);
+  const editingDonationItem =
+    formValues.items.find((item) => item.id === editingItemId) || null;
+  const editingInventoryItem =
+    inventoryItems.find((item) => item.id === itemDraft.inventory_item_id) || null;
+  const editingInventoryItemName =
+    editingDonationItem
+      ? getDonationItemDisplayName(editingDonationItem)
+      : editingInventoryItem?.item_name || "";
+  const donationItemGroups = buildDonationItemGroups(formValues.items);
 
   return (
     <div style={overlayStyles}>
@@ -237,6 +369,17 @@ const DonationModal = ({
                     onChange={(event) => onItemDraftChange("new_pack_name", event.target.value)}
                     style={inputStyles}
                     placeholder="Enter relief pack name"
+                  />
+                ) : editingItemId && !isAddingReliefPack ? (
+                  <input
+                    id="item_inventory_item_id"
+                    value={editingInventoryItemName}
+                    style={{
+                      ...inputStyles,
+                      backgroundColor: "#f4f8fc",
+                      color: "#4f677f",
+                    }}
+                    readOnly
                   />
                 ) : (
                   <select
@@ -548,7 +691,7 @@ const DonationModal = ({
               </div>
             ) : null}
 
-            {formValues.items.length > 0 ? (
+            {donationItemGroups.length > 0 ? (
               <div
                 style={{
                   marginTop: "18px",
@@ -559,9 +702,9 @@ const DonationModal = ({
                 <h4 style={{ margin: 0, color: "#17324d", fontSize: "16px" }}>
                   Items Added to This Donation
                 </h4>
-                {formValues.items.map((item) => (
+                {donationItemGroups.map((group) => (
                   <div
-                    key={item.draft_id || item.id}
+                    key={group.key}
                     style={{
                       ...summaryCardStyles,
                       display: "flex",
@@ -572,52 +715,63 @@ const DonationModal = ({
                     }}
                   >
                     <div style={{ display: "grid", gap: "6px" }}>
-                      {item.entry_type === "RELIEF_PACK" ? (
+                      {group.type === "pack" ? (
                         <>
                           <strong style={{ color: "#17324d" }}>
-                            {item.relief_pack_name}
+                            {group.title}
                           </strong>
-                          <span style={{ color: "#60738a", fontSize: "14px" }}>
-                            {item.relief_pack_quantity} relief packs
-                          </span>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                            {(item.relief_pack_items || []).map((packItem) => (
-                              <span
-                                key={packItem.draft_id || packItem.item_name}
+                          {group.subtitle ? (
+                            <span style={{ color: "#60738a", fontSize: "14px" }}>
+                              {group.subtitle}
+                            </span>
+                          ) : null}
+                          {group.supportingText ? (
+                            <span style={{ color: "#60738a", fontSize: "14px" }}>
+                              {group.supportingText}
+                            </span>
+                          ) : null}
+                          <div
+                            style={{
+                              display: "grid",
+                              gap: "8px",
+                              marginTop: "4px",
+                            }}
+                          >
+                            {group.lines.map((line) => (
+                              <div
+                                key={line.key}
                                 style={{
-                                  borderRadius: "999px",
-                                  backgroundColor: "#ffffff",
-                                  border: "1px solid #dbe6f0",
-                                  padding: "6px 10px",
+                                  display: "flex",
+                                  flexWrap: "wrap",
+                                  gap: "8px",
                                   color: "#2f4e6d",
-                                  fontSize: "13px",
-                                  fontWeight: 700,
+                                  fontSize: "14px",
                                 }}
                               >
-                                {packItem.item_name} x{" "}
-                                {getReliefPackItemTotal(
-                                  packItem,
-                                  item.relief_pack_quantity,
-                                )}{" "}
-                                total
-                              </span>
+                                <span style={{ fontWeight: 700 }}>{line.label}</span>
+                                <span style={{ color: "#60738a" }}>
+                                  - {line.quantity}
+                                </span>
+                              </div>
                             ))}
                           </div>
                         </>
                       ) : (
                         <>
-                          <strong style={{ color: "#17324d" }}>{item.item_name}</strong>
+                          <strong style={{ color: "#17324d" }}>
+                            {group.title}
+                          </strong>
                           <span style={{ color: "#60738a", fontSize: "14px" }}>
-                            {item.quantity_received} {item.unit_of_measure}
+                            {group.supportingText}
                           </span>
                         </>
                       )}
                     </div>
 
-                    {!item.id ? (
+                    {group.canRemove ? (
                       <button
                         type="button"
-                        onClick={() => onRemoveDraftItem(item)}
+                        onClick={() => onRemoveDraftItem(group.sourceItem)}
                         style={pageHeaderStyles.secondaryButton}
                       >
                         Remove
