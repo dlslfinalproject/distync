@@ -40,7 +40,10 @@ router.get("/active", async (req, res) => {
   }
 });
 
-router.get("/ended", requireRoles(ROLE_CODES.MSWDO), async (req, res) => {
+router.get(
+  "/ended",
+  requireRoles(ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
+  async (req, res) => {
   try {
     const closedDisasterEvents =
       await disasterEventService.getClosedDisasterEvents();
@@ -52,7 +55,8 @@ router.get("/ended", requireRoles(ROLE_CODES.MSWDO), async (req, res) => {
       error: error.message,
     });
   }
-});
+  },
+);
 
 router.get(
   "/barangay-options",
