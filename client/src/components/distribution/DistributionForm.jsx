@@ -44,6 +44,8 @@ const DistributionForm = ({
   onUpdateItemRow,
   onSubmit,
 }) => {
+  const usesTemplateFifo = Boolean(selectedTemplateId);
+
   return (
     <>
       <section style={shellStyles.card}>
@@ -158,6 +160,7 @@ const DistributionForm = ({
         onRemoveRow={onRemoveItemRow}
         onUpdateRow={onUpdateItemRow}
         isDisabled={isLoadingData || isSubmitting}
+        usesTemplateFifo={usesTemplateFifo}
       />
 
       <section

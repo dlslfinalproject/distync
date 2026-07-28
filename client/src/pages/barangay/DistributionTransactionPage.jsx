@@ -291,6 +291,7 @@ const DistributionTransactionPage = () => {
       (batch) => batch.quantity_available > 0 && batch.status !== "EXPIRED",
     );
   }, [inventoryBatches]);
+  const usesTemplateFifo = Boolean(selectedTemplateId);
 
   const updateReleasedItem = (rowId, fieldName, fieldValue) => {
     setReleasedItems((currentRows) =>
@@ -431,12 +432,16 @@ const DistributionTransactionPage = () => {
         return "Each released item row must have an inventory item.";
       }
 
-      if (!row.inventory_batch_id) {
+      if (!usesTemplateFifo && !row.inventory_batch_id) {
         return "Each released item row must have a selected batch.";
       }
 
       if (!Number.isInteger(row.quantity_released) || row.quantity_released <= 0) {
         return "Each released item quantity must be a positive integer.";
+      }
+
+      if (usesTemplateFifo) {
+        continue;
       }
 
       const batch = availableInventoryBatches.find(
@@ -487,7 +492,7 @@ const DistributionTransactionPage = () => {
         remarks: remarks.trim() || null,
         items: releasedItems.map((row) => ({
           inventory_item_id: row.inventory_item_id,
-          inventory_batch_id: row.inventory_batch_id,
+          inventory_batch_id: usesTemplateFifo ? null : row.inventory_batch_id,
           quantity_released: row.quantity_released,
         })),
       });

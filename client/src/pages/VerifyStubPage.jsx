@@ -1,11 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import {
-  claimStubFromQrVerification,
-  fetchStubDetails,
-  verifyStub,
-} from "../features/stubs/stubService";
+import { fetchStubDetails, verifyStub } from "../features/stubs/stubService";
 import { ROLE_CODES } from "../utils/roleSession";
 import { extractStubQrValue } from "../utils/stubQr";
 
@@ -321,8 +317,6 @@ const VerifyStubPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [verificationMessage, setVerificationMessage] = useState("");
-  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
-  const [isClaimingStub, setIsClaimingStub] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -390,43 +384,6 @@ const VerifyStubPage = () => {
     currentRole === ROLE_CODES.BARANGAY
       ? buildBarangayDistributionLink(stubDetails)
       : getDefaultWorkspaceLink(currentRole);
-
-  const handleConfirmClaim = async () => {
-    if (!stubDetails || stubDetails.status !== "ISSUED") {
-      setIsConfirmModalOpen(false);
-      return;
-    }
-
-    setIsClaimingStub(true);
-    setErrorMessage("");
-    setVerificationMessage("");
-
-    try {
-      const response = await claimStubFromQrVerification({
-        disasterEventId: stubDetails.disaster_event?.id,
-        householdId: stubDetails.household?.id,
-        stubId: stubDetails.id,
-        claimedByName: stubDetails.household?.family_head_name || "Claimed Household",
-        qrCodeValue: stubDetails.qr_code_value || qrValue,
-        remarks: "Claimed through QR stub verification page",
-      });
-
-      const refreshedStubDetails = await fetchStubDetails(stubDetails.id);
-
-      setStubDetails(refreshedStubDetails);
-      setVerificationMessage(
-        response?.message ||
-          "Stub was marked as claimed successfully from the verification page.",
-      );
-      setIsConfirmModalOpen(false);
-    } catch (error) {
-      setErrorMessage(
-        error.message || "Failed to mark the stub as claimed from this page.",
-      );
-    } finally {
-      setIsClaimingStub(false);
-    }
-  };
 
   return (
     <div style={pageStyles.page}>
@@ -562,13 +519,6 @@ const VerifyStubPage = () => {
                 claim or validate this stub in the appropriate DISTYNC workflow.
               </p>
               <div style={pageStyles.actions}>
-                <button
-                  type="button"
-                  onClick={() => setIsConfirmModalOpen(true)}
-                  style={pageStyles.primaryButton}
-                >
-                  Mark as Claimed
-                </button>
                 <Link to={proceedLink} style={pageStyles.primaryLink}>
                   {currentRole === ROLE_CODES.BARANGAY
                     ? "Proceed to Distribution Validation"
@@ -605,41 +555,6 @@ const VerifyStubPage = () => {
         </section>
       </div>
 
-      {isConfirmModalOpen ? (
-        <div style={pageStyles.modalOverlay}>
-          <div style={pageStyles.modal}>
-            <p style={pageStyles.eyebrow}>Confirm Stub Claim</p>
-            <h2 style={{ ...pageStyles.title, fontSize: "24px" }}>
-              Mark Stub as Claimed
-            </h2>
-            <p style={pageStyles.text}>
-              Are you sure you want to mark this stub as claimed?
-            </p>
-
-            <div style={pageStyles.modalActions}>
-              <button
-                type="button"
-                onClick={() => setIsConfirmModalOpen(false)}
-                disabled={isClaimingStub}
-                style={pageStyles.secondaryButton}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmClaim}
-                disabled={isClaimingStub}
-                style={{
-                  ...pageStyles.primaryButton,
-                  opacity: isClaimingStub ? 0.7 : 1,
-                }}
-              >
-                {isClaimingStub ? "Claiming..." : "Confirm Claim"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 };
