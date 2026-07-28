@@ -1,4 +1,5 @@
 import React from "react";
+import { FiEye } from "react-icons/fi";
 import { shellStyles } from "../layout/BarangayLayout";
 
 const tableStyles = {
@@ -25,11 +26,22 @@ const tableStyles = {
     verticalAlign: "top",
     lineHeight: 1.5,
   },
-  helperText: {
-    display: "block",
-    marginTop: "4px",
-    color: "#6b8298",
-    fontSize: "12px",
+  centerCell: {
+    textAlign: "center",
+    verticalAlign: "middle",
+  },
+  actionButton: {
+    border: "1px solid #c6d8ea",
+    borderRadius: "12px",
+    width: "36px",
+    height: "36px",
+    padding: 0,
+    backgroundColor: "#f8fbfe",
+    color: "#2a4c6f",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
   },
 };
 
@@ -68,48 +80,12 @@ const getDirectionStyles = (direction) => {
   };
 };
 
-const formatTransactionReason = (row) => {
-  const transactionDirection = String(row.transaction_direction || "").toUpperCase();
-  const sourceLabel = String(row.source_label || "").toUpperCase();
-
-  if (transactionDirection === "INFLOW") {
-    if (sourceLabel === "DONATION") {
-      return "Donation";
-    }
-
-    return "Stock Up";
-  }
-
-  if (row.reference_type === "DISTRIBUTION") {
-    return "Distributed";
-  }
-
-  const transactionType = String(row.transaction_type || "").toUpperCase();
-
-  if (!transactionType) {
-    return "--";
-  }
-
-  return transactionType
-    .toLowerCase()
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
-};
-
-const formatTransactionDirection = (direction) => {
-  const normalizedDirection = String(direction || "").toUpperCase();
-
-  if (!normalizedDirection) {
-    return "--";
-  }
-
-  return normalizedDirection
-    .toLowerCase()
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
-};
-
-const InventoryTransactionsTable = ({ rows, isLoading, errorMessage }) => {
+const InventoryTransactionsTable = ({
+  rows,
+  isLoading,
+  errorMessage,
+  onViewDetails,
+}) => {
   if (isLoading) {
     return (
       <div style={{ marginTop: "8px" }}>
@@ -145,11 +121,14 @@ const InventoryTransactionsTable = ({ rows, isLoading, errorMessage }) => {
       <table style={tableStyles.table}>
         <thead>
           <tr>
-            <th style={tableStyles.headerCell}>Item</th>
-            <th style={tableStyles.headerCell}>Transaction Type</th>
-            <th style={tableStyles.headerCell}>Reason</th>
-            <th style={tableStyles.headerCell}>Quantity</th>
-            <th style={tableStyles.headerCell}>Date</th>
+            <th style={tableStyles.headerCell}>Item Name</th>
+            <th style={tableStyles.headerCell}>Batch Number</th>
+            <th style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Quantity</th>
+            <th style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Movement</th>
+            <th style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Transaction Type</th>
+            <th style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Date</th>
+            <th style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Performed By</th>
+            <th style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -157,13 +136,12 @@ const InventoryTransactionsTable = ({ rows, isLoading, errorMessage }) => {
             <tr key={row.id}>
               <td style={tableStyles.bodyCell}>
                 <div>{row.inventory_item?.item_name || "--"}</div>
-                {row.inventory_item?.item_code ? (
-                  <span style={tableStyles.helperText}>
-                    {row.inventory_item.item_code}
-                  </span>
-                ) : null}
               </td>
-              <td style={tableStyles.bodyCell}>
+              <td style={tableStyles.bodyCell}>{row.batch_no || "--"}</td>
+              <td style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
+                {row.quantity ?? 0}
+              </td>
+              <td style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
                 <span
                   style={{
                     display: "inline-flex",
@@ -175,18 +153,28 @@ const InventoryTransactionsTable = ({ rows, isLoading, errorMessage }) => {
                     ...getDirectionStyles(row.transaction_direction),
                   }}
                 >
-                  {formatTransactionDirection(row.transaction_direction)}
+                  {row.transaction_direction || "--"}
                 </span>
               </td>
-              <td style={tableStyles.bodyCell}>{formatTransactionReason(row)}</td>
-              <td style={tableStyles.bodyCell}>{row.quantity ?? 0}</td>
-              <td style={tableStyles.bodyCell}>
+              <td style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
+                {row.transaction_type_label || row.transaction_type || "--"}
+              </td>
+              <td style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
                 <div>{formatDateTime(row.performed_at)}</div>
-                {row.sync_status ? (
-                  <span style={tableStyles.helperText}>
-                    {String(row.sync_status).replace(/_/g, " ")}
-                  </span>
-                ) : null}
+              </td>
+              <td style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
+                <div>{row.performed_by_label || "--"}</div>
+              </td>
+              <td style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
+                <button
+                  type="button"
+                  onClick={() => onViewDetails?.(row)}
+                  style={tableStyles.actionButton}
+                  title="View Details"
+                  aria-label="View Details"
+                >
+                  <FiEye size={18} />
+                </button>
               </td>
             </tr>
           ))}

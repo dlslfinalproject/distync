@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { FiFileText } from "react-icons/fi";
-import PageHeader from "../../components/layout/PageHeader";
+import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import ExportModal from "../../components/shared/ExportModal";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import SearchBar from "../../components/shared/SearchBar";
+import InventoryTransactionDetailModal from "../../components/inventory-transactions/InventoryTransactionDetailModal";
 import InventoryTransactionsTable from "../../components/inventory-transactions/InventoryTransactionsTable";
 import {
   exportInventoryTransactions,
@@ -18,7 +19,6 @@ import {
   buildInventoryTrackingMap,
   getTrackedExpirationDate,
   isDateExpired,
-  isItemExpiring,
 } from "../../features/inventory-items/inventoryItemStockStatus";
 import { fetchSystemLogReview } from "../../features/system-logs/systemLogService";
 import db from "../../offline/db";
@@ -46,6 +46,18 @@ const summaryGridStyles = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
   gap: "16px",
+};
+
+const pageStackStyles = {
+  flex: 1,
+  minWidth: 0,
+  maxWidth: "100%",
+  overflowX: "hidden",
+};
+
+const overviewSectionStyles = {
+  marginTop: "24px",
+  marginBottom: "24px",
 };
 
 const summaryCardStyles = {
@@ -80,44 +92,44 @@ const summaryHelperStyles = {
   lineHeight: 1.6,
 };
 
-const miniCardGridStyles = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-  gap: "14px",
-};
-
-const miniCardStyles = {
-  backgroundColor: "#f8fbfe",
-  border: "1px solid #dde8f2",
-  borderRadius: "16px",
-  padding: "16px 18px",
-};
-
 const subtabWrapStyles = {
+  borderBottom: "1px solid #d6e2ef",
   display: "flex",
-  gap: "8px",
   flexWrap: "wrap",
-  borderBottom: "1px solid #dce7f2",
-  marginBottom: "18px",
+  gap: "8px",
+  overflowX: "auto",
 };
 
 const getSubtabStyles = (isActive) => ({
+  padding: "12px 24px",
   border: "none",
-  backgroundColor: "transparent",
-  color: isActive ? "#17324d" : "#67819c",
   borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
-  padding: "12px 18px",
-  fontSize: "14px",
-  fontWeight: 800,
-  letterSpacing: "0.04em",
-  textTransform: "uppercase",
+  background: "none",
+  color: isActive ? "#17324d" : "#6b8298",
   cursor: "pointer",
+  fontSize: "14px",
+  fontWeight: 700,
+  whiteSpace: "nowrap",
 });
 
 const sectionTitleStyles = {
   margin: 0,
   color: "#17324d",
   fontSize: "22px",
+};
+
+const toolbarSectionStyles = {
+  alignItems: "center",
+  display: "grid",
+  gap: "16px",
+  gridTemplateColumns: "minmax(260px, 1.3fr) minmax(180px, 0.7fr) minmax(180px, 0.7fr) minmax(180px, 0.7fr) auto",
+  margin: "0 0 24px",
+};
+
+const toolbarSelectStyles = {
+  ...selectStyles,
+  minWidth: 0,
+  width: "100%",
 };
 
 const tableStyles = {
@@ -247,17 +259,6 @@ const sampleSummaryMetrics = {
   transactionsToday: 3,
 };
 
-const sampleExpirationMetrics = {
-  expiringIn30Days: 2,
-  expiredItems: 1,
-};
-
-const sampleReconciliationMetrics = {
-  expectedOnHand: 760,
-  actualStock: 730,
-  difference: -30,
-};
-
 const buildQueuedInventoryTransaction = (entry, inventoryBatches) => {
   const linkedBatch =
     inventoryBatches.find((batch) => batch.id === entry.payload?.inventory_batch_id) ||
@@ -288,6 +289,7 @@ const buildDistributionOutflowRows = (distributionHistoryRows) => {
       id: row.id,
       transaction_direction: "OUTFLOW",
       transaction_type: "OUTFLOW",
+      batch_no: row.batch_no || "--",
       inventory_item: {
         item_name: row.released_items_summary || row.relief_pack_template_name || "--",
         item_code: row.relief_pack_template_name
@@ -310,6 +312,36 @@ const buildDistributionOutflowRows = (distributionHistoryRows) => {
       is_local_only: false,
       inventory_item_id: null,
     }));
+};
+
+const buildBatchInflowRows = (inventoryBatches, transactionRows) => {
+  if (!Array.isArray(inventoryBatches) || inventoryBatches.length === 0) {
+    return [];
+  }
+
+  const batchesWithTransactionRows = new Set(
+    (Array.isArray(transactionRows) ? transactionRows : [])
+      .filter((row) => String(row.transaction_direction || "").toUpperCase() === "INFLOW")
+      .map((row) => String(row.inventory_batch_id || "")),
+  );
+
+  return inventoryBatches.map((batch) => ({
+    id: `BATCH-${batch.id}`,
+    inventory_batch_id: batch.id,
+    batch_no: batch.batch_no || "--",
+    transaction_direction: "INFLOW",
+    transaction_type: "INFLOW",
+    quantity: Number(batch.quantity_received || 0),
+    performed_at: batch.received_at || batch.created_at,
+    reference_type: batch.source_type || "MANUAL",
+    remarks: "",
+    sync_status: "synced",
+    is_local_only: false,
+    inventory_item: batch.inventory_item || null,
+    source_label: "Malvar LGU",
+    source_details: "Malvar LGU",
+    performed_by_label: batch.creator?.full_name || "--",
+  })).filter((row) => !batchesWithTransactionRows.has(String(row.inventory_batch_id || "")));
 };
 
 const normalizeQuantity = (value) => {
@@ -345,6 +377,23 @@ const getTransactionDirection = (transactionType) => {
 };
 
 const getSourceLabel = (transaction, batch) => {
+  const resolvedDirection = String(
+    transaction.transaction_direction ||
+      getTransactionDirection(transaction.transaction_type) ||
+      "",
+  ).toUpperCase();
+
+  if (resolvedDirection === "INFLOW") {
+    return "Malvar LGU";
+  }
+
+  if (
+    resolvedDirection === "OUTFLOW" &&
+    String(transaction.reference_type || "").toUpperCase() === "MANUAL"
+  ) {
+    return "Malvar LGU";
+  }
+
   if (transaction.reference_type === "DISTRIBUTION") {
     return "Distribution";
   }
@@ -361,6 +410,69 @@ const getSourceLabel = (transaction, batch) => {
   }
 
   return "Manual";
+};
+
+const formatTransactionLabel = (value) => {
+  const normalizedValue = String(value || "").trim().toUpperCase();
+
+  if (!normalizedValue) {
+    return "--";
+  }
+
+  return normalizedValue
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+};
+
+const getTransactionTypeLabel = (row) => {
+  const transactionDirection = String(row.transaction_direction || "").toUpperCase();
+  const sourceLabel = String(row.source_label || "").toUpperCase();
+  const referenceType = String(row.reference_type || "").toUpperCase();
+  const transactionType = String(row.transaction_type || "").toUpperCase();
+
+  if (transactionDirection === "INFLOW") {
+    if (sourceLabel === "DONATION" || referenceType === "DONATION") {
+      return "Donated";
+    }
+
+    return "Stock-Up";
+  }
+
+  if (referenceType === "DISTRIBUTION") {
+    return "Distributed";
+  }
+
+  return formatTransactionLabel(transactionType);
+};
+
+const getPerformedByLabel = (row) => {
+  if (row.performer?.full_name) {
+    return row.performer.full_name;
+  }
+
+  if (row.creator?.full_name) {
+    return row.creator.full_name;
+  }
+
+  const fullName = [row.performed_by_first_name, row.performed_by_last_name]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+
+  if (fullName) {
+    return fullName;
+  }
+
+  if (row.performed_by_name) {
+    return row.performed_by_name;
+  }
+
+  if (row.performed_by) {
+    return row.performed_by;
+  }
+
+  return row.is_local_only ? "Pending sync" : "Not recorded";
 };
 
 const isLowStockItem = (item, trackingStats) => {
@@ -442,6 +554,7 @@ const InventoryTransactionsPage = () => {
     type: "",
     message: "",
   });
+  const [selectedTransactionDetail, setSelectedTransactionDetail] = useState(null);
   const syncQueueEntries =
     useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
 
@@ -514,6 +627,7 @@ const InventoryTransactionsPage = () => {
       inventoryBatches.map((batch) => [
         batch.id,
         {
+          batch_no: batch.batch_no || "",
           source_type: batch.source_type,
           supplier_id: batch.supplier_id,
           supplier_name: batch.supplier?.name || "",
@@ -580,14 +694,42 @@ const InventoryTransactionsPage = () => {
   }, [batchById, inventoryBatches, inventoryTransactions, syncQueueEntries]);
 
   const mergedTransactionRows = useMemo(() => {
+    const batchInflowRows = buildBatchInflowRows(
+      inventoryBatches,
+      inventoryTransactionsWithSyncStatus,
+    );
     const distributionOutflowRows = buildDistributionOutflowRows(distributionHistoryRows);
 
-    return [...distributionOutflowRows, ...inventoryTransactionsWithSyncStatus].sort(
-      (left, right) =>
-        new Date(right.performed_at || 0).getTime() -
-        new Date(left.performed_at || 0).getTime(),
-    );
-  }, [distributionHistoryRows, inventoryTransactionsWithSyncStatus]);
+    return [
+      ...batchInflowRows,
+      ...distributionOutflowRows,
+      ...inventoryTransactionsWithSyncStatus,
+    ]
+      .map((row) => {
+        const linkedBatch = batchById.get(row.inventory_batch_id);
+
+        return {
+          ...row,
+          batch_no:
+            row.batch_no ||
+            row.inventory_batch?.batch_no ||
+            linkedBatch?.batch_no ||
+            "--",
+          performed_by_label: getPerformedByLabel(row),
+          transaction_type_label: getTransactionTypeLabel(row),
+        };
+      })
+      .sort(
+        (left, right) =>
+          new Date(right.performed_at || 0).getTime() -
+          new Date(left.performed_at || 0).getTime(),
+      );
+  }, [
+    batchById,
+    distributionHistoryRows,
+    inventoryBatches,
+    inventoryTransactionsWithSyncStatus,
+  ]);
 
   const displayedRows = useMemo(() => {
     return mergedTransactionRows.filter((row) => {
@@ -674,93 +816,6 @@ const InventoryTransactionsPage = () => {
     };
   }, [inventoryBatches, inventoryItems, mergedTransactionRows, trackingMap]);
 
-  const expirationMetrics = useMemo(() => {
-    if (
-      !inventoryItems.length &&
-      !inventoryBatches.length &&
-      !mergedTransactionRows.length
-    ) {
-      return sampleExpirationMetrics;
-    }
-
-    const expiringIn30Days = inventoryItems.filter((item) => {
-      const trackingStats = trackingMap.get(item.id);
-      const trackedExpirationDate = getTrackedExpirationDate(item, trackingStats);
-
-      return (
-        !isDateExpired(trackedExpirationDate) &&
-        (trackingStats?.hasExpiringStock || isItemExpiring({ expiration_date: trackedExpirationDate }))
-      );
-    }).length;
-
-    const expiredItems = inventoryItems.filter((item) => {
-      const trackingStats = trackingMap.get(item.id);
-      const trackedExpirationDate = getTrackedExpirationDate(item, trackingStats);
-
-      return (
-        normalizeQuantity(trackingStats?.expiredOnHand || 0) > 0 ||
-        isDateExpired(trackedExpirationDate)
-      );
-    }).length;
-
-    return {
-      expiringIn30Days,
-      expiredItems,
-    };
-  }, [inventoryItems, trackingMap]);
-
-  const reconciliationMetrics = useMemo(() => {
-    if (
-      !inventoryItems.length &&
-      !inventoryBatches.length &&
-      !mergedTransactionRows.length
-    ) {
-      return sampleReconciliationMetrics;
-    }
-
-    const expectedStock = inventoryBatches.reduce((sum, batch) => {
-      return sum + normalizeQuantity(batch.quantity_received);
-    }, 0);
-
-    const additiveAdjustments = mergedTransactionRows.reduce(
-      (sum, transaction) => {
-        if (["RETURN", "ADJUSTMENT"].includes(transaction.transaction_type)) {
-          return sum + normalizeQuantity(transaction.quantity);
-        }
-
-        return sum;
-      },
-      0,
-    );
-
-    const subtractiveAdjustments = mergedTransactionRows.reduce(
-      (sum, transaction) => {
-        if (
-          ["OUTFLOW", "EXPIRED", "DAMAGED", "MISSING", "SPOILED", "STOLEN"].includes(
-            transaction.transaction_type,
-          )
-        ) {
-          return sum + normalizeQuantity(transaction.quantity);
-        }
-
-        return sum;
-      },
-      0,
-    );
-
-    const actualStock = inventoryBatches.reduce(
-      (sum, batch) => sum + normalizeQuantity(batch.quantity_available),
-      0,
-    );
-    const expectedOnHand = expectedStock + additiveAdjustments - subtractiveAdjustments;
-
-    return {
-      expectedOnHand,
-      actualStock,
-      difference: actualStock - expectedOnHand,
-    };
-  }, [inventoryBatches, mergedTransactionRows]);
-
   const latestAuditEntries = useMemo(() => {
     if (!inventoryAuditLogs.length && !mergedTransactionRows.length) {
       return sampleAuditEntries;
@@ -794,10 +849,6 @@ const InventoryTransactionsPage = () => {
       ...currentFilters,
       [fieldName]: value,
     }));
-  };
-
-  const handleApplyFilters = async () => {
-    await loadPageData(filters);
   };
 
   const handleExport = async (format) => {
@@ -838,11 +889,16 @@ const InventoryTransactionsPage = () => {
     }
   };
 
-  return (
-    <>
-      <PageHeader title="INVENTORY TRACKING" />
+  const handleOpenTransactionDetail = (row) => {
+    setSelectedTransactionDetail(row);
+  };
 
-      <section style={summaryGridStyles}>
+  return (
+    <div style={pageStackStyles}>
+      <PageHeader title="INVENTORY TRACKING MANAGEMENT" />
+
+      <section style={overviewSectionStyles}>
+        <div style={summaryGridStyles}>
         <SummaryCard
           label="Current Stock On Hand"
           value={summaryMetrics.currentStockOnHand}
@@ -863,25 +919,81 @@ const InventoryTransactionsPage = () => {
           value={summaryMetrics.transactionsToday}
           helper=""
         />
-      </section>
-
-      <section style={shellStyles.card}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: "16px",
-            flexWrap: "wrap",
-          }}
-        >
-          <div>
-            <h3 style={sectionTitleStyles}>Tracking Overview</h3>
-          </div>
         </div>
       </section>
 
-      <section style={shellStyles.card}>
+      {activeSubtab === "transactions" ? (
+        <div style={toolbarSectionStyles}>
+          <SearchBar
+            value={filters.search}
+            onChange={(value) => handleFilterChange("search", value)}
+            placeholder="Search item name, item code, or remarks"
+          />
+
+          <select
+            value={filters.inventory_item_id}
+            onChange={(event) =>
+              handleFilterChange("inventory_item_id", event.target.value)
+            }
+            style={toolbarSelectStyles}
+          >
+            <option value="">All Items</option>
+            {inventoryItemOptions.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.item_name}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={filters.transaction_type}
+            onChange={(event) =>
+              handleFilterChange("transaction_type", event.target.value)
+            }
+            style={toolbarSelectStyles}
+          >
+            <option value="">All Transaction Types</option>
+            {transactionTypes.map((transactionType) => (
+              <option key={transactionType} value={transactionType}>
+                {transactionType}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={filters.source}
+            onChange={(event) => handleFilterChange("source", event.target.value)}
+            style={toolbarSelectStyles}
+          >
+            <option value="">All Sources</option>
+            {sourceOptions.map((sourceOption) => (
+              <option key={sourceOption} value={sourceOption}>
+                {sourceOption}
+              </option>
+            ))}
+          </select>
+
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedExportFormat("csv");
+              setExportFeedback({ type: "", message: "" });
+              setIsExportModalOpen(true);
+            }}
+            disabled={Boolean(isExporting)}
+            style={{
+              ...pageHeaderStyles.secondaryButton,
+              opacity: isExporting ? 0.7 : 1,
+              cursor: isExporting ? "not-allowed" : "pointer",
+            }}
+          >
+            <FiFileText size={16} />
+            {isExporting ? `Exporting ${isExporting.toUpperCase()}...` : "Export"}
+          </button>
+        </div>
+      ) : null}
+
+      <section style={{ ...shellStyles.card, padding: "22px 36px 0", marginBottom: "24px" }}>
         <div style={subtabWrapStyles}>
           <button
             type="button"
@@ -898,7 +1010,9 @@ const InventoryTransactionsPage = () => {
             Audit Trail
           </button>
         </div>
+      </section>
 
+      <section style={shellStyles.card}>
         {activeSubtab === "transactions" ? (
           <>
             <div style={{ marginBottom: "18px" }}>
@@ -910,129 +1024,11 @@ const InventoryTransactionsPage = () => {
               ) : null}
             </div>
 
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: "16px",
-                flexWrap: "wrap",
-                marginBottom: "18px",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  gap: "12px",
-                  flexWrap: "wrap",
-                  flex: "1 1 900px",
-                }}
-              >
-                <SearchBar
-                  value={filters.search}
-                  onChange={(value) => handleFilterChange("search", value)}
-                  placeholder="Search item name, item code, or remarks"
-                />
-
-                <select
-                  value={filters.inventory_item_id}
-                  onChange={(event) =>
-                    handleFilterChange("inventory_item_id", event.target.value)
-                  }
-                  style={selectStyles}
-                >
-                  <option value="">All Items</option>
-                  {inventoryItemOptions.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.item_name}
-                    </option>
-                  ))}
-                </select>
-
-                <select
-                  value={filters.transaction_type}
-                  onChange={(event) =>
-                    handleFilterChange("transaction_type", event.target.value)
-                  }
-                  style={selectStyles}
-                >
-                  <option value="">All Transaction Types</option>
-                  {transactionTypes.map((transactionType) => (
-                    <option key={transactionType} value={transactionType}>
-                      {transactionType}
-                    </option>
-                  ))}
-                </select>
-
-                <select
-                  value={filters.source}
-                  onChange={(event) => handleFilterChange("source", event.target.value)}
-                  style={selectStyles}
-                >
-                  <option value="">All Sources</option>
-                  {sourceOptions.map((sourceOption) => (
-                    <option key={sourceOption} value={sourceOption}>
-                      {sourceOption}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={{ display: "flex", gap: "12px", position: "relative" }}>
-                <button
-                  type="button"
-                  onClick={handleApplyFilters}
-                  style={{
-                    border: "none",
-                    borderRadius: "14px",
-                    padding: "12px 18px",
-                    background: "linear-gradient(135deg, #2f6499 0%, #4c86be 100%)",
-                    color: "#ffffff",
-                    fontSize: "14px",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    boxShadow: "0 12px 24px rgba(58, 97, 141, 0.18)",
-                  }}
-                >
-                  Apply Filters
-                </button>
-
-                <div style={{ position: "relative" }}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedExportFormat("csv");
-                      setExportFeedback({ type: "", message: "" });
-                      setIsExportModalOpen(true);
-                    }}
-                    disabled={Boolean(isExporting)}
-                    style={{
-                      border: "1px solid #c6d8ea",
-                      borderRadius: "14px",
-                      padding: "12px 18px",
-                      backgroundColor: "#f8fbfe",
-                      color: "#2a4c6f",
-                      fontSize: "14px",
-                      fontWeight: 700,
-                      cursor: isExporting ? "not-allowed" : "pointer",
-                      minHeight: "46px",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      opacity: isExporting ? 0.7 : 1,
-                    }}
-                  >
-                    <FiFileText size={16} />
-                    {isExporting ? `Exporting ${isExporting.toUpperCase()}...` : "Export"}
-                  </button>
-                </div>
-              </div>
-            </div>
-
             <InventoryTransactionsTable
               rows={presentedRows}
               isLoading={isLoading}
               errorMessage={errorMessage}
+              onViewDetails={handleOpenTransactionDetail}
             />
           </>
         ) : (
@@ -1092,35 +1088,6 @@ const InventoryTransactionsPage = () => {
         )}
       </section>
 
-      <section style={miniCardGridStyles}>
-        <article style={miniCardStyles}>
-          <h3 style={{ ...sectionTitleStyles, fontSize: "18px" }}>
-            Expiration Monitoring
-          </h3>
-          <p style={{ ...summaryHelperStyles, marginTop: "12px" }}>
-            Expiring in 30 Days: <strong>{expirationMetrics.expiringIn30Days}</strong>
-          </p>
-          <p style={{ ...summaryHelperStyles, marginTop: "8px" }}>
-            Expired Items: <strong>{expirationMetrics.expiredItems}</strong>
-          </p>
-        </article>
-
-        <article style={miniCardStyles}>
-          <h3 style={{ ...sectionTitleStyles, fontSize: "18px" }}>
-            Inventory Reconciliation
-          </h3>
-          <p style={{ ...summaryHelperStyles, marginTop: "12px" }}>
-            Expected Stock: <strong>{reconciliationMetrics.expectedOnHand}</strong>
-          </p>
-          <p style={{ ...summaryHelperStyles, marginTop: "8px" }}>
-            Actual Stock: <strong>{reconciliationMetrics.actualStock}</strong>
-          </p>
-          <p style={{ ...summaryHelperStyles, marginTop: "8px" }}>
-            Difference: <strong>{reconciliationMetrics.difference}</strong>
-          </p>
-        </article>
-      </section>
-
       <ExportModal
         isOpen={isExportModalOpen}
         title="Export Inventory Report"
@@ -1150,7 +1117,13 @@ const InventoryTransactionsPage = () => {
         message={exportFeedback.message}
         onClose={() => setExportFeedback({ type: "", message: "" })}
       />
-    </>
+
+      <InventoryTransactionDetailModal
+        isOpen={Boolean(selectedTransactionDetail)}
+        row={selectedTransactionDetail}
+        onClose={() => setSelectedTransactionDetail(null)}
+      />
+    </div>
   );
 };
 

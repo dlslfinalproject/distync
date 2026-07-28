@@ -6,6 +6,9 @@ const mayorReportExport = require("../utils/mayorReportExport");
 const notificationService = require("../modules/notifications/notification.service");
 const { logAuditSafely, pickDefined } = require("../utils/systemLog");
 
+const buildFullName = (firstName, lastName) =>
+  [firstName, lastName].filter(Boolean).join(" ").trim();
+
 const mapInventoryBatch = (batch) => {
   return {
     id: batch.id,
@@ -53,6 +56,16 @@ const mapInventoryBatch = (batch) => {
           address: batch.supplier_address,
           has_moa: batch.supplier_has_moa,
           notes: batch.supplier_notes,
+        }
+      : null,
+    creator: batch.created_by
+      ? {
+          id: batch.created_by,
+          full_name:
+            buildFullName(
+              batch.created_by_first_name,
+              batch.created_by_last_name,
+            ) || "--",
         }
       : null,
   };

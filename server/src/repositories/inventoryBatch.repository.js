@@ -30,6 +30,8 @@ const baseSelectQuery = `
     stock_forms.unit_of_measure AS stock_form_unit_of_measure,
     stock_forms.unit_of_measure_value AS stock_form_unit_of_measure_value,
     stock_forms.is_active AS stock_form_is_active,
+    u.first_name AS created_by_first_name,
+    u.last_name AS created_by_last_name,
     s.name AS supplier_name,
     s.contact_person AS supplier_contact_person,
     s.contact_number AS supplier_contact_number,
@@ -40,6 +42,7 @@ const baseSelectQuery = `
   INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
   LEFT JOIN inventory_item_stock_forms stock_forms
     ON stock_forms.id = ib.inventory_item_stock_form_id
+  LEFT JOIN users u ON u.id = ib.created_by
   LEFT JOIN suppliers s ON s.id = ib.supplier_id
 `;
 
