@@ -8,10 +8,11 @@ const donationStatuses = [
 const donorTypes = [
   "INDIVIDUAL",
   "NGO",
-  "PRIVATE ORGANIZATION",
-  "GOVERNMENT PARTNER",
+  "PRIVATE_ORGANIZATION",
+  "GOVERNMENT_PARTNER",
   "OTHER",
 ];
+const invalidDonorTypeMessage = "Please select a valid donor type.";
 
 const priorityLevels = ["LOW", "MEDIUM", "HIGH", "URGENT"];
 
@@ -178,8 +179,7 @@ const validateDonationFilters = (req, res, next) => {
 
   if (donor_type !== undefined && !donorTypes.includes(donor_type)) {
     return res.status(400).json({
-      message:
-        "donor_type must be one of: INDIVIDUAL, NGO, PRIVATE ORGANIZATION, GOVERNMENT PARTNER, OTHER",
+      message: invalidDonorTypeMessage,
     });
   }
 
@@ -277,8 +277,7 @@ const validateDonationPayload = (req, res, next) => {
 
   if (!donorTypes.includes(donor_type)) {
     return res.status(400).json({
-      message:
-        "donor_type must be one of: INDIVIDUAL, NGO, PRIVATE ORGANIZATION, GOVERNMENT PARTNER, OTHER",
+      message: invalidDonorTypeMessage,
     });
   }
 

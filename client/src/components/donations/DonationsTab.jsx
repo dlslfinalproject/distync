@@ -1,7 +1,10 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
 import { FiEdit2, FiEye, FiTrash2 } from "react-icons/fi";
-import { formatDonationDateTime } from "../../features/donations/donationFormatters";
+import {
+  formatDonationDateTime,
+  formatDonorType,
+} from "../../features/donations/donationFormatters";
 import DonationSyncBadge from "./DonationSyncBadges";
 import TableActionsMenu from "../shared/TableActionsMenu";
 
@@ -122,7 +125,9 @@ const DonationsTab = ({
                   <tr key={donation.id}>
                     <td style={tableStyles.bodyCell}>
                       <div style={{ fontWeight: 700 }}>{donation.donor_name}</div>
-                      <div style={tableStyles.mutedText}>{donation.donor_type}</div>
+                      <div style={tableStyles.mutedText}>
+                        {formatDonorType(donation.donor_type)}
+                      </div>
                     </td>
                     <td style={tableStyles.bodyCell}>
                       <div style={tableStyles.stackedList}>

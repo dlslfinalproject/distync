@@ -23,6 +23,35 @@ const priorityRank = {
   LOW: 4,
 };
 
+const canonicalDonorTypes = new Set([
+  "INDIVIDUAL",
+  "NGO",
+  "PRIVATE_ORGANIZATION",
+  "GOVERNMENT_PARTNER",
+  "OTHER",
+]);
+const legacyDonorTypeMap = {
+  "PRIVATE ORGANIZATION": "PRIVATE_ORGANIZATION",
+  "GOVERNMENT PARTNER": "GOVERNMENT_PARTNER",
+};
+
+const normalizeDonationDonorType = (value) => {
+  const normalizedValue = String(value || "").trim().toUpperCase();
+  return legacyDonorTypeMap[normalizedValue] || normalizedValue;
+};
+
+const ensureValidDonationDonorType = (value) => {
+  const normalizedDonorType = normalizeDonationDonorType(value);
+
+  if (!canonicalDonorTypes.has(normalizedDonorType)) {
+    const error = new Error("Please select a valid donor type.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return normalizedDonorType;
+};
+
 const neededItemSourceMeta = {
   FORECAST: {
     title: "Forecasted Donation Needs",
@@ -1045,17 +1074,21 @@ const getDonationDetail = async (id) => {
 const createDonation = async (payload, actor) => {
   const normalizedActor = normalizeActor(actor);
   const receivedBy = normalizedActor.userId;
+  const normalizedPayload = {
+    ...payload,
+    donor_type: ensureValidDonationDonorType(payload.donor_type),
+  };
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
 
-    await ensureDisasterEvent(payload.disaster_event_id, client);
+    await ensureDisasterEvent(normalizedPayload.disaster_event_id, client);
     await ensureUser(receivedBy, "received_by", client);
 
     const createdDonation = await donationRepository.insertDonation(
       {
-        ...payload,
+        ...normalizedPayload,
         received_by: receivedBy,
       },
       client,
@@ -1066,7 +1099,7 @@ const createDonation = async (payload, actor) => {
       client,
     );
 
-    for (const item of payload.items || []) {
+    for (const item of normalizedPayload.items || []) {
       await createDonationItemWithInventory({
         donation: donationRecord,
         donationItemPayload: item,
@@ -1126,6 +1159,10 @@ const createDonation = async (payload, actor) => {
 
 const updateDonation = async (id, payload, actor = null) => {
   const normalizedActor = normalizeActor(actor);
+  const normalizedPayload = {
+    ...payload,
+    donor_type: ensureValidDonationDonorType(payload.donor_type),
+  };
   const client = await pool.connect();
 
   try {
@@ -1144,9 +1181,9 @@ const updateDonation = async (id, payload, actor = null) => {
 
     const previousDonationSummary = summarizeDonation(existingDonation);
 
-    await ensureDisasterEvent(payload.disaster_event_id, client);
+    await ensureDisasterEvent(normalizedPayload.disaster_event_id, client);
 
-    await donationRepository.updateDonation(id, payload, client);
+    await donationRepository.updateDonation(id, normalizedPayload, client);
     await client.query("COMMIT");
 
     const updatedDonation = await getDonationById(id);

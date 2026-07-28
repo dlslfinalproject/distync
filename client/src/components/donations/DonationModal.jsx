@@ -181,8 +181,8 @@ const DonationModal = ({
                   style={inputStyles}
                 >
                   {donorTypes.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
+                    <option key={type.value} value={type.value}>
+                      {type.label}
                     </option>
                   ))}
                 </select>
