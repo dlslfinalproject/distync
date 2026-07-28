@@ -32,6 +32,9 @@ const styles = {
     lineHeight: 1.55,
     wordBreak: "break-word",
   },
+  fullSpan: {
+    gridColumn: "1 / -1",
+  },
 };
 
 const formatDateTime = (value) => {
@@ -54,28 +57,53 @@ const formatDateTime = (value) => {
   });
 };
 
+const formatDate = (value) => {
+  if (!value) {
+    return "--";
+  }
+
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "--";
+  }
+
+  return parsedDate.toLocaleDateString("en-PH", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+};
+
 const InventoryTransactionDetailModal = ({ isOpen, row, onClose }) => {
   if (!isOpen || !row) {
     return null;
   }
 
-  const transactionDetails = [
+  const itemInformation = [
     ["Item Name", row.inventory_item?.item_name || "--"],
     ["Item Code", row.inventory_item?.item_code || "--"],
     ["Batch Number", row.batch_no || "--"],
-    ["Quantity", String(row.quantity ?? 0)],
-    ["Movement", row.transaction_direction || "--"],
-    ["Transaction Type", row.transaction_type_label || row.transaction_type || "--"],
-    ["Date", formatDateTime(row.performed_at)],
-    ["Performed By", row.performed_by_label || "--"],
+    ["Packaging / Stock Form", row.stock_form_label || "--"],
+    ["Units per Packaging", row.units_per_packaging || "--"],
+    ["Expiry Date", formatDate(row.expiration_date)],
   ];
 
-  const additionalDetails = [
+  const transactionInformation = [
+    ["Quantity Moved", String(row.quantity ?? 0)],
+    ["Movement", row.transaction_direction || "--"],
+    ["Transaction Type", row.transaction_type_label || row.transaction_type || "--"],
+    ["Date and Time", formatDateTime(row.performed_at)],
+    ["Performed By", row.performed_by_label || "--"],
+    ["Remaining Batch Stock", row.quantity_available ?? "--"],
+  ];
+
+  const additionalInformation = [
     ["Source", row.source_label || "--"],
-    ["Remarks", row.remarks || "--"],
-    ["Sync Status", row.sync_status || "--"],
     ["Record ID", row.id || "--"],
   ];
+
+  const remarks = row.remarks || "--";
 
   return (
     <DetailsModalShell
@@ -89,10 +117,23 @@ const InventoryTransactionDetailModal = ({ isOpen, row, onClose }) => {
     >
       <div style={{ display: "grid", gap: "20px" }}>
         <section style={styles.sectionCard}>
+          <h3 style={{ margin: 0, color: "#17324d" }}>Item Information</h3>
+
+          <div style={{ ...styles.grid, marginTop: "16px" }}>
+            {itemInformation.map(([label, value]) => (
+              <div key={label}>
+                <p style={styles.label}>{label}</p>
+                <p style={styles.value}>{value}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section style={styles.sectionCard}>
           <h3 style={{ margin: 0, color: "#17324d" }}>Transaction Information</h3>
 
           <div style={{ ...styles.grid, marginTop: "16px" }}>
-            {transactionDetails.map(([label, value]) => (
+            {transactionInformation.map(([label, value]) => (
               <div key={label}>
                 <p style={styles.label}>{label}</p>
                 <p style={styles.value}>{value}</p>
@@ -105,12 +146,16 @@ const InventoryTransactionDetailModal = ({ isOpen, row, onClose }) => {
           <h3 style={{ margin: 0, color: "#17324d" }}>Additional Information</h3>
 
           <div style={{ ...styles.grid, marginTop: "16px" }}>
-            {additionalDetails.map(([label, value]) => (
+            {additionalInformation.map(([label, value]) => (
               <div key={label}>
                 <p style={styles.label}>{label}</p>
                 <p style={styles.value}>{value}</p>
               </div>
             ))}
+            <div style={styles.fullSpan}>
+              <p style={styles.label}>Remarks</p>
+              <p style={styles.value}>{remarks}</p>
+            </div>
           </div>
         </section>
       </div>

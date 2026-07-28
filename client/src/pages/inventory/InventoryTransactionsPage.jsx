@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { FiFileText } from "react-icons/fi";
+import { FiFileText, FiFilter } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
-import { shellStyles } from "../../components/layout/BarangayLayout";
+import { pageSpacingStyles, shellStyles } from "../../components/layout/BarangayLayout";
 import ExportModal from "../../components/shared/ExportModal";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import SearchBar from "../../components/shared/SearchBar";
@@ -31,19 +31,31 @@ import {
   resolveExportErrorMessage,
 } from "../../utils/exportHelpers";
 
-const selectStyles = {
-  minHeight: "52px",
-  padding: "0 14px",
-  borderRadius: "16px",
-  border: "1px solid #d3dfec",
-  backgroundColor: "#ffffff",
-  color: "#234260",
+const inputStyles = {
+  width: "100%",
+  minHeight: "46px",
+  padding: "12px 14px",
+  borderRadius: "14px",
+  border: "1px solid #cfddeb",
+  backgroundColor: "#f8fbfe",
+  color: "#1f3b57",
   fontSize: "14px",
+  boxSizing: "border-box",
+};
+
+const labelStyles = {
+  display: "block",
+  marginBottom: "8px",
+  color: "#5f7892",
+  fontSize: "12px",
+  fontWeight: 700,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
 };
 
 const summaryGridStyles = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
   gap: "16px",
 };
 
@@ -117,18 +129,172 @@ const sectionTitleStyles = {
   fontSize: "22px",
 };
 
-const toolbarSectionStyles = {
+const toolbarStyles = {
+  display: "flex",
   alignItems: "center",
-  display: "grid",
-  gap: "16px",
-  gridTemplateColumns: "minmax(260px, 1.3fr) minmax(180px, 0.7fr) minmax(180px, 0.7fr) minmax(180px, 0.7fr) auto",
+  gap: "12px",
   margin: "0 0 24px",
+  flexWrap: "wrap",
 };
 
-const toolbarSelectStyles = {
-  ...selectStyles,
-  minWidth: 0,
-  width: "100%",
+const searchWrapStyles = {
+  flex: "1 1 420px",
+  minWidth: "260px",
+};
+
+const inlineSelectWrapStyles = {
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+  flex: "0 0 auto",
+};
+
+const inlineSelectLabelStyles = {
+  color: "#17324d",
+  fontSize: "14px",
+  fontWeight: 700,
+};
+
+const inlineSelectStyles = {
+  minWidth: "120px",
+  border: "1px solid #c7d6e5",
+  borderRadius: "12px",
+  padding: "10px 12px",
+  backgroundColor: "#ffffff",
+  color: "#17324d",
+  fontSize: "14px",
+  fontWeight: 600,
+  boxSizing: "border-box",
+  appearance: "auto",
+};
+
+const filterPanelStyles = {
+  panel: {
+    position: "fixed",
+    width: "min(360px, calc(100vw - 32px))",
+    backgroundColor: "#ffffff",
+    border: "1px solid #d6e2ef",
+    borderRadius: "18px",
+    boxShadow: "0 18px 36px rgba(31, 64, 95, 0.16)",
+    padding: "18px",
+    zIndex: 1200,
+    display: "flex",
+    flexDirection: "column",
+    gap: "14px",
+    overflow: "hidden",
+    boxSizing: "border-box",
+  },
+  title: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "16px",
+    fontWeight: 800,
+  },
+  field: {
+    display: "grid",
+    gap: "8px",
+  },
+  label: {
+    color: "#55718b",
+    fontSize: "13px",
+    fontWeight: 700,
+  },
+  select: {
+    minHeight: "44px",
+    borderRadius: "14px",
+    border: "1px solid #d0ddeb",
+    backgroundColor: "#ffffff",
+    color: "#17324d",
+    padding: "10px 12px",
+    fontSize: "14px",
+    fontWeight: 600,
+  },
+  list: {
+    display: "grid",
+    gap: "10px",
+    overflowY: "auto",
+    flex: "1 1 auto",
+    minHeight: 0,
+    paddingRight: "4px",
+  },
+  option: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    color: "#1f405f",
+    fontSize: "14px",
+  },
+  actions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    marginTop: "auto",
+  },
+  clearAction: {
+    border: "none",
+    background: "transparent",
+    color: "#55718b",
+    padding: "2px 0",
+    fontSize: "13px",
+    fontWeight: 700,
+    cursor: "pointer",
+    textDecoration: "underline",
+    textUnderlineOffset: "3px",
+  },
+};
+
+const FILTER_PANEL_GAP = 12;
+const FILTER_PANEL_VIEWPORT_PADDING = 16;
+const MIN_FILTER_PANEL_HEIGHT = 220;
+
+const getFilterPanelPosition = ({ triggerRect, panelHeight }) => {
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const constrainedPanelWidth = Math.min(
+    360,
+    viewportWidth - FILTER_PANEL_VIEWPORT_PADDING * 2,
+  );
+  const safePanelHeight = Math.max(panelHeight || 0, MIN_FILTER_PANEL_HEIGHT);
+  const spaceBelow =
+    viewportHeight - triggerRect.bottom - FILTER_PANEL_VIEWPORT_PADDING;
+  const spaceAbove = triggerRect.top - FILTER_PANEL_VIEWPORT_PADDING;
+  const shouldOpenBelow =
+    spaceBelow >= MIN_FILTER_PANEL_HEIGHT || spaceBelow >= spaceAbove;
+
+  let left = triggerRect.right - constrainedPanelWidth;
+  left = Math.min(
+    Math.max(left, FILTER_PANEL_VIEWPORT_PADDING),
+    viewportWidth - constrainedPanelWidth - FILTER_PANEL_VIEWPORT_PADDING,
+  );
+
+  if (shouldOpenBelow) {
+    const top = Math.max(
+      FILTER_PANEL_VIEWPORT_PADDING,
+      triggerRect.bottom + FILTER_PANEL_GAP,
+    );
+    const availableHeight =
+      viewportHeight - top - FILTER_PANEL_VIEWPORT_PADDING;
+
+    return {
+      top,
+      left,
+      maxHeight: Math.max(availableHeight, 0),
+    };
+  }
+
+  const maxHeight = Math.max(
+    triggerRect.top - FILTER_PANEL_GAP - FILTER_PANEL_VIEWPORT_PADDING,
+    0,
+  );
+  const top = Math.max(
+    FILTER_PANEL_VIEWPORT_PADDING,
+    triggerRect.top - FILTER_PANEL_GAP - Math.min(safePanelHeight, maxHeight),
+  );
+
+  return {
+    top,
+    left,
+    maxHeight,
+  };
 };
 
 const tableStyles = {
@@ -174,17 +340,36 @@ const outflowTransactionTypes = new Set([
   "STOLEN",
 ]);
 
-const transactionTypes = [
-  "INFLOW",
-  "OUTFLOW",
-  "EXPIRED",
-  "DAMAGED",
-  "MISSING",
-  "RETURN",
-  "ADJUSTMENT",
+const transactionTypeFilterOptions = [
+  { value: "", label: "All transaction types" },
+  { value: "Stock-Up", label: "Stock-Up" },
+  { value: "Donated", label: "Donation" },
+  { value: "Distributed", label: "Distributed" },
+  { value: "Damaged", label: "Damaged" },
+  { value: "Spoiled", label: "Spoiled" },
+  { value: "Missing", label: "Missing" },
+  { value: "Stolen", label: "Stolen" },
+  { value: "Expired", label: "Expired" },
 ];
 
-const sourceOptions = ["DONATION", "SUPPLIER", "DISTRIBUTION"];
+const movementFilterOptions = [
+  { value: "", label: "All" },
+  { value: "INFLOW", label: "Inflow" },
+  { value: "OUTFLOW", label: "Outflow" },
+];
+
+const orderOptions = [
+  { value: "newest", label: "Newest-Oldest" },
+  { value: "oldest", label: "Oldest-Newest" },
+  { value: "az", label: "Sort A-Z" },
+  { value: "za", label: "Sort Z-A" },
+];
+
+const sourceOptions = [
+  { value: "", label: "All sources" },
+  { value: "Malvar LGU", label: "Malvar LGU" },
+  { value: "Donors", label: "Donors" },
+];
 
 const sampleTransactionRows = [
   {
@@ -252,10 +437,12 @@ const sampleAuditEntries = [
 ];
 
 const sampleSummaryMetrics = {
-  currentStockOnHand: 730,
-  lowStockItems: 2,
+  totalInflow: 730,
+  totalOutflow: 120,
+  totalWriteOff: 30,
+  nearExpiryItems: 2,
   expiredItems: 1,
-  transactionsToday: 3,
+  lowStockItems: 2,
 };
 
 const buildQueuedInventoryTransaction = (entry, inventoryBatches) => {
@@ -277,6 +464,45 @@ const buildQueuedInventoryTransaction = (entry, inventoryBatches) => {
   };
 };
 
+const buildDistributionOutflowRows = (distributionHistoryRows) => {
+  if (!Array.isArray(distributionHistoryRows) || distributionHistoryRows.length === 0) {
+    return [];
+  }
+
+  return distributionHistoryRows
+    .filter((row) => row?.distribution_status === "CLAIMED")
+    .map((row) => ({
+      id: row.id,
+      transaction_direction: "OUTFLOW",
+      transaction_type: "OUTFLOW",
+      batch_no: row.batch_no || "--",
+      inventory_item: {
+        item_name: row.released_items_summary || row.relief_pack_template_name || "--",
+        item_code: row.relief_pack_template_name
+          ? "Distributed relief pack"
+          : "Distributed inventory item",
+      },
+      quantity: Number(row.total_quantity_released || 0),
+      performed_at: row.distribution_date,
+      source_label: "Malvar LGU",
+      source_details: row.barangay_name
+        ? `${row.barangay_name} distribution release`
+        : "Distribution release",
+      reference_type: "DISTRIBUTION",
+      remarks:
+        [
+          row.receipt_no ? `Receipt No: ${row.receipt_no}` : "",
+          row.claimed_by_name ? `Claimed By: ${row.claimed_by_name}` : "",
+          row.relief_pack_template_name || row.released_items_summary || "",
+        ]
+          .filter(Boolean)
+          .join(" | "),
+      sync_status: row.sync_status || "synced",
+      is_local_only: false,
+      inventory_item_id: null,
+      performed_by_label: row.verified_by_name || "--",
+    }));
+};
 const buildBatchInflowRows = (inventoryBatches, transactionRows) => {
   if (!Array.isArray(inventoryBatches) || inventoryBatches.length === 0) {
     return [];
@@ -301,6 +527,7 @@ const buildBatchInflowRows = (inventoryBatches, transactionRows) => {
     sync_status: "synced",
     is_local_only: false,
     inventory_item: batch.inventory_item || null,
+    creator: batch.creator || null,
     source_label: "Malvar LGU",
     source_details: "Malvar LGU",
     performed_by_label: batch.creator?.full_name || "--",
@@ -310,21 +537,6 @@ const buildBatchInflowRows = (inventoryBatches, transactionRows) => {
 const normalizeQuantity = (value) => {
   const numericValue = Number(value);
   return Number.isFinite(numericValue) ? numericValue : 0;
-};
-
-const isSameCalendarDate = (leftValue, rightValue) => {
-  const left = new Date(leftValue);
-  const right = new Date(rightValue);
-
-  if (Number.isNaN(left.getTime()) || Number.isNaN(right.getTime())) {
-    return false;
-  }
-
-  return (
-    left.getFullYear() === right.getFullYear() &&
-    left.getMonth() === right.getMonth() &&
-    left.getDate() === right.getDate()
-  );
 };
 
 const getTransactionDirection = (transactionType) => {
@@ -358,21 +570,21 @@ const getSourceLabel = (transaction, batch) => {
   }
 
   if (transaction.reference_type === "DISTRIBUTION") {
-    return "Distribution";
+    return "Malvar LGU";
   }
 
   if (
     transaction.reference_type === "DONATION" ||
     batch?.source_type === "DONATED"
   ) {
-    return "Donation";
+    return "Donors";
   }
 
   if (batch?.supplier_id || batch?.source_type === "PURCHASED") {
-    return "Supplier";
+    return "Malvar LGU";
   }
 
-  return "Manual";
+  return "Malvar LGU";
 };
 
 const formatTransactionLabel = (value) => {
@@ -386,6 +598,12 @@ const formatTransactionLabel = (value) => {
     .toLowerCase()
     .replace(/_/g, " ")
     .replace(/\b\w/g, (character) => character.toUpperCase());
+};
+
+const isUuidLikeValue = (value) => {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(value || "").trim(),
+  );
 };
 
 const getTransactionTypeLabel = (row) => {
@@ -431,11 +649,19 @@ const getPerformedByLabel = (row) => {
     return row.performed_by_name;
   }
 
-  if (row.performed_by) {
-    return row.performed_by;
+  if (row.is_local_only) {
+    return "Pending sync";
   }
 
-  return row.is_local_only ? "Pending sync" : "Not recorded";
+  if (row.performed_by) {
+    return isUuidLikeValue(row.performed_by) ? "Not recorded" : row.performed_by;
+  }
+
+  if (row.performed_by_label && row.performed_by_label !== "--") {
+    return row.performed_by_label;
+  }
+
+  return "Not recorded";
 };
 
 const isLowStockItem = (item, trackingStats) => {
@@ -498,9 +724,11 @@ const SummaryCard = ({ label, value, helper }) => (
 const InventoryTransactionsPage = () => {
   const [activeSubtab, setActiveSubtab] = useState("transactions");
   const [filters, setFilters] = useState({
-    search: "",
     inventory_item_id: "",
+    inventory_batch_id: "",
     transaction_type: "",
+    date_from: "",
+    date_to: "",
     source: "",
   });
   const [inventoryTransactions, setInventoryTransactions] = useState([]);
@@ -517,6 +745,20 @@ const InventoryTransactionsPage = () => {
     message: "",
   });
   const [selectedTransactionDetail, setSelectedTransactionDetail] = useState(null);
+  const [toolbarState, setToolbarState] = useState({
+    search: "",
+    movement: "",
+    sortOrder: "newest",
+    stockForms: [],
+  });
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [filterPanelPosition, setFilterPanelPosition] = useState({
+    top: 0,
+    left: 0,
+    maxHeight: 320,
+  });
+  const filterButtonRef = useRef(null);
+  const filterPanelRef = useRef(null);
   const syncQueueEntries =
     useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
 
@@ -576,15 +818,40 @@ const InventoryTransactionsPage = () => {
     );
   }, [inventoryItems]);
 
+  const inventoryBatchOptions = useMemo(() => {
+    if (!filters.inventory_item_id) {
+      return [];
+    }
+
+    return inventoryBatches
+      .filter(
+        (batch) =>
+          String(batch.inventory_item_id || batch.inventory_item?.id || "") ===
+          String(filters.inventory_item_id),
+      )
+      .sort((left, right) => String(left.batch_no || "").localeCompare(String(right.batch_no || "")));
+  }, [filters.inventory_item_id, inventoryBatches]);
+
   const batchById = useMemo(() => {
     return new Map(
       inventoryBatches.map((batch) => [
         batch.id,
         {
+          id: batch.id,
           batch_no: batch.batch_no || "",
           source_type: batch.source_type,
           supplier_id: batch.supplier_id,
           supplier_name: batch.supplier?.name || "",
+          quantity_available: batch.quantity_available,
+          expiration_date: batch.expiration_date || null,
+          stock_form_packaging:
+            batch.inventory_item_stock_form?.packaging ||
+            batch.stock_form_packaging ||
+            "",
+          stock_form_units_per_packaging:
+            batch.inventory_item_stock_form?.units_per_packaging ||
+            batch.stock_form_units_per_packaging ||
+            "",
           inventory_item: batch.inventory_item || null,
         },
       ]),
@@ -659,14 +926,46 @@ const InventoryTransactionsPage = () => {
     ]
       .map((row) => {
         const linkedBatch = batchById.get(row.inventory_batch_id);
+        const resolvedInventoryItem =
+          row.inventory_item ||
+          row.inventory_batch?.inventory_item ||
+          linkedBatch?.inventory_item ||
+          null;
+        const resolvedStockForm =
+          row.inventory_item_stock_form ||
+          row.inventory_batch?.inventory_item_stock_form ||
+          null;
 
         return {
           ...row,
+          inventory_item: resolvedInventoryItem,
           batch_no:
             row.batch_no ||
             row.inventory_batch?.batch_no ||
             linkedBatch?.batch_no ||
             "--",
+          stock_form_label:
+            row.inventory_item_stock_form?.packaging ||
+            row.inventory_batch?.inventory_item_stock_form?.packaging ||
+            linkedBatch?.stock_form_packaging ||
+            "",
+          units_per_packaging:
+            row.inventory_item_stock_form?.units_per_packaging ||
+            row.inventory_batch?.inventory_item_stock_form?.units_per_packaging ||
+            row.stock_form_units_per_packaging ||
+            linkedBatch?.stock_form_units_per_packaging ||
+            "",
+          quantity_available:
+            row.quantity_available ??
+            row.inventory_batch?.quantity_available ??
+            linkedBatch?.quantity_available ??
+            null,
+          expiration_date:
+            row.expiration_date ||
+            row.inventory_batch?.expiration_date ||
+            linkedBatch?.expiration_date ||
+            null,
+          inventory_item_stock_form: resolvedStockForm,
           performed_by_label: getPerformedByLabel(row),
           transaction_type_label: getTransactionTypeLabel(row),
         };
@@ -683,11 +982,7 @@ const InventoryTransactionsPage = () => {
   ]);
 
   const displayedRows = useMemo(() => {
-    return mergedTransactionRows.filter((row) => {
-      if (!matchesSearch(row, filters.search)) {
-        return false;
-      }
-
+    const filteredRows = mergedTransactionRows.filter((row) => {
       if (
         filters.inventory_item_id &&
         row.inventory_item?.id !== filters.inventory_item_id
@@ -696,26 +991,119 @@ const InventoryTransactionsPage = () => {
       }
 
       if (
-        filters.transaction_type &&
-        row.transaction_type !== filters.transaction_type &&
-        row.transaction_direction !== filters.transaction_type
+        filters.inventory_batch_id &&
+        String(row.inventory_batch_id || "") !== String(filters.inventory_batch_id)
       ) {
         return false;
       }
 
-      if (filters.source && row.source_label.toUpperCase() !== filters.source) {
+      if (
+        filters.transaction_type &&
+        row.transaction_type_label !== filters.transaction_type
+      ) {
+        return false;
+      }
+
+      if (filters.date_from) {
+        const rowDate = new Date(row.performed_at || "");
+        const fromDate = new Date(`${filters.date_from}T00:00:00`);
+
+        if (Number.isNaN(rowDate.getTime()) || rowDate < fromDate) {
+          return false;
+        }
+      }
+
+      if (filters.date_to) {
+        const rowDate = new Date(row.performed_at || "");
+        const toDate = new Date(`${filters.date_to}T23:59:59`);
+
+        if (Number.isNaN(rowDate.getTime()) || rowDate > toDate) {
+          return false;
+        }
+      }
+
+      if (filters.source && row.source_label !== filters.source) {
+        return false;
+      }
+
+      if (
+        toolbarState.search &&
+        !matchesSearch(row, toolbarState.search)
+      ) {
+        return false;
+      }
+
+      if (
+        toolbarState.movement &&
+        String(row.transaction_direction || "").toUpperCase() !== toolbarState.movement
+      ) {
+        return false;
+      }
+
+      if (
+        toolbarState.stockForms.length > 0 &&
+        !toolbarState.stockForms.includes(String(row.stock_form_label || ""))
+      ) {
         return false;
       }
 
       return true;
     });
+
+    return [...filteredRows].sort((left, right) => {
+      if (toolbarState.sortOrder === "oldest") {
+        return (
+          new Date(left.performed_at || 0).getTime() -
+          new Date(right.performed_at || 0).getTime()
+        );
+      }
+
+      if (toolbarState.sortOrder === "az") {
+        return String(left.inventory_item?.item_name || "").localeCompare(
+          String(right.inventory_item?.item_name || ""),
+          undefined,
+          { sensitivity: "base" },
+        );
+      }
+
+      if (toolbarState.sortOrder === "za") {
+        return String(right.inventory_item?.item_name || "").localeCompare(
+          String(left.inventory_item?.item_name || ""),
+          undefined,
+          { sensitivity: "base" },
+        );
+      }
+
+      return (
+        new Date(right.performed_at || 0).getTime() -
+        new Date(left.performed_at || 0).getTime()
+      );
+    });
   }, [
+    filters.date_from,
+    filters.date_to,
+    filters.inventory_batch_id,
     filters.inventory_item_id,
-    filters.search,
     filters.source,
     filters.transaction_type,
     mergedTransactionRows,
+    toolbarState.movement,
+    toolbarState.search,
+    toolbarState.sortOrder,
+    toolbarState.stockForms,
   ]);
+
+  const stockFormOptions = useMemo(() => {
+    return [...new Set(
+      mergedTransactionRows
+        .map((row) => String(row.stock_form_label || "").trim())
+        .filter(Boolean),
+    )].sort((left, right) => left.localeCompare(right));
+  }, [mergedTransactionRows]);
+
+  const activeToolbarFilterCount =
+    toolbarState.stockForms.length +
+    (toolbarState.sortOrder !== "newest" ? 1 : 0);
 
   const trackingMap = useMemo(() => {
     return buildInventoryTrackingMap(
@@ -734,15 +1122,56 @@ const InventoryTransactionsPage = () => {
       return sampleSummaryMetrics;
     }
 
-    const today = new Date();
-    const currentStockOnHand = inventoryBatches.reduce(
-      (sum, batch) => sum + normalizeQuantity(batch.quantity_available),
-      0,
-    );
+    const totalInflow = mergedTransactionRows.reduce((sum, row) => {
+      return row.transaction_direction === "INFLOW"
+        ? sum + normalizeQuantity(row.quantity)
+        : sum;
+    }, 0);
+
+    const totalOutflow = mergedTransactionRows.reduce((sum, row) => {
+      return row.transaction_direction === "OUTFLOW"
+        ? sum + normalizeQuantity(row.quantity)
+        : sum;
+    }, 0);
+
+    const totalWriteOff = mergedTransactionRows.reduce((sum, row) => {
+      return ["EXPIRED", "DAMAGED", "MISSING", "SPOILED", "STOLEN"].includes(
+        String(row.transaction_type || "").toUpperCase(),
+      )
+        ? sum + normalizeQuantity(row.quantity)
+        : sum;
+    }, 0);
 
     const lowStockItems = inventoryItems.filter((item) =>
       isLowStockItem(item, trackingMap.get(item.id)),
     ).length;
+
+    const nearExpiryItems = inventoryItems.filter((item) => {
+      const trackingStats = trackingMap.get(item.id);
+      const trackedExpirationDate = getTrackedExpirationDate(item, trackingStats);
+
+      if (!trackedExpirationDate) {
+        return false;
+      }
+
+      const expirationDate = new Date(trackedExpirationDate);
+      const today = new Date();
+      const todayDateOnly = new Date(
+        today.getFullYear(),
+        today.getMonth(),
+        today.getDate(),
+      );
+
+      if (Number.isNaN(expirationDate.getTime()) || expirationDate < todayDateOnly) {
+        return false;
+      }
+
+      const daysUntilExpiry =
+        (expirationDate.getTime() - todayDateOnly.getTime()) /
+        (1000 * 60 * 60 * 24);
+
+      return daysUntilExpiry <= 30;
+    }).length;
 
     const expiredItems = inventoryItems.filter((item) => {
       const trackingStats = trackingMap.get(item.id);
@@ -755,15 +1184,13 @@ const InventoryTransactionsPage = () => {
       );
     }).length;
 
-    const transactionsToday = mergedTransactionRows.filter((transaction) =>
-      isSameCalendarDate(transaction.performed_at, today),
-    ).length;
-
     return {
-      currentStockOnHand,
+      totalInflow,
+      totalOutflow,
+      totalWriteOff,
+      nearExpiryItems,
       lowStockItems,
       expiredItems,
-      transactionsToday,
     };
   }, [inventoryBatches, inventoryItems, mergedTransactionRows, trackingMap]);
 
@@ -795,13 +1222,6 @@ const InventoryTransactionsPage = () => {
 
   const presentedRows = isPreviewMode ? sampleTransactionRows : displayedRows;
 
-  const handleFilterChange = (fieldName, value) => {
-    setFilters((currentFilters) => ({
-      ...currentFilters,
-      [fieldName]: value,
-    }));
-  };
-
   const handleExport = async (format) => {
     setErrorMessage("");
     setIsExportModalOpen(false);
@@ -818,9 +1238,7 @@ const InventoryTransactionsPage = () => {
 
     try {
       const file = await exportInventoryTransactions(format, {
-        search: filters.search,
         inventory_item_id: filters.inventory_item_id,
-        transaction_type: filters.transaction_type,
       });
       downloadFile(file);
       setExportFeedback({
@@ -844,85 +1262,403 @@ const InventoryTransactionsPage = () => {
     setSelectedTransactionDetail(row);
   };
 
+  const handleFilterChange = (fieldName, value) => {
+    setFilters((currentFilters) => {
+      if (fieldName === "inventory_item_id") {
+        return {
+          ...currentFilters,
+          inventory_item_id: value,
+          inventory_batch_id: "",
+        };
+      }
+
+      return {
+        ...currentFilters,
+        [fieldName]: value,
+      };
+    });
+  };
+
+  const handleToolbarChange = (fieldName, value) => {
+    setToolbarState((currentValue) => ({
+      ...currentValue,
+      [fieldName]: value,
+    }));
+  };
+
+  const handleToggleStockForm = (stockFormLabel) => {
+    setToolbarState((currentValue) => {
+      const nextStockForms = currentValue.stockForms.includes(stockFormLabel)
+        ? currentValue.stockForms.filter((value) => value !== stockFormLabel)
+        : [...currentValue.stockForms, stockFormLabel];
+
+      return {
+        ...currentValue,
+        stockForms: nextStockForms,
+      };
+    });
+  };
+
+  const handleClearToolbarFilters = () => {
+    setToolbarState((currentValue) => ({
+      ...currentValue,
+      sortOrder: "newest",
+      stockForms: [],
+    }));
+  };
+
+  const updateFilterPanelPosition = useCallback(() => {
+    if (!filterButtonRef.current) {
+      return;
+    }
+
+    const triggerRect = filterButtonRef.current.getBoundingClientRect();
+    const panelHeight = filterPanelRef.current?.getBoundingClientRect().height || 0;
+
+    setFilterPanelPosition(getFilterPanelPosition({ triggerRect, panelHeight }));
+  }, []);
+
+  useEffect(() => {
+    if (!isFilterOpen) {
+      return;
+    }
+
+    updateFilterPanelPosition();
+
+    const handleWindowChange = () => {
+      updateFilterPanelPosition();
+    };
+
+    window.addEventListener("resize", handleWindowChange);
+    window.addEventListener("scroll", handleWindowChange, true);
+
+    return () => {
+      window.removeEventListener("resize", handleWindowChange);
+      window.removeEventListener("scroll", handleWindowChange, true);
+    };
+  }, [activeToolbarFilterCount, isFilterOpen, updateFilterPanelPosition]);
+
+  useEffect(() => {
+    if (!isFilterOpen) {
+      return;
+    }
+
+    const handleOutsideClick = (event) => {
+      if (
+        filterPanelRef.current?.contains(event.target) ||
+        filterButtonRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+
+      setIsFilterOpen(false);
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [isFilterOpen]);
+
+  useEffect(() => {
+    if (!isFilterOpen) {
+      return;
+    }
+
+    const animationFrameId = window.requestAnimationFrame(() => {
+      updateFilterPanelPosition();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+    };
+  }, [activeToolbarFilterCount, isFilterOpen, updateFilterPanelPosition]);
+
   return (
     <div style={pageStackStyles}>
       <PageHeader title="INVENTORY TRACKING MANAGEMENT" />
 
+      {activeSubtab === "transactions" ? (
+        <section style={{ ...shellStyles.card, marginTop: "18px" }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns:
+                "minmax(180px, 1.1fr) minmax(180px, 1fr) minmax(180px, 1fr) minmax(160px, 0.9fr) minmax(160px, 0.9fr) minmax(180px, 1fr)",
+              gap: "16px",
+              alignItems: "end",
+            }}
+          >
+            <div>
+              <label htmlFor="tracking-item-filter" style={labelStyles}>
+                Item
+              </label>
+              <select
+                id="tracking-item-filter"
+                value={filters.inventory_item_id}
+                onChange={(event) =>
+                  handleFilterChange("inventory_item_id", event.target.value)
+                }
+                style={inputStyles}
+              >
+                <option value="">All items</option>
+                {inventoryItemOptions.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.item_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="tracking-batch-filter" style={labelStyles}>
+                Batch
+              </label>
+              <select
+                id="tracking-batch-filter"
+                value={filters.inventory_batch_id}
+                onChange={(event) =>
+                  handleFilterChange("inventory_batch_id", event.target.value)
+                }
+                disabled={!filters.inventory_item_id}
+                style={{
+                  ...inputStyles,
+                  opacity: !filters.inventory_item_id ? 0.7 : 1,
+                  cursor: !filters.inventory_item_id ? "not-allowed" : "pointer",
+                }}
+              >
+                <option value="">
+                  {filters.inventory_item_id ? "All batches" : "Select an item first"}
+                </option>
+                {inventoryBatchOptions.map((batch) => (
+                  <option key={batch.id} value={batch.id}>
+                    {batch.batch_no}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="tracking-type-filter" style={labelStyles}>
+                Transaction Type
+              </label>
+              <select
+                id="tracking-type-filter"
+                value={filters.transaction_type}
+                onChange={(event) =>
+                  handleFilterChange("transaction_type", event.target.value)
+                }
+                style={inputStyles}
+              >
+                {transactionTypeFilterOptions.map((option) => (
+                  <option key={option.value || "all"} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="tracking-date-from" style={labelStyles}>
+                Date From
+              </label>
+              <input
+                id="tracking-date-from"
+                type="date"
+                value={filters.date_from}
+                onChange={(event) =>
+                  handleFilterChange("date_from", event.target.value)
+                }
+                style={inputStyles}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="tracking-date-to" style={labelStyles}>
+                Date To
+              </label>
+              <input
+                id="tracking-date-to"
+                type="date"
+                value={filters.date_to}
+                onChange={(event) =>
+                  handleFilterChange("date_to", event.target.value)
+                }
+                style={inputStyles}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="tracking-source-filter" style={labelStyles}>
+                Source
+              </label>
+              <select
+                id="tracking-source-filter"
+                value={filters.source}
+                onChange={(event) => handleFilterChange("source", event.target.value)}
+                style={inputStyles}
+              >
+                {sourceOptions.map((option) => (
+                  <option key={option.value || "all"} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       <section style={overviewSectionStyles}>
         <div style={summaryGridStyles}>
         <SummaryCard
-          label="Current Stock On Hand"
-          value={summaryMetrics.currentStockOnHand}
+          label="Total Inflow"
+          value={summaryMetrics.totalInflow}
           helper=""
         />
         <SummaryCard
-          label="Low Stock Items"
-          value={summaryMetrics.lowStockItems}
+          label="Total Outflow"
+          value={summaryMetrics.totalOutflow}
           helper=""
         />
         <SummaryCard
-          label="Expired Items"
+          label="Total Write-Off"
+          value={summaryMetrics.totalWriteOff}
+          helper=""
+        />
+        <SummaryCard
+          label="Near Expiry"
+          value={summaryMetrics.nearExpiryItems}
+          helper=""
+        />
+        <SummaryCard
+          label="Expired"
           value={summaryMetrics.expiredItems}
           helper=""
         />
         <SummaryCard
-          label="Transactions Today"
-          value={summaryMetrics.transactionsToday}
+          label="Low Stock Alerts"
+          value={summaryMetrics.lowStockItems}
           helper=""
         />
         </div>
       </section>
 
       {activeSubtab === "transactions" ? (
-        <div style={toolbarSectionStyles}>
-          <SearchBar
-            value={filters.search}
-            onChange={(value) => handleFilterChange("search", value)}
-            placeholder="Search item name, item code, or remarks"
-          />
+        <section style={toolbarStyles}>
+          <div style={searchWrapStyles}>
+            <SearchBar
+              value={toolbarState.search}
+              onChange={(value) => handleToolbarChange("search", value)}
+              placeholder="Search item name, batch number, remarks, or code"
+            />
+          </div>
 
-          <select
-            value={filters.inventory_item_id}
-            onChange={(event) =>
-              handleFilterChange("inventory_item_id", event.target.value)
-            }
-            style={toolbarSelectStyles}
-          >
-            <option value="">All Items</option>
-            {inventoryItemOptions.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.item_name}
-              </option>
-            ))}
-          </select>
+          <div style={inlineSelectWrapStyles}>
+            <label
+              htmlFor="tracking-movement-filter"
+              style={inlineSelectLabelStyles}
+            >
+              Movement
+            </label>
+            <select
+              id="tracking-movement-filter"
+              value={toolbarState.movement}
+              onChange={(event) =>
+                handleToolbarChange("movement", event.target.value)
+              }
+              style={inlineSelectStyles}
+            >
+              {movementFilterOptions.map((option) => (
+                <option key={option.value || "all"} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
 
-          <select
-            value={filters.transaction_type}
-            onChange={(event) =>
-              handleFilterChange("transaction_type", event.target.value)
-            }
-            style={toolbarSelectStyles}
-          >
-            <option value="">All Transaction Types</option>
-            {transactionTypes.map((transactionType) => (
-              <option key={transactionType} value={transactionType}>
-                {transactionType}
-              </option>
-            ))}
-          </select>
+          <div>
+            <button
+              ref={filterButtonRef}
+              type="button"
+              onClick={() => setIsFilterOpen((currentValue) => !currentValue)}
+              style={{
+                ...pageHeaderStyles.secondaryButton,
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+              }}
+            >
+              <FiFilter size={16} />
+              {activeToolbarFilterCount > 0
+                ? `Filter (${activeToolbarFilterCount})`
+                : "Filter"}
+            </button>
 
-          <select
-            value={filters.source}
-            onChange={(event) => handleFilterChange("source", event.target.value)}
-            style={toolbarSelectStyles}
-          >
-            <option value="">All Sources</option>
-            {sourceOptions.map((sourceOption) => (
-              <option key={sourceOption} value={sourceOption}>
-                {sourceOption}
-              </option>
-            ))}
-          </select>
+            {isFilterOpen ? (
+              <div
+                ref={filterPanelRef}
+                style={{
+                  ...filterPanelStyles.panel,
+                  top: filterPanelPosition.top,
+                  left: filterPanelPosition.left,
+                  maxHeight: filterPanelPosition.maxHeight,
+                }}
+              >
+                <h3 style={filterPanelStyles.title}>Filter Records</h3>
+
+                <label style={filterPanelStyles.field}>
+                  <span style={filterPanelStyles.label}>Order List</span>
+                  <select
+                    value={toolbarState.sortOrder}
+                    onChange={(event) =>
+                      handleToolbarChange("sortOrder", event.target.value)
+                    }
+                    style={filterPanelStyles.select}
+                  >
+                    {orderOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <h3 style={filterPanelStyles.title}>Packaging / Stock Form</h3>
+
+                <div style={filterPanelStyles.list}>
+                  {stockFormOptions.length > 0 ? (
+                    stockFormOptions.map((stockFormLabel) => (
+                      <label key={stockFormLabel} style={filterPanelStyles.option}>
+                        <input
+                          type="checkbox"
+                          checked={toolbarState.stockForms.includes(stockFormLabel)}
+                          onChange={() => handleToggleStockForm(stockFormLabel)}
+                          style={{ accentColor: "#2f6499" }}
+                        />
+                        <span>{stockFormLabel}</span>
+                      </label>
+                    ))
+                  ) : (
+                    <p style={{ margin: 0, color: "#5d7188", fontSize: "14px" }}>
+                      No packaging or stock forms are available.
+                    </p>
+                  )}
+                </div>
+
+                <div style={filterPanelStyles.actions}>
+                  <button
+                    type="button"
+                    onClick={handleClearToolbarFilters}
+                    style={filterPanelStyles.clearAction}
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
 
           <button
             type="button"
@@ -936,12 +1672,15 @@ const InventoryTransactionsPage = () => {
               ...pageHeaderStyles.secondaryButton,
               opacity: isExporting ? 0.7 : 1,
               cursor: isExporting ? "not-allowed" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
             }}
           >
             <FiFileText size={16} />
             {isExporting ? `Exporting ${isExporting.toUpperCase()}...` : "Export"}
           </button>
-        </div>
+        </section>
       ) : null}
 
       <section style={{ ...shellStyles.card, padding: "22px 36px 0", marginBottom: "24px" }}>

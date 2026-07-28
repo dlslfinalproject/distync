@@ -1,6 +1,7 @@
 import React from "react";
 import { FiEye } from "react-icons/fi";
 import { shellStyles } from "../layout/BarangayLayout";
+import SyncStatusIcon from "../shared/SyncStatusIcon";
 
 const tableStyles = {
   table: {
@@ -135,7 +136,17 @@ const InventoryTransactionsTable = ({
           {rows.map((row) => (
             <tr key={row.id}>
               <td style={tableStyles.bodyCell}>
-                <div>{row.inventory_item?.item_name || "--"}</div>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <span>{row.inventory_item?.item_name || "--"}</span>
+                  <SyncStatusIcon status={row.sync_status} />
+                </div>
               </td>
               <td style={tableStyles.bodyCell}>{row.batch_no || "--"}</td>
               <td style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
