@@ -118,16 +118,24 @@ const validateCreateDistributionTransaction = (req, res, next) => {
       });
     }
 
-    if (!Array.isArray(items) || items.length === 0) {
+    const hasTemplate = Boolean(relief_pack_template_id);
+    const hasItems = Array.isArray(items) && items.length > 0;
+
+    if (!hasTemplate && !hasItems) {
       return res.status(400).json({
-        message: "items must be a non-empty array",
+        message: "Either relief_pack_template_id or a non-empty items array is required",
       });
     }
 
-    for (const item of items) {
-      if (!isValidUuid(item.inventory_batch_id)) {
+    for (const item of items || []) {
+      if (
+        item.inventory_batch_id !== undefined &&
+        item.inventory_batch_id !== null &&
+        item.inventory_batch_id !== "" &&
+        !isValidUuid(item.inventory_batch_id)
+      ) {
         return res.status(400).json({
-          message: "Each item.inventory_batch_id must be a valid UUID",
+          message: "Each item.inventory_batch_id must be a valid UUID when provided",
         });
       }
 
@@ -160,7 +168,7 @@ const validateCreateDistributionTransaction = (req, res, next) => {
           : null,
       receipt_status: receipt_status ?? "GENERATED",
       relief_pack_template_id: relief_pack_template_id ?? null,
-      items: items.map((item) => ({
+      items: (items || []).map((item) => ({
         inventory_batch_id: item.inventory_batch_id,
         inventory_item_id: item.inventory_item_id,
         quantity_released: item.quantity_released,

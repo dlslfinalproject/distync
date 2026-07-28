@@ -3,6 +3,10 @@ const distributionTransactionRepository = require("../repositories/distributionT
 const notificationService = require("../modules/notifications/notification.service");
 const stubRepository = require("../repositories/stub.repository");
 const settingsRepository = require("../repositories/settings.repository");
+const inventoryItemRepository = require("../repositories/inventoryItem.repository");
+const {
+  recordAutomaticReliefPackClaim,
+} = require("./automaticReliefPackClaim.service");
 const { logAuditSafely, pickDefined } = require("../utils/systemLog");
 const mswdoReportExport = require("../utils/mswdoReportExport");
 
@@ -246,6 +250,328 @@ const getInventoryBatchStatus = (quantityAvailable) => {
   return "AVAILABLE";
 };
 
+const getInventoryBatchStatusWithExpiry = (batch, quantityAvailable) => {
+  const normalizedQuantity = Number(quantityAvailable || 0);
+
+  if (normalizedQuantity <= 0) {
+    return "DEPLETED";
+  }
+
+  if (batch?.expiration_date) {
+    const today = new Date();
+    const todayDateOnly = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate(),
+    );
+    const expirationDate = new Date(batch.expiration_date);
+
+    if (expirationDate < todayDateOnly) {
+      return "EXPIRED";
+    }
+  }
+
+  if (normalizedQuantity <= 10) {
+    return "LOW_STOCK";
+  }
+
+  return "AVAILABLE";
+};
+
+const buildUpdatedItemStockSnapshot = (inventoryItem, onHandQuantity) => {
+  const normalizedOnHandQuantity = Math.max(Number(onHandQuantity || 0), 0);
+  const normalizedPackaging = String(inventoryItem?.packaging || "").toLowerCase();
+  const unitsPerPackage = Number(inventoryItem?.quantity || 0);
+  const existingPackagingCount = Number(inventoryItem?.packaging_count || 0);
+
+  if (normalizedPackaging === "piece" || unitsPerPackage <= 1) {
+    return {
+      quantity: 1,
+      packaging_count: normalizedOnHandQuantity > 0 ? normalizedOnHandQuantity : null,
+    };
+  }
+
+  if (normalizedOnHandQuantity === 0) {
+    return {
+      quantity: inventoryItem?.quantity || null,
+      packaging_count: null,
+    };
+  }
+
+  if (normalizedOnHandQuantity % unitsPerPackage === 0) {
+    return {
+      quantity: inventoryItem?.quantity || null,
+      packaging_count: normalizedOnHandQuantity / unitsPerPackage,
+    };
+  }
+
+  return {
+    quantity: inventoryItem?.quantity || null,
+    packaging_count: existingPackagingCount > 0 ? existingPackagingCount : null,
+  };
+};
+
+const isOperationallyActiveClaimHousehold = (stub, latestAttendance) => {
+  if (!stub || stub.is_active === false) {
+    return false;
+  }
+
+  if (String(stub.current_stay_type || "").toUpperCase() !== "EVAC_CENTER") {
+    return false;
+  }
+
+  const latestStatus = String(latestAttendance?.status || "").toUpperCase();
+
+  if (latestAttendance?.time_out) {
+    return false;
+  }
+
+  if (latestStatus === "LEFT" || latestStatus === "TRANSFERRED") {
+    return false;
+  }
+
+  return true;
+};
+
+const buildDistributionInventoryRemarks = ({
+  templateName,
+  batchNo,
+  fifoOrder,
+  quantityReleased,
+}) => {
+  const remarkParts = [
+    "Relief distribution outflow",
+    templateName ? `pack: ${templateName}` : null,
+    batchNo ? `batch: ${batchNo}` : null,
+    fifoOrder ? `fifo_order: ${fifoOrder}` : null,
+    quantityReleased ? `quantity: ${quantityReleased}` : null,
+  ].filter(Boolean);
+
+  return remarkParts.join(" | ");
+};
+
+const buildReturnInventoryRemarks = ({
+  transactionId,
+  batchNo,
+  quantityRestored,
+}) => {
+  return [
+    "Relief distribution stock restored",
+    transactionId ? `distribution_transaction_id: ${transactionId}` : null,
+    batchNo ? `batch: ${batchNo}` : null,
+    quantityRestored ? `quantity: ${quantityRestored}` : null,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+};
+
+const recomputeAndUpdateInventoryItemSnapshots = async (
+  inventoryItemsById,
+  dbClient,
+) => {
+  for (const [inventoryItemId, inventoryItem] of inventoryItemsById.entries()) {
+    const recomputedQuantityResult = await dbClient.query(
+      `
+        SELECT COALESCE(SUM(quantity_available), 0)::integer AS total_quantity
+        FROM inventory_batches
+        WHERE inventory_item_id = $1
+      `,
+      [inventoryItemId],
+    );
+    const nextItemQuantity = Number(
+      recomputedQuantityResult.rows[0]?.total_quantity || 0,
+    );
+
+    await inventoryItemRepository.updateInventoryItemStockSnapshot(
+      inventoryItemId,
+      buildUpdatedItemStockSnapshot(inventoryItem, nextItemQuantity),
+      dbClient,
+    );
+  }
+};
+
+const buildTemplateReleasePlan = async ({
+  reliefPackTemplateId,
+  client,
+  inventoryItemsById,
+}) => {
+  const reliefPackTemplate =
+    await distributionTransactionRepository.getReliefPackTemplateByIdForUpdate(
+      reliefPackTemplateId,
+      client,
+    );
+
+  if (!reliefPackTemplate || reliefPackTemplate.is_active === false) {
+    const error = new Error("Selected relief pack template is no longer available");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const templateItems =
+    await distributionTransactionRepository.getReliefPackTemplateItemsByTemplateIdForUpdate(
+      reliefPackTemplateId,
+      client,
+    );
+
+  if (!Array.isArray(templateItems) || templateItems.length === 0) {
+    const error = new Error(
+      "Selected relief pack template does not have configured inventory items",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const releasePlan = [];
+
+  for (const templateItem of templateItems) {
+    const inventoryItem = await inventoryItemRepository.getInventoryItemByIdForUpdate(
+      templateItem.inventory_item_id,
+      client,
+    );
+
+    if (!inventoryItem || inventoryItem.is_active === false) {
+      const error = new Error(
+        `Relief pack item is no longer available: ${templateItem.item_name || templateItem.inventory_item_id}`,
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    inventoryItemsById.set(templateItem.inventory_item_id, inventoryItem);
+
+    const candidateBatches =
+      await distributionTransactionRepository.getAvailableInventoryBatchesByItemIdForUpdate(
+        templateItem.inventory_item_id,
+        client,
+      );
+    const requiredQuantity = Number(templateItem.quantity_required || 0);
+    const totalAvailableQuantity = candidateBatches.reduce(
+      (total, batch) => total + Number(batch.quantity_available || 0),
+      0,
+    );
+
+    if (totalAvailableQuantity < requiredQuantity) {
+      const error = new Error(
+        `Insufficient stock for ${templateItem.item_name}. Required: ${requiredQuantity}, available: ${totalAvailableQuantity}.`,
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    let remainingQuantity = requiredQuantity;
+    let fifoOrder = 1;
+
+    for (const batch of candidateBatches) {
+      if (remainingQuantity <= 0) {
+        break;
+      }
+
+      const quantityReleased = Math.min(
+        Number(batch.quantity_available || 0),
+        remainingQuantity,
+      );
+
+      if (quantityReleased <= 0) {
+        continue;
+      }
+
+      releasePlan.push({
+        inventory_batch_id: batch.id,
+        inventory_item_id: templateItem.inventory_item_id,
+        quantity_released: quantityReleased,
+        batch_no: batch.batch_no,
+        item_code: batch.item_code,
+        item_name: batch.item_name,
+        unit_of_measure: batch.unit_of_measure,
+        fifo_order: fifoOrder,
+      });
+
+      remainingQuantity -= quantityReleased;
+      fifoOrder += 1;
+    }
+  }
+
+  return {
+    reliefPackTemplate,
+    releasePlan,
+  };
+};
+
+const buildManualReleasePlan = async ({
+  items,
+  client,
+  inventoryItemsById,
+}) => {
+  const groupedItems = groupRequestedItemsByBatch(items);
+  const lockedBatches = new Map();
+  const releasePlan = [];
+
+  for (const groupedItem of groupedItems) {
+    const inventoryBatch =
+      await distributionTransactionRepository.getInventoryBatchByIdForUpdate(
+        groupedItem.inventory_batch_id,
+        client,
+      );
+
+    if (!inventoryBatch) {
+      const error = new Error(
+        `Inventory batch not found: ${groupedItem.inventory_batch_id}`,
+      );
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (inventoryBatch.inventory_item_id !== groupedItem.inventory_item_id) {
+      const error = new Error(
+        `inventory_item_id does not match the selected batch for batch ${groupedItem.inventory_batch_id}`,
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (inventoryBatch.quantity_available < groupedItem.total_quantity_released) {
+      const error = new Error(
+        `Insufficient stock for batch ${inventoryBatch.batch_no}`,
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const inventoryItem = await inventoryItemRepository.getInventoryItemByIdForUpdate(
+      groupedItem.inventory_item_id,
+      client,
+    );
+
+    if (!inventoryItem || inventoryItem.is_active === false) {
+      const error = new Error(
+        `Inventory item is no longer available for batch ${inventoryBatch.batch_no}`,
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    inventoryItemsById.set(groupedItem.inventory_item_id, inventoryItem);
+    lockedBatches.set(groupedItem.inventory_batch_id, inventoryBatch);
+  }
+
+  for (const [index, item] of items.entries()) {
+    const batchDetails = lockedBatches.get(item.inventory_batch_id);
+
+    releasePlan.push({
+      inventory_batch_id: item.inventory_batch_id,
+      inventory_item_id: item.inventory_item_id,
+      quantity_released: item.quantity_released,
+      batch_no: batchDetails.batch_no,
+      item_code: batchDetails.item_code,
+      item_name: batchDetails.item_name,
+      unit_of_measure: batchDetails.unit_of_measure,
+      fifo_order: index + 1,
+    });
+  }
+
+  return releasePlan;
+};
+
 const groupRequestedItemsByBatch = (items) => {
   const groupedItems = new Map();
 
@@ -370,6 +696,21 @@ const createDistributionTransaction = async (requestData) => {
       throw error;
     }
 
+    const latestAttendance =
+      await distributionTransactionRepository.getLatestAttendanceByHouseholdId(
+        stub.household_id,
+        stub.disaster_event_id,
+        client,
+      );
+
+    if (!isOperationallyActiveClaimHousehold(stub, latestAttendance)) {
+      const error = new Error(
+        "Only active evacuation-center households can claim a relief pack.",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
     if (
       requestData.qr_reference_value &&
       stub.qr_code_value !== requestData.qr_reference_value
@@ -389,42 +730,21 @@ const createDistributionTransaction = async (requestData) => {
       throw error;
     }
 
-    const groupedItems = groupRequestedItemsByBatch(requestData.items);
-    const lockedBatches = new Map();
-
-    for (const groupedItem of groupedItems) {
-      const inventoryBatch =
-        await distributionTransactionRepository.getInventoryBatchByIdForUpdate(
-          groupedItem.inventory_batch_id,
+    const inventoryItemsById = new Map();
+    const templateReleasePlan = requestData.relief_pack_template_id
+      ? await buildTemplateReleasePlan({
+          reliefPackTemplateId: requestData.relief_pack_template_id,
           client,
-        );
-
-      if (!inventoryBatch) {
-        const error = new Error(
-          `Inventory batch not found: ${groupedItem.inventory_batch_id}`,
-        );
-        error.statusCode = 404;
-        throw error;
-      }
-
-      if (inventoryBatch.inventory_item_id !== groupedItem.inventory_item_id) {
-        const error = new Error(
-          `inventory_item_id does not match the selected batch for batch ${groupedItem.inventory_batch_id}`,
-        );
-        error.statusCode = 400;
-        throw error;
-      }
-
-      if (inventoryBatch.quantity_available < groupedItem.total_quantity_released) {
-        const error = new Error(
-          `Insufficient stock for batch ${inventoryBatch.batch_no}`,
-        );
-        error.statusCode = 400;
-        throw error;
-      }
-
-      lockedBatches.set(groupedItem.inventory_batch_id, inventoryBatch);
-    }
+          inventoryItemsById,
+        })
+      : null;
+    const releasePlan = templateReleasePlan
+      ? templateReleasePlan.releasePlan
+      : await buildManualReleasePlan({
+          items: requestData.items,
+          client,
+          inventoryItemsById,
+        });
 
     const receiptNo =
       await distributionTransactionRepository.getDistributionReceiptSequence(
@@ -456,7 +776,10 @@ const createDistributionTransaction = async (requestData) => {
           receipt_no: receiptNo,
           receipt_status: requestData.receipt_status,
           received_at: receivedAt,
-          relief_pack_template_id: requestData.relief_pack_template_id,
+          relief_pack_template_id:
+            requestData.relief_pack_template_id ||
+            templateReleasePlan?.reliefPackTemplate?.id ||
+            null,
           remarks: requestData.remarks,
         },
         client,
@@ -464,8 +787,9 @@ const createDistributionTransaction = async (requestData) => {
 
     const releasedItems = [];
     const batchAlertPayloads = [];
+    const deductedBatchTotals = new Map();
 
-    for (const item of requestData.items) {
+    for (const item of releasePlan) {
       const insertedItem =
         await distributionTransactionRepository.insertDistributionTransactionItem(
           {
@@ -477,7 +801,11 @@ const createDistributionTransaction = async (requestData) => {
           client,
         );
 
-      const batchDetails = lockedBatches.get(item.inventory_batch_id);
+      const batchDetails =
+        await distributionTransactionRepository.getInventoryBatchByIdForUpdate(
+          item.inventory_batch_id,
+          client,
+        );
 
       releasedItems.push({
         id: insertedItem.id,
@@ -488,28 +816,46 @@ const createDistributionTransaction = async (requestData) => {
         item_code: batchDetails.item_code,
         item_name: batchDetails.item_name,
         unit_of_measure: batchDetails.unit_of_measure,
+        fifo_order: item.fifo_order,
+      });
+
+      deductedBatchTotals.set(item.inventory_batch_id, {
+        ...batchDetails,
+        total_quantity_released:
+          Number(deductedBatchTotals.get(item.inventory_batch_id)?.total_quantity_released || 0) +
+          Number(item.quantity_released || 0),
       });
     }
 
-    for (const groupedItem of groupedItems) {
-      const batchDetails = lockedBatches.get(groupedItem.inventory_batch_id);
+    for (const groupedItem of deductedBatchTotals.values()) {
+      const batchDetails =
+        await distributionTransactionRepository.getInventoryBatchByIdForUpdate(
+          groupedItem.id,
+          client,
+        );
       const remainingQuantity =
-        batchDetails.quantity_available - groupedItem.total_quantity_released;
-      const nextStatus = getInventoryBatchStatus(remainingQuantity);
+        Number(batchDetails.quantity_available || 0) -
+        Number(groupedItem.total_quantity_released || 0);
+
+      if (remainingQuantity < 0) {
+        const error = new Error(`Insufficient stock for batch ${batchDetails.batch_no}`);
+        error.statusCode = 400;
+        throw error;
+      }
+
+      const nextStatus = getInventoryBatchStatusWithExpiry(
+        batchDetails,
+        remainingQuantity,
+      );
 
       const updatedBatch =
         await distributionTransactionRepository.updateInventoryBatchQuantityAndStatus(
-          groupedItem.inventory_batch_id,
+          groupedItem.id,
           remainingQuantity,
           nextStatus,
           client,
         );
 
-      lockedBatches.set(groupedItem.inventory_batch_id, {
-        ...batchDetails,
-        quantity_available: updatedBatch.quantity_available,
-        status: updatedBatch.status,
-      });
       batchAlertPayloads.push({
         batch: {
           id: batchDetails.id,
@@ -522,6 +868,29 @@ const createDistributionTransaction = async (requestData) => {
         previousStatus: batchDetails.status,
       });
     }
+
+    for (const item of releasedItems) {
+      await distributionTransactionRepository.insertInventoryTransaction(
+        {
+          disaster_event_id: requestData.disaster_event_id,
+          inventory_batch_id: item.inventory_batch_id,
+          transaction_type: "OUTFLOW",
+          quantity: item.quantity_released,
+          reference_type: "DISTRIBUTION",
+          reference_id: distributionTransaction.id,
+          performed_by: requestData.verified_by || null,
+          remarks: buildDistributionInventoryRemarks({
+            templateName: templateReleasePlan?.reliefPackTemplate?.name || null,
+            batchNo: item.batch_no,
+            fifoOrder: item.fifo_order,
+            quantityReleased: item.quantity_released,
+          }),
+        },
+        client,
+      );
+    }
+
+    await recomputeAndUpdateInventoryItemSnapshots(inventoryItemsById, client);
 
     const updatedStub = await distributionTransactionRepository.updateStubAsClaimed(
       requestData.stub_id,
@@ -570,6 +939,8 @@ const createDistributionTransaction = async (requestData) => {
       receipt_status: distributionTransaction.receipt_status,
       received_at: distributionTransaction.received_at,
       relief_pack_template_id: distributionTransaction.relief_pack_template_id,
+      relief_pack_template_name:
+        templateReleasePlan?.reliefPackTemplate?.name || null,
       stub: {
         id: updatedStub.id,
         stub_no: updatedStub.stub_no,
@@ -665,48 +1036,31 @@ const claimDistributionTransactionFromQr = async (requestData) => {
       throw error;
     }
 
-    const receiptNo =
-      await distributionTransactionRepository.getDistributionReceiptSequence(
-        client,
-      );
     const receivedAt = new Date().toISOString();
     const qrScannedAt = requestData.qr_reference_value
       ? new Date().toISOString()
       : null;
-
-    const distributionTransaction =
-      await distributionTransactionRepository.insertDistributionTransaction(
-        {
-          disaster_event_id: requestData.disaster_event_id,
-          household_id: requestData.household_id,
-          stub_id: requestData.stub_id,
-          distribution_status: "CLAIMED",
-          claimed_by_name: requestData.claimed_by_name,
-          verified_by: requestData.verified_by,
-          device_id: null,
-          is_offline_encoded: false,
-          sync_status: "SYNCED",
-          qr_reference_value:
-            requestData.qr_reference_value || stub.qr_code_value || null,
-          qr_scanned_at: qrScannedAt,
-          qr_scanned_by: requestData.qr_reference_value
-            ? requestData.verified_by
-            : null,
-          receipt_no: receiptNo,
-          receipt_status: "GENERATED",
-          received_at: receivedAt,
-          relief_pack_template_id: null,
-          remarks:
-            requestData.remarks ||
-            "Claimed through QR stub verification page",
-        },
-        client,
-      );
-
-    const updatedStub = await distributionTransactionRepository.updateStubAsClaimed(
-      requestData.stub_id,
+    const automaticClaimResult = await recordAutomaticReliefPackClaim({
       client,
-    );
+      stub,
+      claimedByName: requestData.claimed_by_name,
+      verifiedBy: requestData.verified_by,
+      qrReferenceValue: requestData.qr_reference_value || null,
+      qrScannedAt,
+      qrScannedBy: requestData.qr_reference_value
+        ? requestData.verified_by
+        : null,
+      receivedAt,
+      remarks:
+        requestData.remarks ||
+        "Claimed through QR stub verification page",
+    });
+    const {
+      assignedReliefPackTemplate,
+      distributionTransaction,
+      releasedItems,
+      updatedStub,
+    } = automaticClaimResult;
 
     await client.query("COMMIT");
 
@@ -743,6 +1097,7 @@ const claimDistributionTransactionFromQr = async (requestData) => {
       receipt_status: distributionTransaction.receipt_status,
       received_at: distributionTransaction.received_at,
       relief_pack_template_id: distributionTransaction.relief_pack_template_id,
+      relief_pack_template_name: assignedReliefPackTemplate?.name || null,
       stub: {
         id: updatedStub.id,
         stub_no: updatedStub.stub_no,
@@ -764,8 +1119,8 @@ const claimDistributionTransactionFromQr = async (requestData) => {
           stub.family_head_suffix,
         ),
       },
-      items_count: 0,
-      items: [],
+      items_count: releasedItems.length,
+      items: releasedItems,
     };
   } catch (error) {
     await client.query("ROLLBACK");
@@ -1046,10 +1401,20 @@ const updateDistributionTransactionLifecycle = async ({
         distributionTransaction.id,
         client,
       );
+    const inventoryItemsById = new Map();
 
     const batchSummaries = [];
 
     for (const item of transactionItems) {
+      const inventoryItem = await inventoryItemRepository.getInventoryItemByIdForUpdate(
+        item.inventory_item_id,
+        client,
+      );
+
+      if (inventoryItem) {
+        inventoryItemsById.set(item.inventory_item_id, inventoryItem);
+      }
+
       const restoredQuantity =
         Number(item.quantity_available || 0) + Number(item.quantity_released || 0);
       const nextStatus = normalizeRestoredBatchStatus(item, restoredQuantity);
@@ -1069,6 +1434,24 @@ const updateDistributionTransactionLifecycle = async ({
         next_quantity_available: restoredQuantity,
         next_status: nextStatus,
       });
+
+      await distributionTransactionRepository.insertInventoryTransaction(
+        {
+          disaster_event_id: distributionTransaction.disaster_event_id,
+          inventory_batch_id: item.inventory_batch_id,
+          transaction_type: "RETURN",
+          quantity: item.quantity_released,
+          reference_type: "DISTRIBUTION",
+          reference_id: distributionTransaction.id,
+          performed_by: requester?.userId || null,
+          remarks: buildReturnInventoryRemarks({
+            transactionId: distributionTransaction.id,
+            batchNo: item.batch_no,
+            quantityRestored: item.quantity_released,
+          }),
+        },
+        client,
+      );
     }
 
     const nextReceiptStatus =
@@ -1095,6 +1478,8 @@ const updateDistributionTransactionLifecycle = async ({
       "CANCELLED",
       client,
     );
+
+    await recomputeAndUpdateInventoryItemSnapshots(inventoryItemsById, client);
 
     await client.query("COMMIT");
 

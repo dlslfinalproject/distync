@@ -12,7 +12,6 @@ import {
   exportInventoryTransactions,
   fetchInventoryTransactions,
 } from "../../features/inventory-transactions/inventoryTransactionService";
-import { fetchDistributionHistory } from "../../features/distribution/distributionService";
 import { fetchInventoryItems } from "../../features/inventory-items/inventoryItemService";
 import { fetchInventoryBatches } from "../../features/inventory-batches/inventoryBatchService";
 import {
@@ -278,42 +277,6 @@ const buildQueuedInventoryTransaction = (entry, inventoryBatches) => {
   };
 };
 
-const buildDistributionOutflowRows = (distributionHistoryRows) => {
-  if (!Array.isArray(distributionHistoryRows) || distributionHistoryRows.length === 0) {
-    return [];
-  }
-
-  return distributionHistoryRows
-    .filter((row) => row?.distribution_status === "CLAIMED")
-    .map((row) => ({
-      id: row.id,
-      transaction_direction: "OUTFLOW",
-      transaction_type: "OUTFLOW",
-      batch_no: row.batch_no || "--",
-      inventory_item: {
-        item_name: row.released_items_summary || row.relief_pack_template_name || "--",
-        item_code: row.relief_pack_template_name
-          ? "Distributed relief pack"
-          : "Distributed inventory item",
-      },
-      quantity: Number(row.total_quantity_released || 0),
-      performed_at: row.distribution_date,
-      source_label: "Distribution",
-      source_details: row.barangay_name
-        ? `${row.barangay_name} distribution release`
-        : "Distribution release",
-      reference_type: "DISTRIBUTION",
-      remarks:
-        row.relief_pack_template_name ||
-        row.released_items_summary ||
-        row.receipt_no ||
-        "",
-      sync_status: row.sync_status || "synced",
-      is_local_only: false,
-      inventory_item_id: null,
-    }));
-};
-
 const buildBatchInflowRows = (inventoryBatches, transactionRows) => {
   if (!Array.isArray(inventoryBatches) || inventoryBatches.length === 0) {
     return [];
@@ -541,7 +504,6 @@ const InventoryTransactionsPage = () => {
     source: "",
   });
   const [inventoryTransactions, setInventoryTransactions] = useState([]);
-  const [distributionHistoryRows, setDistributionHistoryRows] = useState([]);
   const [inventoryItems, setInventoryItems] = useState([]);
   const [inventoryBatches, setInventoryBatches] = useState([]);
   const [inventoryAuditLogs, setInventoryAuditLogs] = useState([]);
@@ -569,25 +531,17 @@ const InventoryTransactionsPage = () => {
     try {
       const [
         transactionResponse,
-        distributionResponse,
         itemResponse,
         batchResponse,
         systemLogResponse,
       ] = await Promise.all([
         fetchInventoryTransactions(),
-        fetchDistributionHistory({
-          limit: 200,
-          status: "CLAIMED",
-        }),
         fetchInventoryItems(),
         fetchInventoryBatches(),
         fetchSystemLogReview({ type: "audit", limit: 100 }),
       ]);
 
       setInventoryTransactions(transactionResponse || []);
-      setDistributionHistoryRows(
-        Array.isArray(distributionResponse?.data) ? distributionResponse.data : [],
-      );
       setInventoryItems(itemResponse || []);
       setInventoryBatches(batchResponse || []);
       setInventoryAuditLogs(
@@ -698,11 +652,9 @@ const InventoryTransactionsPage = () => {
       inventoryBatches,
       inventoryTransactionsWithSyncStatus,
     );
-    const distributionOutflowRows = buildDistributionOutflowRows(distributionHistoryRows);
 
     return [
       ...batchInflowRows,
-      ...distributionOutflowRows,
       ...inventoryTransactionsWithSyncStatus,
     ]
       .map((row) => {
@@ -726,7 +678,6 @@ const InventoryTransactionsPage = () => {
       );
   }, [
     batchById,
-    distributionHistoryRows,
     inventoryBatches,
     inventoryTransactionsWithSyncStatus,
   ]);
