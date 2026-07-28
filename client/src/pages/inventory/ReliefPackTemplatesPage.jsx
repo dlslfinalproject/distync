@@ -13,12 +13,16 @@ import {
   fetchReliefPackTemplates,
   updateReliefPackTemplate,
 } from "../../features/relief-pack-templates/reliefPackTemplateService";
-import { fetchActiveDisasterEvents } from "../../features/disaster-events/disasterEventService";
+import {
+  fetchActiveDisasterEvents,
+  fetchBarangays,
+  fetchEndedDisasterEvents,
+} from "../../features/disaster-events/disasterEventService";
 import { fetchInventoryBatches } from "../../features/inventory-batches/inventoryBatchService";
 import { fetchSectors } from "../../features/household-registration/householdRegistrationService";
-import { fetchConsolidatedMasterlistDashboard } from "../../features/mswdo-masterlist/mswdoMasterlistService";
+import { fetchConsolidatedMasterlist } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { useAuth } from "../../context/AuthContext";
-import { FiEdit2, FiEye, FiFilter, FiTrash2 } from "react-icons/fi";
+import { FiChevronDown, FiEdit2, FiEye, FiFilter, FiTrash2 } from "react-icons/fi";
 
 const getTabStyle = (isActive) => ({
   padding: "12px 24px",
@@ -34,6 +38,60 @@ const getTabStyle = (isActive) => ({
   transition: "all 0.2s ease",
   whiteSpace: "nowrap",
 });
+
+const scopeTabButtonStyles = (isActive) => ({
+  padding: "12px 24px",
+  border: "none",
+  background: "none",
+  fontSize: "14px",
+  fontWeight: 700,
+  textTransform: "uppercase",
+  color: isActive ? "#17324d" : "#6b8298",
+  borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
+  cursor: "pointer",
+});
+
+const filterStyles = {
+  field: {
+    width: "100%",
+    padding: "12px 14px",
+    paddingRight: "42px",
+    borderRadius: "12px",
+    border: "1px solid #cfddeb",
+    backgroundColor: "#f8fbfe",
+    color: "#1f3b57",
+    fontSize: "14px",
+    boxSizing: "border-box",
+    outline: "none",
+    appearance: "none",
+    WebkitAppearance: "none",
+    MozAppearance: "none",
+  },
+  label: {
+    display: "block",
+    marginBottom: "8px",
+    color: "#5f7892",
+    fontSize: "12px",
+    fontWeight: 700,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+  },
+  selectWrap: {
+    position: "relative",
+    width: "100%",
+  },
+  selectIcon: {
+    position: "absolute",
+    right: "14px",
+    top: "50%",
+    transform: "translateY(-50%)",
+    pointerEvents: "none",
+    color: "#5f7892",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+};
 
 const summaryBoxStyle = {
   backgroundColor: "#b4c7be",
@@ -227,6 +285,11 @@ const emptyDashboardState = {
   perBarangayDemand: [],
 };
 
+const isHouseholdStillNeedingReliefPack = (household) => {
+  const stubStatus = String(household?.stub?.status || "").toUpperCase();
+  return stubStatus !== "CLAIMED";
+};
+
 const getInventoryItemBaseQuantity = (inventoryItem) => {
   const quantityPerPackaging = Number(inventoryItem?.quantity || 1);
   const unitOfMeasureValue = Number(inventoryItem?.unit_of_measure_value || 1);
@@ -391,11 +454,16 @@ const isDonatedReliefPackTemplate = (template, inventoryBatches) => {
 const ReliefPackTemplatesPage = () => {
   const { authenticatedUser } = useAuth();
   const [activeTab, setActiveTab] = useState("relief-packs");
+  const [eventScope, setEventScope] = useState("active");
   const [filters, setFilters] = useState({ search: "" });
   const [templates, setTemplates] = useState([]);
   const [inventoryItems, setInventoryItems] = useState([]);
   const [inventoryBatches, setInventoryBatches] = useState([]);
   const [activeDisasterEvents, setActiveDisasterEvents] = useState([]);
+  const [endedDisasterEvents, setEndedDisasterEvents] = useState([]);
+  const [barangayOptions, setBarangayOptions] = useState([]);
+  const [selectedDisasterEventId, setSelectedDisasterEventId] = useState("");
+  const [selectedBarangayId, setSelectedBarangayId] = useState("");
   const [sectorOptions, setSectorOptions] = useState([]);
   const [aggregatedDemand, setAggregatedDemand] = useState(emptyDashboardState);
   const [selectedTemplateId, setSelectedTemplateId] = useState(null);
@@ -421,12 +489,16 @@ const ReliefPackTemplatesPage = () => {
         inventoryItemResponse,
         inventoryBatchResponse,
         activeDisasterEventResponse,
+        endedDisasterEventResponse,
+        barangayResponse,
         sectorResponse,
       ] = await Promise.all([
         fetchReliefPackTemplates({ is_active: "true" }),
         fetchInventoryItems(),
         fetchInventoryBatches(),
         fetchActiveDisasterEvents(),
+        fetchEndedDisasterEvents(),
+        fetchBarangays(),
         fetchSectors(),
       ]);
 
@@ -440,6 +512,8 @@ const ReliefPackTemplatesPage = () => {
       setInventoryItems(inventoryItemResponse || []);
       setInventoryBatches(inventoryBatchResponse || []);
       setActiveDisasterEvents(activeDisasterEventResponse || []);
+      setEndedDisasterEvents(endedDisasterEventResponse || []);
+      setBarangayOptions(barangayResponse || []);
       setSectorOptions(Array.isArray(sectorResponse?.data) ? sectorResponse.data : []);
     } catch (error) {
       setErrorMessage(error.message);
@@ -466,8 +540,79 @@ const ReliefPackTemplatesPage = () => {
     loadReliefPackPage();
   }, []);
 
+  const scopedDisasterEvents = useMemo(() => {
+    return eventScope === "active"
+      ? activeDisasterEvents
+      : endedDisasterEvents;
+  }, [activeDisasterEvents, endedDisasterEvents, eventScope]);
+
   useEffect(() => {
-    if (activeDisasterEvents.length === 0) {
+    if (scopedDisasterEvents.length === 0) {
+      setSelectedDisasterEventId("");
+      return;
+    }
+
+    if (
+      selectedDisasterEventId &&
+      scopedDisasterEvents.some((event) => event.id === selectedDisasterEventId)
+    ) {
+      return;
+    }
+
+    setSelectedDisasterEventId(scopedDisasterEvents[0].id);
+  }, [scopedDisasterEvents, selectedDisasterEventId]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const refreshInventoryDrivenMetrics = async () => {
+      try {
+        const [templateResponse, inventoryItemResponse, inventoryBatchResponse] =
+          await Promise.all([
+            fetchReliefPackTemplates({ is_active: "true" }),
+            fetchInventoryItems(),
+            fetchInventoryBatches(),
+          ]);
+
+        const templateDetails = await Promise.all(
+          (templateResponse || []).map((template) =>
+            fetchReliefPackTemplateById(template.id),
+          ),
+        );
+
+        if (!isMounted) {
+          return;
+        }
+
+        setTemplates(templateDetails || []);
+        setInventoryItems(inventoryItemResponse || []);
+        setInventoryBatches(inventoryBatchResponse || []);
+      } catch (_error) {
+        // Keep the current view stable during background refresh attempts.
+      }
+    };
+
+    const handleVisibilityRefresh = () => {
+      if (document.visibilityState === "visible") {
+        void refreshInventoryDrivenMetrics();
+      }
+    };
+
+    const refreshInterval = window.setInterval(refreshInventoryDrivenMetrics, 30000);
+
+    window.addEventListener("focus", refreshInventoryDrivenMetrics);
+    document.addEventListener("visibilitychange", handleVisibilityRefresh);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(refreshInterval);
+      window.removeEventListener("focus", refreshInventoryDrivenMetrics);
+      document.removeEventListener("visibilitychange", handleVisibilityRefresh);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (scopedDisasterEvents.length === 0) {
       setAggregatedDemand(emptyDashboardState);
       return;
     }
@@ -478,13 +623,20 @@ const ReliefPackTemplatesPage = () => {
       setIsLoadingDemand(true);
 
       try {
-        const dashboards = await Promise.all(
-          activeDisasterEvents.map((disasterEvent) =>
-            fetchConsolidatedMasterlistDashboard({
+        const masterlists = await Promise.all(
+          scopedDisasterEvents
+            .filter((disasterEvent) =>
+              selectedDisasterEventId
+                ? disasterEvent.id === selectedDisasterEventId
+                : true,
+            )
+            .map((disasterEvent) =>
+            fetchConsolidatedMasterlist({
               disasterEventId: disasterEvent.id,
-              barangayId: null,
+              barangayId: selectedBarangayId || null,
+              recordStatus: "active",
             }).catch(() => null),
-          ),
+            ),
         );
 
         if (!isMounted) {
@@ -494,22 +646,26 @@ const ReliefPackTemplatesPage = () => {
         const barangayDemandMap = new Map();
         let totalFamilies = 0;
 
-        dashboards.filter(Boolean).forEach((dashboard) => {
-          totalFamilies += Number(
-            dashboard?.summary_metrics?.total_number_of_families || 0,
-          );
+        masterlists.filter(Boolean).forEach((masterlist) => {
+          const activeHouseholds = (Array.isArray(masterlist?.data)
+            ? masterlist.data
+            : []).filter(isHouseholdStillNeedingReliefPack);
 
-          (dashboard?.charts?.per_barangay || []).forEach((barangay) => {
-            const key = barangay.barangay_id || barangay.barangay_name;
+          totalFamilies += activeHouseholds.length;
+
+          activeHouseholds.forEach((household) => {
+            const barangayId = household?.barangay?.id || household?.household_id;
+            const barangayName = household?.barangay?.name || "Unknown barangay";
+            const key = barangayId || barangayName;
             const existingBarangay = barangayDemandMap.get(key);
 
             if (existingBarangay) {
-              existingBarangay.families_count += Number(barangay.families_count || 0);
+              existingBarangay.families_count += 1;
             } else {
               barangayDemandMap.set(key, {
-                barangay_id: barangay.barangay_id || key,
-                barangay_name: barangay.barangay_name || "Unknown barangay",
-                families_count: Number(barangay.families_count || 0),
+                barangay_id: barangayId || key,
+                barangay_name: barangayName,
+                families_count: 1,
               });
             }
           });
@@ -530,11 +686,13 @@ const ReliefPackTemplatesPage = () => {
     };
 
     loadAggregatedDemand();
+    const refreshInterval = window.setInterval(loadAggregatedDemand, 30000);
 
     return () => {
       isMounted = false;
+      window.clearInterval(refreshInterval);
     };
-  }, [activeDisasterEvents]);
+  }, [scopedDisasterEvents, selectedBarangayId, selectedDisasterEventId]);
 
   const availabilityByItemId = useMemo(
     () => buildAvailabilityByItemId(inventoryBatches, inventoryItems),
@@ -767,6 +925,98 @@ const ReliefPackTemplatesPage = () => {
           >
             Pack Customization
           </button>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            borderBottom: "1px solid #d6e2ef",
+            marginBottom: "24px",
+            gap: "8px",
+            flexWrap: "wrap",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setEventScope("active")}
+            style={scopeTabButtonStyles(eventScope === "active")}
+          >
+            Active Events
+          </button>
+          <button
+            type="button"
+            onClick={() => setEventScope("ended")}
+            style={scopeTabButtonStyles(eventScope === "ended")}
+          >
+            Ended Events
+          </button>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: "16px",
+            alignItems: "end",
+          }}
+        >
+          <div>
+            <label
+              htmlFor="relief-pack-management-event"
+              style={filterStyles.label}
+            >
+              {eventScope === "active" ? "Active" : "Ended"} Disaster Event
+            </label>
+            <div style={filterStyles.selectWrap}>
+              <select
+                id="relief-pack-management-event"
+                value={selectedDisasterEventId}
+                onChange={(event) => setSelectedDisasterEventId(event.target.value)}
+                disabled={isLoading}
+                style={filterStyles.field}
+              >
+                <option value="">
+                  {`Select ${eventScope === "active" ? "active" : "ended"} disaster event`}
+                </option>
+                {scopedDisasterEvents.map((event) => (
+                  <option key={event.id} value={event.id}>
+                    {event.title}
+                  </option>
+                ))}
+              </select>
+              <span style={filterStyles.selectIcon}>
+                <FiChevronDown size={16} />
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <label
+              htmlFor="relief-pack-management-barangay"
+              style={filterStyles.label}
+            >
+              Barangay
+            </label>
+            <div style={filterStyles.selectWrap}>
+              <select
+                id="relief-pack-management-barangay"
+                value={selectedBarangayId}
+                onChange={(event) => setSelectedBarangayId(event.target.value)}
+                disabled={isLoading}
+                style={filterStyles.field}
+              >
+                <option value="">All Barangays</option>
+                {barangayOptions.map((barangay) => (
+                  <option key={barangay.id} value={barangay.id}>
+                    {barangay.name}
+                  </option>
+                ))}
+              </select>
+              <span style={filterStyles.selectIcon}>
+                <FiChevronDown size={16} />
+              </span>
+            </div>
+          </div>
         </div>
       </section>
 

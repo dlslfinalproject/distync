@@ -425,9 +425,19 @@ const InventoryItemsPage = () => {
   });
   const syncQueueEntries =
     useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
-  const loadInventoryData = async (activeFilters = filters) => {
-    setIsLoading(true);
-    setErrorMessage("");
+  const loadInventoryData = async (
+    activeFilters = filters,
+    options = {},
+  ) => {
+    const { showLoading = true, clearError = true } = options;
+
+    if (showLoading) {
+      setIsLoading(true);
+    }
+
+    if (clearError) {
+      setErrorMessage("");
+    }
 
     try {
       const [itemResponse, batchResponse, transactionResponse] =
@@ -446,9 +456,13 @@ const InventoryItemsPage = () => {
       setInventoryBatches(batchResponse || []);
       setInventoryTransactions(transactionResponse || []);
     } catch (error) {
-      setErrorMessage(error.message);
+      if (clearError) {
+        setErrorMessage(error.message);
+      }
     } finally {
-      setIsLoading(false);
+      if (showLoading) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -464,6 +478,32 @@ const InventoryItemsPage = () => {
     });
 
     return () => unsubscribe();
+  }, [filters]);
+
+  useEffect(() => {
+    const refreshInventoryMonitor = () => {
+      void loadInventoryData(filters, {
+        showLoading: false,
+        clearError: false,
+      });
+    };
+
+    const handleVisibilityRefresh = () => {
+      if (document.visibilityState === "visible") {
+        refreshInventoryMonitor();
+      }
+    };
+
+    const refreshInterval = window.setInterval(refreshInventoryMonitor, 30000);
+
+    window.addEventListener("focus", refreshInventoryMonitor);
+    document.addEventListener("visibilitychange", handleVisibilityRefresh);
+
+    return () => {
+      window.clearInterval(refreshInterval);
+      window.removeEventListener("focus", refreshInventoryMonitor);
+      document.removeEventListener("visibilitychange", handleVisibilityRefresh);
+    };
   }, [filters]);
 
   const inventoryItemsWithSyncStatus = useMemo(

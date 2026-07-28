@@ -42,6 +42,8 @@ const getStubByIdForUpdate = async (stubId, dbClient) => {
       s.qr_notes,
       s.claimed_at,
       h.barangay_id,
+      h.current_stay_type,
+      h.is_active,
       h.family_head_first_name,
       h.family_head_middle_name,
       h.family_head_last_name,
@@ -63,6 +65,7 @@ const getInventoryBatchByIdForUpdate = async (batchId, dbClient) => {
       ib.inventory_item_id,
       ib.batch_no,
       ib.quantity_available,
+      ib.expiration_date,
       ib.status,
       ii.item_code,
       ii.item_name,
@@ -75,6 +78,110 @@ const getInventoryBatchByIdForUpdate = async (batchId, dbClient) => {
 
   const result = await dbClient.query(query, [batchId]);
   return result.rows[0] || null;
+};
+
+const getReliefPackTemplateByIdForUpdate = async (templateId, dbClient) => {
+  const query = `
+    SELECT
+      id,
+      name,
+      description,
+      based_on_family_size,
+      based_on_sector,
+      is_additional_pack,
+      sector_id,
+      is_active
+    FROM relief_pack_templates
+    WHERE id = $1
+    FOR SHARE
+  `;
+
+  const result = await dbClient.query(query, [templateId]);
+  return result.rows[0] || null;
+};
+
+const getReliefPackTemplateItemsByTemplateIdForUpdate = async (templateId, dbClient) => {
+  const query = `
+    SELECT
+      rpti.id,
+      rpti.template_id,
+      rpti.inventory_item_id,
+      rpti.quantity_required,
+      ii.item_code,
+      ii.item_name,
+      ii.unit_of_measure,
+      ii.is_active
+    FROM relief_pack_template_items rpti
+    INNER JOIN inventory_items ii ON ii.id = rpti.inventory_item_id
+    WHERE rpti.template_id = $1
+    ORDER BY ii.item_name ASC
+  `;
+
+  const result = await dbClient.query(query, [templateId]);
+  return result.rows;
+};
+
+const getLatestAttendanceByHouseholdId = async (
+  householdId,
+  disasterEventId,
+  dbClient,
+) => {
+  const query = `
+    SELECT
+      id,
+      household_id,
+      disaster_event_id,
+      status,
+      time_in,
+      time_out
+    FROM evacuation_logs
+    WHERE household_id = $1
+      AND disaster_event_id = $2
+    ORDER BY
+      COALESCE(time_out, time_in) DESC,
+      updated_at DESC,
+      created_at DESC
+    LIMIT 1
+  `;
+
+  const result = await dbClient.query(query, [householdId, disasterEventId]);
+  return result.rows[0] || null;
+};
+
+const getAvailableInventoryBatchesByItemIdForUpdate = async (
+  inventoryItemId,
+  dbClient,
+) => {
+  const query = `
+    SELECT
+      ib.id,
+      ib.inventory_item_id,
+      ib.batch_no,
+      ib.quantity_received,
+      ib.quantity_available,
+      ib.expiration_date,
+      ib.received_at,
+      ib.created_at,
+      ib.status,
+      ii.item_code,
+      ii.item_name,
+      ii.unit_of_measure
+    FROM inventory_batches ib
+    INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
+    WHERE ib.inventory_item_id = $1
+      AND COALESCE(ib.quantity_available, 0) > 0
+      AND ib.status IN ('AVAILABLE', 'LOW_STOCK')
+    ORDER BY
+      CASE WHEN ib.expiration_date IS NULL THEN 1 ELSE 0 END,
+      ib.expiration_date ASC,
+      ib.received_at ASC,
+      ib.created_at ASC,
+      ib.batch_no ASC
+    FOR UPDATE OF ib
+  `;
+
+  const result = await dbClient.query(query, [inventoryItemId]);
+  return result.rows;
 };
 
 const insertDistributionTransaction = async (transactionData, dbClient) => {
@@ -176,6 +283,50 @@ const insertDistributionTransactionItem = async (itemData, dbClient) => {
     itemData.inventory_batch_id,
     itemData.inventory_item_id,
     itemData.quantity_released,
+  ];
+
+  const result = await dbClient.query(query, values);
+  return result.rows[0];
+};
+
+const insertInventoryTransaction = async (transactionData, dbClient) => {
+  const query = `
+    INSERT INTO inventory_transactions (
+      disaster_event_id,
+      inventory_batch_id,
+      transaction_type,
+      quantity,
+      reference_type,
+      reference_id,
+      performed_by,
+      performed_at,
+      remarks,
+      created_at
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, NOW())
+    RETURNING
+      id,
+      disaster_event_id,
+      inventory_batch_id,
+      transaction_type,
+      quantity,
+      reference_type,
+      reference_id,
+      performed_by,
+      performed_at,
+      remarks,
+      created_at
+  `;
+
+  const values = [
+    transactionData.disaster_event_id,
+    transactionData.inventory_batch_id,
+    transactionData.transaction_type,
+    transactionData.quantity,
+    transactionData.reference_type,
+    transactionData.reference_id,
+    transactionData.performed_by,
+    transactionData.remarks,
   ];
 
   const result = await dbClient.query(query, values);
@@ -483,12 +634,13 @@ const getDistributionHistory = async ({
       SELECT
         SUM(dti.quantity_released)::integer AS total_quantity_released,
         STRING_AGG(
-          CONCAT(ii.item_name, ' x', dti.quantity_released),
+          CONCAT(ii.item_name, ' x', dti.quantity_released, ' [', ib.batch_no, ']'),
           ', '
-          ORDER BY ii.item_name
+          ORDER BY ib.received_at ASC, ib.created_at ASC, ii.item_name ASC
         ) AS released_items_summary
       FROM distribution_transaction_items dti
       INNER JOIN inventory_items ii ON ii.id = dti.inventory_item_id
+      INNER JOIN inventory_batches ib ON ib.id = dti.inventory_batch_id
       WHERE dti.distribution_transaction_id = dt.id
     ) item_summary ON TRUE
     ${whereClause}
@@ -521,8 +673,13 @@ module.exports = {
   getDistributionReceiptSequence,
   getStubByIdForUpdate,
   getInventoryBatchByIdForUpdate,
+  getReliefPackTemplateByIdForUpdate,
+  getReliefPackTemplateItemsByTemplateIdForUpdate,
+  getLatestAttendanceByHouseholdId,
+  getAvailableInventoryBatchesByItemIdForUpdate,
   insertDistributionTransaction,
   insertDistributionTransactionItem,
+  insertInventoryTransaction,
   updateInventoryBatchQuantityAndStatus,
   updateStubAsClaimed,
   getDistributionTransactionByIdForUpdate,

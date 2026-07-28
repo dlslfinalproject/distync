@@ -4,6 +4,9 @@ const distributionTransactionRepository = require("../repositories/distributionT
 const reliefPackTemplateRepository = require("../repositories/reliefPackTemplate.repository");
 const stubRepository = require("../repositories/stub.repository");
 const mswdoReportExport = require("../utils/mswdoReportExport");
+const {
+  recordAutomaticReliefPackClaim,
+} = require("./automaticReliefPackClaim.service");
 
 const isOverrideAllowed = process.env.NODE_ENV !== "production";
 const ACTIVE_QR_STATUS = "ACTIVE";
@@ -419,46 +422,25 @@ const claimBarangayStub = async (params) => {
       throw error;
     }
 
-    const receiptNo =
-      await distributionTransactionRepository.getDistributionReceiptSequence(
-        client,
-      );
     const receivedAt = params.claimed_at || new Date().toISOString();
-
-    const distributionTransaction =
-      await distributionTransactionRepository.insertDistributionTransaction(
-        {
-          disaster_event_id: lockedStub.disaster_event_id,
-          household_id: lockedStub.household_id,
-          stub_id: lockedStub.id,
-          distribution_status: "CLAIMED",
-          claimed_by_name: buildFullName(
-            lockedStub.family_head_first_name,
-            lockedStub.family_head_middle_name,
-            lockedStub.family_head_last_name,
-            lockedStub.family_head_suffix,
-          ),
-          verified_by: params.verified_by || null,
-          device_id: null,
-          is_offline_encoded: false,
-          sync_status: "SYNCED",
-          qr_reference_value: lockedStub.qr_code_value || null,
-          qr_scanned_at: null,
-          qr_scanned_by: null,
-          receipt_no: receiptNo,
-          receipt_status: "GENERATED",
-          received_at: receivedAt,
-          relief_pack_template_id: null,
-          remarks: "Claimed through Relief Goods Distribution confirmation",
-        },
-        client,
-      );
-
-    const updatedStub = await distributionTransactionRepository.updateStubAsClaimed(
-      params.id,
+    const automaticClaimResult = await recordAutomaticReliefPackClaim({
       client,
-      params.claimed_at || null,
-    );
+      stub: lockedStub,
+      claimedByName: buildFullName(
+        lockedStub.family_head_first_name,
+        lockedStub.family_head_middle_name,
+        lockedStub.family_head_last_name,
+        lockedStub.family_head_suffix,
+      ),
+      verifiedBy: params.verified_by || null,
+      qrReferenceValue: lockedStub.qr_code_value || null,
+      qrScannedAt: null,
+      qrScannedBy: null,
+      receivedAt,
+      claimedAt: params.claimed_at || null,
+      remarks: "Claimed through Relief Goods Distribution confirmation",
+    });
+    const { distributionTransaction, updatedStub } = automaticClaimResult;
 
     await client.query("COMMIT");
 

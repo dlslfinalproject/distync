@@ -378,7 +378,14 @@ const validateInventoryItemPayload = (req, res, next) => {
     }
 
     const parsedExpirationDate = parseOptionalDate(expiration_date);
-    const parsedReorderLevel = parsePositiveInteger(reorder_level);
+    const shouldAllowNullableReorderLevel =
+      req.method === "POST" && skip_opening_stock === true;
+    const isNullableReorderLevelValue =
+      reorder_level === undefined || reorder_level === null;
+    const parsedReorderLevel =
+      shouldAllowNullableReorderLevel && isNullableReorderLevelValue
+        ? null
+        : parsePositiveInteger(reorder_level);
 
     if (parsedExpirationDate === "invalid") {
       return res.status(400).json({
@@ -386,7 +393,10 @@ const validateInventoryItemPayload = (req, res, next) => {
       });
     }
 
-    if (!parsedReorderLevel) {
+    if (
+      parsedReorderLevel === null &&
+      !(shouldAllowNullableReorderLevel && isNullableReorderLevelValue)
+    ) {
       return res.status(400).json({
         message: "reorder_level is required and must be a positive integer",
       });

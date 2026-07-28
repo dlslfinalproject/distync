@@ -45,6 +45,7 @@ const ReleasedItemsTable = ({
   onRemoveRow,
   onUpdateRow,
   isDisabled,
+  usesTemplateFifo = false,
 }) => {
   return (
     <section style={shellStyles.card}>
@@ -61,22 +62,25 @@ const ReleasedItemsTable = ({
         <div>
           <h3 style={{ margin: 0, color: "#17324d" }}>Released Items</h3>
           <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-            Add one or more item rows, then select the matching batch and
-            quantity to release.
+            {usesTemplateFifo
+              ? "This relief pack will deduct its configured items automatically using FIFO from the oldest available batches."
+              : "Add one or more item rows, then select the matching batch and quantity to release."}
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={onAddRow}
-          disabled={isDisabled}
-          style={{
-            ...pageHeaderStyles.secondaryButton,
-            opacity: isDisabled ? 0.7 : 1,
-          }}
-        >
-          Add Item Row
-        </button>
+        {usesTemplateFifo ? null : (
+          <button
+            type="button"
+            onClick={onAddRow}
+            disabled={isDisabled}
+            style={{
+              ...pageHeaderStyles.secondaryButton,
+              opacity: isDisabled ? 0.7 : 1,
+            }}
+          >
+            Add Item Row
+          </button>
+        )}
       </div>
 
       <div style={{ overflowX: "auto" }}>
@@ -86,8 +90,12 @@ const ReleasedItemsTable = ({
               <th style={tableStyles.headerCell}>Inventory Item</th>
               <th style={tableStyles.headerCell}>Batch</th>
               <th style={tableStyles.headerCell}>Quantity</th>
-              <th style={tableStyles.headerCell}>Available</th>
-              <th style={tableStyles.headerCell}>Action</th>
+              <th style={tableStyles.headerCell}>
+                {usesTemplateFifo ? "FIFO Source" : "Available"}
+              </th>
+              {usesTemplateFifo ? null : (
+                <th style={tableStyles.headerCell}>Action</th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -110,68 +118,91 @@ const ReleasedItemsTable = ({
               return (
                 <tr key={row.id}>
                   <td style={tableStyles.bodyCell}>
-                    <select
-                      value={row.inventory_item_id}
-                      onChange={(event) =>
-                        onUpdateRow(row.id, "inventory_item_id", event.target.value)
-                      }
-                      disabled={isDisabled}
-                      style={tableStyles.input}
-                    >
-                      <option value="">Select inventory item</option>
-                      {inventoryItems.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.item_name} ({item.item_code})
-                        </option>
-                      ))}
-                    </select>
+                    {usesTemplateFifo ? (
+                      <div>
+                        {inventoryItems.find((item) => item.id === row.inventory_item_id)
+                          ?.item_name || "--"}
+                      </div>
+                    ) : (
+                      <select
+                        value={row.inventory_item_id}
+                        onChange={(event) =>
+                          onUpdateRow(row.id, "inventory_item_id", event.target.value)
+                        }
+                        disabled={isDisabled}
+                        style={tableStyles.input}
+                      >
+                        <option value="">Select inventory item</option>
+                        {inventoryItems.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.item_name} ({item.item_code})
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </td>
                   <td style={tableStyles.bodyCell}>
-                    <select
-                      value={row.inventory_batch_id}
-                      onChange={(event) =>
-                        onUpdateRow(row.id, "inventory_batch_id", event.target.value)
-                      }
-                      disabled={isDisabled || !row.inventory_item_id}
-                      style={tableStyles.input}
-                    >
-                      <option value="">Select batch</option>
-                      {availableBatches.map((batch) => (
-                        <option key={batch.id} value={batch.id}>
-                          {batch.batch_no} ({batch.quantity_available} available)
-                        </option>
-                      ))}
-                    </select>
+                    {usesTemplateFifo ? (
+                      <span style={{ color: "#5f7288", fontWeight: 600 }}>
+                        Automatic FIFO
+                      </span>
+                    ) : (
+                      <select
+                        value={row.inventory_batch_id}
+                        onChange={(event) =>
+                          onUpdateRow(row.id, "inventory_batch_id", event.target.value)
+                        }
+                        disabled={isDisabled || !row.inventory_item_id}
+                        style={tableStyles.input}
+                      >
+                        <option value="">Select batch</option>
+                        {availableBatches.map((batch) => (
+                          <option key={batch.id} value={batch.id}>
+                            {batch.batch_no} ({batch.quantity_available} available)
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </td>
                   <td style={tableStyles.bodyCell}>
-                    <input
-                      type="number"
-                      min="1"
-                      value={row.quantity_released}
-                      onChange={(event) =>
-                        onUpdateRow(row.id, "quantity_released", event.target.value)
-                      }
-                      disabled={isDisabled}
-                      style={tableStyles.input}
-                    />
+                    {usesTemplateFifo ? (
+                      <div>{row.quantity_released}</div>
+                    ) : (
+                      <input
+                        type="number"
+                        min="1"
+                        value={row.quantity_released}
+                        onChange={(event) =>
+                          onUpdateRow(row.id, "quantity_released", event.target.value)
+                        }
+                        disabled={isDisabled}
+                        style={tableStyles.input}
+                      />
+                    )}
                   </td>
                   <td style={tableStyles.bodyCell}>
-                    {selectedBatch ? selectedBatch.quantity_available : "--"}
+                    {usesTemplateFifo
+                      ? "Oldest available batch first"
+                      : selectedBatch
+                        ? selectedBatch.quantity_available
+                        : "--"}
                   </td>
-                  <td style={tableStyles.bodyCell}>
-                    <button
-                      type="button"
-                      onClick={() => onRemoveRow(row.id)}
-                      disabled={isDisabled || rows.length === 1}
-                      style={{
-                        ...pageHeaderStyles.secondaryButton,
-                        minWidth: "120px",
-                        opacity: isDisabled || rows.length === 1 ? 0.7 : 1,
-                      }}
-                    >
-                      Remove
-                    </button>
-                  </td>
+                  {usesTemplateFifo ? null : (
+                    <td style={tableStyles.bodyCell}>
+                      <button
+                        type="button"
+                        onClick={() => onRemoveRow(row.id)}
+                        disabled={isDisabled || rows.length === 1}
+                        style={{
+                          ...pageHeaderStyles.secondaryButton,
+                          minWidth: "120px",
+                          opacity: isDisabled || rows.length === 1 ? 0.7 : 1,
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -180,8 +211,9 @@ const ReleasedItemsTable = ({
       </div>
 
       <p style={{ ...shellStyles.mutedText, marginTop: "14px" }}>
-        Choose the exact inventory batch that will be deducted for each released
-        item.
+        {usesTemplateFifo
+          ? "Inventory deduction follows the configured relief pack contents and automatically consumes the oldest eligible stock first."
+          : "Choose the exact inventory batch that will be deducted for each released item."}
       </p>
     </section>
   );
