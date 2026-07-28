@@ -1,9 +1,17 @@
+import { donorTypeLabels } from "./donationFormatters";
+
 export const donorTypes = [
-  "INDIVIDUAL",
-  "NGO",
-  "PRIVATE ORGANIZATION",
-  "GOVERNMENT PARTNER",
-  "OTHER",
+  { value: "INDIVIDUAL", label: donorTypeLabels.INDIVIDUAL },
+  { value: "NGO", label: donorTypeLabels.NGO },
+  {
+    value: "PRIVATE_ORGANIZATION",
+    label: donorTypeLabels.PRIVATE_ORGANIZATION,
+  },
+  {
+    value: "GOVERNMENT_PARTNER",
+    label: donorTypeLabels.GOVERNMENT_PARTNER,
+  },
+  { value: "OTHER", label: donorTypeLabels.OTHER },
 ];
 
 export const donationStatuses = [

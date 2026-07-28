@@ -13,6 +13,7 @@ import {
   createDonationForm,
   createDonationItemForm,
 } from "./donationUi";
+import { normalizeDonorType } from "./donationFormatters";
 import { createInventoryItem } from "../inventory-items/inventoryItemService";
 import { createReliefPackTemplate } from "../relief-pack-templates/reliefPackTemplateService";
 
@@ -36,6 +37,34 @@ const buildDonationDefinedItemPayload = (draft) => ({
   is_active: true,
   skip_opening_stock: true,
 });
+
+const normalizeInventoryItemName = (value) =>
+  String(value || "").trim().toLowerCase();
+
+const findInventoryItemByName = (inventoryItems, itemName) => {
+  const normalizedItemName = normalizeInventoryItemName(itemName);
+
+  if (!normalizedItemName) {
+    return null;
+  }
+
+  return (
+    inventoryItems.find(
+      (item) => normalizeInventoryItemName(item.item_name) === normalizedItemName,
+    ) || null
+  );
+};
+
+const resolveDonationInventoryItem = async ({ draft, inventoryItems }) => {
+  const itemName = draft.item_name || draft.new_item_name;
+  const existingInventoryItem = findInventoryItemByName(inventoryItems, itemName);
+
+  if (existingInventoryItem?.id) {
+    return existingInventoryItem;
+  }
+
+  return getMutationData(await createInventoryItem(buildDonationDefinedItemPayload(draft)));
+};
 
 const buildReliefPackRemark = (templateName, packQuantity) =>
   `Relief Pack: ${templateName} x ${packQuantity}`;
@@ -131,7 +160,7 @@ export const useDonationManagementModals = ({
         id: donation.id,
         disaster_event_id: donation.disaster_event_id,
         donor_name: donation.donor_name,
-        donor_type: donation.donor_type,
+        donor_type: normalizeDonorType(donation.donor_type),
         contact_information: donation.contact_information || "",
         received_at: donation.received_at
           ? new Date(donation.received_at).toISOString().slice(0, 10)
@@ -195,7 +224,7 @@ export const useDonationManagementModals = ({
       const payload = {
         disaster_event_id: donationForm.disaster_event_id,
         donor_name: donationForm.donor_name.trim(),
-        donor_type: donationForm.donor_type,
+        donor_type: normalizeDonorType(donationForm.donor_type),
         contact_information: null,
         received_at: donationForm.received_at || null,
         status: donationForm.status,
@@ -214,14 +243,13 @@ export const useDonationManagementModals = ({
             const resolvedPackItems = [];
 
             for (const packItem of item.relief_pack_items || []) {
-              const createdInventoryItem = getMutationData(
-                await createInventoryItem(
-                  buildDonationDefinedItemPayload({
-                    ...packItem,
-                    expiration_date: item.expiration_date,
-                  }),
-                ),
-              );
+              const createdInventoryItem = await resolveDonationInventoryItem({
+                draft: {
+                  ...packItem,
+                  expiration_date: item.expiration_date,
+                },
+                inventoryItems,
+              });
 
               if (!createdInventoryItem?.id) {
                 throw new Error(
@@ -262,14 +290,13 @@ export const useDonationManagementModals = ({
             continue;
           }
 
-          const createdInventoryItem = getMutationData(
-            await createInventoryItem(
-              buildDonationDefinedItemPayload({
-                ...item,
-                expiration_date: item.expiration_date,
-              }),
-            ),
-          );
+          const createdInventoryItem = await resolveDonationInventoryItem({
+            draft: {
+              ...item,
+              expiration_date: item.expiration_date,
+            },
+            inventoryItems,
+          });
 
           if (!createdInventoryItem?.id) {
             throw new Error(`Failed to create inventory item for ${item.item_name}.`);
@@ -524,14 +551,13 @@ export const useDonationManagementModals = ({
         const resolvedPackItems = [];
 
         for (const packItem of donationItemDraft.relief_pack_items) {
-          const createdInventoryItem = getMutationData(
-            await createInventoryItem(
-              buildDonationDefinedItemPayload({
-                ...packItem,
-                expiration_date: donationItemDraft.expiration_date,
-              }),
-            ),
-          );
+          const createdInventoryItem = await resolveDonationInventoryItem({
+            draft: {
+              ...packItem,
+              expiration_date: donationItemDraft.expiration_date,
+            },
+            inventoryItems,
+          });
 
           if (!createdInventoryItem?.id) {
             throw new Error(`Failed to create inventory item for ${packItem.item_name}.`);
@@ -574,11 +600,10 @@ export const useDonationManagementModals = ({
           throw new Error("Enter the item name.");
         }
 
-        const createdInventoryItem = getMutationData(
-          await createInventoryItem(
-            buildDonationDefinedItemPayload(donationItemDraft),
-          ),
-        );
+        const createdInventoryItem = await resolveDonationInventoryItem({
+          draft: donationItemDraft,
+          inventoryItems,
+        });
         const inventoryItemId = createdInventoryItem?.id;
 
         if (!inventoryItemId) {

@@ -42,7 +42,10 @@ import {
   NO_EXPORT_DATA_MESSAGE,
   resolveExportErrorMessage,
 } from "../utils/exportHelpers";
-import { formatDonationDateTime } from "../features/donations/donationFormatters";
+import {
+  formatDonationDateTime,
+  formatDonorType,
+} from "../features/donations/donationFormatters";
 
 const getDonationItemSummary = (donation) => {
   const items = donation.items || [];
@@ -104,7 +107,7 @@ const buildDonationCsv = (rows) => {
 
       return [
         donation.donor_name || "--",
-        donation.donor_type || "--",
+        formatDonorType(donation.donor_type),
         itemSummary.label,
         itemSummary.quantityLabel,
         formatDonationDateTime(donation.received_at),

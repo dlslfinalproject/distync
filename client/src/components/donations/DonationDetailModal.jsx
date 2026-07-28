@@ -3,6 +3,7 @@ import DetailsModalShell from "../shared/DetailsModalShell";
 import EmptyState from "../shared/EmptyState";
 import ErrorState from "../shared/ErrorState";
 import LoadingState from "../shared/LoadingState";
+import { formatDonorType } from "../../features/donations/donationFormatters";
 
 const modalStyles = {
   summaryCard: {
@@ -129,7 +130,7 @@ const DonationDetailModal = ({
           >
             {[
               ["Donor", donation.donor_name || "--"],
-              ["Donor Type", donation.donor_type || "--"],
+              ["Donor Type", formatDonorType(donation.donor_type)],
               ["Contact Info", donation.contact_information || "--"],
               ["Status", donation.status || "--"],
               ["Received At", formatDateTime(donation.received_at)],
