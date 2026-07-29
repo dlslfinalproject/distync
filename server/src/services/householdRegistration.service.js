@@ -1305,6 +1305,22 @@ const departHousehold = async (
       },
     });
 
+    const familyHeadName = [
+      household.family_head_first_name,
+      household.family_head_last_name,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    await notificationService.emitSafely(() =>
+      notificationService.emitEvacueeAttendanceUpdate({
+        householdId,
+        barangayId: household.barangay_id,
+        familyHeadName,
+        action: "departure-recorded",
+      }),
+    );
+
     return {
       household_id: householdId,
       affected_logs_count: updatedLogs.length,
@@ -1398,6 +1414,22 @@ const correctEvacuationLog = async ({
     oldValues: summarizeEvacuationLog(existingLog),
     newValues: summarizeEvacuationLog(updatedLog),
   });
+
+  const familyHeadName = [
+    household.family_head_first_name,
+    household.family_head_last_name,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  await notificationService.emitSafely(() =>
+    notificationService.emitEvacueeAttendanceUpdate({
+      householdId,
+      barangayId: household.barangay_id,
+      familyHeadName,
+      action: "status-updated",
+    }),
+  );
 
   return {
     household_id: householdId,
