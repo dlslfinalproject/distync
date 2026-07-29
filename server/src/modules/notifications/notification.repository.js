@@ -110,6 +110,77 @@ const getRecipientUserIdsByRoleCodeAndBarangayIds = async (
   return result.rows.map((row) => row.id);
 };
 
+const getUserNotificationPreferencesByRole = async (
+  userIds,
+  roleCode,
+  dbClient = pool,
+) => {
+  if (!Array.isArray(userIds) || userIds.length === 0 || !roleCode) {
+    return [];
+  }
+
+  const result = await dbClient.query(
+    `
+      SELECT
+        u.id AS user_id,
+        u.email,
+        urs.enabled_notification_rule_codes_json,
+        urs.notification_channels_json
+      FROM users u
+      INNER JOIN user_roles ur ON ur.user_id = u.id
+      INNER JOIN roles r ON r.id = ur.role_id
+      LEFT JOIN user_role_settings urs
+        ON urs.user_id = u.id
+       AND urs.role_code = r.code
+      WHERE u.is_active = TRUE
+        AND u.id = ANY($1::UUID[])
+        AND r.code = $2
+      ORDER BY u.id ASC
+    `,
+    [userIds, roleCode],
+  );
+
+  return result.rows;
+};
+
+const getRoleCodesByUserId = async (userId, dbClient = pool) => {
+  if (!userId) {
+    return [];
+  }
+
+  const result = await dbClient.query(
+    `
+      SELECT DISTINCT r.code
+      FROM user_roles ur
+      INNER JOIN roles r ON r.id = ur.role_id
+      WHERE ur.user_id = $1
+      ORDER BY r.code ASC
+    `,
+    [userId],
+  );
+
+  return result.rows.map((row) => row.code).filter(Boolean);
+};
+
+const getAllNotificationRules = async (dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      SELECT
+        id,
+        code,
+        name,
+        trigger_type,
+        target_role_code,
+        is_active,
+        created_at
+      FROM notification_rules
+      ORDER BY is_active DESC, target_role_code ASC, name ASC
+    `,
+  );
+
+  return result.rows;
+};
+
 const insertNotification = async (payload, dbClient = pool) => {
   const result = await dbClient.query(
     `
@@ -396,9 +467,12 @@ const getOpenSyncConflictsForNotificationScan = async (dbClient = pool) => {
 module.exports = {
   getNotificationRuleByCode,
   getNotificationRulesByTargetRoleCode,
+  getAllNotificationRules,
   upsertNotificationRule,
   getRecipientUserIdsByRoleCode,
   getRecipientUserIdsByRoleCodeAndBarangayIds,
+  getRoleCodesByUserId,
+  getUserNotificationPreferencesByRole,
   insertNotification,
   insertNotificationRecipients,
   findRecentNotificationMatchForUsers,

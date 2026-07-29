@@ -383,13 +383,16 @@ const createDisasterEvent = async (disasterEventData) => {
 
     const disasterEvent = await getDisasterEventById(createdDisasterEvent.id);
 
-    await notificationService.emitSafely(() =>
-      notificationService.emitDisasterEventUpdate({
+    await notificationService.emitSafely(async () => {
+      await notificationService.emitDisasterEventCreated({
+        disasterEvent,
+      });
+      await notificationService.emitDisasterEventUpdate({
         disasterEvent,
         action: "created",
         affectedBarangays: disasterEvent.affected_barangays,
-      }),
-    );
+      });
+    });
 
     return disasterEvent;
   } catch (error) {

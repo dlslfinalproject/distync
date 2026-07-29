@@ -1,5 +1,20 @@
 const ALLOWED_EXPORT_FORMATS = new Set(["csv", "excel", "pdf"]);
 const MAX_PROFILE_PICTURE_DATA_URL_LENGTH = 4 * 1024 * 1024;
+const EMAIL_ADDRESS_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHILIPPINE_CONTACT_NUMBER_PATTERN = /^\+639\d{9}$/;
+const PROFILE_PICTURE_ALLOWED_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+]);
+const ALLOWED_NOTIFICATION_CHANNEL_KEYS = new Set([
+  "disasterAlerts",
+  "distributionSchedules",
+  "reliefArrivalNotifications",
+  "attendanceReminders",
+  "systemAnnouncements",
+]);
 
 const isPlainObject = (value) =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -14,6 +29,71 @@ const validateOptionalString = (value, fieldName) => {
   }
 
   return null;
+};
+
+const normalizeEmailAddress = (value) => String(value || "").trim();
+
+const normalizePhilippineContactNumber = (value = "") => {
+  const rawValue = String(value || "").trim();
+
+  if (!rawValue) {
+    return "";
+  }
+
+  const compactValue = rawValue.replace(/[^\d+]/g, "");
+
+  if (compactValue.startsWith("+")) {
+    const digitsAfterPlus = compactValue.slice(1).replace(/\D/g, "");
+
+    if (digitsAfterPlus.startsWith("639")) {
+      return `+${digitsAfterPlus.slice(0, 12)}`;
+    }
+
+    return `+${digitsAfterPlus.slice(0, 12)}`;
+  }
+
+  const digitsOnly = compactValue.replace(/\D/g, "");
+
+  if (digitsOnly.startsWith("09")) {
+    return `+63${digitsOnly.slice(1, 11)}`;
+  }
+
+  if (digitsOnly.startsWith("639")) {
+    return `+${digitsOnly.slice(0, 12)}`;
+  }
+
+  if (digitsOnly.startsWith("63")) {
+    return `+${digitsOnly.slice(0, 12)}`;
+  }
+
+  if (digitsOnly.startsWith("9")) {
+    return `+63${digitsOnly.slice(0, 10)}`;
+  }
+
+  return "";
+};
+
+const isSupportedProfilePictureReference = (value = "") => {
+  const trimmedValue = String(value || "").trim();
+
+  if (!trimmedValue) {
+    return true;
+  }
+
+  if (trimmedValue.startsWith("data:image/")) {
+    return true;
+  }
+
+  if (trimmedValue.startsWith("/")) {
+    return true;
+  }
+
+  try {
+    const parsedUrl = new URL(trimmedValue);
+    return parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:";
+  } catch (_error) {
+    return false;
+  }
 };
 
 const validateSaveCurrentSettings = (req, res, next) => {
@@ -96,25 +176,68 @@ const validateSaveCurrentSettings = (req, res, next) => {
         }
       }
 
-      const profilePictureDataUrl = settings.profile.profilePictureDataUrl?.trim();
-
       if (
-        profilePictureDataUrl &&
-        !profilePictureDataUrl.startsWith("data:image/")
+        settings.profile.fullName !== undefined &&
+        !settings.profile.fullName.trim()
       ) {
         return res.status(400).json({
-          message:
-            "profile.profilePictureDataUrl must be a valid image data URL",
+          message: "profile.fullName must not be empty",
         });
       }
 
+      const contactNumber = normalizePhilippineContactNumber(
+        settings.profile.contactNumber,
+      );
+
       if (
-        typeof profilePictureDataUrl === "string" &&
-        profilePictureDataUrl.length > MAX_PROFILE_PICTURE_DATA_URL_LENGTH
+        typeof contactNumber === "string" &&
+        contactNumber &&
+        !PHILIPPINE_CONTACT_NUMBER_PATTERN.test(contactNumber)
       ) {
         return res.status(400).json({
-          message: "profile.profilePictureDataUrl is too large",
+          message: "Please enter a valid contact number.",
         });
+      }
+
+      const emailAddress = normalizeEmailAddress(settings.profile.emailAddress);
+
+      if (
+        typeof emailAddress === "string" &&
+        emailAddress &&
+        !EMAIL_ADDRESS_PATTERN.test(emailAddress)
+      ) {
+        return res.status(400).json({
+          message: "Please enter a valid email address.",
+        });
+      }
+
+      const profilePictureDataUrl = settings.profile.profilePictureDataUrl?.trim();
+
+      if (profilePictureDataUrl && !isSupportedProfilePictureReference(profilePictureDataUrl)) {
+        return res.status(400).json({
+          message:
+            "profile.profilePictureDataUrl must be a valid image reference",
+        });
+      }
+
+      if (profilePictureDataUrl.startsWith("data:image/")) {
+        const profilePictureMimeType =
+          profilePictureDataUrl.slice(5).split(";")[0].toLowerCase();
+
+        if (!PROFILE_PICTURE_ALLOWED_MIME_TYPES.has(profilePictureMimeType)) {
+          return res.status(400).json({
+            message: "Profile picture must be a JPG, PNG, or WEBP image.",
+          });
+        }
+
+        if (
+          typeof profilePictureDataUrl === "string" &&
+          profilePictureDataUrl.length > MAX_PROFILE_PICTURE_DATA_URL_LENGTH
+        ) {
+          return res.status(400).json({
+            message: "Profile picture is too large.",
+          });
+        }
       }
     }
 
@@ -131,6 +254,12 @@ const validateSaveCurrentSettings = (req, res, next) => {
       for (const [channelKey, channelValue] of Object.entries(
         settings.notificationChannels,
       )) {
+        if (!ALLOWED_NOTIFICATION_CHANNEL_KEYS.has(channelKey)) {
+          return res.status(400).json({
+            message: `notificationChannels.${channelKey} is not supported`,
+          });
+        }
+
         if (!isPlainObject(channelValue)) {
           return res.status(400).json({
             message: `notificationChannels.${channelKey} must be an object`,

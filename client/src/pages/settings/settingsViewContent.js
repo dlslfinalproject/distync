@@ -2,36 +2,37 @@ import { ROLE_CODES } from "../../utils/roleSession";
 import {
   BARANGAY_NOTIFICATION_OPTIONS,
   BARANGAY_POSITION_LABEL,
+  getNotificationOptionsForRole,
   ROLE_DISPLAY_NAMES,
 } from "./settingsConfig";
 
 const DASHBOARD_DESCRIPTIONS = {
   [ROLE_CODES.BARANGAY]:
-    "Choose a category below to keep the Settings workspace focused and uncluttered. Detailed forms, tables, and logs only appear after you open a section.",
+    "Choose a category below to manage your DISTYNC account details, notification preferences, and sync information.",
   [ROLE_CODES.MSWDO]:
-    "Choose a category below to keep the MSWDO Settings workspace focused and uncluttered. Detailed forms, sync details, and notification controls only appear after you open a section.",
+    "Choose a category below to manage your DISTYNC account details, notification preferences, and sync information.",
   [ROLE_CODES.MAYOR]:
-    "Choose a category below to keep the Mayor Settings workspace focused and uncluttered. Detailed forms and system summaries only appear after you open a section.",
+    "Choose a category below to manage your DISTYNC account details, notification preferences, and sync information.",
 };
 
 const NOTIFICATION_SECTION_COPY = {
   [ROLE_CODES.BARANGAY]: {
     description:
-      "Manage local alert preferences for barangay coordination. These settings are saved on this device for the current account while the live system rules shown below still depend on the existing backend notification mappings.",
+      "Manage the notification preferences that control which barangay coordination alerts reach your account.",
     alertChannelsDescription:
-      "Choose which alert types stay enabled locally and which channel you prefer when available.",
+      "Choose which notification categories stay enabled for your account and whether DISTYNC should deliver them in-app, by email, or both.",
   },
   [ROLE_CODES.MSWDO]: {
     description:
-      "Review the local notification rule preferences for MSWDO coordination. These selections are stored on this device and do not rewrite backend notification mappings.",
+      "Manage the notification preferences that control which MSWDO coordination alerts reach your account.",
     alertChannelsDescription:
-      "Choose which alert types stay enabled locally and which delivery channel you prefer when available.",
+      "Choose which notification categories stay enabled for your account and whether DISTYNC should deliver them in-app, by email, or both.",
   },
   [ROLE_CODES.MAYOR]: {
     description:
-      "Review the local executive notification rule preferences for the Office of the Mayor. These selections are stored on this device and do not rewrite backend notification mappings.",
+      "Manage the notification preferences that control which Office of the Mayor alerts reach your account.",
     alertChannelsDescription:
-      "Choose which alert types stay enabled locally and which delivery channel you prefer when available.",
+      "Choose which notification categories stay enabled for your account and whether DISTYNC should deliver them in-app, by email, or both.",
   },
 };
 
@@ -72,10 +73,6 @@ const buildSharedSectionComponentProps = (ctx) => ({
 });
 
 const buildNotificationSummaryRows = (ctx) => {
-  if (ctx.roleCode === ROLE_CODES.BARANGAY) {
-    return [];
-  }
-
   return [
     {
       label: "Unread Notifications",
@@ -97,9 +94,12 @@ export const getSettingsDashboardDescription = (roleCode) =>
 
 export const buildBarangayProfileSectionProps = (ctx) => ({
   ...buildSharedSectionComponentProps(ctx),
+  sectionTitle: "Account Settings",
+  description:
+    "Review your profile information, profile picture, contact number, and account details. Role, barangay assignment, and sign-in identity remain controlled by the system.",
   summaryRows: [
     {
-      title: "Profile Summary",
+      title: "Profile Information",
       rows: [
         {
           label: "Account Name",
@@ -117,7 +117,7 @@ export const buildBarangayProfileSectionProps = (ctx) => ({
       ],
     },
     {
-      title: "Account Contact",
+      title: "Account Information",
       rows: [
         {
           label: "Email Address",
@@ -135,22 +135,31 @@ export const buildBarangayProfileSectionProps = (ctx) => ({
               )}`
             : "--",
         },
+        {
+          label: "Assigned Role",
+          value: ROLE_DISPLAY_NAMES[ROLE_CODES.BARANGAY],
+        },
       ],
     },
   ],
   fullNameId: "barangay-profile-full-name",
+  fullNameHelper: "Use your official full name for DISTYNC records and coordination.",
   positionField: {
     id: "barangay-profile-position",
     label: "Position",
     value: BARANGAY_POSITION_LABEL,
+    helper: "Your assigned role is controlled by DISTYNC and cannot be edited here.",
   },
   assignmentField: {
     id: "barangay-profile-name",
     label: "Barangay Name",
     value: ctx.assignedBarangayName,
+    helper: "Your barangay assignment is managed by the system.",
   },
   contactId: "barangay-profile-contact",
+  contactHelper: "Use the Philippine mobile format shown in the field.",
   emailId: "barangay-profile-email",
+  emailHelper: "Your sign-in email is managed by your DISTYNC account.",
   pictureAlt: "Barangay profile preview"
 });
 
@@ -165,9 +174,12 @@ export const buildOfficeProfileSectionProps = (ctx) => {
 
   return {
     ...buildSharedSectionComponentProps(ctx),
+    sectionTitle: "Account Settings",
+    description:
+      "Review your profile information, profile picture, contact number, and account details. Role, office assignment, and sign-in identity remain controlled by the system.",
     summaryRows: [
       {
-        title: "Profile Summary",
+        title: "Profile Information",
         rows: [
           {
             label: "Account Name",
@@ -185,7 +197,7 @@ export const buildOfficeProfileSectionProps = (ctx) => {
         ],
       },
       {
-        title: "Account Contact",
+        title: "Account Information",
         rows: [
           {
             label: "Email Address",
@@ -203,29 +215,38 @@ export const buildOfficeProfileSectionProps = (ctx) => {
                 )}`
               : "--",
           },
+          {
+            label: "Assigned Role",
+            value: positionLabel,
+          },
         ],
       },
     ],
     fullNameId: isMayor ? "mayor-profile-full-name" : "mswdo-profile-full-name",
+    fullNameHelper: "Use your official full name for DISTYNC records and coordination.",
     positionField: {
       id: isMayor ? "mayor-profile-position" : "mswdo-profile-position",
       label: isMayor ? "Position" : "Position / Designation",
       value: positionLabel,
+      helper: "Your assigned role is controlled by DISTYNC and cannot be edited here.",
     },
     assignmentField: {
       id: isMayor ? "mayor-profile-office" : "mswdo-profile-office",
       label: "Office / Unit",
       value: officeLabel,
+      helper: "Your office assignment is managed by the system.",
     },
     contactId: isMayor ? "mayor-profile-contact" : "mswdo-profile-contact",
+    contactHelper: "Use the Philippine mobile format shown in the field.",
     emailId: isMayor ? "mayor-profile-email" : "mswdo-profile-email",
+    emailHelper: "Your sign-in email is managed by your DISTYNC account.",
     pictureAlt: isMayor ? "Mayor profile preview" : "MSWDO profile preview"
   };
 };
 
 export const buildNotificationSectionProps = (ctx) => ({
   ...buildSharedSectionComponentProps(ctx),
-  notificationOptions: BARANGAY_NOTIFICATION_OPTIONS,
+  notificationOptions: getNotificationOptionsForRole(ctx.roleCode),
   summaryRows: buildNotificationSummaryRows(ctx),
   ...NOTIFICATION_SECTION_COPY[ctx.roleCode],
 });

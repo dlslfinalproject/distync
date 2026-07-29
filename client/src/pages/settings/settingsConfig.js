@@ -1,7 +1,5 @@
 import {
-  FiActivity,
   FiBell,
-  FiFileText,
   FiRefreshCw,
   FiUser,
 } from "react-icons/fi";
@@ -50,79 +48,159 @@ export const BARANGAY_NOTIFICATION_OPTIONS = [
 
 export const BARANGAY_SETTINGS_SECTIONS = [
   {
-    key: "profile",
-    label: "Profile",
+    key: "account-settings",
+    label: "Account Settings",
     icon: FiUser,
+    description:
+      "Review your profile, contact number, profile picture, and account details managed by DISTYNC.",
   },
   {
     key: "notification-preferences",
     label: "Notification Preferences",
     icon: FiBell,
+    description:
+      "Manage which DISTYNC notification categories can reach your account.",
   },
   {
-    key: "activity-logs",
-    label: "Recent Local Activity",
-    icon: FiActivity,
+    key: "sync-preferences",
+    label: "Sync Preferences",
+    icon: FiRefreshCw,
+    description:
+      "Review offline sync status, pending records, and the latest synchronization details.",
   },
 ];
 
+export const ROLE_NOTIFICATION_OPTIONS = {
+  [ROLE_CODES.BARANGAY]: [
+    {
+      key: "disasterAlerts",
+      label: "Disaster Coordination",
+      description:
+        "Receive disaster event activations, status changes, affected area updates, and evacuation coordination notices.",
+    },
+    {
+      key: "attendanceReminders",
+      label: "Evacuee Management",
+      description:
+        "Receive evacuee registration, attendance activity, and household verification updates.",
+    },
+    {
+      key: "systemAnnouncements",
+      label: "System Operations",
+      description:
+        "Receive sync failures and system alerts that affect barangay operations.",
+    },
+  ],
+  [ROLE_CODES.MSWDO]: [
+    {
+      key: "disasterAlerts",
+      label: "Disaster Management",
+      description:
+        "Receive newly created disaster events and disaster coordination updates for centralized operations.",
+    },
+    {
+      key: "attendanceReminders",
+      label: "Evacuee Management",
+      description:
+        "Receive evacuee registration, attendance activity, and household verification updates.",
+    },
+    {
+      key: "distributionSchedules",
+      label: "Relief Operations",
+      description:
+        "Receive completed distribution updates and related relief operation notices.",
+    },
+    {
+      key: "systemAnnouncements",
+      label: "System Operations",
+      description:
+        "Receive sync failures and broader system alerts for MSWDO workflows.",
+    },
+  ],
+  [ROLE_CODES.MAYOR]: [
+    {
+      key: "disasterAlerts",
+      label: "Disaster Monitoring",
+      description:
+        "Receive strategic disaster updates and evacuation monitoring summaries.",
+    },
+    {
+      key: "reliefArrivalNotifications",
+      label: "Relief Operations",
+      description:
+        "Receive inventory shortages, completed distribution updates, donation received alerts, and operational anomaly alerts.",
+    },
+    {
+      key: "systemAnnouncements",
+      label: "System Monitoring",
+      description:
+        "Receive high-level system alerts that affect operational monitoring.",
+    },
+  ],
+};
+
+export const getNotificationOptionsForRole = (roleCode) =>
+  ROLE_NOTIFICATION_OPTIONS[roleCode] || BARANGAY_NOTIFICATION_OPTIONS;
+
 export const EDITABLE_BARANGAY_SECTION_KEYS = new Set([
-  "profile",
+  "account-settings",
   "notification-preferences",
 ]);
 
 export const MSWDO_SETTINGS_SECTIONS = [
   {
-    key: "profile",
-    label: "Profile",
+    key: "account-settings",
+    label: "Account Settings",
     icon: FiUser,
+    description:
+      "Review your profile, contact number, profile picture, and account details managed by DISTYNC.",
   },
   {
     key: "notification-preferences",
     label: "Notification Preferences",
     icon: FiBell,
+    description:
+      "Manage which DISTYNC notification categories can reach your account.",
   },
   {
-    key: "sync-center",
-    label: "Sync Center",
+    key: "sync-preferences",
+    label: "Sync Preferences",
     icon: FiRefreshCw,
+    description:
+      "Review offline sync status, pending records, and the latest synchronization details.",
   },
 ];
 
 export const EDITABLE_MSWDO_SECTION_KEYS = new Set([
-  "profile",
+  "account-settings",
   "notification-preferences",
 ]);
 
 export const MAYOR_SETTINGS_SECTIONS = [
   {
-    key: "profile",
-    label: "Profile",
+    key: "account-settings",
+    label: "Account Settings",
     icon: FiUser,
+    description:
+      "Review your profile, contact number, profile picture, and account details managed by DISTYNC.",
   },
   {
     key: "notification-preferences",
     label: "Notification Preferences",
     icon: FiBell,
+    description:
+      "Manage which DISTYNC notification categories can reach your account.",
   },
   {
-    key: "sync-status",
-    label: "Sync Center",
+    key: "sync-preferences",
+    label: "Sync Preferences",
     icon: FiRefreshCw,
-  },
-  {
-    key: "analytics-service",
-    label: "Analytics Service",
-    icon: FiActivity,
-  },
-  {
-    key: "inventory-alert-thresholds",
-    label: "Inventory Alert Thresholds",
-    icon: FiFileText,
+    description:
+      "Review offline sync status, pending records, and the latest synchronization details.",
   },
 ];
 
 export const EDITABLE_MAYOR_SECTION_KEYS = new Set([
-  "profile",
+  "account-settings",
   "notification-preferences",
 ]);
