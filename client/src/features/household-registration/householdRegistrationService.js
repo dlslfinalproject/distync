@@ -2,6 +2,7 @@ import {
   buildOfflineQueuedResponse,
   performSyncableMutation,
 } from "../../offline/syncService";
+import { HOUSEHOLD_PRIVACY_OFFLINE_MESSAGE } from "./privacyNotice.mjs";
 
 const API_BASE_URL =
 import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -245,8 +246,7 @@ export const registerHousehold = async (payload) => {
     },
     buildQueuedResponse: ({ clientSyncId, entityLocalId, clientTimestamp }) =>
       buildOfflineQueuedResponse({
-        message:
-          "Household registration saved offline. Pending sync once connection is restored.",
+        message: HOUSEHOLD_PRIVACY_OFFLINE_MESSAGE,
         data: {
           household: {
             id: entityLocalId,
