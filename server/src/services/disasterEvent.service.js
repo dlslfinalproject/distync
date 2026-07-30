@@ -858,8 +858,8 @@ const exportDisasterEventReportSummary = async (filters) => {
       { key: "disaster_type", label: "Type", width: 20, pdfWidth: 55 },
       { key: "registered_households_count", label: "Registered Households", width: 18, pdfWidth: 55 },
       { key: "distributed_aid_count", label: "Distributed Aid Count", width: 18, pdfWidth: 55 },
-      { key: "claim_summary", label: "Claim Status Summary", width: 24, pdfWidth: 80 },
-      { key: "quantity_released_total", label: "Quantity Released", width: 18, pdfWidth: 55 },
+      { key: "claimed_stubs_count", label: "Claimed", width: 14, pdfWidth: 42 },
+      { key: "unclaimed_stubs_count", label: "Unclaimed", width: 14, pdfWidth: 42 },
     ],
     rows: rows.map((row) => ({
       event_label: row.title || "--",
@@ -868,8 +868,8 @@ const exportDisasterEventReportSummary = async (filters) => {
       disaster_type: row.disaster_type || "--",
       registered_households_count: row.registered_households_count || 0,
       distributed_aid_count: row.distributed_aid_count || 0,
-      claim_summary: `Claimed: ${row.claimed_stubs_count || 0} | Unclaimed: ${row.unclaimed_stubs_count || 0}`,
-      quantity_released_total: row.quantity_released_total || 0,
+      claimed_stubs_count: row.claimed_stubs_count || 0,
+      unclaimed_stubs_count: row.unclaimed_stubs_count || 0,
     })),
     format: filters.format,
   });

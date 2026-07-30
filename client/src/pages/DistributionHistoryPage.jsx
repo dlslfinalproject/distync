@@ -157,19 +157,15 @@ const buildDistributionSummaryRows = (rows) => {
       event_code: row.event_code || "",
       disaster_event_title: row.disaster_event_title || "--",
       barangayNames: new Set(),
-      householdIds: new Set(),
       reliefPacks: new Set(),
-      claimedCount: 0,
-      totalQuantityReleased: 0,
+      issuedStubsCount: Number(row.issued_stubs_count || 0),
+      claimedStubsCount: Number(row.claimed_stubs_count || 0),
+      unclaimedStubsCount: Number(row.unclaimed_stubs_count || 0),
       latest_distribution_date: null,
     };
 
     if (row.barangay_name) {
       existingSummary.barangayNames.add(row.barangay_name);
-    }
-
-    if (row.household_id) {
-      existingSummary.householdIds.add(row.household_id);
     }
 
     const reliefPack = row.relief_pack_template_name || row.released_items_summary;
@@ -178,8 +174,15 @@ const buildDistributionSummaryRows = (rows) => {
       existingSummary.reliefPacks.add(reliefPack);
     }
 
-    existingSummary.claimedCount += 1;
-    existingSummary.totalQuantityReleased += Number(row.total_quantity_released || 0);
+    existingSummary.issuedStubsCount = Number(
+      row.issued_stubs_count || existingSummary.issuedStubsCount || 0,
+    );
+    existingSummary.claimedStubsCount = Number(
+      row.claimed_stubs_count || existingSummary.claimedStubsCount || 0,
+    );
+    existingSummary.unclaimedStubsCount = Number(
+      row.unclaimed_stubs_count || existingSummary.unclaimedStubsCount || 0,
+    );
 
     const currentLatestTime = getSummaryRowTime(existingSummary);
     const rowTime = getRowTime(row);
@@ -197,10 +200,10 @@ const buildDistributionSummaryRows = (rows) => {
     disaster_event_title: summary.disaster_event_title,
     barangay_summary: Array.from(summary.barangayNames).sort().join(", ") || "--",
     barangay_count: summary.barangayNames.size,
-    claimed_family_count: summary.householdIds.size,
-    claimed_count: summary.claimedCount,
+    issued_stubs_count: summary.issuedStubsCount,
+    claimed_stubs_count: summary.claimedStubsCount,
+    unclaimed_stubs_count: summary.unclaimedStubsCount,
     relief_pack_summary: Array.from(summary.reliefPacks).sort().join(", ") || "--",
-    total_quantity_released: summary.totalQuantityReleased,
     latest_distribution_date: summary.latest_distribution_date,
   }));
 };
@@ -718,15 +721,10 @@ const DistributionHistoryPage = () => {
                   <th style={tableStyles.th}>Disaster Event</th>
                   <th style={tableStyles.th}>Barangays</th>
                   <th style={{ ...tableStyles.th, textAlign: "center" }}>
-                    Claimed Families
+                    Issued Stubs
                   </th>
-                  <th style={{ ...tableStyles.th, textAlign: "center" }}>
-                    Claimed Stubs
-                  </th>
+                  <th style={tableStyles.th}>Claim Status Summary</th>
                   <th style={tableStyles.th}>Relief Pack</th>
-                  <th style={{ ...tableStyles.th, textAlign: "center" }}>
-                    Quantity Released
-                  </th>
                   <th style={tableStyles.th}>Latest Claim</th>
                 </tr>
               </thead>
@@ -743,15 +741,15 @@ const DistributionHistoryPage = () => {
                       </div>
                     </td>
                     <td style={{ ...tableStyles.td, textAlign: "center" }}>
-                      {row.claimed_family_count}
+                      {row.issued_stubs_count || 0}
                     </td>
-                    <td style={{ ...tableStyles.td, textAlign: "center" }}>
-                      {row.claimed_count}
+                    <td style={tableStyles.td}>
+                      <div>Claimed: {row.claimed_stubs_count || 0}</div>
+                      <div style={{ color: "#60738a", fontSize: "12px" }}>
+                        Unclaimed: {row.unclaimed_stubs_count || 0}
+                      </div>
                     </td>
                     <td style={tableStyles.td}>{row.relief_pack_summary}</td>
-                    <td style={{ ...tableStyles.td, textAlign: "center" }}>
-                      {row.total_quantity_released || 0}
-                    </td>
                     <td style={tableStyles.td}>
                       {formatDateTime(row.latest_distribution_date)}
                     </td>
