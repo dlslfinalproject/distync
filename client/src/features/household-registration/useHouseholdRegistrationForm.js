@@ -1292,8 +1292,13 @@ export const useHouseholdRegistrationForm = ({
     return true;
   };
 
-  const createPrivacyAcknowledgment = () => {
+  const createPrivacyAcknowledgment = ({
+    acknowledgedByName = null,
+    representativeRelationship = null,
+  } = {}) => {
     return buildHouseholdPrivacyAcknowledgment({
+      acknowledgedByName,
+      representativeRelationship,
       familyHead,
       isOffline,
     });

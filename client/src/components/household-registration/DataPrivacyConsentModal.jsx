@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   HOUSEHOLD_PRIVACY_ACKNOWLEDGMENT_HEADING,
+  HOUSEHOLD_PRIVACY_ACKNOWLEDGMENT_POINTS,
   HOUSEHOLD_PRIVACY_CONFIRMATION_LABEL,
-  HOUSEHOLD_PRIVACY_NOTICE_PARAGRAPHS,
+  HOUSEHOLD_PRIVACY_NOTICE_SECTIONS,
   HOUSEHOLD_PRIVACY_NOTICE_TITLE,
 } from "../../features/household-registration/privacyNotice.mjs";
 import { pageHeaderStyles } from "../layout/PageHeader";
+import distyncLogo from "../../assets/distync-logo.png";
 
 const modalStyles = {
   backdrop: {
@@ -45,6 +47,25 @@ const modalStyles = {
     backgroundColor: "#ffffff",
     flexShrink: 0,
   },
+  headerRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "16px",
+    flexWrap: "wrap",
+  },
+  logo: {
+    height: "48px",
+    width: "auto",
+    objectFit: "contain",
+    flexShrink: 0,
+  },
+  compactLogo: {
+    height: "40px",
+  },
+  titleBlock: {
+    minWidth: 0,
+    flex: "1 1 320px",
+  },
   title: {
     margin: 0,
     color: "#17324d",
@@ -71,8 +92,19 @@ const modalStyles = {
     margin: 0,
     padding: "24px 0 26px",
     display: "grid",
-    gap: "16px",
+    gap: "22px",
     boxSizing: "border-box",
+  },
+  sectionBlock: {
+    display: "grid",
+    gap: "10px",
+  },
+  sectionHeading: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "18px",
+    fontWeight: 800,
+    lineHeight: 1.35,
   },
   paragraph: {
     margin: 0,
@@ -81,13 +113,25 @@ const modalStyles = {
     lineHeight: 1.65,
     textAlign: "left",
   },
-  confirmationBox: {
-    marginTop: "6px",
+  bulletList: {
+    margin: 0,
+    paddingLeft: "22px",
+    color: "#5d7188",
+    fontSize: "15px",
+    lineHeight: 1.65,
+  },
+  bulletItem: {
+    marginBottom: "8px",
+    textAlign: "left",
+  },
+  acknowledgmentSection: {
+    display: "grid",
+    gap: "14px",
     paddingTop: "20px",
     borderTop: "1px solid #dbe5ef",
   },
   acknowledgmentHeading: {
-    margin: "0 0 12px",
+    margin: 0,
     color: "#17324d",
     fontSize: "17px",
     fontWeight: 800,
@@ -170,12 +214,14 @@ const DataPrivacyConsentModal = ({
   onConfirm,
 }) => {
   const dialogRef = useRef(null);
+  const bodyRef = useRef(null);
   const [isCompactViewport, setIsCompactViewport] = useState(false);
   const [isTabletViewport, setIsTabletViewport] = useState(false);
   const checkboxId = useMemo(
     () => `household-privacy-ack-${noticeVersion || "current"}`,
     [noticeVersion],
   );
+  const isConfirmDisabled = isSubmitting || !isChecked;
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -219,8 +265,13 @@ const DataPrivacyConsentModal = ({
     }
 
     const dialogElement = dialogRef.current;
-    const focusableElements = getFocusableElements(dialogElement);
-    focusableElements[0]?.focus();
+    const scrollableBodyElement = bodyRef.current;
+
+    if (scrollableBodyElement) {
+      scrollableBodyElement.scrollTop = 0;
+    }
+
+    dialogElement?.focus({ preventScroll: true });
 
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
@@ -271,6 +322,7 @@ const DataPrivacyConsentModal = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby="household-privacy-title"
+        tabIndex={-1}
         style={{
           ...modalStyles.panel,
           ...(isTabletViewport ? modalStyles.tabletPanel : null),
@@ -279,24 +331,66 @@ const DataPrivacyConsentModal = ({
         onClick={(event) => event.stopPropagation()}
       >
         <div style={modalStyles.header}>
-          <h3 id="household-privacy-title" style={modalStyles.title}>
-            {HOUSEHOLD_PRIVACY_NOTICE_TITLE}
-          </h3>
-          <p style={modalStyles.version}>Notice version: {noticeVersion}</p>
+          <div style={modalStyles.headerRow}>
+            <img
+              src={distyncLogo}
+              alt="DISTYNC logo"
+              style={{
+                ...modalStyles.logo,
+                ...(isCompactViewport ? modalStyles.compactLogo : null),
+              }}
+            />
+            <div style={modalStyles.titleBlock}>
+              <h3 id="household-privacy-title" style={modalStyles.title}>
+                {HOUSEHOLD_PRIVACY_NOTICE_TITLE}
+              </h3>
+              <p style={modalStyles.version}>Notice Version: {noticeVersion}</p>
+            </div>
+          </div>
         </div>
 
-        <div style={modalStyles.body}>
+        <div ref={bodyRef} style={modalStyles.body}>
           <div style={modalStyles.bodyInner}>
-            {HOUSEHOLD_PRIVACY_NOTICE_PARAGRAPHS.map((paragraph) => (
-              <p key={paragraph} style={modalStyles.paragraph}>
-                {paragraph}
-              </p>
+            {HOUSEHOLD_PRIVACY_NOTICE_SECTIONS.map((section) => (
+              <section key={section.title} style={modalStyles.sectionBlock}>
+                <h4 style={modalStyles.sectionHeading}>{section.title}</h4>
+                {(section.paragraphs || []).map((paragraph) => (
+                  <p key={`${section.title}-${paragraph}`} style={modalStyles.paragraph}>
+                    {paragraph}
+                  </p>
+                ))}
+                {Array.isArray(section.bulletPoints) &&
+                section.bulletPoints.length > 0 ? (
+                  <ul style={modalStyles.bulletList}>
+                    {section.bulletPoints.map((bulletPoint) => (
+                      <li
+                        key={`${section.title}-${bulletPoint}`}
+                        style={modalStyles.bulletItem}
+                      >
+                        {bulletPoint}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {(section.postBulletParagraphs || []).map((paragraph) => (
+                  <p key={`${section.title}-${paragraph}`} style={modalStyles.paragraph}>
+                    {paragraph}
+                  </p>
+                ))}
+              </section>
             ))}
 
-            <div style={modalStyles.confirmationBox}>
+            <section style={modalStyles.acknowledgmentSection}>
               <h4 style={modalStyles.acknowledgmentHeading}>
                 {HOUSEHOLD_PRIVACY_ACKNOWLEDGMENT_HEADING}
               </h4>
+              <ul style={modalStyles.bulletList}>
+                {HOUSEHOLD_PRIVACY_ACKNOWLEDGMENT_POINTS.map((point) => (
+                  <li key={point} style={modalStyles.bulletItem}>
+                    {point}
+                  </li>
+                ))}
+              </ul>
               <div style={modalStyles.checkboxRow}>
                 <input
                   id={checkboxId}
@@ -315,7 +409,7 @@ const DataPrivacyConsentModal = ({
                   {errorMessage}
                 </p>
               ) : null}
-            </div>
+            </section>
           </div>
         </div>
 
@@ -337,14 +431,14 @@ const DataPrivacyConsentModal = ({
           <button
             type="button"
             onClick={onConfirm}
-            disabled={isSubmitting || !isChecked}
+            disabled={isConfirmDisabled}
             style={{
               ...pageHeaderStyles.primaryButton,
               ...modalStyles.footerButton,
               ...(isCompactViewport
                 ? null
                 : modalStyles.footerPrimaryButtonDesktop),
-              opacity: isSubmitting || !isChecked ? 0.7 : 1,
+              opacity: isConfirmDisabled ? 0.7 : 1,
             }}
           >
             {isSubmitting ? "Saving..." : confirmLabel}
