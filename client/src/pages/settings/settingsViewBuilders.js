@@ -163,7 +163,7 @@ export const buildSettingsPageActions = ({
 
   return [
     {
-      label: "Back to Categories",
+      label: "Back",
       onClick: onBack,
       variant: "secondary",
     },
@@ -201,11 +201,14 @@ export const buildSharedRoleViewContext = ({
   profilePictureInputRef,
   handleProfilePictureChange,
   setPreferences,
+  handleSaveProfileChanges,
+  handleCancelProfileChanges,
   StatusChip,
   InfoRow,
   EmptyState,
   isLoading,
   syncSectionProps,
+  isSavingPreferences,
 }) => ({
   shellStyles,
   gridStyles,
@@ -227,6 +230,8 @@ export const buildSharedRoleViewContext = ({
   profilePictureInputRef,
   handleProfilePictureChange,
   setPreferences,
+  handleSaveProfileChanges,
+  handleCancelProfileChanges,
   StatusChip,
   formatDateTime,
   formatSyncDateTime,
@@ -234,6 +239,7 @@ export const buildSharedRoleViewContext = ({
   EmptyState,
   isLoading,
   syncSectionProps,
+  isSavingPreferences,
 });
 
 export const buildBarangayViewContext = ({

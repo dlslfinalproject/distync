@@ -55,11 +55,8 @@ const channelHeadingStyles = {
 
 const NotificationPreferencesSection = ({
   shellStyles,
-  cardStyles,
-  helperTextStyles,
   errorTextStyles,
   pageHeaderStyles,
-  mutedValueStyles,
   EmptyState,
   preferences = {},
   notificationTouched = false,
@@ -80,13 +77,17 @@ const NotificationPreferencesSection = ({
     : [];
 
   return (
-    <section style={shellStyles.card}>
+    <section
+      style={{
+        ...shellStyles.card,
+        padding: "32px",
+      }}
+    >
       <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>Notification Preferences</h3>
-        <p style={mutedValueStyles}>{description}</p>
       </div>
 
-      <article style={settingsContainerStyles}>
+      <article style={{ display: "grid", gap: "20px" }}>
         <div
           style={{
             display: "flex",
@@ -96,10 +97,7 @@ const NotificationPreferencesSection = ({
             flexWrap: "wrap",
           }}
         >
-          <div style={{ display: "grid", gap: "8px" }}>
-            <h4 style={{ margin: 0, color: "#17324d" }}>Delivery Preferences</h4>
-            <p style={helperTextStyles}>{alertChannelsDescription}</p>
-          </div>
+          <h4 style={{ margin: 0, color: "#17324d" }}>Alert Channels</h4>
           <button
             type="button"
             onClick={handleResetNotificationPreferences}
@@ -132,12 +130,7 @@ const NotificationPreferencesSection = ({
               </p>
             ) : null}
           </div>
-        ) : (
-          <p style={helperTextStyles}>
-            Choose how DISTYNC delivers notifications for the categories
-            available to your account role.
-          </p>
-        )}
+        ) : null}
 
         {isLoading ? (
           <EmptyState message="Loading notification settings..." />
@@ -162,12 +155,9 @@ const NotificationPreferencesSection = ({
 
             {categories.map((category) => (
               <article key={category.key} style={categoryRowStyles}>
-                <div style={{ display: "grid", gap: "6px" }}>
-                  <h4 style={{ margin: 0, color: "#17324d", fontSize: "16px" }}>
-                    {category.label}
-                  </h4>
-                  <p style={helperTextStyles}>{category.description}</p>
-                </div>
+                <h4 style={{ margin: 0, color: "#17324d", fontSize: "16px" }}>
+                  {category.label}
+                </h4>
 
                 <div style={channelGridStyles}>
                   <label style={channelLabelStyles}>

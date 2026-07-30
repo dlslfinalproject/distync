@@ -1,11 +1,12 @@
 import React from "react";
 
 const picturePreviewStyles = {
-  width: "140px",
-  height: "140px",
-  borderRadius: "20px",
-  border: "1px solid #dbe6f0",
-  backgroundColor: "#eef5fc",
+  width: "132px",
+  height: "132px",
+  borderRadius: "999px",
+  border: "4px solid #e7f0fa",
+  background:
+    "linear-gradient(180deg, rgba(239, 246, 253, 1) 0%, rgba(227, 238, 249, 1) 100%)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -14,15 +15,11 @@ const picturePreviewStyles = {
 
 const ProfileSection = ({
   shellStyles,
-  gridStyles,
-  cardStyles,
   inputStyles,
-  helperTextStyles,
   errorTextStyles,
   pageHeaderStyles,
   labelStyles,
   mutedValueStyles,
-  InfoRow,
   preferences,
   profileTouched,
   profileErrors,
@@ -32,226 +29,335 @@ const ProfileSection = ({
   handleProfileFieldBlur,
   profilePictureInputRef,
   handleProfilePictureChange,
-  setPreferences,
   sectionTitle = "Profile",
   description,
-  summaryRows,
-  fullNameId,
-  fullNameHelper,
+  firstNameId,
+  lastNameId,
   positionField,
-  assignmentField,
   contactId,
-  contactHelper,
-  emailId,
-  emailHelper,
   pictureTitle = "Profile Picture",
   pictureAlt,
   pictureFallbackText = "No profile picture selected",
-  pictureDescriptionFallback,
 }) => {
+  const sectionDividerStyles = {
+    borderTop: "1px solid #e3ecf5",
+    margin: "24px 0",
+  };
+
+  const sectionHeadingStyles = {
+    display: "grid",
+    gap: "4px",
+  };
+
+  const sectionLabelStyles = {
+    ...labelStyles,
+    marginBottom: "4px",
+  };
+
+  const sectionValueStyles = {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "16px",
+    fontWeight: 700,
+    lineHeight: 1.5,
+  };
+
+  const readOnlyFieldStyles = {
+    border: "1px solid #d9e5f2",
+    borderRadius: "14px",
+    backgroundColor: "#f7fbff",
+    padding: "14px 16px",
+    display: "grid",
+    gap: "6px",
+    minHeight: "76px",
+    boxSizing: "border-box",
+  };
+
+  const systemTagStyles = {
+    display: "inline-flex",
+    alignItems: "center",
+    width: "fit-content",
+    padding: "5px 10px",
+    borderRadius: "999px",
+    backgroundColor: "#edf4fb",
+    color: "#476784",
+    fontSize: "11px",
+    fontWeight: 700,
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+  };
+
+  const splitFullName = (value = "") => {
+    const trimmedValue = String(value || "").trim();
+
+    if (!trimmedValue) {
+      return { firstName: "", lastName: "" };
+    }
+
+    const segments = trimmedValue.split(/\s+/).filter(Boolean);
+
+    if (segments.length === 1) {
+      return {
+        firstName: segments[0],
+        lastName: "",
+      };
+    }
+
+    return {
+      firstName: segments.slice(0, -1).join(" "),
+      lastName: segments[segments.length - 1],
+    };
+  };
+
+  const joinNameParts = (firstName = "", lastName = "") =>
+    [String(firstName || "").trim(), String(lastName || "").trim()]
+      .filter(Boolean)
+      .join(" ");
+
+  const getProfileInitials = () => {
+    const fullName = String(preferences.profile.fullName || "").trim();
+    const sourceName =
+      fullName ||
+      [authenticatedUser?.first_name, authenticatedUser?.last_name]
+        .filter(Boolean)
+        .join(" ")
+        .trim() ||
+      "DISTYNC User";
+
+    const initials = sourceName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join("");
+
+    return initials || "DU";
+  };
+
+  const { firstName, lastName } = splitFullName(preferences.profile.fullName);
+
   return (
-    <section style={shellStyles.card}>
+    <section
+      style={{
+        ...shellStyles.card,
+        padding: "32px",
+      }}
+    >
       <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>{sectionTitle}</h3>
-        <p style={mutedValueStyles}>{description}</p>
       </div>
 
-      <div style={{ ...gridStyles, marginBottom: "18px" }}>
-        {summaryRows.map((group) => (
-          <article key={group.title} style={cardStyles}>
-            <h4 style={{ margin: 0, color: "#17324d" }}>{group.title}</h4>
-            {group.rows.map((row) => (
-              <InfoRow
-                key={row.label}
-                label={row.label}
-                value={row.value}
-                muted={row.muted}
-              />
-            ))}
-          </article>
-        ))}
-      </div>
-
-      <div style={{ ...gridStyles, alignItems: "start" }}>
-        <article style={cardStyles}>
-          <div style={{ display: "grid", gap: "8px" }}>
-            <label htmlFor={fullNameId} style={labelStyles}>
-              Full Name
-            </label>
-            <input
-              id={fullNameId}
-              value={preferences.profile.fullName}
-              onChange={(event) =>
-                handleProfileFieldChange("fullName", event.target.value)
-              }
-              onBlur={() => handleProfileFieldBlur("fullName")}
-              style={{
-                ...inputStyles.field,
-                ...(profileTouched.fullName && profileErrors.fullName
-                  ? inputStyles.errorField
-                  : {}),
-              }}
-            />
-            {profileTouched.fullName && profileErrors.fullName ? (
-              <p style={errorTextStyles}>{profileErrors.fullName}</p>
-            ) : (
-              <p style={helperTextStyles}>{fullNameHelper}</p>
-            )}
+      <article style={{ display: "grid", gap: "24px" }}>
+        <div style={{ display: "grid", gap: "16px" }}>
+          <div style={sectionHeadingStyles}>
+            <h4 style={{ margin: 0, color: "#17324d" }}>Profile Information</h4>
           </div>
 
-          <div style={{ display: "grid", gap: "8px" }}>
-            <label htmlFor={positionField.id} style={labelStyles}>
-              {positionField.label}
-            </label>
-            <input
-              id={positionField.id}
-              value={positionField.value}
-              readOnly
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(220px, 260px) minmax(0, 1fr)",
+              gap: "24px",
+              alignItems: "start",
+            }}
+          >
+            <div
               style={{
-                ...inputStyles.field,
-                ...inputStyles.lockedField,
+                display: "grid",
+                gap: "14px",
+                justifyItems: "start",
               }}
-            />
-            <p style={helperTextStyles}>{positionField.helper}</p>
-          </div>
-
-          {assignmentField ? (
-            <div style={{ display: "grid", gap: "8px" }}>
-              <label htmlFor={assignmentField.id} style={labelStyles}>
-                {assignmentField.label}
-              </label>
-              <input
-                id={assignmentField.id}
-                value={assignmentField.value}
-                readOnly
-                style={{
-                  ...inputStyles.field,
-                  ...inputStyles.lockedField,
-                }}
-              />
-              {assignmentField.helper ? (
-                <p style={helperTextStyles}>{assignmentField.helper}</p>
-              ) : null}
-            </div>
-          ) : null}
-
-          <div style={{ display: "grid", gap: "8px" }}>
-            <label htmlFor={contactId} style={labelStyles}>
-              Contact Number
-            </label>
-            <div style={inputStyles.phoneInputGroup}>
-              <div style={inputStyles.phonePrefix}>PH +63</div>
-              <input
-                id={contactId}
-                type="text"
-                inputMode="numeric"
-                value={formatPhilippineContactNumberForDisplay(
-                  preferences.profile.contactNumber,
+            >
+              <p style={sectionLabelStyles}>Profile Picture</p>
+              <div style={picturePreviewStyles}>
+                {preferences.profile.profilePictureDataUrl ? (
+                  <img
+                    src={preferences.profile.profilePictureDataUrl}
+                    alt={pictureAlt}
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                    }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      background:
+                        "linear-gradient(180deg, rgba(234, 242, 251, 1) 0%, rgba(220, 233, 247, 1) 100%)",
+                      color: "#2f6499",
+                      fontSize: "30px",
+                      fontWeight: 800,
+                      textAlign: "center",
+                    }}
+                  >
+                    {getProfileInitials()}
+                  </div>
                 )}
-                onChange={(event) =>
-                  handleProfileFieldChange("contactNumber", event.target.value)
-                }
-                onBlur={() => handleProfileFieldBlur("contactNumber")}
-                placeholder="912 345 6789"
-                maxLength={12}
-                style={{
-                  ...inputStyles.field,
-                  ...inputStyles.phoneField,
-                  ...(profileTouched.contactNumber && profileErrors.contactNumber
-                    ? inputStyles.errorField
-                    : {}),
-                }}
+              </div>
+              <input
+                ref={profilePictureInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={handleProfilePictureChange}
+                style={{ display: "none" }}
               />
+              <button
+                type="button"
+                onClick={() => profilePictureInputRef.current?.click()}
+                style={pageHeaderStyles.secondaryButton}
+              >
+                Change Picture
+              </button>
             </div>
-            {profileTouched.contactNumber && profileErrors.contactNumber ? (
-              <p style={errorTextStyles}>{profileErrors.contactNumber}</p>
-            ) : (
-              <p style={helperTextStyles}>{contactHelper}</p>
-            )}
+
+            <div style={{ display: "grid", gap: "20px" }}>
+              <div style={{ display: "grid", gap: "16px" }}>
+                <p style={sectionLabelStyles}>Full Name</p>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                    gap: "16px",
+                    alignItems: "start",
+                  }}
+                >
+                  <div style={{ display: "grid", gap: "8px" }}>
+                    <label htmlFor={firstNameId} style={labelStyles}>
+                      First Name
+                    </label>
+                    <input
+                      id={firstNameId}
+                      value={firstName}
+                      onChange={(event) =>
+                        handleProfileFieldChange(
+                          "fullName",
+                          joinNameParts(event.target.value, lastName),
+                        )
+                      }
+                      onBlur={() => handleProfileFieldBlur("fullName")}
+                      placeholder="Enter first name"
+                      style={{
+                        ...inputStyles.field,
+                        ...(profileTouched.fullName && profileErrors.fullName
+                          ? inputStyles.errorField
+                          : {}),
+                      }}
+                    />
+                    {profileTouched.fullName && profileErrors.fullName ? (
+                      <p style={errorTextStyles}>{profileErrors.fullName}</p>
+                    ) : null}
+                  </div>
+
+                  <div style={{ display: "grid", gap: "8px" }}>
+                    <label htmlFor={lastNameId} style={labelStyles}>
+                      Last Name
+                    </label>
+                    <input
+                      id={lastNameId}
+                      value={lastName}
+                      onChange={(event) =>
+                        handleProfileFieldChange(
+                          "fullName",
+                          joinNameParts(firstName, event.target.value),
+                        )
+                      }
+                      onBlur={() => handleProfileFieldBlur("fullName")}
+                      placeholder="Enter last name"
+                      style={{
+                        ...inputStyles.field,
+                        ...(profileTouched.fullName && profileErrors.fullName
+                          ? inputStyles.errorField
+                          : {}),
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gap: "16px", maxWidth: "420px" }}>
+                <p style={sectionLabelStyles}>Contact Information</p>
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <label htmlFor={contactId} style={labelStyles}>
+                    Mobile Number
+                  </label>
+                  <div style={inputStyles.phoneInputGroup}>
+                    <div style={inputStyles.phonePrefix}>PH +63</div>
+                    <input
+                      id={contactId}
+                      type="text"
+                      inputMode="numeric"
+                      value={formatPhilippineContactNumberForDisplay(
+                        preferences.profile.contactNumber,
+                      )}
+                      onChange={(event) =>
+                        handleProfileFieldChange("contactNumber", event.target.value)
+                      }
+                      onBlur={() => handleProfileFieldBlur("contactNumber")}
+                      placeholder="912 345 6789"
+                      maxLength={12}
+                      style={{
+                        ...inputStyles.field,
+                        ...inputStyles.phoneField,
+                        ...(profileTouched.contactNumber &&
+                        profileErrors.contactNumber
+                          ? inputStyles.errorField
+                          : {}),
+                      }}
+                    />
+                  </div>
+                  {profileTouched.contactNumber && profileErrors.contactNumber ? (
+                    <p style={errorTextStyles}>{profileErrors.contactNumber}</p>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style={sectionDividerStyles} />
+
+        <div style={{ display: "grid", gap: "16px" }}>
+          <div style={sectionHeadingStyles}>
+            <h4 style={{ margin: 0, color: "#17324d" }}>Account Information</h4>
           </div>
 
-          <div style={{ display: "grid", gap: "8px" }}>
-            <label htmlFor={emailId} style={labelStyles}>
-              Email Address
-            </label>
-            <input
-              id={emailId}
-              type="email"
-              value={authenticatedUser?.email || preferences.profile.emailAddress}
-              readOnly
-              style={{
-                ...inputStyles.field,
-                ...inputStyles.lockedField,
-              }}
-            />
-            {profileTouched.emailAddress && profileErrors.emailAddress ? (
-              <p style={errorTextStyles}>{profileErrors.emailAddress}</p>
-            ) : (
-              <p style={helperTextStyles}>{emailHelper}</p>
-            )}
-          </div>
-        </article>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: "16px",
+            }}
+          >
+            <div style={readOnlyFieldStyles}>
+              <p style={sectionLabelStyles}>Email Address</p>
+              <p style={sectionValueStyles}>
+                {authenticatedUser?.email || preferences.profile.emailAddress || "--"}
+              </p>
+            </div>
 
-        <article style={cardStyles}>
-          <h4 style={{ margin: 0, color: "#17324d" }}>{pictureTitle}</h4>
-          <div style={picturePreviewStyles}>
-            {preferences.profile.profilePictureDataUrl ? (
-              <img
-                src={preferences.profile.profilePictureDataUrl}
-                alt={pictureAlt}
+            <div style={readOnlyFieldStyles}>
+              <div
                 style={{
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "cover",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  flexWrap: "wrap",
                 }}
-              />
-            ) : (
-              <span style={{ ...mutedValueStyles, textAlign: "center" }}>
-                {pictureFallbackText}
-              </span>
-            )}
+              >
+                <p style={sectionLabelStyles}>Role</p>
+                <span style={systemTagStyles}>Read Only</span>
+              </div>
+              <p style={sectionValueStyles}>{positionField.value || "--"}</p>
+            </div>
           </div>
-          <p style={mutedValueStyles}>
-            {preferences.profile.profilePictureFileName || pictureDescriptionFallback}
-          </p>
-          <input
-            ref={profilePictureInputRef}
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            onChange={handleProfilePictureChange}
-            style={{ display: "none" }}
-          />
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            <button
-              type="button"
-              onClick={() => profilePictureInputRef.current?.click()}
-              style={pageHeaderStyles.secondaryButton}
-            >
-              Upload / Change
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                setPreferences((current) => ({
-                  ...current,
-                  profile: {
-                    ...current.profile,
-                    profilePictureDataUrl: "",
-                    profilePictureFileName: "",
-                  },
-                  metadata: {
-                    ...current.metadata,
-                    lastProfileUpdateAt: new Date().toISOString(),
-                  },
-                }))
-              }
-              style={pageHeaderStyles.secondaryButton}
-            >
-              Remove
-            </button>
-          </div>
-        </article>
-      </div>
+        </div>
+      </article>
     </section>
   );
 };

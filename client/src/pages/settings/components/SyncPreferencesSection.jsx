@@ -35,13 +35,6 @@ const SyncPreferencesSection = ({ shellStyles, mutedValueStyles, StatusChip }) =
     fontWeight: 700,
   };
 
-  const subtextStyles = {
-    ...mutedValueStyles,
-    margin: 0,
-    lineHeight: 1.6,
-    maxWidth: "760px",
-  };
-
   const sectionStyles = {
     display: "grid",
     gap: "18px",
@@ -123,10 +116,6 @@ const SyncPreferencesSection = ({ shellStyles, mutedValueStyles, StatusChip }) =
           >
             <StatusChip tone="success" label="Available" />
           </div>
-          <p style={subtextStyles}>
-            DISTYNC can continue recording information during unstable internet
-            connection and synchronize data once connectivity is restored.
-          </p>
         </article>
 
         <div style={dividerStyles} />
@@ -138,10 +127,8 @@ const SyncPreferencesSection = ({ shellStyles, mutedValueStyles, StatusChip }) =
             </span>
             <h3 style={sectionTitleStyles}>About DISTYNC</h3>
           </div>
-          <p style={subtextStyles}>
-            DISTYNC is a web-based disaster relief management system designed to
-            support disaster coordination, evacuation monitoring, relief
-            distribution, and inventory management for LGU operations.
+          <p style={infoValueStyles}>
+            Disaster relief management system for LGU operations.
           </p>
         </article>
       </div>
