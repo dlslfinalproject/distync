@@ -287,6 +287,86 @@ const insertHousehold = async (householdData, dbClient) => {
   return result.rows[0];
 };
 
+const insertHouseholdPrivacyConsent = async (consentData, dbClient) => {
+  const query = `
+    INSERT INTO household_privacy_consents (
+      household_id,
+      disaster_event_id,
+      consent_status,
+      notice_version,
+      acknowledged_at,
+      acknowledged_by_name,
+      representative_relationship,
+      recorded_by,
+      recorded_at,
+      device_id,
+      is_offline_encoded,
+      sync_status,
+      created_at,
+      updated_at
+    )
+    VALUES (
+      $1, $2, $3, $4, $5, $6, $7, $8,
+      NOW(), $9, $10, $11, NOW(), NOW()
+    )
+    RETURNING
+      id,
+      household_id,
+      disaster_event_id,
+      consent_status,
+      notice_version,
+      acknowledged_at,
+      acknowledged_by_name,
+      representative_relationship,
+      recorded_by,
+      recorded_at,
+      device_id,
+      is_offline_encoded,
+      sync_status,
+      created_at,
+      updated_at
+  `;
+
+  const values = [
+    consentData.household_id,
+    consentData.disaster_event_id,
+    consentData.consent_status,
+    consentData.notice_version,
+    consentData.acknowledged_at,
+    consentData.acknowledged_by_name,
+    consentData.representative_relationship || null,
+    consentData.recorded_by,
+    consentData.device_id || null,
+    consentData.is_offline_encoded === true,
+    consentData.sync_status,
+  ];
+
+  try {
+    const result = await dbClient.query(query, values);
+    return result.rows[0] || null;
+  } catch (error) {
+    if (error?.code !== "23505") {
+      throw error;
+    }
+
+    const existingConsent =
+      await getLatestHouseholdPrivacyConsentByHouseholdId(
+        consentData.household_id,
+        dbClient,
+      );
+
+    if (
+      existingConsent &&
+      existingConsent.notice_version === consentData.notice_version &&
+      existingConsent.consent_status === consentData.consent_status
+    ) {
+      return existingConsent;
+    }
+
+    throw error;
+  }
+};
+
 const findDuplicateHouseholdRegistration = async (
   { disasterEventId, barangayId, familyHead },
   dbClient = pool,
@@ -1031,6 +1111,39 @@ const getHouseholdSectorAssignmentsByHouseholdId = async (householdId) => {
   return result.rows;
 };
 
+const getLatestHouseholdPrivacyConsentByHouseholdId = async (
+  householdId,
+  dbClient = pool,
+) => {
+  const query = `
+    SELECT
+      hpc.id,
+      hpc.household_id,
+      hpc.disaster_event_id,
+      hpc.consent_status,
+      hpc.notice_version,
+      hpc.acknowledged_at,
+      hpc.acknowledged_by_name,
+      hpc.representative_relationship,
+      hpc.recorded_by,
+      hpc.recorded_at,
+      hpc.device_id,
+      hpc.is_offline_encoded,
+      hpc.sync_status,
+      hpc.created_at,
+      hpc.updated_at,
+      CONCAT_WS(' ', u.first_name, u.last_name) AS recorded_by_name
+    FROM household_privacy_consents hpc
+    LEFT JOIN users u ON u.id = hpc.recorded_by
+    WHERE household_id = $1
+    ORDER BY hpc.acknowledged_at DESC, hpc.recorded_at DESC, hpc.created_at DESC
+    LIMIT 1
+  `;
+
+  const result = await dbClient.query(query, [householdId]);
+  return result.rows[0] || null;
+};
+
 const getStubByHouseholdId = async (householdId) => {
   const query = `
     SELECT
@@ -1432,6 +1545,7 @@ module.exports = {
   getAgeGroupSectors,
   generateStubNumbers,
   insertHousehold,
+  insertHouseholdPrivacyConsent,
   findDuplicateHouseholdRegistration,
   updateHouseholdRegistrationTimestamp,
   updateHousehold,
@@ -1453,6 +1567,7 @@ module.exports = {
   getEvacueesByHouseholdId,
   getEvacueeSectorAssignmentsByHouseholdId,
   getHouseholdSectorAssignmentsByHouseholdId,
+  getLatestHouseholdPrivacyConsentByHouseholdId,
   getStubByHouseholdId,
   getLatestAttendanceByHouseholdId,
   getLatestDistributionTransactionByStubId,

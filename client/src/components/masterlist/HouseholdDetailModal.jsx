@@ -143,6 +143,28 @@ const formatContactNumber = (value) => {
   return value;
 };
 
+const formatPrivacyStatus = (privacyConsent) => {
+  if (!privacyConsent) {
+    return "Not recorded (legacy or no linked acknowledgment)";
+  }
+
+  const status = String(privacyConsent.consent_status || "").toUpperCase();
+
+  if (status === "ACKNOWLEDGED") {
+    return "Acknowledged";
+  }
+
+  if (status === "WITHDRAWN") {
+    return "Withdrawn";
+  }
+
+  if (status === "DECLINED") {
+    return "Declined";
+  }
+
+  return status || "--";
+};
+
 const buildFullName = (person) => {
   if (!person) {
     return "--";
@@ -257,6 +279,7 @@ const HouseholdDetailModal = ({
     latestAttendance,
   );
   const stayTypeLabel = formatStayTypeLabel(household?.current_stay_type);
+  const privacyConsent = householdDetails?.privacy_consent || null;
 
   return (
     <div style={modalStyles.backdrop}>
@@ -355,6 +378,48 @@ const HouseholdDetailModal = ({
                   <p style={modalStyles.label}>Record Status</p>
                   <p style={modalStyles.value}>
                     {household.is_active === false ? "Archived" : "Active"}
+                  </p>
+                </div>
+                <div>
+                  <p style={modalStyles.label}>Privacy Acknowledgment</p>
+                  <p style={modalStyles.value}>
+                    {formatPrivacyStatus(privacyConsent)}
+                  </p>
+                </div>
+                <div>
+                  <p style={modalStyles.label}>Privacy Notice Version</p>
+                  <p style={modalStyles.value}>
+                    {privacyConsent?.notice_version || "Not recorded"}
+                  </p>
+                </div>
+                <div>
+                  <p style={modalStyles.label}>Acknowledged On</p>
+                  <p style={modalStyles.value}>
+                    {formatDateTime(privacyConsent?.recorded_at)}
+                  </p>
+                </div>
+                <div>
+                  <p style={modalStyles.label}>Sync Status</p>
+                  <p style={modalStyles.value}>
+                    {privacyConsent?.sync_status || "--"}
+                  </p>
+                </div>
+                <div>
+                  <p style={modalStyles.label}>Recorded By</p>
+                  <p style={modalStyles.value}>
+                    {privacyConsent?.recorded_by_name ||
+                      privacyConsent?.recorded_by ||
+                      "Not recorded"}
+                  </p>
+                </div>
+                <div>
+                  <p style={modalStyles.label}>Recorded Offline</p>
+                  <p style={modalStyles.value}>
+                    {privacyConsent
+                      ? privacyConsent.is_offline_encoded
+                        ? "Yes"
+                        : "No"
+                      : "--"}
                   </p>
                 </div>
               </div>

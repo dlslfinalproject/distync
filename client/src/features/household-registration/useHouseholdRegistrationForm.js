@@ -15,6 +15,12 @@ import {
   registerHousehold,
   updateHousehold,
 } from "./householdRegistrationService";
+import {
+  HOUSEHOLD_PRIVACY_CONFIRMATION_ERROR,
+  HOUSEHOLD_PRIVACY_REGISTRATION_ERROR_MESSAGE,
+  buildHouseholdPrivacyAcknowledgment,
+  requiresHouseholdPrivacyPrompt,
+} from "./privacyNotice.mjs";
 import { deriveAgeGroup } from "../../utils/ageGroup";
 import {
   DISPLAY_MEMBER_SECTOR_CODES,
@@ -214,6 +220,11 @@ export const useHouseholdRegistrationForm = ({
 
   const isOffline =
     typeof navigator !== "undefined" ? !navigator.onLine : false;
+  const latestPrivacyConsent = initialHouseholdDetails?.privacy_consent || null;
+  const requiresPrivacyAcknowledgment = requiresHouseholdPrivacyPrompt({
+    isEditMode,
+    privacyConsent: latestPrivacyConsent,
+  });
   const selectedDisasterEvent = activeDisasterEvents.find(
     (eventItem) => eventItem.id === selectedDisasterEventId,
   );
@@ -1214,7 +1225,7 @@ export const useHouseholdRegistrationForm = ({
     };
   };
 
-  const buildPayload = () => {
+  const buildPayload = (privacyAcknowledgment = null) => {
     return {
       household_id: initialHouseholdDetails?.household?.id || null,
       disaster_event_id: selectedDisasterEventId,
@@ -1254,10 +1265,11 @@ export const useHouseholdRegistrationForm = ({
         sector_ids: member.sector_ids,
       })),
       household_sector_ids: householdSectorIds,
+      privacy_acknowledgment: privacyAcknowledgment,
     };
   };
 
-  const submitRegistration = async () => {
+  const validateSubmissionReadiness = () => {
     const validationResult = validateForm();
 
     if (typeof validationResult === "string" && validationResult) {
@@ -1274,13 +1286,39 @@ export const useHouseholdRegistrationForm = ({
       return false;
     }
 
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    return true;
+  };
+
+  const createPrivacyAcknowledgment = () => {
+    return buildHouseholdPrivacyAcknowledgment({
+      familyHead,
+      isOffline,
+    });
+  };
+
+  const submitRegistration = async (privacyAcknowledgment = null) => {
+    if (!validateSubmissionReadiness()) {
+      return false;
+    }
+
+    if (requiresPrivacyAcknowledgment && !privacyAcknowledgment) {
+      setSuccessMessage("");
+      setErrorMessage(HOUSEHOLD_PRIVACY_CONFIRMATION_ERROR);
+      return false;
+    }
+
     setIsSubmitting(true);
     setErrorMessage("");
     setSuccessMessage("");
     setValidationErrors(createValidationErrors());
 
     try {
-      const payload = buildPayload();
+      const payload = buildPayload(
+        requiresPrivacyAcknowledgment ? privacyAcknowledgment : null,
+      );
       const response = isEditMode
         ? await updateHousehold(initialHouseholdDetails?.household?.id, payload)
         : await registerHousehold(payload);
@@ -1298,7 +1336,12 @@ export const useHouseholdRegistrationForm = ({
 
       return true;
     } catch (error) {
-      setErrorMessage(error.message || "Failed to register household");
+      setErrorMessage(
+        error.message ||
+          (requiresPrivacyAcknowledgment
+            ? HOUSEHOLD_PRIVACY_REGISTRATION_ERROR_MESSAGE
+            : "Failed to register household"),
+      );
       return false;
     } finally {
       setIsSubmitting(false);
@@ -1319,6 +1362,8 @@ export const useHouseholdRegistrationForm = ({
     isUsingCachedReferenceData,
     isOffline,
     isEditMode,
+    latestPrivacyConsent,
+    requiresPrivacyAcknowledgment,
     selectedDisasterEventId,
     setSelectedDisasterEventId,
     isDisasterEventLocked: Boolean(defaultDisasterEventId),
@@ -1357,6 +1402,8 @@ export const useHouseholdRegistrationForm = ({
     setPhotoVerificationNotes,
     clearFormMessages,
     resetForm,
+    validateSubmissionReadiness,
+    createPrivacyAcknowledgment,
     submitRegistration,
   };
 };
