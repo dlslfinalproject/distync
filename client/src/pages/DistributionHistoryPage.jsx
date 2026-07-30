@@ -111,6 +111,26 @@ const formatDisplayStubNumber = (row) => {
   return sequenceNo > 0 ? `STUB#${sequenceNo}` : row?.stub_no || "--";
 };
 
+const getDisasterEventStatusLabel = (status) =>
+  String(status || "").toUpperCase() === "ACTIVE" ? "Active" : "Ended";
+
+const getDisasterEventStatusStyles = (status) => {
+  const isEnded = String(status || "").toUpperCase() !== "ACTIVE";
+
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    marginTop: "6px",
+    padding: "4px 10px",
+    borderRadius: "999px",
+    fontSize: "11px",
+    fontWeight: 700,
+    border: isEnded ? "1px solid #c9e8d7" : "1px solid #bdd8f1",
+    backgroundColor: isEnded ? "#eefaf3" : "#e9f4ff",
+    color: isEnded ? "#16733c" : "#145995",
+  };
+};
+
 const ORDER_LIST_OPTIONS = [
   { value: "newest", label: "Newest-Oldest" },
   { value: "oldest", label: "Oldest-Newest" },
@@ -147,8 +167,53 @@ const sortDistributionHistoryRows = (rows, sortOrder = "newest") => {
   });
 };
 
-const buildDistributionSummaryRows = (rows) => {
+const buildDistributionSummaryRows = ({
+  rows,
+  disasterEvents,
+  selectedBarangayId = "",
+}) => {
   const summaryByEventId = new Map();
+
+  (Array.isArray(disasterEvents) ? disasterEvents : []).forEach((event) => {
+    const affectedBarangays = Array.isArray(event?.affected_barangays)
+      ? event.affected_barangays
+      : [];
+    const affectedBarangayIds = affectedBarangays
+      .map((barangay) => barangay?.id || barangay?.barangay_id || "")
+      .filter(Boolean);
+
+    if (
+      selectedBarangayId &&
+      affectedBarangayIds.length > 0 &&
+      !affectedBarangayIds.includes(selectedBarangayId)
+    ) {
+      return;
+    }
+
+    const barangayNames = selectedBarangayId
+      ? affectedBarangays
+          .filter(
+            (barangay) =>
+              (barangay?.id || barangay?.barangay_id || "") === selectedBarangayId,
+          )
+          .map((barangay) => barangay?.name)
+          .filter(Boolean)
+      : affectedBarangays.map((barangay) => barangay?.name).filter(Boolean);
+
+    summaryByEventId.set(event.id, {
+      id: event.id,
+      event_code: event.event_code || "",
+      disaster_event_title: event.title || "--",
+      disaster_event_status: event.status || "",
+      start_date: event.start_date || null,
+      barangayNames: new Set(barangayNames),
+      reliefPacks: new Set(),
+      issuedStubsCount: 0,
+      claimedStubsCount: 0,
+      unclaimedStubsCount: 0,
+      latest_distribution_date: null,
+    });
+  });
 
   rows.forEach((row) => {
     const eventId = row.disaster_event_id || "unknown-event";
@@ -156,6 +221,8 @@ const buildDistributionSummaryRows = (rows) => {
       id: eventId,
       event_code: row.event_code || "",
       disaster_event_title: row.disaster_event_title || "--",
+      disaster_event_status: row.disaster_event_status || "",
+      start_date: row.start_date || null,
       barangayNames: new Set(),
       reliefPacks: new Set(),
       issuedStubsCount: Number(row.issued_stubs_count || 0),
@@ -198,6 +265,8 @@ const buildDistributionSummaryRows = (rows) => {
     id: summary.id,
     event_code: summary.event_code,
     disaster_event_title: summary.disaster_event_title,
+    disaster_event_status: summary.disaster_event_status,
+    start_date: summary.start_date,
     barangay_summary: Array.from(summary.barangayNames).sort().join(", ") || "--",
     barangay_count: summary.barangayNames.size,
     issued_stubs_count: summary.issuedStubsCount,
@@ -223,7 +292,20 @@ const sortDistributionSummaryRows = (rows, sortOrder = "newest") => {
     const leftTime = getSummaryRowTime(leftRow);
     const rightTime = getSummaryRowTime(rightRow);
 
-    return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
+    if (leftTime !== rightTime) {
+      return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
+    }
+
+    const leftStartTime = new Date(leftRow?.start_date || 0).getTime();
+    const rightStartTime = new Date(rightRow?.start_date || 0).getTime();
+
+    if (leftStartTime !== rightStartTime) {
+      return sortOrder === "oldest"
+        ? leftStartTime - rightStartTime
+        : rightStartTime - leftStartTime;
+    }
+
+    return 0;
   });
 };
 
@@ -330,7 +412,7 @@ const DistributionHistoryPage = () => {
         const response = await fetchDistributionHistory({
           ...filters,
           sort_order: sortOrder,
-          limit: 500,
+          limit: filters.disaster_event_id ? 500 : 1000,
         });
 
         if (!isMounted) {
@@ -478,10 +560,14 @@ const DistributionHistoryPage = () => {
   const visibleSummaryRows = useMemo(
     () =>
       sortDistributionSummaryRows(
-        buildDistributionSummaryRows(visibleHistoryRows),
+        buildDistributionSummaryRows({
+          rows: visibleHistoryRows,
+          disasterEvents,
+          selectedBarangayId: filters.barangay_id,
+        }),
         sortOrder,
       ),
-    [visibleHistoryRows, sortOrder],
+    [visibleHistoryRows, disasterEvents, filters.barangay_id, sortOrder],
   );
 
   const displayedRows = isSummaryMode ? visibleSummaryRows : visibleHistoryRows;
@@ -719,6 +805,7 @@ const DistributionHistoryPage = () => {
               <thead>
                 <tr>
                   <th style={tableStyles.th}>Disaster Event</th>
+                  <th style={{ ...tableStyles.th, textAlign: "center" }}>Status</th>
                   <th style={tableStyles.th}>Barangays</th>
                   <th style={{ ...tableStyles.th, textAlign: "center" }}>
                     Issued Stubs
@@ -732,7 +819,12 @@ const DistributionHistoryPage = () => {
                 {visibleSummaryRows.map((row) => (
                   <tr key={row.id}>
                     <td style={tableStyles.td}>
-                      {row.disaster_event_title || "--"}
+                      <div>{row.disaster_event_title || "--"}</div>
+                    </td>
+                    <td style={{ ...tableStyles.td, textAlign: "center", verticalAlign: "middle" }}>
+                      <span style={getDisasterEventStatusStyles(row.disaster_event_status)}>
+                        {getDisasterEventStatusLabel(row.disaster_event_status)}
+                      </span>
                     </td>
                     <td style={tableStyles.td}>
                       <div>{row.barangay_summary}</div>

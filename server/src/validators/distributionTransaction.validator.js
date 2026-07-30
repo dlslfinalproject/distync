@@ -309,9 +309,9 @@ const validateGetDistributionHistory = (req, res, next) => {
 
     const parsedLimit = limit ? Number.parseInt(limit, 10) : 100;
 
-    if (!Number.isInteger(parsedLimit) || parsedLimit <= 0 || parsedLimit > 500) {
+    if (!Number.isInteger(parsedLimit) || parsedLimit <= 0 || parsedLimit > 1000) {
       return res.status(400).json({
-        message: "limit must be an integer between 1 and 500",
+        message: "limit must be an integer between 1 and 1000",
       });
     }
 

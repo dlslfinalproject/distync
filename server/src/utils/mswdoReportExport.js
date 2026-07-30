@@ -207,7 +207,29 @@ const buildExcelBuffer = async ({
 };
 
 const wrapText = (value, maxLength) => {
-  const words = String(value ?? "--").split(/\s+/);
+  const chunkLongToken = (token, maxTokenLength) => {
+    if (token.length <= maxTokenLength) {
+      return [token];
+    }
+
+    const chunks = [];
+    let remainingToken = token;
+
+    while (remainingToken.length > maxTokenLength) {
+      chunks.push(remainingToken.slice(0, maxTokenLength));
+      remainingToken = remainingToken.slice(maxTokenLength);
+    }
+
+    if (remainingToken) {
+      chunks.push(remainingToken);
+    }
+
+    return chunks;
+  };
+
+  const words = String(value ?? "--")
+    .split(/\s+/)
+    .flatMap((word) => chunkLongToken(word, Math.max(8, maxLength)));
   const lines = [];
   let currentLine = "";
 

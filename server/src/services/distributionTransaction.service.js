@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const distributionTransactionRepository = require("../repositories/distributionTransaction.repository");
+const disasterEventRepository = require("../repositories/disasterEvent.repository");
 const notificationService = require("../modules/notifications/notification.service");
 const stubRepository = require("../repositories/stub.repository");
 const settingsRepository = require("../repositories/settings.repository");
@@ -52,8 +53,56 @@ const buildReportSourceName = (requester, rows = []) => {
   return barangayName ? `Barangay ${barangayName}` : "Barangay";
 };
 
-const buildDistributionHistorySummaryRows = (rows) => {
+const formatDisasterEventStatusLabel = (status) =>
+  String(status || "").toUpperCase() === "ACTIVE" ? "Active" : "Ended";
+
+const buildDistributionHistorySummaryRows = ({
+  rows,
+  disasterEvents = [],
+  selectedBarangayId = null,
+}) => {
   const summaryByEventId = new Map();
+
+  (Array.isArray(disasterEvents) ? disasterEvents : []).forEach((event) => {
+    const affectedBarangays = Array.isArray(event?.affected_barangays)
+      ? event.affected_barangays
+      : [];
+    const affectedBarangayIds = affectedBarangays
+      .map((barangay) => barangay?.id || barangay?.barangay_id || "")
+      .filter(Boolean);
+
+    if (
+      selectedBarangayId &&
+      affectedBarangayIds.length > 0 &&
+      !affectedBarangayIds.includes(selectedBarangayId)
+    ) {
+      return;
+    }
+
+    const barangayNames = selectedBarangayId
+      ? affectedBarangays
+          .filter(
+            (barangay) =>
+              (barangay?.id || barangay?.barangay_id || "") === selectedBarangayId,
+          )
+          .map((barangay) => barangay?.name)
+          .filter(Boolean)
+      : affectedBarangays.map((barangay) => barangay?.name).filter(Boolean);
+
+    summaryByEventId.set(event.id, {
+      disaster_event_id: event.id,
+      event_code: event.event_code || "",
+      disaster_event_title: event.title || "--",
+      disaster_event_status: event.status || "",
+      start_date: event.start_date || null,
+      barangayNames: new Set(barangayNames),
+      reliefPacks: new Set(),
+      latest_distribution_date: null,
+      issued_stubs_count: 0,
+      claimed_stubs_count: 0,
+      unclaimed_stubs_count: 0,
+    });
+  });
 
   rows.forEach((row) => {
     const eventId = row.disaster_event_id || "unknown-event";
@@ -61,6 +110,8 @@ const buildDistributionHistorySummaryRows = (rows) => {
       disaster_event_id: eventId,
       event_code: row.event_code || "",
       disaster_event_title: row.disaster_event_title || "--",
+      disaster_event_status: row.disaster_event_status || "",
+      start_date: row.start_date || null,
       barangayNames: new Set(),
       reliefPacks: new Set(),
       latest_distribution_date: null,
@@ -105,6 +156,8 @@ const buildDistributionHistorySummaryRows = (rows) => {
     disaster_event_id: summary.disaster_event_id,
     event_code: summary.event_code,
     disaster_event_title: summary.disaster_event_title,
+    disaster_event_status: summary.disaster_event_status,
+    start_date: summary.start_date,
     barangay_summary: Array.from(summary.barangayNames).sort().join(", ") || "--",
     barangay_count: summary.barangayNames.size,
     issued_stubs_count: summary.issued_stubs_count,
@@ -174,8 +227,63 @@ const sortDistributionHistorySummaryRows = (rows, sortOrder = "newest") => {
       distribution_date: rightRow.latest_distribution_date,
     });
 
-    return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
+    if (leftTime !== rightTime) {
+      return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
+    }
+
+    const leftStartTime = new Date(leftRow?.start_date || 0).getTime();
+    const rightStartTime = new Date(rightRow?.start_date || 0).getTime();
+
+    if (leftStartTime !== rightStartTime) {
+      return sortOrder === "oldest"
+        ? leftStartTime - rightStartTime
+        : rightStartTime - leftStartTime;
+    }
+
+    return 0;
   });
+};
+
+const attachAffectedBarangaysToEvents = async (events) => {
+  if (!Array.isArray(events) || events.length === 0) {
+    return [];
+  }
+
+  const affectedBarangays =
+    await disasterEventRepository.getAffectedBarangaysByDisasterEventIds(
+      events.map((event) => event.id).filter(Boolean),
+    );
+  const affectedBarangaysByEventId = affectedBarangays.reduce((grouped, row) => {
+    if (!grouped[row.disaster_event_id]) {
+      grouped[row.disaster_event_id] = [];
+    }
+
+    grouped[row.disaster_event_id].push(row);
+    return grouped;
+  }, {});
+
+  return events.map((event) => ({
+    ...event,
+    affected_barangays: affectedBarangaysByEventId[event.id] || [],
+  }));
+};
+
+const getDistributionHistorySummaryEvents = async ({ requester, filters }) => {
+  if (requester?.roleCode === BARANGAY_ROLE_CODE) {
+    const barangayId = await resolveRequesterBarangayId(requester);
+
+    if (!barangayId) {
+      return [];
+    }
+
+    const events = await disasterEventRepository.getDisasterEventsByBarangayId(
+      barangayId,
+    );
+    return attachAffectedBarangaysToEvents(events);
+  }
+
+  const events = await disasterEventRepository.getAllDisasterEvents();
+  return attachAffectedBarangaysToEvents(events);
 };
 
 const groupByKey = (rows, key) => {
@@ -1240,10 +1348,27 @@ const exportDistributionHistory = async ({ requester, filters }) => {
   const isSummaryExport = !filters.disaster_event_id;
   const sortedRows = sortDistributionHistoryRows(rows, filters.sort_order || "newest");
   const sourceName = buildReportSourceName(requester, sortedRows);
+  const selectedDisasterEventLabel =
+    filters.disaster_event_id && sortedRows[0]
+      ? [sortedRows[0].event_code, sortedRows[0].disaster_event_title]
+          .filter(Boolean)
+          .join(" - ") || sortedRows[0].disaster_event_title || filters.disaster_event_id
+      : "All";
 
   if (isSummaryExport) {
+    const disasterEvents = await getDistributionHistorySummaryEvents({
+      requester,
+      filters,
+    });
     const summaryRows = sortDistributionHistorySummaryRows(
-      buildDistributionHistorySummaryRows(sortedRows),
+      buildDistributionHistorySummaryRows({
+        rows: sortedRows,
+        disasterEvents,
+        selectedBarangayId:
+          requester?.roleCode === BARANGAY_ROLE_CODE
+            ? requester.defaultBarangayId || null
+            : filters.barangay_id || null,
+      }),
       filters.sort_order || "newest",
     );
 
@@ -1261,7 +1386,7 @@ const exportDistributionHistory = async ({ requester, filters }) => {
       metadata: [
         {
           label: "Disaster Event",
-          value: "All",
+          value: selectedDisasterEventLabel,
         },
         {
           label: "Barangay",
@@ -1281,21 +1406,25 @@ const exportDistributionHistory = async ({ requester, filters }) => {
       ],
       columns: [
         { key: "event_label", label: "Disaster Event", width: 32, pdfWidth: 120 },
+        { key: "event_status", label: "Status", width: 14, pdfWidth: 48 },
         { key: "barangay_summary", label: "Barangays", width: 34, pdfWidth: 120 },
         { key: "issued_stubs_count", label: "Issued Stubs", width: 16, pdfWidth: 60 },
-        { key: "claim_status_summary", label: "Claim Status Summary", width: 24, pdfWidth: 85 },
+        { key: "claimed_stubs_count", label: "Claimed", width: 14, pdfWidth: 42 },
+        { key: "unclaimed_stubs_count", label: "Unclaimed", width: 14, pdfWidth: 42 },
         { key: "relief_pack_summary", label: "Relief Pack", width: 32, pdfWidth: 115 },
         { key: "latest_distribution_date_label", label: "Latest Claim", width: 22, pdfWidth: 80 },
       ],
       rows: summaryRows.map((row) => ({
         event_label:
           [row.event_code, row.disaster_event_title].filter(Boolean).join(" - ") || "--",
+        event_status: formatDisasterEventStatusLabel(row.disaster_event_status),
         barangay_summary:
           row.barangay_count > 0
             ? `${row.barangay_summary} (Count: ${row.barangay_count})`
             : "--",
         issued_stubs_count: row.issued_stubs_count || 0,
-        claim_status_summary: `Claimed: ${row.claimed_stubs_count || 0} | Unclaimed: ${row.unclaimed_stubs_count || 0}`,
+        claimed_stubs_count: row.claimed_stubs_count || 0,
+        unclaimed_stubs_count: row.unclaimed_stubs_count || 0,
         relief_pack_summary: row.relief_pack_summary,
         latest_distribution_date_label: mswdoReportExport.formatDateTime(
           row.latest_distribution_date,
@@ -1319,7 +1448,7 @@ const exportDistributionHistory = async ({ requester, filters }) => {
     metadata: [
       {
         label: "Disaster Event",
-        value: filters.disaster_event_id || "All",
+        value: selectedDisasterEventLabel,
       },
       {
         label: "Barangay",
@@ -1344,29 +1473,23 @@ const exportDistributionHistory = async ({ requester, filters }) => {
     columns: [
       { key: "family_head_name", label: "Family Head", width: 28, pdfWidth: 100 },
       { key: "barangay_name", label: "Barangay", width: 20, pdfWidth: 70 },
-      { key: "event_label", label: "Disaster Event", width: 28, pdfWidth: 90 },
-      { key: "stub_reference", label: "Stub / QR", width: 24, pdfWidth: 80 },
-      { key: "relief_summary", label: "Relief Item / Pack", width: 32, pdfWidth: 120 },
-      { key: "total_quantity_released", label: "Units Released", width: 16, pdfWidth: 55 },
-      { key: "claimed_recorded_by", label: "Claimed / Recorded By", width: 30, pdfWidth: 90 },
+      { key: "event_label", label: "Disaster Event", width: 24, pdfWidth: 84 },
+      { key: "stub_reference", label: "Stub", width: 12, pdfWidth: 46 },
+      { key: "qr_reference_value", label: "QR", width: 26, pdfWidth: 110 },
+      { key: "relief_summary", label: "Relief Item / Pack", width: 24, pdfWidth: 118 },
+      { key: "recorded_by_name", label: "Recorded By", width: 18, pdfWidth: 70 },
       { key: "distribution_status", label: "Status", width: 14, pdfWidth: 55 },
-      { key: "distribution_date_label", label: "Date / Time", width: 22, pdfWidth: 80 },
+      { key: "distribution_date_label", label: "Date / Time", width: 18, pdfWidth: 72 },
     ],
     rows: sortedRows.map((row) => ({
       family_head_name: row.family_head_name || "--",
       barangay_name: row.barangay_name || "--",
       event_label: [row.event_code, row.disaster_event_title].filter(Boolean).join(" - ") || "--",
-      stub_reference:
-        [
-          `Stub: ${formatStubDisplayNo(row.stub_sequence_no, row.stub_no)}`,
-          row.qr_reference_value ? `QR: ${row.qr_reference_value}` : "",
-        ]
-          .filter(Boolean)
-          .join(" | ") || "--",
+      stub_reference: formatStubDisplayNo(row.stub_sequence_no, row.stub_no),
+      qr_reference_value: row.qr_reference_value || "--",
       relief_summary:
         row.relief_pack_template_name || row.released_items_summary || "--",
-      total_quantity_released: row.total_quantity_released || 0,
-      claimed_recorded_by: `Claimed: ${row.claimed_by_name || "--"} | Recorded: ${row.verified_by_name || "--"}`,
+      recorded_by_name: row.verified_by_name || "--",
       distribution_status: row.distribution_status || "--",
       distribution_date_label: mswdoReportExport.formatDateTime(row.distribution_date),
     })),
