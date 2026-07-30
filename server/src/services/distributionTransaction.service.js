@@ -62,19 +62,15 @@ const buildDistributionHistorySummaryRows = (rows) => {
       event_code: row.event_code || "",
       disaster_event_title: row.disaster_event_title || "--",
       barangayNames: new Set(),
-      familyIds: new Set(),
       reliefPacks: new Set(),
-      total_quantity_released: 0,
       latest_distribution_date: null,
-      claimed_count: 0,
+      issued_stubs_count: Number(row.issued_stubs_count || 0),
+      claimed_stubs_count: Number(row.claimed_stubs_count || 0),
+      unclaimed_stubs_count: Number(row.unclaimed_stubs_count || 0),
     };
 
     if (row.barangay_name) {
       existingSummary.barangayNames.add(row.barangay_name);
-    }
-
-    if (row.household_id) {
-      existingSummary.familyIds.add(row.household_id);
     }
 
     const reliefPackName =
@@ -83,8 +79,15 @@ const buildDistributionHistorySummaryRows = (rows) => {
       existingSummary.reliefPacks.add(reliefPackName);
     }
 
-    existingSummary.total_quantity_released += Number(row.total_quantity_released || 0);
-    existingSummary.claimed_count += 1;
+    existingSummary.issued_stubs_count = Number(
+      row.issued_stubs_count || existingSummary.issued_stubs_count || 0,
+    );
+    existingSummary.claimed_stubs_count = Number(
+      row.claimed_stubs_count || existingSummary.claimed_stubs_count || 0,
+    );
+    existingSummary.unclaimed_stubs_count = Number(
+      row.unclaimed_stubs_count || existingSummary.unclaimed_stubs_count || 0,
+    );
 
     const currentLatestTime = getHistoryRowTime({
       distribution_date: existingSummary.latest_distribution_date,
@@ -104,12 +107,52 @@ const buildDistributionHistorySummaryRows = (rows) => {
     disaster_event_title: summary.disaster_event_title,
     barangay_summary: Array.from(summary.barangayNames).sort().join(", ") || "--",
     barangay_count: summary.barangayNames.size,
-    claimed_family_count: summary.familyIds.size,
-    claimed_count: summary.claimed_count,
+    issued_stubs_count: summary.issued_stubs_count,
+    claimed_stubs_count: summary.claimed_stubs_count,
+    unclaimed_stubs_count: summary.unclaimed_stubs_count,
     relief_pack_summary: Array.from(summary.reliefPacks).sort().join(", ") || "--",
-    total_quantity_released: summary.total_quantity_released,
     latest_distribution_date: summary.latest_distribution_date,
   }));
+};
+
+const attachDistributionHistoryStubCounts = async ({
+  rows,
+  requester,
+  filters,
+}) => {
+  if (!Array.isArray(rows) || rows.length === 0 || filters?.disaster_event_id) {
+    return rows;
+  }
+
+  const eventIds = [...new Set(rows.map((row) => row.disaster_event_id).filter(Boolean))];
+
+  if (eventIds.length === 0) {
+    return rows;
+  }
+
+  const stubSummaryRows =
+    await distributionTransactionRepository.getDistributionHistoryStubSummaryByEventIds({
+      eventIds,
+      barangayId:
+        requester?.roleCode === BARANGAY_ROLE_CODE
+          ? requester.defaultBarangayId
+          : filters?.barangay_id || null,
+    });
+
+  const stubSummaryByEventId = new Map(
+    stubSummaryRows.map((row) => [row.disaster_event_id, row]),
+  );
+
+  return rows.map((row) => {
+    const stubSummary = stubSummaryByEventId.get(row.disaster_event_id);
+
+    return {
+      ...row,
+      issued_stubs_count: Number(stubSummary?.issued_stubs_count || 0),
+      claimed_stubs_count: Number(stubSummary?.claimed_stubs_count || 0),
+      unclaimed_stubs_count: Number(stubSummary?.unclaimed_stubs_count || 0),
+    };
+  });
 };
 
 const sortDistributionHistorySummaryRows = (rows, sortOrder = "newest") => {
@@ -1164,7 +1207,16 @@ const getDistributionHistory = async ({ requester, filters }) => {
   });
 
   const rowsWithSectors = await attachHistorySectors(rows);
-  return sortDistributionHistoryRows(rowsWithSectors, filters.sort_order || "newest");
+  const rowsWithStubCounts = await attachDistributionHistoryStubCounts({
+    rows: rowsWithSectors,
+    requester,
+    filters,
+  });
+
+  return sortDistributionHistoryRows(
+    rowsWithStubCounts,
+    filters.sort_order || "newest",
+  );
 };
 
 const exportDistributionHistory = async ({ requester, filters }) => {
@@ -1230,10 +1282,9 @@ const exportDistributionHistory = async ({ requester, filters }) => {
       columns: [
         { key: "event_label", label: "Disaster Event", width: 32, pdfWidth: 120 },
         { key: "barangay_summary", label: "Barangays", width: 34, pdfWidth: 120 },
-        { key: "claimed_family_count", label: "Claimed Families", width: 18, pdfWidth: 70 },
-        { key: "claimed_count", label: "Claimed Stubs", width: 16, pdfWidth: 65 },
+        { key: "issued_stubs_count", label: "Issued Stubs", width: 16, pdfWidth: 60 },
+        { key: "claim_status_summary", label: "Claim Status Summary", width: 24, pdfWidth: 85 },
         { key: "relief_pack_summary", label: "Relief Pack", width: 32, pdfWidth: 115 },
-        { key: "total_quantity_released", label: "Quantity", width: 14, pdfWidth: 50 },
         { key: "latest_distribution_date_label", label: "Latest Claim", width: 22, pdfWidth: 80 },
       ],
       rows: summaryRows.map((row) => ({
@@ -1243,10 +1294,9 @@ const exportDistributionHistory = async ({ requester, filters }) => {
           row.barangay_count > 0
             ? `${row.barangay_summary} (Count: ${row.barangay_count})`
             : "--",
-        claimed_family_count: row.claimed_family_count,
-        claimed_count: row.claimed_count,
+        issued_stubs_count: row.issued_stubs_count || 0,
+        claim_status_summary: `Claimed: ${row.claimed_stubs_count || 0} | Unclaimed: ${row.unclaimed_stubs_count || 0}`,
         relief_pack_summary: row.relief_pack_summary,
-        total_quantity_released: row.total_quantity_released || 0,
         latest_distribution_date_label: mswdoReportExport.formatDateTime(
           row.latest_distribution_date,
         ),
@@ -1297,7 +1347,7 @@ const exportDistributionHistory = async ({ requester, filters }) => {
       { key: "event_label", label: "Disaster Event", width: 28, pdfWidth: 90 },
       { key: "stub_reference", label: "Stub / QR", width: 24, pdfWidth: 80 },
       { key: "relief_summary", label: "Relief Item / Pack", width: 32, pdfWidth: 120 },
-      { key: "total_quantity_released", label: "Quantity", width: 14, pdfWidth: 45 },
+      { key: "total_quantity_released", label: "Units Released", width: 16, pdfWidth: 55 },
       { key: "claimed_recorded_by", label: "Claimed / Recorded By", width: 30, pdfWidth: 90 },
       { key: "distribution_status", label: "Status", width: 14, pdfWidth: 55 },
       { key: "distribution_date_label", label: "Date / Time", width: 22, pdfWidth: 80 },
