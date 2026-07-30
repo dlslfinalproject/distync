@@ -6,11 +6,6 @@ import { shellStyles } from "../../components/layout/BarangayLayout";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import { useAuth } from "../../context/AuthContext";
 import { fetchBarangays } from "../../features/disaster-events/disasterEventService";
-import { fetchDistributionHistory } from "../../features/distribution/distributionService";
-import {
-  fetchForecastHealth,
-  fetchInventoryItems,
-} from "../../features/inventory-items/inventoryItemService";
 import {
   fetchCurrentNotificationRules,
   fetchUnreadNotificationCount,
@@ -38,11 +33,11 @@ import {
   MSWDO_SETTINGS_SECTIONS,
 } from "./settingsConfig";
 import {
-  buildActivityLogs,
   buildLocalSyncLogRows,
   buildSyncSummary,
   createDefaultNotificationChannels,
   createDefaultRolePreferences,
+  formatDateTime,
   getBarangayProfileValidationErrors,
   getNotificationPreferenceValidationErrors,
   getRoleMeta,
@@ -262,6 +257,14 @@ const tableStyles = {
   },
 };
 
+const PROFILE_PICTURE_MAX_FILE_SIZE_BYTES = 4 * 1024 * 1024;
+const PROFILE_PICTURE_ALLOWED_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+]);
+
 const StatusChip = ({ tone = "info", label }) => (
   <span
     style={{
@@ -295,16 +298,12 @@ const RoleSettingsPage = () => {
   const [notificationRules, setNotificationRules] = useState([]);
   const [assignedBarangayName, setAssignedBarangayName] = useState("--");
   const [unreadCount, setUnreadCount] = useState(0);
-  const [forecastHealth, setForecastHealth] = useState(null);
-  const [inventoryThresholdSummary, setInventoryThresholdSummary] = useState(null);
   const [preferences, setPreferences] = useState(createDefaultRolePreferences());
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
-  const [distributionRows, setDistributionRows] = useState([]);
   const [syncHistory, setSyncHistory] = useState({
     transactions: [],
     conflicts: [],
   });
-  const [isLoadingSyncHistory, setIsLoadingSyncHistory] = useState(false);
   const [syncHistoryErrorMessage, setSyncHistoryErrorMessage] = useState("");
   const [isSyncingNow, setIsSyncingNow] = useState(false);
   const [notificationTouched, setNotificationTouched] = useState(false);
@@ -317,10 +316,12 @@ const RoleSettingsPage = () => {
   const [profileErrors, setProfileErrors] = useState({
     fullName: "",
     contactNumber: "",
+    emailAddress: "",
   });
   const [profileTouched, setProfileTouched] = useState({
     fullName: false,
     contactNumber: false,
+    emailAddress: false,
   });
   const profilePictureInputRef = useRef(null);
 
@@ -334,10 +335,20 @@ const RoleSettingsPage = () => {
     () =>
       getNotificationPreferenceValidationErrors({
         notificationChannels: preferences.notificationChannels,
+        roleCode: currentRole,
         emailAddress:
           authenticatedUser?.email || preferences.profile.emailAddress || "",
+        enabledNotificationRuleCodes: preferences.enabledNotificationRuleCodes,
+        notificationRules,
       }),
-    [authenticatedUser?.email, preferences.notificationChannels, preferences.profile.emailAddress],
+    [
+      authenticatedUser?.email,
+      currentRole,
+      notificationRules,
+      preferences.enabledNotificationRuleCodes,
+      preferences.notificationChannels,
+      preferences.profile.emailAddress,
+    ],
   );
 
   useEffect(() => {
@@ -431,10 +442,12 @@ const RoleSettingsPage = () => {
       setProfileErrors({
         fullName: "",
         contactNumber: "",
+        emailAddress: "",
       });
       setProfileTouched({
         fullName: false,
         contactNumber: false,
+        emailAddress: false,
       });
       return;
     }
@@ -475,6 +488,7 @@ const RoleSettingsPage = () => {
     setProfileErrors({
       fullName: validationErrors.fullName || "",
       contactNumber: validationErrors.contactNumber || "",
+      emailAddress: validationErrors.emailAddress || "",
     });
   }, [
     isBarangayRole,
@@ -528,21 +542,8 @@ const RoleSettingsPage = () => {
           requests.push(Promise.resolve([]));
         }
 
-        if (currentRole === ROLE_CODES.MAYOR) {
-          requests.push(fetchForecastHealth().catch(() => null));
-          requests.push(fetchInventoryItems({ is_active: true }).catch(() => []));
-        } else {
-          requests.push(Promise.resolve(null));
-          requests.push(Promise.resolve([]));
-        }
-
-        const [
-          notificationRuleResponse,
-          unreadResponse,
-          barangayResponse,
-          forecastHealthResponse,
-          inventoryItemsResponse,
-        ] = await Promise.all(requests);
+        const [notificationRuleResponse, unreadResponse, barangayResponse] =
+          await Promise.all(requests);
 
         const rules = Array.isArray(notificationRuleResponse?.data)
           ? notificationRuleResponse.data
@@ -558,34 +559,6 @@ const RoleSettingsPage = () => {
         } else {
           setAssignedBarangayName("--");
         }
-
-        setForecastHealth(forecastHealthResponse?.data || null);
-
-        const inventoryItems = Array.isArray(inventoryItemsResponse)
-          ? inventoryItemsResponse
-          : Array.isArray(inventoryItemsResponse?.data)
-            ? inventoryItemsResponse.data
-            : [];
-
-        if (inventoryItems.length > 0) {
-          const distinctThresholds = [
-            ...new Set(
-              inventoryItems
-                .map((item) => item.low_stock_threshold)
-                .filter((value) => value !== null && value !== undefined),
-            ),
-          ];
-
-          setInventoryThresholdSummary({
-            configured_items: inventoryItems.length,
-            distinct_thresholds: distinctThresholds,
-          });
-        } else {
-          setInventoryThresholdSummary({
-            configured_items: 0,
-            distinct_thresholds: [],
-          });
-        }
       } catch (error) {
         setErrorMessage(error.message || "Failed to load settings.");
       } finally {
@@ -597,47 +570,13 @@ const RoleSettingsPage = () => {
   }, [authenticatedUser, currentRole]);
 
   useEffect(() => {
-    if (!isBarangayRole) {
-      setDistributionRows([]);
-      return;
-    }
-
-    let isMounted = true;
-
-    const loadDistributionData = async () => {
-      try {
-        const response = await fetchDistributionHistory({
-          limit: 100,
-        });
-
-        if (!isMounted) {
-          return;
-        }
-
-        setDistributionRows(Array.isArray(response?.data) ? response.data : []);
-      } catch (_error) {
-        if (isMounted) {
-          setDistributionRows([]);
-        }
-      }
-    };
-
-    loadDistributionData();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [isBarangayRole]);
-
-  useEffect(() => {
-    if (!isBarangayRole) {
+    if (!isBarangayRole && !isMswdoRole && !isMayorRole) {
       return;
     }
 
     let isMounted = true;
 
     const loadRoleSyncHistory = async () => {
-      setIsLoadingSyncHistory(true);
       setSyncHistoryErrorMessage("");
 
       try {
@@ -663,10 +602,6 @@ const RoleSettingsPage = () => {
             error.message || "Failed to load sync history.",
           );
         }
-      } finally {
-        if (isMounted) {
-          setIsLoadingSyncHistory(false);
-        }
       }
     };
 
@@ -682,7 +617,7 @@ const RoleSettingsPage = () => {
       isMounted = false;
       unsubscribe();
     };
-  }, [isBarangayRole]);
+  }, [isBarangayRole, isMayorRole, isMswdoRole]);
 
   const toggleNotificationRule = (ruleCode) => {
     setNotificationTouched(true);
@@ -728,10 +663,12 @@ const RoleSettingsPage = () => {
       setProfileTouched({
         fullName: true,
         contactNumber: true,
+        emailAddress: true,
       });
       setProfileErrors({
         fullName: validationErrors.fullName || "",
         contactNumber: validationErrors.contactNumber || "",
+        emailAddress: validationErrors.emailAddress || "",
       });
 
       if (Object.values(validationErrors).some(Boolean)) {
@@ -881,11 +818,20 @@ const RoleSettingsPage = () => {
       return;
     }
 
-    if (!selectedFile.type.startsWith("image/")) {
+    if (!PROFILE_PICTURE_ALLOWED_MIME_TYPES.has(selectedFile.type)) {
       setToast({
         type: "error",
         title: "Profile Picture Error",
-        message: "Please choose a valid image file for the profile picture.",
+        message: "Please choose a JPG, PNG, or WEBP image for the profile picture.",
+      });
+      return;
+    }
+
+    if (selectedFile.size > PROFILE_PICTURE_MAX_FILE_SIZE_BYTES) {
+      setToast({
+        type: "error",
+        title: "Profile Picture Error",
+        message: "Profile picture is too large. Please choose an image under 4 MB.",
       });
       return;
     }
@@ -965,19 +911,32 @@ const RoleSettingsPage = () => {
     preferences.enabledNotificationRuleCodes?.length > 0
       ? preferences.enabledNotificationRuleCodes
       : notificationRules.map((rule) => rule.code);
-
-  const activityLogs = useMemo(
-    () =>
-      buildActivityLogs({
-        distributionRows,
-        syncEntries,
-        syncHistory,
-      }).slice(0, 16),
-    [distributionRows, syncEntries, syncHistory],
-  );
   const localSyncLogRows = useMemo(
     () => buildLocalSyncLogRows(syncEntries),
     [syncEntries],
+  );
+  const latestSuccessfulSyncTimestamp = useMemo(() => {
+    const syncedTransactions = (syncHistory.transactions || [])
+      .filter((transaction) => transaction.sync_status === LOCAL_SYNC_STATUS.SYNCED)
+      .map(
+        (transaction) =>
+          transaction.server_timestamp ||
+          transaction.synced_at ||
+          transaction.updated_at ||
+          transaction.created_at,
+      )
+      .filter(Boolean)
+      .sort((left, right) => new Date(right).getTime() - new Date(left).getTime());
+
+    return syncedTransactions[0] || "";
+  }, [syncHistory.transactions]);
+  const lastQueueActivityAt = useMemo(
+    () => formatDateTime(localSyncLogRows[0]?.timestamp),
+    [localSyncLogRows],
+  );
+  const lastSuccessfulSyncAt = useMemo(
+    () => formatDateTime(latestSuccessfulSyncTimestamp),
+    [latestSuccessfulSyncTimestamp],
   );
 
   const activeBarangaySection = useMemo(
@@ -998,9 +957,10 @@ const RoleSettingsPage = () => {
       buildBarangaySectionCards({
         preferences,
         enabledRuleCodes,
-        activityLogs,
+        syncSummary,
+        isOnline,
       }),
-    [activityLogs, enabledRuleCodes, preferences],
+    [enabledRuleCodes, isOnline, preferences, syncSummary],
   );
   const mswdoSectionCards = useMemo(
     () =>
@@ -1021,13 +981,9 @@ const RoleSettingsPage = () => {
         notificationRuleCount,
         syncSummary,
         isOnline,
-        forecastHealth,
-        inventoryThresholdSummary,
       }),
     [
       enabledRuleCodes,
-      forecastHealth,
-      inventoryThresholdSummary,
       isOnline,
       notificationRuleCount,
       preferences,
@@ -1039,7 +995,7 @@ const RoleSettingsPage = () => {
     activeSectionMeta: activeBarangaySection,
     editableSectionKeys: EDITABLE_BARANGAY_SECTION_KEYS,
     isSavingPreferences,
-    saveLabel: "Save Barangay Settings",
+    saveLabel: "Save Settings",
     onBack: () => setActiveSection(null),
     onSave: handleSavePreferences,
   });
@@ -1047,7 +1003,7 @@ const RoleSettingsPage = () => {
     activeSectionMeta: activeMswdoSection,
     editableSectionKeys: EDITABLE_MSWDO_SECTION_KEYS,
     isSavingPreferences,
-    saveLabel: "Save MSWDO Settings",
+    saveLabel: "Save Settings",
     onBack: () => setActiveSection(null),
     onSave: handleSavePreferences,
   });
@@ -1055,10 +1011,26 @@ const RoleSettingsPage = () => {
     activeSectionMeta: activeMayorSection,
     editableSectionKeys: EDITABLE_MAYOR_SECTION_KEYS,
     isSavingPreferences,
-    saveLabel: "Save Mayor Settings",
+    saveLabel: "Save Settings",
     onBack: () => setActiveSection(null),
     onSave: handleSavePreferences,
   });
+
+  const syncSectionProps = {
+    shellStyles,
+    gridStyles,
+    cardStyles,
+    helperTextStyles,
+    mutedValueStyles,
+    tableStyles,
+    pageHeaderStyles,
+    InfoRow,
+    EmptyState,
+    StatusChip,
+    description:
+      "Review offline sync information, current synchronization status, and the latest sync activity. This section is informative only and keeps the existing DISTYNC offline behavior unchanged.",
+    isOnline,
+  };
 
   const sharedRoleViewContext = buildSharedRoleViewContext({
     shellStyles,
@@ -1084,6 +1056,7 @@ const RoleSettingsPage = () => {
     InfoRow,
     EmptyState,
     isLoading,
+    syncSectionProps,
   });
 
   const barangayViewContext = buildBarangayViewContext({
@@ -1096,7 +1069,15 @@ const RoleSettingsPage = () => {
     notificationRules,
     enabledRuleCodes,
     toggleNotificationRule,
-    activityLogs,
+    navigate,
+    handleSyncNow,
+    isSyncingNow,
+    syncSummary,
+    isOnline,
+    localSyncLogRows,
+    syncHistoryErrorMessage,
+    lastQueueActivityAt,
+    lastSuccessfulSyncAt,
   });
 
   const mswdoViewContext = buildMswdoViewContext({
@@ -1116,6 +1097,9 @@ const RoleSettingsPage = () => {
     syncSummary,
     isOnline,
     localSyncLogRows,
+    syncHistoryErrorMessage,
+    lastQueueActivityAt,
+    lastSuccessfulSyncAt,
   });
 
   const mayorViewContext = buildMayorViewContext({
@@ -1135,8 +1119,9 @@ const RoleSettingsPage = () => {
     syncSummary,
     isOnline,
     localSyncLogRows,
-    forecastHealth,
-    inventoryThresholdSummary,
+    syncHistoryErrorMessage,
+    lastQueueActivityAt,
+    lastSuccessfulSyncAt,
   });
   if (isBarangayRole) {
     return (

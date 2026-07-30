@@ -33,6 +33,7 @@ const ProfileSection = ({
   profilePictureInputRef,
   handleProfilePictureChange,
   setPreferences,
+  sectionTitle = "Profile",
   description,
   summaryRows,
   fullNameId,
@@ -51,7 +52,7 @@ const ProfileSection = ({
   return (
     <section style={shellStyles.card}>
       <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
-        <h3 style={{ margin: 0, color: "#17324d" }}>Profile</h3>
+        <h3 style={{ margin: 0, color: "#17324d" }}>{sectionTitle}</h3>
         <p style={mutedValueStyles}>{description}</p>
       </div>
 
@@ -183,7 +184,11 @@ const ProfileSection = ({
                 ...inputStyles.lockedField,
               }}
             />
-            <p style={helperTextStyles}>{emailHelper}</p>
+            {profileTouched.emailAddress && profileErrors.emailAddress ? (
+              <p style={errorTextStyles}>{profileErrors.emailAddress}</p>
+            ) : (
+              <p style={helperTextStyles}>{emailHelper}</p>
+            )}
           </div>
         </article>
 
@@ -212,7 +217,7 @@ const ProfileSection = ({
           <input
             ref={profilePictureInputRef}
             type="file"
-            accept="image/*"
+            accept="image/jpeg,image/png,image/webp"
             onChange={handleProfilePictureChange}
             style={{ display: "none" }}
           />

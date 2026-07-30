@@ -86,12 +86,17 @@ const NotificationPreferencesSection = ({
                   {notificationValidationErrors.emailAddress}
                 </p>
               ) : null}
+              {notificationValidationErrors.notificationRules ? (
+                <p style={errorTextStyles}>
+                  {notificationValidationErrors.notificationRules}
+                </p>
+              ) : null}
             </div>
           ) : (
             <p style={helperTextStyles}>
               Keep at least one enabled channel for every notification type.
-              Email preferences only affect this frontend settings profile
-              right now.
+              These preferences control both the in-app notifications and
+              notification emails your account receives.
             </p>
           )}
 
@@ -146,8 +151,8 @@ const NotificationPreferencesSection = ({
           <h4 style={{ margin: 0, color: "#17324d" }}>Existing Role Rule Mapping</h4>
           <p style={helperTextStyles}>
             These mapped rules come from the current backend role
-            configuration. Toggling them here saves your local review
-            preference only and does not rewrite server-side notification
+            configuration. Toggling them updates which matching notifications
+            can be delivered to your account without changing role-wide server
             rules.
           </p>
           {summaryRows.length > 0 ? (

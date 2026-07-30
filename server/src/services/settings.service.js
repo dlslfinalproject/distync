@@ -1,5 +1,8 @@
 const pool = require("../config/db");
 const settingsRepository = require("../repositories/settings.repository");
+const notificationRepository = require("../modules/notifications/notification.repository");
+const notificationService = require("../modules/notifications/notification.service");
+const profilePictureStorageService = require("./profilePictureStorage.service");
 
 const SETTINGS_AUDIT_ACTION = "UPSERT_ROLE_SETTINGS";
 const SETTINGS_ENTITY_TYPE = "ROLE_SETTINGS";
@@ -17,6 +20,8 @@ const NOTIFICATION_OPTION_KEYS = [
   "attendanceReminders",
   "systemAnnouncements",
 ];
+const EMAIL_ADDRESS_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHILIPPINE_CONTACT_NUMBER_PATTERN = /^\+639\d{9}$/;
 
 const isPlainObject = (value) =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -67,6 +72,48 @@ const sanitizeString = (value, fallbackValue = "") => {
   return value.trim();
 };
 
+const normalizeEmailAddress = (value) => sanitizeString(value);
+
+const normalizePhilippineContactNumber = (value = "") => {
+  const rawValue = sanitizeString(value);
+
+  if (!rawValue) {
+    return "";
+  }
+
+  const compactValue = rawValue.replace(/[^\d+]/g, "");
+
+  if (compactValue.startsWith("+")) {
+    const digitsAfterPlus = compactValue.slice(1).replace(/\D/g, "");
+
+    if (digitsAfterPlus.startsWith("639")) {
+      return `+${digitsAfterPlus.slice(0, 12)}`;
+    }
+
+    return `+${digitsAfterPlus.slice(0, 12)}`;
+  }
+
+  const digitsOnly = compactValue.replace(/\D/g, "");
+
+  if (digitsOnly.startsWith("09")) {
+    return `+63${digitsOnly.slice(1, 11)}`;
+  }
+
+  if (digitsOnly.startsWith("639")) {
+    return `+${digitsOnly.slice(0, 12)}`;
+  }
+
+  if (digitsOnly.startsWith("63")) {
+    return `+${digitsOnly.slice(0, 12)}`;
+  }
+
+  if (digitsOnly.startsWith("9")) {
+    return `+63${digitsOnly.slice(0, 10)}`;
+  }
+
+  return "";
+};
+
 const sanitizeNotificationChannels = (value = {}) => {
   const defaults = createDefaultNotificationChannels();
 
@@ -97,6 +144,30 @@ const sanitizeEnabledNotificationRuleCodes = (value) => {
         .filter(Boolean),
     ),
   );
+};
+
+const validateEmailAddressOrThrow = (value) => {
+  const normalizedValue = normalizeEmailAddress(value);
+
+  if (!normalizedValue || !EMAIL_ADDRESS_PATTERN.test(normalizedValue)) {
+    const error = new Error("Please enter a valid email address.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return normalizedValue;
+};
+
+const validateContactNumberOrThrow = (value) => {
+  const normalizedValue = normalizePhilippineContactNumber(value);
+
+  if (!normalizedValue || !PHILIPPINE_CONTACT_NUMBER_PATTERN.test(normalizedValue)) {
+    const error = new Error("Please enter a valid contact number.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return normalizedValue;
 };
 
 const sanitizePreferredExportFormat = (value) => {
@@ -305,6 +376,171 @@ const splitFullNameForUserColumns = (fullName, user) => {
   };
 };
 
+const resolveProfilePictureReference = async ({
+  userId,
+  roleCode,
+  previousProfilePictureReference,
+  nextProfilePictureReference,
+  nextProfilePictureFileName,
+}) => {
+  const normalizedPreviousReference = sanitizeString(previousProfilePictureReference);
+  const normalizedNextReference = sanitizeString(nextProfilePictureReference);
+  const normalizedNextFileName = sanitizeString(nextProfilePictureFileName);
+
+  if (!normalizedNextReference) {
+    if (normalizedPreviousReference) {
+      await profilePictureStorageService.removeProfilePicture(
+        normalizedPreviousReference,
+      );
+    }
+
+    return {
+      profilePictureReference: "",
+      profilePictureFileName: "",
+    };
+  }
+
+  if (normalizedNextReference.startsWith("data:image/")) {
+    const uploadResult = await profilePictureStorageService.uploadProfilePicture({
+      userId,
+      roleCode,
+      profilePictureDataUrl: normalizedNextReference,
+      fileName: normalizedNextFileName,
+    });
+
+    if (
+      normalizedPreviousReference &&
+      normalizedPreviousReference !== uploadResult.profilePictureReference
+    ) {
+      await profilePictureStorageService.removeProfilePicture(
+        normalizedPreviousReference,
+      );
+    }
+
+    return {
+      profilePictureReference: uploadResult.profilePictureReference,
+      profilePictureFileName: uploadResult.profilePictureFileName,
+    };
+  }
+
+  return {
+    profilePictureReference: normalizedNextReference,
+    profilePictureFileName: normalizedNextFileName,
+  };
+};
+
+const validateEnabledNotificationRuleCodesForRole = async ({
+  roleCode,
+  enabledNotificationRuleCodes,
+  dbClient,
+}) => {
+  const allowedRuleCodeSet = await getAllowedNotificationRuleCodesForRole({
+    roleCode,
+    dbClient,
+  });
+  const invalidRuleCodes = sanitizeEnabledNotificationRuleCodes(
+    enabledNotificationRuleCodes,
+  ).filter((code) => !allowedRuleCodeSet.has(code));
+
+  if (invalidRuleCodes.length > 0) {
+    const error = new Error(
+      invalidRuleCodes.length === 1
+        ? `Notification rule ${invalidRuleCodes[0]} is not available for your role.`
+        : "One or more notification rules are not available for your role.",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+};
+
+const getAllowedNotificationRuleCodesForRole = async ({
+  roleCode,
+  dbClient,
+}) => {
+  const allowedRules = await notificationService.getNotificationRulesForRole(
+    roleCode,
+    dbClient,
+  );
+
+  return new Set(
+    allowedRules
+      .map((rule) => (typeof rule.code === "string" ? rule.code.trim() : ""))
+      .filter(Boolean),
+  );
+};
+
+const sanitizeEnabledNotificationRuleCodesForRole = async ({
+  roleCode,
+  enabledNotificationRuleCodes,
+  dbClient,
+}) => {
+  const allowedRuleCodeSet = await getAllowedNotificationRuleCodesForRole({
+    roleCode,
+    dbClient,
+  });
+  const normalizedRuleCodes = sanitizeEnabledNotificationRuleCodes(
+    enabledNotificationRuleCodes,
+  );
+  const cleanedRuleCodes = normalizedRuleCodes.filter((code) =>
+    allowedRuleCodeSet.has(code),
+  );
+
+  return {
+    cleanedRuleCodes,
+    changed: cleanedRuleCodes.length !== normalizedRuleCodes.length,
+  };
+};
+
+const sanitizeStoredSettingsSnapshotForRole = async ({
+  userId,
+  roleCode,
+  snapshot,
+  dbClient,
+}) => {
+  const normalizedSnapshot = buildPersistedSnapshot(snapshot || {});
+  const { cleanedRuleCodes, changed } =
+    await sanitizeEnabledNotificationRuleCodesForRole({
+      roleCode,
+      enabledNotificationRuleCodes: normalizedSnapshot.enabledNotificationRuleCodes,
+      dbClient,
+    });
+
+  const cleanedSnapshot = {
+    ...normalizedSnapshot,
+    enabledNotificationRuleCodes: cleanedRuleCodes,
+  };
+
+  if (changed && userId) {
+    await settingsRepository.upsertUserRoleSettings(
+      {
+        userId,
+        roleCode,
+        ...buildUserRoleSettingsPayload(cleanedSnapshot),
+      },
+      dbClient,
+    );
+  }
+
+  return cleanedSnapshot;
+};
+
+const buildAuditSafeSettingsSnapshot = (settings = {}) => {
+  const normalizedSettings = buildPersistedSnapshot(settings);
+  const hasProfilePicture = Boolean(
+    normalizedSettings.profile.profilePictureDataUrl,
+  );
+
+  return {
+    ...normalizedSettings,
+    profile: {
+      ...normalizedSettings.profile,
+      profilePictureDataUrl: hasProfilePicture
+        ? "[stored in profile picture storage]"
+        : "",
+    },
+  };
+};
+
 const buildSessionUser = (user, roleCode) => {
   return {
     id: user.id,
@@ -363,10 +599,16 @@ const getCurrentSettings = async ({ userId, roleCode }) => {
   ensureUserExists(user);
   ensureUserIsActive(user);
 
+  const cleanedSnapshot = await sanitizeStoredSettingsSnapshotForRole({
+    userId,
+    roleCode,
+    snapshot: buildPersistedSettingsFromRecord(latestSnapshot || {}),
+  });
+
   return buildRoleSettingsResponse({
     roleCode,
     user,
-    snapshot: buildPersistedSettingsFromRecord(latestSnapshot || {}),
+    snapshot: cleanedSnapshot,
   });
 };
 
@@ -395,13 +637,39 @@ const saveCurrentSettings = async ({
       dbClient,
     );
 
+    const cleanedExistingSnapshot = await sanitizeStoredSettingsSnapshotForRole({
+      userId,
+      roleCode,
+      snapshot: buildPersistedSettingsFromRecord(existingRoleSettings || {}),
+      dbClient,
+    });
+
     const previousSettings = buildRoleSettingsResponse({
       roleCode,
       user,
-      snapshot: buildPersistedSettingsFromRecord(existingRoleSettings || {}),
+      snapshot: cleanedExistingSnapshot,
     });
 
     const incomingSnapshot = buildEditableSettingsSnapshot(settings || {});
+    const normalizedContactNumber = validateContactNumberOrThrow(
+      incomingSnapshot.profile.contactNumber || user.contact_number || "",
+    );
+    const lockedEmailAddress = validateEmailAddressOrThrow(user.email);
+
+    await validateEnabledNotificationRuleCodesForRole({
+      roleCode,
+      enabledNotificationRuleCodes: incomingSnapshot.enabledNotificationRuleCodes,
+      dbClient,
+    });
+    const resolvedProfilePicture = await resolveProfilePictureReference({
+      userId,
+      roleCode,
+      previousProfilePictureReference:
+        previousSettings.profile.profilePictureDataUrl,
+      nextProfilePictureReference: incomingSnapshot.profile.profilePictureDataUrl,
+      nextProfilePictureFileName: incomingSnapshot.profile.profilePictureFileName,
+    });
+
     const mergedSnapshot = {
       ...previousSettings,
       ...incomingSnapshot,
@@ -409,7 +677,10 @@ const saveCurrentSettings = async ({
         ...previousSettings.profile,
         ...incomingSnapshot.profile,
         position: getRolePositionLabel(roleCode),
-        emailAddress: user.email,
+        contactNumber: normalizedContactNumber,
+        emailAddress: lockedEmailAddress,
+        profilePictureDataUrl: resolvedProfilePicture.profilePictureReference,
+        profilePictureFileName: resolvedProfilePicture.profilePictureFileName,
       },
       notificationChannels: sanitizeNotificationChannels(
         incomingSnapshot.notificationChannels,
@@ -431,7 +702,7 @@ const saveCurrentSettings = async ({
         firstName: nameColumns.firstName,
         middleName: nameColumns.middleName,
         lastName: nameColumns.lastName,
-        contactNumber: mergedSnapshot.profile.contactNumber || null,
+        contactNumber: normalizedContactNumber || null,
       },
       dbClient,
     );
@@ -464,8 +735,8 @@ const saveCurrentSettings = async ({
         entityType: SETTINGS_ENTITY_TYPE,
         entityId: userId,
         action: SETTINGS_AUDIT_ACTION,
-        oldValues: previousSettings,
-        newValues: nextSettings,
+        oldValues: buildAuditSafeSettingsSnapshot(previousSettings),
+        newValues: buildAuditSafeSettingsSnapshot(nextSettings),
         ipAddress,
       },
       dbClient,
