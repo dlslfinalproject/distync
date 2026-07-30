@@ -1,6 +1,11 @@
 const allowedStayTypes = ["EVAC_CENTER", "RELATIVES", "OTHER_SAFE_PLACE"];
 const allowedSexValues = ["MALE", "FEMALE"];
 const allowedResidencyStatuses = ["RESIDENT", "NON_RESIDENT"];
+const {
+  HOUSEHOLD_PRIVACY_CONSENT_STATUS,
+  HOUSEHOLD_PRIVACY_NOTICE_VERSION,
+  HOUSEHOLD_PRIVACY_SYNC_STATUS,
+} = require("../config/privacyNotice");
 const { ALLOWED_AGE_UNITS } = require("../utils/ageGroup");
 
 const uuidPattern =
@@ -14,13 +19,29 @@ const validateUuidArray = (values) => {
   return values.every((value) => isValidUuid(value));
 };
 
+const isValidDateString = (value) => {
+  if (typeof value !== "string" || !value.trim()) {
+    return false;
+  }
+
+  return !Number.isNaN(new Date(value).getTime());
+};
+
 const MAX_FAMILY_HEAD_PHOTO_URL_LENGTH = 4_500_000;
 const MAX_PHOTO_VERIFICATION_NOTES_LENGTH = 1_000;
 const MAX_CONTACT_NUMBER_LENGTH = 50;
 const MAX_CURRENT_ADDRESS_LENGTH = 500;
 const MAX_CORRECTION_REMARKS_LENGTH = 1000;
+const MAX_PRIVACY_NOTICE_VERSION_LENGTH = 100;
+const MAX_PRIVACY_ACKNOWLEDGED_NAME_LENGTH = 200;
+const MAX_PRIVACY_RELATIONSHIP_LENGTH = 100;
 
-const validateCreateHouseholdRegistration = (req, res, next) => {
+const validateHouseholdRegistrationRequest = (
+  req,
+  res,
+  next,
+  { requirePrivacyAcknowledgment = true } = {},
+) => {
   try {
     const {
       disaster_event_id,
@@ -37,6 +58,7 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
       household_sector_ids,
       family_head_photo_url,
       photo_verification_notes,
+      privacy_acknowledgment,
     } = req.body;
 
     if (!isValidUuid(disaster_event_id)) {
@@ -263,6 +285,152 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
       });
     }
 
+    if (
+      privacy_acknowledgment !== undefined &&
+      privacy_acknowledgment !== null &&
+      typeof privacy_acknowledgment !== "object"
+    ) {
+      return res.status(400).json({
+        message:
+          "privacy_acknowledgment must be an object when provided",
+      });
+    }
+
+    if (requirePrivacyAcknowledgment && !privacy_acknowledgment) {
+      return res.status(400).json({
+        message:
+          "Data Privacy Notice acknowledgment is required before the family can be registered.",
+      });
+    }
+
+    let normalizedPrivacyAcknowledgment = null;
+
+    if (privacy_acknowledgment) {
+      const {
+        consent_status,
+        notice_version,
+        acknowledged_at,
+        acknowledged_by_name,
+        representative_relationship,
+        device_id,
+        is_offline_encoded,
+        sync_status,
+      } = privacy_acknowledgment;
+
+      if (consent_status !== HOUSEHOLD_PRIVACY_CONSENT_STATUS.ACKNOWLEDGED) {
+        return res.status(400).json({
+          message:
+            "Data Privacy Notice acknowledgment is required before the family can be registered.",
+        });
+      }
+
+      if (
+        typeof notice_version !== "string" ||
+        !notice_version.trim() ||
+        notice_version.length > MAX_PRIVACY_NOTICE_VERSION_LENGTH
+      ) {
+        return res.status(400).json({
+          message:
+            "privacy_acknowledgment.notice_version is required and must be 100 characters or fewer",
+        });
+      }
+
+      if (notice_version.trim() !== HOUSEHOLD_PRIVACY_NOTICE_VERSION) {
+        return res.status(400).json({
+          message:
+            "privacy_acknowledgment.notice_version is invalid or outdated",
+        });
+      }
+
+      if (!isValidDateString(acknowledged_at)) {
+        return res.status(400).json({
+          message:
+            "privacy_acknowledgment.acknowledged_at must be a valid ISO date string",
+        });
+      }
+
+      if (
+        acknowledged_by_name !== undefined &&
+        acknowledged_by_name !== null &&
+        (typeof acknowledged_by_name !== "string" ||
+          !acknowledged_by_name.trim() ||
+          acknowledged_by_name.length > MAX_PRIVACY_ACKNOWLEDGED_NAME_LENGTH)
+      ) {
+        return res.status(400).json({
+          message:
+            "privacy_acknowledgment.acknowledged_by_name must be 200 characters or fewer when provided",
+        });
+      }
+
+      if (
+        representative_relationship !== undefined &&
+        representative_relationship !== null &&
+        (typeof representative_relationship !== "string" ||
+          representative_relationship.length > MAX_PRIVACY_RELATIONSHIP_LENGTH)
+      ) {
+        return res.status(400).json({
+          message:
+            "privacy_acknowledgment.representative_relationship must be 100 characters or fewer when provided",
+        });
+      }
+
+      if (
+        device_id !== undefined &&
+        device_id !== null &&
+        !isValidUuid(device_id)
+      ) {
+        return res.status(400).json({
+          message:
+            "privacy_acknowledgment.device_id must be a valid UUID or null",
+        });
+      }
+
+      if (
+        is_offline_encoded !== undefined &&
+        typeof is_offline_encoded !== "boolean"
+      ) {
+        return res.status(400).json({
+          message:
+            "privacy_acknowledgment.is_offline_encoded must be a boolean when provided",
+        });
+      }
+
+      if (
+        sync_status !== undefined &&
+        sync_status !== null &&
+        !Object.values(HOUSEHOLD_PRIVACY_SYNC_STATUS).includes(
+          String(sync_status).toUpperCase(),
+        )
+      ) {
+        return res.status(400).json({
+          message:
+            "privacy_acknowledgment.sync_status must be PENDING, SYNCED, FAILED, or CONFLICT when provided",
+        });
+      }
+
+      normalizedPrivacyAcknowledgment = {
+        consent_status,
+        notice_version: notice_version.trim(),
+        acknowledged_at,
+        acknowledged_by_name:
+          typeof acknowledged_by_name === "string" &&
+          acknowledged_by_name.trim()
+            ? acknowledged_by_name.trim()
+            : null,
+        representative_relationship:
+          typeof representative_relationship === "string" &&
+          representative_relationship.trim()
+            ? representative_relationship.trim()
+            : null,
+        device_id: device_id ?? null,
+        is_offline_encoded: is_offline_encoded === true,
+        sync_status:
+          typeof sync_status === "string" && sync_status.trim()
+            ? sync_status.trim().toUpperCase()
+            : null,
+      };
+    }
+
     if (!Array.isArray(members)) {
       return res.status(400).json({
         message: "members must be an array",
@@ -413,6 +581,7 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
         photo_verification_notes.trim()
           ? photo_verification_notes.trim()
           : null,
+      privacy_acknowledgment: normalizedPrivacyAcknowledgment,
       members: members.map((member) => ({
         id:
           typeof member.id === "string" && member.id.trim()
@@ -458,6 +627,12 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
       error: error.message,
     });
   }
+};
+
+const validateCreateHouseholdRegistration = (req, res, next) => {
+  return validateHouseholdRegistrationRequest(req, res, next, {
+    requirePrivacyAcknowledgment: true,
+  });
 };
 
 const validateDepartHousehold = (req, res, next) => {
@@ -707,12 +882,14 @@ const validateUpdateHouseholdDetails = (req, res, next) => {
 
     req.params.householdId = householdId;
 
-    return validateCreateHouseholdRegistration(req, res, () => {
+    return validateHouseholdRegistrationRequest(req, res, () => {
       req.validatedParams = {
         householdId,
       };
 
       return next();
+    }, {
+      requirePrivacyAcknowledgment: false,
     });
   } catch (error) {
     return res.status(500).json({

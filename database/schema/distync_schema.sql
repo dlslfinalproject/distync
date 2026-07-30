@@ -220,6 +220,29 @@ CREATE TABLE public.households (
   CONSTRAINT households_photo_captured_by_fkey FOREIGN KEY (photo_captured_by) REFERENCES public.users(id)
 );
 
+CREATE TABLE public.household_privacy_consents (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  household_id uuid NOT NULL,
+  disaster_event_id uuid NOT NULL,
+  consent_status character varying NOT NULL CHECK (consent_status::text = ANY (ARRAY['ACKNOWLEDGED'::character varying, 'DECLINED'::character varying, 'WITHDRAWN'::character varying]::text[])),
+  notice_version character varying NOT NULL,
+  acknowledged_at timestamp with time zone NOT NULL,
+  acknowledged_by_name character varying NOT NULL,
+  representative_relationship character varying,
+  recorded_by uuid NOT NULL,
+  recorded_at timestamp with time zone NOT NULL DEFAULT now(),
+  device_id uuid,
+  is_offline_encoded boolean NOT NULL DEFAULT false,
+  sync_status character varying NOT NULL DEFAULT 'SYNCED'::character varying CHECK (sync_status::text = ANY (ARRAY['PENDING'::character varying, 'SYNCED'::character varying, 'FAILED'::character varying, 'CONFLICT'::character varying]::text[])),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT household_privacy_consents_pkey PRIMARY KEY (id),
+  CONSTRAINT household_privacy_consents_household_id_fkey FOREIGN KEY (household_id) REFERENCES public.households(id),
+  CONSTRAINT household_privacy_consents_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id),
+  CONSTRAINT household_privacy_consents_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES public.users(id),
+  CONSTRAINT household_privacy_consents_device_id_fkey FOREIGN KEY (device_id) REFERENCES public.devices(id)
+);
+
 CREATE TABLE public.evacuees (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   household_id uuid NOT NULL,
