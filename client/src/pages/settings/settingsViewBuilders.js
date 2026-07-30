@@ -55,8 +55,8 @@ const buildNotificationSectionCard = (
       : "No role rules found",
   );
 
-const buildSyncSectionCard = (section, syncStatus) =>
-  buildDefaultSectionCard(section, syncStatus.tone, syncStatus.label);
+const buildSyncSectionCard = (section) =>
+  buildDefaultSectionCard(section, "info", "Information");
 
 export const getSectionsForRole = ({
   isBarangayRole,
@@ -84,11 +84,7 @@ export const getActiveSettingsSection = (sections, activeSection) =>
 export const buildBarangaySectionCards = ({
   preferences,
   enabledRuleCodes,
-  syncSummary,
-  isOnline,
 }) => {
-  const syncStatus = getSyncStatusMeta(syncSummary, isOnline);
-
   return BARANGAY_SETTINGS_SECTIONS.map((section) => {
     switch (section.key) {
       case "account-settings":
@@ -100,7 +96,7 @@ export const buildBarangaySectionCards = ({
           `${enabledRuleCodes.length} rules enabled`,
         );
       case "sync-preferences":
-        return buildSyncSectionCard(section, syncStatus);
+        return buildSyncSectionCard(section);
       default:
         return buildDefaultSectionCard(section);
     }
@@ -111,11 +107,7 @@ export const buildMswdoSectionCards = ({
   preferences,
   enabledRuleCodes,
   notificationRuleCount,
-  syncSummary,
-  isOnline,
 }) => {
-  const syncStatus = getSyncStatusMeta(syncSummary, isOnline);
-
   return MSWDO_SETTINGS_SECTIONS.map((section) => {
     switch (section.key) {
       case "account-settings":
@@ -127,7 +119,7 @@ export const buildMswdoSectionCards = ({
           notificationRuleCount,
         );
       case "sync-preferences":
-        return buildSyncSectionCard(section, syncStatus);
+        return buildSyncSectionCard(section);
       default:
         return buildDefaultSectionCard(section);
     }
@@ -138,11 +130,7 @@ export const buildMayorSectionCards = ({
   preferences,
   enabledRuleCodes,
   notificationRuleCount,
-  syncSummary,
-  isOnline,
 }) => {
-  const syncStatus = getSyncStatusMeta(syncSummary, isOnline);
-
   return MAYOR_SETTINGS_SECTIONS.map((section) => {
     switch (section.key) {
       case "account-settings":
@@ -154,7 +142,7 @@ export const buildMayorSectionCards = ({
           notificationRuleCount,
         );
       case "sync-preferences":
-        return buildSyncSectionCard(section, syncStatus);
+        return buildSyncSectionCard(section);
       default:
         return buildDefaultSectionCard(section);
     }

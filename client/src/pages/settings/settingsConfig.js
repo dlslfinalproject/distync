@@ -63,10 +63,10 @@ export const BARANGAY_SETTINGS_SECTIONS = [
   },
   {
     key: "sync-preferences",
-    label: "Sync Preferences",
+    label: "System Information",
     icon: FiRefreshCw,
     description:
-      "Review offline sync status, pending records, and the latest synchronization details.",
+      "View general information about the DISTYNC application.",
   },
 ];
 
@@ -164,10 +164,10 @@ export const MSWDO_SETTINGS_SECTIONS = [
   },
   {
     key: "sync-preferences",
-    label: "Sync Preferences",
+    label: "System Information",
     icon: FiRefreshCw,
     description:
-      "Review offline sync status, pending records, and the latest synchronization details.",
+      "View general information about the DISTYNC application.",
   },
 ];
 
@@ -193,10 +193,10 @@ export const MAYOR_SETTINGS_SECTIONS = [
   },
   {
     key: "sync-preferences",
-    label: "Sync Preferences",
+    label: "System Information",
     icon: FiRefreshCw,
     description:
-      "Review offline sync status, pending records, and the latest synchronization details.",
+      "View general information about the DISTYNC application.",
   },
 ];
 

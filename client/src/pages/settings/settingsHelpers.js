@@ -276,8 +276,9 @@ export const getSyncStatusMeta = (syncSummary, isOnline) => {
   if (!isOnline) {
     return {
       tone: "warning",
-      label: "Pending",
-      description: "Offline mode is active. Local changes will sync later.",
+      label: "Pending Synchronization",
+      displayLabel: "⏳ Pending Synchronization",
+      description: "There are records waiting to be synchronized.",
     };
   }
 
@@ -287,23 +288,26 @@ export const getSyncStatusMeta = (syncSummary, isOnline) => {
   ) {
     return {
       tone: "error",
-      label: "Failed",
-      description: "Some records need sync review before LGU coordination is complete.",
+      label: "Requires Attention",
+      displayLabel: "⚠ Requires Attention",
+      description: "Some records require review before synchronization can be completed.",
     };
   }
 
   if (syncSummary[LOCAL_SYNC_STATUS.PENDING] > 0) {
     return {
       tone: "warning",
-      label: "Pending",
-      description: "Queued records are waiting to be synced with the LGU.",
+      label: "Pending Synchronization",
+      displayLabel: "⏳ Pending Synchronization",
+      description: "There are records waiting to be synchronized.",
     };
   }
 
   return {
     tone: "success",
     label: "Synced",
-    description: "Barangay records are currently aligned with the LGU data flow.",
+    displayLabel: "✓ Synced",
+    description: "All data has been successfully synchronized.",
   };
 };
 
