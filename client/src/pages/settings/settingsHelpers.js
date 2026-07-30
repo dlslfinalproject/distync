@@ -169,9 +169,7 @@ export const getNotificationPreferenceValidationErrors = ({
 
   if (invalidRuleCodes.length > 0) {
     errors.notificationRules =
-      invalidRuleCodes.length === 1
-        ? `Notification rule ${invalidRuleCodes[0]} is not available for your role.`
-        : "One or more notification rules are not available for your role.";
+      "Some notification preferences are no longer available for your account role. Reset your notification settings and save again.";
   }
 
   return errors;

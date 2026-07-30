@@ -1,6 +1,5 @@
 import { ROLE_CODES } from "../../utils/roleSession";
 import {
-  BARANGAY_NOTIFICATION_OPTIONS,
   BARANGAY_POSITION_LABEL,
   getNotificationOptionsForRole,
   ROLE_DISPLAY_NAMES,
@@ -18,21 +17,21 @@ const DASHBOARD_DESCRIPTIONS = {
 const NOTIFICATION_SECTION_COPY = {
   [ROLE_CODES.BARANGAY]: {
     description:
-      "Manage the notification preferences that control which barangay coordination alerts reach your account.",
+      "Manage which DISTYNC notification categories can reach your account and choose your preferred delivery method.",
     alertChannelsDescription:
-      "Choose which notification categories stay enabled for your account and whether DISTYNC should deliver them in-app, by email, or both.",
+      "Turn each delivery channel on or off for the notification categories available to your role.",
   },
   [ROLE_CODES.MSWDO]: {
     description:
-      "Manage the notification preferences that control which MSWDO coordination alerts reach your account.",
+      "Manage which DISTYNC notification categories can reach your account and choose your preferred delivery method.",
     alertChannelsDescription:
-      "Choose which notification categories stay enabled for your account and whether DISTYNC should deliver them in-app, by email, or both.",
+      "Turn each delivery channel on or off for the notification categories available to your role.",
   },
   [ROLE_CODES.MAYOR]: {
     description:
-      "Manage the notification preferences that control which Office of the Mayor alerts reach your account.",
+      "Manage which DISTYNC notification categories can reach your account and choose your preferred delivery method.",
     alertChannelsDescription:
-      "Choose which notification categories stay enabled for your account and whether DISTYNC should deliver them in-app, by email, or both.",
+      "Turn each delivery channel on or off for the notification categories available to your role.",
   },
 };
 
@@ -71,23 +70,6 @@ const buildSharedSectionComponentProps = (ctx) => ({
   enabledRuleCodes: ctx.enabledRuleCodes,
   toggleNotificationRule: ctx.toggleNotificationRule,
 });
-
-const buildNotificationSummaryRows = (ctx) => {
-  return [
-    {
-      label: "Unread Notifications",
-      value: `${ctx.unreadCount}`,
-    },
-    {
-      label: "Active Rules for This Role",
-      value: `${ctx.notificationRuleCount}`,
-    },
-    {
-      label: "Rules Enabled Locally",
-      value: `${ctx.enabledRuleCodes.length}`,
-    },
-  ];
-};
 
 export const getSettingsDashboardDescription = (roleCode) =>
   DASHBOARD_DESCRIPTIONS[roleCode] || DASHBOARD_DESCRIPTIONS[ROLE_CODES.BARANGAY];
@@ -247,6 +229,5 @@ export const buildOfficeProfileSectionProps = (ctx) => {
 export const buildNotificationSectionProps = (ctx) => ({
   ...buildSharedSectionComponentProps(ctx),
   notificationOptions: getNotificationOptionsForRole(ctx.roleCode),
-  summaryRows: buildNotificationSummaryRows(ctx),
   ...NOTIFICATION_SECTION_COPY[ctx.roleCode],
 });
