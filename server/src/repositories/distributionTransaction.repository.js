@@ -580,6 +580,7 @@ const getDistributionHistory = async ({
       dt.updated_at,
       de.event_code,
       de.title AS disaster_event_title,
+      de.status AS disaster_event_status,
       b.id AS barangay_id,
       b.name AS barangay_name,
       s.stub_no,
