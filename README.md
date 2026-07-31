@@ -116,6 +116,35 @@ state is not reused in `DEVELOPMENT`.
 - Offline queue records include access mode, user ID, and role code metadata.
 - PWA runtime caches use mode-specific cache names.
 
+### Account Settings cache lifecycle
+
+Account Settings cache entries use mode-scoped keys and validated metadata.
+DISTYNC stores them under keys shaped like:
+
+- `distync:<ACCESS_MODE>:role-settings:<ROLE_CODE>:<USER_ID>`
+
+Each cached value also records:
+
+- Cache format version
+- Access mode
+- User ID
+- Role code
+- Cache timestamp
+
+The cache is accepted only when the key and stored metadata both match the
+current authenticated owner context.
+
+### Account Settings cache cleanup
+
+- Logout clears all Account Settings cache entries for the current user in the current mode.
+- Switching to a different authenticated user clears the previous user’s Account Settings cache in the current mode.
+- Switching between `DEVELOPMENT` and `DEMO` clears Account Settings cache entries for both modes.
+- Invalid stored sessions and API authentication failures clear the affected Account Settings cache.
+- Legacy unscoped settings cache entries such as `distync-role-settings:*` are deleted and never reused.
+- Same-user, same-role, same-mode cache may still be used for offline fallback when the network fails but authentication remains valid.
+- Unauthenticated state does not receive Account Settings cache fallback.
+- Account Settings cache cleanup does not delete IndexedDB offline queue records or other operational offline data.
+
 ### Mode switch behavior
 
 When the same browser switches between `DEVELOPMENT` and `DEMO`:

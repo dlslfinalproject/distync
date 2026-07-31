@@ -290,7 +290,7 @@ const EmptyState = ({ message }) => (
 
 const RoleSettingsPage = () => {
   const navigate = useNavigate();
-  const { currentRole, authenticatedUser, syncAuthState } = useAuth();
+  const { accessMode, currentRole, authenticatedUser, syncAuthState } = useAuth();
   const syncEntries =
     useLiveQuery(() => getVisibleSyncQueueEntriesByUpdatedAt(), [], []) ||
     [];
@@ -328,6 +328,7 @@ const RoleSettingsPage = () => {
     emailAddress: false,
   });
   const profilePictureInputRef = useRef(null);
+  const settingsOwnerKeyRef = useRef("");
 
   const roleMeta = useMemo(() => getRoleMeta(currentRole), [currentRole]);
   const syncSummary = useMemo(() => buildSyncSummary(syncEntries), [syncEntries]);
@@ -335,6 +336,13 @@ const RoleSettingsPage = () => {
   const isBarangayRole = currentRole === ROLE_CODES.BARANGAY;
   const isMswdoRole = currentRole === ROLE_CODES.MSWDO;
   const isMayorRole = currentRole === ROLE_CODES.MAYOR;
+  const settingsOwnerKey = useMemo(() => {
+    if (!accessMode || !currentRole || !authenticatedUser?.id) {
+      return "";
+    }
+
+    return `${accessMode}:${currentRole}:${authenticatedUser.id}`;
+  }, [accessMode, authenticatedUser?.id, currentRole]);
   const applyAuthenticatedUserProfileFallbacks = (profilePreferences) => {
     const normalizedPreferences = normalizeRolePreferences(profilePreferences);
     const fallbackFullName =
@@ -398,11 +406,56 @@ const RoleSettingsPage = () => {
   }, [isBarangayRole, isMayorRole, isMswdoRole]);
 
   useEffect(() => {
+    if (!settingsOwnerKey) {
+      settingsOwnerKeyRef.current = "";
+      setPreferences(createDefaultRolePreferences());
+      setSavedProfilePreferences(createDefaultRolePreferences());
+      setProfileErrors({
+        fullName: "",
+        contactNumber: "",
+        emailAddress: "",
+      });
+      setProfileTouched({
+        fullName: false,
+        contactNumber: false,
+        emailAddress: false,
+      });
+      setNotificationTouched(false);
+      setNotificationRules([]);
+      setAssignedBarangayName("--");
+      setUnreadCount(0);
+      setErrorMessage("");
+      setIsLoading(false);
+      return;
+    }
+
+    const resetPreferences = applyAuthenticatedUserProfileFallbacks(
+      createDefaultRolePreferences(),
+    );
+    settingsOwnerKeyRef.current = settingsOwnerKey;
+    setPreferences(resetPreferences);
+    setSavedProfilePreferences(resetPreferences);
+    setProfileErrors({
+      fullName: "",
+      contactNumber: "",
+      emailAddress: "",
+    });
+    setProfileTouched({
+      fullName: false,
+      contactNumber: false,
+      emailAddress: false,
+    });
+    setErrorMessage("");
+    setIsLoading(true);
+  }, [settingsOwnerKey]);
+
+  useEffect(() => {
     if (!currentRole || !authenticatedUser) {
       return;
     }
 
     let isMounted = true;
+    const ownerKey = settingsOwnerKey;
 
     const loadPersistedRoleSettings = async () => {
       const loadedSettings = await loadRoleSettings({
@@ -410,7 +463,7 @@ const RoleSettingsPage = () => {
         userId: authenticatedUser.id,
       });
 
-      if (!isMounted) {
+      if (!isMounted || settingsOwnerKeyRef.current !== ownerKey) {
         return;
       }
 
@@ -425,7 +478,7 @@ const RoleSettingsPage = () => {
     return () => {
       isMounted = false;
     };
-  }, [authenticatedUser, currentRole]);
+  }, [authenticatedUser, currentRole, settingsOwnerKey]);
 
   useEffect(() => {
     if (!authenticatedUser) {
@@ -555,6 +608,7 @@ const RoleSettingsPage = () => {
 
       setIsLoading(true);
       setErrorMessage("");
+      const ownerKey = settingsOwnerKey;
 
       try {
         const requests = [
@@ -571,6 +625,10 @@ const RoleSettingsPage = () => {
         const [notificationRuleResponse, unreadResponse, barangayResponse] =
           await Promise.all(requests);
 
+        if (settingsOwnerKeyRef.current !== ownerKey) {
+          return;
+        }
+
         const rules = Array.isArray(notificationRuleResponse?.data)
           ? notificationRuleResponse.data
           : [];
@@ -586,14 +644,18 @@ const RoleSettingsPage = () => {
           setAssignedBarangayName("--");
         }
       } catch (error) {
-        setErrorMessage(error.message || "Failed to load settings.");
+        if (settingsOwnerKeyRef.current === ownerKey) {
+          setErrorMessage(error.message || "Failed to load settings.");
+        }
       } finally {
-        setIsLoading(false);
+        if (settingsOwnerKeyRef.current === ownerKey) {
+          setIsLoading(false);
+        }
       }
     };
 
     loadSettingsData();
-  }, [authenticatedUser, currentRole]);
+  }, [authenticatedUser, currentRole, settingsOwnerKey]);
 
   useEffect(() => {
     if (!isBarangayRole && !isMswdoRole && !isMayorRole) {

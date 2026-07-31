@@ -6,6 +6,35 @@ import {
   removeStorageKey,
 } from "./modeStorage.js";
 
+export const AUTH_SESSION_INVALIDATED_EVENT =
+  "distync:auth-session-invalidated";
+
+let pendingAuthSessionInvalidation = null;
+
+const dispatchAuthSessionInvalidated = ({ mode, userId, reason }) => {
+  pendingAuthSessionInvalidation = {
+    mode,
+    userId: userId || "",
+    reason,
+  };
+
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(
+    new CustomEvent(AUTH_SESSION_INVALIDATED_EVENT, {
+      detail: pendingAuthSessionInvalidation,
+    }),
+  );
+};
+
+export const consumePendingAuthSessionInvalidation = () => {
+  const invalidation = pendingAuthSessionInvalidation;
+  pendingAuthSessionInvalidation = null;
+  return invalidation;
+};
+
 export const ROLE_CODES = {
   BARANGAY: "BARANGAY",
   MSWDO: "MSWDO",
@@ -64,17 +93,28 @@ export const getAuthenticatedSessionForMode = (mode) => {
     const parsedValue = JSON.parse(storedValue);
     const authenticatedRole = parsedValue?.user?.role;
     const storedMode = parsedValue?.accessMode;
+    const storedUserId = parsedValue?.user?.id || "";
 
     if (
       !validRoles.includes(authenticatedRole) ||
       !isStoredModeCurrent(storedMode, mode)
     ) {
+      dispatchAuthSessionInvalidated({
+        mode,
+        userId: storedUserId,
+        reason: "stored-session-mismatch",
+      });
       removeStorageKey(sessionStorageKey);
       return null;
     }
 
     return parsedValue;
   } catch (error) {
+    dispatchAuthSessionInvalidated({
+      mode,
+      userId: "",
+      reason: "stored-session-malformed",
+    });
     removeStorageKey(sessionStorageKey);
     return null;
   }

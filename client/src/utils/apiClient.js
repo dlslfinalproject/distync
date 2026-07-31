@@ -1,5 +1,6 @@
 import { getAccessMode } from "./accessMode.js";
 import {
+  AUTH_SESSION_INVALIDATED_EVENT,
   getAuthenticatedSession,
   getAuthenticatedSessionForMode,
 } from "./roleSession.js";
@@ -46,11 +47,27 @@ export const installAuthenticatedFetch = () => {
       headers.set("Authorization", `Bearer ${accessToken}`);
     }
 
-    return nativeFetch(
+    const authenticatedResponse = await nativeFetch(
       new Request(request, {
         headers,
       }),
     );
+
+    if (authenticatedResponse.status === 401) {
+      const activeSession = getAuthenticatedSessionForMode(getAccessMode());
+
+      window.dispatchEvent(
+        new CustomEvent(AUTH_SESSION_INVALIDATED_EVENT, {
+          detail: {
+            mode: getAccessMode(),
+            userId: activeSession?.user?.id || "",
+            reason: "api-401",
+          },
+        }),
+      );
+    }
+
+    return authenticatedResponse;
   };
 
   window.__distyncAuthenticatedFetchInstalled = true;

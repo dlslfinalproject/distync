@@ -65,6 +65,9 @@ class MemoryStorage {
 const createWindow = (storage = new MemoryStorage()) => {
   globalThis.window = {
     localStorage: storage,
+    dispatchEvent() {
+      return true;
+    },
   };
 
   return storage;

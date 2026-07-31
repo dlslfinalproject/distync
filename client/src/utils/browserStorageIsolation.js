@@ -1,5 +1,9 @@
 import Dexie from "dexie";
 import {
+  clearLegacyRoleSettingsCaches,
+  clearModeRoleSettingsCaches,
+} from "../features/settings/settingsService.js";
+import {
   getKnownObsoleteCacheNames,
 } from "../pwa/cacheNames.js";
 import { ACCESS_MODES, getAccessMode } from "./accessMode.js";
@@ -84,9 +88,12 @@ export const prepareModeScopedBrowserState = async ({
     previousMode !== currentMode;
 
   clearLegacyStorage(storage);
+  clearLegacyRoleSettingsCaches();
 
   if (hasModeChanged) {
     clearAllModeAuthStorage(storage);
+    clearModeRoleSettingsCaches({ mode: previousMode });
+    clearModeRoleSettingsCaches({ mode: currentMode });
   }
 
   await deleteLegacyOfflineDatabase();

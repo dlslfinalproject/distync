@@ -36,7 +36,10 @@ export const parseAccessMode = (value) => {
 };
 
 export const validateAccessMode = (env) => {
-  const envSource = env || import.meta.env;
+  const envSource =
+    env ||
+    import.meta.env ||
+    (typeof process !== "undefined" ? process.env : undefined);
   return parseAccessMode(envSource?.VITE_ACCESS_MODE);
 };
 

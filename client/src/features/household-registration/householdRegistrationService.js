@@ -1,7 +1,7 @@
 import {
   buildOfflineQueuedResponse,
   performSyncableMutation,
-} from "../../offline/syncService";
+} from "../../offline/syncService.js";
 import { HOUSEHOLD_PRIVACY_OFFLINE_MESSAGE } from "./privacyNotice.mjs";
 import {
   getRegistrationStorageKey,
@@ -9,10 +9,10 @@ import {
   removeStorageKey,
   removeStorageKeysByPrefix,
   writeStorageValue,
-} from "../../utils/modeStorage";
+} from "../../utils/modeStorage.js";
 
 const API_BASE_URL =
-import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+  import.meta.env?.VITE_API_BASE_URL || "http://localhost:5000";
 
 const REGISTRATION_CACHE_KEYS = {
   activeDisasterEvents: "active-disaster-events",
