@@ -13,7 +13,7 @@ class AccessModeConfigurationError extends Error {
 }
 
 const getServerAccessModeConfigurationErrorMessage = () => {
-  return "DISTYNC server configuration error: SERVER_ACCESS_MODE must be set to DEVELOPMENT or DEMO.";
+  return "DISTYNC server configuration error: SERVER_ACCESS_MODE must be set exactly to DEVELOPMENT or DEMO.";
 };
 
 const parseServerAccessMode = (value) => {
@@ -39,11 +39,11 @@ const getServerAccessMode = (env = process.env) => {
 };
 
 const parseDevelopmentBypassFlag = (value) => {
-  if (typeof value !== "string" || !value.trim()) {
+  if (typeof value !== "string") {
     return false;
   }
 
-  return value.trim().toLowerCase() === "true";
+  return value === "true";
 };
 
 const isDevelopmentBypassEnabled = (env = process.env) => {

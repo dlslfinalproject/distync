@@ -14,7 +14,7 @@ export class AccessModeConfigurationError extends Error {
 }
 
 export const getAccessModeConfigurationErrorMessage = () => {
-  return `${ACCESS_MODE_ENV_NAME} must be set to DEVELOPMENT or DEMO.`;
+  return `DISTYNC frontend configuration error: ${ACCESS_MODE_ENV_NAME} must be set exactly to DEVELOPMENT or DEMO.`;
 };
 
 export const parseAccessMode = (value) => {

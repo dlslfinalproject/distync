@@ -8,6 +8,7 @@ import AccessModeConfigurationScreen from "../src/components/shared/AccessModeCo
 import {
   ACCESS_MODES,
   AccessModeConfigurationError,
+  parseAccessMode,
   getEntryRouteForMode,
   validateAccessMode,
 } from "../src/utils/accessMode.js";
@@ -29,31 +30,50 @@ test("frontend access mode accepts DEMO", () => {
   );
 });
 
-test("frontend access mode rejects missing values", () => {
-  assert.throws(
-    () => validateAccessMode({}),
-    (error) => {
-      assert.equal(error instanceof AccessModeConfigurationError, true);
-      assert.match(error.message, /VITE_ACCESS_MODE/);
-      assert.match(error.message, /DEVELOPMENT/);
-      assert.match(error.message, /DEMO/);
-      return true;
-    },
-  );
+test("frontend access mode parser follows the canonical matrix", () => {
+  const acceptedCases = [
+    ["DEVELOPMENT", ACCESS_MODES.DEVELOPMENT],
+    ["DEMO", ACCESS_MODES.DEMO],
+    [" DEVELOPMENT ", ACCESS_MODES.DEVELOPMENT],
+    [" DEMO ", ACCESS_MODES.DEMO],
+  ];
+  const rejectedCases = [
+    undefined,
+    null,
+    "",
+    "   ",
+    "development",
+    "Development",
+    "demo",
+    "Demo",
+    "PRODUCTION",
+    "production",
+    "DEV",
+    "INVALID",
+  ];
+
+  acceptedCases.forEach(([value, expected]) => {
+    assert.equal(parseAccessMode(value), expected);
+  });
+
+  rejectedCases.forEach((value) => {
+    assert.throws(
+      () => parseAccessMode(value),
+      (error) => {
+        assert.equal(error instanceof AccessModeConfigurationError, true);
+        assert.match(error.message, /DISTYNC frontend configuration error:/);
+        assert.match(error.message, /VITE_ACCESS_MODE/);
+        assert.match(error.message, /DEVELOPMENT/);
+        assert.match(error.message, /DEMO/);
+        assert.match(error.message, /exactly/);
+        return true;
+      },
+    );
+  });
 });
 
-test("frontend access mode rejects empty values", () => {
-  assert.throws(
-    () => validateAccessMode({ VITE_ACCESS_MODE: "   " }),
-    /VITE_ACCESS_MODE must be set to DEVELOPMENT or DEMO/,
-  );
-});
-
-test("frontend access mode rejects invalid values without fallback", () => {
-  assert.throws(
-    () => validateAccessMode({ VITE_ACCESS_MODE: "INVALID" }),
-    /VITE_ACCESS_MODE must be set to DEVELOPMENT or DEMO/,
-  );
+test("frontend access mode rejects missing values without fallback", () => {
+  assert.throws(() => validateAccessMode({}), /VITE_ACCESS_MODE/);
 });
 
 test("entry route stays aligned with the validated access mode", () => {
@@ -73,7 +93,7 @@ test("configuration error screen renders the required user guidance", () => {
   );
   assert.match(
     markup,
-    /Set VITE_ACCESS_MODE to DEVELOPMENT or DEMO, then restart the application\./,
+    /Set VITE_ACCESS_MODE exactly to DEVELOPMENT or DEMO, then restart the application\./,
   );
   assert.doesNotMatch(markup, /role-switcher/i);
 });

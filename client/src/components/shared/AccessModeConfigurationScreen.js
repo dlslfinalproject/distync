@@ -68,7 +68,7 @@ const AccessModeConfigurationScreen = () => {
       React.createElement(
         "p",
         { style: { margin: 0, color: "#60738a", lineHeight: 1.7 } },
-        "Set VITE_ACCESS_MODE to DEVELOPMENT or DEMO, then restart the application.",
+        "Set VITE_ACCESS_MODE exactly to DEVELOPMENT or DEMO, then restart the application.",
       ),
     ),
   );

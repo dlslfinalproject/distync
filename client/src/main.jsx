@@ -16,7 +16,7 @@ const root = ReactDOM.createRoot(document.getElementById("root"));
 
 const renderConfigurationErrorScreen = () => {
   console.error(
-    "DISTYNC configuration error: VITE_ACCESS_MODE must be set to DEVELOPMENT or DEMO.",
+    "DISTYNC frontend configuration error: VITE_ACCESS_MODE must be set exactly to DEVELOPMENT or DEMO.",
   );
 
   root.render(

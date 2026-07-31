@@ -6,6 +6,14 @@ DISTYNC uses an explicit access mode for both the frontend and backend.
 No access mode is guessed from `NODE_ENV`, Vite build mode, or missing
 environment variables.
 
+DISTYNC has exactly two application access modes:
+
+| Environment purpose | Frontend | Backend | Development bypass |
+| --- | --- | --- | --- |
+| Local development | `DEVELOPMENT` | `DEVELOPMENT` | `true` when needed |
+| Official demo | `DEMO` | `DEMO` | `false` |
+| Production deployment | `DEMO` | `DEMO` | `false` |
+
 ### Frontend
 
 Set `VITE_ACCESS_MODE` in `client/.env`.
@@ -15,8 +23,36 @@ Set `VITE_ACCESS_MODE` in `client/.env`.
 - `VITE_ACCESS_MODE=DEMO`
   Official-facing demo access. The normal demo login and RBAC flow remain in use.
 
+Use exact uppercase values only. `development`, `Demo`, and `PRODUCTION`
+are invalid.
+
 If `VITE_ACCESS_MODE` is missing or invalid, the normal React application
 does not render. DISTYNC shows a configuration error screen instead.
+
+### Dedicated Frontend Builds
+
+Use the dedicated frontend build commands when you want the build itself
+to choose the access mode.
+
+| Command | Access mode | Intended use |
+| --- | --- | --- |
+| `npm --prefix client run build:development` | `DEVELOPMENT` | Developer testing only |
+| `npm --prefix client run build:demo` | `DEMO` | Official demo and deployment artifact |
+| `npm run build:development` | `DEVELOPMENT` | Root wrapper for the client build |
+| `npm run build:demo` | `DEMO` | Root wrapper for the client build |
+
+These dedicated commands are authoritative. They set the intended
+frontend mode themselves and do not rely on manually editing `client/.env`
+before each build.
+
+- `build:development` always targets `VITE_ACCESS_MODE=DEVELOPMENT` or fails.
+- `build:demo` always targets `VITE_ACCESS_MODE=DEMO` or fails.
+- `build:demo` must not silently produce a development-access artifact.
+- Each build replaces the previous `client/dist` output.
+
+The generic `npm run build` command remains a technical Vite build
+command. It still requires a valid explicit `VITE_ACCESS_MODE` and does
+not select the DISTYNC access mode for you.
 
 ### Backend
 
@@ -27,6 +63,9 @@ Set `SERVER_ACCESS_MODE` in `server/.env`.
 - `SERVER_ACCESS_MODE=DEMO`
   Enables official-facing demo behavior.
 
+Use exact uppercase values only. `demo`, `Development`, and `PRODUCTION`
+are invalid.
+
 If `SERVER_ACCESS_MODE` is missing or invalid, the backend refuses to start.
 
 ### Development Authentication Bypass
@@ -34,15 +73,30 @@ If `SERVER_ACCESS_MODE` is missing or invalid, the backend refuses to start.
 Set `ENABLE_DEVELOPMENT_AUTH_BYPASS=true` only when development access is
 intentionally required.
 
-- Missing, empty, `false`, or invalid values keep the bypass disabled.
+- Only the exact value `true` enables the bypass.
+- Missing, empty, `false`, uppercase variants, spaced values, or invalid values keep the bypass disabled.
 - The bypass works only when `SERVER_ACCESS_MODE=DEVELOPMENT`.
 - `SERVER_ACCESS_MODE=DEMO` always rejects development login even if the bypass
   flag is `true`.
+- `ENABLE_DEMO_AUTH_BYPASS` is not supported.
 
 ### Important Notes
 
+- `PRODUCTION` is not a DISTYNC access mode.
+- Official production deployments use `DEMO` on both frontend and backend.
 - Vite build mode is not the DISTYNC access mode.
 - `NODE_ENV` does not select the DISTYNC access mode.
 - Development access and demo access are intentionally separate.
 - Development access must never be used for official operations.
+
+### Official Deployment Pairing
+
+For an official-facing deployment:
+
+- Build the frontend with `npm run build:demo`
+- Set the backend to `SERVER_ACCESS_MODE=DEMO`
+- Set `ENABLE_DEVELOPMENT_AUTH_BYPASS=false`
+
+The frontend build command does not rewrite backend configuration. The
+backend mode must still be configured separately.
 

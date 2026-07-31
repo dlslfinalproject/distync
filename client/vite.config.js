@@ -1,5 +1,8 @@
 import { defineConfig, loadEnv } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
+import {
+  validateBuildTargetAccessMode,
+} from "./scripts/buildTargetConfig.cjs";
 
 const validateConfiguredAccessMode = (value) => {
   const normalizedValue = typeof value === "string" ? value.trim() : "";
@@ -9,13 +12,20 @@ const validateConfiguredAccessMode = (value) => {
   }
 
   throw new Error(
-    "VITE_ACCESS_MODE must be set to DEVELOPMENT or DEMO.",
+    "DISTYNC frontend configuration error: VITE_ACCESS_MODE must be set exactly to DEVELOPMENT or DEMO.",
   );
 };
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  validateConfiguredAccessMode(env.VITE_ACCESS_MODE);
+  const configuredAccessMode = validateConfiguredAccessMode(env.VITE_ACCESS_MODE);
+
+  if (process.env.DISTYNC_BUILD_TARGET) {
+    validateBuildTargetAccessMode({
+      requestedTarget: process.env.DISTYNC_BUILD_TARGET,
+      effectiveAccessMode: configuredAccessMode,
+    });
+  }
 
   return {
     plugins: [

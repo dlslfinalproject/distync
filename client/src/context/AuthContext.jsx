@@ -42,10 +42,6 @@ export const AuthProvider = ({ children }) => {
   const [authError, setAuthError] = useState("");
   const accessMode = authState.accessMode || getAccessMode();
 
-  if (!accessMode) {
-    throw new Error("VITE_ACCESS_MODE is not defined. Check your .env file.");
-  }
-
   const syncAuthState = useCallback(() => {
     setAuthState(buildAuthState());
   }, []);
