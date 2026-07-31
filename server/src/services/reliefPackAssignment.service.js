@@ -1,4 +1,5 @@
 const reliefPackTemplateRepository = require("../repositories/reliefPackTemplate.repository");
+const disasterEventRepository = require("../repositories/disasterEvent.repository");
 const stubRepository = require("../repositories/stub.repository");
 
 const buildSectorIds = (
@@ -66,6 +67,22 @@ const getAssignedReliefPackTemplatesForSectorIds = (householdSectorIds, template
   return assignedTemplates;
 };
 
+const isTemplateApplicableToDisasterType = (template, disasterType) => {
+  const normalizedDisasterType = String(disasterType || "").trim();
+
+  if (!normalizedDisasterType) {
+    return true;
+  }
+
+  if (template?.applies_to_all_disasters !== false) {
+    return true;
+  }
+
+  return (template?.disaster_types || []).some(
+    (currentType) => String(currentType || "").trim() === normalizedDisasterType,
+  );
+};
+
 const getPrimaryAssignedReliefPackTemplate = (templates) => {
   const standardTemplates = getStandardReliefPackTemplates(templates);
 
@@ -76,24 +93,37 @@ const getPrimaryAssignedReliefPackTemplate = (templates) => {
   return Array.isArray(templates) && templates.length > 0 ? templates[0] : null;
 };
 
-const fetchActiveReliefPackTemplates = async () => {
+const fetchActiveReliefPackTemplates = async (disasterType = null) => {
   return reliefPackTemplateRepository.getReliefPackTemplates({
     is_active: true,
     based_on_family_size: null,
     based_on_sector: null,
     search: "",
+    disaster_type: disasterType,
   });
 };
 
-const resolveAssignedReliefPackTemplatesForHousehold = async (householdId) => {
+const resolveAssignedReliefPackTemplatesForHousehold = async (
+  householdId,
+  disasterEventId = null,
+) => {
   if (!householdId) {
     return [];
+  }
+
+  let disasterType = null;
+
+  if (disasterEventId) {
+    const disasterEvent = await disasterEventRepository.getDisasterEventById(
+      disasterEventId,
+    );
+    disasterType = String(disasterEvent?.disaster_type || "").trim() || null;
   }
 
   const [householdSectors, memberSectors, templates] = await Promise.all([
     stubRepository.getHouseholdSectorsByHouseholdId(householdId),
     stubRepository.getMemberSectorsByHouseholdIds([householdId]),
-    fetchActiveReliefPackTemplates(),
+    fetchActiveReliefPackTemplates(disasterType),
   ]);
 
   const sectorIds = buildSectorIds(
@@ -102,12 +132,20 @@ const resolveAssignedReliefPackTemplatesForHousehold = async (householdId) => {
     { [householdId]: memberSectors },
   );
 
-  return getAssignedReliefPackTemplatesForSectorIds(sectorIds, templates);
+  return getAssignedReliefPackTemplatesForSectorIds(sectorIds, templates).filter(
+    (template) => isTemplateApplicableToDisasterType(template, disasterType),
+  );
 };
 
-const resolvePrimaryAssignedReliefPackTemplateForHousehold = async (householdId) => {
+const resolvePrimaryAssignedReliefPackTemplateForHousehold = async (
+  householdId,
+  disasterEventId = null,
+) => {
   const assignedTemplates =
-    await resolveAssignedReliefPackTemplatesForHousehold(householdId);
+    await resolveAssignedReliefPackTemplatesForHousehold(
+      householdId,
+      disasterEventId,
+    );
 
   return getPrimaryAssignedReliefPackTemplate(assignedTemplates);
 };

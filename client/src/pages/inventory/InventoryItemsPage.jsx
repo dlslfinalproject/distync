@@ -33,6 +33,7 @@ import {
 } from "../../features/inventory-transactions/inventoryTransactionService";
 import db from "../../offline/db";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
+import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
 import {
   hasInventoryExportRows,
 } from "../../features/inventory-items/inventoryItemExportOptions";
@@ -496,7 +497,7 @@ const InventoryItemsPage = () => {
     message: "",
   });
   const syncQueueEntries =
-    useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
+    useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
   const loadInventoryData = async (
     activeFilters = filters,
     options = {},

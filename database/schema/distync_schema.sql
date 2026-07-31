@@ -95,10 +95,11 @@ CREATE TABLE public.user_role_settings (
   user_id uuid NOT NULL,
   role_code character varying NOT NULL,
   profile_picture_data_url text,
+  profile_picture_path text,
   profile_picture_file_name character varying,
+  profile_picture_updated_at timestamp with time zone,
   enabled_notification_rule_codes_json jsonb NOT NULL DEFAULT '[]'::jsonb,
   notification_channels_json jsonb NOT NULL DEFAULT '{}'::jsonb,
-  preferred_export_format character varying NOT NULL DEFAULT 'excel'::character varying CHECK (preferred_export_format::text = ANY (ARRAY['csv'::character varying, 'excel'::character varying, 'pdf'::character varying]::text[])),
   last_profile_update_at timestamp with time zone,
   last_preference_save_at timestamp with time zone NOT NULL DEFAULT now(),
   created_at timestamp with time zone NOT NULL DEFAULT now(),
@@ -218,6 +219,29 @@ CREATE TABLE public.households (
   CONSTRAINT households_registered_by_fkey FOREIGN KEY (registered_by) REFERENCES public.users(id),
   CONSTRAINT fk_households_family_head_evacuee FOREIGN KEY (family_head_evacuee_id) REFERENCES public.evacuees(id),
   CONSTRAINT households_photo_captured_by_fkey FOREIGN KEY (photo_captured_by) REFERENCES public.users(id)
+);
+
+CREATE TABLE public.household_privacy_consents (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  household_id uuid NOT NULL,
+  disaster_event_id uuid NOT NULL,
+  consent_status character varying NOT NULL CHECK (consent_status::text = ANY (ARRAY['ACKNOWLEDGED'::character varying, 'DECLINED'::character varying, 'WITHDRAWN'::character varying]::text[])),
+  notice_version character varying NOT NULL,
+  acknowledged_at timestamp with time zone NOT NULL,
+  acknowledged_by_name character varying NOT NULL,
+  representative_relationship character varying,
+  recorded_by uuid NOT NULL,
+  recorded_at timestamp with time zone NOT NULL DEFAULT now(),
+  device_id uuid,
+  is_offline_encoded boolean NOT NULL DEFAULT false,
+  sync_status character varying NOT NULL DEFAULT 'SYNCED'::character varying CHECK (sync_status::text = ANY (ARRAY['PENDING'::character varying, 'SYNCED'::character varying, 'FAILED'::character varying, 'CONFLICT'::character varying]::text[])),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT household_privacy_consents_pkey PRIMARY KEY (id),
+  CONSTRAINT household_privacy_consents_household_id_fkey FOREIGN KEY (household_id) REFERENCES public.households(id),
+  CONSTRAINT household_privacy_consents_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id),
+  CONSTRAINT household_privacy_consents_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES public.users(id),
+  CONSTRAINT household_privacy_consents_device_id_fkey FOREIGN KEY (device_id) REFERENCES public.devices(id)
 );
 
 CREATE TABLE public.evacuees (
@@ -461,6 +485,7 @@ CREATE TABLE public.relief_pack_templates (
   based_on_sector boolean NOT NULL DEFAULT false,
   is_additional_pack boolean NOT NULL DEFAULT false,
   sector_id uuid,
+  applies_to_all_disasters boolean NOT NULL DEFAULT true,
   created_by uuid,
   is_active boolean NOT NULL DEFAULT true,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
@@ -479,6 +504,16 @@ CREATE TABLE public.relief_pack_template_items (
   CONSTRAINT relief_pack_template_items_pkey PRIMARY KEY (id),
   CONSTRAINT relief_pack_template_items_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.relief_pack_templates(id),
   CONSTRAINT relief_pack_template_items_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id)
+);
+
+CREATE TABLE public.relief_pack_template_disaster_types (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  template_id uuid NOT NULL,
+  disaster_type character varying NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT relief_pack_template_disaster_types_pkey PRIMARY KEY (id),
+  CONSTRAINT relief_pack_template_disaster_types_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.relief_pack_templates(id) ON DELETE CASCADE,
+  CONSTRAINT relief_pack_template_disaster_types_unique UNIQUE (template_id, disaster_type)
 );
 
 -- =========================================================

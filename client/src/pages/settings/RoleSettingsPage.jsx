@@ -6,25 +6,24 @@ import { shellStyles } from "../../components/layout/BarangayLayout";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import { useAuth } from "../../context/AuthContext";
 import { fetchBarangays } from "../../features/disaster-events/disasterEventService";
-import { fetchDistributionHistory } from "../../features/distribution/distributionService";
-import {
-  fetchForecastHealth,
-  fetchInventoryItems,
-} from "../../features/inventory-items/inventoryItemService";
 import {
   fetchCurrentNotificationRules,
   fetchUnreadNotificationCount,
 } from "../../features/notifications/notificationService";
 import {
   loadRoleSettings,
+  refreshCurrentProfilePicture,
+  removeCurrentProfilePicture,
   saveRoleSettings,
+  uploadCurrentProfilePicture,
 } from "../../features/settings/settingsService";
 import { fetchSyncHistory } from "../../features/sync/syncHistoryService";
-import db, { LOCAL_SYNC_STATUS } from "../../offline/db";
+import { LOCAL_SYNC_STATUS } from "../../offline/db";
 import {
   flushPendingSyncEntries,
   subscribeToSyncUpdates,
 } from "../../offline/syncService";
+import { getVisibleSyncQueueEntriesByUpdatedAt } from "../../offline/syncQueue";
 import {
   ROLE_CODES,
   updateAuthenticatedSessionUser,
@@ -38,11 +37,11 @@ import {
   MSWDO_SETTINGS_SECTIONS,
 } from "./settingsConfig";
 import {
-  buildActivityLogs,
   buildLocalSyncLogRows,
   buildSyncSummary,
   createDefaultNotificationChannels,
   createDefaultRolePreferences,
+  formatDateTime,
   getBarangayProfileValidationErrors,
   getNotificationPreferenceValidationErrors,
   getRoleMeta,
@@ -262,6 +261,26 @@ const tableStyles = {
   },
 };
 
+const PROFILE_PICTURE_MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
+const PROFILE_PICTURE_ALLOWED_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+]);
+
+const fileToBase64 = async (file) => {
+  const buffer = await file.arrayBuffer();
+  let binary = "";
+  const bytes = new Uint8Array(buffer);
+
+  for (let index = 0; index < bytes.length; index += 1) {
+    binary += String.fromCharCode(bytes[index]);
+  }
+
+  return window.btoa(binary);
+};
+
 const StatusChip = ({ tone = "info", label }) => (
   <span
     style={{
@@ -286,25 +305,24 @@ const EmptyState = ({ message }) => (
 
 const RoleSettingsPage = () => {
   const navigate = useNavigate();
-  const { currentRole, authenticatedUser, syncAuthState } = useAuth();
+  const { accessMode, currentRole, authenticatedUser, syncAuthState } = useAuth();
   const syncEntries =
-    useLiveQuery(() => db.syncQueue.orderBy("updatedAt").reverse().toArray(), [], []) ||
+    useLiveQuery(() => getVisibleSyncQueueEntriesByUpdatedAt(), [], []) ||
     [];
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [notificationRules, setNotificationRules] = useState([]);
   const [assignedBarangayName, setAssignedBarangayName] = useState("--");
   const [unreadCount, setUnreadCount] = useState(0);
-  const [forecastHealth, setForecastHealth] = useState(null);
-  const [inventoryThresholdSummary, setInventoryThresholdSummary] = useState(null);
   const [preferences, setPreferences] = useState(createDefaultRolePreferences());
+  const [savedProfilePreferences, setSavedProfilePreferences] = useState(
+    createDefaultRolePreferences(),
+  );
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
-  const [distributionRows, setDistributionRows] = useState([]);
   const [syncHistory, setSyncHistory] = useState({
     transactions: [],
     conflicts: [],
   });
-  const [isLoadingSyncHistory, setIsLoadingSyncHistory] = useState(false);
   const [syncHistoryErrorMessage, setSyncHistoryErrorMessage] = useState("");
   const [isSyncingNow, setIsSyncingNow] = useState(false);
   const [notificationTouched, setNotificationTouched] = useState(false);
@@ -317,12 +335,20 @@ const RoleSettingsPage = () => {
   const [profileErrors, setProfileErrors] = useState({
     fullName: "",
     contactNumber: "",
+    emailAddress: "",
   });
   const [profileTouched, setProfileTouched] = useState({
     fullName: false,
     contactNumber: false,
+    emailAddress: false,
   });
+  const [profilePicturePreviewUrl, setProfilePicturePreviewUrl] = useState("");
+  const [isUploadingProfilePicture, setIsUploadingProfilePicture] = useState(false);
+  const [isRemovingProfilePicture, setIsRemovingProfilePicture] = useState(false);
   const profilePictureInputRef = useRef(null);
+  const settingsOwnerKeyRef = useRef("");
+  const profilePicturePreviewUrlRef = useRef("");
+  const isRefreshingProfilePictureRef = useRef(false);
 
   const roleMeta = useMemo(() => getRoleMeta(currentRole), [currentRole]);
   const syncSummary = useMemo(() => buildSyncSummary(syncEntries), [syncEntries]);
@@ -330,14 +356,56 @@ const RoleSettingsPage = () => {
   const isBarangayRole = currentRole === ROLE_CODES.BARANGAY;
   const isMswdoRole = currentRole === ROLE_CODES.MSWDO;
   const isMayorRole = currentRole === ROLE_CODES.MAYOR;
+  const settingsOwnerKey = useMemo(() => {
+    if (!accessMode || !currentRole || !authenticatedUser?.id) {
+      return "";
+    }
+
+    return `${accessMode}:${currentRole}:${authenticatedUser.id}`;
+  }, [accessMode, authenticatedUser?.id, currentRole]);
+  const revokeProfilePicturePreviewUrl = () => {
+    if (profilePicturePreviewUrlRef.current) {
+      URL.revokeObjectURL(profilePicturePreviewUrlRef.current);
+      profilePicturePreviewUrlRef.current = "";
+    }
+  };
+  const applyAuthenticatedUserProfileFallbacks = (profilePreferences) => {
+    const normalizedPreferences = normalizeRolePreferences(profilePreferences);
+    const fallbackFullName =
+      [authenticatedUser?.first_name, authenticatedUser?.last_name]
+        .filter(Boolean)
+        .join(" ")
+        .trim() || "";
+    const fallbackEmail = authenticatedUser?.email || "";
+
+    return {
+      ...normalizedPreferences,
+      profile: {
+        ...normalizedPreferences.profile,
+        fullName: normalizedPreferences.profile.fullName || fallbackFullName,
+        emailAddress:
+          normalizedPreferences.profile.emailAddress || fallbackEmail,
+      },
+    };
+  };
   const notificationValidationErrors = useMemo(
     () =>
       getNotificationPreferenceValidationErrors({
         notificationChannels: preferences.notificationChannels,
+        roleCode: currentRole,
         emailAddress:
           authenticatedUser?.email || preferences.profile.emailAddress || "",
+        enabledNotificationRuleCodes: preferences.enabledNotificationRuleCodes,
+        notificationRules,
       }),
-    [authenticatedUser?.email, preferences.notificationChannels, preferences.profile.emailAddress],
+    [
+      authenticatedUser?.email,
+      currentRole,
+      notificationRules,
+      preferences.enabledNotificationRuleCodes,
+      preferences.notificationChannels,
+      preferences.profile.emailAddress,
+    ],
   );
 
   useEffect(() => {
@@ -364,11 +432,72 @@ const RoleSettingsPage = () => {
   }, [isBarangayRole, isMayorRole, isMswdoRole]);
 
   useEffect(() => {
+    if (!settingsOwnerKey) {
+      revokeProfilePicturePreviewUrl();
+      setProfilePicturePreviewUrl("");
+      if (profilePictureInputRef.current) {
+        profilePictureInputRef.current.value = "";
+      }
+      settingsOwnerKeyRef.current = "";
+      setPreferences(createDefaultRolePreferences());
+      setSavedProfilePreferences(createDefaultRolePreferences());
+      setProfileErrors({
+        fullName: "",
+        contactNumber: "",
+        emailAddress: "",
+      });
+      setProfileTouched({
+        fullName: false,
+        contactNumber: false,
+        emailAddress: false,
+      });
+      setNotificationTouched(false);
+      setNotificationRules([]);
+      setAssignedBarangayName("--");
+      setUnreadCount(0);
+      setErrorMessage("");
+      setIsLoading(false);
+      return;
+    }
+
+    const resetPreferences = applyAuthenticatedUserProfileFallbacks(
+      createDefaultRolePreferences(),
+    );
+    revokeProfilePicturePreviewUrl();
+    setProfilePicturePreviewUrl("");
+    if (profilePictureInputRef.current) {
+      profilePictureInputRef.current.value = "";
+    }
+    settingsOwnerKeyRef.current = settingsOwnerKey;
+    setPreferences(resetPreferences);
+    setSavedProfilePreferences(resetPreferences);
+    setProfileErrors({
+      fullName: "",
+      contactNumber: "",
+      emailAddress: "",
+    });
+    setProfileTouched({
+      fullName: false,
+      contactNumber: false,
+      emailAddress: false,
+    });
+    setErrorMessage("");
+    setIsLoading(true);
+  }, [settingsOwnerKey]);
+
+  useEffect(() => {
+    return () => {
+      revokeProfilePicturePreviewUrl();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!currentRole || !authenticatedUser) {
       return;
     }
 
     let isMounted = true;
+    const ownerKey = settingsOwnerKey;
 
     const loadPersistedRoleSettings = async () => {
       const loadedSettings = await loadRoleSettings({
@@ -376,11 +505,14 @@ const RoleSettingsPage = () => {
         userId: authenticatedUser.id,
       });
 
-      if (!isMounted) {
+      if (!isMounted || settingsOwnerKeyRef.current !== ownerKey) {
         return;
       }
 
-      setPreferences(normalizeRolePreferences(loadedSettings));
+      const hydratedPreferences =
+        applyAuthenticatedUserProfileFallbacks(loadedSettings);
+      setPreferences(hydratedPreferences);
+      setSavedProfilePreferences(hydratedPreferences);
     };
 
     void loadPersistedRoleSettings();
@@ -388,7 +520,7 @@ const RoleSettingsPage = () => {
     return () => {
       isMounted = false;
     };
-  }, [authenticatedUser, currentRole]);
+  }, [authenticatedUser, currentRole, settingsOwnerKey]);
 
   useEffect(() => {
     if (!authenticatedUser) {
@@ -397,32 +529,32 @@ const RoleSettingsPage = () => {
 
     setPreferences((current) => {
       const normalized = normalizeRolePreferences(current);
-      const fallbackFullName =
-        [authenticatedUser.first_name, authenticatedUser.last_name]
-          .filter(Boolean)
-          .join(" ")
-          .trim() || "";
-      const fallbackEmail = authenticatedUser.email || "";
+      const hydratedPreferences =
+        applyAuthenticatedUserProfileFallbacks(normalized);
 
       if (
-        normalized.profile.fullName === fallbackFullName &&
-        normalized.profile.emailAddress === fallbackEmail
+        normalized.profile.fullName === hydratedPreferences.profile.fullName &&
+        normalized.profile.emailAddress === hydratedPreferences.profile.emailAddress
       ) {
         return current;
       }
 
-      if (normalized.profile.fullName && normalized.profile.emailAddress) {
+      return hydratedPreferences;
+    });
+
+    setSavedProfilePreferences((current) => {
+      const normalized = normalizeRolePreferences(current);
+      const hydratedPreferences =
+        applyAuthenticatedUserProfileFallbacks(normalized);
+
+      if (
+        normalized.profile.fullName === hydratedPreferences.profile.fullName &&
+        normalized.profile.emailAddress === hydratedPreferences.profile.emailAddress
+      ) {
         return current;
       }
 
-      return {
-        ...normalized,
-        profile: {
-          ...normalized.profile,
-          fullName: normalized.profile.fullName || fallbackFullName,
-          emailAddress: normalized.profile.emailAddress || fallbackEmail,
-        },
-      };
+      return hydratedPreferences;
     });
   }, [authenticatedUser]);
 
@@ -431,10 +563,12 @@ const RoleSettingsPage = () => {
       setProfileErrors({
         fullName: "",
         contactNumber: "",
+        emailAddress: "",
       });
       setProfileTouched({
         fullName: false,
         contactNumber: false,
+        emailAddress: false,
       });
       return;
     }
@@ -475,6 +609,7 @@ const RoleSettingsPage = () => {
     setProfileErrors({
       fullName: validationErrors.fullName || "",
       contactNumber: validationErrors.contactNumber || "",
+      emailAddress: validationErrors.emailAddress || "",
     });
   }, [
     isBarangayRole,
@@ -515,6 +650,7 @@ const RoleSettingsPage = () => {
 
       setIsLoading(true);
       setErrorMessage("");
+      const ownerKey = settingsOwnerKey;
 
       try {
         const requests = [
@@ -528,21 +664,12 @@ const RoleSettingsPage = () => {
           requests.push(Promise.resolve([]));
         }
 
-        if (currentRole === ROLE_CODES.MAYOR) {
-          requests.push(fetchForecastHealth().catch(() => null));
-          requests.push(fetchInventoryItems({ is_active: true }).catch(() => []));
-        } else {
-          requests.push(Promise.resolve(null));
-          requests.push(Promise.resolve([]));
-        }
+        const [notificationRuleResponse, unreadResponse, barangayResponse] =
+          await Promise.all(requests);
 
-        const [
-          notificationRuleResponse,
-          unreadResponse,
-          barangayResponse,
-          forecastHealthResponse,
-          inventoryItemsResponse,
-        ] = await Promise.all(requests);
+        if (settingsOwnerKeyRef.current !== ownerKey) {
+          return;
+        }
 
         const rules = Array.isArray(notificationRuleResponse?.data)
           ? notificationRuleResponse.data
@@ -558,86 +685,28 @@ const RoleSettingsPage = () => {
         } else {
           setAssignedBarangayName("--");
         }
-
-        setForecastHealth(forecastHealthResponse?.data || null);
-
-        const inventoryItems = Array.isArray(inventoryItemsResponse)
-          ? inventoryItemsResponse
-          : Array.isArray(inventoryItemsResponse?.data)
-            ? inventoryItemsResponse.data
-            : [];
-
-        if (inventoryItems.length > 0) {
-          const distinctThresholds = [
-            ...new Set(
-              inventoryItems
-                .map((item) => item.low_stock_threshold)
-                .filter((value) => value !== null && value !== undefined),
-            ),
-          ];
-
-          setInventoryThresholdSummary({
-            configured_items: inventoryItems.length,
-            distinct_thresholds: distinctThresholds,
-          });
-        } else {
-          setInventoryThresholdSummary({
-            configured_items: 0,
-            distinct_thresholds: [],
-          });
-        }
       } catch (error) {
-        setErrorMessage(error.message || "Failed to load settings.");
+        if (settingsOwnerKeyRef.current === ownerKey) {
+          setErrorMessage(error.message || "Failed to load settings.");
+        }
       } finally {
-        setIsLoading(false);
+        if (settingsOwnerKeyRef.current === ownerKey) {
+          setIsLoading(false);
+        }
       }
     };
 
     loadSettingsData();
-  }, [authenticatedUser, currentRole]);
+  }, [authenticatedUser, currentRole, settingsOwnerKey]);
 
   useEffect(() => {
-    if (!isBarangayRole) {
-      setDistributionRows([]);
-      return;
-    }
-
-    let isMounted = true;
-
-    const loadDistributionData = async () => {
-      try {
-        const response = await fetchDistributionHistory({
-          limit: 100,
-        });
-
-        if (!isMounted) {
-          return;
-        }
-
-        setDistributionRows(Array.isArray(response?.data) ? response.data : []);
-      } catch (_error) {
-        if (isMounted) {
-          setDistributionRows([]);
-        }
-      }
-    };
-
-    loadDistributionData();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [isBarangayRole]);
-
-  useEffect(() => {
-    if (!isBarangayRole) {
+    if (!isBarangayRole && !isMswdoRole && !isMayorRole) {
       return;
     }
 
     let isMounted = true;
 
     const loadRoleSyncHistory = async () => {
-      setIsLoadingSyncHistory(true);
       setSyncHistoryErrorMessage("");
 
       try {
@@ -663,10 +732,6 @@ const RoleSettingsPage = () => {
             error.message || "Failed to load sync history.",
           );
         }
-      } finally {
-        if (isMounted) {
-          setIsLoadingSyncHistory(false);
-        }
       }
     };
 
@@ -682,7 +747,7 @@ const RoleSettingsPage = () => {
       isMounted = false;
       unsubscribe();
     };
-  }, [isBarangayRole]);
+  }, [isBarangayRole, isMayorRole, isMswdoRole]);
 
   const toggleNotificationRule = (ruleCode) => {
     setNotificationTouched(true);
@@ -728,10 +793,12 @@ const RoleSettingsPage = () => {
       setProfileTouched({
         fullName: true,
         contactNumber: true,
+        emailAddress: true,
       });
       setProfileErrors({
         fullName: validationErrors.fullName || "",
         contactNumber: validationErrors.contactNumber || "",
+        emailAddress: validationErrors.emailAddress || "",
       });
 
       if (Object.values(validationErrors).some(Boolean)) {
@@ -797,7 +864,11 @@ const RoleSettingsPage = () => {
         syncAuthState();
       }
 
-      setPreferences(normalizeRolePreferences(saveResult?.data || updatedSettings));
+      const resolvedPreferences = applyAuthenticatedUserProfileFallbacks(
+        saveResult?.data || updatedSettings,
+      );
+      setPreferences(resolvedPreferences);
+      setSavedProfilePreferences(resolvedPreferences);
       setToast({
         type: "success",
         title: "Settings Saved",
@@ -845,6 +916,32 @@ const RoleSettingsPage = () => {
     }));
   };
 
+  const handleCancelProfileChanges = () => {
+    revokeProfilePicturePreviewUrl();
+    setProfilePicturePreviewUrl("");
+    if (profilePictureInputRef.current) {
+      profilePictureInputRef.current.value = "";
+    }
+    const restoredPreferences =
+      applyAuthenticatedUserProfileFallbacks(savedProfilePreferences);
+    setPreferences(restoredPreferences);
+    setProfileTouched({
+      fullName: false,
+      contactNumber: false,
+      emailAddress: false,
+    });
+    setProfileErrors({
+      fullName: "",
+      contactNumber: "",
+      emailAddress: "",
+    });
+    setToast({
+      type: "info",
+      title: "Changes Canceled",
+      message: "Account settings were restored to the last saved values.",
+    });
+  };
+
   const handleNotificationChannelToggle = (channelKey, type) => {
     setNotificationTouched(true);
     setPreferences((current) => ({
@@ -877,45 +974,182 @@ const RoleSettingsPage = () => {
   const handleProfilePictureChange = async (event) => {
     const selectedFile = event.target.files?.[0];
 
-    if (!selectedFile) {
+    if (!selectedFile || !authenticatedUser || !currentRole) {
       return;
     }
 
-    if (!selectedFile.type.startsWith("image/")) {
+    if (!PROFILE_PICTURE_ALLOWED_MIME_TYPES.has(selectedFile.type)) {
       setToast({
         type: "error",
         title: "Profile Picture Error",
-        message: "Please choose a valid image file for the profile picture.",
+        message: "Please choose a JPG, PNG, or WEBP image for the profile picture.",
       });
+      event.target.value = "";
       return;
     }
 
-    const fileReader = new FileReader();
+    if (selectedFile.size > PROFILE_PICTURE_MAX_FILE_SIZE_BYTES) {
+      setToast({
+        type: "error",
+        title: "Profile Picture Error",
+        message: "Profile picture is too large. Please choose an image under 2 MB.",
+      });
+      event.target.value = "";
+      return;
+    }
 
-    fileReader.onload = () => {
+    revokeProfilePicturePreviewUrl();
+
+    const previewUrl = URL.createObjectURL(selectedFile);
+    profilePicturePreviewUrlRef.current = previewUrl;
+    setProfilePicturePreviewUrl(previewUrl);
+    setIsUploadingProfilePicture(true);
+
+    try {
+      const uploadedProfile = await uploadCurrentProfilePicture({
+        fileName: selectedFile.name || "profile-picture",
+        mimeType: selectedFile.type,
+        fileDataBase64: await fileToBase64(selectedFile),
+      });
+      const updatedAt = new Date().toISOString();
+
       setPreferences((current) => ({
         ...current,
         profile: {
           ...current.profile,
-          profilePictureDataUrl: String(fileReader.result || ""),
-          profilePictureFileName: selectedFile.name || "Profile picture",
+          ...uploadedProfile,
+        },
+        metadata: {
+          ...current.metadata,
+          lastProfileUpdateAt: uploadedProfile.profilePictureUpdatedAt || updatedAt,
+        },
+      }));
+      setSavedProfilePreferences((current) => ({
+        ...current,
+        profile: {
+          ...current.profile,
+          ...uploadedProfile,
+        },
+        metadata: {
+          ...current.metadata,
+          lastProfileUpdateAt: uploadedProfile.profilePictureUpdatedAt || updatedAt,
+        },
+      }));
+      setToast({
+        type: "success",
+        title: "Profile Picture Updated",
+        message: "Your profile picture was uploaded successfully.",
+      });
+    } catch (error) {
+      revokeProfilePicturePreviewUrl();
+      setProfilePicturePreviewUrl("");
+      setToast({
+        type: "error",
+        title: "Profile Picture Error",
+        message: error.message || "Failed to upload the selected image file.",
+      });
+    } finally {
+      setIsUploadingProfilePicture(false);
+      event.target.value = "";
+    }
+  };
+
+  const handleRemoveProfilePicture = async () => {
+    if (!authenticatedUser || !currentRole || isRemovingProfilePicture) {
+      return;
+    }
+
+    setIsRemovingProfilePicture(true);
+
+    try {
+      const clearedProfile = await removeCurrentProfilePicture();
+
+      revokeProfilePicturePreviewUrl();
+      setProfilePicturePreviewUrl("");
+      if (profilePictureInputRef.current) {
+        profilePictureInputRef.current.value = "";
+      }
+
+      setPreferences((current) => ({
+        ...current,
+        profile: {
+          ...current.profile,
+          ...clearedProfile,
         },
         metadata: {
           ...current.metadata,
           lastProfileUpdateAt: new Date().toISOString(),
         },
       }));
-    };
-
-    fileReader.onerror = () => {
+      setSavedProfilePreferences((current) => ({
+        ...current,
+        profile: {
+          ...current.profile,
+          ...clearedProfile,
+        },
+        metadata: {
+          ...current.metadata,
+          lastProfileUpdateAt: new Date().toISOString(),
+        },
+      }));
+      setToast({
+        type: "success",
+        title: "Profile Picture Removed",
+        message: "Your profile picture was removed successfully.",
+      });
+    } catch (error) {
       setToast({
         type: "error",
         title: "Profile Picture Error",
-        message: "Failed to read the selected image file.",
+        message: error.message || "Failed to remove the profile picture.",
       });
-    };
+    } finally {
+      setIsRemovingProfilePicture(false);
+    }
+  };
 
-    fileReader.readAsDataURL(selectedFile);
+  const handleProfilePictureLoadError = async () => {
+    if (
+      profilePicturePreviewUrl ||
+      isUploadingProfilePicture ||
+      isRemovingProfilePicture ||
+      isRefreshingProfilePictureRef.current ||
+      !preferences.profile.profilePicturePath
+    ) {
+      return;
+    }
+
+    isRefreshingProfilePictureRef.current = true;
+
+    try {
+      const refreshedProfile = await refreshCurrentProfilePicture();
+
+      setPreferences((current) => ({
+        ...current,
+        profile: {
+          ...current.profile,
+          ...refreshedProfile,
+        },
+      }));
+      setSavedProfilePreferences((current) => ({
+        ...current,
+        profile: {
+          ...current.profile,
+          ...refreshedProfile,
+        },
+      }));
+    } catch (_error) {
+      setPreferences((current) => ({
+        ...current,
+        profile: {
+          ...current.profile,
+          profilePictureUrl: "",
+          profilePictureUrlExpiresAt: "",
+        },
+      }));
+    } finally {
+      isRefreshingProfilePictureRef.current = false;
+    }
   };
 
   const handleSyncNow = async () => {
@@ -965,19 +1199,32 @@ const RoleSettingsPage = () => {
     preferences.enabledNotificationRuleCodes?.length > 0
       ? preferences.enabledNotificationRuleCodes
       : notificationRules.map((rule) => rule.code);
-
-  const activityLogs = useMemo(
-    () =>
-      buildActivityLogs({
-        distributionRows,
-        syncEntries,
-        syncHistory,
-      }).slice(0, 16),
-    [distributionRows, syncEntries, syncHistory],
-  );
   const localSyncLogRows = useMemo(
     () => buildLocalSyncLogRows(syncEntries),
     [syncEntries],
+  );
+  const latestSuccessfulSyncTimestamp = useMemo(() => {
+    const syncedTransactions = (syncHistory.transactions || [])
+      .filter((transaction) => transaction.sync_status === LOCAL_SYNC_STATUS.SYNCED)
+      .map(
+        (transaction) =>
+          transaction.server_timestamp ||
+          transaction.synced_at ||
+          transaction.updated_at ||
+          transaction.created_at,
+      )
+      .filter(Boolean)
+      .sort((left, right) => new Date(right).getTime() - new Date(left).getTime());
+
+    return syncedTransactions[0] || "";
+  }, [syncHistory.transactions]);
+  const lastQueueActivityAt = useMemo(
+    () => formatDateTime(localSyncLogRows[0]?.timestamp),
+    [localSyncLogRows],
+  );
+  const lastSuccessfulSyncAt = useMemo(
+    () => formatDateTime(latestSuccessfulSyncTimestamp),
+    [latestSuccessfulSyncTimestamp],
   );
 
   const activeBarangaySection = useMemo(
@@ -998,9 +1245,10 @@ const RoleSettingsPage = () => {
       buildBarangaySectionCards({
         preferences,
         enabledRuleCodes,
-        activityLogs,
+        syncSummary,
+        isOnline,
       }),
-    [activityLogs, enabledRuleCodes, preferences],
+    [enabledRuleCodes, isOnline, preferences, syncSummary],
   );
   const mswdoSectionCards = useMemo(
     () =>
@@ -1021,13 +1269,9 @@ const RoleSettingsPage = () => {
         notificationRuleCount,
         syncSummary,
         isOnline,
-        forecastHealth,
-        inventoryThresholdSummary,
       }),
     [
       enabledRuleCodes,
-      forecastHealth,
-      inventoryThresholdSummary,
       isOnline,
       notificationRuleCount,
       preferences,
@@ -1039,7 +1283,7 @@ const RoleSettingsPage = () => {
     activeSectionMeta: activeBarangaySection,
     editableSectionKeys: EDITABLE_BARANGAY_SECTION_KEYS,
     isSavingPreferences,
-    saveLabel: "Save Barangay Settings",
+    saveLabel: "Save Changes",
     onBack: () => setActiveSection(null),
     onSave: handleSavePreferences,
   });
@@ -1047,7 +1291,7 @@ const RoleSettingsPage = () => {
     activeSectionMeta: activeMswdoSection,
     editableSectionKeys: EDITABLE_MSWDO_SECTION_KEYS,
     isSavingPreferences,
-    saveLabel: "Save MSWDO Settings",
+    saveLabel: "Save Changes",
     onBack: () => setActiveSection(null),
     onSave: handleSavePreferences,
   });
@@ -1055,10 +1299,26 @@ const RoleSettingsPage = () => {
     activeSectionMeta: activeMayorSection,
     editableSectionKeys: EDITABLE_MAYOR_SECTION_KEYS,
     isSavingPreferences,
-    saveLabel: "Save Mayor Settings",
+    saveLabel: "Save Changes",
     onBack: () => setActiveSection(null),
     onSave: handleSavePreferences,
   });
+
+  const syncSectionProps = {
+    shellStyles,
+    gridStyles,
+    cardStyles,
+    helperTextStyles,
+    mutedValueStyles,
+    tableStyles,
+    pageHeaderStyles,
+    InfoRow,
+    EmptyState,
+    StatusChip,
+    description:
+      "Review offline sync information, current synchronization status, and the latest sync activity. This section is informative only and keeps the existing DISTYNC offline behavior unchanged.",
+    isOnline,
+  };
 
   const sharedRoleViewContext = buildSharedRoleViewContext({
     shellStyles,
@@ -1074,16 +1334,25 @@ const RoleSettingsPage = () => {
     preferences,
     profileTouched,
     profileErrors,
+    isSavingPreferences,
     authenticatedUser,
     handleProfileFieldChange,
     handleProfileFieldBlur,
     profilePictureInputRef,
     handleProfilePictureChange,
+    handleRemoveProfilePicture,
+    handleProfilePictureLoadError,
+    profilePicturePreviewUrl,
+    isUploadingProfilePicture,
+    isRemovingProfilePicture,
     setPreferences,
+    handleSaveProfileChanges: handleSavePreferences,
+    handleCancelProfileChanges,
     StatusChip,
     InfoRow,
     EmptyState,
     isLoading,
+    syncSectionProps,
   });
 
   const barangayViewContext = buildBarangayViewContext({
@@ -1096,7 +1365,15 @@ const RoleSettingsPage = () => {
     notificationRules,
     enabledRuleCodes,
     toggleNotificationRule,
-    activityLogs,
+    navigate,
+    handleSyncNow,
+    isSyncingNow,
+    syncSummary,
+    isOnline,
+    localSyncLogRows,
+    syncHistoryErrorMessage,
+    lastQueueActivityAt,
+    lastSuccessfulSyncAt,
   });
 
   const mswdoViewContext = buildMswdoViewContext({
@@ -1116,6 +1393,9 @@ const RoleSettingsPage = () => {
     syncSummary,
     isOnline,
     localSyncLogRows,
+    syncHistoryErrorMessage,
+    lastQueueActivityAt,
+    lastSuccessfulSyncAt,
   });
 
   const mayorViewContext = buildMayorViewContext({
@@ -1135,8 +1415,9 @@ const RoleSettingsPage = () => {
     syncSummary,
     isOnline,
     localSyncLogRows,
-    forecastHealth,
-    inventoryThresholdSummary,
+    syncHistoryErrorMessage,
+    lastQueueActivityAt,
+    lastSuccessfulSyncAt,
   });
   if (isBarangayRole) {
     return (

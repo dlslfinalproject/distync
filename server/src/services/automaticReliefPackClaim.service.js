@@ -65,11 +65,42 @@ const buildUpdatedItemStockSnapshot = (inventoryItem, onHandQuantity) => {
   };
 };
 
-const buildAutomaticClaimAllocations = async (templateItems, client) => {
+const getTemplateFamilySizeCoverage = (template) => {
+  const parsedCoverage = Number.parseInt(String(template?.description || "").trim(), 10);
+  return Number.isInteger(parsedCoverage) && parsedCoverage > 0 ? parsedCoverage : 0;
+};
+
+const getTemplatePackMultiplier = (template, householdSize) => {
+  if (!template?.based_on_family_size) {
+    return 1;
+  }
+
+  const normalizedHouseholdSize = Number.parseInt(String(householdSize || 0), 10);
+  const familySizeCoverage = getTemplateFamilySizeCoverage(template);
+
+  if (
+    !Number.isInteger(normalizedHouseholdSize) ||
+    normalizedHouseholdSize <= 0 ||
+    familySizeCoverage <= 0
+  ) {
+    return 1;
+  }
+
+  return Math.max(1, Math.ceil(normalizedHouseholdSize / familySizeCoverage));
+};
+
+const buildAutomaticClaimAllocations = async (
+  template,
+  templateItems,
+  householdSize,
+  client,
+) => {
   const allocations = [];
+  const packMultiplier = getTemplatePackMultiplier(template, householdSize);
 
   for (const templateItem of templateItems) {
-    const requiredQuantity = Number(templateItem.quantity_required || 0);
+    const requiredQuantity =
+      Number(templateItem.quantity_required || 0) * packMultiplier;
 
     if (requiredQuantity <= 0) {
       continue;
@@ -185,7 +216,10 @@ const recordAutomaticReliefPackClaim = async ({
   isOfflineEncoded = false,
 }) => {
   const assignedReliefPackTemplate =
-    await resolvePrimaryAssignedReliefPackTemplateForHousehold(stub.household_id);
+    await resolvePrimaryAssignedReliefPackTemplateForHousehold(
+      stub.household_id,
+      stub.disaster_event_id,
+    );
 
   if (!assignedReliefPackTemplate?.id) {
     const error = new Error(
@@ -210,7 +244,12 @@ const recordAutomaticReliefPackClaim = async ({
     throw error;
   }
 
-  const allocations = await buildAutomaticClaimAllocations(templateItems, client);
+  const allocations = await buildAutomaticClaimAllocations(
+    assignedReliefPackTemplate,
+    templateItems,
+    stub.household_size,
+    client,
+  );
   const receiptNo =
     await distributionTransactionRepository.getDistributionReceiptSequence(client);
 
@@ -265,7 +304,7 @@ const recordAutomaticReliefPackClaim = async ({
         performed_by: verifiedBy || null,
         remarks:
           remarks ||
-          `Released through assigned relief pack claim (${assignedReliefPackTemplate.name})`,
+          `Released through assigned relief pack claim (${assignedReliefPackTemplate.name}${packMultiplier > 1 ? ` (${packMultiplier})` : ""})`,
       },
       client,
     );
@@ -320,6 +359,10 @@ const recordAutomaticReliefPackClaim = async ({
 
   return {
     assignedReliefPackTemplate,
+    packQuantity: getTemplatePackMultiplier(
+      assignedReliefPackTemplate,
+      stub.household_size,
+    ),
     distributionTransaction,
     releasedItems,
     batchAlertPayloads,

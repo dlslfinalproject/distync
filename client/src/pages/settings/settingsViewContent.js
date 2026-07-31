@@ -1,37 +1,31 @@
 import { ROLE_CODES } from "../../utils/roleSession";
 import {
-  BARANGAY_NOTIFICATION_OPTIONS,
   BARANGAY_POSITION_LABEL,
+  getNotificationOptionsForRole,
   ROLE_DISPLAY_NAMES,
 } from "./settingsConfig";
 
 const DASHBOARD_DESCRIPTIONS = {
   [ROLE_CODES.BARANGAY]:
-    "Choose a category below to keep the Settings workspace focused and uncluttered. Detailed forms, tables, and logs only appear after you open a section.",
+    "Choose a category below to manage your DISTYNC account details, notification preferences, and sync information.",
   [ROLE_CODES.MSWDO]:
-    "Choose a category below to keep the MSWDO Settings workspace focused and uncluttered. Detailed forms, sync details, and notification controls only appear after you open a section.",
+    "Choose a category below to manage your DISTYNC account details, notification preferences, and sync information.",
   [ROLE_CODES.MAYOR]:
-    "Choose a category below to keep the Mayor Settings workspace focused and uncluttered. Detailed forms and system summaries only appear after you open a section.",
+    "Choose a category below to manage your DISTYNC account details, notification preferences, and sync information.",
 };
 
 const NOTIFICATION_SECTION_COPY = {
   [ROLE_CODES.BARANGAY]: {
-    description:
-      "Manage local alert preferences for barangay coordination. These settings are saved on this device for the current account while the live system rules shown below still depend on the existing backend notification mappings.",
-    alertChannelsDescription:
-      "Choose which alert types stay enabled locally and which channel you prefer when available.",
+    description: "",
+    alertChannelsDescription: "",
   },
   [ROLE_CODES.MSWDO]: {
-    description:
-      "Review the local notification rule preferences for MSWDO coordination. These selections are stored on this device and do not rewrite backend notification mappings.",
-    alertChannelsDescription:
-      "Choose which alert types stay enabled locally and which delivery channel you prefer when available.",
+    description: "",
+    alertChannelsDescription: "",
   },
   [ROLE_CODES.MAYOR]: {
-    description:
-      "Review the local executive notification rule preferences for the Office of the Mayor. These selections are stored on this device and do not rewrite backend notification mappings.",
-    alertChannelsDescription:
-      "Choose which alert types stay enabled locally and which delivery channel you prefer when available.",
+    description: "",
+    alertChannelsDescription: "",
   },
 };
 
@@ -52,6 +46,7 @@ const buildSharedSectionComponentProps = (ctx) => ({
   preferences: ctx.preferences,
   profileTouched: ctx.profileTouched,
   profileErrors: ctx.profileErrors,
+  isSavingPreferences: ctx.isSavingPreferences,
   authenticatedUser: ctx.authenticatedUser,
   formatPhilippineContactNumberForDisplay:
     ctx.formatPhilippineContactNumberForDisplay,
@@ -59,6 +54,13 @@ const buildSharedSectionComponentProps = (ctx) => ({
   handleProfileFieldBlur: ctx.handleProfileFieldBlur,
   profilePictureInputRef: ctx.profilePictureInputRef,
   handleProfilePictureChange: ctx.handleProfilePictureChange,
+  handleRemoveProfilePicture: ctx.handleRemoveProfilePicture,
+  handleProfilePictureLoadError: ctx.handleProfilePictureLoadError,
+  profilePicturePreviewUrl: ctx.profilePicturePreviewUrl,
+  isUploadingProfilePicture: ctx.isUploadingProfilePicture,
+  isRemovingProfilePicture: ctx.isRemovingProfilePicture,
+  handleCancelProfileChanges: ctx.handleCancelProfileChanges,
+  handleSaveProfileChanges: ctx.handleSaveProfileChanges,
   setPreferences: ctx.setPreferences,
   formatDateTime: ctx.formatDateTime,
   isLoading: ctx.isLoading,
@@ -71,86 +73,26 @@ const buildSharedSectionComponentProps = (ctx) => ({
   toggleNotificationRule: ctx.toggleNotificationRule,
 });
 
-const buildNotificationSummaryRows = (ctx) => {
-  if (ctx.roleCode === ROLE_CODES.BARANGAY) {
-    return [];
-  }
-
-  return [
-    {
-      label: "Unread Notifications",
-      value: `${ctx.unreadCount}`,
-    },
-    {
-      label: "Active Rules for This Role",
-      value: `${ctx.notificationRuleCount}`,
-    },
-    {
-      label: "Rules Enabled Locally",
-      value: `${ctx.enabledRuleCodes.length}`,
-    },
-  ];
-};
-
 export const getSettingsDashboardDescription = (roleCode) =>
   DASHBOARD_DESCRIPTIONS[roleCode] || DASHBOARD_DESCRIPTIONS[ROLE_CODES.BARANGAY];
 
 export const buildBarangayProfileSectionProps = (ctx) => ({
   ...buildSharedSectionComponentProps(ctx),
-  summaryRows: [
-    {
-      title: "Profile Summary",
-      rows: [
-        {
-          label: "Account Name",
-          value: ctx.preferences.profile.fullName || "--",
-        },
-        {
-          label: "Position",
-          value: BARANGAY_POSITION_LABEL,
-        },
-        {
-          label: "Barangay Name",
-          value: ctx.assignedBarangayName || "--",
-          muted: true,
-        },
-      ],
-    },
-    {
-      title: "Account Contact",
-      rows: [
-        {
-          label: "Email Address",
-          value:
-            ctx.authenticatedUser?.email ||
-            ctx.preferences.profile.emailAddress ||
-            "--",
-          muted: true,
-        },
-        {
-          label: "Contact Number",
-          value: ctx.preferences.profile.contactNumber
-            ? `PH +63 ${ctx.formatPhilippineContactNumberForDisplay(
-                ctx.preferences.profile.contactNumber,
-              )}`
-            : "--",
-        },
-      ],
-    },
-  ],
-  fullNameId: "barangay-profile-full-name",
+  sectionTitle: "Account Settings",
+  description: "",
+  firstNameId: "barangay-profile-first-name",
+  firstNameHelper: "",
+  lastNameId: "barangay-profile-last-name",
+  lastNameHelper: "",
   positionField: {
     id: "barangay-profile-position",
-    label: "Position",
-    value: BARANGAY_POSITION_LABEL,
-  },
-  assignmentField: {
-    id: "barangay-profile-name",
-    label: "Barangay Name",
-    value: ctx.assignedBarangayName,
+    label: "Role",
+    value: ROLE_DISPLAY_NAMES[ROLE_CODES.BARANGAY],
+    helper: "Your assigned role is controlled by DISTYNC and cannot be edited here.",
   },
   contactId: "barangay-profile-contact",
-  emailId: "barangay-profile-email",
+  contactHelper: "",
+  emailHelper: "",
   pictureAlt: "Barangay profile preview"
 });
 
@@ -165,67 +107,29 @@ export const buildOfficeProfileSectionProps = (ctx) => {
 
   return {
     ...buildSharedSectionComponentProps(ctx),
-    summaryRows: [
-      {
-        title: "Profile Summary",
-        rows: [
-          {
-            label: "Account Name",
-            value: ctx.preferences.profile.fullName || "--",
-          },
-          {
-            label: "Position",
-            value: positionLabel,
-          },
-          {
-            label: "Office / Unit",
-            value: officeLabel,
-            muted: true,
-          },
-        ],
-      },
-      {
-        title: "Account Contact",
-        rows: [
-          {
-            label: "Email Address",
-            value:
-              ctx.authenticatedUser?.email ||
-              ctx.preferences.profile.emailAddress ||
-              "--",
-            muted: true,
-          },
-          {
-            label: "Contact Number",
-            value: ctx.preferences.profile.contactNumber
-              ? `PH +63 ${ctx.formatPhilippineContactNumberForDisplay(
-                  ctx.preferences.profile.contactNumber,
-                )}`
-              : "--",
-          },
-        ],
-      },
-    ],
-    fullNameId: isMayor ? "mayor-profile-full-name" : "mswdo-profile-full-name",
+    sectionTitle: "Account Settings",
+    description: "",
+    firstNameId:
+      isMayor ? "mayor-profile-first-name" : "mswdo-profile-first-name",
+    firstNameHelper: "",
+    lastNameId:
+      isMayor ? "mayor-profile-last-name" : "mswdo-profile-last-name",
+    lastNameHelper: "",
     positionField: {
       id: isMayor ? "mayor-profile-position" : "mswdo-profile-position",
-      label: isMayor ? "Position" : "Position / Designation",
+      label: "Role",
       value: positionLabel,
-    },
-    assignmentField: {
-      id: isMayor ? "mayor-profile-office" : "mswdo-profile-office",
-      label: "Office / Unit",
-      value: officeLabel,
+      helper: "Your assigned role is controlled by DISTYNC and cannot be edited here.",
     },
     contactId: isMayor ? "mayor-profile-contact" : "mswdo-profile-contact",
-    emailId: isMayor ? "mayor-profile-email" : "mswdo-profile-email",
+    contactHelper: "",
+    emailHelper: "",
     pictureAlt: isMayor ? "Mayor profile preview" : "MSWDO profile preview"
   };
 };
 
 export const buildNotificationSectionProps = (ctx) => ({
   ...buildSharedSectionComponentProps(ctx),
-  notificationOptions: BARANGAY_NOTIFICATION_OPTIONS,
-  summaryRows: buildNotificationSummaryRows(ctx),
+  notificationOptions: getNotificationOptionsForRole(ctx.roleCode),
   ...NOTIFICATION_SECTION_COPY[ctx.roleCode],
 });

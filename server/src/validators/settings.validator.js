@@ -1,5 +1,19 @@
-const ALLOWED_EXPORT_FORMATS = new Set(["csv", "excel", "pdf"]);
-const MAX_PROFILE_PICTURE_DATA_URL_LENGTH = 4 * 1024 * 1024;
+const MAX_PROFILE_PICTURE_BASE64_LENGTH = 3 * 1024 * 1024;
+const EMAIL_ADDRESS_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHILIPPINE_CONTACT_NUMBER_PATTERN = /^\+639\d{9}$/;
+const PROFILE_PICTURE_ALLOWED_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+]);
+const ALLOWED_NOTIFICATION_CHANNEL_KEYS = new Set([
+  "disasterAlerts",
+  "distributionSchedules",
+  "reliefArrivalNotifications",
+  "attendanceReminders",
+  "systemAnnouncements",
+]);
 
 const isPlainObject = (value) =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -14,6 +28,48 @@ const validateOptionalString = (value, fieldName) => {
   }
 
   return null;
+};
+
+const normalizeEmailAddress = (value) => String(value || "").trim();
+
+const normalizePhilippineContactNumber = (value = "") => {
+  const rawValue = String(value || "").trim();
+
+  if (!rawValue) {
+    return "";
+  }
+
+  const compactValue = rawValue.replace(/[^\d+]/g, "");
+
+  if (compactValue.startsWith("+")) {
+    const digitsAfterPlus = compactValue.slice(1).replace(/\D/g, "");
+
+    if (digitsAfterPlus.startsWith("639")) {
+      return `+${digitsAfterPlus.slice(0, 12)}`;
+    }
+
+    return `+${digitsAfterPlus.slice(0, 12)}`;
+  }
+
+  const digitsOnly = compactValue.replace(/\D/g, "");
+
+  if (digitsOnly.startsWith("09")) {
+    return `+63${digitsOnly.slice(1, 11)}`;
+  }
+
+  if (digitsOnly.startsWith("639")) {
+    return `+${digitsOnly.slice(0, 12)}`;
+  }
+
+  if (digitsOnly.startsWith("63")) {
+    return `+${digitsOnly.slice(0, 12)}`;
+  }
+
+  if (digitsOnly.startsWith("9")) {
+    return `+63${digitsOnly.slice(0, 10)}`;
+  }
+
+  return "";
 };
 
 const validateSaveCurrentSettings = (req, res, next) => {
@@ -47,23 +103,6 @@ const validateSaveCurrentSettings = (req, res, next) => {
       }
     }
 
-    if (settings.preferredExportFormat !== undefined) {
-      if (typeof settings.preferredExportFormat !== "string") {
-        return res.status(400).json({
-          message: "preferredExportFormat must be a string",
-        });
-      }
-
-      const normalizedExportFormat =
-        settings.preferredExportFormat.trim().toLowerCase();
-
-      if (!ALLOWED_EXPORT_FORMATS.has(normalizedExportFormat)) {
-        return res.status(400).json({
-          message: "preferredExportFormat must be csv, excel, or pdf",
-        });
-      }
-    }
-
     if (
       settings.profile !== undefined &&
       !isPlainObject(settings.profile)
@@ -79,8 +118,6 @@ const validateSaveCurrentSettings = (req, res, next) => {
         ["position", "profile.position"],
         ["contactNumber", "profile.contactNumber"],
         ["emailAddress", "profile.emailAddress"],
-        ["profilePictureDataUrl", "profile.profilePictureDataUrl"],
-        ["profilePictureFileName", "profile.profilePictureFileName"],
       ];
 
       for (const [fieldKey, fieldName] of stringFieldChecks) {
@@ -96,24 +133,52 @@ const validateSaveCurrentSettings = (req, res, next) => {
         }
       }
 
-      const profilePictureDataUrl = settings.profile.profilePictureDataUrl?.trim();
-
       if (
-        profilePictureDataUrl &&
-        !profilePictureDataUrl.startsWith("data:image/")
+        settings.profile.fullName !== undefined &&
+        !settings.profile.fullName.trim()
       ) {
         return res.status(400).json({
-          message:
-            "profile.profilePictureDataUrl must be a valid image data URL",
+          message: "profile.fullName must not be empty",
+        });
+      }
+
+      const contactNumber = normalizePhilippineContactNumber(
+        settings.profile.contactNumber,
+      );
+
+      if (
+        typeof contactNumber === "string" &&
+        contactNumber &&
+        !PHILIPPINE_CONTACT_NUMBER_PATTERN.test(contactNumber)
+      ) {
+        return res.status(400).json({
+          message: "Please enter a valid contact number.",
+        });
+      }
+
+      const emailAddress = normalizeEmailAddress(settings.profile.emailAddress);
+
+      if (
+        typeof emailAddress === "string" &&
+        emailAddress &&
+        !EMAIL_ADDRESS_PATTERN.test(emailAddress)
+      ) {
+        return res.status(400).json({
+          message: "Please enter a valid email address.",
         });
       }
 
       if (
-        typeof profilePictureDataUrl === "string" &&
-        profilePictureDataUrl.length > MAX_PROFILE_PICTURE_DATA_URL_LENGTH
+        settings.profile.profilePicturePath !== undefined ||
+        settings.profile.profilePictureUrl !== undefined ||
+        settings.profile.profilePictureUrlExpiresAt !== undefined ||
+        settings.profile.profilePictureFileName !== undefined ||
+        settings.profile.profilePictureUpdatedAt !== undefined ||
+        settings.profile.profilePictureDataUrl !== undefined
       ) {
         return res.status(400).json({
-          message: "profile.profilePictureDataUrl is too large",
+          message:
+            "Profile picture changes must use the dedicated profile picture endpoint.",
         });
       }
     }
@@ -131,6 +196,12 @@ const validateSaveCurrentSettings = (req, res, next) => {
       for (const [channelKey, channelValue] of Object.entries(
         settings.notificationChannels,
       )) {
+        if (!ALLOWED_NOTIFICATION_CHANNEL_KEYS.has(channelKey)) {
+          return res.status(400).json({
+            message: `notificationChannels.${channelKey} is not supported`,
+          });
+        }
+
         if (!isPlainObject(channelValue)) {
           return res.status(400).json({
             message: `notificationChannels.${channelKey} must be an object`,
@@ -199,6 +270,81 @@ const validateSaveCurrentSettings = (req, res, next) => {
   }
 };
 
+const validateUploadCurrentProfilePicture = (req, res, next) => {
+  try {
+    const {
+      fileName,
+      mimeType,
+      fileDataBase64,
+      userId: _ignoredUserId,
+    } = req.body || {};
+
+    const stringChecks = [
+      [fileName, "fileName"],
+      [mimeType, "mimeType"],
+      [fileDataBase64, "fileDataBase64"],
+    ];
+
+    for (const [value, fieldName] of stringChecks) {
+      const validationError = validateOptionalString(value, fieldName);
+
+      if (validationError) {
+        return res.status(400).json({
+          message: validationError,
+        });
+      }
+    }
+
+    const normalizedMimeType = String(mimeType || "").trim().toLowerCase();
+    const normalizedFileName = String(fileName || "").trim();
+    const normalizedFileDataBase64 = String(fileDataBase64 || "").trim();
+
+    if (!normalizedFileName) {
+      return res.status(400).json({
+        message: "fileName is required",
+      });
+    }
+
+    if (!PROFILE_PICTURE_ALLOWED_MIME_TYPES.has(normalizedMimeType)) {
+      return res.status(400).json({
+        message: "Profile picture must be a JPG, PNG, or WEBP image.",
+      });
+    }
+
+    if (!normalizedFileDataBase64) {
+      return res.status(400).json({
+        message: "fileDataBase64 is required",
+      });
+    }
+
+    if (!/^[A-Za-z0-9+/=]+$/.test(normalizedFileDataBase64)) {
+      return res.status(400).json({
+        message: "fileDataBase64 must be a valid Base64 string",
+      });
+    }
+
+    if (normalizedFileDataBase64.length > MAX_PROFILE_PICTURE_BASE64_LENGTH) {
+      return res.status(400).json({
+        message: "Profile picture is too large.",
+      });
+    }
+
+    req.validatedBody = {
+      fileName: normalizedFileName,
+      mimeType: normalizedMimeType,
+      fileDataBase64: normalizedFileDataBase64,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate profile picture upload payload",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   validateSaveCurrentSettings,
+  validateUploadCurrentProfilePicture,
 };

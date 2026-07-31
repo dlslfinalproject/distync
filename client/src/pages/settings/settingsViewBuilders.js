@@ -55,6 +55,9 @@ const buildNotificationSectionCard = (
       : "No role rules found",
   );
 
+const buildSyncSectionCard = (section) =>
+  buildDefaultSectionCard(section, "info", "Information");
+
 export const getSectionsForRole = ({
   isBarangayRole,
   isMswdoRole,
@@ -81,11 +84,10 @@ export const getActiveSettingsSection = (sections, activeSection) =>
 export const buildBarangaySectionCards = ({
   preferences,
   enabledRuleCodes,
-  activityLogs,
 }) => {
   return BARANGAY_SETTINGS_SECTIONS.map((section) => {
     switch (section.key) {
-      case "profile":
+      case "account-settings":
         return buildProfileSectionCard(section, preferences);
       case "notification-preferences":
         return buildDefaultSectionCard(
@@ -93,14 +95,8 @@ export const buildBarangaySectionCards = ({
           enabledRuleCodes.length > 0 ? "success" : "warning",
           `${enabledRuleCodes.length} rules enabled`,
         );
-      case "activity-logs":
-        return buildDefaultSectionCard(
-          section,
-          activityLogs.length > 0 ? "info" : "warning",
-          activityLogs.length > 0
-            ? `${activityLogs.length} recent items`
-            : "No recent items",
-        );
+      case "sync-preferences":
+        return buildSyncSectionCard(section);
       default:
         return buildDefaultSectionCard(section);
     }
@@ -111,14 +107,10 @@ export const buildMswdoSectionCards = ({
   preferences,
   enabledRuleCodes,
   notificationRuleCount,
-  syncSummary,
-  isOnline,
 }) => {
-  const syncStatus = getSyncStatusMeta(syncSummary, isOnline);
-
   return MSWDO_SETTINGS_SECTIONS.map((section) => {
     switch (section.key) {
-      case "profile":
+      case "account-settings":
         return buildProfileSectionCard(section, preferences);
       case "notification-preferences":
         return buildNotificationSectionCard(
@@ -126,8 +118,8 @@ export const buildMswdoSectionCards = ({
           enabledRuleCodes,
           notificationRuleCount,
         );
-      case "sync-center":
-        return buildDefaultSectionCard(section, syncStatus.tone, syncStatus.label);
+      case "sync-preferences":
+        return buildSyncSectionCard(section);
       default:
         return buildDefaultSectionCard(section);
     }
@@ -138,16 +130,10 @@ export const buildMayorSectionCards = ({
   preferences,
   enabledRuleCodes,
   notificationRuleCount,
-  syncSummary,
-  isOnline,
-  forecastHealth,
-  inventoryThresholdSummary,
 }) => {
-  const syncStatus = getSyncStatusMeta(syncSummary, isOnline);
-
   return MAYOR_SETTINGS_SECTIONS.map((section) => {
     switch (section.key) {
-      case "profile":
+      case "account-settings":
         return buildProfileSectionCard(section, preferences);
       case "notification-preferences":
         return buildNotificationSectionCard(
@@ -155,28 +141,8 @@ export const buildMayorSectionCards = ({
           enabledRuleCodes,
           notificationRuleCount,
         );
-      case "sync-status":
-        return buildDefaultSectionCard(section, syncStatus.tone, syncStatus.label);
-      case "analytics-service":
-        return buildDefaultSectionCard(
-          section,
-          forecastHealth
-            ? forecastHealth.status === "Online"
-              ? "success"
-              : forecastHealth.status === "Offline"
-                ? "error"
-                : "warning"
-            : "warning",
-          forecastHealth?.status || "Unavailable",
-        );
-      case "inventory-alert-thresholds":
-        return buildDefaultSectionCard(
-          section,
-          (inventoryThresholdSummary?.configured_items || 0) > 0
-            ? "info"
-            : "warning",
-          `${inventoryThresholdSummary?.configured_items || 0} items tracked`,
-        );
+      case "sync-preferences":
+        return buildSyncSectionCard(section);
       default:
         return buildDefaultSectionCard(section);
     }
@@ -197,7 +163,7 @@ export const buildSettingsPageActions = ({
 
   return [
     {
-      label: "Back to Categories",
+      label: "Back",
       onClick: onBack,
       variant: "secondary",
     },
@@ -234,11 +200,20 @@ export const buildSharedRoleViewContext = ({
   handleProfileFieldBlur,
   profilePictureInputRef,
   handleProfilePictureChange,
+  handleRemoveProfilePicture,
+  handleProfilePictureLoadError,
+  profilePicturePreviewUrl,
+  isUploadingProfilePicture,
+  isRemovingProfilePicture,
   setPreferences,
+  handleSaveProfileChanges,
+  handleCancelProfileChanges,
   StatusChip,
   InfoRow,
   EmptyState,
   isLoading,
+  syncSectionProps,
+  isSavingPreferences,
 }) => ({
   shellStyles,
   gridStyles,
@@ -259,13 +234,22 @@ export const buildSharedRoleViewContext = ({
   handleProfileFieldBlur,
   profilePictureInputRef,
   handleProfilePictureChange,
+  handleRemoveProfilePicture,
+  handleProfilePictureLoadError,
+  profilePicturePreviewUrl,
+  isUploadingProfilePicture,
+  isRemovingProfilePicture,
   setPreferences,
+  handleSaveProfileChanges,
+  handleCancelProfileChanges,
   StatusChip,
   formatDateTime,
   formatSyncDateTime,
   InfoRow,
   EmptyState,
   isLoading,
+  syncSectionProps,
+  isSavingPreferences,
 });
 
 export const buildBarangayViewContext = ({
@@ -278,7 +262,15 @@ export const buildBarangayViewContext = ({
   notificationRules,
   enabledRuleCodes,
   toggleNotificationRule,
-  activityLogs,
+  navigate,
+  handleSyncNow,
+  isSyncingNow,
+  syncSummary,
+  isOnline,
+  localSyncLogRows,
+  syncHistoryErrorMessage,
+  lastQueueActivityAt,
+  lastSuccessfulSyncAt,
 }) => ({
   ...sharedContext,
   assignedBarangayName,
@@ -299,7 +291,17 @@ export const buildBarangayViewContext = ({
     toggleNotificationRule,
   }),
   dashboardDescription: getSettingsDashboardDescription(ROLE_CODES.BARANGAY),
-  activityLogs: ensureArray(activityLogs),
+  navigate,
+  handleSyncNow,
+  isSyncingNow,
+  syncSummary: buildSafeSyncSummary(syncSummary),
+  LOCAL_SYNC_STATUS,
+  getSyncStatusMeta,
+  isOnline,
+  localSyncLogRows: ensureArray(localSyncLogRows),
+  syncHistoryErrorMessage,
+  lastQueueActivityAt,
+  lastSuccessfulSyncAt,
 });
 
 export const buildMswdoViewContext = ({
@@ -319,6 +321,9 @@ export const buildMswdoViewContext = ({
   syncSummary,
   isOnline,
   localSyncLogRows,
+  syncHistoryErrorMessage,
+  lastQueueActivityAt,
+  lastSuccessfulSyncAt,
 }) => ({
   ...sharedContext,
   roleCode: ROLE_CODES.MSWDO,
@@ -350,6 +355,9 @@ export const buildMswdoViewContext = ({
   getSyncStatusMeta,
   isOnline,
   localSyncLogRows: ensureArray(localSyncLogRows),
+  syncHistoryErrorMessage,
+  lastQueueActivityAt,
+  lastSuccessfulSyncAt,
 });
 
 export const buildMayorViewContext = ({
@@ -369,8 +377,9 @@ export const buildMayorViewContext = ({
   syncSummary,
   isOnline,
   localSyncLogRows,
-  forecastHealth,
-  inventoryThresholdSummary,
+  syncHistoryErrorMessage,
+  lastQueueActivityAt,
+  lastSuccessfulSyncAt,
 }) => ({
   ...sharedContext,
   roleCode: ROLE_CODES.MAYOR,
@@ -402,9 +411,7 @@ export const buildMayorViewContext = ({
   getSyncStatusMeta,
   isOnline,
   localSyncLogRows: ensureArray(localSyncLogRows),
-  forecastHealth: ensureObject(forecastHealth, null),
-  inventoryThresholdSummary: {
-    configured_items: Number(inventoryThresholdSummary?.configured_items || 0),
-    distinct_thresholds: ensureArray(inventoryThresholdSummary?.distinct_thresholds),
-  },
+  syncHistoryErrorMessage,
+  lastQueueActivityAt,
+  lastSuccessfulSyncAt,
 });

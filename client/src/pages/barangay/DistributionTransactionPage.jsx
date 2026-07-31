@@ -115,6 +115,30 @@ const buildStubContextFromLocation = (locationState, searchParams) => {
   };
 };
 
+const getTemplateFamilySizeCoverage = (template) => {
+  const parsedCoverage = Number.parseInt(String(template?.description || "").trim(), 10);
+  return Number.isInteger(parsedCoverage) && parsedCoverage > 0 ? parsedCoverage : 0;
+};
+
+const getTemplatePackMultiplier = (template, householdSize) => {
+  if (!template?.based_on_family_size) {
+    return 1;
+  }
+
+  const normalizedHouseholdSize = Number.parseInt(String(householdSize || 0), 10);
+  const familySizeCoverage = getTemplateFamilySizeCoverage(template);
+
+  if (
+    !Number.isInteger(normalizedHouseholdSize) ||
+    normalizedHouseholdSize <= 0 ||
+    familySizeCoverage <= 0
+  ) {
+    return 1;
+  }
+
+  return Math.max(1, Math.ceil(normalizedHouseholdSize / familySizeCoverage));
+};
+
 const DistributionTransactionPage = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -156,7 +180,9 @@ const DistributionTransactionPage = () => {
 
       try {
         const [templateList, itemList, batchList] = await Promise.all([
-          fetchReliefPackTemplates(),
+          fetchReliefPackTemplates({
+            disaster_event_id: stubContext?.disaster_event_id || null,
+          }),
           fetchInventoryItems(),
           fetchInventoryBatches(),
         ]);
@@ -172,7 +198,7 @@ const DistributionTransactionPage = () => {
     };
 
     loadFormOptions();
-  }, []);
+  }, [stubContext?.disaster_event_id]);
 
   useEffect(() => {
     const currentStubContext = buildStubContextFromLocation(
@@ -344,6 +370,10 @@ const DistributionTransactionPage = () => {
 
     try {
       const template = await fetchReliefPackTemplateById(selectedTemplateId);
+      const packMultiplier = getTemplatePackMultiplier(
+        template,
+        stubContext?.household_size,
+      );
 
       if (!template.items || template.items.length === 0) {
         setReleasedItems([createEmptyReleasedItem()]);
@@ -355,7 +385,7 @@ const DistributionTransactionPage = () => {
           id: `${Date.now()}-${index}`,
           inventory_item_id: item.inventory_item_id,
           inventory_batch_id: "",
-          quantity_released: item.quantity_required,
+          quantity_released: Number(item.quantity_required || 0) * packMultiplier,
         })),
       );
     } catch (error) {

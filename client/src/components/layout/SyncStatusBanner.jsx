@@ -7,6 +7,7 @@ import {
   initializeSyncService,
   subscribeToSyncUpdates,
 } from "../../offline/syncService";
+import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
 
 const badgeStylesByStatus = {
   [LOCAL_SYNC_STATUS.SYNCED]: {
@@ -59,7 +60,7 @@ const SyncStatusBanner = () => {
   );
   const [feedbackMessage, setFeedbackMessage] = useState("");
 
-  const syncEntries = useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
+  const syncEntries = useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
 
   const counts = useMemo(() => {
     return syncEntries.reduce(

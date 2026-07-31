@@ -1,4 +1,9 @@
 const pool = require("../config/db");
+const {
+  HOUSEHOLD_PRIVACY_NOTICE_VERSION,
+  HOUSEHOLD_PRIVACY_CONSENT_STATUS,
+  HOUSEHOLD_PRIVACY_SYNC_STATUS,
+} = require("../config/privacyNotice");
 const householdRegistrationRepository = require("../repositories/householdRegistration.repository");
 const notificationService = require("../modules/notifications/notification.service");
 const { deriveAgeGroup } = require("../utils/ageGroup");
@@ -70,6 +75,185 @@ const buildStubQrCodeValue = ({ disasterEventId, householdId, stubNo }) => {
 
 const deduplicateIds = (ids) => {
   return [...new Set(ids)];
+};
+
+const isValidTimestampValue = (value) => {
+  if (!value) {
+    return false;
+  }
+
+  const parsedValue = new Date(value).getTime();
+  return Number.isFinite(parsedValue);
+};
+
+const buildHouseholdPrivacyRequiredError = () => {
+  const error = new Error(
+    "Data Privacy Notice acknowledgment is required before the family can be registered.",
+  );
+  error.statusCode = 400;
+  error.code = "HOUSEHOLD_PRIVACY_ACKNOWLEDGMENT_REQUIRED";
+  return error;
+};
+
+const buildHouseholdPrivacySaveFailedError = (cause = null) => {
+  const error = new Error(
+    "The family registration could not be completed because the Data Privacy acknowledgment was not saved. No family record was created. Please try again.",
+  );
+  error.statusCode = 500;
+  error.code = "HOUSEHOLD_PRIVACY_ACKNOWLEDGMENT_SAVE_FAILED";
+  if (cause) {
+    error.cause = cause;
+  }
+  return error;
+};
+
+const buildFullName = ({
+  first_name,
+  middle_name,
+  last_name,
+  suffix,
+}) => {
+  return [first_name, middle_name, last_name, suffix]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(" ");
+};
+
+const summarizePrivacyConsent = (consent) =>
+  pickDefined(consent, [
+    "id",
+    "household_id",
+    "disaster_event_id",
+    "consent_status",
+    "notice_version",
+    "acknowledged_at",
+    "representative_relationship",
+    "recorded_by",
+    "recorded_at",
+    "device_id",
+    "is_offline_encoded",
+    "sync_status",
+  ]);
+
+const isCurrentHouseholdPrivacyConsent = (consent) => {
+  if (!consent) {
+    return false;
+  }
+
+  return (
+    consent.consent_status === HOUSEHOLD_PRIVACY_CONSENT_STATUS.ACKNOWLEDGED &&
+    consent.notice_version === HOUSEHOLD_PRIVACY_NOTICE_VERSION
+  );
+};
+
+const shouldRequireHouseholdPrivacyRenewal = (consent) => {
+  return !isCurrentHouseholdPrivacyConsent(consent);
+};
+
+const normalizeHouseholdPrivacyAcknowledgment = ({
+  privacyAcknowledgment,
+  familyHead,
+  disasterEventId,
+  recordedBy,
+  syncedClientTimestamp = null,
+}) => {
+  if (!privacyAcknowledgment || typeof privacyAcknowledgment !== "object") {
+    throw buildHouseholdPrivacyRequiredError();
+  }
+
+  const consentStatus = String(
+    privacyAcknowledgment.consent_status || "",
+  ).toUpperCase();
+  const noticeVersion = String(
+    privacyAcknowledgment.notice_version || "",
+  ).trim();
+  const acknowledgedAt = privacyAcknowledgment.acknowledged_at || null;
+  const fallbackAcknowledgedName = buildFullName(familyHead);
+  const acknowledgedByName = String(
+    privacyAcknowledgment.acknowledged_by_name || fallbackAcknowledgedName,
+  ).trim();
+  const representativeRelationship = String(
+    privacyAcknowledgment.representative_relationship || "",
+  ).trim();
+
+  if (consentStatus !== HOUSEHOLD_PRIVACY_CONSENT_STATUS.ACKNOWLEDGED) {
+    throw buildHouseholdPrivacyRequiredError();
+  }
+
+  if (!noticeVersion) {
+    const error = new Error(
+      "Data Privacy Notice acknowledgment is required before the family can be registered.",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (noticeVersion !== HOUSEHOLD_PRIVACY_NOTICE_VERSION) {
+    const error = new Error(
+      "Data Privacy Notice acknowledgment version is invalid or outdated.",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!isValidTimestampValue(acknowledgedAt)) {
+    const error = new Error(
+      "Data Privacy Notice acknowledgment timestamp is invalid.",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!acknowledgedByName) {
+    const error = new Error(
+      "Data Privacy Notice acknowledgment must identify the family head or representative.",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!recordedBy) {
+    const error = new Error(
+      "Data Privacy Notice acknowledgment must include the recording user.",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return {
+    disaster_event_id: disasterEventId,
+    consent_status: consentStatus,
+    notice_version: noticeVersion,
+    acknowledged_at: new Date(acknowledgedAt).toISOString(),
+    acknowledged_by_name: acknowledgedByName,
+    representative_relationship: representativeRelationship || null,
+    recorded_by: recordedBy,
+    device_id: privacyAcknowledgment.device_id || null,
+    is_offline_encoded:
+      Boolean(privacyAcknowledgment.is_offline_encoded) ||
+      Boolean(syncedClientTimestamp),
+    sync_status: HOUSEHOLD_PRIVACY_SYNC_STATUS.SYNCED,
+  };
+};
+
+const buildPrivacyAuditActor = ({
+  requester = null,
+  recordedBy = null,
+  roleCode = null,
+  deviceId = null,
+}) => {
+  if (requester) {
+    return {
+      ...requester,
+      deviceId: requester.deviceId || deviceId || null,
+    };
+  }
+
+  return {
+    userId: recordedBy,
+    roleCode,
+    deviceId: deviceId || null,
+  };
 };
 
 const buildAgeSectorIdsByCode = (ageSectorRows = []) =>
@@ -205,6 +389,10 @@ const buildRegistrationResponse = async (householdId) => {
     await householdRegistrationRepository.getLatestDistributionTransactionByStubId(
       stub?.id || null,
     );
+  const latestPrivacyConsent =
+    await householdRegistrationRepository.getLatestHouseholdPrivacyConsentByHouseholdId(
+      householdId,
+    );
 
   const membersWithSectors = members.map((member) => {
     const sectorAssignments = evacueeSectorAssignments
@@ -227,6 +415,8 @@ const buildRegistrationResponse = async (householdId) => {
     household,
     members: membersWithSectors,
     household_sectors: householdSectors,
+    privacy_consent: latestPrivacyConsent,
+    privacy_notice_version: HOUSEHOLD_PRIVACY_NOTICE_VERSION,
     stub,
     latest_attendance: latestAttendance,
     distribution_transaction: latestDistribution,
@@ -316,6 +506,14 @@ const buildReturnRegistrationRequest = async ({
     throw error;
   }
 
+  if (!isCurrentHouseholdPrivacyConsent(householdDetails.privacy_consent)) {
+    const error = new Error(
+      "A valid Data Privacy Notice acknowledgment is required before this household can be returned.",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
   const filterManualSectorIds = (member) =>
     (member?.sectors || [])
       .filter((sector) => MANUAL_MEMBER_SECTOR_CODES.includes(sector.code))
@@ -366,6 +564,25 @@ const buildReturnRegistrationRequest = async ({
         relationship_to_head: member.relationship_to_head,
         sector_ids: filterManualSectorIds(member),
       })),
+    privacy_acknowledgment: {
+      consent_status: householdDetails.privacy_consent.consent_status,
+      notice_version: householdDetails.privacy_consent.notice_version,
+      acknowledged_at: householdDetails.privacy_consent.acknowledged_at,
+      acknowledged_by_name:
+        householdDetails.privacy_consent.acknowledged_by_name ||
+        buildFullName({
+          first_name: familyHeadMember.first_name,
+          middle_name: familyHeadMember.middle_name,
+          last_name: familyHeadMember.last_name,
+          suffix: familyHeadMember.suffix,
+        }),
+      representative_relationship:
+        householdDetails.privacy_consent.representative_relationship || null,
+      device_id: householdDetails.privacy_consent.device_id || null,
+      is_offline_encoded:
+        householdDetails.privacy_consent.is_offline_encoded === true,
+      sync_status: householdDetails.privacy_consent.sync_status || null,
+    },
     restore_remarks: restoreData.restore_remarks || null,
   };
 };
@@ -436,6 +653,20 @@ const updateHouseholdDetails = async ({
     throw error;
   }
 
+  const latestPrivacyConsent =
+    await householdRegistrationRepository.getLatestHouseholdPrivacyConsentByHouseholdId(
+      householdId,
+    );
+  const requiresPrivacyRenewal =
+    shouldRequireHouseholdPrivacyRenewal(latestPrivacyConsent);
+  const normalizedPrivacyRenewal = requiresPrivacyRenewal
+    ? normalizeHouseholdPrivacyAcknowledgment({
+        privacyAcknowledgment: requestData.privacy_acknowledgment,
+        familyHead: requestData.family_head,
+        disasterEventId: requestData.disaster_event_id,
+        recordedBy: requester?.userId || requestData.registered_by || null,
+      })
+    : null;
   const previousHouseholdSummary = summarizeHousehold(existingHousehold);
 
   const normalizedFamilyHead = buildPersonRecord({
@@ -698,6 +929,23 @@ const updateHouseholdDetails = async ({
       );
     }
 
+    let savedPrivacyRenewal = null;
+
+    if (normalizedPrivacyRenewal) {
+      try {
+        savedPrivacyRenewal =
+          await householdRegistrationRepository.insertHouseholdPrivacyConsent(
+            {
+              ...normalizedPrivacyRenewal,
+              household_id: householdId,
+            },
+            client,
+          );
+      } catch (error) {
+        throw buildHouseholdPrivacySaveFailedError(error);
+      }
+    }
+
     await client.query("COMMIT");
     const householdDetails = await buildRegistrationResponse(householdId);
     const familyHeadName = [
@@ -725,6 +973,20 @@ const updateHouseholdDetails = async ({
       oldValues: previousHouseholdSummary,
       newValues: summarizeHousehold(householdDetails.household),
     });
+
+    if (savedPrivacyRenewal) {
+      await logAuditSafely({
+        actor: buildPrivacyAuditActor({
+          requester,
+          deviceId: savedPrivacyRenewal.device_id,
+        }),
+        action: "HOUSEHOLD_PRIVACY_ACKNOWLEDGED",
+        entityType: "HOUSEHOLD_PRIVACY_CONSENT",
+        entityId: savedPrivacyRenewal.id,
+        oldValues: {},
+        newValues: summarizePrivacyConsent(savedPrivacyRenewal),
+      });
+    }
 
     for (const deactivatedMember of deactivatedMemberSummaries) {
       await logAuditSafely({
@@ -916,6 +1178,14 @@ const registerHousehold = async (requestData) => {
     current_address_details: registrationData.current_address_details || null,
     contact_number: registrationData.contact_number || null,
   };
+  const normalizedPrivacyAcknowledgment =
+    normalizeHouseholdPrivacyAcknowledgment({
+      privacyAcknowledgment: registrationData.privacy_acknowledgment,
+      familyHead: requestDataWithDerivedAgeGroups.family_head,
+      disasterEventId: requestDataWithDerivedAgeGroups.disaster_event_id,
+      recordedBy: requestDataWithDerivedAgeGroups.registered_by,
+      syncedClientTimestamp: registrationData.synced_client_timestamp || null,
+    });
   const shouldAutoArchiveWithoutAttendance =
     isNonAdmittedResidentRecord(requestDataWithDerivedAgeGroups);
 
@@ -1019,6 +1289,21 @@ const registerHousehold = async (requestData) => {
         requestDataWithDerivedAgeGroups,
         client,
       );
+
+    let savedPrivacyAcknowledgment = null;
+
+    try {
+      savedPrivacyAcknowledgment =
+        await householdRegistrationRepository.insertHouseholdPrivacyConsent(
+          {
+            ...normalizedPrivacyAcknowledgment,
+            household_id: createdHousehold.id,
+          },
+          client,
+        );
+    } catch (error) {
+      throw buildHouseholdPrivacySaveFailedError(error);
+    }
 
     const createdMembers = [];
     let familyHeadEvacueeId = null;
@@ -1191,6 +1476,19 @@ const registerHousehold = async (requestData) => {
       }),
     );
 
+    await logAuditSafely({
+      actor: buildPrivacyAuditActor({
+        recordedBy: requestDataWithDerivedAgeGroups.registered_by,
+        roleCode: userScope?.role_code || null,
+        deviceId: savedPrivacyAcknowledgment.device_id,
+      }),
+      action: "HOUSEHOLD_PRIVACY_ACKNOWLEDGED",
+      entityType: "HOUSEHOLD_PRIVACY_CONSENT",
+      entityId: savedPrivacyAcknowledgment.id,
+      oldValues: {},
+      newValues: summarizePrivacyConsent(savedPrivacyAcknowledgment),
+    });
+
     return registrationResponse;
   } catch (error) {
     await client.query("ROLLBACK");
@@ -1305,6 +1603,22 @@ const departHousehold = async (
       },
     });
 
+    const familyHeadName = [
+      household.family_head_first_name,
+      household.family_head_last_name,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    await notificationService.emitSafely(() =>
+      notificationService.emitEvacueeAttendanceUpdate({
+        householdId,
+        barangayId: household.barangay_id,
+        familyHeadName,
+        action: "departure-recorded",
+      }),
+    );
+
     return {
       household_id: householdId,
       affected_logs_count: updatedLogs.length,
@@ -1398,6 +1712,22 @@ const correctEvacuationLog = async ({
     oldValues: summarizeEvacuationLog(existingLog),
     newValues: summarizeEvacuationLog(updatedLog),
   });
+
+  const familyHeadName = [
+    household.family_head_first_name,
+    household.family_head_last_name,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  await notificationService.emitSafely(() =>
+    notificationService.emitEvacueeAttendanceUpdate({
+      householdId,
+      barangayId: household.barangay_id,
+      familyHeadName,
+      action: "status-updated",
+    }),
+  );
 
   return {
     household_id: householdId,

@@ -4,6 +4,7 @@ import { ROLE_CODES } from "../../utils/roleSession";
 import {
   BARANGAY_NOTIFICATION_OPTIONS,
   BARANGAY_POSITION_LABEL,
+  getNotificationOptionsForRole,
   ROLE_DISPLAY_NAMES,
 } from "./settingsConfig";
 
@@ -18,14 +19,16 @@ export const createDefaultNotificationChannels = () =>
 
 export const createDefaultRolePreferences = () => ({
   enabledNotificationRuleCodes: [],
-  preferredExportFormat: "excel",
   profile: {
     fullName: "",
     position: BARANGAY_POSITION_LABEL,
     contactNumber: "",
     emailAddress: "",
-    profilePictureDataUrl: "",
+    profilePicturePath: "",
+    profilePictureUrl: "",
+    profilePictureUrlExpiresAt: "",
     profilePictureFileName: "",
+    profilePictureUpdatedAt: "",
   },
   notificationChannels: createDefaultNotificationChannels(),
   metadata: {
@@ -33,6 +36,17 @@ export const createDefaultRolePreferences = () => ({
     lastPreferenceSaveAt: "",
   },
 });
+
+const EMAIL_ADDRESS_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHILIPPINE_CONTACT_NUMBER_PATTERN = /^\+639\d{9}$/;
+
+export const isValidEmailAddress = (value = "") =>
+  EMAIL_ADDRESS_PATTERN.test(String(value || "").trim());
+
+export const isValidPhilippineContactNumber = (value = "") =>
+  PHILIPPINE_CONTACT_NUMBER_PATTERN.test(
+    normalizePhilippineContactNumber(value),
+  );
 
 export const normalizePhilippineContactNumber = (value = "") => {
   const rawValue = String(value || "").trim();
@@ -90,7 +104,10 @@ export const formatPhilippineContactNumberForDisplay = (value = "") => {
 export const getBarangayProfileValidationErrors = (profile = {}) => {
   const errors = {};
   const fullName = String(profile.fullName || "").trim();
-  const contactNumber = String(profile.contactNumber || "").trim();
+  const contactNumber = normalizePhilippineContactNumber(
+    String(profile.contactNumber || "").trim(),
+  );
+  const emailAddress = String(profile.emailAddress || "").trim();
 
   if (!fullName) {
     errors.fullName = "Full name is required.";
@@ -98,21 +115,28 @@ export const getBarangayProfileValidationErrors = (profile = {}) => {
 
   if (!contactNumber) {
     errors.contactNumber = "Contact number is required.";
-  } else if (!/^\+639\d{9}$/.test(contactNumber)) {
-    errors.contactNumber = "Use the format 912 345 6789 after PH +63.";
+  } else if (!isValidPhilippineContactNumber(contactNumber)) {
+    errors.contactNumber = "Please enter a valid contact number.";
+  }
+
+  if (!emailAddress) {
+    errors.emailAddress = "Please enter a valid email address.";
+  } else if (!isValidEmailAddress(emailAddress)) {
+    errors.emailAddress = "Please enter a valid email address.";
   }
 
   return errors;
 };
 
-const EMAIL_ADDRESS_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 export const getNotificationPreferenceValidationErrors = ({
   notificationChannels = {},
+  roleCode = ROLE_CODES.BARANGAY,
   emailAddress = "",
+  enabledNotificationRuleCodes = [],
+  notificationRules = [],
 }) => {
   const errors = {};
-  const optionStates = BARANGAY_NOTIFICATION_OPTIONS.map((option) => ({
+  const optionStates = getNotificationOptionsForRole(roleCode).map((option) => ({
     label: option.label,
     inApp: Boolean(notificationChannels[option.key]?.inApp),
     email: Boolean(notificationChannels[option.key]?.email),
@@ -120,6 +144,18 @@ export const getNotificationPreferenceValidationErrors = ({
   const hasAnyEmailChannel = optionStates.some((option) => option.email);
   const trimmedEmailAddress = String(emailAddress || "").trim();
   const disabledTypes = optionStates.filter((option) => !option.inApp && !option.email);
+  const allowedRuleCodes = new Set(
+    (notificationRules || [])
+      .map((rule) => (typeof rule?.code === "string" ? rule.code.trim() : ""))
+      .filter(Boolean),
+  );
+  const invalidRuleCodes = Array.from(
+    new Set(
+      (enabledNotificationRuleCodes || [])
+        .map((code) => (typeof code === "string" ? code.trim() : ""))
+        .filter((code) => code && !allowedRuleCodes.has(code)),
+    ),
+  );
 
   if (disabledTypes.length > 0) {
     errors.notificationTypes =
@@ -133,11 +169,18 @@ export const getNotificationPreferenceValidationErrors = ({
       "A valid email address is required to receive email notifications.";
   }
 
+  if (invalidRuleCodes.length > 0) {
+    errors.notificationRules =
+      "Some notification preferences are no longer available for your account role. Reset your notification settings and save again.";
+  }
+
   return errors;
 };
 
 export const normalizeRolePreferences = (value = {}) => {
   const defaults = createDefaultRolePreferences();
+  const { preferredExportFormat: _removedPreferredExportFormat, ...remainingValue } =
+    value || {};
   const notificationChannels = {
     ...defaults.notificationChannels,
   };
@@ -151,7 +194,7 @@ export const normalizeRolePreferences = (value = {}) => {
 
   return {
     ...defaults,
-    ...(value || {}),
+    ...remainingValue,
     enabledNotificationRuleCodes: Array.isArray(value?.enabledNotificationRuleCodes)
       ? value.enabledNotificationRuleCodes
       : [],
@@ -237,8 +280,9 @@ export const getSyncStatusMeta = (syncSummary, isOnline) => {
   if (!isOnline) {
     return {
       tone: "warning",
-      label: "Pending",
-      description: "Offline mode is active. Local changes will sync later.",
+      label: "Pending Synchronization",
+      displayLabel: "⏳ Pending Synchronization",
+      description: "There are records waiting to be synchronized.",
     };
   }
 
@@ -248,23 +292,26 @@ export const getSyncStatusMeta = (syncSummary, isOnline) => {
   ) {
     return {
       tone: "error",
-      label: "Failed",
-      description: "Some records need sync review before LGU coordination is complete.",
+      label: "Requires Attention",
+      displayLabel: "⚠ Requires Attention",
+      description: "Some records require review before synchronization can be completed.",
     };
   }
 
   if (syncSummary[LOCAL_SYNC_STATUS.PENDING] > 0) {
     return {
       tone: "warning",
-      label: "Pending",
-      description: "Queued records are waiting to be synced with the LGU.",
+      label: "Pending Synchronization",
+      displayLabel: "⏳ Pending Synchronization",
+      description: "There are records waiting to be synchronized.",
     };
   }
 
   return {
     tone: "success",
     label: "Synced",
-    description: "Barangay records are currently aligned with the LGU data flow.",
+    displayLabel: "✓ Synced",
+    description: "All data has been successfully synchronized.",
   };
 };
 

@@ -42,6 +42,7 @@ const getStubByIdForUpdate = async (stubId, dbClient) => {
       s.qr_notes,
       s.claimed_at,
       h.barangay_id,
+      h.household_size,
       h.current_stay_type,
       h.is_active,
       h.family_head_first_name,
@@ -90,6 +91,7 @@ const getReliefPackTemplateByIdForUpdate = async (templateId, dbClient) => {
       based_on_sector,
       is_additional_pack,
       sector_id,
+      applies_to_all_disasters,
       is_active
     FROM relief_pack_templates
     WHERE id = $1
@@ -580,6 +582,7 @@ const getDistributionHistory = async ({
       dt.updated_at,
       de.event_code,
       de.title AS disaster_event_title,
+      de.status AS disaster_event_status,
       b.id AS barangay_id,
       b.name AS barangay_name,
       s.stub_no,
@@ -634,7 +637,7 @@ const getDistributionHistory = async ({
       SELECT
         SUM(dti.quantity_released)::integer AS total_quantity_released,
         STRING_AGG(
-          CONCAT(ii.item_name, ' x', dti.quantity_released, ' [', ib.batch_no, ']'),
+          CONCAT(ii.item_name, ' x', dti.quantity_released),
           ', '
           ORDER BY ib.received_at ASC, ib.created_at ASC, ii.item_name ASC
         ) AS released_items_summary
@@ -646,6 +649,39 @@ const getDistributionHistory = async ({
     ${whereClause}
     ORDER BY dt.distribution_date DESC, dt.created_at DESC
     LIMIT $${values.length}
+  `;
+
+  const result = await pool.query(query, values);
+  return result.rows;
+};
+
+const getDistributionHistoryStubSummaryByEventIds = async ({
+  eventIds = [],
+  barangayId = null,
+}) => {
+  if (!Array.isArray(eventIds) || eventIds.length === 0) {
+    return [];
+  }
+
+  const values = [eventIds];
+  let barangayCondition = "";
+
+  if (barangayId) {
+    values.push(barangayId);
+    barangayCondition = `AND h.barangay_id = $${values.length}`;
+  }
+
+  const query = `
+    SELECT
+      s.disaster_event_id,
+      COUNT(*) FILTER (WHERE s.status = 'CLAIMED')::int AS claimed_stubs_count,
+      COUNT(*) FILTER (WHERE s.status = 'ISSUED')::int AS unclaimed_stubs_count,
+      COUNT(*) FILTER (WHERE s.status IN ('ISSUED', 'CLAIMED'))::int AS issued_stubs_count
+    FROM stubs s
+    INNER JOIN households h ON h.id = s.household_id
+    WHERE s.disaster_event_id = ANY($1::uuid[])
+      ${barangayCondition}
+    GROUP BY s.disaster_event_id
   `;
 
   const result = await pool.query(query, values);
@@ -687,5 +723,6 @@ module.exports = {
   updateDistributionTransactionStatus,
   updateStubStatus,
   getDistributionHistory,
+  getDistributionHistoryStubSummaryByEventIds,
   getDistributionHistoryExportRows,
 };
