@@ -275,18 +275,59 @@ const buildSectorText = (stubDetails) => {
   return sectorNames.join(", ");
 };
 
+const getTemplateFamilySizeCoverage = (template) => {
+  const parsedCoverage = Number.parseInt(String(template?.description || "").trim(), 10);
+  return Number.isInteger(parsedCoverage) && parsedCoverage > 0 ? parsedCoverage : 0;
+};
+
+const getReliefPackQuantityMultiplier = (template, householdSize) => {
+  if (!template?.based_on_family_size) {
+    return 1;
+  }
+
+  const normalizedHouseholdSize = Number.parseInt(String(householdSize || 0), 10);
+  const familySizeCoverage = getTemplateFamilySizeCoverage(template);
+
+  if (
+    !Number.isInteger(normalizedHouseholdSize) ||
+    normalizedHouseholdSize <= 0 ||
+    familySizeCoverage <= 0
+  ) {
+    return 1;
+  }
+
+  return Math.max(1, Math.ceil(normalizedHouseholdSize / familySizeCoverage));
+};
+
+const getPrimaryAssignedReliefPackTemplate = (stubDetails) => {
+  const assignedTemplates = Array.isArray(stubDetails?.assigned_relief_packs)
+    ? stubDetails.assigned_relief_packs
+    : [];
+
+  return (
+    assignedTemplates.find((template) => !template?.is_additional_pack) ||
+    assignedTemplates[0] ||
+    null
+  );
+};
+
 const buildReliefPackText = (stubDetails) => {
+  const primaryTemplate = getPrimaryAssignedReliefPackTemplate(stubDetails);
+  const packMultiplier = getReliefPackQuantityMultiplier(
+    primaryTemplate,
+    stubDetails?.household?.household_size,
+  );
   const assignedPackNames = (stubDetails?.assigned_relief_packs || [])
     .map((template) => template?.name)
     .filter(Boolean)
     .join(", ");
-
-  return (
+  const basePackText =
     stubDetails?.distribution_transaction?.relief_pack_template_name ||
     stubDetails?.relief_pack_name ||
     assignedPackNames ||
-    "--"
-  );
+    "--";
+
+  return packMultiplier > 1 ? `${basePackText} (${packMultiplier})` : basePackText;
 };
 
 const buildBarangayDistributionLink = (stubDetails) => {

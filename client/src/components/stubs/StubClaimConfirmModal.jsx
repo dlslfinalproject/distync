@@ -234,6 +234,76 @@ const getReliefPackDisplay = (value) => {
   return normalizedValue ? normalizedValue.toUpperCase() : "-";
 };
 
+const getTemplateFamilySizeCoverage = (template) => {
+  const parsedCoverage = Number.parseInt(String(template?.description || "").trim(), 10);
+  return Number.isInteger(parsedCoverage) && parsedCoverage > 0 ? parsedCoverage : 0;
+};
+
+const getReliefPackQuantityMultiplier = (template, householdSize) => {
+  if (!template?.based_on_family_size) {
+    return 1;
+  }
+
+  const normalizedHouseholdSize = Number.parseInt(String(householdSize || 0), 10);
+  const familySizeCoverage = getTemplateFamilySizeCoverage(template);
+
+  if (
+    !Number.isInteger(normalizedHouseholdSize) ||
+    normalizedHouseholdSize <= 0 ||
+    familySizeCoverage <= 0
+  ) {
+    return 1;
+  }
+
+  return Math.max(1, Math.ceil(normalizedHouseholdSize / familySizeCoverage));
+};
+
+const getPrimaryAssignedReliefPackTemplate = (stub) => {
+  const assignedTemplates = Array.isArray(stub?.assigned_relief_packs)
+    ? stub.assigned_relief_packs
+    : [];
+
+  return (
+    assignedTemplates.find((template) => !template?.is_additional_pack) ||
+    assignedTemplates[0] ||
+    null
+  );
+};
+
+const buildReliefPackDisplayParts = (stub) => {
+  const primaryTemplate = getPrimaryAssignedReliefPackTemplate(stub);
+  const householdSize =
+    stub?.household?.members_count ??
+    stub?.members_count ??
+    stub?.household?.household_size ??
+    stub?.household_size ??
+    0;
+  const packMultiplier = getReliefPackQuantityMultiplier(primaryTemplate, householdSize);
+  const reliefPackName =
+    stub?.distribution_transaction?.relief_pack_template_name ||
+    stub?.relief_pack_template_name ||
+    stub?.relief_pack_name ||
+    stub?.released_items_summary ||
+    stub?.distribution_transaction?.released_items_summary ||
+    primaryTemplate?.name ||
+    "";
+  const baseDisplay = getReliefPackDisplay(reliefPackName);
+
+  if (packMultiplier <= 1) {
+    return {
+      reliefPackDisplay: baseDisplay,
+      packMultiplier: 1,
+      multiplierText: "",
+    };
+  }
+
+  return {
+    reliefPackDisplay: `${baseDisplay} (${packMultiplier})`,
+    packMultiplier,
+    multiplierText: `${packMultiplier} packs based on household size`,
+  };
+};
+
 const getDisplayStubNumber = (stub) => {
   if (stub?.display_stub_no) {
     return stub.display_stub_no;
@@ -245,14 +315,7 @@ const getDisplayStubNumber = (stub) => {
 };
 
 const getSelectedStubSummary = (stub) => {
-  const reliefPackName =
-    stub?.relief_pack_template_name ||
-    stub?.relief_pack_name ||
-    stub?.released_items_summary ||
-    stub?.assigned_relief_packs?.map((template) => template?.name).filter(Boolean).join(", ") ||
-    stub?.distribution_transaction?.relief_pack_template_name ||
-    stub?.distribution_transaction?.released_items_summary ||
-    "";
+  const reliefPackParts = buildReliefPackDisplayParts(stub);
 
   return {
     id: stub?.id || stub?.stub_id || stub?.stub_no,
@@ -264,7 +327,8 @@ const getSelectedStubSummary = (stub) => {
       stub?.members_count ??
       stub?.household_size ??
       0,
-    reliefPackDisplay: getReliefPackDisplay(reliefPackName),
+    reliefPackDisplay: reliefPackParts.reliefPackDisplay,
+    reliefPackMultiplierText: reliefPackParts.multiplierText,
   };
 };
 
@@ -289,16 +353,8 @@ const StubClaimConfirmModal = ({
   const familyMembers = Array.isArray(stubDetails?.household?.members)
     ? stubDetails.household.members
     : [];
-  const reliefPackName =
-    stubDetails?.distribution_transaction?.relief_pack_template_name ||
-    stubDetails?.relief_pack_name ||
-    stubDetails?.assigned_relief_packs
-      ?.map((template) => template?.name)
-      .filter(Boolean)
-      .join(", ") ||
-    stubDetails?.distribution_transaction?.released_items_summary ||
-    "-";
-  const reliefPackDisplay = getReliefPackDisplay(reliefPackName);
+  const reliefPackParts = buildReliefPackDisplayParts(stubDetails);
+  const reliefPackDisplay = reliefPackParts.reliefPackDisplay;
   const selectedStubSummaries = selectedStubs.map(getSelectedStubSummary);
 
   return (
@@ -327,6 +383,11 @@ const StubClaimConfirmModal = ({
               />
               <p style={modalStyles.label}>Relief Pack</p>
               <p style={modalStyles.centeredValue}>{reliefPackDisplay}</p>
+              {reliefPackParts.multiplierText ? (
+                <p style={{ ...modalStyles.capturedText, textAlign: "center" }}>
+                  {reliefPackParts.multiplierText}
+                </p>
+              ) : null}
             </div>
 
             <div style={modalStyles.familyHeadCard}>
@@ -389,6 +450,11 @@ const StubClaimConfirmModal = ({
                     <p style={modalStyles.bulkMeta}>
                       Relief Pack: {stub.reliefPackDisplay}
                     </p>
+                    {stub.reliefPackMultiplierText ? (
+                      <p style={modalStyles.bulkMeta}>
+                        {stub.reliefPackMultiplierText}
+                      </p>
+                    ) : null}
                   </div>
                   <div style={{ textAlign: "center" }}>
                     <p style={modalStyles.label}>Household Size</p>

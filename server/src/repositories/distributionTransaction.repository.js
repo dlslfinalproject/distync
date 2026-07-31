@@ -42,6 +42,7 @@ const getStubByIdForUpdate = async (stubId, dbClient) => {
       s.qr_notes,
       s.claimed_at,
       h.barangay_id,
+      h.household_size,
       h.current_stay_type,
       h.is_active,
       h.family_head_first_name,
