@@ -156,7 +156,9 @@ const DistributionTransactionPage = () => {
 
       try {
         const [templateList, itemList, batchList] = await Promise.all([
-          fetchReliefPackTemplates(),
+          fetchReliefPackTemplates({
+            disaster_event_id: stubContext?.disaster_event_id || null,
+          }),
           fetchInventoryItems(),
           fetchInventoryBatches(),
         ]);
@@ -172,7 +174,7 @@ const DistributionTransactionPage = () => {
     };
 
     loadFormOptions();
-  }, []);
+  }, [stubContext?.disaster_event_id]);
 
   useEffect(() => {
     const currentStubContext = buildStubContextFromLocation(

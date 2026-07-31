@@ -185,7 +185,10 @@ const recordAutomaticReliefPackClaim = async ({
   isOfflineEncoded = false,
 }) => {
   const assignedReliefPackTemplate =
-    await resolvePrimaryAssignedReliefPackTemplateForHousehold(stub.household_id);
+    await resolvePrimaryAssignedReliefPackTemplateForHousehold(
+      stub.household_id,
+      stub.disaster_event_id,
+    );
 
   if (!assignedReliefPackTemplate?.id) {
     const error = new Error(

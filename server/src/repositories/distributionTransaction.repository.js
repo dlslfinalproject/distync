@@ -90,6 +90,7 @@ const getReliefPackTemplateByIdForUpdate = async (templateId, dbClient) => {
       based_on_sector,
       is_additional_pack,
       sector_id,
+      applies_to_all_disasters,
       is_active
     FROM relief_pack_templates
     WHERE id = $1

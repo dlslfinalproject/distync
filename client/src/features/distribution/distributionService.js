@@ -16,9 +16,21 @@ const handleJsonResponse = async (response, fallbackMessage) => {
   return responseData;
 };
 
-export const fetchReliefPackTemplates = async () => {
+export const fetchReliefPackTemplates = async (filters = {}) => {
+  const searchParams = new URLSearchParams();
+
+  searchParams.set("is_active", "true");
+
+  if (filters.disaster_event_id) {
+    searchParams.set("disaster_event_id", filters.disaster_event_id);
+  }
+
+  if (filters.disaster_type) {
+    searchParams.set("disaster_type", filters.disaster_type);
+  }
+
   const response = await fetch(
-    `${API_BASE_URL}/api/v1/relief-pack-templates?is_active=true`,
+    `${API_BASE_URL}/api/v1/relief-pack-templates?${searchParams.toString()}`,
   );
 
   return handleJsonResponse(response, "Failed to fetch relief pack templates");

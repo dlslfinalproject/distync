@@ -1,6 +1,7 @@
 const pool = require("../config/db");
 const distributionTransactionRepository = require("../repositories/distributionTransaction.repository");
 const disasterEventRepository = require("../repositories/disasterEvent.repository");
+const reliefPackTemplateRepository = require("../repositories/reliefPackTemplate.repository");
 const notificationService = require("../modules/notifications/notification.service");
 const stubRepository = require("../repositories/stub.repository");
 const settingsRepository = require("../repositories/settings.repository");
@@ -545,6 +546,7 @@ const buildTemplateReleasePlan = async ({
   reliefPackTemplateId,
   client,
   inventoryItemsById,
+  disasterType,
 }) => {
   const reliefPackTemplate =
     await distributionTransactionRepository.getReliefPackTemplateByIdForUpdate(
@@ -556,6 +558,27 @@ const buildTemplateReleasePlan = async ({
     const error = new Error("Selected relief pack template is no longer available");
     error.statusCode = 404;
     throw error;
+  }
+
+  if (
+    reliefPackTemplate.applies_to_all_disasters === false &&
+    String(disasterType || "").trim()
+  ) {
+    const templateDisasterTypes =
+      await reliefPackTemplateRepository.getReliefPackTemplateDisasterTypesByTemplateId(
+        reliefPackTemplateId,
+      );
+    const isApplicableToDisasterType = templateDisasterTypes.some(
+      (row) => String(row.disaster_type || "").trim() === String(disasterType).trim(),
+    );
+
+    if (!isApplicableToDisasterType) {
+      const error = new Error(
+        `Selected relief pack template is not applicable to ${disasterType}.`,
+      );
+      error.statusCode = 400;
+      throw error;
+    }
   }
 
   const templateItems =
@@ -847,6 +870,16 @@ const createDistributionTransaction = async (requestData) => {
       throw error;
     }
 
+    const disasterEvent = await disasterEventRepository.getDisasterEventById(
+      stub.disaster_event_id,
+    );
+
+    if (!disasterEvent) {
+      const error = new Error("Disaster event not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
     const latestAttendance =
       await distributionTransactionRepository.getLatestAttendanceByHouseholdId(
         stub.household_id,
@@ -887,6 +920,7 @@ const createDistributionTransaction = async (requestData) => {
           reliefPackTemplateId: requestData.relief_pack_template_id,
           client,
           inventoryItemsById,
+          disasterType: disasterEvent.disaster_type,
         })
       : null;
     const releasePlan = templateReleasePlan
