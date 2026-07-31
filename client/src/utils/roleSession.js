@@ -107,7 +107,7 @@ export const getRoleForAccessMode = (mode = getAccessMode()) => {
   const authenticatedRole = getAuthenticatedSession()?.user?.role || null;
   const storedRole = getStoredRole();
 
-  if (mode === ACCESS_MODES.DEMO || mode === ACCESS_MODES.PRODUCTION) {
+  if (mode === ACCESS_MODES.DEMO) {
     if (authenticatedRole) {
       return authenticatedRole;
     }

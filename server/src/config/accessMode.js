@@ -1,40 +1,65 @@
 const ACCESS_MODES = {
   DEVELOPMENT: "DEVELOPMENT",
   DEMO: "DEMO",
-  PRODUCTION: "PRODUCTION",
 };
 
-const normalizeAccessMode = (value) => {
+const ACCESS_MODE_ENV_NAME = "SERVER_ACCESS_MODE";
+
+class AccessModeConfigurationError extends Error {
+  constructor(message = "") {
+    super(message);
+    this.name = "AccessModeConfigurationError";
+  }
+}
+
+const getServerAccessModeConfigurationErrorMessage = () => {
+  return "DISTYNC server configuration error: SERVER_ACCESS_MODE must be set to DEVELOPMENT or DEMO.";
+};
+
+const parseServerAccessMode = (value) => {
   if (typeof value !== "string" || !value.trim()) {
-    return null;
+    throw new AccessModeConfigurationError(
+      getServerAccessModeConfigurationErrorMessage(),
+    );
   }
 
-  const normalizedValue = value.trim().toUpperCase();
-  return Object.values(ACCESS_MODES).includes(normalizedValue)
-    ? normalizedValue
-    : null;
-};
+  const normalizedValue = value.trim();
 
-const getServerAccessMode = () => {
-  return (
-    normalizeAccessMode(process.env.SERVER_ACCESS_MODE) ||
-    normalizeAccessMode(process.env.ACCESS_MODE) ||
-    ACCESS_MODES.DEMO
+  if (Object.values(ACCESS_MODES).includes(normalizedValue)) {
+    return normalizedValue;
+  }
+
+  throw new AccessModeConfigurationError(
+    getServerAccessModeConfigurationErrorMessage(),
   );
 };
 
-const isDevelopmentBypassEnabled = () => {
-  const explicitBypassFlag =
-    String(process.env.ENABLE_DEVELOPMENT_AUTH_BYPASS || "").toLowerCase() ===
-    "true";
+const getServerAccessMode = (env = process.env) => {
+  return parseServerAccessMode(env?.[ACCESS_MODE_ENV_NAME]);
+};
 
+const parseDevelopmentBypassFlag = (value) => {
+  if (typeof value !== "string" || !value.trim()) {
+    return false;
+  }
+
+  return value.trim().toLowerCase() === "true";
+};
+
+const isDevelopmentBypassEnabled = (env = process.env) => {
   return (
-    getServerAccessMode() === ACCESS_MODES.DEVELOPMENT && explicitBypassFlag
+    getServerAccessMode(env) === ACCESS_MODES.DEVELOPMENT &&
+    parseDevelopmentBypassFlag(env?.ENABLE_DEVELOPMENT_AUTH_BYPASS)
   );
 };
 
 module.exports = {
   ACCESS_MODES,
+  ACCESS_MODE_ENV_NAME,
+  AccessModeConfigurationError,
   getServerAccessMode,
+  getServerAccessModeConfigurationErrorMessage,
   isDevelopmentBypassEnabled,
+  parseDevelopmentBypassFlag,
+  parseServerAccessMode,
 };

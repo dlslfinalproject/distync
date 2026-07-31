@@ -7,11 +7,24 @@ let notificationService;
 let disasterEventService;
 
 try {
+  const {
+    AccessModeConfigurationError,
+    getServerAccessMode,
+    isDevelopmentBypassEnabled,
+  } = require("./config/accessMode");
+
+  getServerAccessMode();
+  isDevelopmentBypassEnabled();
   pool = require("./config/db");
   app = require("./app");
   notificationService = require("./modules/notifications/notification.service");
   disasterEventService = require("./services/disasterEvent.service");
 } catch (error) {
+  if (error.name === "AccessModeConfigurationError") {
+    console.error(error.message);
+    process.exit(1);
+  }
+
   console.error("Failed to initialize server configuration:", error.message);
   process.exit(1);
 }

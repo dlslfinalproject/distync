@@ -96,10 +96,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const sessionPayload = await authenticateWithGoogleIdToken(credential);
       clearAllAccessSessions();
-      if (
-        accessMode === ACCESS_MODES.DEMO ||
-        accessMode === ACCESS_MODES.PRODUCTION
-      ) {
+      if (accessMode === ACCESS_MODES.DEMO) {
         setCurrentRole(sessionPayload.user.role);
       }
       setAuthenticatedSession(sessionPayload);
