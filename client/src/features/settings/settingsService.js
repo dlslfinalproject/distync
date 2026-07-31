@@ -1,17 +1,24 @@
 import { getCachedRegistrationReferenceData } from "../household-registration/householdRegistrationService";
+import { getAccessMode } from "../../utils/accessMode";
+import {
+  getRoleSettingsStorageKey,
+  isStoredModeCurrent,
+  listStorageKeys,
+  readStorageValue,
+  removeStorageKey,
+  removeStorageKeysByPrefix,
+  writeStorageValue,
+} from "../../utils/modeStorage";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
-
-const SETTINGS_STORAGE_KEY_PREFIX = "distync-role-settings";
 
 const DEFAULT_PREFERENCES = {
   enabledNotificationRuleCodes: [],
 };
 
-const buildStorageKey = ({ roleCode, userId }) => {
-  return `${SETTINGS_STORAGE_KEY_PREFIX}:${roleCode || "UNKNOWN"}:${userId || "anonymous"}`;
-};
+export const buildRoleSettingsCacheKey = ({ roleCode, userId }) =>
+  getRoleSettingsStorageKey({ roleCode, userId });
 
 const safeReadJson = (storageKey, fallbackValue) => {
   if (typeof window === "undefined") {
@@ -19,7 +26,7 @@ const safeReadJson = (storageKey, fallbackValue) => {
   }
 
   try {
-    const rawValue = window.localStorage.getItem(storageKey);
+    const rawValue = readStorageValue(storageKey);
 
     if (!rawValue) {
       return fallbackValue;
@@ -37,7 +44,7 @@ const safeWriteJson = (storageKey, value) => {
   }
 
   try {
-    window.localStorage.setItem(storageKey, JSON.stringify(value));
+    writeStorageValue(storageKey, JSON.stringify(value));
   } catch (_error) {
     // Ignore storage write failures so settings pages can still render.
   }
@@ -71,15 +78,32 @@ const normalizeStoredSettings = (storedValue = {}) => {
 };
 
 export const loadRoleSettings = async ({ roleCode, userId }) => {
-  const storageKey = buildStorageKey({ roleCode, userId });
-  const cachedSettings = normalizeStoredSettings(safeReadJson(storageKey, {}));
+  const storageKey = buildRoleSettingsCacheKey({ roleCode, userId });
+  const cachedEnvelope = safeReadJson(storageKey, null);
+  const isCurrentSettingsEnvelope =
+    cachedEnvelope &&
+    cachedEnvelope.userId === (userId || "anonymous") &&
+    cachedEnvelope.roleCode === (roleCode || "UNKNOWN") &&
+    isStoredModeCurrent(cachedEnvelope.accessMode);
+  const cachedSettings = isCurrentSettingsEnvelope
+    ? normalizeStoredSettings(cachedEnvelope.data || {})
+    : normalizeStoredSettings({});
+
+  if (cachedEnvelope && !isCurrentSettingsEnvelope) {
+    removeStorageKey(storageKey);
+  }
 
   try {
     const response = await fetch(`${API_BASE_URL}/api/v1/settings/current`);
     const payload = await handleJsonResponse(response, "Failed to load settings");
     const resolvedSettings = normalizeStoredSettings(payload?.data || {});
 
-    safeWriteJson(storageKey, resolvedSettings);
+    safeWriteJson(storageKey, {
+      accessMode: getAccessMode(),
+      roleCode: roleCode || "UNKNOWN",
+      userId: userId || "anonymous",
+      data: resolvedSettings,
+    });
 
     return resolvedSettings;
   } catch (_error) {
@@ -88,7 +112,7 @@ export const loadRoleSettings = async ({ roleCode, userId }) => {
 };
 
 export const saveRoleSettings = async ({ roleCode, userId, settings }) => {
-  const storageKey = buildStorageKey({ roleCode, userId });
+  const storageKey = buildRoleSettingsCacheKey({ roleCode, userId });
   const response = await fetch(`${API_BASE_URL}/api/v1/settings/current`, {
     method: "PUT",
     headers: {
@@ -105,13 +129,29 @@ export const saveRoleSettings = async ({ roleCode, userId, settings }) => {
   const payload = await handleJsonResponse(response, "Failed to save settings");
   const resolvedSettings = normalizeStoredSettings(payload?.data || {});
 
-  safeWriteJson(storageKey, resolvedSettings);
+  safeWriteJson(storageKey, {
+    accessMode: getAccessMode(),
+    roleCode: roleCode || "UNKNOWN",
+    userId: userId || "anonymous",
+    data: resolvedSettings,
+  });
 
   return {
     success: true,
     data: resolvedSettings,
     user: payload?.user || null,
   };
+};
+
+export const clearRoleSettingsCache = ({ roleCode, userId }) => {
+  removeStorageKey(buildRoleSettingsCacheKey({ roleCode, userId }));
+};
+
+export const clearAllRoleSettingsCaches = () => {
+  listStorageKeys()
+    .filter((key) => key.includes(":role-settings:"))
+    .forEach((key) => removeStorageKey(key));
+  removeStorageKeysByPrefix("distync-role-settings:");
 };
 
 export const summarizeCachedRegistrationData = () => {

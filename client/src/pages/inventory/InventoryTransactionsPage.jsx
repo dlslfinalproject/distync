@@ -23,6 +23,7 @@ import { fetchSystemLogReview } from "../../features/system-logs/systemLogServic
 import db from "../../offline/db";
 import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
+import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
 import {
   buildExportSuccessMessage,
   COMMON_EXPORT_FORMAT_OPTIONS,
@@ -760,7 +761,7 @@ const InventoryTransactionsPage = () => {
   const filterButtonRef = useRef(null);
   const filterPanelRef = useRef(null);
   const syncQueueEntries =
-    useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
+    useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
 
   const downloadFile = (file) => {
     downloadExportFile(file);

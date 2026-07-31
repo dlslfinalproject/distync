@@ -100,3 +100,49 @@ For an official-facing deployment:
 The frontend build command does not rewrite backend configuration. The
 backend mode must still be configured separately.
 
+## Browser Storage Isolation
+
+DISTYNC now isolates browser-stored data by validated access mode.
+`DEVELOPMENT` browser state is not reused in `DEMO`, and `DEMO` browser
+state is not reused in `DEVELOPMENT`.
+
+### What is isolated
+
+- Authentication sessions use separate mode-specific keys.
+- Selected roles use separate mode-specific keys.
+- Account Settings cache is scoped by access mode, user ID, and role code.
+- Registration reference cache uses mode-specific keys.
+- IndexedDB offline data uses separate databases for `DEVELOPMENT` and `DEMO`.
+- Offline queue records include access mode, user ID, and role code metadata.
+- PWA runtime caches use mode-specific cache names.
+
+### Mode switch behavior
+
+When the same browser switches between `DEVELOPMENT` and `DEMO`:
+
+- DISTYNC records the last validated access mode.
+- Legacy unscoped auth, role, settings, and registration storage is removed.
+- Mode-specific auth sessions and selected-role state are cleared.
+- The app continues in an unauthenticated state.
+- Previous-mode offline work is not transferred into the new mode.
+
+Same-mode reloads still keep valid same-mode sessions and same-mode offline
+data available.
+
+### Legacy browser data
+
+Legacy shared browser storage such as:
+
+- `distync_auth_session`
+- `distync_selected_role`
+- `distync-role-settings:*`
+- `distyncOfflineDb`
+- `distync-pages`
+- `distync-shell`
+- `distync-static-assets`
+
+is treated as unsafe for mode isolation. Legacy auth and role state is
+removed. Legacy shared runtime caches are cleaned up. The old shared
+IndexedDB database is deleted instead of being reassigned to `DEMO` or
+`DEVELOPMENT`, because its original mode cannot be verified safely.
+

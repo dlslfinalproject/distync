@@ -1,9 +1,15 @@
-import { getAuthenticatedSession } from "./roleSession";
+import { getAccessMode } from "./accessMode.js";
+import {
+  getAuthenticatedSession,
+  getAuthenticatedSessionForMode,
+} from "./roleSession.js";
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+  import.meta.env?.VITE_API_BASE_URL || "http://localhost:5000";
+const WINDOW_ORIGIN =
+  typeof window === "undefined" ? "http://localhost" : window.location.origin;
 
-const API_BASE_ORIGIN = new URL(API_BASE_URL, window.location.origin).origin;
+const API_BASE_ORIGIN = new URL(API_BASE_URL, WINDOW_ORIGIN).origin;
 
 const shouldAttachAccessToken = (requestUrl) => {
   return (
@@ -28,7 +34,7 @@ export const installAuthenticatedFetch = () => {
       return nativeFetch(input, init);
     }
 
-    const accessToken = getAuthenticatedSession()?.access_token;
+    const accessToken = getAuthenticatedAccessToken();
 
     if (!accessToken) {
       return nativeFetch(input, init);
@@ -48,4 +54,12 @@ export const installAuthenticatedFetch = () => {
   };
 
   window.__distyncAuthenticatedFetchInstalled = true;
+};
+
+export const getAuthenticatedAccessToken = () => {
+  return getAuthenticatedSession()?.access_token || null;
+};
+
+export const getAuthenticatedAccessTokenForMode = (mode = getAccessMode()) => {
+  return getAuthenticatedSessionForMode(mode)?.access_token || null;
 };

@@ -3,6 +3,11 @@ import { VitePWA } from "vite-plugin-pwa";
 import {
   validateBuildTargetAccessMode,
 } from "./scripts/buildTargetConfig.cjs";
+import {
+  DISTYNC_CACHE_BASE_NAMES,
+  getModeCacheNameForAccessMode,
+  getModePrecacheCacheId,
+} from "./src/pwa/cacheNames.js";
 
 const validateConfiguredAccessMode = (value) => {
   const normalizedValue = typeof value === "string" ? value.trim() : "";
@@ -42,6 +47,7 @@ export default defineConfig(({ mode }) => {
           start_url: "/",
         },
         workbox: {
+          cacheId: getModePrecacheCacheId(configuredAccessMode),
           globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
           cleanupOutdatedCaches: true,
           runtimeCaching: [
@@ -53,7 +59,10 @@ export default defineConfig(({ mode }) => {
               urlPattern: ({ request }) => request.mode === "navigate",
               handler: "NetworkFirst",
               options: {
-                cacheName: "distync-pages",
+                cacheName: getModeCacheNameForAccessMode(
+                  DISTYNC_CACHE_BASE_NAMES.PAGES,
+                  configuredAccessMode,
+                ),
                 networkTimeoutSeconds: 3,
               },
             },
@@ -62,7 +71,10 @@ export default defineConfig(({ mode }) => {
                 ["script", "style", "worker"].includes(request.destination),
               handler: "StaleWhileRevalidate",
               options: {
-                cacheName: "distync-shell",
+                cacheName: getModeCacheNameForAccessMode(
+                  DISTYNC_CACHE_BASE_NAMES.SHELL,
+                  configuredAccessMode,
+                ),
               },
             },
             {
@@ -70,7 +82,10 @@ export default defineConfig(({ mode }) => {
                 ["image", "font"].includes(request.destination),
               handler: "CacheFirst",
               options: {
-                cacheName: "distync-static-assets",
+                cacheName: getModeCacheNameForAccessMode(
+                  DISTYNC_CACHE_BASE_NAMES.STATIC_ASSETS,
+                  configuredAccessMode,
+                ),
                 expiration: {
                   maxEntries: 80,
                   maxAgeSeconds: 60 * 60 * 24 * 30,

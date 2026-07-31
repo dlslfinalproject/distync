@@ -20,6 +20,8 @@ import {
   authenticateWithGoogleIdToken,
   clearGooglePromptState,
 } from "../features/auth/authService";
+import { clearRegistrationReferenceCache } from "../features/household-registration/householdRegistrationService";
+import { clearRoleSettingsCache } from "../features/settings/settingsService";
 
 const AuthContext = createContext(null);
 
@@ -108,11 +110,19 @@ export const AuthProvider = ({ children }) => {
   }, [accessMode, syncAuthState]);
 
   const clearSession = useCallback(() => {
+    if (authState.currentRole && authState.authenticatedUser?.id) {
+      clearRoleSettingsCache({
+        roleCode: authState.currentRole,
+        userId: authState.authenticatedUser.id,
+      });
+    }
+
+    clearRegistrationReferenceCache();
     clearGooglePromptState();
     clearAllAccessSessions();
     setAuthError("");
     syncAuthState();
-  }, [syncAuthState]);
+  }, [authState.authenticatedUser, authState.currentRole, syncAuthState]);
 
   const clearAuthError = useCallback(() => {
     setAuthError("");

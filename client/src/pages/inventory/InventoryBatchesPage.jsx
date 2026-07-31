@@ -21,6 +21,7 @@ import {
 import db from "../../offline/db";
 import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
+import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
 import {
   buildExportSuccessMessage,
   COMMON_EXPORT_FORMAT_OPTIONS,
@@ -101,7 +102,7 @@ const InventoryBatchesPage = () => {
   });
   const [hasHandledScanRedirect, setHasHandledScanRedirect] = useState(false);
   const syncQueueEntries =
-    useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
+    useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
   const initialInventoryItemId = searchParams.get("inventory_item_id") || "";
   const shouldOpenCreateFromScan = searchParams.get("open_create") === "1";
 

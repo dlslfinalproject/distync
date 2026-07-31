@@ -15,11 +15,12 @@ import {
   saveRoleSettings,
 } from "../../features/settings/settingsService";
 import { fetchSyncHistory } from "../../features/sync/syncHistoryService";
-import db, { LOCAL_SYNC_STATUS } from "../../offline/db";
+import { LOCAL_SYNC_STATUS } from "../../offline/db";
 import {
   flushPendingSyncEntries,
   subscribeToSyncUpdates,
 } from "../../offline/syncService";
+import { getVisibleSyncQueueEntriesByUpdatedAt } from "../../offline/syncQueue";
 import {
   ROLE_CODES,
   updateAuthenticatedSessionUser,
@@ -291,7 +292,7 @@ const RoleSettingsPage = () => {
   const navigate = useNavigate();
   const { currentRole, authenticatedUser, syncAuthState } = useAuth();
   const syncEntries =
-    useLiveQuery(() => db.syncQueue.orderBy("updatedAt").reverse().toArray(), [], []) ||
+    useLiveQuery(() => getVisibleSyncQueueEntriesByUpdatedAt(), [], []) ||
     [];
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");

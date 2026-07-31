@@ -1,7 +1,10 @@
-import { ACCESS_MODES, getAccessMode } from "./accessMode";
-
-const ROLE_STORAGE_KEY = "distync_selected_role";
-const AUTH_SESSION_STORAGE_KEY = "distync_auth_session";
+import { ACCESS_MODES, getAccessMode } from "./accessMode.js";
+import {
+  getAuthSessionStorageKey,
+  getSelectedRoleStorageKey,
+  isStoredModeCurrent,
+  removeStorageKey,
+} from "./modeStorage.js";
 
 export const ROLE_CODES = {
   BARANGAY: "BARANGAY",
@@ -12,25 +15,46 @@ export const ROLE_CODES = {
 
 const validRoles = Object.values(ROLE_CODES);
 
-const getStoredRole = () => {
-  const storedRole = window.localStorage.getItem(ROLE_STORAGE_KEY);
-  return validRoles.includes(storedRole) ? storedRole : null;
+export const getStoredRoleForMode = (mode) => {
+  const roleStorageKey = getSelectedRoleStorageKey(mode);
+  const storedRole = window.localStorage.getItem(roleStorageKey);
+
+  if (!validRoles.includes(storedRole)) {
+    if (storedRole) {
+      removeStorageKey(roleStorageKey);
+    }
+
+    return null;
+  }
+
+  return storedRole;
 };
 
+const getStoredRole = () => getStoredRoleForMode(getAccessMode());
+
 export const setCurrentRole = (role) => {
+  setCurrentRoleForMode(role, getAccessMode());
+};
+
+export const setCurrentRoleForMode = (role, mode) => {
   if (!validRoles.includes(role)) {
     return;
   }
 
-  window.localStorage.setItem(ROLE_STORAGE_KEY, role);
+  window.localStorage.setItem(getSelectedRoleStorageKey(mode), role);
 };
 
 export const clearCurrentRole = () => {
-  window.localStorage.removeItem(ROLE_STORAGE_KEY);
+  clearCurrentRoleForMode(getAccessMode());
 };
 
-export const getAuthenticatedSession = () => {
-  const storedValue = window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY);
+export const clearCurrentRoleForMode = (mode) => {
+  removeStorageKey(getSelectedRoleStorageKey(mode));
+};
+
+export const getAuthenticatedSessionForMode = (mode) => {
+  const sessionStorageKey = getAuthSessionStorageKey(mode);
+  const storedValue = window.localStorage.getItem(sessionStorageKey);
 
   if (!storedValue) {
     return null;
@@ -39,15 +63,25 @@ export const getAuthenticatedSession = () => {
   try {
     const parsedValue = JSON.parse(storedValue);
     const authenticatedRole = parsedValue?.user?.role;
+    const storedMode = parsedValue?.accessMode;
 
-    if (!validRoles.includes(authenticatedRole)) {
+    if (
+      !validRoles.includes(authenticatedRole) ||
+      !isStoredModeCurrent(storedMode, mode)
+    ) {
+      removeStorageKey(sessionStorageKey);
       return null;
     }
 
     return parsedValue;
   } catch (error) {
+    removeStorageKey(sessionStorageKey);
     return null;
   }
+};
+
+export const getAuthenticatedSession = () => {
+  return getAuthenticatedSessionForMode(getAccessMode());
 };
 
 export const getAuthenticatedUser = () => {
@@ -55,15 +89,21 @@ export const getAuthenticatedUser = () => {
 };
 
 export const setAuthenticatedSession = (sessionPayload) => {
-  const authenticatedRole = sessionPayload?.user?.role;
+  setAuthenticatedSessionForMode(sessionPayload, getAccessMode());
+};
 
+export const setAuthenticatedSessionForMode = (sessionPayload, mode) => {
+  const authenticatedRole = sessionPayload?.user?.role;
   if (!validRoles.includes(authenticatedRole)) {
     return;
   }
 
   window.localStorage.setItem(
-    AUTH_SESSION_STORAGE_KEY,
-    JSON.stringify(sessionPayload),
+    getAuthSessionStorageKey(mode),
+    JSON.stringify({
+      ...sessionPayload,
+      accessMode: mode,
+    }),
   );
 };
 
@@ -84,7 +124,11 @@ export const updateAuthenticatedSessionUser = (userUpdates) => {
 };
 
 export const clearAuthenticatedSession = () => {
-  window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+  clearAuthenticatedSessionForMode(getAccessMode());
+};
+
+export const clearAuthenticatedSessionForMode = (mode) => {
+  removeStorageKey(getAuthSessionStorageKey(mode));
 };
 
 export const clearAllAccessSessions = () => {

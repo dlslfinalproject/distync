@@ -3,18 +3,25 @@ import {
   performSyncableMutation,
 } from "../../offline/syncService";
 import { HOUSEHOLD_PRIVACY_OFFLINE_MESSAGE } from "./privacyNotice.mjs";
+import {
+  getRegistrationStorageKey,
+  readStorageValue,
+  removeStorageKey,
+  removeStorageKeysByPrefix,
+  writeStorageValue,
+} from "../../utils/modeStorage";
 
 const API_BASE_URL =
 import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
 const REGISTRATION_CACHE_KEYS = {
-  activeDisasterEvents: "distync-registration-active-disaster-events",
-  sectors: "distync-registration-sectors",
-  barangays: "distync-registration-barangays",
-  selectedDisasterEventId: "distync-registration-selected-disaster-event-id",
-  selectedDisasterEvent: "distync-registration-selected-disaster-event",
-  evacuationCentersAll: "distync-registration-evacuation-centers-all",
-  evacuationCentersByBarangay: "distync-registration-evacuation-centers-by-barangay",
+  activeDisasterEvents: "active-disaster-events",
+  sectors: "sectors",
+  barangays: "barangays",
+  selectedDisasterEventId: "selected-disaster-event-id",
+  selectedDisasterEvent: "selected-disaster-event",
+  evacuationCentersAll: "evacuation-centers-all",
+  evacuationCentersByBarangay: "evacuation-centers-by-barangay",
 };
 
 const safeReadJson = (storageKey, fallbackValue) => {
@@ -23,7 +30,7 @@ const safeReadJson = (storageKey, fallbackValue) => {
   }
 
   try {
-    const rawValue = window.localStorage.getItem(storageKey);
+    const rawValue = readStorageValue(storageKey);
 
     if (!rawValue) {
       return fallbackValue;
@@ -41,11 +48,14 @@ const safeWriteJson = (storageKey, value) => {
   }
 
   try {
-    window.localStorage.setItem(storageKey, JSON.stringify(value));
+    writeStorageValue(storageKey, JSON.stringify(value));
   } catch (_error) {
     // Ignore caching issues so registration can continue normally.
   }
 };
+
+const getRegistrationCacheKey = (cacheSegment) =>
+  getRegistrationStorageKey(cacheSegment);
 
 const parseJsonResponse = async (response) => {
   const payload = await response.json();
@@ -60,21 +70,21 @@ const parseJsonResponse = async (response) => {
 export const fetchActiveDisasterEvents = async () => {
   const response = await fetch(`${API_BASE_URL}/api/v1/disaster-events/active`);
   const payload = await parseJsonResponse(response);
-  safeWriteJson(REGISTRATION_CACHE_KEYS.activeDisasterEvents, payload);
+  safeWriteJson(getRegistrationCacheKey(REGISTRATION_CACHE_KEYS.activeDisasterEvents), payload);
   return payload;
 };
 
 export const fetchSectors = async () => {
   const response = await fetch(`${API_BASE_URL}/api/v1/sectors`);
   const payload = await parseJsonResponse(response);
-  safeWriteJson(REGISTRATION_CACHE_KEYS.sectors, payload);
+  safeWriteJson(getRegistrationCacheKey(REGISTRATION_CACHE_KEYS.sectors), payload);
   return payload;
 };
 
 export const fetchBarangays = async () => {
   const response = await fetch(`${API_BASE_URL}/api/v1/barangays`);
   const payload = await parseJsonResponse(response);
-  safeWriteJson(REGISTRATION_CACHE_KEYS.barangays, payload);
+  safeWriteJson(getRegistrationCacheKey(REGISTRATION_CACHE_KEYS.barangays), payload);
   return payload;
 };
 
@@ -88,7 +98,10 @@ export const fetchEvacuationCenters = async () => {
 
     const payload = await response.json();
     const normalizedPayload = Array.isArray(payload.data) ? payload.data : payload;
-    safeWriteJson(REGISTRATION_CACHE_KEYS.evacuationCentersAll, normalizedPayload);
+    safeWriteJson(
+      getRegistrationCacheKey(REGISTRATION_CACHE_KEYS.evacuationCentersAll),
+      normalizedPayload,
+    );
     return normalizedPayload;
   } catch (error) {
     return [];
@@ -112,14 +125,17 @@ export const fetchEvacuationCentersByBarangay = async (barangayId) => {
     const payload = await response.json();
     const normalizedPayload = Array.isArray(payload.data) ? payload.data : payload;
     const cachedCentersByBarangay = safeReadJson(
-      REGISTRATION_CACHE_KEYS.evacuationCentersByBarangay,
+      getRegistrationCacheKey(REGISTRATION_CACHE_KEYS.evacuationCentersByBarangay),
       {},
     );
 
-    safeWriteJson(REGISTRATION_CACHE_KEYS.evacuationCentersByBarangay, {
-      ...cachedCentersByBarangay,
-      [barangayId]: normalizedPayload,
-    });
+    safeWriteJson(
+      getRegistrationCacheKey(REGISTRATION_CACHE_KEYS.evacuationCentersByBarangay),
+      {
+        ...cachedCentersByBarangay,
+        [barangayId]: normalizedPayload,
+      },
+    );
 
     return normalizedPayload;
   } catch (error) {
@@ -132,7 +148,10 @@ export const cacheSelectedDisasterEventId = (disasterEventId) => {
     return;
   }
 
-  safeWriteJson(REGISTRATION_CACHE_KEYS.selectedDisasterEventId, disasterEventId);
+  safeWriteJson(
+    getRegistrationCacheKey(REGISTRATION_CACHE_KEYS.selectedDisasterEventId),
+    disasterEventId,
+  );
 };
 
 export const cacheSelectedDisasterEvent = (disasterEvent) => {
@@ -140,15 +159,18 @@ export const cacheSelectedDisasterEvent = (disasterEvent) => {
     return;
   }
 
-  safeWriteJson(REGISTRATION_CACHE_KEYS.selectedDisasterEvent, {
-    id: disasterEvent.id,
-    event_code: disasterEvent.event_code || "",
-    title: disasterEvent.title || disasterEvent.event_name || "",
-    event_name: disasterEvent.event_name || disasterEvent.title || "",
-    start_date: disasterEvent.start_date || null,
-    end_date: disasterEvent.end_date || null,
-    status: disasterEvent.status || "",
-  });
+  safeWriteJson(
+    getRegistrationCacheKey(REGISTRATION_CACHE_KEYS.selectedDisasterEvent),
+    {
+      id: disasterEvent.id,
+      event_code: disasterEvent.event_code || "",
+      title: disasterEvent.title || disasterEvent.event_name || "",
+      event_name: disasterEvent.event_name || disasterEvent.title || "",
+      start_date: disasterEvent.start_date || null,
+      end_date: disasterEvent.end_date || null,
+      status: disasterEvent.status || "",
+    },
+  );
 };
 
 export const cacheRegistrationActiveDisasterEvents = (disasterEvents) => {
@@ -156,7 +178,10 @@ export const cacheRegistrationActiveDisasterEvents = (disasterEvents) => {
     return;
   }
 
-  safeWriteJson(REGISTRATION_CACHE_KEYS.activeDisasterEvents, disasterEvents);
+  safeWriteJson(
+    getRegistrationCacheKey(REGISTRATION_CACHE_KEYS.activeDisasterEvents),
+    disasterEvents,
+  );
 };
 
 export const cacheRegistrationSectors = (sectors) => {
@@ -164,7 +189,7 @@ export const cacheRegistrationSectors = (sectors) => {
     return;
   }
 
-  safeWriteJson(REGISTRATION_CACHE_KEYS.sectors, {
+  safeWriteJson(getRegistrationCacheKey(REGISTRATION_CACHE_KEYS.sectors), {
     data: sectors,
   });
 };
@@ -174,7 +199,7 @@ export const cacheRegistrationBarangays = (barangays) => {
     return;
   }
 
-  safeWriteJson(REGISTRATION_CACHE_KEYS.barangays, barangays);
+  safeWriteJson(getRegistrationCacheKey(REGISTRATION_CACHE_KEYS.barangays), barangays);
 };
 
 export const cacheRegistrationEvacuationCentersByBarangay = (
@@ -186,41 +211,57 @@ export const cacheRegistrationEvacuationCentersByBarangay = (
   }
 
   const cachedCentersByBarangay = safeReadJson(
-    REGISTRATION_CACHE_KEYS.evacuationCentersByBarangay,
+    getRegistrationCacheKey(REGISTRATION_CACHE_KEYS.evacuationCentersByBarangay),
     {},
   );
 
-  safeWriteJson(REGISTRATION_CACHE_KEYS.evacuationCentersByBarangay, {
-    ...cachedCentersByBarangay,
-    [barangayId]: centers,
-  });
+  safeWriteJson(
+    getRegistrationCacheKey(REGISTRATION_CACHE_KEYS.evacuationCentersByBarangay),
+    {
+      ...cachedCentersByBarangay,
+      [barangayId]: centers,
+    },
+  );
 };
 
 export const getCachedRegistrationReferenceData = () => {
   return {
     activeDisasterEvents: safeReadJson(
-      REGISTRATION_CACHE_KEYS.activeDisasterEvents,
+      getRegistrationCacheKey(REGISTRATION_CACHE_KEYS.activeDisasterEvents),
       [],
     ),
-    sectors: safeReadJson(REGISTRATION_CACHE_KEYS.sectors, null),
-    barangays: safeReadJson(REGISTRATION_CACHE_KEYS.barangays, []),
+    sectors: safeReadJson(getRegistrationCacheKey(REGISTRATION_CACHE_KEYS.sectors), null),
+    barangays: safeReadJson(getRegistrationCacheKey(REGISTRATION_CACHE_KEYS.barangays), []),
     selectedDisasterEventId: safeReadJson(
-      REGISTRATION_CACHE_KEYS.selectedDisasterEventId,
+      getRegistrationCacheKey(REGISTRATION_CACHE_KEYS.selectedDisasterEventId),
       "",
     ),
     selectedDisasterEvent: safeReadJson(
-      REGISTRATION_CACHE_KEYS.selectedDisasterEvent,
+      getRegistrationCacheKey(REGISTRATION_CACHE_KEYS.selectedDisasterEvent),
       null,
     ),
     evacuationCentersAll: safeReadJson(
-      REGISTRATION_CACHE_KEYS.evacuationCentersAll,
+      getRegistrationCacheKey(REGISTRATION_CACHE_KEYS.evacuationCentersAll),
       [],
     ),
     evacuationCentersByBarangay: safeReadJson(
-      REGISTRATION_CACHE_KEYS.evacuationCentersByBarangay,
+      getRegistrationCacheKey(REGISTRATION_CACHE_KEYS.evacuationCentersByBarangay),
       {},
     ),
   };
+};
+
+export const clearRegistrationReferenceCache = () => {
+  removeStorageKeysByPrefix(getRegistrationStorageKey(""));
+};
+
+export const clearSelectedDisasterEventCache = () => {
+  removeStorageKey(
+    getRegistrationCacheKey(REGISTRATION_CACHE_KEYS.selectedDisasterEventId),
+  );
+  removeStorageKey(
+    getRegistrationCacheKey(REGISTRATION_CACHE_KEYS.selectedDisasterEvent),
+  );
 };
 
 export const registerHousehold = async (payload) => {

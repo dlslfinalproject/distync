@@ -11,6 +11,7 @@ import {
   retryFailedSyncEntries,
   subscribeToSyncUpdates,
 } from "../offline/syncService";
+import { getVisibleSyncQueueEntriesByUpdatedAt } from "../offline/syncQueue";
 import {
   auditSyncRetryRequest,
   fetchSyncConflictDetail,
@@ -262,7 +263,7 @@ const SyncManagementPage = () => {
   });
 
   const syncQueueEntries =
-    useLiveQuery(() => db.syncQueue.orderBy("updatedAt").reverse().toArray(), [], []) ||
+    useLiveQuery(() => getVisibleSyncQueueEntriesByUpdatedAt(), [], []) ||
     [];
 
   const isOnline = typeof navigator === "undefined" ? true : navigator.onLine;

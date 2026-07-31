@@ -35,6 +35,7 @@ import { useDonationManagementModals } from "../features/donations/useDonationMa
 import { useAuth } from "../context/AuthContext";
 import db from "../offline/db";
 import { subscribeToSyncUpdates } from "../offline/syncService";
+import { getVisibleSyncQueueEntries } from "../offline/syncQueue";
 import {
   buildExportSuccessMessage,
   COMMON_EXPORT_FORMAT_OPTIONS,
@@ -214,7 +215,7 @@ const DonationManagementPage = () => {
   });
 
   const syncQueueEntries =
-    useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
+    useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
 
   const loadPageData = async (eventId = selectedEventId) => {
     setIsLoading(true);
