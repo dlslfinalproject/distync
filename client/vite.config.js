@@ -78,6 +78,13 @@ export default defineConfig(({ mode }) => {
               },
             },
             {
+              urlPattern: ({ url }) =>
+                url.pathname.includes(
+                  "/storage/v1/object/sign/distync-profile-pictures/",
+                ),
+              handler: "NetworkOnly",
+            },
+            {
               urlPattern: ({ request }) =>
                 ["image", "font"].includes(request.destination),
               handler: "CacheFirst",

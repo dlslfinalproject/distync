@@ -171,7 +171,7 @@ test("envelope ownership mismatches and malformed role settings caches are remov
   storage.setItem(
     storageKey,
     JSON.stringify({
-      version: "2026-07-31-v1",
+      version: "2026-07-31-v2",
       accessMode: ACCESS_MODES.DEVELOPMENT,
       roleCode: "MSWDO",
       userId: "user-1",
@@ -456,4 +456,68 @@ test("targeted single-entry cache cleanup leaves unrelated storage untouched", (
     storage.getItem("distync:DEMO:registration:selected-disaster-event-id"),
     "evt-1",
   );
+});
+
+test("role settings cache strips unsafe profile picture sources and keeps only safe metadata", () => {
+  createWindow();
+
+  writeRoleSettingsCache({
+    mode: ACCESS_MODES.DEMO,
+    roleCode: "BARANGAY",
+    userId: "user-1",
+    settings: {
+      profile: {
+        profilePicturePath: "user-1/avatar.webp",
+        profilePictureUrl: "data:image/png;base64,ZmFrZQ==",
+        profilePictureUrlExpiresAt: "2099-01-01T00:00:00.000Z",
+        profilePictureFileName: "avatar.webp",
+        profilePictureUpdatedAt: "2026-07-31T09:00:00.000Z",
+      },
+    },
+  });
+
+  const cachedSettings = readRoleSettingsCache({
+    mode: ACCESS_MODES.DEMO,
+    roleCode: "BARANGAY",
+    userId: "user-1",
+  });
+
+  assert.equal(cachedSettings.profile.profilePicturePath, "user-1/avatar.webp");
+  assert.equal(cachedSettings.profile.profilePictureUrl, "");
+  assert.equal(
+    cachedSettings.profile.profilePictureUrlExpiresAt,
+    "",
+  );
+  assert.equal(
+    cachedSettings.profile.profilePictureFileName,
+    "avatar.webp",
+  );
+});
+
+test("expired signed profile picture URLs are not reused from cache", () => {
+  createWindow();
+
+  writeRoleSettingsCache({
+    mode: ACCESS_MODES.DEMO,
+    roleCode: "MSWDO",
+    userId: "user-2",
+    settings: {
+      profile: {
+        profilePicturePath: "user-2/avatar.jpg",
+        profilePictureUrl:
+          "https://your-project.supabase.co/storage/v1/object/sign/distync-profile-pictures/user-2/avatar.jpg?token=expired",
+        profilePictureUrlExpiresAt: "2026-07-31T08:00:00.000Z",
+      },
+    },
+  });
+
+  const cachedSettings = readRoleSettingsCache({
+    mode: ACCESS_MODES.DEMO,
+    roleCode: "MSWDO",
+    userId: "user-2",
+  });
+
+  assert.equal(cachedSettings.profile.profilePicturePath, "user-2/avatar.jpg");
+  assert.equal(cachedSettings.profile.profilePictureUrl, "");
+  assert.equal(cachedSettings.profile.profilePictureUrlExpiresAt, "");
 });

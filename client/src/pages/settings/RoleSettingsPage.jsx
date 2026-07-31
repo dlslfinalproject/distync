@@ -12,7 +12,10 @@ import {
 } from "../../features/notifications/notificationService";
 import {
   loadRoleSettings,
+  refreshCurrentProfilePicture,
+  removeCurrentProfilePicture,
   saveRoleSettings,
+  uploadCurrentProfilePicture,
 } from "../../features/settings/settingsService";
 import { fetchSyncHistory } from "../../features/sync/syncHistoryService";
 import { LOCAL_SYNC_STATUS } from "../../offline/db";
@@ -258,13 +261,25 @@ const tableStyles = {
   },
 };
 
-const PROFILE_PICTURE_MAX_FILE_SIZE_BYTES = 4 * 1024 * 1024;
+const PROFILE_PICTURE_MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
 const PROFILE_PICTURE_ALLOWED_MIME_TYPES = new Set([
   "image/jpeg",
   "image/jpg",
   "image/png",
   "image/webp",
 ]);
+
+const fileToBase64 = async (file) => {
+  const buffer = await file.arrayBuffer();
+  let binary = "";
+  const bytes = new Uint8Array(buffer);
+
+  for (let index = 0; index < bytes.length; index += 1) {
+    binary += String.fromCharCode(bytes[index]);
+  }
+
+  return window.btoa(binary);
+};
 
 const StatusChip = ({ tone = "info", label }) => (
   <span
@@ -327,8 +342,13 @@ const RoleSettingsPage = () => {
     contactNumber: false,
     emailAddress: false,
   });
+  const [profilePicturePreviewUrl, setProfilePicturePreviewUrl] = useState("");
+  const [isUploadingProfilePicture, setIsUploadingProfilePicture] = useState(false);
+  const [isRemovingProfilePicture, setIsRemovingProfilePicture] = useState(false);
   const profilePictureInputRef = useRef(null);
   const settingsOwnerKeyRef = useRef("");
+  const profilePicturePreviewUrlRef = useRef("");
+  const isRefreshingProfilePictureRef = useRef(false);
 
   const roleMeta = useMemo(() => getRoleMeta(currentRole), [currentRole]);
   const syncSummary = useMemo(() => buildSyncSummary(syncEntries), [syncEntries]);
@@ -343,6 +363,12 @@ const RoleSettingsPage = () => {
 
     return `${accessMode}:${currentRole}:${authenticatedUser.id}`;
   }, [accessMode, authenticatedUser?.id, currentRole]);
+  const revokeProfilePicturePreviewUrl = () => {
+    if (profilePicturePreviewUrlRef.current) {
+      URL.revokeObjectURL(profilePicturePreviewUrlRef.current);
+      profilePicturePreviewUrlRef.current = "";
+    }
+  };
   const applyAuthenticatedUserProfileFallbacks = (profilePreferences) => {
     const normalizedPreferences = normalizeRolePreferences(profilePreferences);
     const fallbackFullName =
@@ -407,6 +433,11 @@ const RoleSettingsPage = () => {
 
   useEffect(() => {
     if (!settingsOwnerKey) {
+      revokeProfilePicturePreviewUrl();
+      setProfilePicturePreviewUrl("");
+      if (profilePictureInputRef.current) {
+        profilePictureInputRef.current.value = "";
+      }
       settingsOwnerKeyRef.current = "";
       setPreferences(createDefaultRolePreferences());
       setSavedProfilePreferences(createDefaultRolePreferences());
@@ -432,6 +463,11 @@ const RoleSettingsPage = () => {
     const resetPreferences = applyAuthenticatedUserProfileFallbacks(
       createDefaultRolePreferences(),
     );
+    revokeProfilePicturePreviewUrl();
+    setProfilePicturePreviewUrl("");
+    if (profilePictureInputRef.current) {
+      profilePictureInputRef.current.value = "";
+    }
     settingsOwnerKeyRef.current = settingsOwnerKey;
     setPreferences(resetPreferences);
     setSavedProfilePreferences(resetPreferences);
@@ -448,6 +484,12 @@ const RoleSettingsPage = () => {
     setErrorMessage("");
     setIsLoading(true);
   }, [settingsOwnerKey]);
+
+  useEffect(() => {
+    return () => {
+      revokeProfilePicturePreviewUrl();
+    };
+  }, []);
 
   useEffect(() => {
     if (!currentRole || !authenticatedUser) {
@@ -875,6 +917,11 @@ const RoleSettingsPage = () => {
   };
 
   const handleCancelProfileChanges = () => {
+    revokeProfilePicturePreviewUrl();
+    setProfilePicturePreviewUrl("");
+    if (profilePictureInputRef.current) {
+      profilePictureInputRef.current.value = "";
+    }
     const restoredPreferences =
       applyAuthenticatedUserProfileFallbacks(savedProfilePreferences);
     setPreferences(restoredPreferences);
@@ -927,7 +974,7 @@ const RoleSettingsPage = () => {
   const handleProfilePictureChange = async (event) => {
     const selectedFile = event.target.files?.[0];
 
-    if (!selectedFile) {
+    if (!selectedFile || !authenticatedUser || !currentRole) {
       return;
     }
 
@@ -937,6 +984,7 @@ const RoleSettingsPage = () => {
         title: "Profile Picture Error",
         message: "Please choose a JPG, PNG, or WEBP image for the profile picture.",
       });
+      event.target.value = "";
       return;
     }
 
@@ -944,37 +992,164 @@ const RoleSettingsPage = () => {
       setToast({
         type: "error",
         title: "Profile Picture Error",
-        message: "Profile picture is too large. Please choose an image under 4 MB.",
+        message: "Profile picture is too large. Please choose an image under 2 MB.",
       });
+      event.target.value = "";
       return;
     }
 
-    const fileReader = new FileReader();
+    revokeProfilePicturePreviewUrl();
 
-    fileReader.onload = () => {
+    const previewUrl = URL.createObjectURL(selectedFile);
+    profilePicturePreviewUrlRef.current = previewUrl;
+    setProfilePicturePreviewUrl(previewUrl);
+    setIsUploadingProfilePicture(true);
+
+    try {
+      const uploadedProfile = await uploadCurrentProfilePicture({
+        fileName: selectedFile.name || "profile-picture",
+        mimeType: selectedFile.type,
+        fileDataBase64: await fileToBase64(selectedFile),
+      });
+      const updatedAt = new Date().toISOString();
+
       setPreferences((current) => ({
         ...current,
         profile: {
           ...current.profile,
-          profilePictureDataUrl: String(fileReader.result || ""),
-          profilePictureFileName: selectedFile.name || "Profile picture",
+          ...uploadedProfile,
+        },
+        metadata: {
+          ...current.metadata,
+          lastProfileUpdateAt: uploadedProfile.profilePictureUpdatedAt || updatedAt,
+        },
+      }));
+      setSavedProfilePreferences((current) => ({
+        ...current,
+        profile: {
+          ...current.profile,
+          ...uploadedProfile,
+        },
+        metadata: {
+          ...current.metadata,
+          lastProfileUpdateAt: uploadedProfile.profilePictureUpdatedAt || updatedAt,
+        },
+      }));
+      setToast({
+        type: "success",
+        title: "Profile Picture Updated",
+        message: "Your profile picture was uploaded successfully.",
+      });
+    } catch (error) {
+      revokeProfilePicturePreviewUrl();
+      setProfilePicturePreviewUrl("");
+      setToast({
+        type: "error",
+        title: "Profile Picture Error",
+        message: error.message || "Failed to upload the selected image file.",
+      });
+    } finally {
+      setIsUploadingProfilePicture(false);
+      event.target.value = "";
+    }
+  };
+
+  const handleRemoveProfilePicture = async () => {
+    if (!authenticatedUser || !currentRole || isRemovingProfilePicture) {
+      return;
+    }
+
+    setIsRemovingProfilePicture(true);
+
+    try {
+      const clearedProfile = await removeCurrentProfilePicture();
+
+      revokeProfilePicturePreviewUrl();
+      setProfilePicturePreviewUrl("");
+      if (profilePictureInputRef.current) {
+        profilePictureInputRef.current.value = "";
+      }
+
+      setPreferences((current) => ({
+        ...current,
+        profile: {
+          ...current.profile,
+          ...clearedProfile,
         },
         metadata: {
           ...current.metadata,
           lastProfileUpdateAt: new Date().toISOString(),
         },
       }));
-    };
-
-    fileReader.onerror = () => {
+      setSavedProfilePreferences((current) => ({
+        ...current,
+        profile: {
+          ...current.profile,
+          ...clearedProfile,
+        },
+        metadata: {
+          ...current.metadata,
+          lastProfileUpdateAt: new Date().toISOString(),
+        },
+      }));
+      setToast({
+        type: "success",
+        title: "Profile Picture Removed",
+        message: "Your profile picture was removed successfully.",
+      });
+    } catch (error) {
       setToast({
         type: "error",
         title: "Profile Picture Error",
-        message: "Failed to read the selected image file.",
+        message: error.message || "Failed to remove the profile picture.",
       });
-    };
+    } finally {
+      setIsRemovingProfilePicture(false);
+    }
+  };
 
-    fileReader.readAsDataURL(selectedFile);
+  const handleProfilePictureLoadError = async () => {
+    if (
+      profilePicturePreviewUrl ||
+      isUploadingProfilePicture ||
+      isRemovingProfilePicture ||
+      isRefreshingProfilePictureRef.current ||
+      !preferences.profile.profilePicturePath
+    ) {
+      return;
+    }
+
+    isRefreshingProfilePictureRef.current = true;
+
+    try {
+      const refreshedProfile = await refreshCurrentProfilePicture();
+
+      setPreferences((current) => ({
+        ...current,
+        profile: {
+          ...current.profile,
+          ...refreshedProfile,
+        },
+      }));
+      setSavedProfilePreferences((current) => ({
+        ...current,
+        profile: {
+          ...current.profile,
+          ...refreshedProfile,
+        },
+      }));
+    } catch (_error) {
+      setPreferences((current) => ({
+        ...current,
+        profile: {
+          ...current.profile,
+          profilePictureUrl: "",
+          profilePictureUrlExpiresAt: "",
+        },
+      }));
+    } finally {
+      isRefreshingProfilePictureRef.current = false;
+    }
   };
 
   const handleSyncNow = async () => {
@@ -1165,6 +1340,11 @@ const RoleSettingsPage = () => {
     handleProfileFieldBlur,
     profilePictureInputRef,
     handleProfilePictureChange,
+    handleRemoveProfilePicture,
+    handleProfilePictureLoadError,
+    profilePicturePreviewUrl,
+    isUploadingProfilePicture,
+    isRemovingProfilePicture,
     setPreferences,
     handleSaveProfileChanges: handleSavePreferences,
     handleCancelProfileChanges,

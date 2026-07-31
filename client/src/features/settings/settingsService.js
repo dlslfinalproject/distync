@@ -13,12 +13,18 @@ import {
 
 const API_BASE_URL =
   import.meta.env?.VITE_API_BASE_URL || "http://localhost:5000";
+const WINDOW_ORIGIN =
+  typeof window === "undefined" ? "http://localhost" : window.location.origin;
+const API_BASE_ORIGIN = new URL(API_BASE_URL, WINDOW_ORIGIN).origin;
+const SUPABASE_ORIGIN = import.meta.env?.VITE_SUPABASE_URL
+  ? new URL(import.meta.env.VITE_SUPABASE_URL).origin
+  : "";
 
 const DEFAULT_PREFERENCES = {
   enabledNotificationRuleCodes: [],
 };
 
-export const ROLE_SETTINGS_CACHE_VERSION = "2026-07-31-v1";
+export const ROLE_SETTINGS_CACHE_VERSION = "2026-07-31-v2";
 
 export const buildRoleSettingsCacheKey = ({ roleCode, userId, mode }) =>
   getRoleSettingsStorageKey({ roleCode, userId, mode });
@@ -30,6 +36,63 @@ const getRoleSettingsStoragePrefix = (mode) =>
 
 const isPlainObject = (value) =>
   value && typeof value === "object" && !Array.isArray(value);
+
+const sanitizeString = (value) =>
+  typeof value === "string" ? value.trim() : "";
+
+const isSafeProfilePicturePath = (value = "") => {
+  const trimmedValue = sanitizeString(value);
+
+  if (
+    !trimmedValue ||
+    trimmedValue.startsWith("/") ||
+    trimmedValue.includes("..") ||
+    trimmedValue.includes("\\")
+  ) {
+    return false;
+  }
+
+  return !/^[a-z]+:/i.test(trimmedValue);
+};
+
+const isSafeProfilePictureUrl = (value = "") => {
+  const trimmedValue = sanitizeString(value);
+
+  if (!trimmedValue) {
+    return false;
+  }
+
+  try {
+    const parsedUrl = new URL(trimmedValue, WINDOW_ORIGIN);
+
+    if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+      return false;
+    }
+
+    return (
+      parsedUrl.origin === API_BASE_ORIGIN ||
+      (SUPABASE_ORIGIN && parsedUrl.origin === SUPABASE_ORIGIN)
+    );
+  } catch (_error) {
+    return false;
+  }
+};
+
+const isExpiredTimestamp = (value = "") => {
+  const trimmedValue = sanitizeString(value);
+
+  if (!trimmedValue) {
+    return true;
+  }
+
+  const parsedTimestamp = new Date(trimmedValue);
+
+  if (Number.isNaN(parsedTimestamp.getTime())) {
+    return true;
+  }
+
+  return parsedTimestamp.getTime() <= Date.now();
+};
 
 const safeReadJson = (storageKey) => {
   if (typeof window === "undefined") {
@@ -94,6 +157,23 @@ const normalizeStoredSettings = (storedValue = {}) => {
     preferredExportFormat: _removedPreferredExportFormat,
     ...remainingStoredSettings
   } = storedValue || {};
+  const normalizedProfile = isPlainObject(storedValue?.profile)
+    ? storedValue.profile
+    : {};
+  const normalizedProfilePicturePath = isSafeProfilePicturePath(
+    normalizedProfile.profilePicturePath,
+  )
+    ? sanitizeString(normalizedProfile.profilePicturePath)
+    : "";
+  const normalizedProfilePictureUrlExpiresAt = sanitizeString(
+    normalizedProfile.profilePictureUrlExpiresAt,
+  );
+  const normalizedProfilePictureUrl =
+    normalizedProfilePicturePath &&
+    !isExpiredTimestamp(normalizedProfilePictureUrlExpiresAt) &&
+    isSafeProfilePictureUrl(normalizedProfile.profilePictureUrl)
+      ? sanitizeString(normalizedProfile.profilePictureUrl)
+      : "";
 
   return {
     ...DEFAULT_PREFERENCES,
@@ -103,6 +183,22 @@ const normalizeStoredSettings = (storedValue = {}) => {
     )
       ? storedValue.enabledNotificationRuleCodes
       : [],
+    profile: {
+      ...(isPlainObject(remainingStoredSettings.profile)
+        ? remainingStoredSettings.profile
+        : {}),
+      profilePicturePath: normalizedProfilePicturePath,
+      profilePictureUrl: normalizedProfilePictureUrl,
+      profilePictureUrlExpiresAt: normalizedProfilePictureUrl
+        ? normalizedProfilePictureUrlExpiresAt
+        : "",
+      profilePictureFileName: sanitizeString(
+        normalizedProfile.profilePictureFileName,
+      ),
+      profilePictureUpdatedAt: sanitizeString(
+        normalizedProfile.profilePictureUpdatedAt,
+      ),
+    },
   };
 };
 
@@ -291,6 +387,16 @@ export const saveRoleSettings = async ({
   settings,
   mode = getAccessMode(),
 }) => {
+  const profile = isPlainObject(settings?.profile) ? settings.profile : {};
+  const {
+    profilePicturePath: _ignoredProfilePicturePath,
+    profilePictureUrl: _ignoredProfilePictureUrl,
+    profilePictureUrlExpiresAt: _ignoredProfilePictureUrlExpiresAt,
+    profilePictureFileName: _ignoredProfilePictureFileName,
+    profilePictureUpdatedAt: _ignoredProfilePictureUpdatedAt,
+    profilePictureDataUrl: _ignoredProfilePictureDataUrl,
+    ...editableProfile
+  } = profile;
   const response = await fetch(`${API_BASE_URL}/api/v1/settings/current`, {
     method: "PUT",
     headers: {
@@ -300,6 +406,7 @@ export const saveRoleSettings = async ({
       settings: {
         ...DEFAULT_PREFERENCES,
         ...(settings || {}),
+        profile: editableProfile,
       },
     }),
   });
@@ -319,6 +426,58 @@ export const saveRoleSettings = async ({
     data: resolvedSettings,
     user: payload?.user || null,
   };
+};
+
+export const uploadCurrentProfilePicture = async ({
+  fileName,
+  mimeType,
+  fileDataBase64,
+}) => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/settings/current/profile-picture`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      fileName,
+      mimeType,
+      fileDataBase64,
+    }),
+  });
+  const payload = await handleJsonResponse(
+    response,
+    "Failed to upload the profile picture",
+  );
+
+  return normalizeStoredSettings({
+    profile: payload?.data || {},
+  }).profile;
+};
+
+export const removeCurrentProfilePicture = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/settings/current/profile-picture`, {
+    method: "DELETE",
+  });
+  const payload = await handleJsonResponse(
+    response,
+    "Failed to remove the profile picture",
+  );
+
+  return normalizeStoredSettings({
+    profile: payload?.data || {},
+  }).profile;
+};
+
+export const refreshCurrentProfilePicture = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/settings/current/profile-picture`);
+  const payload = await handleJsonResponse(
+    response,
+    "Failed to refresh the profile picture",
+  );
+
+  return normalizeStoredSettings({
+    profile: payload?.data || {},
+  }).profile;
 };
 
 export const clearAllRoleSettingsCaches = () => {

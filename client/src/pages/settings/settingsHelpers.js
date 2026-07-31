@@ -24,8 +24,11 @@ export const createDefaultRolePreferences = () => ({
     position: BARANGAY_POSITION_LABEL,
     contactNumber: "",
     emailAddress: "",
-    profilePictureDataUrl: "",
+    profilePicturePath: "",
+    profilePictureUrl: "",
+    profilePictureUrlExpiresAt: "",
     profilePictureFileName: "",
+    profilePictureUpdatedAt: "",
   },
   notificationChannels: createDefaultNotificationChannels(),
   metadata: {

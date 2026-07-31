@@ -145,6 +145,53 @@ current authenticated owner context.
 - Unauthenticated state does not receive Account Settings cache fallback.
 - Account Settings cache cleanup does not delete IndexedDB offline queue records or other operational offline data.
 
+## Profile Picture Security
+
+DISTYNC profile pictures are now treated as controlled authenticated account data.
+
+### Storage model
+
+- Account Settings uses controlled file upload only.
+- Arbitrary external image URLs are not accepted for user profile pictures.
+- Private profile pictures are stored in the `distync-profile-pictures` Supabase Storage bucket.
+- The database stores a private object path and update metadata, not a permanent public URL.
+- Display uses short-lived signed URLs returned by the backend.
+- Signed URLs are not stored in PostgreSQL.
+- Raw profile image data and Blob preview URLs are not stored in localStorage.
+- Default avatar initials are shown when no profile picture is available.
+
+### Backend behavior
+
+- `GET /api/v1/settings/current` returns role settings plus fresh signed profile-picture metadata when a picture exists.
+- `GET /api/v1/settings/current/profile-picture` refreshes only the current authenticated user’s signed profile-picture metadata.
+- `POST /api/v1/settings/current/profile-picture` uploads a new profile picture for the authenticated user only.
+- `DELETE /api/v1/settings/current/profile-picture` removes the current authenticated user’s picture and clears the database association.
+- The backend generates the storage path server-side and ignores client-supplied user ownership.
+- Replacing a picture uploads the new object first, updates the database, then removes the previous object after commit.
+- If the database write fails after upload, the new object is deleted during cleanup.
+
+### Upload rules
+
+- Allowed MIME types: `image/jpeg`, `image/png`, `image/webp`
+- Maximum size: 2 MB
+- SVG is not accepted
+- Empty uploads are rejected
+- Profile pictures are separate from household family-head verification photos
+
+### Cache and session behavior
+
+- Account Settings cache may store only safe profile-picture metadata such as path, file name, signed URL expiry, and update timestamp.
+- Expired signed URLs are not reused from cache.
+- Logout, user switching, and access-mode switching clear authenticated settings cache so another user’s signed URL is not reused.
+- Offline fallback does not persist raw profile image content. When a valid signed URL is unavailable, DISTYNC falls back to the default avatar.
+
+### Supabase setup
+
+- Set `SUPABASE_SERVICE_ROLE_KEY` only on the backend.
+- Do not expose the service-role key to frontend code.
+- Keep the `distync-profile-pictures` bucket private.
+- Apply the profile-picture hardening migration before using the feature in a shared environment.
+
 ### Mode switch behavior
 
 When the same browser switches between `DEVELOPMENT` and `DEMO`:

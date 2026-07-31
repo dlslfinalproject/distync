@@ -1,17 +1,5 @@
 import React from "react";
-
-const picturePreviewStyles = {
-  width: "132px",
-  height: "132px",
-  borderRadius: "999px",
-  border: "4px solid #e7f0fa",
-  background:
-    "linear-gradient(180deg, rgba(239, 246, 253, 1) 0%, rgba(227, 238, 249, 1) 100%)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  overflow: "hidden",
-};
+import ProfileAvatar from "../../../components/shared/ProfileAvatar";
 
 const ProfileSection = ({
   shellStyles,
@@ -29,6 +17,11 @@ const ProfileSection = ({
   handleProfileFieldBlur,
   profilePictureInputRef,
   handleProfilePictureChange,
+  handleRemoveProfilePicture,
+  handleProfilePictureLoadError,
+  profilePicturePreviewUrl = "",
+  isUploadingProfilePicture = false,
+  isRemovingProfilePicture = false,
   sectionTitle = "Profile",
   description,
   firstNameId,
@@ -135,6 +128,11 @@ const ProfileSection = ({
   };
 
   const { firstName, lastName } = splitFullName(preferences.profile.fullName);
+  const profilePictureSource =
+    profilePicturePreviewUrl || preferences.profile.profilePictureUrl || "";
+  const hasProfilePicture =
+    Boolean(profilePicturePreviewUrl) ||
+    Boolean(preferences.profile.profilePicturePath);
 
   return (
     <section
@@ -169,37 +167,19 @@ const ProfileSection = ({
               }}
             >
               <p style={sectionLabelStyles}>Profile Picture</p>
-              <div style={picturePreviewStyles}>
-                {preferences.profile.profilePictureDataUrl ? (
-                  <img
-                    src={preferences.profile.profilePictureDataUrl}
-                    alt={pictureAlt}
-                    style={{
-                      width: "100%",
-                      height: "100%",
-                      objectFit: "cover",
-                    }}
-                  />
-                ) : (
-                  <div
-                    style={{
-                      width: "100%",
-                      height: "100%",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      background:
-                        "linear-gradient(180deg, rgba(234, 242, 251, 1) 0%, rgba(220, 233, 247, 1) 100%)",
-                      color: "#2f6499",
-                      fontSize: "30px",
-                      fontWeight: 800,
-                      textAlign: "center",
-                    }}
-                  >
-                    {getProfileInitials()}
-                  </div>
-                )}
-              </div>
+              <ProfileAvatar
+                src={profilePictureSource}
+                alt={pictureAlt}
+                displayName={
+                  preferences.profile.fullName ||
+                  [authenticatedUser?.first_name, authenticatedUser?.last_name]
+                    .filter(Boolean)
+                    .join(" ")
+                    .trim() ||
+                  getProfileInitials()
+                }
+                onError={handleProfilePictureLoadError}
+              />
               <input
                 ref={profilePictureInputRef}
                 type="file"
@@ -207,13 +187,29 @@ const ProfileSection = ({
                 onChange={handleProfilePictureChange}
                 style={{ display: "none" }}
               />
-              <button
-                type="button"
-                onClick={() => profilePictureInputRef.current?.click()}
-                style={pageHeaderStyles.secondaryButton}
-              >
-                Change Picture
-              </button>
+              <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={() => profilePictureInputRef.current?.click()}
+                  style={pageHeaderStyles.secondaryButton}
+                  disabled={isUploadingProfilePicture || isRemovingProfilePicture}
+                >
+                  {isUploadingProfilePicture ? "Uploading..." : "Change Picture"}
+                </button>
+                {hasProfilePicture ? (
+                  <button
+                    type="button"
+                    onClick={handleRemoveProfilePicture}
+                    style={pageHeaderStyles.secondaryButton}
+                    disabled={isUploadingProfilePicture || isRemovingProfilePicture}
+                  >
+                    {isRemovingProfilePicture ? "Removing..." : "Remove Picture"}
+                  </button>
+                ) : null}
+              </div>
+              <p style={{ ...mutedValueStyles, fontSize: "12px", margin: 0 }}>
+                JPG, PNG, or WEBP up to 2 MB.
+              </p>
             </div>
 
             <div style={{ display: "grid", gap: "20px" }}>

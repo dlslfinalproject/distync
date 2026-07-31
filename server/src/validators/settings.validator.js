@@ -1,4 +1,4 @@
-const MAX_PROFILE_PICTURE_DATA_URL_LENGTH = 4 * 1024 * 1024;
+const MAX_PROFILE_PICTURE_BASE64_LENGTH = 3 * 1024 * 1024;
 const EMAIL_ADDRESS_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHILIPPINE_CONTACT_NUMBER_PATTERN = /^\+639\d{9}$/;
 const PROFILE_PICTURE_ALLOWED_MIME_TYPES = new Set([
@@ -72,29 +72,6 @@ const normalizePhilippineContactNumber = (value = "") => {
   return "";
 };
 
-const isSupportedProfilePictureReference = (value = "") => {
-  const trimmedValue = String(value || "").trim();
-
-  if (!trimmedValue) {
-    return true;
-  }
-
-  if (trimmedValue.startsWith("data:image/")) {
-    return true;
-  }
-
-  if (trimmedValue.startsWith("/")) {
-    return true;
-  }
-
-  try {
-    const parsedUrl = new URL(trimmedValue);
-    return parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:";
-  } catch (_error) {
-    return false;
-  }
-};
-
 const validateSaveCurrentSettings = (req, res, next) => {
   try {
     const { settings } = req.body || {};
@@ -141,8 +118,6 @@ const validateSaveCurrentSettings = (req, res, next) => {
         ["position", "profile.position"],
         ["contactNumber", "profile.contactNumber"],
         ["emailAddress", "profile.emailAddress"],
-        ["profilePictureDataUrl", "profile.profilePictureDataUrl"],
-        ["profilePictureFileName", "profile.profilePictureFileName"],
       ];
 
       for (const [fieldKey, fieldName] of stringFieldChecks) {
@@ -193,33 +168,18 @@ const validateSaveCurrentSettings = (req, res, next) => {
         });
       }
 
-      const profilePictureDataUrl = settings.profile.profilePictureDataUrl?.trim();
-
-      if (profilePictureDataUrl && !isSupportedProfilePictureReference(profilePictureDataUrl)) {
+      if (
+        settings.profile.profilePicturePath !== undefined ||
+        settings.profile.profilePictureUrl !== undefined ||
+        settings.profile.profilePictureUrlExpiresAt !== undefined ||
+        settings.profile.profilePictureFileName !== undefined ||
+        settings.profile.profilePictureUpdatedAt !== undefined ||
+        settings.profile.profilePictureDataUrl !== undefined
+      ) {
         return res.status(400).json({
           message:
-            "profile.profilePictureDataUrl must be a valid image reference",
+            "Profile picture changes must use the dedicated profile picture endpoint.",
         });
-      }
-
-      if (profilePictureDataUrl.startsWith("data:image/")) {
-        const profilePictureMimeType =
-          profilePictureDataUrl.slice(5).split(";")[0].toLowerCase();
-
-        if (!PROFILE_PICTURE_ALLOWED_MIME_TYPES.has(profilePictureMimeType)) {
-          return res.status(400).json({
-            message: "Profile picture must be a JPG, PNG, or WEBP image.",
-          });
-        }
-
-        if (
-          typeof profilePictureDataUrl === "string" &&
-          profilePictureDataUrl.length > MAX_PROFILE_PICTURE_DATA_URL_LENGTH
-        ) {
-          return res.status(400).json({
-            message: "Profile picture is too large.",
-          });
-        }
       }
     }
 
@@ -310,6 +270,81 @@ const validateSaveCurrentSettings = (req, res, next) => {
   }
 };
 
+const validateUploadCurrentProfilePicture = (req, res, next) => {
+  try {
+    const {
+      fileName,
+      mimeType,
+      fileDataBase64,
+      userId: _ignoredUserId,
+    } = req.body || {};
+
+    const stringChecks = [
+      [fileName, "fileName"],
+      [mimeType, "mimeType"],
+      [fileDataBase64, "fileDataBase64"],
+    ];
+
+    for (const [value, fieldName] of stringChecks) {
+      const validationError = validateOptionalString(value, fieldName);
+
+      if (validationError) {
+        return res.status(400).json({
+          message: validationError,
+        });
+      }
+    }
+
+    const normalizedMimeType = String(mimeType || "").trim().toLowerCase();
+    const normalizedFileName = String(fileName || "").trim();
+    const normalizedFileDataBase64 = String(fileDataBase64 || "").trim();
+
+    if (!normalizedFileName) {
+      return res.status(400).json({
+        message: "fileName is required",
+      });
+    }
+
+    if (!PROFILE_PICTURE_ALLOWED_MIME_TYPES.has(normalizedMimeType)) {
+      return res.status(400).json({
+        message: "Profile picture must be a JPG, PNG, or WEBP image.",
+      });
+    }
+
+    if (!normalizedFileDataBase64) {
+      return res.status(400).json({
+        message: "fileDataBase64 is required",
+      });
+    }
+
+    if (!/^[A-Za-z0-9+/=]+$/.test(normalizedFileDataBase64)) {
+      return res.status(400).json({
+        message: "fileDataBase64 must be a valid Base64 string",
+      });
+    }
+
+    if (normalizedFileDataBase64.length > MAX_PROFILE_PICTURE_BASE64_LENGTH) {
+      return res.status(400).json({
+        message: "Profile picture is too large.",
+      });
+    }
+
+    req.validatedBody = {
+      fileName: normalizedFileName,
+      mimeType: normalizedMimeType,
+      fileDataBase64: normalizedFileDataBase64,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate profile picture upload payload",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   validateSaveCurrentSettings,
+  validateUploadCurrentProfilePicture,
 };

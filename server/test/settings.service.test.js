@@ -72,6 +72,20 @@ const buildDbClient = () => {
   };
 };
 
+const buildProfilePictureStorageStub = (overrides = {}) => ({
+  createSignedProfilePictureUrl: async () => ({
+    profilePictureUrl: "",
+    profilePictureUrlExpiresAt: "",
+  }),
+  normalizeStoragePath: (value) => String(value || "").trim(),
+  removeProfilePicture: async () => true,
+  uploadProfilePicture: async () => ({
+    profilePicturePath: "user/default-picture.jpg",
+    profilePictureFileName: "default-picture.jpg",
+  }),
+  ...overrides,
+});
+
 test("getCurrentSettings omits the removed export preference field", async () => {
   const user = {
     id: "user-1",
@@ -93,9 +107,9 @@ test("getCurrentSettings omits the removed export preference field", async () =>
           id: "settings-1",
           user_id: user.id,
           role_code: "BARANGAY",
-          preferred_export_format: "pdf",
-          profile_picture_data_url: "",
+          profile_picture_path: "",
           profile_picture_file_name: "",
+          profile_picture_updated_at: null,
           enabled_notification_rule_codes_json: [],
           notification_channels_json: {},
           last_profile_update_at: null,
@@ -111,12 +125,7 @@ test("getCurrentSettings omits the removed export preference field", async () =>
       [notificationServicePath]: {
         getNotificationRulesForRole: async () => [],
       },
-      [profilePictureStorageServicePath]: {
-        uploadProfilePicture: async () => {
-          throw new Error("Unexpected profile picture upload");
-        },
-        removeProfilePicture: async () => {},
-      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub(),
     },
     async ({ getCurrentSettings }) => {
       const settings = await getCurrentSettings({
@@ -128,6 +137,8 @@ test("getCurrentSettings omits the removed export preference field", async () =>
       assert.equal(settings.roleCode, "BARANGAY");
       assert.equal(settings.profile.emailAddress, user.email);
       assert.equal(settings.profile.contactNumber, user.contact_number);
+      assert.equal(settings.profile.profilePicturePath, "");
+      assert.equal(settings.profile.profilePictureUrl, "");
     },
   );
 });
@@ -179,12 +190,7 @@ test("saveCurrentSettings ignores legacy export preference input and does not pe
       [notificationServicePath]: {
         getNotificationRulesForRole: async () => [],
       },
-      [profilePictureStorageServicePath]: {
-        uploadProfilePicture: async () => {
-          throw new Error("Unexpected profile picture upload");
-        },
-        removeProfilePicture: async () => {},
-      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub(),
     },
     async ({ saveCurrentSettings }) => {
       const result = await saveCurrentSettings({
@@ -196,8 +202,6 @@ test("saveCurrentSettings ignores legacy export preference input and does not pe
           profile: {
             fullName: "Mario Rivera",
             contactNumber: updatedUser.contact_number,
-            profilePictureDataUrl: "",
-            profilePictureFileName: "",
           },
           notificationChannels: {},
           metadata: {},
@@ -215,6 +219,148 @@ test("saveCurrentSettings ignores legacy export preference input and does not pe
       );
       assert.match(String(dbClient.statements[0]), /BEGIN/i);
       assert.match(String(dbClient.statements[1]), /COMMIT/i);
+    },
+  );
+});
+
+test("uploadCurrentProfilePicture stores a private path and returns signed metadata", async () => {
+  const dbClient = buildDbClient();
+  const persistedPayloads = [];
+  const removedPaths = [];
+  const user = {
+    id: "user-3",
+    email: "mswdo@example.com",
+    first_name: "Lia",
+    middle_name: null,
+    last_name: "Reyes",
+    contact_number: "+639191112223",
+    default_barangay_id: null,
+    is_active: true,
+  };
+
+  await withStubbedSettingsService(
+    {
+      [poolPath]: {
+        connect: async () => dbClient,
+      },
+      [settingsRepositoryPath]: {
+        getUserById: async () => user,
+        getUserRoleSettings: async () => ({
+          user_id: user.id,
+          role_code: "MSWDO",
+          profile_picture_path: "user-3/old-picture.jpg",
+          profile_picture_file_name: "old-picture.jpg",
+          profile_picture_updated_at: "2026-07-30T08:00:00.000Z",
+          enabled_notification_rule_codes_json: [],
+          notification_channels_json: {},
+          last_profile_update_at: null,
+          last_preference_save_at: null,
+        }),
+        upsertUserRoleSettings: async (payload) => {
+          persistedPayloads.push(payload);
+          return payload;
+        },
+        insertRoleSettingsSnapshot: async () => ({}),
+      },
+      [notificationRepositoryPath]: {},
+      [notificationServicePath]: {
+        getNotificationRulesForRole: async () => [],
+      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub({
+        createSignedProfilePictureUrl: async (path) => ({
+          profilePictureUrl: `https://example.supabase.co/storage/v1/object/sign/distync-profile-pictures/${path}?token=abc`,
+          profilePictureUrlExpiresAt: "2026-07-31T10:10:00.000Z",
+        }),
+        removeProfilePicture: async (path) => {
+          removedPaths.push(path);
+          return true;
+        },
+        uploadProfilePicture: async () => ({
+          profilePicturePath: "user-3/2026-07-31T10-00-00-000Z-new-picture.webp",
+          profilePictureFileName: "new-picture.webp",
+        }),
+      }),
+    },
+    async ({ uploadCurrentProfilePicture }) => {
+      const result = await uploadCurrentProfilePicture({
+        userId: user.id,
+        roleCode: "MSWDO",
+        fileName: "new-picture.webp",
+        mimeType: "image/webp",
+        fileDataBase64: "ZmFrZQ==",
+        ipAddress: "127.0.0.1",
+      });
+
+      assert.equal(
+        persistedPayloads[0].profilePicturePath,
+        "user-3/2026-07-31T10-00-00-000Z-new-picture.webp",
+      );
+      assert.equal(
+        result.profile.profilePicturePath,
+        "user-3/2026-07-31T10-00-00-000Z-new-picture.webp",
+      );
+      assert.match(result.profile.profilePictureUrl, /object\/sign/);
+      assert.deepEqual(removedPaths, ["user-3/old-picture.jpg"]);
+    },
+  );
+});
+
+test("uploadCurrentProfilePicture removes the new object when the database write fails", async () => {
+  const dbClient = buildDbClient();
+  const removedPaths = [];
+  const user = {
+    id: "user-4",
+    email: "barangay@example.com",
+    first_name: "Kai",
+    middle_name: null,
+    last_name: "Santos",
+    contact_number: "+639171234567",
+    default_barangay_id: null,
+    is_active: true,
+  };
+
+  await withStubbedSettingsService(
+    {
+      [poolPath]: {
+        connect: async () => dbClient,
+      },
+      [settingsRepositoryPath]: {
+        getUserById: async () => user,
+        getUserRoleSettings: async () => null,
+        upsertUserRoleSettings: async () => {
+          throw new Error("Database write failed");
+        },
+        insertRoleSettingsSnapshot: async () => ({}),
+      },
+      [notificationRepositoryPath]: {},
+      [notificationServicePath]: {
+        getNotificationRulesForRole: async () => [],
+      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub({
+        removeProfilePicture: async (path) => {
+          removedPaths.push(path);
+          return true;
+        },
+        uploadProfilePicture: async () => ({
+          profilePicturePath: "user-4/new-picture.jpg",
+          profilePictureFileName: "new-picture.jpg",
+        }),
+      }),
+    },
+    async ({ uploadCurrentProfilePicture }) => {
+      await assert.rejects(
+        () =>
+          uploadCurrentProfilePicture({
+            userId: user.id,
+            roleCode: "BARANGAY",
+            fileName: "new-picture.jpg",
+            mimeType: "image/jpeg",
+            fileDataBase64: "ZmFrZQ==",
+          }),
+        /Database write failed/,
+      );
+
+      assert.deepEqual(removedPaths, ["user-4/new-picture.jpg"]);
     },
   );
 });
