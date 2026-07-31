@@ -98,7 +98,6 @@ CREATE TABLE public.user_role_settings (
   profile_picture_file_name character varying,
   enabled_notification_rule_codes_json jsonb NOT NULL DEFAULT '[]'::jsonb,
   notification_channels_json jsonb NOT NULL DEFAULT '{}'::jsonb,
-  preferred_export_format character varying NOT NULL DEFAULT 'excel'::character varying CHECK (preferred_export_format::text = ANY (ARRAY['csv'::character varying, 'excel'::character varying, 'pdf'::character varying]::text[])),
   last_profile_update_at timestamp with time zone,
   last_preference_save_at timestamp with time zone NOT NULL DEFAULT now(),
   created_at timestamp with time zone NOT NULL DEFAULT now(),

@@ -7,7 +7,6 @@ const SETTINGS_STORAGE_KEY_PREFIX = "distync-role-settings";
 
 const DEFAULT_PREFERENCES = {
   enabledNotificationRuleCodes: [],
-  preferredExportFormat: "excel",
 };
 
 const buildStorageKey = ({ roleCode, userId }) => {
@@ -55,16 +54,19 @@ const handleJsonResponse = async (response, fallbackMessage) => {
 };
 
 const normalizeStoredSettings = (storedValue = {}) => {
+  const {
+    preferredExportFormat: _removedPreferredExportFormat,
+    ...remainingStoredSettings
+  } = storedValue || {};
+
   return {
     ...DEFAULT_PREFERENCES,
-    ...(storedValue || {}),
+    ...remainingStoredSettings,
     enabledNotificationRuleCodes: Array.isArray(
       storedValue?.enabledNotificationRuleCodes,
     )
       ? storedValue.enabledNotificationRuleCodes
       : [],
-    preferredExportFormat:
-      storedValue?.preferredExportFormat || DEFAULT_PREFERENCES.preferredExportFormat,
   };
 };
 

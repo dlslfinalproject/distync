@@ -19,7 +19,6 @@ export const createDefaultNotificationChannels = () =>
 
 export const createDefaultRolePreferences = () => ({
   enabledNotificationRuleCodes: [],
-  preferredExportFormat: "excel",
   profile: {
     fullName: "",
     position: BARANGAY_POSITION_LABEL,
@@ -169,9 +168,7 @@ export const getNotificationPreferenceValidationErrors = ({
 
   if (invalidRuleCodes.length > 0) {
     errors.notificationRules =
-      invalidRuleCodes.length === 1
-        ? `Notification rule ${invalidRuleCodes[0]} is not available for your role.`
-        : "One or more notification rules are not available for your role.";
+      "Some notification preferences are no longer available for your account role. Reset your notification settings and save again.";
   }
 
   return errors;
@@ -179,6 +176,8 @@ export const getNotificationPreferenceValidationErrors = ({
 
 export const normalizeRolePreferences = (value = {}) => {
   const defaults = createDefaultRolePreferences();
+  const { preferredExportFormat: _removedPreferredExportFormat, ...remainingValue } =
+    value || {};
   const notificationChannels = {
     ...defaults.notificationChannels,
   };
@@ -192,7 +191,7 @@ export const normalizeRolePreferences = (value = {}) => {
 
   return {
     ...defaults,
-    ...(value || {}),
+    ...remainingValue,
     enabledNotificationRuleCodes: Array.isArray(value?.enabledNotificationRuleCodes)
       ? value.enabledNotificationRuleCodes
       : [],
@@ -278,8 +277,9 @@ export const getSyncStatusMeta = (syncSummary, isOnline) => {
   if (!isOnline) {
     return {
       tone: "warning",
-      label: "Pending",
-      description: "Offline mode is active. Local changes will sync later.",
+      label: "Pending Synchronization",
+      displayLabel: "⏳ Pending Synchronization",
+      description: "There are records waiting to be synchronized.",
     };
   }
 
@@ -289,23 +289,26 @@ export const getSyncStatusMeta = (syncSummary, isOnline) => {
   ) {
     return {
       tone: "error",
-      label: "Failed",
-      description: "Some records need sync review before LGU coordination is complete.",
+      label: "Requires Attention",
+      displayLabel: "⚠ Requires Attention",
+      description: "Some records require review before synchronization can be completed.",
     };
   }
 
   if (syncSummary[LOCAL_SYNC_STATUS.PENDING] > 0) {
     return {
       tone: "warning",
-      label: "Pending",
-      description: "Queued records are waiting to be synced with the LGU.",
+      label: "Pending Synchronization",
+      displayLabel: "⏳ Pending Synchronization",
+      description: "There are records waiting to be synchronized.",
     };
   }
 
   return {
     tone: "success",
     label: "Synced",
-    description: "Barangay records are currently aligned with the LGU data flow.",
+    displayLabel: "✓ Synced",
+    description: "All data has been successfully synchronized.",
   };
 };
 

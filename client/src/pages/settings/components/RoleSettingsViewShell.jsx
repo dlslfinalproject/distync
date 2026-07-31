@@ -108,7 +108,7 @@ const RoleSettingsViewShell = ({
       <PageHeader
         eyebrow={activeSectionMeta ? roleMeta.title : undefined}
         title={activeSectionMeta?.label || roleMeta.title}
-        description={activeSectionMeta?.description || roleMeta.description}
+        description={activeSectionMeta ? undefined : roleMeta.description}
         actions={pageActions}
       />
 

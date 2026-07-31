@@ -42,10 +42,6 @@ export const AuthProvider = ({ children }) => {
   const [authError, setAuthError] = useState("");
   const accessMode = authState.accessMode || getAccessMode();
 
-  if (!accessMode) {
-    throw new Error("VITE_ACCESS_MODE is not defined. Check your .env file.");
-  }
-
   const syncAuthState = useCallback(() => {
     setAuthState(buildAuthState());
   }, []);
@@ -96,10 +92,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const sessionPayload = await authenticateWithGoogleIdToken(credential);
       clearAllAccessSessions();
-      if (
-        accessMode === ACCESS_MODES.DEMO ||
-        accessMode === ACCESS_MODES.PRODUCTION
-      ) {
+      if (accessMode === ACCESS_MODES.DEMO) {
         setCurrentRole(sessionPayload.user.role);
       }
       setAuthenticatedSession(sessionPayload);

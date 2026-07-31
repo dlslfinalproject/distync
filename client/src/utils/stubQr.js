@@ -1,12 +1,14 @@
+import { ACCESS_MODES, getAccessMode } from "./accessMode";
+
 const resolveStubQrBaseUrl = () => {
   const configuredBaseUrl = String(import.meta.env.VITE_PUBLIC_APP_URL || "").trim();
-  const accessMode = String(import.meta.env.VITE_ACCESS_MODE || "DEMO").trim();
+  const accessMode = getAccessMode();
 
   if (configuredBaseUrl) {
     return configuredBaseUrl.replace(/\/+$/, "");
   }
 
-  if (accessMode === "DEVELOPMENT") {
+  if (accessMode === ACCESS_MODES.DEVELOPMENT) {
     return "http://localhost:5173";
   }
 

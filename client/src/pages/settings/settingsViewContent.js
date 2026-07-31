@@ -1,6 +1,5 @@
 import { ROLE_CODES } from "../../utils/roleSession";
 import {
-  BARANGAY_NOTIFICATION_OPTIONS,
   BARANGAY_POSITION_LABEL,
   getNotificationOptionsForRole,
   ROLE_DISPLAY_NAMES,
@@ -17,22 +16,16 @@ const DASHBOARD_DESCRIPTIONS = {
 
 const NOTIFICATION_SECTION_COPY = {
   [ROLE_CODES.BARANGAY]: {
-    description:
-      "Manage the notification preferences that control which barangay coordination alerts reach your account.",
-    alertChannelsDescription:
-      "Choose which notification categories stay enabled for your account and whether DISTYNC should deliver them in-app, by email, or both.",
+    description: "",
+    alertChannelsDescription: "",
   },
   [ROLE_CODES.MSWDO]: {
-    description:
-      "Manage the notification preferences that control which MSWDO coordination alerts reach your account.",
-    alertChannelsDescription:
-      "Choose which notification categories stay enabled for your account and whether DISTYNC should deliver them in-app, by email, or both.",
+    description: "",
+    alertChannelsDescription: "",
   },
   [ROLE_CODES.MAYOR]: {
-    description:
-      "Manage the notification preferences that control which Office of the Mayor alerts reach your account.",
-    alertChannelsDescription:
-      "Choose which notification categories stay enabled for your account and whether DISTYNC should deliver them in-app, by email, or both.",
+    description: "",
+    alertChannelsDescription: "",
   },
 };
 
@@ -53,6 +46,7 @@ const buildSharedSectionComponentProps = (ctx) => ({
   preferences: ctx.preferences,
   profileTouched: ctx.profileTouched,
   profileErrors: ctx.profileErrors,
+  isSavingPreferences: ctx.isSavingPreferences,
   authenticatedUser: ctx.authenticatedUser,
   formatPhilippineContactNumberForDisplay:
     ctx.formatPhilippineContactNumberForDisplay,
@@ -60,6 +54,8 @@ const buildSharedSectionComponentProps = (ctx) => ({
   handleProfileFieldBlur: ctx.handleProfileFieldBlur,
   profilePictureInputRef: ctx.profilePictureInputRef,
   handleProfilePictureChange: ctx.handleProfilePictureChange,
+  handleCancelProfileChanges: ctx.handleCancelProfileChanges,
+  handleSaveProfileChanges: ctx.handleSaveProfileChanges,
   setPreferences: ctx.setPreferences,
   formatDateTime: ctx.formatDateTime,
   isLoading: ctx.isLoading,
@@ -72,94 +68,26 @@ const buildSharedSectionComponentProps = (ctx) => ({
   toggleNotificationRule: ctx.toggleNotificationRule,
 });
 
-const buildNotificationSummaryRows = (ctx) => {
-  return [
-    {
-      label: "Unread Notifications",
-      value: `${ctx.unreadCount}`,
-    },
-    {
-      label: "Active Rules for This Role",
-      value: `${ctx.notificationRuleCount}`,
-    },
-    {
-      label: "Rules Enabled Locally",
-      value: `${ctx.enabledRuleCodes.length}`,
-    },
-  ];
-};
-
 export const getSettingsDashboardDescription = (roleCode) =>
   DASHBOARD_DESCRIPTIONS[roleCode] || DASHBOARD_DESCRIPTIONS[ROLE_CODES.BARANGAY];
 
 export const buildBarangayProfileSectionProps = (ctx) => ({
   ...buildSharedSectionComponentProps(ctx),
   sectionTitle: "Account Settings",
-  description:
-    "Review your profile information, profile picture, contact number, and account details. Role, barangay assignment, and sign-in identity remain controlled by the system.",
-  summaryRows: [
-    {
-      title: "Profile Information",
-      rows: [
-        {
-          label: "Account Name",
-          value: ctx.preferences.profile.fullName || "--",
-        },
-        {
-          label: "Position",
-          value: BARANGAY_POSITION_LABEL,
-        },
-        {
-          label: "Barangay Name",
-          value: ctx.assignedBarangayName || "--",
-          muted: true,
-        },
-      ],
-    },
-    {
-      title: "Account Information",
-      rows: [
-        {
-          label: "Email Address",
-          value:
-            ctx.authenticatedUser?.email ||
-            ctx.preferences.profile.emailAddress ||
-            "--",
-          muted: true,
-        },
-        {
-          label: "Contact Number",
-          value: ctx.preferences.profile.contactNumber
-            ? `PH +63 ${ctx.formatPhilippineContactNumberForDisplay(
-                ctx.preferences.profile.contactNumber,
-              )}`
-            : "--",
-        },
-        {
-          label: "Assigned Role",
-          value: ROLE_DISPLAY_NAMES[ROLE_CODES.BARANGAY],
-        },
-      ],
-    },
-  ],
-  fullNameId: "barangay-profile-full-name",
-  fullNameHelper: "Use your official full name for DISTYNC records and coordination.",
+  description: "",
+  firstNameId: "barangay-profile-first-name",
+  firstNameHelper: "",
+  lastNameId: "barangay-profile-last-name",
+  lastNameHelper: "",
   positionField: {
     id: "barangay-profile-position",
-    label: "Position",
-    value: BARANGAY_POSITION_LABEL,
+    label: "Role",
+    value: ROLE_DISPLAY_NAMES[ROLE_CODES.BARANGAY],
     helper: "Your assigned role is controlled by DISTYNC and cannot be edited here.",
   },
-  assignmentField: {
-    id: "barangay-profile-name",
-    label: "Barangay Name",
-    value: ctx.assignedBarangayName,
-    helper: "Your barangay assignment is managed by the system.",
-  },
   contactId: "barangay-profile-contact",
-  contactHelper: "Use the Philippine mobile format shown in the field.",
-  emailId: "barangay-profile-email",
-  emailHelper: "Your sign-in email is managed by your DISTYNC account.",
+  contactHelper: "",
+  emailHelper: "",
   pictureAlt: "Barangay profile preview"
 });
 
@@ -175,71 +103,22 @@ export const buildOfficeProfileSectionProps = (ctx) => {
   return {
     ...buildSharedSectionComponentProps(ctx),
     sectionTitle: "Account Settings",
-    description:
-      "Review your profile information, profile picture, contact number, and account details. Role, office assignment, and sign-in identity remain controlled by the system.",
-    summaryRows: [
-      {
-        title: "Profile Information",
-        rows: [
-          {
-            label: "Account Name",
-            value: ctx.preferences.profile.fullName || "--",
-          },
-          {
-            label: "Position",
-            value: positionLabel,
-          },
-          {
-            label: "Office / Unit",
-            value: officeLabel,
-            muted: true,
-          },
-        ],
-      },
-      {
-        title: "Account Information",
-        rows: [
-          {
-            label: "Email Address",
-            value:
-              ctx.authenticatedUser?.email ||
-              ctx.preferences.profile.emailAddress ||
-              "--",
-            muted: true,
-          },
-          {
-            label: "Contact Number",
-            value: ctx.preferences.profile.contactNumber
-              ? `PH +63 ${ctx.formatPhilippineContactNumberForDisplay(
-                  ctx.preferences.profile.contactNumber,
-                )}`
-              : "--",
-          },
-          {
-            label: "Assigned Role",
-            value: positionLabel,
-          },
-        ],
-      },
-    ],
-    fullNameId: isMayor ? "mayor-profile-full-name" : "mswdo-profile-full-name",
-    fullNameHelper: "Use your official full name for DISTYNC records and coordination.",
+    description: "",
+    firstNameId:
+      isMayor ? "mayor-profile-first-name" : "mswdo-profile-first-name",
+    firstNameHelper: "",
+    lastNameId:
+      isMayor ? "mayor-profile-last-name" : "mswdo-profile-last-name",
+    lastNameHelper: "",
     positionField: {
       id: isMayor ? "mayor-profile-position" : "mswdo-profile-position",
-      label: isMayor ? "Position" : "Position / Designation",
+      label: "Role",
       value: positionLabel,
       helper: "Your assigned role is controlled by DISTYNC and cannot be edited here.",
     },
-    assignmentField: {
-      id: isMayor ? "mayor-profile-office" : "mswdo-profile-office",
-      label: "Office / Unit",
-      value: officeLabel,
-      helper: "Your office assignment is managed by the system.",
-    },
     contactId: isMayor ? "mayor-profile-contact" : "mswdo-profile-contact",
-    contactHelper: "Use the Philippine mobile format shown in the field.",
-    emailId: isMayor ? "mayor-profile-email" : "mswdo-profile-email",
-    emailHelper: "Your sign-in email is managed by your DISTYNC account.",
+    contactHelper: "",
+    emailHelper: "",
     pictureAlt: isMayor ? "Mayor profile preview" : "MSWDO profile preview"
   };
 };
@@ -247,6 +126,5 @@ export const buildOfficeProfileSectionProps = (ctx) => {
 export const buildNotificationSectionProps = (ctx) => ({
   ...buildSharedSectionComponentProps(ctx),
   notificationOptions: getNotificationOptionsForRole(ctx.roleCode),
-  summaryRows: buildNotificationSummaryRows(ctx),
   ...NOTIFICATION_SECTION_COPY[ctx.roleCode],
 });

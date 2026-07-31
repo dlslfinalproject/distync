@@ -299,6 +299,9 @@ const RoleSettingsPage = () => {
   const [assignedBarangayName, setAssignedBarangayName] = useState("--");
   const [unreadCount, setUnreadCount] = useState(0);
   const [preferences, setPreferences] = useState(createDefaultRolePreferences());
+  const [savedProfilePreferences, setSavedProfilePreferences] = useState(
+    createDefaultRolePreferences(),
+  );
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
   const [syncHistory, setSyncHistory] = useState({
     transactions: [],
@@ -331,6 +334,25 @@ const RoleSettingsPage = () => {
   const isBarangayRole = currentRole === ROLE_CODES.BARANGAY;
   const isMswdoRole = currentRole === ROLE_CODES.MSWDO;
   const isMayorRole = currentRole === ROLE_CODES.MAYOR;
+  const applyAuthenticatedUserProfileFallbacks = (profilePreferences) => {
+    const normalizedPreferences = normalizeRolePreferences(profilePreferences);
+    const fallbackFullName =
+      [authenticatedUser?.first_name, authenticatedUser?.last_name]
+        .filter(Boolean)
+        .join(" ")
+        .trim() || "";
+    const fallbackEmail = authenticatedUser?.email || "";
+
+    return {
+      ...normalizedPreferences,
+      profile: {
+        ...normalizedPreferences.profile,
+        fullName: normalizedPreferences.profile.fullName || fallbackFullName,
+        emailAddress:
+          normalizedPreferences.profile.emailAddress || fallbackEmail,
+      },
+    };
+  };
   const notificationValidationErrors = useMemo(
     () =>
       getNotificationPreferenceValidationErrors({
@@ -391,7 +413,10 @@ const RoleSettingsPage = () => {
         return;
       }
 
-      setPreferences(normalizeRolePreferences(loadedSettings));
+      const hydratedPreferences =
+        applyAuthenticatedUserProfileFallbacks(loadedSettings);
+      setPreferences(hydratedPreferences);
+      setSavedProfilePreferences(hydratedPreferences);
     };
 
     void loadPersistedRoleSettings();
@@ -408,32 +433,32 @@ const RoleSettingsPage = () => {
 
     setPreferences((current) => {
       const normalized = normalizeRolePreferences(current);
-      const fallbackFullName =
-        [authenticatedUser.first_name, authenticatedUser.last_name]
-          .filter(Boolean)
-          .join(" ")
-          .trim() || "";
-      const fallbackEmail = authenticatedUser.email || "";
+      const hydratedPreferences =
+        applyAuthenticatedUserProfileFallbacks(normalized);
 
       if (
-        normalized.profile.fullName === fallbackFullName &&
-        normalized.profile.emailAddress === fallbackEmail
+        normalized.profile.fullName === hydratedPreferences.profile.fullName &&
+        normalized.profile.emailAddress === hydratedPreferences.profile.emailAddress
       ) {
         return current;
       }
 
-      if (normalized.profile.fullName && normalized.profile.emailAddress) {
+      return hydratedPreferences;
+    });
+
+    setSavedProfilePreferences((current) => {
+      const normalized = normalizeRolePreferences(current);
+      const hydratedPreferences =
+        applyAuthenticatedUserProfileFallbacks(normalized);
+
+      if (
+        normalized.profile.fullName === hydratedPreferences.profile.fullName &&
+        normalized.profile.emailAddress === hydratedPreferences.profile.emailAddress
+      ) {
         return current;
       }
 
-      return {
-        ...normalized,
-        profile: {
-          ...normalized.profile,
-          fullName: normalized.profile.fullName || fallbackFullName,
-          emailAddress: normalized.profile.emailAddress || fallbackEmail,
-        },
-      };
+      return hydratedPreferences;
     });
   }, [authenticatedUser]);
 
@@ -734,7 +759,11 @@ const RoleSettingsPage = () => {
         syncAuthState();
       }
 
-      setPreferences(normalizeRolePreferences(saveResult?.data || updatedSettings));
+      const resolvedPreferences = applyAuthenticatedUserProfileFallbacks(
+        saveResult?.data || updatedSettings,
+      );
+      setPreferences(resolvedPreferences);
+      setSavedProfilePreferences(resolvedPreferences);
       setToast({
         type: "success",
         title: "Settings Saved",
@@ -780,6 +809,27 @@ const RoleSettingsPage = () => {
       ...current,
       [field]: true,
     }));
+  };
+
+  const handleCancelProfileChanges = () => {
+    const restoredPreferences =
+      applyAuthenticatedUserProfileFallbacks(savedProfilePreferences);
+    setPreferences(restoredPreferences);
+    setProfileTouched({
+      fullName: false,
+      contactNumber: false,
+      emailAddress: false,
+    });
+    setProfileErrors({
+      fullName: "",
+      contactNumber: "",
+      emailAddress: "",
+    });
+    setToast({
+      type: "info",
+      title: "Changes Canceled",
+      message: "Account settings were restored to the last saved values.",
+    });
   };
 
   const handleNotificationChannelToggle = (channelKey, type) => {
@@ -995,7 +1045,7 @@ const RoleSettingsPage = () => {
     activeSectionMeta: activeBarangaySection,
     editableSectionKeys: EDITABLE_BARANGAY_SECTION_KEYS,
     isSavingPreferences,
-    saveLabel: "Save Settings",
+    saveLabel: "Save Changes",
     onBack: () => setActiveSection(null),
     onSave: handleSavePreferences,
   });
@@ -1003,7 +1053,7 @@ const RoleSettingsPage = () => {
     activeSectionMeta: activeMswdoSection,
     editableSectionKeys: EDITABLE_MSWDO_SECTION_KEYS,
     isSavingPreferences,
-    saveLabel: "Save Settings",
+    saveLabel: "Save Changes",
     onBack: () => setActiveSection(null),
     onSave: handleSavePreferences,
   });
@@ -1011,7 +1061,7 @@ const RoleSettingsPage = () => {
     activeSectionMeta: activeMayorSection,
     editableSectionKeys: EDITABLE_MAYOR_SECTION_KEYS,
     isSavingPreferences,
-    saveLabel: "Save Settings",
+    saveLabel: "Save Changes",
     onBack: () => setActiveSection(null),
     onSave: handleSavePreferences,
   });
@@ -1046,12 +1096,15 @@ const RoleSettingsPage = () => {
     preferences,
     profileTouched,
     profileErrors,
+    isSavingPreferences,
     authenticatedUser,
     handleProfileFieldChange,
     handleProfileFieldBlur,
     profilePictureInputRef,
     handleProfilePictureChange,
     setPreferences,
+    handleSaveProfileChanges: handleSavePreferences,
+    handleCancelProfileChanges,
     StatusChip,
     InfoRow,
     EmptyState,
