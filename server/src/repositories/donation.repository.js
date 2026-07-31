@@ -32,6 +32,7 @@ const donationSelect = `
     d.disaster_event_id,
     d.donor_name,
     d.donor_type,
+    d.donor_type_other,
     d.contact_information,
     d.received_by,
     d.received_at,
@@ -62,14 +63,22 @@ const donationItemSelect = `
     ii.item_name,
     ii.category,
     ii.unit_of_measure,
+    ib.inventory_item_stock_form_id,
     ib.batch_no,
     ib.source_type,
     ib.quantity_available,
     ib.expiration_date,
-    ib.storage_location
+    ib.storage_location,
+    stock_forms.barcode AS stock_form_barcode,
+    stock_forms.packaging AS stock_form_packaging,
+    stock_forms.units_per_packaging AS stock_form_units_per_packaging,
+    stock_forms.unit_of_measure AS stock_form_unit_of_measure,
+    stock_forms.unit_of_measure_value AS stock_form_unit_of_measure_value
   FROM donation_items di
   INNER JOIN inventory_items ii ON ii.id = di.inventory_item_id
   LEFT JOIN inventory_batches ib ON ib.id = di.inventory_batch_id
+  LEFT JOIN inventory_item_stock_forms stock_forms
+    ON stock_forms.id = ib.inventory_item_stock_form_id
 `;
 
 const normalizeDisasterEventFilter = (disasterEventId) => {
@@ -102,6 +111,10 @@ const getInventoryItemById = async (id, dbClient = pool) => {
         item_name,
         category,
         unit_of_measure,
+        unit_of_measure_value,
+        packaging,
+        packaging_count,
+        quantity,
         is_active,
         is_perishable
       FROM inventory_items
@@ -281,7 +294,7 @@ const getDonations = async (filters = {}, dbClient = pool) => {
   if (filters.search) {
     values.push(`%${filters.search}%`);
     conditions.push(
-      `(d.donor_name ILIKE $${values.length} OR d.contact_information ILIKE $${values.length} OR de.title ILIKE $${values.length} OR de.event_code ILIKE $${values.length})`,
+      `(d.donor_name ILIKE $${values.length} OR d.donor_type_other ILIKE $${values.length} OR d.contact_information ILIKE $${values.length} OR de.title ILIKE $${values.length} OR de.event_code ILIKE $${values.length})`,
     );
   }
 
@@ -320,6 +333,7 @@ const getDonationByIdForUpdate = async (id, dbClient) => {
         disaster_event_id,
         donor_name,
         donor_type,
+        donor_type_other,
         contact_information,
         received_by,
         received_at,
@@ -387,6 +401,7 @@ const insertDonation = async (payload, dbClient) => {
         disaster_event_id,
         donor_name,
         donor_type,
+        donor_type_other,
         contact_information,
         received_by,
         received_at,
@@ -395,13 +410,14 @@ const insertDonation = async (payload, dbClient) => {
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, COALESCE($6, NOW()), $7, $8, NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, NOW()), $8, $9, NOW(), NOW())
       RETURNING id
     `,
     [
       payload.disaster_event_id,
       payload.donor_name,
       payload.donor_type,
+      payload.donor_type_other,
       payload.contact_information,
       payload.received_by,
       payload.received_at,
@@ -420,10 +436,11 @@ const updateDonation = async (id, payload, dbClient) => {
       SET disaster_event_id = $2,
           donor_name = $3,
           donor_type = $4,
-          contact_information = $5,
-          received_at = COALESCE($6, received_at),
-          status = $7,
-          remarks = $8,
+          donor_type_other = $5,
+          contact_information = $6,
+          received_at = COALESCE($7, received_at),
+          status = $8,
+          remarks = $9,
           updated_at = NOW()
       WHERE id = $1
       RETURNING id
@@ -433,6 +450,7 @@ const updateDonation = async (id, payload, dbClient) => {
       payload.disaster_event_id,
       payload.donor_name,
       payload.donor_type,
+      payload.donor_type_other,
       payload.contact_information,
       payload.received_at,
       payload.status,
@@ -441,6 +459,31 @@ const updateDonation = async (id, payload, dbClient) => {
   );
 
   return result.rows[0] || null;
+};
+
+const renameDonorAcrossDonations = async (
+  { previousDonorName, nextDonorName, donorType, donorTypeOther },
+  dbClient,
+) => {
+  const result = await dbClient.query(
+    `
+      UPDATE donations
+      SET donor_name = $2,
+          updated_at = NOW()
+      WHERE LOWER(BTRIM(donor_name)) = LOWER(BTRIM($1))
+        AND donor_type = $3
+        AND COALESCE(donor_type_other, '') = COALESCE($4, '')
+      RETURNING id, disaster_event_id, received_at
+    `,
+    [
+      previousDonorName,
+      nextDonorName,
+      donorType,
+      donorTypeOther,
+    ],
+  );
+
+  return result.rows;
 };
 
 const deleteDonation = async (id, dbClient) => {
@@ -497,6 +540,90 @@ const updateDonationItem = async (id, payload, dbClient) => {
   );
 
   return result.rows[0] || null;
+};
+
+const syncDonationInventoryTransactions = async (
+  donationId,
+  { disaster_event_id, received_at },
+  dbClient,
+) => {
+  await dbClient.query(
+    `
+      UPDATE inventory_transactions it
+      SET disaster_event_id = $2
+      FROM donation_items di
+      WHERE di.id = it.reference_id
+        AND it.reference_type = 'DONATION'
+        AND di.donation_id = $1
+    `,
+    [donationId, disaster_event_id],
+  );
+
+  if (received_at) {
+    await dbClient.query(
+      `
+        WITH ranked_transactions AS (
+          SELECT
+            it.id,
+            ROW_NUMBER() OVER (
+              PARTITION BY it.reference_id
+              ORDER BY it.performed_at ASC, it.created_at ASC, it.id ASC
+            ) AS row_rank
+          FROM inventory_transactions it
+          INNER JOIN donation_items di ON di.id = it.reference_id
+          WHERE it.reference_type = 'DONATION'
+            AND di.donation_id = $1
+        )
+        UPDATE inventory_transactions it
+        SET performed_at = $2
+        FROM ranked_transactions ranked
+        WHERE ranked.id = it.id
+          AND ranked.row_rank = 1
+      `,
+      [donationId, received_at],
+    );
+  }
+
+  await dbClient.query(
+    `
+      WITH donation_source AS (
+        SELECT id, donor_name
+        FROM donations
+        WHERE id = $1
+      ),
+      ranked_transactions AS (
+        SELECT
+          it.id,
+          it.transaction_type,
+          ii.item_name,
+          ds.donor_name,
+          ROW_NUMBER() OVER (
+            PARTITION BY it.reference_id
+            ORDER BY it.performed_at ASC, it.created_at ASC, it.id ASC
+          ) AS row_rank
+        FROM inventory_transactions it
+        INNER JOIN donation_items di ON di.id = it.reference_id
+        INNER JOIN inventory_batches ib ON ib.id = it.inventory_batch_id
+        INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
+        INNER JOIN donation_source ds ON ds.id = di.donation_id
+        WHERE it.reference_type = 'DONATION'
+          AND di.donation_id = $1
+      )
+      UPDATE inventory_transactions it
+      SET remarks = CASE
+        WHEN ranked.transaction_type = 'INFLOW' AND ranked.row_rank = 1
+          THEN CONCAT('Received donation stock for ', ranked.item_name, ' from ', COALESCE(ranked.donor_name, 'Unknown donor'))
+        WHEN ranked.transaction_type = 'INFLOW'
+          THEN CONCAT('Adjusted up donation stock for ', ranked.item_name, ' from ', COALESCE(ranked.donor_name, 'Unknown donor'))
+        WHEN ranked.transaction_type = 'OUTFLOW'
+          THEN CONCAT('Adjusted down donation stock for ', ranked.item_name, ' from ', COALESCE(ranked.donor_name, 'Unknown donor'))
+          ELSE CONCAT('Updated donation stock for ', ranked.item_name, ' from ', COALESCE(ranked.donor_name, 'Unknown donor'))
+      END
+      FROM ranked_transactions ranked
+      WHERE ranked.id = it.id
+    `,
+    [donationId],
+  );
 };
 
 const deleteDonationItem = async (id, dbClient) => {
@@ -1168,9 +1295,11 @@ module.exports = {
   getDonationItemByIdForUpdate,
   insertDonation,
   updateDonation,
+  renameDonorAcrossDonations,
   deleteDonation,
   insertDonationItem,
   updateDonationItem,
+  syncDonationInventoryTransactions,
   deleteDonationItem,
   getInventoryBatchByIdForUpdate,
   insertInventoryBatch,

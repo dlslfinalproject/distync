@@ -112,6 +112,12 @@ const mapInventoryTransaction = (transaction) => {
       item_code: transaction.item_code,
       item_name: transaction.item_name,
     },
+    donation: transaction.donation_id
+      ? {
+          id: transaction.donation_id,
+          donor_name: transaction.donor_name || null,
+        }
+      : null,
     inventory_item_stock_form: transaction.inventory_item_stock_form_id
       ? {
           id: transaction.inventory_item_stock_form_id,

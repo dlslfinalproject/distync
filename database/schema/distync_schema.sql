@@ -490,6 +490,7 @@ CREATE TABLE public.donations (
   disaster_event_id uuid NOT NULL,
   donor_name character varying NOT NULL,
   donor_type character varying NOT NULL DEFAULT 'INDIVIDUAL'::character varying CHECK (donor_type::text = ANY (ARRAY['INDIVIDUAL'::character varying, 'NGO'::character varying, 'PRIVATE_ORGANIZATION'::character varying, 'GOVERNMENT_PARTNER'::character varying, 'OTHER'::character varying]::text[])),
+  donor_type_other character varying,
   contact_information character varying,
   received_by uuid,
   received_at timestamp with time zone NOT NULL DEFAULT now(),

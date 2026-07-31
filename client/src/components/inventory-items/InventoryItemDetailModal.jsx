@@ -106,6 +106,7 @@ const modalStyles = {
     fontSize: "12px",
     fontWeight: 700,
     lineHeight: 1,
+    whiteSpace: "nowrap",
   },
 };
 
@@ -227,6 +228,29 @@ const getStockFormKey = (stockForm) => {
   return stockForm?.id || `${stockForm?.barcode || "no-barcode"}-${stockForm?.packaging || "packaging"}`;
 };
 
+const getNormalizedSourceType = (value) =>
+  String(value || "").trim().toUpperCase();
+
+const isDonationOnlyOriginItem = (item, batches = []) => {
+  if (!item || batches.length === 0) {
+    return false;
+  }
+
+  return batches.every((batch) => getNormalizedSourceType(batch?.source_type) === "DONATED");
+};
+
+const getReorderLevelDisplayValue = (item, batches = []) => {
+  if (item?.low_stock_threshold !== null && item?.low_stock_threshold !== undefined) {
+    return item.low_stock_threshold;
+  }
+
+  if (item?.reorder_level !== null && item?.reorder_level !== undefined) {
+    return item.reorder_level;
+  }
+
+  return isDonationOnlyOriginItem(item, batches) ? "Not Yet Required" : "--";
+};
+
 const getSortableTimestamp = (value) => {
   if (!value) {
     return Number.POSITIVE_INFINITY;
@@ -299,7 +323,7 @@ const InventoryItemDetailModal = ({
               <div>
                 <p style={modalStyles.label}>Reorder Level</p>
                 <p style={modalStyles.value}>
-                  {item.low_stock_threshold ?? item.reorder_level ?? "--"}
+                  {getReorderLevelDisplayValue(item, batches)}
                 </p>
               </div>
             </div>

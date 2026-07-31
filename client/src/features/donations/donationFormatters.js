@@ -16,8 +16,16 @@ export const normalizeDonorType = (value) => {
   return legacyDonorTypeMap[normalizedValue] || normalizedValue || "INDIVIDUAL";
 };
 
-export const formatDonorType = (value) => {
+export const formatDonorType = (value, otherValue = null) => {
   const normalizedValue = normalizeDonorType(value);
+
+  if (normalizedValue === "OTHER") {
+    const trimmedOtherValue = String(otherValue || "").trim();
+    return trimmedOtherValue
+      ? `${donorTypeLabels[normalizedValue]} - ${trimmedOtherValue}`
+      : donorTypeLabels[normalizedValue];
+  }
+
   return donorTypeLabels[normalizedValue] || "--";
 };
 

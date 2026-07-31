@@ -133,6 +133,7 @@ const getMonitorQuantity = (item, trackingStats) => {
 const INITIAL_SCAN_FORM = {
   barcodeNumber: "",
   quantityOnHand: "",
+  reorderLevel: "",
   expirationDate: "",
 };
 
@@ -150,6 +151,8 @@ const INVENTORY_BATCH_SOURCE_TYPES = [
   "LGU",
   "OTHER",
 ];
+
+const DONATION_PENDING_REORDER_LABEL = "Not Yet Required";
 
 const getPositiveIntegerValue = (value) => {
   const parsedValue = Number(value);
@@ -270,6 +273,75 @@ const getInventoryBatchSourceType = (item) => {
     ? normalizedSourceType
     : "OTHER";
 };
+
+const normalizeDateForApi = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    const trimmedValue = value.trim();
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedValue)) {
+      return trimmedValue;
+    }
+
+    if (trimmedValue.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(trimmedValue)) {
+      return trimmedValue.slice(0, 10);
+    }
+  }
+
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return null;
+  }
+
+  return parsedDate.toISOString().slice(0, 10);
+};
+
+const isDonationOnlyOriginItem = (item, relatedBatches = []) => {
+  if (!item || relatedBatches.length === 0) {
+    return false;
+  }
+
+  return relatedBatches.every((batch) => {
+    return getInventoryBatchSourceType(batch) === "DONATED";
+  });
+};
+
+const requiresReorderLevelBeforeLguHandling = (item, relatedBatches = []) => {
+  return (
+    (item?.reorder_level === null || item?.reorder_level === undefined) &&
+    isDonationOnlyOriginItem(item, relatedBatches)
+  );
+};
+
+const getReorderLevelDisplayValue = (item, relatedBatches = []) => {
+  if (item?.reorder_level !== null && item?.reorder_level !== undefined) {
+    return item.reorder_level;
+  }
+
+  return requiresReorderLevelBeforeLguHandling(item, relatedBatches)
+    ? DONATION_PENDING_REORDER_LABEL
+    : "--";
+};
+
+const buildInventoryItemUpdatePayload = (item, overrides = {}) => ({
+  item_name: item?.item_name || "",
+  category: item?.category || "",
+  unit_of_measure: item?.unit_of_measure || "pc",
+  unit_of_measure_value: item?.unit_of_measure_value || 1,
+  packaging: item?.packaging || "piece",
+  packaging_count: item?.packaging_count || 1,
+  quantity: item?.quantity || 1,
+  reorder_level: item?.reorder_level ?? null,
+  expiration_date: normalizeDateForApi(item?.expiration_date),
+  barcode: item?.barcode || null,
+  is_perishable: item?.is_perishable ?? isPerishableItem(item),
+  is_active: item?.is_active ?? true,
+  ...overrides,
+});
 
 const buildScannedInventoryBatchNumber = (item, relatedBatches = []) => {
   const identifier =
@@ -521,6 +593,21 @@ const InventoryItemsPage = () => {
     [inventoryItemsWithSyncStatus, inventoryBatches, inventoryTransactions],
   );
 
+  const inventoryItemsForInventoryManagement = useMemo(() => {
+    return inventoryItemsWithSyncStatus.map((item) => {
+      const relatedBatches = inventoryBatches.filter((batch) => {
+        return String(batch?.inventory_item_id || "") === String(item?.id || "");
+      });
+
+      return {
+        ...item,
+        reorder_level_display: getReorderLevelDisplayValue(item, relatedBatches),
+        requires_reorder_level_before_restock:
+          requiresReorderLevelBeforeLguHandling(item, relatedBatches),
+      };
+    });
+  }, [inventoryBatches, inventoryItemsWithSyncStatus]);
+
   const inventoryAnalytics = useMemo(() => {
     const totalItems = inventoryItemsWithSyncStatus.length;
     const lowStockItems = inventoryItemsWithSyncStatus.filter((item) => {
@@ -597,7 +684,7 @@ const InventoryItemsPage = () => {
       return null;
     }
 
-    for (const item of inventoryItemsWithSyncStatus) {
+    for (const item of inventoryItemsForInventoryManagement) {
       const matchedStockForm = getItemStockForms(item).find((stockForm) => {
         return normalizeBarcodeInput(stockForm?.barcode) === scannedBarcode;
       });
@@ -608,7 +695,7 @@ const InventoryItemsPage = () => {
     }
 
     return null;
-  }, [inventoryItemsWithSyncStatus, scanForm.barcodeNumber]);
+  }, [inventoryItemsForInventoryManagement, scanForm.barcodeNumber]);
 
   const matchedScannedItem = useMemo(() => {
     if (!matchedScannedStockForm?.inventory_item_id) {
@@ -616,11 +703,11 @@ const InventoryItemsPage = () => {
     }
 
     return (
-      inventoryItemsWithSyncStatus.find((item) => {
+      inventoryItemsForInventoryManagement.find((item) => {
         return String(item?.id) === String(matchedScannedStockForm.inventory_item_id);
       }) || null
     );
-  }, [inventoryItemsWithSyncStatus, matchedScannedStockForm]);
+  }, [inventoryItemsForInventoryManagement, matchedScannedStockForm]);
 
   const matchedScannedItemTrackingStats = useMemo(() => {
     if (!matchedScannedItem?.id) {
@@ -670,7 +757,7 @@ const InventoryItemsPage = () => {
         ? [filters.status]
         : [];
 
-    const filteredItems = inventoryItemsWithSyncStatus.filter((item) => {
+    const filteredItems = inventoryItemsForInventoryManagement.filter((item) => {
       const trackingStats =
         inventoryTrackingMap.get(item.id) || createEmptyTrackingStats();
       const itemCategory = getNormalizedInventoryText(item.category);
@@ -741,6 +828,9 @@ const InventoryItemsPage = () => {
         stock_form_labels: getStockFormLabels(item),
         stock_status_label: getDisplayStockStatus(item, trackingStats),
         stock_statuses: getDisplayStockStatuses(item, trackingStats),
+        reorder_level_display: getReorderLevelDisplayValue(item, relatedBatches),
+        requires_reorder_level_before_restock:
+          requiresReorderLevelBeforeLguHandling(item, relatedBatches),
         latest_activity_at:
           latestBatchTimestamp !== Number.NEGATIVE_INFINITY
             ? latestBatchTimestamp
@@ -784,7 +874,7 @@ const InventoryItemsPage = () => {
       );
     });
   }, [
-    inventoryItemsWithSyncStatus,
+    inventoryItemsForInventoryManagement,
     inventoryTrackingMap,
     inventoryBatches,
     filters.category,
@@ -816,7 +906,7 @@ const InventoryItemsPage = () => {
       let response = null;
       const matchedExistingItem =
         payload?.existing_item_id
-          ? inventoryItems.find((item) => {
+          ? inventoryItemsForInventoryManagement.find((item) => {
               return String(item?.id) === String(payload.existing_item_id);
             }) || null
           : null;
@@ -824,6 +914,15 @@ const InventoryItemsPage = () => {
       if (modalMode === "edit" && createModalItemData?.id) {
         response = await updateInventoryItem(createModalItemData.id, payload);
       } else if (matchedExistingItem) {
+        if (matchedExistingItem.requires_reorder_level_before_restock) {
+          await updateInventoryItem(
+            matchedExistingItem.id,
+            buildInventoryItemUpdatePayload(matchedExistingItem, {
+              reorder_level: Number(payload.reorder_level),
+            }),
+          );
+        }
+
         const relatedBatches = inventoryBatches.filter(
           (batch) =>
             String(batch?.inventory_item_id) === String(matchedExistingItem.id),
@@ -983,11 +1082,20 @@ const InventoryItemsPage = () => {
 
     if (matchedScannedItem?.id) {
       const packageCount = getPositiveIntegerValue(scanForm.quantityOnHand);
+      const reorderLevel = getPositiveIntegerValue(scanForm.reorderLevel);
 
       if (!packageCount) {
         setScanErrorMessage(
           "Quantity on hand must be a whole number greater than 0.",
         );
+        return;
+      }
+
+      if (
+        matchedScannedItem.requires_reorder_level_before_restock &&
+        !reorderLevel
+      ) {
+        setScanErrorMessage("Reorder level is required.");
         return;
       }
 
@@ -1003,6 +1111,15 @@ const InventoryItemsPage = () => {
       setScanErrorMessage("");
 
       try {
+        if (matchedScannedItem.requires_reorder_level_before_restock) {
+          await updateInventoryItem(
+            matchedScannedItem.id,
+            buildInventoryItemUpdatePayload(matchedScannedItem, {
+              reorder_level: reorderLevel,
+            }),
+          );
+        }
+
         const response = await createInventoryBatch({
           inventory_item_id: matchedScannedItem.id,
           inventory_item_stock_form_id: matchedScannedStockForm?.id || null,
@@ -1296,7 +1413,7 @@ const InventoryItemsPage = () => {
         mode={modalMode}
         source={createModalSource}
         itemData={createModalItemData}
-        inventoryItems={inventoryItemsWithSyncStatus}
+        inventoryItems={inventoryItemsForInventoryManagement}
         getCurrentStockForItem={(item) => {
           const trackingStats =
             inventoryTrackingMap.get(item?.id) || createEmptyTrackingStats();

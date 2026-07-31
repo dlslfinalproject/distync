@@ -13,6 +13,8 @@ const donorTypes = [
   "OTHER",
 ];
 const invalidDonorTypeMessage = "Please select a valid donor type.";
+const invalidDonorTypeOtherMessage =
+  "Please specify the donor type when Other is selected.";
 
 const priorityLevels = ["LOW", "MEDIUM", "HIGH", "URGENT"];
 
@@ -46,6 +48,19 @@ const parseOptionalBoolean = (value) => {
   }
 
   return { isProvided: true, value: "invalid" };
+};
+
+const normalizeNullableString = (value) => {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    return "invalid";
+  }
+
+  const trimmedValue = value.trim();
+  return trimmedValue || null;
 };
 
 const validateDonationNeedId = (req, res, next) => {
@@ -241,13 +256,82 @@ const normalizeDonationItem = (item, index) => {
     throw new Error(`items[${index}].storage_location must be a string or null`);
   }
 
+  if (
+    item.inventory_item_stock_form_id !== undefined &&
+    item.inventory_item_stock_form_id !== null &&
+    !isValidUuid(item.inventory_item_stock_form_id)
+  ) {
+    throw new Error(
+      `items[${index}].inventory_item_stock_form_id must be a valid UUID or null`,
+    );
+  }
+
+  if (
+    item.stock_form_barcode !== undefined &&
+    item.stock_form_barcode !== null &&
+    typeof item.stock_form_barcode !== "string"
+  ) {
+    throw new Error(`items[${index}].stock_form_barcode must be a string or null`);
+  }
+
+  if (
+    item.stock_form_packaging !== undefined &&
+    item.stock_form_packaging !== null &&
+    (typeof item.stock_form_packaging !== "string" ||
+      !item.stock_form_packaging.trim())
+  ) {
+    throw new Error(
+      `items[${index}].stock_form_packaging must be a non-empty string or null`,
+    );
+  }
+
+  if (
+    item.stock_form_units_per_packaging !== undefined &&
+    item.stock_form_units_per_packaging !== null &&
+    (!Number.isInteger(item.stock_form_units_per_packaging) ||
+      item.stock_form_units_per_packaging <= 0)
+  ) {
+    throw new Error(
+      `items[${index}].stock_form_units_per_packaging must be a positive integer or null`,
+    );
+  }
+
+  if (
+    item.stock_form_unit_of_measure !== undefined &&
+    item.stock_form_unit_of_measure !== null &&
+    (typeof item.stock_form_unit_of_measure !== "string" ||
+      !item.stock_form_unit_of_measure.trim())
+  ) {
+    throw new Error(
+      `items[${index}].stock_form_unit_of_measure must be a non-empty string or null`,
+    );
+  }
+
+  if (
+    item.stock_form_unit_of_measure_value !== undefined &&
+    item.stock_form_unit_of_measure_value !== null &&
+    (!Number.isFinite(Number(item.stock_form_unit_of_measure_value)) ||
+      Number(item.stock_form_unit_of_measure_value) <= 0)
+  ) {
+    throw new Error(
+      `items[${index}].stock_form_unit_of_measure_value must be a positive number or null`,
+    );
+  }
+
   return {
     inventory_item_id: item.inventory_item_id,
     inventory_batch_id: item.inventory_batch_id ?? null,
+    inventory_item_stock_form_id: item.inventory_item_stock_form_id ?? null,
     quantity_received: item.quantity_received,
     remarks: item.remarks?.trim() || null,
     expiration_date: item.expiration_date ?? null,
     storage_location: item.storage_location?.trim() || null,
+    stock_form_barcode: item.stock_form_barcode?.trim() || null,
+    stock_form_packaging: item.stock_form_packaging?.trim() || null,
+    stock_form_units_per_packaging: item.stock_form_units_per_packaging ?? null,
+    stock_form_unit_of_measure: item.stock_form_unit_of_measure?.trim() || null,
+    stock_form_unit_of_measure_value:
+      item.stock_form_unit_of_measure_value ?? null,
   };
 };
 
@@ -256,6 +340,7 @@ const validateDonationPayload = (req, res, next) => {
     disaster_event_id,
     donor_name,
     donor_type,
+    donor_type_other,
     contact_information,
     received_at,
     status,
@@ -278,6 +363,20 @@ const validateDonationPayload = (req, res, next) => {
   if (!donorTypes.includes(donor_type)) {
     return res.status(400).json({
       message: invalidDonorTypeMessage,
+    });
+  }
+
+  const normalizedOtherDonorType = normalizeNullableString(donor_type_other);
+
+  if (normalizedOtherDonorType === "invalid") {
+    return res.status(400).json({
+      message: "donor_type_other must be a string or null",
+    });
+  }
+
+  if (donor_type === "OTHER" && !normalizedOtherDonorType) {
+    return res.status(400).json({
+      message: invalidDonorTypeOtherMessage,
     });
   }
 
@@ -321,6 +420,8 @@ const validateDonationPayload = (req, res, next) => {
       disaster_event_id,
       donor_name: donor_name.trim(),
       donor_type,
+      donor_type_other:
+        donor_type === "OTHER" ? normalizedOtherDonorType : null,
       contact_information: contact_information?.trim() || null,
       received_at: received_at ?? null,
       status,

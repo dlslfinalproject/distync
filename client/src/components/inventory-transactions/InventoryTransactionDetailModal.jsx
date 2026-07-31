@@ -99,7 +99,7 @@ const InventoryTransactionDetailModal = ({ isOpen, row, onClose }) => {
   ];
 
   const additionalInformation = [
-    ["Source", row.source_label || "--"],
+    ["Source", row.source_details || row.source_label || "--"],
     ["Record ID", row.id || "--"],
   ];
 
