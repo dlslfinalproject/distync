@@ -7,7 +7,6 @@ const profilePictureStorageService = require("./profilePictureStorage.service");
 const SETTINGS_AUDIT_ACTION = "UPSERT_ROLE_SETTINGS";
 const SETTINGS_ENTITY_TYPE = "ROLE_SETTINGS";
 const ALLOWED_ROLE_CODES = new Set(["BARANGAY", "MSWDO", "MAYOR"]);
-const ALLOWED_EXPORT_FORMATS = new Set(["csv", "excel", "pdf"]);
 const ROLE_POSITION_LABELS = {
   BARANGAY: "Barangay Official",
   MSWDO: "MSWDO Personnel",
@@ -39,7 +38,6 @@ const createDefaultNotificationChannels = () => {
 const createDefaultRoleSettings = () => {
   return {
     enabledNotificationRuleCodes: [],
-    preferredExportFormat: "excel",
     profile: {
       fullName: "",
       position: "",
@@ -170,16 +168,6 @@ const validateContactNumberOrThrow = (value) => {
   return normalizedValue;
 };
 
-const sanitizePreferredExportFormat = (value) => {
-  const normalizedValue = sanitizeString(value).toLowerCase();
-
-  if (!ALLOWED_EXPORT_FORMATS.has(normalizedValue)) {
-    return "excel";
-  }
-
-  return normalizedValue;
-};
-
 const normalizeTimestampValue = (value) => {
   if (!value) {
     return "";
@@ -216,9 +204,6 @@ const buildPersistedSnapshot = (settings = {}) => {
     enabledNotificationRuleCodes: sanitizeEnabledNotificationRuleCodes(
       settings.enabledNotificationRuleCodes,
     ),
-    preferredExportFormat: sanitizePreferredExportFormat(
-      settings.preferredExportFormat,
-    ),
     profile: {
       ...defaults.profile,
       fullName: sanitizeString(settings?.profile?.fullName),
@@ -252,9 +237,6 @@ const buildEditableSettingsSnapshot = (settings = {}) => {
     enabledNotificationRuleCodes: sanitizeEnabledNotificationRuleCodes(
       settings.enabledNotificationRuleCodes,
     ),
-    preferredExportFormat: sanitizePreferredExportFormat(
-      settings.preferredExportFormat,
-    ),
     profile: {
       fullName: sanitizeString(profile.fullName),
       contactNumber: sanitizeString(profile.contactNumber),
@@ -275,9 +257,6 @@ const buildPersistedSettingsFromRecord = (record = {}) => {
   return {
     enabledNotificationRuleCodes: sanitizeEnabledNotificationRuleCodes(
       record.enabled_notification_rule_codes_json,
-    ),
-    preferredExportFormat: sanitizePreferredExportFormat(
-      record.preferred_export_format,
     ),
     profile: {
       fullName: "",
@@ -345,9 +324,6 @@ const buildUserRoleSettingsPayload = (settings = {}) => {
     ),
     notificationChannelsJson: sanitizeNotificationChannels(
       settings.notificationChannels,
-    ),
-    preferredExportFormat: sanitizePreferredExportFormat(
-      settings.preferredExportFormat,
     ),
     lastProfileUpdateAt: parseTimestampValue(settings?.metadata?.lastProfileUpdateAt),
     lastPreferenceSaveAt:

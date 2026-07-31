@@ -78,7 +78,6 @@ const getUserRoleSettings = async (
       profile_picture_file_name,
       enabled_notification_rule_codes_json,
       notification_channels_json,
-      preferred_export_format,
       last_profile_update_at,
       last_preference_save_at,
       updated_at,
@@ -101,7 +100,6 @@ const upsertUserRoleSettings = async (
     profilePictureFileName,
     enabledNotificationRuleCodesJson,
     notificationChannelsJson,
-    preferredExportFormat,
     lastProfileUpdateAt,
     lastPreferenceSaveAt,
   },
@@ -115,7 +113,6 @@ const upsertUserRoleSettings = async (
       profile_picture_file_name,
       enabled_notification_rule_codes_json,
       notification_channels_json,
-      preferred_export_format,
       last_profile_update_at,
       last_preference_save_at,
       created_at,
@@ -130,7 +127,6 @@ const upsertUserRoleSettings = async (
       $6::jsonb,
       $7,
       $8,
-      $9,
       NOW(),
       NOW()
     )
@@ -141,7 +137,6 @@ const upsertUserRoleSettings = async (
         enabled_notification_rule_codes_json =
           EXCLUDED.enabled_notification_rule_codes_json,
         notification_channels_json = EXCLUDED.notification_channels_json,
-        preferred_export_format = EXCLUDED.preferred_export_format,
         last_profile_update_at = EXCLUDED.last_profile_update_at,
         last_preference_save_at = EXCLUDED.last_preference_save_at,
         updated_at = NOW()
@@ -153,7 +148,6 @@ const upsertUserRoleSettings = async (
       profile_picture_file_name,
       enabled_notification_rule_codes_json,
       notification_channels_json,
-      preferred_export_format,
       last_profile_update_at,
       last_preference_save_at,
       updated_at,
@@ -167,7 +161,6 @@ const upsertUserRoleSettings = async (
     profilePictureFileName || null,
     JSON.stringify(enabledNotificationRuleCodesJson || []),
     JSON.stringify(notificationChannelsJson || {}),
-    preferredExportFormat,
     lastProfileUpdateAt || null,
     lastPreferenceSaveAt,
   ]);

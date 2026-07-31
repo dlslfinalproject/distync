@@ -1,4 +1,3 @@
-const ALLOWED_EXPORT_FORMATS = new Set(["csv", "excel", "pdf"]);
 const MAX_PROFILE_PICTURE_DATA_URL_LENGTH = 4 * 1024 * 1024;
 const EMAIL_ADDRESS_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHILIPPINE_CONTACT_NUMBER_PATTERN = /^\+639\d{9}$/;
@@ -123,23 +122,6 @@ const validateSaveCurrentSettings = (req, res, next) => {
       if (hasInvalidRuleCode) {
         return res.status(400).json({
           message: "enabledNotificationRuleCodes must contain string values",
-        });
-      }
-    }
-
-    if (settings.preferredExportFormat !== undefined) {
-      if (typeof settings.preferredExportFormat !== "string") {
-        return res.status(400).json({
-          message: "preferredExportFormat must be a string",
-        });
-      }
-
-      const normalizedExportFormat =
-        settings.preferredExportFormat.trim().toLowerCase();
-
-      if (!ALLOWED_EXPORT_FORMATS.has(normalizedExportFormat)) {
-        return res.status(400).json({
-          message: "preferredExportFormat must be csv, excel, or pdf",
         });
       }
     }

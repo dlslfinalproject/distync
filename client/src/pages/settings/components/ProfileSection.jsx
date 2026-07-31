@@ -218,7 +218,6 @@ const ProfileSection = ({
 
             <div style={{ display: "grid", gap: "20px" }}>
               <div style={{ display: "grid", gap: "16px" }}>
-                <p style={sectionLabelStyles}>Full Name</p>
                 <div
                   style={{
                     display: "grid",

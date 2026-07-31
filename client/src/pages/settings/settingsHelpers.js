@@ -19,7 +19,6 @@ export const createDefaultNotificationChannels = () =>
 
 export const createDefaultRolePreferences = () => ({
   enabledNotificationRuleCodes: [],
-  preferredExportFormat: "excel",
   profile: {
     fullName: "",
     position: BARANGAY_POSITION_LABEL,
@@ -177,6 +176,8 @@ export const getNotificationPreferenceValidationErrors = ({
 
 export const normalizeRolePreferences = (value = {}) => {
   const defaults = createDefaultRolePreferences();
+  const { preferredExportFormat: _removedPreferredExportFormat, ...remainingValue } =
+    value || {};
   const notificationChannels = {
     ...defaults.notificationChannels,
   };
@@ -190,7 +191,7 @@ export const normalizeRolePreferences = (value = {}) => {
 
   return {
     ...defaults,
-    ...(value || {}),
+    ...remainingValue,
     enabledNotificationRuleCodes: Array.isArray(value?.enabledNotificationRuleCodes)
       ? value.enabledNotificationRuleCodes
       : [],
