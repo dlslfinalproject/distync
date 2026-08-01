@@ -1,5 +1,4 @@
 const MAX_PROFILE_PICTURE_BASE64_LENGTH = 3 * 1024 * 1024;
-const EMAIL_ADDRESS_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHILIPPINE_CONTACT_NUMBER_PATTERN = /^\+639\d{9}$/;
 const PROFILE_PICTURE_ALLOWED_MIME_TYPES = new Set([
   "image/jpeg",
@@ -7,12 +6,37 @@ const PROFILE_PICTURE_ALLOWED_MIME_TYPES = new Set([
   "image/png",
   "image/webp",
 ]);
-const ALLOWED_NOTIFICATION_CHANNEL_KEYS = new Set([
-  "disasterAlerts",
-  "distributionSchedules",
-  "reliefArrivalNotifications",
-  "attendanceReminders",
-  "systemAnnouncements",
+const NAME_VALUE_PATTERN =
+  /^[\p{L}\p{M}][\p{L}\p{M}\p{N} .'-]*[\p{L}\p{M}\p{N}.']?$|^[\p{L}\p{M}]$/u;
+const NAME_MAX_LENGTH = 100;
+const PROFILE_ALLOWED_FIELDS = new Set([
+  "firstName",
+  "middleName",
+  "lastName",
+  "contactNumber",
+]);
+const PROFILE_PICTURE_ACTIONS = new Set(["UNCHANGED", "REPLACE", "REMOVE"]);
+const PROFILE_PROTECTED_FIELDS = new Set([
+  "fullName",
+  "email",
+  "emailAddress",
+  "role",
+  "roleCode",
+  "position",
+  "assignedBarangay",
+  "barangayId",
+  "accountStatus",
+  "userId",
+  "createdAt",
+  "updatedAt",
+  "provider",
+  "googleSub",
+  "profilePicturePath",
+  "profilePictureUrl",
+  "profilePictureUrlExpiresAt",
+  "profilePictureFileName",
+  "profilePictureUpdatedAt",
+  "profilePictureDataUrl",
 ]);
 
 const isPlainObject = (value) =>
@@ -30,7 +54,10 @@ const validateOptionalString = (value, fieldName) => {
   return null;
 };
 
-const normalizeEmailAddress = (value) => String(value || "").trim();
+const normalizeProfileName = (value = "") =>
+  String(value || "")
+    .trim()
+    .replace(/\s+/g, " ");
 
 const normalizePhilippineContactNumber = (value = "") => {
   const rawValue = String(value || "").trim();
@@ -42,13 +69,7 @@ const normalizePhilippineContactNumber = (value = "") => {
   const compactValue = rawValue.replace(/[^\d+]/g, "");
 
   if (compactValue.startsWith("+")) {
-    const digitsAfterPlus = compactValue.slice(1).replace(/\D/g, "");
-
-    if (digitsAfterPlus.startsWith("639")) {
-      return `+${digitsAfterPlus.slice(0, 12)}`;
-    }
-
-    return `+${digitsAfterPlus.slice(0, 12)}`;
+    return `+${compactValue.slice(1).replace(/\D/g, "").slice(0, 12)}`;
   }
 
   const digitsOnly = compactValue.replace(/\D/g, "");
@@ -61,12 +82,38 @@ const normalizePhilippineContactNumber = (value = "") => {
     return `+${digitsOnly.slice(0, 12)}`;
   }
 
+  if (digitsOnly.startsWith("9")) {
+    return `+63${digitsOnly.slice(0, 10)}`;
+  }
+
   if (digitsOnly.startsWith("63")) {
     return `+${digitsOnly.slice(0, 12)}`;
   }
 
-  if (digitsOnly.startsWith("9")) {
-    return `+63${digitsOnly.slice(0, 10)}`;
+  return "";
+};
+
+const validateProfileNameField = ({ label, value, required = false }) => {
+  if (value === undefined || value === null) {
+    return required ? `${label} is required.` : "";
+  }
+
+  if (typeof value !== "string") {
+    return `${label} must be a string.`;
+  }
+
+  const normalizedValue = normalizeProfileName(value);
+
+  if (!normalizedValue) {
+    return required ? `${label} is required.` : "";
+  }
+
+  if (normalizedValue.length > NAME_MAX_LENGTH) {
+    return `${label} is too long.`;
+  }
+
+  if (!NAME_VALUE_PATTERN.test(normalizedValue)) {
+    return "The name contains unsupported characters.";
   }
 
   return "";
@@ -82,64 +129,71 @@ const validateSaveCurrentSettings = (req, res, next) => {
       });
     }
 
-    if (
-      settings.enabledNotificationRuleCodes !== undefined &&
-      !Array.isArray(settings.enabledNotificationRuleCodes)
-    ) {
-      return res.status(400).json({
-        message: "enabledNotificationRuleCodes must be an array",
-      });
-    }
-
-    if (Array.isArray(settings.enabledNotificationRuleCodes)) {
-      const hasInvalidRuleCode = settings.enabledNotificationRuleCodes.some(
-        (entry) => typeof entry !== "string",
-      );
-
-      if (hasInvalidRuleCode) {
-        return res.status(400).json({
-          message: "enabledNotificationRuleCodes must contain string values",
-        });
-      }
-    }
-
-    if (
-      settings.profile !== undefined &&
-      !isPlainObject(settings.profile)
-    ) {
+    if (settings.profile !== undefined && !isPlainObject(settings.profile)) {
       return res.status(400).json({
         message: "profile must be an object",
       });
     }
 
     if (isPlainObject(settings.profile)) {
-      const stringFieldChecks = [
-        ["fullName", "profile.fullName"],
-        ["position", "profile.position"],
-        ["contactNumber", "profile.contactNumber"],
-        ["emailAddress", "profile.emailAddress"],
-      ];
+      const profileKeys = Object.keys(settings.profile);
+      const protectedFields = profileKeys.filter((key) =>
+        PROFILE_PROTECTED_FIELDS.has(key),
+      );
+      const unknownFields = profileKeys.filter(
+        (key) =>
+          !PROFILE_ALLOWED_FIELDS.has(key) && !PROFILE_PROTECTED_FIELDS.has(key),
+      );
 
-      for (const [fieldKey, fieldName] of stringFieldChecks) {
-        const validationError = validateOptionalString(
-          settings.profile[fieldKey],
-          fieldName,
-        );
-
-        if (validationError) {
-          return res.status(400).json({
-            message: validationError,
-          });
-        }
+      if (protectedFields.length > 0) {
+        return res.status(400).json({
+          message:
+            "Email, role, and barangay assignment cannot be changed from Account Settings.",
+        });
       }
 
-      if (
-        settings.profile.fullName !== undefined &&
-        !settings.profile.fullName.trim()
-      ) {
+      if (unknownFields.length > 0) {
         return res.status(400).json({
-          message: "profile.fullName must not be empty",
+          message: "The profile update contains unsupported fields.",
         });
+      }
+
+      const firstNameError = validateProfileNameField({
+        label: "First name",
+        value: settings.profile.firstName,
+        required: true,
+      });
+
+      if (firstNameError) {
+        return res.status(400).json({ message: firstNameError });
+      }
+
+      const middleNameError = validateProfileNameField({
+        label: "Middle name",
+        value: settings.profile.middleName,
+      });
+
+      if (middleNameError) {
+        return res.status(400).json({ message: middleNameError });
+      }
+
+      const lastNameError = validateProfileNameField({
+        label: "Last name",
+        value: settings.profile.lastName,
+        required: true,
+      });
+
+      if (lastNameError) {
+        return res.status(400).json({ message: lastNameError });
+      }
+
+      const contactNumberValidationError = validateOptionalString(
+        settings.profile.contactNumber,
+        "profile.contactNumber",
+      );
+
+      if (contactNumberValidationError) {
+        return res.status(400).json({ message: contactNumberValidationError });
       }
 
       const contactNumber = normalizePhilippineContactNumber(
@@ -147,64 +201,37 @@ const validateSaveCurrentSettings = (req, res, next) => {
       );
 
       if (
-        typeof contactNumber === "string" &&
-        contactNumber &&
-        !PHILIPPINE_CONTACT_NUMBER_PATTERN.test(contactNumber)
+        settings.profile.contactNumber !== undefined &&
+        (!contactNumber || !PHILIPPINE_CONTACT_NUMBER_PATTERN.test(contactNumber))
       ) {
         return res.status(400).json({
           message: "Please enter a valid contact number.",
         });
       }
-
-      const emailAddress = normalizeEmailAddress(settings.profile.emailAddress);
-
-      if (
-        typeof emailAddress === "string" &&
-        emailAddress &&
-        !EMAIL_ADDRESS_PATTERN.test(emailAddress)
-      ) {
-        return res.status(400).json({
-          message: "Please enter a valid email address.",
-        });
-      }
-
-      if (
-        settings.profile.profilePicturePath !== undefined ||
-        settings.profile.profilePictureUrl !== undefined ||
-        settings.profile.profilePictureUrlExpiresAt !== undefined ||
-        settings.profile.profilePictureFileName !== undefined ||
-        settings.profile.profilePictureUpdatedAt !== undefined ||
-        settings.profile.profilePictureDataUrl !== undefined
-      ) {
-        return res.status(400).json({
-          message:
-            "Profile picture changes must use the dedicated profile picture endpoint.",
-        });
-      }
     }
 
     if (
-      settings.notificationChannels !== undefined &&
-      !isPlainObject(settings.notificationChannels)
+      settings.notificationRulePreferences !== undefined &&
+      !isPlainObject(settings.notificationRulePreferences)
     ) {
       return res.status(400).json({
-        message: "notificationChannels must be an object",
+        message: "notificationRulePreferences must be an object",
       });
     }
 
-    if (isPlainObject(settings.notificationChannels)) {
-      for (const [channelKey, channelValue] of Object.entries(
-        settings.notificationChannels,
+    if (isPlainObject(settings.notificationRulePreferences)) {
+      for (const [ruleCode, channelValue] of Object.entries(
+        settings.notificationRulePreferences,
       )) {
-        if (!ALLOWED_NOTIFICATION_CHANNEL_KEYS.has(channelKey)) {
+        if (!ruleCode.trim()) {
           return res.status(400).json({
-            message: `notificationChannels.${channelKey} is not supported`,
+            message: "notificationRulePreferences contains an invalid rule code",
           });
         }
 
         if (!isPlainObject(channelValue)) {
           return res.status(400).json({
-            message: `notificationChannels.${channelKey} must be an object`,
+            message: `notificationRulePreferences.${ruleCode} must be an object`,
           });
         }
 
@@ -213,7 +240,7 @@ const validateSaveCurrentSettings = (req, res, next) => {
           typeof channelValue.inApp !== "boolean"
         ) {
           return res.status(400).json({
-            message: `notificationChannels.${channelKey}.inApp must be a boolean`,
+            message: `notificationRulePreferences.${ruleCode}.inApp must be a boolean`,
           });
         }
 
@@ -222,62 +249,118 @@ const validateSaveCurrentSettings = (req, res, next) => {
           typeof channelValue.email !== "boolean"
         ) {
           return res.status(400).json({
-            message: `notificationChannels.${channelKey}.email must be a boolean`,
+            message: `notificationRulePreferences.${ruleCode}.email must be a boolean`,
           });
         }
       }
     }
 
     if (
-      settings.metadata !== undefined &&
-      !isPlainObject(settings.metadata)
+      settings.profilePicture !== undefined &&
+      !isPlainObject(settings.profilePicture)
     ) {
+      return res.status(400).json({
+        message: "profilePicture must be an object",
+      });
+    }
+
+    if (isPlainObject(settings.profilePicture)) {
+      const { action, fileName, mimeType, fileDataBase64 } =
+        settings.profilePicture;
+      const normalizedAction = String(action || "UNCHANGED").trim().toUpperCase();
+
+      if (!PROFILE_PICTURE_ACTIONS.has(normalizedAction)) {
+        return res.status(400).json({
+          message: "profilePicture.action is invalid",
+        });
+      }
+
+      if (normalizedAction === "REPLACE") {
+        const stringChecks = [
+          [fileName, "profilePicture.fileName"],
+          [mimeType, "profilePicture.mimeType"],
+          [fileDataBase64, "profilePicture.fileDataBase64"],
+        ];
+
+        for (const [value, fieldName] of stringChecks) {
+          const validationError = validateOptionalString(value, fieldName);
+
+          if (validationError) {
+            return res.status(400).json({ message: validationError });
+          }
+        }
+
+        const normalizedMimeType = String(mimeType || "").trim().toLowerCase();
+        const normalizedFileName = String(fileName || "").trim();
+        const normalizedFileDataBase64 = String(fileDataBase64 || "").trim();
+
+        if (!normalizedFileName) {
+          return res.status(400).json({
+            message: "profilePicture.fileName is required",
+          });
+        }
+
+        if (!PROFILE_PICTURE_ALLOWED_MIME_TYPES.has(normalizedMimeType)) {
+          return res.status(400).json({
+            message: "Profile picture must be a JPG, PNG, or WEBP image.",
+          });
+        }
+
+        if (!normalizedFileDataBase64) {
+          return res.status(400).json({
+            message: "profilePicture.fileDataBase64 is required",
+          });
+        }
+
+        if (!/^[A-Za-z0-9+/=]+$/.test(normalizedFileDataBase64)) {
+          return res.status(400).json({
+            message: "profilePicture.fileDataBase64 must be a valid Base64 string",
+          });
+        }
+
+        if (normalizedFileDataBase64.length > MAX_PROFILE_PICTURE_BASE64_LENGTH) {
+          return res.status(400).json({
+            message: "Profile picture is too large.",
+          });
+        }
+      }
+
+      req.validatedBody = {
+        ...(req.validatedBody || {}),
+        settings: {
+          ...settings,
+          profilePicture: {
+            action: normalizedAction,
+            ...(normalizedAction === "REPLACE"
+              ? {
+                  fileName: String(fileName || "").trim(),
+                  mimeType: String(mimeType || "").trim().toLowerCase(),
+                  fileDataBase64: String(fileDataBase64 || "").trim(),
+                }
+              : {}),
+          },
+        },
+      };
+    }
+
+    if (settings.metadata !== undefined && !isPlainObject(settings.metadata)) {
       return res.status(400).json({
         message: "metadata must be an object",
       });
     }
 
-    if (isPlainObject(settings.metadata)) {
-      const metadataFieldChecks = [
-        ["lastProfileUpdateAt", "metadata.lastProfileUpdateAt"],
-        ["lastPreferenceSaveAt", "metadata.lastPreferenceSaveAt"],
-      ];
-
-      for (const [fieldKey, fieldName] of metadataFieldChecks) {
-        const validationError = validateOptionalString(
-          settings.metadata[fieldKey],
-          fieldName,
-        );
-
-        if (validationError) {
-          return res.status(400).json({
-            message: validationError,
-          });
-        }
-      }
-    }
-
-    req.validatedBody = {
-      settings,
-    };
-
+    req.validatedBody = req.validatedBody || { settings };
     return next();
-  } catch (error) {
+  } catch (_error) {
     return res.status(500).json({
       message: "Failed to validate settings payload",
-      error: error.message,
     });
   }
 };
 
 const validateUploadCurrentProfilePicture = (req, res, next) => {
   try {
-    const {
-      fileName,
-      mimeType,
-      fileDataBase64,
-      userId: _ignoredUserId,
-    } = req.body || {};
+    const { fileName, mimeType, fileDataBase64 } = req.body || {};
 
     const stringChecks = [
       [fileName, "fileName"],
@@ -289,9 +372,7 @@ const validateUploadCurrentProfilePicture = (req, res, next) => {
       const validationError = validateOptionalString(value, fieldName);
 
       if (validationError) {
-        return res.status(400).json({
-          message: validationError,
-        });
+        return res.status(400).json({ message: validationError });
       }
     }
 
@@ -300,9 +381,7 @@ const validateUploadCurrentProfilePicture = (req, res, next) => {
     const normalizedFileDataBase64 = String(fileDataBase64 || "").trim();
 
     if (!normalizedFileName) {
-      return res.status(400).json({
-        message: "fileName is required",
-      });
+      return res.status(400).json({ message: "fileName is required" });
     }
 
     if (!PROFILE_PICTURE_ALLOWED_MIME_TYPES.has(normalizedMimeType)) {
@@ -312,9 +391,7 @@ const validateUploadCurrentProfilePicture = (req, res, next) => {
     }
 
     if (!normalizedFileDataBase64) {
-      return res.status(400).json({
-        message: "fileDataBase64 is required",
-      });
+      return res.status(400).json({ message: "fileDataBase64 is required" });
     }
 
     if (!/^[A-Za-z0-9+/=]+$/.test(normalizedFileDataBase64)) {
@@ -336,10 +413,9 @@ const validateUploadCurrentProfilePicture = (req, res, next) => {
     };
 
     return next();
-  } catch (error) {
+  } catch (_error) {
     return res.status(500).json({
       message: "Failed to validate profile picture upload payload",
-      error: error.message,
     });
   }
 };

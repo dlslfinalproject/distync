@@ -23,7 +23,7 @@ test("create flow always requires the privacy prompt", () => {
   );
 });
 
-test("edit flow skips the prompt only when the current notice was already acknowledged", () => {
+test("edit flow skips the prompt for existing households", () => {
   assert.equal(
     requiresHouseholdPrivacyPrompt({
       isEditMode: true,
@@ -43,7 +43,15 @@ test("edit flow skips the prompt only when the current notice was already acknow
         notice_version: "2026-06-01-v1",
       },
     }),
-    true,
+    false,
+  );
+
+  assert.equal(
+    requiresHouseholdPrivacyPrompt({
+      isEditMode: true,
+      privacyConsent: null,
+    }),
+    false,
   );
 });
 

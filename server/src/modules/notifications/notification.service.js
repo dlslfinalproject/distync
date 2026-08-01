@@ -1,6 +1,19 @@
 const notificationRepository = require("./notification.repository");
 const { ROLE_CODES } = require("../auth/auth.middleware");
 const emailService = require("../email/email.service");
+const { insertAuditLog } = require("../../repositories/systemLog.repository");
+const {
+  DELIVERY_MODE,
+  NOTIFICATION_POLICY_ROWS,
+  NOTIFICATION_RULE_TARGETS,
+  getPolicyRolesForRule,
+} = require("./notificationPolicy");
+const {
+  buildPreferenceCategories,
+  deriveLegacyPreferenceMap,
+  resolveEffectiveChannels,
+  sanitizeNotificationRulePreferences,
+} = require("./notificationPreferenceUtils");
 
 const LOW_STOCK_THRESHOLD = 10;
 const CRITICAL_STOCK_THRESHOLD = 5;
@@ -11,143 +24,12 @@ const MAINTENANCE_SCAN_INTERVAL_MS = Number.parseInt(
   10,
 );
 
-const DEFAULT_NOTIFICATION_RULES = [
-  {
-    code: "LOW_STOCK",
-    name: "Low Stock Alert",
-    trigger_type: "INVENTORY_STOCK_THRESHOLD",
-    target_role_code: ROLE_CODES.MAYOR,
-  },
-  {
-    code: "CRITICAL_STOCK",
-    name: "Critical Stock Alert",
-    trigger_type: "INVENTORY_STOCK_THRESHOLD",
-    target_role_code: ROLE_CODES.MAYOR,
-  },
-  {
-    code: "NEAR_EXPIRY_STOCK",
-    name: "Near Expiry Stock Alert",
-    trigger_type: "INVENTORY_EXPIRY",
-    target_role_code: ROLE_CODES.MAYOR,
-  },
-  {
-    code: "EXPIRED_STOCK",
-    name: "Expired Stock Alert",
-    trigger_type: "INVENTORY_EXPIRY",
-    target_role_code: ROLE_CODES.MAYOR,
-  },
-  {
-    code: "INVENTORY_INCIDENT",
-    name: "Inventory Incident Alert",
-    trigger_type: "INVENTORY_INCIDENT",
-    target_role_code: ROLE_CODES.MAYOR,
-  },
-  {
-    code: "DONATION_STOCK_UPDATE",
-    name: "Donation Stock Update",
-    trigger_type: "DONATION_UPDATE",
-    target_role_code: ROLE_CODES.MAYOR,
-  },
-  {
-    code: "DONATION_STOCK_ANOMALY",
-    name: "Donation Stock Anomaly",
-    trigger_type: "DONATION_ANOMALY",
-    target_role_code: ROLE_CODES.MAYOR,
-  },
-  {
-    code: "DISASTER_EVENT_CREATED",
-    name: "Newly Created Disaster Event",
-    trigger_type: "DISASTER_EVENT_CREATED",
-    target_role_code: ROLE_CODES.MSWDO,
-  },
-  {
-    code: "DISASTER_EVENT_UPDATE",
-    name: "Disaster Event Update",
-    trigger_type: "DISASTER_EVENT",
-    target_role_code: ROLE_CODES.MSWDO,
-  },
-  {
-    code: "DISTRIBUTION_UPDATE",
-    name: "Distribution Update",
-    trigger_type: "DISTRIBUTION_UPDATE",
-    target_role_code: ROLE_CODES.MSWDO,
-  },
-  {
-    code: "HOUSEHOLD_REGISTERED",
-    name: "Household Registration Update",
-    trigger_type: "HOUSEHOLD_REGISTRATION",
-    target_role_code: ROLE_CODES.BARANGAY,
-  },
-  {
-    code: "HOUSEHOLD_VERIFICATION",
-    name: "Household Verification Update",
-    trigger_type: "HOUSEHOLD_VERIFICATION",
-    target_role_code: ROLE_CODES.BARANGAY,
-  },
-  {
-    code: "EVACUEE_ATTENDANCE_UPDATE",
-    name: "Evacuee Attendance Update",
-    trigger_type: "EVACUEE_ATTENDANCE_UPDATE",
-    target_role_code: ROLE_CODES.BARANGAY,
-  },
-  {
-    code: "SYNC_CONFLICT",
-    name: "Sync Conflict Alert",
-    trigger_type: "SYNC_CONFLICT",
-    target_role_code: ROLE_CODES.BARANGAY,
-  },
-  {
-    code: "SYSTEM_ANOMALY",
-    name: "System Anomaly Alert",
-    trigger_type: "SYSTEM_ANOMALY",
-    target_role_code: ROLE_CODES.BARANGAY,
-  },
-  {
-    code: "EVACUATION_SUMMARY_REPORT",
-    name: "Evacuation Monitoring Summary",
-    trigger_type: "EVACUATION_SUMMARY",
-    target_role_code: ROLE_CODES.MAYOR,
-  },
-];
-
-const NOTIFICATION_PREFERENCE_KEYS = {
-  DISASTER_ALERTS: "disasterAlerts",
-  DISTRIBUTION_SCHEDULES: "distributionSchedules",
-  RELIEF_ARRIVAL_NOTIFICATIONS: "reliefArrivalNotifications",
-  ATTENDANCE_REMINDERS: "attendanceReminders",
-  SYSTEM_ANNOUNCEMENTS: "systemAnnouncements",
-};
-
-const RULE_NOTIFICATION_PREFERENCE_MAP = {
-  DISASTER_EVENT_CREATED: NOTIFICATION_PREFERENCE_KEYS.DISASTER_ALERTS,
-  LOW_STOCK: NOTIFICATION_PREFERENCE_KEYS.RELIEF_ARRIVAL_NOTIFICATIONS,
-  CRITICAL_STOCK: NOTIFICATION_PREFERENCE_KEYS.RELIEF_ARRIVAL_NOTIFICATIONS,
-  NEAR_EXPIRY_STOCK: NOTIFICATION_PREFERENCE_KEYS.RELIEF_ARRIVAL_NOTIFICATIONS,
-  EXPIRED_STOCK: NOTIFICATION_PREFERENCE_KEYS.RELIEF_ARRIVAL_NOTIFICATIONS,
-  INVENTORY_INCIDENT: NOTIFICATION_PREFERENCE_KEYS.RELIEF_ARRIVAL_NOTIFICATIONS,
-  DONATION_STOCK_UPDATE:
-    NOTIFICATION_PREFERENCE_KEYS.RELIEF_ARRIVAL_NOTIFICATIONS,
-  DONATION_STOCK_ANOMALY:
-    NOTIFICATION_PREFERENCE_KEYS.RELIEF_ARRIVAL_NOTIFICATIONS,
-  DISASTER_EVENT_UPDATE: NOTIFICATION_PREFERENCE_KEYS.DISASTER_ALERTS,
-  DISTRIBUTION_UPDATE: NOTIFICATION_PREFERENCE_KEYS.DISTRIBUTION_SCHEDULES,
-  HOUSEHOLD_REGISTERED: NOTIFICATION_PREFERENCE_KEYS.ATTENDANCE_REMINDERS,
-  HOUSEHOLD_VERIFICATION: NOTIFICATION_PREFERENCE_KEYS.ATTENDANCE_REMINDERS,
-  EVACUEE_ATTENDANCE_UPDATE: NOTIFICATION_PREFERENCE_KEYS.ATTENDANCE_REMINDERS,
-  SYNC_CONFLICT: NOTIFICATION_PREFERENCE_KEYS.SYSTEM_ANNOUNCEMENTS,
-  SYSTEM_ANOMALY: NOTIFICATION_PREFERENCE_KEYS.SYSTEM_ANNOUNCEMENTS,
-  EVACUATION_SUMMARY_REPORT: NOTIFICATION_PREFERENCE_KEYS.DISASTER_ALERTS,
-};
-
-const RULE_ADDITIONAL_RECIPIENT_ROLES = {
-  DISASTER_EVENT_UPDATE: [ROLE_CODES.BARANGAY, ROLE_CODES.MAYOR],
-  HOUSEHOLD_REGISTERED: [ROLE_CODES.MSWDO],
-  HOUSEHOLD_VERIFICATION: [ROLE_CODES.MSWDO],
-  EVACUEE_ATTENDANCE_UPDATE: [ROLE_CODES.MSWDO],
-  DISTRIBUTION_UPDATE: [ROLE_CODES.MAYOR],
-  SYNC_CONFLICT: [ROLE_CODES.MSWDO],
-  SYSTEM_ANOMALY: [ROLE_CODES.MSWDO, ROLE_CODES.MAYOR],
-};
+const DEFAULT_NOTIFICATION_RULES = NOTIFICATION_RULE_TARGETS.map((rule) => ({
+  code: rule.code,
+  name: rule.name,
+  trigger_type: rule.triggerType,
+  target_role_code: rule.targetRoleCode,
+}));
 
 let notificationMaintenanceInterval = null;
 
@@ -164,9 +46,8 @@ const isExpiredDate = (value) => {
     today.getMonth(),
     today.getDate(),
   );
-  const parsedDate = new Date(value);
 
-  return parsedDate < todayDateOnly;
+  return new Date(value) < todayDateOnly;
 };
 
 const isNearExpiryDate = (value, thresholdDays = NEAR_EXPIRY_DAYS) => {
@@ -174,80 +55,133 @@ const isNearExpiryDate = (value, thresholdDays = NEAR_EXPIRY_DAYS) => {
     return false;
   }
 
-  const today = new Date();
-  const startDate = new Date(
-    today.getFullYear(),
-    today.getMonth(),
-    today.getDate(),
-  );
+  const startDate = new Date();
+  startDate.setHours(0, 0, 0, 0);
   const thresholdDate = new Date(startDate);
   thresholdDate.setDate(thresholdDate.getDate() + thresholdDays);
-
   const parsedDate = new Date(value);
+
   return parsedDate >= startDate && parsedDate <= thresholdDate;
 };
 
-const sanitizeEnabledRuleCodes = (value) => {
-  if (!Array.isArray(value)) {
+const getWindowBounds = (deliveryMode, now = new Date()) => {
+  const windowStartedAt = new Date(now);
+  const windowEndsAt = new Date(now);
+
+  if (deliveryMode === DELIVERY_MODE.DAILY_SUMMARY) {
+    windowStartedAt.setHours(0, 0, 0, 0);
+    windowEndsAt.setHours(24, 0, 0, 0);
+    return {
+      windowStartedAt,
+      windowEndsAt,
+      readyAt: windowEndsAt,
+    };
+  }
+
+  windowStartedAt.setMinutes(0, 0, 0);
+  windowEndsAt.setMinutes(0, 0, 0);
+  windowEndsAt.setHours(windowEndsAt.getHours() + 1);
+
+  return {
+    windowStartedAt,
+    windowEndsAt,
+    readyAt: windowEndsAt,
+  };
+};
+
+const buildSummaryKey = ({
+  roleCode,
+  ruleCode,
+  disasterEventId = "",
+  barangayId = "",
+  windowStartedAt,
+}) =>
+  [
+    roleCode,
+    ruleCode,
+    disasterEventId || "global",
+    barangayId || "all",
+    windowStartedAt.toISOString(),
+  ].join(":");
+
+const buildStoredPreferenceMap = ({
+  policyRows,
+  preferenceRow,
+}) => {
+  const explicitPreferences = sanitizeNotificationRulePreferences(
+    preferenceRow?.notification_rule_preferences_json,
+  );
+
+  if (Object.keys(explicitPreferences).length > 0) {
+    return explicitPreferences;
+  }
+
+  return deriveLegacyPreferenceMap({
+    policyRows,
+    enabledNotificationRuleCodes:
+      preferenceRow?.enabled_notification_rule_codes_json || [],
+    notificationChannels: preferenceRow?.notification_channels_json || {},
+  });
+};
+
+const buildRecipientDeliveryPlan = async ({
+  userIds,
+  roleCode,
+  ruleCode,
+}) => {
+  const resolvedUserIds = [...new Set((userIds || []).filter(Boolean))];
+
+  if (resolvedUserIds.length === 0 || !roleCode || !ruleCode) {
     return [];
   }
 
-  return value
-    .filter((entry) => typeof entry === "string")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
+  const [policyRow, preferenceRows] = await Promise.all([
+    notificationRepository.getNotificationPolicyRow(ruleCode, roleCode),
+    notificationRepository.getUserNotificationPreferencesByRole(
+      resolvedUserIds,
+      roleCode,
+    ),
+  ]);
+
+  if (!policyRow || policyRow.policy_is_active === false || policyRow.is_active === false) {
+    return [];
+  }
+
+  const policyRowsForRole =
+    await notificationRepository.getNotificationPolicyRowsByRoleCode(roleCode);
+
+  return preferenceRows.map((row) => {
+    const storedPreferences = buildStoredPreferenceMap({
+      policyRows: policyRowsForRole,
+      preferenceRow: row,
+    });
+    const effectiveChannels = resolveEffectiveChannels({
+      policyRow,
+      storedPreferences,
+    });
+
+    return {
+      userId: row.user_id,
+      roleCode,
+      email: typeof row.email === "string" ? row.email.trim() : "",
+      inAppEnabled: effectiveChannels.inApp,
+      emailEnabled: effectiveChannels.email,
+    };
+  });
 };
 
-const isChannelEnabledForInApp = (channels, preferenceKey) => {
-  if (!preferenceKey) {
-    return true;
+const resolveNotificationRecipientRoles = (ruleCode, targetRoleCode = null) => {
+  const policyRoles = getPolicyRolesForRule(ruleCode);
+  if (policyRoles.length > 0) {
+    return policyRoles;
   }
 
-  if (typeof channels?.[preferenceKey]?.inApp === "boolean") {
-    return channels[preferenceKey].inApp;
-  }
-
-  return true;
-};
-
-const isChannelEnabledForEmail = (channels, preferenceKey) => {
-  if (!preferenceKey) {
-    return false;
-  }
-
-  if (typeof channels?.[preferenceKey]?.email === "boolean") {
-    return channels[preferenceKey].email;
-  }
-
-  return false;
-};
-
-const isRuleEnabledForUser = (enabledRuleCodes, ruleCode) => {
-  if (!ruleCode) {
-    return true;
-  }
-
-  if (!Array.isArray(enabledRuleCodes) || enabledRuleCodes.length === 0) {
-    return true;
-  }
-
-  return enabledRuleCodes.includes(ruleCode);
-};
-
-const resolveNotificationRecipientRoles = (
-  ruleCode,
-  targetRoleCode = null,
-) => {
-  const additionalRoleCodes =
-    RULE_ADDITIONAL_RECIPIENT_ROLES[ruleCode] || [];
-
-  return [...new Set([targetRoleCode, ...additionalRoleCodes].filter(Boolean))];
+  return targetRoleCode ? [targetRoleCode] : [];
 };
 
 const resolveNotificationRecipientGroups = async ({
   ruleCode,
   targetRoleCode = null,
-  preferenceKey = null,
   recipientResolversByRole = {},
   includeRoleCodes = null,
 }) => {
@@ -268,7 +202,6 @@ const resolveNotificationRecipientGroups = async ({
       return {
         roleCode,
         userIds: await resolver(),
-        preferenceKey,
       };
     }),
   );
@@ -276,101 +209,9 @@ const resolveNotificationRecipientGroups = async ({
   return recipientGroups.filter(Boolean);
 };
 
-const isRuleVisibleToRole = (rule, roleCode) => {
-  if (!rule?.code || !roleCode) {
-    return false;
-  }
-
-  return resolveNotificationRecipientRoles(
-    rule.code,
-    rule.target_role_code,
-  ).includes(roleCode);
-};
-
-const filterRecipientUserIdsByPreference = async ({
-  userIds,
-  roleCode,
-  ruleCode = null,
-  preferenceKey = null,
-}) => {
-  const resolvedUserIds = [...new Set((userIds || []).filter(Boolean))];
-
-  if (resolvedUserIds.length === 0 || !roleCode) {
-    return resolvedUserIds;
-  }
-
-  const preferenceRows =
-    await notificationRepository.getUserNotificationPreferencesByRole(
-      resolvedUserIds,
-      roleCode,
-    );
-  const preferenceMap = new Map(
-    preferenceRows.map((row) => [
-      row.user_id,
-      {
-        enabledRuleCodes: sanitizeEnabledRuleCodes(
-          row.enabled_notification_rule_codes_json,
-        ),
-        channels: row.notification_channels_json || {},
-      },
-    ]),
-  );
-
-  return resolvedUserIds.filter((userId) => {
-    const preferences = preferenceMap.get(userId);
-
-    if (!preferences) {
-      return true;
-    }
-
-    return (
-      isChannelEnabledForInApp(preferences.channels, preferenceKey) &&
-      isRuleEnabledForUser(preferences.enabledRuleCodes, ruleCode)
-    );
-  });
-};
-
-const buildRecipientDeliveryPlan = async ({
-  userIds,
-  roleCode,
-  ruleCode = null,
-  preferenceKey = null,
-}) => {
-  const resolvedUserIds = [...new Set((userIds || []).filter(Boolean))];
-
-  if (resolvedUserIds.length === 0 || !roleCode) {
-    return [];
-  }
-
-  const preferenceRows =
-    await notificationRepository.getUserNotificationPreferencesByRole(
-      resolvedUserIds,
-      roleCode,
-    );
-
-  return preferenceRows.map((row) => {
-    const enabledRuleCodes = sanitizeEnabledRuleCodes(
-      row.enabled_notification_rule_codes_json,
-    );
-    const channels = row.notification_channels_json || {};
-
-    return {
-      userId: row.user_id,
-      email: typeof row.email === "string" ? row.email.trim() : "",
-      roleCode,
-      inAppEnabled:
-        isChannelEnabledForInApp(channels, preferenceKey) &&
-        isRuleEnabledForUser(enabledRuleCodes, ruleCode),
-      emailEnabled:
-        isChannelEnabledForEmail(channels, preferenceKey) &&
-        isRuleEnabledForUser(enabledRuleCodes, ruleCode),
-    };
-  });
-};
-
-const createNotificationForRecipientGroups = async ({
-  ruleCode = null,
-  recipientGroups = [],
+const createPersistentNotification = async ({
+  ruleCode,
+  recipientGroups,
   disaster_event_id = null,
   type,
   title,
@@ -380,30 +221,16 @@ const createNotificationForRecipientGroups = async ({
   reference_id = null,
   dedupeHours = DEDUPE_LOOKBACK_HOURS,
 }) => {
-  const matchingRule = ruleCode
-    ? await notificationRepository.getNotificationRuleByCode(ruleCode)
-    : null;
-
-  if (matchingRule && matchingRule.is_active === false) {
-    return null;
-  }
-
   const deliveryPlanBuckets = await Promise.all(
-    (recipientGroups || []).map(async (group) => {
-      const resolvedRuleCode = group.ruleCode ?? ruleCode;
-      const resolvedPreferenceKey =
-        group.preferenceKey ||
-        RULE_NOTIFICATION_PREFERENCE_MAP[resolvedRuleCode] ||
-        null;
-
-      return buildRecipientDeliveryPlan({
+    (recipientGroups || []).map((group) =>
+      buildRecipientDeliveryPlan({
         userIds: group.userIds,
         roleCode: group.roleCode,
-        ruleCode: resolvedRuleCode,
-        preferenceKey: resolvedPreferenceKey,
-      });
-    }),
+        ruleCode,
+      }),
+    ),
   );
+
   const recipientPlans = Array.from(
     deliveryPlanBuckets
       .flat()
@@ -428,6 +255,7 @@ const createNotificationForRecipientGroups = async ({
       }, new Map())
       .values(),
   );
+
   const inAppRecipientIds = recipientPlans
     .filter((plan) => plan.inAppEnabled)
     .map((plan) => plan.userId);
@@ -483,7 +311,7 @@ const createNotificationForRecipientGroups = async ({
   if (emailRecipients.length > 0) {
     await Promise.allSettled(
       emailRecipients.map((recipient) =>
-      emailService.sendNotificationEmail({
+        emailService.sendNotificationEmail({
           actor: {
             userId: recipient.userId,
             roleCode: recipient.roleCode,
@@ -502,11 +330,63 @@ const createNotificationForRecipientGroups = async ({
   return createdNotification;
 };
 
-const createNotificationForUsers = async ({
+const enqueueSummaryNotification = async ({
   ruleCode,
-  userIds,
-  roleCode = null,
-  preferenceKey = null,
+  recipientGroups = [],
+  disaster_event_id = null,
+  reference_type = null,
+  reference_id = null,
+  summaryMetadata = {},
+}) => {
+  const now = new Date();
+
+  await Promise.all(
+    recipientGroups.map(async (group) => {
+      const [policyRow] = await Promise.all([
+        notificationRepository.getNotificationPolicyRow(ruleCode, group.roleCode),
+      ]);
+
+      if (!policyRow) {
+        return;
+      }
+
+      const window = getWindowBounds(policyRow.delivery_mode, now);
+      const summaryKey = buildSummaryKey({
+        roleCode: group.roleCode,
+        ruleCode,
+        disasterEventId: disaster_event_id,
+        barangayId: summaryMetadata.barangayId || "",
+        windowStartedAt: window.windowStartedAt,
+      });
+
+      await notificationRepository.insertSummaryEvent({
+        summaryKey,
+        ruleCode,
+        roleCode: group.roleCode,
+        barangayId: summaryMetadata.barangayId || null,
+        disasterEventId: disaster_event_id,
+        referenceScope: {
+          referenceType: reference_type,
+          referenceId: reference_id,
+          ...summaryMetadata,
+        },
+        payload: {
+          count: 1,
+          ...summaryMetadata,
+        },
+        windowStartedAt: window.windowStartedAt.toISOString(),
+        windowEndsAt: window.windowEndsAt.toISOString(),
+        readyAt: window.readyAt.toISOString(),
+      });
+    }),
+  );
+
+  return null;
+};
+
+const createNotificationForRecipientGroups = async ({
+  ruleCode = null,
+  recipientGroups = [],
   disaster_event_id = null,
   type,
   title,
@@ -515,16 +395,45 @@ const createNotificationForUsers = async ({
   reference_type = null,
   reference_id = null,
   dedupeHours = DEDUPE_LOOKBACK_HOURS,
+  summaryMetadata = {},
+  bypassSummaryQueue = false,
 }) => {
-  return createNotificationForRecipientGroups({
+  const matchingRule = ruleCode
+    ? await notificationRepository.getNotificationRuleByCode(ruleCode)
+    : null;
+
+  if (matchingRule && matchingRule.is_active === false) {
+    return null;
+  }
+
+  const policyModes = await Promise.all(
+    recipientGroups.map(async (group) => {
+      const policyRow = await notificationRepository.getNotificationPolicyRow(
+        ruleCode,
+        group.roleCode,
+      );
+      return policyRow?.delivery_mode || DELIVERY_MODE.IMMEDIATE;
+    }),
+  );
+
+  const hasSummaryMode = policyModes.some((mode) =>
+    [DELIVERY_MODE.HOURLY_SUMMARY, DELIVERY_MODE.DAILY_SUMMARY].includes(mode),
+  );
+
+  if (hasSummaryMode && !bypassSummaryQueue) {
+    return enqueueSummaryNotification({
+      ruleCode,
+      recipientGroups,
+      disaster_event_id,
+      reference_type,
+      reference_id,
+      summaryMetadata,
+    });
+  }
+
+  return createPersistentNotification({
     ruleCode,
-    recipientGroups: [
-      {
-        userIds,
-        roleCode,
-        preferenceKey,
-      },
-    ],
+    recipientGroups,
     disaster_event_id,
     type,
     title,
@@ -536,10 +445,10 @@ const createNotificationForUsers = async ({
   });
 };
 
-const createNotificationForRole = async ({
+const createNotificationForUsers = async ({
   ruleCode,
-  roleCode = ROLE_CODES.MAYOR,
-  preferenceKey = null,
+  userIds,
+  roleCode = null,
   disaster_event_id = null,
   type,
   title,
@@ -548,6 +457,32 @@ const createNotificationForRole = async ({
   reference_type = null,
   reference_id = null,
   dedupeHours = DEDUPE_LOOKBACK_HOURS,
+}) =>
+  createNotificationForRecipientGroups({
+    ruleCode,
+    recipientGroups: [{ userIds, roleCode }],
+    disaster_event_id,
+    type,
+    title,
+    message,
+    severity,
+    reference_type,
+    reference_id,
+    dedupeHours,
+  });
+
+const createNotificationForRole = async ({
+  ruleCode,
+  roleCode = ROLE_CODES.MAYOR,
+  disaster_event_id = null,
+  type,
+  title,
+  message,
+  severity = "INFO",
+  reference_type = null,
+  reference_id = null,
+  dedupeHours = DEDUPE_LOOKBACK_HOURS,
+  summaryMetadata = {},
 }) => {
   const matchingRule = ruleCode
     ? await notificationRepository.getNotificationRuleByCode(ruleCode)
@@ -558,20 +493,17 @@ const createNotificationForRole = async ({
   }
 
   const targetRoleCode = matchingRule?.target_role_code || roleCode;
+  const resolvedRoleCodes = resolveNotificationRecipientRoles(ruleCode, targetRoleCode);
   const recipientGroups = await resolveNotificationRecipientGroups({
     ruleCode,
-    preferenceKey,
     targetRoleCode,
+    includeRoleCodes: resolvedRoleCodes,
     recipientResolversByRole: Object.fromEntries(
-      resolveNotificationRecipientRoles(ruleCode, targetRoleCode).map(
-        (resolvedRoleCode) => [
-          resolvedRoleCode,
-          () =>
-            notificationRepository.getRecipientUserIdsByRoleCode(
-              resolvedRoleCode,
-            ),
-        ],
-      ),
+      resolvedRoleCodes.map((resolvedRoleCode) => [
+        resolvedRoleCode,
+        () =>
+          notificationRepository.getRecipientUserIdsByRoleCode(resolvedRoleCode),
+      ]),
     ),
   });
 
@@ -586,6 +518,7 @@ const createNotificationForRole = async ({
     reference_type,
     reference_id,
     dedupeHours,
+    summaryMetadata,
   });
 };
 
@@ -601,26 +534,15 @@ const createNotificationForRoles = async ({
   reference_id = null,
   dedupeHours = DEDUPE_LOOKBACK_HOURS,
 }) => {
-  const matchingRule = ruleCode
-    ? await notificationRepository.getNotificationRuleByCode(ruleCode)
-    : null;
-
-  if (matchingRule && matchingRule.is_active === false) {
-    return null;
-  }
-
   const resolvedRoleCodes = [
     ...new Set([
-      ...resolveNotificationRecipientRoles(
-        ruleCode,
-        matchingRule?.target_role_code || null,
-      ),
+      ...resolveNotificationRecipientRoles(ruleCode, null),
       ...(roleCodes || []).filter(Boolean),
     ]),
   ];
+
   const recipientGroups = await resolveNotificationRecipientGroups({
     ruleCode,
-    targetRoleCode: matchingRule?.target_role_code || null,
     includeRoleCodes: resolvedRoleCodes,
     recipientResolversByRole: Object.fromEntries(
       resolvedRoleCodes.map((roleCode) => [
@@ -652,6 +574,63 @@ const emitSafely = async (handler) => {
   }
 };
 
+const maybeNotifyThresholdState = async ({
+  stateKey,
+  ruleCode,
+  roleCode,
+  stateValue,
+  shouldNotify,
+  notificationPayload,
+}) => {
+  const existingState =
+    await notificationRepository.getNotificationDeliveryState(stateKey);
+
+  if (!shouldNotify) {
+    await notificationRepository.upsertNotificationDeliveryState({
+      stateKey,
+      ruleCode,
+      roleCode,
+      stateValue,
+      lastNotifiedAt: existingState?.last_notified_at || null,
+    });
+    return null;
+  }
+
+  if (existingState?.state_value === stateValue) {
+    return null;
+  }
+
+  const createdNotification = await createNotificationForRole(notificationPayload);
+
+  await notificationRepository.upsertNotificationDeliveryState({
+    stateKey,
+    ruleCode,
+    roleCode,
+    stateValue,
+    lastNotifiedAt: createdNotification ? new Date().toISOString() : null,
+  });
+
+  await insertAuditLog({
+    user_id: null,
+    role_code: roleCode,
+    device_id: null,
+    action: "NOTIFICATION_THRESHOLD_GENERATED",
+    entity_type: "NOTIFICATION_RULE",
+    entity_id: notificationPayload.reference_id || null,
+    old_values_json: {
+      previousState: existingState?.state_value || null,
+      ruleCode,
+    },
+    new_values_json: {
+      nextState: stateValue,
+      ruleCode,
+    },
+    ip_address: null,
+  });
+
+  return createdNotification;
+};
+
 const emitBatchAlerts = async ({
   batch,
   previousQuantityAvailable = null,
@@ -674,66 +653,89 @@ const emitBatchAlerts = async ({
       ? null
       : Number(previousQuantityAvailable);
 
-  if (batch.status === "EXPIRED" && previousStatus !== "EXPIRED") {
-    await createNotificationForRole({
-      ruleCode: "EXPIRED_STOCK",
-      disaster_event_id: disasterEventId,
-      type: "EXPIRY",
-      title: "Expired stock alert",
-      message: `${itemName} (${batchNumber}) is now expired and needs immediate review.`,
-      severity: "CRITICAL",
-      reference_type: "INVENTORY_BATCH",
-      reference_id: batch.id,
-    });
-  } else if (
-    batch.expiration_date &&
-    isNearExpiryDate(batch.expiration_date) &&
-    batch.status !== "EXPIRED"
-  ) {
-    await createNotificationForRole({
-      ruleCode: "NEAR_EXPIRY_STOCK",
-      disaster_event_id: disasterEventId,
-      type: "EXPIRY",
-      title: "Near-expiry stock alert",
-      message: `${itemName} (${batchNumber}) is nearing expiry and should be reviewed soon.`,
-      severity: "WARNING",
-      reference_type: "INVENTORY_BATCH",
-      reference_id: batch.id,
-    });
-  }
+  const stockStateKey = `INVENTORY_STOCK:${batch.id}`;
+  const expiryStateKey = `INVENTORY_EXPIRY:${batch.id}`;
+  const stockState =
+    quantityAvailable <= CRITICAL_STOCK_THRESHOLD
+      ? "CRITICAL_STOCK"
+      : quantityAvailable <= LOW_STOCK_THRESHOLD
+        ? "LOW_STOCK"
+        : "NORMAL";
+  const expiryState =
+    batch.status === "EXPIRED" || isExpiredDate(batch.expiration_date)
+      ? "EXPIRED_STOCK"
+      : batch.expiration_date && isNearExpiryDate(batch.expiration_date)
+        ? "NEAR_EXPIRY_STOCK"
+        : "NORMAL";
+
+  await maybeNotifyThresholdState({
+    stateKey: expiryStateKey,
+    ruleCode:
+      expiryState === "EXPIRED_STOCK" ? "EXPIRED_STOCK" : "NEAR_EXPIRY_STOCK",
+    roleCode: ROLE_CODES.MAYOR,
+    stateValue: expiryState,
+    shouldNotify: expiryState !== "NORMAL",
+    notificationPayload:
+      expiryState === "EXPIRED_STOCK"
+        ? {
+            ruleCode: "EXPIRED_STOCK",
+            disaster_event_id: disasterEventId,
+            type: "EXPIRY",
+            title: "Expired stock alert",
+            message: `${itemName} (${batchNumber}) is now expired and needs immediate review.`,
+            severity: "CRITICAL",
+            reference_type: "INVENTORY_BATCH",
+            reference_id: batch.id,
+          }
+        : {
+            ruleCode: "NEAR_EXPIRY_STOCK",
+            disaster_event_id: disasterEventId,
+            type: "EXPIRY",
+            title: "Near-expiry stock alert",
+            message: `${itemName} (${batchNumber}) is nearing expiry and should be reviewed soon.`,
+            severity: "WARNING",
+            reference_type: "INVENTORY_BATCH",
+            reference_id: batch.id,
+          },
+  });
+
+  await maybeNotifyThresholdState({
+    stateKey: stockStateKey,
+    ruleCode:
+      stockState === "CRITICAL_STOCK" ? "CRITICAL_STOCK" : "LOW_STOCK",
+    roleCode: ROLE_CODES.MAYOR,
+    stateValue: stockState,
+    shouldNotify: stockState !== "NORMAL",
+    notificationPayload:
+      stockState === "CRITICAL_STOCK"
+        ? {
+            ruleCode: "CRITICAL_STOCK",
+            disaster_event_id: disasterEventId,
+            type: "INVENTORY",
+            title: "Critical stock alert",
+            message: `${itemName} (${batchNumber}) is down to ${toDisplayQuantity(quantityAvailable)} available units.`,
+            severity: "CRITICAL",
+            reference_type: "INVENTORY_BATCH",
+            reference_id: batch.id,
+          }
+        : {
+            ruleCode: "LOW_STOCK",
+            disaster_event_id: disasterEventId,
+            type: "INVENTORY",
+            title: "Low stock alert",
+            message: `${itemName} (${batchNumber}) is down to ${toDisplayQuantity(quantityAvailable)} available units.`,
+            severity: "WARNING",
+            reference_type: "INVENTORY_BATCH",
+            reference_id: batch.id,
+          },
+  });
 
   if (
-    quantityAvailable <= CRITICAL_STOCK_THRESHOLD &&
-    (priorQuantity === null || priorQuantity > CRITICAL_STOCK_THRESHOLD)
+    priorQuantity !== null &&
+    previousStatus === batch.status &&
+    quantityAvailable === priorQuantity
   ) {
-    await createNotificationForRole({
-      ruleCode: "CRITICAL_STOCK",
-      disaster_event_id: disasterEventId,
-      type: "INVENTORY",
-      title: "Critical stock alert",
-      message: `${itemName} (${batchNumber}) is down to ${toDisplayQuantity(quantityAvailable)} available units.`,
-      severity: "CRITICAL",
-      reference_type: "INVENTORY_BATCH",
-      reference_id: batch.id,
-    });
     return;
-  }
-
-  if (
-    quantityAvailable <= LOW_STOCK_THRESHOLD &&
-    quantityAvailable > CRITICAL_STOCK_THRESHOLD &&
-    (priorQuantity === null || priorQuantity > LOW_STOCK_THRESHOLD)
-  ) {
-    await createNotificationForRole({
-      ruleCode: "LOW_STOCK",
-      disaster_event_id: disasterEventId,
-      type: "INVENTORY",
-      title: "Low stock alert",
-      message: `${itemName} (${batchNumber}) is down to ${toDisplayQuantity(quantityAvailable)} available units.`,
-      severity: "WARNING",
-      reference_type: "INVENTORY_BATCH",
-      reference_id: batch.id,
-    });
   }
 };
 
@@ -796,8 +798,8 @@ const emitDonationStockUpdate = async ({
   actionLabel = "updated",
   severity = "INFO",
   anomaly = false,
-}) => {
-  await createNotificationForRole({
+}) =>
+  createNotificationForRole({
     ruleCode: anomaly ? "DONATION_STOCK_ANOMALY" : "DONATION_STOCK_UPDATE",
     disaster_event_id: disasterEventId,
     type: anomaly ? "ANOMALY" : "INVENTORY",
@@ -806,16 +808,20 @@ const emitDonationStockUpdate = async ({
     severity,
     reference_type: "DONATION_ITEM",
     reference_id: referenceId,
+    summaryMetadata: {
+      donorName,
+      itemName,
+      quantity: Number(quantity || 0),
+    },
   });
-};
 
 const emitDonationSummaryUpdate = async ({
   donorName,
   itemCount,
   disasterEventId = null,
   referenceId = null,
-}) => {
-  await createNotificationForRole({
+}) =>
+  createNotificationForRole({
     ruleCode: "DONATION_STOCK_UPDATE",
     disaster_event_id: disasterEventId,
     type: "INVENTORY",
@@ -824,12 +830,13 @@ const emitDonationSummaryUpdate = async ({
     severity: "INFO",
     reference_type: "DONATION",
     reference_id: referenceId,
+    summaryMetadata: {
+      donorName,
+      itemCount: Number(itemCount || 0),
+    },
   });
-};
 
-const emitDisasterEventCreated = async ({
-  disasterEvent,
-}) => {
+const emitDisasterEventCreated = async ({ disasterEvent }) => {
   if (!disasterEvent) {
     return;
   }
@@ -837,7 +844,6 @@ const emitDisasterEventCreated = async ({
   await createNotificationForRole({
     ruleCode: "DISASTER_EVENT_CREATED",
     roleCode: ROLE_CODES.MSWDO,
-    preferenceKey: NOTIFICATION_PREFERENCE_KEYS.DISASTER_ALERTS,
     disaster_event_id: disasterEvent.id,
     type: "EVENT",
     title: "New disaster event created",
@@ -877,14 +883,10 @@ const emitDisasterEventUpdate = async ({
   const recipientGroups = await resolveNotificationRecipientGroups({
     ruleCode: "DISASTER_EVENT_UPDATE",
     targetRoleCode: ROLE_CODES.MSWDO,
-    preferenceKey: NOTIFICATION_PREFERENCE_KEYS.DISASTER_ALERTS,
-    includeRoleCodes:
-      normalizedAction === "created"
-        ? resolveNotificationRecipientRoles(
-            "DISASTER_EVENT_UPDATE",
-            ROLE_CODES.MSWDO,
-          ).filter((roleCode) => roleCode !== ROLE_CODES.MSWDO)
-        : null,
+    includeRoleCodes: resolveNotificationRecipientRoles(
+      "DISASTER_EVENT_UPDATE",
+      ROLE_CODES.MSWDO,
+    ),
     recipientResolversByRole: {
       [ROLE_CODES.MSWDO]: () =>
         notificationRepository.getRecipientUserIdsByRoleCode(ROLE_CODES.MSWDO),
@@ -913,6 +915,7 @@ const emitDisasterEventUpdate = async ({
 
 const emitDistributionUpdate = async ({
   disasterEventId = null,
+  barangayId = null,
   stubNo,
   familyHeadName,
   distributionTransactionId,
@@ -920,8 +923,16 @@ const emitDistributionUpdate = async ({
   const recipientGroups = await resolveNotificationRecipientGroups({
     ruleCode: "DISTRIBUTION_UPDATE",
     targetRoleCode: ROLE_CODES.MSWDO,
-    preferenceKey: NOTIFICATION_PREFERENCE_KEYS.DISTRIBUTION_SCHEDULES,
+    includeRoleCodes: resolveNotificationRecipientRoles(
+      "DISTRIBUTION_UPDATE",
+      ROLE_CODES.MSWDO,
+    ),
     recipientResolversByRole: {
+      [ROLE_CODES.BARANGAY]: () =>
+        notificationRepository.getRecipientUserIdsByRoleCodeAndBarangayIds(
+          ROLE_CODES.BARANGAY,
+          barangayId ? [barangayId] : [],
+        ),
       [ROLE_CODES.MSWDO]: () =>
         notificationRepository.getRecipientUserIdsByRoleCode(ROLE_CODES.MSWDO),
       [ROLE_CODES.MAYOR]: () =>
@@ -939,6 +950,10 @@ const emitDistributionUpdate = async ({
     severity: "INFO",
     reference_type: "DISTRIBUTION_TRANSACTION",
     reference_id: distributionTransactionId,
+    summaryMetadata: {
+      barangayId,
+      stubNo,
+    },
   });
 };
 
@@ -952,7 +967,10 @@ const emitHouseholdRegistrationUpdate = async ({
   const recipientGroups = await resolveNotificationRecipientGroups({
     ruleCode: "HOUSEHOLD_REGISTERED",
     targetRoleCode: ROLE_CODES.BARANGAY,
-    preferenceKey: NOTIFICATION_PREFERENCE_KEYS.ATTENDANCE_REMINDERS,
+    includeRoleCodes: resolveNotificationRecipientRoles(
+      "HOUSEHOLD_REGISTERED",
+      ROLE_CODES.BARANGAY,
+    ),
     recipientResolversByRole: {
       [ROLE_CODES.BARANGAY]: () =>
         notificationRepository.getRecipientUserIdsByRoleCodeAndBarangayIds(
@@ -963,10 +981,6 @@ const emitHouseholdRegistrationUpdate = async ({
         notificationRepository.getRecipientUserIdsByRoleCode(ROLE_CODES.MSWDO),
     },
   });
-
-  if (recipientGroups.every((group) => group.userIds.length === 0)) {
-    return null;
-  }
 
   const normalizedAction = String(action || "registered").toLowerCase();
   const actionLabel =
@@ -981,27 +995,30 @@ const emitHouseholdRegistrationUpdate = async ({
     severity: "INFO",
     reference_type: "HOUSEHOLD",
     reference_id: householdId,
+    summaryMetadata: {
+      barangayId,
+      action: actionLabel,
+    },
   });
 
   if (requiresVerification) {
-    const verificationRecipientGroups = await resolveNotificationRecipientGroups(
-      {
-        ruleCode: "HOUSEHOLD_VERIFICATION",
-        targetRoleCode: ROLE_CODES.BARANGAY,
-        preferenceKey: NOTIFICATION_PREFERENCE_KEYS.ATTENDANCE_REMINDERS,
-        recipientResolversByRole: {
-          [ROLE_CODES.BARANGAY]: () =>
-            notificationRepository.getRecipientUserIdsByRoleCodeAndBarangayIds(
-              ROLE_CODES.BARANGAY,
-              barangayId ? [barangayId] : [],
-            ),
-          [ROLE_CODES.MSWDO]: () =>
-            notificationRepository.getRecipientUserIdsByRoleCode(
-              ROLE_CODES.MSWDO,
-            ),
-        },
+    const verificationRecipientGroups = await resolveNotificationRecipientGroups({
+      ruleCode: "HOUSEHOLD_VERIFICATION",
+      targetRoleCode: ROLE_CODES.BARANGAY,
+      includeRoleCodes: resolveNotificationRecipientRoles(
+        "HOUSEHOLD_VERIFICATION",
+        ROLE_CODES.BARANGAY,
+      ),
+      recipientResolversByRole: {
+        [ROLE_CODES.BARANGAY]: () =>
+          notificationRepository.getRecipientUserIdsByRoleCodeAndBarangayIds(
+            ROLE_CODES.BARANGAY,
+            barangayId ? [barangayId] : [],
+          ),
+        [ROLE_CODES.MSWDO]: () =>
+          notificationRepository.getRecipientUserIdsByRoleCode(ROLE_CODES.MSWDO),
       },
-    );
+    });
 
     await createNotificationForRecipientGroups({
       ruleCode: "HOUSEHOLD_VERIFICATION",
@@ -1027,7 +1044,10 @@ const emitEvacueeAttendanceUpdate = async ({
   const recipientGroups = await resolveNotificationRecipientGroups({
     ruleCode: "EVACUEE_ATTENDANCE_UPDATE",
     targetRoleCode: ROLE_CODES.BARANGAY,
-    preferenceKey: NOTIFICATION_PREFERENCE_KEYS.ATTENDANCE_REMINDERS,
+    includeRoleCodes: resolveNotificationRecipientRoles(
+      "EVACUEE_ATTENDANCE_UPDATE",
+      ROLE_CODES.BARANGAY,
+    ),
     recipientResolversByRole: {
       [ROLE_CODES.BARANGAY]: () =>
         notificationRepository.getRecipientUserIdsByRoleCodeAndBarangayIds(
@@ -1038,10 +1058,6 @@ const emitEvacueeAttendanceUpdate = async ({
         notificationRepository.getRecipientUserIdsByRoleCode(ROLE_CODES.MSWDO),
     },
   });
-
-  if (recipientGroups.every((group) => group.userIds.length === 0)) {
-    return null;
-  }
 
   const normalizedAction = String(action || "updated").toLowerCase();
   let actionLabel = "updated";
@@ -1063,6 +1079,10 @@ const emitEvacueeAttendanceUpdate = async ({
     severity: "INFO",
     reference_type: "HOUSEHOLD",
     reference_id: householdId,
+    summaryMetadata: {
+      barangayId,
+      action: normalizedAction,
+    },
   });
 };
 
@@ -1074,22 +1094,19 @@ const emitSyncTransactionFailureAlert = async (syncTransaction) => {
   const recipientGroups = await resolveNotificationRecipientGroups({
     ruleCode: "SYSTEM_ANOMALY",
     targetRoleCode: ROLE_CODES.BARANGAY,
-    preferenceKey: NOTIFICATION_PREFERENCE_KEYS.SYSTEM_ANNOUNCEMENTS,
+    includeRoleCodes: resolveNotificationRecipientRoles(
+      "SYSTEM_ANOMALY",
+      ROLE_CODES.BARANGAY,
+    ),
     recipientResolversByRole: {
       [ROLE_CODES.BARANGAY]: () =>
-        notificationRepository.getRecipientUserIdsByRoleCode(
-          ROLE_CODES.BARANGAY,
-        ),
+        notificationRepository.getRecipientUserIdsByRoleCode(ROLE_CODES.BARANGAY),
       [ROLE_CODES.MSWDO]: () =>
         notificationRepository.getRecipientUserIdsByRoleCode(ROLE_CODES.MSWDO),
       [ROLE_CODES.MAYOR]: () =>
         notificationRepository.getRecipientUserIdsByRoleCode(ROLE_CODES.MAYOR),
     },
   });
-
-  if (recipientGroups.every((group) => group.userIds.length === 0)) {
-    return null;
-  }
 
   return createNotificationForRecipientGroups({
     ruleCode: "SYSTEM_ANOMALY",
@@ -1112,10 +1129,9 @@ const emitSyncConflictAlert = async (syncConflict) => {
     syncConflict.user_id,
   );
   const recipientRoleCode = roleCodes.find((roleCode) =>
-    resolveNotificationRecipientRoles(
-      "SYNC_CONFLICT",
-      ROLE_CODES.BARANGAY,
-    ).includes(roleCode),
+    resolveNotificationRecipientRoles("SYNC_CONFLICT", ROLE_CODES.BARANGAY).includes(
+      roleCode,
+    ),
   );
 
   if (!recipientRoleCode) {
@@ -1126,7 +1142,6 @@ const emitSyncConflictAlert = async (syncConflict) => {
     ruleCode: "SYNC_CONFLICT",
     userIds: [syncConflict.user_id],
     roleCode: recipientRoleCode,
-    preferenceKey: NOTIFICATION_PREFERENCE_KEYS.SYSTEM_ANNOUNCEMENTS,
     type: "SYNC",
     title: "Sync conflict detected",
     message: `${syncConflict.conflict_type} conflict is still unresolved for ${syncConflict.entity_type}.`,
@@ -1137,8 +1152,131 @@ const emitSyncConflictAlert = async (syncConflict) => {
 };
 
 const seedNotificationRules = async () => {
-  for (const rule of DEFAULT_NOTIFICATION_RULES) {
-    await notificationRepository.upsertNotificationRule(rule);
+  for (const rule of NOTIFICATION_RULE_TARGETS) {
+    await notificationRepository.upsertNotificationRule({
+      code: rule.code,
+      name: rule.name,
+      trigger_type: rule.triggerType,
+      target_role_code: rule.targetRoleCode,
+    });
+  }
+
+  for (const policyRow of NOTIFICATION_POLICY_ROWS) {
+    await notificationRepository.upsertNotificationRuleRolePolicy(policyRow);
+  }
+};
+
+const buildSummaryNotificationContent = (summaryGroup) => {
+  const count = summaryGroup.events.length;
+  const roleLabel = summaryGroup.roleCode;
+
+  switch (summaryGroup.ruleCode) {
+    case "HOUSEHOLD_REGISTERED":
+      return {
+        title: "Household registration summary",
+        message: `${count} household registration updates were recorded for ${roleLabel} during the last hour.`,
+      };
+    case "EVACUEE_ATTENDANCE_UPDATE":
+      return {
+        title: "Evacuee attendance summary",
+        message: `${count} evacuee attendance updates were recorded for ${roleLabel} during the last hour.`,
+      };
+    case "DISTRIBUTION_UPDATE":
+      return {
+        title: "Distribution activity summary",
+        message: `${count} relief distribution transactions were recorded for ${roleLabel} during the last hour.`,
+      };
+    case "DONATION_STOCK_UPDATE":
+      return {
+        title: "Donation stock summary",
+        message: `${count} donation stock updates were recorded for ${roleLabel} during the last day.`,
+      };
+    case "EVACUATION_SUMMARY_REPORT":
+      return {
+        title: "Evacuation monitoring summary",
+        message: `${count} evacuation monitoring updates were prepared for ${roleLabel} during the last day.`,
+      };
+    default:
+      return {
+        title: `${summaryGroup.ruleCode} summary`,
+        message: `${count} ${summaryGroup.ruleCode} events were grouped into this summary.`,
+      };
+  }
+};
+
+const flushSummaryNotifications = async () => {
+  const dueEvents = await notificationRepository.getDueSummaryEvents();
+
+  if (dueEvents.length === 0) {
+    return;
+  }
+
+  const groups = dueEvents.reduce((current, eventRow) => {
+    if (!current.has(eventRow.summary_key)) {
+      current.set(eventRow.summary_key, {
+        summaryKey: eventRow.summary_key,
+        ruleCode: eventRow.rule_code,
+        roleCode: eventRow.role_code,
+        disasterEventId: eventRow.disaster_event_id,
+        barangayId: eventRow.barangay_id,
+        events: [],
+      });
+    }
+
+    current.get(eventRow.summary_key).events.push(eventRow);
+    return current;
+  }, new Map());
+
+  for (const group of groups.values()) {
+    const content = buildSummaryNotificationContent(group);
+    const recipientGroups = await resolveNotificationRecipientGroups({
+      ruleCode: group.ruleCode,
+      includeRoleCodes: [group.roleCode],
+      recipientResolversByRole: {
+        [ROLE_CODES.BARANGAY]: () =>
+          notificationRepository.getRecipientUserIdsByRoleCodeAndBarangayIds(
+            ROLE_CODES.BARANGAY,
+            group.barangayId ? [group.barangayId] : [],
+          ),
+        [ROLE_CODES.MSWDO]: () =>
+          notificationRepository.getRecipientUserIdsByRoleCode(ROLE_CODES.MSWDO),
+        [ROLE_CODES.MAYOR]: () =>
+          notificationRepository.getRecipientUserIdsByRoleCode(ROLE_CODES.MAYOR),
+      },
+    });
+
+    await createNotificationForRecipientGroups({
+      ruleCode: group.ruleCode,
+      recipientGroups,
+      disaster_event_id: group.disasterEventId,
+      type: "SUMMARY",
+      title: content.title,
+      message: content.message,
+      severity: "INFO",
+      reference_type: "NOTIFICATION_SUMMARY",
+      reference_id: null,
+      bypassSummaryQueue: true,
+    });
+
+    await notificationRepository.markSummaryEventsProcessed(
+      group.events.map((eventRow) => eventRow.id),
+    );
+
+    await insertAuditLog({
+      user_id: null,
+      role_code: group.roleCode,
+      device_id: null,
+      action: "NOTIFICATION_SUMMARY_GENERATED",
+      entity_type: "NOTIFICATION_RULE",
+      entity_id: null,
+      old_values_json: {},
+      new_values_json: {
+        ruleCode: group.ruleCode,
+        eventCount: group.events.length,
+        summaryKey: group.summaryKey,
+      },
+      ip_address: null,
+    });
   }
 };
 
@@ -1162,8 +1300,6 @@ const scanExpiryNotifications = async () => {
 };
 
 const scanSyncNotifications = async () => {
-  // Full sync management UI is a future enhancement.
-  // For now, unresolved sync issues surface through notifications only.
   const [failedSyncTransactions, openSyncConflicts] = await Promise.all([
     notificationRepository.getFailedSyncTransactionsForNotificationScan(),
     notificationRepository.getOpenSyncConflictsForNotificationScan(),
@@ -1182,6 +1318,7 @@ const runNotificationMaintenanceScans = async () => {
   await seedNotificationRules();
   await scanExpiryNotifications();
   await scanSyncNotifications();
+  await flushSummaryNotifications();
 };
 
 const startNotificationMaintenance = () => {
@@ -1199,28 +1336,53 @@ const initializeNotificationInfrastructure = async () => {
   startNotificationMaintenance();
 };
 
-const getNotificationsForUser = async (userId, filters) => {
-  return notificationRepository.getNotificationsForUser(userId, filters);
-};
+const getNotificationsForUser = async (userId, filters) =>
+  notificationRepository.getNotificationsForUser(userId, filters);
 
-const getUnreadCountForUser = async (userId) => {
-  return notificationRepository.countUnreadNotificationsForUser(userId);
-};
+const getUnreadCountForUser = async (userId) =>
+  notificationRepository.countUnreadNotificationsForUser(userId);
 
-const getNotificationRulesForRole = async (roleCode, dbClient = undefined) => {
-  const rules = await notificationRepository.getAllNotificationRules(dbClient);
+const getNotificationRulesForRole = async (roleCode) => {
+  const policyRows =
+    await notificationRepository.getNotificationPolicyRowsByRoleCode(roleCode);
 
-  return rules
-    .filter((row) => isRuleVisibleToRole(row, roleCode))
-    .map((row) => ({
+  return policyRows.map((row) => ({
     id: row.id,
     code: row.code,
     name: row.name,
     trigger_type: row.trigger_type,
     target_role_code: row.target_role_code,
-    is_active: row.is_active !== false,
+    is_active: row.is_active !== false && row.policy_is_active !== false,
+    categoryCode: row.category_code,
+    categoryLabel: row.category_label,
+    priority: row.priority,
+    inAppPolicy: row.in_app_policy,
+    emailPolicy: row.email_policy,
+    deliveryMode: row.delivery_mode,
+    userConfigurability: row.user_configurability,
     created_at: row.created_at,
   }));
+};
+
+const getNotificationCategoriesForRole = async ({
+  roleCode,
+  preferenceRow = null,
+}) => {
+  const policyRows =
+    await notificationRepository.getNotificationPolicyRowsByRoleCode(roleCode);
+  const storedPreferences = buildStoredPreferenceMap({
+    policyRows,
+    preferenceRow,
+  });
+
+  return {
+    categories: buildPreferenceCategories({
+      roleCode,
+      policyRows,
+      storedPreferences,
+    }),
+    storedPreferences,
+  };
 };
 
 const markNotificationAsRead = async (notificationId, userId) => {
@@ -1239,9 +1401,8 @@ const markNotificationAsRead = async (notificationId, userId) => {
 };
 
 const markAllNotificationsAsRead = async (userId) => {
-  const updatedRecipients = await notificationRepository.markAllNotificationsAsRead(
-    userId,
-  );
+  const updatedRecipients =
+    await notificationRepository.markAllNotificationsAsRead(userId);
 
   return {
     updated_count: updatedRecipients.length,
@@ -1269,10 +1430,12 @@ module.exports = {
   seedNotificationRules,
   scanExpiryNotifications,
   scanSyncNotifications,
+  flushSummaryNotifications,
   initializeNotificationInfrastructure,
   getNotificationsForUser,
   getUnreadCountForUser,
   getNotificationRulesForRole,
+  getNotificationCategoriesForRole,
   markNotificationAsRead,
   markAllNotificationsAsRead,
 };
