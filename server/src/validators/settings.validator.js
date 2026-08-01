@@ -15,6 +15,7 @@ const PROFILE_ALLOWED_FIELDS = new Set([
   "lastName",
   "contactNumber",
 ]);
+const PROFILE_PICTURE_ACTIONS = new Set(["UNCHANGED", "REPLACE", "REMOVE"]);
 const PROFILE_PROTECTED_FIELDS = new Set([
   "fullName",
   "email",
@@ -254,13 +255,101 @@ const validateSaveCurrentSettings = (req, res, next) => {
       }
     }
 
+    if (
+      settings.profilePicture !== undefined &&
+      !isPlainObject(settings.profilePicture)
+    ) {
+      return res.status(400).json({
+        message: "profilePicture must be an object",
+      });
+    }
+
+    if (isPlainObject(settings.profilePicture)) {
+      const { action, fileName, mimeType, fileDataBase64 } =
+        settings.profilePicture;
+      const normalizedAction = String(action || "UNCHANGED").trim().toUpperCase();
+
+      if (!PROFILE_PICTURE_ACTIONS.has(normalizedAction)) {
+        return res.status(400).json({
+          message: "profilePicture.action is invalid",
+        });
+      }
+
+      if (normalizedAction === "REPLACE") {
+        const stringChecks = [
+          [fileName, "profilePicture.fileName"],
+          [mimeType, "profilePicture.mimeType"],
+          [fileDataBase64, "profilePicture.fileDataBase64"],
+        ];
+
+        for (const [value, fieldName] of stringChecks) {
+          const validationError = validateOptionalString(value, fieldName);
+
+          if (validationError) {
+            return res.status(400).json({ message: validationError });
+          }
+        }
+
+        const normalizedMimeType = String(mimeType || "").trim().toLowerCase();
+        const normalizedFileName = String(fileName || "").trim();
+        const normalizedFileDataBase64 = String(fileDataBase64 || "").trim();
+
+        if (!normalizedFileName) {
+          return res.status(400).json({
+            message: "profilePicture.fileName is required",
+          });
+        }
+
+        if (!PROFILE_PICTURE_ALLOWED_MIME_TYPES.has(normalizedMimeType)) {
+          return res.status(400).json({
+            message: "Profile picture must be a JPG, PNG, or WEBP image.",
+          });
+        }
+
+        if (!normalizedFileDataBase64) {
+          return res.status(400).json({
+            message: "profilePicture.fileDataBase64 is required",
+          });
+        }
+
+        if (!/^[A-Za-z0-9+/=]+$/.test(normalizedFileDataBase64)) {
+          return res.status(400).json({
+            message: "profilePicture.fileDataBase64 must be a valid Base64 string",
+          });
+        }
+
+        if (normalizedFileDataBase64.length > MAX_PROFILE_PICTURE_BASE64_LENGTH) {
+          return res.status(400).json({
+            message: "Profile picture is too large.",
+          });
+        }
+      }
+
+      req.validatedBody = {
+        ...(req.validatedBody || {}),
+        settings: {
+          ...settings,
+          profilePicture: {
+            action: normalizedAction,
+            ...(normalizedAction === "REPLACE"
+              ? {
+                  fileName: String(fileName || "").trim(),
+                  mimeType: String(mimeType || "").trim().toLowerCase(),
+                  fileDataBase64: String(fileDataBase64 || "").trim(),
+                }
+              : {}),
+          },
+        },
+      };
+    }
+
     if (settings.metadata !== undefined && !isPlainObject(settings.metadata)) {
       return res.status(400).json({
         message: "metadata must be an object",
       });
     }
 
-    req.validatedBody = { settings };
+    req.validatedBody = req.validatedBody || { settings };
     return next();
   } catch (_error) {
     return res.status(500).json({

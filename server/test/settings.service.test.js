@@ -380,3 +380,203 @@ test("uploadCurrentProfilePicture removes the new object when the database write
     },
   );
 });
+
+test("saveCurrentSettings persists a pending profile picture replacement and removes the previous object after commit", async () => {
+  const dbClient = buildDbClient();
+  const persistedPayloads = [];
+  const auditSnapshots = [];
+  const removedPaths = [];
+  const user = {
+    id: "user-5",
+    email: "mayor@example.com",
+    first_name: "Ina",
+    middle_name: null,
+    last_name: "Torres",
+    contact_number: "+639181234567",
+    default_barangay_id: null,
+    is_active: true,
+  };
+
+  await withStubbedSettingsService(
+    {
+      [poolPath]: {
+        connect: async () => dbClient,
+      },
+      [settingsRepositoryPath]: {
+        getUserById: async () => user,
+        getBarangayById: async () => null,
+        getUserRoleSettings: async () => ({
+          user_id: user.id,
+          role_code: "MAYOR",
+          profile_picture_path: "user-5/original-picture.jpg",
+          profile_picture_file_name: "original-picture.jpg",
+          profile_picture_updated_at: "2026-07-31T09:00:00.000Z",
+          enabled_notification_rule_codes_json: [],
+          notification_channels_json: {},
+          notification_rule_preferences_json: {},
+          last_profile_update_at: null,
+          last_preference_save_at: null,
+        }),
+        updateUserProfile: async () => user,
+        upsertUserRoleSettings: async (payload) => {
+          persistedPayloads.push(payload);
+          return payload;
+        },
+        insertRoleSettingsSnapshot: async (payload) => {
+          auditSnapshots.push(payload);
+          return payload;
+        },
+      },
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [],
+      },
+      [notificationServicePath]: {
+        getNotificationRulesForRole: async () => [],
+      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub({
+        createSignedProfilePictureUrl: async (path) => ({
+          profilePictureUrl: `https://example.supabase.co/storage/v1/object/sign/distync-profile-pictures/${path}?token=next`,
+          profilePictureUrlExpiresAt: "2026-08-01T11:00:00.000Z",
+        }),
+        uploadProfilePicture: async () => ({
+          profilePicturePath: "user-5/new-picture.webp",
+          profilePictureFileName: "new-picture.webp",
+        }),
+        removeProfilePicture: async (path) => {
+          removedPaths.push(path);
+          return true;
+        },
+      }),
+    },
+    async ({ saveCurrentSettings }) => {
+      const result = await saveCurrentSettings({
+        userId: user.id,
+        roleCode: "MAYOR",
+        settings: {
+          profile: {
+            firstName: user.first_name,
+            middleName: user.middle_name,
+            lastName: user.last_name,
+            contactNumber: user.contact_number,
+          },
+          profilePicture: {
+            action: "REPLACE",
+            fileName: "new-picture.webp",
+            mimeType: "image/webp",
+            fileDataBase64: "ZmFrZQ==",
+          },
+          metadata: {},
+        },
+        ipAddress: "127.0.0.1",
+      });
+
+      assert.equal(persistedPayloads.length, 1);
+      assert.equal(persistedPayloads[0].profilePicturePath, "user-5/new-picture.webp");
+      assert.equal(
+        persistedPayloads[0].profilePictureFileName,
+        "new-picture.webp",
+      );
+      assert.equal(result.settings.profile.profilePicturePath, "user-5/new-picture.webp");
+      assert.match(result.settings.profile.profilePictureUrl, /object\/sign/);
+      assert.deepEqual(removedPaths, ["user-5/original-picture.jpg"]);
+      assert.ok(
+        auditSnapshots.some(
+          (snapshot) => snapshot.action === "PROFILE_PICTURE_REPLACED",
+        ),
+      );
+    },
+  );
+});
+
+test("saveCurrentSettings persists a pending profile picture removal and deletes the old object after commit", async () => {
+  const dbClient = buildDbClient();
+  const persistedPayloads = [];
+  const auditSnapshots = [];
+  const removedPaths = [];
+  const user = {
+    id: "user-6",
+    email: "barangay@example.com",
+    first_name: "Mia",
+    middle_name: null,
+    last_name: "Santos",
+    contact_number: "+639171112233",
+    default_barangay_id: null,
+    is_active: true,
+  };
+
+  await withStubbedSettingsService(
+    {
+      [poolPath]: {
+        connect: async () => dbClient,
+      },
+      [settingsRepositoryPath]: {
+        getUserById: async () => user,
+        getBarangayById: async () => null,
+        getUserRoleSettings: async () => ({
+          user_id: user.id,
+          role_code: "BARANGAY",
+          profile_picture_path: "user-6/current-picture.png",
+          profile_picture_file_name: "current-picture.png",
+          profile_picture_updated_at: "2026-07-31T09:30:00.000Z",
+          enabled_notification_rule_codes_json: [],
+          notification_channels_json: {},
+          notification_rule_preferences_json: {},
+          last_profile_update_at: null,
+          last_preference_save_at: null,
+        }),
+        updateUserProfile: async () => user,
+        upsertUserRoleSettings: async (payload) => {
+          persistedPayloads.push(payload);
+          return payload;
+        },
+        insertRoleSettingsSnapshot: async (payload) => {
+          auditSnapshots.push(payload);
+          return payload;
+        },
+      },
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [],
+      },
+      [notificationServicePath]: {
+        getNotificationRulesForRole: async () => [],
+      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub({
+        removeProfilePicture: async (path) => {
+          removedPaths.push(path);
+          return true;
+        },
+      }),
+    },
+    async ({ saveCurrentSettings }) => {
+      const result = await saveCurrentSettings({
+        userId: user.id,
+        roleCode: "BARANGAY",
+        settings: {
+          profile: {
+            firstName: user.first_name,
+            middleName: user.middle_name,
+            lastName: user.last_name,
+            contactNumber: user.contact_number,
+          },
+          profilePicture: {
+            action: "REMOVE",
+          },
+          metadata: {},
+        },
+        ipAddress: "127.0.0.1",
+      });
+
+      assert.equal(persistedPayloads.length, 1);
+      assert.equal(persistedPayloads[0].profilePicturePath, "");
+      assert.equal(persistedPayloads[0].profilePictureFileName, "");
+      assert.equal(result.settings.profile.profilePicturePath, "");
+      assert.equal(result.settings.profile.profilePictureUrl, "");
+      assert.deepEqual(removedPaths, ["user-6/current-picture.png"]);
+      assert.ok(
+        auditSnapshots.some(
+          (snapshot) => snapshot.action === "PROFILE_PICTURE_REMOVED",
+        ),
+      );
+    },
+  );
+});

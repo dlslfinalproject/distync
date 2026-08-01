@@ -11,9 +11,7 @@ import { fetchUnreadNotificationCount } from "../../features/notifications/notif
 import {
   loadRoleSettingsState,
   refreshCurrentProfilePicture,
-  removeCurrentProfilePicture,
   saveRoleSettings,
-  uploadCurrentProfilePicture,
 } from "../../features/settings/settingsService";
 import { fetchSyncHistory } from "../../features/sync/syncHistoryService";
 import { LOCAL_SYNC_STATUS } from "../../offline/db";
@@ -66,6 +64,14 @@ import {
 import BarangaySettingsView from "./views/BarangaySettingsView";
 import MayorSettingsView from "./views/MayorSettingsView";
 import MswdoSettingsView from "./views/MswdoSettingsView";
+import {
+  buildPictureDraftForRemoval,
+  buildPictureDraftForSelection,
+  createProfilePictureDraftState,
+  getProfilePictureUiState,
+  hasProfilePictureDraftChanges,
+  PROFILE_PICTURE_ACTIONS,
+} from "./profilePictureDraft";
 
 const gridStyles = {
   display: "grid",
@@ -362,13 +368,17 @@ const RoleSettingsPage = () => {
     lastName: false,
     contactNumber: false,
   });
-  const [profilePicturePreviewUrl, setProfilePicturePreviewUrl] = useState("");
-  const [isUploadingProfilePicture, setIsUploadingProfilePicture] = useState(false);
-  const [isRemovingProfilePicture, setIsRemovingProfilePicture] = useState(false);
+  const [profilePictureDraft, setProfilePictureDraft] = useState(
+    createProfilePictureDraftState(),
+  );
+  const [isRemoveProfilePictureModalOpen, setIsRemoveProfilePictureModalOpen] =
+    useState(false);
   const profilePictureInputRef = useRef(null);
   const resetPreferencesButtonRef = useRef(null);
   const resetCancelButtonRef = useRef(null);
   const unsavedKeepEditingButtonRef = useRef(null);
+  const removeProfilePictureButtonRef = useRef(null);
+  const removeProfilePictureCancelButtonRef = useRef(null);
   const settingsOwnerKeyRef = useRef("");
   const profilePicturePreviewUrlRef = useRef("");
   const isRefreshingProfilePictureRef = useRef(false);
@@ -390,6 +400,13 @@ const RoleSettingsPage = () => {
     if (profilePicturePreviewUrlRef.current) {
       URL.revokeObjectURL(profilePicturePreviewUrlRef.current);
       profilePicturePreviewUrlRef.current = "";
+    }
+  };
+  const resetProfilePictureDraft = () => {
+    revokeProfilePicturePreviewUrl();
+    setProfilePictureDraft(createProfilePictureDraftState());
+    if (profilePictureInputRef.current) {
+      profilePictureInputRef.current.value = "";
     }
   };
   const applyAuthenticatedUserProfileFallbacks = (profilePreferences) => {
@@ -476,8 +493,9 @@ const RoleSettingsPage = () => {
   const hasProfileChanges = useMemo(
     () =>
       JSON.stringify(normalizedCurrentProfile) !==
-      JSON.stringify(normalizedSavedProfile),
-    [normalizedCurrentProfile, normalizedSavedProfile],
+        JSON.stringify(normalizedSavedProfile) ||
+      hasProfilePictureDraftChanges(profilePictureDraft),
+    [normalizedCurrentProfile, normalizedSavedProfile, profilePictureDraft],
   );
   const hasNotificationChanges = useMemo(
     () =>
@@ -485,6 +503,14 @@ const RoleSettingsPage = () => {
     [preferences, savedProfilePreferences],
   );
   const hasUnsavedChanges = hasProfileChanges || hasNotificationChanges;
+  const profilePicturePresentation = useMemo(
+    () =>
+      getProfilePictureUiState({
+        draft: profilePictureDraft,
+        savedProfile: preferences.profile,
+      }),
+    [preferences.profile, profilePictureDraft],
+  );
   const retryRoleSettingsLoad = () => {
     setNotificationLoadError("");
     setNotificationLoadSource("loading");
@@ -516,11 +542,7 @@ const RoleSettingsPage = () => {
 
   useEffect(() => {
     if (!settingsOwnerKey) {
-      revokeProfilePicturePreviewUrl();
-      setProfilePicturePreviewUrl("");
-      if (profilePictureInputRef.current) {
-        profilePictureInputRef.current.value = "";
-      }
+      resetProfilePictureDraft();
       settingsOwnerKeyRef.current = "";
       setPreferences(createDefaultRolePreferences());
       setSavedProfilePreferences(createDefaultRolePreferences());
@@ -541,6 +563,7 @@ const RoleSettingsPage = () => {
       setNotificationLoadSource("idle");
       setIsResetModalOpen(false);
       setIsUnsavedModalOpen(false);
+      setIsRemoveProfilePictureModalOpen(false);
       setAssignedBarangayName("--");
       setUnreadCount(0);
       setErrorMessage("");
@@ -551,11 +574,7 @@ const RoleSettingsPage = () => {
     const resetPreferences = applyAuthenticatedUserProfileFallbacks(
       createDefaultRolePreferences(),
     );
-    revokeProfilePicturePreviewUrl();
-    setProfilePicturePreviewUrl("");
-    if (profilePictureInputRef.current) {
-      profilePictureInputRef.current.value = "";
-    }
+    resetProfilePictureDraft();
     settingsOwnerKeyRef.current = settingsOwnerKey;
     setPreferences(resetPreferences);
     setSavedProfilePreferences(resetPreferences);
@@ -575,6 +594,7 @@ const RoleSettingsPage = () => {
     setNotificationLoadSource("loading");
     setIsResetModalOpen(false);
     setIsUnsavedModalOpen(false);
+    setIsRemoveProfilePictureModalOpen(false);
     setErrorMessage("");
     setIsLoading(true);
   }, [settingsOwnerKey]);
@@ -978,6 +998,29 @@ const RoleSettingsPage = () => {
             },
           };
 
+      if (isProfileSection) {
+        if (
+          profilePictureDraft.pictureAction === PROFILE_PICTURE_ACTIONS.REPLACE &&
+          profilePictureDraft.selectedPictureFile
+        ) {
+          updatedSettings.profilePicture = {
+            action: PROFILE_PICTURE_ACTIONS.REPLACE,
+            fileName:
+              profilePictureDraft.selectedPictureFile.name || "profile-picture",
+            mimeType: profilePictureDraft.selectedPictureFile.type,
+            fileDataBase64: await fileToBase64(
+              profilePictureDraft.selectedPictureFile,
+            ),
+          };
+        }
+
+        if (profilePictureDraft.pictureAction === PROFILE_PICTURE_ACTIONS.REMOVE) {
+          updatedSettings.profilePicture = {
+            action: PROFILE_PICTURE_ACTIONS.REMOVE,
+          };
+        }
+      }
+
       const saveResult = await saveRoleSettings({
         roleCode: currentRole,
         userId: authenticatedUser.id,
@@ -992,14 +1035,20 @@ const RoleSettingsPage = () => {
       const resolvedPreferences = applyAuthenticatedUserProfileFallbacks(
         saveResult?.data || updatedSettings,
       );
+      resetProfilePictureDraft();
       setPreferences(resolvedPreferences);
       setSavedProfilePreferences(resolvedPreferences);
+      setIsRemoveProfilePictureModalOpen(false);
       setNotificationTouched(false);
       setToast({
         type: "success",
         title: isProfileSection ? "Profile Saved" : "Notification Preferences Saved",
         message: isProfileSection
-          ? "Profile information saved successfully."
+          ? profilePictureDraft.pictureAction === PROFILE_PICTURE_ACTIONS.REPLACE
+            ? "Profile information and picture saved successfully."
+            : profilePictureDraft.pictureAction === PROFILE_PICTURE_ACTIONS.REMOVE
+              ? "Profile information saved and the picture was removed."
+              : "Profile information saved successfully."
           : "Notification preferences saved successfully.",
       });
     } catch (error) {
@@ -1083,11 +1132,8 @@ const RoleSettingsPage = () => {
   };
 
   const handleCancelProfileChanges = () => {
-    revokeProfilePicturePreviewUrl();
-    setProfilePicturePreviewUrl("");
-    if (profilePictureInputRef.current) {
-      profilePictureInputRef.current.value = "";
-    }
+    resetProfilePictureDraft();
+    setIsRemoveProfilePictureModalOpen(false);
     const restoredPreferences =
       applyAuthenticatedUserProfileFallbacks(savedProfilePreferences);
     setPreferences(restoredPreferences);
@@ -1186,6 +1232,8 @@ const RoleSettingsPage = () => {
 
   const handleDiscardChanges = () => {
     setIsUnsavedModalOpen(false);
+    setIsRemoveProfilePictureModalOpen(false);
+    resetProfilePictureDraft();
     const restoredPreferences =
       applyAuthenticatedUserProfileFallbacks(savedProfilePreferences);
     setPreferences(restoredPreferences);
@@ -1199,7 +1247,7 @@ const RoleSettingsPage = () => {
     setActiveSection(null);
   };
 
-  const handleProfilePictureChange = async (event) => {
+  const handleProfilePictureChange = (event) => {
     const selectedFile = event.target.files?.[0];
 
     if (!selectedFile || !authenticatedUser || !currentRole) {
@@ -1230,117 +1278,60 @@ const RoleSettingsPage = () => {
 
     const previewUrl = URL.createObjectURL(selectedFile);
     profilePicturePreviewUrlRef.current = previewUrl;
-    setProfilePicturePreviewUrl(previewUrl);
-    setIsUploadingProfilePicture(true);
-
-    try {
-      const uploadedProfile = await uploadCurrentProfilePicture({
-        fileName: selectedFile.name || "profile-picture",
-        mimeType: selectedFile.type,
-        fileDataBase64: await fileToBase64(selectedFile),
-      });
-      const updatedAt = new Date().toISOString();
-
-      setPreferences((current) => ({
-        ...current,
-        profile: {
-          ...current.profile,
-          ...uploadedProfile,
-        },
-        metadata: {
-          ...current.metadata,
-          lastProfileUpdateAt: uploadedProfile.profilePictureUpdatedAt || updatedAt,
-        },
-      }));
-      setSavedProfilePreferences((current) => ({
-        ...current,
-        profile: {
-          ...current.profile,
-          ...uploadedProfile,
-        },
-        metadata: {
-          ...current.metadata,
-          lastProfileUpdateAt: uploadedProfile.profilePictureUpdatedAt || updatedAt,
-        },
-      }));
-      setToast({
-        type: "success",
-        title: "Profile Picture Updated",
-        message: "Your profile picture was uploaded successfully.",
-      });
-    } catch (error) {
-      revokeProfilePicturePreviewUrl();
-      setProfilePicturePreviewUrl("");
-      setToast({
-        type: "error",
-        title: "Profile Picture Error",
-        message: error.message || "Failed to upload the selected image file.",
-      });
-    } finally {
-      setIsUploadingProfilePicture(false);
-      event.target.value = "";
-    }
+    setProfilePictureDraft(
+      buildPictureDraftForSelection({
+        file: selectedFile,
+        previewUrl,
+      }),
+    );
+    setIsRemoveProfilePictureModalOpen(false);
+    setToast({
+      type: "info",
+      title: "Picture selected",
+      message: "Save Changes to apply it.",
+    });
+    event.target.value = "";
   };
 
-  const handleRemoveProfilePicture = async () => {
-    if (!authenticatedUser || !currentRole || isRemovingProfilePicture) {
+  const handleOpenRemoveProfilePictureDialog = () => {
+    if (!authenticatedUser || !currentRole) {
       return;
     }
 
-    setIsRemovingProfilePicture(true);
+    setIsRemoveProfilePictureModalOpen(true);
+  };
 
-    try {
-      const clearedProfile = await removeCurrentProfilePicture();
+  const handleCancelRemoveProfilePicture = () => {
+    setIsRemoveProfilePictureModalOpen(false);
+  };
 
-      revokeProfilePicturePreviewUrl();
-      setProfilePicturePreviewUrl("");
-      if (profilePictureInputRef.current) {
-        profilePictureInputRef.current.value = "";
-      }
-
-      setPreferences((current) => ({
-        ...current,
-        profile: {
-          ...current.profile,
-          ...clearedProfile,
-        },
-        metadata: {
-          ...current.metadata,
-          lastProfileUpdateAt: new Date().toISOString(),
-        },
-      }));
-      setSavedProfilePreferences((current) => ({
-        ...current,
-        profile: {
-          ...current.profile,
-          ...clearedProfile,
-        },
-        metadata: {
-          ...current.metadata,
-          lastProfileUpdateAt: new Date().toISOString(),
-        },
-      }));
-      setToast({
-        type: "success",
-        title: "Profile Picture Removed",
-        message: "Your profile picture was removed successfully.",
-      });
-    } catch (error) {
-      setToast({
-        type: "error",
-        title: "Profile Picture Error",
-        message: error.message || "Failed to remove the profile picture.",
-      });
-    } finally {
-      setIsRemovingProfilePicture(false);
+  const handleConfirmRemoveProfilePicture = () => {
+    revokeProfilePicturePreviewUrl();
+    setProfilePictureDraft(buildPictureDraftForRemoval());
+    setIsRemoveProfilePictureModalOpen(false);
+    if (profilePictureInputRef.current) {
+      profilePictureInputRef.current.value = "";
     }
+    setToast({
+      type: "info",
+      title: "Removal pending",
+      message: "Save Changes to confirm it.",
+    });
+  };
+
+  const handleUndoProfilePictureChange = () => {
+    resetProfilePictureDraft();
+    setIsRemoveProfilePictureModalOpen(false);
+    setToast({
+      type: "info",
+      title: "Picture restored",
+      message: "Draft picture changes were canceled.",
+    });
   };
 
   const handleProfilePictureLoadError = async () => {
     if (
-      profilePicturePreviewUrl ||
-      isUploadingProfilePicture ||
-      isRemovingProfilePicture ||
+      hasProfilePictureDraftChanges(profilePictureDraft) ||
       isRefreshingProfilePictureRef.current ||
       !preferences.profile.profilePicturePath
     ) {
@@ -1592,11 +1583,15 @@ const RoleSettingsPage = () => {
     handleProfileFieldBlur,
     profilePictureInputRef,
     handleProfilePictureChange,
-    handleRemoveProfilePicture,
+    handleOpenRemoveProfilePictureDialog,
     handleProfilePictureLoadError,
-    profilePicturePreviewUrl,
-    isUploadingProfilePicture,
-    isRemovingProfilePicture,
+    handleUndoProfilePictureChange,
+    profilePicturePresentation,
+    profilePictureDraft,
+    isRemoveProfilePictureModalOpen,
+    handleCancelRemoveProfilePicture,
+    handleConfirmRemoveProfilePicture,
+    removeProfilePictureButtonRef,
     setPreferences,
     handleSaveProfileChanges: handleSavePreferences,
     handleCancelProfileChanges,
@@ -1722,6 +1717,21 @@ const RoleSettingsPage = () => {
         initialFocusRef={resetCancelButtonRef}
         finalFocusRef={resetPreferencesButtonRef}
         cancelButtonRef={resetCancelButtonRef}
+      />
+
+      <ConfirmationModal
+        isOpen={isRemoveProfilePictureModalOpen}
+        title="Remove profile picture?"
+        message="The picture will be removed when you save your changes."
+        onCancel={handleCancelRemoveProfilePicture}
+        onClose={handleCancelRemoveProfilePicture}
+        onConfirm={handleConfirmRemoveProfilePicture}
+        cancelLabel="Keep Picture"
+        confirmLabel="Remove Picture"
+        confirmTone="destructive"
+        initialFocusRef={removeProfilePictureCancelButtonRef}
+        finalFocusRef={removeProfilePictureButtonRef}
+        cancelButtonRef={removeProfilePictureCancelButtonRef}
       />
 
       <ConfirmationModal

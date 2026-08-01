@@ -530,6 +530,24 @@ export const saveRoleSettings = async ({
     payload.settings.metadata = settings.metadata;
   }
 
+  if (isPlainObject(settings?.profilePicture)) {
+    payload.settings.profilePicture = {
+      action: sanitizeString(settings.profilePicture.action).toUpperCase(),
+    };
+
+    if (payload.settings.profilePicture.action === "REPLACE") {
+      payload.settings.profilePicture.fileName = sanitizeString(
+        settings.profilePicture.fileName,
+      );
+      payload.settings.profilePicture.mimeType = sanitizeString(
+        settings.profilePicture.mimeType,
+      ).toLowerCase();
+      payload.settings.profilePicture.fileDataBase64 = sanitizeString(
+        settings.profilePicture.fileDataBase64,
+      );
+    }
+  }
+
   const response = await fetch(`${API_BASE_URL}/api/v1/settings/current`, {
     method: "PUT",
     headers: {

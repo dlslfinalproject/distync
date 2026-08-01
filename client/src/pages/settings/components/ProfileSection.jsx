@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useState } from "react";
+import { FiCamera } from "react-icons/fi";
 import ProfileAvatar from "../../../components/shared/ProfileAvatar";
 import { buildDisplayName } from "../settingsHelpers";
 
@@ -18,11 +19,14 @@ const ProfileSection = ({
   handleProfileFieldBlur,
   profilePictureInputRef,
   handleProfilePictureChange,
-  handleRemoveProfilePicture,
+  handleOpenRemoveProfilePictureDialog,
   handleProfilePictureLoadError,
-  profilePicturePreviewUrl = "",
-  isUploadingProfilePicture = false,
-  isRemovingProfilePicture = false,
+  handleUndoProfilePictureChange,
+  profilePicturePresentation,
+  profilePictureDraft,
+  removeProfilePictureButtonRef,
+  isSavingPreferences = false,
+  isOnline = true,
   sectionTitle = "Profile",
   description,
   firstNameId,
@@ -34,6 +38,7 @@ const ProfileSection = ({
   pictureAlt,
   pictureFallbackText = "No profile picture selected",
 }) => {
+  const [isAvatarFocused, setIsAvatarFocused] = useState(false);
   const sectionDividerStyles = {
     borderTop: "1px solid #e3ecf5",
     margin: "24px 0",
@@ -111,11 +116,60 @@ const ProfileSection = ({
       lastName: authenticatedUser?.last_name,
     }) ||
     getProfileInitials();
-  const profilePictureSource =
-    profilePicturePreviewUrl || preferences.profile.profilePictureUrl || "";
-  const hasProfilePicture =
-    Boolean(profilePicturePreviewUrl) ||
-    Boolean(preferences.profile.profilePicturePath);
+  const profilePictureSource = profilePicturePresentation?.profilePictureSource || "";
+  const hasProfilePicture = Boolean(profilePicturePresentation?.hasProfilePicture);
+  const hasSavedPicture = Boolean(profilePicturePresentation?.hasSavedPicture);
+  const pictureAction = profilePictureDraft?.pictureAction || "UNCHANGED";
+  const hasPendingPictureChange = pictureAction !== "UNCHANGED";
+  const pictureStatusLabel = profilePicturePresentation?.statusLabel || "";
+  const cancelPictureLabel = profilePicturePresentation?.cancelLabel || "Cancel";
+  const canOpenPicturePicker = !isSavingPreferences && isOnline;
+  const avatarButtonLabel = hasSavedPicture
+    ? "Change profile picture"
+    : "Add profile picture";
+  const avatarStatusId = `${contactId}-picture-status`;
+  const avatarHintId = `${contactId}-picture-hint`;
+  const avatarDescriptionId = hasPendingPictureChange
+    ? `${avatarStatusId} ${avatarHintId}`
+    : avatarHintId;
+  const openPicturePicker = () => {
+    if (!canOpenPicturePicker) {
+      return;
+    }
+
+    profilePictureInputRef.current?.click();
+  };
+
+  const avatarButtonStyles = {
+    position: "relative",
+    border: "none",
+    background: "transparent",
+    padding: "6px",
+    borderRadius: "999px",
+    cursor: canOpenPicturePicker ? "pointer" : "not-allowed",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxSizing: "border-box",
+    outline: "none",
+  };
+
+  const cameraOverlayStyles = {
+    position: "absolute",
+    right: "6px",
+    bottom: "6px",
+    width: "34px",
+    height: "34px",
+    borderRadius: "999px",
+    background: "linear-gradient(135deg, #2f6499 0%, #4c86be 100%)",
+    color: "#ffffff",
+    border: "3px solid #ffffff",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxShadow: "0 10px 18px rgba(47, 100, 153, 0.24)",
+    pointerEvents: "none",
+  };
 
   return (
     <section
@@ -145,17 +199,80 @@ const ProfileSection = ({
             <div
               style={{
                 display: "grid",
-                gap: "14px",
+                gap: "12px",
                 justifyItems: "start",
               }}
             >
               <p style={sectionLabelStyles}>Profile Picture</p>
-              <ProfileAvatar
-                src={profilePictureSource}
-                alt={pictureAlt}
-                displayName={displayName}
-                onError={handleProfilePictureLoadError}
-              />
+              <button
+                type="button"
+                onClick={openPicturePicker}
+                disabled={!canOpenPicturePicker}
+                aria-label={avatarButtonLabel}
+                aria-describedby={avatarDescriptionId}
+                style={{
+                  ...avatarButtonStyles,
+                  opacity: canOpenPicturePicker ? 1 : 0.72,
+                  boxShadow: isAvatarFocused
+                    ? "0 0 0 4px rgba(76, 134, 190, 0.28)"
+                    : "none",
+                }}
+                onFocus={() => setIsAvatarFocused(true)}
+                onBlur={() => setIsAvatarFocused(false)}
+              >
+                <ProfileAvatar
+                  src={profilePictureSource}
+                  alt={pictureAlt}
+                  displayName={displayName}
+                  onError={handleProfilePictureLoadError}
+                  style={{
+                    boxShadow: hasPendingPictureChange
+                      ? "0 0 0 4px rgba(242, 223, 173, 0.5)"
+                      : "none",
+                  }}
+                />
+                <span style={cameraOverlayStyles} aria-hidden="true">
+                  <FiCamera size={16} />
+                </span>
+              </button>
+              <div
+                style={{
+                  display: "grid",
+                  gap: "8px",
+                  width: "100%",
+                  maxWidth: "260px",
+                }}
+              >
+                {pictureStatusLabel ? (
+                  <span
+                    id={avatarStatusId}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      width: "fit-content",
+                      borderRadius: "999px",
+                      padding: "5px 10px",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      backgroundColor:
+                        pictureAction === "REMOVE" ? "#fff3f1" : "#fff6e8",
+                      color: pictureAction === "REMOVE" ? "#9d4d58" : "#9a6519",
+                    }}
+                  >
+                    {pictureStatusLabel}
+                  </span>
+                ) : null}
+                <p
+                  id={avatarHintId}
+                  style={{ ...mutedValueStyles, fontSize: "12px", margin: 0 }}
+                >
+                  {canOpenPicturePicker
+                    ? "JPG, PNG, or WEBP up to 2 MB."
+                    : isSavingPreferences
+                      ? "Picture changes are temporarily disabled while saving."
+                      : "Reconnect to edit the profile picture."}
+                </p>
+              </div>
               <input
                 ref={profilePictureInputRef}
                 type="file"
@@ -163,29 +280,50 @@ const ProfileSection = ({
                 onChange={handleProfilePictureChange}
                 style={{ display: "none" }}
               />
-              <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={() => profilePictureInputRef.current?.click()}
-                  style={pageHeaderStyles.secondaryButton}
-                  disabled={isUploadingProfilePicture || isRemovingProfilePicture}
-                >
-                  {isUploadingProfilePicture ? "Uploading..." : "Change Picture"}
-                </button>
-                {hasProfilePicture ? (
+              <div
+                style={{
+                  display: "flex",
+                  gap: "8px",
+                  flexWrap: "wrap",
+                }}
+              >
+                {profilePicturePresentation?.showRemoveAction ? (
+                  <button
+                    ref={removeProfilePictureButtonRef}
+                    type="button"
+                    onClick={handleOpenRemoveProfilePictureDialog}
+                    style={{
+                      ...pageHeaderStyles.secondaryButton,
+                      minHeight: "38px",
+                      padding: "8px 12px",
+                      borderRadius: "12px",
+                      fontSize: "13px",
+                      borderColor: "#f1d2cc",
+                      backgroundColor: "#fff7f5",
+                      color: "#9d4d58",
+                    }}
+                    disabled={isSavingPreferences || !isOnline}
+                  >
+                    Remove
+                  </button>
+                ) : null}
+                {hasPendingPictureChange ? (
                   <button
                     type="button"
-                    onClick={handleRemoveProfilePicture}
-                    style={pageHeaderStyles.secondaryButton}
-                    disabled={isUploadingProfilePicture || isRemovingProfilePicture}
+                    onClick={handleUndoProfilePictureChange}
+                    style={{
+                      ...pageHeaderStyles.secondaryButton,
+                      minHeight: "38px",
+                      padding: "8px 12px",
+                      borderRadius: "12px",
+                      fontSize: "13px",
+                    }}
+                    disabled={isSavingPreferences}
                   >
-                    {isRemovingProfilePicture ? "Removing..." : "Remove Picture"}
+                    {cancelPictureLabel}
                   </button>
                 ) : null}
               </div>
-              <p style={{ ...mutedValueStyles, fontSize: "12px", margin: 0 }}>
-                JPG, PNG, or WEBP up to 2 MB.
-              </p>
             </div>
 
             <div style={{ display: "grid", gap: "20px" }}>

@@ -87,3 +87,58 @@ test("validateSaveCurrentSettings rejects legacy fullName updates", () => {
     "Email, role, and barangay assignment cannot be changed from Account Settings.",
   );
 });
+
+test("validateSaveCurrentSettings accepts pending profile picture replacement payloads", () => {
+  const req = {
+    body: {
+      settings: {
+        profile: {
+          firstName: "Jane",
+          middleName: "",
+          lastName: "Reyes",
+          contactNumber: "09123456789",
+        },
+        profilePicture: {
+          action: "REPLACE",
+          fileName: "avatar.webp",
+          mimeType: "image/webp",
+          fileDataBase64: "ZmFrZQ==",
+        },
+      },
+    },
+  };
+  const res = createResponse();
+  let nextCalled = false;
+
+  validateSaveCurrentSettings(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(req.validatedBody.settings.profilePicture.action, "REPLACE");
+  assert.equal(res.payload, null);
+});
+
+test("validateSaveCurrentSettings rejects invalid pending profile picture actions", () => {
+  const req = {
+    body: {
+      settings: {
+        profile: {
+          firstName: "Jane",
+          middleName: "",
+          lastName: "Reyes",
+          contactNumber: "09123456789",
+        },
+        profilePicture: {
+          action: "PURGE",
+        },
+      },
+    },
+  };
+  const res = createResponse();
+
+  validateSaveCurrentSettings(req, res, () => {});
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.payload.message, "profilePicture.action is invalid");
+});

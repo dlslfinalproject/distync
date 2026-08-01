@@ -39,6 +39,11 @@ const PHILIPPINE_CONTACT_NUMBER_PATTERN = /^\+639\d{9}$/;
 const NAME_VALUE_PATTERN =
   /^[\p{L}\p{M}][\p{L}\p{M}\p{N} .'-]*[\p{L}\p{M}\p{N}.']?$|^[\p{L}\p{M}]$/u;
 const NAME_MAX_LENGTH = 100;
+const PROFILE_PICTURE_ACTIONS = {
+  UNCHANGED: "UNCHANGED",
+  REPLACE: "REPLACE",
+  REMOVE: "REMOVE",
+};
 
 const isPlainObject = (value) =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -192,6 +197,10 @@ const buildEditableSettingsSnapshot = (settings = {}) => {
   const profile = isPlainObject(settings.profile) ? settings.profile : {};
   const metadata = isPlainObject(settings.metadata) ? settings.metadata : {};
   const hasProfilePayload = isPlainObject(settings.profile);
+  const profilePicture = isPlainObject(settings.profilePicture)
+    ? settings.profilePicture
+    : {};
+  const normalizedPictureAction = sanitizeString(profilePicture.action).toUpperCase();
 
   return {
     profile: {
@@ -211,6 +220,14 @@ const buildEditableSettingsSnapshot = (settings = {}) => {
     notificationRulePreferences: sanitizeNotificationRulePreferences(
       settings.notificationRulePreferences || settings.preferences,
     ),
+    profilePicture: {
+      action:
+        PROFILE_PICTURE_ACTIONS[normalizedPictureAction] ||
+        PROFILE_PICTURE_ACTIONS.UNCHANGED,
+      fileName: sanitizeString(profilePicture.fileName),
+      mimeType: sanitizeString(profilePicture.mimeType).toLowerCase(),
+      fileDataBase64: sanitizeString(profilePicture.fileDataBase64),
+    },
     metadata: {
       lastProfileUpdateAt: sanitizeString(metadata.lastProfileUpdateAt),
       lastPreferenceSaveAt: sanitizeString(metadata.lastPreferenceSaveAt),
@@ -706,6 +723,9 @@ const saveCurrentSettings = async ({
   ensureAllowedRole(roleCode);
 
   const dbClient = await pool.connect();
+  let uploadedProfilePicturePath = "";
+  let uploadedProfilePictureFileName = "";
+  let previousProfilePicturePath = "";
 
   try {
     await dbClient.query("BEGIN");
@@ -763,6 +783,24 @@ const saveCurrentSettings = async ({
         incomingPreferences: incomingSnapshot.notificationRulePreferences,
         dbClient,
       });
+    const pictureAction =
+      incomingSnapshot.profilePicture.action || PROFILE_PICTURE_ACTIONS.UNCHANGED;
+    const hasPictureReplacement =
+      pictureAction === PROFILE_PICTURE_ACTIONS.REPLACE;
+    const hasPictureRemoval = pictureAction === PROFILE_PICTURE_ACTIONS.REMOVE;
+    previousProfilePicturePath = snapshot.profile.profilePicturePath || "";
+
+    if (hasPictureReplacement) {
+      const uploadResult = await profilePictureStorageService.uploadProfilePicture({
+        userId,
+        fileName: incomingSnapshot.profilePicture.fileName,
+        mimeType: incomingSnapshot.profilePicture.mimeType,
+        fileDataBase64: incomingSnapshot.profilePicture.fileDataBase64,
+      });
+
+      uploadedProfilePicturePath = uploadResult.profilePicturePath;
+      uploadedProfilePictureFileName = uploadResult.profilePictureFileName;
+    }
 
     const mergedSnapshot = {
       ...snapshot,
@@ -782,6 +820,20 @@ const saveCurrentSettings = async ({
                 name: assignedBarangay.name,
               }
             : null,
+        profilePicturePath: hasPictureRemoval
+          ? ""
+          : uploadedProfilePicturePath || snapshot.profile.profilePicturePath || "",
+        profilePictureFileName: hasPictureRemoval
+          ? ""
+          : uploadedProfilePicturePath
+            ? uploadedProfilePictureFileName
+            : snapshot.profile.profilePictureFileName || "",
+        profilePictureUpdatedAt:
+          hasPictureRemoval || uploadedProfilePicturePath
+            ? hasPictureRemoval
+              ? ""
+              : new Date().toISOString()
+            : snapshot.profile.profilePictureUpdatedAt || "",
       },
       notificationRulePreferences: normalizedNotificationRulePreferences,
       metadata: {
@@ -866,6 +918,26 @@ const saveCurrentSettings = async ({
       dbClient,
     );
 
+    if (hasPictureReplacement || hasPictureRemoval) {
+      await settingsRepository.insertRoleSettingsSnapshot(
+        {
+          userId,
+          roleCode,
+          entityType: SETTINGS_ENTITY_TYPE,
+          entityId: userId,
+          action: hasPictureRemoval
+            ? PROFILE_PICTURE_REMOVED_AUDIT_ACTION
+            : previousProfilePicturePath
+              ? PROFILE_PICTURE_REPLACED_AUDIT_ACTION
+              : PROFILE_PICTURE_UPLOADED_AUDIT_ACTION,
+          oldValues: buildAuditSafeSettingsSnapshot(previousSettings),
+          newValues: buildAuditSafeSettingsSnapshot(nextSettings),
+          ipAddress,
+        },
+        dbClient,
+      );
+    }
+
     await insertAuditLog(
       {
         user_id: userId,
@@ -903,12 +975,34 @@ const saveCurrentSettings = async ({
 
     await dbClient.query("COMMIT");
 
+    if (
+      hasPictureReplacement &&
+      previousProfilePicturePath &&
+      previousProfilePicturePath !== uploadedProfilePicturePath
+    ) {
+      await profilePictureStorageService.removeProfilePicture(
+        previousProfilePicturePath,
+      );
+    }
+
+    if (hasPictureRemoval && previousProfilePicturePath) {
+      await profilePictureStorageService.removeProfilePicture(
+        previousProfilePicturePath,
+      );
+    }
+
     return {
       settings: await attachSignedProfilePictureMetadata(nextSettings),
       user: buildSessionUser(updatedUser, roleCode),
     };
   } catch (error) {
     await dbClient.query("ROLLBACK");
+
+    if (uploadedProfilePicturePath) {
+      await profilePictureStorageService.removeProfilePicture(
+        uploadedProfilePicturePath,
+      );
+    }
     throw error;
   } finally {
     dbClient.release();
