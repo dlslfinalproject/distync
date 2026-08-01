@@ -38,6 +38,7 @@ import {
   buildLocalSyncLogRows,
   buildSyncSummary,
   areNotificationPreferencesEqual,
+  buildDisplayName,
   createDefaultRolePreferences,
   formatDateTime,
   getEditableNotificationPayload,
@@ -304,6 +305,18 @@ const EmptyState = ({ message }) => (
   <p style={{ margin: 0, color: "#60738a", lineHeight: 1.6 }}>{message}</p>
 );
 
+const normalizeProfileNameInput = (value = "") =>
+  String(value || "")
+    .trim()
+    .replace(/\s+/g, " ");
+
+const hasStructuredProfileData = (profile = {}) =>
+  Boolean(
+    normalizeProfileNameInput(profile.firstName) ||
+      normalizeProfileNameInput(profile.middleName) ||
+      normalizeProfileNameInput(profile.lastName),
+  );
+
 const RoleSettingsPage = () => {
   const navigate = useNavigate();
   const { accessMode, currentRole, authenticatedUser, syncAuthState } = useAuth();
@@ -338,14 +351,16 @@ const RoleSettingsPage = () => {
     title: "",
   });
   const [profileErrors, setProfileErrors] = useState({
-    fullName: "",
+    firstName: "",
+    middleName: "",
+    lastName: "",
     contactNumber: "",
-    emailAddress: "",
   });
   const [profileTouched, setProfileTouched] = useState({
-    fullName: false,
+    firstName: false,
+    middleName: false,
+    lastName: false,
     contactNumber: false,
-    emailAddress: false,
   });
   const [profilePicturePreviewUrl, setProfilePicturePreviewUrl] = useState("");
   const [isUploadingProfilePicture, setIsUploadingProfilePicture] = useState(false);
@@ -379,18 +394,21 @@ const RoleSettingsPage = () => {
   };
   const applyAuthenticatedUserProfileFallbacks = (profilePreferences) => {
     const normalizedPreferences = normalizeRolePreferences(profilePreferences);
-    const fallbackFullName =
-      [authenticatedUser?.first_name, authenticatedUser?.last_name]
-        .filter(Boolean)
-        .join(" ")
-        .trim() || "";
     const fallbackEmail = authenticatedUser?.email || "";
 
     return {
       ...normalizedPreferences,
       profile: {
         ...normalizedPreferences.profile,
-        fullName: normalizedPreferences.profile.fullName || fallbackFullName,
+        firstName: normalizeProfileNameInput(
+          normalizedPreferences.profile.firstName,
+        ),
+        middleName: normalizeProfileNameInput(
+          normalizedPreferences.profile.middleName,
+        ),
+        lastName: normalizeProfileNameInput(
+          normalizedPreferences.profile.lastName,
+        ),
         emailAddress:
           normalizedPreferences.profile.emailAddress || fallbackEmail,
       },
@@ -413,7 +431,9 @@ const RoleSettingsPage = () => {
   );
   const normalizedCurrentProfile = useMemo(
     () => ({
-      fullName: String(preferences.profile.fullName || "").trim(),
+      firstName: String(preferences.profile.firstName || "").trim(),
+      middleName: String(preferences.profile.middleName || "").trim(),
+      lastName: String(preferences.profile.lastName || "").trim(),
       contactNumber: normalizePhilippineContactNumber(
         preferences.profile.contactNumber || "",
       ),
@@ -425,12 +445,16 @@ const RoleSettingsPage = () => {
       authenticatedUser?.email,
       preferences.profile.contactNumber,
       preferences.profile.emailAddress,
-      preferences.profile.fullName,
+      preferences.profile.firstName,
+      preferences.profile.middleName,
+      preferences.profile.lastName,
     ],
   );
   const normalizedSavedProfile = useMemo(
     () => ({
-      fullName: String(savedProfilePreferences.profile.fullName || "").trim(),
+      firstName: String(savedProfilePreferences.profile.firstName || "").trim(),
+      middleName: String(savedProfilePreferences.profile.middleName || "").trim(),
+      lastName: String(savedProfilePreferences.profile.lastName || "").trim(),
       contactNumber: normalizePhilippineContactNumber(
         savedProfilePreferences.profile.contactNumber || "",
       ),
@@ -444,7 +468,9 @@ const RoleSettingsPage = () => {
       authenticatedUser?.email,
       savedProfilePreferences.profile.contactNumber,
       savedProfilePreferences.profile.emailAddress,
-      savedProfilePreferences.profile.fullName,
+      savedProfilePreferences.profile.firstName,
+      savedProfilePreferences.profile.middleName,
+      savedProfilePreferences.profile.lastName,
     ],
   );
   const hasProfileChanges = useMemo(
@@ -499,14 +525,16 @@ const RoleSettingsPage = () => {
       setPreferences(createDefaultRolePreferences());
       setSavedProfilePreferences(createDefaultRolePreferences());
       setProfileErrors({
-        fullName: "",
+        firstName: "",
+        middleName: "",
+        lastName: "",
         contactNumber: "",
-        emailAddress: "",
       });
       setProfileTouched({
-        fullName: false,
+        firstName: false,
+        middleName: false,
+        lastName: false,
         contactNumber: false,
-        emailAddress: false,
       });
       setNotificationTouched(false);
       setNotificationLoadError("");
@@ -532,14 +560,16 @@ const RoleSettingsPage = () => {
     setPreferences(resetPreferences);
     setSavedProfilePreferences(resetPreferences);
     setProfileErrors({
-      fullName: "",
+      firstName: "",
+      middleName: "",
+      lastName: "",
       contactNumber: "",
-      emailAddress: "",
     });
     setProfileTouched({
-      fullName: false,
+      firstName: false,
+      middleName: false,
+      lastName: false,
       contactNumber: false,
-      emailAddress: false,
     });
     setNotificationLoadError("");
     setNotificationLoadSource("loading");
@@ -576,6 +606,13 @@ const RoleSettingsPage = () => {
       const hydratedPreferences = applyAuthenticatedUserProfileFallbacks(
         result.settings,
       );
+
+      if (result.source === "network" && !hasStructuredProfileData(hydratedPreferences.profile)) {
+        setErrorMessage(
+          "Profile information is incomplete. Refresh the page after reconnecting to the server.",
+        );
+      }
+
       setPreferences(hydratedPreferences);
       setSavedProfilePreferences(hydratedPreferences);
       setNotificationLoadSource(result.source);
@@ -596,47 +633,47 @@ const RoleSettingsPage = () => {
 
     setPreferences((current) => {
       const normalized = normalizeRolePreferences(current);
-      const hydratedPreferences =
-        applyAuthenticatedUserProfileFallbacks(normalized);
+      const nextEmailAddress =
+        normalized.profile.emailAddress || authenticatedUser?.email || "";
 
       if (
-        normalized.profile.fullName === hydratedPreferences.profile.fullName &&
-        normalized.profile.emailAddress === hydratedPreferences.profile.emailAddress
+        normalized.profile.emailAddress === nextEmailAddress
       ) {
         return current;
       }
 
-      return hydratedPreferences;
+      return {
+        ...normalized,
+        profile: {
+          ...normalized.profile,
+          emailAddress: nextEmailAddress,
+        },
+      };
     });
 
     setSavedProfilePreferences((current) => {
       const normalized = normalizeRolePreferences(current);
-      const hydratedPreferences =
-        applyAuthenticatedUserProfileFallbacks(normalized);
+      const nextEmailAddress =
+        normalized.profile.emailAddress || authenticatedUser?.email || "";
 
       if (
-        normalized.profile.fullName === hydratedPreferences.profile.fullName &&
-        normalized.profile.emailAddress === hydratedPreferences.profile.emailAddress
+        normalized.profile.emailAddress === nextEmailAddress
       ) {
         return current;
       }
 
-      return hydratedPreferences;
+      return {
+        ...normalized,
+        profile: {
+          ...normalized.profile,
+          emailAddress: nextEmailAddress,
+        },
+      };
     });
   }, [authenticatedUser]);
 
   useEffect(() => {
-    if (!isBarangayRole) {
-      setProfileErrors({
-        fullName: "",
-        contactNumber: "",
-        emailAddress: "",
-      });
-      setProfileTouched({
-        fullName: false,
-        contactNumber: false,
-        emailAddress: false,
-      });
+    if (!isBarangayRole && !isMswdoRole && !isMayorRole) {
       return;
     }
 
@@ -644,10 +681,11 @@ const RoleSettingsPage = () => {
     const normalizedContactNumber = preferences.profile.contactNumber
       ? normalizePhilippineContactNumber(preferences.profile.contactNumber)
       : "";
+    const lockedPosition = getRolePositionLabel(currentRole);
 
     setPreferences((current) => {
       if (
-        current.profile.position === getRolePositionLabel(ROLE_CODES.BARANGAY) &&
+        current.profile.position === lockedPosition &&
         current.profile.emailAddress === lockedEmailAddress &&
         current.profile.contactNumber === normalizedContactNumber
       ) {
@@ -658,13 +696,20 @@ const RoleSettingsPage = () => {
         ...current,
         profile: {
           ...current.profile,
-          position: getRolePositionLabel(ROLE_CODES.BARANGAY),
+          position: lockedPosition,
           contactNumber: normalizedContactNumber,
           emailAddress: lockedEmailAddress,
         },
       };
     });
-  }, [authenticatedUser?.email, isBarangayRole, preferences.profile.contactNumber]);
+  }, [
+    authenticatedUser?.email,
+    currentRole,
+    isBarangayRole,
+    isMayorRole,
+    isMswdoRole,
+    preferences.profile.contactNumber,
+  ]);
 
   useEffect(() => {
     if (!isBarangayRole && !isMswdoRole && !isMayorRole) {
@@ -674,16 +719,19 @@ const RoleSettingsPage = () => {
     const validationErrors = getBarangayProfileValidationErrors(preferences.profile);
 
     setProfileErrors({
-      fullName: validationErrors.fullName || "",
+      firstName: validationErrors.firstName || "",
+      middleName: validationErrors.middleName || "",
+      lastName: validationErrors.lastName || "",
       contactNumber: validationErrors.contactNumber || "",
-      emailAddress: validationErrors.emailAddress || "",
     });
   }, [
     isBarangayRole,
     isMayorRole,
     isMswdoRole,
     preferences.profile.contactNumber,
-    preferences.profile.fullName,
+    preferences.profile.firstName,
+    preferences.profile.middleName,
+    preferences.profile.lastName,
   ]);
 
   useEffect(() => {
@@ -797,53 +845,95 @@ const RoleSettingsPage = () => {
       return;
     }
 
+    const isProfileSection = activeSection === "account-settings";
+    const isNotificationSection = activeSection === "notification-preferences";
+
     if (!isOnline) {
       setToast({
         type: "warning",
         title: "Offline Mode",
-        message: "Reconnect to the internet before changing notification preferences.",
+        message: isProfileSection
+          ? "Reconnect to the internet before saving profile information."
+          : "Reconnect to the internet before changing notification preferences.",
       });
       return;
     }
 
-    const trimmedFullName = preferences.profile.fullName.trim();
+    const normalizedFirstName = normalizeProfileNameInput(
+      preferences.profile.firstName,
+    );
+    const normalizedMiddleName = normalizeProfileNameInput(
+      preferences.profile.middleName,
+    );
+    const normalizedLastName = normalizeProfileNameInput(
+      preferences.profile.lastName,
+    );
     const usesPhilippineContactFormat =
       isBarangayRole || isMswdoRole || isMayorRole;
     const normalizedContactNumber = usesPhilippineContactFormat
       ? normalizePhilippineContactNumber(preferences.profile.contactNumber)
       : preferences.profile.contactNumber;
-    const lockedEmailAddress = authenticatedUser.email || preferences.profile.emailAddress;
+    const lockedEmailAddress =
+      authenticatedUser.email || preferences.profile.emailAddress;
 
-    if (isBarangayRole || isMswdoRole || isMayorRole) {
+    if (
+      isProfileSection &&
+      (isBarangayRole || isMswdoRole || isMayorRole)
+    ) {
       const lockedPosition = getRolePositionLabel(currentRole);
       const validationErrors = getBarangayProfileValidationErrors({
         ...preferences.profile,
-        fullName: trimmedFullName,
+        firstName: normalizedFirstName,
+        middleName: normalizedMiddleName,
+        lastName: normalizedLastName,
         position: lockedPosition,
         contactNumber: normalizedContactNumber,
         emailAddress: lockedEmailAddress,
       });
 
       setProfileTouched({
-        fullName: true,
+        firstName: true,
+        middleName: true,
+        lastName: true,
         contactNumber: true,
-        emailAddress: true,
       });
       setProfileErrors({
-        fullName: validationErrors.fullName || "",
+        firstName: validationErrors.firstName || "",
+        middleName: validationErrors.middleName || "",
+        lastName: validationErrors.lastName || "",
         contactNumber: validationErrors.contactNumber || "",
-        emailAddress: validationErrors.emailAddress || "",
       });
 
       if (Object.values(validationErrors).some(Boolean)) {
+        const invalidFieldOrder = [
+          "firstName",
+          "middleName",
+          "lastName",
+          "contactNumber",
+        ];
+        const fieldIdPrefix = isBarangayRole
+          ? "barangay"
+          : isMswdoRole
+            ? "mswdo"
+            : "mayor";
+        const firstInvalidField = invalidFieldOrder.find(
+          (fieldName) => validationErrors[fieldName],
+        );
+
+        if (firstInvalidField && typeof document !== "undefined") {
+          const fieldIdMap = {
+            firstName: `${fieldIdPrefix}-profile-first-name`,
+            middleName: `${fieldIdPrefix}-profile-middle-name`,
+            lastName: `${fieldIdPrefix}-profile-last-name`,
+            contactNumber: `${fieldIdPrefix}-profile-contact`,
+          };
+          document.getElementById(fieldIdMap[firstInvalidField])?.focus();
+        }
+
         setToast({
           type: "error",
-          title: "Profile Settings Incomplete",
-          message: isBarangayRole
-            ? "Review the barangay profile fields before saving."
-            : isMswdoRole
-              ? "Review the MSWDO profile fields before saving."
-              : "Review the mayor profile fields before saving.",
+          title: "Check Profile Information",
+          message: "Please correct the highlighted profile fields.",
         });
         return;
       }
@@ -851,7 +941,7 @@ const RoleSettingsPage = () => {
 
     if (
       (isBarangayRole || isMswdoRole || isMayorRole) &&
-      activeSection === "notification-preferences"
+      isNotificationSection
     ) {
       setNotificationTouched(true);
 
@@ -868,25 +958,25 @@ const RoleSettingsPage = () => {
     setIsSavingPreferences(true);
 
     try {
-      const updatedProfile =
-        isBarangayRole || isMswdoRole || isMayorRole
-          ? {
-              ...preferences.profile,
-              fullName: trimmedFullName,
-              position: getRolePositionLabel(currentRole),
+      const updatedSettings = isProfileSection
+        ? {
+            profile: {
+              firstName: normalizedFirstName,
+              middleName: normalizedMiddleName || null,
+              lastName: normalizedLastName,
               contactNumber: normalizedContactNumber,
-              emailAddress: lockedEmailAddress,
-            }
-          : preferences.profile;
-      const updatedSettings = {
-        ...preferences,
-        profile: updatedProfile,
-        notificationRulePreferences: getEditableNotificationPayload(preferences),
-        metadata: {
-          ...preferences.metadata,
-          lastPreferenceSaveAt: new Date().toISOString(),
-        },
-      };
+            },
+            metadata: {
+              lastProfileUpdateAt: new Date().toISOString(),
+            },
+          }
+        : {
+            notificationRulePreferences:
+              getEditableNotificationPayload(preferences),
+            metadata: {
+              lastPreferenceSaveAt: new Date().toISOString(),
+            },
+          };
 
       const saveResult = await saveRoleSettings({
         roleCode: currentRole,
@@ -907,13 +997,53 @@ const RoleSettingsPage = () => {
       setNotificationTouched(false);
       setToast({
         type: "success",
-        title: "Preferences Saved",
-        message: "Notification preferences saved successfully.",
+        title: isProfileSection ? "Profile Saved" : "Notification Preferences Saved",
+        message: isProfileSection
+          ? "Profile information saved successfully."
+          : "Notification preferences saved successfully.",
       });
     } catch (error) {
+      const errorMessage = String(error?.message || "").trim();
+
+      if (isProfileSection) {
+        const nextProfileErrors = {
+          firstName: /first name/i.test(errorMessage) ? errorMessage : "",
+          middleName: /middle name/i.test(errorMessage) ? errorMessage : "",
+          lastName: /last name/i.test(errorMessage) ? errorMessage : "",
+          contactNumber: /contact number/i.test(errorMessage)
+            ? "Enter a valid contact number."
+            : "",
+        };
+
+        if (/cannot be changed from Account Settings/i.test(errorMessage)) {
+          setErrorMessage(
+            "Some profile fields cannot be changed from Account Settings.",
+          );
+        }
+
+        if (Object.values(nextProfileErrors).some(Boolean)) {
+          setProfileTouched({
+            firstName: true,
+            middleName: true,
+            lastName: true,
+            contactNumber: true,
+          });
+          setProfileErrors(nextProfileErrors);
+        }
+
+        setToast({
+          type: "error",
+          title: "Profile Save Failed",
+          message: /cannot be changed from Account Settings/i.test(errorMessage)
+            ? "Some profile fields cannot be changed from Account Settings."
+            : "Profile information could not be saved. Please review your entries and try again.",
+        });
+        return;
+      }
+
       setToast({
         type: "error",
-        title: "Save Failed",
+        title: "Notification Save Failed",
         message: normalizeRoleSettingsError(error),
       });
     } finally {
@@ -962,14 +1092,16 @@ const RoleSettingsPage = () => {
       applyAuthenticatedUserProfileFallbacks(savedProfilePreferences);
     setPreferences(restoredPreferences);
     setProfileTouched({
-      fullName: false,
+      firstName: false,
+      middleName: false,
+      lastName: false,
       contactNumber: false,
-      emailAddress: false,
     });
     setProfileErrors({
-      fullName: "",
+      firstName: "",
+      middleName: "",
+      lastName: "",
       contactNumber: "",
-      emailAddress: "",
     });
     setToast({
       type: "info",
@@ -1058,9 +1190,10 @@ const RoleSettingsPage = () => {
       applyAuthenticatedUserProfileFallbacks(savedProfilePreferences);
     setPreferences(restoredPreferences);
     setProfileTouched({
-      fullName: false,
+      firstName: false,
+      middleName: false,
+      lastName: false,
       contactNumber: false,
-      emailAddress: false,
     });
     setNotificationTouched(false);
     setActiveSection(null);

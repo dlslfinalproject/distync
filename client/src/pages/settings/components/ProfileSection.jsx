@@ -1,5 +1,6 @@
 import React from "react";
 import ProfileAvatar from "../../../components/shared/ProfileAvatar";
+import { buildDisplayName } from "../settingsHelpers";
 
 const ProfileSection = ({
   shellStyles,
@@ -25,6 +26,7 @@ const ProfileSection = ({
   sectionTitle = "Profile",
   description,
   firstNameId,
+  middleNameId,
   lastNameId,
   positionField,
   contactId,
@@ -80,41 +82,15 @@ const ProfileSection = ({
     textTransform: "uppercase",
   };
 
-  const splitFullName = (value = "") => {
-    const trimmedValue = String(value || "").trim();
-
-    if (!trimmedValue) {
-      return { firstName: "", lastName: "" };
-    }
-
-    const segments = trimmedValue.split(/\s+/).filter(Boolean);
-
-    if (segments.length === 1) {
-      return {
-        firstName: segments[0],
-        lastName: "",
-      };
-    }
-
-    return {
-      firstName: segments.slice(0, -1).join(" "),
-      lastName: segments[segments.length - 1],
-    };
-  };
-
-  const joinNameParts = (firstName = "", lastName = "") =>
-    [String(firstName || "").trim(), String(lastName || "").trim()]
-      .filter(Boolean)
-      .join(" ");
-
   const getProfileInitials = () => {
-    const fullName = String(preferences.profile.fullName || "").trim();
+    const fullName = buildDisplayName(preferences.profile);
     const sourceName =
       fullName ||
-      [authenticatedUser?.first_name, authenticatedUser?.last_name]
-        .filter(Boolean)
-        .join(" ")
-        .trim() ||
+      buildDisplayName({
+        firstName: authenticatedUser?.first_name,
+        middleName: authenticatedUser?.middle_name,
+        lastName: authenticatedUser?.last_name,
+      }) ||
       "DISTYNC User";
 
     const initials = sourceName
@@ -127,7 +103,14 @@ const ProfileSection = ({
     return initials || "DU";
   };
 
-  const { firstName, lastName } = splitFullName(preferences.profile.fullName);
+  const displayName =
+    buildDisplayName(preferences.profile) ||
+    buildDisplayName({
+      firstName: authenticatedUser?.first_name,
+      middleName: authenticatedUser?.middle_name,
+      lastName: authenticatedUser?.last_name,
+    }) ||
+    getProfileInitials();
   const profilePictureSource =
     profilePicturePreviewUrl || preferences.profile.profilePictureUrl || "";
   const hasProfilePicture =
@@ -170,14 +153,7 @@ const ProfileSection = ({
               <ProfileAvatar
                 src={profilePictureSource}
                 alt={pictureAlt}
-                displayName={
-                  preferences.profile.fullName ||
-                  [authenticatedUser?.first_name, authenticatedUser?.last_name]
-                    .filter(Boolean)
-                    .join(" ")
-                    .trim() ||
-                  getProfileInitials()
-                }
+                displayName={displayName}
                 onError={handleProfilePictureLoadError}
               />
               <input
@@ -224,53 +200,74 @@ const ProfileSection = ({
                 >
                   <div style={{ display: "grid", gap: "8px" }}>
                     <label htmlFor={firstNameId} style={labelStyles}>
-                      First Name
+                      First Name *
                     </label>
                     <input
                       id={firstNameId}
-                      value={firstName}
+                      value={preferences.profile.firstName || ""}
                       onChange={(event) =>
-                        handleProfileFieldChange(
-                          "fullName",
-                          joinNameParts(event.target.value, lastName),
-                        )
+                        handleProfileFieldChange("firstName", event.target.value)
                       }
-                      onBlur={() => handleProfileFieldBlur("fullName")}
+                      onBlur={() => handleProfileFieldBlur("firstName")}
                       placeholder="Enter first name"
                       style={{
                         ...inputStyles.field,
-                        ...(profileTouched.fullName && profileErrors.fullName
+                        ...(profileTouched.firstName && profileErrors.firstName
                           ? inputStyles.errorField
                           : {}),
                       }}
                     />
-                    {profileTouched.fullName && profileErrors.fullName ? (
-                      <p style={errorTextStyles}>{profileErrors.fullName}</p>
+                    {profileTouched.firstName && profileErrors.firstName ? (
+                      <p style={errorTextStyles}>{profileErrors.firstName}</p>
+                    ) : null}
+                  </div>
+
+                  <div style={{ display: "grid", gap: "8px" }}>
+                    <label htmlFor={middleNameId} style={labelStyles}>
+                      Middle Name
+                    </label>
+                    <input
+                      id={middleNameId}
+                      value={preferences.profile.middleName || ""}
+                      onChange={(event) =>
+                        handleProfileFieldChange("middleName", event.target.value)
+                      }
+                      onBlur={() => handleProfileFieldBlur("middleName")}
+                      placeholder="Enter middle name"
+                      style={{
+                        ...inputStyles.field,
+                        ...(profileTouched.middleName && profileErrors.middleName
+                          ? inputStyles.errorField
+                          : {}),
+                      }}
+                    />
+                    {profileTouched.middleName && profileErrors.middleName ? (
+                      <p style={errorTextStyles}>{profileErrors.middleName}</p>
                     ) : null}
                   </div>
 
                   <div style={{ display: "grid", gap: "8px" }}>
                     <label htmlFor={lastNameId} style={labelStyles}>
-                      Last Name
+                      Last Name *
                     </label>
                     <input
                       id={lastNameId}
-                      value={lastName}
+                      value={preferences.profile.lastName || ""}
                       onChange={(event) =>
-                        handleProfileFieldChange(
-                          "fullName",
-                          joinNameParts(firstName, event.target.value),
-                        )
+                        handleProfileFieldChange("lastName", event.target.value)
                       }
-                      onBlur={() => handleProfileFieldBlur("fullName")}
+                      onBlur={() => handleProfileFieldBlur("lastName")}
                       placeholder="Enter last name"
                       style={{
                         ...inputStyles.field,
-                        ...(profileTouched.fullName && profileErrors.fullName
+                        ...(profileTouched.lastName && profileErrors.lastName
                           ? inputStyles.errorField
                           : {}),
                       }}
                     />
+                    {profileTouched.lastName && profileErrors.lastName ? (
+                      <p style={errorTextStyles}>{profileErrors.lastName}</p>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -334,6 +331,9 @@ const ProfileSection = ({
               <p style={sectionValueStyles}>
                 {authenticatedUser?.email || preferences.profile.emailAddress || "--"}
               </p>
+              <p style={{ ...mutedValueStyles, fontSize: "12px", margin: 0 }}>
+                Linked to your authenticated Google account.
+              </p>
             </div>
 
             <div style={readOnlyFieldStyles}>
@@ -349,7 +349,22 @@ const ProfileSection = ({
                 <span style={systemTagStyles}>Read Only</span>
               </div>
               <p style={sectionValueStyles}>{positionField.value || "--"}</p>
+              <p style={{ ...mutedValueStyles, fontSize: "12px", margin: 0 }}>
+                Managed by an authorized system administrator.
+              </p>
             </div>
+
+            {preferences.profile.assignedBarangay ? (
+              <div style={readOnlyFieldStyles}>
+                <p style={sectionLabelStyles}>Assigned Barangay</p>
+                <p style={sectionValueStyles}>
+                  {preferences.profile.assignedBarangay.name || "--"}
+                </p>
+                <p style={{ ...mutedValueStyles, fontSize: "12px", margin: 0 }}>
+                  Managed through user administration.
+                </p>
+              </div>
+            ) : null}
           </div>
         </div>
       </article>

@@ -86,9 +86,8 @@ export const buildBarangayProfileSectionProps = (ctx) => ({
   sectionTitle: "Account Settings",
   description: "",
   firstNameId: "barangay-profile-first-name",
-  firstNameHelper: "",
+  middleNameId: "barangay-profile-middle-name",
   lastNameId: "barangay-profile-last-name",
-  lastNameHelper: "",
   positionField: {
     id: "barangay-profile-position",
     label: "Role",
@@ -116,10 +115,10 @@ export const buildOfficeProfileSectionProps = (ctx) => {
     description: "",
     firstNameId:
       isMayor ? "mayor-profile-first-name" : "mswdo-profile-first-name",
-    firstNameHelper: "",
+    middleNameId:
+      isMayor ? "mayor-profile-middle-name" : "mswdo-profile-middle-name",
     lastNameId:
       isMayor ? "mayor-profile-last-name" : "mswdo-profile-last-name",
-    lastNameHelper: "",
     positionField: {
       id: isMayor ? "mayor-profile-position" : "mswdo-profile-position",
       label: "Role",

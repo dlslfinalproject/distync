@@ -42,6 +42,9 @@ const isPlainObject = (value) =>
 const sanitizeString = (value) =>
   typeof value === "string" ? value.trim() : "";
 
+const normalizeProfileNameField = (value) =>
+  typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+
 const isSafeProfilePicturePath = (value = "") => {
   const trimmedValue = sanitizeString(value);
 
@@ -143,7 +146,7 @@ const safeWriteJson = (storageKey, value) => {
 };
 
 const handleJsonResponse = async (response, fallbackMessage) => {
-  const payload = await response.json();
+  const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
     const error = new Error(payload.message || fallbackMessage);
@@ -154,6 +157,13 @@ const handleJsonResponse = async (response, fallbackMessage) => {
   return payload;
 };
 
+const hasStructuredProfileFields = (profile = {}) =>
+  Boolean(
+    normalizeProfileNameField(profile.firstName) ||
+      normalizeProfileNameField(profile.middleName) ||
+      normalizeProfileNameField(profile.lastName),
+  );
+
 const normalizeStoredSettings = (storedValue = {}) => {
   const {
     preferredExportFormat: _removedPreferredExportFormat,
@@ -162,6 +172,9 @@ const normalizeStoredSettings = (storedValue = {}) => {
   const normalizedProfile = isPlainObject(storedValue?.profile)
     ? storedValue.profile
     : {};
+  const hasLegacyOnlyFullName =
+    Boolean(sanitizeString(normalizedProfile.fullName)) &&
+    !hasStructuredProfileFields(normalizedProfile);
   const normalizedProfilePicturePath = isSafeProfilePicturePath(
     normalizedProfile.profilePicturePath,
   )
@@ -195,6 +208,22 @@ const normalizeStoredSettings = (storedValue = {}) => {
       ...(isPlainObject(remainingStoredSettings.profile)
         ? remainingStoredSettings.profile
         : {}),
+      firstName: hasLegacyOnlyFullName
+        ? ""
+        : normalizeProfileNameField(normalizedProfile.firstName),
+      middleName: hasLegacyOnlyFullName
+        ? ""
+        : normalizeProfileNameField(normalizedProfile.middleName),
+      lastName: hasLegacyOnlyFullName
+        ? ""
+        : normalizeProfileNameField(normalizedProfile.lastName),
+      fullName: "",
+      assignedBarangay: isPlainObject(normalizedProfile.assignedBarangay)
+        ? {
+            id: sanitizeString(normalizedProfile.assignedBarangay.id),
+            name: sanitizeString(normalizedProfile.assignedBarangay.name),
+          }
+        : null,
       profilePicturePath: normalizedProfilePicturePath,
       profilePictureUrl: normalizedProfilePictureUrl,
       profilePictureUrlExpiresAt: normalizedProfilePictureUrl
@@ -206,6 +235,9 @@ const normalizeStoredSettings = (storedValue = {}) => {
       profilePictureUpdatedAt: sanitizeString(
         normalizedProfile.profilePictureUpdatedAt,
       ),
+    },
+    cacheMeta: {
+      hasLegacyOnlyFullName,
     },
   };
 };
@@ -261,7 +293,14 @@ export const readRoleSettingsCache = ({
     return null;
   }
 
-  return normalizeStoredSettings(cachedEnvelopeResult.value.data);
+  const normalizedSettings = normalizeStoredSettings(cachedEnvelopeResult.value.data);
+
+  if (normalizedSettings.cacheMeta?.hasLegacyOnlyFullName) {
+    removeStorageKey(storageKey);
+    return null;
+  }
+
+  return normalizedSettings;
 };
 
 export const writeRoleSettingsCache = ({
@@ -463,34 +502,47 @@ export const saveRoleSettings = async ({
   settings,
   mode = getAccessMode(),
 }) => {
-  const profile = isPlainObject(settings?.profile) ? settings.profile : {};
-  const {
-    profilePicturePath: _ignoredProfilePicturePath,
-    profilePictureUrl: _ignoredProfilePictureUrl,
-    profilePictureUrlExpiresAt: _ignoredProfilePictureUrlExpiresAt,
-    profilePictureFileName: _ignoredProfilePictureFileName,
-    profilePictureUpdatedAt: _ignoredProfilePictureUpdatedAt,
-    profilePictureDataUrl: _ignoredProfilePictureDataUrl,
-    ...editableProfile
-  } = profile;
+  const payload = {
+    settings: {},
+  };
+
+  if (isPlainObject(settings?.profile)) {
+    const profile = settings.profile;
+    const normalizedFirstName = normalizeProfileNameField(profile.firstName);
+    const normalizedMiddleName = normalizeProfileNameField(profile.middleName);
+    const normalizedLastName = normalizeProfileNameField(profile.lastName);
+    const normalizedContactNumber = sanitizeString(profile.contactNumber);
+
+    payload.settings.profile = {
+      firstName: normalizedFirstName,
+      middleName: normalizedMiddleName || null,
+      lastName: normalizedLastName,
+      contactNumber: normalizedContactNumber,
+    };
+  }
+
+  if (isPlainObject(settings?.notificationRulePreferences)) {
+    payload.settings.notificationRulePreferences =
+      settings.notificationRulePreferences;
+  }
+
+  if (isPlainObject(settings?.metadata)) {
+    payload.settings.metadata = settings.metadata;
+  }
+
   const response = await fetch(`${API_BASE_URL}/api/v1/settings/current`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      settings: {
-        ...DEFAULT_PREFERENCES,
-        ...(settings || {}),
-        profile: editableProfile,
-        notificationRulePreferences:
-          settings?.notificationRulePreferences || {},
-      },
-    }),
+    body: JSON.stringify(payload),
   });
 
-  const payload = await handleJsonResponse(response, "Failed to save settings");
-  const resolvedSettings = normalizeStoredSettings(payload?.data || {});
+  const responsePayload = await handleJsonResponse(
+    response,
+    "Failed to save settings",
+  );
+  const resolvedSettings = normalizeStoredSettings(responsePayload?.data || {});
 
   writeRoleSettingsCache({
     roleCode,
@@ -502,7 +554,7 @@ export const saveRoleSettings = async ({
   return {
     success: true,
     data: resolvedSettings,
-    user: payload?.user || null,
+    user: responsePayload?.user || null,
   };
 };
 

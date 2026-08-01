@@ -1,15 +1,18 @@
-import { buildPayloadSummary } from "../../features/sync/syncManagementHelpers";
-import { LOCAL_SYNC_STATUS } from "../../offline/db";
-import { ROLE_CODES } from "../../utils/roleSession";
-import { BARANGAY_POSITION_LABEL, ROLE_DISPLAY_NAMES } from "./settingsConfig";
+import { buildPayloadSummary } from "../../features/sync/syncManagementHelpers.js";
+import { LOCAL_SYNC_STATUS } from "../../offline/db.js";
+import { ROLE_CODES } from "../../utils/roleSession.js";
+import { BARANGAY_POSITION_LABEL, ROLE_DISPLAY_NAMES } from "./settingsConfig.js";
 
 export const createDefaultRolePreferences = () => ({
   roleCode: "",
   profile: {
-    fullName: "",
+    firstName: "",
+    middleName: "",
+    lastName: "",
     position: BARANGAY_POSITION_LABEL,
     contactNumber: "",
     emailAddress: "",
+    assignedBarangay: null,
     profilePicturePath: "",
     profilePictureUrl: "",
     profilePictureUrlExpiresAt: "",
@@ -183,28 +186,75 @@ export const formatPhilippineContactNumberForDisplay = (value = "") => {
   return [firstBlock, secondBlock, thirdBlock].filter(Boolean).join(" ");
 };
 
+const NAME_FIELD_MAX_LENGTH = 100;
+const NAME_VALUE_PATTERN =
+  /^[\p{L}\p{M}][\p{L}\p{M}\p{N} .'-]*[\p{L}\p{M}\p{N}.']?$|^[\p{L}\p{M}]$/u;
+
+const normalizeNameField = (value = "") =>
+  String(value || "")
+    .trim()
+    .replace(/\s+/g, " ");
+
+const validateProfileNameField = ({
+  label,
+  value,
+  required = false,
+}) => {
+  const normalizedValue = normalizeNameField(value);
+
+  if (!normalizedValue) {
+    return required ? `${label} is required.` : "";
+  }
+
+  if (normalizedValue.length > NAME_FIELD_MAX_LENGTH) {
+    return `${label} is too long.`;
+  }
+
+  if (!NAME_VALUE_PATTERN.test(normalizedValue)) {
+    return "The name contains unsupported characters.";
+  }
+
+  return "";
+};
+
+export const buildDisplayName = ({
+  firstName = "",
+  middleName = "",
+  lastName = "",
+} = {}) =>
+  [firstName, middleName, lastName]
+    .map((value) => normalizeNameField(value))
+    .filter(Boolean)
+    .join(" ");
+
 export const getBarangayProfileValidationErrors = (profile = {}) => {
   const errors = {};
-  const fullName = String(profile.fullName || "").trim();
+  const firstName = normalizeNameField(profile.firstName);
+  const middleName = normalizeNameField(profile.middleName);
+  const lastName = normalizeNameField(profile.lastName);
   const contactNumber = normalizePhilippineContactNumber(
     String(profile.contactNumber || "").trim(),
   );
-  const emailAddress = String(profile.emailAddress || "").trim();
 
-  if (!fullName) {
-    errors.fullName = "Full name is required.";
-  }
+  errors.firstName = validateProfileNameField({
+    label: "First name",
+    value: firstName,
+    required: true,
+  });
+  errors.middleName = validateProfileNameField({
+    label: "Middle name",
+    value: middleName,
+  });
+  errors.lastName = validateProfileNameField({
+    label: "Last name",
+    value: lastName,
+    required: true,
+  });
 
   if (!contactNumber) {
     errors.contactNumber = "Contact number is required.";
   } else if (!isValidPhilippineContactNumber(contactNumber)) {
     errors.contactNumber = "Please enter a valid contact number.";
-  }
-
-  if (!emailAddress) {
-    errors.emailAddress = "Please enter a valid email address.";
-  } else if (!isValidEmailAddress(emailAddress)) {
-    errors.emailAddress = "Please enter a valid email address.";
   }
 
   return errors;

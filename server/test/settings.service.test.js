@@ -103,6 +103,7 @@ test("getCurrentSettings omits the removed export preference field", async () =>
       [poolPath]: {},
       [settingsRepositoryPath]: {
         getUserById: async () => user,
+        getBarangayById: async () => null,
         getUserRoleSettings: async () => ({
           id: "settings-1",
           user_id: user.id,
@@ -121,7 +122,9 @@ test("getCurrentSettings omits the removed export preference field", async () =>
           throw new Error("Unexpected sanitization write");
         },
       },
-      [notificationRepositoryPath]: {},
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [],
+      },
       [notificationServicePath]: {
         getNotificationRulesForRole: async () => [],
       },
@@ -165,6 +168,7 @@ test("saveCurrentSettings ignores legacy export preference input and does not pe
       },
       [settingsRepositoryPath]: {
         getUserById: async () => updatedUser,
+        getBarangayById: async () => null,
         getUserRoleSettings: async () => null,
         updateUserProfile: async (_userId, changes) => ({
           ...updatedUser,
@@ -186,7 +190,9 @@ test("saveCurrentSettings ignores legacy export preference input and does not pe
           return payload;
         },
       },
-      [notificationRepositoryPath]: {},
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [],
+      },
       [notificationServicePath]: {
         getNotificationRulesForRole: async () => [],
       },
@@ -200,7 +206,9 @@ test("saveCurrentSettings ignores legacy export preference input and does not pe
           preferredExportFormat: "pdf",
           enabledNotificationRuleCodes: [],
           profile: {
-            fullName: "Mario Rivera",
+            firstName: "Mario",
+            middleName: "",
+            lastName: "Rivera",
             contactNumber: updatedUser.contact_number,
           },
           notificationChannels: {},
@@ -218,7 +226,9 @@ test("saveCurrentSettings ignores legacy export preference input and does not pe
         false,
       );
       assert.match(String(dbClient.statements[0]), /BEGIN/i);
-      assert.match(String(dbClient.statements[1]), /COMMIT/i);
+      assert.ok(
+        dbClient.statements.some((statement) => /COMMIT/i.test(String(statement))),
+      );
     },
   );
 });
@@ -245,6 +255,7 @@ test("uploadCurrentProfilePicture stores a private path and returns signed metad
       },
       [settingsRepositoryPath]: {
         getUserById: async () => user,
+        getBarangayById: async () => null,
         getUserRoleSettings: async () => ({
           user_id: user.id,
           role_code: "MSWDO",
@@ -262,7 +273,9 @@ test("uploadCurrentProfilePicture stores a private path and returns signed metad
         },
         insertRoleSettingsSnapshot: async () => ({}),
       },
-      [notificationRepositoryPath]: {},
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [],
+      },
       [notificationServicePath]: {
         getNotificationRulesForRole: async () => [],
       },
@@ -326,13 +339,16 @@ test("uploadCurrentProfilePicture removes the new object when the database write
       },
       [settingsRepositoryPath]: {
         getUserById: async () => user,
+        getBarangayById: async () => null,
         getUserRoleSettings: async () => null,
         upsertUserRoleSettings: async () => {
           throw new Error("Database write failed");
         },
         insertRoleSettingsSnapshot: async () => ({}),
       },
-      [notificationRepositoryPath]: {},
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [],
+      },
       [notificationServicePath]: {
         getNotificationRulesForRole: async () => [],
       },

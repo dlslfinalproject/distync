@@ -25,6 +25,20 @@ const getUserById = async (userId, dbClient = pool) => {
   return result.rows[0] || null;
 };
 
+const getBarangayById = async (barangayId, dbClient = pool) => {
+  const query = `
+    SELECT
+      id,
+      name
+    FROM barangays
+    WHERE id = $1
+    LIMIT 1
+  `;
+
+  const result = await dbClient.query(query, [barangayId]);
+  return result.rows[0] || null;
+};
+
 const updateUserProfile = async (
   userId,
   {
@@ -37,9 +51,9 @@ const updateUserProfile = async (
 ) => {
   const query = `
     UPDATE users
-    SET first_name = COALESCE($2, first_name),
-        middle_name = COALESCE($3, middle_name),
-        last_name = COALESCE($4, last_name),
+    SET first_name = $2,
+        middle_name = $3,
+        last_name = $4,
         contact_number = $5,
         updated_at = NOW()
     WHERE id = $1
@@ -217,6 +231,7 @@ const insertRoleSettingsSnapshot = async (
 };
 
 module.exports = {
+  getBarangayById,
   getUserById,
   getUserRoleSettings,
   insertRoleSettingsSnapshot,

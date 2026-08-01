@@ -14,6 +14,7 @@ const {
 
 const SETTINGS_AUDIT_ACTION = "UPSERT_ROLE_SETTINGS";
 const SETTINGS_ENTITY_TYPE = "ROLE_SETTINGS";
+const PROFILE_UPDATED_AUDIT_ACTION = "PROFILE_UPDATED";
 const PROFILE_PICTURE_UPLOADED_AUDIT_ACTION = "PROFILE_PICTURE_UPLOADED";
 const PROFILE_PICTURE_REPLACED_AUDIT_ACTION = "PROFILE_PICTURE_REPLACED";
 const PROFILE_PICTURE_REMOVED_AUDIT_ACTION = "PROFILE_PICTURE_REMOVED";
@@ -35,6 +36,9 @@ const ROLE_POSITION_LABELS = {
 };
 const EMAIL_ADDRESS_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHILIPPINE_CONTACT_NUMBER_PATTERN = /^\+639\d{9}$/;
+const NAME_VALUE_PATTERN =
+  /^[\p{L}\p{M}][\p{L}\p{M}\p{N} .'-]*[\p{L}\p{M}\p{N}.']?$|^[\p{L}\p{M}]$/u;
+const NAME_MAX_LENGTH = 100;
 
 const isPlainObject = (value) =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -48,6 +52,8 @@ const sanitizeString = (value, fallbackValue = "") => {
 };
 
 const normalizeEmailAddress = (value) => sanitizeString(value);
+const normalizeNameField = (value) =>
+  sanitizeString(value).replace(/\s+/g, " ");
 
 const normalizePhilippineContactNumber = (value = "") => {
   const rawValue = sanitizeString(value);
@@ -103,18 +109,28 @@ const parseTimestampValue = (value) => {
   return Number.isNaN(parsedValue.getTime()) ? null : parsedValue.toISOString();
 };
 
-const buildFullNameFromUser = (user = {}) =>
-  [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
+const buildDisplayName = ({
+  firstName = "",
+  middleName = "",
+  lastName = "",
+} = {}) =>
+  [firstName, middleName, lastName]
+    .map((value) => normalizeNameField(value))
+    .filter(Boolean)
+    .join(" ");
 
 const getRolePositionLabel = (roleCode) => ROLE_POSITION_LABELS[roleCode] || "";
 
 const createDefaultRoleSettings = () => ({
   roleCode: "",
   profile: {
-    fullName: "",
+    firstName: "",
+    middleName: "",
+    lastName: "",
     position: "",
     contactNumber: "",
     emailAddress: "",
+    assignedBarangay: null,
     profilePicturePath: "",
     profilePictureUrl: "",
     profilePictureUrlExpiresAt: "",
@@ -135,10 +151,18 @@ const buildPersistedSnapshot = (settings = {}) => {
   return {
     profile: {
       ...defaults.profile,
-      fullName: sanitizeString(settings?.profile?.fullName),
+      firstName: normalizeNameField(settings?.profile?.firstName),
+      middleName: normalizeNameField(settings?.profile?.middleName) || null,
+      lastName: normalizeNameField(settings?.profile?.lastName),
       position: sanitizeString(settings?.profile?.position),
       contactNumber: sanitizeString(settings?.profile?.contactNumber),
       emailAddress: sanitizeString(settings?.profile?.emailAddress),
+      assignedBarangay: isPlainObject(settings?.profile?.assignedBarangay)
+        ? {
+            id: sanitizeString(settings.profile.assignedBarangay.id),
+            name: sanitizeString(settings.profile.assignedBarangay.name),
+          }
+        : null,
       profilePicturePath: profilePictureStorageService.normalizeStoragePath(
         settings?.profile?.profilePicturePath,
       ),
@@ -167,11 +191,22 @@ const buildPersistedSnapshot = (settings = {}) => {
 const buildEditableSettingsSnapshot = (settings = {}) => {
   const profile = isPlainObject(settings.profile) ? settings.profile : {};
   const metadata = isPlainObject(settings.metadata) ? settings.metadata : {};
+  const hasProfilePayload = isPlainObject(settings.profile);
 
   return {
     profile: {
-      fullName: sanitizeString(profile.fullName),
-      contactNumber: sanitizeString(profile.contactNumber),
+      firstName: hasProfilePayload
+        ? normalizeNameField(profile.firstName)
+        : undefined,
+      middleName: hasProfilePayload
+        ? normalizeNameField(profile.middleName)
+        : undefined,
+      lastName: hasProfilePayload
+        ? normalizeNameField(profile.lastName)
+        : undefined,
+      contactNumber: hasProfilePayload
+        ? sanitizeString(profile.contactNumber)
+        : undefined,
     },
     notificationRulePreferences: sanitizeNotificationRulePreferences(
       settings.notificationRulePreferences || settings.preferences,
@@ -185,10 +220,13 @@ const buildEditableSettingsSnapshot = (settings = {}) => {
 
 const buildPersistedSettingsFromRecord = (record = {}) => ({
   profile: {
-    fullName: "",
+    firstName: "",
+    middleName: "",
+    lastName: "",
     position: "",
     contactNumber: "",
     emailAddress: "",
+    assignedBarangay: null,
     profilePicturePath: profilePictureStorageService.normalizeStoragePath(
       record.profile_picture_path,
     ),
@@ -231,24 +269,36 @@ const buildUserRoleSettingsPayload = (settings = {}) => ({
     new Date().toISOString(),
 });
 
-const splitFullNameForUserColumns = (fullName, user) => {
-  const tokens = sanitizeString(fullName)
-    .split(/\s+/)
-    .filter(Boolean);
+const validateNameFieldOrThrow = ({
+  label,
+  value,
+  required = false,
+}) => {
+  const normalizedValue = normalizeNameField(value);
 
-  if (tokens.length < 2) {
-    return {
-      firstName: user.first_name,
-      middleName: user.middle_name,
-      lastName: user.last_name,
-    };
+  if (!normalizedValue) {
+    if (required) {
+      const error = new Error(`${label} is required.`);
+      error.statusCode = 400;
+      throw error;
+    }
+
+    return null;
   }
 
-  return {
-    firstName: tokens[0],
-    middleName: user.middle_name,
-    lastName: tokens.slice(1).join(" "),
-  };
+  if (normalizedValue.length > NAME_MAX_LENGTH) {
+    const error = new Error(`${label} is too long.`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!NAME_VALUE_PATTERN.test(normalizedValue)) {
+    const error = new Error("The name contains unsupported characters.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return normalizedValue;
 };
 
 const validateEmailAddressOrThrow = (value) => {
@@ -315,6 +365,13 @@ const buildSessionUser = (user, roleCode) => ({
   role: roleCode,
   default_barangay_id: user.default_barangay_id || null,
   is_active: user.is_active,
+});
+
+const buildProfileFieldAuditValues = (user = {}) => ({
+  firstName: normalizeNameField(user.first_name),
+  middleName: normalizeNameField(user.middle_name) || null,
+  lastName: normalizeNameField(user.last_name),
+  contactNumber: sanitizeString(user.contact_number),
 });
 
 const buildAuditSafeSettingsSnapshot = (settings = {}) => {
@@ -397,12 +454,11 @@ const buildRoleSettingsResponse = async ({
   roleCode,
   user,
   snapshot,
+  assignedBarangay = null,
   dbClient,
 }) => {
   const defaults = createDefaultRoleSettings();
   const normalizedSnapshot = buildPersistedSnapshot(snapshot || {});
-  const profileFullName =
-    normalizedSnapshot.profile.fullName || buildFullNameFromUser(user);
   const policyRows = await getRolePolicyRows({ roleCode, dbClient });
   const notificationSettings = buildNotificationSettingsResponse({
     roleCode,
@@ -416,7 +472,9 @@ const buildRoleSettingsResponse = async ({
     profile: {
       ...defaults.profile,
       ...normalizedSnapshot.profile,
-      fullName: profileFullName,
+      firstName: normalizeNameField(user?.first_name),
+      middleName: normalizeNameField(user?.middle_name) || null,
+      lastName: normalizeNameField(user?.last_name),
       position: getRolePositionLabel(roleCode),
       contactNumber: sanitizeString(
         user?.contact_number || normalizedSnapshot.profile.contactNumber,
@@ -424,6 +482,13 @@ const buildRoleSettingsResponse = async ({
       emailAddress: sanitizeString(
         user?.email || normalizedSnapshot.profile.emailAddress,
       ),
+      assignedBarangay:
+        assignedBarangay && assignedBarangay.id
+          ? {
+              id: assignedBarangay.id,
+              name: sanitizeString(assignedBarangay.name),
+            }
+          : null,
     },
     notificationRulePreferences: notificationSettings.notificationRulePreferences,
     effectiveNotificationChannels: notificationSettings.effectiveNotificationChannels,
@@ -448,8 +513,13 @@ const getValidatedUserAndSnapshot = async ({
   ensureUserExists(user);
   ensureUserIsActive(user);
 
+  const assignedBarangay = user.default_barangay_id
+    ? await settingsRepository.getBarangayById(user.default_barangay_id, dbClient)
+    : null;
+
   return {
     user,
+    assignedBarangay,
     snapshot: buildPersistedSettingsFromRecord(latestSnapshot || {}),
   };
 };
@@ -619,6 +689,9 @@ const getCurrentSettings = async ({ userId, roleCode }) => {
     roleCode,
     user,
     snapshot,
+    assignedBarangay: user.default_barangay_id
+      ? await settingsRepository.getBarangayById(user.default_barangay_id)
+      : null,
   });
 
   return attachSignedProfilePictureMetadata(settings);
@@ -637,7 +710,7 @@ const saveCurrentSettings = async ({
   try {
     await dbClient.query("BEGIN");
 
-    const { user, snapshot } = await getValidatedUserAndSnapshot({
+    const { user, snapshot, assignedBarangay } = await getValidatedUserAndSnapshot({
       userId,
       roleCode,
       dbClient,
@@ -646,11 +719,41 @@ const saveCurrentSettings = async ({
       roleCode,
       user,
       snapshot,
+      assignedBarangay,
       dbClient,
     });
     const incomingSnapshot = buildEditableSettingsSnapshot(settings || {});
+    const hasIncomingProfileUpdate =
+      incomingSnapshot.profile.firstName !== undefined ||
+      incomingSnapshot.profile.middleName !== undefined ||
+      incomingSnapshot.profile.lastName !== undefined ||
+      incomingSnapshot.profile.contactNumber !== undefined;
+    const normalizedFirstName = hasIncomingProfileUpdate
+      ? validateNameFieldOrThrow({
+          label: "First name",
+          value: incomingSnapshot.profile.firstName,
+          required: true,
+        })
+      : normalizeNameField(user.first_name);
+    const normalizedMiddleName = hasIncomingProfileUpdate
+      ? validateNameFieldOrThrow({
+          label: "Middle name",
+          value: incomingSnapshot.profile.middleName,
+        })
+      : normalizeNameField(user.middle_name) || null;
+    const normalizedLastName = hasIncomingProfileUpdate
+      ? validateNameFieldOrThrow({
+          label: "Last name",
+          value: incomingSnapshot.profile.lastName,
+          required: true,
+        })
+      : normalizeNameField(user.last_name);
     const normalizedContactNumber = validateContactNumberOrThrow(
-      incomingSnapshot.profile.contactNumber || user.contact_number || "",
+      (hasIncomingProfileUpdate
+        ? incomingSnapshot.profile.contactNumber
+        : user.contact_number) ||
+        user.contact_number ||
+        "",
     );
     const lockedEmailAddress = validateEmailAddressOrThrow(user.email);
     const normalizedNotificationRulePreferences =
@@ -666,32 +769,50 @@ const saveCurrentSettings = async ({
       profile: {
         ...snapshot.profile,
         ...incomingSnapshot.profile,
+        firstName: normalizedFirstName,
+        middleName: normalizedMiddleName || "",
+        lastName: normalizedLastName,
         position: getRolePositionLabel(roleCode),
         contactNumber: normalizedContactNumber,
         emailAddress: lockedEmailAddress,
+        assignedBarangay:
+          assignedBarangay && assignedBarangay.id
+            ? {
+                id: assignedBarangay.id,
+                name: assignedBarangay.name,
+              }
+            : null,
       },
       notificationRulePreferences: normalizedNotificationRulePreferences,
       metadata: {
         ...snapshot.metadata,
         ...incomingSnapshot.metadata,
+        lastProfileUpdateAt: new Date().toISOString(),
       },
     };
 
-    const nameColumns = splitFullNameForUserColumns(
-      mergedSnapshot.profile.fullName || buildFullNameFromUser(user),
-      user,
-    );
+    const updatedUser = hasIncomingProfileUpdate
+      ? await settingsRepository.updateUserProfile(
+          userId,
+          {
+            firstName: normalizedFirstName,
+            middleName: normalizedMiddleName,
+            lastName: normalizedLastName,
+            contactNumber: normalizedContactNumber || null,
+          },
+          dbClient,
+        )
+      : user;
 
-    const updatedUser = await settingsRepository.updateUserProfile(
-      userId,
-      {
-        firstName: nameColumns.firstName,
-        middleName: nameColumns.middleName,
-        lastName: nameColumns.lastName,
-        contactNumber: normalizedContactNumber || null,
-      },
-      dbClient,
-    );
+    const changedProfileFields = [];
+    const previousProfileValues = buildProfileFieldAuditValues(user);
+    const nextProfileValues = buildProfileFieldAuditValues(updatedUser);
+
+    Object.keys(nextProfileValues).forEach((fieldName) => {
+      if ((previousProfileValues[fieldName] || "") !== (nextProfileValues[fieldName] || "")) {
+        changedProfileFields.push(fieldName);
+      }
+    });
 
     const nextSettings = await buildRoleSettingsResponse({
       roleCode,
@@ -703,6 +824,7 @@ const saveCurrentSettings = async ({
           lastPreferenceSaveAt: new Date().toISOString(),
         },
       },
+      assignedBarangay,
       dbClient,
     });
 
@@ -722,6 +844,27 @@ const saveCurrentSettings = async ({
     })
       ? NOTIFICATION_RESET_AUDIT_ACTION
       : NOTIFICATION_UPDATE_AUDIT_ACTION;
+
+    await insertAuditLog(
+      {
+        user_id: userId,
+        role_code: roleCode,
+        device_id: null,
+        action: PROFILE_UPDATED_AUDIT_ACTION,
+        entity_type: "USER_PROFILE",
+        entity_id: userId,
+        old_values_json: {
+          changedFields: changedProfileFields,
+          profile: previousProfileValues,
+        },
+        new_values_json: {
+          changedFields: changedProfileFields,
+          profile: nextProfileValues,
+        },
+        ip_address: ipAddress,
+      },
+      dbClient,
+    );
 
     await insertAuditLog(
       {

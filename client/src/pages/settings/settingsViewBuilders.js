@@ -7,6 +7,7 @@ import {
 } from "./settingsConfig";
 import {
   LOCAL_SYNC_STATUS,
+  buildDisplayName,
   ensureArray,
   ensureObject,
   formatDateTime,
@@ -38,8 +39,8 @@ const buildDefaultSectionCard = (section, statusTone = "info", statusLabel = "Op
 const buildProfileSectionCard = (section, preferences) =>
   buildDefaultSectionCard(
     section,
-    preferences.profile.fullName ? "success" : "warning",
-    preferences.profile.fullName ? "Profile ready" : "Needs details",
+    buildDisplayName(preferences.profile) ? "success" : "warning",
+    buildDisplayName(preferences.profile) ? "Profile ready" : "Needs details",
   );
 
 const buildNotificationSectionCard = (

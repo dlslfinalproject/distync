@@ -91,6 +91,7 @@ const buildSessionPayload = (user, roleCode) => {
       id: user.id,
       email: user.email,
       first_name: user.first_name,
+      middle_name: user.middle_name || null,
       last_name: user.last_name,
       role: roleCode,
       default_barangay_id: user.default_barangay_id,
