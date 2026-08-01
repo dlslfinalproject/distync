@@ -12,6 +12,8 @@ const donorTypes = [
   "GOVERNMENT_PARTNER",
   "OTHER",
 ];
+const donationExportTypes = ["LOOSE_ITEM", "RELIEF_PACK"];
+const donationExportSortOrders = ["newest", "oldest", "az", "za"];
 const invalidDonorTypeMessage = "Please select a valid donor type.";
 const invalidDonorTypeOtherMessage =
   "Please specify the donor type when Other is selected.";
@@ -210,6 +212,79 @@ const validateDonationFilters = (req, res, next) => {
     donor_type: donor_type || null,
     status: status || null,
     search: typeof search === "string" && search.trim() ? search.trim() : null,
+  };
+
+  return next();
+};
+
+const validateDonationExportFilters = (req, res, next) => {
+  const {
+    disaster_event_id,
+    donation_type,
+    donor_type,
+    sort_order,
+    search,
+  } = req.query;
+
+  if (disaster_event_id !== undefined && !isValidUuid(disaster_event_id)) {
+    return res.status(400).json({
+      message: "disaster_event_id must be a valid UUID when provided",
+    });
+  }
+
+  if (donation_type !== undefined && !donationExportTypes.includes(donation_type)) {
+    return res.status(400).json({
+      message: "donation_type must be one of: LOOSE_ITEM, RELIEF_PACK",
+    });
+  }
+
+  if (donor_type !== undefined && !donorTypes.includes(donor_type)) {
+    return res.status(400).json({
+      message: invalidDonorTypeMessage,
+    });
+  }
+
+  if (
+    sort_order !== undefined &&
+    !donationExportSortOrders.includes(sort_order)
+  ) {
+    return res.status(400).json({
+      message: "sort_order must be one of: newest, oldest, az, za",
+    });
+  }
+
+  req.validatedQuery = {
+    disaster_event_id: disaster_event_id || null,
+    donation_type: donation_type || null,
+    donor_type: donor_type || null,
+    sort_order: sort_order || "newest",
+    search: typeof search === "string" && search.trim() ? search.trim() : null,
+  };
+
+  return next();
+};
+
+const validateDonationTransparencyExportFilters = (req, res, next) => {
+  const { disaster_event_id, sort_order } = req.query;
+
+  if (disaster_event_id !== undefined && !isValidUuid(disaster_event_id)) {
+    return res.status(400).json({
+      message: "disaster_event_id must be a valid UUID when provided",
+    });
+  }
+
+  if (
+    sort_order !== undefined &&
+    !donationExportSortOrders.includes(sort_order)
+  ) {
+    return res.status(400).json({
+      message: "sort_order must be one of: newest, oldest, az, za",
+    });
+  }
+
+  req.validatedQuery = {
+    disaster_event_id: disaster_event_id || null,
+    sort_order: sort_order || "newest",
   };
 
   return next();
@@ -476,7 +551,9 @@ module.exports = {
   validateDonationNeedFilters,
   validateDonationNeedPayload,
   validateDonationId,
+  validateDonationExportFilters,
   validateDonationFilters,
+  validateDonationTransparencyExportFilters,
   validateDonationPayload,
   validateDonationUpdatePayload,
   validateDonationItemId,

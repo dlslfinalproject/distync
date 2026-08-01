@@ -24,6 +24,20 @@ const sortOptions = [
   { value: "za", label: "Z-A" },
 ];
 
+const transparencySortOptions = [
+  { value: "newest", label: "Newest-Oldest" },
+  { value: "oldest", label: "Oldest-Newest" },
+  { value: "az", label: "A-Z" },
+  { value: "za", label: "Z-A" },
+];
+
+const transparencyMovementFilterOptions = [
+  { value: "has_distributed", label: "Has Distributed Quantity" },
+  { value: "has_write_off", label: "Has Write-Off" },
+  { value: "has_remaining", label: "Has Remaining Balance" },
+  { value: "no_remaining", label: "No Remaining Balance" },
+];
+
 const getFilterPanelPosition = ({ triggerRect, panelHeight }) => {
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
@@ -76,17 +90,17 @@ const getFilterPanelPosition = ({ triggerRect, panelHeight }) => {
 };
 
 const toolbarStyles = {
-  controlsGroup: {
+  row: {
     display: "flex",
+    justifyContent: "space-between",
     alignItems: "center",
-    gap: "12px",
-    flex: "1 1 520px",
-    flexWrap: "wrap",
-    minWidth: 0,
+    gap: "16px",
+    flexWrap: "nowrap",
+    width: "100%",
   },
   searchWrap: {
-    flex: "1 1 420px",
-    minWidth: "260px",
+    flex: 1,
+    minWidth: 0,
   },
   inlineSelectWrap: {
     display: "flex",
@@ -112,6 +126,21 @@ const toolbarStyles = {
     boxSizing: "border-box",
     appearance: "auto",
     minHeight: "44px",
+  },
+  controlsWrap: {
+    display: "flex",
+    gap: "16px",
+    flexWrap: "nowrap",
+    alignItems: "center",
+    flex: "0 0 auto",
+  },
+  actionGroup: {
+    display: "flex",
+    gap: "12px",
+    flexWrap: "nowrap",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    flex: "0 0 auto",
   },
   filterPanel: {
     position: "fixed",
@@ -194,10 +223,14 @@ const DonationFilters = ({
   donationSearch,
   donationTypeFilter,
   donationToolbarFilters,
+  transparencySearch,
+  transparencyToolbarFilters,
   onSelectedEventChange,
   onDonationSearchChange,
   onDonationTypeFilterChange,
   onDonationToolbarFilterChange,
+  onTransparencySearchChange,
+  onTransparencyToolbarFilterChange,
   onOpenDonationModal,
   onExportDonations,
   isExportingTransparency,
@@ -218,8 +251,22 @@ const DonationFilters = ({
     ? donationToolbarFilters.donorTypes
     : [];
   const selectedSortOrder = donationToolbarFilters?.sortOrder || "newest";
-  const activeFilterCount =
+  const selectedTransparencyMovements = Array.isArray(
+    transparencyToolbarFilters?.movements,
+  )
+    ? transparencyToolbarFilters.movements
+    : [];
+  const selectedTransparencySortOrder =
+    transparencyToolbarFilters?.sortOrder || "newest";
+  const donationActiveFilterCount =
     selectedDonorTypes.length + (selectedSortOrder !== "newest" ? 1 : 0);
+  const transparencyActiveFilterCount =
+    selectedTransparencyMovements.length +
+    (selectedTransparencySortOrder !== "newest" ? 1 : 0);
+  const activeFilterCount =
+    activeTab === "transparency"
+      ? transparencyActiveFilterCount
+      : donationActiveFilterCount;
 
   const updateFilterPanelPosition = useCallback(() => {
     if (!filterButtonRef.current) {
@@ -273,7 +320,21 @@ const DonationFilters = ({
     onDonationToolbarFilterChange?.("donorTypes", nextDonorTypes);
   };
 
+  const handleToggleTransparencyMovement = (movement) => {
+    const nextMovements = selectedTransparencyMovements.includes(movement)
+      ? selectedTransparencyMovements.filter((entry) => entry !== movement)
+      : [...selectedTransparencyMovements, movement];
+
+    onTransparencyToolbarFilterChange?.("movements", nextMovements);
+  };
+
   const handleClearFilters = () => {
+    if (activeTab === "transparency") {
+      onTransparencyToolbarFilterChange?.("sortOrder", "newest");
+      onTransparencyToolbarFilterChange?.("movements", []);
+      return;
+    }
+
     onDonationToolbarFilterChange?.("sortOrder", "newest");
     onDonationToolbarFilterChange?.("donorTypes", []);
   };
@@ -326,29 +387,22 @@ const DonationFilters = ({
           }}
         >
           <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "16px",
-              flexWrap: "wrap",
-            }}
+            style={toolbarStyles.row}
           >
-            <div style={toolbarStyles.controlsGroup}>
-              <div style={toolbarStyles.searchWrap}>
-                <SearchBar
-                  value={donationSearch}
-                  onChange={onDonationSearchChange}
-                  placeholder="Search by donor name or item name"
-                />
-              </div>
+            <div style={toolbarStyles.searchWrap}>
+              <SearchBar
+                value={donationSearch}
+                onChange={onDonationSearchChange}
+                placeholder="Search by donor name or item name"
+              />
+            </div>
 
-              <div style={toolbarStyles.inlineSelectWrap}>
-                <label
-                  htmlFor="donation-type-filter"
-                  style={toolbarStyles.inlineSelectLabel}
-                >
-                  Type
-                </label>
+            <div style={toolbarStyles.controlsWrap}>
+              <label
+                htmlFor="donation-type-filter"
+                style={toolbarStyles.inlineSelectWrap}
+              >
+                <span style={toolbarStyles.inlineSelectLabel}>Type</span>
                 <select
                   id="donation-type-filter"
                   value={donationTypeFilter}
@@ -359,7 +413,7 @@ const DonationFilters = ({
                   <option value="LOOSE ITEM">Loose Item</option>
                   <option value="RELIEF PACK">Relief Pack</option>
                 </select>
-              </div>
+              </label>
 
               <div>
                 <button
@@ -437,63 +491,55 @@ const DonationFilters = ({
                   </div>
                 ) : null}
               </div>
-            </div>
 
-            <div
-              style={{
-                display: "flex",
-                gap: "12px",
-                flexWrap: "wrap",
-                alignItems: "center",
-                justifyContent: "flex-end",
-              }}
-            >
-              {canManageDonations ? (
-                <button
-                  type="button"
-                  onClick={onOpenDonationModal}
-                  style={pageHeaderStyles.primaryButton}
-                >
-                  <span
-                    style={{
-                      position: "relative",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      width: "18px",
-                      height: "18px",
-                      flexShrink: 0,
-                    }}
+              <div style={toolbarStyles.actionGroup}>
+                {canManageDonations ? (
+                  <button
+                    type="button"
+                    onClick={onOpenDonationModal}
+                    style={pageHeaderStyles.primaryButton}
                   >
-                    <FiPackage size={16} />
                     <span
                       style={{
-                        position: "absolute",
-                        right: "-3px",
-                        bottom: "-2px",
+                        position: "relative",
                         display: "inline-flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        lineHeight: 1,
+                        width: "18px",
+                        height: "18px",
+                        flexShrink: 0,
                       }}
                     >
-                      <FiPlus size={10} strokeWidth={3} />
+                      <FiPackage size={16} />
+                      <span
+                        style={{
+                          position: "absolute",
+                          right: "-3px",
+                          bottom: "-2px",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          lineHeight: 1,
+                        }}
+                      >
+                        <FiPlus size={10} strokeWidth={3} />
+                      </span>
                     </span>
-                  </span>
-                  Add Donation
-                </button>
-              ) : null}
+                    Add Donation
+                  </button>
+                ) : null}
 
-              {canManageDonations ? (
-                <button
-                  type="button"
-                  onClick={onExportDonations}
-                  style={pageHeaderStyles.secondaryButton}
-                >
-                  <FiFileText size={16} />
-                  Export
-                </button>
-              ) : null}
+                {canManageDonations ? (
+                  <button
+                    type="button"
+                    onClick={onExportDonations}
+                    style={pageHeaderStyles.secondaryButton}
+                  >
+                    <FiFileText size={16} />
+                    Export
+                  </button>
+                ) : null}
+              </div>
             </div>
           </div>
         </div>
@@ -502,23 +548,117 @@ const DonationFilters = ({
       {activeTab === "transparency" && showTransparencyActions ? (
         <div
           style={{
-            display: "flex",
-            justifyContent: "flex-end",
+            width: "100%",
+            display: "grid",
+            gap: "16px",
           }}
         >
-          {canManageDonations ? (
-            <button
-              type="button"
-              onClick={onOpenTransparencyExport}
-              style={pageHeaderStyles.secondaryButton}
-              disabled={Boolean(isExportingTransparency)}
-            >
-              <FiFileText size={16} />
-              {isExportingTransparency
-                ? `Exporting ${isExportingTransparency.toUpperCase()}...`
-                : "Export"}
-            </button>
-          ) : null}
+          <div style={toolbarStyles.row}>
+            <div style={toolbarStyles.searchWrap}>
+              <SearchBar
+                value={transparencySearch}
+                onChange={onTransparencySearchChange}
+                placeholder="Search by donor, item, event, or write-off reason"
+              />
+            </div>
+
+            <div style={toolbarStyles.controlsWrap}>
+              <div>
+                <button
+                  ref={filterButtonRef}
+                  type="button"
+                  onClick={() => setIsFilterOpen((currentValue) => !currentValue)}
+                  style={{
+                    ...pageHeaderStyles.secondaryButton,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                >
+                  <FiFilter size={16} />
+                  {activeFilterCount > 0 ? `Filter (${activeFilterCount})` : "Filter"}
+                </button>
+
+                {isFilterOpen ? (
+                  <div
+                    ref={filterPanelRef}
+                    style={{
+                      ...toolbarStyles.filterPanel,
+                      top: filterPanelPosition.top,
+                      left: filterPanelPosition.left,
+                      maxHeight: filterPanelPosition.maxHeight,
+                    }}
+                  >
+                    <h3 style={toolbarStyles.filterTitle}>Filter Records</h3>
+
+                    <label style={toolbarStyles.filterField}>
+                      <span style={toolbarStyles.filterLabel}>Order List</span>
+                      <select
+                        value={selectedTransparencySortOrder}
+                        onChange={(event) =>
+                          onTransparencyToolbarFilterChange?.(
+                            "sortOrder",
+                            event.target.value,
+                          )
+                        }
+                        style={toolbarStyles.filterSelect}
+                      >
+                        {transparencySortOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <h3 style={toolbarStyles.filterTitle}>Item Status / Movement</h3>
+
+                    <div style={toolbarStyles.filterList}>
+                      {transparencyMovementFilterOptions.map((option) => (
+                        <label key={option.value} style={toolbarStyles.filterOption}>
+                          <input
+                            type="checkbox"
+                            checked={selectedTransparencyMovements.includes(
+                              option.value,
+                            )}
+                            onChange={() =>
+                              handleToggleTransparencyMovement(option.value)
+                            }
+                            style={{ accentColor: "#2f6499" }}
+                          />
+                          <span>{option.label}</span>
+                        </label>
+                      ))}
+                    </div>
+
+                    <div style={toolbarStyles.filterActions}>
+                      <button
+                        type="button"
+                        onClick={handleClearFilters}
+                        style={toolbarStyles.clearAction}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              <div style={toolbarStyles.actionGroup}>
+                {canManageDonations ? (
+                  <button
+                    type="button"
+                    onClick={onOpenTransparencyExport}
+                    style={pageHeaderStyles.secondaryButton}
+                    disabled={Boolean(isExportingTransparency)}
+                  >
+                    <FiFileText size={16} />
+                    Export
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </div>
         </div>
       ) : null}
     </section>

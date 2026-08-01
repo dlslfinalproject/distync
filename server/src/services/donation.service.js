@@ -1974,6 +1974,7 @@ const getPublicDonationPortal = async (disasterEventId = null) => {
           total_donations_received: 0,
           total_quantity_received: 0,
           total_donated_items_distributed: 0,
+          total_donated_items_written_off: 0,
           remaining_donated_inventory: 0,
         },
         [],
@@ -2001,43 +2002,285 @@ const getPublicDonationPortal = async (disasterEventId = null) => {
     transparency_summary: {
       ...summaryTotals,
       received_vs_distributed: perItemSummary.map((row) => ({
-        public_key: createPublicKey("utilization-item", row.inventory_item_id),
+        public_key: createPublicKey(
+          "utilization-item",
+          `${row.donation_id}:${row.inventory_item_id}`,
+        ),
+        donor_name: row.donor_name,
+        disaster_event_id: row.disaster_event_id,
+        disaster_event_title: row.disaster_event_title,
         item_name: row.item_name,
         unit_of_measure: row.unit_of_measure,
         quantity_received: row.quantity_received,
         quantity_distributed: row.quantity_distributed,
+        quantity_written_off: row.quantity_written_off,
+        write_off_reasons: Array.isArray(row.write_off_reasons)
+          ? row.write_off_reasons
+          : [],
         quantity_remaining: row.quantity_remaining,
       })),
     },
   };
 };
 
-const exportDonationTransparencyReport = async (disasterEventId = null, format) => {
-  const rows = await donationRepository.getDonationTransparencyExportRows(
-    disasterEventId,
+const donationTypeLabels = {
+  LOOSE_ITEM: "Loose Item",
+  RELIEF_PACK: "Relief Pack",
+};
+
+const donorTypeLabels = {
+  INDIVIDUAL: "Individual",
+  NGO: "NGO",
+  PRIVATE_ORGANIZATION: "Private Organization",
+  GOVERNMENT_PARTNER: "Government Partner",
+  OTHER: "Other",
+};
+
+const exportSortLabels = {
+  newest: "Newest-Oldest",
+  oldest: "Oldest-Newest",
+  az: "A-Z by Donor",
+  za: "Z-A by Donor",
+};
+
+const formatReportDonorType = (donorType, donorTypeOther) => {
+  const normalizedDonorType = normalizeDonationDonorType(donorType);
+
+  if (normalizedDonorType === "OTHER") {
+    return donorTypeOther || "Other";
+  }
+
+  return donorTypeLabels[normalizedDonorType] || "Other";
+};
+
+const getDonationTypeKey = (donation) => {
+  const items = Array.isArray(donation?.items) ? donation.items : [];
+
+  if (
+    items.length > 0 &&
+    items.every((item) => String(item?.remarks || "").startsWith("Relief Pack:"))
+  ) {
+    return "RELIEF_PACK";
+  }
+
+  return "LOOSE_ITEM";
+};
+
+const getDonationReportItems = (donation) => {
+  const items = Array.isArray(donation?.items) ? donation.items : [];
+
+  if (items.length === 0) {
+    return [
+      {
+        itemName: "--",
+        quantityPerItem: "0",
+      },
+    ];
+  }
+
+  return items.map((item) => {
+    const unit = item?.inventory_item?.unit_of_measure || "unit(s)";
+
+    return {
+      itemName: item?.inventory_item?.item_name || "Inventory item",
+      quantityPerItem: `${Number(item?.quantity_received || 0)} ${unit}`,
+    };
+  });
+};
+
+const sortDonationRowsForReport = (rows, sortOrder = "newest") => {
+  const getTimestamp = (row) => {
+    const timestamp = new Date(row.received_at || row.created_at || 0).getTime();
+    return Number.isNaN(timestamp) ? 0 : timestamp;
+  };
+
+  return [...rows].sort((leftRow, rightRow) => {
+    if (sortOrder === "oldest") {
+      return getTimestamp(leftRow) - getTimestamp(rightRow);
+    }
+
+    if (sortOrder === "az") {
+      return String(leftRow.donor_name || "").localeCompare(
+        String(rightRow.donor_name || ""),
+        undefined,
+        { sensitivity: "base" },
+      );
+    }
+
+    if (sortOrder === "za") {
+      return String(rightRow.donor_name || "").localeCompare(
+        String(leftRow.donor_name || ""),
+        undefined,
+        { sensitivity: "base" },
+      );
+    }
+
+    return getTimestamp(rightRow) - getTimestamp(leftRow);
+  });
+};
+
+const matchesDonationReportSearch = (donation, search) => {
+  const normalizedSearch = String(search || "").trim().toLowerCase();
+
+  if (!normalizedSearch) {
+    return true;
+  }
+
+  const items = Array.isArray(donation?.items) ? donation.items : [];
+
+  return [
+    donation?.donor_name,
+    donation?.donor_type_other,
+    donation?.disaster_event?.title,
+    donation?.disaster_event?.event_code,
+    ...items.map((item) => item?.inventory_item?.item_name),
+  ]
+    .filter(Boolean)
+    .some((value) => String(value).toLowerCase().includes(normalizedSearch));
+};
+
+const exportReceivedDonationsReport = async (filters = {}, format) => {
+  const donations = await getDonations({
+    disaster_event_id: filters.disaster_event_id,
+    donor_type: filters.donor_type,
+  });
+  const filteredDonations = donations.filter((donation) => {
+    if (!matchesDonationReportSearch(donation, filters.search)) {
+      return false;
+    }
+
+    if (!filters.donation_type) {
+      return true;
+    }
+
+    return getDonationTypeKey(donation) === filters.donation_type;
+  });
+  const sortedDonations = sortDonationRowsForReport(
+    filteredDonations,
+    filters.sort_order,
   );
+  const rows = sortedDonations.flatMap((donation) => {
+    const donationType = getDonationTypeKey(donation);
+
+    return getDonationReportItems(donation).map((itemSummary) => ({
+      donor_name: donation.donor_name || "--",
+      donor_type: formatReportDonorType(
+        donation.donor_type,
+        donation.donor_type_other,
+      ),
+      donation_type: donationTypeLabels[donationType],
+      disaster_event: donation.disaster_event?.title || "--",
+      item_name: itemSummary.itemName,
+      quantity_per_item: itemSummary.quantityPerItem,
+      total_quantity_received: Number(donation.total_quantity_received || 0),
+      date_received: mayorReportExport.formatDateTime(donation.received_at),
+      received_at: donation.received_at,
+      created_at: donation.created_at,
+    }));
+  });
 
   if (rows.length === 0) {
+    const error = new Error("No received donation records are available to export.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return mayorReportExport.buildExportFile({
+    filePrefix: "office-mayor-received-donations-report",
+    worksheetName: "Received Donations",
+    reportTitle: "Received Donations Report",
+    metadata: [
+      { label: "Disaster Event Filter", value: filters.disaster_event_id || "All" },
+      {
+        label: "Donation Type",
+        value: donationTypeLabels[filters.donation_type] || "All",
+      },
+      {
+        label: "Donor Type",
+        value: filters.donor_type
+          ? formatReportDonorType(filters.donor_type, null)
+          : "All",
+      },
+      {
+        label: "Order List",
+        value: exportSortLabels[filters.sort_order] || exportSortLabels.newest,
+      },
+      ...(filters.search ? [{ label: "Search", value: filters.search }] : []),
+    ],
+    columns: [
+      { key: "donor_name", label: "Donor Name", width: 24, pdfWidth: 94 },
+      { key: "donor_type", label: "Donor Type", width: 20, pdfWidth: 78 },
+      { key: "donation_type", label: "Donation Type", width: 18, pdfWidth: 74 },
+      { key: "disaster_event", label: "Disaster Event", width: 28, pdfWidth: 112 },
+      { key: "item_name", label: "Item Name", width: 30, pdfWidth: 120 },
+      {
+        key: "quantity_per_item",
+        label: "Quantity Per Item",
+        width: 22,
+        pdfWidth: 98,
+      },
+      {
+        key: "total_quantity_received",
+        label: "Total Quantity Received",
+        width: 18,
+        pdfWidth: 100,
+      },
+      { key: "date_received", label: "Date Received", width: 22, pdfWidth: 86 },
+    ],
+    rows,
+    format,
+  });
+};
+
+const exportDonationTransparencyReport = async (filters = {}, format) => {
+  const rows = await donationRepository.getDonationTransparencyExportRows(
+    filters.disaster_event_id,
+  );
+  const sortedRows = sortDonationRowsForReport(rows, filters.sort_order).map(
+    (row) => ({
+      ...row,
+      write_off_reasons: row.write_off_reasons || "--",
+    }),
+  );
+
+  if (sortedRows.length === 0) {
     const error = new Error("No donation transparency records are available to export.");
     error.statusCode = 404;
     throw error;
   }
 
   return mayorReportExport.buildExportFile({
-    filePrefix: "office-mayor-donor-transparency-summary",
-    worksheetName: "Donor Transparency",
-    reportTitle: "Donor Transparency Summary",
+    filePrefix: "office-mayor-donation-item-transparency-report",
+    worksheetName: "Item Transparency",
+    reportTitle: "Donation Item Transparency Report",
     metadata: [
-      { label: "Disaster Event Filter", value: disasterEventId || "All" },
+      { label: "Disaster Event Filter", value: filters.disaster_event_id || "All" },
+      {
+        label: "Order List",
+        value: exportSortLabels[filters.sort_order] || exportSortLabels.newest,
+      },
     ],
     columns: [
-      { key: "donor_name", label: "Donor Name", width: 28, pdfWidth: 150 },
-      { key: "item_name", label: "Item Name", width: 28, pdfWidth: 150 },
-      { key: "quantity_received", label: "Quantity Received", width: 18, pdfWidth: 72 },
-      { key: "quantity_distributed", label: "Quantity Distributed", width: 18, pdfWidth: 72 },
-      { key: "remaining_stock", label: "Remaining Stock", width: 18, pdfWidth: 72 },
+      { key: "donor_name", label: "Donor Name", width: 24, pdfWidth: 100 },
+      { key: "disaster_event", label: "Disaster Event", width: 28, pdfWidth: 118 },
+      { key: "item_name", label: "Item Name", width: 28, pdfWidth: 124 },
+      { key: "quantity_received", label: "Received", width: 14, pdfWidth: 70 },
+      { key: "quantity_distributed", label: "Distributed", width: 14, pdfWidth: 78 },
+      { key: "quantity_written_off", label: "Written Off", width: 14, pdfWidth: 78 },
+      {
+        key: "write_off_reasons",
+        label: "Write-Off Reason",
+        width: 24,
+        pdfWidth: 126,
+      },
+      {
+        key: "remaining_stock",
+        label: "Remaining Balance",
+        width: 18,
+        pdfWidth: 68,
+      },
     ],
-    rows,
+    rows: sortedRows,
     format,
   });
 };
@@ -2057,5 +2300,6 @@ module.exports = {
   deleteDonationItem,
   deleteDonationRecord,
   getPublicDonationPortal,
+  exportReceivedDonationsReport,
   exportDonationTransparencyReport,
 };

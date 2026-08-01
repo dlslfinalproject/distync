@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { FiX } from "react-icons/fi";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import {
   donorTypes,
@@ -635,8 +636,20 @@ const DonationModal = ({
               {isEditingDonation ? "Edit Donation" : "Receive Donation"}
             </h3>
           </div>
-          <button type="button" onClick={onClose} style={pageHeaderStyles.secondaryButton}>
-            Close
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              ...pageHeaderStyles.secondaryButton,
+              minWidth: "44px",
+              width: "44px",
+              height: "44px",
+              padding: 0,
+              borderRadius: "14px",
+            }}
+            aria-label="Close donation modal"
+          >
+            <FiX />
           </button>
         </div>
 

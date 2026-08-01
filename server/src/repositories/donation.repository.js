@@ -1067,6 +1067,10 @@ const getDonationSummaryTotals = async (disasterEventId, dbClient = pool) => {
   const values = [];
   const donationConditions = [];
   const distributionConditions = [`ib.source_type = 'DONATED'`, `it.transaction_type = 'OUTFLOW'`, `it.reference_type = 'DISTRIBUTION'`];
+  const writeOffConditions = [
+    `ib.source_type = 'DONATED'`,
+    `it.transaction_type IN ('EXPIRED', 'MISSING', 'DAMAGED', 'SPOILED', 'STOLEN')`,
+  ];
   const batchConditions = [`ib.source_type = 'DONATED'`];
   const disasterEventIds = normalizeDisasterEventFilter(disasterEventId);
 
@@ -1077,6 +1081,13 @@ const getDonationSummaryTotals = async (disasterEventId, dbClient = pool) => {
       `it.disaster_event_id = ANY($${values.length}::uuid[])`,
     );
     distributionConditions.push(`EXISTS (
+      SELECT 1
+      FROM donation_items di
+      INNER JOIN donations d ON d.id = di.donation_id
+      WHERE di.inventory_batch_id = ib.id
+        AND d.disaster_event_id = ANY($${values.length}::uuid[])
+    )`);
+    writeOffConditions.push(`EXISTS (
       SELECT 1
       FROM donation_items di
       INNER JOIN donations d ON d.id = di.donation_id
@@ -1095,9 +1106,10 @@ const getDonationSummaryTotals = async (disasterEventId, dbClient = pool) => {
   const donationWhere =
     donationConditions.length > 0 ? `WHERE ${donationConditions.join(" AND ")}` : "";
   const distributionWhere = `WHERE ${distributionConditions.join(" AND ")}`;
+  const writeOffWhere = `WHERE ${writeOffConditions.join(" AND ")}`;
   const batchWhere = `WHERE ${batchConditions.join(" AND ")}`;
 
-  const [donationResult, distributionResult, batchResult] = await Promise.all([
+  const [donationResult, distributionResult, writeOffResult, batchResult] = await Promise.all([
     dbClient.query(
       `
         SELECT
@@ -1120,6 +1132,15 @@ const getDonationSummaryTotals = async (disasterEventId, dbClient = pool) => {
     ),
     dbClient.query(
       `
+        SELECT COALESCE(SUM(it.quantity), 0)::int AS total_donated_items_written_off
+        FROM inventory_transactions it
+        INNER JOIN inventory_batches ib ON ib.id = it.inventory_batch_id
+        ${writeOffWhere}
+      `,
+      values,
+    ),
+    dbClient.query(
+      `
         SELECT COALESCE(SUM(ib.quantity_available), 0)::int AS remaining_donated_inventory
         FROM inventory_batches ib
         ${batchWhere}
@@ -1134,6 +1155,8 @@ const getDonationSummaryTotals = async (disasterEventId, dbClient = pool) => {
     total_quantity_received: donationResult.rows[0]?.total_quantity_received || 0,
     total_donated_items_distributed:
       distributionResult.rows[0]?.total_donated_items_distributed || 0,
+    total_donated_items_written_off:
+      writeOffResult.rows[0]?.total_donated_items_written_off || 0,
     remaining_donated_inventory:
       batchResult.rows[0]?.remaining_donated_inventory || 0,
   };
@@ -1155,6 +1178,11 @@ const getDonationItemTransparencySummary = async (
   const result = await dbClient.query(
     `
       SELECT
+        d.id AS donation_id,
+        d.donor_name,
+        d.disaster_event_id,
+        de.title AS disaster_event_title,
+        d.received_at,
         ii.id AS inventory_item_id,
         ii.item_code,
         ii.item_name,
@@ -1169,6 +1197,13 @@ const getDonationItemTransparencySummary = async (
             AND ib2.source_type = 'DONATED'
             AND it.transaction_type = 'OUTFLOW'
             AND it.reference_type = 'DISTRIBUTION'
+            AND EXISTS (
+              SELECT 1
+              FROM donation_items di2
+              WHERE di2.inventory_batch_id = ib2.id
+                AND di2.donation_id = d.id
+                AND di2.inventory_item_id = ii.id
+            )
             ${
               disasterEventIds.length > 0
                 ? `AND it.disaster_event_id = ANY($1::uuid[])
@@ -1181,14 +1216,88 @@ const getDonationItemTransparencySummary = async (
                    )`
                 : ""
             }
-        ), 0) AS quantity_distributed
+        ), 0) AS quantity_distributed,
+        COALESCE((
+          SELECT SUM(it.quantity)::int
+          FROM inventory_transactions it
+          INNER JOIN inventory_batches ib2 ON ib2.id = it.inventory_batch_id
+          WHERE ib2.inventory_item_id = ii.id
+            AND ib2.source_type = 'DONATED'
+            AND it.transaction_type IN ('EXPIRED', 'MISSING', 'DAMAGED', 'SPOILED', 'STOLEN')
+            AND EXISTS (
+              SELECT 1
+              FROM donation_items di2
+              WHERE di2.inventory_batch_id = ib2.id
+                AND di2.donation_id = d.id
+                AND di2.inventory_item_id = ii.id
+            )
+            ${
+              disasterEventIds.length > 0
+                ? `AND EXISTS (
+                     SELECT 1
+                     FROM donation_items di2
+                     INNER JOIN donations d2 ON d2.id = di2.donation_id
+                     WHERE di2.inventory_batch_id = ib2.id
+                       AND d2.disaster_event_id = ANY($1::uuid[])
+                   )`
+                : ""
+            }
+        ), 0) AS quantity_written_off,
+        COALESCE((
+          SELECT JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'reason', reason_rows.reason,
+              'quantity', reason_rows.quantity
+            )
+            ORDER BY reason_rows.reason ASC
+          )
+          FROM (
+            SELECT
+              it.transaction_type AS reason,
+              SUM(it.quantity)::int AS quantity
+            FROM inventory_transactions it
+            INNER JOIN inventory_batches ib2 ON ib2.id = it.inventory_batch_id
+            WHERE ib2.inventory_item_id = ii.id
+              AND ib2.source_type = 'DONATED'
+              AND it.transaction_type IN ('EXPIRED', 'MISSING', 'DAMAGED', 'SPOILED', 'STOLEN')
+              AND EXISTS (
+                SELECT 1
+                FROM donation_items di2
+                WHERE di2.inventory_batch_id = ib2.id
+                  AND di2.donation_id = d.id
+                  AND di2.inventory_item_id = ii.id
+              )
+              ${
+                disasterEventIds.length > 0
+                  ? `AND EXISTS (
+                       SELECT 1
+                       FROM donation_items di2
+                       INNER JOIN donations d2 ON d2.id = di2.donation_id
+                       WHERE di2.inventory_batch_id = ib2.id
+                         AND d2.disaster_event_id = ANY($1::uuid[])
+                     )`
+                  : ""
+              }
+            GROUP BY it.transaction_type
+          ) reason_rows
+        ), '[]'::json) AS write_off_reasons
       FROM donation_items di
       INNER JOIN donations d ON d.id = di.donation_id
+      INNER JOIN disaster_events de ON de.id = d.disaster_event_id
       INNER JOIN inventory_items ii ON ii.id = di.inventory_item_id
       LEFT JOIN inventory_batches ib ON ib.id = di.inventory_batch_id
       WHERE ${conditions.join(" AND ")}
-      GROUP BY ii.id, ii.item_code, ii.item_name, ii.unit_of_measure
-      ORDER BY ii.item_name ASC
+      GROUP BY
+        d.id,
+        d.donor_name,
+        d.disaster_event_id,
+        de.title,
+        d.received_at,
+        ii.id,
+        ii.item_code,
+        ii.item_name,
+        ii.unit_of_measure
+      ORDER BY d.received_at DESC, d.donor_name ASC, ii.item_name ASC
     `,
     values,
   );
@@ -1215,12 +1324,18 @@ const getDonationTransparencyExportRows = async (
     `
       SELECT
         d.donor_name,
+        de.title AS disaster_event,
+        d.received_at,
+        d.created_at,
         ii.item_name,
         di.quantity_received,
         COALESCE(distributed.quantity_distributed, 0)::int AS quantity_distributed,
+        COALESCE(written_off.quantity_written_off, 0)::int AS quantity_written_off,
+        COALESCE(written_off.write_off_reasons, '') AS write_off_reasons,
         COALESCE(ib.quantity_available, 0)::int AS remaining_stock
       FROM donation_items di
       INNER JOIN donations d ON d.id = di.donation_id
+      INNER JOIN disaster_events de ON de.id = d.disaster_event_id
       INNER JOIN inventory_items ii ON ii.id = di.inventory_item_id
       LEFT JOIN inventory_batches ib ON ib.id = di.inventory_batch_id
       LEFT JOIN LATERAL (
@@ -1230,8 +1345,29 @@ const getDonationTransparencyExportRows = async (
           AND it.transaction_type = 'OUTFLOW'
           AND it.reference_type = 'DISTRIBUTION'
       ) distributed ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT
+          COALESCE(SUM(reason_rows.quantity), 0)::int AS quantity_written_off,
+          COALESCE(
+            STRING_AGG(
+              CONCAT(reason_rows.reason_label, ': ', reason_rows.quantity),
+              ', '
+              ORDER BY reason_rows.reason_label ASC
+            ),
+            ''
+          ) AS write_off_reasons
+        FROM (
+          SELECT
+            INITCAP(LOWER(it.transaction_type)) AS reason_label,
+            SUM(it.quantity)::int AS quantity
+          FROM inventory_transactions it
+          WHERE it.inventory_batch_id = di.inventory_batch_id
+            AND it.transaction_type IN ('EXPIRED', 'MISSING', 'DAMAGED', 'SPOILED', 'STOLEN')
+          GROUP BY it.transaction_type
+        ) reason_rows
+      ) written_off ON TRUE
       ${whereClause}
-      ORDER BY d.donor_name ASC, ii.item_name ASC
+      ORDER BY d.received_at DESC, d.created_at DESC, d.donor_name ASC, ii.item_name ASC
     `,
     values,
   );

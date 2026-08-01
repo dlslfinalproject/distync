@@ -8,11 +8,13 @@ const {
   validateDonationNeedFilters,
   validateDonationNeedPayload,
   validateDonationId,
+  validateDonationExportFilters,
   validateDonationFilters,
   validateDonationPayload,
   validateDonationUpdatePayload,
   validateDonationItemId,
   validateDonationItemPayload,
+  validateDonationTransparencyExportFilters,
   validatePublicDonationPortal,
 } = require("../validators/donation.validator");
 
@@ -48,7 +50,7 @@ router.get(
 router.get(
   "/export/transparency",
   requireRoles(ROLE_CODES.MAYOR),
-  validatePublicDonationPortal,
+  validateDonationTransparencyExportFilters,
   async (req, res) => {
     try {
       const exportFormat = resolveExportFormat(req.query.format);
@@ -60,7 +62,7 @@ router.get(
       }
 
       const file = await donationService.exportDonationTransparencyReport(
-        req.validatedQuery.disaster_event_id,
+        req.validatedQuery,
         exportFormat,
       );
 
@@ -75,7 +77,44 @@ router.get(
       const statusCode = error.statusCode || 500;
 
       return res.status(statusCode).json({
-        message: error.message || "Failed to export donor transparency summary",
+        message:
+          error.message || "Failed to export donation item transparency report",
+      });
+    }
+  },
+);
+
+router.get(
+  "/export/received",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateDonationExportFilters,
+  async (req, res) => {
+    try {
+      const exportFormat = resolveExportFormat(req.query.format);
+
+      if (!exportFormat) {
+        return res.status(400).json({
+          message: "format must be one of: csv, excel, pdf",
+        });
+      }
+
+      const file = await donationService.exportReceivedDonationsReport(
+        req.validatedQuery,
+        exportFormat,
+      );
+
+      res.setHeader("Content-Type", file.contentType);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${file.filename}"`,
+      );
+
+      return res.status(200).send(file.buffer);
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+
+      return res.status(statusCode).json({
+        message: error.message || "Failed to export received donations report",
       });
     }
   },

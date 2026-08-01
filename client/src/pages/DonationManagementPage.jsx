@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import PageHeader from "../components/layout/PageHeader";
+import { FiX } from "react-icons/fi";
+import PageHeader, { pageHeaderStyles } from "../components/layout/PageHeader";
 import { shellStyles } from "../components/layout/BarangayLayout";
 import DonationFilters from "../components/donations/DonationFilters";
 import DonationPageStatus from "../components/donations/DonationPageStatus";
@@ -10,13 +11,13 @@ import DonationsTab from "../components/donations/DonationsTab";
 import DonationDetailModal from "../components/donations/DonationDetailModal";
 import DonorTransparencyTab from "../components/donations/DonorTransparencyTab";
 import ConfirmationModal from "../components/shared/ConfirmationModal";
-import ExportModal from "../components/shared/ExportModal";
 import FeedbackToast from "../components/shared/FeedbackToast";
 import StatusCard from "../components/shared/StatusCard";
 import { fetchAllDisasterEvents } from "../features/disaster-events/disasterEventService";
 import { fetchInventoryItems } from "../features/inventory-items/inventoryItemService";
 import {
   exportDonationTransparencySummary,
+  exportReceivedDonationsReport,
   fetchDonationPortalData,
   fetchDonations,
 } from "../features/donations/donationService";
@@ -44,84 +45,10 @@ import {
   NO_EXPORT_DATA_MESSAGE,
   resolveExportErrorMessage,
 } from "../utils/exportHelpers";
-import {
-  formatDonationDateTime,
-  formatDonorType,
-} from "../features/donations/donationFormatters";
+import { formatDonorType } from "../features/donations/donationFormatters";
 
-const getDonationItemSummary = (donation) => {
-  const items = donation.items || [];
-
-  if (items.length === 0) {
-    return {
-      label: "--",
-      quantityLabel: "0",
-    };
-  }
-
-  const reliefPackRemarks = items
-    .map((item) => item.remarks || "")
-    .filter((remarks) => remarks.startsWith("Relief Pack:"));
-
-  if (reliefPackRemarks.length === items.length) {
-    const reliefPackLabel = reliefPackRemarks[0]
-      .replace("Relief Pack:", "")
-      .split(".")[0]
-      .trim();
-    const packQuantity = reliefPackLabel.match(/\sx\s(\d+)$/i)?.[1];
-    const reliefPackName = reliefPackLabel.replace(/\sx\s\d+$/i, "").trim();
-
-    return {
-      label: reliefPackName || "Relief Pack",
-      quantityLabel: packQuantity
-        ? `${packQuantity} relief pack(s)`
-        : `${donation.total_quantity_received} item unit(s)`,
-    };
-  }
-
-  if (items.length === 1) {
-    return {
-      label: items[0].inventory_item?.item_name || "Inventory item",
-      quantityLabel: `${items[0].quantity_received} ${
-        items[0].inventory_item?.unit_of_measure || "unit(s)"
-      }`,
-    };
-  }
-
-  return {
-    label: `${items.length} donated item entries`,
-    quantityLabel: `${donation.total_quantity_received} item unit(s)`,
-  };
-};
-
-const escapeCsvValue = (value) => {
-  const normalizedValue = String(value ?? "");
-  const escapedValue = normalizedValue.replace(/"/g, "\"\"");
-  return `"${escapedValue}"`;
-};
-
-const buildDonationCsv = (rows) => {
-  const headers = ["Donor", "Donor Type", "Item", "Quantity", "Date", "Sync"];
-  const lines = [
-    headers.map(escapeCsvValue).join(","),
-    ...rows.map((donation) => {
-      const itemSummary = getDonationItemSummary(donation);
-
-      return [
-        donation.donor_name || "--",
-        formatDonorType(donation.donor_type, donation.donor_type_other),
-        itemSummary.label,
-        itemSummary.quantityLabel,
-        formatDonationDateTime(donation.received_at),
-        donation.sync_status || "--",
-      ]
-        .map(escapeCsvValue)
-        .join(",");
-    }),
-  ];
-
-  return lines.join("\n");
-};
+const formatSummaryNumber = (value) =>
+  new Intl.NumberFormat().format(Number(value || 0));
 
 const donationEventSummaryStyles = {
   selectorCard: {
@@ -160,6 +87,129 @@ const donationEventSummaryStyles = {
   },
 };
 
+const exportFilterStyles = {
+  overlay: {
+    position: "fixed",
+    inset: 0,
+    backgroundColor: "rgba(23, 50, 77, 0.42)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "24px",
+    zIndex: 1500,
+  },
+  modal: {
+    width: "min(760px, 100%)",
+    maxHeight: "90vh",
+    overflowY: "auto",
+    backgroundColor: "#ffffff",
+    borderRadius: "24px",
+    boxShadow: "0 24px 54px rgba(31, 64, 95, 0.22)",
+    padding: "28px",
+    boxSizing: "border-box",
+  },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: "16px",
+    marginBottom: "20px",
+  },
+  title: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "26px",
+    fontWeight: 800,
+  },
+  closeButton: {
+    border: "1px solid #c6d8ea",
+    borderRadius: "14px",
+    width: "42px",
+    height: "42px",
+    backgroundColor: "#f8fbfe",
+    color: "#24496e",
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  detailsCard: {
+    ...shellStyles.card,
+    marginBottom: "18px",
+  },
+  detailsTitle: {
+    margin: "0 0 14px",
+    color: "#17324d",
+    fontSize: "18px",
+    fontWeight: 800,
+  },
+  firstRow: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 2fr) minmax(180px, 1fr)",
+    gap: "16px",
+    alignItems: "start",
+    marginBottom: "16px",
+  },
+  secondRow: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: "16px",
+    alignItems: "start",
+  },
+  field: {
+    display: "grid",
+    gap: "8px",
+  },
+  label: {
+    display: "block",
+    color: "#48627d",
+    fontSize: "12px",
+    fontWeight: 800,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+  },
+  select: {
+    width: "100%",
+    minHeight: "48px",
+    padding: "12px 14px",
+    borderRadius: "14px",
+    border: "1px solid #cbdbea",
+    boxSizing: "border-box",
+    fontSize: "14px",
+    color: "#17324d",
+    backgroundColor: "#f8fbfe",
+    outline: "none",
+  },
+  actions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "12px",
+    flexWrap: "wrap",
+  },
+};
+
+const donationExportDonationTypeOptions = [
+  { value: "", label: "All" },
+  { value: "LOOSE_ITEM", label: "Loose Item" },
+  { value: "RELIEF_PACK", label: "Relief Pack" },
+];
+
+const donationExportDonorTypeOptions = [
+  { value: "", label: "All" },
+  { value: "INDIVIDUAL", label: "Individual" },
+  { value: "NGO", label: "NGO" },
+  { value: "PRIVATE_ORGANIZATION", label: "Private Organization" },
+  { value: "GOVERNMENT_PARTNER", label: "Government Partner" },
+  { value: "OTHER", label: "Other" },
+];
+
+const donationExportSortOptions = [
+  { value: "newest", label: "Newest-Oldest" },
+  { value: "oldest", label: "Oldest-Newest" },
+  { value: "az", label: "A-Z by Donor" },
+  { value: "za", label: "Z-A by Donor" },
+];
+
 const DonationManagementPage = () => {
   const { currentRole } = useAuth();
   const canManageDonations = currentRole === "MAYOR";
@@ -179,15 +229,34 @@ const DonationManagementPage = () => {
     sortOrder: "newest",
     donorTypes: [],
   });
-  const [transparencyItemSearch, setTransparencyItemSearch] = useState("");
+  const [transparencySearch, setTransparencySearch] = useState("");
+  const [transparencyToolbarFilters, setTransparencyToolbarFilters] = useState({
+    sortOrder: "newest",
+    movements: [],
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [pageErrorMessage, setPageErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [isDonationExportModalOpen, setIsDonationExportModalOpen] =
+    useState(false);
+  const [selectedDonationExportFormat, setSelectedDonationExportFormat] =
+    useState("csv");
+  const [donationExportFilters, setDonationExportFilters] = useState({
+    disaster_event_id: "",
+    donation_type: "",
+    donor_type: "",
+    sort_order: "newest",
+  });
+  const [isExportingDonations, setIsExportingDonations] = useState("");
   const [isExportingTransparency, setIsExportingTransparency] = useState("");
   const [isTransparencyExportModalOpen, setIsTransparencyExportModalOpen] =
     useState(false);
   const [selectedTransparencyExportFormat, setSelectedTransparencyExportFormat] =
     useState("csv");
+  const [transparencyExportFilters, setTransparencyExportFilters] = useState({
+    disaster_event_id: "",
+    sort_order: "newest",
+  });
   const [exportFeedback, setExportFeedback] = useState({
     type: "",
     message: "",
@@ -341,6 +410,31 @@ const DonationManagementPage = () => {
     ];
   }, [donationsWithSyncStatus]);
 
+  const transparencySummaryCards = useMemo(() => {
+    const transparencySummary = portalData.transparency_summary || {};
+
+    return [
+      {
+        label: "Total Donations Received",
+        value: formatSummaryNumber(transparencySummary.total_donations_received),
+      },
+      {
+        label: "Total Quantity Received",
+        value: formatSummaryNumber(transparencySummary.total_quantity_received),
+      },
+      {
+        label: "Total Donated Items Distributed",
+        value: formatSummaryNumber(
+          transparencySummary.total_donated_items_distributed,
+        ),
+      },
+      {
+        label: "Remaining Donated Inventory",
+        value: formatSummaryNumber(transparencySummary.remaining_donated_inventory),
+      },
+    ];
+  }, [portalData]);
+
   const filteredDonations = useMemo(() => {
     return sortDonations(
       filterDonationsByDonorTypes(
@@ -360,16 +454,95 @@ const DonationManagementPage = () => {
     donationToolbarFilters.sortOrder,
   ]);
 
+  const filteredTransparencyRows = useMemo(() => {
+    const transparencyRows =
+      portalData.transparency_summary?.received_vs_distributed || [];
+    const normalizedSearch = transparencySearch.trim().toLowerCase();
+    const selectedMovements = Array.isArray(transparencyToolbarFilters.movements)
+      ? transparencyToolbarFilters.movements
+      : [];
+
+    const matchesSearch = (row) => {
+      if (!normalizedSearch) {
+        return true;
+      }
+
+      const writeOffReasonText = (row.write_off_reasons || [])
+        .map((reasonRow) => reasonRow.reason)
+        .join(" ");
+
+      return [
+        row.donor_name,
+        row.item_name,
+        row.disaster_event_title,
+        writeOffReasonText,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedSearch);
+    };
+
+    const matchesMovement = (row) => {
+      if (selectedMovements.length === 0) {
+        return true;
+      }
+
+      return selectedMovements.some((movement) => {
+        if (movement === "has_distributed") {
+          return Number(row.quantity_distributed || 0) > 0;
+        }
+
+        if (movement === "has_write_off") {
+          return Number(row.quantity_written_off || 0) > 0;
+        }
+
+        if (movement === "has_remaining") {
+          return Number(row.quantity_remaining || 0) > 0;
+        }
+
+        if (movement === "no_remaining") {
+          return Number(row.quantity_remaining || 0) === 0;
+        }
+
+        return false;
+      });
+    };
+
+    const getTimestamp = (row) => {
+      const timestamp = new Date(row.received_at || 0).getTime();
+      return Number.isNaN(timestamp) ? 0 : timestamp;
+    };
+
+    const filteredRows = transparencyRows.filter(
+      (row) => matchesSearch(row) && matchesMovement(row),
+    );
+
+    return filteredRows.sort((leftRow, rightRow) => {
+      switch (transparencyToolbarFilters.sortOrder) {
+        case "oldest":
+          return getTimestamp(leftRow) - getTimestamp(rightRow);
+        case "az":
+          return String(leftRow.donor_name || "").localeCompare(
+            String(rightRow.donor_name || ""),
+          );
+        case "za":
+          return String(rightRow.donor_name || "").localeCompare(
+            String(leftRow.donor_name || ""),
+          );
+        case "newest":
+        default:
+          return getTimestamp(rightRow) - getTimestamp(leftRow);
+      }
+    });
+  }, [
+    portalData,
+    transparencySearch,
+    transparencyToolbarFilters.movements,
+    transparencyToolbarFilters.sortOrder,
+  ]);
+
   const selectedEventLabel = useMemo(() => {
     return getSelectedDonationEventLabel(disasterEvents, selectedEventId);
-  }, [disasterEvents, selectedEventId]);
-
-  const selectedEvent = useMemo(() => {
-    if (!selectedEventId) {
-      return null;
-    }
-
-    return disasterEvents.find((eventRow) => eventRow.id === selectedEventId) || null;
   }, [disasterEvents, selectedEventId]);
 
   const {
@@ -430,36 +603,35 @@ const DonationManagementPage = () => {
     }));
   };
 
+  const handleTransparencyToolbarFilterChange = (fieldName, fieldValue) => {
+    setTransparencyToolbarFilters((currentFilters) => ({
+      ...currentFilters,
+      [fieldName]: fieldValue,
+    }));
+  };
+
   const handleExportTransparency = async (format) => {
     setPageErrorMessage("");
     setSuccessMessage("");
     setIsTransparencyExportModalOpen(false);
 
-    if ((portalData.transparency_summary?.received_vs_distributed || []).length === 0) {
-      setExportFeedback({
-        type: "error",
-        message: NO_EXPORT_DATA_MESSAGE,
-      });
-      return;
-    }
-
     setIsExportingTransparency(format);
 
     try {
       const file = await exportDonationTransparencySummary(format, {
-        disaster_event_id: selectedEventId,
+        ...transparencyExportFilters,
       });
       downloadFile(file);
       setExportFeedback({
         type: "success",
-        message: buildExportSuccessMessage("Donation transparency summary"),
+        message: buildExportSuccessMessage("Donation item transparency report"),
       });
     } catch (error) {
       setExportFeedback({
         type: "error",
         message: resolveExportErrorMessage(
           error,
-          "Failed to export donor transparency summary.",
+          "Failed to export donation item transparency report.",
         ),
       });
     } finally {
@@ -467,9 +639,28 @@ const DonationManagementPage = () => {
     }
   };
 
-  const handleExportDonations = () => {
+  const handleTransparencyExportFilterChange = (fieldName, fieldValue) => {
+    setTransparencyExportFilters((currentFilters) => ({
+      ...currentFilters,
+      [fieldName]: fieldValue,
+    }));
+  };
+
+  const resolveDonationExportType = () => {
+    const normalizedDonationType = String(donationTypeFilter || "")
+      .trim()
+      .toUpperCase()
+      .replace(/\s+/g, "_");
+
+    return ["LOOSE_ITEM", "RELIEF_PACK"].includes(normalizedDonationType)
+      ? normalizedDonationType
+      : "";
+  };
+
+  const openDonationExportModal = () => {
     setPageErrorMessage("");
     setSuccessMessage("");
+    setExportFeedback({ type: "", message: "" });
 
     if (filteredDonations.length === 0) {
       setExportFeedback({
@@ -479,30 +670,49 @@ const DonationManagementPage = () => {
       return;
     }
 
-    try {
-      const csvContent = buildDonationCsv(filteredDonations);
-      const eventLabel = selectedEventLabel
-        .replace(/[^a-z0-9]+/gi, "-")
-        .replace(/^-+|-+$/g, "")
-        .toLowerCase();
-      const file = {
-        blob: new Blob([csvContent], { type: "text/csv;charset=utf-8;" }),
-        filename: `donations-${eventLabel || "all-events"}.csv`,
-      };
+    setDonationExportFilters({
+      disaster_event_id: selectedEventId,
+      donation_type: resolveDonationExportType(),
+      donor_type: "",
+      sort_order: donationToolbarFilters.sortOrder || "newest",
+    });
+    setSelectedDonationExportFormat("csv");
+    setIsDonationExportModalOpen(true);
+  };
 
+  const handleDonationExportFilterChange = (fieldName, fieldValue) => {
+    setDonationExportFilters((currentFilters) => ({
+      ...currentFilters,
+      [fieldName]: fieldValue,
+    }));
+  };
+
+  const handleExportDonations = async (format) => {
+    setPageErrorMessage("");
+    setSuccessMessage("");
+    setIsDonationExportModalOpen(false);
+    setIsExportingDonations(format);
+
+    try {
+      const file = await exportReceivedDonationsReport(format, {
+        ...donationExportFilters,
+        search: donationSearch,
+      });
       downloadFile(file);
       setExportFeedback({
         type: "success",
-        message: buildExportSuccessMessage("Donation records"),
+        message: buildExportSuccessMessage("Received donations report"),
       });
     } catch (error) {
       setExportFeedback({
         type: "error",
         message: resolveExportErrorMessage(
           error,
-          "Failed to export donation records.",
+          "Failed to export received donations report.",
         ),
       });
+    } finally {
+      setIsExportingDonations("");
     }
   };
 
@@ -554,6 +764,18 @@ const DonationManagementPage = () => {
         </section>
       ) : null}
 
+      {activeTab === "transparency" ? (
+        <section style={donationEventSummaryStyles.overviewSection}>
+          {transparencySummaryCards.map((card) => (
+            <StatusCard
+              key={card.label}
+              label={card.label}
+              value={card.value}
+            />
+          ))}
+        </section>
+      ) : null}
+
       <DonationFilters
         activeTab={activeTab}
         canManageDonations={canManageDonations}
@@ -562,6 +784,8 @@ const DonationManagementPage = () => {
         donationSearch={donationSearch}
         donationTypeFilter={donationTypeFilter}
         donationToolbarFilters={donationToolbarFilters}
+        transparencySearch={transparencySearch}
+        transparencyToolbarFilters={transparencyToolbarFilters}
         onSelectedEventChange={(nextEventId) => {
           setSelectedEventId(nextEventId);
           loadPageData(nextEventId);
@@ -569,16 +793,22 @@ const DonationManagementPage = () => {
         onDonationSearchChange={setDonationSearch}
         onDonationTypeFilterChange={setDonationTypeFilter}
         onDonationToolbarFilterChange={handleDonationToolbarFilterChange}
+        onTransparencySearchChange={setTransparencySearch}
+        onTransparencyToolbarFilterChange={handleTransparencyToolbarFilterChange}
         onOpenDonationModal={() => openDonationModal()}
-        onExportDonations={handleExportDonations}
+        onExportDonations={openDonationExportModal}
         isExportingTransparency={isExportingTransparency}
         onOpenTransparencyExport={() => {
           setSelectedTransparencyExportFormat("csv");
+          setTransparencyExportFilters({
+            disaster_event_id: selectedEventId,
+            sort_order: transparencyToolbarFilters.sortOrder || "newest",
+          });
           setExportFeedback({ type: "", message: "" });
           setIsTransparencyExportModalOpen(true);
         }}
         showEventSelector={false}
-        showTransparencyActions={false}
+        showTransparencyActions
       />
 
       <section style={shellStyles.card}>
@@ -608,10 +838,8 @@ const DonationManagementPage = () => {
       {activeTab === "transparency" ? (
         <DonorTransparencyTab
           portalData={portalData}
-          selectedEventLabel={selectedEventLabel}
-          selectedEvent={selectedEvent}
-          itemSearch={transparencyItemSearch}
-          onItemSearchChange={setTransparencyItemSearch}
+          transparencyRows={filteredTransparencyRows}
+          showDisasterEventColumn={!selectedEventId}
         />
       ) : null}
 
@@ -647,29 +875,333 @@ const DonationManagementPage = () => {
         />
       ) : null}
 
-      <ExportModal
-        isOpen={isTransparencyExportModalOpen}
-        title="Export Donation Report"
-        description="Choose the donation report and file format to generate."
-        reportOptions={[
-          {
-            value: "DONATION_TRANSPARENCY_SUMMARY",
-            label: "Donation Transparency Summary",
-          },
-        ]}
-        formatOptions={COMMON_EXPORT_FORMAT_OPTIONS}
-        selectedReportType="DONATION_TRANSPARENCY_SUMMARY"
-        selectedFormat={selectedTransparencyExportFormat}
-        isSubmitting={Boolean(isExportingTransparency)}
-        onReportTypeChange={() => {}}
-        onFormatChange={setSelectedTransparencyExportFormat}
-        onClose={() => {
-          if (!isExportingTransparency) {
-            setIsTransparencyExportModalOpen(false);
-          }
-        }}
-        onSubmit={() => handleExportTransparency(selectedTransparencyExportFormat)}
-      />
+      {isDonationExportModalOpen ? (
+        <div style={exportFilterStyles.overlay}>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleExportDonations(selectedDonationExportFormat);
+            }}
+            style={exportFilterStyles.modal}
+          >
+            <div style={exportFilterStyles.header}>
+              <h3 style={exportFilterStyles.title}>Received Donations Report</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isExportingDonations) {
+                    setIsDonationExportModalOpen(false);
+                  }
+                }}
+                disabled={Boolean(isExportingDonations)}
+                style={exportFilterStyles.closeButton}
+                aria-label="Close received donations report export modal"
+              >
+                <FiX size={20} />
+              </button>
+            </div>
+
+            <section style={exportFilterStyles.detailsCard}>
+              <h4 style={exportFilterStyles.detailsTitle}>Export Details</h4>
+              <div style={exportFilterStyles.firstRow}>
+                <div style={exportFilterStyles.field}>
+                  <label
+                    htmlFor="received-donations-export-event"
+                    style={exportFilterStyles.label}
+                  >
+                    Disaster Event
+                  </label>
+                  <select
+                    id="received-donations-export-event"
+                    value={donationExportFilters.disaster_event_id}
+                    onChange={(event) =>
+                      handleDonationExportFilterChange(
+                        "disaster_event_id",
+                        event.target.value,
+                      )
+                    }
+                    style={exportFilterStyles.select}
+                    disabled={Boolean(isExportingDonations)}
+                  >
+                    <option value="">All disaster events</option>
+                    {disasterEvents.map((eventRow) => (
+                      <option key={eventRow.id} value={eventRow.id}>
+                        {eventRow.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={exportFilterStyles.field}>
+                  <label
+                    htmlFor="received-donations-export-type"
+                    style={exportFilterStyles.label}
+                  >
+                    Donation Type
+                  </label>
+                  <select
+                    id="received-donations-export-type"
+                    value={donationExportFilters.donation_type}
+                    onChange={(event) =>
+                      handleDonationExportFilterChange(
+                        "donation_type",
+                        event.target.value,
+                      )
+                    }
+                    style={exportFilterStyles.select}
+                    disabled={Boolean(isExportingDonations)}
+                  >
+                    {donationExportDonationTypeOptions.map((option) => (
+                      <option key={option.value || "all"} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div style={exportFilterStyles.secondRow}>
+                <div style={exportFilterStyles.field}>
+                  <label
+                    htmlFor="received-donations-export-donor-type"
+                    style={exportFilterStyles.label}
+                  >
+                    Donor Type
+                  </label>
+                  <select
+                    id="received-donations-export-donor-type"
+                    value={donationExportFilters.donor_type}
+                    onChange={(event) =>
+                      handleDonationExportFilterChange(
+                        "donor_type",
+                        event.target.value,
+                      )
+                    }
+                    style={exportFilterStyles.select}
+                    disabled={Boolean(isExportingDonations)}
+                  >
+                    {donationExportDonorTypeOptions.map((option) => (
+                      <option key={option.value || "all"} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={exportFilterStyles.field}>
+                  <label
+                    htmlFor="received-donations-export-order"
+                    style={exportFilterStyles.label}
+                  >
+                    Order List
+                  </label>
+                  <select
+                    id="received-donations-export-order"
+                    value={donationExportFilters.sort_order}
+                    onChange={(event) =>
+                      handleDonationExportFilterChange(
+                        "sort_order",
+                        event.target.value,
+                      )
+                    }
+                    style={exportFilterStyles.select}
+                    disabled={Boolean(isExportingDonations)}
+                  >
+                    {donationExportSortOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={exportFilterStyles.field}>
+                  <label
+                    htmlFor="received-donations-export-format"
+                    style={exportFilterStyles.label}
+                  >
+                    Format
+                  </label>
+                  <select
+                    id="received-donations-export-format"
+                    value={selectedDonationExportFormat}
+                    onChange={(event) =>
+                      setSelectedDonationExportFormat(event.target.value)
+                    }
+                    style={exportFilterStyles.select}
+                    disabled={Boolean(isExportingDonations)}
+                  >
+                    {COMMON_EXPORT_FORMAT_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </section>
+
+            <div style={exportFilterStyles.actions}>
+              <button
+                type="button"
+                onClick={() => setIsDonationExportModalOpen(false)}
+                disabled={Boolean(isExportingDonations)}
+                style={pageHeaderStyles.secondaryButton}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={Boolean(isExportingDonations)}
+                style={{
+                  ...pageHeaderStyles.primaryButton,
+                  opacity: isExportingDonations ? 0.7 : 1,
+                  cursor: isExportingDonations ? "not-allowed" : "pointer",
+                }}
+              >
+                {isExportingDonations ? "Exporting..." : "Export"}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {isTransparencyExportModalOpen ? (
+        <div style={exportFilterStyles.overlay}>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleExportTransparency(selectedTransparencyExportFormat);
+            }}
+            style={exportFilterStyles.modal}
+          >
+            <div style={exportFilterStyles.header}>
+              <h3 style={exportFilterStyles.title}>
+                Donation Item Transparency Report
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isExportingTransparency) {
+                    setIsTransparencyExportModalOpen(false);
+                  }
+                }}
+                disabled={Boolean(isExportingTransparency)}
+                style={exportFilterStyles.closeButton}
+                aria-label="Close donation item transparency report export modal"
+              >
+                <FiX size={20} />
+              </button>
+            </div>
+
+            <section style={exportFilterStyles.detailsCard}>
+              <h4 style={exportFilterStyles.detailsTitle}>Export Details</h4>
+              <div style={exportFilterStyles.secondRow}>
+                <div style={exportFilterStyles.field}>
+                  <label
+                    htmlFor="transparency-export-event"
+                    style={exportFilterStyles.label}
+                  >
+                    Disaster Event
+                  </label>
+                  <select
+                    id="transparency-export-event"
+                    value={transparencyExportFilters.disaster_event_id}
+                    onChange={(event) =>
+                      handleTransparencyExportFilterChange(
+                        "disaster_event_id",
+                        event.target.value,
+                      )
+                    }
+                    style={exportFilterStyles.select}
+                    disabled={Boolean(isExportingTransparency)}
+                  >
+                    <option value="">All disaster events</option>
+                    {disasterEvents.map((eventRow) => (
+                      <option key={eventRow.id} value={eventRow.id}>
+                        {eventRow.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={exportFilterStyles.field}>
+                  <label
+                    htmlFor="transparency-export-order"
+                    style={exportFilterStyles.label}
+                  >
+                    Order List
+                  </label>
+                  <select
+                    id="transparency-export-order"
+                    value={transparencyExportFilters.sort_order}
+                    onChange={(event) =>
+                      handleTransparencyExportFilterChange(
+                        "sort_order",
+                        event.target.value,
+                      )
+                    }
+                    style={exportFilterStyles.select}
+                    disabled={Boolean(isExportingTransparency)}
+                  >
+                    {donationExportSortOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={exportFilterStyles.field}>
+                  <label
+                    htmlFor="transparency-export-format"
+                    style={exportFilterStyles.label}
+                  >
+                    Format
+                  </label>
+                  <select
+                    id="transparency-export-format"
+                    value={selectedTransparencyExportFormat}
+                    onChange={(event) =>
+                      setSelectedTransparencyExportFormat(event.target.value)
+                    }
+                    style={exportFilterStyles.select}
+                    disabled={Boolean(isExportingTransparency)}
+                  >
+                    {COMMON_EXPORT_FORMAT_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </section>
+
+            <div style={exportFilterStyles.actions}>
+              <button
+                type="button"
+                onClick={() => setIsTransparencyExportModalOpen(false)}
+                disabled={Boolean(isExportingTransparency)}
+                style={pageHeaderStyles.secondaryButton}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={Boolean(isExportingTransparency)}
+                style={{
+                  ...pageHeaderStyles.primaryButton,
+                  opacity: isExportingTransparency ? 0.7 : 1,
+                  cursor: isExportingTransparency ? "not-allowed" : "pointer",
+                }}
+              >
+                {isExportingTransparency ? "Exporting..." : "Export"}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
 
       <FeedbackToast
         type={exportFeedback.type}
