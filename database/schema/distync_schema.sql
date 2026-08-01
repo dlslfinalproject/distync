@@ -95,10 +95,11 @@ CREATE TABLE public.user_role_settings (
   user_id uuid NOT NULL,
   role_code character varying NOT NULL,
   profile_picture_data_url text,
+  profile_picture_path text,
   profile_picture_file_name character varying,
+  profile_picture_updated_at timestamp with time zone,
   enabled_notification_rule_codes_json jsonb NOT NULL DEFAULT '[]'::jsonb,
   notification_channels_json jsonb NOT NULL DEFAULT '{}'::jsonb,
-  preferred_export_format character varying NOT NULL DEFAULT 'excel'::character varying CHECK (preferred_export_format::text = ANY (ARRAY['csv'::character varying, 'excel'::character varying, 'pdf'::character varying]::text[])),
   last_profile_update_at timestamp with time zone,
   last_preference_save_at timestamp with time zone NOT NULL DEFAULT now(),
   created_at timestamp with time zone NOT NULL DEFAULT now(),
@@ -484,6 +485,7 @@ CREATE TABLE public.relief_pack_templates (
   based_on_sector boolean NOT NULL DEFAULT false,
   is_additional_pack boolean NOT NULL DEFAULT false,
   sector_id uuid,
+  applies_to_all_disasters boolean NOT NULL DEFAULT true,
   created_by uuid,
   is_active boolean NOT NULL DEFAULT true,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
@@ -504,6 +506,16 @@ CREATE TABLE public.relief_pack_template_items (
   CONSTRAINT relief_pack_template_items_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id)
 );
 
+CREATE TABLE public.relief_pack_template_disaster_types (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  template_id uuid NOT NULL,
+  disaster_type character varying NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT relief_pack_template_disaster_types_pkey PRIMARY KEY (id),
+  CONSTRAINT relief_pack_template_disaster_types_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.relief_pack_templates(id) ON DELETE CASCADE,
+  CONSTRAINT relief_pack_template_disaster_types_unique UNIQUE (template_id, disaster_type)
+);
+
 -- =========================================================
 -- 6) DONATIONS & DONOR MANAGEMENT
 -- =========================================================
@@ -513,6 +525,7 @@ CREATE TABLE public.donations (
   disaster_event_id uuid NOT NULL,
   donor_name character varying NOT NULL,
   donor_type character varying NOT NULL DEFAULT 'INDIVIDUAL'::character varying CHECK (donor_type::text = ANY (ARRAY['INDIVIDUAL'::character varying, 'NGO'::character varying, 'PRIVATE_ORGANIZATION'::character varying, 'GOVERNMENT_PARTNER'::character varying, 'OTHER'::character varying]::text[])),
+  donor_type_other character varying,
   contact_information character varying,
   received_by uuid,
   received_at timestamp with time zone NOT NULL DEFAULT now(),

@@ -1,7 +1,39 @@
-import { ACCESS_MODES, getAccessMode } from "./accessMode";
+import { ACCESS_MODES, getAccessMode } from "./accessMode.js";
+import {
+  getAuthSessionStorageKey,
+  getSelectedRoleStorageKey,
+  isStoredModeCurrent,
+  removeStorageKey,
+} from "./modeStorage.js";
 
-const ROLE_STORAGE_KEY = "distync_selected_role";
-const AUTH_SESSION_STORAGE_KEY = "distync_auth_session";
+export const AUTH_SESSION_INVALIDATED_EVENT =
+  "distync:auth-session-invalidated";
+
+let pendingAuthSessionInvalidation = null;
+
+const dispatchAuthSessionInvalidated = ({ mode, userId, reason }) => {
+  pendingAuthSessionInvalidation = {
+    mode,
+    userId: userId || "",
+    reason,
+  };
+
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(
+    new CustomEvent(AUTH_SESSION_INVALIDATED_EVENT, {
+      detail: pendingAuthSessionInvalidation,
+    }),
+  );
+};
+
+export const consumePendingAuthSessionInvalidation = () => {
+  const invalidation = pendingAuthSessionInvalidation;
+  pendingAuthSessionInvalidation = null;
+  return invalidation;
+};
 
 export const ROLE_CODES = {
   BARANGAY: "BARANGAY",
@@ -12,25 +44,46 @@ export const ROLE_CODES = {
 
 const validRoles = Object.values(ROLE_CODES);
 
-const getStoredRole = () => {
-  const storedRole = window.localStorage.getItem(ROLE_STORAGE_KEY);
-  return validRoles.includes(storedRole) ? storedRole : null;
+export const getStoredRoleForMode = (mode) => {
+  const roleStorageKey = getSelectedRoleStorageKey(mode);
+  const storedRole = window.localStorage.getItem(roleStorageKey);
+
+  if (!validRoles.includes(storedRole)) {
+    if (storedRole) {
+      removeStorageKey(roleStorageKey);
+    }
+
+    return null;
+  }
+
+  return storedRole;
 };
 
+const getStoredRole = () => getStoredRoleForMode(getAccessMode());
+
 export const setCurrentRole = (role) => {
+  setCurrentRoleForMode(role, getAccessMode());
+};
+
+export const setCurrentRoleForMode = (role, mode) => {
   if (!validRoles.includes(role)) {
     return;
   }
 
-  window.localStorage.setItem(ROLE_STORAGE_KEY, role);
+  window.localStorage.setItem(getSelectedRoleStorageKey(mode), role);
 };
 
 export const clearCurrentRole = () => {
-  window.localStorage.removeItem(ROLE_STORAGE_KEY);
+  clearCurrentRoleForMode(getAccessMode());
 };
 
-export const getAuthenticatedSession = () => {
-  const storedValue = window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY);
+export const clearCurrentRoleForMode = (mode) => {
+  removeStorageKey(getSelectedRoleStorageKey(mode));
+};
+
+export const getAuthenticatedSessionForMode = (mode) => {
+  const sessionStorageKey = getAuthSessionStorageKey(mode);
+  const storedValue = window.localStorage.getItem(sessionStorageKey);
 
   if (!storedValue) {
     return null;
@@ -39,15 +92,36 @@ export const getAuthenticatedSession = () => {
   try {
     const parsedValue = JSON.parse(storedValue);
     const authenticatedRole = parsedValue?.user?.role;
+    const storedMode = parsedValue?.accessMode;
+    const storedUserId = parsedValue?.user?.id || "";
 
-    if (!validRoles.includes(authenticatedRole)) {
+    if (
+      !validRoles.includes(authenticatedRole) ||
+      !isStoredModeCurrent(storedMode, mode)
+    ) {
+      dispatchAuthSessionInvalidated({
+        mode,
+        userId: storedUserId,
+        reason: "stored-session-mismatch",
+      });
+      removeStorageKey(sessionStorageKey);
       return null;
     }
 
     return parsedValue;
   } catch (error) {
+    dispatchAuthSessionInvalidated({
+      mode,
+      userId: "",
+      reason: "stored-session-malformed",
+    });
+    removeStorageKey(sessionStorageKey);
     return null;
   }
+};
+
+export const getAuthenticatedSession = () => {
+  return getAuthenticatedSessionForMode(getAccessMode());
 };
 
 export const getAuthenticatedUser = () => {
@@ -55,15 +129,21 @@ export const getAuthenticatedUser = () => {
 };
 
 export const setAuthenticatedSession = (sessionPayload) => {
-  const authenticatedRole = sessionPayload?.user?.role;
+  setAuthenticatedSessionForMode(sessionPayload, getAccessMode());
+};
 
+export const setAuthenticatedSessionForMode = (sessionPayload, mode) => {
+  const authenticatedRole = sessionPayload?.user?.role;
   if (!validRoles.includes(authenticatedRole)) {
     return;
   }
 
   window.localStorage.setItem(
-    AUTH_SESSION_STORAGE_KEY,
-    JSON.stringify(sessionPayload),
+    getAuthSessionStorageKey(mode),
+    JSON.stringify({
+      ...sessionPayload,
+      accessMode: mode,
+    }),
   );
 };
 
@@ -84,7 +164,11 @@ export const updateAuthenticatedSessionUser = (userUpdates) => {
 };
 
 export const clearAuthenticatedSession = () => {
-  window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+  clearAuthenticatedSessionForMode(getAccessMode());
+};
+
+export const clearAuthenticatedSessionForMode = (mode) => {
+  removeStorageKey(getAuthSessionStorageKey(mode));
 };
 
 export const clearAllAccessSessions = () => {
@@ -107,7 +191,7 @@ export const getRoleForAccessMode = (mode = getAccessMode()) => {
   const authenticatedRole = getAuthenticatedSession()?.user?.role || null;
   const storedRole = getStoredRole();
 
-  if (mode === ACCESS_MODES.DEMO || mode === ACCESS_MODES.PRODUCTION) {
+  if (mode === ACCESS_MODES.DEMO) {
     if (authenticatedRole) {
       return authenticatedRole;
     }

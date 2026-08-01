@@ -42,6 +42,7 @@ const getStubByIdForUpdate = async (stubId, dbClient) => {
       s.qr_notes,
       s.claimed_at,
       h.barangay_id,
+      h.household_size,
       h.current_stay_type,
       h.is_active,
       h.family_head_first_name,
@@ -90,6 +91,7 @@ const getReliefPackTemplateByIdForUpdate = async (templateId, dbClient) => {
       based_on_sector,
       is_additional_pack,
       sector_id,
+      applies_to_all_disasters,
       is_active
     FROM relief_pack_templates
     WHERE id = $1

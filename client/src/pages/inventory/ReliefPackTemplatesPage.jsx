@@ -18,11 +18,12 @@ import {
   fetchBarangays,
   fetchEndedDisasterEvents,
 } from "../../features/disaster-events/disasterEventService";
+import { DISASTER_TYPE_OPTIONS } from "../../features/disaster-events/disasterTypeOptions";
 import { fetchInventoryBatches } from "../../features/inventory-batches/inventoryBatchService";
 import { fetchSectors } from "../../features/household-registration/householdRegistrationService";
 import { fetchConsolidatedMasterlist } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { useAuth } from "../../context/AuthContext";
-import { FiChevronDown, FiEdit2, FiEye, FiFilter, FiTrash2 } from "react-icons/fi";
+import { FiChevronDown, FiEdit2, FiEye, FiPlus, FiTrash2 } from "react-icons/fi";
 
 const getTabStyle = (isActive) => ({
   padding: "12px 24px",
@@ -424,6 +425,18 @@ const formatTemplateItemQuantity = (item) => {
   return `${quantityRequired} pc${quantityRequired === 1 ? "" : "s"}`;
 };
 
+const formatTemplateDisasterApplicability = (template) => {
+  if (template?.applies_to_all_disasters !== false) {
+    return "All disaster types";
+  }
+
+  const disasterTypes = Array.isArray(template?.disaster_types)
+    ? template.disaster_types
+    : [];
+
+  return disasterTypes.length > 0 ? disasterTypes.join(", ") : "--";
+};
+
 const getTemplateSourceTypes = (template, inventoryBatches) => {
   const templateItemIds = new Set(
     (template?.items || [])
@@ -454,7 +467,6 @@ const isDonatedReliefPackTemplate = (template, inventoryBatches) => {
 const ReliefPackTemplatesPage = () => {
   const { authenticatedUser } = useAuth();
   const [activeTab, setActiveTab] = useState("relief-packs");
-  const [eventScope, setEventScope] = useState("active");
   const [filters, setFilters] = useState({ search: "" });
   const [templates, setTemplates] = useState([]);
   const [inventoryItems, setInventoryItems] = useState([]);
@@ -540,26 +552,21 @@ const ReliefPackTemplatesPage = () => {
     loadReliefPackPage();
   }, []);
 
-  const scopedDisasterEvents = useMemo(() => {
-    return eventScope === "active"
-      ? activeDisasterEvents
-      : endedDisasterEvents;
-  }, [activeDisasterEvents, endedDisasterEvents, eventScope]);
+  const scopedDisasterEvents = useMemo(
+    () => [...activeDisasterEvents, ...endedDisasterEvents],
+    [activeDisasterEvents, endedDisasterEvents],
+  );
 
   useEffect(() => {
-    if (scopedDisasterEvents.length === 0) {
-      setSelectedDisasterEventId("");
+    if (!selectedDisasterEventId) {
       return;
     }
 
-    if (
-      selectedDisasterEventId &&
-      scopedDisasterEvents.some((event) => event.id === selectedDisasterEventId)
-    ) {
+    if (scopedDisasterEvents.some((event) => event.id === selectedDisasterEventId)) {
       return;
     }
 
-    setSelectedDisasterEventId(scopedDisasterEvents[0].id);
+    setSelectedDisasterEventId("");
   }, [scopedDisasterEvents, selectedDisasterEventId]);
 
   useEffect(() => {
@@ -612,7 +619,7 @@ const ReliefPackTemplatesPage = () => {
   }, []);
 
   useEffect(() => {
-    if (scopedDisasterEvents.length === 0) {
+    if (scopedDisasterEvents.length === 0 && !selectedDisasterEventId) {
       setAggregatedDemand(emptyDashboardState);
       return;
     }
@@ -626,9 +633,7 @@ const ReliefPackTemplatesPage = () => {
         const masterlists = await Promise.all(
           scopedDisasterEvents
             .filter((disasterEvent) =>
-              selectedDisasterEventId
-                ? disasterEvent.id === selectedDisasterEventId
-                : true,
+              selectedDisasterEventId ? disasterEvent.id === selectedDisasterEventId : true,
             )
             .map((disasterEvent) =>
             fetchConsolidatedMasterlist({
@@ -730,10 +735,17 @@ const ReliefPackTemplatesPage = () => {
         .map((item) => item.inventory_item?.item_name || "")
         .join(" ")
         .toLowerCase();
+      const disasterTypes = (template.applies_to_all_disasters !== false
+        ? ["All disaster types"]
+        : template.disaster_types || []
+      )
+        .join(" ")
+        .toLowerCase();
 
       return (
         templateName.includes(normalizedSearch) ||
-        itemNames.includes(normalizedSearch)
+        itemNames.includes(normalizedSearch) ||
+        disasterTypes.includes(normalizedSearch)
       );
     });
   }, [filters.search, templateCards]);
@@ -790,7 +802,9 @@ const ReliefPackTemplatesPage = () => {
           based_on_sector: payload.based_on_sector,
           is_additional_pack: payload.is_additional_pack,
           sector_id: payload.sector_id,
+          applies_to_all_disasters: payload.applies_to_all_disasters,
           is_active: payload.is_active,
+          disaster_types: payload.disaster_types,
           items: payload.items,
         });
 
@@ -803,8 +817,10 @@ const ReliefPackTemplatesPage = () => {
           based_on_sector: payload.based_on_sector,
           is_additional_pack: payload.is_additional_pack,
           sector_id: payload.sector_id,
+          applies_to_all_disasters: payload.applies_to_all_disasters,
           created_by: authenticatedUser?.id || null,
           is_active: payload.is_active,
+          disaster_types: payload.disaster_types,
           items: payload.items,
         });
 
@@ -867,7 +883,9 @@ const ReliefPackTemplatesPage = () => {
         based_on_sector: pendingDeleteTemplate.based_on_sector,
         is_additional_pack: pendingDeleteTemplate.is_additional_pack,
         sector_id: pendingDeleteTemplate.sector_id,
+        applies_to_all_disasters: pendingDeleteTemplate.applies_to_all_disasters,
         is_active: false,
+        disaster_types: pendingDeleteTemplate.disaster_types || [],
         items: (pendingDeleteTemplate.items || []).map((item) => ({
           inventory_item_id: item.inventory_item_id,
           quantity_required: Number(item.quantity_required || 0),
@@ -893,65 +911,10 @@ const ReliefPackTemplatesPage = () => {
       <PageHeader
         eyebrow="Inventory"
         title="RELIEF PACK MANAGEMENT"
-        actions={[
-          { label: "Create Relief Pack", onClick: handleOpenCreateModal },
-        ]}
+        actions={[]}
       />
 
       <section style={{ ...shellStyles.card, boxSizing: "border-box" }}>
-        <div
-          style={{
-            display: "flex",
-            borderBottom: "1px solid #d6e2ef",
-            marginBottom: "24px",
-            flexWrap: "wrap",
-            gap: "8px",
-            overflowX: "auto",
-            msOverflowStyle: "none",
-            scrollbarWidth: "none",
-          }}
-        >
-          <button
-            type="button"
-            style={getTabStyle(activeTab === "relief-packs")}
-            onClick={() => setActiveTab("relief-packs")}
-          >
-            Relief Packs
-          </button>
-          <button
-            type="button"
-            style={getTabStyle(activeTab === "customization")}
-            onClick={() => setActiveTab("customization")}
-          >
-            Pack Customization
-          </button>
-        </div>
-
-        <div
-          style={{
-            display: "flex",
-            borderBottom: "1px solid #d6e2ef",
-            marginBottom: "24px",
-            gap: "8px",
-            flexWrap: "wrap",
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => setEventScope("active")}
-            style={scopeTabButtonStyles(eventScope === "active")}
-          >
-            Active Events
-          </button>
-          <button
-            type="button"
-            onClick={() => setEventScope("ended")}
-            style={scopeTabButtonStyles(eventScope === "ended")}
-          >
-            Ended Events
-          </button>
-        </div>
-
         <div
           style={{
             display: "grid",
@@ -965,7 +928,7 @@ const ReliefPackTemplatesPage = () => {
               htmlFor="relief-pack-management-event"
               style={filterStyles.label}
             >
-              {eventScope === "active" ? "Active" : "Ended"} Disaster Event
+              Disaster Event
             </label>
             <div style={filterStyles.selectWrap}>
               <select
@@ -975,9 +938,7 @@ const ReliefPackTemplatesPage = () => {
                 disabled={isLoading}
                 style={filterStyles.field}
               >
-                <option value="">
-                  {`Select ${eventScope === "active" ? "active" : "ended"} disaster event`}
-                </option>
+                <option value="">All disaster events</option>
                 {scopedDisasterEvents.map((event) => (
                   <option key={event.id} value={event.id}>
                     {event.title}
@@ -1005,7 +966,7 @@ const ReliefPackTemplatesPage = () => {
                 disabled={isLoading}
                 style={filterStyles.field}
               >
-                <option value="">All Barangays</option>
+                <option value="">All barangays</option>
                 {barangayOptions.map((barangay) => (
                   <option key={barangay.id} value={barangay.id}>
                     {barangay.name}
@@ -1017,6 +978,41 @@ const ReliefPackTemplatesPage = () => {
               </span>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section
+        style={{
+          ...shellStyles.card,
+          marginTop: "16px",
+          boxSizing: "border-box",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            borderBottom: "1px solid #d6e2ef",
+            flexWrap: "wrap",
+            gap: "8px",
+            overflowX: "auto",
+            msOverflowStyle: "none",
+            scrollbarWidth: "none",
+          }}
+        >
+          <button
+            type="button"
+            style={getTabStyle(activeTab === "relief-packs")}
+            onClick={() => setActiveTab("relief-packs")}
+          >
+            Relief Packs
+          </button>
+          <button
+            type="button"
+            style={getTabStyle(activeTab === "customization")}
+            onClick={() => setActiveTab("customization")}
+          >
+            Pack Customization
+          </button>
         </div>
       </section>
 
@@ -1165,10 +1161,10 @@ const ReliefPackTemplatesPage = () => {
             <button
               type="button"
               style={pageHeaderStyles.secondaryButton}
-              onClick={loadReliefPackPage}
+              onClick={handleOpenCreateModal}
             >
-              <FiFilter size={16} />
-              Refresh
+              <FiPlus size={16} />
+              Create Relief Pack
             </button>
           </div>
 
@@ -1201,6 +1197,7 @@ const ReliefPackTemplatesPage = () => {
                       >
                         Recommended Family Size
                       </th>
+                      <th style={tableStyles.headerCell}>Disaster Applicability</th>
                       <th
                         style={{
                           ...tableStyles.headerCell,
@@ -1277,6 +1274,19 @@ const ReliefPackTemplatesPage = () => {
                           }}
                         >
                           {template.description || "--"}
+                        </td>
+                        <td style={tableStyles.bodyCell}>
+                          <div>{formatTemplateDisasterApplicability(template)}</div>
+                          {template.applies_to_all_disasters === false ? (
+                            <span style={tableStyles.helperText}>
+                              {template.disaster_types?.length || 0} selected type
+                              {(template.disaster_types?.length || 0) === 1 ? "" : "s"}
+                            </span>
+                          ) : (
+                            <span style={tableStyles.helperText}>
+                              Covers {DISASTER_TYPE_OPTIONS.length} defined disaster types
+                            </span>
+                          )}
                         </td>
                         <td
                           style={{

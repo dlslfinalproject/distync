@@ -6,24 +6,39 @@ const getReliefPackTemplates = async (filters) => {
 
   if (filters.is_active !== null) {
     values.push(filters.is_active);
-    conditions.push(`is_active = $${values.length}`);
+    conditions.push(`rpt.is_active = $${values.length}`);
   }
 
   if (filters.based_on_family_size !== null) {
     values.push(filters.based_on_family_size);
-    conditions.push(`based_on_family_size = $${values.length}`);
+    conditions.push(`rpt.based_on_family_size = $${values.length}`);
   }
 
   if (filters.based_on_sector !== null) {
     values.push(filters.based_on_sector);
-    conditions.push(`based_on_sector = $${values.length}`);
+    conditions.push(`rpt.based_on_sector = $${values.length}`);
   }
 
   if (filters.search) {
     values.push(`%${filters.search}%`);
     conditions.push(
-      `(name ILIKE $${values.length} OR description ILIKE $${values.length})`,
+      `(rpt.name ILIKE $${values.length} OR rpt.description ILIKE $${values.length})`,
     );
+  }
+
+  if (filters.disaster_type) {
+    values.push(filters.disaster_type);
+    conditions.push(`
+      (
+        rpt.applies_to_all_disasters = TRUE
+        OR EXISTS (
+          SELECT 1
+          FROM relief_pack_template_disaster_types rptdt_filter
+          WHERE rptdt_filter.template_id = rpt.id
+            AND rptdt_filter.disaster_type = $${values.length}
+        )
+      )
+    `);
   }
 
   const whereClause =
@@ -31,20 +46,40 @@ const getReliefPackTemplates = async (filters) => {
 
   const query = `
     SELECT
-      id,
-      name,
-      description,
-      based_on_family_size,
-      based_on_sector,
-      is_additional_pack,
-      sector_id,
-      created_by,
-      is_active,
-      created_at,
-      updated_at
-    FROM relief_pack_templates
+      rpt.id,
+      rpt.name,
+      rpt.description,
+      rpt.based_on_family_size,
+      rpt.based_on_sector,
+      rpt.is_additional_pack,
+      rpt.sector_id,
+      rpt.applies_to_all_disasters,
+      rpt.created_by,
+      rpt.is_active,
+      rpt.created_at,
+      rpt.updated_at,
+      COALESCE(
+        array_remove(array_agg(DISTINCT rptdt.disaster_type), NULL),
+        ARRAY[]::character varying[]
+      ) AS disaster_types
+    FROM relief_pack_templates rpt
+    LEFT JOIN relief_pack_template_disaster_types rptdt
+      ON rptdt.template_id = rpt.id
     ${whereClause}
-    ORDER BY name ASC
+    GROUP BY
+      rpt.id,
+      rpt.name,
+      rpt.description,
+      rpt.based_on_family_size,
+      rpt.based_on_sector,
+      rpt.is_additional_pack,
+      rpt.sector_id,
+      rpt.applies_to_all_disasters,
+      rpt.created_by,
+      rpt.is_active,
+      rpt.created_at,
+      rpt.updated_at
+    ORDER BY rpt.name ASC
   `;
 
   const result = await pool.query(query, values);
@@ -61,6 +96,7 @@ const getReliefPackTemplateById = async (id) => {
       based_on_sector,
       is_additional_pack,
       sector_id,
+      applies_to_all_disasters,
       created_by,
       is_active,
       created_at,
@@ -97,6 +133,7 @@ const getInactiveReliefPackTemplateByName = async (name) => {
       based_on_sector,
       is_additional_pack,
       sector_id,
+      applies_to_all_disasters,
       created_by,
       is_active,
       created_at,
@@ -165,12 +202,13 @@ const insertReliefPackTemplate = async (templateData, dbClient) => {
       based_on_sector,
       is_additional_pack,
       sector_id,
+      applies_to_all_disasters,
       created_by,
       is_active,
       created_at,
       updated_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
     RETURNING
       id,
       name,
@@ -179,6 +217,7 @@ const insertReliefPackTemplate = async (templateData, dbClient) => {
       based_on_sector,
       is_additional_pack,
       sector_id,
+      applies_to_all_disasters,
       created_by,
       is_active,
       created_at,
@@ -192,6 +231,7 @@ const insertReliefPackTemplate = async (templateData, dbClient) => {
     templateData.based_on_sector,
     templateData.is_additional_pack,
     templateData.sector_id,
+    templateData.applies_to_all_disasters,
     templateData.created_by,
     templateData.is_active,
   ];
@@ -209,7 +249,8 @@ const updateReliefPackTemplate = async (id, templateData, dbClient = pool) => {
         based_on_sector = $5,
         is_additional_pack = $6,
         sector_id = $7,
-        is_active = $8,
+        applies_to_all_disasters = $8,
+        is_active = $9,
         updated_at = NOW()
     WHERE id = $1
     RETURNING
@@ -220,6 +261,7 @@ const updateReliefPackTemplate = async (id, templateData, dbClient = pool) => {
       based_on_sector,
       is_additional_pack,
       sector_id,
+      applies_to_all_disasters,
       created_by,
       is_active,
       created_at,
@@ -234,6 +276,7 @@ const updateReliefPackTemplate = async (id, templateData, dbClient = pool) => {
     templateData.based_on_sector,
     templateData.is_additional_pack,
     templateData.sector_id,
+    templateData.applies_to_all_disasters,
     templateData.is_active,
   ];
 
@@ -277,6 +320,58 @@ const insertReliefPackTemplateItem = async (itemData, dbClient) => {
   return result.rows[0];
 };
 
+const getReliefPackTemplateDisasterTypesByTemplateId = async (templateId) => {
+  const query = `
+    SELECT
+      id,
+      template_id,
+      disaster_type,
+      created_at
+    FROM relief_pack_template_disaster_types
+    WHERE template_id = $1
+    ORDER BY disaster_type ASC
+  `;
+
+  const result = await pool.query(query, [templateId]);
+  return result.rows;
+};
+
+const deleteReliefPackTemplateDisasterTypesByTemplateId = async (
+  templateId,
+  dbClient,
+) => {
+  const query = `
+    DELETE FROM relief_pack_template_disaster_types
+    WHERE template_id = $1
+  `;
+
+  await dbClient.query(query, [templateId]);
+};
+
+const insertReliefPackTemplateDisasterType = async (disasterTypeData, dbClient) => {
+  const query = `
+    INSERT INTO relief_pack_template_disaster_types (
+      template_id,
+      disaster_type,
+      created_at
+    )
+    VALUES ($1, $2, NOW())
+    RETURNING
+      id,
+      template_id,
+      disaster_type,
+      created_at
+  `;
+
+  const values = [
+    disasterTypeData.template_id,
+    disasterTypeData.disaster_type,
+  ];
+
+  const result = await dbClient.query(query, values);
+  return result.rows[0];
+};
+
 module.exports = {
   getReliefPackTemplates,
   getReliefPackTemplateById,
@@ -284,8 +379,11 @@ module.exports = {
   getInactiveReliefPackTemplateByName,
   getInventoryItemById,
   getReliefPackTemplateItemsByTemplateId,
+  getReliefPackTemplateDisasterTypesByTemplateId,
   insertReliefPackTemplate,
   updateReliefPackTemplate,
   deleteReliefPackTemplateItemsByTemplateId,
+  deleteReliefPackTemplateDisasterTypesByTemplateId,
   insertReliefPackTemplateItem,
+  insertReliefPackTemplateDisasterType,
 };

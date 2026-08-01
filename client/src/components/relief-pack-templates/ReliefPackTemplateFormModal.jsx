@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { FiX } from "react-icons/fi";
+import { FiCheckSquare, FiSquare, FiX } from "react-icons/fi";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
+import { DISASTER_TYPE_OPTIONS } from "../../features/disaster-events/disasterTypeOptions";
 
 const overlayStyles = {
   position: "fixed",
@@ -212,6 +213,11 @@ const buildInitialFormValues = (templateData) => ({
   familyPerPack: templateData?.description || "1 member",
   packType: templateData?.is_additional_pack ? "additional" : "standard",
   sectorId: templateData?.sector_id || "",
+  disasterApplicability:
+    templateData?.applies_to_all_disasters === false ? "specific" : "all",
+  disasterTypes: Array.isArray(templateData?.disaster_types)
+    ? templateData.disaster_types
+    : [],
 });
 
 const ReliefPackTemplateFormModal = ({
@@ -247,6 +253,8 @@ const ReliefPackTemplateFormModal = ({
 
   const isEditMode = mode === "edit";
   const isViewMode = mode === "view";
+  const areAllDisasterTypesSelected =
+    formValues.disasterTypes.length === DISASTER_TYPE_OPTIONS.length;
 
   const handleInputChange = (event) => {
     if (isViewMode) {
@@ -258,6 +266,43 @@ const ReliefPackTemplateFormModal = ({
     setFormValues((previousValues) => ({
       ...previousValues,
       [name]: value,
+      ...(name === "disasterApplicability" && value === "all"
+        ? { disasterTypes: [] }
+        : {}),
+    }));
+  };
+
+  const handleDisasterTypeToggle = (disasterType, isChecked) => {
+    if (isViewMode) {
+      return;
+    }
+
+    setLocalErrorMessage("");
+    setFormValues((previousValues) => {
+      const currentTypes = Array.isArray(previousValues.disasterTypes)
+        ? previousValues.disasterTypes
+        : [];
+
+      return {
+        ...previousValues,
+        disasterTypes: isChecked
+          ? [...currentTypes, disasterType].sort((leftType, rightType) =>
+              leftType.localeCompare(rightType),
+            )
+          : currentTypes.filter((currentType) => currentType !== disasterType),
+      };
+    });
+  };
+
+  const handleToggleAllDisasterTypes = () => {
+    if (isViewMode) {
+      return;
+    }
+
+    setLocalErrorMessage("");
+    setFormValues((previousValues) => ({
+      ...previousValues,
+      disasterTypes: areAllDisasterTypesSelected ? [] : [...DISASTER_TYPE_OPTIONS],
     }));
   };
 
@@ -372,6 +417,14 @@ const ReliefPackTemplateFormModal = ({
       return;
     }
 
+    if (
+      formValues.disasterApplicability === "specific" &&
+      (!Array.isArray(formValues.disasterTypes) || formValues.disasterTypes.length === 0)
+    ) {
+      setLocalErrorMessage("Select at least one disaster type for this relief pack.");
+      return;
+    }
+
     const parsedItems = packItems
       .map((packItem) => ({
         inventory_item_id: packItem.inventory_item_id,
@@ -403,6 +456,11 @@ const ReliefPackTemplateFormModal = ({
         formValues.packType === "additional" && formValues.sectorId
           ? formValues.sectorId
           : null,
+      applies_to_all_disasters: formValues.disasterApplicability !== "specific",
+      disaster_types:
+        formValues.disasterApplicability === "specific"
+          ? formValues.disasterTypes
+          : [],
       is_active: templateData?.is_active ?? true,
       items: parsedItems,
       family_per_pack_label: formValues.familyPerPack,
@@ -537,6 +595,114 @@ const ReliefPackTemplateFormModal = ({
                     <p style={helperTextStyles}>
                       Applies to families tagged with this sector.
                     </p>
+                  </div>
+                ) : null}
+
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label style={labelStyles} htmlFor="relief-pack-disaster-applicability">
+                    Disaster Applicability
+                  </label>
+                  <select
+                    id="relief-pack-disaster-applicability"
+                    name="disasterApplicability"
+                    style={inputStyles}
+                    value={formValues.disasterApplicability}
+                    onChange={handleInputChange}
+                    disabled={isViewMode}
+                  >
+                    <option value="all">All disaster types</option>
+                    <option value="specific">Only selected disaster types</option>
+                  </select>
+                  <p style={helperTextStyles}>
+                    Use this to mark whether the pack can be used for every disaster event or only for selected types.
+                  </p>
+                </div>
+
+                {formValues.disasterApplicability === "specific" ? (
+                  <div style={{ gridColumn: "1 / -1" }}>
+                    <label style={labelStyles}>Applicable Disaster Types</label>
+                    {isViewMode ? null : (
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "flex-end",
+                          marginBottom: "12px",
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={handleToggleAllDisasterTypes}
+                          style={{
+                            border: areAllDisasterTypesSelected
+                              ? "none"
+                              : "1px solid #c6d8ea",
+                            borderRadius: "12px",
+                            padding: "8px 14px",
+                            background: areAllDisasterTypesSelected
+                              ? "linear-gradient(135deg, #2f6499 0%, #4c86be 100%)"
+                              : "#f8fbfe",
+                            color: areAllDisasterTypesSelected ? "#ffffff" : "#2a4c6f",
+                            fontSize: "13px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                          }}
+                        >
+                          {areAllDisasterTypesSelected ? (
+                            <FiCheckSquare size={14} />
+                          ) : (
+                            <FiSquare size={14} />
+                          )}
+
+                          {areAllDisasterTypesSelected ? "Unselect All" : "Select All"}
+                        </button>
+                      </div>
+                    )}
+
+                    <p style={helperTextStyles}>
+                      Selected disaster types will be the only events where this pack applies.
+                    </p>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                        gap: "12px",
+                      }}
+                    >
+                      {DISASTER_TYPE_OPTIONS.map((disasterType) => (
+                        <label
+                          key={disasterType}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            border: "1px solid #d4dfeb",
+                            borderRadius: "999px",
+                            padding: "10px 14px",
+                            backgroundColor: "#f8fbfe",
+                            color: "#385a7b",
+                            fontSize: "13px",
+                            fontWeight: 600,
+                            cursor: isViewMode ? "default" : "pointer",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={formValues.disasterTypes.includes(disasterType)}
+                            onChange={(event) =>
+                              handleDisasterTypeToggle(
+                                disasterType,
+                                event.target.checked,
+                              )
+                            }
+                            disabled={isViewMode}
+                          />
+                          {disasterType}
+                        </label>
+                      ))}
+                    </div>
                   </div>
                 ) : null}
 

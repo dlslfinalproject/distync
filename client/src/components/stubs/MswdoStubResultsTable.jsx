@@ -140,6 +140,54 @@ const formatDisplayStubNo = (row) => {
   return sequenceNo > 0 ? `STUB#${sequenceNo}` : "-";
 };
 
+const getTemplateFamilySizeCoverage = (template) => {
+  const parsedCoverage = Number.parseInt(String(template?.description || "").trim(), 10);
+  return Number.isInteger(parsedCoverage) && parsedCoverage > 0 ? parsedCoverage : 0;
+};
+
+const getReliefPackQuantityMultiplier = (template, householdSize) => {
+  if (!template?.based_on_family_size) {
+    return 1;
+  }
+
+  const normalizedHouseholdSize = Number.parseInt(String(householdSize || 0), 10);
+  const familySizeCoverage = getTemplateFamilySizeCoverage(template);
+
+  if (
+    !Number.isInteger(normalizedHouseholdSize) ||
+    normalizedHouseholdSize <= 0 ||
+    familySizeCoverage <= 0
+  ) {
+    return 1;
+  }
+
+  return Math.max(1, Math.ceil(normalizedHouseholdSize / familySizeCoverage));
+};
+
+const getPrimaryAssignedReliefPackTemplate = (row) => {
+  const assignedTemplates = Array.isArray(row?.assigned_relief_packs)
+    ? row.assigned_relief_packs
+    : [];
+
+  return (
+    assignedTemplates.find((template) => !template?.is_additional_pack) ||
+    assignedTemplates[0] ||
+    null
+  );
+};
+
+const getReliefPackDisplay = (row) => {
+  const primaryTemplate = getPrimaryAssignedReliefPackTemplate(row);
+  const householdSize = row?.members_count || 0;
+  const packMultiplier = getReliefPackQuantityMultiplier(
+    primaryTemplate,
+    householdSize,
+  );
+  const baseDisplay = row?.relief_pack_name || "--";
+
+  return packMultiplier > 1 ? `${baseDisplay} (${packMultiplier})` : baseDisplay;
+};
+
 const getStatusLabel = (status) => {
   if (status === "PENDING_SYNC") {
     return "Pending Sync";
@@ -368,7 +416,7 @@ const MswdoStubResultsTable = ({
                     {formatOrderedSectorText(row.sectors_text)}
                   </td>
                   <td style={tableStyles.bodyCell}>
-                    {row.relief_pack_name || "--"}
+                    {getReliefPackDisplay(row)}
                   </td>
                   <td
                     style={{

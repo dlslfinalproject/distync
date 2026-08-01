@@ -1,6 +1,7 @@
 const pool = require("../config/db");
 const distributionTransactionRepository = require("../repositories/distributionTransaction.repository");
 const disasterEventRepository = require("../repositories/disasterEvent.repository");
+const reliefPackTemplateRepository = require("../repositories/reliefPackTemplate.repository");
 const notificationService = require("../modules/notifications/notification.service");
 const stubRepository = require("../repositories/stub.repository");
 const settingsRepository = require("../repositories/settings.repository");
@@ -13,6 +14,30 @@ const mswdoReportExport = require("../utils/mswdoReportExport");
 
 const buildFullName = (firstName, middleName, lastName, suffix) => {
   return [firstName, middleName, lastName, suffix].filter(Boolean).join(" ");
+};
+
+const getTemplateFamilySizeCoverage = (template) => {
+  const parsedCoverage = Number.parseInt(String(template?.description || "").trim(), 10);
+  return Number.isInteger(parsedCoverage) && parsedCoverage > 0 ? parsedCoverage : 0;
+};
+
+const getTemplatePackMultiplier = (template, householdSize) => {
+  if (!template?.based_on_family_size) {
+    return 1;
+  }
+
+  const normalizedHouseholdSize = Number.parseInt(String(householdSize || 0), 10);
+  const familySizeCoverage = getTemplateFamilySizeCoverage(template);
+
+  if (
+    !Number.isInteger(normalizedHouseholdSize) ||
+    normalizedHouseholdSize <= 0 ||
+    familySizeCoverage <= 0
+  ) {
+    return 1;
+  }
+
+  return Math.max(1, Math.ceil(normalizedHouseholdSize / familySizeCoverage));
 };
 
 const formatStubDisplayNo = (sequenceNo, fallbackStubNo = null) => {
@@ -486,6 +511,7 @@ const isOperationallyActiveClaimHousehold = (stub, latestAttendance) => {
 
 const buildDistributionInventoryRemarks = ({
   templateName,
+  packQuantity,
   batchNo,
   fifoOrder,
   quantityReleased,
@@ -493,6 +519,7 @@ const buildDistributionInventoryRemarks = ({
   const remarkParts = [
     "Relief distribution outflow",
     templateName ? `pack: ${templateName}` : null,
+    packQuantity && packQuantity > 1 ? `pack_quantity: ${packQuantity}` : null,
     batchNo ? `batch: ${batchNo}` : null,
     fifoOrder ? `fifo_order: ${fifoOrder}` : null,
     quantityReleased ? `quantity: ${quantityReleased}` : null,
@@ -545,6 +572,8 @@ const buildTemplateReleasePlan = async ({
   reliefPackTemplateId,
   client,
   inventoryItemsById,
+  disasterType,
+  householdSize,
 }) => {
   const reliefPackTemplate =
     await distributionTransactionRepository.getReliefPackTemplateByIdForUpdate(
@@ -556,6 +585,27 @@ const buildTemplateReleasePlan = async ({
     const error = new Error("Selected relief pack template is no longer available");
     error.statusCode = 404;
     throw error;
+  }
+
+  if (
+    reliefPackTemplate.applies_to_all_disasters === false &&
+    String(disasterType || "").trim()
+  ) {
+    const templateDisasterTypes =
+      await reliefPackTemplateRepository.getReliefPackTemplateDisasterTypesByTemplateId(
+        reliefPackTemplateId,
+      );
+    const isApplicableToDisasterType = templateDisasterTypes.some(
+      (row) => String(row.disaster_type || "").trim() === String(disasterType).trim(),
+    );
+
+    if (!isApplicableToDisasterType) {
+      const error = new Error(
+        `Selected relief pack template is not applicable to ${disasterType}.`,
+      );
+      error.statusCode = 400;
+      throw error;
+    }
   }
 
   const templateItems =
@@ -572,6 +622,10 @@ const buildTemplateReleasePlan = async ({
     throw error;
   }
 
+  const packMultiplier = getTemplatePackMultiplier(
+    reliefPackTemplate,
+    householdSize,
+  );
   const releasePlan = [];
 
   for (const templateItem of templateItems) {
@@ -595,7 +649,8 @@ const buildTemplateReleasePlan = async ({
         templateItem.inventory_item_id,
         client,
       );
-    const requiredQuantity = Number(templateItem.quantity_required || 0);
+    const requiredQuantity =
+      Number(templateItem.quantity_required || 0) * packMultiplier;
     const totalAvailableQuantity = candidateBatches.reduce(
       (total, batch) => total + Number(batch.quantity_available || 0),
       0,
@@ -644,6 +699,7 @@ const buildTemplateReleasePlan = async ({
 
   return {
     reliefPackTemplate,
+    packMultiplier,
     releasePlan,
   };
 };
@@ -847,6 +903,16 @@ const createDistributionTransaction = async (requestData) => {
       throw error;
     }
 
+    const disasterEvent = await disasterEventRepository.getDisasterEventById(
+      stub.disaster_event_id,
+    );
+
+    if (!disasterEvent) {
+      const error = new Error("Disaster event not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
     const latestAttendance =
       await distributionTransactionRepository.getLatestAttendanceByHouseholdId(
         stub.household_id,
@@ -887,6 +953,8 @@ const createDistributionTransaction = async (requestData) => {
           reliefPackTemplateId: requestData.relief_pack_template_id,
           client,
           inventoryItemsById,
+          disasterType: disasterEvent.disaster_type,
+          householdSize: stub.household_size,
         })
       : null;
     const releasePlan = templateReleasePlan
@@ -1032,6 +1100,7 @@ const createDistributionTransaction = async (requestData) => {
           performed_by: requestData.verified_by || null,
           remarks: buildDistributionInventoryRemarks({
             templateName: templateReleasePlan?.reliefPackTemplate?.name || null,
+            packQuantity: templateReleasePlan?.packMultiplier || 1,
             batchNo: item.batch_no,
             fifoOrder: item.fifo_order,
             quantityReleased: item.quantity_released,
@@ -1092,6 +1161,7 @@ const createDistributionTransaction = async (requestData) => {
       relief_pack_template_id: distributionTransaction.relief_pack_template_id,
       relief_pack_template_name:
         templateReleasePlan?.reliefPackTemplate?.name || null,
+      relief_pack_quantity: templateReleasePlan?.packMultiplier || 1,
       stub: {
         id: updatedStub.id,
         stub_no: updatedStub.stub_no,
@@ -1249,6 +1319,7 @@ const claimDistributionTransactionFromQr = async (requestData) => {
       received_at: distributionTransaction.received_at,
       relief_pack_template_id: distributionTransaction.relief_pack_template_id,
       relief_pack_template_name: assignedReliefPackTemplate?.name || null,
+      relief_pack_quantity: automaticClaimResult.packQuantity || 1,
       stub: {
         id: updatedStub.id,
         stub_no: updatedStub.stub_no,

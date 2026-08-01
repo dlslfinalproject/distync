@@ -1,14 +1,14 @@
-import { LOCAL_SYNC_STATUS } from "./db";
+import { LOCAL_SYNC_STATUS } from "./db.js";
 import {
   clearSyncedEntries,
   getFailedSyncEntries,
   getRetryableSyncEntries,
   queueSyncEntry,
   updateSyncEntryStatus,
-} from "./syncQueue";
+} from "./syncQueue.js";
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+  import.meta.env?.VITE_API_BASE_URL || "http://localhost:5000";
 
 const NETWORK_ERROR_MESSAGES = ["Failed to fetch", "NetworkError", "Load failed"];
 const SYNC_ENDPOINT = `${API_BASE_URL}/api/v1/sync/process`;

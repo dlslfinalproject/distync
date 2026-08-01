@@ -1,5 +1,16 @@
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const RELIEF_PACK_DISASTER_TYPE_OPTIONS = [
+  "Typhoon",
+  "Flood",
+  "Earthquake",
+  "Landslide",
+  "Volcanic Eruption",
+  "Storm Surge",
+  "Drought / El Niño",
+  "Tsunami",
+  "Fire",
+];
 
 const isValidUuid = (value) => {
   return typeof value === "string" && uuidPattern.test(value);
@@ -42,7 +53,14 @@ const validateReliefPackTemplateId = (req, res, next) => {
 
 const validateGetReliefPackTemplates = (req, res, next) => {
   try {
-    const { is_active, based_on_family_size, based_on_sector, search } = req.query;
+    const {
+      is_active,
+      based_on_family_size,
+      based_on_sector,
+      search,
+      disaster_event_id,
+      disaster_type,
+    } = req.query;
 
     const parsedIsActive = parseOptionalBoolean(is_active);
     const parsedBasedOnFamilySize = parseOptionalBoolean(based_on_family_size);
@@ -66,6 +84,28 @@ const validateGetReliefPackTemplates = (req, res, next) => {
       });
     }
 
+    if (
+      disaster_event_id !== undefined &&
+      disaster_event_id !== null &&
+      disaster_event_id !== "" &&
+      !isValidUuid(String(disaster_event_id))
+    ) {
+      return res.status(400).json({
+        message: "disaster_event_id must be a valid UUID when provided",
+      });
+    }
+
+    if (
+      disaster_type !== undefined &&
+      disaster_type !== null &&
+      String(disaster_type).trim() &&
+      !RELIEF_PACK_DISASTER_TYPE_OPTIONS.includes(String(disaster_type).trim())
+    ) {
+      return res.status(400).json({
+        message: "disaster_type contains an invalid disaster type",
+      });
+    }
+
     req.validatedQuery = {
       is_active: parsedIsActive.isProvided ? parsedIsActive.value : null,
       based_on_family_size: parsedBasedOnFamilySize.isProvided
@@ -75,6 +115,14 @@ const validateGetReliefPackTemplates = (req, res, next) => {
         ? parsedBasedOnSector.value
         : null,
       search: typeof search === "string" && search.trim() ? search.trim() : null,
+      disaster_event_id:
+        typeof disaster_event_id === "string" && disaster_event_id.trim()
+          ? disaster_event_id.trim()
+          : null,
+      disaster_type:
+        typeof disaster_type === "string" && disaster_type.trim()
+          ? disaster_type.trim()
+          : null,
     };
 
     return next();
@@ -111,6 +159,52 @@ const validateTemplateItemsArray = (items, allowEmpty = true) => {
   return null;
 };
 
+const normalizeDisasterTypes = (disasterTypes) => {
+  if (!Array.isArray(disasterTypes)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      disasterTypes
+        .map((disasterType) => String(disasterType || "").trim())
+        .filter(Boolean),
+    ),
+  );
+};
+
+const validateTemplateDisasterApplicability = ({
+  applies_to_all_disasters,
+  disaster_types,
+}) => {
+  if (
+    applies_to_all_disasters !== undefined &&
+    typeof applies_to_all_disasters !== "boolean"
+  ) {
+    return "applies_to_all_disasters must be a boolean when provided";
+  }
+
+  if (disaster_types !== undefined && !Array.isArray(disaster_types)) {
+    return "disaster_types must be an array when provided";
+  }
+
+  const normalizedDisasterTypes = normalizeDisasterTypes(disaster_types);
+  const hasInvalidDisasterType = normalizedDisasterTypes.some(
+    (disasterType) =>
+      !RELIEF_PACK_DISASTER_TYPE_OPTIONS.includes(disasterType),
+  );
+
+  if (hasInvalidDisasterType) {
+    return "disaster_types contains an invalid disaster type";
+  }
+
+  if ((applies_to_all_disasters ?? true) === false && normalizedDisasterTypes.length === 0) {
+    return "Select at least one disaster type when applies_to_all_disasters is false";
+  }
+
+  return null;
+};
+
 const validateCreateReliefPackTemplate = (req, res, next) => {
   try {
     const {
@@ -120,9 +214,11 @@ const validateCreateReliefPackTemplate = (req, res, next) => {
       based_on_sector,
       is_additional_pack,
       sector_id,
+      applies_to_all_disasters,
       created_by,
       is_active,
       items,
+      disaster_types,
     } = req.body;
 
     if (!name || typeof name !== "string" || !name.trim()) {
@@ -202,6 +298,20 @@ const validateCreateReliefPackTemplate = (req, res, next) => {
       }
     }
 
+    const disasterApplicabilityValidationError =
+      validateTemplateDisasterApplicability({
+        applies_to_all_disasters,
+        disaster_types,
+      });
+
+    if (disasterApplicabilityValidationError) {
+      return res.status(400).json({
+        message: disasterApplicabilityValidationError,
+      });
+    }
+
+    const normalizedDisasterTypes = normalizeDisasterTypes(disaster_types);
+
     req.validatedBody = {
       name: name.trim(),
       description: description ?? null,
@@ -209,9 +319,12 @@ const validateCreateReliefPackTemplate = (req, res, next) => {
       based_on_sector: based_on_sector ?? Boolean(sector_id),
       is_additional_pack: is_additional_pack ?? false,
       sector_id: sector_id ?? null,
+      applies_to_all_disasters: applies_to_all_disasters ?? true,
       created_by: created_by ?? null,
       is_active: is_active ?? true,
       items: items ?? [],
+      disaster_types:
+        (applies_to_all_disasters ?? true) === false ? normalizedDisasterTypes : [],
     };
 
     return next();
@@ -232,8 +345,10 @@ const validateUpdateReliefPackTemplate = (req, res, next) => {
       based_on_sector,
       is_additional_pack,
       sector_id,
+      applies_to_all_disasters,
       is_active,
       items,
+      disaster_types,
     } = req.body;
 
     if (!name || typeof name !== "string" || !name.trim()) {
@@ -307,6 +422,20 @@ const validateUpdateReliefPackTemplate = (req, res, next) => {
       }
     }
 
+    const disasterApplicabilityValidationError =
+      validateTemplateDisasterApplicability({
+        applies_to_all_disasters,
+        disaster_types,
+      });
+
+    if (disasterApplicabilityValidationError) {
+      return res.status(400).json({
+        message: disasterApplicabilityValidationError,
+      });
+    }
+
+    const normalizedDisasterTypes = normalizeDisasterTypes(disaster_types);
+
     req.validatedBody = {
       name: name.trim(),
       description: description ?? null,
@@ -314,8 +443,11 @@ const validateUpdateReliefPackTemplate = (req, res, next) => {
       based_on_sector: based_on_sector ?? Boolean(sector_id),
       is_additional_pack: is_additional_pack ?? false,
       sector_id: sector_id ?? null,
+      applies_to_all_disasters: applies_to_all_disasters ?? true,
       is_active: is_active ?? true,
       items,
+      disaster_types:
+        (applies_to_all_disasters ?? true) === false ? normalizedDisasterTypes : [],
     };
 
     return next();

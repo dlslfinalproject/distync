@@ -12,12 +12,9 @@ import DonorTransparencyTab from "../components/donations/DonorTransparencyTab";
 import ConfirmationModal from "../components/shared/ConfirmationModal";
 import ExportModal from "../components/shared/ExportModal";
 import FeedbackToast from "../components/shared/FeedbackToast";
+import StatusCard from "../components/shared/StatusCard";
 import { fetchAllDisasterEvents } from "../features/disaster-events/disasterEventService";
 import { fetchInventoryItems } from "../features/inventory-items/inventoryItemService";
-import {
-  fetchReliefPackTemplateById,
-  fetchReliefPackTemplates,
-} from "../features/relief-pack-templates/reliefPackTemplateService";
 import {
   exportDonationTransparencySummary,
   fetchDonationPortalData,
@@ -27,14 +24,19 @@ import { mergeDonationsWithSyncStatus } from "../features/donations/donationSync
 import {
   defaultPortalData,
   filterDonations,
+  filterDonationsByDonorTypes,
+  filterDonationsByType,
   getAvailableDonationTabs,
+  getDonationTypeLabel,
   getDonationPageMeta,
   getSelectedDonationEventLabel,
+  sortDonations,
 } from "../features/donations/donationPageUi";
 import { useDonationManagementModals } from "../features/donations/useDonationManagementModals";
 import { useAuth } from "../context/AuthContext";
 import db from "../offline/db";
 import { subscribeToSyncUpdates } from "../offline/syncService";
+import { getVisibleSyncQueueEntries } from "../offline/syncQueue";
 import {
   buildExportSuccessMessage,
   COMMON_EXPORT_FORMAT_OPTIONS,
@@ -107,7 +109,7 @@ const buildDonationCsv = (rows) => {
 
       return [
         donation.donor_name || "--",
-        formatDonorType(donation.donor_type),
+        formatDonorType(donation.donor_type, donation.donor_type_other),
         itemSummary.label,
         itemSummary.quantityLabel,
         formatDonationDateTime(donation.received_at),
@@ -122,66 +124,40 @@ const buildDonationCsv = (rows) => {
 };
 
 const donationEventSummaryStyles = {
-  eventCard: {
+  selectorCard: {
     ...shellStyles.card,
     padding: "24px",
   },
-  eventInner: {
-    border: "1px solid #d7e2ef",
-    borderRadius: "18px",
-    backgroundColor: "#ffffff",
-    padding: "20px 18px",
+  selectorGrid: {
+    display: "grid",
+    gridTemplateColumns: "minmax(260px, 1fr)",
+    gap: "18px",
   },
-  eventTitle: {
-    margin: 0,
-    color: "#17324d",
-    fontSize: "18px",
-    fontWeight: 800,
-    lineHeight: 1.3,
-  },
-  eventMetaRow: {
-    marginTop: "12px",
-    display: "flex",
-    alignItems: "center",
-    gap: "12px",
-    flexWrap: "wrap",
-  },
-  eventPeriod: {
-    color: "#21405f",
-    fontSize: "14px",
-    lineHeight: 1.5,
-  },
-  eventBadge: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "6px 12px",
-    borderRadius: "999px",
-    backgroundColor: "#e7f1fb",
-    border: "1px solid #cfe0f3",
-    color: "#2f6499",
+  selectorLabel: {
+    display: "block",
+    marginBottom: "8px",
+    color: "#5f7892",
     fontSize: "12px",
-    fontWeight: 800,
-    letterSpacing: "0.04em",
+    fontWeight: 700,
+    letterSpacing: "0.08em",
     textTransform: "uppercase",
   },
-};
-
-const formatEventPeriodDate = (value) => {
-  if (!value) {
-    return "--";
-  }
-
-  const parsedDate = new Date(value);
-  if (Number.isNaN(parsedDate.getTime())) {
-    return "--";
-  }
-
-  return parsedDate.toLocaleDateString("en-PH", {
-    month: "2-digit",
-    day: "2-digit",
-    year: "numeric",
-  });
+  selectorInput: {
+    width: "100%",
+    minHeight: "46px",
+    padding: "12px 14px",
+    borderRadius: "14px",
+    border: "1px solid #cfddeb",
+    boxSizing: "border-box",
+    fontSize: "14px",
+    color: "#1f3b57",
+    backgroundColor: "#f8fbfe",
+  },
+  overviewSection: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: "16px",
+  },
 };
 
 const DonationManagementPage = () => {
@@ -194,11 +170,15 @@ const DonationManagementPage = () => {
   );
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [inventoryItems, setInventoryItems] = useState([]);
-  const [reliefPackTemplates, setReliefPackTemplates] = useState([]);
   const [donations, setDonations] = useState([]);
   const [portalData, setPortalData] = useState(defaultPortalData);
   const [selectedEventId, setSelectedEventId] = useState("");
   const [donationSearch, setDonationSearch] = useState("");
+  const [donationTypeFilter, setDonationTypeFilter] = useState("");
+  const [donationToolbarFilters, setDonationToolbarFilters] = useState({
+    sortOrder: "newest",
+    donorTypes: [],
+  });
   const [transparencyItemSearch, setTransparencyItemSearch] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [pageErrorMessage, setPageErrorMessage] = useState("");
@@ -214,27 +194,22 @@ const DonationManagementPage = () => {
   });
 
   const syncQueueEntries =
-    useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
+    useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
 
   const loadPageData = async (eventId = selectedEventId) => {
     setIsLoading(true);
     setPageErrorMessage("");
 
     try {
-      const [eventRows, inventoryItemRows, reliefPackTemplateRows] =
+      const [eventRows, inventoryItemRows] =
         await Promise.all([
           fetchAllDisasterEvents(),
           canManageDonations
             ? fetchInventoryItems({ is_active: true })
             : Promise.resolve([]),
-          canManageDonations
-            ? fetchReliefPackTemplates({ is_active: "true" })
-            : Promise.resolve([]),
         ]);
 
-      const resolvedEventId =
-        eventId ||
-        (Array.isArray(eventRows) && eventRows.length > 0 ? eventRows[0].id : "");
+      const resolvedEventId = eventId || "";
 
       const [donationRows, donationPortal] = await Promise.all([
         canManageDonations
@@ -250,20 +225,8 @@ const DonationManagementPage = () => {
 
       setDisasterEvents(Array.isArray(eventRows) ? eventRows : []);
       setInventoryItems(Array.isArray(inventoryItemRows) ? inventoryItemRows : []);
-      const activeReliefPackTemplates = Array.isArray(reliefPackTemplateRows)
-        ? await Promise.all(
-            reliefPackTemplateRows.map((template) =>
-              fetchReliefPackTemplateById(template.id).catch(() => template),
-            ),
-          )
-        : [];
-      setReliefPackTemplates(activeReliefPackTemplates);
       setDonations(Array.isArray(donationRows) ? donationRows : []);
       setPortalData(donationPortal || defaultPortalData);
-
-      if (resolvedEventId && resolvedEventId !== selectedEventId) {
-        setSelectedEventId(resolvedEventId);
-      }
     } catch (error) {
       setPageErrorMessage(error.message || "Failed to load donation management data.");
     } finally {
@@ -299,9 +262,103 @@ const DonationManagementPage = () => {
     });
   }, [disasterEvents, donations, inventoryItems, selectedEventId, syncQueueEntries]);
 
+  const donorSuggestions = useMemo(() => {
+    const donorMap = new Map();
+
+    donationsWithSyncStatus.forEach((donation) => {
+      const donorName = String(donation?.donor_name || "").trim();
+
+      if (!donorName) {
+        return;
+      }
+
+      const normalizedDonorName = donorName.toLowerCase();
+      const donationTimestamp = new Date(
+        donation?.created_at || donation?.received_at || 0,
+      ).getTime();
+      const normalizedTimestamp = Number.isNaN(donationTimestamp)
+        ? Number.POSITIVE_INFINITY
+        : donationTimestamp;
+      const existingDonorRecord = donorMap.get(normalizedDonorName);
+
+      if (
+        !existingDonorRecord ||
+        normalizedTimestamp < existingDonorRecord.first_saved_at
+      ) {
+        donorMap.set(normalizedDonorName, {
+          donor_name: donorName,
+          donor_type: donation?.donor_type || "INDIVIDUAL",
+          donor_type_other: donation?.donor_type_other || "",
+          donor_type_label: formatDonorType(
+            donation?.donor_type,
+            donation?.donor_type_other,
+          ),
+          first_saved_at: normalizedTimestamp,
+        });
+      }
+    });
+
+    return Array.from(donorMap.values()).sort((leftDonor, rightDonor) =>
+      String(leftDonor?.donor_name || "").localeCompare(
+        String(rightDonor?.donor_name || ""),
+        undefined,
+        { sensitivity: "base" },
+      ),
+    );
+  }, [donationsWithSyncStatus]);
+
+  const donationSummaryCards = useMemo(() => {
+    const totalDonations = donationsWithSyncStatus.length;
+    const uniqueDonors = new Set(
+      donationsWithSyncStatus
+        .map((donation) => String(donation?.donor_name || "").trim().toLowerCase())
+        .filter(Boolean),
+    ).size;
+    const looseItemDonations = donationsWithSyncStatus.filter(
+      (donation) => getDonationTypeLabel(donation) === "Loose Item",
+    ).length;
+    const reliefPackDonations = donationsWithSyncStatus.filter(
+      (donation) => getDonationTypeLabel(donation) === "Relief Pack",
+    ).length;
+
+    return [
+      {
+        label: "Total Donations",
+        value: String(totalDonations),
+      },
+      {
+        label: "Total Donors",
+        value: String(uniqueDonors),
+      },
+      {
+        label: "Loose Item Donations",
+        value: String(looseItemDonations),
+      },
+      {
+        label: "Relief Pack Donations",
+        value: String(reliefPackDonations),
+      },
+    ];
+  }, [donationsWithSyncStatus]);
+
   const filteredDonations = useMemo(() => {
-    return filterDonations(donationsWithSyncStatus, donationSearch);
-  }, [donationsWithSyncStatus, donationSearch]);
+    return sortDonations(
+      filterDonationsByDonorTypes(
+        filterDonationsByType(
+          filterDonations(donationsWithSyncStatus, donationSearch),
+          donationTypeFilter,
+        ),
+        donationToolbarFilters.donorTypes,
+      ),
+      donationToolbarFilters.sortOrder,
+    );
+  }, [
+    donationsWithSyncStatus,
+    donationSearch,
+    donationTypeFilter,
+    donationToolbarFilters.donorTypes,
+    donationToolbarFilters.sortOrder,
+  ]);
 
   const selectedEventLabel = useMemo(() => {
     return getSelectedDonationEventLabel(disasterEvents, selectedEventId);
@@ -314,13 +371,6 @@ const DonationManagementPage = () => {
 
     return disasterEvents.find((eventRow) => eventRow.id === selectedEventId) || null;
   }, [disasterEvents, selectedEventId]);
-  const selectedEventTitle =
-    selectedEvent?.title || selectedEventLabel || "All Events";
-  const selectedEventPeriod =
-    selectedEvent?.start_date || selectedEvent?.end_date
-      ? `Period: ${formatEventPeriodDate(selectedEvent?.start_date)} - ${formatEventPeriodDate(selectedEvent?.end_date)}`
-      : null;
-  const selectedEventStatus = selectedEvent?.status || null;
 
   const {
     deleteConfirmation,
@@ -332,12 +382,18 @@ const DonationManagementPage = () => {
     selectedDonationDetail,
     donationForm,
     donationErrorMessage,
+    donationFieldErrors,
     donationItemErrorMessage,
+    isDonationItemBarcodeLookupLoading,
+    donationItemFieldErrors,
     isDonationSubmitting,
     donationItemDraft,
     editingDonationItemId,
-    setDonationForm,
-    setDonationItemDraft,
+    handleDonationFormChange,
+    handleDonationItemDraftChange,
+    handleReliefPackDraftItemChange,
+    handleSelectExistingInventoryItem,
+    clearSelectedExistingInventoryItem,
     openDonationModal,
     closeDonationModal,
     openDonationDetailModal,
@@ -350,15 +406,13 @@ const DonationManagementPage = () => {
     cancelEditDonationItem,
     saveExistingDonationItem,
     removeDraftDonationItem,
-    removeExistingDonationItem,
     addExistingDonationItem,
-    handleDeleteDonation,
     handleCancelDeleteConfirmation,
     handleConfirmDelete,
   } = useDonationManagementModals({
     selectedEventId,
     inventoryItems,
-    reliefPackTemplates,
+    donorSuggestions,
     loadPageData,
     setSuccessMessage,
     setPageErrorMessage,
@@ -367,6 +421,13 @@ const DonationManagementPage = () => {
 
   const downloadFile = (file) => {
     downloadExportFile(file);
+  };
+
+  const handleDonationToolbarFilterChange = (fieldName, fieldValue) => {
+    setDonationToolbarFilters((currentFilters) => ({
+      ...currentFilters,
+      [fieldName]: fieldValue,
+    }));
   };
 
   const handleExportTransparency = async (format) => {
@@ -451,33 +512,80 @@ const DonationManagementPage = () => {
     <>
       <PageHeader title={pageMeta.title} description={pageMeta.description} />
 
+      <section style={donationEventSummaryStyles.selectorCard}>
+        <div style={donationEventSummaryStyles.selectorGrid}>
+          <div>
+            <label
+              htmlFor="donation-management-page-disaster-event"
+              style={donationEventSummaryStyles.selectorLabel}
+            >
+              Disaster Event
+            </label>
+            <select
+              id="donation-management-page-disaster-event"
+              value={selectedEventId}
+              onChange={(event) => {
+                const nextEventId = event.target.value;
+                setSelectedEventId(nextEventId);
+                loadPageData(nextEventId);
+              }}
+              style={donationEventSummaryStyles.selectorInput}
+            >
+              <option value="">All disaster events</option>
+              {disasterEvents.map((eventRow) => (
+                <option key={eventRow.id} value={eventRow.id}>
+                  {eventRow.title}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </section>
+
+      {activeTab === "donations" ? (
+        <section style={donationEventSummaryStyles.overviewSection}>
+          {donationSummaryCards.map((card) => (
+            <StatusCard
+              key={card.label}
+              label={card.label}
+              value={card.value}
+            />
+          ))}
+        </section>
+      ) : null}
+
+      <DonationFilters
+        activeTab={activeTab}
+        canManageDonations={canManageDonations}
+        selectedEventId={selectedEventId}
+        disasterEvents={disasterEvents}
+        donationSearch={donationSearch}
+        donationTypeFilter={donationTypeFilter}
+        donationToolbarFilters={donationToolbarFilters}
+        onSelectedEventChange={(nextEventId) => {
+          setSelectedEventId(nextEventId);
+          loadPageData(nextEventId);
+        }}
+        onDonationSearchChange={setDonationSearch}
+        onDonationTypeFilterChange={setDonationTypeFilter}
+        onDonationToolbarFilterChange={handleDonationToolbarFilterChange}
+        onOpenDonationModal={() => openDonationModal()}
+        onExportDonations={handleExportDonations}
+        isExportingTransparency={isExportingTransparency}
+        onOpenTransparencyExport={() => {
+          setSelectedTransparencyExportFormat("csv");
+          setExportFeedback({ type: "", message: "" });
+          setIsTransparencyExportModalOpen(true);
+        }}
+        showEventSelector={false}
+        showTransparencyActions={false}
+      />
+
       <section style={shellStyles.card}>
         <DonationPageTabs
           availableTabs={availableTabs}
           activeTab={activeTab}
           onTabChange={setActiveTab}
-        />
-
-        <DonationFilters
-          activeTab={activeTab}
-          canManageDonations={canManageDonations}
-          selectedEventId={selectedEventId}
-          disasterEvents={disasterEvents}
-          donationSearch={donationSearch}
-          onSelectedEventChange={(nextEventId) => {
-            setSelectedEventId(nextEventId);
-            loadPageData(nextEventId);
-          }}
-          onDonationSearchChange={setDonationSearch}
-          onOpenDonationModal={() => openDonationModal()}
-          onExportDonations={handleExportDonations}
-          isExportingTransparency={isExportingTransparency}
-          onOpenTransparencyExport={() => {
-            setSelectedTransparencyExportFormat("csv");
-            setExportFeedback({ type: "", message: "" });
-            setIsTransparencyExportModalOpen(true);
-          }}
-          showDonationActions={false}
         />
 
         <DonationPageStatus
@@ -487,62 +595,13 @@ const DonationManagementPage = () => {
       </section>
 
       {activeTab === "donations" ? (
-        selectedEvent ? (
-          <section style={donationEventSummaryStyles.eventCard}>
-            <div style={donationEventSummaryStyles.eventInner}>
-              <h3 style={donationEventSummaryStyles.eventTitle}>{selectedEventTitle}</h3>
-              <div style={donationEventSummaryStyles.eventMetaRow}>
-                {selectedEventPeriod ? (
-                  <span style={donationEventSummaryStyles.eventPeriod}>
-                    {selectedEventPeriod}
-                  </span>
-                ) : null}
-                {selectedEventStatus ? (
-                  <span style={donationEventSummaryStyles.eventBadge}>
-                    {selectedEventStatus}
-                  </span>
-                ) : null}
-              </div>
-            </div>
-          </section>
-        ) : null
-      ) : null}
-
-      {activeTab === "donations" ? (
-        <section>
-          <DonationFilters
-            activeTab={activeTab}
-            canManageDonations={canManageDonations}
-            selectedEventId={selectedEventId}
-            disasterEvents={disasterEvents}
-            donationSearch={donationSearch}
-            onSelectedEventChange={(nextEventId) => {
-              setSelectedEventId(nextEventId);
-              loadPageData(nextEventId);
-            }}
-            onDonationSearchChange={setDonationSearch}
-            onOpenDonationModal={() => openDonationModal()}
-            onExportDonations={handleExportDonations}
-            isExportingTransparency={isExportingTransparency}
-            onOpenTransparencyExport={() => {
-              setSelectedTransparencyExportFormat("csv");
-              setExportFeedback({ type: "", message: "" });
-              setIsTransparencyExportModalOpen(true);
-            }}
-            showEventSelector={false}
-            showTransparencyActions={false}
-          />
-        </section>
-      ) : null}
-
-      {activeTab === "donations" ? (
         <DonationsTab
           isLoading={isLoading}
           filteredDonations={filteredDonations}
+          showDisasterEventColumn={!selectedEventId}
           selectedEventLabel={selectedEventLabel}
           onOpenDonationDetail={openDonationDetailModal}
           onOpenDonationModal={openDonationModal}
-          onDeleteDonation={handleDeleteDonation}
         />
       ) : null}
 
@@ -562,28 +621,23 @@ const DonationManagementPage = () => {
           formValues={donationForm}
           itemDraft={donationItemDraft}
           inventoryItems={inventoryItems}
-          reliefPackTemplates={reliefPackTemplates}
+          donorSuggestions={donorSuggestions}
           disasterEvents={disasterEvents}
           isSubmitting={isDonationSubmitting}
           errorMessage={donationErrorMessage}
+          fieldErrors={donationFieldErrors}
           itemErrorMessage={donationItemErrorMessage}
+          isBarcodeLookupLoading={isDonationItemBarcodeLookupLoading}
+          itemFieldErrors={donationItemFieldErrors}
           editingItemId={editingDonationItemId}
           onClose={closeDonationModal}
-          onFormChange={(fieldName, value) =>
-            setDonationForm((currentValues) => ({
-              ...currentValues,
-              [fieldName]: value,
-            }))
-          }
-          onItemDraftChange={(fieldName, value) =>
-            setDonationItemDraft((currentValues) => ({
-              ...currentValues,
-              [fieldName]: value,
-            }))
-          }
+          onFormChange={handleDonationFormChange}
+          onItemDraftChange={handleDonationItemDraftChange}
+          onReliefPackDraftItemChange={handleReliefPackDraftItemChange}
+          onSelectExistingInventoryItem={handleSelectExistingInventoryItem}
+          onClearSelectedExistingInventoryItem={clearSelectedExistingInventoryItem}
           onAddItemDraft={donationForm.id ? addExistingDonationItem : addDraftDonationItem}
           onEditExistingItem={saveExistingDonationItem}
-          onDeleteExistingItem={removeExistingDonationItem}
           onRemoveDraftItem={removeDraftDonationItem}
           onAddPackItemDraft={addPackItemToDraft}
           onRemovePackItemDraft={removePackItemFromDraft}

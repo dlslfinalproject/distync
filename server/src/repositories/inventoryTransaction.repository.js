@@ -21,6 +21,8 @@ const baseSelectQuery = `
     ii.id AS inventory_item_id,
     ii.item_code,
     ii.item_name,
+    d.id AS donation_id,
+    d.donor_name,
     stock_forms.barcode AS stock_form_barcode,
     stock_forms.packaging AS stock_form_packaging,
     stock_forms.units_per_packaging AS stock_form_units_per_packaging,
@@ -31,6 +33,11 @@ const baseSelectQuery = `
   FROM inventory_transactions it
   INNER JOIN inventory_batches ib ON ib.id = it.inventory_batch_id
   INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
+  LEFT JOIN donation_items di
+    ON di.id = it.reference_id
+    AND it.reference_type = 'DONATION'
+  LEFT JOIN donations d
+    ON d.id = di.donation_id
   LEFT JOIN inventory_item_stock_forms stock_forms
     ON stock_forms.id = ib.inventory_item_stock_form_id
   LEFT JOIN users u ON u.id = it.performed_by

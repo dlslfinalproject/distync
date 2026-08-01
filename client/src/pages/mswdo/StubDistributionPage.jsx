@@ -26,6 +26,7 @@ import { useMswdoStubDistribution } from "../../features/stubs/useMswdoStubDistr
 import db from "../../offline/db";
 import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
+import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
 import { buildMasterlistFilterSectorOptions } from "../../utils/registrationOptions";
 
 const DEFAULT_STUB_STATUS = "ISSUED";
@@ -217,7 +218,7 @@ const StubDistributionPage = () => {
     },
   });
   const syncQueueEntries =
-    useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
+    useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
 
   const selectedSectorIds = filtersByTab[activeTab]?.sectorIds || [];
   const selectedStubStatus =

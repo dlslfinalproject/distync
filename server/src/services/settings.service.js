@@ -5,9 +5,11 @@ const notificationService = require("../modules/notifications/notification.servi
 const profilePictureStorageService = require("./profilePictureStorage.service");
 
 const SETTINGS_AUDIT_ACTION = "UPSERT_ROLE_SETTINGS";
+const PROFILE_PICTURE_UPLOADED_AUDIT_ACTION = "PROFILE_PICTURE_UPLOADED";
+const PROFILE_PICTURE_REPLACED_AUDIT_ACTION = "PROFILE_PICTURE_REPLACED";
+const PROFILE_PICTURE_REMOVED_AUDIT_ACTION = "PROFILE_PICTURE_REMOVED";
 const SETTINGS_ENTITY_TYPE = "ROLE_SETTINGS";
 const ALLOWED_ROLE_CODES = new Set(["BARANGAY", "MSWDO", "MAYOR"]);
-const ALLOWED_EXPORT_FORMATS = new Set(["csv", "excel", "pdf"]);
 const ROLE_POSITION_LABELS = {
   BARANGAY: "Barangay Official",
   MSWDO: "MSWDO Personnel",
@@ -39,14 +41,16 @@ const createDefaultNotificationChannels = () => {
 const createDefaultRoleSettings = () => {
   return {
     enabledNotificationRuleCodes: [],
-    preferredExportFormat: "excel",
     profile: {
       fullName: "",
       position: "",
       contactNumber: "",
       emailAddress: "",
-      profilePictureDataUrl: "",
+      profilePicturePath: "",
+      profilePictureUrl: "",
+      profilePictureUrlExpiresAt: "",
       profilePictureFileName: "",
+      profilePictureUpdatedAt: "",
     },
     notificationChannels: createDefaultNotificationChannels(),
     metadata: {
@@ -170,16 +174,6 @@ const validateContactNumberOrThrow = (value) => {
   return normalizedValue;
 };
 
-const sanitizePreferredExportFormat = (value) => {
-  const normalizedValue = sanitizeString(value).toLowerCase();
-
-  if (!ALLOWED_EXPORT_FORMATS.has(normalizedValue)) {
-    return "excel";
-  }
-
-  return normalizedValue;
-};
-
 const normalizeTimestampValue = (value) => {
   if (!value) {
     return "";
@@ -216,20 +210,26 @@ const buildPersistedSnapshot = (settings = {}) => {
     enabledNotificationRuleCodes: sanitizeEnabledNotificationRuleCodes(
       settings.enabledNotificationRuleCodes,
     ),
-    preferredExportFormat: sanitizePreferredExportFormat(
-      settings.preferredExportFormat,
-    ),
     profile: {
       ...defaults.profile,
       fullName: sanitizeString(settings?.profile?.fullName),
       position: sanitizeString(settings?.profile?.position),
       contactNumber: sanitizeString(settings?.profile?.contactNumber),
       emailAddress: sanitizeString(settings?.profile?.emailAddress),
-      profilePictureDataUrl: sanitizeString(
-        settings?.profile?.profilePictureDataUrl,
+      profilePicturePath: profilePictureStorageService.normalizeStoragePath(
+        settings?.profile?.profilePicturePath,
+      ),
+      profilePictureUrl: sanitizeString(
+        settings?.profile?.profilePictureUrl,
+      ),
+      profilePictureUrlExpiresAt: sanitizeString(
+        settings?.profile?.profilePictureUrlExpiresAt,
       ),
       profilePictureFileName: sanitizeString(
         settings?.profile?.profilePictureFileName,
+      ),
+      profilePictureUpdatedAt: sanitizeString(
+        settings?.profile?.profilePictureUpdatedAt,
       ),
     },
     notificationChannels: sanitizeNotificationChannels(
@@ -252,14 +252,9 @@ const buildEditableSettingsSnapshot = (settings = {}) => {
     enabledNotificationRuleCodes: sanitizeEnabledNotificationRuleCodes(
       settings.enabledNotificationRuleCodes,
     ),
-    preferredExportFormat: sanitizePreferredExportFormat(
-      settings.preferredExportFormat,
-    ),
     profile: {
       fullName: sanitizeString(profile.fullName),
       contactNumber: sanitizeString(profile.contactNumber),
-      profilePictureDataUrl: sanitizeString(profile.profilePictureDataUrl),
-      profilePictureFileName: sanitizeString(profile.profilePictureFileName),
     },
     notificationChannels: sanitizeNotificationChannels(
       settings.notificationChannels,
@@ -276,16 +271,20 @@ const buildPersistedSettingsFromRecord = (record = {}) => {
     enabledNotificationRuleCodes: sanitizeEnabledNotificationRuleCodes(
       record.enabled_notification_rule_codes_json,
     ),
-    preferredExportFormat: sanitizePreferredExportFormat(
-      record.preferred_export_format,
-    ),
     profile: {
       fullName: "",
       position: "",
       contactNumber: "",
       emailAddress: "",
-      profilePictureDataUrl: sanitizeString(record.profile_picture_data_url),
+      profilePicturePath: profilePictureStorageService.normalizeStoragePath(
+        record.profile_picture_path,
+      ),
+      profilePictureUrl: "",
+      profilePictureUrlExpiresAt: "",
       profilePictureFileName: sanitizeString(record.profile_picture_file_name),
+      profilePictureUpdatedAt: normalizeTimestampValue(
+        record.profile_picture_updated_at,
+      ),
     },
     notificationChannels: sanitizeNotificationChannels(
       record.notification_channels_json,
@@ -338,16 +337,18 @@ const buildRoleSettingsResponse = ({
 
 const buildUserRoleSettingsPayload = (settings = {}) => {
   return {
-    profilePictureDataUrl: sanitizeString(settings?.profile?.profilePictureDataUrl),
+    profilePicturePath: profilePictureStorageService.normalizeStoragePath(
+      settings?.profile?.profilePicturePath,
+    ),
     profilePictureFileName: sanitizeString(settings?.profile?.profilePictureFileName),
+    profilePictureUpdatedAt: parseTimestampValue(
+      settings?.profile?.profilePictureUpdatedAt,
+    ),
     enabledNotificationRuleCodesJson: sanitizeEnabledNotificationRuleCodes(
       settings.enabledNotificationRuleCodes,
     ),
     notificationChannelsJson: sanitizeNotificationChannels(
       settings.notificationChannels,
-    ),
-    preferredExportFormat: sanitizePreferredExportFormat(
-      settings.preferredExportFormat,
     ),
     lastProfileUpdateAt: parseTimestampValue(settings?.metadata?.lastProfileUpdateAt),
     lastPreferenceSaveAt:
@@ -373,59 +374,6 @@ const splitFullNameForUserColumns = (fullName, user) => {
     firstName: tokens[0],
     middleName: user.middle_name,
     lastName: tokens.slice(1).join(" "),
-  };
-};
-
-const resolveProfilePictureReference = async ({
-  userId,
-  roleCode,
-  previousProfilePictureReference,
-  nextProfilePictureReference,
-  nextProfilePictureFileName,
-}) => {
-  const normalizedPreviousReference = sanitizeString(previousProfilePictureReference);
-  const normalizedNextReference = sanitizeString(nextProfilePictureReference);
-  const normalizedNextFileName = sanitizeString(nextProfilePictureFileName);
-
-  if (!normalizedNextReference) {
-    if (normalizedPreviousReference) {
-      await profilePictureStorageService.removeProfilePicture(
-        normalizedPreviousReference,
-      );
-    }
-
-    return {
-      profilePictureReference: "",
-      profilePictureFileName: "",
-    };
-  }
-
-  if (normalizedNextReference.startsWith("data:image/")) {
-    const uploadResult = await profilePictureStorageService.uploadProfilePicture({
-      userId,
-      roleCode,
-      profilePictureDataUrl: normalizedNextReference,
-      fileName: normalizedNextFileName,
-    });
-
-    if (
-      normalizedPreviousReference &&
-      normalizedPreviousReference !== uploadResult.profilePictureReference
-    ) {
-      await profilePictureStorageService.removeProfilePicture(
-        normalizedPreviousReference,
-      );
-    }
-
-    return {
-      profilePictureReference: uploadResult.profilePictureReference,
-      profilePictureFileName: uploadResult.profilePictureFileName,
-    };
-  }
-
-  return {
-    profilePictureReference: normalizedNextReference,
-    profilePictureFileName: normalizedNextFileName,
   };
 };
 
@@ -527,16 +475,49 @@ const sanitizeStoredSettingsSnapshotForRole = async ({
 const buildAuditSafeSettingsSnapshot = (settings = {}) => {
   const normalizedSettings = buildPersistedSnapshot(settings);
   const hasProfilePicture = Boolean(
-    normalizedSettings.profile.profilePictureDataUrl,
+    normalizedSettings.profile.profilePicturePath,
   );
 
   return {
     ...normalizedSettings,
     profile: {
       ...normalizedSettings.profile,
-      profilePictureDataUrl: hasProfilePicture
-        ? "[stored in profile picture storage]"
+      profilePicturePath: hasProfilePicture
+        ? "[private profile picture path]"
         : "",
+      profilePictureUrl: "",
+      profilePictureUrlExpiresAt: "",
+    },
+  };
+};
+
+const attachSignedProfilePictureMetadata = async (settings = {}) => {
+  const normalizedSettings = buildPersistedSnapshot(settings);
+  const profilePicturePath = normalizedSettings.profile.profilePicturePath;
+
+  if (!profilePicturePath) {
+    return {
+      ...settings,
+      ...normalizedSettings,
+      profile: {
+        ...(settings.profile || {}),
+        ...normalizedSettings.profile,
+      },
+    };
+  }
+
+  const signedUrlMetadata =
+    await profilePictureStorageService.createSignedProfilePictureUrl(
+      profilePicturePath,
+    );
+
+  return {
+    ...settings,
+    ...normalizedSettings,
+    profile: {
+      ...(settings.profile || {}),
+      ...normalizedSettings.profile,
+      ...signedUrlMetadata,
     },
   };
 };
@@ -585,15 +566,20 @@ const ensureUserIsActive = (user) => {
   throw error;
 };
 
-const getCurrentSettings = async ({ userId, roleCode }) => {
-  ensureAllowedRole(roleCode);
-
+const getValidatedUserAndSnapshot = async ({
+  userId,
+  roleCode,
+  dbClient,
+}) => {
   const [user, latestSnapshot] = await Promise.all([
-    settingsRepository.getUserById(userId),
-    settingsRepository.getUserRoleSettings({
-      userId,
-      roleCode,
-    }),
+    settingsRepository.getUserById(userId, dbClient),
+    settingsRepository.getUserRoleSettings(
+      {
+        userId,
+        roleCode,
+      },
+      dbClient,
+    ),
   ]);
 
   ensureUserExists(user);
@@ -603,13 +589,30 @@ const getCurrentSettings = async ({ userId, roleCode }) => {
     userId,
     roleCode,
     snapshot: buildPersistedSettingsFromRecord(latestSnapshot || {}),
+    dbClient,
   });
 
-  return buildRoleSettingsResponse({
-    roleCode,
+  return {
     user,
     snapshot: cleanedSnapshot,
+  };
+};
+
+const getCurrentSettings = async ({ userId, roleCode }) => {
+  ensureAllowedRole(roleCode);
+
+  const { user, snapshot } = await getValidatedUserAndSnapshot({
+    userId,
+    roleCode,
   });
+
+  const settings = buildRoleSettingsResponse({
+    roleCode,
+    user,
+    snapshot,
+  });
+
+  return attachSignedProfilePictureMetadata(settings);
 };
 
 const saveCurrentSettings = async ({
@@ -625,29 +628,16 @@ const saveCurrentSettings = async ({
   try {
     await dbClient.query("BEGIN");
 
-    const user = await settingsRepository.getUserById(userId, dbClient);
-    ensureUserExists(user);
-    ensureUserIsActive(user);
-
-    const existingRoleSettings = await settingsRepository.getUserRoleSettings(
-      {
-        userId,
-        roleCode,
-      },
-      dbClient,
-    );
-
-    const cleanedExistingSnapshot = await sanitizeStoredSettingsSnapshotForRole({
+    const { user, snapshot } = await getValidatedUserAndSnapshot({
       userId,
       roleCode,
-      snapshot: buildPersistedSettingsFromRecord(existingRoleSettings || {}),
       dbClient,
     });
 
     const previousSettings = buildRoleSettingsResponse({
       roleCode,
       user,
-      snapshot: cleanedExistingSnapshot,
+      snapshot,
     });
 
     const incomingSnapshot = buildEditableSettingsSnapshot(settings || {});
@@ -661,14 +651,6 @@ const saveCurrentSettings = async ({
       enabledNotificationRuleCodes: incomingSnapshot.enabledNotificationRuleCodes,
       dbClient,
     });
-    const resolvedProfilePicture = await resolveProfilePictureReference({
-      userId,
-      roleCode,
-      previousProfilePictureReference:
-        previousSettings.profile.profilePictureDataUrl,
-      nextProfilePictureReference: incomingSnapshot.profile.profilePictureDataUrl,
-      nextProfilePictureFileName: incomingSnapshot.profile.profilePictureFileName,
-    });
 
     const mergedSnapshot = {
       ...previousSettings,
@@ -679,8 +661,6 @@ const saveCurrentSettings = async ({
         position: getRolePositionLabel(roleCode),
         contactNumber: normalizedContactNumber,
         emailAddress: lockedEmailAddress,
-        profilePictureDataUrl: resolvedProfilePicture.profilePictureReference,
-        profilePictureFileName: resolvedProfilePicture.profilePictureFileName,
       },
       notificationChannels: sanitizeNotificationChannels(
         incomingSnapshot.notificationChannels,
@@ -745,8 +725,226 @@ const saveCurrentSettings = async ({
     await dbClient.query("COMMIT");
 
     return {
-      settings: nextSettings,
+      settings: await attachSignedProfilePictureMetadata(nextSettings),
       user: buildSessionUser(updatedUser, roleCode),
+    };
+  } catch (error) {
+    await dbClient.query("ROLLBACK");
+    throw error;
+  } finally {
+    dbClient.release();
+  }
+};
+
+const getCurrentProfilePicture = async ({ userId, roleCode }) => {
+  const settings = await getCurrentSettings({ userId, roleCode });
+
+  return {
+    profilePicturePath: settings.profile.profilePicturePath || "",
+    profilePictureUrl: settings.profile.profilePictureUrl || "",
+    profilePictureUrlExpiresAt:
+      settings.profile.profilePictureUrlExpiresAt || "",
+    profilePictureFileName: settings.profile.profilePictureFileName || "",
+    profilePictureUpdatedAt:
+      settings.profile.profilePictureUpdatedAt || "",
+  };
+};
+
+const uploadCurrentProfilePicture = async ({
+  userId,
+  roleCode,
+  fileName,
+  mimeType,
+  fileDataBase64,
+  ipAddress = null,
+}) => {
+  ensureAllowedRole(roleCode);
+
+  const dbClient = await pool.connect();
+  let uploadedProfilePicturePath = "";
+  let previousProfilePicturePath = "";
+
+  try {
+    await dbClient.query("BEGIN");
+
+    const { user, snapshot } = await getValidatedUserAndSnapshot({
+      userId,
+      roleCode,
+      dbClient,
+    });
+    const previousSettings = buildRoleSettingsResponse({
+      roleCode,
+      user,
+      snapshot,
+    });
+    const uploadResult = await profilePictureStorageService.uploadProfilePicture({
+      userId,
+      fileName,
+      mimeType,
+      fileDataBase64,
+    });
+    const profilePictureUpdatedAt = new Date().toISOString();
+
+    uploadedProfilePicturePath = uploadResult.profilePicturePath;
+    previousProfilePicturePath =
+      previousSettings.profile.profilePicturePath || "";
+
+    const nextSettings = buildRoleSettingsResponse({
+      roleCode,
+      user,
+      snapshot: {
+        ...previousSettings,
+        profile: {
+          ...previousSettings.profile,
+          profilePicturePath: uploadResult.profilePicturePath,
+          profilePictureFileName: uploadResult.profilePictureFileName,
+          profilePictureUpdatedAt,
+        },
+        metadata: {
+          ...previousSettings.metadata,
+          lastProfileUpdateAt: profilePictureUpdatedAt,
+          lastPreferenceSaveAt:
+            previousSettings.metadata.lastPreferenceSaveAt || profilePictureUpdatedAt,
+        },
+      },
+    });
+
+    await settingsRepository.upsertUserRoleSettings(
+      {
+        userId,
+        roleCode,
+        ...buildUserRoleSettingsPayload(nextSettings),
+      },
+      dbClient,
+    );
+
+    await settingsRepository.insertRoleSettingsSnapshot(
+      {
+        userId,
+        roleCode,
+        entityType: SETTINGS_ENTITY_TYPE,
+        entityId: userId,
+        action: previousProfilePicturePath
+          ? PROFILE_PICTURE_REPLACED_AUDIT_ACTION
+          : PROFILE_PICTURE_UPLOADED_AUDIT_ACTION,
+        oldValues: buildAuditSafeSettingsSnapshot(previousSettings),
+        newValues: buildAuditSafeSettingsSnapshot(nextSettings),
+        ipAddress,
+      },
+      dbClient,
+    );
+
+    await dbClient.query("COMMIT");
+
+    if (
+      previousProfilePicturePath &&
+      previousProfilePicturePath !== uploadedProfilePicturePath
+    ) {
+      await profilePictureStorageService.removeProfilePicture(
+        previousProfilePicturePath,
+      );
+    }
+
+    return attachSignedProfilePictureMetadata(nextSettings);
+  } catch (error) {
+    await dbClient.query("ROLLBACK");
+
+    if (uploadedProfilePicturePath) {
+      await profilePictureStorageService.removeProfilePicture(
+        uploadedProfilePicturePath,
+      );
+    }
+
+    throw error;
+  } finally {
+    dbClient.release();
+  }
+};
+
+const removeCurrentProfilePicture = async ({
+  userId,
+  roleCode,
+  ipAddress = null,
+}) => {
+  ensureAllowedRole(roleCode);
+
+  const dbClient = await pool.connect();
+  let removedProfilePicturePath = "";
+
+  try {
+    await dbClient.query("BEGIN");
+
+    const { user, snapshot } = await getValidatedUserAndSnapshot({
+      userId,
+      roleCode,
+      dbClient,
+    });
+    const previousSettings = buildRoleSettingsResponse({
+      roleCode,
+      user,
+      snapshot,
+    });
+
+    removedProfilePicturePath =
+      previousSettings.profile.profilePicturePath || "";
+
+    const nextSettings = buildRoleSettingsResponse({
+      roleCode,
+      user,
+      snapshot: {
+        ...previousSettings,
+        profile: {
+          ...previousSettings.profile,
+          profilePicturePath: "",
+          profilePictureUrl: "",
+          profilePictureUrlExpiresAt: "",
+          profilePictureFileName: "",
+          profilePictureUpdatedAt: "",
+        },
+        metadata: {
+          ...previousSettings.metadata,
+          lastProfileUpdateAt: new Date().toISOString(),
+        },
+      },
+    });
+
+    await settingsRepository.upsertUserRoleSettings(
+      {
+        userId,
+        roleCode,
+        ...buildUserRoleSettingsPayload(nextSettings),
+      },
+      dbClient,
+    );
+
+    await settingsRepository.insertRoleSettingsSnapshot(
+      {
+        userId,
+        roleCode,
+        entityType: SETTINGS_ENTITY_TYPE,
+        entityId: userId,
+        action: PROFILE_PICTURE_REMOVED_AUDIT_ACTION,
+        oldValues: buildAuditSafeSettingsSnapshot(previousSettings),
+        newValues: buildAuditSafeSettingsSnapshot(nextSettings),
+        ipAddress,
+      },
+      dbClient,
+    );
+
+    await dbClient.query("COMMIT");
+
+    if (removedProfilePicturePath) {
+      await profilePictureStorageService.removeProfilePicture(
+        removedProfilePicturePath,
+      );
+    }
+
+    return {
+      profilePicturePath: "",
+      profilePictureUrl: "",
+      profilePictureUrlExpiresAt: "",
+      profilePictureFileName: "",
+      profilePictureUpdatedAt: "",
     };
   } catch (error) {
     await dbClient.query("ROLLBACK");
@@ -758,5 +956,8 @@ const saveCurrentSettings = async ({
 
 module.exports = {
   getCurrentSettings,
+  getCurrentProfilePicture,
+  uploadCurrentProfilePicture,
+  removeCurrentProfilePicture,
   saveCurrentSettings,
 };

@@ -51,8 +51,7 @@ export const BARANGAY_SETTINGS_SECTIONS = [
     key: "account-settings",
     label: "Account Settings",
     icon: FiUser,
-    description:
-      "Review your profile, contact number, profile picture, and account details managed by DISTYNC.",
+    description: "View and manage your account information.",
   },
   {
     key: "notification-preferences",
@@ -63,10 +62,10 @@ export const BARANGAY_SETTINGS_SECTIONS = [
   },
   {
     key: "sync-preferences",
-    label: "Sync Preferences",
+    label: "System Information",
     icon: FiRefreshCw,
     description:
-      "Review offline sync status, pending records, and the latest synchronization details.",
+      "View general information about the DISTYNC application.",
   },
 ];
 
@@ -152,8 +151,7 @@ export const MSWDO_SETTINGS_SECTIONS = [
     key: "account-settings",
     label: "Account Settings",
     icon: FiUser,
-    description:
-      "Review your profile, contact number, profile picture, and account details managed by DISTYNC.",
+    description: "View and manage your account information.",
   },
   {
     key: "notification-preferences",
@@ -164,10 +162,10 @@ export const MSWDO_SETTINGS_SECTIONS = [
   },
   {
     key: "sync-preferences",
-    label: "Sync Preferences",
+    label: "System Information",
     icon: FiRefreshCw,
     description:
-      "Review offline sync status, pending records, and the latest synchronization details.",
+      "View general information about the DISTYNC application.",
   },
 ];
 
@@ -181,8 +179,7 @@ export const MAYOR_SETTINGS_SECTIONS = [
     key: "account-settings",
     label: "Account Settings",
     icon: FiUser,
-    description:
-      "Review your profile, contact number, profile picture, and account details managed by DISTYNC.",
+    description: "View and manage your account information.",
   },
   {
     key: "notification-preferences",
@@ -193,10 +190,10 @@ export const MAYOR_SETTINGS_SECTIONS = [
   },
   {
     key: "sync-preferences",
-    label: "Sync Preferences",
+    label: "System Information",
     icon: FiRefreshCw,
     description:
-      "Review offline sync status, pending records, and the latest synchronization details.",
+      "View general information about the DISTYNC application.",
   },
 ];
 

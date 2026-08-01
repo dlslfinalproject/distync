@@ -330,6 +330,8 @@ const getBarangayStubDashboard = async (filters) => {
       ).map((template) => ({
         id: template.id,
         name: template.name,
+        description: template.description || null,
+        based_on_family_size: Boolean(template.based_on_family_size),
         is_additional_pack: Boolean(template.is_additional_pack),
         sector_id: template.sector_id || null,
       }));
@@ -359,6 +361,7 @@ const getBarangayStubDashboard = async (filters) => {
             row.family_head_last_name,
             row.family_head_suffix,
           ),
+          household_size: row.members_count,
           members_count: row.members_count,
           family_head_photo_url: row.family_head_photo_url || null,
           photo_captured_at: row.photo_captured_at || null,
@@ -440,7 +443,7 @@ const claimBarangayStub = async (params) => {
       claimedAt: params.claimed_at || null,
       remarks: "Claimed through Relief Goods Distribution confirmation",
     });
-    const { distributionTransaction, updatedStub } = automaticClaimResult;
+    const { distributionTransaction, updatedStub, packQuantity } = automaticClaimResult;
 
     await client.query("COMMIT");
 
@@ -453,6 +456,7 @@ const claimBarangayStub = async (params) => {
         updated_at: updatedStub.updated_at,
         distribution_transaction_id: distributionTransaction.id,
         distribution_status: distributionTransaction.distribution_status,
+        relief_pack_quantity: packQuantity || 1,
       },
     };
   } catch (error) {
@@ -545,6 +549,8 @@ const getStubDetails = async (id) => {
   ).map((template) => ({
     id: template.id,
     name: template.name,
+    description: template.description || null,
+    based_on_family_size: Boolean(template.based_on_family_size),
     is_additional_pack: Boolean(template.is_additional_pack),
     sector_id: template.sector_id || null,
   }));

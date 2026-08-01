@@ -209,7 +209,7 @@ const InventoryItemsTable = ({
                     </div>
                   </td>
                   <td style={{ ...styles.td, ...styles.centerCell }}>
-                    {item.reorder_level ?? "--"}
+                    {item.reorder_level_display ?? item.reorder_level ?? "--"}
                   </td>
                   <td style={{ ...styles.td, ...styles.centerCell }}>
                     <div style={styles.pillWrap}>
