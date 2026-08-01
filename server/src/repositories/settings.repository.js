@@ -79,6 +79,7 @@ const getUserRoleSettings = async (
       profile_picture_updated_at,
       enabled_notification_rule_codes_json,
       notification_channels_json,
+      notification_rule_preferences_json,
       last_profile_update_at,
       last_preference_save_at,
       updated_at,
@@ -102,6 +103,7 @@ const upsertUserRoleSettings = async (
     profilePictureUpdatedAt,
     enabledNotificationRuleCodesJson,
     notificationChannelsJson,
+    notificationRulePreferencesJson,
     lastProfileUpdateAt,
     lastPreferenceSaveAt,
   },
@@ -117,6 +119,7 @@ const upsertUserRoleSettings = async (
       profile_picture_updated_at,
       enabled_notification_rule_codes_json,
       notification_channels_json,
+      notification_rule_preferences_json,
       last_profile_update_at,
       last_preference_save_at,
       created_at,
@@ -130,9 +133,10 @@ const upsertUserRoleSettings = async (
       $5,
       $6,
       $7::jsonb,
-      $8,
-      $9,
+      $8::jsonb,
+      $9::jsonb,
       $10,
+      $11,
       NOW(),
       NOW()
     )
@@ -145,6 +149,8 @@ const upsertUserRoleSettings = async (
         enabled_notification_rule_codes_json =
           EXCLUDED.enabled_notification_rule_codes_json,
         notification_channels_json = EXCLUDED.notification_channels_json,
+        notification_rule_preferences_json =
+          EXCLUDED.notification_rule_preferences_json,
         last_profile_update_at = EXCLUDED.last_profile_update_at,
         last_preference_save_at = EXCLUDED.last_preference_save_at,
         updated_at = NOW()
@@ -157,6 +163,7 @@ const upsertUserRoleSettings = async (
       profile_picture_updated_at,
       enabled_notification_rule_codes_json,
       notification_channels_json,
+      notification_rule_preferences_json,
       last_profile_update_at,
       last_preference_save_at,
       updated_at,
@@ -172,6 +179,7 @@ const upsertUserRoleSettings = async (
     profilePictureUpdatedAt || null,
     JSON.stringify(enabledNotificationRuleCodesJson || []),
     JSON.stringify(notificationChannelsJson || {}),
+    JSON.stringify(notificationRulePreferencesJson || {}),
     lastProfileUpdateAt || null,
     lastPreferenceSaveAt,
   ]);

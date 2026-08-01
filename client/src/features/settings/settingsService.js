@@ -21,7 +21,9 @@ const SUPABASE_ORIGIN = import.meta.env?.VITE_SUPABASE_URL
   : "";
 
 const DEFAULT_PREFERENCES = {
-  enabledNotificationRuleCodes: [],
+  notificationRulePreferences: {},
+  effectiveNotificationChannels: {},
+  categories: [],
 };
 
 export const ROLE_SETTINGS_CACHE_VERSION = "2026-07-31-v2";
@@ -178,10 +180,16 @@ const normalizeStoredSettings = (storedValue = {}) => {
   return {
     ...DEFAULT_PREFERENCES,
     ...remainingStoredSettings,
-    enabledNotificationRuleCodes: Array.isArray(
-      storedValue?.enabledNotificationRuleCodes,
-    )
-      ? storedValue.enabledNotificationRuleCodes
+    notificationRulePreferences:
+      isPlainObject(storedValue?.notificationRulePreferences)
+        ? storedValue.notificationRulePreferences
+        : {},
+    effectiveNotificationChannels:
+      isPlainObject(storedValue?.effectiveNotificationChannels)
+        ? storedValue.effectiveNotificationChannels
+        : {},
+    categories: Array.isArray(storedValue?.categories)
+      ? storedValue.categories
       : [],
     profile: {
       ...(isPlainObject(remainingStoredSettings.profile)
@@ -381,6 +389,74 @@ export const loadRoleSettings = async ({
   }
 };
 
+export const loadRoleSettingsState = async ({
+  roleCode,
+  userId,
+  mode = getAccessMode(),
+}) => {
+  if (!roleCode || !userId) {
+    return {
+      settings: normalizeStoredSettings({}),
+      source: "empty",
+      errorMessage: "",
+    };
+  }
+
+  const cachedSettings =
+    readRoleSettingsCache({
+      roleCode,
+      userId,
+      mode,
+    }) || null;
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/settings/current`);
+    const payload = await handleJsonResponse(response, "Failed to load settings");
+    const resolvedSettings = normalizeStoredSettings(payload?.data || {});
+
+    writeRoleSettingsCache({
+      roleCode,
+      userId,
+      settings: resolvedSettings,
+      mode,
+    });
+
+    return {
+      settings: resolvedSettings,
+      source: "network",
+      errorMessage: "",
+    };
+  } catch (error) {
+    if (error?.status === 401 || error?.status === 403) {
+      clearRoleSettingsCache({
+        roleCode,
+        userId,
+        mode,
+      });
+
+      return {
+        settings: normalizeStoredSettings({}),
+        source: "unauthorized",
+        errorMessage: "",
+      };
+    }
+
+    if (cachedSettings) {
+      return {
+        settings: cachedSettings,
+        source: "cache",
+        errorMessage: "",
+      };
+    }
+
+    return {
+      settings: normalizeStoredSettings({}),
+      source: "error",
+      errorMessage: "Notification preferences could not be loaded.",
+    };
+  }
+};
+
 export const saveRoleSettings = async ({
   roleCode,
   userId,
@@ -407,6 +483,8 @@ export const saveRoleSettings = async ({
         ...DEFAULT_PREFERENCES,
         ...(settings || {}),
         profile: editableProfile,
+        notificationRulePreferences:
+          settings?.notificationRulePreferences || {},
       },
     }),
   });

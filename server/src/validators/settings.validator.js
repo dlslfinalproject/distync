@@ -7,13 +7,6 @@ const PROFILE_PICTURE_ALLOWED_MIME_TYPES = new Set([
   "image/png",
   "image/webp",
 ]);
-const ALLOWED_NOTIFICATION_CHANNEL_KEYS = new Set([
-  "disasterAlerts",
-  "distributionSchedules",
-  "reliefArrivalNotifications",
-  "attendanceReminders",
-  "systemAnnouncements",
-]);
 
 const isPlainObject = (value) =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -42,13 +35,7 @@ const normalizePhilippineContactNumber = (value = "") => {
   const compactValue = rawValue.replace(/[^\d+]/g, "");
 
   if (compactValue.startsWith("+")) {
-    const digitsAfterPlus = compactValue.slice(1).replace(/\D/g, "");
-
-    if (digitsAfterPlus.startsWith("639")) {
-      return `+${digitsAfterPlus.slice(0, 12)}`;
-    }
-
-    return `+${digitsAfterPlus.slice(0, 12)}`;
+    return `+${compactValue.slice(1).replace(/\D/g, "").slice(0, 12)}`;
   }
 
   const digitsOnly = compactValue.replace(/\D/g, "");
@@ -61,12 +48,12 @@ const normalizePhilippineContactNumber = (value = "") => {
     return `+${digitsOnly.slice(0, 12)}`;
   }
 
-  if (digitsOnly.startsWith("63")) {
-    return `+${digitsOnly.slice(0, 12)}`;
-  }
-
   if (digitsOnly.startsWith("9")) {
     return `+63${digitsOnly.slice(0, 10)}`;
+  }
+
+  if (digitsOnly.startsWith("63")) {
+    return `+${digitsOnly.slice(0, 12)}`;
   }
 
   return "";
@@ -82,31 +69,7 @@ const validateSaveCurrentSettings = (req, res, next) => {
       });
     }
 
-    if (
-      settings.enabledNotificationRuleCodes !== undefined &&
-      !Array.isArray(settings.enabledNotificationRuleCodes)
-    ) {
-      return res.status(400).json({
-        message: "enabledNotificationRuleCodes must be an array",
-      });
-    }
-
-    if (Array.isArray(settings.enabledNotificationRuleCodes)) {
-      const hasInvalidRuleCode = settings.enabledNotificationRuleCodes.some(
-        (entry) => typeof entry !== "string",
-      );
-
-      if (hasInvalidRuleCode) {
-        return res.status(400).json({
-          message: "enabledNotificationRuleCodes must contain string values",
-        });
-      }
-    }
-
-    if (
-      settings.profile !== undefined &&
-      !isPlainObject(settings.profile)
-    ) {
+    if (settings.profile !== undefined && !isPlainObject(settings.profile)) {
       return res.status(400).json({
         message: "profile must be an object",
       });
@@ -127,9 +90,7 @@ const validateSaveCurrentSettings = (req, res, next) => {
         );
 
         if (validationError) {
-          return res.status(400).json({
-            message: validationError,
-          });
+          return res.status(400).json({ message: validationError });
         }
       }
 
@@ -147,7 +108,6 @@ const validateSaveCurrentSettings = (req, res, next) => {
       );
 
       if (
-        typeof contactNumber === "string" &&
         contactNumber &&
         !PHILIPPINE_CONTACT_NUMBER_PATTERN.test(contactNumber)
       ) {
@@ -158,11 +118,7 @@ const validateSaveCurrentSettings = (req, res, next) => {
 
       const emailAddress = normalizeEmailAddress(settings.profile.emailAddress);
 
-      if (
-        typeof emailAddress === "string" &&
-        emailAddress &&
-        !EMAIL_ADDRESS_PATTERN.test(emailAddress)
-      ) {
+      if (emailAddress && !EMAIL_ADDRESS_PATTERN.test(emailAddress)) {
         return res.status(400).json({
           message: "Please enter a valid email address.",
         });
@@ -184,27 +140,27 @@ const validateSaveCurrentSettings = (req, res, next) => {
     }
 
     if (
-      settings.notificationChannels !== undefined &&
-      !isPlainObject(settings.notificationChannels)
+      settings.notificationRulePreferences !== undefined &&
+      !isPlainObject(settings.notificationRulePreferences)
     ) {
       return res.status(400).json({
-        message: "notificationChannels must be an object",
+        message: "notificationRulePreferences must be an object",
       });
     }
 
-    if (isPlainObject(settings.notificationChannels)) {
-      for (const [channelKey, channelValue] of Object.entries(
-        settings.notificationChannels,
+    if (isPlainObject(settings.notificationRulePreferences)) {
+      for (const [ruleCode, channelValue] of Object.entries(
+        settings.notificationRulePreferences,
       )) {
-        if (!ALLOWED_NOTIFICATION_CHANNEL_KEYS.has(channelKey)) {
+        if (!ruleCode.trim()) {
           return res.status(400).json({
-            message: `notificationChannels.${channelKey} is not supported`,
+            message: "notificationRulePreferences contains an invalid rule code",
           });
         }
 
         if (!isPlainObject(channelValue)) {
           return res.status(400).json({
-            message: `notificationChannels.${channelKey} must be an object`,
+            message: `notificationRulePreferences.${ruleCode} must be an object`,
           });
         }
 
@@ -213,7 +169,7 @@ const validateSaveCurrentSettings = (req, res, next) => {
           typeof channelValue.inApp !== "boolean"
         ) {
           return res.status(400).json({
-            message: `notificationChannels.${channelKey}.inApp must be a boolean`,
+            message: `notificationRulePreferences.${ruleCode}.inApp must be a boolean`,
           });
         }
 
@@ -222,16 +178,13 @@ const validateSaveCurrentSettings = (req, res, next) => {
           typeof channelValue.email !== "boolean"
         ) {
           return res.status(400).json({
-            message: `notificationChannels.${channelKey}.email must be a boolean`,
+            message: `notificationRulePreferences.${ruleCode}.email must be a boolean`,
           });
         }
       }
     }
 
-    if (
-      settings.metadata !== undefined &&
-      !isPlainObject(settings.metadata)
-    ) {
+    if (settings.metadata !== undefined && !isPlainObject(settings.metadata)) {
       return res.status(400).json({
         message: "metadata must be an object",
       });
@@ -250,17 +203,12 @@ const validateSaveCurrentSettings = (req, res, next) => {
         );
 
         if (validationError) {
-          return res.status(400).json({
-            message: validationError,
-          });
+          return res.status(400).json({ message: validationError });
         }
       }
     }
 
-    req.validatedBody = {
-      settings,
-    };
-
+    req.validatedBody = { settings };
     return next();
   } catch (error) {
     return res.status(500).json({
@@ -272,12 +220,7 @@ const validateSaveCurrentSettings = (req, res, next) => {
 
 const validateUploadCurrentProfilePicture = (req, res, next) => {
   try {
-    const {
-      fileName,
-      mimeType,
-      fileDataBase64,
-      userId: _ignoredUserId,
-    } = req.body || {};
+    const { fileName, mimeType, fileDataBase64 } = req.body || {};
 
     const stringChecks = [
       [fileName, "fileName"],
@@ -289,9 +232,7 @@ const validateUploadCurrentProfilePicture = (req, res, next) => {
       const validationError = validateOptionalString(value, fieldName);
 
       if (validationError) {
-        return res.status(400).json({
-          message: validationError,
-        });
+        return res.status(400).json({ message: validationError });
       }
     }
 
@@ -300,9 +241,7 @@ const validateUploadCurrentProfilePicture = (req, res, next) => {
     const normalizedFileDataBase64 = String(fileDataBase64 || "").trim();
 
     if (!normalizedFileName) {
-      return res.status(400).json({
-        message: "fileName is required",
-      });
+      return res.status(400).json({ message: "fileName is required" });
     }
 
     if (!PROFILE_PICTURE_ALLOWED_MIME_TYPES.has(normalizedMimeType)) {
@@ -312,9 +251,7 @@ const validateUploadCurrentProfilePicture = (req, res, next) => {
     }
 
     if (!normalizedFileDataBase64) {
-      return res.status(400).json({
-        message: "fileDataBase64 is required",
-      });
+      return res.status(400).json({ message: "fileDataBase64 is required" });
     }
 
     if (!/^[A-Za-z0-9+/=]+$/.test(normalizedFileDataBase64)) {

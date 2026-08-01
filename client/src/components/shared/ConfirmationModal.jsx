@@ -14,15 +14,26 @@ const ConfirmationModal = ({
   isSubmitting = false,
   confirmButtonStyle,
   maxWidth,
+  onClose,
+  closeOnBackdrop = false,
+  initialFocusRef,
+  finalFocusRef,
+  cancelButtonRef,
+  confirmButtonRef,
 }) => (
   <FormModalShell
     isOpen={isOpen}
     title={title}
     description={message}
     maxWidth={maxWidth}
+    onClose={onClose || onCancel}
+    closeOnBackdrop={closeOnBackdrop}
+    initialFocusRef={initialFocusRef}
+    finalFocusRef={finalFocusRef}
     footer={
       <>
         <button
+          ref={cancelButtonRef}
           type="button"
           onClick={onCancel}
           disabled={isSubmitting}
@@ -35,6 +46,7 @@ const ConfirmationModal = ({
           {cancelLabel}
         </button>
         <button
+          ref={confirmButtonRef}
           type="button"
           onClick={onConfirm}
           disabled={isSubmitting}

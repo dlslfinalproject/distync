@@ -3,70 +3,41 @@ const settingsRepository = require("../repositories/settings.repository");
 const notificationRepository = require("../modules/notifications/notification.repository");
 const notificationService = require("../modules/notifications/notification.service");
 const profilePictureStorageService = require("./profilePictureStorage.service");
+const { insertAuditLog } = require("../repositories/systemLog.repository");
+const {
+  buildPreferenceCategories,
+  getDefaultEffectiveChannels,
+  getEditableChannels,
+  resolveEffectiveChannels,
+  sanitizeNotificationRulePreferences,
+} = require("../modules/notifications/notificationPreferenceUtils");
 
 const SETTINGS_AUDIT_ACTION = "UPSERT_ROLE_SETTINGS";
+const SETTINGS_ENTITY_TYPE = "ROLE_SETTINGS";
 const PROFILE_PICTURE_UPLOADED_AUDIT_ACTION = "PROFILE_PICTURE_UPLOADED";
 const PROFILE_PICTURE_REPLACED_AUDIT_ACTION = "PROFILE_PICTURE_REPLACED";
 const PROFILE_PICTURE_REMOVED_AUDIT_ACTION = "PROFILE_PICTURE_REMOVED";
-const SETTINGS_ENTITY_TYPE = "ROLE_SETTINGS";
+const NOTIFICATION_UPDATE_AUDIT_ACTION = "UPDATE_NOTIFICATION_PREFERENCES";
+const NOTIFICATION_RESET_AUDIT_ACTION = "RESET_NOTIFICATION_PREFERENCES";
+const NOTIFICATION_REJECTED_MANDATORY_ACTION =
+  "REJECT_DISABLE_MANDATORY_NOTIFICATION";
+const NOTIFICATION_REJECTED_EMAIL_ACTION =
+  "REJECT_UNSUPPORTED_NOTIFICATION_EMAIL";
+const NOTIFICATION_REJECTED_UNKNOWN_RULE_ACTION =
+  "REJECT_UNKNOWN_NOTIFICATION_RULE";
+const NOTIFICATION_REJECTED_CROSS_ROLE_ACTION =
+  "REJECT_CROSS_ROLE_NOTIFICATION_RULE";
 const ALLOWED_ROLE_CODES = new Set(["BARANGAY", "MSWDO", "MAYOR"]);
 const ROLE_POSITION_LABELS = {
   BARANGAY: "Barangay Official",
   MSWDO: "MSWDO Personnel",
   MAYOR: "Office of the Mayor",
 };
-const NOTIFICATION_OPTION_KEYS = [
-  "disasterAlerts",
-  "distributionSchedules",
-  "reliefArrivalNotifications",
-  "attendanceReminders",
-  "systemAnnouncements",
-];
 const EMAIL_ADDRESS_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHILIPPINE_CONTACT_NUMBER_PATTERN = /^\+639\d{9}$/;
 
 const isPlainObject = (value) =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
-
-const createDefaultNotificationChannels = () => {
-  return NOTIFICATION_OPTION_KEYS.reduce((current, key) => {
-    current[key] = {
-      inApp: true,
-      email: false,
-    };
-    return current;
-  }, {});
-};
-
-const createDefaultRoleSettings = () => {
-  return {
-    enabledNotificationRuleCodes: [],
-    profile: {
-      fullName: "",
-      position: "",
-      contactNumber: "",
-      emailAddress: "",
-      profilePicturePath: "",
-      profilePictureUrl: "",
-      profilePictureUrlExpiresAt: "",
-      profilePictureFileName: "",
-      profilePictureUpdatedAt: "",
-    },
-    notificationChannels: createDefaultNotificationChannels(),
-    metadata: {
-      lastProfileUpdateAt: "",
-      lastPreferenceSaveAt: "",
-    },
-  };
-};
-
-const getRolePositionLabel = (roleCode) => {
-  return ROLE_POSITION_LABELS[roleCode] || "";
-};
-
-const buildFullNameFromUser = (user = {}) => {
-  return [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
-};
 
 const sanitizeString = (value, fallbackValue = "") => {
   if (typeof value !== "string") {
@@ -89,11 +60,6 @@ const normalizePhilippineContactNumber = (value = "") => {
 
   if (compactValue.startsWith("+")) {
     const digitsAfterPlus = compactValue.slice(1).replace(/\D/g, "");
-
-    if (digitsAfterPlus.startsWith("639")) {
-      return `+${digitsAfterPlus.slice(0, 12)}`;
-    }
-
     return `+${digitsAfterPlus.slice(0, 12)}`;
   }
 
@@ -118,36 +84,171 @@ const normalizePhilippineContactNumber = (value = "") => {
   return "";
 };
 
-const sanitizeNotificationChannels = (value = {}) => {
-  const defaults = createDefaultNotificationChannels();
-
-  return NOTIFICATION_OPTION_KEYS.reduce((current, key) => {
-    current[key] = {
-      inApp:
-        typeof value?.[key]?.inApp === "boolean"
-          ? value[key].inApp
-          : defaults[key].inApp,
-      email:
-        typeof value?.[key]?.email === "boolean"
-          ? value[key].email
-          : defaults[key].email,
-    };
-    return current;
-  }, {});
-};
-
-const sanitizeEnabledNotificationRuleCodes = (value) => {
-  if (!Array.isArray(value)) {
-    return [];
+const normalizeTimestampValue = (value) => {
+  if (!value) {
+    return "";
   }
 
-  return Array.from(
-    new Set(
-      value
-        .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
-        .filter(Boolean),
+  const parsedValue = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(parsedValue.getTime()) ? "" : parsedValue.toISOString();
+};
+
+const parseTimestampValue = (value) => {
+  const normalizedValue = sanitizeString(value);
+  if (!normalizedValue) {
+    return null;
+  }
+
+  const parsedValue = new Date(normalizedValue);
+  return Number.isNaN(parsedValue.getTime()) ? null : parsedValue.toISOString();
+};
+
+const buildFullNameFromUser = (user = {}) =>
+  [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
+
+const getRolePositionLabel = (roleCode) => ROLE_POSITION_LABELS[roleCode] || "";
+
+const createDefaultRoleSettings = () => ({
+  roleCode: "",
+  profile: {
+    fullName: "",
+    position: "",
+    contactNumber: "",
+    emailAddress: "",
+    profilePicturePath: "",
+    profilePictureUrl: "",
+    profilePictureUrlExpiresAt: "",
+    profilePictureFileName: "",
+    profilePictureUpdatedAt: "",
+  },
+  notificationRulePreferences: {},
+  categories: [],
+  metadata: {
+    lastProfileUpdateAt: "",
+    lastPreferenceSaveAt: "",
+  },
+});
+
+const buildPersistedSnapshot = (settings = {}) => {
+  const defaults = createDefaultRoleSettings();
+
+  return {
+    profile: {
+      ...defaults.profile,
+      fullName: sanitizeString(settings?.profile?.fullName),
+      position: sanitizeString(settings?.profile?.position),
+      contactNumber: sanitizeString(settings?.profile?.contactNumber),
+      emailAddress: sanitizeString(settings?.profile?.emailAddress),
+      profilePicturePath: profilePictureStorageService.normalizeStoragePath(
+        settings?.profile?.profilePicturePath,
+      ),
+      profilePictureUrl: sanitizeString(settings?.profile?.profilePictureUrl),
+      profilePictureUrlExpiresAt: sanitizeString(
+        settings?.profile?.profilePictureUrlExpiresAt,
+      ),
+      profilePictureFileName: sanitizeString(
+        settings?.profile?.profilePictureFileName,
+      ),
+      profilePictureUpdatedAt: sanitizeString(
+        settings?.profile?.profilePictureUpdatedAt,
+      ),
+    },
+    notificationRulePreferences: sanitizeNotificationRulePreferences(
+      settings?.notificationRulePreferences,
     ),
-  );
+    metadata: {
+      ...defaults.metadata,
+      lastProfileUpdateAt: sanitizeString(settings?.metadata?.lastProfileUpdateAt),
+      lastPreferenceSaveAt: sanitizeString(settings?.metadata?.lastPreferenceSaveAt),
+    },
+  };
+};
+
+const buildEditableSettingsSnapshot = (settings = {}) => {
+  const profile = isPlainObject(settings.profile) ? settings.profile : {};
+  const metadata = isPlainObject(settings.metadata) ? settings.metadata : {};
+
+  return {
+    profile: {
+      fullName: sanitizeString(profile.fullName),
+      contactNumber: sanitizeString(profile.contactNumber),
+    },
+    notificationRulePreferences: sanitizeNotificationRulePreferences(
+      settings.notificationRulePreferences || settings.preferences,
+    ),
+    metadata: {
+      lastProfileUpdateAt: sanitizeString(metadata.lastProfileUpdateAt),
+      lastPreferenceSaveAt: sanitizeString(metadata.lastPreferenceSaveAt),
+    },
+  };
+};
+
+const buildPersistedSettingsFromRecord = (record = {}) => ({
+  profile: {
+    fullName: "",
+    position: "",
+    contactNumber: "",
+    emailAddress: "",
+    profilePicturePath: profilePictureStorageService.normalizeStoragePath(
+      record.profile_picture_path,
+    ),
+    profilePictureUrl: "",
+    profilePictureUrlExpiresAt: "",
+    profilePictureFileName: sanitizeString(record.profile_picture_file_name),
+    profilePictureUpdatedAt: normalizeTimestampValue(
+      record.profile_picture_updated_at,
+    ),
+  },
+  notificationRulePreferences: sanitizeNotificationRulePreferences(
+    record.notification_rule_preferences_json,
+  ),
+  metadata: {
+    lastProfileUpdateAt: normalizeTimestampValue(record.last_profile_update_at),
+    lastPreferenceSaveAt: normalizeTimestampValue(record.last_preference_save_at),
+  },
+  legacyPreferenceSource: {
+    enabledNotificationRuleCodes: record.enabled_notification_rule_codes_json || [],
+    notificationChannels: record.notification_channels_json || {},
+  },
+});
+
+const buildUserRoleSettingsPayload = (settings = {}) => ({
+  profilePicturePath: profilePictureStorageService.normalizeStoragePath(
+    settings?.profile?.profilePicturePath,
+  ),
+  profilePictureFileName: sanitizeString(settings?.profile?.profilePictureFileName),
+  profilePictureUpdatedAt: parseTimestampValue(
+    settings?.profile?.profilePictureUpdatedAt,
+  ),
+  enabledNotificationRuleCodesJson: [],
+  notificationChannelsJson: {},
+  notificationRulePreferencesJson: sanitizeNotificationRulePreferences(
+    settings.notificationRulePreferences,
+  ),
+  lastProfileUpdateAt: parseTimestampValue(settings?.metadata?.lastProfileUpdateAt),
+  lastPreferenceSaveAt:
+    parseTimestampValue(settings?.metadata?.lastPreferenceSaveAt) ||
+    new Date().toISOString(),
+});
+
+const splitFullNameForUserColumns = (fullName, user) => {
+  const tokens = sanitizeString(fullName)
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (tokens.length < 2) {
+    return {
+      firstName: user.first_name,
+      middleName: user.middle_name,
+      lastName: user.last_name,
+    };
+  }
+
+  return {
+    firstName: tokens[0],
+    middleName: user.middle_name,
+    lastName: tokens.slice(1).join(" "),
+  };
 };
 
 const validateEmailAddressOrThrow = (value) => {
@@ -172,368 +273,6 @@ const validateContactNumberOrThrow = (value) => {
   }
 
   return normalizedValue;
-};
-
-const normalizeTimestampValue = (value) => {
-  if (!value) {
-    return "";
-  }
-
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? "" : value.toISOString();
-  }
-
-  const parsedValue = new Date(value);
-  return Number.isNaN(parsedValue.getTime()) ? "" : parsedValue.toISOString();
-};
-
-const parseTimestampValue = (value) => {
-  const normalizedValue = sanitizeString(value);
-
-  if (!normalizedValue) {
-    return null;
-  }
-
-  const parsedValue = new Date(normalizedValue);
-
-  if (Number.isNaN(parsedValue.getTime())) {
-    return null;
-  }
-
-  return parsedValue.toISOString();
-};
-
-const buildPersistedSnapshot = (settings = {}) => {
-  const defaults = createDefaultRoleSettings();
-
-  return {
-    enabledNotificationRuleCodes: sanitizeEnabledNotificationRuleCodes(
-      settings.enabledNotificationRuleCodes,
-    ),
-    profile: {
-      ...defaults.profile,
-      fullName: sanitizeString(settings?.profile?.fullName),
-      position: sanitizeString(settings?.profile?.position),
-      contactNumber: sanitizeString(settings?.profile?.contactNumber),
-      emailAddress: sanitizeString(settings?.profile?.emailAddress),
-      profilePicturePath: profilePictureStorageService.normalizeStoragePath(
-        settings?.profile?.profilePicturePath,
-      ),
-      profilePictureUrl: sanitizeString(
-        settings?.profile?.profilePictureUrl,
-      ),
-      profilePictureUrlExpiresAt: sanitizeString(
-        settings?.profile?.profilePictureUrlExpiresAt,
-      ),
-      profilePictureFileName: sanitizeString(
-        settings?.profile?.profilePictureFileName,
-      ),
-      profilePictureUpdatedAt: sanitizeString(
-        settings?.profile?.profilePictureUpdatedAt,
-      ),
-    },
-    notificationChannels: sanitizeNotificationChannels(
-      settings.notificationChannels,
-    ),
-    metadata: {
-      lastProfileUpdateAt: sanitizeString(settings?.metadata?.lastProfileUpdateAt),
-      lastPreferenceSaveAt: sanitizeString(
-        settings?.metadata?.lastPreferenceSaveAt,
-      ),
-    },
-  };
-};
-
-const buildEditableSettingsSnapshot = (settings = {}) => {
-  const profile = isPlainObject(settings.profile) ? settings.profile : {};
-  const metadata = isPlainObject(settings.metadata) ? settings.metadata : {};
-
-  return {
-    enabledNotificationRuleCodes: sanitizeEnabledNotificationRuleCodes(
-      settings.enabledNotificationRuleCodes,
-    ),
-    profile: {
-      fullName: sanitizeString(profile.fullName),
-      contactNumber: sanitizeString(profile.contactNumber),
-    },
-    notificationChannels: sanitizeNotificationChannels(
-      settings.notificationChannels,
-    ),
-    metadata: {
-      lastProfileUpdateAt: sanitizeString(metadata.lastProfileUpdateAt),
-      lastPreferenceSaveAt: sanitizeString(metadata.lastPreferenceSaveAt),
-    },
-  };
-};
-
-const buildPersistedSettingsFromRecord = (record = {}) => {
-  return {
-    enabledNotificationRuleCodes: sanitizeEnabledNotificationRuleCodes(
-      record.enabled_notification_rule_codes_json,
-    ),
-    profile: {
-      fullName: "",
-      position: "",
-      contactNumber: "",
-      emailAddress: "",
-      profilePicturePath: profilePictureStorageService.normalizeStoragePath(
-        record.profile_picture_path,
-      ),
-      profilePictureUrl: "",
-      profilePictureUrlExpiresAt: "",
-      profilePictureFileName: sanitizeString(record.profile_picture_file_name),
-      profilePictureUpdatedAt: normalizeTimestampValue(
-        record.profile_picture_updated_at,
-      ),
-    },
-    notificationChannels: sanitizeNotificationChannels(
-      record.notification_channels_json,
-    ),
-    metadata: {
-      lastProfileUpdateAt: normalizeTimestampValue(record.last_profile_update_at),
-      lastPreferenceSaveAt: normalizeTimestampValue(
-        record.last_preference_save_at,
-      ),
-    },
-  };
-};
-
-const buildRoleSettingsResponse = ({
-  roleCode,
-  user,
-  snapshot,
-}) => {
-  const defaults = createDefaultRoleSettings();
-  const normalizedSnapshot = buildPersistedSnapshot(snapshot || {});
-  const profileFullName =
-    normalizedSnapshot.profile.fullName || buildFullNameFromUser(user);
-
-  return {
-    ...defaults,
-    ...normalizedSnapshot,
-    profile: {
-      ...defaults.profile,
-      ...normalizedSnapshot.profile,
-      fullName: profileFullName,
-      position:
-        getRolePositionLabel(roleCode) || normalizedSnapshot.profile.position,
-      contactNumber: sanitizeString(
-        user?.contact_number || normalizedSnapshot.profile.contactNumber,
-      ),
-      emailAddress: sanitizeString(
-        user?.email || normalizedSnapshot.profile.emailAddress,
-      ),
-    },
-    notificationChannels: sanitizeNotificationChannels(
-      normalizedSnapshot.notificationChannels,
-    ),
-    metadata: {
-      ...defaults.metadata,
-      ...normalizedSnapshot.metadata,
-    },
-    roleCode,
-  };
-};
-
-const buildUserRoleSettingsPayload = (settings = {}) => {
-  return {
-    profilePicturePath: profilePictureStorageService.normalizeStoragePath(
-      settings?.profile?.profilePicturePath,
-    ),
-    profilePictureFileName: sanitizeString(settings?.profile?.profilePictureFileName),
-    profilePictureUpdatedAt: parseTimestampValue(
-      settings?.profile?.profilePictureUpdatedAt,
-    ),
-    enabledNotificationRuleCodesJson: sanitizeEnabledNotificationRuleCodes(
-      settings.enabledNotificationRuleCodes,
-    ),
-    notificationChannelsJson: sanitizeNotificationChannels(
-      settings.notificationChannels,
-    ),
-    lastProfileUpdateAt: parseTimestampValue(settings?.metadata?.lastProfileUpdateAt),
-    lastPreferenceSaveAt:
-      parseTimestampValue(settings?.metadata?.lastPreferenceSaveAt) ||
-      new Date().toISOString(),
-  };
-};
-
-const splitFullNameForUserColumns = (fullName, user) => {
-  const tokens = sanitizeString(fullName)
-    .split(/\s+/)
-    .filter(Boolean);
-
-  if (tokens.length < 2) {
-    return {
-      firstName: user.first_name,
-      middleName: user.middle_name,
-      lastName: user.last_name,
-    };
-  }
-
-  return {
-    firstName: tokens[0],
-    middleName: user.middle_name,
-    lastName: tokens.slice(1).join(" "),
-  };
-};
-
-const validateEnabledNotificationRuleCodesForRole = async ({
-  roleCode,
-  enabledNotificationRuleCodes,
-  dbClient,
-}) => {
-  const allowedRuleCodeSet = await getAllowedNotificationRuleCodesForRole({
-    roleCode,
-    dbClient,
-  });
-  const invalidRuleCodes = sanitizeEnabledNotificationRuleCodes(
-    enabledNotificationRuleCodes,
-  ).filter((code) => !allowedRuleCodeSet.has(code));
-
-  if (invalidRuleCodes.length > 0) {
-    const error = new Error(
-      invalidRuleCodes.length === 1
-        ? `Notification rule ${invalidRuleCodes[0]} is not available for your role.`
-        : "One or more notification rules are not available for your role.",
-    );
-    error.statusCode = 400;
-    throw error;
-  }
-};
-
-const getAllowedNotificationRuleCodesForRole = async ({
-  roleCode,
-  dbClient,
-}) => {
-  const allowedRules = await notificationService.getNotificationRulesForRole(
-    roleCode,
-    dbClient,
-  );
-
-  return new Set(
-    allowedRules
-      .map((rule) => (typeof rule.code === "string" ? rule.code.trim() : ""))
-      .filter(Boolean),
-  );
-};
-
-const sanitizeEnabledNotificationRuleCodesForRole = async ({
-  roleCode,
-  enabledNotificationRuleCodes,
-  dbClient,
-}) => {
-  const allowedRuleCodeSet = await getAllowedNotificationRuleCodesForRole({
-    roleCode,
-    dbClient,
-  });
-  const normalizedRuleCodes = sanitizeEnabledNotificationRuleCodes(
-    enabledNotificationRuleCodes,
-  );
-  const cleanedRuleCodes = normalizedRuleCodes.filter((code) =>
-    allowedRuleCodeSet.has(code),
-  );
-
-  return {
-    cleanedRuleCodes,
-    changed: cleanedRuleCodes.length !== normalizedRuleCodes.length,
-  };
-};
-
-const sanitizeStoredSettingsSnapshotForRole = async ({
-  userId,
-  roleCode,
-  snapshot,
-  dbClient,
-}) => {
-  const normalizedSnapshot = buildPersistedSnapshot(snapshot || {});
-  const { cleanedRuleCodes, changed } =
-    await sanitizeEnabledNotificationRuleCodesForRole({
-      roleCode,
-      enabledNotificationRuleCodes: normalizedSnapshot.enabledNotificationRuleCodes,
-      dbClient,
-    });
-
-  const cleanedSnapshot = {
-    ...normalizedSnapshot,
-    enabledNotificationRuleCodes: cleanedRuleCodes,
-  };
-
-  if (changed && userId) {
-    await settingsRepository.upsertUserRoleSettings(
-      {
-        userId,
-        roleCode,
-        ...buildUserRoleSettingsPayload(cleanedSnapshot),
-      },
-      dbClient,
-    );
-  }
-
-  return cleanedSnapshot;
-};
-
-const buildAuditSafeSettingsSnapshot = (settings = {}) => {
-  const normalizedSettings = buildPersistedSnapshot(settings);
-  const hasProfilePicture = Boolean(
-    normalizedSettings.profile.profilePicturePath,
-  );
-
-  return {
-    ...normalizedSettings,
-    profile: {
-      ...normalizedSettings.profile,
-      profilePicturePath: hasProfilePicture
-        ? "[private profile picture path]"
-        : "",
-      profilePictureUrl: "",
-      profilePictureUrlExpiresAt: "",
-    },
-  };
-};
-
-const attachSignedProfilePictureMetadata = async (settings = {}) => {
-  const normalizedSettings = buildPersistedSnapshot(settings);
-  const profilePicturePath = normalizedSettings.profile.profilePicturePath;
-
-  if (!profilePicturePath) {
-    return {
-      ...settings,
-      ...normalizedSettings,
-      profile: {
-        ...(settings.profile || {}),
-        ...normalizedSettings.profile,
-      },
-    };
-  }
-
-  const signedUrlMetadata =
-    await profilePictureStorageService.createSignedProfilePictureUrl(
-      profilePicturePath,
-    );
-
-  return {
-    ...settings,
-    ...normalizedSettings,
-    profile: {
-      ...(settings.profile || {}),
-      ...normalizedSettings.profile,
-      ...signedUrlMetadata,
-    },
-  };
-};
-
-const buildSessionUser = (user, roleCode) => {
-  return {
-    id: user.id,
-    email: user.email,
-    first_name: user.first_name,
-    middle_name: user.middle_name || null,
-    last_name: user.last_name,
-    contact_number: user.contact_number || null,
-    role: roleCode,
-    default_barangay_id: user.default_barangay_id || null,
-    is_active: user.is_active,
-  };
 };
 
 const ensureAllowedRole = (roleCode) => {
@@ -566,6 +305,136 @@ const ensureUserIsActive = (user) => {
   throw error;
 };
 
+const buildSessionUser = (user, roleCode) => ({
+  id: user.id,
+  email: user.email,
+  first_name: user.first_name,
+  middle_name: user.middle_name || null,
+  last_name: user.last_name,
+  contact_number: user.contact_number || null,
+  role: roleCode,
+  default_barangay_id: user.default_barangay_id || null,
+  is_active: user.is_active,
+});
+
+const buildAuditSafeSettingsSnapshot = (settings = {}) => {
+  const normalizedSettings = buildPersistedSnapshot(settings);
+  const hasProfilePicture = Boolean(normalizedSettings.profile.profilePicturePath);
+
+  return {
+    ...normalizedSettings,
+    profile: {
+      ...normalizedSettings.profile,
+      profilePicturePath: hasProfilePicture ? "[private profile picture path]" : "",
+      profilePictureUrl: "",
+      profilePictureUrlExpiresAt: "",
+    },
+  };
+};
+
+const attachSignedProfilePictureMetadata = async (settings = {}) => {
+  const normalizedSettings = buildPersistedSnapshot(settings);
+  const profilePicturePath = normalizedSettings.profile.profilePicturePath;
+
+  if (!profilePicturePath) {
+    return {
+      ...settings,
+      profile: {
+        ...(settings.profile || {}),
+        ...normalizedSettings.profile,
+      },
+    };
+  }
+
+  const signedUrlMetadata =
+    await profilePictureStorageService.createSignedProfilePictureUrl(
+      profilePicturePath,
+    );
+
+  return {
+    ...settings,
+    profile: {
+      ...(settings.profile || {}),
+      ...normalizedSettings.profile,
+      ...signedUrlMetadata,
+    },
+  };
+};
+
+const getRolePolicyRows = async ({ roleCode, dbClient }) =>
+  notificationRepository.getNotificationPolicyRowsByRoleCode(roleCode, dbClient);
+
+const buildEffectivePreferenceMap = ({
+  policyRows,
+  storedPreferences,
+}) =>
+  policyRows.reduce((current, policyRow) => {
+    current[policyRow.code] = resolveEffectiveChannels({
+      policyRow,
+      storedPreferences,
+    });
+    return current;
+  }, {});
+
+const buildNotificationSettingsResponse = ({
+  roleCode,
+  policyRows,
+  storedPreferences,
+}) => ({
+  notificationRulePreferences: sanitizeNotificationRulePreferences(storedPreferences),
+  effectiveNotificationChannels: buildEffectivePreferenceMap({
+    policyRows,
+    storedPreferences,
+  }),
+  categories: buildPreferenceCategories({
+    roleCode,
+    policyRows,
+    storedPreferences,
+  }),
+});
+
+const buildRoleSettingsResponse = async ({
+  roleCode,
+  user,
+  snapshot,
+  dbClient,
+}) => {
+  const defaults = createDefaultRoleSettings();
+  const normalizedSnapshot = buildPersistedSnapshot(snapshot || {});
+  const profileFullName =
+    normalizedSnapshot.profile.fullName || buildFullNameFromUser(user);
+  const policyRows = await getRolePolicyRows({ roleCode, dbClient });
+  const notificationSettings = buildNotificationSettingsResponse({
+    roleCode,
+    policyRows,
+    storedPreferences: normalizedSnapshot.notificationRulePreferences,
+  });
+
+  return {
+    ...defaults,
+    roleCode,
+    profile: {
+      ...defaults.profile,
+      ...normalizedSnapshot.profile,
+      fullName: profileFullName,
+      position: getRolePositionLabel(roleCode),
+      contactNumber: sanitizeString(
+        user?.contact_number || normalizedSnapshot.profile.contactNumber,
+      ),
+      emailAddress: sanitizeString(
+        user?.email || normalizedSnapshot.profile.emailAddress,
+      ),
+    },
+    notificationRulePreferences: notificationSettings.notificationRulePreferences,
+    effectiveNotificationChannels: notificationSettings.effectiveNotificationChannels,
+    categories: notificationSettings.categories,
+    metadata: {
+      ...defaults.metadata,
+      ...normalizedSnapshot.metadata,
+    },
+  };
+};
+
 const getValidatedUserAndSnapshot = async ({
   userId,
   roleCode,
@@ -573,29 +442,169 @@ const getValidatedUserAndSnapshot = async ({
 }) => {
   const [user, latestSnapshot] = await Promise.all([
     settingsRepository.getUserById(userId, dbClient),
-    settingsRepository.getUserRoleSettings(
-      {
-        userId,
-        roleCode,
-      },
-      dbClient,
-    ),
+    settingsRepository.getUserRoleSettings({ userId, roleCode }, dbClient),
   ]);
 
   ensureUserExists(user);
   ensureUserIsActive(user);
 
-  const cleanedSnapshot = await sanitizeStoredSettingsSnapshotForRole({
-    userId,
-    roleCode,
-    snapshot: buildPersistedSettingsFromRecord(latestSnapshot || {}),
-    dbClient,
-  });
-
   return {
     user,
-    snapshot: cleanedSnapshot,
+    snapshot: buildPersistedSettingsFromRecord(latestSnapshot || {}),
   };
+};
+
+const logRejectedPreferenceAttempt = async ({
+  dbClient,
+  userId,
+  roleCode,
+  action,
+  ruleCode,
+  attemptedValues,
+  reason,
+}) => {
+  await insertAuditLog(
+    {
+      user_id: userId,
+      role_code: roleCode,
+      device_id: null,
+      action,
+      entity_type: "NOTIFICATION_RULE",
+      entity_id: ruleCode,
+      old_values_json: {},
+      new_values_json: {
+        ruleCode,
+        attemptedValues,
+        reason,
+      },
+      ip_address: null,
+    },
+    dbClient,
+  );
+};
+
+const validateAndNormalizeNotificationPreferences = async ({
+  userId,
+  roleCode,
+  incomingPreferences,
+  dbClient,
+}) => {
+  const policyRows = await getRolePolicyRows({ roleCode, dbClient });
+  const policyMap = new Map(policyRows.map((row) => [row.code, row]));
+  const sanitizedIncomingPreferences = sanitizeNotificationRulePreferences(
+    incomingPreferences,
+  );
+
+  for (const [ruleCode, attemptedValues] of Object.entries(
+    sanitizedIncomingPreferences,
+  )) {
+    const policyRow = policyMap.get(ruleCode);
+
+    if (!policyRow) {
+      await logRejectedPreferenceAttempt({
+        dbClient,
+        userId,
+        roleCode,
+        action: NOTIFICATION_REJECTED_UNKNOWN_RULE_ACTION,
+        ruleCode,
+        attemptedValues,
+        reason: "unknown_or_cross_role_rule",
+      });
+
+      const error = new Error(
+        `Notification rule ${ruleCode} is not available for your role.`,
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const editableChannels = getEditableChannels(policyRow);
+    const defaults = getDefaultEffectiveChannels(policyRow);
+    const nextPreference = {};
+
+    if (typeof attemptedValues.inApp === "boolean") {
+      if (!editableChannels.inApp) {
+        if (attemptedValues.inApp !== defaults.inApp) {
+          await logRejectedPreferenceAttempt({
+            dbClient,
+            userId,
+            roleCode,
+            action: NOTIFICATION_REJECTED_MANDATORY_ACTION,
+            ruleCode,
+            attemptedValues,
+            reason: "in_app_channel_is_locked",
+          });
+
+          const error = new Error(
+            `${policyRow.name} must remain enabled in the notification center.`,
+          );
+          error.statusCode = 400;
+          throw error;
+        }
+      } else {
+        nextPreference.inApp = attemptedValues.inApp;
+      }
+    }
+
+    if (typeof attemptedValues.email === "boolean") {
+      if (!editableChannels.email) {
+        if (attemptedValues.email) {
+          await logRejectedPreferenceAttempt({
+            dbClient,
+            userId,
+            roleCode,
+            action: NOTIFICATION_REJECTED_EMAIL_ACTION,
+            ruleCode,
+            attemptedValues,
+            reason: "email_channel_unavailable",
+          });
+
+          const error = new Error(
+            `${policyRow.name} does not support email delivery for your role.`,
+          );
+          error.statusCode = 400;
+          throw error;
+        }
+      } else {
+        nextPreference.email = attemptedValues.email;
+      }
+    }
+
+    sanitizedIncomingPreferences[ruleCode] = nextPreference;
+  }
+
+  return sanitizedIncomingPreferences;
+};
+
+const isResetToDefaultPayload = ({
+  policyRows,
+  notificationRulePreferences,
+}) => {
+  const preferenceMap = sanitizeNotificationRulePreferences(notificationRulePreferences);
+
+  return policyRows.every((policyRow) => {
+    const editableChannels = getEditableChannels(policyRow);
+    const defaults = getDefaultEffectiveChannels(policyRow);
+    const rulePreferences = preferenceMap[policyRow.code] || {};
+
+    if (
+      editableChannels.inApp &&
+      typeof rulePreferences.inApp === "boolean" &&
+      rulePreferences.inApp !== defaults.inApp
+    ) {
+      return false;
+    }
+
+    if (
+      editableChannels.email &&
+      typeof rulePreferences.email === "boolean" &&
+      rulePreferences.email !== defaults.email
+    ) {
+      return false;
+    }
+
+    return true;
+  });
 };
 
 const getCurrentSettings = async ({ userId, roleCode }) => {
@@ -606,7 +615,7 @@ const getCurrentSettings = async ({ userId, roleCode }) => {
     roleCode,
   });
 
-  const settings = buildRoleSettingsResponse({
+  const settings = await buildRoleSettingsResponse({
     roleCode,
     user,
     snapshot,
@@ -633,46 +642,43 @@ const saveCurrentSettings = async ({
       roleCode,
       dbClient,
     });
-
-    const previousSettings = buildRoleSettingsResponse({
+    const previousSettings = await buildRoleSettingsResponse({
       roleCode,
       user,
       snapshot,
+      dbClient,
     });
-
     const incomingSnapshot = buildEditableSettingsSnapshot(settings || {});
     const normalizedContactNumber = validateContactNumberOrThrow(
       incomingSnapshot.profile.contactNumber || user.contact_number || "",
     );
     const lockedEmailAddress = validateEmailAddressOrThrow(user.email);
-
-    await validateEnabledNotificationRuleCodesForRole({
-      roleCode,
-      enabledNotificationRuleCodes: incomingSnapshot.enabledNotificationRuleCodes,
-      dbClient,
-    });
+    const normalizedNotificationRulePreferences =
+      await validateAndNormalizeNotificationPreferences({
+        userId,
+        roleCode,
+        incomingPreferences: incomingSnapshot.notificationRulePreferences,
+        dbClient,
+      });
 
     const mergedSnapshot = {
-      ...previousSettings,
-      ...incomingSnapshot,
+      ...snapshot,
       profile: {
-        ...previousSettings.profile,
+        ...snapshot.profile,
         ...incomingSnapshot.profile,
         position: getRolePositionLabel(roleCode),
         contactNumber: normalizedContactNumber,
         emailAddress: lockedEmailAddress,
       },
-      notificationChannels: sanitizeNotificationChannels(
-        incomingSnapshot.notificationChannels,
-      ),
+      notificationRulePreferences: normalizedNotificationRulePreferences,
       metadata: {
-        ...previousSettings.metadata,
+        ...snapshot.metadata,
         ...incomingSnapshot.metadata,
       },
     };
 
     const nameColumns = splitFullNameForUserColumns(
-      mergedSnapshot.profile.fullName,
+      mergedSnapshot.profile.fullName || buildFullNameFromUser(user),
       user,
     );
 
@@ -687,7 +693,7 @@ const saveCurrentSettings = async ({
       dbClient,
     );
 
-    const nextSettings = buildRoleSettingsResponse({
+    const nextSettings = await buildRoleSettingsResponse({
       roleCode,
       user: updatedUser,
       snapshot: {
@@ -697,6 +703,7 @@ const saveCurrentSettings = async ({
           lastPreferenceSaveAt: new Date().toISOString(),
         },
       },
+      dbClient,
     });
 
     await settingsRepository.upsertUserRoleSettings(
@@ -704,6 +711,35 @@ const saveCurrentSettings = async ({
         userId,
         roleCode,
         ...buildUserRoleSettingsPayload(nextSettings),
+      },
+      dbClient,
+    );
+
+    const policyRows = await getRolePolicyRows({ roleCode, dbClient });
+    const notificationAction = isResetToDefaultPayload({
+      policyRows,
+      notificationRulePreferences: normalizedNotificationRulePreferences,
+    })
+      ? NOTIFICATION_RESET_AUDIT_ACTION
+      : NOTIFICATION_UPDATE_AUDIT_ACTION;
+
+    await insertAuditLog(
+      {
+        user_id: userId,
+        role_code: roleCode,
+        device_id: null,
+        action: notificationAction,
+        entity_type: "NOTIFICATION_PREFERENCES",
+        entity_id: userId,
+        old_values_json: {
+          notificationRulePreferences:
+            previousSettings.notificationRulePreferences || {},
+        },
+        new_values_json: {
+          notificationRulePreferences:
+            nextSettings.notificationRulePreferences || {},
+        },
+        ip_address: ipAddress,
       },
       dbClient,
     );
@@ -772,10 +808,11 @@ const uploadCurrentProfilePicture = async ({
       roleCode,
       dbClient,
     });
-    const previousSettings = buildRoleSettingsResponse({
+    const previousSettings = await buildRoleSettingsResponse({
       roleCode,
       user,
       snapshot,
+      dbClient,
     });
     const uploadResult = await profilePictureStorageService.uploadProfilePicture({
       userId,
@@ -789,24 +826,23 @@ const uploadCurrentProfilePicture = async ({
     previousProfilePicturePath =
       previousSettings.profile.profilePicturePath || "";
 
-    const nextSettings = buildRoleSettingsResponse({
+    const nextSettings = await buildRoleSettingsResponse({
       roleCode,
       user,
       snapshot: {
-        ...previousSettings,
+        ...snapshot,
         profile: {
-          ...previousSettings.profile,
+          ...snapshot.profile,
           profilePicturePath: uploadResult.profilePicturePath,
           profilePictureFileName: uploadResult.profilePictureFileName,
           profilePictureUpdatedAt,
         },
         metadata: {
-          ...previousSettings.metadata,
+          ...snapshot.metadata,
           lastProfileUpdateAt: profilePictureUpdatedAt,
-          lastPreferenceSaveAt:
-            previousSettings.metadata.lastPreferenceSaveAt || profilePictureUpdatedAt,
         },
       },
+      dbClient,
     });
 
     await settingsRepository.upsertUserRoleSettings(
@@ -879,22 +915,23 @@ const removeCurrentProfilePicture = async ({
       roleCode,
       dbClient,
     });
-    const previousSettings = buildRoleSettingsResponse({
+    const previousSettings = await buildRoleSettingsResponse({
       roleCode,
       user,
       snapshot,
+      dbClient,
     });
 
     removedProfilePicturePath =
       previousSettings.profile.profilePicturePath || "";
 
-    const nextSettings = buildRoleSettingsResponse({
+    const nextSettings = await buildRoleSettingsResponse({
       roleCode,
       user,
       snapshot: {
-        ...previousSettings,
+        ...snapshot,
         profile: {
-          ...previousSettings.profile,
+          ...snapshot.profile,
           profilePicturePath: "",
           profilePictureUrl: "",
           profilePictureUrlExpiresAt: "",
@@ -902,10 +939,11 @@ const removeCurrentProfilePicture = async ({
           profilePictureUpdatedAt: "",
         },
         metadata: {
-          ...previousSettings.metadata,
+          ...snapshot.metadata,
           lastProfileUpdateAt: new Date().toISOString(),
         },
       },
+      dbClient,
     });
 
     await settingsRepository.upsertUserRoleSettings(

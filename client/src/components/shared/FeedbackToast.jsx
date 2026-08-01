@@ -104,6 +104,9 @@ const FeedbackToast = ({
   return (
     <div style={toastStyles.container}>
       <div
+        role={type === "error" ? "alert" : "status"}
+        aria-live={type === "error" ? "assertive" : "polite"}
+        aria-atomic="true"
         style={{
           ...toastStyles.toast,
           backgroundColor: selectedTypeStyles.backgroundColor,
@@ -119,7 +122,7 @@ const FeedbackToast = ({
             style={toastStyles.closeButton}
             aria-label="Close message"
           >
-            ×
+            x
           </button>
         </div>
         <p style={toastStyles.message}>{message}</p>

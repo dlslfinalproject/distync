@@ -1,7 +1,5 @@
 import { ROLE_CODES } from "../../utils/roleSession";
 import {
-  BARANGAY_POSITION_LABEL,
-  getNotificationOptionsForRole,
   ROLE_DISPLAY_NAMES,
 } from "./settingsConfig";
 
@@ -66,11 +64,18 @@ const buildSharedSectionComponentProps = (ctx) => ({
   isLoading: ctx.isLoading,
   notificationTouched: ctx.notificationTouched,
   notificationValidationErrors: ctx.notificationValidationErrors,
-  handleResetNotificationPreferences: ctx.handleResetNotificationPreferences,
-  handleNotificationChannelToggle: ctx.handleNotificationChannelToggle,
-  notificationRules: ctx.notificationRules,
-  enabledRuleCodes: ctx.enabledRuleCodes,
-  toggleNotificationRule: ctx.toggleNotificationRule,
+  handleOpenResetNotificationPreferences: ctx.handleOpenResetNotificationPreferences,
+  handleNotificationRuleChannelToggle: ctx.handleNotificationRuleChannelToggle,
+  notificationCategories: ctx.notificationCategories,
+  isOnline: ctx.isOnline,
+  notificationLoadError: ctx.notificationLoadError,
+  isNotificationPreferencesLoading: ctx.isNotificationPreferencesLoading,
+  isNotificationPreferencesOffline: ctx.isNotificationPreferencesOffline,
+  isNotificationPreferencesEmpty: ctx.isNotificationPreferencesEmpty,
+  hasNotificationPreferencesError: ctx.hasNotificationPreferencesError,
+  canResetNotificationPreferences: ctx.canResetNotificationPreferences,
+  resetPreferencesButtonRef: ctx.resetPreferencesButtonRef,
+  handleRetryNotificationPreferencesLoad: ctx.handleRetryNotificationPreferencesLoad,
 });
 
 export const getSettingsDashboardDescription = (roleCode) =>
@@ -130,6 +135,5 @@ export const buildOfficeProfileSectionProps = (ctx) => {
 
 export const buildNotificationSectionProps = (ctx) => ({
   ...buildSharedSectionComponentProps(ctx),
-  notificationOptions: getNotificationOptionsForRole(ctx.roleCode),
   ...NOTIFICATION_SECTION_COPY[ctx.roleCode],
 });
