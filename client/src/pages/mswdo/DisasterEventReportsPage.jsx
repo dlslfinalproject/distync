@@ -17,6 +17,10 @@ import {
   fetchDisasterEventReportSummary,
 } from "../../features/disaster-events/disasterEventService";
 import {
+  buildDisasterEventReportExportOptions,
+  DISASTER_EVENT_REPORT_EXPORT_SELECTIONS,
+} from "../../features/disaster-events/disasterEventReportExportOptions.mjs";
+import {
   buildExportSuccessMessage,
   COMMON_EXPORT_FORMAT_OPTIONS,
   downloadExportFile,
@@ -301,8 +305,8 @@ const DisasterEventReportsPage = () => {
   });
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
-  const [selectedExportDisasterEventId, setSelectedExportDisasterEventId] =
-    useState("");
+  const [selectedExportEventSelection, setSelectedExportEventSelection] =
+    useState(DISASTER_EVENT_REPORT_EXPORT_SELECTIONS.ALL);
   const [selectedExportSortOrder, setSelectedExportSortOrder] =
     useState("newest");
   const [isExporting, setIsExporting] = useState(false);
@@ -415,6 +419,10 @@ const DisasterEventReportsPage = () => {
   }, [barangays, selectedDisasterEvent]);
   const isSpecificDisasterEventSelected = Boolean(filters.disaster_event_id);
   const isExportDisabled = isLoadingRows || rows.length === 0;
+  const exportDisasterEventOptions = useMemo(
+    () => buildDisasterEventReportExportOptions(disasterEvents),
+    [disasterEvents],
+  );
 
   useEffect(() => {
     if (!filters.barangay_id) {
@@ -443,7 +451,9 @@ const DisasterEventReportsPage = () => {
     }
 
     setSelectedExportFormat("csv");
-    setSelectedExportDisasterEventId("");
+    setSelectedExportEventSelection(
+      DISASTER_EVENT_REPORT_EXPORT_SELECTIONS.ALL,
+    );
     setSelectedExportSortOrder(filters.sort_order);
     setIsExportModalOpen(true);
   };
@@ -453,7 +463,7 @@ const DisasterEventReportsPage = () => {
 
     try {
       const file = await exportDisasterEventReportSummary({
-        disaster_event_id: selectedExportDisasterEventId,
+        event_selection: selectedExportEventSelection,
         sort_order: selectedExportSortOrder,
         format: selectedExportFormat,
       });
@@ -769,17 +779,16 @@ const DisasterEventReportsPage = () => {
                     </label>
                     <select
                       id="summary-export-event"
-                      value={selectedExportDisasterEventId}
+                      value={selectedExportEventSelection}
                       onChange={(event) =>
-                        setSelectedExportDisasterEventId(event.target.value)
+                        setSelectedExportEventSelection(event.target.value)
                       }
                       disabled={isExporting}
                       style={inputStyles}
                     >
-                      <option value="">All disaster events</option>
-                      {disasterEvents.map((row) => (
-                        <option key={row.id} value={row.id}>
-                          {formatDisasterEventTitle(row)}
+                      {exportDisasterEventOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
                         </option>
                       ))}
                     </select>

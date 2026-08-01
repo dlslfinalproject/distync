@@ -372,6 +372,7 @@ const updateDisasterEventById = async (id, updates, dbClient = pool) => {
 const getDisasterEventReportSummary = async ({
   disasterEventId = null,
   barangayId = null,
+  statuses = null,
   status = null,
   dateFrom = null,
   dateTo = null,
@@ -393,7 +394,10 @@ const getDisasterEventReportSummary = async ({
     conditions.push(`de.id = $${values.length}`);
   }
 
-  if (status) {
+  if (Array.isArray(statuses) && statuses.length > 0) {
+    values.push(statuses);
+    conditions.push(`de.status = ANY($${values.length}::TEXT[])`);
+  } else if (status) {
     values.push(status);
     conditions.push(`de.status = $${values.length}`);
   }
@@ -536,6 +540,7 @@ const getDisasterEventReportSummary = async ({
 const getDisasterEventReportBarangayBreakdown = async ({
   disasterEventId = null,
   barangayId = null,
+  statuses = null,
   status = null,
   dateFrom = null,
   dateTo = null,
@@ -562,7 +567,10 @@ const getDisasterEventReportBarangayBreakdown = async ({
     conditions.push(`deb_row.barangay_id = $${values.length}`);
   }
 
-  if (status) {
+  if (Array.isArray(statuses) && statuses.length > 0) {
+    values.push(statuses);
+    conditions.push(`de.status = ANY($${values.length}::TEXT[])`);
+  } else if (status) {
     values.push(status);
     conditions.push(`de.status = $${values.length}`);
   }

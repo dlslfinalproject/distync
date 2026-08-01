@@ -5,6 +5,9 @@ const settingsRepository = require("../repositories/settings.repository");
 const disasterEventExport = require("../utils/disasterEventExport");
 const notificationService = require("../modules/notifications/notification.service");
 const mswdoReportExport = require("../utils/mswdoReportExport");
+const {
+  resolveDisasterEventReportSelection,
+} = require("../utils/disasterEventReportSelection");
 
 const allowedStatuses = ["PLANNED", "ACTIVE", "CLOSED", "ARCHIVED"];
 const nonResidentBarangayCode = "NON_RESIDENT_OUTSIDE_MALVAR";
@@ -824,18 +827,30 @@ const getDisasterEventReportSummary = async (filters) => {
 
 const exportDisasterEventReportSummary = async (filters) => {
   await syncOverdueActiveDisasterEvents();
-  const rows = await disasterEventRepository.getDisasterEventReportBarangayBreakdown({
+  const exportSelection = resolveDisasterEventReportSelection({
+    eventSelection: filters.event_selection,
     disasterEventId: filters.disaster_event_id || null,
+  });
+  const rows = await disasterEventRepository.getDisasterEventReportBarangayBreakdown({
+    disasterEventId: exportSelection.disasterEventId,
+    statuses: exportSelection.statuses,
     status: filters.status || null,
     dateFrom: filters.date_from || null,
     dateTo: filters.date_to || null,
     sortOrder: filters.sort_order || "newest",
     limit: 5000,
   });
+
+  if (rows.length === 0) {
+    const error = new Error(exportSelection.emptyMessage);
+    error.statusCode = 404;
+    throw error;
+  }
+
   const selectedDisasterEventLabel =
-    filters.disaster_event_id && rows[0]?.title
+    exportSelection.disasterEventId && rows[0]?.title
       ? rows[0].title
-      : "All disaster events";
+      : exportSelection.selectionLabel;
 
   return mswdoReportExport.buildExportFile({
     filePrefix: "mswdo-disaster-event-barangay-distribution",
