@@ -41,8 +41,16 @@ const updateUserGoogleIdentity = async (
   const query = `
     UPDATE users
     SET google_sub = $2,
-        first_name = COALESCE($3, first_name),
-        last_name = COALESCE($4, last_name),
+        first_name = CASE
+          WHEN COALESCE(NULLIF(BTRIM(first_name), ''), NULL) IS NULL
+            THEN COALESCE($3, first_name)
+          ELSE first_name
+        END,
+        last_name = CASE
+          WHEN COALESCE(NULLIF(BTRIM(last_name), ''), NULL) IS NULL
+            THEN COALESCE($4, last_name)
+          ELSE last_name
+        END,
         updated_at = NOW()
     WHERE id = $1
     RETURNING

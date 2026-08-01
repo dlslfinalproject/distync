@@ -25,6 +25,20 @@ const getUserById = async (userId, dbClient = pool) => {
   return result.rows[0] || null;
 };
 
+const getBarangayById = async (barangayId, dbClient = pool) => {
+  const query = `
+    SELECT
+      id,
+      name
+    FROM barangays
+    WHERE id = $1
+    LIMIT 1
+  `;
+
+  const result = await dbClient.query(query, [barangayId]);
+  return result.rows[0] || null;
+};
+
 const updateUserProfile = async (
   userId,
   {
@@ -37,9 +51,9 @@ const updateUserProfile = async (
 ) => {
   const query = `
     UPDATE users
-    SET first_name = COALESCE($2, first_name),
-        middle_name = COALESCE($3, middle_name),
-        last_name = COALESCE($4, last_name),
+    SET first_name = $2,
+        middle_name = $3,
+        last_name = $4,
         contact_number = $5,
         updated_at = NOW()
     WHERE id = $1
@@ -79,6 +93,7 @@ const getUserRoleSettings = async (
       profile_picture_updated_at,
       enabled_notification_rule_codes_json,
       notification_channels_json,
+      notification_rule_preferences_json,
       last_profile_update_at,
       last_preference_save_at,
       updated_at,
@@ -102,6 +117,7 @@ const upsertUserRoleSettings = async (
     profilePictureUpdatedAt,
     enabledNotificationRuleCodesJson,
     notificationChannelsJson,
+    notificationRulePreferencesJson,
     lastProfileUpdateAt,
     lastPreferenceSaveAt,
   },
@@ -117,6 +133,7 @@ const upsertUserRoleSettings = async (
       profile_picture_updated_at,
       enabled_notification_rule_codes_json,
       notification_channels_json,
+      notification_rule_preferences_json,
       last_profile_update_at,
       last_preference_save_at,
       created_at,
@@ -130,9 +147,10 @@ const upsertUserRoleSettings = async (
       $5,
       $6,
       $7::jsonb,
-      $8,
-      $9,
+      $8::jsonb,
+      $9::jsonb,
       $10,
+      $11,
       NOW(),
       NOW()
     )
@@ -145,6 +163,8 @@ const upsertUserRoleSettings = async (
         enabled_notification_rule_codes_json =
           EXCLUDED.enabled_notification_rule_codes_json,
         notification_channels_json = EXCLUDED.notification_channels_json,
+        notification_rule_preferences_json =
+          EXCLUDED.notification_rule_preferences_json,
         last_profile_update_at = EXCLUDED.last_profile_update_at,
         last_preference_save_at = EXCLUDED.last_preference_save_at,
         updated_at = NOW()
@@ -157,6 +177,7 @@ const upsertUserRoleSettings = async (
       profile_picture_updated_at,
       enabled_notification_rule_codes_json,
       notification_channels_json,
+      notification_rule_preferences_json,
       last_profile_update_at,
       last_preference_save_at,
       updated_at,
@@ -172,6 +193,7 @@ const upsertUserRoleSettings = async (
     profilePictureUpdatedAt || null,
     JSON.stringify(enabledNotificationRuleCodesJson || []),
     JSON.stringify(notificationChannelsJson || {}),
+    JSON.stringify(notificationRulePreferencesJson || {}),
     lastProfileUpdateAt || null,
     lastPreferenceSaveAt,
   ]);
@@ -209,6 +231,7 @@ const insertRoleSettingsSnapshot = async (
 };
 
 module.exports = {
+  getBarangayById,
   getUserById,
   getUserRoleSettings,
   insertRoleSettingsSnapshot,

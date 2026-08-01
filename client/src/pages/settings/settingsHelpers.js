@@ -1,41 +1,126 @@
-import { buildPayloadSummary } from "../../features/sync/syncManagementHelpers";
-import { LOCAL_SYNC_STATUS } from "../../offline/db";
-import { ROLE_CODES } from "../../utils/roleSession";
-import {
-  BARANGAY_NOTIFICATION_OPTIONS,
-  BARANGAY_POSITION_LABEL,
-  getNotificationOptionsForRole,
-  ROLE_DISPLAY_NAMES,
-} from "./settingsConfig";
-
-export const createDefaultNotificationChannels = () =>
-  BARANGAY_NOTIFICATION_OPTIONS.reduce((current, option) => {
-    current[option.key] = {
-      inApp: true,
-      email: false,
-    };
-    return current;
-  }, {});
+import { buildPayloadSummary } from "../../features/sync/syncManagementHelpers.js";
+import { LOCAL_SYNC_STATUS } from "../../offline/db.js";
+import { ROLE_CODES } from "../../utils/roleSession.js";
+import { BARANGAY_POSITION_LABEL, ROLE_DISPLAY_NAMES } from "./settingsConfig.js";
 
 export const createDefaultRolePreferences = () => ({
-  enabledNotificationRuleCodes: [],
+  roleCode: "",
   profile: {
-    fullName: "",
+    firstName: "",
+    middleName: "",
+    lastName: "",
     position: BARANGAY_POSITION_LABEL,
     contactNumber: "",
     emailAddress: "",
+    assignedBarangay: null,
     profilePicturePath: "",
     profilePictureUrl: "",
     profilePictureUrlExpiresAt: "",
     profilePictureFileName: "",
     profilePictureUpdatedAt: "",
   },
-  notificationChannels: createDefaultNotificationChannels(),
+  notificationRulePreferences: {},
+  effectiveNotificationChannels: {},
+  categories: [],
   metadata: {
     lastProfileUpdateAt: "",
     lastPreferenceSaveAt: "",
   },
 });
+
+export const PRIORITY_LABELS = {
+  CRITICAL: "Critical alert",
+  WARNING: "Important alert",
+  INFORMATIONAL: "General update",
+};
+
+export const DELIVERY_MODE_LABELS = {
+  IMMEDIATE: "Sent immediately",
+  HOURLY_SUMMARY: "Hourly summary",
+  DAILY_SUMMARY: "Daily summary",
+  THRESHOLD: "Sent when a limit is reached",
+  SILENT_UI_FEEDBACK: "Shown in the current screen",
+};
+
+export const IN_APP_POLICY_LABELS = {
+  MANDATORY: "Always on",
+  OPTIONAL: "Optional",
+  NOT_APPLICABLE: "Not available",
+};
+
+export const EMAIL_POLICY_LABELS = {
+  DEFAULT_ON: "Enabled by default",
+  OPTIONAL: "Optional",
+  UNAVAILABLE: "Not available",
+};
+
+export const USER_CONFIGURABILITY_LABELS = {
+  NONE: "Managed by the system",
+  EMAIL_ONLY: "Email can be changed",
+  ALL_SUPPORTED_CHANNELS: "You can change available channels",
+};
+
+const RULE_DESCRIPTION_BY_NAME = {
+  "Disaster Event Update":
+    "Important changes to active disaster events, affected barangays, and operation schedules.",
+  "Newly Created Disaster Event":
+    "Alerts your office when a new disaster event is created for official response.",
+  "Household Registration Update":
+    "Shows grouped updates for newly registered or updated household records.",
+  "Household Verification Update":
+    "Highlights household records that need follow-up or closer review.",
+  "Evacuee Attendance Update":
+    "Shows grouped attendance activity for evacuees during ongoing operations.",
+  "Distribution Update":
+    "Tracks relief distribution activity without sending one alert for every transaction.",
+  "Synchronization Conflict Alert":
+    "Warns you when offline and server records need manual review.",
+  "System Anomaly Alert":
+    "Warns you about serious system issues that may affect data reliability.",
+  "Low Stock Alert":
+    "Alerts you when available relief stock drops below the warning level.",
+  "Critical Stock Alert":
+    "Alerts you when relief stock reaches a critical shortage level.",
+  "Near Expiry Stock Alert":
+    "Warns you when relief goods are close to their expiry date.",
+  "Expired Stock Alert":
+    "Alerts you when relief goods are already expired and need action.",
+  "Inventory Incident Alert":
+    "Reports damage, loss, spoilage, theft, or other serious inventory issues.",
+  "Donation Stock Update":
+    "Provides grouped donation stock updates for routine monitoring.",
+  "Donation Stock Anomaly":
+    "Warns you about unusual or mismatched donation stock records.",
+  "Evacuation Monitoring Summary":
+    "Provides a grouped daily view of evacuation monitoring updates.",
+};
+
+export const getSafePolicyLabel = (value, labels, fallback) =>
+  labels[value] || fallback;
+
+export const getRuleDescription = (rule = {}) =>
+  RULE_DESCRIPTION_BY_NAME[rule.name] ||
+  "Notification details are available for this alert type.";
+
+export const getRuleHelperText = (rule = {}) => {
+  if (rule.deliveryMode === "HOURLY_SUMMARY") {
+    return "Grouped into an hourly summary.";
+  }
+
+  if (rule.deliveryMode === "DAILY_SUMMARY") {
+    return "Grouped into a daily summary.";
+  }
+
+  if (rule.deliveryMode === "THRESHOLD") {
+    return "Sent when a limit is reached.";
+  }
+
+  if (rule.deliveryMode === "SILENT_UI_FEEDBACK") {
+    return "Shown in the current screen.";
+  }
+
+  return "";
+};
 
 const EMAIL_ADDRESS_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHILIPPINE_CONTACT_NUMBER_PATTERN = /^\+639\d{9}$/;
@@ -101,17 +186,70 @@ export const formatPhilippineContactNumberForDisplay = (value = "") => {
   return [firstBlock, secondBlock, thirdBlock].filter(Boolean).join(" ");
 };
 
+const NAME_FIELD_MAX_LENGTH = 100;
+const NAME_VALUE_PATTERN =
+  /^[\p{L}\p{M}][\p{L}\p{M}\p{N} .'-]*[\p{L}\p{M}\p{N}.']?$|^[\p{L}\p{M}]$/u;
+
+const normalizeNameField = (value = "") =>
+  String(value || "")
+    .trim()
+    .replace(/\s+/g, " ");
+
+const validateProfileNameField = ({
+  label,
+  value,
+  required = false,
+}) => {
+  const normalizedValue = normalizeNameField(value);
+
+  if (!normalizedValue) {
+    return required ? `${label} is required.` : "";
+  }
+
+  if (normalizedValue.length > NAME_FIELD_MAX_LENGTH) {
+    return `${label} is too long.`;
+  }
+
+  if (!NAME_VALUE_PATTERN.test(normalizedValue)) {
+    return "The name contains unsupported characters.";
+  }
+
+  return "";
+};
+
+export const buildDisplayName = ({
+  firstName = "",
+  middleName = "",
+  lastName = "",
+} = {}) =>
+  [firstName, middleName, lastName]
+    .map((value) => normalizeNameField(value))
+    .filter(Boolean)
+    .join(" ");
+
 export const getBarangayProfileValidationErrors = (profile = {}) => {
   const errors = {};
-  const fullName = String(profile.fullName || "").trim();
+  const firstName = normalizeNameField(profile.firstName);
+  const middleName = normalizeNameField(profile.middleName);
+  const lastName = normalizeNameField(profile.lastName);
   const contactNumber = normalizePhilippineContactNumber(
     String(profile.contactNumber || "").trim(),
   );
-  const emailAddress = String(profile.emailAddress || "").trim();
 
-  if (!fullName) {
-    errors.fullName = "Full name is required.";
-  }
+  errors.firstName = validateProfileNameField({
+    label: "First name",
+    value: firstName,
+    required: true,
+  });
+  errors.middleName = validateProfileNameField({
+    label: "Middle name",
+    value: middleName,
+  });
+  errors.lastName = validateProfileNameField({
+    label: "Last name",
+    value: lastName,
+    required: true,
+  });
 
   if (!contactNumber) {
     errors.contactNumber = "Contact number is required.";
@@ -119,59 +257,29 @@ export const getBarangayProfileValidationErrors = (profile = {}) => {
     errors.contactNumber = "Please enter a valid contact number.";
   }
 
-  if (!emailAddress) {
-    errors.emailAddress = "Please enter a valid email address.";
-  } else if (!isValidEmailAddress(emailAddress)) {
-    errors.emailAddress = "Please enter a valid email address.";
-  }
-
   return errors;
 };
 
 export const getNotificationPreferenceValidationErrors = ({
-  notificationChannels = {},
-  roleCode = ROLE_CODES.BARANGAY,
+  categories = [],
   emailAddress = "",
-  enabledNotificationRuleCodes = [],
-  notificationRules = [],
+  isOnline = true,
 }) => {
   const errors = {};
-  const optionStates = getNotificationOptionsForRole(roleCode).map((option) => ({
-    label: option.label,
-    inApp: Boolean(notificationChannels[option.key]?.inApp),
-    email: Boolean(notificationChannels[option.key]?.email),
-  }));
-  const hasAnyEmailChannel = optionStates.some((option) => option.email);
+  const flattenedRules = (categories || []).flatMap((category) => category.rules || []);
+  const hasAnyEmailChannelEnabled = flattenedRules.some(
+    (rule) => rule.effectiveChannels?.email,
+  );
   const trimmedEmailAddress = String(emailAddress || "").trim();
-  const disabledTypes = optionStates.filter((option) => !option.inApp && !option.email);
-  const allowedRuleCodes = new Set(
-    (notificationRules || [])
-      .map((rule) => (typeof rule?.code === "string" ? rule.code.trim() : ""))
-      .filter(Boolean),
-  );
-  const invalidRuleCodes = Array.from(
-    new Set(
-      (enabledNotificationRuleCodes || [])
-        .map((code) => (typeof code === "string" ? code.trim() : ""))
-        .filter((code) => code && !allowedRuleCodes.has(code)),
-    ),
-  );
 
-  if (disabledTypes.length > 0) {
-    errors.notificationTypes =
-      disabledTypes.length === 1
-        ? `${disabledTypes[0].label} must keep at least one enabled channel.`
-        : "Each notification type must keep at least one enabled channel.";
-  }
-
-  if (hasAnyEmailChannel && !EMAIL_ADDRESS_PATTERN.test(trimmedEmailAddress)) {
+  if (hasAnyEmailChannelEnabled && !EMAIL_ADDRESS_PATTERN.test(trimmedEmailAddress)) {
     errors.emailAddress =
       "A valid email address is required to receive email notifications.";
   }
 
-  if (invalidRuleCodes.length > 0) {
-    errors.notificationRules =
-      "Some notification preferences are no longer available for your account role. Reset your notification settings and save again.";
+  if (!isOnline) {
+    errors.readOnly =
+      "Notification preferences are view-only while offline. Reconnect before saving changes.";
   }
 
   return errors;
@@ -179,36 +287,118 @@ export const getNotificationPreferenceValidationErrors = ({
 
 export const normalizeRolePreferences = (value = {}) => {
   const defaults = createDefaultRolePreferences();
-  const { preferredExportFormat: _removedPreferredExportFormat, ...remainingValue } =
-    value || {};
-  const notificationChannels = {
-    ...defaults.notificationChannels,
-  };
-
-  Object.entries(value?.notificationChannels || {}).forEach(([key, channels]) => {
-    notificationChannels[key] = {
-      ...(defaults.notificationChannels[key] || { inApp: true, email: false }),
-      ...(channels || {}),
-    };
-  });
+  const normalizedCategories = Array.isArray(value?.categories)
+    ? value.categories.map((category) => ({
+        ...category,
+        rules: Array.isArray(category?.rules) ? category.rules : [],
+      }))
+    : [];
 
   return {
     ...defaults,
-    ...remainingValue,
-    enabledNotificationRuleCodes: Array.isArray(value?.enabledNotificationRuleCodes)
-      ? value.enabledNotificationRuleCodes
-      : [],
+    ...value,
     profile: {
       ...defaults.profile,
       ...(value?.profile || {}),
     },
-    notificationChannels,
+    notificationRulePreferences:
+      value?.notificationRulePreferences &&
+      typeof value.notificationRulePreferences === "object"
+        ? value.notificationRulePreferences
+        : {},
+    effectiveNotificationChannels:
+      value?.effectiveNotificationChannels &&
+      typeof value.effectiveNotificationChannels === "object"
+        ? value.effectiveNotificationChannels
+        : {},
+    categories: normalizedCategories,
     metadata: {
       ...defaults.metadata,
       ...(value?.metadata || {}),
     },
   };
 };
+
+export const normalizeRoleSettingsError = (
+  error,
+  fallbackMessage = "Notification preferences could not be saved. Please try again.",
+) => {
+  const message = String(error?.message || "").trim();
+
+  if (!message) {
+    return fallbackMessage;
+  }
+
+  if (
+    /must remain enabled|required in-app|cannot be disabled|locked/i.test(message)
+  ) {
+    return "Required in-app alerts cannot be disabled.";
+  }
+
+  if (/does not support email|email delivery/i.test(message)) {
+    return "Email is not available for one or more notification types.";
+  }
+
+  if (/not available for your role|unknown/i.test(message)) {
+    return "Some notification settings are no longer available for your account.";
+  }
+
+  if (/valid email address/i.test(message)) {
+    return "Please enter a valid email address before saving notification preferences.";
+  }
+
+  if (/valid contact number/i.test(message)) {
+    return "Please enter a valid contact number before saving notification preferences.";
+  }
+
+  return fallbackMessage;
+};
+
+export const areNotificationPreferencesEqual = (
+  leftPreferences = {},
+  rightPreferences = {},
+) => {
+  const leftPayload = getEditableNotificationPayload(leftPreferences);
+  const rightPayload = getEditableNotificationPayload(rightPreferences);
+
+  return JSON.stringify(leftPayload) === JSON.stringify(rightPayload);
+};
+
+export const getNotificationCategoryCountLabel = (rules = []) => {
+  const count = Array.isArray(rules) ? rules.length : 0;
+  return `${count} notification type${count === 1 ? "" : "s"}`;
+};
+
+export const getEditableNotificationPayload = (preferences = {}) => {
+  const normalizedPreferences = normalizeRolePreferences(preferences);
+  const editablePayload = {};
+
+  normalizedPreferences.categories.forEach((category) => {
+    category.rules.forEach((rule) => {
+      const nextValue = {};
+
+      if (rule.editableChannels?.inApp) {
+        nextValue.inApp = Boolean(rule.effectiveChannels?.inApp);
+      }
+
+      if (rule.editableChannels?.email) {
+        nextValue.email = Boolean(rule.effectiveChannels?.email);
+      }
+
+      if (Object.keys(nextValue).length > 0) {
+        editablePayload[rule.code] = nextValue;
+      }
+    });
+  });
+
+  return editablePayload;
+};
+
+export const getEnabledRuleCodesFromCategories = (categories = []) =>
+  (categories || [])
+    .flatMap((category) => category.rules || [])
+    .filter((rule) => rule.effectiveChannels?.inApp)
+    .map((rule) => rule.code);
 
 export const formatDateTime = (value) => {
   if (!value) {
@@ -250,21 +440,13 @@ export const buildSyncSummary = (syncEntries) => {
 export const getRoleMeta = (roleCode) => {
   switch (roleCode) {
     case ROLE_CODES.BARANGAY:
-      return {
-        title: "BARANGAY SETTINGS",
-      };
+      return { title: "BARANGAY SETTINGS" };
     case ROLE_CODES.MSWDO:
-      return {
-        title: "MSWDO SETTINGS",
-      };
+      return { title: "MSWDO SETTINGS" };
     case ROLE_CODES.MAYOR:
-      return {
-        title: "MAYOR SETTINGS",
-      };
+      return { title: "MAYOR SETTINGS" };
     default:
-      return {
-        title: "SETTINGS",
-      };
+      return { title: "SETTINGS" };
   }
 };
 
@@ -281,7 +463,7 @@ export const getSyncStatusMeta = (syncSummary, isOnline) => {
     return {
       tone: "warning",
       label: "Pending Synchronization",
-      displayLabel: "⏳ Pending Synchronization",
+      displayLabel: "Pending Synchronization",
       description: "There are records waiting to be synchronized.",
     };
   }
@@ -293,7 +475,7 @@ export const getSyncStatusMeta = (syncSummary, isOnline) => {
     return {
       tone: "error",
       label: "Requires Attention",
-      displayLabel: "⚠ Requires Attention",
+      displayLabel: "Requires Attention",
       description: "Some records require review before synchronization can be completed.",
     };
   }
@@ -302,7 +484,7 @@ export const getSyncStatusMeta = (syncSummary, isOnline) => {
     return {
       tone: "warning",
       label: "Pending Synchronization",
-      displayLabel: "⏳ Pending Synchronization",
+      displayLabel: "Pending Synchronization",
       description: "There are records waiting to be synchronized.",
     };
   }
@@ -310,7 +492,7 @@ export const getSyncStatusMeta = (syncSummary, isOnline) => {
   return {
     tone: "success",
     label: "Synced",
-    displayLabel: "✓ Synced",
+    displayLabel: "Synced",
     description: "All data has been successfully synchronized.",
   };
 };
@@ -415,11 +597,7 @@ export const buildActivityLogs = ({
     tone: "info",
   }));
 
-  return [
-    ...localActivityEntries,
-    ...syncHistoryEntries,
-    ...distributionEntries,
-  ]
+  return [...localActivityEntries, ...syncHistoryEntries, ...distributionEntries]
     .filter((entry) => entry.timestamp || entry.title)
     .sort((left, right) => {
       const leftTime = left.timestamp ? new Date(left.timestamp).getTime() : 0;
@@ -428,8 +606,8 @@ export const buildActivityLogs = ({
     });
 };
 
-export const buildLocalSyncLogRows = (syncEntries) => {
-  return syncEntries
+export const buildLocalSyncLogRows = (syncEntries) =>
+  syncEntries
     .map((entry) => ({
       id: entry.id,
       timestamp:
@@ -445,7 +623,6 @@ export const buildLocalSyncLogRows = (syncEntries) => {
       const rightTime = right.timestamp ? new Date(right.timestamp).getTime() : 0;
       return rightTime - leftTime;
     });
-};
 
 export const ensureArray = (value) => (Array.isArray(value) ? value : []);
 

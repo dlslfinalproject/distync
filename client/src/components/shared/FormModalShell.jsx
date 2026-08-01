@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useId, useRef } from "react";
 import { FiX } from "react-icons/fi";
 
 const overlayStyles = {
@@ -14,6 +14,8 @@ const overlayStyles = {
 
 const contentStyles = {
   width: "100%",
+  maxHeight: "min(88vh, 720px)",
+  overflowY: "auto",
   backgroundColor: "#ffffff",
   borderRadius: "24px",
   padding: "28px",
@@ -79,19 +81,119 @@ const FormModalShell = ({
   zIndex = 1500,
   onClose,
   isCloseDisabled = false,
+  closeOnBackdrop = false,
+  initialFocusRef = null,
+  finalFocusRef = null,
 }) => {
+  const panelRef = useRef(null);
+  const overlayRef = useRef(null);
+  const titleId = useId();
+  const descriptionId = useId();
+
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    const panelElement = panelRef.current;
+
+    if (!panelElement) {
+      return undefined;
+    }
+
+    const activeElement =
+      typeof document !== "undefined" ? document.activeElement : null;
+    const fallbackFocusTarget =
+      initialFocusRef?.current ||
+      panelElement.querySelector(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ) ||
+      panelElement;
+
+    window.setTimeout(() => {
+      fallbackFocusTarget?.focus?.();
+    }, 0);
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape" && onClose && !isCloseDisabled) {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const focusableElements = Array.from(
+        panelElement.querySelectorAll(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => !element.hasAttribute("disabled"));
+
+      if (focusableElements.length === 0) {
+        event.preventDefault();
+        panelElement.focus();
+        return;
+      }
+
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+
+      if (event.shiftKey && document.activeElement === firstElement) {
+        event.preventDefault();
+        lastElement.focus();
+      } else if (!event.shiftKey && document.activeElement === lastElement) {
+        event.preventDefault();
+        firstElement.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      const returnFocusTarget =
+        finalFocusRef?.current || activeElement;
+      returnFocusTarget?.focus?.();
+    };
+  }, [
+    finalFocusRef,
+    initialFocusRef,
+    isCloseDisabled,
+    isOpen,
+    onClose,
+  ]);
+
   if (!isOpen) {
     return null;
   }
 
   return (
     <div
+      ref={overlayRef}
       style={{
         ...overlayStyles,
         zIndex,
       }}
+      onMouseDown={(event) => {
+        if (
+          closeOnBackdrop &&
+          onClose &&
+          !isCloseDisabled &&
+          event.target === overlayRef.current
+        ) {
+          onClose();
+        }
+      }}
     >
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+        aria-describedby={description ? descriptionId : undefined}
+        tabIndex={-1}
         style={{
           ...contentStyles,
           maxWidth,
@@ -100,8 +202,16 @@ const FormModalShell = ({
         {title || onClose ? (
           <div style={headerStyles}>
             <div>
-              {title ? <h3 style={titleStyles}>{title}</h3> : null}
-              {description ? <p style={descriptionStyles}>{description}</p> : null}
+              {title ? (
+                <h3 id={titleId} style={titleStyles}>
+                  {title}
+                </h3>
+              ) : null}
+              {description ? (
+                <p id={descriptionId} style={descriptionStyles}>
+                  {description}
+                </p>
+              ) : null}
             </div>
             {onClose ? (
               <button

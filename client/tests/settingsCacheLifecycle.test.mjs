@@ -121,7 +121,9 @@ test("same mode user and role cache is readable, while mismatched mode/user/role
     userId: "user-1",
     settings: {
       profile: {
-        fullName: "User One",
+        firstName: "User",
+        middleName: "",
+        lastName: "One",
       },
     },
   });
@@ -131,8 +133,8 @@ test("same mode user and role cache is readable, while mismatched mode/user/role
       mode: ACCESS_MODES.DEVELOPMENT,
       roleCode: "BARANGAY",
       userId: "user-1",
-    })?.profile?.fullName,
-    "User One",
+    })?.profile?.firstName,
+    "User",
   );
   assert.equal(
     readRoleSettingsCache({
@@ -178,7 +180,8 @@ test("envelope ownership mismatches and malformed role settings caches are remov
       cachedAt: new Date("2026-07-31T08:00:00.000Z").toISOString(),
       data: {
         profile: {
-          fullName: "Wrong Mode",
+          firstName: "Wrong",
+          lastName: "Mode",
         },
       },
     }),
@@ -212,7 +215,8 @@ test("legacy role settings cache is removed and never reused", () => {
     new MemoryStorage({
       "distync-role-settings:BARANGAY:user-1": JSON.stringify({
         profile: {
-          fullName: "Legacy User",
+          firstName: "Legacy",
+          lastName: "User",
         },
       }),
     }),
@@ -245,19 +249,19 @@ test("current user logout cleanup removes only that user's role settings caches 
     mode: ACCESS_MODES.DEMO,
     roleCode: "BARANGAY",
     userId: "user-1",
-    settings: { profile: { fullName: "User One Barangay" } },
+    settings: { profile: { firstName: "User One", lastName: "Barangay" } },
   });
   writeRoleSettingsCache({
     mode: ACCESS_MODES.DEMO,
     roleCode: "MSWDO",
     userId: "user-1",
-    settings: { profile: { fullName: "User One MSWDO" } },
+    settings: { profile: { firstName: "User One", lastName: "MSWDO" } },
   });
   writeRoleSettingsCache({
     mode: ACCESS_MODES.DEMO,
     roleCode: "BARANGAY",
     userId: "user-2",
-    settings: { profile: { fullName: "User Two Barangay" } },
+    settings: { profile: { firstName: "User Two", lastName: "Barangay" } },
   });
 
   clearUserRoleSettingsCaches({
@@ -292,13 +296,13 @@ test("mode switch cleanup clears role settings caches for both development and d
     mode: ACCESS_MODES.DEVELOPMENT,
     roleCode: "BARANGAY",
     userId: "dev-user",
-    settings: { profile: { fullName: "Dev User" } },
+    settings: { profile: { firstName: "Dev", lastName: "User" } },
   });
   writeRoleSettingsCache({
     mode: ACCESS_MODES.DEMO,
     roleCode: "BARANGAY",
     userId: "demo-user",
-    settings: { profile: { fullName: "Demo User" } },
+    settings: { profile: { firstName: "Demo", lastName: "User" } },
   });
 
   await prepareModeScopedBrowserState({
@@ -324,7 +328,8 @@ test("same-owner offline fallback is allowed on network failure, while authentic
     userId: "user-1",
     settings: {
       profile: {
-        fullName: "Offline User",
+        firstName: "Offline",
+        lastName: "User",
       },
     },
   });
@@ -339,7 +344,7 @@ test("same-owner offline fallback is allowed on network failure, while authentic
     userId: "user-1",
   });
 
-  assert.equal(cachedSettings.profile.fullName, "Offline User");
+  assert.equal(cachedSettings.profile.firstName, "Offline");
 
   globalThis.fetch = async () =>
     new Response(JSON.stringify({ message: "Unauthorized" }), {
@@ -355,7 +360,7 @@ test("same-owner offline fallback is allowed on network failure, while authentic
     userId: "user-1",
   });
 
-  assert.equal(unauthorizedSettings.profile?.fullName || "", "");
+  assert.equal(unauthorizedSettings.profile?.firstName || "", "");
   assert.equal(
     readRoleSettingsCache({
       mode: ACCESS_MODES.DEVELOPMENT,
@@ -443,7 +448,7 @@ test("targeted single-entry cache cleanup leaves unrelated storage untouched", (
     mode: ACCESS_MODES.DEMO,
     roleCode: "BARANGAY",
     userId: "user-1",
-    settings: { profile: { fullName: "User One" } },
+    settings: { profile: { firstName: "User", lastName: "One" } },
   });
 
   clearRoleSettingsCache({

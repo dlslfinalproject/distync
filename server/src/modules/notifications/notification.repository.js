@@ -14,6 +14,76 @@ const getNotificationRuleByCode = async (code, dbClient = pool) => {
   return result.rows[0] || null;
 };
 
+const getNotificationPolicyRowsByRoleCode = async (
+  roleCode,
+  dbClient = pool,
+) => {
+  const result = await dbClient.query(
+    `
+      SELECT
+        nr.id,
+        nr.code,
+        nr.name,
+        nr.trigger_type,
+        nr.target_role_code,
+        nr.is_active,
+        nr.created_at,
+        p.role_code,
+        p.category_code,
+        p.category_label,
+        p.priority,
+        p.in_app_policy,
+        p.email_policy,
+        p.delivery_mode,
+        p.user_configurability,
+        p.is_active AS policy_is_active
+      FROM notification_rule_role_policies p
+      INNER JOIN notification_rules nr ON nr.code = p.rule_code
+      WHERE p.role_code = $1
+      ORDER BY p.category_label ASC, nr.name ASC
+    `,
+    [roleCode],
+  );
+
+  return result.rows;
+};
+
+const getNotificationPolicyRow = async (
+  ruleCode,
+  roleCode,
+  dbClient = pool,
+) => {
+  const result = await dbClient.query(
+    `
+      SELECT
+        nr.id,
+        nr.code,
+        nr.name,
+        nr.trigger_type,
+        nr.target_role_code,
+        nr.is_active,
+        nr.created_at,
+        p.role_code,
+        p.category_code,
+        p.category_label,
+        p.priority,
+        p.in_app_policy,
+        p.email_policy,
+        p.delivery_mode,
+        p.user_configurability,
+        p.is_active AS policy_is_active
+      FROM notification_rule_role_policies p
+      INNER JOIN notification_rules nr ON nr.code = p.rule_code
+      WHERE p.rule_code = $1
+        AND p.role_code = $2
+      LIMIT 1
+    `,
+    [ruleCode, roleCode],
+  );
+
+  return result.rows[0] || null;
+};
+
 const getNotificationRulesByTargetRoleCode = async (roleCode, dbClient = pool) => {
   const result = await dbClient.query(
     `
@@ -61,6 +131,54 @@ const upsertNotificationRule = async (payload, dbClient = pool) => {
       payload.trigger_type,
       payload.target_role_code,
       payload.is_active ?? true,
+    ],
+  );
+
+  return result.rows[0] || null;
+};
+
+const upsertNotificationRuleRolePolicy = async (payload, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      INSERT INTO notification_rule_role_policies (
+        rule_code,
+        role_code,
+        category_code,
+        category_label,
+        priority,
+        in_app_policy,
+        email_policy,
+        delivery_mode,
+        user_configurability,
+        is_active,
+        created_at,
+        updated_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+      ON CONFLICT (rule_code, role_code)
+      DO UPDATE SET
+        category_code = EXCLUDED.category_code,
+        category_label = EXCLUDED.category_label,
+        priority = EXCLUDED.priority,
+        in_app_policy = EXCLUDED.in_app_policy,
+        email_policy = EXCLUDED.email_policy,
+        delivery_mode = EXCLUDED.delivery_mode,
+        user_configurability = EXCLUDED.user_configurability,
+        is_active = EXCLUDED.is_active,
+        updated_at = NOW()
+      RETURNING *
+    `,
+    [
+      payload.ruleCode,
+      payload.roleCode,
+      payload.categoryCode,
+      payload.categoryLabel,
+      payload.priority,
+      payload.inAppPolicy,
+      payload.emailPolicy,
+      payload.deliveryMode,
+      payload.userConfigurability,
+      payload.isActive ?? true,
     ],
   );
 
@@ -125,7 +243,8 @@ const getUserNotificationPreferencesByRole = async (
         u.id AS user_id,
         u.email,
         urs.enabled_notification_rule_codes_json,
-        urs.notification_channels_json
+        urs.notification_channels_json,
+        urs.notification_rule_preferences_json
       FROM users u
       INNER JOIN user_roles ur ON ur.user_id = u.id
       INNER JOIN roles r ON r.id = ur.role_id
@@ -141,6 +260,125 @@ const getUserNotificationPreferencesByRole = async (
   );
 
   return result.rows;
+};
+
+const insertSummaryEvent = async (payload, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      INSERT INTO notification_summary_events (
+        summary_key,
+        rule_code,
+        role_code,
+        barangay_id,
+        disaster_event_id,
+        reference_scope_json,
+        payload_json,
+        window_started_at,
+        window_ends_at,
+        ready_at,
+        processed_at,
+        created_at,
+        updated_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, NULL, NOW(), NOW())
+      RETURNING *
+    `,
+    [
+      payload.summaryKey,
+      payload.ruleCode,
+      payload.roleCode,
+      payload.barangayId || null,
+      payload.disasterEventId || null,
+      JSON.stringify(payload.referenceScope || {}),
+      JSON.stringify(payload.payload || {}),
+      payload.windowStartedAt,
+      payload.windowEndsAt,
+      payload.readyAt,
+    ],
+  );
+
+  return result.rows[0] || null;
+};
+
+const getDueSummaryEvents = async (dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      SELECT *
+      FROM notification_summary_events
+      WHERE processed_at IS NULL
+        AND ready_at <= NOW()
+      ORDER BY ready_at ASC, created_at ASC
+    `,
+  );
+
+  return result.rows;
+};
+
+const markSummaryEventsProcessed = async (eventIds, dbClient = pool) => {
+  if (!Array.isArray(eventIds) || eventIds.length === 0) {
+    return [];
+  }
+
+  const result = await dbClient.query(
+    `
+      UPDATE notification_summary_events
+      SET processed_at = NOW(),
+          updated_at = NOW()
+      WHERE id = ANY($1::UUID[])
+      RETURNING id
+    `,
+    [eventIds],
+  );
+
+  return result.rows;
+};
+
+const getNotificationDeliveryState = async (stateKey, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      SELECT *
+      FROM notification_delivery_states
+      WHERE state_key = $1
+      LIMIT 1
+    `,
+    [stateKey],
+  );
+
+  return result.rows[0] || null;
+};
+
+const upsertNotificationDeliveryState = async (payload, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      INSERT INTO notification_delivery_states (
+        state_key,
+        rule_code,
+        role_code,
+        state_value,
+        last_notified_at,
+        created_at,
+        updated_at
+      )
+      VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+      ON CONFLICT (state_key)
+      DO UPDATE SET
+        rule_code = EXCLUDED.rule_code,
+        role_code = EXCLUDED.role_code,
+        state_value = EXCLUDED.state_value,
+        last_notified_at = EXCLUDED.last_notified_at,
+        updated_at = NOW()
+      RETURNING *
+    `,
+    [
+      payload.stateKey,
+      payload.ruleCode,
+      payload.roleCode,
+      payload.stateValue,
+      payload.lastNotifiedAt || null,
+    ],
+  );
+
+  return result.rows[0] || null;
 };
 
 const getRoleCodesByUserId = async (userId, dbClient = pool) => {
@@ -466,13 +704,21 @@ const getOpenSyncConflictsForNotificationScan = async (dbClient = pool) => {
 
 module.exports = {
   getNotificationRuleByCode,
+  getNotificationPolicyRow,
+  getNotificationPolicyRowsByRoleCode,
   getNotificationRulesByTargetRoleCode,
   getAllNotificationRules,
   upsertNotificationRule,
+  upsertNotificationRuleRolePolicy,
   getRecipientUserIdsByRoleCode,
   getRecipientUserIdsByRoleCodeAndBarangayIds,
   getRoleCodesByUserId,
   getUserNotificationPreferencesByRole,
+  insertSummaryEvent,
+  getDueSummaryEvents,
+  markSummaryEventsProcessed,
+  getNotificationDeliveryState,
+  upsertNotificationDeliveryState,
   insertNotification,
   insertNotificationRecipients,
   findRecentNotificationMatchForUsers,
