@@ -12,6 +12,7 @@ import {
   FiMapPin,
   FiPackage,
   FiPhone,
+  FiShoppingBag,
   FiTrendingUp,
   FiUsers,
 } from "react-icons/fi";
@@ -40,6 +41,8 @@ const COLORS = {
   successSoft: "#eaf7f0",
   neutralSoft: "#f6f9fc",
 };
+
+const PUBLIC_PORTAL_REFRESH_INTERVAL_MS = 60000;
 
 const LGU_CONTACT = {
   systemName: "DISTYNC",
@@ -412,12 +415,26 @@ const styles = {
     borderRadius: "14px",
     padding: "18px",
     minWidth: 0,
+    position: "relative",
   },
   summaryTop: {
-    display: "flex",
-    justifyContent: "space-between",
+    display: "block",
+    paddingRight: "58px",
+  },
+  summaryIcon: {
+    position: "absolute",
+    top: "28px",
+    right: "28px",
+    width: "40px",
+    height: "40px",
+    borderRadius: "12px",
+    background: "#ffffff",
+    border: `1px solid ${COLORS.border}`,
+    color: COLORS.primaryDark,
+    display: "inline-flex",
     alignItems: "center",
-    gap: "10px",
+    justifyContent: "center",
+    flexShrink: 0,
   },
   summaryValue: {
     margin: "12px 0 0",
@@ -481,6 +498,9 @@ const styles = {
   donationList: {
     display: "grid",
     gap: "12px",
+    width: "100%",
+    marginLeft: "auto",
+    marginRight: "auto",
   },
   donationCard: {
     background: COLORS.neutralSoft,
@@ -491,10 +511,38 @@ const styles = {
   },
   donationTop: {
     display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
+    alignItems: "stretch",
     gap: "12px",
-    flexWrap: "wrap",
+  },
+  donationIconStack: {
+    width: "42px",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "6px",
+    flexShrink: 0,
+  },
+  donationIcon: {
+    width: "42px",
+    height: "42px",
+    borderRadius: "12px",
+    background: COLORS.softBg,
+    border: `1px solid ${COLORS.border}`,
+    color: COLORS.primaryDark,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  donationIconCompact: {
+    width: "34px",
+    height: "34px",
+    borderRadius: "11px",
+  },
+  donationBody: {
+    minWidth: 0,
+    flex: 1,
   },
   donationName: {
     margin: 0,
@@ -502,11 +550,23 @@ const styles = {
     fontWeight: 800,
     color: COLORS.text,
   },
+  donorTypeText: {
+    color: COLORS.subtext,
+    fontSize: "14px",
+    fontWeight: 700,
+  },
   donationMeta: {
     margin: "5px 0 0",
     color: COLORS.subtext,
     fontSize: "13px",
     lineHeight: 1.5,
+  },
+  donationSummaryText: {
+    margin: "12px 0 0",
+    color: COLORS.text,
+    fontSize: "14px",
+    lineHeight: 1.5,
+    fontWeight: 700,
   },
   tableWrap: {
     overflowX: "auto",
@@ -815,6 +875,11 @@ const portalFooterCss = `
       grid-template-columns: 1fr !important;
     }
 
+    .recent-donation-grid {
+      grid-template-columns: 1fr !important;
+      max-width: 100% !important;
+    }
+
     .portal-footer-grid,
     .portal-footer-coordination-pair,
     .portal-footer-bottom-inner {
@@ -956,15 +1021,36 @@ const getPriorityMeta = (priorityLevel) =>
   PRIORITY_GROUPS[2];
 
 const buildDonationSummary = (donation) => {
-  const items = Array.isArray(donation.items) ? donation.items : [];
+  const looseItems = Number(donation.total_loose_items_received || 0);
+  const reliefPacks = Number(donation.total_relief_packs_received || 0);
+  const summaryParts = [];
 
-  if (items.length === 0) {
-    return `${formatNumber(donation.total_quantity_received)} item${
-      Number(donation.total_quantity_received || 0) === 1 ? "" : "s"
-    } received`;
+  if (looseItems > 0) {
+    summaryParts.push(
+      `${formatNumber(looseItems)} item${looseItems === 1 ? "" : "s"}`,
+    );
   }
 
-  return items
+  if (reliefPacks > 0) {
+    summaryParts.push(
+      `${formatNumber(reliefPacks)} relief pack${
+        reliefPacks === 1 ? "" : "s"
+      }`,
+    );
+  }
+
+  if (summaryParts.length > 0) {
+    return `Donated ${summaryParts.join(" and ")}`;
+  }
+
+  const items = Array.isArray(donation.items) ? donation.items : [];
+  if (items.length === 0) {
+    return `Donated ${formatNumber(donation.total_quantity_received)} item${
+      Number(donation.total_quantity_received || 0) === 1 ? "" : "s"
+    }`;
+  }
+
+  const itemSummary = items
     .slice(0, 2)
     .map(
       (item) =>
@@ -972,6 +1058,35 @@ const buildDonationSummary = (donation) => {
     )
     .join(", ")
     .concat(items.length > 2 ? `, +${items.length - 2} more` : "");
+
+  return `Donated ${itemSummary}`;
+};
+
+const getDonationTypeIcons = (donation) => {
+  const looseItems = Number(donation.total_loose_items_received || 0);
+  const reliefPacks = Number(donation.total_relief_packs_received || 0);
+  const hasLooseItems = looseItems > 0;
+  const hasReliefPacks = reliefPacks > 0;
+
+  if (hasLooseItems && hasReliefPacks) {
+    return ["loose", "relief"];
+  }
+
+  if (hasReliefPacks) {
+    return ["relief"];
+  }
+
+  return ["loose"];
+};
+
+const getRecentDonationGridStyle = (recordCount) => {
+  const normalizedCount = Number(recordCount || 0);
+  const columnCount = normalizedCount >= 5 ? 3 : Math.min(normalizedCount, 2);
+
+  return {
+    gridTemplateColumns: `repeat(${Math.max(columnCount, 1)}, minmax(0, 1fr))`,
+    maxWidth: "100%",
+  };
 };
 
 const groupSuggestionsByPriority = (suggestions) =>
@@ -1372,21 +1487,28 @@ const TransparencySection = ({ recentDonations, transparencySummary }) => {
           <h2 id="transparency-title" style={styles.sectionTitle}>
             Recent Donation Transparency
           </h2>
-          <p style={styles.sectionText}>
-            Public in-kind donation records and aggregate item movement.
-          </p>
         </div>
       </div>
 
       <div style={styles.summaryGrid}>
         <div style={styles.summaryCard}>
-          <p style={styles.label}>Donations Received</p>
+          <div style={styles.summaryTop}>
+            <p style={styles.label}>Recorded Donations</p>
+            <span style={styles.summaryIcon} aria-hidden="true">
+              <FiCheckCircle size={20} />
+            </span>
+          </div>
           <p style={styles.summaryValue}>
             {formatNumber(transparencySummary?.total_donations_received)}
           </p>
         </div>
         <div style={styles.summaryCard}>
-          <p style={styles.label}>Items Received</p>
+          <div style={styles.summaryTop}>
+            <p style={styles.label}>Items Received</p>
+            <span style={styles.summaryIcon} aria-hidden="true">
+              <FiPackage size={20} />
+            </span>
+          </div>
           <p style={styles.summaryValue}>
             {formatNumber(transparencySummary?.total_quantity_received)}
           </p>
@@ -1402,33 +1524,62 @@ const TransparencySection = ({ recentDonations, transparencySummary }) => {
           <span>No public donation records are available yet.</span>
         </div>
       ) : (
-        <div style={{ ...styles.donationList, marginTop: "12px" }}>
-          {recentDonations.map((donation, index) => (
-            <article
-              key={donation.public_key || `${donation.donation_date}-${index}`}
-              style={styles.donationCard}
-            >
-              <div style={styles.donationTop}>
-                <div>
-                  <h3 style={styles.donationName}>{donation.donor_name}</h3>
-                  <p style={styles.donationMeta}>
-                    {donation.recipient_barangay || "Not specified"} |{" "}
-                    {formatDonationDateOnly(donation.donation_date)}
-                  </p>
+        <div
+          className="recent-donation-grid"
+          style={{
+            ...styles.donationList,
+            ...getRecentDonationGridStyle(recentDonations.length),
+            marginTop: "12px",
+          }}
+        >
+          {recentDonations.map((donation, index) => {
+            const donationTypeIcons = getDonationTypeIcons(donation);
+            const hasStackedIcons = donationTypeIcons.length > 1;
+
+            return (
+              <article
+                key={donation.public_key || `${donation.donation_date}-${index}`}
+                style={styles.donationCard}
+              >
+                <div style={styles.donationTop}>
+                  <span style={styles.donationIconStack} aria-hidden="true">
+                    {donationTypeIcons.map((iconType) => (
+                      <span
+                        key={iconType}
+                        style={{
+                          ...styles.donationIcon,
+                          ...(hasStackedIcons
+                            ? styles.donationIconCompact
+                            : null),
+                        }}
+                      >
+                        {iconType === "relief" ? (
+                          <FiShoppingBag size={hasStackedIcons ? 17 : 20} />
+                        ) : (
+                          <FiPackage size={hasStackedIcons ? 17 : 20} />
+                        )}
+                      </span>
+                    ))}
+                  </span>
+                  <div style={styles.donationBody}>
+                    <h3 style={styles.donationName}>
+                      {donation.donor_name}{" "}
+                      <span style={styles.donorTypeText}>
+                        ({donation.donor_type_label || formatStatusLabel(donation.donor_type)})
+                      </span>
+                    </h3>
+                    <p style={styles.donationMeta}>
+                      {donation.disaster_event_title || "Disaster event"} |{" "}
+                      {formatDonationDateOnly(donation.donation_date)}
+                    </p>
+                    <p style={styles.donationSummaryText}>
+                      {buildDonationSummary(donation)}
+                    </p>
+                  </div>
                 </div>
-                <span
-                  style={{
-                    ...styles.badge,
-                    background: COLORS.successSoft,
-                    color: COLORS.success,
-                  }}
-                >
-                  {formatStatusLabel(donation.status)}
-                </span>
-              </div>
-              <p style={styles.donationMeta}>{buildDonationSummary(donation)}</p>
-            </article>
-          ))}
+              </article>
+            );
+          })}
         </div>
       )}
     </section>
@@ -1446,8 +1597,8 @@ const DonationUtilizationSection = ({ transparencySummary }) => {
             Donation Utilization
           </h2>
           <p style={styles.sectionText}>
-            Summary of donated items that have been received, distributed, and
-            currently remaining based on completed inventory transactions.
+            Remaining reflects available donated inventory after distribution
+            and inventory adjustments.
           </p>
         </div>
       </div>
@@ -1467,11 +1618,11 @@ const DonationUtilizationSection = ({ transparencySummary }) => {
                 <th style={{ ...styles.th, ...styles.numericCell }}>
                   Distributed
                 </th>
-                <th style={{ ...styles.th, ...styles.numericCell }}>Remaining</th>
+                <th style={{ ...styles.th, ...styles.numericCell }}>Available</th>
               </tr>
             </thead>
             <tbody>
-              {donatedItemRows.slice(0, 6).map((row) => (
+              {donatedItemRows.map((row) => (
                 <tr key={row.public_key || row.item_name}>
                   <td style={styles.td}>{row.item_name || "--"}</td>
                   <td style={{ ...styles.td, ...styles.numericCell }}>
@@ -1734,12 +1885,14 @@ const DonationInformationPage = () => {
   useEffect(() => {
     let isMounted = true;
 
-    const loadDonationOverview = async () => {
-      setPageState((currentState) => ({
-        ...currentState,
-        isLoading: true,
-        errorMessage: "",
-      }));
+    const loadDonationOverview = async ({ showLoading = false } = {}) => {
+      if (showLoading) {
+        setPageState((currentState) => ({
+          ...currentState,
+          isLoading: true,
+          errorMessage: "",
+        }));
+      }
 
       try {
         const publicPortalData = await fetchDonationPortalData();
@@ -1803,23 +1956,45 @@ const DonationInformationPage = () => {
           return;
         }
 
-        setPageState({
+        if (showLoading) {
+          setPageState({
+            isLoading: false,
+            errorMessage: error.message || "Failed to load donation information.",
+            activeDisasters: [],
+            neededItems: DEFAULT_NEEDED_ITEMS_META,
+            recentDonations: [],
+            transparencySummary: {},
+            publicContactConfig: DEFAULT_PUBLIC_CONTACT_CONFIG,
+            lastUpdatedAt: new Date().toISOString(),
+          });
+          return;
+        }
+
+        setPageState((currentState) => ({
+          ...currentState,
           isLoading: false,
-          errorMessage: error.message || "Failed to load donation information.",
-          activeDisasters: [],
-          neededItems: DEFAULT_NEEDED_ITEMS_META,
-          recentDonations: [],
-          transparencySummary: {},
-          publicContactConfig: DEFAULT_PUBLIC_CONTACT_CONFIG,
-          lastUpdatedAt: new Date().toISOString(),
-        });
+        }));
       }
     };
 
-    loadDonationOverview();
+    loadDonationOverview({ showLoading: true });
+
+    const refreshTimer = window.setInterval(
+      () => loadDonationOverview(),
+      PUBLIC_PORTAL_REFRESH_INTERVAL_MS,
+    );
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        loadDonationOverview();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       isMounted = false;
+      window.clearInterval(refreshTimer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 
