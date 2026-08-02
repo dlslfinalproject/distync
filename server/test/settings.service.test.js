@@ -233,6 +233,114 @@ test("saveCurrentSettings ignores legacy export preference input and does not pe
   );
 });
 
+test("saveCurrentSettings preserves notification preferences when the request updates only profile fields", async () => {
+  const dbClient = buildDbClient();
+  const persistedPayloads = [];
+  const auditSnapshots = [];
+  const updatedUser = {
+    id: "user-2b",
+    email: "barangay@example.com",
+    first_name: "Mario",
+    middle_name: "De Leon",
+    last_name: "Rivera",
+    contact_number: "+639181112222",
+    default_barangay_id: null,
+    is_active: true,
+  };
+
+  await withStubbedSettingsService(
+    {
+      [poolPath]: {
+        connect: async () => dbClient,
+      },
+      [settingsRepositoryPath]: {
+        getUserById: async () => updatedUser,
+        getBarangayById: async () => null,
+        getUserRoleSettings: async () => ({
+          user_id: updatedUser.id,
+          role_code: "BARANGAY",
+          profile_picture_path: "",
+          profile_picture_file_name: "",
+          profile_picture_updated_at: null,
+          enabled_notification_rule_codes_json: [],
+          notification_channels_json: {},
+          notification_rule_preferences_json: {
+            DISTRIBUTION_UPDATE: {
+              inApp: false,
+              email: true,
+            },
+          },
+          last_profile_update_at: "2026-08-01T08:00:00.000Z",
+          last_preference_save_at: "2026-08-01T09:00:00.000Z",
+        }),
+        updateUserProfile: async (_userId, changes) => ({
+          ...updatedUser,
+          first_name: changes.firstName,
+          middle_name: changes.middleName,
+          last_name: changes.lastName,
+          contact_number: changes.contactNumber,
+        }),
+        upsertUserRoleSettings: async (payload) => {
+          persistedPayloads.push(payload);
+          return payload;
+        },
+        insertRoleSettingsSnapshot: async (payload) => {
+          auditSnapshots.push(payload);
+          return payload;
+        },
+      },
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [],
+      },
+      [notificationServicePath]: {
+        getNotificationRulesForRole: async () => [],
+      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub(),
+    },
+    async ({ saveCurrentSettings }) => {
+      const result = await saveCurrentSettings({
+        userId: updatedUser.id,
+        roleCode: "BARANGAY",
+        settings: {
+          profile: {
+            firstName: "Mario",
+            middleName: "De Leon",
+            lastName: "Rivera",
+            contactNumber: updatedUser.contact_number,
+          },
+          metadata: {},
+        },
+        ipAddress: "127.0.0.1",
+      });
+
+      assert.deepEqual(persistedPayloads[0].notificationRulePreferencesJson, {
+        DISTRIBUTION_UPDATE: {
+          inApp: false,
+          email: true,
+        },
+      });
+      assert.equal(
+        persistedPayloads[0].lastPreferenceSaveAt,
+        "2026-08-01T09:00:00.000Z",
+      );
+      assert.deepEqual(result.settings.notificationRulePreferences, {
+        DISTRIBUTION_UPDATE: {
+          inApp: false,
+          email: true,
+        },
+      });
+      assert.equal(
+        auditSnapshots.some(
+          (snapshot) =>
+            snapshot.action === "UPDATE_NOTIFICATION_PREFERENCES" ||
+            snapshot.action === "RESET_NOTIFICATION_PREFERENCES",
+        ),
+        false,
+      );
+    },
+  );
+});
+
 test("uploadCurrentProfilePicture stores a private path and returns signed metadata", async () => {
   const dbClient = buildDbClient();
   const persistedPayloads = [];

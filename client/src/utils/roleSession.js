@@ -11,6 +11,16 @@ export const AUTH_SESSION_INVALIDATED_EVENT =
 
 let pendingAuthSessionInvalidation = null;
 
+const createBrowserEvent = (eventName, detail) => {
+  if (typeof CustomEvent === "function") {
+    return new CustomEvent(eventName, { detail });
+  }
+
+  const fallbackEvent = new Event(eventName);
+  fallbackEvent.detail = detail;
+  return fallbackEvent;
+};
+
 const dispatchAuthSessionInvalidated = ({ mode, userId, reason }) => {
   pendingAuthSessionInvalidation = {
     mode,
@@ -23,9 +33,10 @@ const dispatchAuthSessionInvalidated = ({ mode, userId, reason }) => {
   }
 
   window.dispatchEvent(
-    new CustomEvent(AUTH_SESSION_INVALIDATED_EVENT, {
-      detail: pendingAuthSessionInvalidation,
-    }),
+    createBrowserEvent(
+      AUTH_SESSION_INVALIDATED_EVENT,
+      pendingAuthSessionInvalidation,
+    ),
   );
 };
 

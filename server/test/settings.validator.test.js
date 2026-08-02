@@ -88,6 +88,30 @@ test("validateSaveCurrentSettings rejects legacy fullName updates", () => {
   );
 });
 
+test("validateSaveCurrentSettings rejects obsolete profile picture persistence fields", () => {
+  const req = {
+    body: {
+      settings: {
+        profile: {
+          firstName: "Juan",
+          lastName: "Reyes",
+          contactNumber: "+639171234567",
+          profilePictureDataUrl: "data:image/png;base64,ZmFrZQ==",
+        },
+      },
+    },
+  };
+  const res = createResponse();
+
+  validateSaveCurrentSettings(req, res, () => {});
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(
+    res.payload.message,
+    "Profile picture data must be uploaded through the approved profile-picture workflow.",
+  );
+});
+
 test("validateSaveCurrentSettings accepts pending profile picture replacement payloads", () => {
   const req = {
     body: {
@@ -141,4 +165,87 @@ test("validateSaveCurrentSettings rejects invalid pending profile picture action
 
   assert.equal(res.statusCode, 400);
   assert.equal(res.payload.message, "profilePicture.action is invalid");
+});
+
+test("validateSaveCurrentSettings rejects asset-like replacement content", () => {
+  const req = {
+    body: {
+      settings: {
+        profile: {
+          firstName: "Jane",
+          lastName: "Reyes",
+          contactNumber: "09123456789",
+        },
+        profilePicture: {
+          action: "REPLACE",
+          fileName: "avatar.png",
+          mimeType: "image/png",
+          fileDataBase64: "data:image/png;base64,ZmFrZQ==",
+        },
+      },
+    },
+  };
+  const res = createResponse();
+
+  validateSaveCurrentSettings(req, res, () => {});
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(
+    res.payload.message,
+    "The selected profile picture could not be processed. Choose another image and try again.",
+  );
+});
+
+test("validateSaveCurrentSettings rejects remove actions that include replacement content", () => {
+  const req = {
+    body: {
+      settings: {
+        profile: {
+          firstName: "Jane",
+          lastName: "Reyes",
+          contactNumber: "09123456789",
+        },
+        profilePicture: {
+          action: "REMOVE",
+          fileName: "avatar.png",
+        },
+      },
+    },
+  };
+  const res = createResponse();
+
+  validateSaveCurrentSettings(req, res, () => {});
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(
+    res.payload.message,
+    "Profile picture removal cannot include replacement content.",
+  );
+});
+
+test("validateSaveCurrentSettings rejects unchanged actions that include upload content", () => {
+  const req = {
+    body: {
+      settings: {
+        profile: {
+          firstName: "Jane",
+          lastName: "Reyes",
+          contactNumber: "09123456789",
+        },
+        profilePicture: {
+          action: "UNCHANGED",
+          fileDataBase64: "ZmFrZQ==",
+        },
+      },
+    },
+  };
+  const res = createResponse();
+
+  validateSaveCurrentSettings(req, res, () => {});
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(
+    res.payload.message,
+    "Unchanged profile pictures cannot include upload content.",
+  );
 });

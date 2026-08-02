@@ -499,6 +499,44 @@ test("role settings cache strips unsafe profile picture sources and keeps only s
   );
 });
 
+test("legacy cached Base64 profile picture fields are invalidated and not reused", () => {
+  const storage = createWindow();
+  const storageKey = buildRoleSettingsCacheKey({
+    mode: ACCESS_MODES.DEMO,
+    roleCode: "BARANGAY",
+    userId: "user-legacy",
+  });
+
+  storage.setItem(
+    storageKey,
+    JSON.stringify({
+      version: "2026-08-02-v3",
+      accessMode: ACCESS_MODES.DEMO,
+      roleCode: "BARANGAY",
+      userId: "user-legacy",
+      cachedAt: new Date("2026-08-02T08:00:00.000Z").toISOString(),
+      data: {
+        profile: {
+          firstName: "Legacy",
+          lastName: "User",
+          profilePicturePath: "user-legacy/avatar.webp",
+          profilePictureDataUrl: "data:image/png;base64,ZmFrZQ==",
+        },
+      },
+    }),
+  );
+
+  assert.equal(
+    readRoleSettingsCache({
+      mode: ACCESS_MODES.DEMO,
+      roleCode: "BARANGAY",
+      userId: "user-legacy",
+    }),
+    null,
+  );
+  assert.equal(storage.getItem(storageKey), null);
+});
+
 test("expired signed profile picture URLs are not reused from cache", () => {
   createWindow();
 

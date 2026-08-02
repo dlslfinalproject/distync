@@ -26,7 +26,7 @@ const DEFAULT_PREFERENCES = {
   categories: [],
 };
 
-export const ROLE_SETTINGS_CACHE_VERSION = "2026-07-31-v2";
+export const ROLE_SETTINGS_CACHE_VERSION = "2026-08-02-v3";
 
 export const buildRoleSettingsCacheKey = ({ roleCode, userId, mode }) =>
   getRoleSettingsStorageKey({ roleCode, userId, mode });
@@ -151,6 +151,9 @@ const handleJsonResponse = async (response, fallbackMessage) => {
   if (!response.ok) {
     const error = new Error(payload.message || fallbackMessage);
     error.status = response.status;
+    error.code = typeof payload.code === "string" ? payload.code : "";
+    error.requestId =
+      typeof payload.requestId === "string" ? payload.requestId : "";
     throw error;
   }
 
@@ -172,6 +175,10 @@ const normalizeStoredSettings = (storedValue = {}) => {
   const normalizedProfile = isPlainObject(storedValue?.profile)
     ? storedValue.profile
     : {};
+  const hasLegacyProfilePictureDataUrl = Boolean(
+    sanitizeString(normalizedProfile.profilePictureDataUrl) ||
+      sanitizeString(normalizedProfile.profile_picture_data_url),
+  );
   const hasLegacyOnlyFullName =
     Boolean(sanitizeString(normalizedProfile.fullName)) &&
     !hasStructuredProfileFields(normalizedProfile);
@@ -238,6 +245,7 @@ const normalizeStoredSettings = (storedValue = {}) => {
     },
     cacheMeta: {
       hasLegacyOnlyFullName,
+      hasLegacyProfilePictureDataUrl,
     },
   };
 };
@@ -295,7 +303,10 @@ export const readRoleSettingsCache = ({
 
   const normalizedSettings = normalizeStoredSettings(cachedEnvelopeResult.value.data);
 
-  if (normalizedSettings.cacheMeta?.hasLegacyOnlyFullName) {
+  if (
+    normalizedSettings.cacheMeta?.hasLegacyOnlyFullName ||
+    normalizedSettings.cacheMeta?.hasLegacyProfilePictureDataUrl
+  ) {
     removeStorageKey(storageKey);
     return null;
   }
@@ -447,6 +458,8 @@ export const loadRoleSettingsState = async ({
       userId,
       mode,
     }) || null;
+  const isOffline =
+    typeof navigator !== "undefined" && navigator.onLine === false;
 
   try {
     const response = await fetch(`${API_BASE_URL}/api/v1/settings/current`);
@@ -490,8 +503,10 @@ export const loadRoleSettingsState = async ({
 
     return {
       settings: normalizeStoredSettings({}),
-      source: "error",
-      errorMessage: "Notification preferences could not be loaded.",
+      source: isOffline ? "offline-empty" : "error",
+      errorMessage: isOffline
+        ? "Connect to the internet to load your account settings."
+        : "Notification preferences could not be loaded.",
     };
   }
 };

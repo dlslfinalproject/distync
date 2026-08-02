@@ -220,6 +220,11 @@ export const buildSharedRoleViewContext = ({
   isLoading,
   syncSectionProps,
   isSavingPreferences,
+  isOnline,
+  isSettingsReadOnlyOffline,
+  hasUnsavedChanges,
+  isReconnectRefreshInFlight,
+  isReconnectRefreshBlocked,
 }) => ({
   shellStyles,
   gridStyles,
@@ -260,6 +265,11 @@ export const buildSharedRoleViewContext = ({
   isLoading,
   syncSectionProps,
   isSavingPreferences,
+  isOnline,
+  isSettingsReadOnlyOffline,
+  hasUnsavedChanges,
+  isReconnectRefreshInFlight,
+  isReconnectRefreshBlocked,
 });
 
 export const buildBarangayViewContext = ({

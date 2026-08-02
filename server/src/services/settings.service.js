@@ -197,6 +197,9 @@ const buildEditableSettingsSnapshot = (settings = {}) => {
   const profile = isPlainObject(settings.profile) ? settings.profile : {};
   const metadata = isPlainObject(settings.metadata) ? settings.metadata : {};
   const hasProfilePayload = isPlainObject(settings.profile);
+  const hasNotificationPreferencePayload = isPlainObject(
+    settings.notificationRulePreferences || settings.preferences,
+  );
   const profilePicture = isPlainObject(settings.profilePicture)
     ? settings.profilePicture
     : {};
@@ -220,6 +223,7 @@ const buildEditableSettingsSnapshot = (settings = {}) => {
     notificationRulePreferences: sanitizeNotificationRulePreferences(
       settings.notificationRulePreferences || settings.preferences,
     ),
+    hasNotificationPreferencePayload,
     profilePicture: {
       action:
         PROFILE_PICTURE_ACTIONS[normalizedPictureAction] ||
@@ -748,6 +752,9 @@ const saveCurrentSettings = async ({
       incomingSnapshot.profile.middleName !== undefined ||
       incomingSnapshot.profile.lastName !== undefined ||
       incomingSnapshot.profile.contactNumber !== undefined;
+    const hasIncomingNotificationPreferenceUpdate = Boolean(
+      incomingSnapshot.hasNotificationPreferencePayload,
+    );
     const normalizedFirstName = hasIncomingProfileUpdate
       ? validateNameFieldOrThrow({
           label: "First name",
@@ -777,12 +784,14 @@ const saveCurrentSettings = async ({
     );
     const lockedEmailAddress = validateEmailAddressOrThrow(user.email);
     const normalizedNotificationRulePreferences =
-      await validateAndNormalizeNotificationPreferences({
-        userId,
-        roleCode,
-        incomingPreferences: incomingSnapshot.notificationRulePreferences,
-        dbClient,
-      });
+      hasIncomingNotificationPreferenceUpdate
+        ? await validateAndNormalizeNotificationPreferences({
+            userId,
+            roleCode,
+            incomingPreferences: incomingSnapshot.notificationRulePreferences,
+            dbClient,
+          })
+        : snapshot.notificationRulePreferences || {};
     const pictureAction =
       incomingSnapshot.profilePicture.action || PROFILE_PICTURE_ACTIONS.UNCHANGED;
     const hasPictureReplacement =
@@ -840,6 +849,9 @@ const saveCurrentSettings = async ({
         ...snapshot.metadata,
         ...incomingSnapshot.metadata,
         lastProfileUpdateAt: new Date().toISOString(),
+        lastPreferenceSaveAt: hasIncomingNotificationPreferenceUpdate
+          ? new Date().toISOString()
+          : snapshot.metadata.lastPreferenceSaveAt || "",
       },
     };
 
@@ -869,13 +881,7 @@ const saveCurrentSettings = async ({
     const nextSettings = await buildRoleSettingsResponse({
       roleCode,
       user: updatedUser,
-      snapshot: {
-        ...mergedSnapshot,
-        metadata: {
-          ...mergedSnapshot.metadata,
-          lastPreferenceSaveAt: new Date().toISOString(),
-        },
-      },
+      snapshot: mergedSnapshot,
       assignedBarangay,
       dbClient,
     });
@@ -888,14 +894,6 @@ const saveCurrentSettings = async ({
       },
       dbClient,
     );
-
-    const policyRows = await getRolePolicyRows({ roleCode, dbClient });
-    const notificationAction = isResetToDefaultPayload({
-      policyRows,
-      notificationRulePreferences: normalizedNotificationRulePreferences,
-    })
-      ? NOTIFICATION_RESET_AUDIT_ACTION
-      : NOTIFICATION_UPDATE_AUDIT_ACTION;
 
     await insertAuditLog(
       {
@@ -938,26 +936,36 @@ const saveCurrentSettings = async ({
       );
     }
 
-    await insertAuditLog(
-      {
-        user_id: userId,
-        role_code: roleCode,
-        device_id: null,
-        action: notificationAction,
-        entity_type: "NOTIFICATION_PREFERENCES",
-        entity_id: userId,
-        old_values_json: {
-          notificationRulePreferences:
-            previousSettings.notificationRulePreferences || {},
+    if (hasIncomingNotificationPreferenceUpdate) {
+      const policyRows = await getRolePolicyRows({ roleCode, dbClient });
+      const notificationAction = isResetToDefaultPayload({
+        policyRows,
+        notificationRulePreferences: normalizedNotificationRulePreferences,
+      })
+        ? NOTIFICATION_RESET_AUDIT_ACTION
+        : NOTIFICATION_UPDATE_AUDIT_ACTION;
+
+      await insertAuditLog(
+        {
+          user_id: userId,
+          role_code: roleCode,
+          device_id: null,
+          action: notificationAction,
+          entity_type: "NOTIFICATION_PREFERENCES",
+          entity_id: userId,
+          old_values_json: {
+            notificationRulePreferences:
+              previousSettings.notificationRulePreferences || {},
+          },
+          new_values_json: {
+            notificationRulePreferences:
+              nextSettings.notificationRulePreferences || {},
+          },
+          ip_address: ipAddress,
         },
-        new_values_json: {
-          notificationRulePreferences:
-            nextSettings.notificationRulePreferences || {},
-        },
-        ip_address: ipAddress,
-      },
-      dbClient,
-    );
+        dbClient,
+      );
+    }
 
     await settingsRepository.insertRoleSettingsSnapshot(
       {

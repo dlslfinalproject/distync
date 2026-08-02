@@ -128,7 +128,6 @@ const upsertUserRoleSettings = async (
       user_id,
       role_code,
       profile_picture_path,
-      profile_picture_data_url,
       profile_picture_file_name,
       profile_picture_updated_at,
       enabled_notification_rule_codes_json,
@@ -140,24 +139,22 @@ const upsertUserRoleSettings = async (
       updated_at
     )
     VALUES (
-      $1,
-      $2,
-      $3,
-      $4,
-      $5,
-      $6,
-      $7::jsonb,
-      $8::jsonb,
-      $9::jsonb,
-      $10,
-      $11,
+      $1,         -- user_id
+      $2,         -- role_code
+      $3,         -- profile_picture_path
+      $4,         -- profile_picture_file_name
+      $5,         -- profile_picture_updated_at
+      $6::jsonb,  -- enabled_notification_rule_codes_json
+      $7::jsonb,  -- notification_channels_json
+      $8::jsonb,  -- notification_rule_preferences_json
+      $9,         -- last_profile_update_at
+      $10,        -- last_preference_save_at
       NOW(),
       NOW()
     )
     ON CONFLICT (user_id, role_code)
     DO UPDATE
     SET profile_picture_path = EXCLUDED.profile_picture_path,
-        profile_picture_data_url = EXCLUDED.profile_picture_data_url,
         profile_picture_file_name = EXCLUDED.profile_picture_file_name,
         profile_picture_updated_at = EXCLUDED.profile_picture_updated_at,
         enabled_notification_rule_codes_json =
@@ -185,17 +182,16 @@ const upsertUserRoleSettings = async (
   `;
 
   const result = await dbClient.query(query, [
-    userId,
-    roleCode,
-    profilePicturePath || null,
-    null,
-    profilePictureFileName || null,
-    profilePictureUpdatedAt || null,
-    JSON.stringify(enabledNotificationRuleCodesJson || []),
-    JSON.stringify(notificationChannelsJson || {}),
-    JSON.stringify(notificationRulePreferencesJson || {}),
-    lastProfileUpdateAt || null,
-    lastPreferenceSaveAt,
+    userId, // $1 user_id
+    roleCode, // $2 role_code
+    profilePicturePath || null, // $3 profile_picture_path
+    profilePictureFileName || null, // $4 profile_picture_file_name
+    profilePictureUpdatedAt || null, // $5 profile_picture_updated_at
+    JSON.stringify(enabledNotificationRuleCodesJson || []), // $6 enabled_notification_rule_codes_json
+    JSON.stringify(notificationChannelsJson || {}), // $7 notification_channels_json
+    JSON.stringify(notificationRulePreferencesJson || {}), // $8 notification_rule_preferences_json
+    lastProfileUpdateAt || null, // $9 last_profile_update_at
+    lastPreferenceSaveAt, // $10 last_preference_save_at
   ]);
 
   return result.rows[0] || null;
