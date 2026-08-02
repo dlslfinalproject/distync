@@ -77,24 +77,6 @@ img {
   transform: translateZ(0);
 }
 
-.distync-sidebar__nav {
-  scrollbar-width: thin;
-  scrollbar-color: #b9cce0 transparent;
-}
-
-.distync-sidebar__nav::-webkit-scrollbar {
-  width: 8px;
-}
-
-.distync-sidebar__nav::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.distync-sidebar__nav::-webkit-scrollbar-thumb {
-  background: #b9cce0;
-  border-radius: 999px;
-}
-
 .distync-sidebar__body {
   min-width: 0;
 }

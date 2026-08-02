@@ -3,7 +3,7 @@ import StatusCard from "../shared/StatusCard";
 
 const gridStyles = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
   gap: "16px",
 };
 

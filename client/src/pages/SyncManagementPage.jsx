@@ -6,6 +6,7 @@ import { shellStyles } from "../components/layout/BarangayLayout";
 import SyncStatusBadge from "../components/shared/SyncStatusBadge";
 import FeedbackToast from "../components/shared/FeedbackToast";
 import SyncConflictDetailModal from "../components/shared/SyncConflictDetailModal";
+import StatusCard from "../components/shared/StatusCard";
 import db, { LOCAL_SYNC_STATUS } from "../offline/db";
 import {
   retryFailedSyncEntries,
@@ -228,13 +229,6 @@ const applySyncFilters = (records, filters, statusAccessor) => {
     filters.order,
   );
 };
-
-const renderSummaryCard = (label, value) => (
-  <div style={shellStyles.card}>
-    <p style={shellStyles.mutedText}>{label}</p>
-    <p style={shellStyles.statValue}>{value}</p>
-  </div>
-);
 
 const SyncManagementPage = () => {
   const [syncHistory, setSyncHistory] = useState({
@@ -517,10 +511,10 @@ const SyncManagementPage = () => {
       </section>
 
       <section style={shellStyles.statGrid}>
-        {renderSummaryCard("Pending Queue", summary.pending)}
-        {renderSummaryCard("Synced Records", summary.synced)}
-        {renderSummaryCard("Failed Sync", summary.failed)}
-        {renderSummaryCard("Needs Review", summary.conflicts)}
+        <StatusCard label="Pending Queue" value={summary.pending} />
+        <StatusCard label="Synced Records" value={summary.synced} />
+        <StatusCard label="Failed Sync" value={summary.failed} />
+        <StatusCard label="Needs Review" value={summary.conflicts} />
       </section>
 
       <div

@@ -5,6 +5,7 @@ import { pageSpacingStyles, shellStyles } from "../../components/layout/Barangay
 import EmptyState from "../../components/shared/EmptyState";
 import ErrorState from "../../components/shared/ErrorState";
 import LoadingState from "../../components/shared/LoadingState";
+import StatusCard from "../../components/shared/StatusCard";
 import {
   fetchAllDisasterEvents,
   fetchBarangayDisasterEventOptions,
@@ -843,22 +844,10 @@ const AnomalyTrackingPage = ({
       </section>
 
       <div style={shellStyles.statGrid}>
-        <div style={shellStyles.card}>
-          <p style={shellStyles.mutedText}>Total Anomalies</p>
-          <p style={shellStyles.statValue}>{summary.total}</p>
-        </div>
-        <div style={shellStyles.card}>
-          <p style={shellStyles.mutedText}>Open Review</p>
-          <p style={shellStyles.statValue}>{summary.open}</p>
-        </div>
-        <div style={shellStyles.card}>
-          <p style={shellStyles.mutedText}>Failed Sync / Error</p>
-          <p style={shellStyles.statValue}>{summary.failed}</p>
-        </div>
-        <div style={shellStyles.card}>
-          <p style={shellStyles.mutedText}>Resolved / Logged</p>
-          <p style={shellStyles.statValue}>{summary.resolved}</p>
-        </div>
+        <StatusCard label="Total Anomalies" value={summary.total} />
+        <StatusCard label="Open Review" value={summary.open} />
+        <StatusCard label="Failed Sync / Error" value={summary.failed} />
+        <StatusCard label="Resolved / Logged" value={summary.resolved} />
       </div>
 
       <div style={pageSpacingStyles.toolbar}>

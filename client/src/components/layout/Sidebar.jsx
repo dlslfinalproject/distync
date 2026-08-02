@@ -110,7 +110,7 @@ const getSidebarStyles = (isCollapsed) => ({
   wrapper: {
     height: isCollapsed ? "0" : "100vh",
     maxHeight: isCollapsed ? "0" : "100vh",
-    padding: isCollapsed ? "0" : "20px 16px 24px",
+    padding: isCollapsed ? "0" : "14px 14px 18px",
     boxSizing: "border-box",
     backgroundColor: "transparent",
     borderRight: "none",
@@ -131,7 +131,7 @@ const getSidebarStyles = (isCollapsed) => ({
   body: {
     display: "flex",
     flexDirection: "column",
-    gap: "20px",
+    gap: "14px",
     flex: "1 1 auto",
     minHeight: 0,
     maxHeight: "100%",
@@ -140,12 +140,11 @@ const getSidebarStyles = (isCollapsed) => ({
   nav: {
     display: "flex",
     flexDirection: "column",
-    gap: "10px",
+    gap: "8px",
     flex: "1 1 auto",
     minHeight: 0,
-    overflowY: "auto",
-    overflowX: "hidden",
-    paddingRight: "4px",
+    overflow: "visible",
+    paddingRight: 0,
   },
   navTitle: {
     display: "block",
@@ -157,14 +156,14 @@ const getSidebarStyles = (isCollapsed) => ({
     maxWidth: "none",
   },
   roleActions: {
-    marginTop: 0,
+    marginTop: "auto",
     display: "flex",
     flexDirection: "column",
-    gap: "12px",
+    gap: "10px",
     flexShrink: 0,
   },
   roleCard: {
-    padding: "14px 16px",
+    padding: "10px 12px",
     borderRadius: "14px",
     backgroundColor: "rgba(255, 255, 255, 0.72)",
     border: "1px solid rgba(220, 231, 243, 0.9)",
@@ -177,7 +176,7 @@ const getSidebarStyles = (isCollapsed) => ({
     borderRadius: "12px",
     backgroundColor: "#ffffff",
     color: "#24496e",
-    padding: "11px 14px",
+    padding: "10px 12px",
     fontSize: "13px",
     fontWeight: 700,
     cursor: "pointer",
@@ -256,14 +255,14 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
                     color: isActive ? "#1f4f7d" : "#26435f",
                     border: `1px solid ${isActive ? "#b8d0e7" : "#dce7f3"}`,
                     borderRadius: "14px",
-                    padding: "14px 12px",
+                    padding: "12px",
                     boxShadow: isActive
                       ? "0 10px 24px rgba(66, 108, 154, 0.12)"
                       : "0 4px 12px rgba(72, 95, 122, 0.04)",
                     transition:
                       "background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease",
-                    marginBottom: "10px",
-                    minHeight: "46px",
+                    marginBottom: 0,
+                    minHeight: "44px",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "flex-start",

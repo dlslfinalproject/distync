@@ -62,6 +62,11 @@ const analyticsGridStyles = {
     gridTemplateColumns: "minmax(0, 1.35fr) minmax(260px, 0.65fr)",
     gap: "20px",
   },
+  distributionCards: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: "20px",
+  },
 };
 
 const formatDateTime = (value) => {
@@ -638,13 +643,7 @@ const AnalyticsDashboardPage = () => {
             />
           </div>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-              gap: "20px",
-            }}
-          >
+          <div style={analyticsGridStyles.distributionCards}>
             <DistributionPieChart
               title="Sex Distribution"
               data={sexDistribution}
@@ -665,20 +664,14 @@ const AnalyticsDashboardPage = () => {
               data={nonAgeBasedSectorDistribution}
               innerRadius={0}
             />
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-              gap: "20px",
-            }}
-          >
             <DistributionPieChart
               title="Household Conditions"
               data={householdConditionDistribution}
               innerRadius={0}
             />
+          </div>
+
+          <div style={analyticsGridStyles.distributionCards}>
             <DistributionPieChart
               title="Stay Type Distribution"
               data={stayTypeDistribution}

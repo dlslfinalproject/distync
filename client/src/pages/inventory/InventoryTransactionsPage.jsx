@@ -169,6 +169,13 @@ const inlineSelectStyles = {
   appearance: "auto",
 };
 
+const transactionFilterGridStyles = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+  gap: "16px",
+  alignItems: "end",
+};
+
 const filterPanelStyles = {
   panel: {
     position: "fixed",
@@ -1410,15 +1417,7 @@ const InventoryTransactionsPage = () => {
 
       {activeSubtab === "transactions" ? (
         <section style={{ ...shellStyles.card, marginTop: "18px" }}>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns:
-                "minmax(180px, 1.1fr) minmax(180px, 1fr) minmax(180px, 1fr) minmax(160px, 0.9fr) minmax(160px, 0.9fr) minmax(180px, 1fr)",
-              gap: "16px",
-              alignItems: "end",
-            }}
-          >
+          <div style={transactionFilterGridStyles}>
             <div>
               <label htmlFor="tracking-item-filter" style={labelStyles}>
                 Item
