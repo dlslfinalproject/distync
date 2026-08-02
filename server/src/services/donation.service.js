@@ -338,15 +338,7 @@ const mapAuditLogRow = (row) => ({
   new_values_json: row.new_values_json || {},
 });
 
-const resolvePublicDonorName = (donorName, index) => {
-  const trimmedDonorName = String(donorName || "").trim();
-
-  if (/anonymous|anon/i.test(trimmedDonorName)) {
-    return "Anonymous Donor";
-  }
-
-  return `Donor #${index + 1}`;
-};
+const resolvePublicDonorName = (_donorName, index) => `Donor #${index + 1}`;
 
 const mapPublicDisasterSummary = (row) => ({
   public_key: createPublicKey("event", row.id),
@@ -374,11 +366,16 @@ const mapPublicDonationSummary = (row, index) => ({
   public_key: row.public_key || `donation-${index + 1}`,
   donor_name: resolvePublicDonorName(row.donor_name, index),
   donor_type: row.donor_type || "OTHER",
+  donor_type_label: donorTypeLabels[row.donor_type] || "Other",
+  disaster_event_title: row.disaster_event_title || "Disaster event",
   recipient_barangay: row.recipient_barangay_name || "Not specified",
   donation_date: row.received_at,
   status: row.status,
+  donation_count: Number(row.donation_count || 0),
   item_count: Number(row.item_count || 0),
   total_quantity_received: Number(row.total_quantity_received || 0),
+  total_loose_items_received: Number(row.total_loose_items_received || 0),
+  total_relief_packs_received: Number(row.total_relief_packs_received || 0),
   items: Array.isArray(row.items)
     ? row.items.map((item) => ({
         item_name: item.item_name || "Donation item",

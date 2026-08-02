@@ -1007,13 +1007,47 @@ const getPublicRecentDonationSummaries = async (
 
   const result = await dbClient.query(
     `
+      WITH donor_groups AS (
+        SELECT
+          MIN(d.id::text) AS donor_group_key,
+          LOWER(BTRIM(d.donor_name)) AS normalized_donor_name,
+          MIN(d.donor_name) AS donor_name,
+          d.donor_type,
+          d.donor_type_other,
+          d.disaster_event_id,
+          de.title AS disaster_event_title,
+          MAX(d.received_at) AS latest_received_at,
+          MAX(d.created_at) AS latest_created_at,
+          COUNT(DISTINCT d.id)::int AS donation_count,
+          CASE
+            WHEN BOOL_OR(d.status = 'DISTRIBUTED') THEN 'DISTRIBUTED'
+            WHEN BOOL_OR(d.status = 'PARTIALLY_DISTRIBUTED') THEN 'PARTIALLY_DISTRIBUTED'
+            ELSE 'RECEIVED'
+          END AS status
+        FROM donations d
+        INNER JOIN disaster_events de ON de.id = d.disaster_event_id
+        WHERE d.disaster_event_id = ANY($1::uuid[])
+          AND d.status <> 'CANCELLED'
+        GROUP BY
+          LOWER(BTRIM(d.donor_name)),
+          d.donor_type,
+          d.donor_type_other,
+          d.disaster_event_id,
+          de.title
+      )
       SELECT
-        MD5(d.id::text) AS public_key,
-        d.donor_name,
-        d.donor_type,
-        d.received_at,
-        d.status,
+        MD5(CONCAT_WS(':', donor_groups.donor_group_key, donor_groups.disaster_event_id::text)) AS public_key,
+        donor_groups.donor_name,
+        donor_groups.donor_type,
+        donor_groups.donor_type_other,
+        donor_groups.disaster_event_id,
+        donor_groups.disaster_event_title,
+        donor_groups.latest_received_at AS received_at,
+        donor_groups.status,
+        donor_groups.donation_count,
         COALESCE(item_summary.total_quantity_received, 0)::int AS total_quantity_received,
+        COALESCE(item_summary.total_loose_items_received, 0)::int AS total_loose_items_received,
+        COALESCE(item_summary.total_relief_packs_received, 0)::int AS total_relief_packs_received,
         COALESCE(item_summary.item_count, 0)::int AS item_count,
         COALESCE(item_summary.items, '[]'::json) AS items,
         CASE
@@ -1023,11 +1057,46 @@ const getPublicRecentDonationSummaries = async (
             THEN 'Multiple affected barangays'
           ELSE NULL
         END AS recipient_barangay_name
-      FROM donations d
+      FROM donor_groups
       LEFT JOIN LATERAL (
         SELECT
           COUNT(DISTINCT di.id)::int AS item_count,
           COALESCE(SUM(di.quantity_received), 0)::int AS total_quantity_received,
+          COALESCE(
+            SUM(
+              CASE
+                WHEN COALESCE(di.remarks, '') ILIKE 'Relief Pack:%' THEN 0
+                ELSE di.quantity_received
+              END
+            ),
+            0
+          )::int AS total_loose_items_received,
+          COALESCE(
+            (
+              SELECT SUM(pack_rows.relief_pack_quantity)
+              FROM (
+                SELECT DISTINCT
+                  d2.id,
+                  di2.remarks,
+                  COALESCE(
+                    NULLIF(
+                      SUBSTRING(di2.remarks FROM '\\sx\\s([0-9]+)\\s*$'),
+                      ''
+                    )::int,
+                    0
+                  ) AS relief_pack_quantity
+                FROM donations d2
+                INNER JOIN donation_items di2 ON di2.donation_id = d2.id
+                WHERE LOWER(BTRIM(d2.donor_name)) = donor_groups.normalized_donor_name
+                  AND d2.donor_type = donor_groups.donor_type
+                  AND COALESCE(d2.donor_type_other, '') = COALESCE(donor_groups.donor_type_other, '')
+                  AND d2.disaster_event_id = donor_groups.disaster_event_id
+                  AND d2.status <> 'CANCELLED'
+                  AND COALESCE(di2.remarks, '') ILIKE 'Relief Pack:%'
+              ) pack_rows
+            ),
+            0
+          )::int AS total_relief_packs_received,
           COALESCE(
             JSON_AGG(
               JSON_BUILD_OBJECT(
@@ -1040,8 +1109,13 @@ const getPublicRecentDonationSummaries = async (
             '[]'::json
           ) AS items
         FROM donation_items di
+        INNER JOIN donations d ON d.id = di.donation_id
         INNER JOIN inventory_items ii ON ii.id = di.inventory_item_id
-        WHERE di.donation_id = d.id
+        WHERE LOWER(BTRIM(d.donor_name)) = donor_groups.normalized_donor_name
+          AND d.donor_type = donor_groups.donor_type
+          AND COALESCE(d.donor_type_other, '') = COALESCE(donor_groups.donor_type_other, '')
+          AND d.disaster_event_id = donor_groups.disaster_event_id
+          AND d.status <> 'CANCELLED'
       ) item_summary ON TRUE
       LEFT JOIN LATERAL (
         SELECT
@@ -1049,12 +1123,10 @@ const getPublicRecentDonationSummaries = async (
           MIN(b.name) AS single_barangay_name
         FROM disaster_event_barangays deb
         INNER JOIN barangays b ON b.id = deb.barangay_id
-        WHERE deb.disaster_event_id = d.disaster_event_id
+        WHERE deb.disaster_event_id = donor_groups.disaster_event_id
           AND b.is_active = TRUE
       ) affected_barangays ON TRUE
-      WHERE d.disaster_event_id = ANY($1::uuid[])
-        AND d.status <> 'CANCELLED'
-      ORDER BY d.received_at DESC, d.created_at DESC
+      ORDER BY donor_groups.latest_received_at DESC, donor_groups.latest_created_at DESC
       LIMIT $2
     `,
     values,

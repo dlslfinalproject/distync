@@ -23,8 +23,6 @@ export const donationStatuses = [
 
 export const priorityLevels = ["URGENT", "HIGH", "MEDIUM", "LOW"];
 
-export const NO_EXPORT_DATA_MESSAGE = "No available data to export.";
-
 export const overlayStyles = {
   position: "fixed",
   inset: 0,
@@ -74,33 +72,6 @@ export const compactButtonStyles = {
   padding: "8px 12px",
   backgroundColor: "#f8fbfe",
   color: "#2a4c6f",
-  fontSize: "13px",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-export const exportMenuStyles = {
-  position: "absolute",
-  top: "calc(100% + 10px)",
-  right: 0,
-  minWidth: "220px",
-  padding: "8px",
-  borderRadius: "14px",
-  backgroundColor: "#ffffff",
-  border: "1px solid #d7e2ef",
-  boxShadow: "0 18px 36px rgba(23, 50, 77, 0.16)",
-  display: "grid",
-  gap: "6px",
-  zIndex: 20,
-};
-
-export const exportMenuButtonStyles = {
-  border: "none",
-  borderRadius: "10px",
-  backgroundColor: "#f8fbfe",
-  color: "#264564",
-  textAlign: "left",
-  padding: "10px 12px",
   fontSize: "13px",
   fontWeight: 700,
   cursor: "pointer",
