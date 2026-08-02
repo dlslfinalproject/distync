@@ -60,6 +60,11 @@ const ProfileSection = ({
     fontSize: "16px",
     fontWeight: 700,
     lineHeight: 1.5,
+    minWidth: 0,
+    maxWidth: "100%",
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
+    wordBreak: "break-word",
   };
 
   const readOnlyFieldStyles = {
@@ -71,6 +76,9 @@ const ProfileSection = ({
     gap: "6px",
     minHeight: "76px",
     boxSizing: "border-box",
+    minWidth: 0,
+    maxWidth: "100%",
+    alignContent: "start",
   };
 
   const systemTagStyles = {
@@ -85,6 +93,34 @@ const ProfileSection = ({
     fontWeight: 700,
     letterSpacing: "0.06em",
     textTransform: "uppercase",
+    maxWidth: "100%",
+    whiteSpace: "normal",
+  };
+
+  const readOnlyHelperTextStyles = {
+    ...mutedValueStyles,
+    fontSize: "12px",
+    margin: 0,
+    minWidth: 0,
+    maxWidth: "100%",
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
+    wordBreak: "break-word",
+  };
+
+  const accountInformationGridStyles = {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 320px), 1fr))",
+    gap: "16px",
+    width: "100%",
+    minWidth: 0,
+  };
+
+  const readOnlyContentStackStyles = {
+    display: "grid",
+    gap: "6px",
+    minWidth: 0,
+    maxWidth: "100%",
   };
 
   const getProfileInitials = () => {
@@ -458,20 +494,20 @@ const ProfileSection = ({
           </div>
 
           <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: "16px",
-            }}
+            style={accountInformationGridStyles}
           >
             <div style={readOnlyFieldStyles}>
               <p style={sectionLabelStyles}>Email Address</p>
-              <p style={sectionValueStyles}>
-                {authenticatedUser?.email || preferences.profile.emailAddress || "--"}
-              </p>
-              <p style={{ ...mutedValueStyles, fontSize: "12px", margin: 0 }}>
-                Linked to your authenticated Google account.
-              </p>
+              <div style={readOnlyContentStackStyles}>
+                <p style={sectionValueStyles}>
+                  {authenticatedUser?.email ||
+                    preferences.profile.emailAddress ||
+                    "--"}
+                </p>
+                <p style={readOnlyHelperTextStyles}>
+                  Linked to your authenticated Google account.
+                </p>
+              </div>
             </div>
 
             <div style={readOnlyFieldStyles}>
@@ -481,26 +517,31 @@ const ProfileSection = ({
                   alignItems: "center",
                   gap: "10px",
                   flexWrap: "wrap",
+                  minWidth: 0,
                 }}
               >
                 <p style={sectionLabelStyles}>Role</p>
                 <span style={systemTagStyles}>Read Only</span>
               </div>
-              <p style={sectionValueStyles}>{positionField.value || "--"}</p>
-              <p style={{ ...mutedValueStyles, fontSize: "12px", margin: 0 }}>
-                Managed by an authorized system administrator.
-              </p>
+              <div style={readOnlyContentStackStyles}>
+                <p style={sectionValueStyles}>{positionField.value || "--"}</p>
+                <p style={readOnlyHelperTextStyles}>
+                  Managed by an authorized system administrator.
+                </p>
+              </div>
             </div>
 
             {preferences.profile.assignedBarangay ? (
               <div style={readOnlyFieldStyles}>
                 <p style={sectionLabelStyles}>Assigned Barangay</p>
-                <p style={sectionValueStyles}>
-                  {preferences.profile.assignedBarangay.name || "--"}
-                </p>
-                <p style={{ ...mutedValueStyles, fontSize: "12px", margin: 0 }}>
-                  Managed through user administration.
-                </p>
+                <div style={readOnlyContentStackStyles}>
+                  <p style={sectionValueStyles}>
+                    {preferences.profile.assignedBarangay.name || "--"}
+                  </p>
+                  <p style={readOnlyHelperTextStyles}>
+                    Managed through user administration.
+                  </p>
+                </div>
               </div>
             ) : null}
           </div>
