@@ -73,6 +73,12 @@ import {
   isSelectedProfilePictureFile,
   PROFILE_PICTURE_ACTIONS,
 } from "./profilePictureDraft";
+import {
+  buildSettingsStatusBanner,
+  buildSettingsConflictSnapshot,
+  hasCachedRoleSettingsData,
+  mergeRefreshedSettingsWithLocalDraft,
+} from "./settingsOfflineHelpers";
 
 const gridStyles = {
   display: "grid",
@@ -364,6 +370,8 @@ const RoleSettingsPage = () => {
   const [settingsReloadVersion, setSettingsReloadVersion] = useState(0);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [isUnsavedModalOpen, setIsUnsavedModalOpen] = useState(false);
+  const [isReconnectConflictModalOpen, setIsReconnectConflictModalOpen] =
+    useState(false);
   const [activeSection, setActiveSection] = useState(null);
   const [toast, setToast] = useState({
     message: "",
@@ -387,6 +395,13 @@ const RoleSettingsPage = () => {
   );
   const [isRemoveProfilePictureModalOpen, setIsRemoveProfilePictureModalOpen] =
     useState(false);
+  const [isOnline, setIsOnline] = useState(
+    typeof navigator === "undefined" ? true : navigator.onLine,
+  );
+  const [isReconnectRefreshInFlight, setIsReconnectRefreshInFlight] =
+    useState(false);
+  const [isReconnectRefreshBlocked, setIsReconnectRefreshBlocked] =
+    useState(false);
   const profilePictureInputRef = useRef(null);
   const resetPreferencesButtonRef = useRef(null);
   const resetCancelButtonRef = useRef(null);
@@ -396,10 +411,16 @@ const RoleSettingsPage = () => {
   const settingsOwnerKeyRef = useRef("");
   const profilePicturePreviewUrlRef = useRef("");
   const isRefreshingProfilePictureRef = useRef(false);
+  const previousOnlineRef = useRef(isOnline);
+  const preferencesRef = useRef(createDefaultRolePreferences());
+  const savedProfilePreferencesRef = useRef(createDefaultRolePreferences());
+  const hasUnsavedChangesRef = useRef(false);
+  const hasProfileChangesRef = useRef(false);
+  const hasNotificationChangesRef = useRef(false);
+  const offlineToastKeyRef = useRef("");
 
   const roleMeta = useMemo(() => getRoleMeta(currentRole), [currentRole]);
   const syncSummary = useMemo(() => buildSyncSummary(syncEntries), [syncEntries]);
-  const isOnline = typeof navigator === "undefined" ? true : navigator.onLine;
   const isBarangayRole = currentRole === ROLE_CODES.BARANGAY;
   const isMswdoRole = currentRole === ROLE_CODES.MSWDO;
   const isMayorRole = currentRole === ROLE_CODES.MAYOR;
@@ -517,6 +538,26 @@ const RoleSettingsPage = () => {
     [preferences, savedProfilePreferences],
   );
   const hasUnsavedChanges = hasProfileChanges || hasNotificationChanges;
+  const hasCachedSettings = useMemo(
+    () =>
+      hasCachedRoleSettingsData(preferences) ||
+      hasCachedRoleSettingsData(savedProfilePreferences),
+    [preferences, savedProfilePreferences],
+  );
+  const isOfflineWithoutCachedSettings =
+    !isOnline &&
+    !hasCachedSettings &&
+    (notificationLoadSource === "offline-empty" ||
+      notificationLoadSource === "unauthorized" ||
+      notificationLoadSource === "error");
+  const isSettingsReadOnlyOffline =
+    !isOnline || isReconnectRefreshInFlight || isReconnectRefreshBlocked;
+  const settingsStatusBanner = buildSettingsStatusBanner({
+    activeSectionKey: activeSection,
+    isOnline,
+    hasUnsavedChanges,
+    isReconnectRefreshBlocked,
+  });
   const profilePicturePresentation = useMemo(
     () =>
       getProfilePictureUiState({
@@ -526,10 +567,51 @@ const RoleSettingsPage = () => {
     [preferences.profile, profilePictureDraft],
   );
   const retryRoleSettingsLoad = () => {
+    setIsReconnectRefreshBlocked(false);
     setNotificationLoadError("");
     setNotificationLoadSource("loading");
     setSettingsReloadVersion((current) => current + 1);
   };
+
+  const showScopedToast = ({ key, title, message, type = "info" }) => {
+    if (offlineToastKeyRef.current === key && toast.message === message) {
+      return;
+    }
+
+    offlineToastKeyRef.current = key;
+    setToast({ title, message, type });
+  };
+
+  useEffect(() => {
+    preferencesRef.current = preferences;
+  }, [preferences]);
+
+  useEffect(() => {
+    savedProfilePreferencesRef.current = savedProfilePreferences;
+  }, [savedProfilePreferences]);
+
+  useEffect(() => {
+    hasUnsavedChangesRef.current = hasUnsavedChanges;
+    hasProfileChangesRef.current = hasProfileChanges;
+    hasNotificationChangesRef.current = hasNotificationChanges;
+  }, [hasNotificationChanges, hasProfileChanges, hasUnsavedChanges]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   useEffect(() => {
     const availableSections = getSectionsForRole({
@@ -624,6 +706,24 @@ const RoleSettingsPage = () => {
       return;
     }
 
+    const wasOnline = previousOnlineRef.current;
+
+    if (wasOnline && !isOnline && hasUnsavedChangesRef.current) {
+      showScopedToast({
+        key: "settings-connection-lost",
+        type: "warning",
+        title: "Connection lost",
+        message: "Your changes are not saved. Reconnect to continue.",
+      });
+    }
+
+  }, [authenticatedUser, currentRole, isOnline]);
+
+  useEffect(() => {
+    if (!currentRole || !authenticatedUser) {
+      return;
+    }
+
     let isMounted = true;
     const ownerKey = settingsOwnerKey;
 
@@ -647,10 +747,39 @@ const RoleSettingsPage = () => {
         );
       }
 
-      setPreferences(hydratedPreferences);
+      if (result.source === "network" && hasUnsavedChangesRef.current) {
+        const previousSavedSnapshot = buildSettingsConflictSnapshot(
+          savedProfilePreferencesRef.current,
+        );
+        const refreshedSnapshot = buildSettingsConflictSnapshot(
+          hydratedPreferences,
+        );
+        const hasServerConflict =
+          JSON.stringify(previousSavedSnapshot) !==
+          JSON.stringify(refreshedSnapshot);
+
+        setPreferences(
+          mergeRefreshedSettingsWithLocalDraft({
+            refreshedSettings: hydratedPreferences,
+            currentPreferences: preferencesRef.current,
+            preserveProfileDraft: hasProfileChangesRef.current,
+            preserveNotificationDraft: hasNotificationChangesRef.current,
+          }),
+        );
+
+        if (hasServerConflict) {
+          setIsReconnectConflictModalOpen(true);
+        }
+      } else {
+        setPreferences(hydratedPreferences);
+      }
       setSavedProfilePreferences(hydratedPreferences);
       setNotificationLoadSource(result.source);
-      setNotificationLoadError(result.errorMessage || "");
+      setNotificationLoadError(
+        result.source === "offline-empty"
+          ? "Connect to the internet to load your account settings."
+          : result.errorMessage || "",
+      );
     };
 
     void loadPersistedRoleSettings();
@@ -659,6 +788,111 @@ const RoleSettingsPage = () => {
       isMounted = false;
     };
   }, [authenticatedUser, currentRole, settingsOwnerKey, settingsReloadVersion]);
+
+  useEffect(() => {
+    if (!isOnline || !currentRole || !authenticatedUser) {
+      previousOnlineRef.current = isOnline;
+      return;
+    }
+
+    const wasOnline = previousOnlineRef.current;
+    previousOnlineRef.current = isOnline;
+
+    if (wasOnline !== false) {
+      return;
+    }
+
+    let isMounted = true;
+    const ownerKey = settingsOwnerKey;
+
+    const refreshSettingsAfterReconnect = async () => {
+      setIsReconnectRefreshInFlight(true);
+      setIsReconnectRefreshBlocked(false);
+      setNotificationLoadError("");
+
+      try {
+        const result = await loadRoleSettingsState({
+          roleCode: currentRole,
+          userId: authenticatedUser.id,
+        });
+
+        if (
+          !isMounted ||
+          settingsOwnerKeyRef.current !== ownerKey
+        ) {
+          return;
+        }
+
+        if (result.source !== "network") {
+          setIsReconnectRefreshBlocked(true);
+          setNotificationLoadError(
+            "Account settings could not be refreshed. Please try again.",
+          );
+          showScopedToast({
+            key: "settings-reconnect-refresh-failed",
+            type: "warning",
+            title: "Back online",
+            message: "Account settings could not be refreshed. Please try again.",
+          });
+          return;
+        }
+
+        const refreshedPreferences = applyAuthenticatedUserProfileFallbacks(
+          result.settings,
+        );
+        const hadLocalDraft = hasUnsavedChangesRef.current;
+        const hadProfileDraft = hasProfileChangesRef.current;
+        const hadNotificationDraft = hasNotificationChangesRef.current;
+        const previousSavedSnapshot = buildSettingsConflictSnapshot(
+          savedProfilePreferencesRef.current,
+        );
+        const refreshedSnapshot = buildSettingsConflictSnapshot(
+          refreshedPreferences,
+        );
+        const hasServerConflict =
+          JSON.stringify(previousSavedSnapshot) !==
+          JSON.stringify(refreshedSnapshot);
+
+        if (!hadLocalDraft) {
+          setPreferences(refreshedPreferences);
+        } else {
+          setPreferences(
+            mergeRefreshedSettingsWithLocalDraft({
+              refreshedSettings: refreshedPreferences,
+              currentPreferences: preferencesRef.current,
+              preserveProfileDraft: hadProfileDraft,
+              preserveNotificationDraft: hadNotificationDraft,
+            }),
+          );
+        }
+
+        setSavedProfilePreferences(refreshedPreferences);
+        setNotificationLoadSource("network");
+        setNotificationLoadError("");
+
+        if (hadLocalDraft && hasServerConflict) {
+          setIsReconnectConflictModalOpen(true);
+        }
+
+        showScopedToast({
+          key: "settings-back-online",
+          type: "info",
+          title: "Back online",
+          message: "Review your account settings before saving.",
+        });
+      } finally {
+        if (isMounted && settingsOwnerKeyRef.current === ownerKey) {
+          setIsReconnectRefreshInFlight(false);
+        }
+      }
+    };
+
+    void refreshSettingsAfterReconnect();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [authenticatedUser, currentRole, isOnline, settingsOwnerKey]);
 
   useEffect(() => {
     if (!authenticatedUser) {
@@ -780,6 +1014,15 @@ const RoleSettingsPage = () => {
         return;
       }
 
+      if (!isOnline) {
+        setIsLoading(false);
+        setErrorMessage("");
+        setAssignedBarangayName(
+          preferencesRef.current.profile.assignedBarangay?.name || "--",
+        );
+        return;
+      }
+
       setIsLoading(true);
       setErrorMessage("");
       const ownerKey = settingsOwnerKey;
@@ -822,10 +1065,15 @@ const RoleSettingsPage = () => {
     };
 
     loadSettingsData();
-  }, [authenticatedUser, currentRole, settingsOwnerKey]);
+  }, [authenticatedUser, currentRole, isOnline, settingsOwnerKey]);
 
   useEffect(() => {
     if (!isBarangayRole && !isMswdoRole && !isMayorRole) {
+      return;
+    }
+
+    if (!isOnline) {
+      setSyncHistoryErrorMessage("");
       return;
     }
 
@@ -872,7 +1120,7 @@ const RoleSettingsPage = () => {
       isMounted = false;
       unsubscribe();
     };
-  }, [isBarangayRole, isMayorRole, isMswdoRole]);
+  }, [isBarangayRole, isMayorRole, isMswdoRole, isOnline]);
 
   const handleSavePreferences = async () => {
     if (!currentRole || !authenticatedUser) {
@@ -883,12 +1131,21 @@ const RoleSettingsPage = () => {
     const isNotificationSection = activeSection === "notification-preferences";
 
     if (!isOnline) {
-      setToast({
+      showScopedToast({
+        key: "settings-save-offline",
         type: "warning",
-        title: "Offline Mode",
-        message: isProfileSection
-          ? "Reconnect to the internet before saving profile information."
-          : "Reconnect to the internet before changing notification preferences.",
+        title: "Unable to save offline",
+        message: "Connect to the internet to save account settings.",
+      });
+      return;
+    }
+
+    if (isReconnectRefreshInFlight || isReconnectRefreshBlocked) {
+      showScopedToast({
+        key: "settings-save-refresh-blocked",
+        type: "warning",
+        title: "Unable to save offline",
+        message: "Connect to the internet to save account settings.",
       });
       return;
     }
@@ -1131,6 +1388,10 @@ const RoleSettingsPage = () => {
   };
 
   const handleProfileFieldChange = (field, value) => {
+    if (isSettingsReadOnlyOffline) {
+      return;
+    }
+
     const nextValue =
       (isBarangayRole || isMswdoRole || isMayorRole) &&
       field === "contactNumber"
@@ -1187,6 +1448,10 @@ const RoleSettingsPage = () => {
   };
 
   const handleNotificationRuleChannelToggle = (ruleCode, type) => {
+    if (isSettingsReadOnlyOffline) {
+      return;
+    }
+
     setNotificationTouched(true);
     setPreferences((current) => ({
       ...current,
@@ -1208,6 +1473,10 @@ const RoleSettingsPage = () => {
   };
 
   const handleOpenResetNotificationPreferences = () => {
+    if (isSettingsReadOnlyOffline) {
+      return;
+    }
+
     setIsResetModalOpen(true);
   };
 
@@ -1216,6 +1485,10 @@ const RoleSettingsPage = () => {
   };
 
   const handleConfirmResetNotificationPreferences = () => {
+    if (isSettingsReadOnlyOffline) {
+      return;
+    }
+
     setIsResetModalOpen(false);
     setNotificationTouched(true);
     setPreferences((current) => {
@@ -1280,6 +1553,17 @@ const RoleSettingsPage = () => {
   const handleProfilePictureChange = (event) => {
     const selectedFile = event.target.files?.[0];
 
+    if (isSettingsReadOnlyOffline) {
+      event.target.value = "";
+      showScopedToast({
+        key: "settings-picture-offline",
+        type: "warning",
+        title: "You're offline",
+        message: "Connect to the internet to change your profile picture.",
+      });
+      return;
+    }
+
     if (!selectedFile || !authenticatedUser || !currentRole) {
       return;
     }
@@ -1324,6 +1608,16 @@ const RoleSettingsPage = () => {
   };
 
   const handleOpenRemoveProfilePictureDialog = () => {
+    if (isSettingsReadOnlyOffline) {
+      showScopedToast({
+        key: "settings-picture-remove-offline",
+        type: "warning",
+        title: "You're offline",
+        message: "Connect to the internet to change your profile picture.",
+      });
+      return;
+    }
+
     if (!authenticatedUser || !currentRole) {
       return;
     }
@@ -1464,6 +1758,7 @@ const RoleSettingsPage = () => {
   const canSavePreferences =
     hasUnsavedChanges &&
     !isSavingPreferences &&
+    !isSettingsReadOnlyOffline &&
     !isLoading &&
     !isNotificationPreferencesLoading &&
     !hasNotificationPreferencesError &&
@@ -1630,6 +1925,11 @@ const RoleSettingsPage = () => {
     EmptyState,
     isLoading,
     syncSectionProps,
+    isOnline,
+    isSettingsReadOnlyOffline,
+    hasUnsavedChanges,
+    isReconnectRefreshInFlight,
+    isReconnectRefreshBlocked,
   });
 
   const barangayViewContext = buildBarangayViewContext({
@@ -1767,7 +2067,7 @@ const RoleSettingsPage = () => {
       <ConfirmationModal
         isOpen={isUnsavedModalOpen}
         title="Discard unsaved changes?"
-        message="Your changes have not been saved yet."
+        message="Your account settings have not been saved. Connect to the internet to save them, or discard them now."
         onCancel={handleKeepEditing}
         onClose={handleKeepEditing}
         onConfirm={handleDiscardChanges}
@@ -1781,8 +2081,49 @@ const RoleSettingsPage = () => {
         initialFocusRef={unsavedKeepEditingButtonRef}
         cancelButtonRef={unsavedKeepEditingButtonRef}
       />
+
+      <ConfirmationModal
+        isOpen={isReconnectConflictModalOpen}
+        title="Account settings changed while you were offline"
+        message="Review the latest account information before saving your changes."
+        onCancel={() => setIsReconnectConflictModalOpen(false)}
+        onClose={() => setIsReconnectConflictModalOpen(false)}
+        onConfirm={() => {
+          setIsReconnectConflictModalOpen(false);
+          handleDiscardChanges();
+        }}
+        cancelLabel="Review Changes"
+        confirmLabel="Discard My Changes"
+      />
     </>
   );
+
+  if (
+    (isBarangayRole || isMswdoRole || isMayorRole) &&
+    isOfflineWithoutCachedSettings
+  ) {
+    return (
+      <>
+        <PageHeader title={roleMeta.title} description={roleMeta.description} />
+        <section style={shellStyles.card} aria-live="polite">
+          <div style={{ display: "grid", gap: "10px" }}>
+            <h3 style={{ margin: 0, color: "#17324d" }}>
+              Account settings unavailable offline
+            </h3>
+            <p style={mutedValueStyles}>
+              Connect to the internet to load your account settings.
+            </p>
+          </div>
+        </section>
+        <FeedbackToast
+          message={toast.message}
+          type={toast.type}
+          title={toast.title}
+          onClose={() => setToast({ message: "", type: "info", title: "" })}
+        />
+      </>
+    );
+  }
 
   if (isBarangayRole) {
     return (
@@ -1801,6 +2142,7 @@ const RoleSettingsPage = () => {
           labelStyles={labelStyles}
           mutedValueStyles={mutedValueStyles}
           StatusChip={StatusChip}
+          statusBanner={settingsStatusBanner}
           ctx={barangayViewContext}
         />
         {settingsDialogs}
@@ -1825,6 +2167,7 @@ const RoleSettingsPage = () => {
           labelStyles={labelStyles}
           mutedValueStyles={mutedValueStyles}
           StatusChip={StatusChip}
+          statusBanner={settingsStatusBanner}
           ctx={mswdoViewContext}
         />
         {settingsDialogs}
@@ -1849,6 +2192,7 @@ const RoleSettingsPage = () => {
           labelStyles={labelStyles}
           mutedValueStyles={mutedValueStyles}
           StatusChip={StatusChip}
+          statusBanner={settingsStatusBanner}
           ctx={mayorViewContext}
         />
         {settingsDialogs}

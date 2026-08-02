@@ -104,7 +104,7 @@ const SyncPreferencesSection = ({ shellStyles, mutedValueStyles, StatusChip }) =
             <span style={iconBadgeStyles("#e9f8ef", "#2d8a57")}>
               <FiWifi size={18} />
             </span>
-            <h3 style={sectionTitleStyles}>Offline Capability</h3>
+            <h3 style={sectionTitleStyles}>Offline Access</h3>
           </div>
           <div
             style={{
@@ -114,7 +114,7 @@ const SyncPreferencesSection = ({ shellStyles, mutedValueStyles, StatusChip }) =
               flexWrap: "wrap",
             }}
           >
-            <StatusChip tone="success" label="Available" />
+            <StatusChip tone="success" label="Available for supported features" />
           </div>
         </article>
 

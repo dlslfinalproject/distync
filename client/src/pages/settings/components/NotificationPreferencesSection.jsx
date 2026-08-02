@@ -257,7 +257,6 @@ const NotificationChannelControl = ({
 const NotificationPreferenceRow = ({
   rule,
   rowIndex,
-  isOnline,
   isSavingDisabled,
   isMobileLayout,
   handleNotificationRuleChannelToggle,
@@ -324,6 +323,8 @@ const NotificationPreferencesSection = ({
   isNotificationPreferencesOffline = false,
   isNotificationPreferencesEmpty = false,
   isOnline = true,
+  isSettingsReadOnlyOffline = false,
+  hasUnsavedChanges = false,
   canResetNotificationPreferences = false,
   resetPreferencesButtonRef,
   handleRetryNotificationPreferencesLoad,
@@ -336,9 +337,11 @@ const NotificationPreferencesSection = ({
     ? notificationCategories
     : [];
   const resetDisabled =
-    !canResetNotificationPreferences || hasNotificationPreferencesError;
+    !canResetNotificationPreferences ||
+    hasNotificationPreferencesError ||
+    isSettingsReadOnlyOffline;
   const areControlsDisabled =
-    !isOnline ||
+    isSettingsReadOnlyOffline ||
     isNotificationPreferencesLoading ||
     hasNotificationPreferencesError ||
     isNotificationPreferencesEmpty;
@@ -371,10 +374,11 @@ const NotificationPreferencesSection = ({
         >
           <div style={{ display: "grid", gap: "6px" }}>
             <h4 style={{ margin: 0, color: "#17324d" }}>Notification types</h4>
-            {isNotificationPreferencesOffline ? (
+            {isSettingsReadOnlyOffline ? (
               <p style={mutedTextStyles}>
-                You are offline. Notification settings are available for viewing,
-                but changes require an internet connection.
+                {hasUnsavedChanges
+                  ? "Changes are not saved. Reconnect to continue."
+                  : "Changes require an internet connection."}
               </p>
             ) : null}
           </div>
@@ -482,7 +486,6 @@ const NotificationPreferencesSection = ({
                       key={rule.code}
                       rule={rule}
                       rowIndex={index}
-                      isOnline={isOnline}
                       isSavingDisabled={areControlsDisabled}
                       isMobileLayout={isMobileLayout}
                       handleNotificationRuleChannelToggle={

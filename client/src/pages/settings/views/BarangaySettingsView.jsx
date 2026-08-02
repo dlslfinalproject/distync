@@ -18,6 +18,7 @@ const BarangaySettingsView = ({
   labelStyles,
   mutedValueStyles,
   StatusChip,
+  statusBanner,
   ctx,
 }) => {
   const {
@@ -72,6 +73,7 @@ const BarangaySettingsView = ({
       roleMeta={roleMeta}
       pageActions={pageActions}
       errorMessage={errorMessage}
+      statusBanner={statusBanner}
       renderSectionContent={renderSectionContent}
       sectionCards={sectionCards}
       onOpenSection={onOpenSection}

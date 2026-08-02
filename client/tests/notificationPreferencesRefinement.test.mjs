@@ -65,7 +65,7 @@ test("notification preferences section source uses compact aligned category rows
   assert.match(source, /<p style=\{desktopHeaderLabelStyles\}>In-app<\/p>/);
   assert.match(source, /Required<\/span>/);
   assert.match(source, /Not available/);
-  assert.match(source, /You are offline\. Notification settings are available for viewing,/);
+  assert.match(source, /Changes require an internet connection\./);
   assert.match(source, /Loading notification preferences\.\.\./);
   assert.match(source, /Notification preferences could not be loaded\./);
   assert.match(source, /No notification settings are assigned to this role\./);
@@ -75,6 +75,7 @@ test("notification preferences section source uses compact aligned category rows
   assert.doesNotMatch(source, /Critical alert/);
   assert.doesNotMatch(source, /Daily summary<\/span>/);
   assert.doesNotMatch(source, /pillStyles/);
+  assert.doesNotMatch(source, /You are offline\. Notification settings are available for viewing,/);
 });
 
 test("notification preferences section source no longer uses nested per-rule cards", async () => {

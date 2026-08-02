@@ -458,6 +458,8 @@ export const loadRoleSettingsState = async ({
       userId,
       mode,
     }) || null;
+  const isOffline =
+    typeof navigator !== "undefined" && navigator.onLine === false;
 
   try {
     const response = await fetch(`${API_BASE_URL}/api/v1/settings/current`);
@@ -501,8 +503,10 @@ export const loadRoleSettingsState = async ({
 
     return {
       settings: normalizeStoredSettings({}),
-      source: "error",
-      errorMessage: "Notification preferences could not be loaded.",
+      source: isOffline ? "offline-empty" : "error",
+      errorMessage: isOffline
+        ? "Connect to the internet to load your account settings."
+        : "Notification preferences could not be loaded.",
     };
   }
 };

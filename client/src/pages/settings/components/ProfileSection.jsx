@@ -27,6 +27,10 @@ const ProfileSection = ({
   removeProfilePictureButtonRef,
   isSavingPreferences = false,
   isOnline = true,
+  isSettingsReadOnlyOffline = false,
+  hasUnsavedChanges = false,
+  isReconnectRefreshInFlight = false,
+  isReconnectRefreshBlocked = false,
   sectionTitle = "Profile",
   description,
   firstNameId,
@@ -159,15 +163,19 @@ const ProfileSection = ({
   const hasPendingPictureChange = pictureAction !== "UNCHANGED";
   const pictureStatusLabel = profilePicturePresentation?.statusLabel || "";
   const cancelPictureLabel = profilePicturePresentation?.cancelLabel || "Cancel";
-  const canOpenPicturePicker = !isSavingPreferences && isOnline;
-  const avatarButtonLabel = hasSavedPicture
-    ? "Change profile picture"
-    : "Add profile picture";
+  const canOpenPicturePicker = !isSavingPreferences && !isSettingsReadOnlyOffline;
+  const areProfileInputsDisabled = isSavingPreferences || isSettingsReadOnlyOffline;
+  const avatarButtonLabel = !isOnline
+    ? "Profile picture changes require an internet connection"
+    : hasSavedPicture
+      ? "Change profile picture"
+      : "Add profile picture";
   const avatarStatusId = `${contactId}-picture-status`;
   const avatarHintId = `${contactId}-picture-hint`;
+  const profileOfflineHelperId = `${contactId}-offline-helper`;
   const avatarDescriptionId = hasPendingPictureChange
-    ? `${avatarStatusId} ${avatarHintId}`
-    : avatarHintId;
+    ? `${avatarStatusId} ${avatarHintId} ${profileOfflineHelperId}`.trim()
+    : `${avatarHintId} ${profileOfflineHelperId}`.trim();
   const openPicturePicker = () => {
     if (!canOpenPicturePicker) {
       return;
@@ -216,6 +224,13 @@ const ProfileSection = ({
     >
       <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>{sectionTitle}</h3>
+        {isSettingsReadOnlyOffline ? (
+          <p id={profileOfflineHelperId} style={{ ...mutedValueStyles, margin: 0 }}>
+            {hasUnsavedChanges
+              ? "Changes are not saved. Reconnect to continue."
+              : "Connect to the internet to update account settings."}
+          </p>
+        ) : null}
       </div>
 
       <article style={{ display: "grid", gap: "24px" }}>
@@ -306,7 +321,11 @@ const ProfileSection = ({
                     ? "JPG, PNG, or WEBP up to 2 MB."
                     : isSavingPreferences
                       ? "Picture changes are temporarily disabled while saving."
-                      : "Reconnect to edit the profile picture."}
+                      : isReconnectRefreshInFlight
+                        ? "Account settings are refreshing after reconnecting."
+                        : isReconnectRefreshBlocked
+                          ? "Refresh account settings before changing the profile picture."
+                          : "Reconnect to edit the profile picture."}
                 </p>
               </div>
               <input
@@ -338,7 +357,7 @@ const ProfileSection = ({
                       backgroundColor: "#fff7f5",
                       color: "#9d4d58",
                     }}
-                    disabled={isSavingPreferences || !isOnline}
+                    disabled={isSavingPreferences || isSettingsReadOnlyOffline}
                   >
                     Remove
                   </button>
@@ -378,6 +397,7 @@ const ProfileSection = ({
                     </label>
                     <input
                       id={firstNameId}
+                      disabled={areProfileInputsDisabled}
                       value={preferences.profile.firstName || ""}
                       onChange={(event) =>
                         handleProfileFieldChange("firstName", event.target.value)
@@ -402,6 +422,7 @@ const ProfileSection = ({
                     </label>
                     <input
                       id={middleNameId}
+                      disabled={areProfileInputsDisabled}
                       value={preferences.profile.middleName || ""}
                       onChange={(event) =>
                         handleProfileFieldChange("middleName", event.target.value)
@@ -426,6 +447,7 @@ const ProfileSection = ({
                     </label>
                     <input
                       id={lastNameId}
+                      disabled={areProfileInputsDisabled}
                       value={preferences.profile.lastName || ""}
                       onChange={(event) =>
                         handleProfileFieldChange("lastName", event.target.value)
@@ -457,6 +479,7 @@ const ProfileSection = ({
                     <input
                       id={contactId}
                       type="text"
+                      disabled={areProfileInputsDisabled}
                       inputMode="numeric"
                       value={formatPhilippineContactNumberForDisplay(
                         preferences.profile.contactNumber,
