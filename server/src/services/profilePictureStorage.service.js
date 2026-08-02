@@ -111,6 +111,35 @@ const sanitizeFileName = (value = "") => {
   return trimmedValue.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 120);
 };
 
+const hasApprovedImageSignature = ({ mimeType, buffer }) => {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 12) {
+    return false;
+  }
+
+  if (mimeType === "image/png") {
+    return buffer
+      .subarray(0, 8)
+      .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  }
+
+  if (mimeType === "image/jpeg" || mimeType === "image/jpg") {
+    return (
+      buffer[0] === 0xff &&
+      buffer[1] === 0xd8 &&
+      buffer[2] === 0xff
+    );
+  }
+
+  if (mimeType === "image/webp") {
+    return (
+      buffer.subarray(0, 4).equals(Buffer.from("RIFF")) &&
+      buffer.subarray(8, 12).equals(Buffer.from("WEBP"))
+    );
+  }
+
+  return false;
+};
+
 const parseProfilePictureUpload = ({
   mimeType,
   fileDataBase64,
@@ -142,6 +171,30 @@ const parseProfilePictureUpload = ({
 
   if (buffer.length > PROFILE_PICTURE_MAX_FILE_SIZE_BYTES) {
     const error = new Error("Profile picture is too large.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (
+    normalizedBase64.startsWith("data:") ||
+    normalizedBase64.startsWith("http://") ||
+    normalizedBase64.startsWith("https://") ||
+    normalizedBase64.startsWith("/assets/") ||
+    normalizedBase64.startsWith("/public/") ||
+    normalizedBase64.startsWith("blob:") ||
+    normalizedBase64.includes("\\") ||
+    /^[a-z]:/i.test(normalizedBase64)
+  ) {
+    const error = new Error(
+      "The selected profile picture could not be processed. Choose another image and try again.",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!hasApprovedImageSignature({ mimeType: normalizedMimeType, buffer })) {
+    const error = new Error(
+      "The selected profile picture could not be processed. Choose another image and try again.",
+    );
     error.statusCode = 400;
     throw error;
   }

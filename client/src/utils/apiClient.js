@@ -12,6 +12,16 @@ const WINDOW_ORIGIN =
 
 const API_BASE_ORIGIN = new URL(API_BASE_URL, WINDOW_ORIGIN).origin;
 
+const createBrowserEvent = (eventName, detail) => {
+  if (typeof CustomEvent === "function") {
+    return new CustomEvent(eventName, { detail });
+  }
+
+  const fallbackEvent = new Event(eventName);
+  fallbackEvent.detail = detail;
+  return fallbackEvent;
+};
+
 const shouldAttachAccessToken = (requestUrl) => {
   return (
     requestUrl.origin === API_BASE_ORIGIN &&
@@ -57,12 +67,10 @@ export const installAuthenticatedFetch = () => {
       const activeSession = getAuthenticatedSessionForMode(getAccessMode());
 
       window.dispatchEvent(
-        new CustomEvent(AUTH_SESSION_INVALIDATED_EVENT, {
-          detail: {
-            mode: getAccessMode(),
-            userId: activeSession?.user?.id || "",
-            reason: "api-401",
-          },
+        createBrowserEvent(AUTH_SESSION_INVALIDATED_EVENT, {
+          mode: getAccessMode(),
+          userId: activeSession?.user?.id || "",
+          reason: "api-401",
         }),
       );
     }

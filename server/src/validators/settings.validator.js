@@ -16,6 +16,10 @@ const PROFILE_ALLOWED_FIELDS = new Set([
   "contactNumber",
 ]);
 const PROFILE_PICTURE_ACTIONS = new Set(["UNCHANGED", "REPLACE", "REMOVE"]);
+const LEGACY_PROFILE_PICTURE_FIELDS = new Set([
+  "profilePictureDataUrl",
+  "profile_picture_data_url",
+]);
 const PROFILE_PROTECTED_FIELDS = new Set([
   "fullName",
   "email",
@@ -36,7 +40,6 @@ const PROFILE_PROTECTED_FIELDS = new Set([
   "profilePictureUrlExpiresAt",
   "profilePictureFileName",
   "profilePictureUpdatedAt",
-  "profilePictureDataUrl",
 ]);
 
 const isPlainObject = (value) =>
@@ -58,6 +61,27 @@ const normalizeProfileName = (value = "") =>
   String(value || "")
     .trim()
     .replace(/\s+/g, " ");
+
+const isRejectedProfilePictureContent = (value = "") => {
+  const normalizedValue = String(value || "").trim().toLowerCase();
+
+  if (!normalizedValue) {
+    return false;
+  }
+
+  return (
+    normalizedValue.startsWith("data:") ||
+    normalizedValue.startsWith("blob:") ||
+    normalizedValue.startsWith("http://") ||
+    normalizedValue.startsWith("https://") ||
+    normalizedValue.startsWith("/assets/") ||
+    normalizedValue.startsWith("/public/") ||
+    normalizedValue.startsWith("./") ||
+    normalizedValue.startsWith("../") ||
+    normalizedValue.includes("\\") ||
+    /^[a-z]:/i.test(normalizedValue)
+  );
+};
 
 const normalizePhilippineContactNumber = (value = "") => {
   const rawValue = String(value || "").trim();
@@ -137,6 +161,9 @@ const validateSaveCurrentSettings = (req, res, next) => {
 
     if (isPlainObject(settings.profile)) {
       const profileKeys = Object.keys(settings.profile);
+      const legacyProfilePictureFields = profileKeys.filter((key) =>
+        LEGACY_PROFILE_PICTURE_FIELDS.has(key),
+      );
       const protectedFields = profileKeys.filter((key) =>
         PROFILE_PROTECTED_FIELDS.has(key),
       );
@@ -144,6 +171,13 @@ const validateSaveCurrentSettings = (req, res, next) => {
         (key) =>
           !PROFILE_ALLOWED_FIELDS.has(key) && !PROFILE_PROTECTED_FIELDS.has(key),
       );
+
+      if (legacyProfilePictureFields.length > 0) {
+        return res.status(400).json({
+          message:
+            "Profile picture data must be uploaded through the approved profile-picture workflow.",
+        });
+      }
 
       if (protectedFields.length > 0) {
         return res.status(400).json({
@@ -312,6 +346,13 @@ const validateSaveCurrentSettings = (req, res, next) => {
           });
         }
 
+        if (isRejectedProfilePictureContent(normalizedFileDataBase64)) {
+          return res.status(400).json({
+            message:
+              "The selected profile picture could not be processed. Choose another image and try again.",
+          });
+        }
+
         if (!/^[A-Za-z0-9+/=]+$/.test(normalizedFileDataBase64)) {
           return res.status(400).json({
             message: "profilePicture.fileDataBase64 must be a valid Base64 string",
@@ -323,6 +364,17 @@ const validateSaveCurrentSettings = (req, res, next) => {
             message: "Profile picture is too large.",
           });
         }
+      } else if (
+        fileName !== undefined ||
+        mimeType !== undefined ||
+        fileDataBase64 !== undefined
+      ) {
+        return res.status(400).json({
+          message:
+            normalizedAction === "REMOVE"
+              ? "Profile picture removal cannot include replacement content."
+              : "Unchanged profile pictures cannot include upload content.",
+        });
       }
 
       req.validatedBody = {
@@ -392,6 +444,13 @@ const validateUploadCurrentProfilePicture = (req, res, next) => {
 
     if (!normalizedFileDataBase64) {
       return res.status(400).json({ message: "fileDataBase64 is required" });
+    }
+
+    if (isRejectedProfilePictureContent(normalizedFileDataBase64)) {
+      return res.status(400).json({
+        message:
+          "The selected profile picture could not be processed. Choose another image and try again.",
+      });
     }
 
     if (!/^[A-Za-z0-9+/=]+$/.test(normalizedFileDataBase64)) {

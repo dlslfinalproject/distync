@@ -70,6 +70,7 @@ import {
   createProfilePictureDraftState,
   getProfilePictureUiState,
   hasProfilePictureDraftChanges,
+  isSelectedProfilePictureFile,
   PROFILE_PICTURE_ACTIONS,
 } from "./profilePictureDraft";
 
@@ -278,15 +279,28 @@ const PROFILE_PICTURE_ALLOWED_MIME_TYPES = new Set([
 ]);
 
 const fileToBase64 = async (file) => {
-  const buffer = await file.arrayBuffer();
-  let binary = "";
-  const bytes = new Uint8Array(buffer);
-
-  for (let index = 0; index < bytes.length; index += 1) {
-    binary += String.fromCharCode(bytes[index]);
+  if (!isSelectedProfilePictureFile(file)) {
+    throw new Error("Select a valid profile picture before saving.");
   }
 
-  return window.btoa(binary);
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onerror = () => {
+      reject(new Error("The selected profile picture could not be processed."));
+    };
+    reader.onload = () => {
+      resolve(typeof reader.result === "string" ? reader.result : "");
+    };
+    reader.readAsDataURL(file);
+  });
+  const separatorIndex = dataUrl.indexOf(",");
+
+  if (separatorIndex < 0) {
+    throw new Error("The selected profile picture could not be processed.");
+  }
+
+  return dataUrl.slice(separatorIndex + 1).trim();
 };
 
 const StatusChip = ({ tone = "info", label }) => (
@@ -999,10 +1013,17 @@ const RoleSettingsPage = () => {
           };
 
       if (isProfileSection) {
-        if (
-          profilePictureDraft.pictureAction === PROFILE_PICTURE_ACTIONS.REPLACE &&
-          profilePictureDraft.selectedPictureFile
-        ) {
+        if (profilePictureDraft.pictureAction === PROFILE_PICTURE_ACTIONS.REPLACE) {
+          if (!isSelectedProfilePictureFile(profilePictureDraft.selectedPictureFile)) {
+            setToast({
+              type: "error",
+              title: "Profile Picture Error",
+              message: "Select a valid profile picture before saving.",
+            });
+            setIsSavingPreferences(false);
+            return;
+          }
+
           updatedSettings.profilePicture = {
             action: PROFILE_PICTURE_ACTIONS.REPLACE,
             fileName:
@@ -1082,10 +1103,19 @@ const RoleSettingsPage = () => {
 
         setToast({
           type: "error",
-          title: "Profile Save Failed",
+          title:
+            error?.code === "PROFILE_PICTURE_SAVE_FAILED"
+              ? "Profile Picture Error"
+              : error?.code === "SETTINGS_SAVE_FAILED" || error?.status >= 500
+                ? "Account Settings Could Not Be Saved"
+                : "Profile Save Failed",
           message: /cannot be changed from Account Settings/i.test(errorMessage)
             ? "Some profile fields cannot be changed from Account Settings."
-            : "Profile information could not be saved. Please review your entries and try again.",
+            : error?.code === "PROFILE_PICTURE_SAVE_FAILED"
+              ? "The selected profile picture could not be saved. Please try again."
+              : error?.code === "SETTINGS_SAVE_FAILED" || error?.status >= 500
+                ? "Something went wrong while saving your changes. Please try again."
+                : "Profile information could not be saved. Please review your entries and try again.",
         });
         return;
       }

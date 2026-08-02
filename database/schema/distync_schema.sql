@@ -94,7 +94,6 @@ CREATE TABLE public.user_role_settings (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   role_code character varying NOT NULL,
-  profile_picture_data_url text,
   profile_picture_path text,
   profile_picture_file_name character varying,
   profile_picture_updated_at timestamp with time zone,

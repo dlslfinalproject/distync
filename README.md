@@ -155,6 +155,7 @@ DISTYNC profile pictures are now treated as controlled authenticated account dat
 - Arbitrary external image URLs are not accepted for user profile pictures.
 - Private profile pictures are stored in the `distync-profile-pictures` Supabase Storage bucket.
 - The database stores a private object path and update metadata, not a permanent public URL.
+- PostgreSQL persists `profile_picture_path` and related metadata only. Base64 profile-picture data is not stored.
 - Display uses short-lived signed URLs returned by the backend.
 - Signed URLs are not stored in PostgreSQL.
 - Raw profile image data and Blob preview URLs are not stored in localStorage.

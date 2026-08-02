@@ -8,17 +8,22 @@ import {
   getProfilePicturePresentation,
   getProfilePictureUiState,
   hasProfilePictureDraftChanges,
+  isSelectedProfilePictureFile,
   PROFILE_PICTURE_ACTIONS,
 } from "../src/pages/settings/profilePictureDraft.js";
 
 test("profile picture draft selection creates a local preview replacement state", () => {
+  const selectedFile = new File(["avatar"], "avatar.webp", {
+    type: "image/webp",
+  });
   const draft = buildPictureDraftForSelection({
-    file: { name: "avatar.webp", type: "image/webp" },
+    file: selectedFile,
     previewUrl: "blob:preview-url",
   });
 
   assert.equal(draft.pictureAction, PROFILE_PICTURE_ACTIONS.REPLACE);
   assert.equal(draft.selectedPicturePreviewUrl, "blob:preview-url");
+  assert.equal(draft.selectedPictureFile, selectedFile);
   assert.equal(hasProfilePictureDraftChanges(draft), true);
 
   const presentation = getProfilePicturePresentation({
@@ -51,7 +56,9 @@ test("profile picture draft removal hides the saved picture until changes are sa
 test("profile picture UI state exposes compact status labels and remove visibility", () => {
   const replacementState = getProfilePictureUiState({
     draft: buildPictureDraftForSelection({
-      file: { name: "avatar.webp" },
+      file: new File(["avatar"], "avatar.webp", {
+        type: "image/webp",
+      }),
       previewUrl: "blob:replacement-preview",
     }),
     savedProfile: {
@@ -102,4 +109,15 @@ test("unchanged profile picture draft reuses the saved picture metadata", () => 
   assert.equal(presentation.profilePictureSource, "https://example.com/saved-picture.jpg");
   assert.equal(presentation.hasProfilePicture, true);
   assert.equal(presentation.isPreview, false);
+});
+
+test("invalid replacement state is collapsed to unchanged when the selected file is not a File", () => {
+  const draft = buildPictureDraftForSelection({
+    file: { name: "distync-logo.png", type: "image/png" },
+    previewUrl: "blob:preview-url",
+  });
+
+  assert.deepEqual(draft, createProfilePictureDraftState());
+  assert.equal(isSelectedProfilePictureFile(draft.selectedPictureFile), false);
+  assert.equal(hasProfilePictureDraftChanges(draft), false);
 });

@@ -4,6 +4,9 @@ export const PROFILE_PICTURE_ACTIONS = Object.freeze({
   REMOVE: "REMOVE",
 });
 
+export const isSelectedProfilePictureFile = (value) =>
+  typeof File !== "undefined" && value instanceof File;
+
 export const createProfilePictureDraftState = () => ({
   selectedPictureFile: null,
   selectedPicturePreviewUrl: "",
@@ -17,11 +20,17 @@ export const hasProfilePictureDraftChanges = (draft = {}) =>
 export const buildPictureDraftForSelection = ({
   file,
   previewUrl,
-} = {}) => ({
-  selectedPictureFile: file || null,
-  selectedPicturePreviewUrl: String(previewUrl || ""),
-  pictureAction: PROFILE_PICTURE_ACTIONS.REPLACE,
-});
+} = {}) => {
+  if (!isSelectedProfilePictureFile(file)) {
+    return createProfilePictureDraftState();
+  }
+
+  return {
+    selectedPictureFile: file,
+    selectedPicturePreviewUrl: String(previewUrl || ""),
+    pictureAction: PROFILE_PICTURE_ACTIONS.REPLACE,
+  };
+};
 
 export const buildPictureDraftForRemoval = () => ({
   selectedPictureFile: null,
@@ -60,6 +69,7 @@ export const getProfilePicturePresentation = ({
   }
 
   return {
+    // Display-only source. Upload payloads must come from selectedPictureFile.
     profilePictureSource: String(profile.profilePictureUrl || ""),
     hasProfilePicture: Boolean(profile.profilePicturePath),
     isPreview: false,
