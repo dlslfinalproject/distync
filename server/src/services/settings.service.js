@@ -8,7 +8,7 @@ const {
   buildPreferenceCategories,
   getDefaultEffectiveChannels,
   getEditableChannels,
-  resolveEffectiveChannels,
+  resolveEffectiveNotificationPreferences,
   sanitizeNotificationRulePreferences,
 } = require("../modules/notifications/notificationPreferenceUtils");
 
@@ -265,10 +265,6 @@ const buildPersistedSettingsFromRecord = (record = {}) => ({
     lastProfileUpdateAt: normalizeTimestampValue(record.last_profile_update_at),
     lastPreferenceSaveAt: normalizeTimestampValue(record.last_preference_save_at),
   },
-  legacyPreferenceSource: {
-    enabledNotificationRuleCodes: record.enabled_notification_rule_codes_json || [],
-    notificationChannels: record.notification_channels_json || {},
-  },
 });
 
 const buildUserRoleSettingsPayload = (settings = {}) => ({
@@ -279,8 +275,6 @@ const buildUserRoleSettingsPayload = (settings = {}) => ({
   profilePictureUpdatedAt: parseTimestampValue(
     settings?.profile?.profilePictureUpdatedAt,
   ),
-  enabledNotificationRuleCodesJson: [],
-  notificationChannelsJson: {},
   notificationRulePreferencesJson: sanitizeNotificationRulePreferences(
     settings.notificationRulePreferences,
   ),
@@ -442,33 +436,28 @@ const attachSignedProfilePictureMetadata = async (settings = {}) => {
 const getRolePolicyRows = async ({ roleCode, dbClient }) =>
   notificationRepository.getNotificationPolicyRowsByRoleCode(roleCode, dbClient);
 
-const buildEffectivePreferenceMap = ({
-  policyRows,
-  storedPreferences,
-}) =>
-  policyRows.reduce((current, policyRow) => {
-    current[policyRow.code] = resolveEffectiveChannels({
-      policyRow,
-      storedPreferences,
-    });
-    return current;
-  }, {});
-
 const buildNotificationSettingsResponse = ({
   roleCode,
   policyRows,
-  storedPreferences,
+  modernPreferences,
 }) => ({
-  notificationRulePreferences: sanitizeNotificationRulePreferences(storedPreferences),
-  effectiveNotificationChannels: buildEffectivePreferenceMap({
-    policyRows,
-    storedPreferences,
-  }),
-  categories: buildPreferenceCategories({
-    roleCode,
-    policyRows,
-    storedPreferences,
-  }),
+  ...(() => {
+    const resolvedPreferences = resolveEffectiveNotificationPreferences({
+      roleCode,
+      policyRows,
+      modernPreferences,
+    });
+
+    return {
+      notificationRulePreferences: resolvedPreferences.normalizedPreferences,
+      effectiveNotificationChannels: resolvedPreferences.effectiveChannels,
+      categories: buildPreferenceCategories({
+        roleCode,
+        policyRows,
+        storedPreferences: resolvedPreferences.normalizedPreferences,
+      }),
+    };
+  })(),
 });
 
 const buildRoleSettingsResponse = async ({
@@ -484,7 +473,7 @@ const buildRoleSettingsResponse = async ({
   const notificationSettings = buildNotificationSettingsResponse({
     roleCode,
     policyRows,
-    storedPreferences: normalizedSnapshot.notificationRulePreferences,
+    modernPreferences: normalizedSnapshot.notificationRulePreferences,
   });
 
   return {

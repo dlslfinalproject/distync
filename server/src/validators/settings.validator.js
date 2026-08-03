@@ -16,6 +16,20 @@ const PROFILE_ALLOWED_FIELDS = new Set([
   "contactNumber",
 ]);
 const PROFILE_PICTURE_ACTIONS = new Set(["UNCHANGED", "REPLACE", "REMOVE"]);
+const SETTINGS_ALLOWED_FIELDS = new Set([
+  "profile",
+  "notificationRulePreferences",
+  "profilePicture",
+  "metadata",
+]);
+const LEGACY_NOTIFICATION_SETTINGS_FIELDS = new Set([
+  "enabledNotificationRuleCodes",
+  "notificationChannels",
+  "preferences",
+  "enabled_notification_rule_codes_json",
+  "notification_channels_json",
+  "notification_rule_preferences_json",
+]);
 const LEGACY_PROFILE_PICTURE_FIELDS = new Set([
   "profilePictureDataUrl",
   "profile_picture_data_url",
@@ -150,6 +164,29 @@ const validateSaveCurrentSettings = (req, res, next) => {
     if (!isPlainObject(settings)) {
       return res.status(400).json({
         message: "settings must be an object",
+      });
+    }
+
+    const settingsKeys = Object.keys(settings);
+    const legacyNotificationFields = settingsKeys.filter((key) =>
+      LEGACY_NOTIFICATION_SETTINGS_FIELDS.has(key),
+    );
+    const unsupportedSettingsFields = settingsKeys.filter(
+      (key) =>
+        !SETTINGS_ALLOWED_FIELDS.has(key) &&
+        !LEGACY_NOTIFICATION_SETTINGS_FIELDS.has(key),
+    );
+
+    if (legacyNotificationFields.length > 0) {
+      return res.status(400).json({
+        message:
+          "Notification preferences must be submitted through the approved modern settings format.",
+      });
+    }
+
+    if (unsupportedSettingsFields.length > 0) {
+      return res.status(400).json({
+        message: "The settings update contains unsupported fields.",
       });
     }
 

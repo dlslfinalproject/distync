@@ -66,6 +66,54 @@ test("validateSaveCurrentSettings rejects protected profile fields", () => {
   );
 });
 
+test("validateSaveCurrentSettings rejects legacy camelCase notification storage fields", () => {
+  const req = {
+    body: {
+      settings: {
+        enabledNotificationRuleCodes: ["SYNC_CONFLICT"],
+        notificationChannels: {
+          systemAnnouncements: {
+            inApp: true,
+          },
+        },
+      },
+    },
+  };
+  const res = createResponse();
+
+  validateSaveCurrentSettings(req, res, () => {});
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(
+    res.payload.message,
+    "Notification preferences must be submitted through the approved modern settings format.",
+  );
+});
+
+test("validateSaveCurrentSettings rejects legacy snake_case notification storage fields", () => {
+  const req = {
+    body: {
+      settings: {
+        enabled_notification_rule_codes_json: ["SYNC_CONFLICT"],
+        notification_channels_json: {
+          systemAnnouncements: {
+            inApp: true,
+          },
+        },
+      },
+    },
+  };
+  const res = createResponse();
+
+  validateSaveCurrentSettings(req, res, () => {});
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(
+    res.payload.message,
+    "Notification preferences must be submitted through the approved modern settings format.",
+  );
+});
+
 test("validateSaveCurrentSettings rejects legacy fullName updates", () => {
   const req = {
     body: {

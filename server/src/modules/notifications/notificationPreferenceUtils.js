@@ -4,28 +4,11 @@ const {
   USER_CONFIGURABILITY,
 } = require("./notificationPolicy");
 
-const LEGACY_CATEGORY_RULE_MAP = {
-  disasterAlerts: ["DISASTER_EVENT_CREATED", "DISASTER_EVENT_UPDATE", "EVACUATION_SUMMARY_REPORT"],
-  distributionSchedules: ["DISTRIBUTION_UPDATE"],
-  reliefArrivalNotifications: [
-    "LOW_STOCK",
-    "CRITICAL_STOCK",
-    "NEAR_EXPIRY_STOCK",
-    "EXPIRED_STOCK",
-    "INVENTORY_INCIDENT",
-    "DONATION_STOCK_UPDATE",
-    "DONATION_STOCK_ANOMALY",
-  ],
-  attendanceReminders: [
-    "HOUSEHOLD_REGISTERED",
-    "HOUSEHOLD_VERIFICATION",
-    "EVACUEE_ATTENDANCE_UPDATE",
-  ],
-  systemAnnouncements: ["SYNC_CONFLICT", "SYSTEM_ANOMALY"],
-};
-
 const isPlainObject = (value) =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+const buildPolicyRuleCodeSet = (policyRows = []) =>
+  new Set((policyRows || []).map((policyRow) => policyRow?.code).filter(Boolean));
 
 const sanitizeNotificationRulePreferences = (value) => {
   if (!isPlainObject(value)) {
@@ -73,48 +56,27 @@ const getEditableChannels = (policyRow) => ({
     ].includes(policyRow?.user_configurability),
 });
 
-const deriveLegacyPreferenceMap = ({
+const normalizeRulePreferencesAgainstPolicy = ({
   policyRows = [],
-  enabledNotificationRuleCodes = [],
-  notificationChannels = {},
+  rulePreferences = {},
 }) => {
-  const enabledRuleSet = new Set(
-    Array.isArray(enabledNotificationRuleCodes)
-      ? enabledNotificationRuleCodes.filter(Boolean)
-      : [],
-  );
-  const hasEnabledRuleSelection = enabledRuleSet.size > 0;
-  const categoryLookup = Object.entries(LEGACY_CATEGORY_RULE_MAP).reduce(
-    (current, [categoryKey, ruleCodes]) => {
-      ruleCodes.forEach((ruleCode) => {
-        current[ruleCode] = categoryKey;
-      });
-      return current;
-    },
-    {},
-  );
+  const sanitizedPreferences = sanitizeNotificationRulePreferences(rulePreferences);
+
+  if (!Array.isArray(policyRows) || policyRows.length === 0) {
+    return sanitizedPreferences;
+  }
 
   return policyRows.reduce((current, policyRow) => {
-    const categoryKey = categoryLookup[policyRow.code];
-    const legacyChannelValue = categoryKey ? notificationChannels?.[categoryKey] : null;
-    const editableChannels = getEditableChannels(policyRow);
     const nextValue = {};
+    const storedRulePreferences = sanitizedPreferences[policyRow.code] || {};
+    const editableChannels = getEditableChannels(policyRow);
 
-    if (editableChannels.inApp) {
-      const legacyInApp =
-        typeof legacyChannelValue?.inApp === "boolean"
-          ? legacyChannelValue.inApp
-          : true;
-      nextValue.inApp = hasEnabledRuleSelection
-        ? legacyInApp && enabledRuleSet.has(policyRow.code)
-        : legacyInApp;
+    if (editableChannels.inApp && typeof storedRulePreferences.inApp === "boolean") {
+      nextValue.inApp = storedRulePreferences.inApp;
     }
 
-    if (editableChannels.email) {
-      nextValue.email =
-        typeof legacyChannelValue?.email === "boolean"
-          ? legacyChannelValue.email
-          : false;
+    if (editableChannels.email && typeof storedRulePreferences.email === "boolean") {
+      nextValue.email = storedRulePreferences.email;
     }
 
     if (Object.keys(nextValue).length > 0) {
@@ -123,6 +85,23 @@ const deriveLegacyPreferenceMap = ({
 
     return current;
   }, {});
+};
+
+const hasMeaningfulRulePreferences = ({
+  policyRows = [],
+  rulePreferences = {},
+}) => {
+  const sanitizedPreferences = sanitizeNotificationRulePreferences(rulePreferences);
+
+  if (!Array.isArray(policyRows) || policyRows.length === 0) {
+    return Object.keys(sanitizedPreferences).length > 0;
+  }
+
+  const policyRuleCodes = buildPolicyRuleCodeSet(policyRows);
+
+  return Object.keys(sanitizedPreferences).some((ruleCode) =>
+    policyRuleCodes.has(ruleCode),
+  );
 };
 
 const resolveEffectiveChannels = ({
@@ -145,6 +124,57 @@ const resolveEffectiveChannels = ({
         ? rulePreferences.email
         : defaults.email
       : false,
+  };
+};
+
+const buildEffectiveChannelsByRule = ({
+  policyRows = [],
+  storedPreferences = {},
+}) =>
+  policyRows.reduce((current, policyRow) => {
+    current[policyRow.code] = resolveEffectiveChannels({
+      policyRow,
+      storedPreferences,
+    });
+    return current;
+  }, {});
+
+const resolveEffectiveNotificationPreferences = ({
+  roleCode = "",
+  policyRows = [],
+  modernPreferences = {},
+}) => {
+  const normalizedModernPreferences = normalizeRulePreferencesAgainstPolicy({
+    policyRows,
+    rulePreferences: modernPreferences,
+  });
+  const hasModernPreferences = hasMeaningfulRulePreferences({
+    policyRows,
+    rulePreferences: modernPreferences,
+  });
+
+  if (hasModernPreferences) {
+    return {
+      roleCode,
+      source: "modern",
+      normalizedPreferences: normalizedModernPreferences,
+      effectiveChannels: buildEffectiveChannelsByRule({
+        policyRows,
+        storedPreferences: normalizedModernPreferences,
+      }),
+      warnings: [],
+    };
+  }
+
+  return {
+    roleCode,
+    source: "policy-defaults",
+    normalizedPreferences: {},
+    effectiveChannels: buildEffectiveChannelsByRule({
+      policyRows,
+      storedPreferences: {},
+    }),
+    warnings: [],
   };
 };
 
@@ -189,11 +219,13 @@ const buildPreferenceCategories = ({
 };
 
 module.exports = {
-  LEGACY_CATEGORY_RULE_MAP,
   sanitizeNotificationRulePreferences,
-  deriveLegacyPreferenceMap,
+  normalizeRulePreferencesAgainstPolicy,
+  hasMeaningfulRulePreferences,
   getDefaultEffectiveChannels,
   getEditableChannels,
   resolveEffectiveChannels,
+  buildEffectiveChannelsByRule,
+  resolveEffectiveNotificationPreferences,
   buildPreferenceCategories,
 };
