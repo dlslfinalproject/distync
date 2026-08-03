@@ -97,8 +97,6 @@ CREATE TABLE public.user_role_settings (
   profile_picture_path text,
   profile_picture_file_name character varying,
   profile_picture_updated_at timestamp with time zone,
-  enabled_notification_rule_codes_json jsonb NOT NULL DEFAULT '[]'::jsonb,
-  notification_channels_json jsonb NOT NULL DEFAULT '{}'::jsonb,
   notification_rule_preferences_json jsonb NOT NULL DEFAULT '{}'::jsonb,
   last_profile_update_at timestamp with time zone,
   last_preference_save_at timestamp with time zone NOT NULL DEFAULT now(),

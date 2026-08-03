@@ -242,8 +242,6 @@ const getUserNotificationPreferencesByRole = async (
       SELECT
         u.id AS user_id,
         u.email,
-        urs.enabled_notification_rule_codes_json,
-        urs.notification_channels_json,
         urs.notification_rule_preferences_json
       FROM users u
       INNER JOIN user_roles ur ON ur.user_id = u.id

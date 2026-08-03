@@ -10,8 +10,7 @@ const {
 } = require("./notificationPolicy");
 const {
   buildPreferenceCategories,
-  deriveLegacyPreferenceMap,
-  resolveEffectiveChannels,
+  resolveEffectiveNotificationPreferences,
   sanitizeNotificationRulePreferences,
 } = require("./notificationPreferenceUtils");
 
@@ -104,25 +103,18 @@ const buildSummaryKey = ({
     windowStartedAt.toISOString(),
   ].join(":");
 
-const buildStoredPreferenceMap = ({
+const resolveStoredPreferenceState = ({
+  roleCode,
   policyRows,
   preferenceRow,
-}) => {
-  const explicitPreferences = sanitizeNotificationRulePreferences(
-    preferenceRow?.notification_rule_preferences_json,
-  );
-
-  if (Object.keys(explicitPreferences).length > 0) {
-    return explicitPreferences;
-  }
-
-  return deriveLegacyPreferenceMap({
+}) =>
+  resolveEffectiveNotificationPreferences({
+    roleCode,
     policyRows,
-    enabledNotificationRuleCodes:
-      preferenceRow?.enabled_notification_rule_codes_json || [],
-    notificationChannels: preferenceRow?.notification_channels_json || {},
+    modernPreferences: sanitizeNotificationRulePreferences(
+      preferenceRow?.notification_rule_preferences_json,
+    ),
   });
-};
 
 const buildRecipientDeliveryPlan = async ({
   userIds,
@@ -151,14 +143,16 @@ const buildRecipientDeliveryPlan = async ({
     await notificationRepository.getNotificationPolicyRowsByRoleCode(roleCode);
 
   return preferenceRows.map((row) => {
-    const storedPreferences = buildStoredPreferenceMap({
+    const resolvedPreferenceState = resolveStoredPreferenceState({
+      roleCode,
       policyRows: policyRowsForRole,
       preferenceRow: row,
     });
-    const effectiveChannels = resolveEffectiveChannels({
-      policyRow,
-      storedPreferences,
-    });
+    const effectiveChannels =
+      resolvedPreferenceState.effectiveChannels?.[policyRow.code] || {
+        inApp: false,
+        email: false,
+      };
 
     return {
       userId: row.user_id,
@@ -1370,7 +1364,8 @@ const getNotificationCategoriesForRole = async ({
 }) => {
   const policyRows =
     await notificationRepository.getNotificationPolicyRowsByRoleCode(roleCode);
-  const storedPreferences = buildStoredPreferenceMap({
+  const resolvedPreferenceState = resolveStoredPreferenceState({
+    roleCode,
     policyRows,
     preferenceRow,
   });
@@ -1379,9 +1374,10 @@ const getNotificationCategoriesForRole = async ({
     categories: buildPreferenceCategories({
       roleCode,
       policyRows,
-      storedPreferences,
+      storedPreferences: resolvedPreferenceState.normalizedPreferences,
     }),
-    storedPreferences,
+    storedPreferences: resolvedPreferenceState.normalizedPreferences,
+    source: resolvedPreferenceState.source,
   };
 };
 
@@ -1436,6 +1432,7 @@ module.exports = {
   getUnreadCountForUser,
   getNotificationRulesForRole,
   getNotificationCategoriesForRole,
+  buildRecipientDeliveryPlan,
   markNotificationAsRead,
   markAllNotificationsAsRead,
 };

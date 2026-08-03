@@ -43,8 +43,6 @@ test("upsertUserRoleSettings inserts a new row against PostgreSQL without the re
         profilePicturePath: `${userId}/insert-picture.png`,
         profilePictureFileName: "insert-picture.png",
         profilePictureUpdatedAt: "2026-08-02T10:00:00.000Z",
-        enabledNotificationRuleCodesJson: ["NOTIFY-1"],
-        notificationChannelsJson: { NOTIFY_1: { inApp: true } },
         notificationRulePreferencesJson: { NOTIFY_1: { inApp: true } },
         lastProfileUpdateAt: "2026-08-02T10:00:00.000Z",
         lastPreferenceSaveAt: "2026-08-02T10:00:00.000Z",
@@ -60,6 +58,8 @@ test("upsertUserRoleSettings inserts a new row against PostgreSQL without the re
     assert.equal(persistedRow.user_id, userId);
     assert.equal(reloadedRow.profile_picture_path, `${userId}/insert-picture.png`);
     assert.equal(reloadedRow.profile_picture_file_name, "insert-picture.png");
+    assert.equal("enabled_notification_rule_codes_json" in reloadedRow, false);
+    assert.equal("notification_channels_json" in reloadedRow, false);
     assert.deepEqual(reloadedRow.notification_rule_preferences_json, {
       NOTIFY_1: { inApp: true },
     });
@@ -69,7 +69,7 @@ test("upsertUserRoleSettings inserts a new row against PostgreSQL without the re
   }
 });
 
-test("upsertUserRoleSettings updates an existing row against PostgreSQL with the correct parameter order", async () => {
+test("upsertUserRoleSettings updates an existing row without overwriting preserved legacy columns", async () => {
   const dbClient = await pool.connect();
 
   try {
@@ -84,8 +84,6 @@ test("upsertUserRoleSettings updates an existing row against PostgreSQL with the
           profile_picture_path,
           profile_picture_file_name,
           profile_picture_updated_at,
-          enabled_notification_rule_codes_json,
-          notification_channels_json,
           notification_rule_preferences_json,
           last_profile_update_at,
           last_preference_save_at,
@@ -98,9 +96,7 @@ test("upsertUserRoleSettings updates an existing row against PostgreSQL with the
           'old/path.jpg',
           'old-path.jpg',
           NOW(),
-          '[]'::jsonb,
-          '{}'::jsonb,
-          '{}'::jsonb,
+          '{"SYNC_CONFLICT":{"email":false}}'::jsonb,
           NOW(),
           NOW(),
           NOW(),
@@ -117,8 +113,6 @@ test("upsertUserRoleSettings updates an existing row against PostgreSQL with the
         profilePicturePath: `${userId}/updated-picture.webp`,
         profilePictureFileName: "updated-picture.webp",
         profilePictureUpdatedAt: "2026-08-02T11:00:00.000Z",
-        enabledNotificationRuleCodesJson: [],
-        notificationChannelsJson: { CHANNEL_A: { email: false } },
         notificationRulePreferencesJson: { CHANNEL_A: { email: false } },
         lastProfileUpdateAt: "2026-08-02T11:00:00.000Z",
         lastPreferenceSaveAt: "2026-08-02T11:00:00.000Z",
@@ -139,9 +133,86 @@ test("upsertUserRoleSettings updates an existing row against PostgreSQL with the
       reloadedRow.profile_picture_file_name,
       "updated-picture.webp",
     );
-    assert.deepEqual(reloadedRow.notification_channels_json, {
+    assert.equal("enabled_notification_rule_codes_json" in reloadedRow, false);
+    assert.equal("notification_channels_json" in reloadedRow, false);
+    assert.deepEqual(reloadedRow.notification_rule_preferences_json, {
       CHANNEL_A: { email: false },
     });
+  } finally {
+    await dbClient.query("ROLLBACK");
+    dbClient.release();
+  }
+});
+
+test("upsertUserRoleSettings reuses the same user-role row across first and second saves", async () => {
+  const dbClient = await pool.connect();
+
+  try {
+    await dbClient.query("BEGIN");
+    const userId = await createTempUser(dbClient);
+
+    const insertedRow = await upsertUserRoleSettings(
+      {
+        userId,
+        roleCode: "MSWDO",
+        profilePicturePath: null,
+        profilePictureFileName: null,
+        profilePictureUpdatedAt: null,
+        notificationRulePreferencesJson: {
+          DISTRIBUTION_UPDATE: {
+            inApp: true,
+          },
+        },
+        lastProfileUpdateAt: null,
+        lastPreferenceSaveAt: "2026-08-02T12:00:00.000Z",
+      },
+      dbClient,
+    );
+
+    const updatedRow = await upsertUserRoleSettings(
+      {
+        userId,
+        roleCode: "MSWDO",
+        profilePicturePath: null,
+        profilePictureFileName: null,
+        profilePictureUpdatedAt: null,
+        notificationRulePreferencesJson: {
+          DISTRIBUTION_UPDATE: {
+            inApp: false,
+          },
+        },
+        lastProfileUpdateAt: null,
+        lastPreferenceSaveAt: "2026-08-02T12:05:00.000Z",
+      },
+      dbClient,
+    );
+
+    const duplicateCheck = await dbClient.query(
+      `
+        SELECT COUNT(*)::integer AS row_count
+        FROM user_role_settings
+        WHERE user_id = $1
+          AND role_code = 'MSWDO'
+      `,
+      [userId],
+    );
+
+    assert.equal(insertedRow.user_id, userId);
+    assert.equal(updatedRow.user_id, userId);
+    assert.equal(duplicateCheck.rows[0].row_count, 1);
+    assert.deepEqual(
+      (
+        await getUserRoleSettings(
+          { userId, roleCode: "MSWDO" },
+          dbClient,
+        )
+      ).notification_rule_preferences_json,
+      {
+        DISTRIBUTION_UPDATE: {
+          inApp: false,
+        },
+      },
+    );
   } finally {
     await dbClient.query("ROLLBACK");
     dbClient.release();

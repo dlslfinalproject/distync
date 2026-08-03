@@ -71,8 +71,6 @@ test("upsertUserRoleSettings persists profile_picture_path without the removed B
       profilePicturePath: "user-1/avatar.webp",
       profilePictureFileName: "avatar.webp",
       profilePictureUpdatedAt: "2026-08-02T08:00:00.000Z",
-      enabledNotificationRuleCodesJson: [],
-      notificationChannelsJson: {},
       notificationRulePreferencesJson: {},
       lastProfileUpdateAt: "2026-08-02T08:00:00.000Z",
       lastPreferenceSaveAt: "2026-08-02T08:00:00.000Z",
@@ -85,8 +83,12 @@ test("upsertUserRoleSettings persists profile_picture_path without the removed B
     capturedQueries[0].sql,
     /profile_picture_data_url/i,
   );
-  assert.doesNotMatch(capturedQueries[0].sql, /\$11\b/);
+  assert.doesNotMatch(
+    capturedQueries[0].sql.split("RETURNING")[0],
+    /enabled_notification_rule_codes_json|notification_channels_json/i,
+  );
+  assert.doesNotMatch(capturedQueries[0].sql, /\$9\b/);
   assert.equal(capturedQueries[0].params[2], "user-1/avatar.webp");
   assert.equal(capturedQueries[0].params[3], "avatar.webp");
-  assert.equal(capturedQueries[0].params.length, 10);
+  assert.equal(capturedQueries[0].params.length, 8);
 });

@@ -111,8 +111,7 @@ test("getCurrentSettings omits the removed export preference field", async () =>
           profile_picture_path: "",
           profile_picture_file_name: "",
           profile_picture_updated_at: null,
-          enabled_notification_rule_codes_json: [],
-          notification_channels_json: {},
+          notification_rule_preferences_json: {},
           last_profile_update_at: null,
           last_preference_save_at: null,
           updated_at: null,
@@ -142,6 +141,261 @@ test("getCurrentSettings omits the removed export preference field", async () =>
       assert.equal(settings.profile.contactNumber, user.contact_number);
       assert.equal(settings.profile.profilePicturePath, "");
       assert.equal(settings.profile.profilePictureUrl, "");
+    },
+  );
+});
+
+test("getCurrentSettings uses policy defaults for an existing row with empty modern preferences", async () => {
+  const user = {
+    id: "user-empty",
+    email: "barangay-empty@example.com",
+    first_name: "Lara",
+    middle_name: null,
+    last_name: "Santos",
+    contact_number: "+639171234560",
+    default_barangay_id: null,
+    is_active: true,
+  };
+
+  await withStubbedSettingsService(
+    {
+      [poolPath]: {},
+      [settingsRepositoryPath]: {
+        getUserById: async () => user,
+        getBarangayById: async () => null,
+        getUserRoleSettings: async () => ({
+          user_id: user.id,
+          role_code: "BARANGAY",
+          profile_picture_path: "",
+          profile_picture_file_name: "",
+          profile_picture_updated_at: null,
+          notification_rule_preferences_json: {},
+          last_profile_update_at: null,
+          last_preference_save_at: "2026-08-01T09:00:00.000Z",
+        }),
+        upsertUserRoleSettings: async () => {
+          throw new Error("Unexpected GET write");
+        },
+      },
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [
+          {
+            code: "DISASTER_EVENT_UPDATE",
+            name: "Disaster Event Update",
+            category_code: "DISASTER_COORDINATION",
+            category_label: "Disaster Coordination",
+            priority: "CRITICAL",
+            in_app_policy: "MANDATORY",
+            email_policy: "DEFAULT_ON",
+            delivery_mode: "IMMEDIATE",
+            user_configurability: "EMAIL_ONLY",
+          },
+          {
+            code: "HOUSEHOLD_REGISTERED",
+            name: "Household Registration Update",
+            category_code: "EVACUEE_MANAGEMENT",
+            category_label: "Evacuee Management",
+            priority: "INFORMATIONAL",
+            in_app_policy: "OPTIONAL",
+            email_policy: "UNAVAILABLE",
+            delivery_mode: "HOURLY_SUMMARY",
+            user_configurability: "ALL_SUPPORTED_CHANNELS",
+          },
+          {
+            code: "HOUSEHOLD_VERIFICATION",
+            name: "Household Verification Update",
+            category_code: "EVACUEE_MANAGEMENT",
+            category_label: "Evacuee Management",
+            priority: "WARNING",
+            in_app_policy: "MANDATORY",
+            email_policy: "OPTIONAL",
+            delivery_mode: "IMMEDIATE",
+            user_configurability: "EMAIL_ONLY",
+          },
+          {
+            code: "SYNC_CONFLICT",
+            name: "Synchronization Conflict Alert",
+            category_code: "SYSTEM_OPERATIONS",
+            category_label: "System Operations",
+            priority: "CRITICAL",
+            in_app_policy: "MANDATORY",
+            email_policy: "DEFAULT_ON",
+            delivery_mode: "IMMEDIATE",
+            user_configurability: "EMAIL_ONLY",
+          },
+        ],
+      },
+      [notificationServicePath]: {
+        getNotificationRulesForRole: async () => [],
+      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub(),
+    },
+    async ({ getCurrentSettings }) => {
+      const settings = await getCurrentSettings({
+        userId: user.id,
+        roleCode: "BARANGAY",
+      });
+
+      assert.deepEqual(settings.notificationRulePreferences, {});
+      assert.deepEqual(settings.effectiveNotificationChannels, {
+        DISASTER_EVENT_UPDATE: { inApp: true, email: true },
+        HOUSEHOLD_REGISTERED: { inApp: true, email: false },
+        HOUSEHOLD_VERIFICATION: { inApp: true, email: false },
+        SYNC_CONFLICT: { inApp: true, email: true },
+      });
+      assert.equal(
+        settings.categories
+          .flatMap((category) => category.rules || [])
+          .find((rule) => rule.code === "HOUSEHOLD_REGISTERED")
+          ?.effectiveChannels?.inApp,
+        true,
+      );
+      assert.equal("legacyPreferenceSource" in settings, false);
+    },
+  );
+});
+
+test("getCurrentSettings uses policy defaults when no settings row exists", async () => {
+  const user = {
+    id: "user-missing",
+    email: "mswdo-missing@example.com",
+    first_name: "Mira",
+    middle_name: null,
+    last_name: "Reyes",
+    contact_number: "+639171234561",
+    default_barangay_id: null,
+    is_active: true,
+  };
+
+  await withStubbedSettingsService(
+    {
+      [poolPath]: {},
+      [settingsRepositoryPath]: {
+        getUserById: async () => user,
+        getBarangayById: async () => null,
+        getUserRoleSettings: async () => null,
+        upsertUserRoleSettings: async () => {
+          throw new Error("Unexpected GET write");
+        },
+      },
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [
+          {
+            code: "DISASTER_EVENT_CREATED",
+            name: "Newly Created Disaster Event",
+            category_code: "DISASTER_MANAGEMENT",
+            category_label: "Disaster Management",
+            priority: "WARNING",
+            in_app_policy: "MANDATORY",
+            email_policy: "DEFAULT_ON",
+            delivery_mode: "IMMEDIATE",
+            user_configurability: "EMAIL_ONLY",
+          },
+          {
+            code: "EVACUEE_ATTENDANCE_UPDATE",
+            name: "Evacuee Attendance Update",
+            category_code: "EVACUEE_MANAGEMENT",
+            category_label: "Evacuee Management",
+            priority: "INFORMATIONAL",
+            in_app_policy: "OPTIONAL",
+            email_policy: "OPTIONAL",
+            delivery_mode: "HOURLY_SUMMARY",
+            user_configurability: "ALL_SUPPORTED_CHANNELS",
+          },
+        ],
+      },
+      [notificationServicePath]: {
+        getNotificationRulesForRole: async () => [],
+      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub(),
+    },
+    async ({ getCurrentSettings }) => {
+      const settings = await getCurrentSettings({
+        userId: user.id,
+        roleCode: "MSWDO",
+      });
+
+      assert.deepEqual(settings.notificationRulePreferences, {});
+      assert.deepEqual(settings.effectiveNotificationChannels.DISASTER_EVENT_CREATED, {
+        inApp: true,
+        email: true,
+      });
+      assert.deepEqual(settings.effectiveNotificationChannels.EVACUEE_ATTENDANCE_UPDATE, {
+        inApp: true,
+        email: false,
+      });
+    },
+  );
+});
+
+test("getCurrentSettings loads populated modern preferences without legacy fallback", async () => {
+  const user = {
+    id: "user-mixed",
+    email: "barangay-mixed@example.com",
+    first_name: "Nina",
+    middle_name: null,
+    last_name: "Torres",
+    contact_number: "+639171234562",
+    default_barangay_id: null,
+    is_active: true,
+  };
+
+  await withStubbedSettingsService(
+    {
+      [poolPath]: {},
+      [settingsRepositoryPath]: {
+        getUserById: async () => user,
+        getBarangayById: async () => null,
+        getUserRoleSettings: async () => ({
+          user_id: user.id,
+          role_code: "BARANGAY",
+          profile_picture_path: "",
+          profile_picture_file_name: "",
+          profile_picture_updated_at: null,
+          notification_rule_preferences_json: {
+            HOUSEHOLD_REGISTERED: {
+              inApp: false,
+            },
+          },
+          last_profile_update_at: null,
+          last_preference_save_at: "2026-08-02T08:00:00.000Z",
+        }),
+      },
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [
+          {
+            code: "HOUSEHOLD_REGISTERED",
+            name: "Household Registration Update",
+            category_code: "EVACUEE_MANAGEMENT",
+            category_label: "Evacuee Management",
+            priority: "INFORMATIONAL",
+            in_app_policy: "OPTIONAL",
+            email_policy: "UNAVAILABLE",
+            delivery_mode: "HOURLY_SUMMARY",
+            user_configurability: "ALL_SUPPORTED_CHANNELS",
+          },
+        ],
+      },
+      [notificationServicePath]: {
+        getNotificationRulesForRole: async () => [],
+      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub(),
+    },
+    async ({ getCurrentSettings }) => {
+      const settings = await getCurrentSettings({
+        userId: user.id,
+        roleCode: "BARANGAY",
+      });
+
+      assert.deepEqual(settings.notificationRulePreferences, {
+        HOUSEHOLD_REGISTERED: {
+          inApp: false,
+        },
+      });
+      assert.deepEqual(settings.effectiveNotificationChannels.HOUSEHOLD_REGISTERED, {
+        inApp: false,
+        email: false,
+      });
     },
   );
 });
@@ -221,6 +475,14 @@ test("saveCurrentSettings ignores legacy export preference input and does not pe
       assert.equal(persistedPayloads.length, 1);
       assert.equal("preferredExportFormat" in persistedPayloads[0], false);
       assert.equal("preferred_export_format" in persistedPayloads[0], false);
+      assert.equal(
+        "enabledNotificationRuleCodesJson" in persistedPayloads[0],
+        false,
+      );
+      assert.equal(
+        "notificationChannelsJson" in persistedPayloads[0],
+        false,
+      );
       assert.equal(
         "preferredExportFormat" in auditSnapshots[0].newValues,
         false,
@@ -320,6 +582,14 @@ test("saveCurrentSettings preserves notification preferences when the request up
         },
       });
       assert.equal(
+        "enabledNotificationRuleCodesJson" in persistedPayloads[0],
+        false,
+      );
+      assert.equal(
+        "notificationChannelsJson" in persistedPayloads[0],
+        false,
+      );
+      assert.equal(
         persistedPayloads[0].lastPreferenceSaveAt,
         "2026-08-01T09:00:00.000Z",
       );
@@ -336,6 +606,178 @@ test("saveCurrentSettings preserves notification preferences when the request up
             snapshot.action === "RESET_NOTIFICATION_PREFERENCES",
         ),
         false,
+      );
+    },
+  );
+});
+
+test("saveCurrentSettings rejects unknown notification rules", async () => {
+  const dbClient = buildDbClient();
+  const user = {
+    id: "user-unknown",
+    email: "mayor-unknown@example.com",
+    first_name: "Rina",
+    middle_name: null,
+    last_name: "Santos",
+    contact_number: "+639171234563",
+    default_barangay_id: null,
+    is_active: true,
+  };
+
+  await withStubbedSettingsService(
+    {
+      [poolPath]: {
+        connect: async () => dbClient,
+      },
+      [settingsRepositoryPath]: {
+        getUserById: async () => user,
+        getBarangayById: async () => null,
+        getUserRoleSettings: async () => null,
+      },
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [],
+      },
+      [notificationServicePath]: {
+        getNotificationRulesForRole: async () => [],
+      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub(),
+    },
+    async ({ saveCurrentSettings }) => {
+      await assert.rejects(
+        () =>
+          saveCurrentSettings({
+            userId: user.id,
+            roleCode: "MAYOR",
+            settings: {
+              notificationRulePreferences: {
+                UNKNOWN_RULE: {
+                  email: true,
+                },
+              },
+              metadata: {},
+            },
+          }),
+        /not available for your role/i,
+      );
+    },
+  );
+});
+
+test("saveCurrentSettings rejects mandatory notification tampering", async () => {
+  const dbClient = buildDbClient();
+  const user = {
+    id: "user-mandatory",
+    email: "barangay-mandatory@example.com",
+    first_name: "Tina",
+    middle_name: null,
+    last_name: "Reyes",
+    contact_number: "+639171234564",
+    default_barangay_id: null,
+    is_active: true,
+  };
+
+  await withStubbedSettingsService(
+    {
+      [poolPath]: {
+        connect: async () => dbClient,
+      },
+      [settingsRepositoryPath]: {
+        getUserById: async () => user,
+        getBarangayById: async () => null,
+        getUserRoleSettings: async () => null,
+      },
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [
+          {
+            code: "SYNC_CONFLICT",
+            name: "Synchronization Conflict Alert",
+            in_app_policy: "MANDATORY",
+            email_policy: "DEFAULT_ON",
+            user_configurability: "EMAIL_ONLY",
+          },
+        ],
+      },
+      [notificationServicePath]: {
+        getNotificationRulesForRole: async () => [],
+      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub(),
+    },
+    async ({ saveCurrentSettings }) => {
+      await assert.rejects(
+        () =>
+          saveCurrentSettings({
+            userId: user.id,
+            roleCode: "BARANGAY",
+            settings: {
+              notificationRulePreferences: {
+                SYNC_CONFLICT: {
+                  inApp: false,
+                },
+              },
+              metadata: {},
+            },
+          }),
+        /must remain enabled/i,
+      );
+    },
+  );
+});
+
+test("saveCurrentSettings rejects unsupported email enablement", async () => {
+  const dbClient = buildDbClient();
+  const user = {
+    id: "user-email",
+    email: "barangay-email@example.com",
+    first_name: "Una",
+    middle_name: null,
+    last_name: "Garcia",
+    contact_number: "+639171234565",
+    default_barangay_id: null,
+    is_active: true,
+  };
+
+  await withStubbedSettingsService(
+    {
+      [poolPath]: {
+        connect: async () => dbClient,
+      },
+      [settingsRepositoryPath]: {
+        getUserById: async () => user,
+        getBarangayById: async () => null,
+        getUserRoleSettings: async () => null,
+      },
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [
+          {
+            code: "HOUSEHOLD_REGISTERED",
+            name: "Household Registration Update",
+            in_app_policy: "OPTIONAL",
+            email_policy: "UNAVAILABLE",
+            user_configurability: "ALL_SUPPORTED_CHANNELS",
+          },
+        ],
+      },
+      [notificationServicePath]: {
+        getNotificationRulesForRole: async () => [],
+      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub(),
+    },
+    async ({ saveCurrentSettings }) => {
+      await assert.rejects(
+        () =>
+          saveCurrentSettings({
+            userId: user.id,
+            roleCode: "BARANGAY",
+            settings: {
+              notificationRulePreferences: {
+                HOUSEHOLD_REGISTERED: {
+                  email: true,
+                },
+              },
+              metadata: {},
+            },
+          }),
+        /does not support email delivery/i,
       );
     },
   );
@@ -584,6 +1026,14 @@ test("saveCurrentSettings persists a pending profile picture replacement and rem
         persistedPayloads[0].profilePictureFileName,
         "new-picture.webp",
       );
+      assert.equal(
+        "enabledNotificationRuleCodesJson" in persistedPayloads[0],
+        false,
+      );
+      assert.equal(
+        "notificationChannelsJson" in persistedPayloads[0],
+        false,
+      );
       assert.equal(result.settings.profile.profilePicturePath, "user-5/new-picture.webp");
       assert.match(result.settings.profile.profilePictureUrl, /object\/sign/);
       assert.deepEqual(removedPaths, ["user-5/original-picture.jpg"]);
@@ -677,6 +1127,14 @@ test("saveCurrentSettings persists a pending profile picture removal and deletes
       assert.equal(persistedPayloads.length, 1);
       assert.equal(persistedPayloads[0].profilePicturePath, "");
       assert.equal(persistedPayloads[0].profilePictureFileName, "");
+      assert.equal(
+        "enabledNotificationRuleCodesJson" in persistedPayloads[0],
+        false,
+      );
+      assert.equal(
+        "notificationChannelsJson" in persistedPayloads[0],
+        false,
+      );
       assert.equal(result.settings.profile.profilePicturePath, "");
       assert.equal(result.settings.profile.profilePictureUrl, "");
       assert.deepEqual(removedPaths, ["user-6/current-picture.png"]);
