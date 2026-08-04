@@ -8,6 +8,7 @@ import {
   cacheRegistrationActiveDisasterEvents,
   fetchActiveDisasterEvents,
   fetchBarangays,
+  fetchDuplicateRegistrationSuggestions,
   fetchEvacuationCenters,
   fetchEvacuationCentersByBarangay,
   fetchSectors,
@@ -169,6 +170,12 @@ const getFinalRelationship = (member) => {
   return trimValue(member.relationship_option);
 };
 
+const createEmptyDuplicateSuggestions = () => ({
+  total_matches: 0,
+  has_strong_matches: false,
+  groups: [],
+});
+
 const RESIDENCY_STATUS = {
   resident: "RESIDENT",
   nonResident: "NON_RESIDENT",
@@ -217,6 +224,12 @@ export const useHouseholdRegistrationForm = ({
   const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [duplicateSuggestions, setDuplicateSuggestions] = useState(
+    createEmptyDuplicateSuggestions(),
+  );
+  const [isLoadingDuplicateSuggestions, setIsLoadingDuplicateSuggestions] =
+    useState(false);
+  const [duplicateSuggestionsError, setDuplicateSuggestionsError] = useState("");
   const [validationErrors, setValidationErrors] = useState(createValidationErrors());
   const [isUsingCachedReferenceData, setIsUsingCachedReferenceData] =
     useState(false);
@@ -597,6 +610,112 @@ export const useHouseholdRegistrationForm = ({
     initialHouseholdDetails,
     isEditMode,
     isOpen,
+  ]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setDuplicateSuggestions(createEmptyDuplicateSuggestions());
+      setIsLoadingDuplicateSuggestions(false);
+      setDuplicateSuggestionsError("");
+      return;
+    }
+
+    if (!selectedDisasterEventId || !selectedBarangayId) {
+      setDuplicateSuggestions(createEmptyDuplicateSuggestions());
+      setIsLoadingDuplicateSuggestions(false);
+      setDuplicateSuggestionsError("");
+      return;
+    }
+
+    const normalizedFamilyHead = {
+      first_name: trimValue(familyHead.first_name),
+      middle_name: trimValue(familyHead.middle_name) || null,
+      last_name: trimValue(familyHead.last_name),
+      suffix: trimValue(familyHead.suffix) || null,
+      sex: familyHead.sex || null,
+      age_value: normalizeAgeValue(familyHead.age_value),
+      age_unit: "YEARS",
+    };
+    const normalizedMembers = members.map((member) => ({
+      first_name: trimValue(member.first_name),
+      middle_name: trimValue(member.middle_name) || null,
+      last_name: trimValue(member.last_name),
+      suffix: trimValue(member.suffix) || null,
+      sex: member.sex || null,
+      age_value: normalizeAgeValue(member.age_value),
+      age_unit: member.age_unit || null,
+      relationship_to_head: getFinalRelationship(member) || null,
+    }));
+    const hasFamilyHeadLookupCandidate =
+      normalizedFamilyHead.first_name && normalizedFamilyHead.last_name;
+    const hasMemberLookupCandidate = normalizedMembers.some(
+      (member) => member.first_name && member.last_name,
+    );
+    const hasLookupCandidate =
+      hasFamilyHeadLookupCandidate || hasMemberLookupCandidate;
+
+    if (!hasLookupCandidate) {
+      setDuplicateSuggestions(createEmptyDuplicateSuggestions());
+      setIsLoadingDuplicateSuggestions(false);
+      setDuplicateSuggestionsError("");
+      return;
+    }
+
+    let isActive = true;
+    const timeoutId = window.setTimeout(async () => {
+      setIsLoadingDuplicateSuggestions(true);
+      setDuplicateSuggestionsError("");
+
+      try {
+        const suggestions = await fetchDuplicateRegistrationSuggestions({
+          household_id: initialHouseholdDetails?.household?.id || null,
+          disaster_event_id: selectedDisasterEventId,
+          barangay_id: selectedBarangayId,
+          registered_by: registeredBy,
+          contact_number: trimValue(household.contact_number) || null,
+          family_head: normalizedFamilyHead,
+          members: normalizedMembers,
+        });
+
+        if (!isActive) {
+          return;
+        }
+
+        setDuplicateSuggestions(suggestions || createEmptyDuplicateSuggestions());
+      } catch (error) {
+        if (!isActive) {
+          return;
+        }
+
+        setDuplicateSuggestions(createEmptyDuplicateSuggestions());
+        setDuplicateSuggestionsError(
+          error.message || "Failed to check duplicate registration suggestions.",
+        );
+      } finally {
+        if (isActive) {
+          setIsLoadingDuplicateSuggestions(false);
+        }
+      }
+    }, hasFamilyHeadLookupCandidate ? 180 : 320);
+
+    return () => {
+      isActive = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    familyHead.age_value,
+    familyHead.first_name,
+    familyHead.last_name,
+    familyHead.middle_name,
+    familyHead.sex,
+    familyHead.suffix,
+    household.contact_number,
+    initialHouseholdDetails?.household?.id,
+    isOpen,
+    members,
+    registeredBy,
+    selectedBarangayId,
+    selectedDisasterEventId,
   ]);
 
   const savedEditEvacuationCenterId = String(
@@ -1070,6 +1189,9 @@ export const useHouseholdRegistrationForm = ({
     setSelectedBarangayId(defaultBarangayId || "");
     setErrorMessage("");
     setSuccessMessage("");
+    setDuplicateSuggestions(createEmptyDuplicateSuggestions());
+    setIsLoadingDuplicateSuggestions(false);
+    setDuplicateSuggestionsError("");
     setValidationErrors(createValidationErrors());
   };
 
@@ -1420,6 +1542,9 @@ export const useHouseholdRegistrationForm = ({
     effectiveEvacuationCenterId,
     isLoadingOptions,
     isSubmitting,
+    duplicateSuggestions,
+    isLoadingDuplicateSuggestions,
+    duplicateSuggestionsError,
     errorMessage,
     successMessage,
     validationErrors,

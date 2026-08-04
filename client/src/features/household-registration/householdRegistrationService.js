@@ -302,6 +302,30 @@ export const registerHousehold = async (payload) => {
   });
 };
 
+export const fetchDuplicateRegistrationSuggestions = async (payload) => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/households/duplicate-suggestions`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  const parsedPayload = await parseJsonResponse(
+    response,
+    "Failed to fetch duplicate registration suggestions",
+  );
+
+  return parsedPayload.data || {
+    total_matches: 0,
+    has_strong_matches: false,
+    groups: [],
+  };
+};
+
 export const updateHousehold = async (householdId, payload) => {
   const sanitizedPayload = sanitizeHouseholdUpdatePayload(payload);
 

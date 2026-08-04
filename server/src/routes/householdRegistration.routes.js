@@ -4,6 +4,7 @@ const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
 const householdRegistrationService = require("../services/householdRegistration.service");
 const {
   validateCreateHouseholdRegistration,
+  validateDuplicateRegistrationSuggestions,
   validateDepartHousehold,
   validateGetHouseholdDetails,
   validateUpdateHouseholdDetails,
@@ -13,6 +14,32 @@ const {
 } = require("../validators/householdRegistration.validator");
 
 const router = express.Router();
+
+router.post(
+  "/duplicate-suggestions",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO),
+  validateDuplicateRegistrationSuggestions,
+  async (req, res) => {
+    try {
+      const suggestions =
+        await householdRegistrationService.getDuplicateRegistrationSuggestions({
+          ...req.validatedBody,
+          registered_by: req.auth.userId,
+        });
+
+      return res.status(200).json({
+        message: "Duplicate registration suggestions retrieved successfully",
+        data: suggestions,
+      });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+
+      return res.status(statusCode).json({
+        message: error.message || "Failed to fetch duplicate registration suggestions",
+      });
+    }
+  },
+);
 
 router.post(
   "/register",

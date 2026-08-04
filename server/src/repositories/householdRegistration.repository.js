@@ -408,6 +408,196 @@ const findDuplicateHouseholdRegistration = async (
   return result.rows[0] || null;
 };
 
+const findPotentialDuplicatePersonMatches = async (
+  { disasterEventId, householdIdToExclude = null, people = [] },
+  dbClient = pool,
+) => {
+  if (!disasterEventId || !Array.isArray(people) || people.length === 0) {
+    return [];
+  }
+
+  const normalizedPeople = people
+    .filter(
+      (person) =>
+        person &&
+        String(person.first_name || "").trim() &&
+        String(person.last_name || "").trim(),
+    )
+    .map((person) => ({
+      person_key: String(person.person_key || "").trim(),
+      source_role: String(person.source_role || "MEMBER").trim().toUpperCase(),
+      first_name: String(person.first_name || "").trim(),
+      middle_name: String(person.middle_name || "").trim(),
+      last_name: String(person.last_name || "").trim(),
+      suffix: String(person.suffix || "").trim(),
+      sex: person.sex || null,
+      age_value: Number.isInteger(person.age_value) ? person.age_value : null,
+      age_unit: person.age_unit || null,
+      relationship_to_head: person.relationship_to_head || null,
+      contact_number: person.contact_number || null,
+    }))
+    .filter((person) => person.person_key);
+
+  if (normalizedPeople.length === 0) {
+    return [];
+  }
+
+  const valuePlaceholders = [];
+  const values = [];
+
+  normalizedPeople.forEach((person, index) => {
+    const baseOffset = index * 10;
+    valuePlaceholders.push(
+      `($${baseOffset + 1}::text, $${baseOffset + 2}::text, $${baseOffset + 3}::text, $${baseOffset + 4}::text, $${baseOffset + 5}::text, $${baseOffset + 6}::text, $${baseOffset + 7}::text, $${baseOffset + 8}::integer, $${baseOffset + 9}::text, $${baseOffset + 10}::text)`,
+    );
+    values.push(
+      person.person_key,
+      person.source_role,
+      person.first_name,
+      person.middle_name || null,
+      person.last_name,
+      person.suffix || null,
+      person.sex,
+      person.age_value,
+      person.age_unit,
+      person.contact_number || null,
+    );
+  });
+
+  const disasterEventParamIndex = values.length + 1;
+  const householdExcludeParamIndex = values.length + 2;
+
+  values.push(disasterEventId, householdIdToExclude);
+
+  const query = `
+    WITH input_people (
+      person_key,
+      source_role,
+      first_name,
+      middle_name,
+      last_name,
+      suffix,
+      sex,
+      age_value,
+      age_unit,
+      contact_number
+    ) AS (
+      VALUES
+        ${valuePlaceholders.join(",\n        ")}
+    ),
+    family_head_matches AS (
+      SELECT
+        ip.person_key,
+        ip.source_role,
+        'FAMILY_HEAD'::text AS matched_role,
+        h.id AS household_id,
+        h.barangay_id,
+        b.name AS barangay_name,
+        h.family_head_first_name AS household_family_head_first_name,
+        h.family_head_middle_name AS household_family_head_middle_name,
+        h.family_head_last_name AS household_family_head_last_name,
+        h.family_head_suffix AS household_family_head_suffix,
+        h.family_head_first_name AS matched_first_name,
+        h.family_head_middle_name AS matched_middle_name,
+        h.family_head_last_name AS matched_last_name,
+        h.family_head_suffix AS matched_suffix,
+        h.sex AS matched_sex,
+        fh.age_value AS matched_age_value,
+        fh.age_unit AS matched_age_unit,
+        NULL::text AS matched_relationship_to_head,
+        h.contact_number AS matched_contact_number,
+        h.is_active,
+        h.registered_at,
+        h.current_stay_type,
+        h.household_size
+      FROM input_people ip
+      INNER JOIN households h
+        ON h.disaster_event_id = $${disasterEventParamIndex}
+      INNER JOIN barangays b ON b.id = h.barangay_id
+      LEFT JOIN evacuees fh ON fh.id = h.family_head_evacuee_id
+      WHERE ($${householdExcludeParamIndex}::uuid IS NULL OR h.id <> $${householdExcludeParamIndex}::uuid)
+        AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_first_name, '')), '\\s+', ' ', 'g')) =
+            LOWER(REGEXP_REPLACE(BTRIM(COALESCE(ip.first_name, '')), '\\s+', ' ', 'g'))
+        AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_last_name, '')), '\\s+', ' ', 'g')) =
+            LOWER(REGEXP_REPLACE(BTRIM(COALESCE(ip.last_name, '')), '\\s+', ' ', 'g'))
+    ),
+    member_matches AS (
+      SELECT
+        ip.person_key,
+        ip.source_role,
+        'MEMBER'::text AS matched_role,
+        h.id AS household_id,
+        h.barangay_id,
+        b.name AS barangay_name,
+        h.family_head_first_name AS household_family_head_first_name,
+        h.family_head_middle_name AS household_family_head_middle_name,
+        h.family_head_last_name AS household_family_head_last_name,
+        h.family_head_suffix AS household_family_head_suffix,
+        e.first_name AS matched_first_name,
+        e.middle_name AS matched_middle_name,
+        e.last_name AS matched_last_name,
+        e.suffix AS matched_suffix,
+        e.sex AS matched_sex,
+        e.age_value AS matched_age_value,
+        e.age_unit AS matched_age_unit,
+        e.relationship_to_head AS matched_relationship_to_head,
+        h.contact_number AS matched_contact_number,
+        h.is_active,
+        h.registered_at,
+        h.current_stay_type,
+        h.household_size
+      FROM input_people ip
+      INNER JOIN evacuees e
+        ON LOWER(REGEXP_REPLACE(BTRIM(COALESCE(e.first_name, '')), '\\s+', ' ', 'g')) =
+            LOWER(REGEXP_REPLACE(BTRIM(COALESCE(ip.first_name, '')), '\\s+', ' ', 'g'))
+        AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(e.last_name, '')), '\\s+', ' ', 'g')) =
+            LOWER(REGEXP_REPLACE(BTRIM(COALESCE(ip.last_name, '')), '\\s+', ' ', 'g'))
+      INNER JOIN households h
+        ON h.id = e.household_id
+        AND h.disaster_event_id = $${disasterEventParamIndex}
+      INNER JOIN barangays b ON b.id = h.barangay_id
+      WHERE ($${householdExcludeParamIndex}::uuid IS NULL OR h.id <> $${householdExcludeParamIndex}::uuid)
+    )
+    SELECT
+      matched.person_key,
+      matched.source_role,
+      matched.matched_role,
+      matched.household_id,
+      matched.barangay_id,
+      matched.barangay_name,
+      matched.household_family_head_first_name,
+      matched.household_family_head_middle_name,
+      matched.household_family_head_last_name,
+      matched.household_family_head_suffix,
+      matched.matched_first_name,
+      matched.matched_middle_name,
+      matched.matched_last_name,
+      matched.matched_suffix,
+      matched.matched_sex,
+      matched.matched_age_value,
+      matched.matched_age_unit,
+      matched.matched_relationship_to_head,
+      matched.matched_contact_number,
+      matched.is_active,
+      matched.registered_at,
+      matched.current_stay_type,
+      matched.household_size
+    FROM (
+      SELECT * FROM family_head_matches
+      UNION ALL
+      SELECT * FROM member_matches
+    ) AS matched
+    ORDER BY
+      matched.person_key ASC,
+      matched.registered_at DESC,
+      matched.household_id ASC,
+      matched.matched_role ASC
+  `;
+
+  const result = await dbClient.query(query, values);
+  return result.rows;
+};
+
 const updateHouseholdRegistrationTimestamp = async (
   householdId,
   registeredAt,
@@ -1529,6 +1719,7 @@ module.exports = {
   insertHousehold,
   insertHouseholdPrivacyConsent,
   findDuplicateHouseholdRegistration,
+  findPotentialDuplicatePersonMatches,
   updateHouseholdRegistrationTimestamp,
   updateHousehold,
   insertEvacuee,

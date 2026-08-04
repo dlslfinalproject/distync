@@ -1,6 +1,7 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
 import { pageHeaderStyles } from "../layout/PageHeader";
+import DuplicateRegistrationSuggestionsSection from "./DuplicateRegistrationSuggestionsSection";
 import { AGE_UNIT_OPTIONS } from "../../utils/ageGroup";
 import {
   AGE_BASED_MEMBER_SECTOR_CODES,
@@ -53,7 +54,7 @@ const fieldStyles = {
   },
 };
 
-const MembersSection = ({ form }) => {
+const MembersSection = ({ form, onViewSuggestedHousehold }) => {
   return (
     <section style={shellStyles.card}>
       <div
@@ -114,6 +115,11 @@ const MembersSection = ({ form }) => {
                 getCanonicalMemberSectorCode(sector.code),
               ),
           );
+          const memberSuggestionGroups = Array.isArray(form.duplicateSuggestions.groups)
+            ? form.duplicateSuggestions.groups.filter(
+                (group) => group.person_key === `member_${index}`,
+              )
+            : [];
 
           return (
             <div
@@ -232,6 +238,15 @@ const MembersSection = ({ form }) => {
                     style={fieldStyles.input}
                   />
                 </label>
+              </div>
+
+              <div style={{ marginTop: "14px" }}>
+                <DuplicateRegistrationSuggestionsSection
+                  groups={memberSuggestionGroups}
+                  isLoading={form.isLoadingDuplicateSuggestions}
+                  errorMessage={form.duplicateSuggestionsError}
+                  onViewHousehold={onViewSuggestedHousehold}
+                />
               </div>
 
               <div
