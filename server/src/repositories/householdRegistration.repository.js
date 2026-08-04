@@ -443,19 +443,10 @@ const updateHousehold = async (householdId, householdData, dbClient) => {
     SET
       evacuation_center_id = $2,
       residency_status = $3,
-      family_head_first_name = $4,
-      family_head_middle_name = $5,
-      family_head_last_name = $6,
-      family_head_suffix = $7,
-      sex = $8,
-      contact_number = $9,
-      current_stay_type = $10,
-      current_address_details = $11,
-      household_size = $12,
-      family_head_photo_url = $13,
-      photo_captured_at = $14,
-      photo_captured_by = $15,
-      photo_verification_notes = $16,
+      contact_number = $4,
+      current_stay_type = $5,
+      current_address_details = $6,
+      household_size = $7,
       updated_at = NOW()
     WHERE id = $1
     RETURNING
@@ -489,19 +480,10 @@ const updateHousehold = async (householdId, householdData, dbClient) => {
     householdId,
     householdData.evacuation_center_id,
     householdData.residency_status,
-    householdData.family_head.first_name,
-    householdData.family_head.middle_name,
-    householdData.family_head.last_name,
-    householdData.family_head.suffix,
-    householdData.family_head.sex,
-    householdData.contact_number ?? householdData.family_head.contact_number ?? null,
+    householdData.contact_number ?? null,
     householdData.current_stay_type,
     householdData.current_address_details ?? null,
     householdData.household_size,
-    householdData.family_head_photo_url || null,
-    householdData.photo_captured_at || null,
-    householdData.photo_captured_by || null,
-    householdData.photo_verification_notes || null,
   ];
 
   const result = await dbClient.query(query, values);

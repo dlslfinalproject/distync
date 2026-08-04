@@ -52,6 +52,26 @@ const fieldStyles = {
     boxSizing: "border-box",
     width: "100%",
   },
+  lockedInput: {
+    backgroundColor: "#f8fbfe",
+    color: "#60738a",
+    cursor: "default",
+  },
+  sectionHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    flexWrap: "wrap",
+  },
+  badge: {
+    padding: "4px 10px",
+    borderRadius: "999px",
+    border: "1px solid #d4deea",
+    backgroundColor: "#f2f7fb",
+    color: "#58718c",
+    fontSize: "12px",
+    fontWeight: 700,
+  },
   checkboxLabel: {
     display: "inline-flex",
     alignItems: "center",
@@ -146,6 +166,7 @@ const FamilyHeadSection = ({ form }) => {
   const [cameraStream, setCameraStream] = useState(null);
   const [isStartingCamera, setIsStartingCamera] = useState(false);
   const [cameraErrorMessage, setCameraErrorMessage] = useState("");
+  const isFamilyHeadProtected = form.isFamilyHeadProtected;
   const parsedFamilyHeadAgeValue = Number.parseInt(
     String(form.familyHead.age_value || "").trim(),
     10,
@@ -179,7 +200,19 @@ const FamilyHeadSection = ({ form }) => {
     };
   }, [cameraStream]);
 
+  useEffect(() => {
+    if (isFamilyHeadProtected) {
+      stopMediaStream(cameraStream);
+      setCameraStream(null);
+      setCameraErrorMessage("");
+    }
+  }, [cameraStream, isFamilyHeadProtected]);
+
   const handleStartCamera = async () => {
+    if (isFamilyHeadProtected) {
+      return;
+    }
+
     if (!canUseCamera || isStartingCamera) {
       if (!canUseCamera) {
         setCameraErrorMessage(
@@ -217,6 +250,10 @@ const FamilyHeadSection = ({ form }) => {
   };
 
   const handleCapturePhoto = async () => {
+    if (isFamilyHeadProtected) {
+      return;
+    }
+
     if (!videoRef.current) {
       setCameraErrorMessage("Camera preview is not ready yet.");
       return;
@@ -258,6 +295,11 @@ const FamilyHeadSection = ({ form }) => {
   };
 
   const handleUploadFallback = async (event) => {
+    if (isFamilyHeadProtected) {
+      event.target.value = "";
+      return;
+    }
+
     const selectedFile = event.target.files?.[0] || null;
     handleStopCamera();
     setCameraErrorMessage("");
@@ -274,7 +316,18 @@ const FamilyHeadSection = ({ form }) => {
   return (
     <section style={shellStyles.card}>
       <div style={{ marginBottom: "18px" }}>
-        <h3 style={{ margin: 0, color: "#17324d" }}>Family Head Information</h3>
+        <div style={fieldStyles.sectionHeader}>
+          <h3 style={{ margin: 0, color: "#17324d" }}>Family Head Information</h3>
+          {isFamilyHeadProtected ? (
+            <span style={fieldStyles.badge}>Protected Information</span>
+          ) : null}
+        </div>
+        {isFamilyHeadProtected ? (
+          <p style={fieldStyles.helperText}>
+            Family head information is locked after registration to preserve
+            beneficiary and distribution record consistency.
+          </p>
+        ) : null}
       </div>
 
       <div style={fieldStyles.nameGrid}>
@@ -283,10 +336,14 @@ const FamilyHeadSection = ({ form }) => {
           <input
             type="text"
             value={form.familyHead.first_name}
+            readOnly={isFamilyHeadProtected}
             onChange={(event) =>
               form.updateFamilyHeadField("first_name", event.target.value)
             }
-            style={fieldStyles.input}
+            style={{
+              ...fieldStyles.input,
+              ...(isFamilyHeadProtected ? fieldStyles.lockedInput : {}),
+            }}
           />
           {form.validationErrors.familyHead.first_name ? (
             <p style={fieldStyles.errorText}>
@@ -300,10 +357,14 @@ const FamilyHeadSection = ({ form }) => {
           <input
             type="text"
             value={form.familyHead.middle_name}
+            readOnly={isFamilyHeadProtected}
             onChange={(event) =>
               form.updateFamilyHeadField("middle_name", event.target.value)
             }
-            style={fieldStyles.input}
+            style={{
+              ...fieldStyles.input,
+              ...(isFamilyHeadProtected ? fieldStyles.lockedInput : {}),
+            }}
           />
         </label>
 
@@ -312,10 +373,14 @@ const FamilyHeadSection = ({ form }) => {
           <input
             type="text"
             value={form.familyHead.last_name}
+            readOnly={isFamilyHeadProtected}
             onChange={(event) =>
               form.updateFamilyHeadField("last_name", event.target.value)
             }
-            style={fieldStyles.input}
+            style={{
+              ...fieldStyles.input,
+              ...(isFamilyHeadProtected ? fieldStyles.lockedInput : {}),
+            }}
           />
           {form.validationErrors.familyHead.last_name ? (
             <p style={fieldStyles.errorText}>
@@ -329,10 +394,14 @@ const FamilyHeadSection = ({ form }) => {
           <input
             type="text"
             value={form.familyHead.suffix}
+            readOnly={isFamilyHeadProtected}
             onChange={(event) =>
               form.updateFamilyHeadField("suffix", event.target.value)
             }
-            style={fieldStyles.input}
+            style={{
+              ...fieldStyles.input,
+              ...(isFamilyHeadProtected ? fieldStyles.lockedInput : {}),
+            }}
           />
         </label>
       </div>
@@ -344,10 +413,14 @@ const FamilyHeadSection = ({ form }) => {
             type="text"
             inputMode="numeric"
             value={form.familyHead.age_value}
+            readOnly={isFamilyHeadProtected}
             onChange={(event) =>
               form.updateFamilyHeadField("age_value", event.target.value)
             }
-            style={fieldStyles.input}
+            style={{
+              ...fieldStyles.input,
+              ...(isFamilyHeadProtected ? fieldStyles.lockedInput : {}),
+            }}
           />
           {form.validationErrors.familyHead.age_value ? (
             <p style={fieldStyles.errorText}>
@@ -363,7 +436,11 @@ const FamilyHeadSection = ({ form }) => {
             onChange={(event) =>
               form.updateFamilyHeadField("sex", event.target.value)
             }
-            style={fieldStyles.input}
+            disabled={isFamilyHeadProtected}
+            style={{
+              ...fieldStyles.input,
+              ...(isFamilyHeadProtected ? fieldStyles.lockedInput : {}),
+            }}
           >
             <option value="MALE">MALE</option>
             <option value="FEMALE">FEMALE</option>
@@ -408,6 +485,7 @@ const FamilyHeadSection = ({ form }) => {
                   <input
                     type="checkbox"
                     checked={isChecked}
+                    disabled={isFamilyHeadProtected}
                     onChange={() => form.toggleFamilyHeadSector(sector.id)}
                   />
                   {formatMemberSectorLabel(sector)}
@@ -424,8 +502,9 @@ const FamilyHeadSection = ({ form }) => {
             Family Head Photo Verification
           </p>
           <p style={fieldStyles.helperText}>
-            A family head photo is required for relief verification. Use live
-            camera capture when available, or upload an image as fallback.
+            {isFamilyHeadProtected
+              ? "The registered family head photo is locked after registration."
+              : "A family head photo is required for relief verification. Use live camera capture when available, or upload an image as fallback."}
           </p>
           {form.validationErrors.family_head_photo_url ? (
             <p style={fieldStyles.errorText}>
@@ -470,107 +549,120 @@ const FamilyHeadSection = ({ form }) => {
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-              {!cameraStream ? (
-                <button
-                  type="button"
-                  onClick={handleStartCamera}
-                  disabled={!canUseCamera || isStartingCamera || form.isProcessingPhoto}
-                  style={{
-                    ...fieldStyles.smallButton,
-                    opacity:
-                      !canUseCamera || isStartingCamera || form.isProcessingPhoto
-                        ? 0.7
-                        : 1,
-                    cursor:
-                      !canUseCamera || isStartingCamera || form.isProcessingPhoto
-                        ? "not-allowed"
-                        : "pointer",
-                  }}
-                >
-                  {isStartingCamera ? "Starting Camera..." : "Open Camera"}
-                </button>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={handleCapturePhoto}
-                    disabled={form.isProcessingPhoto}
-                    style={{
-                      ...fieldStyles.smallButton,
-                      opacity: form.isProcessingPhoto ? 0.7 : 1,
-                      cursor: form.isProcessingPhoto ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    Capture Photo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleStopCamera}
-                    disabled={form.isProcessingPhoto}
-                    style={{
-                      ...fieldStyles.smallButton,
-                      opacity: form.isProcessingPhoto ? 0.7 : 1,
-                      cursor: form.isProcessingPhoto ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    Cancel Camera
-                  </button>
-                </>
-              )}
-            </div>
-
-            <label style={fieldStyles.field}>
-              <span style={fieldStyles.label}>Upload Photo (Fallback)</span>
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={handleUploadFallback}
-                style={fieldStyles.input}
-              />
-              <p style={fieldStyles.helperText}>
-                Use this if camera permission is denied or the device has no camera.
+            {isFamilyHeadProtected ? (
+              <p style={{ ...fieldStyles.helperText, margin: 0 }}>
+                Photo capture and replacement are unavailable while editing an
+                existing household.
               </p>
-            </label>
+            ) : (
+              <>
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                  {!cameraStream ? (
+                    <button
+                      type="button"
+                      onClick={handleStartCamera}
+                      disabled={
+                        !canUseCamera || isStartingCamera || form.isProcessingPhoto
+                      }
+                      style={{
+                        ...fieldStyles.smallButton,
+                        opacity:
+                          !canUseCamera || isStartingCamera || form.isProcessingPhoto
+                            ? 0.7
+                            : 1,
+                        cursor:
+                          !canUseCamera || isStartingCamera || form.isProcessingPhoto
+                            ? "not-allowed"
+                            : "pointer",
+                      }}
+                    >
+                      {isStartingCamera ? "Starting Camera..." : "Open Camera"}
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleCapturePhoto}
+                        disabled={form.isProcessingPhoto}
+                        style={{
+                          ...fieldStyles.smallButton,
+                          opacity: form.isProcessingPhoto ? 0.7 : 1,
+                          cursor: form.isProcessingPhoto ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        Capture Photo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleStopCamera}
+                        disabled={form.isProcessingPhoto}
+                        style={{
+                          ...fieldStyles.smallButton,
+                          opacity: form.isProcessingPhoto ? 0.7 : 1,
+                          cursor: form.isProcessingPhoto ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        Cancel Camera
+                      </button>
+                    </>
+                  )}
+                </div>
 
-            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={() => {
-                  handleStopCamera();
-                  form.clearFamilyHeadPhoto();
-                }}
-                disabled={!form.familyHeadPhotoUrl || form.isProcessingPhoto}
-                style={{
-                  ...fieldStyles.smallButton,
-                  opacity:
-                    !form.familyHeadPhotoUrl || form.isProcessingPhoto ? 0.7 : 1,
-                  cursor:
-                    !form.familyHeadPhotoUrl || form.isProcessingPhoto
-                      ? "not-allowed"
-                      : "pointer",
-                }}
-              >
-                Remove Photo
-              </button>
-
-              {form.isProcessingPhoto ? (
-                <p style={{ ...fieldStyles.helperText, margin: 0 }}>
-                  Processing selected photo...
+                <label style={fieldStyles.field}>
+                  <span style={fieldStyles.label}>Upload Photo (Fallback)</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handleUploadFallback}
+                    style={fieldStyles.input}
+                  />
+                  <p style={fieldStyles.helperText}>
+                    Use this if camera permission is denied or the device has no camera.
                   </p>
-              ) : null}
-            </div>
+                </label>
 
-            {cameraErrorMessage ? (
-              <p style={fieldStyles.warningText}>{cameraErrorMessage}</p>
-            ) : null}
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleStopCamera();
+                      form.clearFamilyHeadPhoto();
+                    }}
+                    disabled={!form.familyHeadPhotoUrl || form.isProcessingPhoto}
+                    style={{
+                      ...fieldStyles.smallButton,
+                      opacity:
+                        !form.familyHeadPhotoUrl || form.isProcessingPhoto
+                          ? 0.7
+                          : 1,
+                      cursor:
+                        !form.familyHeadPhotoUrl || form.isProcessingPhoto
+                          ? "not-allowed"
+                          : "pointer",
+                    }}
+                  >
+                    Remove Photo
+                  </button>
 
-            {!canUseCamera ? (
-              <p style={fieldStyles.helperText}>
-                Camera capture needs HTTPS or localhost in a supported browser.
-              </p>
-            ) : null}
+                  {form.isProcessingPhoto ? (
+                    <p style={{ ...fieldStyles.helperText, margin: 0 }}>
+                      Processing selected photo...
+                    </p>
+                  ) : null}
+                </div>
+
+                {cameraErrorMessage ? (
+                  <p style={fieldStyles.warningText}>{cameraErrorMessage}</p>
+                ) : null}
+
+                {!canUseCamera ? (
+                  <p style={fieldStyles.helperText}>
+                    Camera capture needs HTTPS or localhost in a supported browser.
+                  </p>
+                ) : null}
+              </>
+            )}
           </div>
         </div>
       </div>
