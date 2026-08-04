@@ -647,7 +647,7 @@ const formatDisasterEventStatusLabel = (status) => {
   const normalizedStatus = String(status || "").toUpperCase();
 
   if (normalizedStatus === "CLOSED" || normalizedStatus === "ARCHIVED") {
-    return "COMPLETED";
+    return "ENDED";
   }
 
   return normalizedStatus || "UNKNOWN";
