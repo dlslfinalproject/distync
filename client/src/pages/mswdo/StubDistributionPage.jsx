@@ -28,8 +28,9 @@ import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
 import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
 import { buildMasterlistFilterSectorOptions } from "../../utils/registrationOptions";
+import { STATUS_FILTERS } from "../../features/stubs/stubStatusFilters";
 
-const DEFAULT_STUB_STATUS = "ISSUED";
+const DEFAULT_STUB_STATUS = STATUS_FILTERS.UNCLAIMED;
 const DEFAULT_STUB_SORT_ORDER = "oldest";
 
 const filterStyles = {
@@ -96,8 +97,8 @@ const formatDisasterEventTitle = (event) =>
   String(event?.title || "").trim() || "No disaster event selected";
 
 const stubStatusOptions = [
-  { value: "CLAIMED", label: "Claimed" },
-  { value: "ISSUED", label: "Unclaimed" },
+  { value: STATUS_FILTERS.CLAIMED, label: "Claimed" },
+  { value: STATUS_FILTERS.UNCLAIMED, label: "Unclaimed" },
 ];
 
 const getStubSortTime = (row) => {
@@ -222,9 +223,9 @@ const StubDistributionPage = () => {
 
   const selectedSectorIds = filtersByTab[activeTab]?.sectorIds || [];
   const selectedStubStatus =
-    filtersByTab[activeTab]?.stubStatus || DEFAULT_STUB_STATUS;
+    filtersByTab[activeTab]?.stubStatus ?? DEFAULT_STUB_STATUS;
   const selectedSortOrder =
-    filtersByTab[activeTab]?.sortOrder || DEFAULT_STUB_SORT_ORDER;
+    filtersByTab[activeTab]?.sortOrder ?? DEFAULT_STUB_SORT_ORDER;
   const displayedRowsWithSyncStatus = useMemo(() => {
     return sortStubRows(displayedRows, selectedSortOrder).map((row) => {
       const matchingEntry = findSyncEntry(syncQueueEntries, (entry) => {
