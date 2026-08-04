@@ -57,9 +57,30 @@ const validateHouseholdRegistrationRequest = (
   req,
   res,
   next,
-  { requirePrivacyAcknowledgment = true } = {},
+  {
+    requirePrivacyAcknowledgment = true,
+    requireFamilyHead = true,
+    requireFamilyHeadPhoto = true,
+    requireHouseholdSize = true,
+  } = {},
 ) => {
   try {
+    const hasFamilyHeadField = Object.prototype.hasOwnProperty.call(
+      req.body || {},
+      "family_head",
+    );
+    const hasFamilyHeadPhotoUrlField = Object.prototype.hasOwnProperty.call(
+      req.body || {},
+      "family_head_photo_url",
+    );
+    const hasPhotoVerificationNotesField = Object.prototype.hasOwnProperty.call(
+      req.body || {},
+      "photo_verification_notes",
+    );
+    const hasHouseholdSizeField = Object.prototype.hasOwnProperty.call(
+      req.body || {},
+      "household_size",
+    );
     const {
       disaster_event_id,
       barangay_id,
@@ -108,88 +129,96 @@ const validateHouseholdRegistrationRequest = (
       });
     }
 
-    if (!family_head || typeof family_head !== "object") {
+    if (requireFamilyHead && (!family_head || typeof family_head !== "object")) {
       return res.status(400).json({
         message: "family_head is required",
       });
     }
 
-    if (!family_head.first_name || typeof family_head.first_name !== "string") {
-      return res.status(400).json({
-        message: "family_head.first_name is required and must be a string",
-      });
-    }
+    if (family_head !== undefined && family_head !== null) {
+      if (typeof family_head !== "object") {
+        return res.status(400).json({
+          message: "family_head must be an object when provided",
+        });
+      }
 
-    if (
-      family_head.middle_name !== undefined &&
-      family_head.middle_name !== null &&
-      typeof family_head.middle_name !== "string"
-    ) {
-      return res.status(400).json({
-        message: "family_head.middle_name must be a string or null",
-      });
-    }
+      if (!family_head.first_name || typeof family_head.first_name !== "string") {
+        return res.status(400).json({
+          message: "family_head.first_name is required and must be a string",
+        });
+      }
 
-    if (!family_head.last_name || typeof family_head.last_name !== "string") {
-      return res.status(400).json({
-        message: "family_head.last_name is required and must be a string",
-      });
-    }
+      if (
+        family_head.middle_name !== undefined &&
+        family_head.middle_name !== null &&
+        typeof family_head.middle_name !== "string"
+      ) {
+        return res.status(400).json({
+          message: "family_head.middle_name must be a string or null",
+        });
+      }
 
-    if (
-      family_head.suffix !== undefined &&
-      family_head.suffix !== null &&
-      typeof family_head.suffix !== "string"
-    ) {
-      return res.status(400).json({
-        message: "family_head.suffix must be a string or null",
-      });
-    }
+      if (!family_head.last_name || typeof family_head.last_name !== "string") {
+        return res.status(400).json({
+          message: "family_head.last_name is required and must be a string",
+        });
+      }
 
-    if (!allowedSexValues.includes(family_head.sex)) {
-      return res.status(400).json({
-        message: "family_head.sex must be MALE or FEMALE",
-      });
-    }
+      if (
+        family_head.suffix !== undefined &&
+        family_head.suffix !== null &&
+        typeof family_head.suffix !== "string"
+      ) {
+        return res.status(400).json({
+          message: "family_head.suffix must be a string or null",
+        });
+      }
 
-    if (
-      !Number.isInteger(family_head.age_value) ||
-      family_head.age_value < 0
-    ) {
-      return res.status(400).json({
-        message:
-          "family_head.age_value is required and must be a non-negative integer",
-      });
-    }
+      if (!allowedSexValues.includes(family_head.sex)) {
+        return res.status(400).json({
+          message: "family_head.sex must be MALE or FEMALE",
+        });
+      }
 
-    if (!ALLOWED_AGE_UNITS.includes(family_head.age_unit)) {
-      return res.status(400).json({
-        message: "family_head.age_unit must be YEARS",
-      });
-    }
+      if (
+        !Number.isInteger(family_head.age_value) ||
+        family_head.age_value < 0
+      ) {
+        return res.status(400).json({
+          message:
+            "family_head.age_value is required and must be a non-negative integer",
+        });
+      }
 
-    if (family_head.age_unit !== "YEARS") {
-      return res.status(400).json({
-        message: "family_head.age_unit must be YEARS",
-      });
-    }
+      if (!ALLOWED_AGE_UNITS.includes(family_head.age_unit)) {
+        return res.status(400).json({
+          message: "family_head.age_unit must be YEARS",
+        });
+      }
 
-    if (
-      family_head.sector_ids !== undefined &&
-      !Array.isArray(family_head.sector_ids)
-    ) {
-      return res.status(400).json({
-        message: "family_head.sector_ids must be an array when provided",
-      });
-    }
+      if (family_head.age_unit !== "YEARS") {
+        return res.status(400).json({
+          message: "family_head.age_unit must be YEARS",
+        });
+      }
 
-    if (
-      Array.isArray(family_head.sector_ids) &&
-      !validateUuidArray(family_head.sector_ids)
-    ) {
-      return res.status(400).json({
-        message: "Each family_head.sector_ids value must be a valid UUID",
-      });
+      if (
+        family_head.sector_ids !== undefined &&
+        !Array.isArray(family_head.sector_ids)
+      ) {
+        return res.status(400).json({
+          message: "family_head.sector_ids must be an array when provided",
+        });
+      }
+
+      if (
+        Array.isArray(family_head.sector_ids) &&
+        !validateUuidArray(family_head.sector_ids)
+      ) {
+        return res.status(400).json({
+          message: "Each family_head.sector_ids value must be a valid UUID",
+        });
+      }
     }
 
     if (!allowedStayTypes.includes(current_stay_type)) {
@@ -199,9 +228,23 @@ const validateHouseholdRegistrationRequest = (
       });
     }
 
-    if (!Number.isInteger(household_size) || household_size <= 0) {
+    if (
+      requireHouseholdSize &&
+      (!Number.isInteger(household_size) || household_size <= 0)
+    ) {
       return res.status(400).json({
         message: "household_size is required and must be a positive integer",
+      });
+    }
+
+    if (
+      !requireHouseholdSize &&
+      household_size !== undefined &&
+      household_size !== null &&
+      (!Number.isInteger(household_size) || household_size <= 0)
+    ) {
+      return res.status(400).json({
+        message: "household_size must be a positive integer when provided",
       });
     }
 
@@ -273,10 +316,11 @@ const validateHouseholdRegistrationRequest = (
     }
 
     if (
-      family_head_photo_url === undefined ||
-      family_head_photo_url === null ||
-      (typeof family_head_photo_url === "string" &&
-        !family_head_photo_url.trim())
+      requireFamilyHeadPhoto &&
+      (family_head_photo_url === undefined ||
+        family_head_photo_url === null ||
+        (typeof family_head_photo_url === "string" &&
+          !family_head_photo_url.trim()))
     ) {
       return res.status(400).json({
         message: "Family head photo is required for verification.",
@@ -593,18 +637,22 @@ const validateHouseholdRegistrationRequest = (
       barangay_id,
       residency_status: normalizedResidencyStatus,
       evacuation_center_id: evacuation_center_id ?? null,
-      family_head: {
-        first_name: family_head.first_name.trim(),
-        middle_name: family_head.middle_name ?? null,
-        last_name: family_head.last_name.trim(),
-        suffix: family_head.suffix ?? null,
-        sex: family_head.sex,
-        age_value: family_head.age_value,
-        age_unit: family_head.age_unit,
-        sector_ids: family_head.sector_ids ?? [],
-      },
+      family_head:
+        hasFamilyHeadField && family_head
+          ? {
+              first_name: family_head.first_name.trim(),
+              middle_name: family_head.middle_name ?? null,
+              last_name: family_head.last_name.trim(),
+              suffix: family_head.suffix ?? null,
+              sex: family_head.sex,
+              age_value: family_head.age_value,
+              age_unit: family_head.age_unit,
+              sector_ids: family_head.sector_ids ?? [],
+            }
+          : undefined,
       current_stay_type,
-      household_size,
+      household_size:
+        hasHouseholdSizeField || requireHouseholdSize ? household_size : undefined,
       registered_by: registered_by ?? null,
       contact_number:
         typeof contact_number === "string" && contact_number.trim()
@@ -616,15 +664,19 @@ const validateHouseholdRegistrationRequest = (
           ? current_address_details.trim()
           : null,
       family_head_photo_url:
-        typeof family_head_photo_url === "string" &&
-        family_head_photo_url.trim()
-          ? family_head_photo_url.trim()
-          : null,
+        hasFamilyHeadPhotoUrlField || requireFamilyHeadPhoto
+          ? typeof family_head_photo_url === "string" &&
+            family_head_photo_url.trim()
+            ? family_head_photo_url.trim()
+            : null
+          : undefined,
       photo_verification_notes:
-        typeof photo_verification_notes === "string" &&
-        photo_verification_notes.trim()
-          ? photo_verification_notes.trim()
-          : null,
+        hasPhotoVerificationNotesField
+          ? typeof photo_verification_notes === "string" &&
+            photo_verification_notes.trim()
+            ? photo_verification_notes.trim()
+            : null
+          : undefined,
       privacy_acknowledgment: normalizedPrivacyAcknowledgment,
       members: members.map((member) => ({
         id:
@@ -645,7 +697,7 @@ const validateHouseholdRegistrationRequest = (
     };
 
     const hasInvalidFamilyHeadManualSector =
-      Array.isArray(req.validatedBody.family_head.sector_ids) &&
+      Array.isArray(req.validatedBody.family_head?.sector_ids) &&
       req.validatedBody.family_head.sector_ids.some((value) => !isValidUuid(value));
 
     if (hasInvalidFamilyHeadManualSector) {
@@ -1066,6 +1118,9 @@ const validateUpdateHouseholdDetails = (req, res, next) => {
       return next();
     }, {
       requirePrivacyAcknowledgment: false,
+      requireFamilyHead: false,
+      requireFamilyHeadPhoto: false,
+      requireHouseholdSize: false,
     });
   } catch (error) {
     return res.status(500).json({

@@ -30,6 +30,7 @@ import {
   getCanonicalMemberSectorCode,
   isAgeBasedMemberSectorCode,
 } from "../../utils/registrationOptions";
+import { sanitizeHouseholdUpdatePayload } from "./householdEditProtection";
 
 const createMember = () => ({
   id: null,
@@ -207,6 +208,8 @@ export const useHouseholdRegistrationForm = ({
   onSuccess,
 }) => {
   const isEditMode = mode === "edit";
+  const isExistingHousehold = Boolean(initialHouseholdDetails?.household?.id);
+  const isFamilyHeadProtected = isEditMode && isExistingHousehold;
   const [household, setHousehold] = useState(initialHousehold);
   const [residencyStatus, setResidencyStatus] = useState(
     RESIDENCY_STATUS.resident,
@@ -920,6 +923,10 @@ export const useHouseholdRegistrationForm = ({
   };
 
   const updateFamilyHeadField = (fieldName, value) => {
+    if (isFamilyHeadProtected) {
+      return;
+    }
+
     setFamilyHead((currentValue) => {
       if (fieldName === "age_value") {
         return {
@@ -950,6 +957,10 @@ export const useHouseholdRegistrationForm = ({
   };
 
   const toggleFamilyHeadSector = (sectorId) => {
+    if (isFamilyHeadProtected) {
+      return;
+    }
+
     setFamilyHead((currentValue) => ({
       ...currentValue,
       sector_ids: currentValue.sector_ids.includes(sectorId)
@@ -1066,6 +1077,10 @@ export const useHouseholdRegistrationForm = ({
   };
 
   const setFamilyHeadPhotoFromFile = async (file) => {
+    if (isFamilyHeadProtected) {
+      return;
+    }
+
     if (!file) {
       setFamilyHeadPhotoUrl("");
       setFamilyHeadPhotoFileName("");
@@ -1120,8 +1135,20 @@ export const useHouseholdRegistrationForm = ({
   };
 
   const clearFamilyHeadPhoto = () => {
+    if (isFamilyHeadProtected) {
+      return;
+    }
+
     setFamilyHeadPhotoUrl("");
     setFamilyHeadPhotoFileName("");
+  };
+
+  const updatePhotoVerificationNotes = (value) => {
+    if (isFamilyHeadProtected) {
+      return;
+    }
+
+    setPhotoVerificationNotes(value);
   };
 
   const normalizedSelectedEvacuationCenterId = String(
@@ -1258,30 +1285,33 @@ export const useHouseholdRegistrationForm = ({
       }
     }
 
-    if (!trimValue(familyHead.first_name)) {
-      nextValidationErrors.familyHead.first_name =
-        "Family head first name is required.";
-    }
+    if (!isFamilyHeadProtected) {
+      if (!trimValue(familyHead.first_name)) {
+        nextValidationErrors.familyHead.first_name =
+          "Family head first name is required.";
+      }
 
-    if (!trimValue(familyHead.last_name)) {
-      nextValidationErrors.familyHead.last_name =
-        "Family head last name is required.";
-    }
+      if (!trimValue(familyHead.last_name)) {
+        nextValidationErrors.familyHead.last_name =
+          "Family head last name is required.";
+      }
 
-    const trimmedFamilyHeadAgeValue = trimValue(familyHead.age_value);
-    const normalizedFamilyHeadAgeValue = normalizeAgeValue(familyHead.age_value);
+      const trimmedFamilyHeadAgeValue = trimValue(familyHead.age_value);
+      const normalizedFamilyHeadAgeValue = normalizeAgeValue(familyHead.age_value);
 
-    if (!trimmedFamilyHeadAgeValue) {
-      nextValidationErrors.familyHead.age_value = "Family head age is required.";
-    } else if (!isWholeNumberString(familyHead.age_value)) {
-      nextValidationErrors.familyHead.age_value =
-        "Family head age must be a whole number.";
-    } else if (normalizedFamilyHeadAgeValue < 1) {
-      nextValidationErrors.familyHead.age_value =
-        "Family head age must be at least 1.";
-    } else if (!deriveAgeGroup(normalizedFamilyHeadAgeValue, "YEARS")) {
-      nextValidationErrors.familyHead.age_value =
-        "Family head age must be a valid age.";
+      if (!trimmedFamilyHeadAgeValue) {
+        nextValidationErrors.familyHead.age_value =
+          "Family head age is required.";
+      } else if (!isWholeNumberString(familyHead.age_value)) {
+        nextValidationErrors.familyHead.age_value =
+          "Family head age must be a whole number.";
+      } else if (normalizedFamilyHeadAgeValue < 1) {
+        nextValidationErrors.familyHead.age_value =
+          "Family head age must be at least 1.";
+      } else if (!deriveAgeGroup(normalizedFamilyHeadAgeValue, "YEARS")) {
+        nextValidationErrors.familyHead.age_value =
+          "Family head age must be a valid age.";
+      }
     }
 
     for (const [memberIndex, member] of members.entries()) {
@@ -1372,7 +1402,7 @@ export const useHouseholdRegistrationForm = ({
       }
     }
 
-    if (!familyHeadPhotoUrl) {
+    if (!isFamilyHeadProtected && !familyHeadPhotoUrl) {
       nextValidationErrors.family_head_photo_url =
         "Family head photo is required for verification.";
     }
@@ -1382,7 +1412,8 @@ export const useHouseholdRegistrationForm = ({
       Boolean(nextValidationErrors.evacuation_center_id) ||
       Boolean(nextValidationErrors.contact_number) ||
       Boolean(nextValidationErrors.family_head_photo_url) ||
-      Object.values(nextValidationErrors.familyHead).some(Boolean) ||
+      (!isFamilyHeadProtected &&
+        Object.values(nextValidationErrors.familyHead).some(Boolean)) ||
       nextValidationErrors.members.some((memberErrors) =>
         Object.values(memberErrors).some(Boolean),
       );
@@ -1395,7 +1426,7 @@ export const useHouseholdRegistrationForm = ({
   };
 
   const buildPayload = (privacyAcknowledgment = null) => {
-    return {
+    const payload = {
       household_id: initialHouseholdDetails?.household?.id || null,
       disaster_event_id: selectedDisasterEventId,
       barangay_id: selectedBarangayId,
@@ -1436,6 +1467,10 @@ export const useHouseholdRegistrationForm = ({
       household_sector_ids: householdSectorIds,
       privacy_acknowledgment: privacyAcknowledgment,
     };
+
+    return isFamilyHeadProtected
+      ? sanitizeHouseholdUpdatePayload(payload)
+      : payload;
   };
 
   const validateSubmissionReadiness = () => {
@@ -1536,6 +1571,8 @@ export const useHouseholdRegistrationForm = ({
     isUsingCachedReferenceData,
     isOffline,
     isEditMode,
+    isExistingHousehold,
+    isFamilyHeadProtected,
     latestPrivacyConsent,
     requiresPrivacyAcknowledgment,
     selectedDisasterEventId,
@@ -1576,7 +1613,7 @@ export const useHouseholdRegistrationForm = ({
     removeMember,
     setFamilyHeadPhotoFromFile,
     clearFamilyHeadPhoto,
-    setPhotoVerificationNotes,
+    setPhotoVerificationNotes: updatePhotoVerificationNotes,
     clearFormMessages,
     resetForm,
     validateSubmissionReadiness,

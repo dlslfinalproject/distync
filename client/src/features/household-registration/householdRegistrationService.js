@@ -10,6 +10,7 @@ import {
   removeStorageKeysByPrefix,
   writeStorageValue,
 } from "../../utils/modeStorage.js";
+import { sanitizeHouseholdUpdatePayload } from "./householdEditProtection.js";
 
 const API_BASE_URL =
   import.meta.env?.VITE_API_BASE_URL || "http://localhost:5000";
@@ -326,20 +327,22 @@ export const fetchDuplicateRegistrationSuggestions = async (payload) => {
 };
 
 export const updateHousehold = async (householdId, payload) => {
+  const sanitizedPayload = sanitizeHouseholdUpdatePayload(payload);
+
   return performSyncableMutation({
     moduleName: "barangay-households",
     actionKey: "HOUSEHOLD_UPDATE",
     entityType: "HOUSEHOLD",
     entityServerId: householdId,
-    payload,
-    requiredFields: ["disaster_event_id", "barangay_id", "family_head"],
+    payload: sanitizedPayload,
+    requiredFields: ["disaster_event_id", "barangay_id"],
     request: async () => {
       const response = await fetch(`${API_BASE_URL}/api/v1/households/${householdId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(sanitizedPayload),
       });
 
       return parseJsonResponse(response);

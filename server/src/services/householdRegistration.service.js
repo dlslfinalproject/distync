@@ -19,6 +19,10 @@ const {
   getCanonicalMemberSectorCode,
   getMemberFlagsFromSectorCodes,
 } = require("../utils/registrationOptions");
+const {
+  assertNoProtectedFamilyHeadChanges,
+  sanitizeHouseholdUpdateRequestData,
+} = require("./householdEditProtection.service");
 
 const NON_RESIDENT_BARANGAY_CODE = "NON_RESIDENT_OUTSIDE_MALVAR";
 const RESIDENCY_STATUSES = {
@@ -1210,23 +1214,51 @@ const updateHouseholdDetails = async ({
     await householdRegistrationRepository.getLatestHouseholdPrivacyConsentByHouseholdId(
       householdId,
     );
+  const existingMembers =
+    await householdRegistrationRepository.getEvacueesByHouseholdId(householdId, {
+      includeInactive: existingHousehold.is_active === false,
+    });
+  const existingFamilyHeadMember = existingMembers.find(
+    (member) =>
+      member.is_family_head || member.id === existingHousehold.family_head_evacuee_id,
+  );
+  const existingEvacueeSectorAssignments =
+    await householdRegistrationRepository.getEvacueeSectorAssignmentsByHouseholdId(
+      householdId,
+      {
+        includeInactive: existingHousehold.is_active === false,
+      },
+    );
+  const familyHeadSectorAssignments = existingEvacueeSectorAssignments.filter(
+    (assignment) => assignment.evacuee_id === existingHousehold.family_head_evacuee_id,
+  );
+
+  assertNoProtectedFamilyHeadChanges({
+    requestData,
+    existingHousehold,
+    existingFamilyHeadMember,
+    familyHeadSectorAssignments,
+  });
+
+  const allowedUpdateData = sanitizeHouseholdUpdateRequestData(requestData);
   const requiresPrivacyRenewal =
     shouldRequireHouseholdPrivacyRenewal(latestPrivacyConsent);
   const normalizedPrivacyRenewal = requiresPrivacyRenewal
     ? normalizeHouseholdPrivacyAcknowledgment({
-        privacyAcknowledgment: requestData.privacy_acknowledgment,
-        familyHead: requestData.family_head,
-        disasterEventId: requestData.disaster_event_id,
-        recordedBy: requester?.userId || requestData.registered_by || null,
+        privacyAcknowledgment: allowedUpdateData.privacy_acknowledgment,
+        familyHead: {
+          first_name: existingHousehold.family_head_first_name,
+          middle_name: existingHousehold.family_head_middle_name,
+          last_name: existingHousehold.family_head_last_name,
+          suffix: existingHousehold.family_head_suffix,
+        },
+        disasterEventId: allowedUpdateData.disaster_event_id,
+        recordedBy: requester?.userId || allowedUpdateData.registered_by || null,
       })
     : null;
   const previousHouseholdSummary = summarizeHousehold(existingHousehold);
 
-  const normalizedFamilyHead = buildPersonRecord({
-    ...requestData.family_head,
-    relationship_to_head: "HEAD",
-  });
-  const normalizedMembers = requestData.members.map((member) =>
+  const normalizedMembers = allowedUpdateData.members.map((member) =>
     buildPersonRecord(member),
   );
 
@@ -1236,25 +1268,10 @@ const updateHouseholdDetails = async ({
   });
 
   const requestDataWithDerivedAgeGroups = {
-    ...requestData,
-    family_head_photo_url:
-      requestData.family_head_photo_url || existingHousehold.family_head_photo_url || null,
-    photo_captured_at: requestData.family_head_photo_url
-      ? new Date().toISOString()
-      : existingHousehold.photo_captured_at || null,
-    photo_captured_by: requestData.family_head_photo_url
-      ? requester?.userId || requestData.registered_by || null
-      : existingHousehold.photo_captured_by || null,
-    photo_verification_notes: requestData.photo_verification_notes || null,
-    family_head: {
-      ...normalizedFamilyHead,
-      birth_date: null,
-      contact_number: requestData.contact_number || null,
-      id: existingHousehold.family_head_evacuee_id,
-    },
+    ...allowedUpdateData,
     members: normalizedMembers,
-    current_address_details: requestData.current_address_details || null,
-    contact_number: requestData.contact_number || null,
+    current_address_details: allowedUpdateData.current_address_details || null,
+    contact_number: allowedUpdateData.contact_number || null,
   };
   const duplicateSuggestions = await buildDuplicateRegistrationSuggestions({
     disasterEventId: requestDataWithDerivedAgeGroups.disaster_event_id,
@@ -1276,7 +1293,6 @@ const updateHouseholdDetails = async ({
   );
   const memberSectors = await householdRegistrationRepository.getSectorsByIds(
     deduplicateIds([
-      ...(requestDataWithDerivedAgeGroups.family_head.sector_ids || []),
       ...requestDataWithDerivedAgeGroups.members.flatMap(
         (member) => member.sector_ids || [],
       ),
@@ -1284,14 +1300,12 @@ const updateHouseholdDetails = async ({
   );
   const ageSectorRows = await householdRegistrationRepository.getSectorsByCodes(
     buildAgeSectorLookupCodes([
-      requestDataWithDerivedAgeGroups.family_head.derived_age_sector_code,
       ...requestDataWithDerivedAgeGroups.members.map(
         (member) => member.derived_age_sector_code,
       ),
     ]),
   );
   const expectedAgeSectorCodes = deduplicateIds([
-    requestDataWithDerivedAgeGroups.family_head.derived_age_sector_code,
     ...requestDataWithDerivedAgeGroups.members.map(
       (member) => member.derived_age_sector_code,
     ),
@@ -1300,7 +1314,12 @@ const updateHouseholdDetails = async ({
   validateSectorUsage(
     householdSectors,
     memberSectors,
-    requestDataWithDerivedAgeGroups,
+    {
+      ...requestDataWithDerivedAgeGroups,
+      family_head: {
+        sector_ids: [],
+      },
+    },
   );
 
   let ageSectorIdsByCode = buildAgeSectorIdsByCode(ageSectorRows);
@@ -1330,10 +1349,6 @@ const updateHouseholdDetails = async ({
     throw error;
   }
 
-  const existingMembers =
-    await householdRegistrationRepository.getEvacueesByHouseholdId(householdId, {
-      includeInactive: existingHousehold.is_active === false,
-    });
   const existingMembersById = new Map(
     existingMembers.map((member) => [member.id, member]),
   );
@@ -1342,7 +1357,7 @@ const updateHouseholdDetails = async ({
   );
   const deactivatedMemberSummaries = [];
   const incomingExistingMemberIds = new Set(
-    requestData.members
+    allowedUpdateData.members
       .map((member) => member.id)
       .filter(Boolean),
   );
@@ -1362,40 +1377,6 @@ const updateHouseholdDetails = async ({
       },
       client,
     );
-
-    const familyHeadSectorRows = memberSectors.filter((sector) =>
-      requestDataWithDerivedAgeGroups.family_head.sector_ids.includes(sector.id),
-    );
-    const familyHeadSectorCodes = familyHeadSectorRows.map((sector) => sector.code);
-    const preparedFamilyHead = {
-      ...requestDataWithDerivedAgeGroups.family_head,
-      is_family_head: true,
-      is_active: !shouldKeepMembersArchived,
-      ...getMemberFlagsFromSectorCodes(familyHeadSectorCodes),
-    };
-
-    await householdRegistrationRepository.updateEvacuee(
-      existingHousehold.family_head_evacuee_id,
-      preparedFamilyHead,
-      client,
-    );
-
-    await householdRegistrationRepository.deleteEvacueeSectorsByEvacueeId(
-      existingHousehold.family_head_evacuee_id,
-      client,
-    );
-    const familyHeadSectorIds = deduplicateIds([
-      ageSectorIdsByCode[preparedFamilyHead.derived_age_sector_code],
-      ...preparedFamilyHead.sector_ids,
-    ]).filter(Boolean);
-
-    if (familyHeadSectorIds.length > 0) {
-      await householdRegistrationRepository.insertEvacueeSectors(
-        existingHousehold.family_head_evacuee_id,
-        familyHeadSectorIds,
-        client,
-      );
-    }
 
     for (const existingMember of existingNonHeadMembers) {
       if (incomingExistingMemberIds.has(existingMember.id)) {

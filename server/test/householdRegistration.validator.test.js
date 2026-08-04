@@ -148,6 +148,10 @@ test("create validation rejects unsupported privacy notice versions", async () =
 test("update validation allows ordinary edits without a new privacy acknowledgment", async () => {
   const payload = buildValidPayload();
   delete payload.privacy_acknowledgment;
+  delete payload.family_head;
+  delete payload.family_head_photo_url;
+  delete payload.photo_verification_notes;
+  delete payload.household_size;
 
   const result = await runMiddleware(validateUpdateHouseholdDetails, {
     params: {
@@ -159,6 +163,9 @@ test("update validation allows ordinary edits without a new privacy acknowledgme
   assert.equal(result.nextCalled, true);
   assert.equal(result.req.validatedParams.householdId, VALID_UUIDS.householdId);
   assert.equal(result.req.validatedBody.privacy_acknowledgment, null);
+  assert.equal(result.req.validatedBody.family_head, undefined);
+  assert.equal(result.req.validatedBody.family_head_photo_url, undefined);
+  assert.equal(result.req.validatedBody.household_size, undefined);
 });
 
 test("duplicate suggestion validation accepts partial household lookup data", async () => {
