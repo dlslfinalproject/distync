@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 
 const {
   validateCreateHouseholdRegistration,
+  validateDuplicateRegistrationSuggestions,
   validateUpdateHouseholdDetails,
 } = require("../src/validators/householdRegistration.validator");
 const {
@@ -158,4 +159,20 @@ test("update validation allows ordinary edits without a new privacy acknowledgme
   assert.equal(result.nextCalled, true);
   assert.equal(result.req.validatedParams.householdId, VALID_UUIDS.householdId);
   assert.equal(result.req.validatedBody.privacy_acknowledgment, null);
+});
+
+test("duplicate suggestion validation accepts partial household lookup data", async () => {
+  const payload = buildValidPayload();
+  delete payload.privacy_acknowledgment;
+  delete payload.family_head_photo_url;
+  delete payload.photo_verification_notes;
+
+  const result = await runMiddleware(validateDuplicateRegistrationSuggestions, {
+    body: payload,
+  });
+
+  assert.equal(result.nextCalled, true);
+  assert.equal(result.req.validatedBody.disaster_event_id, VALID_UUIDS.disasterEventId);
+  assert.equal(result.req.validatedBody.family_head.first_name, "Ana");
+  assert.equal(result.req.validatedBody.members[0].first_name, "Marco");
 });

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { shellStyles } from "../layout/BarangayLayout";
+import DuplicateRegistrationSuggestionsSection from "./DuplicateRegistrationSuggestionsSection";
 import { deriveAgeGroup } from "../../utils/ageGroup";
 import {
   AGE_BASED_MEMBER_SECTOR_CODES,
@@ -141,7 +142,7 @@ const stopMediaStream = (stream) => {
   });
 };
 
-const FamilyHeadSection = ({ form }) => {
+const FamilyHeadSection = ({ form, onViewSuggestedHousehold }) => {
   const videoRef = useRef(null);
   const [cameraStream, setCameraStream] = useState(null);
   const [isStartingCamera, setIsStartingCamera] = useState(false);
@@ -270,6 +271,11 @@ const FamilyHeadSection = ({ form }) => {
     (sector) =>
       !isAgeBasedMemberSectorCode(getCanonicalMemberSectorCode(sector.code)),
   );
+  const familyHeadSuggestionGroups = Array.isArray(form.duplicateSuggestions.groups)
+    ? form.duplicateSuggestions.groups.filter(
+        (group) => group.source_role === "FAMILY_HEAD",
+      )
+    : [];
 
   return (
     <section style={shellStyles.card}>
@@ -416,6 +422,15 @@ const FamilyHeadSection = ({ form }) => {
             })}
           </div>
         </div>
+      </div>
+
+      <div style={{ marginTop: "20px" }}>
+        <DuplicateRegistrationSuggestionsSection
+          groups={familyHeadSuggestionGroups}
+          isLoading={form.isLoadingDuplicateSuggestions}
+          errorMessage={form.duplicateSuggestionsError}
+          onViewHousehold={onViewSuggestedHousehold}
+        />
       </div>
 
       <div style={fieldStyles.photoCard}>

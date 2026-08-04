@@ -34,17 +34,6 @@ const NON_ADMITTED_RESIDENT_STAY_TYPES = new Set([
   "OTHER_SAFE_PLACE",
 ]);
 
-const buildDuplicateRegistrationError = (duplicateHousehold) => {
-  const error = new Error(
-    "Duplicate household registration detected. Earlier registration was kept.",
-  );
-  error.statusCode = 409;
-  error.code = "DUPLICATE_HOUSEHOLD_REGISTRATION";
-  error.entityServerId = duplicateHousehold?.id || null;
-  error.serverPayload = duplicateHousehold || null;
-  return error;
-};
-
 const buildDuplicateDepartureError = (householdId, latestAttendance) => {
   const error = new Error(
     "Duplicate household departure detected. Earlier departure time was kept.",
@@ -117,6 +106,116 @@ const buildFullName = ({
     .map((value) => String(value || "").trim())
     .filter(Boolean)
     .join(" ");
+};
+
+const normalizeComparableText = (value) =>
+  String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+
+const hasComparableName = (person) =>
+  Boolean(
+    normalizeComparableText(person?.first_name) &&
+      normalizeComparableText(person?.last_name),
+  );
+
+const buildComparablePersonKey = (person) =>
+  [
+    normalizeComparableText(person?.first_name),
+    normalizeComparableText(person?.middle_name),
+    normalizeComparableText(person?.last_name),
+    normalizeComparableText(person?.suffix),
+  ].join("|");
+
+const hasSameCoreName = (leftPerson, rightPerson) =>
+  normalizeComparableText(leftPerson?.first_name) ===
+    normalizeComparableText(rightPerson?.first_name) &&
+  normalizeComparableText(leftPerson?.last_name) ===
+    normalizeComparableText(rightPerson?.last_name);
+
+const hasSameExtendedName = (leftPerson, rightPerson) =>
+  hasSameCoreName(leftPerson, rightPerson) &&
+  normalizeComparableText(leftPerson?.middle_name) ===
+    normalizeComparableText(rightPerson?.middle_name) &&
+  normalizeComparableText(leftPerson?.suffix) ===
+    normalizeComparableText(rightPerson?.suffix);
+
+const hasSameComparableAge = (leftPerson, rightPerson) => {
+  if (
+    !Number.isInteger(leftPerson?.age_value) ||
+    !Number.isInteger(rightPerson?.age_value)
+  ) {
+    return false;
+  }
+
+  return (
+    leftPerson.age_value === rightPerson.age_value &&
+    String(leftPerson.age_unit || "").toUpperCase() ===
+      String(rightPerson.age_unit || "").toUpperCase()
+  );
+};
+
+const hasSameComparableSex = (leftPerson, rightPerson) =>
+  String(leftPerson?.sex || "").toUpperCase() ===
+  String(rightPerson?.sex || "").toUpperCase();
+
+const hasSameComparableContactNumber = (leftValue, rightValue) => {
+  const normalizeContactNumber = (value) => String(value || "").replace(/\D/g, "");
+  const normalizedLeft = normalizeContactNumber(leftValue);
+  const normalizedRight = normalizeContactNumber(rightValue);
+
+  return Boolean(normalizedLeft) && normalizedLeft === normalizedRight;
+};
+
+const buildDuplicateSuggestionPersonLabel = (person, fallbackLabel) => {
+  const fullName = buildFullName(person);
+  return fullName || fallbackLabel || "Unnamed person";
+};
+
+const buildDuplicateSuggestionMatchSummary = (match) => ({
+  household_id: match.household_id,
+  barangay_id: match.barangay_id,
+  barangay_name: match.barangay_name || null,
+  family_head_name: buildFullName({
+    first_name: match.household_family_head_first_name,
+    middle_name: match.household_family_head_middle_name,
+    last_name: match.household_family_head_last_name,
+    suffix: match.household_family_head_suffix,
+  }),
+  matched_as: match.matched_role,
+  matched_person_name: buildFullName({
+    first_name: match.matched_first_name,
+    middle_name: match.matched_middle_name,
+    last_name: match.matched_last_name,
+    suffix: match.matched_suffix,
+  }),
+  matched_relationship_to_head: match.matched_relationship_to_head || null,
+  matched_sex: match.matched_sex || null,
+  matched_age_value: Number.isInteger(match.matched_age_value)
+    ? match.matched_age_value
+    : null,
+  matched_age_unit: match.matched_age_unit || null,
+  matched_contact_number: match.matched_contact_number || null,
+  current_stay_type: match.current_stay_type || null,
+  household_size: Number(match.household_size || 0),
+  is_active: match.is_active !== false,
+  registered_at: match.registered_at || null,
+  match_confidence: match.match_confidence,
+  match_reasons: match.match_reasons,
+});
+
+const buildDuplicateRegistrationError = (duplicateMatch) => {
+  const error = new Error(
+    "Possible duplicate evacuee registration detected. Review the matched household before registering again.",
+  );
+  error.statusCode = 409;
+  error.code = "DUPLICATE_HOUSEHOLD_REGISTRATION";
+  error.entityServerId = duplicateMatch?.household_id || null;
+  error.serverPayload = duplicateMatch
+    ? buildDuplicateSuggestionMatchSummary(duplicateMatch)
+    : null;
+  return error;
 };
 
 const summarizePrivacyConsent = (consent) =>
@@ -359,6 +458,249 @@ const buildPersonRecord = ({
   };
 };
 
+const buildDuplicateLookupPeople = ({
+  familyHead,
+  members,
+  contactNumber = null,
+}) => {
+  const lookupPeople = [];
+
+  if (hasComparableName(familyHead)) {
+    lookupPeople.push({
+      person_key: "family_head",
+      source_role: "FAMILY_HEAD",
+      contact_number: contactNumber || null,
+      ...familyHead,
+    });
+  }
+
+  (members || []).forEach((member, index) => {
+    if (!hasComparableName(member)) {
+      return;
+    }
+
+    lookupPeople.push({
+      person_key: `member_${index}`,
+      source_role: "MEMBER",
+      ...member,
+    });
+  });
+
+  return lookupPeople;
+};
+
+const normalizeDuplicateLookupPerson = (person, defaults = {}) => ({
+  first_name: String(person?.first_name || "").trim(),
+  middle_name: String(person?.middle_name || "").trim() || null,
+  last_name: String(person?.last_name || "").trim(),
+  suffix: String(person?.suffix || "").trim() || null,
+  sex: person?.sex || defaults.sex || null,
+  age_value: Number.isInteger(person?.age_value) ? person.age_value : null,
+  age_unit: person?.age_unit || defaults.age_unit || null,
+  relationship_to_head:
+    person?.relationship_to_head || defaults.relationship_to_head || null,
+});
+
+const buildDuplicateMatchReasons = ({
+  sourcePerson,
+  matchedPerson,
+  isFamilyHeadSource,
+  matchedRole,
+  sourceContactNumber = null,
+  matchedContactNumber = null,
+}) => {
+  const reasons = [];
+
+  if (hasSameCoreName(sourcePerson, matchedPerson)) {
+    reasons.push("Same first and last name");
+  }
+
+  if (hasSameExtendedName(sourcePerson, matchedPerson)) {
+    reasons.push("Same full name");
+  }
+
+  if (hasSameComparableSex(sourcePerson, matchedPerson)) {
+    reasons.push("Same sex");
+  }
+
+  if (hasSameComparableAge(sourcePerson, matchedPerson)) {
+    reasons.push("Same age");
+  }
+
+  if (
+    isFamilyHeadSource &&
+    hasSameComparableContactNumber(sourceContactNumber, matchedContactNumber)
+  ) {
+    reasons.push("Same contact number");
+  }
+
+  if (matchedRole === "FAMILY_HEAD") {
+    reasons.push("Matched as family head");
+  } else {
+    reasons.push("Matched as household member");
+  }
+
+  return reasons;
+};
+
+const classifyDuplicateMatch = ({
+  sourcePerson,
+  matchedPerson,
+  sourceRole,
+  matchedRole,
+  sourceContactNumber = null,
+  matchedContactNumber = null,
+}) => {
+  const isFamilyHeadSource = sourceRole === "FAMILY_HEAD";
+  const sameExtendedName = hasSameExtendedName(sourcePerson, matchedPerson);
+  const sameSex = hasSameComparableSex(sourcePerson, matchedPerson);
+  const sameAge = hasSameComparableAge(sourcePerson, matchedPerson);
+  const sameContact =
+    isFamilyHeadSource &&
+    hasSameComparableContactNumber(sourceContactNumber, matchedContactNumber);
+  const strongMatch =
+    sameExtendedName &&
+    ((sameSex && sameAge) || sameContact);
+
+  return {
+    match_confidence: strongMatch ? "HIGH" : "POSSIBLE",
+    is_strong_match: strongMatch,
+    match_reasons: buildDuplicateMatchReasons({
+      sourcePerson,
+      matchedPerson,
+      isFamilyHeadSource,
+      matchedRole,
+      sourceContactNumber,
+      matchedContactNumber,
+    }),
+  };
+};
+
+const buildDuplicateRegistrationSuggestions = async ({
+  disasterEventId,
+  householdIdToExclude = null,
+  familyHead,
+  members,
+  contactNumber = null,
+}) => {
+  const lookupPeople = buildDuplicateLookupPeople({
+    familyHead,
+    members,
+    contactNumber,
+  });
+
+  if (lookupPeople.length === 0) {
+    return {
+      total_matches: 0,
+      has_strong_matches: false,
+      groups: [],
+    };
+  }
+
+  const rawMatches =
+    await householdRegistrationRepository.findPotentialDuplicatePersonMatches({
+      disasterEventId,
+      householdIdToExclude,
+      people: lookupPeople,
+    });
+
+  const sourcePeopleByKey = lookupPeople.reduce((lookup, person) => {
+    lookup[person.person_key] = person;
+    return lookup;
+  }, {});
+  const groupedMatches = rawMatches.reduce((lookup, match) => {
+    const sourcePerson = sourcePeopleByKey[match.person_key];
+
+    if (!sourcePerson) {
+      return lookup;
+    }
+
+    const matchedPerson = {
+      first_name: match.matched_first_name,
+      middle_name: match.matched_middle_name,
+      last_name: match.matched_last_name,
+      suffix: match.matched_suffix,
+      sex: match.matched_sex,
+      age_value: Number.isInteger(match.matched_age_value)
+        ? match.matched_age_value
+        : null,
+      age_unit: match.matched_age_unit,
+    };
+    const classifiedMatch = classifyDuplicateMatch({
+      sourcePerson,
+      matchedPerson,
+      sourceRole: sourcePerson.source_role,
+      matchedRole: match.matched_role,
+      sourceContactNumber: sourcePerson.contact_number || null,
+      matchedContactNumber: match.matched_contact_number || null,
+    });
+
+    const groupKey = match.person_key;
+    const nextMatch = {
+      ...match,
+      ...classifiedMatch,
+    };
+
+    if (!lookup[groupKey]) {
+      lookup[groupKey] = [];
+    }
+
+    const existingHouseholdMatch = lookup[groupKey].find(
+      (candidate) =>
+        candidate.household_id === nextMatch.household_id &&
+        candidate.matched_role === nextMatch.matched_role,
+    );
+
+    if (!existingHouseholdMatch) {
+      lookup[groupKey].push(nextMatch);
+    }
+
+    return lookup;
+  }, {});
+
+  const groups = lookupPeople.map((person, index) => {
+    const matches = (groupedMatches[person.person_key] || [])
+      .sort((leftMatch, rightMatch) => {
+        if (leftMatch.is_strong_match !== rightMatch.is_strong_match) {
+          return leftMatch.is_strong_match ? -1 : 1;
+        }
+
+        if (leftMatch.is_active !== rightMatch.is_active) {
+          return leftMatch.is_active ? -1 : 1;
+        }
+
+        const leftTime = new Date(leftMatch.registered_at || 0).getTime();
+        const rightTime = new Date(rightMatch.registered_at || 0).getTime();
+        return rightTime - leftTime;
+      })
+      .map(buildDuplicateSuggestionMatchSummary);
+
+    return {
+      person_key: person.person_key,
+      source_role: person.source_role,
+      person_label: buildDuplicateSuggestionPersonLabel(
+        person,
+        person.source_role === "FAMILY_HEAD"
+          ? "Family head"
+          : `Member ${index}`,
+      ),
+      matches,
+      has_strong_matches: matches.some(
+        (match) => match.match_confidence === "HIGH",
+      ),
+    };
+  });
+
+  return {
+    total_matches: groups.reduce(
+      (totalMatches, group) => totalMatches + group.matches.length,
+      0,
+    ),
+    has_strong_matches: groups.some((group) => group.has_strong_matches),
+    groups: groups.filter((group) => group.matches.length > 0),
+  };
+};
+
 const buildRegistrationResponse = async (householdId) => {
   const household =
     await householdRegistrationRepository.getHouseholdSummaryById(householdId);
@@ -587,6 +929,140 @@ const buildReturnRegistrationRequest = async ({
   };
 };
 
+const prepareRegistrationContext = async (requestData) => {
+  const disasterEvent =
+    await householdRegistrationRepository.getDisasterEventById(
+      requestData.disaster_event_id,
+    );
+
+  if (!disasterEvent) {
+    const error = new Error("disaster_event_id is invalid");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const isNonResident =
+    requestData.residency_status === RESIDENCY_STATUSES.nonResident;
+  let handlingBarangayId = requestData.barangay_id;
+  let userScope = null;
+
+  if (requestData.registered_by) {
+    userScope =
+      await householdRegistrationRepository.getUserBarangayScopeById(
+        requestData.registered_by,
+      );
+  }
+
+  const isBarangayUser = userScope?.role_code === BARANGAY_ROLE_CODE;
+  const isBarangayScopedRegistration =
+    isBarangayUser && Boolean(userScope.default_barangay_id);
+
+  if (isBarangayUser && !userScope.default_barangay_id) {
+    const error = new Error(
+      "Barangay registrations require an assigned barangay account.",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (isBarangayScopedRegistration) {
+    if (requestData.barangay_id !== userScope.default_barangay_id) {
+      const error = new Error(
+        "Barangay registrations must use the account's assigned barangay.",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    handlingBarangayId = userScope.default_barangay_id;
+  }
+
+  const registrationData = {
+    ...requestData,
+    barangay_id: handlingBarangayId,
+  };
+  const barangay = await householdRegistrationRepository.getBarangayById(
+    registrationData.barangay_id,
+  );
+
+  if (!barangay || barangay.code === NON_RESIDENT_BARANGAY_CODE) {
+    const error = new Error("barangay_id must reference a valid handling barangay");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const disasterEventBarangayLink =
+    await householdRegistrationRepository.getDisasterEventBarangayLink(
+      registrationData.disaster_event_id,
+      registrationData.barangay_id,
+    );
+
+  if (!disasterEventBarangayLink) {
+    const error = new Error(
+      "Selected disaster event is not linked to the chosen barangay.",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (
+    isNonResident &&
+    isBarangayScopedRegistration &&
+    registrationData.current_stay_type &&
+    registrationData.current_stay_type !== "EVAC_CENTER"
+  ) {
+    const error = new Error(
+      "Non-resident Barangay registrations must use Evacuation Center stay.",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (
+    isNonResident &&
+    isBarangayScopedRegistration &&
+    requestData.current_stay_type === "EVAC_CENTER" &&
+    !registrationData.evacuation_center_id
+  ) {
+    const error = new Error(
+      "Non-resident Barangay registrations require an evacuation center.",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (requestData.evacuation_center_id) {
+    const evacuationCenter =
+      await householdRegistrationRepository.getEvacuationCenterById(
+        requestData.evacuation_center_id,
+      );
+
+    if (!evacuationCenter || !evacuationCenter.is_active) {
+      const error = new Error("evacuation_center_id is invalid");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (evacuationCenter.barangay_id !== registrationData.barangay_id) {
+      const error = new Error(
+        "Selected evacuation center must belong to the chosen barangay",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+
+  return {
+    disasterEvent,
+    barangay,
+    userScope,
+    isBarangayUser,
+    isBarangayScopedRegistration,
+    isNonResident,
+    registrationData,
+  };
+};
+
 const getHouseholdDetails = async ({ householdId, requester }) => {
   const household =
     await householdRegistrationRepository.getHouseholdSummaryById(householdId);
@@ -607,6 +1083,28 @@ const getHouseholdDetails = async ({ householdId, requester }) => {
   }
 
   return buildRegistrationResponse(householdId);
+};
+
+const getDuplicateRegistrationSuggestions = async (requestData) => {
+  const { registrationData } = await prepareRegistrationContext(requestData);
+
+  const familyHead = requestData.family_head
+    ? normalizeDuplicateLookupPerson(requestData.family_head, {
+        relationship_to_head: "HEAD",
+        age_unit: "YEARS",
+      })
+    : null;
+  const members = Array.isArray(requestData.members)
+    ? requestData.members.map((member) => normalizeDuplicateLookupPerson(member))
+    : [];
+
+  return buildDuplicateRegistrationSuggestions({
+    disasterEventId: registrationData.disaster_event_id,
+    householdIdToExclude: requestData.household_id || null,
+    familyHead,
+    members,
+    contactNumber: requestData.contact_number || null,
+  });
 };
 
 const updateHouseholdDetails = async ({
@@ -698,6 +1196,20 @@ const updateHouseholdDetails = async ({
     current_address_details: requestData.current_address_details || null,
     contact_number: requestData.contact_number || null,
   };
+  const duplicateSuggestions = await buildDuplicateRegistrationSuggestions({
+    disasterEventId: requestDataWithDerivedAgeGroups.disaster_event_id,
+    householdIdToExclude: householdId,
+    familyHead: requestDataWithDerivedAgeGroups.family_head,
+    members: requestDataWithDerivedAgeGroups.members,
+    contactNumber: requestDataWithDerivedAgeGroups.contact_number || null,
+  });
+  const strongestDuplicateMatch = duplicateSuggestions.groups
+    .flatMap((group) => group.matches)
+    .find((match) => match.match_confidence === "HIGH");
+
+  if (strongestDuplicateMatch) {
+    throw buildDuplicateRegistrationError(strongestDuplicateMatch);
+  }
 
   const householdSectors = await householdRegistrationRepository.getSectorsByIds(
     deduplicateIds(requestDataWithDerivedAgeGroups.household_sector_ids),
@@ -1015,125 +1527,12 @@ const updateHouseholdDetails = async ({
 };
 
 const registerHousehold = async (requestData) => {
-  const disasterEvent =
-    await householdRegistrationRepository.getDisasterEventById(
-      requestData.disaster_event_id,
-    );
-
-  if (!disasterEvent) {
-    const error = new Error("disaster_event_id is invalid");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  const isNonResident =
-    requestData.residency_status === RESIDENCY_STATUSES.nonResident;
-  let handlingBarangayId = requestData.barangay_id;
-  let userScope = null;
-
-  if (requestData.registered_by) {
-    userScope =
-      await householdRegistrationRepository.getUserBarangayScopeById(
-        requestData.registered_by,
-      );
-  }
-
-  const isBarangayUser = userScope?.role_code === BARANGAY_ROLE_CODE;
-  const isBarangayScopedRegistration =
-    isBarangayUser && Boolean(userScope.default_barangay_id);
-
-  if (isBarangayUser && !userScope.default_barangay_id) {
-    const error = new Error(
-      "Barangay registrations require an assigned barangay account.",
-    );
-    error.statusCode = 400;
-    throw error;
-  }
-
-  if (isBarangayScopedRegistration) {
-    if (requestData.barangay_id !== userScope.default_barangay_id) {
-      const error = new Error(
-        "Barangay registrations must use the account's assigned barangay.",
-      );
-      error.statusCode = 400;
-      throw error;
-    }
-
-    handlingBarangayId = userScope.default_barangay_id;
-  }
-
-  const registrationData = {
-    ...requestData,
-    barangay_id: handlingBarangayId,
-  };
-  const barangay = await householdRegistrationRepository.getBarangayById(
-    registrationData.barangay_id,
-  );
-
-  if (!barangay || barangay.code === NON_RESIDENT_BARANGAY_CODE) {
-    const error = new Error("barangay_id must reference a valid handling barangay");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  const disasterEventBarangayLink =
-    await householdRegistrationRepository.getDisasterEventBarangayLink(
-      registrationData.disaster_event_id,
-      registrationData.barangay_id,
-    );
-
-  if (!disasterEventBarangayLink) {
-    const error = new Error(
-      "Selected disaster event is not linked to the chosen barangay.",
-    );
-    error.statusCode = 400;
-    throw error;
-  }
-
-  if (
-    isNonResident &&
-    isBarangayScopedRegistration &&
-    registrationData.current_stay_type !== "EVAC_CENTER"
-  ) {
-    const error = new Error(
-      "Non-resident Barangay registrations must use Evacuation Center stay.",
-    );
-    error.statusCode = 400;
-    throw error;
-  }
-
-  if (
-    isNonResident &&
-    isBarangayScopedRegistration &&
-    !registrationData.evacuation_center_id
-  ) {
-    const error = new Error(
-      "Non-resident Barangay registrations require an evacuation center.",
-    );
-    error.statusCode = 400;
-    throw error;
-  }
-
-  if (requestData.evacuation_center_id) {
-    const evacuationCenter =
-      await householdRegistrationRepository.getEvacuationCenterById(
-        requestData.evacuation_center_id,
-      );
-
-    if (!evacuationCenter || !evacuationCenter.is_active) {
-      const error = new Error("evacuation_center_id is invalid");
-      error.statusCode = 400;
-      throw error;
-    }
-
-    if (evacuationCenter.barangay_id !== registrationData.barangay_id) {
-      const error = new Error(
-        "Selected evacuation center must belong to the chosen barangay",
-      );
-      error.statusCode = 400;
-      throw error;
-    }
-  }
+  const {
+    userScope,
+    isNonResident,
+    isBarangayScopedRegistration,
+    registrationData,
+  } = await prepareRegistrationContext(requestData);
 
   if (requestData.household_size !== requestData.members.length + 1) {
     const error = new Error(
@@ -1188,34 +1587,39 @@ const registerHousehold = async (requestData) => {
     });
   const shouldAutoArchiveWithoutAttendance =
     isNonAdmittedResidentRecord(requestDataWithDerivedAgeGroups);
+  const duplicateSuggestions = await buildDuplicateRegistrationSuggestions({
+    disasterEventId: requestDataWithDerivedAgeGroups.disaster_event_id,
+    familyHead: requestDataWithDerivedAgeGroups.family_head,
+    members: requestDataWithDerivedAgeGroups.members,
+    contactNumber: requestDataWithDerivedAgeGroups.contact_number || null,
+  });
+  const strongestDuplicateMatch = duplicateSuggestions.groups
+    .flatMap((group) => group.matches)
+    .find((match) => match.match_confidence === "HIGH");
 
   if (
     registrationData.enforce_sync_duplicate_guard &&
-    registrationData.synced_client_timestamp
+    registrationData.synced_client_timestamp &&
+    strongestDuplicateMatch
   ) {
-    const duplicateHousehold =
-      await householdRegistrationRepository.findDuplicateHouseholdRegistration({
-        disasterEventId: requestDataWithDerivedAgeGroups.disaster_event_id,
-        barangayId: requestDataWithDerivedAgeGroups.barangay_id,
-        familyHead: requestDataWithDerivedAgeGroups.family_head,
-      });
-
-    if (duplicateHousehold) {
-      if (
-        isEarlierTimestamp(
-          registrationData.synced_client_timestamp,
-          duplicateHousehold.registered_at,
-        )
-      ) {
-        await householdRegistrationRepository.updateHouseholdRegistrationTimestamp(
-          duplicateHousehold.id,
-          registrationData.synced_client_timestamp,
-        );
-        return buildRegistrationResponse(duplicateHousehold.id);
-      }
-
-      throw buildDuplicateRegistrationError(duplicateHousehold);
+    if (
+      isEarlierTimestamp(
+        registrationData.synced_client_timestamp,
+        strongestDuplicateMatch.registered_at,
+      )
+    ) {
+      await householdRegistrationRepository.updateHouseholdRegistrationTimestamp(
+        strongestDuplicateMatch.household_id,
+        registrationData.synced_client_timestamp,
+      );
+      return buildRegistrationResponse(strongestDuplicateMatch.household_id);
     }
+
+    throw buildDuplicateRegistrationError(strongestDuplicateMatch);
+  }
+
+  if (strongestDuplicateMatch) {
+    throw buildDuplicateRegistrationError(strongestDuplicateMatch);
   }
 
   const householdSectors = await householdRegistrationRepository.getSectorsByIds(
@@ -1905,6 +2309,7 @@ const restoreHousehold = async ({ householdId, requester, restoreData }) => {
 
 module.exports = {
   getHouseholdDetails,
+  getDuplicateRegistrationSuggestions,
   registerHousehold,
   updateHouseholdDetails,
   departHousehold,

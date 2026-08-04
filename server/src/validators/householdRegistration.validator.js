@@ -635,6 +635,138 @@ const validateCreateHouseholdRegistration = (req, res, next) => {
   });
 };
 
+const validateDuplicateRegistrationSuggestions = (req, res, next) => {
+  try {
+    const {
+      household_id,
+      disaster_event_id,
+      barangay_id,
+      registered_by,
+      contact_number,
+      family_head,
+      members,
+    } = req.body || {};
+
+    if (
+      household_id !== undefined &&
+      household_id !== null &&
+      household_id !== "" &&
+      !isValidUuid(household_id)
+    ) {
+      return res.status(400).json({
+        message: "household_id must be a valid UUID when provided",
+      });
+    }
+
+    if (!isValidUuid(disaster_event_id)) {
+      return res.status(400).json({
+        message: "disaster_event_id is required and must be a valid UUID",
+      });
+    }
+
+    if (!isValidUuid(barangay_id)) {
+      return res.status(400).json({
+        message: "barangay_id is required and must be a valid handling barangay",
+      });
+    }
+
+    if (
+      registered_by !== undefined &&
+      registered_by !== null &&
+      !isValidUuid(registered_by)
+    ) {
+      return res.status(400).json({
+        message: "registered_by must be a valid UUID or null",
+      });
+    }
+
+    if (
+      contact_number !== undefined &&
+      contact_number !== null &&
+      typeof contact_number !== "string"
+    ) {
+      return res.status(400).json({
+        message: "contact_number must be a string or null",
+      });
+    }
+
+    if (!family_head || typeof family_head !== "object") {
+      return res.status(400).json({
+        message: "family_head is required",
+      });
+    }
+
+    if (!Array.isArray(members)) {
+      return res.status(400).json({
+        message: "members must be an array",
+      });
+    }
+
+    req.validatedBody = {
+      household_id:
+        typeof household_id === "string" && household_id.trim()
+          ? household_id.trim()
+          : null,
+      disaster_event_id,
+      barangay_id,
+      registered_by: registered_by ?? null,
+      contact_number:
+        typeof contact_number === "string" && contact_number.trim()
+          ? contact_number.trim()
+          : null,
+      family_head: {
+        first_name:
+          typeof family_head.first_name === "string"
+            ? family_head.first_name.trim()
+            : "",
+        middle_name:
+          typeof family_head.middle_name === "string"
+            ? family_head.middle_name.trim()
+            : null,
+        last_name:
+          typeof family_head.last_name === "string"
+            ? family_head.last_name.trim()
+            : "",
+        suffix:
+          typeof family_head.suffix === "string"
+            ? family_head.suffix.trim()
+            : null,
+        sex: family_head.sex || null,
+        age_value: Number.isInteger(family_head.age_value)
+          ? family_head.age_value
+          : null,
+        age_unit: family_head.age_unit || null,
+      },
+      members: members.map((member) => ({
+        first_name:
+          typeof member?.first_name === "string" ? member.first_name.trim() : "",
+        middle_name:
+          typeof member?.middle_name === "string"
+            ? member.middle_name.trim()
+            : null,
+        last_name:
+          typeof member?.last_name === "string" ? member.last_name.trim() : "",
+        suffix:
+          typeof member?.suffix === "string" ? member.suffix.trim() : null,
+        sex: member?.sex || null,
+        age_value: Number.isInteger(member?.age_value) ? member.age_value : null,
+        age_unit: member?.age_unit || null,
+        relationship_to_head:
+          typeof member?.relationship_to_head === "string"
+            ? member.relationship_to_head.trim()
+            : null,
+      })),
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate duplicate registration suggestion request",
+      error: error.message,
+    });
+  }
+};
+
 const validateDepartHousehold = (req, res, next) => {
   try {
     const { householdId } = req.params;
@@ -901,6 +1033,7 @@ const validateUpdateHouseholdDetails = (req, res, next) => {
 
 module.exports = {
   validateCreateHouseholdRegistration,
+  validateDuplicateRegistrationSuggestions,
   validateDepartHousehold,
   validateGetHouseholdDetails,
   validateUpdateHouseholdDetails,
