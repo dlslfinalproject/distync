@@ -15,6 +15,9 @@ const notificationServicePath = require.resolve(
 const profilePictureStorageServicePath = require.resolve(
   "../src/services/profilePictureStorage.service",
 );
+const systemLogRepositoryPath = require.resolve(
+  "../src/repositories/systemLog.repository",
+);
 
 const withStubbedSettingsService = async (stubs, runTest) => {
   const dependencyPaths = [
@@ -23,6 +26,7 @@ const withStubbedSettingsService = async (stubs, runTest) => {
     notificationRepositoryPath,
     notificationServicePath,
     profilePictureStorageServicePath,
+    systemLogRepositoryPath,
   ];
   const originalEntries = new Map(
     dependencyPaths.map((modulePath) => [modulePath, require.cache[modulePath]]),
@@ -32,6 +36,10 @@ const withStubbedSettingsService = async (stubs, runTest) => {
 
   try {
     dependencyPaths.forEach((modulePath) => {
+      if (!Object.prototype.hasOwnProperty.call(stubs, modulePath)) {
+        return;
+      }
+
       require.cache[modulePath] = {
         id: modulePath,
         filename: modulePath,
@@ -606,6 +614,358 @@ test("saveCurrentSettings preserves notification preferences when the request up
             snapshot.action === "RESET_NOTIFICATION_PREFERENCES",
         ),
         false,
+      );
+    },
+  );
+});
+
+test("saveCurrentSettings writes PROFILE_UPDATED only when profile fields actually change", async () => {
+  const dbClient = buildDbClient();
+  const auditEntries = [];
+  const user = {
+    id: "user-profile-audit",
+    email: "barangay-audit@example.com",
+    first_name: "Mario",
+    middle_name: "De Leon",
+    last_name: "Rivera",
+    contact_number: "+639181112222",
+    default_barangay_id: null,
+    is_active: true,
+  };
+
+  await withStubbedSettingsService(
+    {
+      [poolPath]: {
+        connect: async () => dbClient,
+      },
+      [settingsRepositoryPath]: {
+        getUserById: async () => user,
+        getBarangayById: async () => null,
+        getUserRoleSettings: async () => null,
+        updateUserProfile: async (_userId, changes) => ({
+          ...user,
+          first_name: changes.firstName,
+          middle_name: changes.middleName,
+          last_name: changes.lastName,
+          contact_number: changes.contactNumber,
+        }),
+        upsertUserRoleSettings: async (payload) => payload,
+        insertRoleSettingsSnapshot: async (payload) => payload,
+      },
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [],
+      },
+      [notificationServicePath]: {
+        getNotificationRulesForRole: async () => [],
+      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub(),
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async (payload) => {
+          auditEntries.push(payload);
+          return payload;
+        },
+      },
+    },
+    async ({ saveCurrentSettings }) => {
+      await saveCurrentSettings({
+        userId: user.id,
+        roleCode: "BARANGAY",
+        settings: {
+          profile: {
+            firstName: "Mario",
+            middleName: "De Leon",
+            lastName: "Rivera-Santos",
+            contactNumber: "+639181112222",
+          },
+          metadata: {},
+        },
+        ipAddress: "127.0.0.1",
+      });
+
+      const profileAuditEntries = auditEntries.filter(
+        (entry) => entry.action === "PROFILE_UPDATED",
+      );
+
+      assert.equal(profileAuditEntries.length, 1);
+      assert.deepEqual(profileAuditEntries[0].new_values_json.changedFields, [
+        "lastName",
+      ]);
+    },
+  );
+});
+
+test("saveCurrentSettings does not write PROFILE_UPDATED for notification-only updates", async () => {
+  const dbClient = buildDbClient();
+  const auditEntries = [];
+  const user = {
+    id: "user-notification-audit",
+    email: "mswdo-audit@example.com",
+    first_name: "Lina",
+    middle_name: null,
+    last_name: "Cruz",
+    contact_number: "+639191112233",
+    default_barangay_id: null,
+    is_active: true,
+  };
+
+  await withStubbedSettingsService(
+    {
+      [poolPath]: {
+        connect: async () => dbClient,
+      },
+      [settingsRepositoryPath]: {
+        getUserById: async () => user,
+        getBarangayById: async () => null,
+        getUserRoleSettings: async () => ({
+          user_id: user.id,
+          role_code: "MSWDO",
+          profile_picture_path: "",
+          profile_picture_file_name: "",
+          profile_picture_updated_at: null,
+          notification_rule_preferences_json: {
+            DISTRIBUTION_UPDATE: {
+              email: false,
+            },
+          },
+          last_profile_update_at: "2026-08-01T08:00:00.000Z",
+          last_preference_save_at: "2026-08-01T09:00:00.000Z",
+        }),
+        updateUserProfile: async () => {
+          throw new Error("Profile should not be updated");
+        },
+        upsertUserRoleSettings: async (payload) => payload,
+        insertRoleSettingsSnapshot: async (payload) => payload,
+      },
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [
+          {
+            code: "DISTRIBUTION_UPDATE",
+            name: "Distribution Update",
+            category_code: "RELIEF_OPERATIONS",
+            category_label: "Relief Operations",
+            priority: "INFORMATIONAL",
+            in_app_policy: "OPTIONAL",
+            email_policy: "OPTIONAL",
+            delivery_mode: "HOURLY_SUMMARY",
+            user_configurability: "ALL_SUPPORTED_CHANNELS",
+          },
+        ],
+      },
+      [notificationServicePath]: {
+        getNotificationRulesForRole: async () => [],
+      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub(),
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async (payload) => {
+          auditEntries.push(payload);
+          return payload;
+        },
+      },
+    },
+    async ({ saveCurrentSettings }) => {
+      await saveCurrentSettings({
+        userId: user.id,
+        roleCode: "MSWDO",
+        settings: {
+          notificationRulePreferences: {
+            DISTRIBUTION_UPDATE: {
+              email: true,
+            },
+          },
+          metadata: {},
+        },
+        ipAddress: "127.0.0.1",
+      });
+
+      assert.equal(
+        auditEntries.some((entry) => entry.action === "PROFILE_UPDATED"),
+        false,
+      );
+      assert.equal(
+        auditEntries.some(
+          (entry) => entry.action === "UPDATE_NOTIFICATION_PREFERENCES",
+        ),
+        true,
+      );
+    },
+  );
+});
+
+test("saveCurrentSettings does not write PROFILE_UPDATED for unchanged profile submissions", async () => {
+  const dbClient = buildDbClient();
+  const auditEntries = [];
+  const user = {
+    id: "user-noop-profile",
+    email: "mayor-noop@example.com",
+    first_name: "Ramon",
+    middle_name: "Lopez",
+    last_name: "Santos",
+    contact_number: "+639171234567",
+    default_barangay_id: null,
+    is_active: true,
+  };
+
+  await withStubbedSettingsService(
+    {
+      [poolPath]: {
+        connect: async () => dbClient,
+      },
+      [settingsRepositoryPath]: {
+        getUserById: async () => user,
+        getBarangayById: async () => null,
+        getUserRoleSettings: async () => null,
+        updateUserProfile: async (_userId, changes) => ({
+          ...user,
+          first_name: changes.firstName,
+          middle_name: changes.middleName,
+          last_name: changes.lastName,
+          contact_number: changes.contactNumber,
+        }),
+        upsertUserRoleSettings: async (payload) => payload,
+        insertRoleSettingsSnapshot: async (payload) => payload,
+      },
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [],
+      },
+      [notificationServicePath]: {
+        getNotificationRulesForRole: async () => [],
+      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub(),
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async (payload) => {
+          auditEntries.push(payload);
+          return payload;
+        },
+      },
+    },
+    async ({ saveCurrentSettings }) => {
+      const result = await saveCurrentSettings({
+        userId: user.id,
+        roleCode: "MAYOR",
+        settings: {
+          profile: {
+            firstName: "Ramon",
+            middleName: "Lopez",
+            lastName: "Santos",
+            contactNumber: "+639171234567",
+          },
+          metadata: {},
+        },
+        ipAddress: "127.0.0.1",
+      });
+
+      assert.equal(result.settings.profile.firstName, "Ramon");
+      assert.equal(result.settings.profile.lastName, "Santos");
+      assert.equal(
+        auditEntries.some((entry) => entry.action === "PROFILE_UPDATED"),
+        false,
+      );
+    },
+  );
+});
+
+test("saveCurrentSettings writes separate profile and notification audit entries for combined updates", async () => {
+  const dbClient = buildDbClient();
+  const auditEntries = [];
+  const user = {
+    id: "user-combined-audit",
+    email: "barangay-combined@example.com",
+    first_name: "Ana",
+    middle_name: null,
+    last_name: "Cruz",
+    contact_number: "+639171112233",
+    default_barangay_id: null,
+    is_active: true,
+  };
+
+  await withStubbedSettingsService(
+    {
+      [poolPath]: {
+        connect: async () => dbClient,
+      },
+      [settingsRepositoryPath]: {
+        getUserById: async () => user,
+        getBarangayById: async () => null,
+        getUserRoleSettings: async () => ({
+          user_id: user.id,
+          role_code: "BARANGAY",
+          profile_picture_path: "",
+          profile_picture_file_name: "",
+          profile_picture_updated_at: null,
+          notification_rule_preferences_json: {
+            HOUSEHOLD_REGISTERED: {
+              inApp: true,
+            },
+          },
+          last_profile_update_at: "2026-08-01T08:00:00.000Z",
+          last_preference_save_at: "2026-08-01T09:00:00.000Z",
+        }),
+        updateUserProfile: async (_userId, changes) => ({
+          ...user,
+          first_name: changes.firstName,
+          middle_name: changes.middleName,
+          last_name: changes.lastName,
+          contact_number: changes.contactNumber,
+        }),
+        upsertUserRoleSettings: async (payload) => payload,
+        insertRoleSettingsSnapshot: async (payload) => payload,
+      },
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [
+          {
+            code: "HOUSEHOLD_REGISTERED",
+            name: "Household Registration Update",
+            category_code: "EVACUEE_MANAGEMENT",
+            category_label: "Evacuee Management",
+            priority: "INFORMATIONAL",
+            in_app_policy: "OPTIONAL",
+            email_policy: "UNAVAILABLE",
+            delivery_mode: "HOURLY_SUMMARY",
+            user_configurability: "ALL_SUPPORTED_CHANNELS",
+          },
+        ],
+      },
+      [notificationServicePath]: {
+        getNotificationRulesForRole: async () => [],
+      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub(),
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async (payload) => {
+          auditEntries.push(payload);
+          return payload;
+        },
+      },
+    },
+    async ({ saveCurrentSettings }) => {
+      await saveCurrentSettings({
+        userId: user.id,
+        roleCode: "BARANGAY",
+        settings: {
+          profile: {
+            firstName: "Ana Marie",
+            middleName: "",
+            lastName: "Cruz",
+            contactNumber: "+639171112233",
+          },
+          notificationRulePreferences: {
+            HOUSEHOLD_REGISTERED: {
+              inApp: false,
+            },
+          },
+          metadata: {},
+        },
+        ipAddress: "127.0.0.1",
+      });
+
+      assert.equal(
+        auditEntries.some((entry) => entry.action === "PROFILE_UPDATED"),
+        true,
+      );
+      assert.equal(
+        auditEntries.some(
+          (entry) => entry.action === "UPDATE_NOTIFICATION_PREFERENCES",
+        ),
+        true,
       );
     },
   );

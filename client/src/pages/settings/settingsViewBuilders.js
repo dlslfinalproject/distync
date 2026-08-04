@@ -274,7 +274,6 @@ export const buildSharedRoleViewContext = ({
 
 export const buildBarangayViewContext = ({
   sharedContext,
-  assignedBarangayName,
   notificationTouched,
   notificationValidationErrors,
   handleOpenResetNotificationPreferences,
@@ -300,12 +299,10 @@ export const buildBarangayViewContext = ({
   lastSuccessfulSyncAt,
 }) => ({
   ...sharedContext,
-  assignedBarangayName,
-    roleCode: ROLE_CODES.BARANGAY,
-    profileSectionProps: buildBarangayProfileSectionProps({
-      ...sharedContext,
-      assignedBarangayName,
-    }),
+  roleCode: ROLE_CODES.BARANGAY,
+  profileSectionProps: buildBarangayProfileSectionProps({
+    ...sharedContext,
+  }),
   notificationSectionProps: buildNotificationSectionProps({
     ...sharedContext,
     roleCode: ROLE_CODES.BARANGAY,
