@@ -527,9 +527,6 @@ const ProfileSection = ({
                     preferences.profile.emailAddress ||
                     "--"}
                 </p>
-                <p style={readOnlyHelperTextStyles}>
-                  Linked to your authenticated Google account.
-                </p>
               </div>
             </div>
 

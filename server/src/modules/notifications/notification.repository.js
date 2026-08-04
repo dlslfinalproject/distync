@@ -40,6 +40,8 @@ const getNotificationPolicyRowsByRoleCode = async (
       FROM notification_rule_role_policies p
       INNER JOIN notification_rules nr ON nr.code = p.rule_code
       WHERE p.role_code = $1
+        AND COALESCE(p.is_active, TRUE) = TRUE
+        AND COALESCE(nr.is_active, TRUE) = TRUE
       ORDER BY p.category_label ASC, nr.name ASC
     `,
     [roleCode],
@@ -76,6 +78,8 @@ const getNotificationPolicyRow = async (
       INNER JOIN notification_rules nr ON nr.code = p.rule_code
       WHERE p.rule_code = $1
         AND p.role_code = $2
+        AND COALESCE(p.is_active, TRUE) = TRUE
+        AND COALESCE(nr.is_active, TRUE) = TRUE
       LIMIT 1
     `,
     [ruleCode, roleCode],
@@ -472,6 +476,7 @@ const insertNotificationRecipients = async (
         created_at
       )
       VALUES ${placeholders.join(", ")}
+      ON CONFLICT (notification_id, user_id) DO NOTHING
       RETURNING id, user_id
     `,
     values,

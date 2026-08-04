@@ -1,5 +1,6 @@
 import { getCachedRegistrationReferenceData } from "../household-registration/householdRegistrationService.js";
 import { ACCESS_MODES, getAccessMode } from "../../utils/accessMode.js";
+import { dedupeNotificationSettings } from "../../pages/settings/settingsHelpers.js";
 import {
   MODE_STORAGE_SEGMENTS,
   getModeStoragePrefix,
@@ -196,21 +197,31 @@ const normalizeStoredSettings = (storedValue = {}) => {
     isSafeProfilePictureUrl(normalizedProfile.profilePictureUrl)
       ? sanitizeString(normalizedProfile.profilePictureUrl)
       : "";
+  const dedupedNotificationSettings = dedupeNotificationSettings({
+    roleCode: sanitizeString(storedValue?.roleCode),
+    notificationRulePreferences: isPlainObject(
+      storedValue?.notificationRulePreferences,
+    )
+      ? storedValue.notificationRulePreferences
+      : {},
+    effectiveNotificationChannels: isPlainObject(
+      storedValue?.effectiveNotificationChannels,
+    )
+      ? storedValue.effectiveNotificationChannels
+      : {},
+    categories: Array.isArray(storedValue?.categories)
+      ? storedValue.categories
+      : [],
+  });
 
   return {
     ...DEFAULT_PREFERENCES,
     ...remainingStoredSettings,
     notificationRulePreferences:
-      isPlainObject(storedValue?.notificationRulePreferences)
-        ? storedValue.notificationRulePreferences
-        : {},
+      dedupedNotificationSettings.notificationRulePreferences,
     effectiveNotificationChannels:
-      isPlainObject(storedValue?.effectiveNotificationChannels)
-        ? storedValue.effectiveNotificationChannels
-        : {},
-    categories: Array.isArray(storedValue?.categories)
-      ? storedValue.categories
-      : [],
+      dedupedNotificationSettings.effectiveNotificationChannels,
+    categories: dedupedNotificationSettings.categories,
     profile: {
       ...(isPlainObject(remainingStoredSettings.profile)
         ? remainingStoredSettings.profile

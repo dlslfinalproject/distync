@@ -1,0 +1,42 @@
+UPDATE public.notification_rule_role_policies
+SET
+  category_code = CASE
+    WHEN rule_code IN (
+      'LOW_STOCK',
+      'CRITICAL_INVENTORY_SHORTAGE',
+      'NEAR_EXPIRY_STOCK',
+      'EXPIRED_STOCK',
+      'INVENTORY_INCIDENT'
+    ) THEN 'INVENTORY_MONITORING'
+    WHEN rule_code = 'DONATION_STOCK_ANOMALY' THEN 'SYSTEM_MONITORING'
+    WHEN rule_code IN ('DISTRIBUTION_COMPLETED', 'DONATION_RECEIVED') THEN 'RELIEF_OPERATIONS'
+    WHEN rule_code IN ('DISASTER_EVENT_UPDATED', 'EVACUATION_SUMMARY_REPORT') THEN 'DISASTER_MONITORING'
+    ELSE category_code
+  END,
+  category_label = CASE
+    WHEN rule_code IN (
+      'LOW_STOCK',
+      'CRITICAL_INVENTORY_SHORTAGE',
+      'NEAR_EXPIRY_STOCK',
+      'EXPIRED_STOCK',
+      'INVENTORY_INCIDENT'
+    ) THEN 'Inventory Monitoring'
+    WHEN rule_code = 'DONATION_STOCK_ANOMALY' THEN 'System Monitoring'
+    WHEN rule_code IN ('DISTRIBUTION_COMPLETED', 'DONATION_RECEIVED') THEN 'Relief Operations'
+    WHEN rule_code IN ('DISASTER_EVENT_UPDATED', 'EVACUATION_SUMMARY_REPORT') THEN 'Disaster Monitoring'
+    ELSE category_label
+  END,
+  updated_at = NOW()
+WHERE role_code = 'MAYOR'
+  AND rule_code IN (
+    'DISASTER_EVENT_UPDATED',
+    'EVACUATION_SUMMARY_REPORT',
+    'DISTRIBUTION_COMPLETED',
+    'DONATION_RECEIVED',
+    'LOW_STOCK',
+    'CRITICAL_INVENTORY_SHORTAGE',
+    'NEAR_EXPIRY_STOCK',
+    'EXPIRED_STOCK',
+    'INVENTORY_INCIDENT',
+    'DONATION_STOCK_ANOMALY'
+  );

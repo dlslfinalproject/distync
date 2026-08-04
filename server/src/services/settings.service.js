@@ -11,6 +11,9 @@ const {
   resolveEffectiveNotificationPreferences,
   sanitizeNotificationRulePreferences,
 } = require("../modules/notifications/notificationPreferenceUtils");
+const {
+  getCanonicalRuleCode,
+} = require("../modules/notifications/notificationPolicy");
 
 const SETTINGS_AUDIT_ACTION = "UPSERT_ROLE_SETTINGS";
 const SETTINGS_ENTITY_TYPE = "ROLE_SETTINGS";
@@ -570,7 +573,9 @@ const validateAndNormalizeNotificationPreferences = async ({
   dbClient,
 }) => {
   const policyRows = await getRolePolicyRows({ roleCode, dbClient });
-  const policyMap = new Map(policyRows.map((row) => [row.code, row]));
+  const policyMap = new Map(
+    policyRows.map((row) => [getCanonicalRuleCode(row.code), row]),
+  );
   const sanitizedIncomingPreferences = sanitizeNotificationRulePreferences(
     incomingPreferences,
   );
@@ -866,6 +871,7 @@ const saveCurrentSettings = async ({
         changedProfileFields.push(fieldName);
       }
     });
+    const hasActualProfileFieldChanges = changedProfileFields.length > 0;
 
     const nextSettings = await buildRoleSettingsResponse({
       roleCode,
@@ -884,26 +890,28 @@ const saveCurrentSettings = async ({
       dbClient,
     );
 
-    await insertAuditLog(
-      {
-        user_id: userId,
-        role_code: roleCode,
-        device_id: null,
-        action: PROFILE_UPDATED_AUDIT_ACTION,
-        entity_type: "USER_PROFILE",
-        entity_id: userId,
-        old_values_json: {
-          changedFields: changedProfileFields,
-          profile: previousProfileValues,
+    if (hasActualProfileFieldChanges) {
+      await insertAuditLog(
+        {
+          user_id: userId,
+          role_code: roleCode,
+          device_id: null,
+          action: PROFILE_UPDATED_AUDIT_ACTION,
+          entity_type: "USER_PROFILE",
+          entity_id: userId,
+          old_values_json: {
+            changedFields: changedProfileFields,
+            profile: previousProfileValues,
+          },
+          new_values_json: {
+            changedFields: changedProfileFields,
+            profile: nextProfileValues,
+          },
+          ip_address: ipAddress,
         },
-        new_values_json: {
-          changedFields: changedProfileFields,
-          profile: nextProfileValues,
-        },
-        ip_address: ipAddress,
-      },
-      dbClient,
-    );
+        dbClient,
+      );
+    }
 
     if (hasPictureReplacement || hasPictureRemoval) {
       await settingsRepository.insertRoleSettingsSnapshot(

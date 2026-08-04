@@ -15,6 +15,9 @@ const notificationServicePath = require.resolve(
 const profilePictureStorageServicePath = require.resolve(
   "../src/services/profilePictureStorage.service",
 );
+const systemLogRepositoryPath = require.resolve(
+  "../src/repositories/systemLog.repository",
+);
 
 const withStubbedSettingsService = async (stubs, runTest) => {
   const dependencyPaths = [
@@ -23,6 +26,7 @@ const withStubbedSettingsService = async (stubs, runTest) => {
     notificationRepositoryPath,
     notificationServicePath,
     profilePictureStorageServicePath,
+    systemLogRepositoryPath,
   ];
   const originalEntries = new Map(
     dependencyPaths.map((modulePath) => [modulePath, require.cache[modulePath]]),
@@ -32,6 +36,10 @@ const withStubbedSettingsService = async (stubs, runTest) => {
 
   try {
     dependencyPaths.forEach((modulePath) => {
+      if (!Object.prototype.hasOwnProperty.call(stubs, modulePath)) {
+        return;
+      }
+
       require.cache[modulePath] = {
         id: modulePath,
         filename: modulePath,
@@ -213,6 +221,17 @@ test("getCurrentSettings uses policy defaults for an existing row with empty mod
             user_configurability: "EMAIL_ONLY",
           },
           {
+            code: "SYNC_FAILURE",
+            name: "Sync Failure",
+            category_code: "SYSTEM_OPERATIONS",
+            category_label: "System Operations",
+            priority: "CRITICAL",
+            in_app_policy: "MANDATORY",
+            email_policy: "DEFAULT_ON",
+            delivery_mode: "IMMEDIATE",
+            user_configurability: "EMAIL_ONLY",
+          },
+          {
             code: "SYNC_CONFLICT",
             name: "Synchronization Conflict Alert",
             category_code: "SYSTEM_OPERATIONS",
@@ -238,9 +257,10 @@ test("getCurrentSettings uses policy defaults for an existing row with empty mod
 
       assert.deepEqual(settings.notificationRulePreferences, {});
       assert.deepEqual(settings.effectiveNotificationChannels, {
-        DISASTER_EVENT_UPDATE: { inApp: true, email: true },
+        DISASTER_EVENT_UPDATED: { inApp: true, email: true },
         HOUSEHOLD_REGISTERED: { inApp: true, email: false },
-        HOUSEHOLD_VERIFICATION: { inApp: true, email: false },
+        HOUSEHOLD_VERIFICATION_UPDATED: { inApp: true, email: false },
+        SYNC_FAILURE: { inApp: true, email: true },
         SYNC_CONFLICT: { inApp: true, email: true },
       });
       assert.equal(
@@ -320,7 +340,7 @@ test("getCurrentSettings uses policy defaults when no settings row exists", asyn
         inApp: true,
         email: true,
       });
-      assert.deepEqual(settings.effectiveNotificationChannels.EVACUEE_ATTENDANCE_UPDATE, {
+      assert.deepEqual(settings.effectiveNotificationChannels.EVACUEE_ATTENDANCE_UPDATED, {
         inApp: true,
         email: false,
       });
@@ -576,7 +596,7 @@ test("saveCurrentSettings preserves notification preferences when the request up
       });
 
       assert.deepEqual(persistedPayloads[0].notificationRulePreferencesJson, {
-        DISTRIBUTION_UPDATE: {
+        DISTRIBUTION_COMPLETED: {
           inApp: false,
           email: true,
         },
@@ -594,7 +614,7 @@ test("saveCurrentSettings preserves notification preferences when the request up
         "2026-08-01T09:00:00.000Z",
       );
       assert.deepEqual(result.settings.notificationRulePreferences, {
-        DISTRIBUTION_UPDATE: {
+        DISTRIBUTION_COMPLETED: {
           inApp: false,
           email: true,
         },
@@ -606,6 +626,766 @@ test("saveCurrentSettings preserves notification preferences when the request up
             snapshot.action === "RESET_NOTIFICATION_PREFERENCES",
         ),
         false,
+      );
+    },
+  );
+});
+
+test("getCurrentSettings deduplicates legacy and canonical policy rows into one Barangay output", async () => {
+  const user = {
+    id: "user-duplicate-barangay",
+    email: "barangay-duplicate@example.com",
+    first_name: "Lea",
+    middle_name: null,
+    last_name: "Cruz",
+    contact_number: "+639171234500",
+    default_barangay_id: null,
+    is_active: true,
+  };
+
+  await withStubbedSettingsService(
+    {
+      [poolPath]: {},
+      [settingsRepositoryPath]: {
+        getUserById: async () => user,
+        getBarangayById: async () => null,
+        getUserRoleSettings: async () => ({
+          user_id: user.id,
+          role_code: "BARANGAY",
+          profile_picture_path: "",
+          profile_picture_file_name: "",
+          profile_picture_updated_at: null,
+          notification_rule_preferences_json: {
+            DISASTER_EVENT_UPDATE: { email: true },
+            DISASTER_EVENT_UPDATED: { email: false },
+            SYNC_CONFLICT: { email: false },
+          },
+          last_profile_update_at: null,
+          last_preference_save_at: "2026-08-03T08:00:00.000Z",
+        }),
+      },
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [
+          {
+            code: "DISASTER_EVENT_UPDATE",
+            name: "Disaster Event Update",
+            category_code: "DISASTER_COORDINATION",
+            category_label: "Disaster Coordination",
+            priority: "CRITICAL",
+            in_app_policy: "MANDATORY",
+            email_policy: "DEFAULT_ON",
+            delivery_mode: "IMMEDIATE",
+            user_configurability: "EMAIL_ONLY",
+          },
+          {
+            code: "DISASTER_EVENT_UPDATED",
+            name: "Disaster Event Updates",
+            category_code: "DISASTER_COORDINATION",
+            category_label: "Disaster Coordination",
+            priority: "CRITICAL",
+            in_app_policy: "MANDATORY",
+            email_policy: "DEFAULT_ON",
+            delivery_mode: "IMMEDIATE",
+            user_configurability: "EMAIL_ONLY",
+          },
+          {
+            code: "HOUSEHOLD_REGISTERED",
+            name: "New Evacuee Registration",
+            category_code: "EVACUEE_MANAGEMENT",
+            category_label: "Evacuee Management",
+            priority: "INFORMATIONAL",
+            in_app_policy: "OPTIONAL",
+            email_policy: "UNAVAILABLE",
+            delivery_mode: "HOURLY_SUMMARY",
+            user_configurability: "ALL_SUPPORTED_CHANNELS",
+          },
+          {
+            code: "EVACUEE_ATTENDANCE_UPDATE",
+            name: "Evacuee Attendance Update",
+            category_code: "EVACUEE_MANAGEMENT",
+            category_label: "Evacuee Management",
+            priority: "INFORMATIONAL",
+            in_app_policy: "OPTIONAL",
+            email_policy: "UNAVAILABLE",
+            delivery_mode: "HOURLY_SUMMARY",
+            user_configurability: "ALL_SUPPORTED_CHANNELS",
+          },
+          {
+            code: "HOUSEHOLD_VERIFICATION_UPDATED",
+            name: "Household Verification Updates",
+            category_code: "EVACUEE_MANAGEMENT",
+            category_label: "Evacuee Management",
+            priority: "WARNING",
+            in_app_policy: "MANDATORY",
+            email_policy: "OPTIONAL",
+            delivery_mode: "IMMEDIATE",
+            user_configurability: "EMAIL_ONLY",
+          },
+          {
+            code: "SYNC_FAILURE",
+            name: "Sync Failure",
+            category_code: "SYSTEM_OPERATIONS",
+            category_label: "System Operations",
+            priority: "CRITICAL",
+            in_app_policy: "MANDATORY",
+            email_policy: "DEFAULT_ON",
+            delivery_mode: "IMMEDIATE",
+            user_configurability: "EMAIL_ONLY",
+          },
+          {
+            code: "SYNC_CONFLICT",
+            name: "Synchronization Conflict Alert",
+            category_code: "SYSTEM_OPERATIONS",
+            category_label: "System Operations",
+            priority: "CRITICAL",
+            in_app_policy: "MANDATORY",
+            email_policy: "DEFAULT_ON",
+            delivery_mode: "IMMEDIATE",
+            user_configurability: "EMAIL_ONLY",
+          },
+          {
+            code: "SYSTEM_ANOMALY",
+            name: "System Anomaly Alert",
+            category_code: "SYSTEM_OPERATIONS",
+            category_label: "System Operations",
+            priority: "CRITICAL",
+            in_app_policy: "MANDATORY",
+            email_policy: "DEFAULT_ON",
+            delivery_mode: "IMMEDIATE",
+            user_configurability: "EMAIL_ONLY",
+            is_active: false,
+            policy_is_active: false,
+          },
+          {
+            code: "SYSTEM_ALERT",
+            name: "System Alerts",
+            category_code: "SYSTEM_OPERATIONS",
+            category_label: "System Operations",
+            priority: "CRITICAL",
+            in_app_policy: "MANDATORY",
+            email_policy: "DEFAULT_ON",
+            delivery_mode: "IMMEDIATE",
+            user_configurability: "EMAIL_ONLY",
+            is_active: false,
+            policy_is_active: false,
+          },
+        ],
+      },
+      [notificationServicePath]: {
+        getNotificationRulesForRole: async () => [],
+      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub(),
+    },
+    async ({ getCurrentSettings }) => {
+      const settings = await getCurrentSettings({
+        userId: user.id,
+        roleCode: "BARANGAY",
+      });
+
+      const categorySummary = settings.categories.map((category) => ({
+        label: category.label,
+        codes: (category.rules || []).map((rule) => rule.code),
+      }));
+
+      assert.deepEqual(settings.notificationRulePreferences, {
+        DISASTER_EVENT_UPDATED: { email: true },
+        SYNC_CONFLICT: { email: false },
+      });
+      assert.deepEqual(categorySummary, [
+        {
+          label: "Disaster Coordination",
+          codes: ["DISASTER_EVENT_UPDATED"],
+        },
+        {
+          label: "Evacuee Management",
+          codes: [
+            "HOUSEHOLD_REGISTERED",
+            "EVACUEE_ATTENDANCE_UPDATED",
+            "HOUSEHOLD_VERIFICATION_UPDATED",
+          ],
+        },
+        {
+          label: "System Operations",
+          codes: ["SYNC_FAILURE", "SYNC_CONFLICT"],
+        },
+      ]);
+    },
+  );
+});
+
+test("getCurrentSettings returns the reorganized Mayor notification categories in the required order", async () => {
+  const user = {
+    id: "user-mayor-categories",
+    email: "mayor-categories@example.com",
+    first_name: "Mara",
+    middle_name: null,
+    last_name: "Lopez",
+    contact_number: "+639171234588",
+    default_barangay_id: null,
+    is_active: true,
+  };
+
+  await withStubbedSettingsService(
+    {
+      [poolPath]: {},
+      [settingsRepositoryPath]: {
+        getUserById: async () => user,
+        getBarangayById: async () => null,
+        getUserRoleSettings: async () => ({
+          user_id: user.id,
+          role_code: "MAYOR",
+          profile_picture_path: "",
+          profile_picture_file_name: "",
+          profile_picture_updated_at: null,
+          notification_rule_preferences_json: {},
+          last_profile_update_at: null,
+          last_preference_save_at: "2026-08-04T09:00:00.000Z",
+        }),
+      },
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async (roleCode) => {
+          if (roleCode !== "MAYOR") {
+            return [];
+          }
+
+          return [
+            {
+              code: "DISASTER_EVENT_UPDATED",
+              name: "Disaster Event Updates",
+              category_code: "DISASTER_MONITORING",
+              category_label: "Disaster Monitoring",
+              priority: "CRITICAL",
+              in_app_policy: "MANDATORY",
+              email_policy: "DEFAULT_ON",
+              delivery_mode: "IMMEDIATE",
+              user_configurability: "EMAIL_ONLY",
+            },
+            {
+              code: "EVACUATION_SUMMARY_REPORT",
+              name: "Evacuation Summary Reports",
+              category_code: "DISASTER_MONITORING",
+              category_label: "Disaster Monitoring",
+              priority: "INFORMATIONAL",
+              in_app_policy: "OPTIONAL",
+              email_policy: "OPTIONAL",
+              delivery_mode: "DAILY_SUMMARY",
+              user_configurability: "ALL_SUPPORTED_CHANNELS",
+            },
+            {
+              code: "DISTRIBUTION_COMPLETED",
+              name: "Distribution Completed",
+              category_code: "RELIEF_OPERATIONS",
+              category_label: "Relief Operations",
+              priority: "INFORMATIONAL",
+              in_app_policy: "OPTIONAL",
+              email_policy: "OPTIONAL",
+              delivery_mode: "HOURLY_SUMMARY",
+              user_configurability: "ALL_SUPPORTED_CHANNELS",
+            },
+            {
+              code: "DONATION_RECEIVED",
+              name: "Donation Received",
+              category_code: "RELIEF_OPERATIONS",
+              category_label: "Relief Operations",
+              priority: "INFORMATIONAL",
+              in_app_policy: "OPTIONAL",
+              email_policy: "OPTIONAL",
+              delivery_mode: "IMMEDIATE",
+              user_configurability: "ALL_SUPPORTED_CHANNELS",
+            },
+            {
+              code: "LOW_STOCK",
+              name: "Low Stock Alert",
+              category_code: "INVENTORY_MONITORING",
+              category_label: "Inventory Monitoring",
+              priority: "WARNING",
+              in_app_policy: "MANDATORY",
+              email_policy: "OPTIONAL",
+              delivery_mode: "THRESHOLD",
+              user_configurability: "EMAIL_ONLY",
+            },
+            {
+              code: "CRITICAL_INVENTORY_SHORTAGE",
+              name: "Critical Inventory Shortage",
+              category_code: "INVENTORY_MONITORING",
+              category_label: "Inventory Monitoring",
+              priority: "CRITICAL",
+              in_app_policy: "MANDATORY",
+              email_policy: "DEFAULT_ON",
+              delivery_mode: "THRESHOLD",
+              user_configurability: "EMAIL_ONLY",
+            },
+            {
+              code: "NEAR_EXPIRY_STOCK",
+              name: "Near Expiry Stock Alert",
+              category_code: "INVENTORY_MONITORING",
+              category_label: "Inventory Monitoring",
+              priority: "WARNING",
+              in_app_policy: "MANDATORY",
+              email_policy: "OPTIONAL",
+              delivery_mode: "THRESHOLD",
+              user_configurability: "EMAIL_ONLY",
+            },
+            {
+              code: "EXPIRED_STOCK",
+              name: "Expired Stock Alert",
+              category_code: "INVENTORY_MONITORING",
+              category_label: "Inventory Monitoring",
+              priority: "CRITICAL",
+              in_app_policy: "MANDATORY",
+              email_policy: "DEFAULT_ON",
+              delivery_mode: "IMMEDIATE",
+              user_configurability: "EMAIL_ONLY",
+            },
+            {
+              code: "INVENTORY_INCIDENT",
+              name: "Inventory Incident Alert",
+              category_code: "INVENTORY_MONITORING",
+              category_label: "Inventory Monitoring",
+              priority: "CRITICAL",
+              in_app_policy: "MANDATORY",
+              email_policy: "DEFAULT_ON",
+              delivery_mode: "IMMEDIATE",
+              user_configurability: "EMAIL_ONLY",
+            },
+            {
+              code: "SYNC_FAILURE",
+              name: "Sync Failure",
+              category_code: "SYSTEM_MONITORING",
+              category_label: "System Monitoring",
+              priority: "CRITICAL",
+              in_app_policy: "MANDATORY",
+              email_policy: "DEFAULT_ON",
+              delivery_mode: "IMMEDIATE",
+              user_configurability: "EMAIL_ONLY",
+            },
+            {
+              code: "SYNC_CONFLICT",
+              name: "Synchronization Conflict Alert",
+              category_code: "SYSTEM_MONITORING",
+              category_label: "System Monitoring",
+              priority: "CRITICAL",
+              in_app_policy: "MANDATORY",
+              email_policy: "DEFAULT_ON",
+              delivery_mode: "IMMEDIATE",
+              user_configurability: "EMAIL_ONLY",
+            },
+            {
+              code: "DONATION_STOCK_ANOMALY",
+              name: "Donation Anomaly",
+              category_code: "SYSTEM_MONITORING",
+              category_label: "System Monitoring",
+              priority: "CRITICAL",
+              in_app_policy: "MANDATORY",
+              email_policy: "DEFAULT_ON",
+              delivery_mode: "IMMEDIATE",
+              user_configurability: "EMAIL_ONLY",
+            },
+          ];
+        },
+      },
+      [notificationServicePath]: {
+        getNotificationRulesForRole: async () => [],
+      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub(),
+    },
+    async ({ getCurrentSettings }) => {
+      const settings = await getCurrentSettings({
+        userId: user.id,
+        roleCode: "MAYOR",
+      });
+
+      const categorySummary = settings.categories.map((category) => ({
+        label: category.label,
+        count: (category.rules || []).length,
+        codes: (category.rules || []).map((rule) => rule.code),
+      }));
+
+      assert.deepEqual(categorySummary, [
+        {
+          label: "Disaster Monitoring",
+          count: 2,
+          codes: ["DISASTER_EVENT_UPDATED", "EVACUATION_SUMMARY_REPORT"],
+        },
+        {
+          label: "Relief Operations",
+          count: 2,
+          codes: ["DISTRIBUTION_COMPLETED", "DONATION_RECEIVED"],
+        },
+        {
+          label: "Inventory Monitoring",
+          count: 5,
+          codes: [
+            "LOW_STOCK",
+            "CRITICAL_INVENTORY_SHORTAGE",
+            "NEAR_EXPIRY_STOCK",
+            "EXPIRED_STOCK",
+            "INVENTORY_INCIDENT",
+          ],
+        },
+        {
+          label: "System Monitoring",
+          count: 3,
+          codes: ["SYNC_FAILURE", "SYNC_CONFLICT", "DONATION_STOCK_ANOMALY"],
+        },
+      ]);
+      assert.equal(
+        categorySummary.reduce((total, category) => total + category.count, 0),
+        12,
+      );
+    },
+  );
+});
+
+test("saveCurrentSettings writes PROFILE_UPDATED only when profile fields actually change", async () => {
+  const dbClient = buildDbClient();
+  const auditEntries = [];
+  const user = {
+    id: "user-profile-audit",
+    email: "barangay-audit@example.com",
+    first_name: "Mario",
+    middle_name: "De Leon",
+    last_name: "Rivera",
+    contact_number: "+639181112222",
+    default_barangay_id: null,
+    is_active: true,
+  };
+
+  await withStubbedSettingsService(
+    {
+      [poolPath]: {
+        connect: async () => dbClient,
+      },
+      [settingsRepositoryPath]: {
+        getUserById: async () => user,
+        getBarangayById: async () => null,
+        getUserRoleSettings: async () => null,
+        updateUserProfile: async (_userId, changes) => ({
+          ...user,
+          first_name: changes.firstName,
+          middle_name: changes.middleName,
+          last_name: changes.lastName,
+          contact_number: changes.contactNumber,
+        }),
+        upsertUserRoleSettings: async (payload) => payload,
+        insertRoleSettingsSnapshot: async (payload) => payload,
+      },
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [],
+      },
+      [notificationServicePath]: {
+        getNotificationRulesForRole: async () => [],
+      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub(),
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async (payload) => {
+          auditEntries.push(payload);
+          return payload;
+        },
+      },
+    },
+    async ({ saveCurrentSettings }) => {
+      await saveCurrentSettings({
+        userId: user.id,
+        roleCode: "BARANGAY",
+        settings: {
+          profile: {
+            firstName: "Mario",
+            middleName: "De Leon",
+            lastName: "Rivera-Santos",
+            contactNumber: "+639181112222",
+          },
+          metadata: {},
+        },
+        ipAddress: "127.0.0.1",
+      });
+
+      const profileAuditEntries = auditEntries.filter(
+        (entry) => entry.action === "PROFILE_UPDATED",
+      );
+
+      assert.equal(profileAuditEntries.length, 1);
+      assert.deepEqual(profileAuditEntries[0].new_values_json.changedFields, [
+        "lastName",
+      ]);
+    },
+  );
+});
+
+test("saveCurrentSettings does not write PROFILE_UPDATED for notification-only updates", async () => {
+  const dbClient = buildDbClient();
+  const auditEntries = [];
+  const user = {
+    id: "user-notification-audit",
+    email: "mswdo-audit@example.com",
+    first_name: "Lina",
+    middle_name: null,
+    last_name: "Cruz",
+    contact_number: "+639191112233",
+    default_barangay_id: null,
+    is_active: true,
+  };
+
+  await withStubbedSettingsService(
+    {
+      [poolPath]: {
+        connect: async () => dbClient,
+      },
+      [settingsRepositoryPath]: {
+        getUserById: async () => user,
+        getBarangayById: async () => null,
+        getUserRoleSettings: async () => ({
+          user_id: user.id,
+          role_code: "MSWDO",
+          profile_picture_path: "",
+          profile_picture_file_name: "",
+          profile_picture_updated_at: null,
+          notification_rule_preferences_json: {
+            DISTRIBUTION_UPDATE: {
+              email: false,
+            },
+          },
+          last_profile_update_at: "2026-08-01T08:00:00.000Z",
+          last_preference_save_at: "2026-08-01T09:00:00.000Z",
+        }),
+        updateUserProfile: async () => {
+          throw new Error("Profile should not be updated");
+        },
+        upsertUserRoleSettings: async (payload) => payload,
+        insertRoleSettingsSnapshot: async (payload) => payload,
+      },
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [
+          {
+            code: "DISTRIBUTION_UPDATE",
+            name: "Distribution Update",
+            category_code: "RELIEF_OPERATIONS",
+            category_label: "Relief Operations",
+            priority: "INFORMATIONAL",
+            in_app_policy: "OPTIONAL",
+            email_policy: "OPTIONAL",
+            delivery_mode: "HOURLY_SUMMARY",
+            user_configurability: "ALL_SUPPORTED_CHANNELS",
+          },
+        ],
+      },
+      [notificationServicePath]: {
+        getNotificationRulesForRole: async () => [],
+      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub(),
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async (payload) => {
+          auditEntries.push(payload);
+          return payload;
+        },
+      },
+    },
+    async ({ saveCurrentSettings }) => {
+      await saveCurrentSettings({
+        userId: user.id,
+        roleCode: "MSWDO",
+        settings: {
+          notificationRulePreferences: {
+            DISTRIBUTION_UPDATE: {
+              email: true,
+            },
+          },
+          metadata: {},
+        },
+        ipAddress: "127.0.0.1",
+      });
+
+      assert.equal(
+        auditEntries.some((entry) => entry.action === "PROFILE_UPDATED"),
+        false,
+      );
+      assert.equal(
+        auditEntries.some(
+          (entry) =>
+            entry.action === "UPDATE_NOTIFICATION_PREFERENCES" ||
+            entry.action === "RESET_NOTIFICATION_PREFERENCES",
+        ),
+        true,
+      );
+    },
+  );
+});
+
+test("saveCurrentSettings does not write PROFILE_UPDATED for unchanged profile submissions", async () => {
+  const dbClient = buildDbClient();
+  const auditEntries = [];
+  const user = {
+    id: "user-noop-profile",
+    email: "mayor-noop@example.com",
+    first_name: "Ramon",
+    middle_name: "Lopez",
+    last_name: "Santos",
+    contact_number: "+639171234567",
+    default_barangay_id: null,
+    is_active: true,
+  };
+
+  await withStubbedSettingsService(
+    {
+      [poolPath]: {
+        connect: async () => dbClient,
+      },
+      [settingsRepositoryPath]: {
+        getUserById: async () => user,
+        getBarangayById: async () => null,
+        getUserRoleSettings: async () => null,
+        updateUserProfile: async (_userId, changes) => ({
+          ...user,
+          first_name: changes.firstName,
+          middle_name: changes.middleName,
+          last_name: changes.lastName,
+          contact_number: changes.contactNumber,
+        }),
+        upsertUserRoleSettings: async (payload) => payload,
+        insertRoleSettingsSnapshot: async (payload) => payload,
+      },
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [],
+      },
+      [notificationServicePath]: {
+        getNotificationRulesForRole: async () => [],
+      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub(),
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async (payload) => {
+          auditEntries.push(payload);
+          return payload;
+        },
+      },
+    },
+    async ({ saveCurrentSettings }) => {
+      const result = await saveCurrentSettings({
+        userId: user.id,
+        roleCode: "MAYOR",
+        settings: {
+          profile: {
+            firstName: "Ramon",
+            middleName: "Lopez",
+            lastName: "Santos",
+            contactNumber: "+639171234567",
+          },
+          metadata: {},
+        },
+        ipAddress: "127.0.0.1",
+      });
+
+      assert.equal(result.settings.profile.firstName, "Ramon");
+      assert.equal(result.settings.profile.lastName, "Santos");
+      assert.equal(
+        auditEntries.some((entry) => entry.action === "PROFILE_UPDATED"),
+        false,
+      );
+    },
+  );
+});
+
+test("saveCurrentSettings writes separate profile and notification audit entries for combined updates", async () => {
+  const dbClient = buildDbClient();
+  const auditEntries = [];
+  const user = {
+    id: "user-combined-audit",
+    email: "barangay-combined@example.com",
+    first_name: "Ana",
+    middle_name: null,
+    last_name: "Cruz",
+    contact_number: "+639171112233",
+    default_barangay_id: null,
+    is_active: true,
+  };
+
+  await withStubbedSettingsService(
+    {
+      [poolPath]: {
+        connect: async () => dbClient,
+      },
+      [settingsRepositoryPath]: {
+        getUserById: async () => user,
+        getBarangayById: async () => null,
+        getUserRoleSettings: async () => ({
+          user_id: user.id,
+          role_code: "BARANGAY",
+          profile_picture_path: "",
+          profile_picture_file_name: "",
+          profile_picture_updated_at: null,
+          notification_rule_preferences_json: {
+            HOUSEHOLD_REGISTERED: {
+              inApp: true,
+            },
+          },
+          last_profile_update_at: "2026-08-01T08:00:00.000Z",
+          last_preference_save_at: "2026-08-01T09:00:00.000Z",
+        }),
+        updateUserProfile: async (_userId, changes) => ({
+          ...user,
+          first_name: changes.firstName,
+          middle_name: changes.middleName,
+          last_name: changes.lastName,
+          contact_number: changes.contactNumber,
+        }),
+        upsertUserRoleSettings: async (payload) => payload,
+        insertRoleSettingsSnapshot: async (payload) => payload,
+      },
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [
+          {
+            code: "HOUSEHOLD_REGISTERED",
+            name: "Household Registration Update",
+            category_code: "EVACUEE_MANAGEMENT",
+            category_label: "Evacuee Management",
+            priority: "INFORMATIONAL",
+            in_app_policy: "OPTIONAL",
+            email_policy: "UNAVAILABLE",
+            delivery_mode: "HOURLY_SUMMARY",
+            user_configurability: "ALL_SUPPORTED_CHANNELS",
+          },
+        ],
+      },
+      [notificationServicePath]: {
+        getNotificationRulesForRole: async () => [],
+      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub(),
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async (payload) => {
+          auditEntries.push(payload);
+          return payload;
+        },
+      },
+    },
+    async ({ saveCurrentSettings }) => {
+      await saveCurrentSettings({
+        userId: user.id,
+        roleCode: "BARANGAY",
+        settings: {
+          profile: {
+            firstName: "Ana Marie",
+            middleName: "",
+            lastName: "Cruz",
+            contactNumber: "+639171112233",
+          },
+          notificationRulePreferences: {
+            HOUSEHOLD_REGISTERED: {
+              inApp: false,
+            },
+          },
+          metadata: {},
+        },
+        ipAddress: "127.0.0.1",
+      });
+
+      assert.equal(
+        auditEntries.some((entry) => entry.action === "PROFILE_UPDATED"),
+        true,
+      );
+      assert.equal(
+        auditEntries.some(
+          (entry) => entry.action === "UPDATE_NOTIFICATION_PREFERENCES",
+        ),
+        true,
       );
     },
   );
