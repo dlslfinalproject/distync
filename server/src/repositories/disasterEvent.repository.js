@@ -80,6 +80,30 @@ const getDisasterEventById = async (id) => {
   return result.rows[0] || null;
 };
 
+const findConflictingOpenDisasterEventByTitle = async ({
+  title,
+  excludeId = null,
+  dbClient = pool,
+}) => {
+  const query = `
+    ${selectDisasterEventColumns}
+    WHERE LOWER(REGEXP_REPLACE(TRIM(title), '\s+', ' ', 'g')) =
+      LOWER(REGEXP_REPLACE(TRIM($1), '\s+', ' ', 'g'))
+      AND status = ANY($2::TEXT[])
+      AND ($3::UUID IS NULL OR id <> $3::UUID)
+    ORDER BY created_at DESC
+    LIMIT 1
+  `;
+
+  const result = await dbClient.query(query, [
+    title,
+    ["PLANNED", "ACTIVE"],
+    excludeId,
+  ]);
+
+  return result.rows[0] || null;
+};
+
 const getLatestHouseholdActivityByDisasterEventId = async (disasterEventId) => {
   const query = `
     WITH household_activity AS (
@@ -686,6 +710,7 @@ module.exports = {
   getClosedDisasterEvents,
   getDisasterEventsByBarangayId,
   getDisasterEventById,
+  findConflictingOpenDisasterEventByTitle,
   getLatestHouseholdActivityByDisasterEventId,
   getAffectedBarangaysByDisasterEventId,
   getHouseholdCountsByDisasterEventBarangayIds,

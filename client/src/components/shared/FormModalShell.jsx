@@ -87,6 +87,10 @@ const FormModalShell = ({
   closeOnBackdrop = false,
   initialFocusRef = null,
   finalFocusRef = null,
+  headerStyle,
+  titleStyle,
+  bodyStyle,
+  closeButtonStyle,
 }) => {
   const panelRef = useRef(null);
   const overlayRef = useRef(null);
@@ -205,10 +209,10 @@ const FormModalShell = ({
         }}
       >
         {title || (onClose && showCloseButton) ? (
-          <div style={headerStyles}>
+          <div style={{ ...headerStyles, ...(headerStyle || {}) }}>
             <div>
               {title ? (
-                <h3 id={titleId} style={titleStyles}>
+                <h3 id={titleId} style={{ ...titleStyles, ...(titleStyle || {}) }}>
                   {title}
                 </h3>
               ) : null}
@@ -222,7 +226,7 @@ const FormModalShell = ({
               <button
                 type="button"
                 onClick={onClose}
-                style={closeButtonStyles}
+                style={{ ...closeButtonStyles, ...(closeButtonStyle || {}) }}
                 disabled={isCloseDisabled}
                 aria-label="Close modal"
               >
@@ -234,7 +238,7 @@ const FormModalShell = ({
         {!title && !onClose && description ? (
           <p style={descriptionStyles}>{description}</p>
         ) : null}
-        <div style={bodyStyles}>{children}</div>
+        <div style={{ ...bodyStyles, ...(bodyStyle || {}) }}>{children}</div>
         {footer ? <div style={footerStyles}>{footer}</div> : null}
       </div>
     </div>

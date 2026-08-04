@@ -15,6 +15,23 @@ const isValidUuid = (value) => {
   return typeof value === "string" && uuidPattern.test(value);
 };
 
+const normalizeComparableText = (value) =>
+  String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+
+const buildComparableFullName = (person) =>
+  [
+    person?.first_name,
+    person?.middle_name,
+    person?.last_name,
+    person?.suffix,
+  ]
+    .map((value) => normalizeComparableText(value))
+    .filter(Boolean)
+    .join("|");
+
 const validateUuidArray = (values) => {
   return values.every((value) => isValidUuid(value));
 };
@@ -586,6 +603,33 @@ const validateHouseholdRegistrationRequest = (
       return res.status(400).json({
         message: "Each household_sector_ids value must be a valid UUID",
       });
+    }
+
+    const familyHeadComparableFullName = buildComparableFullName(family_head);
+    const seenMemberFullNames = new Map();
+
+    for (const [memberIndex, member] of members.entries()) {
+      const memberComparableFullName = buildComparableFullName(member);
+
+      if (!memberComparableFullName) {
+        continue;
+      }
+
+      if (memberComparableFullName === familyHeadComparableFullName) {
+        return res.status(400).json({
+          message:
+            "A household member cannot have the exact same full name as the family head.",
+        });
+      }
+
+      if (seenMemberFullNames.has(memberComparableFullName)) {
+        return res.status(400).json({
+          message:
+            "Household members cannot contain exact duplicate full names.",
+        });
+      }
+
+      seenMemberFullNames.set(memberComparableFullName, memberIndex);
     }
 
     req.validatedBody = {

@@ -3,6 +3,7 @@ import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
 import { FiX, FiCheckSquare, FiSquare } from "react-icons/fi";
 import { formatDisasterEventDateInputValue } from "../../features/disaster-events/disasterEventFormatters";
+import FormModalShell from "../shared/FormModalShell";
 
 const overlayStyles = {
   position: "fixed",
@@ -54,6 +55,55 @@ const errorTextStyles = {
   lineHeight: 1.4,
 };
 
+const duplicateErrorModalBodyStyles = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  textAlign: "center",
+  padding: "4px 0 0",
+};
+
+const duplicateErrorIconStyles = {
+  width: "48px",
+  height: "48px",
+  borderRadius: "999px",
+  backgroundColor: "#fee2e2",
+  color: "#c53030",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: "28px",
+  lineHeight: 1,
+  marginBottom: "14px",
+};
+
+const duplicateErrorTitleStyles = {
+  margin: 0,
+  color: "#1f2937",
+  fontSize: "18px",
+  fontWeight: 700,
+};
+
+const duplicateErrorMessageStyles = {
+  margin: "12px 0 0",
+  color: "#6b7280",
+  fontSize: "14px",
+  lineHeight: 1.6,
+  maxWidth: "320px",
+};
+
+const duplicateErrorButtonStyles = {
+  width: "100%",
+  minHeight: "40px",
+  border: "none",
+  borderRadius: "8px",
+  backgroundColor: "#c53030",
+  color: "#ffffff",
+  fontSize: "15px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
 const lockedInputStyles = {
   ...inputStyles,
   backgroundColor: "#eef5fc",
@@ -89,6 +139,13 @@ const DISASTER_TYPE_OPTIONS = [
   "Tsunami",
   "Fire",
 ];
+
+const DUPLICATE_EVENT_NAME_ERROR_MESSAGE =
+  "An active or planned disaster event with the same name already exists.";
+
+const isDuplicateEventNameError = (message) =>
+  String(message || "").trim().toLowerCase() ===
+  DUPLICATE_EVENT_NAME_ERROR_MESSAGE.toLowerCase();
 
 const mapServerErrorToFieldError = (message) => {
   const normalizedMessage = String(message || "").trim();
@@ -148,6 +205,7 @@ const DisasterEventFormModal = ({
 }) => {
   const [formValues, setFormValues] = useState(createDefaultForm());
   const [fieldErrors, setFieldErrors] = useState(createDefaultErrors());
+  const [isDuplicateWarningOpen, setIsDuplicateWarningOpen] = useState(false);
   const isEditMode = mode === "edit";
   const latestHouseholdActivityDate = formatDisasterEventDateInputValue(
     initialValues?.latest_household_activity_at || "",
@@ -187,6 +245,7 @@ const DisasterEventFormModal = ({
         : createDefaultForm(),
     );
     setFieldErrors(createDefaultErrors());
+    setIsDuplicateWarningOpen(false);
   }, [initialValues, isOpen]);
 
   useEffect(() => {
@@ -199,6 +258,16 @@ const DisasterEventFormModal = ({
       [serverErrorFieldName]: serverErrorMessage,
     }));
   }, [isOpen, serverErrorFieldName, serverErrorMessage]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    if (isDuplicateEventNameError(errorMessage)) {
+      setIsDuplicateWarningOpen(true);
+    }
+  }, [errorMessage, isOpen]);
 
   if (!isOpen) return null;
 
@@ -378,7 +447,9 @@ const DisasterEventFormModal = ({
             gap: "18px",
           }}
         >
-          {errorMessage && !serverErrorFieldName ? (
+          {errorMessage &&
+          !serverErrorFieldName &&
+          !isDuplicateEventNameError(errorMessage) ? (
             <p style={errorTextStyles}>{serverErrorMessage || errorMessage}</p>
           ) : null}
 
@@ -633,6 +704,31 @@ const DisasterEventFormModal = ({
             </button>
           </div>
         </form>
+
+        <FormModalShell
+          isOpen={isDuplicateWarningOpen}
+          maxWidth="420px"
+          bodyStyle={{ marginTop: 0 }}
+          footer={
+            <button
+              type="button"
+              onClick={() => setIsDuplicateWarningOpen(false)}
+              style={duplicateErrorButtonStyles}
+            >
+              OK
+            </button>
+          }
+        >
+          <div style={duplicateErrorModalBodyStyles} role="alert" aria-live="assertive">
+            <div aria-hidden="true" style={duplicateErrorIconStyles}>
+              <FiX />
+            </div>
+            <p style={duplicateErrorTitleStyles}>Duplicate</p>
+            <p style={duplicateErrorMessageStyles}>
+              Active event with this name already exists.
+            </p>
+          </div>
+        </FormModalShell>
       </div>
     </div>
   );
