@@ -27,7 +27,9 @@ const handleJsonResponse = async (response, fallbackMessage) => {
 
   if (!response.ok) {
     const error = new Error(responseData?.message || fallbackMessage);
-    error.code = responseData?.error || "";
+    error.code = responseData?.code || responseData?.error || "";
+    error.details = responseData?.details || null;
+    error.statusCode = response.status;
     throw error;
   }
 

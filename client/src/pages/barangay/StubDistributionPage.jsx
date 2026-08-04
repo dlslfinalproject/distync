@@ -7,6 +7,7 @@ import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import StubClaimConfirmModal from "../../components/stubs/StubClaimConfirmModal";
 import StubDetailModal from "../../components/stubs/StubDetailModal";
+import StubQrScanErrorModal from "../../components/stubs/StubQrScanErrorModal";
 import StubPrintSheetModal from "../../components/stubs/StubPrintSheetModal";
 import StubQrScanModal from "../../components/stubs/StubQrScanModal";
 import StubSearchBar from "../../components/stubs/StubSearchBar";
@@ -29,9 +30,16 @@ import {
   normalizeStubStatusFilter,
   STATUS_FILTERS,
 } from "../../features/stubs/stubStatusFilters";
+import {
+  QR_SCAN_ERROR_CODES,
+  createQrScanError,
+  createWrongBarangayQrScanError,
+  createWrongEventQrScanError,
+} from "../../features/stubs/stubQrScanErrors";
 
 const DEFAULT_STUB_STATUS = STATUS_FILTERS.UNCLAIMED;
 const DEFAULT_STUB_SORT_ORDER = "oldest";
+const QR_SCAN_COOLDOWN_MS = 1800;
 
 const getSectorCodes = (sectorsText) => {
   if (!sectorsText || sectorsText === "-") {
@@ -131,6 +139,36 @@ const buildStubPrintRoute = ({
   return `/barangay/print/stubs?${searchParams.toString()}`;
 };
 
+const getStubReferenceNumber = (stubDetails, verification) =>
+  verification?.data?.details?.stubNumber ||
+  stubDetails?.display_stub_no ||
+  stubDetails?.stub_no ||
+  "";
+
+const buildQrScanErrorDetails = (verification, stubDetails) => {
+  return {
+    ...((verification?.data?.details && typeof verification.data.details === "object")
+      ? verification.data.details
+      : {}),
+    stubNumber: getStubReferenceNumber(stubDetails, verification) || undefined,
+    claimedAt:
+      verification?.data?.details?.claimedAt ||
+      stubDetails?.distribution_transaction?.received_at ||
+      stubDetails?.distribution_transaction?.distribution_date ||
+      stubDetails?.claimed_at ||
+      undefined,
+    claimedByName:
+      verification?.data?.details?.claimedByName ||
+      stubDetails?.distribution_transaction?.claimed_by_name ||
+      undefined,
+    reliefPackName:
+      verification?.data?.details?.reliefPackName ||
+      stubDetails?.distribution_transaction?.relief_pack_template_name ||
+      stubDetails?.relief_pack_name ||
+      undefined,
+  };
+};
+
 const StubDistributionPage = () => {
   const { authenticatedUser } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
@@ -166,6 +204,12 @@ const StubDistributionPage = () => {
     message: "",
     type: "info",
     title: "",
+  });
+  const [scannerHelperMessage, setScannerHelperMessage] = useState("");
+  const [qrScanErrorState, setQrScanErrorState] = useState(null);
+  const [scanCooldownState, setScanCooldownState] = useState({
+    value: "",
+    until: 0,
   });
 
   const {
@@ -287,6 +331,9 @@ const StubDistributionPage = () => {
       setPendingClaimStubDetails(null);
       setIsBulkClaimConfirmOpen(false);
       setIsQrScanModalOpen(false);
+      setQrScanErrorState(null);
+      setScannerHelperMessage("");
+      setScanCooldownState({ value: "", until: 0 });
     }
   }, [isSelectedEventEnded, selectedEvent?.id]);
 
@@ -522,6 +569,44 @@ const StubDistributionPage = () => {
 
   const selectedBarangayForPrintId = assignedBarangay?.id || overrideBarangayId || "";
 
+  const openQrScanError = (error, scannedQrValue) => {
+    setQrScanErrorState({
+      error,
+      scannedQrValue,
+    });
+  };
+
+  const handleCloseQrScanner = () => {
+    setIsQrScanModalOpen(false);
+    setIsResolvingScannedQr(false);
+    setQrScanErrorState(null);
+    setScannerHelperMessage("");
+    setScanCooldownState({
+      value: "",
+      until: 0,
+    });
+  };
+
+  const handleDismissQrScanError = () => {
+    const blockedQrValue = qrScanErrorState?.scannedQrValue || "";
+
+    setQrScanErrorState(null);
+    setScannerHelperMessage("Ready to scan another QR stub.");
+
+    if (!blockedQrValue) {
+      setScanCooldownState({
+        value: "",
+        until: 0,
+      });
+      return;
+    }
+
+    setScanCooldownState({
+      value: blockedQrValue,
+      until: Date.now() + QR_SCAN_COOLDOWN_MS,
+    });
+  };
+
   const handleScannedQr = async (qrCodeValue) => {
     if (isSelectedEventEnded || isResolvingScannedQr) {
       return;
@@ -529,13 +614,17 @@ const StubDistributionPage = () => {
 
     setIsResolvingScannedQr(true);
     setClaimErrorMessage("");
+    setScannerHelperMessage("");
 
     try {
       const verification = await verifyStub({ qrCodeValue });
       const resolvedStubId = verification?.data?.stub?.id;
 
       if (!resolvedStubId) {
-        throw new Error("QR lookup did not return a valid stub record.");
+        throw createQrScanError({
+          code: QR_SCAN_ERROR_CODES.INVALID_QR_STUB,
+          message: "QR lookup did not return a valid stub record.",
+        });
       }
 
       const stubDetails = await fetchStubDetails(resolvedStubId);
@@ -543,18 +632,30 @@ const StubDistributionPage = () => {
       const stubBarangayId = stubDetails?.barangay?.id || "";
 
       if (stubEventId !== selectedEvent?.id) {
-        throw new Error("This QR stub does not belong to the selected disaster event.");
+        throw createWrongEventQrScanError({
+          stubNumber: getStubReferenceNumber(stubDetails, verification) || undefined,
+        });
       }
 
       if (stubBarangayId !== selectedBarangayForPrintId) {
-        throw new Error("This QR stub does not belong to your assigned barangay.");
+        throw createWrongBarangayQrScanError({
+          stubNumber: getStubReferenceNumber(stubDetails, verification) || undefined,
+        });
       }
 
       if (!verification?.data?.is_claimable || stubDetails?.status !== "ISSUED") {
-        throw new Error(
-          verification?.data?.reason ||
+        throw createQrScanError({
+          code:
+            verification?.data?.code ||
+            (stubDetails?.status === "CLAIMED"
+              ? QR_SCAN_ERROR_CODES.STUB_ALREADY_CLAIMED
+              : QR_SCAN_ERROR_CODES.STUB_UNAVAILABLE),
+          message:
+            verification?.data?.reason ||
+            verification?.message ||
             "This QR stub has already been claimed or is not claimable.",
-        );
+          details: buildQrScanErrorDetails(verification, stubDetails),
+        });
       }
 
       setPendingClaimStubId(resolvedStubId);
@@ -568,11 +669,7 @@ const StubDistributionPage = () => {
         message: "QR stub verified successfully. Please confirm relief distribution.",
       });
     } catch (error) {
-      setScanToast({
-        type: "error",
-        title: "Scan Failed",
-        message: error.message || "Unable to verify the scanned QR stub.",
-      });
+      openQrScanError(error, qrCodeValue);
     } finally {
       setIsResolvingScannedQr(false);
     }
@@ -816,8 +913,19 @@ const StubDistributionPage = () => {
       <StubQrScanModal
         isOpen={isQrScanModalOpen}
         isProcessing={isResolvingScannedQr}
-        onClose={() => setIsQrScanModalOpen(false)}
+        isInteractionBlocked={Boolean(qrScanErrorState)}
+        blockedQrValue={scanCooldownState.value}
+        blockedQrUntil={scanCooldownState.until}
+        helperMessage={scannerHelperMessage}
+        onClose={handleCloseQrScanner}
         onScan={handleScannedQr}
+      />
+
+      <StubQrScanErrorModal
+        isOpen={Boolean(qrScanErrorState)}
+        error={qrScanErrorState?.error || null}
+        onTryAgain={handleDismissQrScanError}
+        onCloseScanner={handleCloseQrScanner}
       />
 
       <FeedbackToast

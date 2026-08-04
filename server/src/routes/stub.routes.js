@@ -98,8 +98,11 @@ router.post(
     const statusCode = error.statusCode || 500;
 
     return res.status(statusCode).json({
+      success: false,
+      code: error.code || null,
       error: error.code || null,
       message: error.message || "Failed to claim stub",
+      details: error.details || null,
     });
   }
   },
@@ -187,7 +190,10 @@ router.post(
     const statusCode = error.statusCode || 500;
 
     return res.status(statusCode).json({
+      success: false,
+      code: error.code || null,
       message: error.message || "Failed to verify stub",
+      details: error.details || null,
     });
   }
   },

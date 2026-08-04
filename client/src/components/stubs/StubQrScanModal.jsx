@@ -87,16 +87,24 @@ const modalStyles = {
 const StubQrScanModal = ({
   isOpen,
   isProcessing = false,
+  isInteractionBlocked = false,
+  blockedQrValue = "",
+  blockedQrUntil = 0,
+  helperMessage = "",
   onClose,
   onScan,
 }) => {
   const videoRef = useRef(null);
   const scannerRef = useRef(null);
   const lastScannedValueRef = useRef("");
+  const blockedScanRef = useRef({
+    value: "",
+    until: 0,
+  });
   const [scannerMessage, setScannerMessage] = useState("");
 
   useEffect(() => {
-    if (!isOpen || !videoRef.current) {
+    if (!isOpen || isInteractionBlocked || !videoRef.current) {
       return undefined;
     }
 
@@ -114,6 +122,9 @@ const StubQrScanModal = ({
         if (
           !qrValue ||
           isProcessing ||
+          isInteractionBlocked ||
+          (blockedScanRef.current.value === qrValue &&
+            blockedScanRef.current.until > Date.now()) ||
           lastScannedValueRef.current === qrValue
         ) {
           return;
@@ -146,7 +157,18 @@ const StubQrScanModal = ({
       scanner.destroy();
       scannerRef.current = null;
     };
-  }, [isOpen, isProcessing, onScan]);
+  }, [isInteractionBlocked, isOpen, isProcessing, onScan]);
+
+  useEffect(() => {
+    blockedScanRef.current = {
+      value: blockedQrValue || "",
+      until: Number(blockedQrUntil || 0),
+    };
+
+    if (!blockedQrValue) {
+      lastScannedValueRef.current = "";
+    }
+  }, [blockedQrUntil, blockedQrValue]);
 
   const handleClose = () => {
     scannerRef.current?.stop();
@@ -188,6 +210,8 @@ const StubQrScanModal = ({
             <p style={modalStyles.message}>Verifying scanned QR stub...</p>
           ) : scannerMessage ? (
             <p style={modalStyles.error}>{scannerMessage}</p>
+          ) : helperMessage ? (
+            <p style={modalStyles.message}>{helperMessage}</p>
           ) : (
             <p style={modalStyles.message}>
               Camera scanning works best on phones or devices with a rear camera.

@@ -79,7 +79,10 @@ const FormModalShell = ({
   footer,
   maxWidth = "480px",
   zIndex = 1500,
+  overlayStyle,
+  contentStyle,
   onClose,
+  showCloseButton = true,
   isCloseDisabled = false,
   closeOnBackdrop = false,
   initialFocusRef = null,
@@ -175,6 +178,7 @@ const FormModalShell = ({
       style={{
         ...overlayStyles,
         zIndex,
+        ...(overlayStyle || {}),
       }}
       onMouseDown={(event) => {
         if (
@@ -197,9 +201,10 @@ const FormModalShell = ({
         style={{
           ...contentStyles,
           maxWidth,
+          ...(contentStyle || {}),
         }}
       >
-        {title || onClose ? (
+        {title || (onClose && showCloseButton) ? (
           <div style={headerStyles}>
             <div>
               {title ? (
@@ -213,7 +218,7 @@ const FormModalShell = ({
                 </p>
               ) : null}
             </div>
-            {onClose ? (
+            {onClose && showCloseButton ? (
               <button
                 type="button"
                 onClick={onClose}
