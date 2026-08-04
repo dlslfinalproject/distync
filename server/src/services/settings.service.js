@@ -11,6 +11,9 @@ const {
   resolveEffectiveNotificationPreferences,
   sanitizeNotificationRulePreferences,
 } = require("../modules/notifications/notificationPreferenceUtils");
+const {
+  getCanonicalRuleCode,
+} = require("../modules/notifications/notificationPolicy");
 
 const SETTINGS_AUDIT_ACTION = "UPSERT_ROLE_SETTINGS";
 const SETTINGS_ENTITY_TYPE = "ROLE_SETTINGS";
@@ -570,7 +573,9 @@ const validateAndNormalizeNotificationPreferences = async ({
   dbClient,
 }) => {
   const policyRows = await getRolePolicyRows({ roleCode, dbClient });
-  const policyMap = new Map(policyRows.map((row) => [row.code, row]));
+  const policyMap = new Map(
+    policyRows.map((row) => [getCanonicalRuleCode(row.code), row]),
+  );
   const sanitizedIncomingPreferences = sanitizeNotificationRulePreferences(
     incomingPreferences,
   );
