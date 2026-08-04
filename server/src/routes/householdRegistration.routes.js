@@ -61,6 +61,7 @@ router.post(
       const statusCode = error.statusCode || 500;
 
       return res.status(statusCode).json({
+        code: error.code || null,
         message: error.message || "Failed to register household",
       });
     }
@@ -117,6 +118,7 @@ router.patch(
       const statusCode = error.statusCode || 500;
 
       return res.status(statusCode).json({
+        code: error.code || null,
         message: error.message || "Failed to update household",
       });
     }

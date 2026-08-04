@@ -7,6 +7,7 @@ import MembersSection from "./MembersSection";
 import HouseholdConditionsSection from "./HouseholdConditionsSection";
 import DataPrivacyConsentModal from "./DataPrivacyConsentModal";
 import HouseholdDetailModal from "../masterlist/HouseholdDetailModal";
+import FormModalShell from "../shared/FormModalShell";
 import { FiX } from "react-icons/fi";
 import {
   HOUSEHOLD_PRIVACY_CONFIRM_BUTTON_LABEL,
@@ -67,6 +68,65 @@ const modalStyles = {
     fontWeight: 600,
   },
 };
+
+const DUPLICATE_HOUSEHOLD_REGISTRATION_CODE =
+  "DUPLICATE_HOUSEHOLD_REGISTRATION";
+const DUPLICATE_HOUSEHOLD_REGISTRATION_MESSAGE =
+  "Possible duplicate evacuee registration detected. Review the matched household before registering again.";
+
+const duplicateErrorModalBodyStyles = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  textAlign: "center",
+  padding: "4px 0 0",
+};
+
+const duplicateErrorIconStyles = {
+  width: "48px",
+  height: "48px",
+  borderRadius: "999px",
+  backgroundColor: "#fee2e2",
+  color: "#c53030",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: "28px",
+  lineHeight: 1,
+  marginBottom: "14px",
+};
+
+const duplicateErrorTitleStyles = {
+  margin: 0,
+  color: "#1f2937",
+  fontSize: "18px",
+  fontWeight: 700,
+};
+
+const duplicateErrorMessageStyles = {
+  margin: "12px 0 0",
+  color: "#6b7280",
+  fontSize: "14px",
+  lineHeight: 1.6,
+  maxWidth: "320px",
+};
+
+const duplicateErrorButtonStyles = {
+  width: "100%",
+  minHeight: "40px",
+  border: "none",
+  borderRadius: "8px",
+  backgroundColor: "#c53030",
+  color: "#ffffff",
+  fontSize: "15px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const isDuplicateHouseholdRegistrationError = (errorCode, errorMessage) =>
+  errorCode === DUPLICATE_HOUSEHOLD_REGISTRATION_CODE ||
+  String(errorMessage || "").trim().toLowerCase() ===
+    DUPLICATE_HOUSEHOLD_REGISTRATION_MESSAGE.toLowerCase();
 
 const resolveInitialFlowStep = (requiresPrivacyAcknowledgment) =>
   getInitialHouseholdRegistrationFlowStep({
@@ -164,19 +224,14 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
   const handleSubmit = async (event) => {
     event.preventDefault();
 
-    setFlowStep(HOUSEHOLD_REGISTRATION_FLOW_STEPS.SUBMITTING);
-
     const wasSuccessful = await form.submitRegistration(
       pendingPrivacyAcknowledgment,
     );
 
     if (wasSuccessful) {
-      setFlowStep(HOUSEHOLD_REGISTRATION_FLOW_STEPS.COMPLETED);
       handleClose();
       return;
     }
-
-    setFlowStep(HOUSEHOLD_REGISTRATION_FLOW_STEPS.REGISTRATION_FORM);
   };
 
   const handleCancelPrivacyNotice = () => {
@@ -200,6 +255,10 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
   const showPrivacyNotice =
     form.requiresPrivacyAcknowledgment &&
     flowStep === HOUSEHOLD_REGISTRATION_FLOW_STEPS.PRIVACY_NOTICE;
+  const isDuplicateWarningOpen = isDuplicateHouseholdRegistrationError(
+    form.errorCode,
+    form.errorMessage,
+  );
 
   return (
     <>
@@ -223,7 +282,7 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
             </div>
 
             <form onSubmit={handleSubmit} style={modalStyles.sections}>
-              {form.errorMessage ? (
+              {form.errorMessage && !isDuplicateWarningOpen ? (
                 <div
                   style={{
                     ...modalStyles.feedback,
@@ -342,6 +401,31 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
         householdDetails={suggestedHouseholdDetails}
         onClose={handleCloseSuggestedHouseholdDetails}
       />
+
+      <FormModalShell
+        isOpen={isDuplicateWarningOpen}
+        maxWidth="420px"
+        bodyStyle={{ marginTop: 0 }}
+        footer={
+          <button
+            type="button"
+            onClick={form.clearFormMessages}
+            style={duplicateErrorButtonStyles}
+          >
+            OK
+          </button>
+        }
+      >
+        <div style={duplicateErrorModalBodyStyles} role="alert" aria-live="assertive">
+          <div aria-hidden="true" style={duplicateErrorIconStyles}>
+            <FiX />
+          </div>
+          <p style={duplicateErrorTitleStyles}>Duplicate</p>
+          <p style={duplicateErrorMessageStyles}>
+            Evacuee registration already exists.
+          </p>
+        </div>
+      </FormModalShell>
     </>
   );
 };

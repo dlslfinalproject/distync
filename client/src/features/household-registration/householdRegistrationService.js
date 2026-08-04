@@ -62,7 +62,11 @@ const parseJsonResponse = async (response) => {
   const payload = await response.json();
 
   if (!response.ok) {
-    throw new Error(payload.message || "Request failed");
+    const error = new Error(payload.message || "Request failed");
+    error.statusCode = response.status;
+    error.code = payload.code || payload.error || "";
+    error.serverPayload = payload.data || null;
+    throw error;
   }
 
   return payload;

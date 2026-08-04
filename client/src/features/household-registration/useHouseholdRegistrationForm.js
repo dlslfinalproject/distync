@@ -235,6 +235,7 @@ export const useHouseholdRegistrationForm = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [errorCode, setErrorCode] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [duplicateSuggestions, setDuplicateSuggestions] = useState(
     createEmptyDuplicateSuggestions(),
@@ -1184,6 +1185,7 @@ export const useHouseholdRegistrationForm = ({
 
   const clearFormMessages = () => {
     setErrorMessage("");
+    setErrorCode("");
     setSuccessMessage("");
   };
 
@@ -1200,6 +1202,7 @@ export const useHouseholdRegistrationForm = ({
     setSelectedDisasterEventId(defaultDisasterEventId || "");
     setSelectedBarangayId(defaultBarangayId || "");
     setErrorMessage("");
+    setErrorCode("");
     setSuccessMessage("");
     setDuplicateSuggestions(createEmptyDuplicateSuggestions());
     setIsLoadingDuplicateSuggestions(false);
@@ -1480,6 +1483,7 @@ export const useHouseholdRegistrationForm = ({
       setSuccessMessage("");
       setValidationErrors(createValidationErrors());
       setErrorMessage(validationResult);
+      setErrorCode("");
       return false;
     }
 
@@ -1487,10 +1491,12 @@ export const useHouseholdRegistrationForm = ({
       setSuccessMessage("");
       setValidationErrors(validationResult.fieldErrors);
       setErrorMessage("");
+      setErrorCode("");
       return false;
     }
 
     setErrorMessage("");
+    setErrorCode("");
     setSuccessMessage("");
 
     return true;
@@ -1516,11 +1522,13 @@ export const useHouseholdRegistrationForm = ({
     if (requiresPrivacyAcknowledgment && !privacyAcknowledgment) {
       setSuccessMessage("");
       setErrorMessage(HOUSEHOLD_PRIVACY_CONFIRMATION_ERROR);
+      setErrorCode("");
       return false;
     }
 
     setIsSubmitting(true);
     setErrorMessage("");
+    setErrorCode("");
     setSuccessMessage("");
     setValidationErrors(createValidationErrors());
 
@@ -1545,6 +1553,7 @@ export const useHouseholdRegistrationForm = ({
 
       return true;
     } catch (error) {
+      setErrorCode(error.code || "");
       setErrorMessage(
         error.message ||
           (requiresPrivacyAcknowledgment
@@ -1593,6 +1602,7 @@ export const useHouseholdRegistrationForm = ({
     isLoadingDuplicateSuggestions,
     duplicateSuggestionsError,
     errorMessage,
+    errorCode,
     successMessage,
     validationErrors,
     formattedContactNumber: formatPhilippineContactNumberLocalPart(
