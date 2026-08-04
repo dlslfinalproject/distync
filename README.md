@@ -100,3 +100,126 @@ For an official-facing deployment:
 The frontend build command does not rewrite backend configuration. The
 backend mode must still be configured separately.
 
+## Browser Storage Isolation
+
+DISTYNC now isolates browser-stored data by validated access mode.
+`DEVELOPMENT` browser state is not reused in `DEMO`, and `DEMO` browser
+state is not reused in `DEVELOPMENT`.
+
+### What is isolated
+
+- Authentication sessions use separate mode-specific keys.
+- Selected roles use separate mode-specific keys.
+- Account Settings cache is scoped by access mode, user ID, and role code.
+- Registration reference cache uses mode-specific keys.
+- IndexedDB offline data uses separate databases for `DEVELOPMENT` and `DEMO`.
+- Offline queue records include access mode, user ID, and role code metadata.
+- PWA runtime caches use mode-specific cache names.
+
+### Account Settings cache lifecycle
+
+Account Settings cache entries use mode-scoped keys and validated metadata.
+DISTYNC stores them under keys shaped like:
+
+- `distync:<ACCESS_MODE>:role-settings:<ROLE_CODE>:<USER_ID>`
+
+Each cached value also records:
+
+- Cache format version
+- Access mode
+- User ID
+- Role code
+- Cache timestamp
+
+The cache is accepted only when the key and stored metadata both match the
+current authenticated owner context.
+
+### Account Settings cache cleanup
+
+- Logout clears all Account Settings cache entries for the current user in the current mode.
+- Switching to a different authenticated user clears the previous user’s Account Settings cache in the current mode.
+- Switching between `DEVELOPMENT` and `DEMO` clears Account Settings cache entries for both modes.
+- Invalid stored sessions and API authentication failures clear the affected Account Settings cache.
+- Legacy unscoped settings cache entries such as `distync-role-settings:*` are deleted and never reused.
+- Same-user, same-role, same-mode cache may still be used for offline fallback when the network fails but authentication remains valid.
+- Unauthenticated state does not receive Account Settings cache fallback.
+- Account Settings cache cleanup does not delete IndexedDB offline queue records or other operational offline data.
+
+## Profile Picture Security
+
+DISTYNC profile pictures are now treated as controlled authenticated account data.
+
+### Storage model
+
+- Account Settings uses controlled file upload only.
+- Arbitrary external image URLs are not accepted for user profile pictures.
+- Private profile pictures are stored in the `distync-profile-pictures` Supabase Storage bucket.
+- The database stores a private object path and update metadata, not a permanent public URL.
+- PostgreSQL persists `profile_picture_path` and related metadata only. Base64 profile-picture data is not stored.
+- Display uses short-lived signed URLs returned by the backend.
+- Signed URLs are not stored in PostgreSQL.
+- Raw profile image data and Blob preview URLs are not stored in localStorage.
+- Default avatar initials are shown when no profile picture is available.
+
+### Backend behavior
+
+- `GET /api/v1/settings/current` returns role settings plus fresh signed profile-picture metadata when a picture exists.
+- `GET /api/v1/settings/current/profile-picture` refreshes only the current authenticated user’s signed profile-picture metadata.
+- `POST /api/v1/settings/current/profile-picture` uploads a new profile picture for the authenticated user only.
+- `DELETE /api/v1/settings/current/profile-picture` removes the current authenticated user’s picture and clears the database association.
+- The backend generates the storage path server-side and ignores client-supplied user ownership.
+- Replacing a picture uploads the new object first, updates the database, then removes the previous object after commit.
+- If the database write fails after upload, the new object is deleted during cleanup.
+
+### Upload rules
+
+- Allowed MIME types: `image/jpeg`, `image/png`, `image/webp`
+- Maximum size: 2 MB
+- SVG is not accepted
+- Empty uploads are rejected
+- Profile pictures are separate from household family-head verification photos
+
+### Cache and session behavior
+
+- Account Settings cache may store only safe profile-picture metadata such as path, file name, signed URL expiry, and update timestamp.
+- Expired signed URLs are not reused from cache.
+- Logout, user switching, and access-mode switching clear authenticated settings cache so another user’s signed URL is not reused.
+- Offline fallback does not persist raw profile image content. When a valid signed URL is unavailable, DISTYNC falls back to the default avatar.
+
+### Supabase setup
+
+- Set `SUPABASE_SERVICE_ROLE_KEY` only on the backend.
+- Do not expose the service-role key to frontend code.
+- Keep the `distync-profile-pictures` bucket private.
+- Apply the profile-picture hardening migration before using the feature in a shared environment.
+
+### Mode switch behavior
+
+When the same browser switches between `DEVELOPMENT` and `DEMO`:
+
+- DISTYNC records the last validated access mode.
+- Legacy unscoped auth, role, settings, and registration storage is removed.
+- Mode-specific auth sessions and selected-role state are cleared.
+- The app continues in an unauthenticated state.
+- Previous-mode offline work is not transferred into the new mode.
+
+Same-mode reloads still keep valid same-mode sessions and same-mode offline
+data available.
+
+### Legacy browser data
+
+Legacy shared browser storage such as:
+
+- `distync_auth_session`
+- `distync_selected_role`
+- `distync-role-settings:*`
+- `distyncOfflineDb`
+- `distync-pages`
+- `distync-shell`
+- `distync-static-assets`
+
+is treated as unsafe for mode isolation. Legacy auth and role state is
+removed. Legacy shared runtime caches are cleaned up. The old shared
+IndexedDB database is deleted instead of being reassigned to `DEMO` or
+`DEVELOPMENT`, because its original mode cannot be verified safely.
+

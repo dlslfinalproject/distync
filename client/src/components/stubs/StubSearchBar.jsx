@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import SearchBar from "../shared/SearchBar";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { FiFilter } from "react-icons/fi";
+import { STATUS_FILTERS } from "../../features/stubs/stubStatusFilters";
 
 const filterPanelStyles = {
   panel: {
@@ -146,7 +147,7 @@ const StubSearchBar = ({
   sectorOptions = [],
   selectedSectorNames = [],
   stubStatusOptions = [],
-  selectedStubStatus = "ISSUED",
+  selectedStubStatus = STATUS_FILTERS.UNCLAIMED,
   selectedSortOrder = "oldest",
   onToggleSector,
   onSelectStubStatus,
@@ -292,7 +293,7 @@ const StubSearchBar = ({
                 {statusOption.label}
               </option>
             ))}
-            <option value="">All</option>
+            <option value={STATUS_FILTERS.ALL}>All</option>
           </select>
         </label>
 

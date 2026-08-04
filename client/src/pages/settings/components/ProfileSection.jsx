@@ -1,17 +1,7 @@
-import React from "react";
-
-const picturePreviewStyles = {
-  width: "132px",
-  height: "132px",
-  borderRadius: "999px",
-  border: "4px solid #e7f0fa",
-  background:
-    "linear-gradient(180deg, rgba(239, 246, 253, 1) 0%, rgba(227, 238, 249, 1) 100%)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  overflow: "hidden",
-};
+import React, { useState } from "react";
+import { FiCamera } from "react-icons/fi";
+import ProfileAvatar from "../../../components/shared/ProfileAvatar";
+import { buildDisplayName } from "../settingsHelpers";
 
 const ProfileSection = ({
   shellStyles,
@@ -29,9 +19,22 @@ const ProfileSection = ({
   handleProfileFieldBlur,
   profilePictureInputRef,
   handleProfilePictureChange,
+  handleOpenRemoveProfilePictureDialog,
+  handleProfilePictureLoadError,
+  handleUndoProfilePictureChange,
+  profilePicturePresentation,
+  profilePictureDraft,
+  removeProfilePictureButtonRef,
+  isSavingPreferences = false,
+  isOnline = true,
+  isSettingsReadOnlyOffline = false,
+  hasUnsavedChanges = false,
+  isReconnectRefreshInFlight = false,
+  isReconnectRefreshBlocked = false,
   sectionTitle = "Profile",
   description,
   firstNameId,
+  middleNameId,
   lastNameId,
   positionField,
   contactId,
@@ -39,6 +42,7 @@ const ProfileSection = ({
   pictureAlt,
   pictureFallbackText = "No profile picture selected",
 }) => {
+  const [isAvatarFocused, setIsAvatarFocused] = useState(false);
   const sectionDividerStyles = {
     borderTop: "1px solid #e3ecf5",
     margin: "24px 0",
@@ -60,6 +64,11 @@ const ProfileSection = ({
     fontSize: "16px",
     fontWeight: 700,
     lineHeight: 1.5,
+    minWidth: 0,
+    maxWidth: "100%",
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
+    wordBreak: "break-word",
   };
 
   const readOnlyFieldStyles = {
@@ -71,6 +80,9 @@ const ProfileSection = ({
     gap: "6px",
     minHeight: "76px",
     boxSizing: "border-box",
+    minWidth: 0,
+    maxWidth: "100%",
+    alignContent: "start",
   };
 
   const systemTagStyles = {
@@ -85,43 +97,45 @@ const ProfileSection = ({
     fontWeight: 700,
     letterSpacing: "0.06em",
     textTransform: "uppercase",
+    maxWidth: "100%",
+    whiteSpace: "normal",
   };
 
-  const splitFullName = (value = "") => {
-    const trimmedValue = String(value || "").trim();
-
-    if (!trimmedValue) {
-      return { firstName: "", lastName: "" };
-    }
-
-    const segments = trimmedValue.split(/\s+/).filter(Boolean);
-
-    if (segments.length === 1) {
-      return {
-        firstName: segments[0],
-        lastName: "",
-      };
-    }
-
-    return {
-      firstName: segments.slice(0, -1).join(" "),
-      lastName: segments[segments.length - 1],
-    };
+  const readOnlyHelperTextStyles = {
+    ...mutedValueStyles,
+    fontSize: "12px",
+    margin: 0,
+    minWidth: 0,
+    maxWidth: "100%",
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
+    wordBreak: "break-word",
   };
 
-  const joinNameParts = (firstName = "", lastName = "") =>
-    [String(firstName || "").trim(), String(lastName || "").trim()]
-      .filter(Boolean)
-      .join(" ");
+  const accountInformationGridStyles = {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 320px), 1fr))",
+    gap: "16px",
+    width: "100%",
+    minWidth: 0,
+  };
+
+  const readOnlyContentStackStyles = {
+    display: "grid",
+    gap: "6px",
+    minWidth: 0,
+    maxWidth: "100%",
+  };
 
   const getProfileInitials = () => {
-    const fullName = String(preferences.profile.fullName || "").trim();
+    const fullName = buildDisplayName(preferences.profile);
     const sourceName =
       fullName ||
-      [authenticatedUser?.first_name, authenticatedUser?.last_name]
-        .filter(Boolean)
-        .join(" ")
-        .trim() ||
+      buildDisplayName({
+        firstName: authenticatedUser?.first_name,
+        middleName: authenticatedUser?.middle_name,
+        lastName: authenticatedUser?.last_name,
+      }) ||
       "DISTYNC User";
 
     const initials = sourceName
@@ -134,7 +148,72 @@ const ProfileSection = ({
     return initials || "DU";
   };
 
-  const { firstName, lastName } = splitFullName(preferences.profile.fullName);
+  const displayName =
+    buildDisplayName(preferences.profile) ||
+    buildDisplayName({
+      firstName: authenticatedUser?.first_name,
+      middleName: authenticatedUser?.middle_name,
+      lastName: authenticatedUser?.last_name,
+    }) ||
+    getProfileInitials();
+  const profilePictureSource = profilePicturePresentation?.profilePictureSource || "";
+  const hasProfilePicture = Boolean(profilePicturePresentation?.hasProfilePicture);
+  const hasSavedPicture = Boolean(profilePicturePresentation?.hasSavedPicture);
+  const pictureAction = profilePictureDraft?.pictureAction || "UNCHANGED";
+  const hasPendingPictureChange = pictureAction !== "UNCHANGED";
+  const pictureStatusLabel = profilePicturePresentation?.statusLabel || "";
+  const cancelPictureLabel = profilePicturePresentation?.cancelLabel || "Cancel";
+  const canOpenPicturePicker = !isSavingPreferences && !isSettingsReadOnlyOffline;
+  const areProfileInputsDisabled = isSavingPreferences || isSettingsReadOnlyOffline;
+  const avatarButtonLabel = !isOnline
+    ? "Profile picture changes require an internet connection"
+    : hasSavedPicture
+      ? "Change profile picture"
+      : "Add profile picture";
+  const avatarStatusId = `${contactId}-picture-status`;
+  const avatarHintId = `${contactId}-picture-hint`;
+  const profileOfflineHelperId = `${contactId}-offline-helper`;
+  const avatarDescriptionId = hasPendingPictureChange
+    ? `${avatarStatusId} ${avatarHintId} ${profileOfflineHelperId}`.trim()
+    : `${avatarHintId} ${profileOfflineHelperId}`.trim();
+  const openPicturePicker = () => {
+    if (!canOpenPicturePicker) {
+      return;
+    }
+
+    profilePictureInputRef.current?.click();
+  };
+
+  const avatarButtonStyles = {
+    position: "relative",
+    border: "none",
+    background: "transparent",
+    padding: "6px",
+    borderRadius: "999px",
+    cursor: canOpenPicturePicker ? "pointer" : "not-allowed",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxSizing: "border-box",
+    outline: "none",
+  };
+
+  const cameraOverlayStyles = {
+    position: "absolute",
+    right: "6px",
+    bottom: "6px",
+    width: "34px",
+    height: "34px",
+    borderRadius: "999px",
+    background: "linear-gradient(135deg, #2f6499 0%, #4c86be 100%)",
+    color: "#ffffff",
+    border: "3px solid #ffffff",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxShadow: "0 10px 18px rgba(47, 100, 153, 0.24)",
+    pointerEvents: "none",
+  };
 
   return (
     <section
@@ -145,6 +224,13 @@ const ProfileSection = ({
     >
       <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>{sectionTitle}</h3>
+        {isSettingsReadOnlyOffline ? (
+          <p id={profileOfflineHelperId} style={{ ...mutedValueStyles, margin: 0 }}>
+            {hasUnsavedChanges
+              ? "Changes are not saved. Reconnect to continue."
+              : "Connect to the internet to update account settings."}
+          </p>
+        ) : null}
       </div>
 
       <article style={{ display: "grid", gap: "24px" }}>
@@ -164,41 +250,83 @@ const ProfileSection = ({
             <div
               style={{
                 display: "grid",
-                gap: "14px",
+                gap: "12px",
                 justifyItems: "start",
               }}
             >
               <p style={sectionLabelStyles}>Profile Picture</p>
-              <div style={picturePreviewStyles}>
-                {preferences.profile.profilePictureDataUrl ? (
-                  <img
-                    src={preferences.profile.profilePictureDataUrl}
-                    alt={pictureAlt}
+              <button
+                type="button"
+                onClick={openPicturePicker}
+                disabled={!canOpenPicturePicker}
+                aria-label={avatarButtonLabel}
+                aria-describedby={avatarDescriptionId}
+                style={{
+                  ...avatarButtonStyles,
+                  opacity: canOpenPicturePicker ? 1 : 0.72,
+                  boxShadow: isAvatarFocused
+                    ? "0 0 0 4px rgba(76, 134, 190, 0.28)"
+                    : "none",
+                }}
+                onFocus={() => setIsAvatarFocused(true)}
+                onBlur={() => setIsAvatarFocused(false)}
+              >
+                <ProfileAvatar
+                  src={profilePictureSource}
+                  alt={pictureAlt}
+                  displayName={displayName}
+                  onError={handleProfilePictureLoadError}
+                  style={{
+                    boxShadow: hasPendingPictureChange
+                      ? "0 0 0 4px rgba(242, 223, 173, 0.5)"
+                      : "none",
+                  }}
+                />
+                <span style={cameraOverlayStyles} aria-hidden="true">
+                  <FiCamera size={16} />
+                </span>
+              </button>
+              <div
+                style={{
+                  display: "grid",
+                  gap: "8px",
+                  width: "100%",
+                  maxWidth: "260px",
+                }}
+              >
+                {pictureStatusLabel ? (
+                  <span
+                    id={avatarStatusId}
                     style={{
-                      width: "100%",
-                      height: "100%",
-                      objectFit: "cover",
-                    }}
-                  />
-                ) : (
-                  <div
-                    style={{
-                      width: "100%",
-                      height: "100%",
-                      display: "flex",
+                      display: "inline-flex",
                       alignItems: "center",
-                      justifyContent: "center",
-                      background:
-                        "linear-gradient(180deg, rgba(234, 242, 251, 1) 0%, rgba(220, 233, 247, 1) 100%)",
-                      color: "#2f6499",
-                      fontSize: "30px",
-                      fontWeight: 800,
-                      textAlign: "center",
+                      width: "fit-content",
+                      borderRadius: "999px",
+                      padding: "5px 10px",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      backgroundColor:
+                        pictureAction === "REMOVE" ? "#fff3f1" : "#fff6e8",
+                      color: pictureAction === "REMOVE" ? "#9d4d58" : "#9a6519",
                     }}
                   >
-                    {getProfileInitials()}
-                  </div>
-                )}
+                    {pictureStatusLabel}
+                  </span>
+                ) : null}
+                <p
+                  id={avatarHintId}
+                  style={{ ...mutedValueStyles, fontSize: "12px", margin: 0 }}
+                >
+                  {canOpenPicturePicker
+                    ? "JPG, PNG, or WEBP up to 2 MB."
+                    : isSavingPreferences
+                      ? "Picture changes are temporarily disabled while saving."
+                      : isReconnectRefreshInFlight
+                        ? "Account settings are refreshing after reconnecting."
+                        : isReconnectRefreshBlocked
+                          ? "Refresh account settings before changing the profile picture."
+                          : "Reconnect to edit the profile picture."}
+                </p>
               </div>
               <input
                 ref={profilePictureInputRef}
@@ -207,13 +335,50 @@ const ProfileSection = ({
                 onChange={handleProfilePictureChange}
                 style={{ display: "none" }}
               />
-              <button
-                type="button"
-                onClick={() => profilePictureInputRef.current?.click()}
-                style={pageHeaderStyles.secondaryButton}
+              <div
+                style={{
+                  display: "flex",
+                  gap: "8px",
+                  flexWrap: "wrap",
+                }}
               >
-                Change Picture
-              </button>
+                {profilePicturePresentation?.showRemoveAction ? (
+                  <button
+                    ref={removeProfilePictureButtonRef}
+                    type="button"
+                    onClick={handleOpenRemoveProfilePictureDialog}
+                    style={{
+                      ...pageHeaderStyles.secondaryButton,
+                      minHeight: "38px",
+                      padding: "8px 12px",
+                      borderRadius: "12px",
+                      fontSize: "13px",
+                      borderColor: "#f1d2cc",
+                      backgroundColor: "#fff7f5",
+                      color: "#9d4d58",
+                    }}
+                    disabled={isSavingPreferences || isSettingsReadOnlyOffline}
+                  >
+                    Remove
+                  </button>
+                ) : null}
+                {hasPendingPictureChange ? (
+                  <button
+                    type="button"
+                    onClick={handleUndoProfilePictureChange}
+                    style={{
+                      ...pageHeaderStyles.secondaryButton,
+                      minHeight: "38px",
+                      padding: "8px 12px",
+                      borderRadius: "12px",
+                      fontSize: "13px",
+                    }}
+                    disabled={isSavingPreferences}
+                  >
+                    {cancelPictureLabel}
+                  </button>
+                ) : null}
+              </div>
             </div>
 
             <div style={{ display: "grid", gap: "20px" }}>
@@ -228,53 +393,77 @@ const ProfileSection = ({
                 >
                   <div style={{ display: "grid", gap: "8px" }}>
                     <label htmlFor={firstNameId} style={labelStyles}>
-                      First Name
+                      First Name *
                     </label>
                     <input
                       id={firstNameId}
-                      value={firstName}
+                      disabled={areProfileInputsDisabled}
+                      value={preferences.profile.firstName || ""}
                       onChange={(event) =>
-                        handleProfileFieldChange(
-                          "fullName",
-                          joinNameParts(event.target.value, lastName),
-                        )
+                        handleProfileFieldChange("firstName", event.target.value)
                       }
-                      onBlur={() => handleProfileFieldBlur("fullName")}
+                      onBlur={() => handleProfileFieldBlur("firstName")}
                       placeholder="Enter first name"
                       style={{
                         ...inputStyles.field,
-                        ...(profileTouched.fullName && profileErrors.fullName
+                        ...(profileTouched.firstName && profileErrors.firstName
                           ? inputStyles.errorField
                           : {}),
                       }}
                     />
-                    {profileTouched.fullName && profileErrors.fullName ? (
-                      <p style={errorTextStyles}>{profileErrors.fullName}</p>
+                    {profileTouched.firstName && profileErrors.firstName ? (
+                      <p style={errorTextStyles}>{profileErrors.firstName}</p>
+                    ) : null}
+                  </div>
+
+                  <div style={{ display: "grid", gap: "8px" }}>
+                    <label htmlFor={middleNameId} style={labelStyles}>
+                      Middle Name
+                    </label>
+                    <input
+                      id={middleNameId}
+                      disabled={areProfileInputsDisabled}
+                      value={preferences.profile.middleName || ""}
+                      onChange={(event) =>
+                        handleProfileFieldChange("middleName", event.target.value)
+                      }
+                      onBlur={() => handleProfileFieldBlur("middleName")}
+                      placeholder="Enter middle name"
+                      style={{
+                        ...inputStyles.field,
+                        ...(profileTouched.middleName && profileErrors.middleName
+                          ? inputStyles.errorField
+                          : {}),
+                      }}
+                    />
+                    {profileTouched.middleName && profileErrors.middleName ? (
+                      <p style={errorTextStyles}>{profileErrors.middleName}</p>
                     ) : null}
                   </div>
 
                   <div style={{ display: "grid", gap: "8px" }}>
                     <label htmlFor={lastNameId} style={labelStyles}>
-                      Last Name
+                      Last Name *
                     </label>
                     <input
                       id={lastNameId}
-                      value={lastName}
+                      disabled={areProfileInputsDisabled}
+                      value={preferences.profile.lastName || ""}
                       onChange={(event) =>
-                        handleProfileFieldChange(
-                          "fullName",
-                          joinNameParts(firstName, event.target.value),
-                        )
+                        handleProfileFieldChange("lastName", event.target.value)
                       }
-                      onBlur={() => handleProfileFieldBlur("fullName")}
+                      onBlur={() => handleProfileFieldBlur("lastName")}
                       placeholder="Enter last name"
                       style={{
                         ...inputStyles.field,
-                        ...(profileTouched.fullName && profileErrors.fullName
+                        ...(profileTouched.lastName && profileErrors.lastName
                           ? inputStyles.errorField
                           : {}),
                       }}
                     />
+                    {profileTouched.lastName && profileErrors.lastName ? (
+                      <p style={errorTextStyles}>{profileErrors.lastName}</p>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -290,6 +479,7 @@ const ProfileSection = ({
                     <input
                       id={contactId}
                       type="text"
+                      disabled={areProfileInputsDisabled}
                       inputMode="numeric"
                       value={formatPhilippineContactNumberForDisplay(
                         preferences.profile.contactNumber,
@@ -327,17 +517,20 @@ const ProfileSection = ({
           </div>
 
           <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: "16px",
-            }}
+            style={accountInformationGridStyles}
           >
             <div style={readOnlyFieldStyles}>
               <p style={sectionLabelStyles}>Email Address</p>
-              <p style={sectionValueStyles}>
-                {authenticatedUser?.email || preferences.profile.emailAddress || "--"}
-              </p>
+              <div style={readOnlyContentStackStyles}>
+                <p style={sectionValueStyles}>
+                  {authenticatedUser?.email ||
+                    preferences.profile.emailAddress ||
+                    "--"}
+                </p>
+                <p style={readOnlyHelperTextStyles}>
+                  Linked to your authenticated Google account.
+                </p>
+              </div>
             </div>
 
             <div style={readOnlyFieldStyles}>
@@ -347,13 +540,33 @@ const ProfileSection = ({
                   alignItems: "center",
                   gap: "10px",
                   flexWrap: "wrap",
+                  minWidth: 0,
                 }}
               >
                 <p style={sectionLabelStyles}>Role</p>
                 <span style={systemTagStyles}>Read Only</span>
               </div>
-              <p style={sectionValueStyles}>{positionField.value || "--"}</p>
+              <div style={readOnlyContentStackStyles}>
+                <p style={sectionValueStyles}>{positionField.value || "--"}</p>
+                <p style={readOnlyHelperTextStyles}>
+                  Managed by an authorized system administrator.
+                </p>
+              </div>
             </div>
+
+            {preferences.profile.assignedBarangay ? (
+              <div style={readOnlyFieldStyles}>
+                <p style={sectionLabelStyles}>Assigned Barangay</p>
+                <div style={readOnlyContentStackStyles}>
+                  <p style={sectionValueStyles}>
+                    {preferences.profile.assignedBarangay.name || "--"}
+                  </p>
+                  <p style={readOnlyHelperTextStyles}>
+                    Managed through user administration.
+                  </p>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       </article>

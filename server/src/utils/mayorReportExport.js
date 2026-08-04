@@ -140,17 +140,22 @@ const buildExcelBuffer = async ({
   reportExport.addWorkbookLogo(workbook, worksheet);
 
   const lastColumnIndex = Math.max(columns.length, 6);
+  [1, 2, 3, 4].forEach((rowNumber) => {
+    for (let columnIndex = 1; columnIndex <= lastColumnIndex; columnIndex += 1) {
+      worksheet.getCell(rowNumber, columnIndex).fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FF17324D" },
+      };
+    }
+  });
+
   worksheet.mergeCells(1, 2, 1, lastColumnIndex);
   worksheet.getCell("B1").value = "DISTYNC";
   worksheet.getCell("B1").font = {
     bold: true,
     size: 18,
     color: { argb: "FFFFFFFF" },
-  };
-  worksheet.getCell("B1").fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF17324D" },
   };
   worksheet.getCell("B1").alignment = { horizontal: "left", vertical: "middle" };
 
@@ -161,11 +166,6 @@ const buildExcelBuffer = async ({
     size: 14,
     color: { argb: "FFFFFFFF" },
   };
-  worksheet.getCell("B2").fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF17324D" },
-  };
   worksheet.getCell("B2").alignment = { horizontal: "left", vertical: "middle" };
 
   worksheet.mergeCells(3, 2, 3, lastColumnIndex);
@@ -175,11 +175,6 @@ const buildExcelBuffer = async ({
     size: 12,
     color: { argb: "FFFFFFFF" },
   };
-  worksheet.getCell("B3").fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF17324D" },
-  };
   worksheet.getCell("B3").alignment = { horizontal: "left", vertical: "middle" };
 
   worksheet.mergeCells(4, 2, 4, lastColumnIndex);
@@ -187,7 +182,7 @@ const buildExcelBuffer = async ({
   worksheet.getCell("B4").font = {
     bold: true,
     size: 12,
-    color: { argb: "FF17324D" },
+    color: { argb: "FFFFFFFF" },
   };
   worksheet.getCell("B4").alignment = { horizontal: "left", vertical: "middle" };
 

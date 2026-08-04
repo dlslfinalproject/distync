@@ -63,19 +63,22 @@ const formatDateTime = (value) => {
 const getDirectionStyles = (direction) => {
   if (direction === "INFLOW") {
     return {
-      backgroundColor: "#eaf3fc",
-      color: "#356592",
+      border: "1px solid #bdd8f1",
+      backgroundColor: "#e9f4ff",
+      color: "#145995",
     };
   }
 
   if (direction === "OUTFLOW") {
     return {
-      backgroundColor: "#e6f5ec",
-      color: "#2d7a4f",
+      border: "1px solid #c9e8d7",
+      backgroundColor: "#eefaf3",
+      color: "#16733c",
     };
   }
 
   return {
+    border: "1px solid #d6e2ef",
     backgroundColor: "#eef3f8",
     color: "#4d647c",
   };
@@ -158,7 +161,7 @@ const InventoryTransactionsTable = ({
                     display: "inline-flex",
                     alignItems: "center",
                     borderRadius: "999px",
-                    padding: "4px 10px",
+                    padding: "6px 12px",
                     fontSize: "12px",
                     fontWeight: 700,
                     ...getDirectionStyles(row.transaction_direction),

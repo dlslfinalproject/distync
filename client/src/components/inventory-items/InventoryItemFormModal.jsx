@@ -200,12 +200,85 @@ const inferTrackingMethod = (unitOfMeasure) => {
 const isWeightOrVolumeBased = (trackingMethod) =>
   trackingMethod === "Weight/Volume-Based";
 
+const itemHasBarcodeStockForms = (item) => {
+  if (!item) {
+    return false;
+  }
+
+  if (String(item?.barcode || "").trim()) {
+    return true;
+  }
+
+  if (!Array.isArray(item?.stock_forms)) {
+    return false;
+  }
+
+  return item.stock_forms.some((stockForm) =>
+    Boolean(String(stockForm?.barcode || "").trim()),
+  );
+};
+
 const formatPackagingLabel = (packaging) => {
   if (!packaging) {
     return "Packaging";
   }
 
   return packaging.charAt(0).toUpperCase() + packaging.slice(1);
+};
+
+const buildAutocompleteSuggestions = (items, query, { collapseBarcodeVariants = false } = {}) => {
+  const normalizedQuery = getNormalizedInventoryText(query);
+
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  return items
+    .filter((item) =>
+      getNormalizedInventoryText(item?.item_name).includes(normalizedQuery),
+    )
+    .sort((leftItem, rightItem) =>
+      String(leftItem?.item_name || "").localeCompare(
+        String(rightItem?.item_name || ""),
+        undefined,
+        { sensitivity: "base" },
+      ),
+    )
+    .flatMap((item) => {
+      if (collapseBarcodeVariants || !itemHasBarcodeStockForms(item)) {
+        return [
+          {
+            key: `item-${item.id}`,
+            item,
+            stockForm: null,
+            meta: item.category || "Item",
+          },
+        ];
+      }
+
+      const stockForms = Array.isArray(item?.stock_forms) ? item.stock_forms : [];
+
+      if (stockForms.length === 0) {
+        return [
+          {
+            key: `item-${item.id}`,
+            item,
+            stockForm: null,
+            meta: item.category || "Item",
+          },
+        ];
+      }
+
+      return stockForms.map((stockForm, index) => ({
+        key: `item-${item.id}-stock-form-${stockForm?.id || index}`,
+        item,
+        stockForm,
+        meta: `${item.category || "Item"} (${formatPackagingLabel(
+          stockForm?.packaging || item?.packaging || "piece",
+        )})`,
+      }));
+    })
+    .slice(0, 8);
 };
 
 const formatPackagingExample = (packaging) => {
@@ -287,12 +360,12 @@ const InventoryItemFormModal = ({
   const [formValues, setFormValues] = useState(createDefaultForm());
   const [fieldErrors, setFieldErrors] = useState({});
   const [selectedExistingItemId, setSelectedExistingItemId] = useState(null);
+  const [selectedExistingStockFormId, setSelectedExistingStockFormId] = useState(null);
   const [isAutocompleteOpen, setIsAutocompleteOpen] = useState(false);
   const itemNameInputRef = useRef(null);
   const barcodeInputRef = useRef(null);
   const autocompleteRef = useRef(null);
   const previousMatchedItemKeyRef = useRef("");
-  const shouldShowBarcodeField = source === "scan" || mode === "edit";
 
   useEffect(() => {
     if (!isOpen) {
@@ -320,9 +393,53 @@ const InventoryItemFormModal = ({
     }
 
     setSelectedExistingItemId(itemData?.id || null);
+    setSelectedExistingStockFormId(itemData?.inventory_item_stock_form_id || null);
     setIsAutocompleteOpen(false);
     setFieldErrors({});
   }, [isOpen, itemData]);
+
+  const trimmedItemName = formValues.item_name.trim();
+  const eligibleExistingItems = mode === "create" ? inventoryItems : [];
+  const rawTrimmedBarcode = String(formValues.barcode || "").trim();
+  const matchedExistingItem =
+    mode === "create" && selectedExistingItemId
+      ? eligibleExistingItems.find(
+          (item) => String(item?.id) === String(selectedExistingItemId),
+        ) || null
+      : null;
+  const matchedExistingStockForm =
+    matchedExistingItem && selectedExistingStockFormId != null
+      ? (Array.isArray(matchedExistingItem.stock_forms)
+          ? matchedExistingItem.stock_forms.find(
+              (stockForm) =>
+                String(stockForm?.id) === String(selectedExistingStockFormId),
+            )
+          : null) || null
+      : null;
+  const matchedBarcodeValue =
+    matchedExistingStockForm?.barcode || matchedExistingItem?.barcode || "";
+  const matchedItemHasBarcodeStockForms =
+    Boolean(String(matchedBarcodeValue).trim()) ||
+    itemHasBarcodeStockForms(matchedExistingItem);
+  const shouldShowBarcodeField =
+    source === "scan" ||
+    mode === "edit" ||
+    (mode === "create" && Boolean(String(matchedBarcodeValue).trim()));
+  const trimmedBarcode = shouldShowBarcodeField ? formValues.barcode.trim() : "";
+  const autocompleteSuggestions =
+    mode === "create"
+      ? buildAutocompleteSuggestions(eligibleExistingItems, trimmedItemName, {
+          collapseBarcodeVariants:
+            source === "scan" &&
+            Boolean(rawTrimmedBarcode) &&
+            !matchedExistingStockForm,
+        })
+      : [];
+
+  const isExactBarcodeStockFormMatch =
+    source === "scan" && Boolean(trimmedBarcode) && Boolean(matchedExistingStockForm);
+  const isNameMatchedRestock = Boolean(matchedExistingItem);
+  const isRestockMode = mode === "create" && Boolean(matchedExistingItem);
 
   useEffect(() => {
     if (!isOpen) {
@@ -339,58 +456,13 @@ const InventoryItemFormModal = ({
     return () => window.clearTimeout(focusTimer);
   }, [isOpen, shouldShowBarcodeField]);
 
-  const trimmedBarcode = shouldShowBarcodeField ? formValues.barcode.trim() : "";
-  const trimmedItemName = formValues.item_name.trim();
-  const eligibleExistingItems =
-    mode === "create"
-      ? inventoryItems.filter((item) => {
-          const hasBarcodeStockForm = Array.isArray(item?.stock_forms)
-            ? item.stock_forms.some((stockForm) => String(stockForm?.barcode || "").trim())
-            : false;
-
-          if (source === "scan" && trimmedBarcode) {
-            return true;
-          }
-
-          return !String(item?.barcode || "").trim() && !hasBarcodeStockForm;
-        })
-      : [];
-  const autocompleteSuggestions =
-    mode === "create" && trimmedItemName
-      ? eligibleExistingItems
-          .filter((item) =>
-            getNormalizedInventoryText(item?.item_name).includes(
-              getNormalizedInventoryText(trimmedItemName),
-            ),
-          )
-          .sort((leftItem, rightItem) =>
-            String(leftItem?.item_name || "").localeCompare(
-              String(rightItem?.item_name || ""),
-              undefined,
-              { sensitivity: "base" },
-            ),
-          )
-          .slice(0, 8)
-      : [];
-  const matchedExistingItem =
-    mode === "create" && selectedExistingItemId
-      ? eligibleExistingItems.find(
-          (item) => String(item?.id) === String(selectedExistingItemId),
-        ) || null
-      : null;
-
-  const isBarcodeStockFormMode =
-    source === "scan" && Boolean(trimmedBarcode) && Boolean(matchedExistingItem);
-  const isNameMatchedRestock = Boolean(matchedExistingItem);
-  const isRestockMode = mode === "create" && Boolean(matchedExistingItem);
-
   useEffect(() => {
     if (!isOpen || mode !== "create") {
       previousMatchedItemKeyRef.current = "";
       return;
     }
 
-    const matchedItemKey = matchedExistingItem?.id || "";
+    const matchedItemKey = `${matchedExistingItem?.id || ""}:${selectedExistingStockFormId || ""}`;
 
     if (previousMatchedItemKeyRef.current === matchedItemKey) {
       return;
@@ -408,18 +480,17 @@ const InventoryItemFormModal = ({
       matchedExistingItem.tracking_method ||
       inferTrackingMethod(resolvedUnitOfMeasure);
 
-    const defaultStockForm =
-      Array.isArray(matchedExistingItem.stock_forms) &&
-      matchedExistingItem.stock_forms.length > 0
-        ? matchedExistingItem.stock_forms[0]
-        : null;
+    const selectedStockForm = matchedExistingStockForm;
 
     setFormValues((prev) => ({
       ...prev,
       item_name: matchedExistingItem.item_name || prev.item_name,
-      barcode: isBarcodeStockFormMode
+      barcode:
+        source === "scan" && !isExactBarcodeStockFormMatch
+          ? prev.barcode
+          : isExactBarcodeStockFormMatch
         ? prev.barcode
-        : matchedExistingItem.barcode || prev.barcode,
+        : selectedStockForm?.barcode || matchedExistingItem.barcode || prev.barcode,
       category: normalizeCategoryValue(matchedExistingItem.category),
       tracking_method: resolvedTrackingMethod,
       unit_of_measure:
@@ -427,15 +498,17 @@ const InventoryItemFormModal = ({
           ? "pc"
           : resolvedUnitOfMeasure || prev.unit_of_measure,
       unit_of_measure_value:
-        matchedExistingItem.unit_of_measure_value || prev.unit_of_measure_value,
+        selectedStockForm?.unit_of_measure_value ||
+        matchedExistingItem.unit_of_measure_value ||
+        prev.unit_of_measure_value,
       packaging:
-        defaultStockForm?.packaging ||
+        selectedStockForm?.packaging ||
         matchedExistingItem.packaging ||
         prev.packaging,
       quantity: String(
-        defaultStockForm?.units_per_packaging ||
+        selectedStockForm?.units_per_packaging ||
           matchedExistingItem.quantity ||
-          ((defaultStockForm?.packaging || matchedExistingItem.packaging) === "piece"
+          ((selectedStockForm?.packaging || matchedExistingItem.packaging) === "piece"
             ? 1
             : ""),
       ),
@@ -446,7 +519,14 @@ const InventoryItemFormModal = ({
       expiration_date: "",
     }));
     setFieldErrors({});
-  }, [isBarcodeStockFormMode, isOpen, matchedExistingItem, mode]);
+  }, [
+    isExactBarcodeStockFormMatch,
+    isOpen,
+    matchedExistingItem,
+    matchedExistingStockForm,
+    mode,
+    selectedExistingStockFormId,
+  ]);
 
   useEffect(() => {
     if (!isOpen || mode !== "create") {
@@ -538,6 +618,7 @@ const InventoryItemFormModal = ({
   const handleItemNameChange = (value) => {
     if (selectedExistingItemId) {
       setSelectedExistingItemId(null);
+      setSelectedExistingStockFormId(null);
       previousMatchedItemKeyRef.current = "";
     }
 
@@ -545,12 +626,13 @@ const InventoryItemFormModal = ({
     setIsAutocompleteOpen(Boolean(value.trim()));
   };
 
-  const handleSelectExistingItem = (item) => {
-    setSelectedExistingItemId(item.id);
+  const handleSelectExistingItem = (suggestion) => {
+    setSelectedExistingItemId(suggestion.item.id);
+    setSelectedExistingStockFormId(suggestion.stockForm?.id || null);
     previousMatchedItemKeyRef.current = "";
     setFormValues((prev) => ({
       ...prev,
-      item_name: item.item_name || prev.item_name,
+      item_name: suggestion.item.item_name || prev.item_name,
     }));
     setFieldErrors((prev) => {
       const nextErrors = { ...prev };
@@ -613,7 +695,7 @@ const InventoryItemFormModal = ({
     isEditMode
       ? "Edit Inventory Item"
       : isRestockMode
-        ? isBarcodeStockFormMode
+        ? isExactBarcodeStockFormMatch
           ? "Add Barcode Stock Form"
           : "Restock Existing Item"
         : "Add Item";
@@ -626,12 +708,30 @@ const InventoryItemFormModal = ({
   const identityFieldStyles =
     isRestockMode && !isEditMode ? lockedInputStyles : inputStyles;
   const barcodeFieldStyles =
-    isEditMode || isBarcodeStockFormMode ? lockedInputStyles : inputStyles;
-  const packagingFieldStyles = isEditMode ? lockedInputStyles : inputStyles;
-  const quantityFieldStyles = isEditMode ? lockedInputStyles : inputStyles;
+    isEditMode || isExactBarcodeStockFormMatch
+      ? lockedInputStyles
+      : inputStyles;
+  const shouldLockRestockStockFormFields =
+    isEditMode ||
+    isExactBarcodeStockFormMatch ||
+    (isRestockMode && Boolean(matchedExistingStockForm));
+  const packagingFieldStyles =
+    shouldLockRestockStockFormFields
+      ? lockedInputStyles
+      : inputStyles;
+  const quantityFieldStyles =
+    shouldLockRestockStockFormFields
+      ? lockedInputStyles
+      : inputStyles;
   const reorderLevelFieldStyles = isRestockMode && !isEditMode
-    ? lockedInputStyles
+    ? matchedExistingItem?.requires_reorder_level_before_restock
+      ? inputStyles
+      : lockedInputStyles
     : inputStyles;
+  const isReorderLevelLocked =
+    isRestockMode &&
+    !isEditMode &&
+    !matchedExistingItem?.requires_reorder_level_before_restock;
   const currentStockValue =
     matchedExistingItem && typeof getCurrentStockForItem === "function"
       ? Number(getCurrentStockForItem(matchedExistingItem) || 0)
@@ -706,7 +806,11 @@ const InventoryItemFormModal = ({
       }
     }
 
-    if (!isRestockMode || isEditMode) {
+    if (
+      !isRestockMode ||
+      isEditMode ||
+      matchedExistingItem?.requires_reorder_level_before_restock
+    ) {
       if (isBlank(values.reorder_level)) {
         nextErrors.reorder_level = "Reorder level is required.";
       } else if (!isPositiveNumber(values.reorder_level)) {
@@ -755,7 +859,7 @@ const InventoryItemFormModal = ({
           : formValues.expiration_date,
       barcode: isBlank(formValues.barcode) ? null : formValues.barcode.trim(),
       existing_item_id: matchedExistingItem?.id || null,
-      restock_match_type: isBarcodeStockFormMode
+      restock_match_type: isExactBarcodeStockFormMatch
         ? "barcode_stock_form"
         : isNameMatchedRestock
           ? "item_name"
@@ -769,6 +873,9 @@ const InventoryItemFormModal = ({
     if (isRestockMode) {
       setFormValues(createDefaultForm());
       setFieldErrors({});
+      setSelectedExistingItemId(null);
+      setSelectedExistingStockFormId(null);
+      setIsAutocompleteOpen(false);
       previousMatchedItemKeyRef.current = "";
       return;
     }
@@ -850,16 +957,16 @@ const InventoryItemFormModal = ({
                 ) : null}
                 {!isEditMode && !isRestockMode && isAutocompleteOpen && autocompleteSuggestions.length > 0 ? (
                   <ul ref={autocompleteRef} style={autocompleteStyles.list}>
-                    {autocompleteSuggestions.map((item) => (
-                      <li key={item.id}>
+                    {autocompleteSuggestions.map((suggestion) => (
+                      <li key={suggestion.key}>
                         <button
                           type="button"
-                          onClick={() => handleSelectExistingItem(item)}
+                          onClick={() => handleSelectExistingItem(suggestion)}
                           style={autocompleteStyles.itemButton}
                         >
-                          <span>{item.item_name}</span>
+                          <span>{suggestion.item.item_name}</span>
                           <span style={autocompleteStyles.itemMeta}>
-                            {item.category || "Item"}
+                            {suggestion.meta}
                           </span>
                         </button>
                       </li>
@@ -900,7 +1007,10 @@ const InventoryItemFormModal = ({
                       value={formValues.barcode}
                       onChange={(e) => handleChange("barcode", e.target.value)}
                       style={barcodeFieldStyles}
-                      disabled={isEditMode || isBarcodeStockFormMode}
+                      disabled={
+                        isEditMode ||
+                        isExactBarcodeStockFormMatch
+                      }
                       aria-invalid={Boolean(fieldErrors.barcode)}
                     />
                     {fieldErrors.barcode ? (
@@ -1072,7 +1182,7 @@ const InventoryItemFormModal = ({
                       value={formValues.packaging}
                       onChange={(e) => handleChange("packaging", e.target.value)}
                       style={packagingFieldStyles}
-                      disabled={isEditMode}
+                      disabled={shouldLockRestockStockFormFields}
                       aria-invalid={Boolean(fieldErrors.packaging)}
                     >
                       <option value="">Select packaging</option>
@@ -1180,6 +1290,7 @@ const InventoryItemFormModal = ({
                         value={formValues.quantity}
                         onChange={(e) => handleChange("quantity", e.target.value)}
                         style={quantityFieldStyles}
+                        disabled={shouldLockRestockStockFormFields}
                         aria-invalid={Boolean(fieldErrors.quantity)}
                       />
                       {fieldErrors.quantity ? (
@@ -1204,7 +1315,7 @@ const InventoryItemFormModal = ({
                     handleChange("reorder_level", e.target.value)
                   }
                   style={reorderLevelFieldStyles}
-                  disabled={isRestockMode && !isEditMode}
+                  disabled={isReorderLevelLocked}
                   aria-invalid={Boolean(fieldErrors.reorder_level)}
                 />
                 {fieldErrors.reorder_level ? (

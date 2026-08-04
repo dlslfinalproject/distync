@@ -23,8 +23,6 @@ export const donationStatuses = [
 
 export const priorityLevels = ["URGENT", "HIGH", "MEDIUM", "LOW"];
 
-export const NO_EXPORT_DATA_MESSAGE = "No available data to export.";
-
 export const overlayStyles = {
   position: "fixed",
   inset: 0,
@@ -79,33 +77,6 @@ export const compactButtonStyles = {
   cursor: "pointer",
 };
 
-export const exportMenuStyles = {
-  position: "absolute",
-  top: "calc(100% + 10px)",
-  right: 0,
-  minWidth: "220px",
-  padding: "8px",
-  borderRadius: "14px",
-  backgroundColor: "#ffffff",
-  border: "1px solid #d7e2ef",
-  boxShadow: "0 18px 36px rgba(23, 50, 77, 0.16)",
-  display: "grid",
-  gap: "6px",
-  zIndex: 20,
-};
-
-export const exportMenuButtonStyles = {
-  border: "none",
-  borderRadius: "10px",
-  backgroundColor: "#f8fbfe",
-  color: "#264564",
-  textAlign: "left",
-  padding: "10px 12px",
-  fontSize: "13px",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
 export const backButtonStyles = {
   background: "#0f2a44",
   border: "none",
@@ -129,12 +100,20 @@ export const createNeedForm = () => ({
 
 export const createDonationItemForm = () => ({
   entry_type: "ITEM",
+  item_entry_method: "MANUAL",
   item_definition_mode: "NEW",
   inventory_item_id: "",
+  inventory_item_stock_form_id: "",
+  barcode: "",
   new_item_name: "",
   new_item_category: "perishable",
+  new_item_tracking_method: "Count-Based",
   new_item_unit_of_measure: "pc",
+  new_item_unit_of_measure_value: "",
   new_item_packaging: "pack",
+  batch_number: "",
+  packaging_count: "",
+  units_per_packaging: "",
   pack_definition_mode: "NEW",
   relief_pack_template_id: "",
   new_pack_name: "",
@@ -152,6 +131,7 @@ export const createDonationForm = () => ({
   disaster_event_id: "",
   donor_name: "",
   donor_type: "INDIVIDUAL",
+  donor_type_other: "",
   contact_information: "",
   received_at: "",
   status: "RECEIVED",

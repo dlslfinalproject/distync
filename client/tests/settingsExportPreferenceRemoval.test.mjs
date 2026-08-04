@@ -11,7 +11,9 @@ test("settings helpers no longer define preferredExportFormat defaults", async (
   const source = await fs.readFile(helpersSourcePath, "utf8");
 
   assert.doesNotMatch(source, /preferredExportFormat\s*:\s*["']/);
-  assert.match(source, /_removedPreferredExportFormat/);
+  assert.match(source, /firstName\s*:\s*["']/);
+  assert.match(source, /middleName\s*:\s*["']/);
+  assert.match(source, /lastName\s*:\s*["']/);
 });
 
 test("settings service strips stale preferredExportFormat values before caching", async () => {

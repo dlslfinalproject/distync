@@ -366,6 +366,16 @@ const InventoryItemScanModal = ({
         nextErrors.quantityOnHand = "Quantity on hand must be at least 1.";
       }
 
+      if (matchedItem?.requires_reorder_level_before_restock) {
+        const reorderLevel = Number(scanForm.reorderLevel);
+
+        if (isBlank(scanForm.reorderLevel)) {
+          nextErrors.reorderLevel = "Reorder level is required.";
+        } else if (!Number.isInteger(reorderLevel) || reorderLevel < 1) {
+          nextErrors.reorderLevel = "Reorder level must be greater than 0.";
+        }
+      }
+
       if (isPerishable && isBlank(scanForm.expirationDate)) {
         nextErrors.expirationDate = "Expiration date is required.";
       } else if (!isBlank(scanForm.expirationDate)) {
@@ -607,11 +617,43 @@ const InventoryItemScanModal = ({
                   <div>
                     <label style={scanModalLabelStyle}>Reorder Level</label>
                     <input
-                      type="text"
-                      value={formatValue(matchedItem.reorder_level)}
-                      readOnly
-                      style={scanModalLockedInputStyle}
+                      type={
+                        matchedItem?.requires_reorder_level_before_restock
+                          ? "number"
+                          : "text"
+                      }
+                      min={
+                        matchedItem?.requires_reorder_level_before_restock
+                          ? "1"
+                          : undefined
+                      }
+                      value={
+                        matchedItem?.requires_reorder_level_before_restock
+                          ? scanForm.reorderLevel || ""
+                          : formatValue(
+                              matchedItem.reorder_level_display ??
+                                matchedItem.reorder_level,
+                            )
+                      }
+                      onChange={(event) =>
+                        handleInputChange("reorderLevel", event.target.value)
+                      }
+                      readOnly={!matchedItem?.requires_reorder_level_before_restock}
+                      style={
+                        matchedItem?.requires_reorder_level_before_restock
+                          ? scanModalInputStyle
+                          : scanModalLockedInputStyle
+                      }
+                      placeholder={
+                        matchedItem?.requires_reorder_level_before_restock
+                          ? "Set reorder level"
+                          : undefined
+                      }
+                      aria-invalid={Boolean(fieldErrors.reorderLevel)}
                     />
+                    {fieldErrors.reorderLevel && (
+                      <p style={styles.errorText}>{fieldErrors.reorderLevel}</p>
+                    )}
                   </div>
 
                   <div>

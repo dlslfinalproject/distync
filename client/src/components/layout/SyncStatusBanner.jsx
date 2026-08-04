@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
+import { useLocation } from "react-router-dom";
 import db, { LOCAL_SYNC_STATUS } from "../../offline/db";
 import { formatCompactSyncChipLabel } from "../../offline/syncStatus";
 import {
@@ -7,6 +8,7 @@ import {
   initializeSyncService,
   subscribeToSyncUpdates,
 } from "../../offline/syncService";
+import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
 
 const badgeStylesByStatus = {
   [LOCAL_SYNC_STATUS.SYNCED]: {
@@ -54,12 +56,14 @@ const chipBaseStyles = {
 };
 
 const SyncStatusBanner = () => {
+  const location = useLocation();
   const [isOnline, setIsOnline] = useState(
     typeof navigator === "undefined" ? true : navigator.onLine,
   );
   const [feedbackMessage, setFeedbackMessage] = useState("");
+  const isSettingsRoute = location.pathname.endsWith("/settings");
 
-  const syncEntries = useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
+  const syncEntries = useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
 
   const counts = useMemo(() => {
     return syncEntries.reduce(
@@ -143,6 +147,7 @@ const SyncStatusBanner = () => {
   }, []);
 
   if (
+    isSettingsRoute ||
     isOnline &&
     counts[LOCAL_SYNC_STATUS.PENDING] === 0 &&
     counts[LOCAL_SYNC_STATUS.FAILED] === 0 &&

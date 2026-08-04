@@ -2,14 +2,16 @@ import React, {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
 } from "react";
 import { ACCESS_MODES, getAccessMode } from "../utils/accessMode";
 import {
+  AUTH_SESSION_INVALIDATED_EVENT,
   ROLE_CODES,
   clearAllAccessSessions,
-  clearAuthenticatedSession,
+  consumePendingAuthSessionInvalidation,
   getAuthenticatedUser,
   getRoleForAccessMode,
   setAuthenticatedSession,
@@ -20,6 +22,11 @@ import {
   authenticateWithGoogleIdToken,
   clearGooglePromptState,
 } from "../features/auth/authService";
+import { clearRegistrationReferenceCache } from "../features/household-registration/householdRegistrationService";
+import {
+  clearModeRoleSettingsCaches,
+  clearUserRoleSettingsCaches,
+} from "../features/settings/settingsService";
 
 const AuthContext = createContext(null);
 
@@ -46,11 +53,50 @@ export const AuthProvider = ({ children }) => {
     setAuthState(buildAuthState());
   }, []);
 
+  const clearScopedSettingsCache = useCallback(
+    ({ mode = accessMode, userId = "", clearModeCache = false } = {}) => {
+      if (userId) {
+        clearUserRoleSettingsCaches({
+          mode,
+          userId,
+        });
+        return;
+      }
+
+      if (clearModeCache) {
+        clearModeRoleSettingsCaches({ mode });
+      }
+    },
+    [accessMode],
+  );
+
+  const resetAuthenticatedBrowserState = useCallback(
+    ({
+      mode = accessMode,
+      userId = "",
+      clearModeCache = false,
+      nextAuthError = "",
+    } = {}) => {
+      clearScopedSettingsCache({
+        mode,
+        userId,
+        clearModeCache,
+      });
+      clearRegistrationReferenceCache();
+      clearGooglePromptState();
+      clearAllAccessSessions();
+      setAuthError(nextAuthError);
+      syncAuthState();
+    },
+    [accessMode, clearScopedSettingsCache, syncAuthState],
+  );
+
   const selectDevelopmentRole = useCallback(async (role) => {
     if (role === ROLE_CODES.DONOR) {
-      clearAuthenticatedSession();
+      resetAuthenticatedBrowserState({
+        userId: authState.authenticatedUser?.id || "",
+      });
       setCurrentRole(role);
-      setAuthError("");
       syncAuthState();
       return {
         user: {
@@ -63,7 +109,16 @@ export const AuthProvider = ({ children }) => {
     setAuthError("");
 
     try {
+      const previousUserId = authState.authenticatedUser?.id || "";
       const sessionPayload = await authenticateWithDevelopmentRole(role);
+      const nextUserId = sessionPayload?.user?.id || "";
+
+      if (previousUserId && previousUserId !== nextUserId) {
+        clearScopedSettingsCache({
+          userId: previousUserId,
+        });
+      }
+
       clearAllAccessSessions();
       setCurrentRole(role);
       setAuthenticatedSession(sessionPayload);
@@ -76,21 +131,31 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setIsAuthLoading(false);
     }
-  }, [syncAuthState]);
+  }, [authState.authenticatedUser?.id, clearScopedSettingsCache, resetAuthenticatedBrowserState, syncAuthState]);
 
   const continueAsDonor = useCallback(() => {
-    clearAuthenticatedSession();
+    resetAuthenticatedBrowserState({
+      userId: authState.authenticatedUser?.id || "",
+    });
     setCurrentRole(ROLE_CODES.DONOR);
-    setAuthError("");
     syncAuthState();
-  }, [syncAuthState]);
+  }, [authState.authenticatedUser?.id, resetAuthenticatedBrowserState, syncAuthState]);
 
   const signInWithGoogleCredential = useCallback(async (credential) => {
     setIsAuthLoading(true);
     setAuthError("");
 
     try {
+      const previousUserId = authState.authenticatedUser?.id || "";
       const sessionPayload = await authenticateWithGoogleIdToken(credential);
+      const nextUserId = sessionPayload?.user?.id || "";
+
+      if (previousUserId && previousUserId !== nextUserId) {
+        clearScopedSettingsCache({
+          userId: previousUserId,
+        });
+      }
+
       clearAllAccessSessions();
       if (accessMode === ACCESS_MODES.DEMO) {
         setCurrentRole(sessionPayload.user.role);
@@ -105,14 +170,47 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setIsAuthLoading(false);
     }
-  }, [accessMode, syncAuthState]);
+  }, [accessMode, authState.authenticatedUser?.id, clearScopedSettingsCache, syncAuthState]);
 
   const clearSession = useCallback(() => {
-    clearGooglePromptState();
-    clearAllAccessSessions();
-    setAuthError("");
-    syncAuthState();
-  }, [syncAuthState]);
+    resetAuthenticatedBrowserState({
+      userId: authState.authenticatedUser?.id || "",
+    });
+  }, [authState.authenticatedUser?.id, resetAuthenticatedBrowserState]);
+
+  useEffect(() => {
+    const handleAuthSessionInvalidated = (event) => {
+      const detail = event?.detail || {};
+
+      resetAuthenticatedBrowserState({
+        mode: detail.mode || accessMode,
+        userId: detail.userId || authState.authenticatedUser?.id || "",
+        clearModeCache: !detail.userId,
+        nextAuthError:
+          detail.reason === "api-401"
+            ? "Your session expired. Please sign in again."
+            : "",
+      });
+    };
+
+    window.addEventListener(
+      AUTH_SESSION_INVALIDATED_EVENT,
+      handleAuthSessionInvalidated,
+    );
+
+    const pendingInvalidation = consumePendingAuthSessionInvalidation();
+
+    if (pendingInvalidation) {
+      handleAuthSessionInvalidated({ detail: pendingInvalidation });
+    }
+
+    return () => {
+      window.removeEventListener(
+        AUTH_SESSION_INVALIDATED_EVENT,
+        handleAuthSessionInvalidated,
+      );
+    };
+  }, [accessMode, authState.authenticatedUser?.id, resetAuthenticatedBrowserState]);
 
   const clearAuthError = useCallback(() => {
     setAuthError("");

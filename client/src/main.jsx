@@ -11,6 +11,7 @@ import {
   getAccessMode,
 } from "./utils/accessMode";
 import { installAuthenticatedFetch } from "./utils/apiClient";
+import { prepareModeScopedBrowserState } from "./utils/browserStorageIsolation";
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 
@@ -26,8 +27,9 @@ const renderConfigurationErrorScreen = () => {
   );
 };
 
-try {
+const bootstrapApplication = async () => {
   getAccessMode();
+  await prepareModeScopedBrowserState();
   installAuthenticatedFetch();
   initializeSyncService();
   registerDistyncServiceWorker();
@@ -39,10 +41,13 @@ try {
       </AuthProvider>
     </React.StrictMode>,
   );
-} catch (error) {
+};
+
+bootstrapApplication().catch((error) => {
   if (error instanceof AccessModeConfigurationError) {
     renderConfigurationErrorScreen();
-  } else {
-    throw error;
+    return;
   }
-}
+
+  throw error;
+});

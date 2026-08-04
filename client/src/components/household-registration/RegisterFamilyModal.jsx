@@ -68,9 +68,14 @@ const modalStyles = {
   },
 };
 
+const resolveInitialFlowStep = (requiresPrivacyAcknowledgment) =>
+  getInitialHouseholdRegistrationFlowStep({
+    requiresPrivacyAcknowledgment,
+  });
+
 const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
-  const [flowStep, setFlowStep] = useState(
-    HOUSEHOLD_REGISTRATION_FLOW_STEPS.PRIVACY_NOTICE,
+  const [flowStep, setFlowStep] = useState(() =>
+    resolveInitialFlowStep(form.requiresPrivacyAcknowledgment),
   );
   const [isPrivacyConfirmed, setIsPrivacyConfirmed] = useState(false);
   const [privacyErrorMessage, setPrivacyErrorMessage] = useState("");
@@ -86,8 +91,12 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
     useState("");
 
   useEffect(() => {
+    const initialFlowStep = resolveInitialFlowStep(
+      form.requiresPrivacyAcknowledgment,
+    );
+
     if (!isOpen) {
-      setFlowStep(HOUSEHOLD_REGISTRATION_FLOW_STEPS.PRIVACY_NOTICE);
+      setFlowStep(initialFlowStep);
       setIsPrivacyConfirmed(false);
       setPrivacyErrorMessage("");
       setPendingPrivacyAcknowledgment(null);
@@ -98,11 +107,7 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
       return;
     }
 
-    setFlowStep(
-      getInitialHouseholdRegistrationFlowStep({
-        requiresPrivacyAcknowledgment: form.requiresPrivacyAcknowledgment,
-      }),
-    );
+    setFlowStep(initialFlowStep);
     setIsPrivacyConfirmed(false);
     setPrivacyErrorMessage("");
     setPendingPrivacyAcknowledgment(null);
@@ -119,7 +124,7 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
   const handleClose = (event) => {
     event?.preventDefault?.();
     event?.stopPropagation?.();
-    setFlowStep(HOUSEHOLD_REGISTRATION_FLOW_STEPS.PRIVACY_NOTICE);
+    setFlowStep(resolveInitialFlowStep(form.requiresPrivacyAcknowledgment));
     setIsPrivacyConfirmed(false);
     setPrivacyErrorMessage("");
     setPendingPrivacyAcknowledgment(null);
@@ -193,6 +198,7 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
   };
 
   const showPrivacyNotice =
+    form.requiresPrivacyAcknowledgment &&
     flowStep === HOUSEHOLD_REGISTRATION_FLOW_STEPS.PRIVACY_NOTICE;
 
   return (
@@ -310,23 +316,24 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
         </div>
       ) : null}
 
-      <DataPrivacyConsentModal
-        isOpen={showPrivacyNotice}
-        noticeVersion={HOUSEHOLD_PRIVACY_NOTICE_VERSION}
-        isChecked={isPrivacyConfirmed}
-        errorMessage={privacyErrorMessage}
-        isSubmitting={false}
-        confirmLabel={HOUSEHOLD_PRIVACY_CONFIRM_BUTTON_LABEL}
-        onToggleChecked={(nextValue) => {
-          setIsPrivacyConfirmed(nextValue);
-
-          if (nextValue) {
-            setPrivacyErrorMessage("");
-          }
-        }}
-        onCancel={handleCancelPrivacyNotice}
-        onConfirm={handleAcknowledgePrivacyNotice}
-      />
+      {form.requiresPrivacyAcknowledgment ? (
+        <DataPrivacyConsentModal
+          isOpen={showPrivacyNotice}
+          noticeVersion={HOUSEHOLD_PRIVACY_NOTICE_VERSION}
+          isChecked={isPrivacyConfirmed}
+          errorMessage={privacyErrorMessage}
+          isSubmitting={false}
+          confirmLabel={HOUSEHOLD_PRIVACY_CONFIRM_BUTTON_LABEL}
+          onToggleChecked={(nextValue) => {
+            setIsPrivacyConfirmed(nextValue);
+            if (nextValue) {
+              setPrivacyErrorMessage("");
+            }
+          }}
+          onCancel={handleCancelPrivacyNotice}
+          onConfirm={handleAcknowledgePrivacyNotice}
+        />
+      ) : null}
 
       <HouseholdDetailModal
         isOpen={Boolean(viewingSuggestedHouseholdId)}

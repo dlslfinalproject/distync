@@ -2,6 +2,10 @@ const allowedStatuses = ["PLANNED", "ACTIVE", "CLOSED", "ARCHIVED"];
 const allowedSortOrders = ["newest", "oldest", "az", "za"];
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const {
+  isValidDisasterEventReportSelection,
+  normalizeDisasterEventReportSelection,
+} = require("../utils/disasterEventReportSelection");
 const DISASTER_EVENT_EXPORT_TYPE_OPTIONS = [
   "Typhoon",
   "Flood",
@@ -261,6 +265,7 @@ const validateDisasterEventReportSummary = (req, res, next) => {
   try {
     const {
       disaster_event_id,
+      event_selection,
       barangay_id,
       status,
       date_from,
@@ -269,7 +274,26 @@ const validateDisasterEventReportSummary = (req, res, next) => {
       limit,
     } = req.query;
 
-    if (disaster_event_id && !uuidPattern.test(String(disaster_event_id))) {
+    const normalizedDisasterEventId =
+      typeof disaster_event_id === "string" ? disaster_event_id : "";
+    const normalizedEventSelection = normalizeDisasterEventReportSelection({
+      eventSelection:
+        typeof event_selection === "string" ? event_selection : "",
+      disasterEventId: normalizedDisasterEventId,
+    });
+
+    if (!isValidDisasterEventReportSelection(normalizedEventSelection)) {
+      return res.status(400).json({
+        message:
+          "event_selection must be one of: ALL, ACTIVE, ENDED, or EVENT:<valid UUID>",
+      });
+    }
+
+    const resolvedDisasterEventId = normalizedEventSelection.startsWith("EVENT:")
+      ? normalizedEventSelection.slice("EVENT:".length)
+      : normalizedDisasterEventId;
+
+    if (resolvedDisasterEventId && !uuidPattern.test(String(resolvedDisasterEventId))) {
       return res.status(400).json({
         message: "disaster_event_id must be a valid UUID",
       });
@@ -316,8 +340,8 @@ const validateDisasterEventReportSummary = (req, res, next) => {
     }
 
     req.validatedQuery = {
-      disaster_event_id:
-        typeof disaster_event_id === "string" ? disaster_event_id : "",
+      disaster_event_id: resolvedDisasterEventId,
+      event_selection: normalizedEventSelection,
       barangay_id: typeof barangay_id === "string" ? barangay_id : "",
       status: typeof status === "string" ? status.toUpperCase() : "",
       date_from: typeof date_from === "string" ? date_from : "",

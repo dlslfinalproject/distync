@@ -1,7 +1,5 @@
 import { ROLE_CODES } from "../../utils/roleSession";
 import {
-  BARANGAY_POSITION_LABEL,
-  getNotificationOptionsForRole,
   ROLE_DISPLAY_NAMES,
 } from "./settingsConfig";
 
@@ -54,6 +52,16 @@ const buildSharedSectionComponentProps = (ctx) => ({
   handleProfileFieldBlur: ctx.handleProfileFieldBlur,
   profilePictureInputRef: ctx.profilePictureInputRef,
   handleProfilePictureChange: ctx.handleProfilePictureChange,
+  handleOpenRemoveProfilePictureDialog:
+    ctx.handleOpenRemoveProfilePictureDialog,
+  handleProfilePictureLoadError: ctx.handleProfilePictureLoadError,
+  handleUndoProfilePictureChange: ctx.handleUndoProfilePictureChange,
+  profilePicturePresentation: ctx.profilePicturePresentation,
+  profilePictureDraft: ctx.profilePictureDraft,
+  isRemoveProfilePictureModalOpen: ctx.isRemoveProfilePictureModalOpen,
+  handleCancelRemoveProfilePicture: ctx.handleCancelRemoveProfilePicture,
+  handleConfirmRemoveProfilePicture: ctx.handleConfirmRemoveProfilePicture,
+  removeProfilePictureButtonRef: ctx.removeProfilePictureButtonRef,
   handleCancelProfileChanges: ctx.handleCancelProfileChanges,
   handleSaveProfileChanges: ctx.handleSaveProfileChanges,
   setPreferences: ctx.setPreferences,
@@ -61,11 +69,22 @@ const buildSharedSectionComponentProps = (ctx) => ({
   isLoading: ctx.isLoading,
   notificationTouched: ctx.notificationTouched,
   notificationValidationErrors: ctx.notificationValidationErrors,
-  handleResetNotificationPreferences: ctx.handleResetNotificationPreferences,
-  handleNotificationChannelToggle: ctx.handleNotificationChannelToggle,
-  notificationRules: ctx.notificationRules,
-  enabledRuleCodes: ctx.enabledRuleCodes,
-  toggleNotificationRule: ctx.toggleNotificationRule,
+  handleOpenResetNotificationPreferences: ctx.handleOpenResetNotificationPreferences,
+  handleNotificationRuleChannelToggle: ctx.handleNotificationRuleChannelToggle,
+  notificationCategories: ctx.notificationCategories,
+  isOnline: ctx.isOnline,
+  isSettingsReadOnlyOffline: ctx.isSettingsReadOnlyOffline,
+  hasUnsavedChanges: ctx.hasUnsavedChanges,
+  isReconnectRefreshInFlight: ctx.isReconnectRefreshInFlight,
+  isReconnectRefreshBlocked: ctx.isReconnectRefreshBlocked,
+  notificationLoadError: ctx.notificationLoadError,
+  isNotificationPreferencesLoading: ctx.isNotificationPreferencesLoading,
+  isNotificationPreferencesOffline: ctx.isNotificationPreferencesOffline,
+  isNotificationPreferencesEmpty: ctx.isNotificationPreferencesEmpty,
+  hasNotificationPreferencesError: ctx.hasNotificationPreferencesError,
+  canResetNotificationPreferences: ctx.canResetNotificationPreferences,
+  resetPreferencesButtonRef: ctx.resetPreferencesButtonRef,
+  handleRetryNotificationPreferencesLoad: ctx.handleRetryNotificationPreferencesLoad,
 });
 
 export const getSettingsDashboardDescription = (roleCode) =>
@@ -76,9 +95,8 @@ export const buildBarangayProfileSectionProps = (ctx) => ({
   sectionTitle: "Account Settings",
   description: "",
   firstNameId: "barangay-profile-first-name",
-  firstNameHelper: "",
+  middleNameId: "barangay-profile-middle-name",
   lastNameId: "barangay-profile-last-name",
-  lastNameHelper: "",
   positionField: {
     id: "barangay-profile-position",
     label: "Role",
@@ -106,10 +124,10 @@ export const buildOfficeProfileSectionProps = (ctx) => {
     description: "",
     firstNameId:
       isMayor ? "mayor-profile-first-name" : "mswdo-profile-first-name",
-    firstNameHelper: "",
+    middleNameId:
+      isMayor ? "mayor-profile-middle-name" : "mswdo-profile-middle-name",
     lastNameId:
       isMayor ? "mayor-profile-last-name" : "mswdo-profile-last-name",
-    lastNameHelper: "",
     positionField: {
       id: isMayor ? "mayor-profile-position" : "mswdo-profile-position",
       label: "Role",
@@ -125,6 +143,5 @@ export const buildOfficeProfileSectionProps = (ctx) => {
 
 export const buildNotificationSectionProps = (ctx) => ({
   ...buildSharedSectionComponentProps(ctx),
-  notificationOptions: getNotificationOptionsForRole(ctx.roleCode),
   ...NOTIFICATION_SECTION_COPY[ctx.roleCode],
 });

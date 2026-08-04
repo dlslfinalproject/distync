@@ -74,6 +74,26 @@ export const exportDonationTransparencySummary = async (
   );
 };
 
+export const exportReceivedDonationsReport = async (
+  format = "csv",
+  filters = {},
+) => {
+  const searchParams = new URLSearchParams();
+  searchParams.set("format", format);
+  appendFilters(searchParams, filters);
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/donations/export/received${
+      searchParams.toString() ? `?${searchParams.toString()}` : ""
+    }`,
+  );
+
+  return downloadResponseAsFile(
+    response,
+    "Failed to export received donations report",
+  );
+};
+
 export const fetchDonationNeeds = async (filters = {}) => {
   const searchParams = new URLSearchParams();
   appendFilters(searchParams, filters);

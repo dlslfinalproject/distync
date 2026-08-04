@@ -90,6 +90,7 @@ const RoleSettingsViewShell = ({
   roleMeta,
   pageActions,
   errorMessage,
+  statusBanner,
   renderSectionContent,
   sectionCards,
   onOpenSection,
@@ -102,6 +103,12 @@ const RoleSettingsViewShell = ({
   StatusChip,
 }) => {
   const StatusChipComponent = StatusChip;
+  const statusBannerTitleId = activeSectionMeta
+    ? `settings-offline-banner-title-${activeSectionMeta.key}`
+    : "settings-offline-banner-title-dashboard";
+  const statusBannerMessageId = activeSectionMeta
+    ? `settings-offline-banner-message-${activeSectionMeta.key}`
+    : "settings-offline-banner-message-dashboard";
 
   return (
     <>
@@ -111,6 +118,30 @@ const RoleSettingsViewShell = ({
         description={activeSectionMeta ? undefined : roleMeta.description}
         actions={pageActions}
       />
+
+      {statusBanner ? (
+        <section
+          style={shellStyles.card}
+          aria-live="polite"
+          aria-labelledby={statusBannerTitleId}
+          aria-describedby={statusBannerMessageId}
+        >
+          <div style={{ display: "grid", gap: "8px" }}>
+            <h3
+              id={statusBannerTitleId}
+              style={{ margin: 0, color: "#17324d" }}
+            >
+              {statusBanner.title}
+            </h3>
+            <p
+              id={statusBannerMessageId}
+              style={{ margin: 0, color: "#60738a", lineHeight: 1.6 }}
+            >
+              {statusBanner.message}
+            </p>
+          </div>
+        </section>
+      ) : null}
 
       {errorMessage ? (
         <section style={shellStyles.card}>

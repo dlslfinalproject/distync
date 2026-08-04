@@ -24,8 +24,13 @@ import { fetchMswdoSectors } from "../../features/mswdo-masterlist/mswdoMasterli
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import { buildMasterlistFilterSectorOptions } from "../../utils/registrationOptions";
 import { getCanonicalSectorCodeFromText } from "../../utils/sectorDisplay";
+import {
+  matchesStubStatusFilter,
+  normalizeStubStatusFilter,
+  STATUS_FILTERS,
+} from "../../features/stubs/stubStatusFilters";
 
-const DEFAULT_STUB_STATUS = "ISSUED";
+const DEFAULT_STUB_STATUS = STATUS_FILTERS.UNCLAIMED;
 const DEFAULT_STUB_SORT_ORDER = "oldest";
 
 const getSectorCodes = (sectorsText) => {
@@ -214,10 +219,15 @@ const StubDistributionPage = () => {
       stubStatus: DEFAULT_STUB_STATUS,
       sortOrder: DEFAULT_STUB_SORT_ORDER,
     };
+    const normalizedStubStatus = normalizeStubStatusFilter(
+      currentFilters.stubStatus,
+    );
 
     const matchingRows = searchedRows.filter((row) => {
-      const matchesStatus =
-        !currentFilters.stubStatus || row.status === currentFilters.stubStatus;
+      const matchesStatus = matchesStubStatusFilter(
+        row.status,
+        normalizedStubStatus,
+      );
 
       if (!matchesStatus) {
         return false;
@@ -287,8 +297,8 @@ const StubDistributionPage = () => {
   };
 
   const stubStatusOptions = [
-    { value: "CLAIMED", label: "Claimed" },
-    { value: "ISSUED", label: "Unclaimed" },
+    { value: STATUS_FILTERS.CLAIMED, label: "Claimed" },
+    { value: STATUS_FILTERS.UNCLAIMED, label: "Unclaimed" },
   ];
 
   const toggleSectorFilter = (sectorName) => {

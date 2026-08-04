@@ -37,6 +37,7 @@ import {
   cacheSelectedDisasterEventId,
   fetchEvacuationCentersByBarangay,
 } from "../../features/household-registration/householdRegistrationService";
+import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
 import {
   buildExportSuccessMessage,
   downloadExportFile,
@@ -102,7 +103,7 @@ const BarangayMasterlistPage = () => {
     message: "",
   });
   const syncQueueEntries =
-    useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
+    useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
 
   const {
     accessMode,

@@ -162,7 +162,7 @@ export const requiresHouseholdPrivacyPrompt = ({
     return true;
   }
 
-  return !isCurrentHouseholdPrivacyConsent(privacyConsent);
+  return false;
 };
 
 export const buildHouseholdAcknowledgedName = (familyHead = {}) => {

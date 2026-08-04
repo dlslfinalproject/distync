@@ -23,6 +23,7 @@ import { fetchSystemLogReview } from "../../features/system-logs/systemLogServic
 import db from "../../offline/db";
 import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
+import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
 import {
   buildExportSuccessMessage,
   COMMON_EXPORT_FORMAT_OPTIONS,
@@ -166,6 +167,13 @@ const inlineSelectStyles = {
   fontWeight: 600,
   boxSizing: "border-box",
   appearance: "auto",
+};
+
+const transactionFilterGridStyles = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+  gap: "16px",
+  alignItems: "end",
 };
 
 const filterPanelStyles = {
@@ -344,6 +352,7 @@ const transactionTypeFilterOptions = [
   { value: "", label: "All transaction types" },
   { value: "Stock-Up", label: "Stock-Up" },
   { value: "Donated", label: "Donation" },
+  { value: "Donation Adjustment", label: "Donation Adjustment" },
   { value: "Distributed", label: "Distributed" },
   { value: "Damaged", label: "Damaged" },
   { value: "Spoiled", label: "Spoiled" },
@@ -558,6 +567,13 @@ const getSourceLabel = (transaction, batch) => {
       "",
   ).toUpperCase();
 
+  if (
+    transaction.reference_type === "DONATION" ||
+    batch?.source_type === "DONATED"
+  ) {
+    return "Donors";
+  }
+
   if (resolvedDirection === "INFLOW") {
     return "Malvar LGU";
   }
@@ -571,13 +587,6 @@ const getSourceLabel = (transaction, batch) => {
 
   if (transaction.reference_type === "DISTRIBUTION") {
     return "Malvar LGU";
-  }
-
-  if (
-    transaction.reference_type === "DONATION" ||
-    batch?.source_type === "DONATED"
-  ) {
-    return "Donors";
   }
 
   if (batch?.supplier_id || batch?.source_type === "PURCHASED") {
@@ -606,11 +615,35 @@ const isUuidLikeValue = (value) => {
   );
 };
 
+const isDonationAdjustmentRow = (row) => {
+  const referenceType = String(row.reference_type || "").toUpperCase();
+  const transactionType = String(row.transaction_type || "").toUpperCase();
+  const remarks = String(row.remarks || "").trim().toLowerCase();
+
+  if (referenceType !== "DONATION") {
+    return false;
+  }
+
+  if (transactionType === "ADJUSTMENT") {
+    return true;
+  }
+
+  return (
+    remarks.startsWith("adjusted up donation stock") ||
+    remarks.startsWith("adjusted down donation stock") ||
+    remarks.includes("donation adjustment")
+  );
+};
+
 const getTransactionTypeLabel = (row) => {
   const transactionDirection = String(row.transaction_direction || "").toUpperCase();
   const sourceLabel = String(row.source_label || "").toUpperCase();
   const referenceType = String(row.reference_type || "").toUpperCase();
   const transactionType = String(row.transaction_type || "").toUpperCase();
+
+  if (isDonationAdjustmentRow(row)) {
+    return "Donation Adjustment";
+  }
 
   if (transactionDirection === "INFLOW") {
     if (sourceLabel === "DONATION" || referenceType === "DONATION") {
@@ -760,7 +793,7 @@ const InventoryTransactionsPage = () => {
   const filterButtonRef = useRef(null);
   const filterPanelRef = useRef(null);
   const syncQueueEntries =
-    useLiveQuery(() => db.syncQueue.toArray(), [], []) || [];
+    useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
 
   const downloadFile = (file) => {
     downloadExportFile(file);
@@ -876,9 +909,12 @@ const InventoryTransactionsPage = () => {
         transaction_direction: getTransactionDirection(transaction.transaction_type),
         source_label: getSourceLabel(transaction, linkedBatch),
         source_details:
-          linkedBatch?.supplier_name && getSourceLabel(transaction, linkedBatch) === "Supplier"
-            ? linkedBatch.supplier_name
-            : transaction.reference_type || "--",
+          transaction.reference_type === "DONATION" || linkedBatch?.source_type === "DONATED"
+            ? transaction.donation?.donor_name || "Donors"
+            : linkedBatch?.supplier_name &&
+                getSourceLabel(transaction, linkedBatch) === "Supplier"
+              ? linkedBatch.supplier_name
+              : transaction.reference_type || "--",
         sync_status: buildSyncDescriptor(matchingEntry).status,
         is_local_only: false,
       };
@@ -1381,15 +1417,7 @@ const InventoryTransactionsPage = () => {
 
       {activeSubtab === "transactions" ? (
         <section style={{ ...shellStyles.card, marginTop: "18px" }}>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns:
-                "minmax(180px, 1.1fr) minmax(180px, 1fr) minmax(180px, 1fr) minmax(160px, 0.9fr) minmax(160px, 0.9fr) minmax(180px, 1fr)",
-              gap: "16px",
-              alignItems: "end",
-            }}
-          >
+          <div style={transactionFilterGridStyles}>
             <div>
               <label htmlFor="tracking-item-filter" style={labelStyles}>
                 Item

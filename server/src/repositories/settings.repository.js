@@ -25,6 +25,20 @@ const getUserById = async (userId, dbClient = pool) => {
   return result.rows[0] || null;
 };
 
+const getBarangayById = async (barangayId, dbClient = pool) => {
+  const query = `
+    SELECT
+      id,
+      name
+    FROM barangays
+    WHERE id = $1
+    LIMIT 1
+  `;
+
+  const result = await dbClient.query(query, [barangayId]);
+  return result.rows[0] || null;
+};
+
 const updateUserProfile = async (
   userId,
   {
@@ -37,9 +51,9 @@ const updateUserProfile = async (
 ) => {
   const query = `
     UPDATE users
-    SET first_name = COALESCE($2, first_name),
-        middle_name = COALESCE($3, middle_name),
-        last_name = COALESCE($4, last_name),
+    SET first_name = $2,
+        middle_name = $3,
+        last_name = $4,
         contact_number = $5,
         updated_at = NOW()
     WHERE id = $1
@@ -74,10 +88,10 @@ const getUserRoleSettings = async (
       id,
       user_id,
       role_code,
-      profile_picture_data_url,
+      profile_picture_path,
       profile_picture_file_name,
-      enabled_notification_rule_codes_json,
-      notification_channels_json,
+      profile_picture_updated_at,
+      notification_rule_preferences_json,
       last_profile_update_at,
       last_preference_save_at,
       updated_at,
@@ -96,10 +110,10 @@ const upsertUserRoleSettings = async (
   {
     userId,
     roleCode,
-    profilePictureDataUrl,
+    profilePicturePath,
     profilePictureFileName,
-    enabledNotificationRuleCodesJson,
-    notificationChannelsJson,
+    profilePictureUpdatedAt,
+    notificationRulePreferencesJson,
     lastProfileUpdateAt,
     lastPreferenceSaveAt,
   },
@@ -109,34 +123,34 @@ const upsertUserRoleSettings = async (
     INSERT INTO user_role_settings (
       user_id,
       role_code,
-      profile_picture_data_url,
+      profile_picture_path,
       profile_picture_file_name,
-      enabled_notification_rule_codes_json,
-      notification_channels_json,
+      profile_picture_updated_at,
+      notification_rule_preferences_json,
       last_profile_update_at,
       last_preference_save_at,
       created_at,
       updated_at
     )
     VALUES (
-      $1,
-      $2,
-      $3,
-      $4,
-      $5::jsonb,
-      $6::jsonb,
-      $7,
-      $8,
+      $1,         -- user_id
+      $2,         -- role_code
+      $3,         -- profile_picture_path
+      $4,         -- profile_picture_file_name
+      $5,         -- profile_picture_updated_at
+      $6::jsonb,  -- notification_rule_preferences_json
+      $7,         -- last_profile_update_at
+      $8,         -- last_preference_save_at
       NOW(),
       NOW()
     )
     ON CONFLICT (user_id, role_code)
     DO UPDATE
-    SET profile_picture_data_url = EXCLUDED.profile_picture_data_url,
+    SET profile_picture_path = EXCLUDED.profile_picture_path,
         profile_picture_file_name = EXCLUDED.profile_picture_file_name,
-        enabled_notification_rule_codes_json =
-          EXCLUDED.enabled_notification_rule_codes_json,
-        notification_channels_json = EXCLUDED.notification_channels_json,
+        profile_picture_updated_at = EXCLUDED.profile_picture_updated_at,
+        notification_rule_preferences_json =
+          EXCLUDED.notification_rule_preferences_json,
         last_profile_update_at = EXCLUDED.last_profile_update_at,
         last_preference_save_at = EXCLUDED.last_preference_save_at,
         updated_at = NOW()
@@ -144,10 +158,10 @@ const upsertUserRoleSettings = async (
       id,
       user_id,
       role_code,
-      profile_picture_data_url,
+      profile_picture_path,
       profile_picture_file_name,
-      enabled_notification_rule_codes_json,
-      notification_channels_json,
+      profile_picture_updated_at,
+      notification_rule_preferences_json,
       last_profile_update_at,
       last_preference_save_at,
       updated_at,
@@ -155,14 +169,14 @@ const upsertUserRoleSettings = async (
   `;
 
   const result = await dbClient.query(query, [
-    userId,
-    roleCode,
-    profilePictureDataUrl || null,
-    profilePictureFileName || null,
-    JSON.stringify(enabledNotificationRuleCodesJson || []),
-    JSON.stringify(notificationChannelsJson || {}),
-    lastProfileUpdateAt || null,
-    lastPreferenceSaveAt,
+    userId, // $1 user_id
+    roleCode, // $2 role_code
+    profilePicturePath || null, // $3 profile_picture_path
+    profilePictureFileName || null, // $4 profile_picture_file_name
+    profilePictureUpdatedAt || null, // $5 profile_picture_updated_at
+    JSON.stringify(notificationRulePreferencesJson || {}), // $6 notification_rule_preferences_json
+    lastProfileUpdateAt || null, // $7 last_profile_update_at
+    lastPreferenceSaveAt, // $8 last_preference_save_at
   ]);
 
   return result.rows[0] || null;
@@ -198,6 +212,7 @@ const insertRoleSettingsSnapshot = async (
 };
 
 module.exports = {
+  getBarangayById,
   getUserById,
   getUserRoleSettings,
   insertRoleSettingsSnapshot,

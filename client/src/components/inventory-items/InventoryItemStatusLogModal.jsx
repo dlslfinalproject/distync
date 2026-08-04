@@ -223,7 +223,7 @@ const InventoryItemStatusLogModal = ({
 
     setFormValues(createDefaultForm(inventoryBatches));
     setFieldErrors({});
-  }, [isOpen, inventoryBatches]);
+  }, [isOpen, item?.id]);
 
   const selectedBatch = useMemo(
     () =>

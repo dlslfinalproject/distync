@@ -1,11 +1,11 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
-import { FiEdit2, FiEye, FiTrash2 } from "react-icons/fi";
+import { FiEdit2, FiEye } from "react-icons/fi";
 import {
   formatDonationDateTime,
   formatDonorType,
 } from "../../features/donations/donationFormatters";
-import DonationSyncBadge from "./DonationSyncBadges";
+import SyncStatusIcon from "../shared/SyncStatusIcon";
 import TableActionsMenu from "../shared/TableActionsMenu";
 
 const tableStyles = {
@@ -33,6 +33,18 @@ const tableStyles = {
     lineHeight: 1.5,
     wordBreak: "break-word",
   },
+  actionHeaderCell: {
+    width: "72px",
+    minWidth: "72px",
+    textAlign: "center",
+  },
+  actionBodyCell: {
+    width: "72px",
+    minWidth: "72px",
+    textAlign: "center",
+    verticalAlign: "middle",
+    whiteSpace: "nowrap",
+  },
   mutedText: {
     color: "#6b8298",
     fontSize: "13px",
@@ -47,9 +59,15 @@ const tableStyles = {
     gap: "8px",
   },
   stackedListRow: {
-    color: "#17324d",
-    fontWeight: 700,
-    lineHeight: 1.45,
+    color: "#21405f",
+    fontWeight: 400,
+    lineHeight: 1.5,
+  },
+  donorCell: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    flexWrap: "wrap",
   },
 };
 
@@ -77,21 +95,47 @@ const getDonationItemDetails = (donation) => {
   };
 };
 
+const getDonationTypeLabel = (donation) => {
+  const items = donation.items || [];
+
+  if (
+    items.length > 0 &&
+    items.every((item) => String(item?.remarks || "").startsWith("Relief Pack:"))
+  ) {
+    return "Relief Pack";
+  }
+
+  return "Loose Item";
+};
+
 const DonationsTab = ({
   isLoading,
   filteredDonations,
-  selectedEventLabel,
+  showDisasterEventColumn = false,
   onOpenDonationDetail,
   onOpenDonationModal,
-  onDeleteDonation,
 }) => {
+  const headerLabels = showDisasterEventColumn
+    ? [
+        "Donor",
+        "Donation Type",
+        "Disaster Event",
+        "Item Name",
+        "Quantity Per Item",
+        "Date",
+      ]
+    : [
+        "Donor",
+        "Donation Type",
+        "Item Name",
+        "Quantity Per Item",
+        "Date",
+      ];
+
   return (
     <section style={shellStyles.card}>
       <div style={{ marginBottom: "16px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>Received Donations</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-          Current filter: {selectedEventLabel}
-        </p>
       </div>
 
       {isLoading ? (
@@ -105,30 +149,71 @@ const DonationsTab = ({
           <table style={tableStyles.table}>
             <thead>
               <tr>
-                {["Donor", "Item", "Quantity Per Item", "Date", "Sync", "Actions"].map(
-                  (label) => (
-                    <th
-                      key={label}
-                      style={tableStyles.headerCell}
-                    >
-                      {label}
-                    </th>
-                  ),
-                )}
+                {headerLabels.map((label) => (
+                  <th
+                    key={label}
+                    style={
+                      label === "Donation Type" ||
+                      label === "Disaster Event" ||
+                      label === "Quantity Per Item" ||
+                      label === "Date"
+                        ? {
+                            ...tableStyles.headerCell,
+                            textAlign: "center",
+                          }
+                        : tableStyles.headerCell
+                    }
+                  >
+                    {label}
+                  </th>
+                ))}
+                <th
+                  style={{
+                    ...tableStyles.headerCell,
+                    ...tableStyles.actionHeaderCell,
+                  }}
+                >
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody>
               {filteredDonations.map((donation) => {
                 const itemDetails = getDonationItemDetails(donation);
+                const donationTypeLabel = getDonationTypeLabel(donation);
 
                 return (
                   <tr key={donation.id}>
                     <td style={tableStyles.bodyCell}>
-                      <div style={{ fontWeight: 700 }}>{donation.donor_name}</div>
+                      <div style={tableStyles.donorCell}>
+                        <span style={{ fontWeight: 700 }}>{donation.donor_name}</span>
+                        <SyncStatusIcon status={donation.sync_status} />
+                      </div>
                       <div style={tableStyles.mutedText}>
-                        {formatDonorType(donation.donor_type)}
+                        {formatDonorType(
+                          donation.donor_type,
+                          donation.donor_type_other,
+                        )}
                       </div>
                     </td>
+                    <td
+                      style={{
+                        ...tableStyles.bodyCell,
+                        ...tableStyles.centeredBodyCell,
+                      }}
+                    >
+                      {donationTypeLabel}
+                    </td>
+                    {showDisasterEventColumn ? (
+                      <td
+                        style={{
+                          ...tableStyles.bodyCell,
+                          ...tableStyles.centeredBodyCell,
+                        }}
+                      >
+                        {donation.disaster_event?.title || "--"}
+                      </td>
+                    ) : null}
                     <td style={tableStyles.bodyCell}>
                       <div style={tableStyles.stackedList}>
                         {itemDetails.itemLines.map((line, index) => (
@@ -141,7 +226,12 @@ const DonationsTab = ({
                         ))}
                       </div>
                     </td>
-                    <td style={tableStyles.bodyCell}>
+                    <td
+                      style={{
+                        ...tableStyles.bodyCell,
+                        ...tableStyles.centeredBodyCell,
+                      }}
+                    >
                       <div style={tableStyles.stackedList}>
                         {itemDetails.quantityLines.map((line, index) => (
                           <div key={`${donation.id}-quantity-${index}`} style={tableStyles.stackedListRow}>
@@ -150,69 +240,53 @@ const DonationsTab = ({
                         ))}
                       </div>
                     </td>
-                    <td style={tableStyles.bodyCell}>
-                      {formatDonationDateTime(donation.received_at)}
-                    </td>
-                    <td style={tableStyles.bodyCell}>
-                      <DonationSyncBadge status={donation.sync_status} />
-                    </td>
                     <td
                       style={{
                         ...tableStyles.bodyCell,
                         ...tableStyles.centeredBodyCell,
                       }}
                     >
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "center",
-                          alignItems: "center",
-                          minHeight: "36px",
-                        }}
-                      >
-                        <TableActionsMenu
-                          row={donation}
-                          menuId={`donation-actions-${donation.id}`}
-                          disabled={donation.is_local_only}
-                          buttonTitle={
-                            donation.is_local_only ? "Available after sync" : "Donation actions"
-                          }
-                          buttonAriaLabel={
-                            donation.is_local_only
-                              ? "Donation actions unavailable until synced"
-                              : "Donation actions"
-                          }
-                          variant="icon-grid"
-                          menuWidth={156}
-                          items={[
-                            {
-                              key: "view-details",
-                              label: "View Details",
-                              icon: <FiEye size={18} />,
-                              onClick: (row) => onOpenDonationDetail(row.id),
-                              disabled: donation.is_local_only,
-                              title: donation.is_local_only ? "Available after sync" : undefined,
-                            },
-                            {
-                              key: "edit",
-                              label: "Edit",
-                              icon: <FiEdit2 size={18} />,
-                              onClick: (row) => onOpenDonationModal(row.id),
-                              disabled: donation.is_local_only,
-                              title: donation.is_local_only ? "Available after sync" : undefined,
-                            },
-                            {
-                              key: "delete",
-                              label: "Delete",
-                              icon: <FiTrash2 size={18} />,
-                              tone: "destructive",
-                              onClick: (row) => onDeleteDonation(row),
-                              disabled: donation.is_local_only,
-                              title: donation.is_local_only ? "Available after sync" : undefined,
-                            },
-                          ]}
-                        />
-                      </div>
+                      {formatDonationDateTime(donation.received_at)}
+                    </td>
+                    <td
+                      style={{
+                        ...tableStyles.bodyCell,
+                        ...tableStyles.actionBodyCell,
+                      }}
+                    >
+                      <TableActionsMenu
+                        row={donation}
+                        menuId={`donation-actions-${donation.id}`}
+                        disabled={donation.is_local_only}
+                        buttonTitle={
+                          donation.is_local_only ? "Available after sync" : "Donation actions"
+                        }
+                        buttonAriaLabel={
+                          donation.is_local_only
+                            ? "Donation actions unavailable until synced"
+                            : "Donation actions"
+                        }
+                        variant="icon-grid"
+                        menuWidth={112}
+                        items={[
+                          {
+                            key: "view-details",
+                            label: "View Details",
+                            icon: <FiEye size={18} />,
+                            onClick: (row) => onOpenDonationDetail(row.id),
+                            disabled: donation.is_local_only,
+                            title: donation.is_local_only ? "Available after sync" : undefined,
+                          },
+                          {
+                            key: "edit",
+                            label: "Edit details",
+                            icon: <FiEdit2 size={18} />,
+                            onClick: (row) => onOpenDonationModal(row.id),
+                            disabled: donation.is_local_only,
+                            title: donation.is_local_only ? "Available after sync" : undefined,
+                          },
+                        ]}
+                      />
                     </td>
                   </tr>
                 );
