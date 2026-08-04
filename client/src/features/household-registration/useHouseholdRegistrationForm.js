@@ -88,6 +88,18 @@ const createValidationErrors = () => ({
 const MAX_FAMILY_HEAD_PHOTO_FILE_SIZE = 3 * 1024 * 1024;
 
 const trimValue = (value) => String(value ?? "").trim();
+const normalizeComparableText = (value) =>
+  trimValue(value).replace(/\s+/g, " ").toLowerCase();
+const buildComparableFullName = (person) =>
+  [
+    person?.first_name,
+    person?.middle_name,
+    person?.last_name,
+    person?.suffix,
+  ]
+    .map((value) => normalizeComparableText(value))
+    .filter(Boolean)
+    .join("|");
 
 const isWholeNumberString = (value) => /^\d+$/.test(trimValue(value));
 const isValidPhilippineContactNumber = (value) => /^\+639\d{9}$/.test(trimValue(value));
@@ -1322,6 +1334,41 @@ export const useHouseholdRegistrationForm = ({
       ) {
         nextValidationErrors.members[memberIndex].custom_relationship =
           "Please enter the relationship.";
+      }
+    }
+
+    const familyHeadComparableFullName = buildComparableFullName(familyHead);
+    const seenMemberFullNames = new Map();
+
+    for (const [memberIndex, member] of members.entries()) {
+      const memberComparableFullName = buildComparableFullName(member);
+
+      if (!memberComparableFullName) {
+        continue;
+      }
+
+      if (memberComparableFullName === familyHeadComparableFullName) {
+        nextValidationErrors.members[memberIndex].first_name =
+          "This member has the exact same full name as the family head.";
+
+        if (!nextValidationErrors.familyHead.first_name) {
+          nextValidationErrors.familyHead.first_name =
+            "The family head cannot share an exact full name with a household member.";
+        }
+      }
+
+      if (seenMemberFullNames.has(memberComparableFullName)) {
+        nextValidationErrors.members[memberIndex].first_name =
+          "This member is an exact duplicate of another household member.";
+
+        const firstDuplicateIndex = seenMemberFullNames.get(memberComparableFullName);
+
+        if (!nextValidationErrors.members[firstDuplicateIndex].first_name) {
+          nextValidationErrors.members[firstDuplicateIndex].first_name =
+            "This member is an exact duplicate of another household member.";
+        }
+      } else {
+        seenMemberFullNames.set(memberComparableFullName, memberIndex);
       }
     }
 

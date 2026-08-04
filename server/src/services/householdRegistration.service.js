@@ -114,6 +114,17 @@ const normalizeComparableText = (value) =>
     .replace(/\s+/g, " ")
     .toLowerCase();
 
+const buildComparableFullName = (person) =>
+  [
+    person?.first_name,
+    person?.middle_name,
+    person?.last_name,
+    person?.suffix,
+  ]
+    .map((value) => normalizeComparableText(value))
+    .filter(Boolean)
+    .join("|");
+
 const hasComparableName = (person) =>
   Boolean(
     normalizeComparableText(person?.first_name) &&
@@ -216,6 +227,50 @@ const buildDuplicateRegistrationError = (duplicateMatch) => {
     ? buildDuplicateSuggestionMatchSummary(duplicateMatch)
     : null;
   return error;
+};
+
+const validateUniqueHouseholdPeople = ({ familyHead, members }) => {
+  const familyHeadFullName = buildComparableFullName(familyHead);
+
+  if (!familyHeadFullName) {
+    return;
+  }
+
+  const seenMemberNames = new Map();
+
+  for (const [memberIndex, member] of (members || []).entries()) {
+    const memberFullName = buildComparableFullName(member);
+
+    if (!memberFullName) {
+      continue;
+    }
+
+    if (memberFullName === familyHeadFullName) {
+      const error = new Error(
+        "A household member cannot have the exact same full name as the family head.",
+      );
+      error.statusCode = 400;
+      error.code = "DUPLICATE_HOUSEHOLD_MEMBER_NAME";
+      throw error;
+    }
+
+    if (seenMemberNames.has(memberFullName)) {
+      const error = new Error(
+        "Household members cannot contain exact duplicate full names.",
+      );
+      error.statusCode = 400;
+      error.code = "DUPLICATE_HOUSEHOLD_MEMBER_NAME";
+      error.serverPayload = {
+        duplicate_member_indexes: [
+          seenMemberNames.get(memberFullName),
+          memberIndex,
+        ],
+      };
+      throw error;
+    }
+
+    seenMemberNames.set(memberFullName, memberIndex);
+  }
 };
 
 const summarizePrivacyConsent = (consent) =>
@@ -559,7 +614,7 @@ const classifyDuplicateMatch = ({
     isFamilyHeadSource &&
     hasSameComparableContactNumber(sourceContactNumber, matchedContactNumber);
   const strongMatch =
-    sameExtendedName &&
+    sameExtendedName ||
     ((sameSex && sameAge) || sameContact);
 
   return {
@@ -1175,6 +1230,11 @@ const updateHouseholdDetails = async ({
     buildPersonRecord(member),
   );
 
+  validateUniqueHouseholdPeople({
+    familyHead: normalizedFamilyHead,
+    members: normalizedMembers,
+  });
+
   const requestDataWithDerivedAgeGroups = {
     ...requestData,
     family_head_photo_url:
@@ -1556,6 +1616,11 @@ const registerHousehold = async (requestData) => {
   const normalizedMembers = requestData.members.map((member) =>
     buildPersonRecord(member),
   );
+
+  validateUniqueHouseholdPeople({
+    familyHead: normalizedFamilyHead,
+    members: normalizedMembers,
+  });
 
   const requestDataWithDerivedAgeGroups = {
     ...registrationData,
