@@ -4,7 +4,7 @@ const getNormalizedStatus = (status) => {
   const normalized = String(status || "").toUpperCase();
 
   if (normalized === "CLOSED" || normalized === "ARCHIVED") {
-    return "COMPLETED";
+    return "ENDED";
   }
 
   return normalized || "UNKNOWN";
@@ -21,7 +21,7 @@ const getStatusPillStyles = (status) => {
     };
   }
 
-  if (normalizedStatus === "COMPLETED") {
+  if (normalizedStatus === "ENDED") {
     return {
       backgroundColor: "#edf7ef",
       color: "#2f7a4b",
