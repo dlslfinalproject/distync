@@ -217,6 +217,292 @@ const getAffectedBarangaysByDisasterEventIds = async (disasterEventIds) => {
   return result.rows;
 };
 
+const listActiveDisasterEventsForEvacuationSummary = async (dbClient = pool) => {
+  const query = `
+    SELECT
+      id,
+      event_code,
+      title,
+      status
+    FROM disaster_events
+    WHERE status = 'ACTIVE'
+    ORDER BY created_at DESC
+  `;
+
+  const result = await dbClient.query(query);
+  return result.rows;
+};
+
+const getEvacuationSummaryForWindow = async (
+  { disasterEventId, windowStart, windowEnd },
+  dbClient = pool,
+) => {
+  if (!disasterEventId || !windowStart || !windowEnd) {
+    return null;
+  }
+
+  const disasterEventResult = await dbClient.query(
+    `
+      SELECT
+        id,
+        event_code,
+        title,
+        status
+      FROM disaster_events
+      WHERE id = $1
+      LIMIT 1
+    `,
+    [disasterEventId],
+  );
+
+  const disasterEvent = disasterEventResult.rows[0] || null;
+
+  if (!disasterEvent) {
+    return null;
+  }
+
+  const [totalsResult, barangaysResult] = await Promise.all([
+    dbClient.query(
+      `
+        WITH new_households AS (
+          SELECT COUNT(DISTINCT h.id)::int AS count
+          FROM households h
+          WHERE h.disaster_event_id = $1
+            AND h.is_active = TRUE
+            AND h.registered_at >= $2::timestamptz
+            AND h.registered_at < $3::timestamptz
+        ),
+        cumulative_households AS (
+          SELECT COUNT(DISTINCT h.id)::int AS count
+          FROM households h
+          WHERE h.disaster_event_id = $1
+            AND h.is_active = TRUE
+        ),
+        new_evacuees AS (
+          SELECT COUNT(DISTINCT e.id)::int AS count
+          FROM evacuees e
+          INNER JOIN households h ON h.id = e.household_id
+          WHERE h.disaster_event_id = $1
+            AND h.is_active = TRUE
+            AND e.is_active = TRUE
+            AND e.created_at >= $2::timestamptz
+            AND e.created_at < $3::timestamptz
+        ),
+        cumulative_evacuees AS (
+          SELECT COUNT(DISTINCT e.id)::int AS count
+          FROM evacuees e
+          INNER JOIN households h ON h.id = e.household_id
+          WHERE h.disaster_event_id = $1
+            AND h.is_active = TRUE
+            AND e.is_active = TRUE
+        ),
+        latest_logs AS (
+          SELECT DISTINCT ON (el.evacuee_id)
+            el.evacuee_id,
+            el.status,
+            el.time_out
+          FROM evacuation_logs el
+          INNER JOIN households h ON h.id = el.household_id
+          WHERE el.disaster_event_id = $1
+          ORDER BY
+            el.evacuee_id,
+            COALESCE(el.time_out, el.time_in) DESC,
+            el.updated_at DESC,
+            el.created_at DESC,
+            el.id DESC
+        ),
+        current_attendance AS (
+          SELECT
+            COUNT(*) FILTER (
+              WHERE latest_logs.status = 'PRESENT'
+                AND latest_logs.time_out IS NULL
+            )::int AS present_evacuees,
+            COUNT(*) FILTER (
+              WHERE latest_logs.status IN ('LEFT', 'TRANSFERRED')
+                OR latest_logs.time_out IS NOT NULL
+            )::int AS departed_evacuees
+          FROM latest_logs
+        ),
+        attendance_activity AS (
+          SELECT
+            COUNT(DISTINCT el.evacuee_id) FILTER (
+              WHERE el.time_in >= $2::timestamptz
+                AND el.time_in < $3::timestamptz
+            )::int AS arrival_count,
+            COUNT(DISTINCT el.evacuee_id) FILTER (
+              WHERE el.time_out >= $2::timestamptz
+                AND el.time_out < $3::timestamptz
+            )::int AS departure_count
+          FROM evacuation_logs el
+          INNER JOIN households h ON h.id = el.household_id
+          WHERE el.disaster_event_id = $1
+        )
+        SELECT
+          COALESCE(new_households.count, 0) AS new_households,
+          COALESCE(cumulative_households.count, 0) AS cumulative_households,
+          COALESCE(new_evacuees.count, 0) AS new_evacuees,
+          COALESCE(cumulative_evacuees.count, 0) AS cumulative_evacuees,
+          COALESCE(current_attendance.present_evacuees, 0) AS present_evacuees,
+          COALESCE(current_attendance.departed_evacuees, 0) AS departed_evacuees,
+          COALESCE(attendance_activity.arrival_count, 0) AS arrival_count,
+          COALESCE(attendance_activity.departure_count, 0) AS departure_count
+        FROM new_households
+        CROSS JOIN cumulative_households
+        CROSS JOIN new_evacuees
+        CROSS JOIN cumulative_evacuees
+        CROSS JOIN current_attendance
+        CROSS JOIN attendance_activity
+      `,
+      [disasterEventId, windowStart, windowEnd],
+    ),
+    dbClient.query(
+      `
+        WITH active_barangays AS (
+          SELECT
+            b.id,
+            b.name
+          FROM disaster_event_barangays deb
+          INNER JOIN barangays b ON b.id = deb.barangay_id
+          WHERE deb.disaster_event_id = $1
+        ),
+        new_households_by_barangay AS (
+          SELECT
+            h.barangay_id,
+            COUNT(DISTINCT h.id)::int AS new_households
+          FROM households h
+          WHERE h.disaster_event_id = $1
+            AND h.is_active = TRUE
+            AND h.registered_at >= $2::timestamptz
+            AND h.registered_at < $3::timestamptz
+          GROUP BY h.barangay_id
+        ),
+        cumulative_households_by_barangay AS (
+          SELECT
+            h.barangay_id,
+            COUNT(DISTINCT h.id)::int AS cumulative_households
+          FROM households h
+          WHERE h.disaster_event_id = $1
+            AND h.is_active = TRUE
+          GROUP BY h.barangay_id
+        ),
+        new_evacuees_by_barangay AS (
+          SELECT
+            h.barangay_id,
+            COUNT(DISTINCT e.id)::int AS new_evacuees
+          FROM evacuees e
+          INNER JOIN households h ON h.id = e.household_id
+          WHERE h.disaster_event_id = $1
+            AND h.is_active = TRUE
+            AND e.is_active = TRUE
+            AND e.created_at >= $2::timestamptz
+            AND e.created_at < $3::timestamptz
+          GROUP BY h.barangay_id
+        ),
+        cumulative_evacuees_by_barangay AS (
+          SELECT
+            h.barangay_id,
+            COUNT(DISTINCT e.id)::int AS cumulative_evacuees
+          FROM evacuees e
+          INNER JOIN households h ON h.id = e.household_id
+          WHERE h.disaster_event_id = $1
+            AND h.is_active = TRUE
+            AND e.is_active = TRUE
+          GROUP BY h.barangay_id
+        ),
+        latest_logs AS (
+          SELECT DISTINCT ON (el.evacuee_id)
+            el.evacuee_id,
+            h.barangay_id,
+            el.status,
+            el.time_out
+          FROM evacuation_logs el
+          INNER JOIN households h ON h.id = el.household_id
+          WHERE el.disaster_event_id = $1
+          ORDER BY
+            el.evacuee_id,
+            COALESCE(el.time_out, el.time_in) DESC,
+            el.updated_at DESC,
+            el.created_at DESC,
+            el.id DESC
+        ),
+        present_by_barangay AS (
+          SELECT
+            latest_logs.barangay_id,
+            COUNT(*) FILTER (
+              WHERE latest_logs.status = 'PRESENT'
+                AND latest_logs.time_out IS NULL
+            )::int AS present_evacuees
+          FROM latest_logs
+          GROUP BY latest_logs.barangay_id
+        )
+        SELECT
+          active_barangays.id AS barangay_id,
+          active_barangays.name AS barangay_name,
+          COALESCE(new_households_by_barangay.new_households, 0) AS new_households,
+          COALESCE(cumulative_households_by_barangay.cumulative_households, 0) AS cumulative_households,
+          COALESCE(new_evacuees_by_barangay.new_evacuees, 0) AS new_evacuees,
+          COALESCE(cumulative_evacuees_by_barangay.cumulative_evacuees, 0) AS cumulative_evacuees,
+          COALESCE(present_by_barangay.present_evacuees, 0) AS present_evacuees
+        FROM active_barangays
+        LEFT JOIN new_households_by_barangay
+          ON new_households_by_barangay.barangay_id = active_barangays.id
+        LEFT JOIN cumulative_households_by_barangay
+          ON cumulative_households_by_barangay.barangay_id = active_barangays.id
+        LEFT JOIN new_evacuees_by_barangay
+          ON new_evacuees_by_barangay.barangay_id = active_barangays.id
+        LEFT JOIN cumulative_evacuees_by_barangay
+          ON cumulative_evacuees_by_barangay.barangay_id = active_barangays.id
+        LEFT JOIN present_by_barangay
+          ON present_by_barangay.barangay_id = active_barangays.id
+        WHERE
+          COALESCE(new_households_by_barangay.new_households, 0) > 0
+          OR COALESCE(cumulative_households_by_barangay.cumulative_households, 0) > 0
+          OR COALESCE(new_evacuees_by_barangay.new_evacuees, 0) > 0
+          OR COALESCE(cumulative_evacuees_by_barangay.cumulative_evacuees, 0) > 0
+          OR COALESCE(present_by_barangay.present_evacuees, 0) > 0
+        ORDER BY active_barangays.name ASC
+      `,
+      [disasterEventId, windowStart, windowEnd],
+    ),
+  ]);
+
+  const totalsRow = totalsResult.rows[0] || {};
+
+  return {
+    disasterEvent: {
+      id: disasterEvent.id,
+      eventCode: disasterEvent.event_code,
+      title: disasterEvent.title,
+      status: disasterEvent.status,
+    },
+    window: {
+      start: windowStart,
+      end: windowEnd,
+    },
+    totals: {
+      newHouseholds: Number(totalsRow.new_households || 0),
+      cumulativeHouseholds: Number(totalsRow.cumulative_households || 0),
+      newEvacuees: Number(totalsRow.new_evacuees || 0),
+      cumulativeEvacuees: Number(totalsRow.cumulative_evacuees || 0),
+      presentEvacuees: Number(totalsRow.present_evacuees || 0),
+      departedEvacuees: Number(totalsRow.departed_evacuees || 0),
+    },
+    attendanceActivity: {
+      arrivals: Number(totalsRow.arrival_count || 0),
+      departures: Number(totalsRow.departure_count || 0),
+    },
+    barangays: barangaysResult.rows.map((row) => ({
+      barangayId: row.barangay_id,
+      barangayName: row.barangay_name,
+      newHouseholds: Number(row.new_households || 0),
+      cumulativeHouseholds: Number(row.cumulative_households || 0),
+      newEvacuees: Number(row.new_evacuees || 0),
+      cumulativeEvacuees: Number(row.cumulative_evacuees || 0),
+      presentEvacuees: Number(row.present_evacuees || 0),
+    })),
+  };
+};
+
 const insertDisasterEvent = async (disasterEventData, dbClient) => {
   const query = `
     INSERT INTO disaster_events (
@@ -715,6 +1001,8 @@ module.exports = {
   getAffectedBarangaysByDisasterEventId,
   getHouseholdCountsByDisasterEventBarangayIds,
   getAffectedBarangaysByDisasterEventIds,
+  listActiveDisasterEventsForEvacuationSummary,
+  getEvacuationSummaryForWindow,
   getValidBarangayCount,
   insertDisasterEvent,
   generateDisasterEventCode,

@@ -1,4 +1,7 @@
 const pool = require("../../config/db");
+const {
+  assertValidNotificationType,
+} = require("./notification.constants");
 
 const getNotificationRuleByCode = async (code, dbClient = pool) => {
   const result = await dbClient.query(
@@ -283,6 +286,7 @@ const insertSummaryEvent = async (payload, dbClient = pool) => {
         updated_at
       )
       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, NULL, NOW(), NOW())
+      ON CONFLICT (summary_key) DO NOTHING
       RETURNING *
     `,
     [
@@ -422,6 +426,8 @@ const getAllNotificationRules = async (dbClient = pool) => {
 };
 
 const insertNotification = async (payload, dbClient = pool) => {
+  assertValidNotificationType(payload.type);
+
   const result = await dbClient.query(
     `
       INSERT INTO notifications (

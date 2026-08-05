@@ -1,4 +1,9 @@
 const notificationRepository = require("./notification.repository");
+const disasterEventRepository = require("../../repositories/disasterEvent.repository");
+const {
+  NOTIFICATION_TYPES,
+  assertValidNotificationType,
+} = require("./notification.constants");
 const { ROLE_CODES } = require("../auth/auth.middleware");
 const emailService = require("../email/email.service");
 const { insertAuditLog } = require("../../repositories/systemLog.repository");
@@ -21,6 +26,9 @@ const LOW_STOCK_THRESHOLD = 10;
 const CRITICAL_STOCK_THRESHOLD = 5;
 const NEAR_EXPIRY_DAYS = 14;
 const DEDUPE_LOOKBACK_HOURS = 24;
+const MANILA_TIME_ZONE = "Asia/Manila";
+const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
+const MAX_EVACUATION_SUMMARY_BARANGAYS = 3;
 const MAINTENANCE_SCAN_INTERVAL_MS = Number.parseInt(
   process.env.NOTIFICATION_SCAN_INTERVAL_MS || `${15 * 60 * 1000}`,
   10,
@@ -51,6 +59,172 @@ const FALLBACK_SYNC_NOTIFICATION_ROLE_CODES = [
 ];
 
 const toDisplayQuantity = (value) => Number(value || 0).toLocaleString();
+
+const toSafeInteger = (value) => Number.parseInt(value || 0, 10) || 0;
+
+const shiftDateByMilliseconds = (value, milliseconds) =>
+  new Date(value.getTime() + milliseconds);
+
+const getPreviousCompletedManilaHourWindow = (now = new Date()) => {
+  const manilaNow = shiftDateByMilliseconds(now, MANILA_OFFSET_MS);
+  const windowEndsAtInManila = new Date(
+    Date.UTC(
+      manilaNow.getUTCFullYear(),
+      manilaNow.getUTCMonth(),
+      manilaNow.getUTCDate(),
+      manilaNow.getUTCHours(),
+      0,
+      0,
+      0,
+    ),
+  );
+  const windowStartedAtInManila = new Date(
+    windowEndsAtInManila.getTime() - 60 * 60 * 1000,
+  );
+
+  return {
+    timezone: MANILA_TIME_ZONE,
+    windowStartedAt: shiftDateByMilliseconds(
+      windowStartedAtInManila,
+      -MANILA_OFFSET_MS,
+    ),
+    windowEndsAt: shiftDateByMilliseconds(
+      windowEndsAtInManila,
+      -MANILA_OFFSET_MS,
+    ),
+  };
+};
+
+const formatManilaHourLabel = (value) =>
+  new Intl.DateTimeFormat("en-PH", {
+    timeZone: MANILA_TIME_ZONE,
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(new Date(value));
+
+const formatCountLabel = (count, singular, plural = `${singular}s`) =>
+  `${toDisplayQuantity(count)} ${count === 1 ? singular : plural}`;
+
+const getEvacuationSummaryPayload = (summaryGroup) =>
+  summaryGroup.events.reduce((payload, eventRow) => {
+    if (payload) {
+      return payload;
+    }
+
+    if (
+      eventRow?.payload_json &&
+      typeof eventRow.payload_json === "object" &&
+      !Array.isArray(eventRow.payload_json)
+    ) {
+      return eventRow.payload_json;
+    }
+
+    return null;
+  }, null);
+
+const hasMeaningfulEvacuationSummaryActivity = (summary = {}) => {
+  const totals = summary.totals || {};
+  const attendanceActivity = summary.attendanceActivity || {};
+
+  return (
+    toSafeInteger(totals.newHouseholds) > 0 ||
+    toSafeInteger(totals.newEvacuees) > 0 ||
+    toSafeInteger(attendanceActivity.arrivals) > 0 ||
+    toSafeInteger(attendanceActivity.departures) > 0
+  );
+};
+
+const buildEvacuationSummaryContent = (summaryPayload = {}) => {
+  const disasterEvent = summaryPayload.disasterEvent || {};
+  const window = summaryPayload.window || {};
+  const totals = summaryPayload.totals || {};
+  const barangays = Array.isArray(summaryPayload.barangays)
+    ? summaryPayload.barangays
+    : [];
+  const windowStartLabel = formatManilaHourLabel(window.start || new Date());
+  const windowEndLabel = formatManilaHourLabel(window.end || new Date());
+  const eventLabel =
+    disasterEvent.title ||
+    disasterEvent.eventCode ||
+    "Active disaster event";
+  const currentTotalsSentence = `Current event totals: ${formatCountLabel(
+    toSafeInteger(totals.cumulativeHouseholds),
+    "household",
+  )} and ${formatCountLabel(
+    toSafeInteger(totals.cumulativeEvacuees),
+    "evacuee",
+  )}.`;
+  const attendanceSentence =
+    totals.presentEvacuees == null || totals.departedEvacuees == null
+      ? ""
+      : ` Current attendance: ${formatCountLabel(
+          toSafeInteger(totals.presentEvacuees),
+          "present evacuee",
+        )} and ${formatCountLabel(
+          toSafeInteger(totals.departedEvacuees),
+          "departed evacuee",
+        )}.`;
+  const rankedBarangays = [...barangays]
+    .sort((left, right) => {
+      const leftActivity =
+        toSafeInteger(left.newHouseholds) + toSafeInteger(left.newEvacuees);
+      const rightActivity =
+        toSafeInteger(right.newHouseholds) + toSafeInteger(right.newEvacuees);
+
+      if (leftActivity !== rightActivity) {
+        return rightActivity - leftActivity;
+      }
+
+      return String(left.barangayName || "").localeCompare(
+        String(right.barangayName || ""),
+      );
+    })
+    .filter(
+      (row) =>
+        toSafeInteger(row.newHouseholds) > 0 || toSafeInteger(row.newEvacuees) > 0,
+    );
+  const visibleBarangays = rankedBarangays.slice(0, MAX_EVACUATION_SUMMARY_BARANGAYS);
+  const remainingBarangayCount = Math.max(
+    rankedBarangays.length - visibleBarangays.length,
+    0,
+  );
+  const barangaySentence =
+    visibleBarangays.length === 0
+      ? ""
+      : ` Barangay breakdown: ${visibleBarangays
+          .map(
+            (row) =>
+              `${row.barangayName}: ${formatCountLabel(
+                toSafeInteger(row.newHouseholds),
+                "household",
+              )}, ${formatCountLabel(
+                toSafeInteger(row.newEvacuees),
+                "evacuee",
+              )}`,
+          )
+          .join("; ")}${
+          remainingBarangayCount > 0
+            ? `; and ${toDisplayQuantity(remainingBarangayCount)} more barangay${
+                remainingBarangayCount === 1 ? "" : "s"
+              }`
+            : ""
+        }.`;
+
+  return {
+    title: `Evacuation Summary - ${windowStartLabel} to ${windowEndLabel}`,
+    message: `${eventLabel} recorded ${formatCountLabel(
+      toSafeInteger(totals.newHouseholds),
+      "newly registered household",
+    )} and ${formatCountLabel(
+      toSafeInteger(totals.newEvacuees),
+      "new evacuee",
+    )} from ${windowStartLabel} to ${windowEndLabel}.${barangaySentence} ${currentTotalsSentence}${attendanceSentence}`.replace(
+      /\s+/g,
+      " ",
+    ).trim(),
+  };
+};
 
 const isExpiredDate = (value) => {
   if (!value) {
@@ -289,6 +463,8 @@ const createPersistentNotification = async ({
   dedupeHours = DEDUPE_LOOKBACK_HOURS,
 }) => {
   const canonicalRuleCode = getCanonicalRuleCode(ruleCode);
+  assertValidNotificationType(type);
+
   const deliveryPlanBuckets = await Promise.all(
     (recipientGroups || []).map((group) =>
       buildRecipientDeliveryPlan({
@@ -757,7 +933,7 @@ const emitBatchAlerts = async ({
         ? {
             ruleCode: "EXPIRED_STOCK",
             disaster_event_id: disasterEventId,
-            type: "EXPIRY",
+            type: NOTIFICATION_TYPES.EXPIRY,
             title: "Expired stock alert",
             message: `${itemName} (${batchNumber}) is now expired and needs immediate review.`,
             severity: "CRITICAL",
@@ -767,7 +943,7 @@ const emitBatchAlerts = async ({
         : {
             ruleCode: "NEAR_EXPIRY_STOCK",
             disaster_event_id: disasterEventId,
-            type: "EXPIRY",
+            type: NOTIFICATION_TYPES.EXPIRY,
             title: "Near-expiry stock alert",
             message: `${itemName} (${batchNumber}) is nearing expiry and should be reviewed soon.`,
             severity: "WARNING",
@@ -785,7 +961,7 @@ const emitBatchAlerts = async ({
     notificationPayload: {
       ruleCode: "CRITICAL_INVENTORY_SHORTAGE",
       disaster_event_id: disasterEventId,
-      type: "INVENTORY",
+      type: NOTIFICATION_TYPES.INVENTORY,
       title: "Critical inventory shortage",
       message: `${itemName} (${batchNumber}) is down to ${toDisplayQuantity(quantityAvailable)} available units.`,
       severity: "CRITICAL",
@@ -836,7 +1012,7 @@ const emitInventoryTransactionAlerts = async ({
     await createNotificationForRole({
       ruleCode: "INVENTORY_INCIDENT",
       disaster_event_id: disasterEventId,
-      type: "ANOMALY",
+      type: NOTIFICATION_TYPES.ANOMALY,
       title: "Inventory incident alert",
       message: `${toDisplayQuantity(transaction.quantity)} units of ${itemName} (${batchNumber}) were marked as ${alertLabel}.${transaction.remarks ? ` ${transaction.remarks}` : ""}`,
       severity,
@@ -866,7 +1042,7 @@ const emitDonationStockUpdate = async ({
   createNotificationForRole({
     ruleCode: anomaly ? "DONATION_STOCK_ANOMALY" : "DONATION_RECEIVED",
     disaster_event_id: disasterEventId,
-    type: anomaly ? "ANOMALY" : "INVENTORY",
+    type: anomaly ? NOTIFICATION_TYPES.ANOMALY : NOTIFICATION_TYPES.INVENTORY,
     title: anomaly ? "Donation anomaly detected" : "Donation received",
     message: `${donorName} donation stock for ${itemName} was ${actionLabel} by ${toDisplayQuantity(quantity)} units.`,
     severity,
@@ -888,7 +1064,7 @@ const emitDonationSummaryUpdate = async ({
   createNotificationForRole({
     ruleCode: "DONATION_RECEIVED",
     disaster_event_id: disasterEventId,
-    type: "INVENTORY",
+    type: NOTIFICATION_TYPES.INVENTORY,
     title: "Donation received",
     message: `A donation from ${donorName} was received with ${toDisplayQuantity(itemCount)} item entries.`,
     severity: "INFO",
@@ -909,7 +1085,7 @@ const emitDisasterEventCreated = async ({ disasterEvent }) => {
     ruleCode: "DISASTER_EVENT_CREATED",
     roleCode: ROLE_CODES.MSWDO,
     disaster_event_id: disasterEvent.id,
-    type: "EVENT",
+    type: NOTIFICATION_TYPES.EVENT,
     title: "New disaster event created",
     message: `${`${disasterEvent.event_code || ""} ${disasterEvent.title || "Disaster event"}`.trim()} was created and is ready for MSWDO coordination.`,
     severity: "WARNING",
@@ -968,7 +1144,7 @@ const emitDisasterEventUpdate = async ({
     ruleCode: "DISASTER_EVENT_UPDATED",
     recipientGroups,
     disaster_event_id: disasterEvent.id,
-    type: "EVENT",
+    type: NOTIFICATION_TYPES.EVENT,
     title: "Disaster event update",
     message: `${eventLabel} was ${actionLabel}. Affected coverage: ${barangayLabel}.`,
     severity: normalizedAction === "ended" ? "INFO" : "WARNING",
@@ -1003,7 +1179,7 @@ const emitDistributionUpdate = async ({
     ruleCode: "DISTRIBUTION_COMPLETED",
     recipientGroups,
     disaster_event_id: disasterEventId,
-    type: "EVENT",
+    type: NOTIFICATION_TYPES.EVENT,
     title: "Distribution completed",
     message: `Stub ${stubNo || "--"} for ${familyHeadName || "a household"} was successfully validated for relief distribution.`,
     severity: "INFO",
@@ -1048,7 +1224,7 @@ const emitHouseholdRegistrationUpdate = async ({
   await createNotificationForRecipientGroups({
     ruleCode: "HOUSEHOLD_REGISTERED",
     recipientGroups,
-    type: "SYSTEM",
+    type: NOTIFICATION_TYPES.SYSTEM,
     title: "Household registration update",
     message: `${familyHeadName || "A household"} was ${actionLabel} in the barangay masterlist.`,
     severity: "INFO",
@@ -1082,7 +1258,7 @@ const emitHouseholdRegistrationUpdate = async ({
     await createNotificationForRecipientGroups({
       ruleCode: "HOUSEHOLD_VERIFICATION_UPDATED",
       recipientGroups: verificationRecipientGroups,
-      type: "SYSTEM",
+      type: NOTIFICATION_TYPES.SYSTEM,
       title: "Household pending verification",
       message: `${familyHeadName || "A household"} is pending household verification follow-up.`,
       severity: "WARNING",
@@ -1132,7 +1308,7 @@ const emitEvacueeAttendanceUpdate = async ({
   return createNotificationForRecipientGroups({
     ruleCode: "EVACUEE_ATTENDANCE_UPDATED",
     recipientGroups,
-    type: "EVENT",
+    type: NOTIFICATION_TYPES.EVENT,
     title: "Evacuee attendance update",
     message: `${familyHeadName || "A household"} ${actionLabel}.`,
     severity: "INFO",
@@ -1168,7 +1344,7 @@ const emitSyncTransactionFailureAlert = async (syncTransaction) => {
   return createNotificationForRecipientGroups({
     ruleCode: "SYNC_FAILURE",
     recipientGroups,
-    type: "SYNC",
+    type: NOTIFICATION_TYPES.SYNC,
     title: "Sync failure detected",
     message: `${syncTransaction.operation_type} for ${syncTransaction.entity_type} could not be synchronized. Review the Sync Center for details and retry when ready.`,
     severity: "WARNING",
@@ -1193,7 +1369,7 @@ const emitSyncConflictAlert = async (syncConflict) => {
     ruleCode: "SYNC_CONFLICT",
     userIds: [syncConflict.user_id],
     roleCode: recipientRoleCode,
-    type: "SYNC",
+    type: NOTIFICATION_TYPES.SYNC,
     title: "Synchronization conflict detected",
     message: `${syncConflict.entity_type} still needs sync conflict review. Open the Sync Center to resolve it safely.`,
     severity: "CRITICAL",
@@ -1243,16 +1419,90 @@ const buildSummaryNotificationContent = (summaryGroup) => {
         message: `${count} donation receipts were recorded for ${roleLabel} during the last day.`,
       };
     case "EVACUATION_SUMMARY_REPORT":
-      return {
-        title: "Evacuation summary report",
-        message: `${count} evacuation monitoring updates were prepared for ${roleLabel} during the last day.`,
-      };
+      return buildEvacuationSummaryContent(
+        getEvacuationSummaryPayload(summaryGroup) || {
+          disasterEvent: {
+            title: roleLabel,
+          },
+          totals: {
+            newHouseholds: count,
+            newEvacuees: count,
+            cumulativeHouseholds: count,
+            cumulativeEvacuees: count,
+            presentEvacuees: 0,
+            departedEvacuees: 0,
+          },
+          barangays: [],
+          window: {
+            start: new Date().toISOString(),
+            end: new Date().toISOString(),
+            timezone: MANILA_TIME_ZONE,
+          },
+        },
+      );
     default:
       return {
         title: `${summaryGroup.ruleCode} summary`,
         message: `${count} ${summaryGroup.ruleCode} events were grouped into this summary.`,
       };
   }
+};
+
+const generateDueEvacuationSummaryReports = async (now = new Date()) => {
+  const { windowStartedAt, windowEndsAt, timezone } =
+    getPreviousCompletedManilaHourWindow(now);
+  const activeDisasterEvents =
+    await disasterEventRepository.listActiveDisasterEventsForEvacuationSummary();
+  const generatedSummaryKeys = [];
+
+  for (const disasterEvent of activeDisasterEvents) {
+    const summary = await disasterEventRepository.getEvacuationSummaryForWindow({
+      disasterEventId: disasterEvent.id,
+      windowStart: windowStartedAt.toISOString(),
+      windowEnd: windowEndsAt.toISOString(),
+    });
+
+    if (!summary || !hasMeaningfulEvacuationSummaryActivity(summary)) {
+      continue;
+    }
+
+    const summaryKey = buildSummaryKey({
+      roleCode: ROLE_CODES.MAYOR,
+      ruleCode: "EVACUATION_SUMMARY_REPORT",
+      disasterEventId: disasterEvent.id,
+      windowStartedAt,
+    });
+    const insertedSummaryEvent = await notificationRepository.insertSummaryEvent({
+      summaryKey,
+      ruleCode: "EVACUATION_SUMMARY_REPORT",
+      roleCode: ROLE_CODES.MAYOR,
+      barangayId: null,
+      disasterEventId: disasterEvent.id,
+      referenceScope: {
+        timezone,
+      },
+      payload: {
+        ruleCode: "EVACUATION_SUMMARY_REPORT",
+        disasterEvent: summary.disasterEvent,
+        window: {
+          ...summary.window,
+          timezone,
+        },
+        totals: summary.totals,
+        attendanceActivity: summary.attendanceActivity,
+        barangays: summary.barangays,
+      },
+      windowStartedAt: windowStartedAt.toISOString(),
+      windowEndsAt: windowEndsAt.toISOString(),
+      readyAt: windowEndsAt.toISOString(),
+    });
+
+    if (insertedSummaryEvent) {
+      generatedSummaryKeys.push(summaryKey);
+    }
+  }
+
+  return generatedSummaryKeys;
 };
 
 const flushSummaryNotifications = async () => {
@@ -1300,7 +1550,7 @@ const flushSummaryNotifications = async () => {
       ruleCode: group.ruleCode,
       recipientGroups,
       disaster_event_id: group.disasterEventId,
-      type: "SUMMARY",
+      type: NOTIFICATION_TYPES.SUMMARY,
       title: content.title,
       message: content.message,
       severity: "INFO",
@@ -1367,6 +1617,7 @@ const scanSyncNotifications = async () => {
 
 const runNotificationMaintenanceScans = async () => {
   await seedNotificationRules();
+  await generateDueEvacuationSummaryReports();
   await scanExpiryNotifications();
   await scanSyncNotifications();
   await flushSummaryNotifications();
@@ -1487,6 +1738,8 @@ module.exports = {
   seedNotificationRules,
   scanExpiryNotifications,
   scanSyncNotifications,
+  getPreviousCompletedManilaHourWindow,
+  generateDueEvacuationSummaryReports,
   flushSummaryNotifications,
   initializeNotificationInfrastructure,
   getNotificationsForUser,
