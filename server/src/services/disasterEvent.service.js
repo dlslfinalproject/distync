@@ -99,6 +99,30 @@ const buildScheduledClosureTimestamp = (endDate) => {
 
 const formatIsoDateOnly = (value) => normalizeDateOnlyString(value);
 
+const assertNoConflictingOpenDisasterEventTitle = async ({
+  title,
+  excludeId = null,
+  dbClient,
+}) => {
+  const conflictingDisasterEvent =
+    await disasterEventRepository.findConflictingOpenDisasterEventByTitle({
+      title,
+      excludeId,
+      dbClient,
+    });
+
+  if (!conflictingDisasterEvent) {
+    return;
+  }
+
+  const error = new Error(
+    "An active or planned disaster event with the same name already exists.",
+  );
+  error.statusCode = 409;
+  error.code = "DISASTER_EVENT_NAME_DUPLICATE";
+  throw error;
+};
+
 const closeDisasterEventWithTimestamp = async ({
   disasterEvent,
   closureDate,
@@ -330,6 +354,8 @@ const getDisasterEventById = async (id) => {
 };
 
 const createDisasterEvent = async (disasterEventData) => {
+  await syncOverdueActiveDisasterEvents();
+
   if (!allowedStatuses.includes(disasterEventData.status)) {
     const error = new Error("Status must be PLANNED, ACTIVE, CLOSED, or ARCHIVED");
     error.statusCode = 400;
@@ -360,6 +386,11 @@ const createDisasterEvent = async (disasterEventData) => {
 
   try {
     await client.query("BEGIN");
+
+    await assertNoConflictingOpenDisasterEventTitle({
+      title: disasterEventData.title,
+      dbClient: client,
+    });
 
     if (!disasterEventData.event_code) {
       disasterEventData.event_code =
@@ -430,6 +461,11 @@ const updateDisasterEvent = async (id, disasterEventData) => {
     error.statusCode = 400;
     throw error;
   }
+
+  await assertNoConflictingOpenDisasterEventTitle({
+    title: disasterEventData.title,
+    excludeId: id,
+  });
 
   const startDate = new Date(disasterEventData.start_date);
   const endDate = new Date(disasterEventData.end_date);
@@ -647,7 +683,7 @@ const formatDisasterEventStatusLabel = (status) => {
   const normalizedStatus = String(status || "").toUpperCase();
 
   if (normalizedStatus === "CLOSED" || normalizedStatus === "ARCHIVED") {
-    return "COMPLETED";
+    return "ENDED";
   }
 
   return normalizedStatus || "UNKNOWN";

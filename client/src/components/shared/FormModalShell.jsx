@@ -79,11 +79,18 @@ const FormModalShell = ({
   footer,
   maxWidth = "480px",
   zIndex = 1500,
+  overlayStyle,
+  contentStyle,
   onClose,
+  showCloseButton = true,
   isCloseDisabled = false,
   closeOnBackdrop = false,
   initialFocusRef = null,
   finalFocusRef = null,
+  headerStyle,
+  titleStyle,
+  bodyStyle,
+  closeButtonStyle,
 }) => {
   const panelRef = useRef(null);
   const overlayRef = useRef(null);
@@ -175,6 +182,7 @@ const FormModalShell = ({
       style={{
         ...overlayStyles,
         zIndex,
+        ...(overlayStyle || {}),
       }}
       onMouseDown={(event) => {
         if (
@@ -197,13 +205,14 @@ const FormModalShell = ({
         style={{
           ...contentStyles,
           maxWidth,
+          ...(contentStyle || {}),
         }}
       >
-        {title || onClose ? (
-          <div style={headerStyles}>
+        {title || (onClose && showCloseButton) ? (
+          <div style={{ ...headerStyles, ...(headerStyle || {}) }}>
             <div>
               {title ? (
-                <h3 id={titleId} style={titleStyles}>
+                <h3 id={titleId} style={{ ...titleStyles, ...(titleStyle || {}) }}>
                   {title}
                 </h3>
               ) : null}
@@ -213,11 +222,11 @@ const FormModalShell = ({
                 </p>
               ) : null}
             </div>
-            {onClose ? (
+            {onClose && showCloseButton ? (
               <button
                 type="button"
                 onClick={onClose}
-                style={closeButtonStyles}
+                style={{ ...closeButtonStyles, ...(closeButtonStyle || {}) }}
                 disabled={isCloseDisabled}
                 aria-label="Close modal"
               >
@@ -229,7 +238,7 @@ const FormModalShell = ({
         {!title && !onClose && description ? (
           <p style={descriptionStyles}>{description}</p>
         ) : null}
-        <div style={bodyStyles}>{children}</div>
+        <div style={{ ...bodyStyles, ...(bodyStyle || {}) }}>{children}</div>
         {footer ? <div style={footerStyles}>{footer}</div> : null}
       </div>
     </div>

@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 
 const {
   validateCreateHouseholdRegistration,
+  validateDuplicateRegistrationSuggestions,
   validateUpdateHouseholdDetails,
 } = require("../src/validators/householdRegistration.validator");
 const {
@@ -147,6 +148,10 @@ test("create validation rejects unsupported privacy notice versions", async () =
 test("update validation allows ordinary edits without a new privacy acknowledgment", async () => {
   const payload = buildValidPayload();
   delete payload.privacy_acknowledgment;
+  delete payload.family_head;
+  delete payload.family_head_photo_url;
+  delete payload.photo_verification_notes;
+  delete payload.household_size;
 
   const result = await runMiddleware(validateUpdateHouseholdDetails, {
     params: {
@@ -158,4 +163,64 @@ test("update validation allows ordinary edits without a new privacy acknowledgme
   assert.equal(result.nextCalled, true);
   assert.equal(result.req.validatedParams.householdId, VALID_UUIDS.householdId);
   assert.equal(result.req.validatedBody.privacy_acknowledgment, null);
+  assert.equal(result.req.validatedBody.family_head, undefined);
+  assert.equal(result.req.validatedBody.family_head_photo_url, undefined);
+  assert.equal(result.req.validatedBody.household_size, undefined);
+});
+
+test("duplicate suggestion validation accepts partial household lookup data", async () => {
+  const payload = buildValidPayload();
+  delete payload.privacy_acknowledgment;
+  delete payload.family_head_photo_url;
+  delete payload.photo_verification_notes;
+
+  const result = await runMiddleware(validateDuplicateRegistrationSuggestions, {
+    body: payload,
+  });
+
+  assert.equal(result.nextCalled, true);
+  assert.equal(result.req.validatedBody.disaster_event_id, VALID_UUIDS.disasterEventId);
+  assert.equal(result.req.validatedBody.family_head.first_name, "Ana");
+  assert.equal(result.req.validatedBody.members[0].first_name, "Marco");
+});
+
+test("create validation rejects a member with the exact same full name as the family head", async () => {
+  const payload = buildValidPayload();
+  payload.members[0].first_name = "Ana";
+  payload.members[0].last_name = "Dela Cruz";
+  payload.members[0].middle_name = null;
+  payload.members[0].suffix = null;
+
+  const result = await runMiddleware(validateCreateHouseholdRegistration, {
+    body: payload,
+  });
+
+  assert.equal(result.nextCalled, false);
+  assert.equal(result.statusCode, 400);
+  assert.match(result.jsonPayload.message, /same full name as the family head/i);
+});
+
+test("create validation rejects exact duplicate household member names", async () => {
+  const payload = buildValidPayload();
+  payload.household_size = 3;
+  payload.members.push({
+    id: null,
+    first_name: "Marco",
+    middle_name: null,
+    last_name: "Dela Cruz",
+    suffix: null,
+    sex: "MALE",
+    age_value: 8,
+    age_unit: "YEARS",
+    relationship_to_head: "SON",
+    sector_ids: [],
+  });
+
+  const result = await runMiddleware(validateCreateHouseholdRegistration, {
+    body: payload,
+  });
+
+  assert.equal(result.nextCalled, false);
+  assert.equal(result.statusCode, 400);
+  assert.match(result.jsonPayload.message, /duplicate full names/i);
 });

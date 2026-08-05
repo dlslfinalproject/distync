@@ -97,8 +97,6 @@ CREATE TABLE public.user_role_settings (
   profile_picture_path text,
   profile_picture_file_name character varying,
   profile_picture_updated_at timestamp with time zone,
-  enabled_notification_rule_codes_json jsonb NOT NULL DEFAULT '[]'::jsonb,
-  notification_channels_json jsonb NOT NULL DEFAULT '{}'::jsonb,
   notification_rule_preferences_json jsonb NOT NULL DEFAULT '{}'::jsonb,
   last_profile_update_at timestamp with time zone,
   last_preference_save_at timestamp with time zone NOT NULL DEFAULT now(),
@@ -606,7 +604,7 @@ CREATE TABLE public.notification_rules (
 CREATE TABLE public.notifications (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   disaster_event_id uuid,
-  type character varying NOT NULL CHECK (type::text = ANY (ARRAY['EVENT'::character varying, 'INVENTORY'::character varying, 'EXPIRY'::character varying, 'SYNC'::character varying, 'ANOMALY'::character varying, 'SYSTEM'::character varying]::text[])),
+  type character varying NOT NULL CHECK (type::text = ANY (ARRAY['EVENT'::character varying, 'INVENTORY'::character varying, 'EXPIRY'::character varying, 'SYNC'::character varying, 'ANOMALY'::character varying, 'SYSTEM'::character varying, 'SUMMARY'::character varying]::text[])),
   title character varying NOT NULL,
   message text NOT NULL,
   severity character varying NOT NULL DEFAULT 'INFO'::character varying CHECK (severity::text = ANY (ARRAY['INFO'::character varying, 'WARNING'::character varying, 'CRITICAL'::character varying]::text[])),
@@ -625,6 +623,7 @@ CREATE TABLE public.notification_recipients (
   read_at timestamp with time zone,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT notification_recipients_pkey PRIMARY KEY (id),
+  CONSTRAINT notification_recipients_unique_delivery UNIQUE (notification_id, user_id),
   CONSTRAINT notification_recipients_notification_id_fkey FOREIGN KEY (notification_id) REFERENCES public.notifications(id),
   CONSTRAINT notification_recipients_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );

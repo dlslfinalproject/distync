@@ -60,43 +60,301 @@ export const USER_CONFIGURABILITY_LABELS = {
   ALL_SUPPORTED_CHANNELS: "You can change available channels",
 };
 
+export const FRONTEND_NOTIFICATION_RULE_ALIAS_MAP = {
+  DISASTER_EVENT_UPDATE: "DISASTER_EVENT_UPDATED",
+  EVACUEE_ATTENDANCE_UPDATE: "EVACUEE_ATTENDANCE_UPDATED",
+  HOUSEHOLD_VERIFICATION: "HOUSEHOLD_VERIFICATION_UPDATED",
+  HOUSEHOLD_VERIFICATION_UPDATE: "HOUSEHOLD_VERIFICATION_UPDATED",
+  DISTRIBUTION_UPDATE: "DISTRIBUTION_COMPLETED",
+  CRITICAL_STOCK: "CRITICAL_INVENTORY_SHORTAGE",
+  DONATION_STOCK_UPDATE: "DONATION_RECEIVED",
+  SYNCHRONIZATION_CONFLICT_ALERT: "SYNC_CONFLICT",
+};
+
+const CANONICAL_NOTIFICATION_RULE_METADATA = {
+  DISASTER_EVENT_CREATED: {
+    name: "Newly Created Disaster Event",
+  },
+  DISASTER_EVENT_UPDATED: {
+    name: "Disaster Event Updates",
+  },
+  HOUSEHOLD_REGISTERED: {
+    name: "New Evacuee Registration",
+  },
+  EVACUEE_ATTENDANCE_UPDATED: {
+    name: "Evacuee Attendance Updates",
+  },
+  HOUSEHOLD_VERIFICATION_UPDATED: {
+    name: "Household Verification Updates",
+  },
+  DISTRIBUTION_COMPLETED: {
+    name: "Distribution Completed",
+  },
+  LOW_STOCK: {
+    name: "Low Stock Alert",
+  },
+  CRITICAL_INVENTORY_SHORTAGE: {
+    name: "Critical Inventory Shortage",
+  },
+  NEAR_EXPIRY_STOCK: {
+    name: "Near Expiry Stock Alert",
+  },
+  EXPIRED_STOCK: {
+    name: "Expired Stock Alert",
+  },
+  INVENTORY_INCIDENT: {
+    name: "Inventory Incident Alert",
+  },
+  DONATION_RECEIVED: {
+    name: "Donation Received",
+  },
+  DONATION_STOCK_ANOMALY: {
+    name: "Donation Anomaly",
+  },
+  SYNC_FAILURE: {
+    name: "Sync Failure",
+  },
+  SYNC_CONFLICT: {
+    name: "Synchronization Conflict Alert",
+  },
+  EVACUATION_SUMMARY_REPORT: {
+    name: "Evacuation Summary Reports",
+  },
+};
+
+const CATEGORY_SORT_ORDER_BY_ROLE = {
+  [ROLE_CODES.BARANGAY]: {
+    DISASTER_COORDINATION: 0,
+    EVACUEE_MANAGEMENT: 1,
+    SYSTEM_OPERATIONS: 2,
+  },
+  [ROLE_CODES.MSWDO]: {
+    DISASTER_MANAGEMENT: 0,
+    EVACUEE_MANAGEMENT: 1,
+    RELIEF_OPERATIONS: 2,
+    SYSTEM_OPERATIONS: 3,
+  },
+  [ROLE_CODES.MAYOR]: {
+    DISASTER_MONITORING: 0,
+    RELIEF_OPERATIONS: 1,
+    INVENTORY_MONITORING: 2,
+    SYSTEM_MONITORING: 3,
+  },
+};
+
+const RULE_SORT_ORDER = {
+  DISASTER_EVENT_CREATED: 0,
+  DISASTER_EVENT_UPDATED: 1,
+  HOUSEHOLD_REGISTERED: 2,
+  EVACUEE_ATTENDANCE_UPDATED: 3,
+  HOUSEHOLD_VERIFICATION_UPDATED: 4,
+  DISTRIBUTION_COMPLETED: 5,
+  LOW_STOCK: 6,
+  CRITICAL_INVENTORY_SHORTAGE: 7,
+  NEAR_EXPIRY_STOCK: 8,
+  EXPIRED_STOCK: 9,
+  INVENTORY_INCIDENT: 10,
+  DONATION_RECEIVED: 11,
+  SYNC_FAILURE: 12,
+  SYNC_CONFLICT: 13,
+  DONATION_STOCK_ANOMALY: 14,
+  EVACUATION_SUMMARY_REPORT: 15,
+};
+
+const HIDDEN_NOTIFICATION_RULE_CODES = new Set([
+  "SYSTEM_ALERT",
+  "SYSTEM_ANOMALY",
+  "OPERATIONAL_ANOMALY",
+]);
+
 const RULE_DESCRIPTION_BY_NAME = {
-  "Disaster Event Update":
+  "Disaster Event Updates":
     "Important changes to active disaster events, affected barangays, and operation schedules.",
   "Newly Created Disaster Event":
     "Alerts your office when a new disaster event is created for official response.",
-  "Household Registration Update":
-    "Shows grouped updates for newly registered or updated household records.",
-  "Household Verification Update":
+  "New Evacuee Registration":
+    "Shows grouped updates for newly registered household records in active evacuation operations.",
+  "Household Verification Updates":
     "Highlights household records that need follow-up or closer review.",
-  "Evacuee Attendance Update":
+  "Evacuee Attendance Updates":
     "Shows grouped attendance activity for evacuees during ongoing operations.",
-  "Distribution Update":
-    "Tracks relief distribution activity without sending one alert for every transaction.",
-  "Synchronization Conflict Alert":
-    "Warns you when offline and server records need manual review.",
-  "System Anomaly Alert":
-    "Warns you about serious system issues that may affect data reliability.",
+  "Distribution Completed":
+    "Tracks completed relief distribution activity without sending one alert for every transaction.",
   "Low Stock Alert":
-    "Alerts you when available relief stock drops below the warning level.",
-  "Critical Stock Alert":
+    "Warns you when relief stock falls below the warning threshold before it becomes critical.",
+  "Sync Failure":
+    "Alerts you when an inventory, donation, or other Mayor-related transaction fails to synchronize and requires review.",
+  "Synchronization Conflict Alert":
+    "Alerts you when a Mayor-related offline transaction conflicts with an existing central record and may require review.",
+  "Critical Inventory Shortage":
     "Alerts you when relief stock reaches a critical shortage level.",
+  "Inventory Incident Alert":
+    "Warns you when relief goods are marked damaged, missing, spoiled, or stolen.",
+  "Donation Received":
+    "Lets your office monitor newly received donations after they are successfully recorded.",
+  "Donation Anomaly":
+    "Warns you when donation stock activity is inconsistent and needs review.",
   "Near Expiry Stock Alert":
     "Warns you when relief goods are close to their expiry date.",
   "Expired Stock Alert":
     "Alerts you when relief goods are already expired and need action.",
-  "Inventory Incident Alert":
-    "Reports damage, loss, spoilage, theft, or other serious inventory issues.",
-  "Donation Stock Update":
-    "Provides grouped donation stock updates for routine monitoring.",
-  "Donation Stock Anomaly":
-    "Warns you about unusual or mismatched donation stock records.",
-  "Evacuation Monitoring Summary":
+  "Evacuation Summary Reports":
     "Provides a grouped daily view of evacuation monitoring updates.",
 };
 
 export const getSafePolicyLabel = (value, labels, fallback) =>
   labels[value] || fallback;
+
+export const canonicalizeNotificationRuleCode = (ruleCode = "") =>
+  FRONTEND_NOTIFICATION_RULE_ALIAS_MAP[ruleCode] || ruleCode;
+
+const getCanonicalRuleMetadata = (ruleCode = "") =>
+  CANONICAL_NOTIFICATION_RULE_METADATA[canonicalizeNotificationRuleCode(ruleCode)] ||
+  null;
+
+const mergeBooleanPreference = (leftValue, rightValue) => {
+  if (leftValue === true || rightValue === true) {
+    return true;
+  }
+
+  if (typeof leftValue === "boolean") {
+    return leftValue;
+  }
+
+  if (typeof rightValue === "boolean") {
+    return rightValue;
+  }
+
+  return undefined;
+};
+
+const sortNotificationCategories = (categories = [], roleCode = "") =>
+  [...categories].sort((left, right) => {
+    const leftOrder =
+      CATEGORY_SORT_ORDER_BY_ROLE[roleCode]?.[left.code] ?? Number.MAX_SAFE_INTEGER;
+    const rightOrder =
+      CATEGORY_SORT_ORDER_BY_ROLE[roleCode]?.[right.code] ?? Number.MAX_SAFE_INTEGER;
+
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+
+    return String(left.label || "").localeCompare(String(right.label || ""));
+  });
+
+const sortCategoryRules = (rules = []) =>
+  [...rules].sort(
+    (left, right) =>
+      (RULE_SORT_ORDER[left.code] ?? Number.MAX_SAFE_INTEGER) -
+      (RULE_SORT_ORDER[right.code] ?? Number.MAX_SAFE_INTEGER),
+  );
+
+export const dedupeNotificationSettings = ({
+  roleCode = "",
+  notificationRulePreferences = {},
+  effectiveNotificationChannels = {},
+  categories = [],
+}) => {
+  const canonicalPreferences = {};
+  const canonicalEffectiveChannels = {};
+  const groupedRules = new Map();
+
+  Object.entries(notificationRulePreferences || {}).forEach(([ruleCode, value]) => {
+    const canonicalRuleCode = canonicalizeNotificationRuleCode(ruleCode);
+
+    if (!canonicalRuleCode || HIDDEN_NOTIFICATION_RULE_CODES.has(canonicalRuleCode)) {
+      return;
+    }
+
+    canonicalPreferences[canonicalRuleCode] = {
+      ...(canonicalPreferences[canonicalRuleCode] || {}),
+      ...(typeof value === "object" && value ? value : {}),
+    };
+  });
+
+  Object.entries(effectiveNotificationChannels || {}).forEach(([ruleCode, value]) => {
+    const canonicalRuleCode = canonicalizeNotificationRuleCode(ruleCode);
+
+    if (!canonicalRuleCode || HIDDEN_NOTIFICATION_RULE_CODES.has(canonicalRuleCode)) {
+      return;
+    }
+
+    const existingValue = canonicalEffectiveChannels[canonicalRuleCode] || {};
+    canonicalEffectiveChannels[canonicalRuleCode] = {
+      inApp: mergeBooleanPreference(existingValue.inApp, value?.inApp),
+      email: mergeBooleanPreference(existingValue.email, value?.email),
+    };
+  });
+
+  (categories || []).forEach((category) => {
+    const nextRules = Array.isArray(category?.rules) ? category.rules : [];
+
+    nextRules.forEach((rule) => {
+      const canonicalRuleCode = canonicalizeNotificationRuleCode(rule?.code);
+
+      if (!canonicalRuleCode || HIDDEN_NOTIFICATION_RULE_CODES.has(canonicalRuleCode)) {
+        return;
+      }
+
+      const metadata = getCanonicalRuleMetadata(canonicalRuleCode);
+      const groupKey = `${category?.code || ""}:${canonicalRuleCode}`;
+      const existingRule = groupedRules.get(groupKey);
+
+      groupedRules.set(groupKey, {
+        ...(existingRule || {}),
+        ...rule,
+        code: canonicalRuleCode,
+        categoryCode:
+          rule?.categoryCode || rule?.category_code || category?.code || "",
+        categoryLabel:
+          rule?.categoryLabel || rule?.category_label || category?.label || "",
+        name: metadata?.name || existingRule?.name || rule?.name || canonicalRuleCode,
+        effectiveChannels: {
+          inApp: mergeBooleanPreference(
+            existingRule?.effectiveChannels?.inApp,
+            rule?.effectiveChannels?.inApp,
+          ),
+          email: mergeBooleanPreference(
+            existingRule?.effectiveChannels?.email,
+            rule?.effectiveChannels?.email,
+          ),
+        },
+      });
+    });
+  });
+
+  const categoriesByCode = new Map();
+
+  Array.from(groupedRules.values()).forEach((rule) => {
+    const categoryCode = rule.categoryCode || rule.category_code || "";
+    const categoryLabel = rule.categoryLabel || rule.category_label || "";
+
+    if (!categoriesByCode.has(categoryCode)) {
+      categoriesByCode.set(categoryCode, {
+        code: categoryCode,
+        label: categoryLabel,
+        roleCode,
+        rules: [],
+      });
+    }
+
+    categoriesByCode.get(categoryCode).rules.push(rule);
+  });
+
+  const normalizedCategories = sortNotificationCategories(
+    Array.from(categoriesByCode.values()).map((category) => ({
+      ...category,
+      rules: sortCategoryRules(category.rules),
+    })),
+    roleCode,
+  );
+
+  return {
+    notificationRulePreferences: canonicalPreferences,
+    effectiveNotificationChannels: canonicalEffectiveChannels,
+    categories: normalizedCategories,
+  };
+};
 
 export const getRuleDescription = (rule = {}) =>
   RULE_DESCRIPTION_BY_NAME[rule.name] ||
@@ -287,12 +545,12 @@ export const getNotificationPreferenceValidationErrors = ({
 
 export const normalizeRolePreferences = (value = {}) => {
   const defaults = createDefaultRolePreferences();
-  const normalizedCategories = Array.isArray(value?.categories)
-    ? value.categories.map((category) => ({
-        ...category,
-        rules: Array.isArray(category?.rules) ? category.rules : [],
-      }))
-    : [];
+  const dedupedNotificationSettings = dedupeNotificationSettings({
+    roleCode: value?.roleCode || "",
+    notificationRulePreferences: value?.notificationRulePreferences,
+    effectiveNotificationChannels: value?.effectiveNotificationChannels,
+    categories: Array.isArray(value?.categories) ? value.categories : [],
+  });
 
   return {
     ...defaults,
@@ -302,16 +560,10 @@ export const normalizeRolePreferences = (value = {}) => {
       ...(value?.profile || {}),
     },
     notificationRulePreferences:
-      value?.notificationRulePreferences &&
-      typeof value.notificationRulePreferences === "object"
-        ? value.notificationRulePreferences
-        : {},
+      dedupedNotificationSettings.notificationRulePreferences,
     effectiveNotificationChannels:
-      value?.effectiveNotificationChannels &&
-      typeof value.effectiveNotificationChannels === "object"
-        ? value.effectiveNotificationChannels
-        : {},
-    categories: normalizedCategories,
+      dedupedNotificationSettings.effectiveNotificationChannels,
+    categories: dedupedNotificationSettings.categories,
     metadata: {
       ...defaults.metadata,
       ...(value?.metadata || {}),

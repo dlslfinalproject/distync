@@ -8,6 +8,11 @@ import {
 import { fetchBarangayStubDashboard } from "./stubService";
 import { getPendingLocalStubRows } from "./stubOfflineRows";
 import { getCanonicalSectorCodeFromText } from "../../utils/sectorDisplay";
+import {
+  matchesStubStatusFilter,
+  normalizeStubStatusFilter,
+  STATUS_FILTERS,
+} from "./stubStatusFilters";
 
 const emptyMetrics = {
   total_issued_stubs: 0,
@@ -59,6 +64,7 @@ const getMappedRows = (stubRows) =>
 const getDisplayedRows = (rows, searchTerm, selectedSectorIds, selectedStubStatus) => {
   const normalizedSearchTerm = searchTerm.trim().toLowerCase();
   const selectedSectorIdSet = new Set(selectedSectorIds);
+  const normalizedStubStatus = normalizeStubStatusFilter(selectedStubStatus);
 
   return rows.filter((row) => {
     const rowSectorCodes = String(row.sectors_text || "")
@@ -74,7 +80,7 @@ const getDisplayedRows = (rows, searchTerm, selectedSectorIds, selectedStubStatu
       return false;
     }
 
-    if (selectedStubStatus && row.status !== selectedStubStatus) {
+    if (!matchesStubStatusFilter(row.status, normalizedStubStatus)) {
       return false;
     }
 
@@ -120,7 +126,9 @@ export const useMswdoStubDistribution = () => {
   const [selectedDisasterEventId, setSelectedDisasterEventId] = useState("");
   const [selectedBarangayId, setSelectedBarangayId] = useState("");
   const [selectedSectorIds, setSelectedSectorIds] = useState([]);
-  const [selectedStubStatus, setSelectedStubStatus] = useState("");
+  const [selectedStubStatus, setSelectedStubStatus] = useState(
+    STATUS_FILTERS.UNCLAIMED,
+  );
   const [searchTerm, setSearchTerm] = useState("");
   const [dashboard, setDashboard] = useState(emptyDashboard);
   const [pendingLocalRows, setPendingLocalRows] = useState([]);

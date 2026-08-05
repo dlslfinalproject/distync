@@ -6,7 +6,6 @@ import { shellStyles } from "../../components/layout/BarangayLayout";
 import ConfirmationModal from "../../components/shared/ConfirmationModal";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import { useAuth } from "../../context/AuthContext";
-import { fetchBarangays } from "../../features/disaster-events/disasterEventService";
 import { fetchUnreadNotificationCount } from "../../features/notifications/notificationService";
 import {
   loadRoleSettingsState,
@@ -353,7 +352,6 @@ const RoleSettingsPage = () => {
   const [errorMessage, setErrorMessage] = useState("");
   const [notificationLoadError, setNotificationLoadError] = useState("");
   const [notificationLoadSource, setNotificationLoadSource] = useState("loading");
-  const [assignedBarangayName, setAssignedBarangayName] = useState("--");
   const [unreadCount, setUnreadCount] = useState(0);
   const [preferences, setPreferences] = useState(createDefaultRolePreferences());
   const [savedProfilePreferences, setSavedProfilePreferences] = useState(
@@ -660,7 +658,6 @@ const RoleSettingsPage = () => {
       setIsResetModalOpen(false);
       setIsUnsavedModalOpen(false);
       setIsRemoveProfilePictureModalOpen(false);
-      setAssignedBarangayName("--");
       setUnreadCount(0);
       setErrorMessage("");
       setIsLoading(false);
@@ -1017,9 +1014,6 @@ const RoleSettingsPage = () => {
       if (!isOnline) {
         setIsLoading(false);
         setErrorMessage("");
-        setAssignedBarangayName(
-          preferencesRef.current.profile.assignedBarangay?.name || "--",
-        );
         return;
       }
 
@@ -1028,31 +1022,13 @@ const RoleSettingsPage = () => {
       const ownerKey = settingsOwnerKey;
 
       try {
-        const requests = [fetchUnreadNotificationCount()];
-
-        if (authenticatedUser.default_barangay_id) {
-          requests.push(fetchBarangays());
-        } else {
-          requests.push(Promise.resolve([]));
-        }
-
-        const [unreadResponse, barangayResponse] =
-          await Promise.all(requests);
+        const unreadResponse = await fetchUnreadNotificationCount();
 
         if (settingsOwnerKeyRef.current !== ownerKey) {
           return;
         }
 
         setUnreadCount(Number(unreadResponse?.unread_count || 0));
-
-        if (authenticatedUser.default_barangay_id && Array.isArray(barangayResponse)) {
-          const assignedBarangay = barangayResponse.find(
-            (barangay) => barangay.id === authenticatedUser.default_barangay_id,
-          );
-          setAssignedBarangayName(assignedBarangay?.name || "--");
-        } else {
-          setAssignedBarangayName("--");
-        }
       } catch (error) {
         if (settingsOwnerKeyRef.current === ownerKey) {
           setErrorMessage("Settings information could not be loaded.");
@@ -1934,7 +1910,6 @@ const RoleSettingsPage = () => {
 
   const barangayViewContext = buildBarangayViewContext({
     sharedContext: sharedRoleViewContext,
-    assignedBarangayName,
     notificationTouched,
     notificationValidationErrors,
     handleOpenResetNotificationPreferences,

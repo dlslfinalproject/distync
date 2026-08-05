@@ -8,9 +8,12 @@ const {
   buildPreferenceCategories,
   getDefaultEffectiveChannels,
   getEditableChannels,
-  resolveEffectiveChannels,
+  resolveEffectiveNotificationPreferences,
   sanitizeNotificationRulePreferences,
 } = require("../modules/notifications/notificationPreferenceUtils");
+const {
+  getCanonicalRuleCode,
+} = require("../modules/notifications/notificationPolicy");
 
 const SETTINGS_AUDIT_ACTION = "UPSERT_ROLE_SETTINGS";
 const SETTINGS_ENTITY_TYPE = "ROLE_SETTINGS";
@@ -265,10 +268,6 @@ const buildPersistedSettingsFromRecord = (record = {}) => ({
     lastProfileUpdateAt: normalizeTimestampValue(record.last_profile_update_at),
     lastPreferenceSaveAt: normalizeTimestampValue(record.last_preference_save_at),
   },
-  legacyPreferenceSource: {
-    enabledNotificationRuleCodes: record.enabled_notification_rule_codes_json || [],
-    notificationChannels: record.notification_channels_json || {},
-  },
 });
 
 const buildUserRoleSettingsPayload = (settings = {}) => ({
@@ -279,8 +278,6 @@ const buildUserRoleSettingsPayload = (settings = {}) => ({
   profilePictureUpdatedAt: parseTimestampValue(
     settings?.profile?.profilePictureUpdatedAt,
   ),
-  enabledNotificationRuleCodesJson: [],
-  notificationChannelsJson: {},
   notificationRulePreferencesJson: sanitizeNotificationRulePreferences(
     settings.notificationRulePreferences,
   ),
@@ -442,33 +439,28 @@ const attachSignedProfilePictureMetadata = async (settings = {}) => {
 const getRolePolicyRows = async ({ roleCode, dbClient }) =>
   notificationRepository.getNotificationPolicyRowsByRoleCode(roleCode, dbClient);
 
-const buildEffectivePreferenceMap = ({
-  policyRows,
-  storedPreferences,
-}) =>
-  policyRows.reduce((current, policyRow) => {
-    current[policyRow.code] = resolveEffectiveChannels({
-      policyRow,
-      storedPreferences,
-    });
-    return current;
-  }, {});
-
 const buildNotificationSettingsResponse = ({
   roleCode,
   policyRows,
-  storedPreferences,
+  modernPreferences,
 }) => ({
-  notificationRulePreferences: sanitizeNotificationRulePreferences(storedPreferences),
-  effectiveNotificationChannels: buildEffectivePreferenceMap({
-    policyRows,
-    storedPreferences,
-  }),
-  categories: buildPreferenceCategories({
-    roleCode,
-    policyRows,
-    storedPreferences,
-  }),
+  ...(() => {
+    const resolvedPreferences = resolveEffectiveNotificationPreferences({
+      roleCode,
+      policyRows,
+      modernPreferences,
+    });
+
+    return {
+      notificationRulePreferences: resolvedPreferences.normalizedPreferences,
+      effectiveNotificationChannels: resolvedPreferences.effectiveChannels,
+      categories: buildPreferenceCategories({
+        roleCode,
+        policyRows,
+        storedPreferences: resolvedPreferences.normalizedPreferences,
+      }),
+    };
+  })(),
 });
 
 const buildRoleSettingsResponse = async ({
@@ -484,7 +476,7 @@ const buildRoleSettingsResponse = async ({
   const notificationSettings = buildNotificationSettingsResponse({
     roleCode,
     policyRows,
-    storedPreferences: normalizedSnapshot.notificationRulePreferences,
+    modernPreferences: normalizedSnapshot.notificationRulePreferences,
   });
 
   return {
@@ -581,7 +573,9 @@ const validateAndNormalizeNotificationPreferences = async ({
   dbClient,
 }) => {
   const policyRows = await getRolePolicyRows({ roleCode, dbClient });
-  const policyMap = new Map(policyRows.map((row) => [row.code, row]));
+  const policyMap = new Map(
+    policyRows.map((row) => [getCanonicalRuleCode(row.code), row]),
+  );
   const sanitizedIncomingPreferences = sanitizeNotificationRulePreferences(
     incomingPreferences,
   );
@@ -877,6 +871,7 @@ const saveCurrentSettings = async ({
         changedProfileFields.push(fieldName);
       }
     });
+    const hasActualProfileFieldChanges = changedProfileFields.length > 0;
 
     const nextSettings = await buildRoleSettingsResponse({
       roleCode,
@@ -895,26 +890,28 @@ const saveCurrentSettings = async ({
       dbClient,
     );
 
-    await insertAuditLog(
-      {
-        user_id: userId,
-        role_code: roleCode,
-        device_id: null,
-        action: PROFILE_UPDATED_AUDIT_ACTION,
-        entity_type: "USER_PROFILE",
-        entity_id: userId,
-        old_values_json: {
-          changedFields: changedProfileFields,
-          profile: previousProfileValues,
+    if (hasActualProfileFieldChanges) {
+      await insertAuditLog(
+        {
+          user_id: userId,
+          role_code: roleCode,
+          device_id: null,
+          action: PROFILE_UPDATED_AUDIT_ACTION,
+          entity_type: "USER_PROFILE",
+          entity_id: userId,
+          old_values_json: {
+            changedFields: changedProfileFields,
+            profile: previousProfileValues,
+          },
+          new_values_json: {
+            changedFields: changedProfileFields,
+            profile: nextProfileValues,
+          },
+          ip_address: ipAddress,
         },
-        new_values_json: {
-          changedFields: changedProfileFields,
-          profile: nextProfileValues,
-        },
-        ip_address: ipAddress,
-      },
-      dbClient,
-    );
+        dbClient,
+      );
+    }
 
     if (hasPictureReplacement || hasPictureRemoval) {
       await settingsRepository.insertRoleSettingsSnapshot(

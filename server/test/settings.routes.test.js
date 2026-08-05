@@ -138,3 +138,135 @@ test("settings save route hides raw SQL errors from the client", async () => {
     },
   );
 });
+
+test("settings save route rejects legacy notification payload fields", async () => {
+  let saveCalled = false;
+
+  await withStubbedSettingsRoute(
+    {
+      authMiddlewareStub: {
+        ROLE_CODES: {
+          MAYOR: "MAYOR",
+          MSWDO: "MSWDO",
+          BARANGAY: "BARANGAY",
+        },
+        requireRoles: () => (req, _res, next) => {
+          req.auth = {
+            userId: "user-legacy-route",
+            roleCode: "BARANGAY",
+          };
+          next();
+        },
+      },
+      settingsServiceStub: {
+        saveCurrentSettings: async () => {
+          saveCalled = true;
+          return {};
+        },
+      },
+      validatorStub: require("../src/validators/settings.validator"),
+    },
+    async (router) => {
+      const app = express();
+      app.use(express.json());
+      app.use("/api/v1/settings", router);
+
+      const server = await new Promise((resolve) => {
+        const instance = app.listen(0, () => resolve(instance));
+      });
+
+      try {
+        const port = server.address().port;
+        const response = await fetch(`http://127.0.0.1:${port}/api/v1/settings/current`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            settings: {
+              enabledNotificationRuleCodes: ["SYNC_CONFLICT"],
+            },
+          }),
+        });
+        const payload = await response.json();
+
+        assert.equal(response.status, 400);
+        assert.equal(
+          payload.message,
+          "Notification preferences must be submitted through the approved modern settings format.",
+        );
+        assert.equal(saveCalled, false);
+      } finally {
+        await new Promise((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        });
+      }
+    },
+  );
+});
+
+test("settings save route rejects legacy snake_case notification payload fields", async () => {
+  let saveCalled = false;
+
+  await withStubbedSettingsRoute(
+    {
+      authMiddlewareStub: {
+        ROLE_CODES: {
+          MAYOR: "MAYOR",
+          MSWDO: "MSWDO",
+          BARANGAY: "BARANGAY",
+        },
+        requireRoles: () => (req, _res, next) => {
+          req.auth = {
+            userId: "user-legacy-route-snake",
+            roleCode: "BARANGAY",
+          };
+          next();
+        },
+      },
+      settingsServiceStub: {
+        saveCurrentSettings: async () => {
+          saveCalled = true;
+          return {};
+        },
+      },
+      validatorStub: require("../src/validators/settings.validator"),
+    },
+    async (router) => {
+      const app = express();
+      app.use(express.json());
+      app.use("/api/v1/settings", router);
+
+      const server = await new Promise((resolve) => {
+        const instance = app.listen(0, () => resolve(instance));
+      });
+
+      try {
+        const port = server.address().port;
+        const response = await fetch(`http://127.0.0.1:${port}/api/v1/settings/current`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            settings: {
+              enabled_notification_rule_codes_json: ["SYNC_CONFLICT"],
+            },
+          }),
+        });
+        const payload = await response.json();
+
+        assert.equal(response.status, 400);
+        assert.equal(
+          payload.message,
+          "Notification preferences must be submitted through the approved modern settings format.",
+        );
+        assert.equal(saveCalled, false);
+      } finally {
+        await new Promise((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        });
+      }
+    },
+  );
+});

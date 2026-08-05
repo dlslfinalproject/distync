@@ -72,6 +72,52 @@ const formatStubDisplayNo = (sequenceNo) => {
   return normalizedSequence > 0 ? `STUB#${normalizedSequence}` : null;
 };
 
+const buildQrValidationError = ({
+  code,
+  message,
+  statusCode,
+  details = {},
+}) => {
+  const error = new Error(message);
+  error.code = code;
+  error.statusCode = statusCode;
+  error.details = details;
+  return error;
+};
+
+const buildStubReferenceDetails = (stub) => {
+  if (!stub) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries({
+      stubNumber: formatStubDisplayNo(stub.stub_sequence_no) || stub.stub_no || null,
+    }).filter(([, value]) => value),
+  );
+};
+
+const buildClaimedStubDetails = (stub, latestDistributionTransaction = null) => {
+  const claimedAt =
+    latestDistributionTransaction?.received_at ||
+    latestDistributionTransaction?.distribution_date ||
+    latestDistributionTransaction?.created_at ||
+    stub?.claimed_at ||
+    null;
+
+  return Object.fromEntries(
+    Object.entries({
+      ...buildStubReferenceDetails(stub),
+      claimedAt,
+      claimedByName: latestDistributionTransaction?.claimed_by_name || null,
+      reliefPackName:
+        latestDistributionTransaction?.relief_pack_template_name || null,
+      claimStatus:
+        latestDistributionTransaction?.distribution_status || stub?.status || null,
+    }).filter(([, value]) => value),
+  );
+};
+
 const ensureStubQrMetadata = async (stub, qrGeneratedBy) => {
   if (stub.qr_code_value) {
     return stub;
@@ -349,10 +395,14 @@ const claimBarangayStub = async (params) => {
   }
 
   if (scopedStub.status !== "ISSUED") {
-    const error = new Error("Only unclaimed stubs can be marked as claimed.");
-    error.statusCode = 409;
-    error.code = "STUB_ALREADY_CLAIMED";
-    throw error;
+    const latestDistributionTransaction =
+      await stubRepository.getLatestDistributionTransactionByStubId(scopedStub.id);
+    throw buildQrValidationError({
+      code: "STUB_ALREADY_CLAIMED",
+      message: "Only unclaimed stubs can be marked as claimed.",
+      statusCode: 409,
+      details: buildClaimedStubDetails(scopedStub, latestDistributionTransaction),
+    });
   }
 
   const client = await pool.connect();
@@ -373,10 +423,19 @@ const claimBarangayStub = async (params) => {
     }
 
     if (lockedStub.status !== "ISSUED") {
-      const error = new Error("Only unclaimed stubs can be marked as claimed.");
-      error.statusCode = 409;
-      error.code = "STUB_ALREADY_CLAIMED";
-      throw error;
+      const latestDistributionTransaction =
+        await stubRepository.getLatestDistributionTransactionByStubId(
+          lockedStub.id,
+        );
+      throw buildQrValidationError({
+        code: "STUB_ALREADY_CLAIMED",
+        message: "Only unclaimed stubs can be marked as claimed.",
+        statusCode: 409,
+        details: buildClaimedStubDetails(
+          lockedStub,
+          latestDistributionTransaction,
+        ),
+      });
     }
 
     const receivedAt = params.claimed_at || new Date().toISOString();
@@ -417,10 +476,17 @@ const claimBarangayStub = async (params) => {
     await client.query("ROLLBACK");
 
     if (error.code === "23505") {
-      const duplicateError = new Error("This stub has already been used for distribution");
-      duplicateError.statusCode = 409;
-      duplicateError.code = "STUB_ALREADY_CLAIMED";
-      throw duplicateError;
+      const latestDistributionTransaction =
+        await stubRepository.getLatestDistributionTransactionByStubId(params.id);
+      throw buildQrValidationError({
+        code: "STUB_ALREADY_CLAIMED",
+        message: "This stub has already been used for distribution",
+        statusCode: 409,
+        details: buildClaimedStubDetails(
+          scopedStub,
+          latestDistributionTransaction,
+        ),
+      });
     }
 
     throw error;
@@ -585,48 +651,117 @@ const getStubDetails = async (id) => {
   };
 };
 
-const getClaimabilityResult = (status) => {
-  if (status === "ISSUED") {
+const getClaimabilityResult = ({
+  stub,
+  latestDistributionTransaction = null,
+}) => {
+  if (
+    stub.status === "ISSUED" &&
+    (!stub.qr_status || stub.qr_status === ACTIVE_QR_STATUS)
+  ) {
     return {
       is_claimable: true,
+      code: null,
       reason: null,
       message: "Stub verified successfully",
+      details: {},
     };
   }
 
-  const reasonByStatus = {
-    CLAIMED: "Stub already claimed",
-    CANCELLED: "Stub has been cancelled",
-    VOID: "Stub has been voided",
-  };
+  if (stub.qr_status && stub.qr_status !== ACTIVE_QR_STATUS) {
+    return {
+      is_claimable: false,
+      code: "QR_INACTIVE",
+      reason: "QR code is inactive",
+      message: "QR code is inactive",
+      details: buildStubReferenceDetails(stub),
+    };
+  }
+
+  if (stub.status === "CLAIMED") {
+    return {
+      is_claimable: false,
+      code: "STUB_ALREADY_CLAIMED",
+      reason: "Stub already claimed",
+      message: "Stub already claimed",
+      details: buildClaimedStubDetails(stub, latestDistributionTransaction),
+    };
+  }
+
+  if (stub.status === "CANCELLED") {
+    return {
+      is_claimable: false,
+      code: "STUB_CANCELLED",
+      reason: "Stub has been cancelled",
+      message: "Stub has been cancelled",
+      details: buildStubReferenceDetails(stub),
+    };
+  }
+
+  if (stub.status === "VOID") {
+    return {
+      is_claimable: false,
+      code: "STUB_VOID",
+      reason: "Stub has been voided",
+      message: "Stub has been voided",
+      details: buildStubReferenceDetails(stub),
+    };
+  }
 
   return {
     is_claimable: false,
-    reason: reasonByStatus[status] || "Stub is not claimable",
+    code: "STUB_UNAVAILABLE",
+    reason: "Stub is not claimable",
     message: "Stub is not claimable",
+    details: buildStubReferenceDetails(stub),
   };
 };
 
 const verifyStub = async (identifier) => {
+  if (
+    identifier.qr_code_value &&
+    !String(identifier.qr_code_value || "").trim().startsWith("DISTYNC-STUB|")
+  ) {
+    throw buildQrValidationError({
+      code: "INVALID_QR_STUB",
+      message:
+        "The scanned QR code is not recognized as a valid DISTYNC relief stub.",
+      statusCode: 400,
+    });
+  }
+
   const stub = identifier.qr_code_value
     ? await stubRepository.getStubByQrCodeValue(identifier.qr_code_value)
     : await stubRepository.getStubByStubNoOrSerialNo(identifier);
 
   if (!stub) {
-    const error = new Error("Stub not found");
-    error.statusCode = 404;
-    throw error;
+    throw buildQrValidationError({
+      code: "STUB_NOT_FOUND",
+      message: "Stub not found",
+      statusCode: 404,
+    });
   }
 
   const ensuredStub = await ensureStubQrMetadata(stub, null);
-  const claimability = getClaimabilityResult(ensuredStub.status);
+  const latestDistributionTransaction =
+    ensuredStub.status === "ISSUED"
+      ? null
+      : await stubRepository.getLatestDistributionTransactionByStubId(
+          ensuredStub.id,
+        );
+  const claimability = getClaimabilityResult({
+    stub: ensuredStub,
+    latestDistributionTransaction,
+  });
 
   return {
     message: claimability.message,
     data: {
       is_valid: true,
       is_claimable: claimability.is_claimable,
+      code: claimability.code,
       reason: claimability.reason,
+      details: claimability.details,
       stub: {
         id: ensuredStub.id,
         stub_no: ensuredStub.stub_no,

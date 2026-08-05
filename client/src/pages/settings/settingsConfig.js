@@ -27,12 +27,6 @@ export const BARANGAY_NOTIFICATION_OPTIONS = [
       "Track upcoming relief distribution schedules, assignment changes, and related coordination notices.",
   },
   {
-    key: "reliefArrivalNotifications",
-    label: "Relief Arrival Notifications",
-    description:
-      "Review supply arrival updates, release readiness, and allocation notices.",
-  },
-  {
     key: "attendanceReminders",
     label: "Attendance Reminders",
     description:
@@ -124,7 +118,7 @@ export const ROLE_NOTIFICATION_OPTIONS = {
         "Receive strategic disaster updates and evacuation monitoring summaries.",
     },
     {
-      key: "reliefArrivalNotifications",
+      key: "reliefOperations",
       label: "Relief Operations",
       description:
         "Receive inventory shortages, completed distribution updates, donation received alerts, and operational anomaly alerts.",
