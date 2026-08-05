@@ -6,6 +6,10 @@ import {
   MSWDO_SETTINGS_SECTIONS,
 } from "./settingsConfig";
 import {
+  DEFAULT_SETTINGS_SECTION,
+  SETTINGS_SECTIONS,
+} from "./settingsSectionRouting";
+import {
   LOCAL_SYNC_STATUS,
   buildDisplayName,
   ensureArray,
@@ -80,15 +84,15 @@ export const buildBarangaySectionCards = ({
 }) => {
   return BARANGAY_SETTINGS_SECTIONS.map((section) => {
     switch (section.key) {
-      case "account-settings":
+      case SETTINGS_SECTIONS.ACCOUNT:
         return buildProfileSectionCard(section, preferences);
-      case "notification-preferences":
+      case SETTINGS_SECTIONS.NOTIFICATIONS:
         return buildDefaultSectionCard(
           section,
           enabledRuleCodes.length > 0 ? "success" : "warning",
           `${enabledRuleCodes.length} rules enabled`,
         );
-      case "sync-preferences":
+      case SETTINGS_SECTIONS.SYSTEM:
         return buildSyncSectionCard(section);
       default:
         return buildDefaultSectionCard(section);
@@ -103,15 +107,15 @@ export const buildMswdoSectionCards = ({
 }) => {
   return MSWDO_SETTINGS_SECTIONS.map((section) => {
     switch (section.key) {
-      case "account-settings":
+      case SETTINGS_SECTIONS.ACCOUNT:
         return buildProfileSectionCard(section, preferences);
-      case "notification-preferences":
+      case SETTINGS_SECTIONS.NOTIFICATIONS:
         return buildNotificationSectionCard(
           section,
           enabledRuleCodes,
           notificationRuleCount,
         );
-      case "sync-preferences":
+      case SETTINGS_SECTIONS.SYSTEM:
         return buildSyncSectionCard(section);
       default:
         return buildDefaultSectionCard(section);
@@ -126,15 +130,15 @@ export const buildMayorSectionCards = ({
 }) => {
   return MAYOR_SETTINGS_SECTIONS.map((section) => {
     switch (section.key) {
-      case "account-settings":
+      case SETTINGS_SECTIONS.ACCOUNT:
         return buildProfileSectionCard(section, preferences);
-      case "notification-preferences":
+      case SETTINGS_SECTIONS.NOTIFICATIONS:
         return buildNotificationSectionCard(
           section,
           enabledRuleCodes,
           notificationRuleCount,
         );
-      case "sync-preferences":
+      case SETTINGS_SECTIONS.SYSTEM:
         return buildSyncSectionCard(section);
       default:
         return buildDefaultSectionCard(section);
@@ -156,11 +160,17 @@ export const buildSettingsPageActions = ({
   }
 
   return [
-    {
-      label: "Back",
-      onClick: onBack,
-      variant: "secondary",
-    },
+    ...(
+      activeSectionMeta.key !== DEFAULT_SETTINGS_SECTION
+        ? [
+            {
+              label: "Back",
+              onClick: onBack,
+              variant: "secondary",
+            },
+          ]
+        : []
+    ),
     ...(
       editableSectionKeys.has(activeSectionMeta.key)
         ? [

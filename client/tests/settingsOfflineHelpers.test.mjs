@@ -131,16 +131,16 @@ test("mergeRefreshedSettingsWithLocalDraft preserves local editable drafts while
 
 test("getSettingsOfflineMessage returns page-specific messages and a safe fallback", () => {
   assert.deepEqual(
-    getSettingsOfflineMessage("account-settings"),
-    SETTINGS_OFFLINE_MESSAGES["account-settings"],
+    getSettingsOfflineMessage("account"),
+    SETTINGS_OFFLINE_MESSAGES.account,
   );
   assert.deepEqual(
-    getSettingsOfflineMessage("notification-preferences"),
-    SETTINGS_OFFLINE_MESSAGES["notification-preferences"],
+    getSettingsOfflineMessage("notifications"),
+    SETTINGS_OFFLINE_MESSAGES.notifications,
   );
   assert.deepEqual(
-    getSettingsOfflineMessage("sync-preferences"),
-    SETTINGS_OFFLINE_MESSAGES["sync-preferences"],
+    getSettingsOfflineMessage("system"),
+    SETTINGS_OFFLINE_MESSAGES.system,
   );
   assert.deepEqual(
     getSettingsOfflineMessage("unknown-section"),
@@ -151,22 +151,22 @@ test("getSettingsOfflineMessage returns page-specific messages and a safe fallba
 test("buildSettingsStatusBanner uses section-aware offline copy and preserves reconnect warnings", () => {
   assert.deepEqual(
     buildSettingsStatusBanner({
-      activeSectionKey: "notification-preferences",
+      activeSectionKey: "notifications",
       isOnline: false,
       hasUnsavedChanges: false,
       isReconnectRefreshBlocked: false,
     }),
-    SETTINGS_OFFLINE_MESSAGES["notification-preferences"],
+    SETTINGS_OFFLINE_MESSAGES.notifications,
   );
 
   assert.deepEqual(
     buildSettingsStatusBanner({
-      activeSectionKey: "sync-preferences",
+      activeSectionKey: "system",
       isOnline: false,
       hasUnsavedChanges: false,
       isReconnectRefreshBlocked: false,
     }),
-    SETTINGS_OFFLINE_MESSAGES["sync-preferences"],
+    SETTINGS_OFFLINE_MESSAGES.system,
   );
 
   assert.deepEqual(
@@ -181,7 +181,7 @@ test("buildSettingsStatusBanner uses section-aware offline copy and preserves re
 
   assert.deepEqual(
     buildSettingsStatusBanner({
-      activeSectionKey: "account-settings",
+      activeSectionKey: "account",
       isOnline: false,
       hasUnsavedChanges: true,
       isReconnectRefreshBlocked: false,
@@ -194,7 +194,7 @@ test("buildSettingsStatusBanner uses section-aware offline copy and preserves re
 
   assert.deepEqual(
     buildSettingsStatusBanner({
-      activeSectionKey: "account-settings",
+      activeSectionKey: "account",
       isOnline: true,
       hasUnsavedChanges: false,
       isReconnectRefreshBlocked: true,
@@ -209,12 +209,15 @@ test("buildSettingsStatusBanner uses section-aware offline copy and preserves re
 test("all role settings section configs expose the same notification and system-information keys", async () => {
   const source = await fs.readFile(settingsConfigSourcePath, "utf8");
 
-  const accountSettingsMatches = source.match(/key: "account-settings"/g) || [];
+  const accountSettingsMatches = source.match(/key: SETTINGS_SECTIONS\.ACCOUNT/g) || [];
   const notificationMatches =
-    source.match(/key: "notification-preferences"/g) || [];
-  const systemInformationMatches = source.match(/key: "sync-preferences"/g) || [];
+    source.match(/key: SETTINGS_SECTIONS\.NOTIFICATIONS/g) || [];
+  const systemInformationMatches = source.match(/key: SETTINGS_SECTIONS\.SYSTEM/g) || [];
 
-  assert.equal(accountSettingsMatches.length, 3);
-  assert.equal(notificationMatches.length, 3);
-  assert.equal(systemInformationMatches.length, 3);
+  assert.equal(accountSettingsMatches.length, 1);
+  assert.equal(notificationMatches.length, 1);
+  assert.equal(systemInformationMatches.length, 1);
+  assert.match(source, /export const BARANGAY_SETTINGS_SECTIONS = SHARED_SETTINGS_SECTIONS;/);
+  assert.match(source, /export const MSWDO_SETTINGS_SECTIONS = SHARED_SETTINGS_SECTIONS;/);
+  assert.match(source, /export const MAYOR_SETTINGS_SECTIONS = SHARED_SETTINGS_SECTIONS;/);
 });

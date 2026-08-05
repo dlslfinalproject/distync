@@ -3,6 +3,7 @@ import NotificationPreferencesSection from "../components/NotificationPreference
 import ProfileSection from "../components/ProfileSection";
 import RoleSettingsViewShell from "../components/RoleSettingsViewShell";
 import SystemInformationSection from "../components/SystemInformationSection";
+import { SETTINGS_SECTIONS } from "../settingsSectionRouting";
 
 const MswdoSettingsView = ({
   activeSection,
@@ -30,11 +31,11 @@ const MswdoSettingsView = ({
 
   const renderSectionContent = () => {
     switch (activeSection) {
-      case "account-settings":
+      case SETTINGS_SECTIONS.ACCOUNT:
         return <ProfileSection {...profileSectionProps} />;
-      case "notification-preferences":
+      case SETTINGS_SECTIONS.NOTIFICATIONS:
         return <NotificationPreferencesSection {...notificationSectionProps} />;
-      case "sync-preferences":
+      case SETTINGS_SECTIONS.SYSTEM:
         return (
           <SystemInformationSection
             {...ctx.syncSectionProps}
@@ -48,6 +49,7 @@ const MswdoSettingsView = ({
 
   return (
     <RoleSettingsViewShell
+      activeSection={activeSection}
       activeSectionMeta={activeSectionMeta}
       roleMeta={roleMeta}
       pageActions={pageActions}

@@ -120,10 +120,12 @@ test("settings banner layout does not introduce fixed heights or nowrap copy con
 test("settings page still resolves section identity from activeSection instead of pathname matching", async () => {
   const settingsSource = await fs.readFile(settingsPageSourcePath, "utf8");
 
+  assert.match(settingsSource, /useSearchParams/);
+  assert.match(settingsSource, /getSettingsSectionNormalization/);
   assert.match(settingsSource, /activeSectionKey: activeSection/);
   assert.doesNotMatch(settingsSource, /pathname\.includes/);
-  assert.doesNotMatch(settingsSource, /notification-preferences.*pathname/s);
-  assert.doesNotMatch(settingsSource, /sync-preferences.*pathname/s);
+  assert.doesNotMatch(settingsSource, /notifications.*pathname/s);
+  assert.doesNotMatch(settingsSource, /system.*pathname/s);
 });
 
 test("settings reconnect warning remains generic rather than profile-specific", async () => {

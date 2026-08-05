@@ -2,6 +2,7 @@ import React from "react";
 import PageHeader from "../../../components/layout/PageHeader";
 import { shellStyles } from "../../../components/layout/BarangayLayout";
 import FeedbackToast from "../../../components/shared/FeedbackToast";
+import { DEFAULT_SETTINGS_SECTION } from "../settingsSectionRouting";
 
 class SettingsSectionErrorBoundary extends React.Component {
   constructor(props) {
@@ -40,7 +41,7 @@ class SettingsSectionErrorBoundary extends React.Component {
             <div>
               <button
                 type="button"
-                onClick={() => onOpenSection(null)}
+                onClick={() => onOpenSection(DEFAULT_SETTINGS_SECTION)}
                 style={{
                   minHeight: "42px",
                   padding: "0 16px",
@@ -52,7 +53,7 @@ class SettingsSectionErrorBoundary extends React.Component {
                   cursor: "pointer",
                 }}
               >
-                Back to Categories
+                Back to Account Settings
               </button>
             </div>
           </div>
@@ -86,6 +87,7 @@ const SectionContentRenderer = ({ renderSectionContent }) => {
 };
 
 const RoleSettingsViewShell = ({
+  activeSection,
   activeSectionMeta,
   roleMeta,
   pageActions,
@@ -151,6 +153,62 @@ const RoleSettingsViewShell = ({
         </section>
       ) : null}
 
+      <section style={shellStyles.card}>
+        <div style={settingsHubStyles.grid}>
+          {sectionCards.map((section) => {
+            const Icon = section.icon;
+            const isActive = section.key === activeSection;
+
+            return (
+              <button
+                key={section.key}
+                type="button"
+                onClick={() => onOpenSection(section.key)}
+                aria-current={isActive ? "page" : undefined}
+                style={{
+                  ...settingsHubStyles.button,
+                  borderColor: isActive ? "#2f6499" : settingsHubStyles.button.border,
+                  boxShadow: isActive
+                    ? "0 18px 32px rgba(47, 100, 153, 0.16)"
+                    : settingsHubStyles.button.boxShadow,
+                  transform: isActive ? "translateY(-2px)" : undefined,
+                  background: isActive
+                    ? "linear-gradient(180deg, rgba(234, 244, 255, 0.98) 0%, rgba(246, 250, 255, 0.98) 100%)"
+                    : settingsHubStyles.button.background,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "flex-start",
+                    gap: "12px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <span style={settingsHubStyles.iconBadge}>
+                    <Icon size={22} />
+                  </span>
+                  <StatusChipComponent
+                    tone={section.statusTone}
+                    label={section.statusLabel}
+                  />
+                </div>
+
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <h3 style={{ margin: 0, color: "#17324d" }}>{section.label}</h3>
+                  <p style={mutedValueStyles}>{section.description}</p>
+                </div>
+
+                <span style={settingsHubStyles.openLabel}>
+                  {isActive ? "Current section" : "Open section"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
       {activeSectionMeta ? (
         <SettingsSectionErrorBoundary
           sectionKey={activeSectionMeta.key}
@@ -158,49 +216,7 @@ const RoleSettingsViewShell = ({
         >
           <SectionContentRenderer renderSectionContent={renderSectionContent} />
         </SettingsSectionErrorBoundary>
-      ) : (
-        <section style={shellStyles.card}>
-          <div style={settingsHubStyles.grid}>
-            {sectionCards.map((section) => {
-              const Icon = section.icon;
-
-              return (
-                <button
-                  key={section.key}
-                  type="button"
-                  onClick={() => onOpenSection(section.key)}
-                  style={settingsHubStyles.button}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "flex-start",
-                      gap: "12px",
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <span style={settingsHubStyles.iconBadge}>
-                      <Icon size={22} />
-                    </span>
-                    <StatusChipComponent
-                      tone={section.statusTone}
-                      label={section.statusLabel}
-                    />
-                  </div>
-
-                  <div style={{ display: "grid", gap: "8px" }}>
-                    <h3 style={{ margin: 0, color: "#17324d" }}>{section.label}</h3>
-                    <p style={mutedValueStyles}>{section.description}</p>
-                  </div>
-
-                  <span style={settingsHubStyles.openLabel}>Open section</span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-      )}
+      ) : null}
 
       <FeedbackToast
         message={toast.message}

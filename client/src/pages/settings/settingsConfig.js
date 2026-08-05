@@ -4,6 +4,7 @@ import {
   FiUser,
 } from "react-icons/fi";
 import { ROLE_CODES } from "../../utils/roleSession";
+import { SETTINGS_SECTIONS } from "./settingsSectionRouting";
 
 export const BARANGAY_POSITION_LABEL = "Barangay Official";
 
@@ -40,28 +41,30 @@ export const BARANGAY_NOTIFICATION_OPTIONS = [
   },
 ];
 
-export const BARANGAY_SETTINGS_SECTIONS = [
+const SHARED_SETTINGS_SECTIONS = [
   {
-    key: "account-settings",
+    key: SETTINGS_SECTIONS.ACCOUNT,
     label: "Account Settings",
     icon: FiUser,
     description: "View and manage your account information.",
   },
   {
-    key: "notification-preferences",
+    key: SETTINGS_SECTIONS.NOTIFICATIONS,
     label: "Notification Preferences",
     icon: FiBell,
     description:
       "Manage which DISTYNC notification categories can reach your account.",
   },
   {
-    key: "sync-preferences",
+    key: SETTINGS_SECTIONS.SYSTEM,
     label: "System Information",
     icon: FiRefreshCw,
     description:
       "View general information about the DISTYNC application.",
   },
 ];
+
+export const BARANGAY_SETTINGS_SECTIONS = SHARED_SETTINGS_SECTIONS;
 
 export const ROLE_NOTIFICATION_OPTIONS = {
   [ROLE_CODES.BARANGAY]: [
@@ -136,62 +139,18 @@ export const getNotificationOptionsForRole = (roleCode) =>
   ROLE_NOTIFICATION_OPTIONS[roleCode] || BARANGAY_NOTIFICATION_OPTIONS;
 
 export const EDITABLE_BARANGAY_SECTION_KEYS = new Set([
-  "account-settings",
-  "notification-preferences",
+  SETTINGS_SECTIONS.ACCOUNT,
+  SETTINGS_SECTIONS.NOTIFICATIONS,
 ]);
-
-export const MSWDO_SETTINGS_SECTIONS = [
-  {
-    key: "account-settings",
-    label: "Account Settings",
-    icon: FiUser,
-    description: "View and manage your account information.",
-  },
-  {
-    key: "notification-preferences",
-    label: "Notification Preferences",
-    icon: FiBell,
-    description:
-      "Manage which DISTYNC notification categories can reach your account.",
-  },
-  {
-    key: "sync-preferences",
-    label: "System Information",
-    icon: FiRefreshCw,
-    description:
-      "View general information about the DISTYNC application.",
-  },
-];
+export const MSWDO_SETTINGS_SECTIONS = SHARED_SETTINGS_SECTIONS;
 
 export const EDITABLE_MSWDO_SECTION_KEYS = new Set([
-  "account-settings",
-  "notification-preferences",
+  SETTINGS_SECTIONS.ACCOUNT,
+  SETTINGS_SECTIONS.NOTIFICATIONS,
 ]);
-
-export const MAYOR_SETTINGS_SECTIONS = [
-  {
-    key: "account-settings",
-    label: "Account Settings",
-    icon: FiUser,
-    description: "View and manage your account information.",
-  },
-  {
-    key: "notification-preferences",
-    label: "Notification Preferences",
-    icon: FiBell,
-    description:
-      "Manage which DISTYNC notification categories can reach your account.",
-  },
-  {
-    key: "sync-preferences",
-    label: "System Information",
-    icon: FiRefreshCw,
-    description:
-      "View general information about the DISTYNC application.",
-  },
-];
+export const MAYOR_SETTINGS_SECTIONS = SHARED_SETTINGS_SECTIONS;
 
 export const EDITABLE_MAYOR_SECTION_KEYS = new Set([
-  "account-settings",
-  "notification-preferences",
+  SETTINGS_SECTIONS.ACCOUNT,
+  SETTINGS_SECTIONS.NOTIFICATIONS,
 ]);

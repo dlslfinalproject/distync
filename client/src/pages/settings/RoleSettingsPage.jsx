@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { useNavigate } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import ConfirmationModal from "../../components/shared/ConfirmationModal";
@@ -58,7 +58,6 @@ import {
   buildSettingsPageActions,
   buildSharedRoleViewContext,
   getActiveSettingsSection,
-  getSectionsForRole,
 } from "./settingsViewBuilders";
 import BarangaySettingsView from "./views/BarangaySettingsView";
 import MayorSettingsView from "./views/MayorSettingsView";
@@ -78,6 +77,13 @@ import {
   hasCachedRoleSettingsData,
   mergeRefreshedSettingsWithLocalDraft,
 } from "./settingsOfflineHelpers";
+import {
+  DEFAULT_SETTINGS_SECTION,
+  getSettingsSectionNormalization,
+  isValidSettingsSection,
+  SETTINGS_SECTIONS,
+  withSettingsSection,
+} from "./settingsSectionRouting";
 import { useSystemInformation } from "./useSystemInformation";
 
 const gridStyles = {
@@ -344,7 +350,7 @@ const hasStructuredProfileData = (profile = {}) =>
   );
 
 const RoleSettingsPage = () => {
-  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { accessMode, currentRole, authenticatedUser, syncAuthState } = useAuth();
   const syncEntries =
     useLiveQuery(() => getVisibleSyncQueueEntriesByUpdatedAt(), [], []) ||
@@ -371,7 +377,6 @@ const RoleSettingsPage = () => {
   const [isUnsavedModalOpen, setIsUnsavedModalOpen] = useState(false);
   const [isReconnectConflictModalOpen, setIsReconnectConflictModalOpen] =
     useState(false);
-  const [activeSection, setActiveSection] = useState(null);
   const [toast, setToast] = useState({
     message: "",
     type: "info",
@@ -423,6 +428,12 @@ const RoleSettingsPage = () => {
   const isBarangayRole = currentRole === ROLE_CODES.BARANGAY;
   const isMswdoRole = currentRole === ROLE_CODES.MSWDO;
   const isMayorRole = currentRole === ROLE_CODES.MAYOR;
+  const searchParamsKey = searchParams.toString();
+  const settingsSectionState = useMemo(
+    () => getSettingsSectionNormalization(searchParams),
+    [searchParamsKey],
+  );
+  const activeSection = settingsSectionState.section;
   const settingsOwnerKey = useMemo(() => {
     if (!accessMode || !currentRole || !authenticatedUser?.id) {
       return "";
@@ -582,6 +593,14 @@ const RoleSettingsPage = () => {
   };
 
   useEffect(() => {
+    if (!settingsSectionState.shouldNormalize) {
+      return;
+    }
+
+    setSearchParams(settingsSectionState.params, { replace: true });
+  }, [setSearchParams, settingsSectionState]);
+
+  useEffect(() => {
     preferencesRef.current = preferences;
   }, [preferences]);
 
@@ -611,29 +630,6 @@ const RoleSettingsPage = () => {
       window.removeEventListener("offline", handleOffline);
     };
   }, []);
-
-  useEffect(() => {
-    const availableSections = getSectionsForRole({
-      isBarangayRole,
-      isMswdoRole,
-      isMayorRole,
-    });
-
-    if (availableSections.length === 0) {
-      setActiveSection(null);
-      return;
-    }
-
-    setActiveSection((current) => {
-      if (!current) {
-        return null;
-      }
-
-      return availableSections.some((section) => section.key === current)
-        ? current
-        : null;
-    });
-  }, [isBarangayRole, isMayorRole, isMswdoRole]);
 
   useEffect(() => {
     if (!settingsOwnerKey) {
@@ -1104,8 +1100,9 @@ const RoleSettingsPage = () => {
       return;
     }
 
-    const isProfileSection = activeSection === "account-settings";
-    const isNotificationSection = activeSection === "notification-preferences";
+    const isProfileSection = activeSection === SETTINGS_SECTIONS.ACCOUNT;
+    const isNotificationSection =
+      activeSection === SETTINGS_SECTIONS.NOTIFICATIONS;
 
     if (!isOnline) {
       showScopedToast({
@@ -1503,7 +1500,14 @@ const RoleSettingsPage = () => {
       return;
     }
 
-    setActiveSection(null);
+    if (activeSection !== DEFAULT_SETTINGS_SECTION) {
+      const nextParams = withSettingsSection(
+        searchParams,
+        DEFAULT_SETTINGS_SECTION,
+      );
+
+      setSearchParams(nextParams);
+    }
   };
 
   const handleKeepEditing = () => {
@@ -1524,7 +1528,16 @@ const RoleSettingsPage = () => {
       contactNumber: false,
     });
     setNotificationTouched(false);
-    setActiveSection(null);
+  };
+
+  const handleOpenSection = (nextSection) => {
+    if (!isValidSettingsSection(nextSection) || nextSection === activeSection) {
+      return;
+    }
+
+    const nextParams = withSettingsSection(searchParams, nextSection);
+
+    setSearchParams(nextParams);
   };
 
   const handleProfilePictureChange = (event) => {
@@ -2092,7 +2105,7 @@ const RoleSettingsPage = () => {
           pageActions={barangayPageActions}
           errorMessage={errorMessage}
           sectionCards={barangaySectionCards}
-          onOpenSection={setActiveSection}
+          onOpenSection={handleOpenSection}
           toast={toast}
           onCloseToast={() => setToast({ message: "", type: "info", title: "" })}
           settingsHubStyles={settingsHubStyles}
@@ -2117,7 +2130,7 @@ const RoleSettingsPage = () => {
           pageActions={mswdoPageActions}
           errorMessage={errorMessage}
           sectionCards={mswdoSectionCards}
-          onOpenSection={setActiveSection}
+          onOpenSection={handleOpenSection}
           toast={toast}
           onCloseToast={() => setToast({ message: "", type: "info", title: "" })}
           settingsHubStyles={settingsHubStyles}
@@ -2142,7 +2155,7 @@ const RoleSettingsPage = () => {
           pageActions={mayorPageActions}
           errorMessage={errorMessage}
           sectionCards={mayorSectionCards}
-          onOpenSection={setActiveSection}
+          onOpenSection={handleOpenSection}
           toast={toast}
           onCloseToast={() => setToast({ message: "", type: "info", title: "" })}
           settingsHubStyles={settingsHubStyles}
