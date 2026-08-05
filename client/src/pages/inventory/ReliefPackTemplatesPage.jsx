@@ -853,6 +853,7 @@ const getReliefPackQuantityMultiplier = (template, householdSize) => {
 
 const buildTemplateDemand = (template, households) => {
   const barangayDemandMap = new Map();
+  const eventDemandMap = new Map();
   let neededPacks = 0;
 
   (households || []).forEach((household) => {
@@ -862,8 +863,15 @@ const buildTemplateDemand = (template, households) => {
     );
     const barangayId = household?.barangay?.id || household?.household_id;
     const barangayName = household?.barangay?.name || "Unknown barangay";
-    const key = barangayId || barangayName;
+    const eventId =
+      household?.__reliefPackDemandDisasterEventId || "unknown-disaster-event";
+    const eventName =
+      household?.__reliefPackDemandDisasterEventLabel ||
+      household?.__reliefPackDemandDisasterType ||
+      "Unknown disaster event";
+    const key = `${eventId}::${barangayId || barangayName}`;
     const existingBarangay = barangayDemandMap.get(key);
+    const existingEvent = eventDemandMap.get(eventId);
 
     neededPacks += packMultiplier;
 
@@ -874,6 +882,20 @@ const buildTemplateDemand = (template, households) => {
       barangayDemandMap.set(key, {
         barangay_id: barangayId || key,
         barangay_name: barangayName,
+        disaster_event_id: eventId,
+        disaster_event_name: eventName,
+        families_count: 1,
+        packs_needed: packMultiplier,
+      });
+    }
+
+    if (existingEvent) {
+      existingEvent.families_count += 1;
+      existingEvent.packs_needed += packMultiplier;
+    } else {
+      eventDemandMap.set(eventId, {
+        disaster_event_id: eventId,
+        disaster_event_name: eventName,
         families_count: 1,
         packs_needed: packMultiplier,
       });
@@ -885,6 +907,9 @@ const buildTemplateDemand = (template, households) => {
     perBarangayDemand: Array.from(barangayDemandMap.values()).sort(
       (leftBarangay, rightBarangay) =>
         rightBarangay.packs_needed - leftBarangay.packs_needed,
+    ),
+    perEventDemand: Array.from(eventDemandMap.values()).sort(
+      (leftEvent, rightEvent) => rightEvent.packs_needed - leftEvent.packs_needed,
     ),
   };
 };
@@ -989,8 +1014,34 @@ const computeTemplateMetrics = ({
     packsWeCanCreate: Number.isFinite(packsWeCanCreate) ? packsWeCanCreate : 0,
     neededPacks: demand.neededPacks,
     perBarangayDemand: demand.perBarangayDemand.slice(0, 6),
+    perEventDemand: demand.perEventDemand.slice(0, 6),
     shortageItems,
   };
+};
+
+const getDemandHouseholdBarangayId = (household) =>
+  household?.barangay?.id || household?.barangay_id || null;
+
+const matchesReliefPackDemandScope = ({
+  household,
+  selectedDisasterEventId,
+  selectedBarangayId,
+}) => {
+  if (
+    selectedDisasterEventId &&
+    household?.__reliefPackDemandDisasterEventId !== selectedDisasterEventId
+  ) {
+    return false;
+  }
+
+  if (
+    selectedBarangayId &&
+    getDemandHouseholdBarangayId(household) !== selectedBarangayId
+  ) {
+    return false;
+  }
+
+  return true;
 };
 
 const formatTemplateItemQuantity = (item) => {
@@ -1578,6 +1629,9 @@ const ReliefPackTemplateDetailModal = ({
                 <table style={reliefPackDetailModalStyles.table}>
                   <thead>
                     <tr>
+                      <th style={reliefPackDetailModalStyles.th}>
+                        Disaster Event
+                      </th>
                       <th style={reliefPackDetailModalStyles.th}>Barangay</th>
                       <th style={reliefPackDetailModalStyles.th}>Families Count</th>
                       <th style={reliefPackDetailModalStyles.th}>Packs Needed</th>
@@ -1585,7 +1639,12 @@ const ReliefPackTemplateDetailModal = ({
                   </thead>
                   <tbody>
                     {metrics.perBarangayDemand.map((barangay) => (
-                      <tr key={`${template.id}-${barangay.barangay_id}`}>
+                      <tr
+                        key={`${template.id}-${barangay.disaster_event_id}-${barangay.barangay_id}`}
+                      >
+                        <td style={reliefPackDetailModalStyles.td}>
+                          {barangay.disaster_event_name || "--"}
+                        </td>
                         <td style={reliefPackDetailModalStyles.td}>
                           {barangay.barangay_name}
                         </td>
@@ -1901,7 +1960,7 @@ const ReliefPackTemplatesPage = () => {
   }, []);
 
   useEffect(() => {
-    if (scopedDisasterEvents.length === 0 && !selectedDisasterEventId) {
+    if (scopedDisasterEvents.length === 0) {
       setAggregatedDemand(emptyDashboardState);
       return;
     }
@@ -1913,22 +1972,18 @@ const ReliefPackTemplatesPage = () => {
 
       try {
         const masterlistResults = await Promise.all(
-          scopedDisasterEvents
-            .filter((disasterEvent) =>
-              selectedDisasterEventId ? disasterEvent.id === selectedDisasterEventId : true,
-            )
-            .map((disasterEvent) =>
-              fetchConsolidatedMasterlist({
-                disasterEventId: disasterEvent.id,
-                barangayId: selectedBarangayId || null,
-                recordStatus: "active",
-              })
-                .then((masterlist) => ({
-                  disasterEvent,
-                  masterlist,
-                }))
-                .catch(() => null),
-            ),
+          scopedDisasterEvents.map((disasterEvent) =>
+            fetchConsolidatedMasterlist({
+              disasterEventId: disasterEvent.id,
+              barangayId: null,
+              recordStatus: "active",
+            })
+              .then((masterlist) => ({
+                disasterEvent,
+                masterlist,
+              }))
+              .catch(() => null),
+          ),
         );
 
         if (!isMounted) {
@@ -1952,6 +2007,8 @@ const ReliefPackTemplatesPage = () => {
               ...household,
               __reliefPackDemandDisasterEventId:
                 masterlist?.disaster_event?.id || disasterEvent?.id || null,
+              __reliefPackDemandDisasterEventLabel:
+                formatDisasterEventOptionLabel(masterlist?.disaster_event || disasterEvent),
               __reliefPackDemandDisasterType: disasterType,
             }));
 
@@ -1975,14 +2032,26 @@ const ReliefPackTemplatesPage = () => {
       isMounted = false;
       window.clearInterval(refreshInterval);
     };
-  }, [scopedDisasterEvents, selectedBarangayId, selectedDisasterEventId]);
+  }, [scopedDisasterEvents]);
 
   const availabilityByItemId = useMemo(
     () => buildAvailabilityByItemId(inventoryBatches),
     [inventoryBatches],
   );
 
-  const templateCards = useMemo(() => {
+  const scopedDemandHouseholds = useMemo(
+    () =>
+      aggregatedDemand.households.filter((household) =>
+        matchesReliefPackDemandScope({
+          household,
+          selectedDisasterEventId,
+          selectedBarangayId,
+        }),
+      ),
+    [aggregatedDemand.households, selectedBarangayId, selectedDisasterEventId],
+  );
+
+  const fullDemandTemplateCards = useMemo(() => {
     return templates.map((template) => ({
       ...template,
       metrics: computeTemplateMetrics({
@@ -1992,6 +2061,17 @@ const ReliefPackTemplatesPage = () => {
       }),
     }));
   }, [aggregatedDemand.households, availabilityByItemId, templates]);
+
+  const templateCards = useMemo(() => {
+    return templates.map((template) => ({
+      ...template,
+      metrics: computeTemplateMetrics({
+        template,
+        availabilityByItemId,
+        households: scopedDemandHouseholds,
+      }),
+    }));
+  }, [availabilityByItemId, scopedDemandHouseholds, templates]);
 
   const filteredTemplateCards = useMemo(() => {
     const normalizedSearch = filters.search.trim().toLowerCase();
@@ -2073,9 +2153,10 @@ const ReliefPackTemplatesPage = () => {
     }
 
     return (
-      templateCards.find((template) => template.id === detailTemplateId) || null
+      fullDemandTemplateCards.find((template) => template.id === detailTemplateId) ||
+      null
     );
-  }, [detailTemplateId, templateCards]);
+  }, [detailTemplateId, fullDemandTemplateCards]);
 
   const handleOpenCreateModal = () => {
     setModalMode("create");
@@ -2204,65 +2285,67 @@ const ReliefPackTemplatesPage = () => {
     <div style={reliefPackPageStyles.pageStack}>
       <PageHeader title="RELIEF PACK MANAGEMENT" actions={[]} />
 
-      <section style={{ ...shellStyles.card, boxSizing: "border-box" }}>
-        <div style={pageSpacingStyles.filterGrid}>
-          <div>
-            <label
-              htmlFor="relief-pack-management-event"
-              style={filterStyles.label}
-            >
-              Disaster Event
-            </label>
-            <div style={filterStyles.selectWrap}>
-              <select
-                id="relief-pack-management-event"
-                value={selectedDisasterEventId}
-                onChange={(event) => setSelectedDisasterEventId(event.target.value)}
-                disabled={isLoading}
-                style={filterStyles.field}
+      {activeTab === "relief-packs" ? (
+        <section style={{ ...shellStyles.card, boxSizing: "border-box" }}>
+          <div style={pageSpacingStyles.filterGrid}>
+            <div>
+              <label
+                htmlFor="relief-pack-management-event"
+                style={filterStyles.label}
               >
-                <option value="">All active disaster events</option>
-                {scopedDisasterEvents.map((event) => (
-                  <option key={event.id} value={event.id}>
-                    {formatDisasterEventOptionLabel(event)}
-                  </option>
-                ))}
-              </select>
-              <span style={filterStyles.selectIcon}>
-                <FiChevronDown size={16} />
-              </span>
+                Disaster Event
+              </label>
+              <div style={filterStyles.selectWrap}>
+                <select
+                  id="relief-pack-management-event"
+                  value={selectedDisasterEventId}
+                  onChange={(event) => setSelectedDisasterEventId(event.target.value)}
+                  disabled={isLoading}
+                  style={filterStyles.field}
+                >
+                  <option value="">All active disaster events</option>
+                  {scopedDisasterEvents.map((event) => (
+                    <option key={event.id} value={event.id}>
+                      {formatDisasterEventOptionLabel(event)}
+                    </option>
+                  ))}
+                </select>
+                <span style={filterStyles.selectIcon}>
+                  <FiChevronDown size={16} />
+                </span>
+              </div>
             </div>
-          </div>
 
-          <div>
-            <label
-              htmlFor="relief-pack-management-barangay"
-              style={filterStyles.label}
-            >
-              Barangay
-            </label>
-            <div style={filterStyles.selectWrap}>
-              <select
-                id="relief-pack-management-barangay"
-                value={selectedBarangayId}
-                onChange={(event) => setSelectedBarangayId(event.target.value)}
-                disabled={isLoading}
-                style={filterStyles.field}
+            <div>
+              <label
+                htmlFor="relief-pack-management-barangay"
+                style={filterStyles.label}
               >
-                <option value="">All barangays</option>
-                {selectableBarangayOptions.map((barangay) => (
-                  <option key={barangay.id} value={barangay.id}>
-                    {barangay.name}
-                  </option>
-                ))}
-              </select>
-              <span style={filterStyles.selectIcon}>
-                <FiChevronDown size={16} />
-              </span>
+                Barangay
+              </label>
+              <div style={filterStyles.selectWrap}>
+                <select
+                  id="relief-pack-management-barangay"
+                  value={selectedBarangayId}
+                  onChange={(event) => setSelectedBarangayId(event.target.value)}
+                  disabled={isLoading}
+                  style={filterStyles.field}
+                >
+                  <option value="">All barangays</option>
+                  {selectableBarangayOptions.map((barangay) => (
+                    <option key={barangay.id} value={barangay.id}>
+                      {barangay.name}
+                    </option>
+                  ))}
+                </select>
+                <span style={filterStyles.selectIcon}>
+                  <FiChevronDown size={16} />
+                </span>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      ) : null}
 
       <div style={reliefPackPageStyles.customizationToolbar}>
         <div style={reliefPackPageStyles.toolbarControlsGroup}>
@@ -2456,7 +2539,10 @@ const ReliefPackTemplatesPage = () => {
                 const shortageItems = template.metrics.shortageItems;
                 const packTypeStatus = template.is_additional_pack
                   ? "ACTIVE"
-                  : "COMPLETED";
+                  : "ENDED";
+                const demandBreakdown = selectedDisasterEventId
+                  ? template.metrics.perBarangayDemand
+                  : template.metrics.perEventDemand;
 
                 return (
                   <div
@@ -2507,11 +2593,20 @@ const ReliefPackTemplatesPage = () => {
                         <p style={{ fontSize: "12px", margin: "12px 0 0" }}>
                           Loading demand...
                         </p>
-                      ) : template.metrics.perBarangayDemand.length > 0 ? (
+                      ) : demandBreakdown.length > 0 ? (
                         <div style={reliefPackPageStyles.barangayDemandList}>
-                          {template.metrics.perBarangayDemand.map((barangay) => (
-                            <span key={`${template.id}-${barangay.barangay_id}`}>
-                              {barangay.barangay_name}: {barangay.packs_needed}
+                          {demandBreakdown.map((demandEntry) => (
+                            <span
+                              key={
+                                selectedDisasterEventId
+                                  ? `${template.id}-${demandEntry.barangay_id}`
+                                  : `${template.id}-${demandEntry.disaster_event_id}`
+                              }
+                            >
+                              {selectedDisasterEventId
+                                ? demandEntry.barangay_name
+                                : demandEntry.disaster_event_name}
+                              : {demandEntry.packs_needed}
                             </span>
                           ))}
                         </div>
@@ -2665,7 +2760,7 @@ const ReliefPackTemplatesPage = () => {
                           }}
                         >
                           <StatusPill
-                            status={template.is_additional_pack ? "ACTIVE" : "COMPLETED"}
+                            status={template.is_additional_pack ? "ACTIVE" : "ENDED"}
                             label={getTemplatePackTypeLabel(template)}
                           />
                         </td>
@@ -2775,7 +2870,7 @@ const ReliefPackTemplatesPage = () => {
                             buttonTitle="Actions"
                             buttonAriaLabel="Actions"
                             dataPrefix="relief-pack-template-action"
-                            menuWidth={168}
+                            menuWidth={112}
                             variant="icon-grid"
                             items={[
                               {
