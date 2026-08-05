@@ -52,7 +52,7 @@ const buildNotificationSectionCard = (
       : "No role rules found",
   );
 
-const buildSyncSectionCard = (section) =>
+const buildSystemInformationSectionCard = (section) =>
   buildDefaultSectionCard(section, "info", "Information");
 
 export const getSectionsForRole = ({
@@ -93,7 +93,7 @@ export const buildBarangaySectionCards = ({
           `${enabledRuleCodes.length} rules enabled`,
         );
       case SETTINGS_SECTIONS.SYSTEM:
-        return buildSyncSectionCard(section);
+        return buildSystemInformationSectionCard(section);
       default:
         return buildDefaultSectionCard(section);
     }
@@ -116,7 +116,7 @@ export const buildMswdoSectionCards = ({
           notificationRuleCount,
         );
       case SETTINGS_SECTIONS.SYSTEM:
-        return buildSyncSectionCard(section);
+        return buildSystemInformationSectionCard(section);
       default:
         return buildDefaultSectionCard(section);
     }
@@ -139,7 +139,7 @@ export const buildMayorSectionCards = ({
           notificationRuleCount,
         );
       case SETTINGS_SECTIONS.SYSTEM:
-        return buildSyncSectionCard(section);
+        return buildSystemInformationSectionCard(section);
       default:
         return buildDefaultSectionCard(section);
     }
@@ -220,7 +220,7 @@ export const buildSharedRoleViewContext = ({
   InfoRow,
   EmptyState,
   isLoading,
-  syncSectionProps,
+  systemInformationSectionProps,
   isSavingPreferences,
   isOnline,
   isSettingsReadOnlyOffline,
@@ -265,7 +265,7 @@ export const buildSharedRoleViewContext = ({
   InfoRow,
   EmptyState,
   isLoading,
-  syncSectionProps,
+  systemInformationSectionProps,
   isSavingPreferences,
   isOnline,
   isSettingsReadOnlyOffline,

@@ -99,6 +99,15 @@ const refreshButtonStyles = {
   cursor: "pointer",
 };
 
+const errorBannerStyles = {
+  border: "1px solid #f0d2d8",
+  borderRadius: "16px",
+  padding: "14px 16px",
+  backgroundColor: "#fff8f9",
+  display: "grid",
+  gap: "6px",
+};
+
 const iconBadgeStyles = (backgroundColor, color) => ({
   width: "40px",
   height: "40px",
@@ -144,6 +153,7 @@ const SystemInformationSection = ({
     loading = false,
     refresh,
     isRefreshing = false,
+    errorMessage = "",
   } = systemInformation || {};
 
   return (
@@ -175,7 +185,7 @@ const SystemInformationSection = ({
               <button
                 type="button"
                 style={refreshButtonStyles}
-                onClick={() => refresh()}
+                onClick={() => refresh({ isManualRefresh: true })}
                 disabled={isRefreshing}
                 aria-label="Refresh system information"
               >
@@ -184,6 +194,12 @@ const SystemInformationSection = ({
               </button>
             ) : null}
           </div>
+          {errorMessage ? (
+            <div style={errorBannerStyles}>
+              <p style={infoValueStyles}>{errorMessage}</p>
+              <p style={infoDescriptionStyles}>Please try again.</p>
+            </div>
+          ) : null}
           {loading ? (
             <p style={infoValueStyles}>Checking system status...</p>
           ) : null}

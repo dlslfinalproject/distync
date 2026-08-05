@@ -38,7 +38,7 @@ const MswdoSettingsView = ({
       case SETTINGS_SECTIONS.SYSTEM:
         return (
           <SystemInformationSection
-            {...ctx.syncSectionProps}
+            {...ctx.systemInformationSectionProps}
             systemInformation={systemInformation}
           />
         );

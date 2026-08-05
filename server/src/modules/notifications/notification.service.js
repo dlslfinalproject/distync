@@ -1690,22 +1690,51 @@ const getNotificationsForUser = async (userId, filters) =>
 const getUnreadCountForUser = async (userId) =>
   notificationRepository.countUnreadNotificationsForUser(userId);
 
-const getNotificationRulesForRole = async (roleCode) => {
+const getNotificationPreferenceCatalogForRole = async ({
+  roleCode,
+  preferenceRow = null,
+  storedPreferences = null,
+  dbClient = undefined,
+  enforceAvailability = true,
+}) => {
   const policyRows =
-    await notificationRepository.getNotificationPolicyRowsByRoleCode(roleCode);
+    await notificationRepository.getNotificationPolicyRowsByRoleCode(
+      roleCode,
+      dbClient,
+    );
   const canonicalPolicyRows = mergeCanonicalPolicyRows({
     roleCode,
     policyRows,
   });
 
   if (
+    enforceAvailability &&
     getSettingsVisibleRuleCodesForRole(roleCode).length > 0 &&
     canonicalPolicyRows.length === 0
   ) {
     throw createNotificationPolicyConfigurationError(roleCode);
   }
 
-  return canonicalPolicyRows.map((row) => ({
+  const resolvedPreferenceState = resolveEffectiveNotificationPreferences({
+    roleCode,
+    policyRows,
+    modernPreferences:
+      storedPreferences ??
+      sanitizeNotificationRulePreferences(
+        preferenceRow?.notification_rule_preferences_json,
+      ),
+  });
+
+  return {
+    notificationRulePreferences: resolvedPreferenceState.normalizedPreferences,
+    effectiveNotificationChannels: resolvedPreferenceState.effectiveChannels,
+    categories: buildPreferenceCategories({
+      roleCode,
+      policyRows,
+      storedPreferences: resolvedPreferenceState.normalizedPreferences,
+    }),
+    rules: canonicalPolicyRows
+      .map((row) => ({
     id: row.id,
     code: row.code,
     name: row.name,
@@ -1720,41 +1749,36 @@ const getNotificationRulesForRole = async (roleCode) => {
     deliveryMode: row.delivery_mode,
     userConfigurability: row.user_configurability,
     created_at: row.created_at,
-  })).filter((row) => isVisibleInSettings(row.code, roleCode));
+      }))
+      .filter((row) => isVisibleInSettings(row.code, roleCode)),
+    source: resolvedPreferenceState.source,
+  };
+};
+
+const getNotificationRulesForRole = async (roleCode) => {
+  const catalog = await getNotificationPreferenceCatalogForRole({ roleCode });
+  return catalog.rules;
 };
 
 const getNotificationCategoriesForRole = async ({
   roleCode,
   preferenceRow = null,
+  storedPreferences = null,
+  dbClient = undefined,
+  enforceAvailability = true,
 }) => {
-  const policyRows =
-    await notificationRepository.getNotificationPolicyRowsByRoleCode(roleCode);
-  const canonicalPolicyRows = mergeCanonicalPolicyRows({
+  const catalog = await getNotificationPreferenceCatalogForRole({
     roleCode,
-    policyRows,
-  });
-
-  if (
-    getSettingsVisibleRuleCodesForRole(roleCode).length > 0 &&
-    canonicalPolicyRows.length === 0
-  ) {
-    throw createNotificationPolicyConfigurationError(roleCode);
-  }
-
-  const resolvedPreferenceState = resolveStoredPreferenceState({
-    roleCode,
-    policyRows,
     preferenceRow,
+    storedPreferences,
+    dbClient,
+    enforceAvailability,
   });
 
   return {
-    categories: buildPreferenceCategories({
-      roleCode,
-      policyRows,
-      storedPreferences: resolvedPreferenceState.normalizedPreferences,
-    }),
-    storedPreferences: resolvedPreferenceState.normalizedPreferences,
-    source: resolvedPreferenceState.source,
+    categories: catalog.categories,
+    storedPreferences: catalog.notificationRulePreferences,
+    source: catalog.source,
   };
 };
 
@@ -1809,6 +1833,7 @@ module.exports = {
   initializeNotificationInfrastructure,
   getNotificationsForUser,
   getUnreadCountForUser,
+  getNotificationPreferenceCatalogForRole,
   getNotificationRulesForRole,
   getNotificationCategoriesForRole,
   buildRecipientDeliveryPlan,

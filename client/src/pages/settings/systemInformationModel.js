@@ -144,6 +144,7 @@ export const buildSystemInformationViewModel = ({
   loading = false,
   refresh,
   isRefreshing = false,
+  errorMessage = "",
 }) => {
   const connectionDisplay = getConnectionDisplay(connectionStatus);
   const serviceWorkerDisplay = getServiceWorkerDisplay(serviceWorkerStatus);
@@ -156,6 +157,7 @@ export const buildSystemInformationViewModel = ({
     loading,
     refresh,
     isRefreshing,
+    errorMessage,
     application: {
       rows: [
         { label: "Application Name", value: "DISTYNC" },

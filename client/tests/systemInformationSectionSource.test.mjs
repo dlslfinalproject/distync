@@ -21,9 +21,10 @@ test("system information section source includes the required groups and refresh
   assert.doesNotMatch(source, /Available for supported features/);
 });
 
-test("barangay settings view now renders SystemInformationSection instead of SyncPreferencesSection", async () => {
+test("barangay settings view uses the canonical SystemInformationSection component only", async () => {
   const source = await fs.readFile(barangaySettingsViewSourcePath, "utf8");
 
   assert.match(source, /SystemInformationSection/);
   assert.doesNotMatch(source, /SyncPreferencesSection/);
+  assert.match(source, /systemInformationSectionProps/);
 });

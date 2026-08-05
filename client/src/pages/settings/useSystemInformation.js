@@ -38,13 +38,18 @@ export const useSystemInformation = ({
   const [summary, setSummary] = useState(DEFAULT_SUMMARY);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
   const [serviceWorkerStatus, setServiceWorkerStatus] = useState(() =>
     getDistyncServiceWorkerStatusSnapshot().status ||
     SERVICE_WORKER_STATUSES.CHECKING,
   );
   const refreshInFlightRef = useRef(false);
+  const getRefreshErrorMessage = (isManualRefresh) =>
+    isManualRefresh
+      ? "System information could not be refreshed."
+      : "System information could not be loaded.";
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async ({ isManualRefresh = false } = {}) => {
     if (refreshInFlightRef.current) {
       return;
     }
@@ -56,16 +61,19 @@ export const useSystemInformation = ({
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
         setConnectionStatus(SYSTEM_CONNECTION_STATUSES.OFFLINE);
         setSummary(DEFAULT_SUMMARY);
+        setErrorMessage("");
         return;
       }
 
       setConnectionStatus(SYSTEM_CONNECTION_STATUSES.CHECKING);
+      setErrorMessage("");
 
       const healthResponse = await fetch(HEALTH_ENDPOINT, { cache: "no-store" });
 
       if (!healthResponse.ok) {
         setConnectionStatus(SYSTEM_CONNECTION_STATUSES.LIMITED);
         setSummary(DEFAULT_SUMMARY);
+        setErrorMessage(getRefreshErrorMessage(isManualRefresh));
         return;
       }
 
@@ -83,12 +91,15 @@ export const useSystemInformation = ({
               ? null
               : payload.lastSuccessfulSyncAt || undefined,
         });
+        setErrorMessage("");
       } catch (_error) {
         setSummary(DEFAULT_SUMMARY);
+        setErrorMessage(getRefreshErrorMessage(isManualRefresh));
       }
     } catch (_error) {
       setConnectionStatus(SYSTEM_CONNECTION_STATUSES.LIMITED);
       setSummary(DEFAULT_SUMMARY);
+      setErrorMessage(getRefreshErrorMessage(isManualRefresh));
     } finally {
       await refreshDistyncServiceWorkerStatus();
       setServiceWorkerStatus(getDistyncServiceWorkerStatusSnapshot().status);
@@ -170,9 +181,11 @@ export const useSystemInformation = ({
         loading: isLoading,
         refresh,
         isRefreshing,
+        errorMessage,
       }),
     [
       connectionStatus,
+      errorMessage,
       formatDateTime,
       isLoading,
       isRefreshing,

@@ -243,6 +243,24 @@ const buildNotificationRepositoryStub = (overrides = {}) => ({
   ...overrides,
 });
 
+test("notification service exports a defined shared settings catalog builder", async () => {
+  await withStubbedNotificationService(
+    {
+      [repositoryPath]: buildNotificationRepositoryStub(),
+      [authMiddlewarePath]: roleCodesStub,
+      [emailServicePath]: {
+        sendNotificationEmail: async () => true,
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getNotificationPreferenceCatalogForRole }) => {
+      assert.equal(typeof getNotificationPreferenceCatalogForRole, "function");
+    },
+  );
+});
+
 test("delivery keeps synchronization conflict preferences separate from sync failure", async () => {
   const legacyPreferenceRow = {
     user_id: "user-1",
@@ -385,6 +403,63 @@ test("getNotificationCategoriesForRole fails safely when a supported role has no
           return true;
         },
       );
+    },
+  );
+});
+
+test("getNotificationRulesForRole delegates to the canonical notification preference catalog", async () => {
+  await withStubbedNotificationService(
+    {
+      [repositoryPath]: buildNotificationRepositoryStub(),
+      [authMiddlewarePath]: roleCodesStub,
+      [emailServicePath]: {
+        sendNotificationEmail: async () => true,
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({
+      getNotificationPreferenceCatalogForRole,
+      getNotificationRulesForRole,
+    }) => {
+      const catalog = await getNotificationPreferenceCatalogForRole({
+        roleCode: "BARANGAY",
+      });
+      const rules = await getNotificationRulesForRole("BARANGAY");
+
+      assert.deepEqual(rules, catalog.rules);
+    },
+  );
+});
+
+test("getNotificationPreferenceCatalogForRole omits a null dbClient when no client is provided", async () => {
+  let receivedDbClient = "not-called";
+
+  await withStubbedNotificationService(
+    {
+      [repositoryPath]: buildNotificationRepositoryStub({
+        getNotificationPolicyRowsByRoleCode: async (roleCode, dbClient) => {
+          receivedDbClient = dbClient;
+          return policyRowsByRole[roleCode] || [];
+        },
+      }),
+      [authMiddlewarePath]: roleCodesStub,
+      [emailServicePath]: {
+        sendNotificationEmail: async () => true,
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getNotificationPreferenceCatalogForRole }) => {
+      const catalog = await getNotificationPreferenceCatalogForRole({
+        roleCode: "BARANGAY",
+      });
+
+      assert.notEqual(receivedDbClient, null);
+      assert.ok(Array.isArray(catalog.categories));
+      assert.ok(catalog.categories.length > 0);
     },
   );
 });

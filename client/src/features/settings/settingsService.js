@@ -517,7 +517,7 @@ export const loadRoleSettingsState = async ({
       source: isOffline ? "offline-empty" : "error",
       errorMessage: isOffline
         ? "Connect to the internet to load your account settings."
-        : "Notification preferences could not be loaded.",
+        : "Settings could not be loaded. Please try again.",
     };
   }
 };

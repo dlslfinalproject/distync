@@ -22,6 +22,10 @@ const systemSectionSourcePath = new URL(
   "../src/pages/settings/components/SystemInformationSection.jsx",
   import.meta.url,
 );
+const systemInformationHookSourcePath = new URL(
+  "../src/pages/settings/useSystemInformation.js",
+  import.meta.url,
+);
 const roleShellSourcePath = new URL(
   "../src/pages/settings/components/RoleSettingsViewShell.jsx",
   import.meta.url,
@@ -128,6 +132,19 @@ test("settings page still resolves section identity from activeSection instead o
   assert.doesNotMatch(settingsSource, /system.*pathname/s);
 });
 
+test("settings page uses the approved full-page load error copy", async () => {
+  const settingsSource = await fs.readFile(settingsPageSourcePath, "utf8");
+
+  assert.match(
+    settingsSource,
+    /Settings could not be loaded\. Please try again\./,
+  );
+  assert.doesNotMatch(
+    settingsSource,
+    /Settings information could not be loaded\./,
+  );
+});
+
 test("settings reconnect warning remains generic rather than profile-specific", async () => {
   const offlineHelpersSource = await fs.readFile(offlineHelpersSourcePath, "utf8");
 
@@ -137,6 +154,11 @@ test("settings reconnect warning remains generic rather than profile-specific", 
 
 test("system information offline copy remains view-only and non-editable", async () => {
   const offlineHelpersSource = await fs.readFile(offlineHelpersSourcePath, "utf8");
+  const systemSource = await fs.readFile(systemSectionSourcePath, "utf8");
+  const systemInformationHookSource = await fs.readFile(
+    systemInformationHookSourcePath,
+    "utf8",
+  );
 
   assert.doesNotMatch(
     offlineHelpersSource,
@@ -146,4 +168,7 @@ test("system information offline copy remains view-only and non-editable", async
     offlineHelpersSource,
     /System information.*changes require a connection/s,
   );
+  assert.match(systemInformationHookSource, /System information could not be loaded\./);
+  assert.match(systemInformationHookSource, /System information could not be refreshed\./);
+  assert.match(systemSource, /Please try again\./);
 });

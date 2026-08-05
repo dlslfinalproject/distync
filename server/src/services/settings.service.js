@@ -5,17 +5,11 @@ const notificationService = require("../modules/notifications/notification.servi
 const profilePictureStorageService = require("./profilePictureStorage.service");
 const { insertAuditLog } = require("../repositories/systemLog.repository");
 const {
-  buildPreferenceCategories,
   getDefaultEffectiveChannels,
   getEditableChannels,
-  mergeCanonicalPolicyRows,
-  resolveEffectiveNotificationPreferences,
   sanitizeNotificationRulePreferences,
 } = require("../modules/notifications/notificationPreferenceUtils");
-const {
-  getCanonicalRuleCode,
-  getSettingsVisibleRuleCodesForRole,
-} = require("../modules/notifications/notificationPolicy");
+const { getCanonicalRuleCode } = require("../modules/notifications/notificationPolicy");
 
 const SETTINGS_AUDIT_ACTION = "UPSERT_ROLE_SETTINGS";
 const SETTINGS_ENTITY_TYPE = "ROLE_SETTINGS";
@@ -154,18 +148,6 @@ const createDefaultRoleSettings = () => ({
     lastPreferenceSaveAt: "",
   },
 });
-
-const createNotificationPolicyConfigurationError = (roleCode) => {
-  const error = new Error(
-    "Notification preferences are temporarily unavailable. Please try again.",
-  );
-  error.statusCode = 503;
-  error.code = "NOTIFICATION_POLICY_UNAVAILABLE";
-  error.details = {
-    roleCode,
-  };
-  return error;
-};
 
 const buildPersistedSnapshot = (settings = {}) => {
   const defaults = createDefaultRoleSettings();
@@ -450,59 +432,6 @@ const attachSignedProfilePictureMetadata = async (settings = {}) => {
   };
 };
 
-const getRolePolicyRows = async ({ roleCode, dbClient }) =>
-  notificationRepository.getNotificationPolicyRowsByRoleCode(roleCode, dbClient);
-
-const assertRoleNotificationPolicyAvailable = ({
-  roleCode,
-  policyRows,
-  enforceAvailability = false,
-}) => {
-  if (!enforceAvailability) {
-    return;
-  }
-
-  if (getSettingsVisibleRuleCodesForRole(roleCode).length === 0) {
-    return;
-  }
-
-  const canonicalPolicyRows = mergeCanonicalPolicyRows({
-    roleCode,
-    policyRows,
-  });
-
-  if (canonicalPolicyRows.length === 0) {
-    console.error(
-      `Notification policy configuration unavailable for role ${roleCode}: no canonical policy rows were loaded.`,
-    );
-    throw createNotificationPolicyConfigurationError(roleCode);
-  }
-};
-
-const buildNotificationSettingsResponse = ({
-  roleCode,
-  policyRows,
-  modernPreferences,
-}) => ({
-  ...(() => {
-    const resolvedPreferences = resolveEffectiveNotificationPreferences({
-      roleCode,
-      policyRows,
-      modernPreferences,
-    });
-
-    return {
-      notificationRulePreferences: resolvedPreferences.normalizedPreferences,
-      effectiveNotificationChannels: resolvedPreferences.effectiveChannels,
-      categories: buildPreferenceCategories({
-        roleCode,
-        policyRows,
-        storedPreferences: resolvedPreferences.normalizedPreferences,
-      }),
-    };
-  })(),
-});
-
 const buildRoleSettingsResponse = async ({
   roleCode,
   user,
@@ -513,17 +442,13 @@ const buildRoleSettingsResponse = async ({
 }) => {
   const defaults = createDefaultRoleSettings();
   const normalizedSnapshot = buildPersistedSnapshot(snapshot || {});
-  const policyRows = await getRolePolicyRows({ roleCode, dbClient });
-  assertRoleNotificationPolicyAvailable({
-    roleCode,
-    policyRows,
-    enforceAvailability: enforceNotificationPolicyAvailability,
-  });
-  const notificationSettings = buildNotificationSettingsResponse({
-    roleCode,
-    policyRows,
-    modernPreferences: normalizedSnapshot.notificationRulePreferences,
-  });
+  const notificationSettings =
+    await notificationService.getNotificationPreferenceCatalogForRole({
+      roleCode,
+      storedPreferences: normalizedSnapshot.notificationRulePreferences,
+      dbClient,
+      enforceAvailability: enforceNotificationPolicyAvailability,
+    });
 
   return {
     ...defaults,
@@ -618,7 +543,10 @@ const validateAndNormalizeNotificationPreferences = async ({
   incomingPreferences,
   dbClient,
 }) => {
-  const policyRows = await getRolePolicyRows({ roleCode, dbClient });
+  const policyRows = await notificationRepository.getNotificationPolicyRowsByRoleCode(
+    roleCode,
+    dbClient,
+  );
   const policyMap = new Map(
     policyRows.map((row) => [getCanonicalRuleCode(row.code), row]),
   );
@@ -981,7 +909,11 @@ const saveCurrentSettings = async ({
     }
 
     if (hasIncomingNotificationPreferenceUpdate) {
-      const policyRows = await getRolePolicyRows({ roleCode, dbClient });
+      const policyRows =
+        await notificationRepository.getNotificationPolicyRowsByRoleCode(
+          roleCode,
+          dbClient,
+        );
       const notificationAction = isResetToDefaultPayload({
         policyRows,
         notificationRulePreferences: normalizedNotificationRulePreferences,
