@@ -50,7 +50,7 @@ test("buildSettingsConflictSnapshot keeps stable fields only", () => {
       profilePictureUrlExpiresAt: "2099-01-01T00:00:00.000Z",
     },
     notificationRulePreferences: {
-      DISTRIBUTION_UPDATE: { inApp: true, email: false },
+      DISTRIBUTION_COMPLETED: { inApp: true, email: false },
     },
   });
 
@@ -77,15 +77,15 @@ test("mergeRefreshedSettingsWithLocalDraft preserves local editable drafts while
         profilePicturePath: "user-1/server-avatar.webp",
       },
       notificationRulePreferences: {
-        DISTRIBUTION_UPDATE: { inApp: false, email: false },
+        DISTRIBUTION_COMPLETED: { inApp: false, email: false },
       },
       effectiveNotificationChannels: {
-        DISTRIBUTION_UPDATE: { inApp: false, email: false },
+        DISTRIBUTION_COMPLETED: { inApp: false, email: false },
       },
       categories: [
         {
           code: "RELIEF",
-          rules: [{ code: "DISTRIBUTION_UPDATE" }],
+          rules: [{ code: "DISTRIBUTION_COMPLETED" }],
         },
       ],
     },
@@ -97,17 +97,17 @@ test("mergeRefreshedSettingsWithLocalDraft preserves local editable drafts while
         contactNumber: "+639222222222",
       },
       notificationRulePreferences: {
-        DISTRIBUTION_UPDATE: { inApp: true, email: true },
+        DISTRIBUTION_COMPLETED: { inApp: true, email: true },
       },
       effectiveNotificationChannels: {
-        DISTRIBUTION_UPDATE: { inApp: true, email: true },
+        DISTRIBUTION_COMPLETED: { inApp: true, email: true },
       },
       categories: [
         {
           code: "RELIEF",
           rules: [
             {
-              code: "DISTRIBUTION_UPDATE",
+              code: "DISTRIBUTION_COMPLETED",
               effectiveChannels: { inApp: true, email: true },
             },
           ],
@@ -125,7 +125,7 @@ test("mergeRefreshedSettingsWithLocalDraft preserves local editable drafts while
   assert.equal(merged.profile.assignedBarangay.name, "Santiago");
   assert.equal(merged.profile.profilePicturePath, "user-1/server-avatar.webp");
   assert.deepEqual(merged.notificationRulePreferences, {
-    DISTRIBUTION_UPDATE: { inApp: true, email: true },
+    DISTRIBUTION_COMPLETED: { inApp: true, email: true },
   });
 });
 

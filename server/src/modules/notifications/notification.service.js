@@ -12,6 +12,7 @@ const {
   NOTIFICATION_POLICY_ROWS,
   NOTIFICATION_RULE_TARGETS,
   getCanonicalRuleCode,
+  getSettingsVisibleRuleCodesForRole,
   getPolicyRolesForRule,
   isVisibleInSettings,
 } = require("./notificationPolicy");
@@ -42,6 +43,15 @@ const DEFAULT_NOTIFICATION_RULES = NOTIFICATION_RULE_TARGETS.map((rule) => ({
 }));
 
 let notificationMaintenanceInterval = null;
+
+const createNotificationPolicyConfigurationError = (roleCode) => {
+  const error = new Error(
+    `Notification preferences are temporarily unavailable for role ${roleCode}.`,
+  );
+  error.statusCode = 503;
+  error.code = "NOTIFICATION_POLICY_UNAVAILABLE";
+  return error;
+};
 
 const MAYOR_RELEVANT_SYNC_ENTITY_TYPES = new Set([
   "INVENTORY_ITEM",
@@ -1379,18 +1389,45 @@ const emitSyncConflictAlert = async (syncConflict) => {
 };
 
 const seedNotificationRules = async () => {
+  let insertedRuleCount = 0;
+  let updatedRuleCount = 0;
+  let insertedPolicyCount = 0;
+  let updatedPolicyCount = 0;
+
   for (const rule of NOTIFICATION_RULE_TARGETS) {
-    await notificationRepository.upsertNotificationRule({
+    const result = await notificationRepository.upsertNotificationRule({
       code: rule.code,
       name: rule.name,
       trigger_type: rule.triggerType,
       target_role_code: rule.targetRoleCode,
     });
+
+    if (result?.inserted) {
+      insertedRuleCount += 1;
+    } else if (result) {
+      updatedRuleCount += 1;
+    }
   }
 
   for (const policyRow of NOTIFICATION_POLICY_ROWS) {
-    await notificationRepository.upsertNotificationRuleRolePolicy(policyRow);
+    const result =
+      await notificationRepository.upsertNotificationRuleRolePolicy(policyRow);
+
+    if (result?.inserted) {
+      insertedPolicyCount += 1;
+    } else if (result) {
+      updatedPolicyCount += 1;
+    }
   }
+
+  return {
+    insertedRuleCount,
+    updatedRuleCount,
+    insertedPolicyCount,
+    updatedPolicyCount,
+    expectedRuleCount: NOTIFICATION_RULE_TARGETS.length,
+    expectedPolicyCount: NOTIFICATION_POLICY_ROWS.length,
+  };
 };
 
 const buildSummaryNotificationContent = (summaryGroup) => {
@@ -1634,7 +1671,16 @@ const startNotificationMaintenance = () => {
 };
 
 const initializeNotificationInfrastructure = async () => {
-  await runNotificationMaintenanceScans();
+  const seedResult = await seedNotificationRules();
+
+  console.log(
+    `Notification policy verification complete: rules inserted=${seedResult.insertedRuleCount}, rules updated=${seedResult.updatedRuleCount}, policies inserted=${seedResult.insertedPolicyCount}, policies updated=${seedResult.updatedPolicyCount}, expected rules=${seedResult.expectedRuleCount}, expected policies=${seedResult.expectedPolicyCount}.`,
+  );
+
+  await generateDueEvacuationSummaryReports();
+  await scanExpiryNotifications();
+  await scanSyncNotifications();
+  await flushSummaryNotifications();
   startNotificationMaintenance();
 };
 
@@ -1651,6 +1697,13 @@ const getNotificationRulesForRole = async (roleCode) => {
     roleCode,
     policyRows,
   });
+
+  if (
+    getSettingsVisibleRuleCodesForRole(roleCode).length > 0 &&
+    canonicalPolicyRows.length === 0
+  ) {
+    throw createNotificationPolicyConfigurationError(roleCode);
+  }
 
   return canonicalPolicyRows.map((row) => ({
     id: row.id,
@@ -1676,6 +1729,18 @@ const getNotificationCategoriesForRole = async ({
 }) => {
   const policyRows =
     await notificationRepository.getNotificationPolicyRowsByRoleCode(roleCode);
+  const canonicalPolicyRows = mergeCanonicalPolicyRows({
+    roleCode,
+    policyRows,
+  });
+
+  if (
+    getSettingsVisibleRuleCodesForRole(roleCode).length > 0 &&
+    canonicalPolicyRows.length === 0
+  ) {
+    throw createNotificationPolicyConfigurationError(roleCode);
+  }
+
   const resolvedPreferenceState = resolveStoredPreferenceState({
     roleCode,
     policyRows,

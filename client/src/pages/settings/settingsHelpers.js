@@ -65,9 +65,7 @@ export const FRONTEND_NOTIFICATION_RULE_ALIAS_MAP = {
   EVACUEE_ATTENDANCE_UPDATE: "EVACUEE_ATTENDANCE_UPDATED",
   HOUSEHOLD_VERIFICATION: "HOUSEHOLD_VERIFICATION_UPDATED",
   HOUSEHOLD_VERIFICATION_UPDATE: "HOUSEHOLD_VERIFICATION_UPDATED",
-  DISTRIBUTION_UPDATE: "DISTRIBUTION_COMPLETED",
   CRITICAL_STOCK: "CRITICAL_INVENTORY_SHORTAGE",
-  DONATION_STOCK_UPDATE: "DONATION_RECEIVED",
   SYNCHRONIZATION_CONFLICT_ALERT: "SYNC_CONFLICT",
 };
 
@@ -120,6 +118,12 @@ const CANONICAL_NOTIFICATION_RULE_METADATA = {
   EVACUATION_SUMMARY_REPORT: {
     name: "Evacuation Summary Reports",
   },
+  SYSTEM_ALERT: {
+    name: "System Alerts",
+  },
+  OPERATIONAL_ANOMALY: {
+    name: "Operational Anomaly Alerts",
+  },
 };
 
 const CATEGORY_SORT_ORDER_BY_ROLE = {
@@ -159,13 +163,32 @@ const RULE_SORT_ORDER = {
   SYNC_CONFLICT: 13,
   DONATION_STOCK_ANOMALY: 14,
   EVACUATION_SUMMARY_REPORT: 15,
+  SYSTEM_ALERT: 16,
+  OPERATIONAL_ANOMALY: 17,
 };
 
-const HIDDEN_NOTIFICATION_RULE_CODES = new Set([
-  "SYSTEM_ALERT",
-  "SYSTEM_ANOMALY",
-  "OPERATIONAL_ANOMALY",
-]);
+const HIDDEN_NOTIFICATION_RULE_CODES = new Set(["SYSTEM_ANOMALY"]);
+
+const SYNC_NOTIFICATION_DESCRIPTIONS = {
+  [ROLE_CODES.BARANGAY]: {
+    SYNC_FAILURE:
+      "Alerts you when an offline evacuee, attendance, stub, or relief distribution transaction from your barangay fails to synchronize and requires review.",
+    SYNC_CONFLICT:
+      "Alerts you when an offline transaction from your barangay conflicts with an existing central record and requires review or confirmation.",
+  },
+  [ROLE_CODES.MSWDO]: {
+    SYNC_FAILURE:
+      "Alerts you when an evacuee, attendance, household verification, or relief distribution record fails to synchronize and requires review.",
+    SYNC_CONFLICT:
+      "Alerts you when synchronized evacuee or relief-operation data conflicts with an existing central record and may require authorized review.",
+  },
+  [ROLE_CODES.MAYOR]: {
+    SYNC_FAILURE:
+      "Alerts you when an inventory, donation, or other Mayor-related transaction fails to synchronize and requires review.",
+    SYNC_CONFLICT:
+      "Alerts you when an offline inventory or donation transaction conflicts with an existing central record and may require review.",
+  },
+};
 
 const RULE_DESCRIPTION_BY_NAME = {
   "Disaster Event Updates":
@@ -182,10 +205,6 @@ const RULE_DESCRIPTION_BY_NAME = {
     "Tracks completed relief distribution activity without sending one alert for every transaction.",
   "Low Stock Alert":
     "Warns you when relief stock falls below the warning threshold before it becomes critical.",
-  "Sync Failure":
-    "Alerts you when an inventory, donation, or other Mayor-related transaction fails to synchronize and requires review.",
-  "Synchronization Conflict Alert":
-    "Alerts you when a Mayor-related offline transaction conflicts with an existing central record and may require review.",
   "Critical Inventory Shortage":
     "Alerts you when relief stock reaches a critical shortage level.",
   "Inventory Incident Alert":
@@ -200,6 +219,10 @@ const RULE_DESCRIPTION_BY_NAME = {
     "Alerts you when relief goods are already expired and need action.",
   "Evacuation Summary Reports":
     "Provides a grouped daily view of evacuation monitoring updates.",
+  "System Alerts":
+    "Alerts your office when a system service or subsystem needs immediate attention.",
+  "Operational Anomaly Alerts":
+    "Warns the Mayor about operational discrepancies that require review.",
 };
 
 export const getSafePolicyLabel = (value, labels, fallback) =>
@@ -304,6 +327,7 @@ export const dedupeNotificationSettings = ({
         ...(existingRule || {}),
         ...rule,
         code: canonicalRuleCode,
+        roleCode: rule?.roleCode || rule?.role_code || category?.roleCode || roleCode,
         categoryCode:
           rule?.categoryCode || rule?.category_code || category?.code || "",
         categoryLabel:
@@ -357,6 +381,7 @@ export const dedupeNotificationSettings = ({
 };
 
 export const getRuleDescription = (rule = {}) =>
+  SYNC_NOTIFICATION_DESCRIPTIONS[rule.roleCode]?.[rule.code] ||
   RULE_DESCRIPTION_BY_NAME[rule.name] ||
   "Notification details are available for this alert type.";
 

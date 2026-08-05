@@ -8,11 +8,13 @@ const {
   buildPreferenceCategories,
   getDefaultEffectiveChannels,
   getEditableChannels,
+  mergeCanonicalPolicyRows,
   resolveEffectiveNotificationPreferences,
   sanitizeNotificationRulePreferences,
 } = require("../modules/notifications/notificationPreferenceUtils");
 const {
   getCanonicalRuleCode,
+  getSettingsVisibleRuleCodesForRole,
 } = require("../modules/notifications/notificationPolicy");
 
 const SETTINGS_AUDIT_ACTION = "UPSERT_ROLE_SETTINGS";
@@ -152,6 +154,18 @@ const createDefaultRoleSettings = () => ({
     lastPreferenceSaveAt: "",
   },
 });
+
+const createNotificationPolicyConfigurationError = (roleCode) => {
+  const error = new Error(
+    "Notification preferences are temporarily unavailable. Please try again.",
+  );
+  error.statusCode = 503;
+  error.code = "NOTIFICATION_POLICY_UNAVAILABLE";
+  error.details = {
+    roleCode,
+  };
+  return error;
+};
 
 const buildPersistedSnapshot = (settings = {}) => {
   const defaults = createDefaultRoleSettings();
@@ -439,6 +453,32 @@ const attachSignedProfilePictureMetadata = async (settings = {}) => {
 const getRolePolicyRows = async ({ roleCode, dbClient }) =>
   notificationRepository.getNotificationPolicyRowsByRoleCode(roleCode, dbClient);
 
+const assertRoleNotificationPolicyAvailable = ({
+  roleCode,
+  policyRows,
+  enforceAvailability = false,
+}) => {
+  if (!enforceAvailability) {
+    return;
+  }
+
+  if (getSettingsVisibleRuleCodesForRole(roleCode).length === 0) {
+    return;
+  }
+
+  const canonicalPolicyRows = mergeCanonicalPolicyRows({
+    roleCode,
+    policyRows,
+  });
+
+  if (canonicalPolicyRows.length === 0) {
+    console.error(
+      `Notification policy configuration unavailable for role ${roleCode}: no canonical policy rows were loaded.`,
+    );
+    throw createNotificationPolicyConfigurationError(roleCode);
+  }
+};
+
 const buildNotificationSettingsResponse = ({
   roleCode,
   policyRows,
@@ -469,10 +509,16 @@ const buildRoleSettingsResponse = async ({
   snapshot,
   assignedBarangay = null,
   dbClient,
+  enforceNotificationPolicyAvailability = false,
 }) => {
   const defaults = createDefaultRoleSettings();
   const normalizedSnapshot = buildPersistedSnapshot(snapshot || {});
   const policyRows = await getRolePolicyRows({ roleCode, dbClient });
+  assertRoleNotificationPolicyAvailable({
+    roleCode,
+    policyRows,
+    enforceAvailability: enforceNotificationPolicyAvailability,
+  });
   const notificationSettings = buildNotificationSettingsResponse({
     roleCode,
     policyRows,
@@ -707,6 +753,7 @@ const getCurrentSettings = async ({ userId, roleCode }) => {
     assignedBarangay: user.default_barangay_id
       ? await settingsRepository.getBarangayById(user.default_barangay_id)
       : null,
+    enforceNotificationPolicyAvailability: true,
   });
 
   return attachSignedProfilePictureMetadata(settings);

@@ -4,6 +4,10 @@ const assert = require("node:assert/strict");
 const {
   resolveEffectiveNotificationPreferences,
 } = require("../src/modules/notifications/notificationPreferenceUtils");
+const {
+  getCanonicalRuleCode,
+  NOTIFICATION_RULE_ALIASES,
+} = require("../src/modules/notifications/notificationPolicy");
 
 const barangayPolicyRows = [
   {
@@ -147,4 +151,28 @@ test("shared resolver filters unknown modern rules and never returns source lega
   assert.notEqual(resolved.source, "legacy");
   assert.equal(resolved.source, "policy-defaults");
   assert.deepEqual(resolved.normalizedPreferences, {});
+});
+
+test("canonical rule resolution keeps only approved direct aliases", () => {
+  assert.deepEqual(Object.keys(NOTIFICATION_RULE_ALIASES).sort(), [
+    "CRITICAL_STOCK",
+    "DISASTER_EVENT_UPDATE",
+    "EVACUEE_ATTENDANCE_UPDATE",
+    "HOUSEHOLD_VERIFICATION",
+    "HOUSEHOLD_VERIFICATION_UPDATE",
+    "SYNCHRONIZATION_CONFLICT_ALERT",
+  ]);
+  assert.equal(getCanonicalRuleCode("DISASTER_EVENT_UPDATED"), "DISASTER_EVENT_UPDATED");
+  assert.equal(getCanonicalRuleCode("DISASTER_EVENT_UPDATE"), "DISASTER_EVENT_UPDATED");
+  assert.equal(
+    getCanonicalRuleCode("EVACUEE_ATTENDANCE_UPDATE"),
+    "EVACUEE_ATTENDANCE_UPDATED",
+  );
+  assert.equal(
+    getCanonicalRuleCode("HOUSEHOLD_VERIFICATION"),
+    "HOUSEHOLD_VERIFICATION_UPDATED",
+  );
+  assert.equal(getCanonicalRuleCode("DISTRIBUTION_UPDATE"), "DISTRIBUTION_UPDATE");
+  assert.equal(getCanonicalRuleCode("DONATION_STOCK_UPDATE"), "DONATION_STOCK_UPDATE");
+  assert.equal(getCanonicalRuleCode("SYSTEM_ANOMALY"), "SYSTEM_ANOMALY");
 });

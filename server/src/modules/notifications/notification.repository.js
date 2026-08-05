@@ -130,7 +130,19 @@ const upsertNotificationRule = async (payload, dbClient = pool) => {
         trigger_type = EXCLUDED.trigger_type,
         target_role_code = EXCLUDED.target_role_code,
         is_active = EXCLUDED.is_active
-      RETURNING id, code, name, trigger_type, target_role_code, is_active
+      WHERE
+        notification_rules.name IS DISTINCT FROM EXCLUDED.name
+        OR notification_rules.trigger_type IS DISTINCT FROM EXCLUDED.trigger_type
+        OR notification_rules.target_role_code IS DISTINCT FROM EXCLUDED.target_role_code
+        OR notification_rules.is_active IS DISTINCT FROM EXCLUDED.is_active
+      RETURNING
+        id,
+        code,
+        name,
+        trigger_type,
+        target_role_code,
+        is_active,
+        (xmax = 0) AS inserted
     `,
     [
       payload.code,
@@ -173,7 +185,16 @@ const upsertNotificationRuleRolePolicy = async (payload, dbClient = pool) => {
         user_configurability = EXCLUDED.user_configurability,
         is_active = EXCLUDED.is_active,
         updated_at = NOW()
-      RETURNING *
+      WHERE
+        notification_rule_role_policies.category_code IS DISTINCT FROM EXCLUDED.category_code
+        OR notification_rule_role_policies.category_label IS DISTINCT FROM EXCLUDED.category_label
+        OR notification_rule_role_policies.priority IS DISTINCT FROM EXCLUDED.priority
+        OR notification_rule_role_policies.in_app_policy IS DISTINCT FROM EXCLUDED.in_app_policy
+        OR notification_rule_role_policies.email_policy IS DISTINCT FROM EXCLUDED.email_policy
+        OR notification_rule_role_policies.delivery_mode IS DISTINCT FROM EXCLUDED.delivery_mode
+        OR notification_rule_role_policies.user_configurability IS DISTINCT FROM EXCLUDED.user_configurability
+        OR notification_rule_role_policies.is_active IS DISTINCT FROM EXCLUDED.is_active
+      RETURNING *, (xmax = 0) AS inserted
     `,
     [
       payload.ruleCode,

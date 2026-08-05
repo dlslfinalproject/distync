@@ -185,7 +185,7 @@ const policyRowsByRole = {
       priority: "INFORMATIONAL",
       in_app_policy: "OPTIONAL",
       email_policy: "OPTIONAL",
-      delivery_mode: "DAILY_SUMMARY",
+      delivery_mode: "HOURLY_SUMMARY",
       user_configurability: "ALL_SUPPORTED_CHANNELS",
       is_active: true,
       policy_is_active: true,
@@ -326,6 +326,65 @@ test("delivery falls back to policy defaults for canonical disaster event update
 
       assert.equal(deliveryPlan.inAppEnabled, true);
       assert.equal(deliveryPlan.emailEnabled, true);
+    },
+  );
+});
+
+test("resolveNotificationRecipientRoles uses canonical policy rows for multi-role rules", async () => {
+  await withStubbedNotificationService(
+    {
+      [repositoryPath]: buildNotificationRepositoryStub(),
+      [authMiddlewarePath]: roleCodesStub,
+      [emailServicePath]: {
+        sendNotificationEmail: async () => true,
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ resolveNotificationRecipientRoles }) => {
+      assert.deepEqual(
+        resolveNotificationRecipientRoles("DISASTER_EVENT_UPDATED", "MSWDO"),
+        ["BARANGAY", "MSWDO", "MAYOR"],
+      );
+      assert.deepEqual(
+        resolveNotificationRecipientRoles("SYNC_FAILURE", "BARANGAY"),
+        ["BARANGAY", "MSWDO", "MAYOR"],
+      );
+      assert.deepEqual(
+        resolveNotificationRecipientRoles("SYNC_CONFLICT", "BARANGAY"),
+        ["BARANGAY", "MSWDO", "MAYOR"],
+      );
+    },
+  );
+});
+
+test("getNotificationCategoriesForRole fails safely when a supported role has no canonical policy rows", async () => {
+  await withStubbedNotificationService(
+    {
+      [repositoryPath]: buildNotificationRepositoryStub({
+        getNotificationPolicyRowsByRoleCode: async () => [],
+      }),
+      [authMiddlewarePath]: roleCodesStub,
+      [emailServicePath]: {
+        sendNotificationEmail: async () => true,
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getNotificationCategoriesForRole }) => {
+      await assert.rejects(
+        () =>
+          getNotificationCategoriesForRole({
+            roleCode: "BARANGAY",
+          }),
+        (error) => {
+          assert.equal(error.statusCode, 503);
+          assert.equal(error.code, "NOTIFICATION_POLICY_UNAVAILABLE");
+          return true;
+        },
+      );
     },
   );
 });
@@ -925,10 +984,10 @@ test("initializeNotificationInfrastructure runs immediately and schedules recurr
         assert.ok(seedCalls.length > 0);
         assert.equal(dueSummaryCalls.length, 1);
         assert.equal(scheduledIntervals.length, 1);
-        assert.equal(scheduledIntervals[0].interval, 12345);
-        assert.equal(typeof scheduledIntervals[0].handler, "function");
-      },
-    );
+      assert.equal(scheduledIntervals[0].interval, 12345);
+      assert.equal(typeof scheduledIntervals[0].handler, "function");
+    },
+  );
   } finally {
     global.setInterval = originalInterval;
 
@@ -1099,6 +1158,103 @@ test("flushSummaryNotifications is restart-safe when an identical Mayor evacuati
       assert.equal(insertNotificationCalled, false);
       assert.equal(insertRecipientsCalled, false);
       assert.deepEqual(processedIds, ["summary-event-restart-1"]);
+    },
+  );
+});
+
+test("flushSummaryNotifications canonicalizes verified legacy summary rule codes before delivery", async () => {
+  const ruleLookups = [];
+  const policyLookups = [];
+  const sentEmails = [];
+
+  await withStubbedNotificationService(
+    {
+      [repositoryPath]: buildNotificationRepositoryStub({
+        getNotificationRuleByCode: async (code) => {
+          ruleLookups.push(code);
+          return {
+            code,
+            is_active: true,
+            target_role_code: "BARANGAY",
+          };
+        },
+        getNotificationPolicyRow: async (ruleCode, roleCode) => {
+          policyLookups.push(`${ruleCode}:${roleCode}`);
+
+          if (ruleCode === "SYNC_CONFLICT" && roleCode === "BARANGAY") {
+            return {
+              code: "SYNC_CONFLICT",
+              role_code: "BARANGAY",
+              category_code: "SYSTEM_OPERATIONS",
+              category_label: "System Operations",
+              priority: "CRITICAL",
+              in_app_policy: "MANDATORY",
+              email_policy: "DEFAULT_ON",
+              delivery_mode: "IMMEDIATE",
+              user_configurability: "EMAIL_ONLY",
+              is_active: true,
+              policy_is_active: true,
+            };
+          }
+
+          return null;
+        },
+        getNotificationPolicyRowsByRoleCode: async (roleCode) =>
+          roleCode === "BARANGAY"
+            ? [
+                {
+                  code: "SYNC_CONFLICT",
+                  role_code: "BARANGAY",
+                  category_code: "SYSTEM_OPERATIONS",
+                  category_label: "System Operations",
+                  priority: "CRITICAL",
+                  in_app_policy: "MANDATORY",
+                  email_policy: "DEFAULT_ON",
+                  delivery_mode: "IMMEDIATE",
+                  user_configurability: "EMAIL_ONLY",
+                  is_active: true,
+                  policy_is_active: true,
+                },
+              ]
+            : [],
+        getDueSummaryEvents: async () => [
+          {
+            id: "summary-event-legacy-sync-conflict",
+            summary_key: "BARANGAY:SYNCHRONIZATION_CONFLICT_ALERT:2026-08-05T00:00:00.000Z",
+            rule_code: "SYNCHRONIZATION_CONFLICT_ALERT",
+            role_code: "BARANGAY",
+            disaster_event_id: null,
+            barangay_id: "barangay-1",
+          },
+        ],
+        getRecipientUserIdsByRoleCodeAndBarangayIds: async (roleCode) =>
+          roleCode === "BARANGAY" ? ["barangay-user"] : [],
+        getUserNotificationPreferencesByRole: async (userIds) =>
+          userIds.map((userId) => ({
+            user_id: userId,
+            email: "barangay@example.com",
+            notification_rule_preferences_json: {},
+          })),
+        markSummaryEventsProcessed: async () => [],
+      }),
+      [authMiddlewarePath]: roleCodesStub,
+      [emailServicePath]: {
+        sendNotificationEmail: async (payload) => {
+          sentEmails.push(payload);
+          return true;
+        },
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ flushSummaryNotifications }) => {
+      await flushSummaryNotifications();
+
+      assert.deepEqual(ruleLookups, ["SYNC_CONFLICT"]);
+      assert.ok(policyLookups.includes("SYNC_CONFLICT:BARANGAY"));
+      assert.equal(sentEmails.length, 1);
+      assert.equal(sentEmails[0].notificationType, "SYNC_CONFLICT");
     },
   );
 });

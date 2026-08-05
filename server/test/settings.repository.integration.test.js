@@ -159,7 +159,7 @@ test("upsertUserRoleSettings reuses the same user-role row across first and seco
         profilePictureFileName: null,
         profilePictureUpdatedAt: null,
         notificationRulePreferencesJson: {
-          DISTRIBUTION_UPDATE: {
+          DISASTER_EVENT_UPDATED: {
             inApp: true,
           },
         },
@@ -177,7 +177,7 @@ test("upsertUserRoleSettings reuses the same user-role row across first and seco
         profilePictureFileName: null,
         profilePictureUpdatedAt: null,
         notificationRulePreferencesJson: {
-          DISTRIBUTION_UPDATE: {
+          DISASTER_EVENT_UPDATED: {
             inApp: false,
           },
         },
@@ -208,7 +208,7 @@ test("upsertUserRoleSettings reuses the same user-role row across first and seco
         )
       ).notification_rule_preferences_json,
       {
-        DISTRIBUTION_UPDATE: {
+        DISASTER_EVENT_UPDATED: {
           inApp: false,
         },
       },

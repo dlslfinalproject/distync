@@ -130,7 +130,22 @@ test("getCurrentSettings omits the removed export preference field", async () =>
         },
       },
       [notificationRepositoryPath]: {
-        getNotificationPolicyRowsByRoleCode: async () => [],
+        getNotificationPolicyRowsByRoleCode: async () => [
+          {
+            code: "DISASTER_EVENT_UPDATED",
+            name: "Disaster Event Updates",
+            role_code: "BARANGAY",
+            category_code: "DISASTER_COORDINATION",
+            category_label: "Disaster Coordination",
+            priority: "CRITICAL",
+            in_app_policy: "MANDATORY",
+            email_policy: "DEFAULT_ON",
+            delivery_mode: "IMMEDIATE",
+            user_configurability: "EMAIL_ONLY",
+            is_active: true,
+            policy_is_active: true,
+          },
+        ],
       },
       [notificationServicePath]: {
         getNotificationRulesForRole: async () => [],
@@ -149,6 +164,54 @@ test("getCurrentSettings omits the removed export preference field", async () =>
       assert.equal(settings.profile.contactNumber, user.contact_number);
       assert.equal(settings.profile.profilePicturePath, "");
       assert.equal(settings.profile.profilePictureUrl, "");
+    },
+  );
+});
+
+test("getCurrentSettings fails safely when notification policy rows are unavailable for a supported role", async () => {
+  const user = {
+    id: "user-config-missing",
+    email: "barangay-config@example.com",
+    first_name: "Ari",
+    middle_name: null,
+    last_name: "Flores",
+    contact_number: "+639171234566",
+    default_barangay_id: null,
+    is_active: true,
+  };
+
+  await withStubbedSettingsService(
+    {
+      [poolPath]: {},
+      [settingsRepositoryPath]: {
+        getUserById: async () => user,
+        getBarangayById: async () => null,
+        getUserRoleSettings: async () => null,
+      },
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [],
+      },
+      [notificationServicePath]: {
+        getNotificationRulesForRole: async () => [],
+      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub(),
+    },
+    async ({ getCurrentSettings }) => {
+      await assert.rejects(
+        () =>
+          getCurrentSettings({
+            userId: user.id,
+            roleCode: "BARANGAY",
+          }),
+        (error) => {
+          assert.equal(error.statusCode, 503);
+          assert.match(
+            error.message,
+            /Notification preferences are temporarily unavailable/i,
+          );
+          return true;
+        },
+      );
     },
   );
 });
@@ -547,7 +610,7 @@ test("saveCurrentSettings preserves notification preferences when the request up
           enabled_notification_rule_codes_json: [],
           notification_channels_json: {},
           notification_rule_preferences_json: {
-            DISTRIBUTION_UPDATE: {
+            DISASTER_EVENT_UPDATE: {
               inApp: false,
               email: true,
             },
@@ -596,7 +659,7 @@ test("saveCurrentSettings preserves notification preferences when the request up
       });
 
       assert.deepEqual(persistedPayloads[0].notificationRulePreferencesJson, {
-        DISTRIBUTION_COMPLETED: {
+        DISASTER_EVENT_UPDATED: {
           inApp: false,
           email: true,
         },
@@ -614,7 +677,7 @@ test("saveCurrentSettings preserves notification preferences when the request up
         "2026-08-01T09:00:00.000Z",
       );
       assert.deepEqual(result.settings.notificationRulePreferences, {
-        DISTRIBUTION_COMPLETED: {
+        DISASTER_EVENT_UPDATED: {
           inApp: false,
           email: true,
         },
@@ -868,7 +931,7 @@ test("getCurrentSettings returns the reorganized Mayor notification categories i
               priority: "INFORMATIONAL",
               in_app_policy: "OPTIONAL",
               email_policy: "OPTIONAL",
-              delivery_mode: "DAILY_SUMMARY",
+              delivery_mode: "HOURLY_SUMMARY",
               user_configurability: "ALL_SUPPORTED_CHANNELS",
             },
             {
@@ -981,6 +1044,32 @@ test("getCurrentSettings returns the reorganized Mayor notification categories i
               delivery_mode: "IMMEDIATE",
               user_configurability: "EMAIL_ONLY",
             },
+            {
+              code: "SYSTEM_ALERT",
+              name: "System Alerts",
+              category_code: "SYSTEM_MONITORING",
+              category_label: "System Monitoring",
+              priority: "CRITICAL",
+              in_app_policy: "MANDATORY",
+              email_policy: "DEFAULT_ON",
+              delivery_mode: "IMMEDIATE",
+              user_configurability: "EMAIL_ONLY",
+              is_active: true,
+              policy_is_active: true,
+            },
+            {
+              code: "OPERATIONAL_ANOMALY",
+              name: "Operational Anomaly Alerts",
+              category_code: "SYSTEM_MONITORING",
+              category_label: "System Monitoring",
+              priority: "CRITICAL",
+              in_app_policy: "MANDATORY",
+              email_policy: "DEFAULT_ON",
+              delivery_mode: "IMMEDIATE",
+              user_configurability: "EMAIL_ONLY",
+              is_active: true,
+              policy_is_active: true,
+            },
           ];
         },
       },
@@ -1025,14 +1114,92 @@ test("getCurrentSettings returns the reorganized Mayor notification categories i
         },
         {
           label: "System Monitoring",
-          count: 3,
-          codes: ["SYNC_FAILURE", "SYNC_CONFLICT", "DONATION_STOCK_ANOMALY"],
+          count: 5,
+          codes: [
+            "SYNC_FAILURE",
+            "SYNC_CONFLICT",
+            "DONATION_STOCK_ANOMALY",
+            "SYSTEM_ALERT",
+            "OPERATIONAL_ANOMALY",
+          ],
         },
       ]);
       assert.equal(
         categorySummary.reduce((total, category) => total + category.count, 0),
-        12,
+        14,
       );
+    },
+  );
+});
+
+test("getCurrentSettings shows SYSTEM_ALERT but keeps SYSTEM_ANOMALY hidden to avoid duplicate system alert switches", async () => {
+  const user = {
+    id: "user-system-alert",
+    email: "barangay-system@example.com",
+    first_name: "Nora",
+    middle_name: null,
+    last_name: "Diaz",
+    contact_number: "+639171234599",
+    default_barangay_id: null,
+    is_active: true,
+  };
+
+  await withStubbedSettingsService(
+    {
+      [poolPath]: {},
+      [settingsRepositoryPath]: {
+        getUserById: async () => user,
+        getBarangayById: async () => null,
+        getUserRoleSettings: async () => null,
+      },
+      [notificationRepositoryPath]: {
+        getNotificationPolicyRowsByRoleCode: async () => [
+          {
+            code: "SYSTEM_ALERT",
+            name: "System Alerts",
+            role_code: "BARANGAY",
+            category_code: "SYSTEM_OPERATIONS",
+            category_label: "System Operations",
+            priority: "CRITICAL",
+            in_app_policy: "MANDATORY",
+            email_policy: "DEFAULT_ON",
+            delivery_mode: "IMMEDIATE",
+            user_configurability: "EMAIL_ONLY",
+            is_active: true,
+            policy_is_active: true,
+          },
+          {
+            code: "SYSTEM_ANOMALY",
+            name: "System Anomaly Alert",
+            role_code: "BARANGAY",
+            category_code: "SYSTEM_OPERATIONS",
+            category_label: "System Operations",
+            priority: "CRITICAL",
+            in_app_policy: "MANDATORY",
+            email_policy: "DEFAULT_ON",
+            delivery_mode: "IMMEDIATE",
+            user_configurability: "EMAIL_ONLY",
+            is_active: false,
+            policy_is_active: false,
+          },
+        ],
+      },
+      [notificationServicePath]: {
+        getNotificationRulesForRole: async () => [],
+      },
+      [profilePictureStorageServicePath]: buildProfilePictureStorageStub(),
+    },
+    async ({ getCurrentSettings }) => {
+      const settings = await getCurrentSettings({
+        userId: user.id,
+        roleCode: "BARANGAY",
+      });
+
+      const ruleCodes = settings.categories.flatMap((category) =>
+        (category.rules || []).map((rule) => rule.code),
+      );
+
+      assert.deepEqual(ruleCodes, ["SYSTEM_ALERT"]);
     },
   );
 });
@@ -1141,7 +1308,7 @@ test("saveCurrentSettings does not write PROFILE_UPDATED for notification-only u
           profile_picture_file_name: "",
           profile_picture_updated_at: null,
           notification_rule_preferences_json: {
-            DISTRIBUTION_UPDATE: {
+            DISASTER_EVENT_UPDATE: {
               email: false,
             },
           },
@@ -1157,15 +1324,15 @@ test("saveCurrentSettings does not write PROFILE_UPDATED for notification-only u
       [notificationRepositoryPath]: {
         getNotificationPolicyRowsByRoleCode: async () => [
           {
-            code: "DISTRIBUTION_UPDATE",
-            name: "Distribution Update",
-            category_code: "RELIEF_OPERATIONS",
-            category_label: "Relief Operations",
-            priority: "INFORMATIONAL",
-            in_app_policy: "OPTIONAL",
-            email_policy: "OPTIONAL",
-            delivery_mode: "HOURLY_SUMMARY",
-            user_configurability: "ALL_SUPPORTED_CHANNELS",
+            code: "DISASTER_EVENT_UPDATED",
+            name: "Disaster Event Updates",
+            category_code: "DISASTER_MANAGEMENT",
+            category_label: "Disaster Management",
+            priority: "CRITICAL",
+            in_app_policy: "MANDATORY",
+            email_policy: "DEFAULT_ON",
+            delivery_mode: "IMMEDIATE",
+            user_configurability: "EMAIL_ONLY",
           },
         ],
       },
@@ -1186,7 +1353,7 @@ test("saveCurrentSettings does not write PROFILE_UPDATED for notification-only u
         roleCode: "MSWDO",
         settings: {
           notificationRulePreferences: {
-            DISTRIBUTION_UPDATE: {
+            DISASTER_EVENT_UPDATE: {
               email: true,
             },
           },
