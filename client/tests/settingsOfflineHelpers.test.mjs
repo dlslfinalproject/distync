@@ -50,7 +50,7 @@ test("buildSettingsConflictSnapshot keeps stable fields only", () => {
       profilePictureUrlExpiresAt: "2099-01-01T00:00:00.000Z",
     },
     notificationRulePreferences: {
-      DISTRIBUTION_UPDATE: { inApp: true, email: false },
+      DISTRIBUTION_COMPLETED: { inApp: true, email: false },
     },
   });
 
@@ -77,15 +77,15 @@ test("mergeRefreshedSettingsWithLocalDraft preserves local editable drafts while
         profilePicturePath: "user-1/server-avatar.webp",
       },
       notificationRulePreferences: {
-        DISTRIBUTION_UPDATE: { inApp: false, email: false },
+        DISTRIBUTION_COMPLETED: { inApp: false, email: false },
       },
       effectiveNotificationChannels: {
-        DISTRIBUTION_UPDATE: { inApp: false, email: false },
+        DISTRIBUTION_COMPLETED: { inApp: false, email: false },
       },
       categories: [
         {
           code: "RELIEF",
-          rules: [{ code: "DISTRIBUTION_UPDATE" }],
+          rules: [{ code: "DISTRIBUTION_COMPLETED" }],
         },
       ],
     },
@@ -97,17 +97,17 @@ test("mergeRefreshedSettingsWithLocalDraft preserves local editable drafts while
         contactNumber: "+639222222222",
       },
       notificationRulePreferences: {
-        DISTRIBUTION_UPDATE: { inApp: true, email: true },
+        DISTRIBUTION_COMPLETED: { inApp: true, email: true },
       },
       effectiveNotificationChannels: {
-        DISTRIBUTION_UPDATE: { inApp: true, email: true },
+        DISTRIBUTION_COMPLETED: { inApp: true, email: true },
       },
       categories: [
         {
           code: "RELIEF",
           rules: [
             {
-              code: "DISTRIBUTION_UPDATE",
+              code: "DISTRIBUTION_COMPLETED",
               effectiveChannels: { inApp: true, email: true },
             },
           ],
@@ -125,22 +125,22 @@ test("mergeRefreshedSettingsWithLocalDraft preserves local editable drafts while
   assert.equal(merged.profile.assignedBarangay.name, "Santiago");
   assert.equal(merged.profile.profilePicturePath, "user-1/server-avatar.webp");
   assert.deepEqual(merged.notificationRulePreferences, {
-    DISTRIBUTION_UPDATE: { inApp: true, email: true },
+    DISTRIBUTION_COMPLETED: { inApp: true, email: true },
   });
 });
 
 test("getSettingsOfflineMessage returns page-specific messages and a safe fallback", () => {
   assert.deepEqual(
-    getSettingsOfflineMessage("account-settings"),
-    SETTINGS_OFFLINE_MESSAGES["account-settings"],
+    getSettingsOfflineMessage("account"),
+    SETTINGS_OFFLINE_MESSAGES.account,
   );
   assert.deepEqual(
-    getSettingsOfflineMessage("notification-preferences"),
-    SETTINGS_OFFLINE_MESSAGES["notification-preferences"],
+    getSettingsOfflineMessage("notifications"),
+    SETTINGS_OFFLINE_MESSAGES.notifications,
   );
   assert.deepEqual(
-    getSettingsOfflineMessage("sync-preferences"),
-    SETTINGS_OFFLINE_MESSAGES["sync-preferences"],
+    getSettingsOfflineMessage("system"),
+    SETTINGS_OFFLINE_MESSAGES.system,
   );
   assert.deepEqual(
     getSettingsOfflineMessage("unknown-section"),
@@ -151,22 +151,22 @@ test("getSettingsOfflineMessage returns page-specific messages and a safe fallba
 test("buildSettingsStatusBanner uses section-aware offline copy and preserves reconnect warnings", () => {
   assert.deepEqual(
     buildSettingsStatusBanner({
-      activeSectionKey: "notification-preferences",
+      activeSectionKey: "notifications",
       isOnline: false,
       hasUnsavedChanges: false,
       isReconnectRefreshBlocked: false,
     }),
-    SETTINGS_OFFLINE_MESSAGES["notification-preferences"],
+    SETTINGS_OFFLINE_MESSAGES.notifications,
   );
 
   assert.deepEqual(
     buildSettingsStatusBanner({
-      activeSectionKey: "sync-preferences",
+      activeSectionKey: "system",
       isOnline: false,
       hasUnsavedChanges: false,
       isReconnectRefreshBlocked: false,
     }),
-    SETTINGS_OFFLINE_MESSAGES["sync-preferences"],
+    SETTINGS_OFFLINE_MESSAGES.system,
   );
 
   assert.deepEqual(
@@ -181,7 +181,7 @@ test("buildSettingsStatusBanner uses section-aware offline copy and preserves re
 
   assert.deepEqual(
     buildSettingsStatusBanner({
-      activeSectionKey: "account-settings",
+      activeSectionKey: "account",
       isOnline: false,
       hasUnsavedChanges: true,
       isReconnectRefreshBlocked: false,
@@ -194,7 +194,7 @@ test("buildSettingsStatusBanner uses section-aware offline copy and preserves re
 
   assert.deepEqual(
     buildSettingsStatusBanner({
-      activeSectionKey: "account-settings",
+      activeSectionKey: "account",
       isOnline: true,
       hasUnsavedChanges: false,
       isReconnectRefreshBlocked: true,
@@ -209,12 +209,15 @@ test("buildSettingsStatusBanner uses section-aware offline copy and preserves re
 test("all role settings section configs expose the same notification and system-information keys", async () => {
   const source = await fs.readFile(settingsConfigSourcePath, "utf8");
 
-  const accountSettingsMatches = source.match(/key: "account-settings"/g) || [];
+  const accountSettingsMatches = source.match(/key: SETTINGS_SECTIONS\.ACCOUNT/g) || [];
   const notificationMatches =
-    source.match(/key: "notification-preferences"/g) || [];
-  const systemInformationMatches = source.match(/key: "sync-preferences"/g) || [];
+    source.match(/key: SETTINGS_SECTIONS\.NOTIFICATIONS/g) || [];
+  const systemInformationMatches = source.match(/key: SETTINGS_SECTIONS\.SYSTEM/g) || [];
 
-  assert.equal(accountSettingsMatches.length, 3);
-  assert.equal(notificationMatches.length, 3);
-  assert.equal(systemInformationMatches.length, 3);
+  assert.equal(accountSettingsMatches.length, 1);
+  assert.equal(notificationMatches.length, 1);
+  assert.equal(systemInformationMatches.length, 1);
+  assert.match(source, /export const BARANGAY_SETTINGS_SECTIONS = SHARED_SETTINGS_SECTIONS;/);
+  assert.match(source, /export const MSWDO_SETTINGS_SECTIONS = SHARED_SETTINGS_SECTIONS;/);
+  assert.match(source, /export const MAYOR_SETTINGS_SECTIONS = SHARED_SETTINGS_SECTIONS;/);
 });

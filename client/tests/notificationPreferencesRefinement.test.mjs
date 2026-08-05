@@ -14,6 +14,10 @@ const notificationSectionSourcePath = new URL(
   "../src/pages/settings/components/NotificationPreferencesSection.jsx",
   import.meta.url,
 );
+const notificationServiceSourcePath = new URL(
+  "../src/features/notifications/notificationService.js",
+  import.meta.url,
+);
 const feedbackToastSourcePath = new URL(
   "../src/components/shared/FeedbackToast.jsx",
   import.meta.url,
@@ -88,6 +92,13 @@ test("notification preferences section source no longer uses nested per-rule car
   assert.match(source, /categorySectionStyles/);
   assert.match(source, /NotificationPreferenceRow/);
   assert.match(source, /NotificationChannelControl/);
+});
+
+test("notification service source does not keep the removed settings-only rules fetcher", async () => {
+  const source = await fs.readFile(notificationServiceSourcePath, "utf8");
+
+  assert.doesNotMatch(source, /fetchCurrentNotificationRules/);
+  assert.doesNotMatch(source, /notifications\/rules\/current/);
 });
 
 test("feedback toast source includes live region semantics", async () => {

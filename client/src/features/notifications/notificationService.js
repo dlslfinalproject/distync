@@ -54,11 +54,6 @@ export const markAllNotificationsAsRead = async () => {
   return handleJsonResponse(response, "Failed to mark all notifications as read");
 };
 
-export const fetchCurrentNotificationRules = async () => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/notifications/rules/current`);
-  return handleJsonResponse(response, "Failed to fetch notification rules");
-};
-
 export const fetchMayorNotifications = fetchNotifications;
 export const fetchMayorUnreadNotificationCount = fetchUnreadNotificationCount;
 export const markMayorNotificationAsRead = markNotificationAsRead;

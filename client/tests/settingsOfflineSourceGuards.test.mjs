@@ -19,7 +19,11 @@ const notificationSectionSourcePath = new URL(
   import.meta.url,
 );
 const systemSectionSourcePath = new URL(
-  "../src/pages/settings/components/SyncPreferencesSection.jsx",
+  "../src/pages/settings/components/SystemInformationSection.jsx",
+  import.meta.url,
+);
+const systemInformationHookSourcePath = new URL(
+  "../src/pages/settings/useSystemInformation.js",
   import.meta.url,
 );
 const roleShellSourcePath = new URL(
@@ -81,9 +85,9 @@ test("settings page and sections contain the dedicated offline messaging", async
   );
   assert.match(
     systemSource,
-    /Offline Access/,
+    /Offline Capability/,
   );
-  assert.match(
+  assert.doesNotMatch(
     systemSource,
     /Available for supported features/,
   );
@@ -120,10 +124,25 @@ test("settings banner layout does not introduce fixed heights or nowrap copy con
 test("settings page still resolves section identity from activeSection instead of pathname matching", async () => {
   const settingsSource = await fs.readFile(settingsPageSourcePath, "utf8");
 
+  assert.match(settingsSource, /useSearchParams/);
+  assert.match(settingsSource, /getSettingsSectionNormalization/);
   assert.match(settingsSource, /activeSectionKey: activeSection/);
   assert.doesNotMatch(settingsSource, /pathname\.includes/);
-  assert.doesNotMatch(settingsSource, /notification-preferences.*pathname/s);
-  assert.doesNotMatch(settingsSource, /sync-preferences.*pathname/s);
+  assert.doesNotMatch(settingsSource, /notifications.*pathname/s);
+  assert.doesNotMatch(settingsSource, /system.*pathname/s);
+});
+
+test("settings page uses the approved full-page load error copy", async () => {
+  const settingsSource = await fs.readFile(settingsPageSourcePath, "utf8");
+
+  assert.match(
+    settingsSource,
+    /Settings could not be loaded\. Please try again\./,
+  );
+  assert.doesNotMatch(
+    settingsSource,
+    /Settings information could not be loaded\./,
+  );
 });
 
 test("settings reconnect warning remains generic rather than profile-specific", async () => {
@@ -135,6 +154,11 @@ test("settings reconnect warning remains generic rather than profile-specific", 
 
 test("system information offline copy remains view-only and non-editable", async () => {
   const offlineHelpersSource = await fs.readFile(offlineHelpersSourcePath, "utf8");
+  const systemSource = await fs.readFile(systemSectionSourcePath, "utf8");
+  const systemInformationHookSource = await fs.readFile(
+    systemInformationHookSourcePath,
+    "utf8",
+  );
 
   assert.doesNotMatch(
     offlineHelpersSource,
@@ -144,4 +168,7 @@ test("system information offline copy remains view-only and non-editable", async
     offlineHelpersSource,
     /System information.*changes require a connection/s,
   );
+  assert.match(systemInformationHookSource, /System information could not be loaded\./);
+  assert.match(systemInformationHookSource, /System information could not be refreshed\./);
+  assert.match(systemSource, /Please try again\./);
 });

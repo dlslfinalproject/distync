@@ -6,6 +6,10 @@ import {
   MSWDO_SETTINGS_SECTIONS,
 } from "./settingsConfig";
 import {
+  DEFAULT_SETTINGS_SECTION,
+  SETTINGS_SECTIONS,
+} from "./settingsSectionRouting";
+import {
   LOCAL_SYNC_STATUS,
   buildDisplayName,
   ensureArray,
@@ -21,14 +25,6 @@ import {
   buildOfficeProfileSectionProps,
   getSettingsDashboardDescription,
 } from "./settingsViewContent";
-
-const buildSafeSyncSummary = (syncSummary) => ({
-  total: Number(syncSummary?.total || 0),
-  [LOCAL_SYNC_STATUS.PENDING]: Number(syncSummary?.[LOCAL_SYNC_STATUS.PENDING] || 0),
-  [LOCAL_SYNC_STATUS.SYNCED]: Number(syncSummary?.[LOCAL_SYNC_STATUS.SYNCED] || 0),
-  [LOCAL_SYNC_STATUS.FAILED]: Number(syncSummary?.[LOCAL_SYNC_STATUS.FAILED] || 0),
-  [LOCAL_SYNC_STATUS.CONFLICT]: Number(syncSummary?.[LOCAL_SYNC_STATUS.CONFLICT] || 0),
-});
 
 const buildDefaultSectionCard = (section, statusTone = "info", statusLabel = "Open section") => ({
   ...section,
@@ -56,7 +52,7 @@ const buildNotificationSectionCard = (
       : "No role rules found",
   );
 
-const buildSyncSectionCard = (section) =>
+const buildSystemInformationSectionCard = (section) =>
   buildDefaultSectionCard(section, "info", "Information");
 
 export const getSectionsForRole = ({
@@ -88,16 +84,16 @@ export const buildBarangaySectionCards = ({
 }) => {
   return BARANGAY_SETTINGS_SECTIONS.map((section) => {
     switch (section.key) {
-      case "account-settings":
+      case SETTINGS_SECTIONS.ACCOUNT:
         return buildProfileSectionCard(section, preferences);
-      case "notification-preferences":
+      case SETTINGS_SECTIONS.NOTIFICATIONS:
         return buildDefaultSectionCard(
           section,
           enabledRuleCodes.length > 0 ? "success" : "warning",
           `${enabledRuleCodes.length} rules enabled`,
         );
-      case "sync-preferences":
-        return buildSyncSectionCard(section);
+      case SETTINGS_SECTIONS.SYSTEM:
+        return buildSystemInformationSectionCard(section);
       default:
         return buildDefaultSectionCard(section);
     }
@@ -111,16 +107,16 @@ export const buildMswdoSectionCards = ({
 }) => {
   return MSWDO_SETTINGS_SECTIONS.map((section) => {
     switch (section.key) {
-      case "account-settings":
+      case SETTINGS_SECTIONS.ACCOUNT:
         return buildProfileSectionCard(section, preferences);
-      case "notification-preferences":
+      case SETTINGS_SECTIONS.NOTIFICATIONS:
         return buildNotificationSectionCard(
           section,
           enabledRuleCodes,
           notificationRuleCount,
         );
-      case "sync-preferences":
-        return buildSyncSectionCard(section);
+      case SETTINGS_SECTIONS.SYSTEM:
+        return buildSystemInformationSectionCard(section);
       default:
         return buildDefaultSectionCard(section);
     }
@@ -134,16 +130,16 @@ export const buildMayorSectionCards = ({
 }) => {
   return MAYOR_SETTINGS_SECTIONS.map((section) => {
     switch (section.key) {
-      case "account-settings":
+      case SETTINGS_SECTIONS.ACCOUNT:
         return buildProfileSectionCard(section, preferences);
-      case "notification-preferences":
+      case SETTINGS_SECTIONS.NOTIFICATIONS:
         return buildNotificationSectionCard(
           section,
           enabledRuleCodes,
           notificationRuleCount,
         );
-      case "sync-preferences":
-        return buildSyncSectionCard(section);
+      case SETTINGS_SECTIONS.SYSTEM:
+        return buildSystemInformationSectionCard(section);
       default:
         return buildDefaultSectionCard(section);
     }
@@ -164,11 +160,17 @@ export const buildSettingsPageActions = ({
   }
 
   return [
-    {
-      label: "Back",
-      onClick: onBack,
-      variant: "secondary",
-    },
+    ...(
+      activeSectionMeta.key !== DEFAULT_SETTINGS_SECTION
+        ? [
+            {
+              label: "Back",
+              onClick: onBack,
+              variant: "secondary",
+            },
+          ]
+        : []
+    ),
     ...(
       editableSectionKeys.has(activeSectionMeta.key)
         ? [
@@ -218,7 +220,7 @@ export const buildSharedRoleViewContext = ({
   InfoRow,
   EmptyState,
   isLoading,
-  syncSectionProps,
+  systemInformationSectionProps,
   isSavingPreferences,
   isOnline,
   isSettingsReadOnlyOffline,
@@ -263,7 +265,7 @@ export const buildSharedRoleViewContext = ({
   InfoRow,
   EmptyState,
   isLoading,
-  syncSectionProps,
+  systemInformationSectionProps,
   isSavingPreferences,
   isOnline,
   isSettingsReadOnlyOffline,
@@ -288,15 +290,7 @@ export const buildBarangayViewContext = ({
   canResetNotificationPreferences,
   resetPreferencesButtonRef,
   handleRetryNotificationPreferencesLoad,
-  navigate,
-  handleSyncNow,
-  isSyncingNow,
-  syncSummary,
-  isOnline,
-  localSyncLogRows,
-  syncHistoryErrorMessage,
-  lastQueueActivityAt,
-  lastSuccessfulSyncAt,
+  systemInformation,
 }) => ({
   ...sharedContext,
   roleCode: ROLE_CODES.BARANGAY,
@@ -321,17 +315,7 @@ export const buildBarangayViewContext = ({
     handleRetryNotificationPreferencesLoad,
   }),
   dashboardDescription: getSettingsDashboardDescription(ROLE_CODES.BARANGAY),
-  navigate,
-  handleSyncNow,
-  isSyncingNow,
-  syncSummary: buildSafeSyncSummary(syncSummary),
-  LOCAL_SYNC_STATUS,
-  getSyncStatusMeta,
-  isOnline,
-  localSyncLogRows: ensureArray(localSyncLogRows),
-  syncHistoryErrorMessage,
-  lastQueueActivityAt,
-  lastSuccessfulSyncAt,
+  systemInformation,
 });
 
 export const buildMswdoViewContext = ({
@@ -352,15 +336,7 @@ export const buildMswdoViewContext = ({
   handleRetryNotificationPreferencesLoad,
   unreadCount,
   notificationRuleCount,
-  navigate,
-  handleSyncNow,
-  isSyncingNow,
-  syncSummary,
-  isOnline,
-  localSyncLogRows,
-  syncHistoryErrorMessage,
-  lastQueueActivityAt,
-  lastSuccessfulSyncAt,
+  systemInformation,
 }) => ({
   ...sharedContext,
   roleCode: ROLE_CODES.MSWDO,
@@ -390,17 +366,7 @@ export const buildMswdoViewContext = ({
   dashboardDescription: getSettingsDashboardDescription(ROLE_CODES.MSWDO),
   unreadCount: Number(unreadCount || 0),
   notificationRuleCount: Number(notificationRuleCount || 0),
-  navigate,
-  handleSyncNow,
-  isSyncingNow,
-  syncSummary: buildSafeSyncSummary(syncSummary),
-  LOCAL_SYNC_STATUS,
-  getSyncStatusMeta,
-  isOnline,
-  localSyncLogRows: ensureArray(localSyncLogRows),
-  syncHistoryErrorMessage,
-  lastQueueActivityAt,
-  lastSuccessfulSyncAt,
+  systemInformation,
 });
 
 export const buildMayorViewContext = ({
@@ -421,15 +387,7 @@ export const buildMayorViewContext = ({
   handleRetryNotificationPreferencesLoad,
   unreadCount,
   notificationRuleCount,
-  navigate,
-  handleSyncNow,
-  isSyncingNow,
-  syncSummary,
-  isOnline,
-  localSyncLogRows,
-  syncHistoryErrorMessage,
-  lastQueueActivityAt,
-  lastSuccessfulSyncAt,
+  systemInformation,
 }) => ({
   ...sharedContext,
   roleCode: ROLE_CODES.MAYOR,
@@ -459,15 +417,5 @@ export const buildMayorViewContext = ({
   dashboardDescription: getSettingsDashboardDescription(ROLE_CODES.MAYOR),
   unreadCount: Number(unreadCount || 0),
   notificationRuleCount: Number(notificationRuleCount || 0),
-  navigate,
-  handleSyncNow,
-  isSyncingNow,
-  syncSummary: buildSafeSyncSummary(syncSummary),
-  LOCAL_SYNC_STATUS,
-  getSyncStatusMeta,
-  isOnline,
-  localSyncLogRows: ensureArray(localSyncLogRows),
-  syncHistoryErrorMessage,
-  lastQueueActivityAt,
-  lastSuccessfulSyncAt,
+  systemInformation,
 });

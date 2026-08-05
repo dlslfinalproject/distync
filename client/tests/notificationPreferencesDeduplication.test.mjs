@@ -13,16 +13,18 @@ test("frontend settings helper source defines canonical alias cleanup for duplic
   assert.match(source, /DISASTER_EVENT_UPDATE:\s*"DISASTER_EVENT_UPDATED"/);
   assert.match(source, /EVACUEE_ATTENDANCE_UPDATE:\s*"EVACUEE_ATTENDANCE_UPDATED"/);
   assert.match(source, /HOUSEHOLD_VERIFICATION:\s*"HOUSEHOLD_VERIFICATION_UPDATED"/);
-  assert.match(source, /DISTRIBUTION_UPDATE:\s*"DISTRIBUTION_COMPLETED"/);
   assert.match(source, /CRITICAL_STOCK:\s*"CRITICAL_INVENTORY_SHORTAGE"/);
-  assert.match(source, /DONATION_STOCK_UPDATE:\s*"DONATION_RECEIVED"/);
   assert.match(source, /SYNCHRONIZATION_CONFLICT_ALERT:\s*"SYNC_CONFLICT"/);
+  assert.doesNotMatch(source, /DISTRIBUTION_UPDATE:\s*"DISTRIBUTION_COMPLETED"/);
+  assert.doesNotMatch(source, /DONATION_STOCK_UPDATE:\s*"DONATION_RECEIVED"/);
   assert.doesNotMatch(source, /LOW_STOCK:\s*"CRITICAL_INVENTORY_SHORTAGE"/);
   assert.doesNotMatch(source, /INVENTORY_INCIDENT:\s*"OPERATIONAL_ANOMALY"/);
   assert.doesNotMatch(source, /SYNC_CONFLICT:\s*"SYNC_FAILURE"/);
   assert.doesNotMatch(source, /SYSTEM_ANOMALY:\s*"SYNC_FAILURE"/);
   assert.match(source, /HIDDEN_NOTIFICATION_RULE_CODES = new Set\(\[/);
-  assert.match(source, /"SYSTEM_ALERT"/);
+  assert.match(source, /SYSTEM_ALERT:\s*\{/);
+  assert.match(source, /OPERATIONAL_ANOMALY:\s*\{/);
+  assert.doesNotMatch(source, /"SYSTEM_ALERT",\s*"SYSTEM_ANOMALY",\s*"OPERATIONAL_ANOMALY"/);
   assert.match(source, /dedupeNotificationSettings = \(\{/);
   assert.match(source, /sortNotificationCategories/);
   assert.match(source, /sortCategoryRules/);
@@ -57,4 +59,6 @@ test("frontend settings helper source encodes the approved role category counts 
   assert.match(source, /SYNC_CONFLICT:\s*13/);
   assert.match(source, /DONATION_STOCK_ANOMALY:\s*14/);
   assert.match(source, /EVACUATION_SUMMARY_REPORT:\s*15/);
+  assert.match(source, /SYSTEM_ALERT:\s*16/);
+  assert.match(source, /OPERATIONAL_ANOMALY:\s*17/);
 });

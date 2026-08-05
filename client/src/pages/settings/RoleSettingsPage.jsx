@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { useNavigate } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import ConfirmationModal from "../../components/shared/ConfirmationModal";
@@ -12,12 +12,8 @@ import {
   refreshCurrentProfilePicture,
   saveRoleSettings,
 } from "../../features/settings/settingsService";
-import { fetchSyncHistory } from "../../features/sync/syncHistoryService";
 import { LOCAL_SYNC_STATUS } from "../../offline/db";
-import {
-  flushPendingSyncEntries,
-  subscribeToSyncUpdates,
-} from "../../offline/syncService";
+import { flushPendingSyncEntries } from "../../offline/syncService";
 import { getVisibleSyncQueueEntriesByUpdatedAt } from "../../offline/syncQueue";
 import {
   ROLE_CODES,
@@ -58,7 +54,6 @@ import {
   buildSettingsPageActions,
   buildSharedRoleViewContext,
   getActiveSettingsSection,
-  getSectionsForRole,
 } from "./settingsViewBuilders";
 import BarangaySettingsView from "./views/BarangaySettingsView";
 import MayorSettingsView from "./views/MayorSettingsView";
@@ -78,6 +73,14 @@ import {
   hasCachedRoleSettingsData,
   mergeRefreshedSettingsWithLocalDraft,
 } from "./settingsOfflineHelpers";
+import {
+  DEFAULT_SETTINGS_SECTION,
+  getSettingsSectionNormalization,
+  isValidSettingsSection,
+  SETTINGS_SECTIONS,
+  withSettingsSection,
+} from "./settingsSectionRouting";
+import { useSystemInformation } from "./useSystemInformation";
 
 const gridStyles = {
   display: "grid",
@@ -343,7 +346,7 @@ const hasStructuredProfileData = (profile = {}) =>
   );
 
 const RoleSettingsPage = () => {
-  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { accessMode, currentRole, authenticatedUser, syncAuthState } = useAuth();
   const syncEntries =
     useLiveQuery(() => getVisibleSyncQueueEntriesByUpdatedAt(), [], []) ||
@@ -358,11 +361,6 @@ const RoleSettingsPage = () => {
     createDefaultRolePreferences(),
   );
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
-  const [syncHistory, setSyncHistory] = useState({
-    transactions: [],
-    conflicts: [],
-  });
-  const [syncHistoryErrorMessage, setSyncHistoryErrorMessage] = useState("");
   const [isSyncingNow, setIsSyncingNow] = useState(false);
   const [notificationTouched, setNotificationTouched] = useState(false);
   const [settingsReloadVersion, setSettingsReloadVersion] = useState(0);
@@ -370,7 +368,6 @@ const RoleSettingsPage = () => {
   const [isUnsavedModalOpen, setIsUnsavedModalOpen] = useState(false);
   const [isReconnectConflictModalOpen, setIsReconnectConflictModalOpen] =
     useState(false);
-  const [activeSection, setActiveSection] = useState(null);
   const [toast, setToast] = useState({
     message: "",
     type: "info",
@@ -422,6 +419,12 @@ const RoleSettingsPage = () => {
   const isBarangayRole = currentRole === ROLE_CODES.BARANGAY;
   const isMswdoRole = currentRole === ROLE_CODES.MSWDO;
   const isMayorRole = currentRole === ROLE_CODES.MAYOR;
+  const searchParamsKey = searchParams.toString();
+  const settingsSectionState = useMemo(
+    () => getSettingsSectionNormalization(searchParams),
+    [searchParamsKey],
+  );
+  const activeSection = settingsSectionState.section;
   const settingsOwnerKey = useMemo(() => {
     if (!accessMode || !currentRole || !authenticatedUser?.id) {
       return "";
@@ -581,6 +584,14 @@ const RoleSettingsPage = () => {
   };
 
   useEffect(() => {
+    if (!settingsSectionState.shouldNormalize) {
+      return;
+    }
+
+    setSearchParams(settingsSectionState.params, { replace: true });
+  }, [setSearchParams, settingsSectionState]);
+
+  useEffect(() => {
     preferencesRef.current = preferences;
   }, [preferences]);
 
@@ -610,29 +621,6 @@ const RoleSettingsPage = () => {
       window.removeEventListener("offline", handleOffline);
     };
   }, []);
-
-  useEffect(() => {
-    const availableSections = getSectionsForRole({
-      isBarangayRole,
-      isMswdoRole,
-      isMayorRole,
-    });
-
-    if (availableSections.length === 0) {
-      setActiveSection(null);
-      return;
-    }
-
-    setActiveSection((current) => {
-      if (!current) {
-        return null;
-      }
-
-      return availableSections.some((section) => section.key === current)
-        ? current
-        : null;
-    });
-  }, [isBarangayRole, isMayorRole, isMswdoRole]);
 
   useEffect(() => {
     if (!settingsOwnerKey) {
@@ -738,10 +726,17 @@ const RoleSettingsPage = () => {
         result.settings,
       );
 
-      if (result.source === "network" && !hasStructuredProfileData(hydratedPreferences.profile)) {
+      if (result.source === "error") {
+        setErrorMessage("Settings could not be loaded. Please try again.");
+      } else if (
+        result.source === "network" &&
+        !hasStructuredProfileData(hydratedPreferences.profile)
+      ) {
         setErrorMessage(
           "Profile information is incomplete. Refresh the page after reconnecting to the server.",
         );
+      } else {
+        setErrorMessage("");
       }
 
       if (result.source === "network" && hasUnsavedChangesRef.current) {
@@ -813,23 +808,18 @@ const RoleSettingsPage = () => {
           userId: authenticatedUser.id,
         });
 
-        if (
-          !isMounted ||
-          settingsOwnerKeyRef.current !== ownerKey
-        ) {
+        if (!isMounted || settingsOwnerKeyRef.current !== ownerKey) {
           return;
         }
 
         if (result.source !== "network") {
           setIsReconnectRefreshBlocked(true);
-          setNotificationLoadError(
-            "Account settings could not be refreshed. Please try again.",
-          );
+          setNotificationLoadError("");
           showScopedToast({
             key: "settings-reconnect-refresh-failed",
             type: "warning",
             title: "Back online",
-            message: "Account settings could not be refreshed. Please try again.",
+            message: "Settings could not be refreshed. Please try again.",
           });
           return;
         }
@@ -1029,9 +1019,9 @@ const RoleSettingsPage = () => {
         }
 
         setUnreadCount(Number(unreadResponse?.unread_count || 0));
-      } catch (error) {
+      } catch (_error) {
         if (settingsOwnerKeyRef.current === ownerKey) {
-          setErrorMessage("Settings information could not be loaded.");
+          setUnreadCount(0);
         }
       } finally {
         if (settingsOwnerKeyRef.current === ownerKey) {
@@ -1043,68 +1033,14 @@ const RoleSettingsPage = () => {
     loadSettingsData();
   }, [authenticatedUser, currentRole, isOnline, settingsOwnerKey]);
 
-  useEffect(() => {
-    if (!isBarangayRole && !isMswdoRole && !isMayorRole) {
-      return;
-    }
-
-    if (!isOnline) {
-      setSyncHistoryErrorMessage("");
-      return;
-    }
-
-    let isMounted = true;
-
-    const loadRoleSyncHistory = async () => {
-      setSyncHistoryErrorMessage("");
-
-      try {
-        const response = await fetchSyncHistory({ limit: 20 });
-
-        if (!isMounted) {
-          return;
-        }
-
-        setSyncHistory({
-          transactions: Array.isArray(response?.transactions)
-            ? response.transactions
-            : [],
-          conflicts: Array.isArray(response?.conflicts) ? response.conflicts : [],
-        });
-      } catch (error) {
-        if (isMounted) {
-          setSyncHistory({
-            transactions: [],
-            conflicts: [],
-          });
-          setSyncHistoryErrorMessage(
-            error.message || "Failed to load sync history.",
-          );
-        }
-      }
-    };
-
-    loadRoleSyncHistory();
-
-    const unsubscribe = subscribeToSyncUpdates(() => {
-      if (typeof navigator === "undefined" || navigator.onLine) {
-        void loadRoleSyncHistory();
-      }
-    });
-
-    return () => {
-      isMounted = false;
-      unsubscribe();
-    };
-  }, [isBarangayRole, isMayorRole, isMswdoRole, isOnline]);
-
   const handleSavePreferences = async () => {
     if (!currentRole || !authenticatedUser) {
       return;
     }
 
-    const isProfileSection = activeSection === "account-settings";
-    const isNotificationSection = activeSection === "notification-preferences";
+    const isProfileSection = activeSection === SETTINGS_SECTIONS.ACCOUNT;
+    const isNotificationSection =
+      activeSection === SETTINGS_SECTIONS.NOTIFICATIONS;
 
     if (!isOnline) {
       showScopedToast({
@@ -1502,7 +1438,14 @@ const RoleSettingsPage = () => {
       return;
     }
 
-    setActiveSection(null);
+    if (activeSection !== DEFAULT_SETTINGS_SECTION) {
+      const nextParams = withSettingsSection(
+        searchParams,
+        DEFAULT_SETTINGS_SECTION,
+      );
+
+      setSearchParams(nextParams);
+    }
   };
 
   const handleKeepEditing = () => {
@@ -1523,7 +1466,16 @@ const RoleSettingsPage = () => {
       contactNumber: false,
     });
     setNotificationTouched(false);
-    setActiveSection(null);
+  };
+
+  const handleOpenSection = (nextSection) => {
+    if (!isValidSettingsSection(nextSection) || nextSection === activeSection) {
+      return;
+    }
+
+    const nextParams = withSettingsSection(searchParams, nextSection);
+
+    setSearchParams(nextParams);
   };
 
   const handleProfilePictureChange = (event) => {
@@ -1740,33 +1692,11 @@ const RoleSettingsPage = () => {
     !hasNotificationPreferencesError &&
     !isNotificationPreferencesEmpty &&
     !Object.values(notificationValidationErrors).some(Boolean);
-  const localSyncLogRows = useMemo(
-    () => buildLocalSyncLogRows(syncEntries),
-    [syncEntries],
-  );
-  const latestSuccessfulSyncTimestamp = useMemo(() => {
-    const syncedTransactions = (syncHistory.transactions || [])
-      .filter((transaction) => transaction.sync_status === LOCAL_SYNC_STATUS.SYNCED)
-      .map(
-        (transaction) =>
-          transaction.server_timestamp ||
-          transaction.synced_at ||
-          transaction.updated_at ||
-          transaction.created_at,
-      )
-      .filter(Boolean)
-      .sort((left, right) => new Date(right).getTime() - new Date(left).getTime());
-
-    return syncedTransactions[0] || "";
-  }, [syncHistory.transactions]);
-  const lastQueueActivityAt = useMemo(
-    () => formatDateTime(localSyncLogRows[0]?.timestamp),
-    [localSyncLogRows],
-  );
-  const lastSuccessfulSyncAt = useMemo(
-    () => formatDateTime(latestSuccessfulSyncTimestamp),
-    [latestSuccessfulSyncTimestamp],
-  );
+  const systemInformation = useSystemInformation({
+    roleCode: currentRole,
+    syncEntries,
+    formatDateTime,
+  });
 
   const activeBarangaySection = useMemo(
     () => getActiveSettingsSection(BARANGAY_SETTINGS_SECTIONS, activeSection),
@@ -1848,7 +1778,7 @@ const RoleSettingsPage = () => {
     onSave: handleSavePreferences,
   });
 
-  const syncSectionProps = {
+  const systemInformationSectionProps = {
     shellStyles,
     gridStyles,
     cardStyles,
@@ -1860,7 +1790,7 @@ const RoleSettingsPage = () => {
     EmptyState,
     StatusChip,
     description:
-      "Review offline sync information, current synchronization status, and the latest sync activity. This section is informative only and keeps the existing DISTYNC offline behavior unchanged.",
+      "Review live system information, current connectivity, and the latest offline capability status. This section is informative only and keeps the existing DISTYNC offline behavior unchanged.",
     isOnline,
   };
 
@@ -1900,7 +1830,7 @@ const RoleSettingsPage = () => {
     InfoRow,
     EmptyState,
     isLoading,
-    syncSectionProps,
+    systemInformationSectionProps,
     isOnline,
     isSettingsReadOnlyOffline,
     hasUnsavedChanges,
@@ -1929,15 +1859,7 @@ const RoleSettingsPage = () => {
       isOnline,
     resetPreferencesButtonRef,
     handleRetryNotificationPreferencesLoad: retryRoleSettingsLoad,
-    navigate,
-    handleSyncNow,
-    isSyncingNow,
-    syncSummary,
-    isOnline,
-    localSyncLogRows,
-    syncHistoryErrorMessage,
-    lastQueueActivityAt,
-    lastSuccessfulSyncAt,
+    systemInformation,
   });
 
   const mswdoViewContext = buildMswdoViewContext({
@@ -1963,15 +1885,7 @@ const RoleSettingsPage = () => {
     handleRetryNotificationPreferencesLoad: retryRoleSettingsLoad,
     unreadCount,
     notificationRuleCount,
-    navigate,
-    handleSyncNow,
-    isSyncingNow,
-    syncSummary,
-    isOnline,
-    localSyncLogRows,
-    syncHistoryErrorMessage,
-    lastQueueActivityAt,
-    lastSuccessfulSyncAt,
+    systemInformation,
   });
 
   const mayorViewContext = buildMayorViewContext({
@@ -1997,15 +1911,7 @@ const RoleSettingsPage = () => {
     handleRetryNotificationPreferencesLoad: retryRoleSettingsLoad,
     unreadCount,
     notificationRuleCount,
-    navigate,
-    handleSyncNow,
-    isSyncingNow,
-    syncSummary,
-    isOnline,
-    localSyncLogRows,
-    syncHistoryErrorMessage,
-    lastQueueActivityAt,
-    lastSuccessfulSyncAt,
+    systemInformation,
   });
 
   const settingsDialogs = (
@@ -2110,7 +2016,7 @@ const RoleSettingsPage = () => {
           pageActions={barangayPageActions}
           errorMessage={errorMessage}
           sectionCards={barangaySectionCards}
-          onOpenSection={setActiveSection}
+          onOpenSection={handleOpenSection}
           toast={toast}
           onCloseToast={() => setToast({ message: "", type: "info", title: "" })}
           settingsHubStyles={settingsHubStyles}
@@ -2135,7 +2041,7 @@ const RoleSettingsPage = () => {
           pageActions={mswdoPageActions}
           errorMessage={errorMessage}
           sectionCards={mswdoSectionCards}
-          onOpenSection={setActiveSection}
+          onOpenSection={handleOpenSection}
           toast={toast}
           onCloseToast={() => setToast({ message: "", type: "info", title: "" })}
           settingsHubStyles={settingsHubStyles}
@@ -2160,7 +2066,7 @@ const RoleSettingsPage = () => {
           pageActions={mayorPageActions}
           errorMessage={errorMessage}
           sectionCards={mayorSectionCards}
-          onOpenSection={setActiveSection}
+          onOpenSection={handleOpenSection}
           toast={toast}
           onCloseToast={() => setToast({ message: "", type: "info", title: "" })}
           settingsHubStyles={settingsHubStyles}

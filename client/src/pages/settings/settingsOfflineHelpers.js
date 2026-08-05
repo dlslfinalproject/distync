@@ -1,17 +1,17 @@
 const normalizeString = (value = "") => String(value || "").trim();
 
 export const SETTINGS_OFFLINE_MESSAGES = {
-  "account-settings": {
+  account: {
     title: "You're offline",
     message:
       "Account settings are available for viewing. Connect to the internet to make changes.",
   },
-  "notification-preferences": {
+  notifications: {
     title: "You're offline",
     message:
       "Notification preferences are available for viewing. Connect to the internet to update your preferences.",
   },
-  "sync-preferences": {
+  system: {
     title: "You're offline",
     message:
       "System information remains available for viewing while you're offline.",

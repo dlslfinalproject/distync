@@ -2,7 +2,8 @@ import React from "react";
 import NotificationPreferencesSection from "../components/NotificationPreferencesSection";
 import ProfileSection from "../components/ProfileSection";
 import RoleSettingsViewShell from "../components/RoleSettingsViewShell";
-import SyncPreferencesSection from "../components/SyncPreferencesSection";
+import SystemInformationSection from "../components/SystemInformationSection";
+import { SETTINGS_SECTIONS } from "../settingsSectionRouting";
 
 const MayorSettingsView = ({
   activeSection,
@@ -22,44 +23,23 @@ const MayorSettingsView = ({
   ctx,
 }) => {
   const {
-    formatSyncDateTime,
-    navigate,
-    handleSyncNow,
-    isSyncingNow,
-    syncSummary,
-    getSyncStatusMeta,
-    isOnline,
-    localSyncLogRows,
-    syncHistoryErrorMessage,
-    lastQueueActivityAt,
-    lastSuccessfulSyncAt,
     profileSectionProps,
     notificationSectionProps,
     dashboardDescription,
+    systemInformation,
   } = ctx;
 
   const renderSectionContent = () => {
     switch (activeSection) {
-      case "account-settings":
+      case SETTINGS_SECTIONS.ACCOUNT:
         return <ProfileSection {...profileSectionProps} />;
-      case "notification-preferences":
+      case SETTINGS_SECTIONS.NOTIFICATIONS:
         return <NotificationPreferencesSection {...notificationSectionProps} />;
-      case "sync-preferences":
+      case SETTINGS_SECTIONS.SYSTEM:
         return (
-          <SyncPreferencesSection
-            {...ctx.syncSectionProps}
-            syncSummary={syncSummary}
-            syncStatusMeta={getSyncStatusMeta(syncSummary, isOnline)}
-            localSyncLogRows={localSyncLogRows.map((row) => ({
-              ...row,
-              timestamp: formatSyncDateTime(row.timestamp),
-            }))}
-            syncHistoryErrorMessage={syncHistoryErrorMessage}
-            handleSyncNow={handleSyncNow}
-            isSyncingNow={isSyncingNow}
-            onOpenFullSyncCenter={() => navigate("/inventory/sync")}
-            lastQueueActivityAt={lastQueueActivityAt}
-            lastSuccessfulSyncAt={lastSuccessfulSyncAt}
+          <SystemInformationSection
+            {...ctx.systemInformationSectionProps}
+            systemInformation={systemInformation}
           />
         );
       default:
@@ -69,6 +49,7 @@ const MayorSettingsView = ({
 
   return (
     <RoleSettingsViewShell
+      activeSection={activeSection}
       activeSectionMeta={activeSectionMeta}
       roleMeta={roleMeta}
       pageActions={pageActions}

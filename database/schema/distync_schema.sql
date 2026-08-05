@@ -601,6 +601,68 @@ CREATE TABLE public.notification_rules (
   CONSTRAINT notification_rules_pkey PRIMARY KEY (id)
 );
 
+CREATE TABLE public.notification_rule_role_policies (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  rule_code text NOT NULL,
+  role_code text NOT NULL,
+  category_code text NOT NULL,
+  category_label text NOT NULL,
+  priority text NOT NULL CHECK (priority = ANY (ARRAY['CRITICAL'::text, 'WARNING'::text, 'INFORMATIONAL'::text])),
+  in_app_policy text NOT NULL CHECK (in_app_policy = ANY (ARRAY['MANDATORY'::text, 'OPTIONAL'::text, 'NOT_APPLICABLE'::text])),
+  email_policy text NOT NULL CHECK (email_policy = ANY (ARRAY['DEFAULT_ON'::text, 'OPTIONAL'::text, 'UNAVAILABLE'::text])),
+  delivery_mode text NOT NULL CHECK (delivery_mode = ANY (ARRAY['IMMEDIATE'::text, 'HOURLY_SUMMARY'::text, 'DAILY_SUMMARY'::text, 'THRESHOLD'::text, 'SILENT_UI_FEEDBACK'::text])),
+  user_configurability text NOT NULL CHECK (user_configurability = ANY (ARRAY['NONE'::text, 'EMAIL_ONLY'::text, 'ALL_SUPPORTED_CHANNELS'::text])),
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT notification_rule_role_policies_pkey PRIMARY KEY (id),
+  CONSTRAINT notification_rule_role_policies_rule_code_fkey FOREIGN KEY (rule_code) REFERENCES public.notification_rules(code) ON DELETE CASCADE,
+  CONSTRAINT notification_rule_role_policies_role_code_fkey FOREIGN KEY (role_code) REFERENCES public.roles(code) ON DELETE CASCADE,
+  CONSTRAINT notification_rule_role_policies_unique UNIQUE (rule_code, role_code)
+);
+
+CREATE INDEX idx_notification_rule_role_policies_role_code
+  ON public.notification_rule_role_policies(role_code, category_code, rule_code);
+
+CREATE TABLE public.notification_summary_events (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  summary_key text NOT NULL,
+  rule_code text NOT NULL,
+  role_code text NOT NULL,
+  barangay_id uuid,
+  disaster_event_id uuid,
+  reference_scope_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  payload_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  window_started_at timestamp with time zone NOT NULL,
+  window_ends_at timestamp with time zone NOT NULL,
+  ready_at timestamp with time zone NOT NULL,
+  processed_at timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT notification_summary_events_pkey PRIMARY KEY (id),
+  CONSTRAINT notification_summary_events_barangay_id_fkey FOREIGN KEY (barangay_id) REFERENCES public.barangays(id),
+  CONSTRAINT notification_summary_events_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id)
+);
+
+CREATE INDEX idx_notification_summary_events_due
+  ON public.notification_summary_events(processed_at, ready_at, role_code, rule_code);
+
+CREATE INDEX idx_notification_summary_events_summary_key_unique
+  ON public.notification_summary_events(summary_key);
+
+CREATE TABLE public.notification_delivery_states (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  state_key text NOT NULL,
+  rule_code text NOT NULL,
+  role_code text NOT NULL,
+  state_value text NOT NULL,
+  last_notified_at timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT notification_delivery_states_pkey PRIMARY KEY (id),
+  CONSTRAINT notification_delivery_states_unique UNIQUE (state_key)
+);
+
 CREATE TABLE public.notifications (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   disaster_event_id uuid,

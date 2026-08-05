@@ -139,6 +139,165 @@ test("settings save route hides raw SQL errors from the client", async () => {
   );
 });
 
+test("settings current route returns 200 for Barangay, MSWDO, and Mayor with non-empty notification categories", async () => {
+  const requestedRoles = [];
+
+  await withStubbedSettingsRoute(
+    {
+      authMiddlewareStub: {
+        ROLE_CODES: {
+          MAYOR: "MAYOR",
+          MSWDO: "MSWDO",
+          BARANGAY: "BARANGAY",
+        },
+        requireRoles: (...allowedRoles) => (req, _res, next) => {
+          const requestedRole = req.headers["x-test-role"];
+
+          req.auth = {
+            userId: `user-${requestedRole?.toLowerCase() || "unknown"}`,
+            roleCode: requestedRole,
+          };
+          req.allowedRoles = allowedRoles;
+          next();
+        },
+      },
+      settingsServiceStub: {
+        getCurrentSettings: async ({ roleCode }) => {
+          requestedRoles.push(roleCode);
+
+          return {
+            roleCode,
+            profile: {
+              firstName: `${roleCode} user`,
+            },
+            categories: [
+              {
+                code: `${roleCode}_CATEGORY`,
+                label: `${roleCode} category`,
+                rules: [
+                  {
+                    code: `${roleCode}_RULE`,
+                  },
+                ],
+              },
+            ],
+            notificationRulePreferences: {
+              [`${roleCode}_RULE`]: {
+                inApp: true,
+                email: false,
+              },
+            },
+            effectiveNotificationChannels: {
+              [`${roleCode}_RULE`]: {
+                inApp: true,
+                email: false,
+              },
+            },
+            metadata: {
+              source: "modern",
+            },
+          };
+        },
+      },
+      validatorStub: {
+        validateSaveCurrentSettings: (_req, _res, next) => next(),
+        validateUploadCurrentProfilePicture: (_req, _res, next) => next(),
+      },
+    },
+    async (router) => {
+      const app = express();
+      app.use(express.json());
+      app.use("/api/v1/settings", router);
+
+      const server = await new Promise((resolve) => {
+        const instance = app.listen(0, () => resolve(instance));
+      });
+
+      try {
+        const port = server.address().port;
+
+        for (const roleCode of ["BARANGAY", "MSWDO", "MAYOR"]) {
+          const response = await fetch(
+            `http://127.0.0.1:${port}/api/v1/settings/current`,
+            {
+              headers: {
+                "x-test-role": roleCode,
+              },
+            },
+          );
+          const payload = await response.json();
+
+          assert.equal(response.status, 200);
+          assert.equal(payload.data.roleCode, roleCode);
+          assert.ok(Array.isArray(payload.data.categories));
+          assert.ok(payload.data.categories.length > 0);
+        }
+
+        assert.deepEqual(requestedRoles, ["BARANGAY", "MSWDO", "MAYOR"]);
+      } finally {
+        await new Promise((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        });
+      }
+    },
+  );
+});
+
+test("settings current route returns a controlled 500 response for internal load failures", async () => {
+  await withStubbedSettingsRoute(
+    {
+      authMiddlewareStub: {
+        ROLE_CODES: {
+          MAYOR: "MAYOR",
+          MSWDO: "MSWDO",
+          BARANGAY: "BARANGAY",
+        },
+        requireRoles: () => (req, _res, next) => {
+          req.auth = {
+            userId: "user-route-error",
+            roleCode: "BARANGAY",
+          };
+          next();
+        },
+      },
+      settingsServiceStub: {
+        getCurrentSettings: async () => {
+          throw new Error("Cannot read properties of null (reading 'query')");
+        },
+      },
+      validatorStub: {
+        validateSaveCurrentSettings: (_req, _res, next) => next(),
+        validateUploadCurrentProfilePicture: (_req, _res, next) => next(),
+      },
+    },
+    async (router) => {
+      const app = express();
+      app.use(express.json());
+      app.use("/api/v1/settings", router);
+
+      const server = await new Promise((resolve) => {
+        const instance = app.listen(0, () => resolve(instance));
+      });
+
+      try {
+        const port = server.address().port;
+        const response = await fetch(`http://127.0.0.1:${port}/api/v1/settings/current`);
+        const payload = await response.json();
+
+        assert.equal(response.status, 500);
+        assert.equal(
+          payload.message,
+          "Cannot read properties of null (reading 'query')",
+        );
+      } finally {
+        await new Promise((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        });
+      }
+    },
+  );
+});
+
 test("settings save route rejects legacy notification payload fields", async () => {
   let saveCalled = false;
 

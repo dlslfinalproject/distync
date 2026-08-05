@@ -5,15 +5,11 @@ const notificationService = require("../modules/notifications/notification.servi
 const profilePictureStorageService = require("./profilePictureStorage.service");
 const { insertAuditLog } = require("../repositories/systemLog.repository");
 const {
-  buildPreferenceCategories,
   getDefaultEffectiveChannels,
   getEditableChannels,
-  resolveEffectiveNotificationPreferences,
   sanitizeNotificationRulePreferences,
 } = require("../modules/notifications/notificationPreferenceUtils");
-const {
-  getCanonicalRuleCode,
-} = require("../modules/notifications/notificationPolicy");
+const { getCanonicalRuleCode } = require("../modules/notifications/notificationPolicy");
 
 const SETTINGS_AUDIT_ACTION = "UPSERT_ROLE_SETTINGS";
 const SETTINGS_ENTITY_TYPE = "ROLE_SETTINGS";
@@ -436,48 +432,23 @@ const attachSignedProfilePictureMetadata = async (settings = {}) => {
   };
 };
 
-const getRolePolicyRows = async ({ roleCode, dbClient }) =>
-  notificationRepository.getNotificationPolicyRowsByRoleCode(roleCode, dbClient);
-
-const buildNotificationSettingsResponse = ({
-  roleCode,
-  policyRows,
-  modernPreferences,
-}) => ({
-  ...(() => {
-    const resolvedPreferences = resolveEffectiveNotificationPreferences({
-      roleCode,
-      policyRows,
-      modernPreferences,
-    });
-
-    return {
-      notificationRulePreferences: resolvedPreferences.normalizedPreferences,
-      effectiveNotificationChannels: resolvedPreferences.effectiveChannels,
-      categories: buildPreferenceCategories({
-        roleCode,
-        policyRows,
-        storedPreferences: resolvedPreferences.normalizedPreferences,
-      }),
-    };
-  })(),
-});
-
 const buildRoleSettingsResponse = async ({
   roleCode,
   user,
   snapshot,
   assignedBarangay = null,
   dbClient,
+  enforceNotificationPolicyAvailability = false,
 }) => {
   const defaults = createDefaultRoleSettings();
   const normalizedSnapshot = buildPersistedSnapshot(snapshot || {});
-  const policyRows = await getRolePolicyRows({ roleCode, dbClient });
-  const notificationSettings = buildNotificationSettingsResponse({
-    roleCode,
-    policyRows,
-    modernPreferences: normalizedSnapshot.notificationRulePreferences,
-  });
+  const notificationSettings =
+    await notificationService.getNotificationPreferenceCatalogForRole({
+      roleCode,
+      storedPreferences: normalizedSnapshot.notificationRulePreferences,
+      dbClient,
+      enforceAvailability: enforceNotificationPolicyAvailability,
+    });
 
   return {
     ...defaults,
@@ -572,7 +543,10 @@ const validateAndNormalizeNotificationPreferences = async ({
   incomingPreferences,
   dbClient,
 }) => {
-  const policyRows = await getRolePolicyRows({ roleCode, dbClient });
+  const policyRows = await notificationRepository.getNotificationPolicyRowsByRoleCode(
+    roleCode,
+    dbClient,
+  );
   const policyMap = new Map(
     policyRows.map((row) => [getCanonicalRuleCode(row.code), row]),
   );
@@ -707,6 +681,7 @@ const getCurrentSettings = async ({ userId, roleCode }) => {
     assignedBarangay: user.default_barangay_id
       ? await settingsRepository.getBarangayById(user.default_barangay_id)
       : null,
+    enforceNotificationPolicyAvailability: true,
   });
 
   return attachSignedProfilePictureMetadata(settings);
@@ -934,7 +909,11 @@ const saveCurrentSettings = async ({
     }
 
     if (hasIncomingNotificationPreferenceUpdate) {
-      const policyRows = await getRolePolicyRows({ roleCode, dbClient });
+      const policyRows =
+        await notificationRepository.getNotificationPolicyRowsByRoleCode(
+          roleCode,
+          dbClient,
+        );
       const notificationAction = isResetToDefaultPayload({
         policyRows,
         notificationRulePreferences: normalizedNotificationRulePreferences,

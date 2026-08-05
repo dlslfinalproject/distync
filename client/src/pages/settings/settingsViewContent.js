@@ -5,11 +5,11 @@ import {
 
 const DASHBOARD_DESCRIPTIONS = {
   [ROLE_CODES.BARANGAY]:
-    "Choose a category below to manage your DISTYNC account details, notification preferences, and sync information.",
+    "Choose a category below to manage your DISTYNC account details, notification preferences, and system information.",
   [ROLE_CODES.MSWDO]:
-    "Choose a category below to manage your DISTYNC account details, notification preferences, and sync information.",
+    "Choose a category below to manage your DISTYNC account details, notification preferences, and system information.",
   [ROLE_CODES.MAYOR]:
-    "Choose a category below to manage your DISTYNC account details, notification preferences, and sync information.",
+    "Choose a category below to manage your DISTYNC account details, notification preferences, and system information.",
 };
 
 const NOTIFICATION_SECTION_COPY = {

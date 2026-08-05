@@ -2,7 +2,8 @@ import React from "react";
 import NotificationPreferencesSection from "../components/NotificationPreferencesSection";
 import ProfileSection from "../components/ProfileSection";
 import RoleSettingsViewShell from "../components/RoleSettingsViewShell";
-import SyncPreferencesSection from "../components/SyncPreferencesSection";
+import SystemInformationSection from "../components/SystemInformationSection";
+import { SETTINGS_SECTIONS } from "../settingsSectionRouting";
 
 const BarangaySettingsView = ({
   activeSection,
@@ -24,42 +25,21 @@ const BarangaySettingsView = ({
   const {
     profileSectionProps,
     notificationSectionProps,
-    syncSummary,
-    getSyncStatusMeta,
-    isOnline,
-    localSyncLogRows,
-    syncHistoryErrorMessage,
-    handleSyncNow,
-    isSyncingNow,
-    navigate,
-    formatSyncDateTime,
-    lastQueueActivityAt,
-    lastSuccessfulSyncAt,
     dashboardDescription,
+    systemInformation,
   } = ctx;
 
   const renderSectionContent = () => {
     switch (activeSection) {
-      case "account-settings":
+      case SETTINGS_SECTIONS.ACCOUNT:
         return <ProfileSection {...profileSectionProps} />;
-      case "notification-preferences":
+      case SETTINGS_SECTIONS.NOTIFICATIONS:
         return <NotificationPreferencesSection {...notificationSectionProps} />;
-      case "sync-preferences":
+      case SETTINGS_SECTIONS.SYSTEM:
         return (
-          <SyncPreferencesSection
-            {...ctx.syncSectionProps}
-            syncSummary={syncSummary}
-            syncStatusMeta={getSyncStatusMeta(syncSummary, isOnline)}
-            localSyncLogRows={localSyncLogRows.map((row) => ({
-              ...row,
-              timestamp: formatSyncDateTime(row.timestamp),
-            }))}
-            syncHistoryErrorMessage={syncHistoryErrorMessage}
-            handleSyncNow={handleSyncNow}
-            isSyncingNow={isSyncingNow}
-            onOpenFullSyncCenter={() => navigate("/barangay/sync")}
-            lastQueueActivityAt={lastQueueActivityAt}
-            lastSuccessfulSyncAt={lastSuccessfulSyncAt}
+          <SystemInformationSection
+            {...ctx.systemInformationSectionProps}
+            systemInformation={systemInformation}
           />
         );
       default:
@@ -69,6 +49,7 @@ const BarangaySettingsView = ({
 
   return (
     <RoleSettingsViewShell
+      activeSection={activeSection}
       activeSectionMeta={activeSectionMeta}
       roleMeta={roleMeta}
       pageActions={pageActions}

@@ -32,6 +32,15 @@ const USER_CONFIGURABILITY = {
   ALL_SUPPORTED_CHANNELS: "ALL_SUPPORTED_CHANNELS",
 };
 
+const NOTIFICATION_RULE_ALIASES = Object.freeze({
+  CRITICAL_STOCK: "CRITICAL_INVENTORY_SHORTAGE",
+  DISASTER_EVENT_UPDATE: "DISASTER_EVENT_UPDATED",
+  EVACUEE_ATTENDANCE_UPDATE: "EVACUEE_ATTENDANCE_UPDATED",
+  HOUSEHOLD_VERIFICATION: "HOUSEHOLD_VERIFICATION_UPDATED",
+  HOUSEHOLD_VERIFICATION_UPDATE: "HOUSEHOLD_VERIFICATION_UPDATED",
+  SYNCHRONIZATION_CONFLICT_ALERT: "SYNC_CONFLICT",
+});
+
 const CANONICAL_NOTIFICATION_RULES = [
   {
     code: "DISASTER_EVENT_CREATED",
@@ -57,7 +66,6 @@ const CANONICAL_NOTIFICATION_RULES = [
     name: "Disaster Event Updates",
     triggerType: "DISASTER_EVENT_UPDATED",
     targetRoleCode: ROLE_CODES.MSWDO,
-    legacyCodes: ["DISASTER_EVENT_UPDATE"],
     isVisibleInSettings: true,
     rolePolicies: [
       {
@@ -126,7 +134,6 @@ const CANONICAL_NOTIFICATION_RULES = [
     name: "Evacuee Attendance Updates",
     triggerType: "EVACUEE_ATTENDANCE_UPDATED",
     targetRoleCode: ROLE_CODES.BARANGAY,
-    legacyCodes: ["EVACUEE_ATTENDANCE_UPDATE"],
     isVisibleInSettings: true,
     rolePolicies: [
       {
@@ -156,7 +163,6 @@ const CANONICAL_NOTIFICATION_RULES = [
     name: "Household Verification Updates",
     triggerType: "HOUSEHOLD_VERIFICATION_UPDATED",
     targetRoleCode: ROLE_CODES.BARANGAY,
-    legacyCodes: ["HOUSEHOLD_VERIFICATION", "HOUSEHOLD_VERIFICATION_UPDATE"],
     isVisibleInSettings: true,
     rolePolicies: [
       {
@@ -186,7 +192,6 @@ const CANONICAL_NOTIFICATION_RULES = [
     name: "Distribution Completed",
     triggerType: "DISTRIBUTION_COMPLETED",
     targetRoleCode: ROLE_CODES.MSWDO,
-    legacyCodes: ["DISTRIBUTION_UPDATE"],
     isVisibleInSettings: true,
     rolePolicies: [
       {
@@ -235,7 +240,6 @@ const CANONICAL_NOTIFICATION_RULES = [
     name: "Critical Inventory Shortage",
     triggerType: "CRITICAL_INVENTORY_SHORTAGE",
     targetRoleCode: ROLE_CODES.MAYOR,
-    legacyCodes: ["CRITICAL_STOCK"],
     isVisibleInSettings: true,
     rolePolicies: [
       {
@@ -312,7 +316,6 @@ const CANONICAL_NOTIFICATION_RULES = [
     name: "Donation Received",
     triggerType: "DONATION_RECEIVED",
     targetRoleCode: ROLE_CODES.MAYOR,
-    legacyCodes: ["DONATION_STOCK_UPDATE"],
     isVisibleInSettings: true,
     rolePolicies: [
       {
@@ -371,7 +374,6 @@ const CANONICAL_NOTIFICATION_RULES = [
     name: "Synchronization Conflict Alert",
     triggerType: "SYNC_CONFLICT",
     targetRoleCode: ROLE_CODES.BARANGAY,
-    legacyCodes: ["SYNCHRONIZATION_CONFLICT_ALERT"],
     isVisibleInSettings: true,
     rolePolicies: [
       {
@@ -439,7 +441,7 @@ const CANONICAL_NOTIFICATION_RULES = [
         priority: PRIORITY.INFORMATIONAL,
         inAppPolicy: IN_APP_POLICY.OPTIONAL,
         emailPolicy: EMAIL_POLICY.OPTIONAL,
-        deliveryMode: DELIVERY_MODE.DAILY_SUMMARY,
+        deliveryMode: DELIVERY_MODE.HOURLY_SUMMARY,
         userConfigurability: USER_CONFIGURABILITY.ALL_SUPPORTED_CHANNELS,
       },
     ],
@@ -449,8 +451,8 @@ const CANONICAL_NOTIFICATION_RULES = [
     name: "System Alerts",
     triggerType: "SYSTEM_ALERT",
     targetRoleCode: ROLE_CODES.BARANGAY,
-    isVisibleInSettings: false,
-    isActive: false,
+    isVisibleInSettings: true,
+    isActive: true,
     rolePolicies: [
       {
         roleCode: ROLE_CODES.BARANGAY,
@@ -474,7 +476,7 @@ const CANONICAL_NOTIFICATION_RULES = [
       },
       {
         roleCode: ROLE_CODES.MAYOR,
-        categoryCode: "System Monitoring",
+        categoryCode: "SYSTEM_MONITORING",
         categoryLabel: "System Monitoring",
         priority: PRIORITY.CRITICAL,
         inAppPolicy: IN_APP_POLICY.MANDATORY,
@@ -529,8 +531,8 @@ const CANONICAL_NOTIFICATION_RULES = [
     name: "Operational Anomaly Alerts",
     triggerType: "OPERATIONAL_ANOMALY",
     targetRoleCode: ROLE_CODES.MAYOR,
-    isVisibleInSettings: false,
-    isActive: false,
+    isVisibleInSettings: true,
+    isActive: true,
     rolePolicies: [
       {
         roleCode: ROLE_CODES.MAYOR,
@@ -574,15 +576,7 @@ const CATEGORY_SORT_ORDER_BY_ROLE = {
   ]),
 };
 
-const LEGACY_CODE_TO_CANONICAL_CODE = CANONICAL_NOTIFICATION_RULES.reduce(
-  (current, rule) => {
-    (rule.legacyCodes || []).forEach((legacyCode) => {
-      current[legacyCode] = rule.code;
-    });
-    return current;
-  },
-  {},
-);
+const LEGACY_CODE_TO_CANONICAL_CODE = { ...NOTIFICATION_RULE_ALIASES };
 
 const NOTIFICATION_POLICY_ROWS = CANONICAL_NOTIFICATION_RULES.flatMap((rule) =>
   (rule.rolePolicies || []).map((policy) => ({
@@ -607,10 +601,13 @@ const NOTIFICATION_RULE_TARGETS = CANONICAL_NOTIFICATION_RULES.map((rule) => ({
   isActive: rule.isActive ?? true,
 }));
 
-const getCanonicalRuleCode = (ruleCode = "") =>
+const resolveCanonicalNotificationRuleCode = (ruleCode = "") =>
   RULES_BY_CODE.has(ruleCode)
     ? ruleCode
     : LEGACY_CODE_TO_CANONICAL_CODE[ruleCode] || ruleCode;
+
+const getCanonicalRuleCode = (ruleCode = "") =>
+  resolveCanonicalNotificationRuleCode(ruleCode);
 
 const getCanonicalRuleDefinition = (ruleCode = "") =>
   RULES_BY_CODE.get(getCanonicalRuleCode(ruleCode)) || null;
@@ -665,9 +662,11 @@ module.exports = {
   EMAIL_POLICY,
   DELIVERY_MODE,
   USER_CONFIGURABILITY,
+  NOTIFICATION_RULE_ALIASES,
   CANONICAL_NOTIFICATION_RULES,
   NOTIFICATION_POLICY_ROWS,
   NOTIFICATION_RULE_TARGETS,
+  resolveCanonicalNotificationRuleCode,
   getCanonicalRuleCode,
   getCanonicalRuleDefinition,
   getCanonicalRuleSortOrder,

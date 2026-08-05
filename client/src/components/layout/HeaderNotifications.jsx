@@ -8,6 +8,7 @@ import {
   fetchUnreadNotificationCount,
 } from "../../features/notifications/notificationService";
 import { getNotificationDeepLink } from "../../features/notifications/notificationRouting";
+import { DEFAULT_SETTINGS_SECTION } from "../../pages/settings/settingsSectionRouting";
 
 const headerNotificationStyles = {
   wrapper: {
@@ -124,7 +125,7 @@ const HeaderNotifications = () => {
     [],
   );
   const settingsRoute =
-    settingsRouteByRole[currentRole] || "/inventory/settings";
+    `${settingsRouteByRole[currentRole] || "/inventory/settings"}?section=${DEFAULT_SETTINGS_SECTION}`;
 
   useEffect(() => {
     if (!supportedRoles.has(currentRole)) {

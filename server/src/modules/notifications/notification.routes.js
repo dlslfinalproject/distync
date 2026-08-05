@@ -10,6 +10,7 @@ router.get(
   requireRoles(ROLE_CODES.MAYOR, ROLE_CODES.MSWDO, ROLE_CODES.BARANGAY),
   async (req, res) => {
     try {
+      // Compatibility route: the Settings page must use /api/v1/settings/current.
       const rules = await notificationService.getNotificationRulesForRole(
         req.auth.roleCode,
       );
