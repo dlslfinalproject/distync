@@ -126,14 +126,16 @@ const renderReliefPackItems = (row) => {
               ) : null}
             </div>
 
-            <div style={{ display: "grid", gap: "6px" }}>
-              {(template.items || []).map((item) => (
-                <div key={item.id || item.inventory_item_id}>
-                  {item.inventory_item?.item_name || "Unnamed Item"} ({item.quantity_required}{" "}
-                  {Number(item.quantity_required) === 1 ? "unit" : "units"})
-                </div>
-              ))}
-            </div>
+            {Array.isArray(template.items) && template.items.length > 0 ? (
+              <div style={{ display: "grid", gap: "6px" }}>
+                {template.items.map((item) => (
+                  <div key={item.id || item.inventory_item_id}>
+                    {item.inventory_item?.item_name || "Unnamed Item"} ({item.quantity_required}{" "}
+                    {Number(item.quantity_required) === 1 ? "unit" : "units"})
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         ))}
       </div>

@@ -301,7 +301,7 @@ const isNearExpiryDate = (value, thresholdDays) => {
 
 const buildInventoryConditionRows = async ({
   report_type,
-  near_expiry_days = 14,
+  near_expiry_days = 30,
   filters,
 }) => {
   const [inventoryItems, inventoryBatches, inventoryTransactions] = await Promise.all([

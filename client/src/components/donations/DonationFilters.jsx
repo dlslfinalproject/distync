@@ -514,8 +514,8 @@ const DonationFilters = ({
                       <span
                         style={{
                           position: "absolute",
-                          right: "-3px",
-                          bottom: "-2px",
+                          right: "-5px",
+                          bottom: "-4px",
                           display: "inline-flex",
                           alignItems: "center",
                           justifyContent: "center",

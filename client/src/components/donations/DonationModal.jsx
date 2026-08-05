@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { FiX } from "react-icons/fi";
+import { FiEdit2, FiX } from "react-icons/fi";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import {
   donorTypes,
@@ -2024,9 +2024,18 @@ const DonationModal = ({
                       <button
                         type="button"
                         onClick={() => onStartEditItem(group.sourceItem)}
-                        style={pageHeaderStyles.secondaryButton}
+                        style={{
+                          ...pageHeaderStyles.secondaryButton,
+                          minWidth: "44px",
+                          width: "44px",
+                          height: "44px",
+                          padding: 0,
+                          borderRadius: "14px",
+                        }}
+                        title="Edit"
+                        aria-label="Edit"
                       >
-                        Edit
+                        <FiEdit2 size={16} />
                       </button>
                     ) : group.canRemove ? (
                       <button

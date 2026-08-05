@@ -155,7 +155,9 @@ const mapStubDashboardRow = (row, fallbackBarangay = null) => ({
   sectors_text: row.sectors_text || "-",
   barangay_id: row.barangay_id || fallbackBarangay?.id || null,
   barangay_name: row.barangay_name || fallbackBarangay?.name || "",
-  relief_pack_templates: [],
+  relief_pack_templates: Array.isArray(row.assigned_relief_packs)
+    ? row.assigned_relief_packs
+    : [],
   relief_pack_items: [],
   relief_pack_name: row.relief_pack_name || "--",
   distribution_status: row.status === "CLAIMED" ? "CLAIMED" : "PENDING",

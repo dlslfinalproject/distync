@@ -2,6 +2,39 @@ const reliefPackTemplateRepository = require("../repositories/reliefPackTemplate
 const disasterEventRepository = require("../repositories/disasterEvent.repository");
 const stubRepository = require("../repositories/stub.repository");
 
+const STANDARD_DISASTER_TYPES = [
+  "Typhoon",
+  "Flood",
+  "Earthquake",
+  "Landslide",
+  "Volcanic Eruption",
+  "Storm Surge",
+  "Drought / El Ni\u00f1o",
+  "Tsunami",
+  "Fire",
+];
+
+const sectorIdsDescriptionPrefix = "__relief_pack_sector_ids__:";
+
+const parseSectorIdsFromDescription = (description) => {
+  const textValue = String(description || "");
+
+  if (!textValue.startsWith(sectorIdsDescriptionPrefix)) {
+    return [];
+  }
+
+  try {
+    const parsedSectorIds = JSON.parse(
+      textValue.slice(sectorIdsDescriptionPrefix.length),
+    );
+    return Array.isArray(parsedSectorIds)
+      ? parsedSectorIds.map((sectorId) => String(sectorId || "").trim()).filter(Boolean)
+      : [];
+  } catch (_error) {
+    return [];
+  }
+};
+
 const buildSectorIds = (
   householdId,
   householdSectorsByHouseholdId,
@@ -52,11 +85,18 @@ const getAssignedReliefPackTemplatesForSectorIds = (householdSectorIds, template
   const assignedTemplates = getStandardReliefPackTemplates(templates);
 
   templates.forEach((template) => {
+    const templateSectorIds = Array.isArray(template?.sector_ids)
+      ? template.sector_ids
+      : parseSectorIdsFromDescription(template?.description);
+    const normalizedTemplateSectorIds = [
+      ...new Set([...templateSectorIds, template?.sector_id].filter(Boolean)),
+    ];
+
     if (
       !template?.is_active ||
       !template?.is_additional_pack ||
-      !template?.sector_id ||
-      !sectorIdSet.has(template.sector_id)
+      normalizedTemplateSectorIds.length === 0 ||
+      !normalizedTemplateSectorIds.some((sectorId) => sectorIdSet.has(sectorId))
     ) {
       return;
     }
@@ -78,8 +118,17 @@ const isTemplateApplicableToDisasterType = (template, disasterType) => {
     return true;
   }
 
+  const isOtherDisasterType =
+    !STANDARD_DISASTER_TYPES.includes(normalizedDisasterType);
+
   return (template?.disaster_types || []).some(
-    (currentType) => String(currentType || "").trim() === normalizedDisasterType,
+    (currentType) => {
+      const normalizedCurrentType = String(currentType || "").trim();
+      return (
+        normalizedCurrentType === normalizedDisasterType ||
+        (isOtherDisasterType && normalizedCurrentType === "Other")
+      );
+    },
   );
 };
 
@@ -137,24 +186,10 @@ const resolveAssignedReliefPackTemplatesForHousehold = async (
   );
 };
 
-const resolvePrimaryAssignedReliefPackTemplateForHousehold = async (
-  householdId,
-  disasterEventId = null,
-) => {
-  const assignedTemplates =
-    await resolveAssignedReliefPackTemplatesForHousehold(
-      householdId,
-      disasterEventId,
-    );
-
-  return getPrimaryAssignedReliefPackTemplate(assignedTemplates);
-};
-
 module.exports = {
   buildSectorIds,
   getAssignedReliefPackTemplatesForSectorIds,
   getPrimaryAssignedReliefPackTemplate,
   getStandardReliefPackTemplates,
   resolveAssignedReliefPackTemplatesForHousehold,
-  resolvePrimaryAssignedReliefPackTemplateForHousehold,
 };

@@ -27,6 +27,7 @@ import {
   downloadExportFile,
   resolveExportErrorMessage,
 } from "../../utils/exportHelpers";
+import { DISASTER_TYPE_OPTIONS as SHARED_DISASTER_TYPE_OPTIONS } from "../../features/disaster-events/disasterTypeOptions";
 
 const filterPanelStyles = {
   panel: {
@@ -110,18 +111,6 @@ const FILTER_PANEL_VIEWPORT_PADDING = 16;
 const MIN_FILTER_PANEL_HEIGHT = 220;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const DISASTER_TYPE_OPTIONS = [
-  "Typhoon",
-  "Flood",
-  "Earthquake",
-  "Landslide",
-  "Volcanic Eruption",
-  "Storm Surge",
-  "Drought / El Niño",
-  "Tsunami",
-  "Fire",
-  "Other",
-];
 
 const sortBarangaysByName = (barangays = []) =>
   [...barangays].sort((leftBarangay, rightBarangay) =>
@@ -301,15 +290,15 @@ const DisasterEventsPage = () => {
   const selectedDisasterTypes = currentTabFilters.disasterTypes || [];
   const selectedAffectedBarangayIds = currentTabFilters.affectedBarangayIds || [];
 
-  const disasterTypeOptions = DISASTER_TYPE_OPTIONS;
+  const disasterTypeOptions = SHARED_DISASTER_TYPE_OPTIONS;
 
   const availableExportDisasterTypes = useMemo(() => {
     const hasCustomDisasterType = exportScopeEvents.some((event) => {
       const disasterType = String(event?.disaster_type || "").trim();
-      return disasterType && !DISASTER_TYPE_OPTIONS.includes(disasterType);
+      return disasterType && !SHARED_DISASTER_TYPE_OPTIONS.includes(disasterType);
     });
 
-    return DISASTER_TYPE_OPTIONS.filter((disasterType) => {
+    return SHARED_DISASTER_TYPE_OPTIONS.filter((disasterType) => {
       if (disasterType === "Other") {
         return hasCustomDisasterType;
       }
@@ -328,7 +317,7 @@ const DisasterEventsPage = () => {
 
       const disasterType = String(event?.disaster_type || "").trim();
       const isCustomDisasterType =
-        disasterType && !DISASTER_TYPE_OPTIONS.includes(disasterType);
+        disasterType && !SHARED_DISASTER_TYPE_OPTIONS.includes(disasterType);
 
       return selectedExportDisasterTypes.some((selectedType) => {
         if (selectedType === "Other") {
@@ -378,7 +367,7 @@ const DisasterEventsPage = () => {
 
       const eventDisasterType = String(event.disaster_type || "").trim();
       const isCustomDisasterType =
-        eventDisasterType && !DISASTER_TYPE_OPTIONS.includes(eventDisasterType);
+        eventDisasterType && !SHARED_DISASTER_TYPE_OPTIONS.includes(eventDisasterType);
       const matchesDisasterType =
         selectedDisasterTypes.length === 0 ||
         selectedDisasterTypes.some((selectedType) =>

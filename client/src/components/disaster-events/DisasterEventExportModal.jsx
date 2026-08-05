@@ -3,19 +3,8 @@ import { FiCheckSquare, FiSquare, FiX } from "react-icons/fi";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
 import { MASTERLIST_SORT_OPTIONS } from "../../features/masterlist/masterlistService";
+import { DISASTER_TYPE_OPTIONS as SHARED_DISASTER_TYPE_OPTIONS } from "../../features/disaster-events/disasterTypeOptions";
 
-const DISASTER_TYPE_OPTIONS = [
-  "Typhoon",
-  "Flood",
-  "Earthquake",
-  "Landslide",
-  "Volcanic Eruption",
-  "Storm Surge",
-  "Drought / El Ni\u00f1o",
-  "Tsunami",
-  "Fire",
-  "Other",
-];
 
 const overlayStyles = {
   position: "fixed",
@@ -172,7 +161,7 @@ const DisasterEventExportModal = ({
   const sortedBarangays = sortBarangaysByName(barangays);
   const availableDisasterTypeSet = new Set(availableDisasterTypes || []);
   const availableAffectedBarangayIdSet = new Set(availableAffectedBarangayIds || []);
-  const selectableDisasterTypes = DISASTER_TYPE_OPTIONS.filter((type) =>
+  const selectableDisasterTypes = SHARED_DISASTER_TYPE_OPTIONS.filter((type) =>
     availableDisasterTypeSet.has(type),
   );
   const areAllDisasterTypesSelected =
@@ -321,7 +310,7 @@ const DisasterEventExportModal = ({
                 gap: "12px",
               }}
             >
-              {DISASTER_TYPE_OPTIONS.map((disasterType) => {
+              {SHARED_DISASTER_TYPE_OPTIONS.map((disasterType) => {
                 const isSelected = selectedDisasterTypes.includes(disasterType);
                 const isAvailable = availableDisasterTypeSet.has(disasterType);
 

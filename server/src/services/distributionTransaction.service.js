@@ -426,6 +426,66 @@ const getInventoryBatchStatus = (quantityAvailable) => {
   return "AVAILABLE";
 };
 
+const STANDARD_DISASTER_TYPES = [
+  "Typhoon",
+  "Flood",
+  "Earthquake",
+  "Landslide",
+  "Volcanic Eruption",
+  "Storm Surge",
+  "Drought / El Ni\u00f1o",
+  "Tsunami",
+  "Fire",
+];
+
+const isTemplateApplicableToDisasterType = (templateDisasterTypes, disasterType) => {
+  const normalizedDisasterType = String(disasterType || "").trim();
+
+  if (!normalizedDisasterType) {
+    return true;
+  }
+
+  const isOtherDisasterType =
+    !STANDARD_DISASTER_TYPES.includes(normalizedDisasterType);
+
+  return (templateDisasterTypes || []).some((row) => {
+    const normalizedTemplateType = String(row.disaster_type || "").trim();
+
+    return (
+      normalizedTemplateType === normalizedDisasterType ||
+      (isOtherDisasterType && normalizedTemplateType === "Other")
+    );
+  });
+};
+
+const NEAR_EXPIRY_DAYS = 30;
+
+const isNearExpiryDate = (value, thresholdDays = NEAR_EXPIRY_DAYS) => {
+  if (!value) {
+    return false;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const thresholdDate = new Date(today);
+  thresholdDate.setDate(thresholdDate.getDate() + thresholdDays);
+
+  const parsedDate = new Date(value);
+  parsedDate.setHours(0, 0, 0, 0);
+
+  return (
+    !Number.isNaN(parsedDate.getTime()) &&
+    parsedDate >= today &&
+    parsedDate <= thresholdDate
+  );
+};
+
+const isDistributableBatch = (batch) =>
+  Boolean(batch) &&
+  ["AVAILABLE", "LOW_STOCK"].includes(batch.status) &&
+  !isNearExpiryDate(batch.expiration_date);
+
 const getInventoryBatchStatusWithExpiry = (batch, quantityAvailable) => {
   const normalizedQuantity = Number(quantityAvailable || 0);
 
@@ -513,7 +573,6 @@ const buildDistributionInventoryRemarks = ({
   templateName,
   packQuantity,
   batchNo,
-  fifoOrder,
   quantityReleased,
 }) => {
   const remarkParts = [
@@ -521,7 +580,6 @@ const buildDistributionInventoryRemarks = ({
     templateName ? `pack: ${templateName}` : null,
     packQuantity && packQuantity > 1 ? `pack_quantity: ${packQuantity}` : null,
     batchNo ? `batch: ${batchNo}` : null,
-    fifoOrder ? `fifo_order: ${fifoOrder}` : null,
     quantityReleased ? `quantity: ${quantityReleased}` : null,
   ].filter(Boolean);
 
@@ -595,8 +653,9 @@ const buildTemplateReleasePlan = async ({
       await reliefPackTemplateRepository.getReliefPackTemplateDisasterTypesByTemplateId(
         reliefPackTemplateId,
       );
-    const isApplicableToDisasterType = templateDisasterTypes.some(
-      (row) => String(row.disaster_type || "").trim() === String(disasterType).trim(),
+    const isApplicableToDisasterType = isTemplateApplicableToDisasterType(
+      templateDisasterTypes,
+      disasterType,
     );
 
     if (!isApplicableToDisasterType) {
@@ -665,7 +724,6 @@ const buildTemplateReleasePlan = async ({
     }
 
     let remainingQuantity = requiredQuantity;
-    let fifoOrder = 1;
 
     for (const batch of candidateBatches) {
       if (remainingQuantity <= 0) {
@@ -689,11 +747,9 @@ const buildTemplateReleasePlan = async ({
         item_code: batch.item_code,
         item_name: batch.item_name,
         unit_of_measure: batch.unit_of_measure,
-        fifo_order: fifoOrder,
       });
 
       remainingQuantity -= quantityReleased;
-      fifoOrder += 1;
     }
   }
 
@@ -736,6 +792,14 @@ const buildManualReleasePlan = async ({
       throw error;
     }
 
+    if (!isDistributableBatch(inventoryBatch)) {
+      const error = new Error(
+        `Batch ${inventoryBatch.batch_no} is not eligible for distribution.`,
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
     if (inventoryBatch.quantity_available < groupedItem.total_quantity_released) {
       const error = new Error(
         `Insufficient stock for batch ${inventoryBatch.batch_no}`,
@@ -761,7 +825,7 @@ const buildManualReleasePlan = async ({
     lockedBatches.set(groupedItem.inventory_batch_id, inventoryBatch);
   }
 
-  for (const [index, item] of items.entries()) {
+  for (const item of items) {
     const batchDetails = lockedBatches.get(item.inventory_batch_id);
 
     releasePlan.push({
@@ -772,7 +836,6 @@ const buildManualReleasePlan = async ({
       item_code: batchDetails.item_code,
       item_name: batchDetails.item_name,
       unit_of_measure: batchDetails.unit_of_measure,
-      fifo_order: index + 1,
     });
   }
 
@@ -1035,7 +1098,6 @@ const createDistributionTransaction = async (requestData) => {
         item_code: batchDetails.item_code,
         item_name: batchDetails.item_name,
         unit_of_measure: batchDetails.unit_of_measure,
-        fifo_order: item.fifo_order,
       });
 
       deductedBatchTotals.set(item.inventory_batch_id, {
@@ -1102,7 +1164,6 @@ const createDistributionTransaction = async (requestData) => {
             templateName: templateReleasePlan?.reliefPackTemplate?.name || null,
             packQuantity: templateReleasePlan?.packMultiplier || 1,
             batchNo: item.batch_no,
-            fifoOrder: item.fifo_order,
             quantityReleased: item.quantity_released,
           }),
         },

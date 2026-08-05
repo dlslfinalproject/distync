@@ -269,7 +269,9 @@ const downloadCsvFile = (rows, selectedEvent, selectedBarangay) => {
               )
               .join(", ");
 
-            return `${template.name || "Relief Pack"}: ${itemSummary || "No items listed"}`;
+            return itemSummary
+              ? `${template.name || "Relief Pack"}: ${itemSummary}`
+              : template.name || "Relief Pack";
           })
           .join("; ")
       : "Template linkage pending",

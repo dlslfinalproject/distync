@@ -7,9 +7,10 @@ const RELIEF_PACK_DISASTER_TYPE_OPTIONS = [
   "Landslide",
   "Volcanic Eruption",
   "Storm Surge",
-  "Drought / El Niño",
+  "Drought / El Ni\u00f1o",
   "Tsunami",
   "Fire",
+  "Other",
 ];
 
 const isValidUuid = (value) => {
@@ -95,17 +96,6 @@ const validateGetReliefPackTemplates = (req, res, next) => {
       });
     }
 
-    if (
-      disaster_type !== undefined &&
-      disaster_type !== null &&
-      String(disaster_type).trim() &&
-      !RELIEF_PACK_DISASTER_TYPE_OPTIONS.includes(String(disaster_type).trim())
-    ) {
-      return res.status(400).json({
-        message: "disaster_type contains an invalid disaster type",
-      });
-    }
-
     req.validatedQuery = {
       is_active: parsedIsActive.isProvided ? parsedIsActive.value : null,
       based_on_family_size: parsedBasedOnFamilySize.isProvided
@@ -173,6 +163,31 @@ const normalizeDisasterTypes = (disasterTypes) => {
   );
 };
 
+const normalizeSectorIds = (sectorIds, fallbackSectorId = null) => {
+  return Array.from(
+    new Set(
+      [
+        ...(Array.isArray(sectorIds) ? sectorIds : []),
+        fallbackSectorId,
+      ]
+        .map((sectorId) => String(sectorId || "").trim())
+        .filter(Boolean),
+    ),
+  );
+};
+
+const validateSectorIds = (sectorIds) => {
+  if (sectorIds !== undefined && !Array.isArray(sectorIds)) {
+    return "sector_ids must be an array when provided";
+  }
+
+  const hasInvalidSectorId = normalizeSectorIds(sectorIds).some(
+    (sectorId) => !isValidUuid(sectorId),
+  );
+
+  return hasInvalidSectorId ? "sector_ids contains an invalid sector id" : null;
+};
+
 const validateTemplateDisasterApplicability = ({
   applies_to_all_disasters,
   disaster_types,
@@ -214,6 +229,7 @@ const validateCreateReliefPackTemplate = (req, res, next) => {
       based_on_sector,
       is_additional_pack,
       sector_id,
+      sector_ids,
       applies_to_all_disasters,
       created_by,
       is_active,
@@ -270,9 +286,19 @@ const validateCreateReliefPackTemplate = (req, res, next) => {
       });
     }
 
-    if ((is_additional_pack ?? false) && !sector_id) {
+    const sectorIdsValidationError = validateSectorIds(sector_ids);
+
+    if (sectorIdsValidationError) {
       return res.status(400).json({
-        message: "sector_id is required when is_additional_pack is true",
+        message: sectorIdsValidationError,
+      });
+    }
+
+    const normalizedSectorIds = normalizeSectorIds(sector_ids, sector_id);
+
+    if ((is_additional_pack ?? false) && normalizedSectorIds.length === 0) {
+      return res.status(400).json({
+        message: "sector_ids is required when is_additional_pack is true",
       });
     }
 
@@ -289,7 +315,7 @@ const validateCreateReliefPackTemplate = (req, res, next) => {
     }
 
     if (items !== undefined) {
-      const itemsValidationError = validateTemplateItemsArray(items, true);
+      const itemsValidationError = validateTemplateItemsArray(items, false);
 
       if (itemsValidationError) {
         return res.status(400).json({
@@ -311,14 +337,16 @@ const validateCreateReliefPackTemplate = (req, res, next) => {
     }
 
     const normalizedDisasterTypes = normalizeDisasterTypes(disaster_types);
+    const isAdditionalPack = is_additional_pack ?? false;
 
     req.validatedBody = {
       name: name.trim(),
       description: description ?? null,
       based_on_family_size: based_on_family_size ?? false,
-      based_on_sector: based_on_sector ?? Boolean(sector_id),
-      is_additional_pack: is_additional_pack ?? false,
-      sector_id: sector_id ?? null,
+      based_on_sector: isAdditionalPack ? based_on_sector ?? true : false,
+      is_additional_pack: isAdditionalPack,
+      sector_id: isAdditionalPack ? normalizedSectorIds[0] ?? null : null,
+      sector_ids: isAdditionalPack ? normalizedSectorIds : [],
       applies_to_all_disasters: applies_to_all_disasters ?? true,
       created_by: created_by ?? null,
       is_active: is_active ?? true,
@@ -345,6 +373,7 @@ const validateUpdateReliefPackTemplate = (req, res, next) => {
       based_on_sector,
       is_additional_pack,
       sector_id,
+      sector_ids,
       applies_to_all_disasters,
       is_active,
       items,
@@ -400,9 +429,19 @@ const validateUpdateReliefPackTemplate = (req, res, next) => {
       });
     }
 
-    if ((is_additional_pack ?? false) && !sector_id) {
+    const sectorIdsValidationError = validateSectorIds(sector_ids);
+
+    if (sectorIdsValidationError) {
       return res.status(400).json({
-        message: "sector_id is required when is_additional_pack is true",
+        message: sectorIdsValidationError,
+      });
+    }
+
+    const normalizedSectorIds = normalizeSectorIds(sector_ids, sector_id);
+
+    if ((is_additional_pack ?? false) && normalizedSectorIds.length === 0) {
+      return res.status(400).json({
+        message: "sector_ids is required when is_additional_pack is true",
       });
     }
 
@@ -413,7 +452,7 @@ const validateUpdateReliefPackTemplate = (req, res, next) => {
     }
 
     if (items !== undefined) {
-      const itemsValidationError = validateTemplateItemsArray(items, true);
+      const itemsValidationError = validateTemplateItemsArray(items, false);
 
       if (itemsValidationError) {
         return res.status(400).json({
@@ -435,14 +474,16 @@ const validateUpdateReliefPackTemplate = (req, res, next) => {
     }
 
     const normalizedDisasterTypes = normalizeDisasterTypes(disaster_types);
+    const isAdditionalPack = is_additional_pack ?? false;
 
     req.validatedBody = {
       name: name.trim(),
       description: description ?? null,
       based_on_family_size: based_on_family_size ?? false,
-      based_on_sector: based_on_sector ?? Boolean(sector_id),
-      is_additional_pack: is_additional_pack ?? false,
-      sector_id: sector_id ?? null,
+      based_on_sector: isAdditionalPack ? based_on_sector ?? true : false,
+      is_additional_pack: isAdditionalPack,
+      sector_id: isAdditionalPack ? normalizedSectorIds[0] ?? null : null,
+      sector_ids: isAdditionalPack ? normalizedSectorIds : [],
       applies_to_all_disasters: applies_to_all_disasters ?? true,
       is_active: is_active ?? true,
       items,

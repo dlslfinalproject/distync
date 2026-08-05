@@ -173,10 +173,12 @@ const getAvailableInventoryBatchesByItemIdForUpdate = async (
     WHERE ib.inventory_item_id = $1
       AND COALESCE(ib.quantity_available, 0) > 0
       AND ib.status IN ('AVAILABLE', 'LOW_STOCK')
+      AND (
+        ib.expiration_date IS NULL
+        OR ib.expiration_date > (CURRENT_DATE + INTERVAL '30 days')
+      )
     ORDER BY
-      CASE WHEN ib.expiration_date IS NULL THEN 1 ELSE 0 END,
-      ib.expiration_date ASC,
-      ib.received_at ASC,
+      ib.received_at ASC NULLS LAST,
       ib.created_at ASC,
       ib.batch_no ASC
     FOR UPDATE OF ib

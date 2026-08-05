@@ -55,6 +55,29 @@ const createEmptyReleasedItem = () => ({
   quantity_released: 1,
 });
 
+const NEAR_EXPIRY_DAYS = 30;
+
+const isNearExpiryBatch = (expirationDate) => {
+  if (!expirationDate) {
+    return false;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const thresholdDate = new Date(today);
+  thresholdDate.setDate(thresholdDate.getDate() + NEAR_EXPIRY_DAYS);
+
+  const parsedExpirationDate = new Date(expirationDate);
+  parsedExpirationDate.setHours(0, 0, 0, 0);
+
+  return (
+    !Number.isNaN(parsedExpirationDate.getTime()) &&
+    parsedExpirationDate >= today &&
+    parsedExpirationDate <= thresholdDate
+  );
+};
+
 const buildStubContextFromDetails = (stubDetails) => {
   if (!stubDetails) {
     return null;
@@ -314,7 +337,10 @@ const DistributionTransactionPage = () => {
 
   const availableInventoryBatches = useMemo(() => {
     return inventoryBatches.filter(
-      (batch) => batch.quantity_available > 0 && batch.status !== "EXPIRED",
+      (batch) =>
+        batch.quantity_available > 0 &&
+        ["AVAILABLE", "LOW_STOCK"].includes(batch.status) &&
+        !isNearExpiryBatch(batch.expiration_date),
     );
   }, [inventoryBatches]);
   const usesTemplateFifo = Boolean(selectedTemplateId);

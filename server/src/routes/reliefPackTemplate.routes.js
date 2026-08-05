@@ -99,6 +99,11 @@ router.put(
         await reliefPackTemplateService.updateReliefPackTemplate(
           req.params.id,
           req.validatedBody,
+          {
+            userId: req.auth.userId,
+            roleCode: req.auth.roleCode,
+            ipAddress: req.ip,
+          },
         );
 
       return res.status(200).json({
@@ -126,6 +131,11 @@ router.put(
         await reliefPackTemplateService.replaceReliefPackTemplateItems(
           req.params.id,
           req.validatedBody,
+          {
+            userId: req.auth.userId,
+            roleCode: req.auth.roleCode,
+            ipAddress: req.ip,
+          },
         );
 
       return res.status(200).json({

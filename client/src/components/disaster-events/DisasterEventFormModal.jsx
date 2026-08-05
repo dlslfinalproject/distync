@@ -3,6 +3,7 @@ import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
 import { FiX, FiCheckSquare, FiSquare } from "react-icons/fi";
 import { formatDisasterEventDateInputValue } from "../../features/disaster-events/disasterEventFormatters";
+import { DISASTER_TYPE_OPTIONS as SHARED_DISASTER_TYPE_OPTIONS } from "../../features/disaster-events/disasterTypeOptions";
 
 const overlayStyles = {
   position: "fixed",
@@ -78,17 +79,6 @@ const createDefaultErrors = () => ({
   barangay_ids: "",
 });
 
-const DISASTER_TYPE_OPTIONS = [
-  "Typhoon",
-  "Flood",
-  "Earthquake",
-  "Landslide",
-  "Volcanic Eruption",
-  "Storm Surge",
-  "Drought / El Niño",
-  "Tsunami",
-  "Fire",
-];
 
 const mapServerErrorToFieldError = (message) => {
   const normalizedMessage = String(message || "").trim();
@@ -163,7 +153,7 @@ const DisasterEventFormModal = ({
             const initialDisasterType = initialValues.disaster_type || "";
             const usesCustomDisasterType =
               initialDisasterType &&
-              !DISASTER_TYPE_OPTIONS.includes(initialDisasterType);
+              !SHARED_DISASTER_TYPE_OPTIONS.includes(initialDisasterType);
 
             return {
               event_name: initialValues.title || "",
@@ -431,12 +421,11 @@ const DisasterEventFormModal = ({
                     style={inputStyles}
                   >
                     <option value="">Select Disaster Type</option>
-                    {DISASTER_TYPE_OPTIONS.map((disasterType) => (
+                    {SHARED_DISASTER_TYPE_OPTIONS.map((disasterType) => (
                       <option key={disasterType} value={disasterType}>
                         {disasterType}
                       </option>
                     ))}
-                    <option value="Other">Other</option>
                   </select>
                 )}
                 {fieldErrors.disaster_type ? (

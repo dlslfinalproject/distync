@@ -1,11 +1,16 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useRef, useMemo, useState } from "react";
 import PageHeader, {
   pageHeaderStyles,
 } from "../../components/layout/PageHeader";
-import { shellStyles } from "../../components/layout/BarangayLayout";
+import {
+  pageSpacingStyles,
+  shellStyles,
+} from "../../components/layout/BarangayLayout";
 import SearchBar from "../../components/shared/SearchBar";
 import ReliefPackTemplateFormModal from "../../components/relief-pack-templates/ReliefPackTemplateFormModal";
 import TableActionsMenu from "../../components/shared/TableActionsMenu";
+import StatusPill from "../../components/shared/StatusPill";
+import DetailsModalShell from "../../components/shared/DetailsModalShell";
 import {
   createReliefPackTemplate,
   fetchInventoryItems,
@@ -16,39 +21,30 @@ import {
 import {
   fetchActiveDisasterEvents,
   fetchBarangays,
-  fetchEndedDisasterEvents,
 } from "../../features/disaster-events/disasterEventService";
-import { DISASTER_TYPE_OPTIONS } from "../../features/disaster-events/disasterTypeOptions";
 import { fetchInventoryBatches } from "../../features/inventory-batches/inventoryBatchService";
 import { fetchSectors } from "../../features/household-registration/householdRegistrationService";
 import { fetchConsolidatedMasterlist } from "../../features/mswdo-masterlist/mswdoMasterlistService";
+import { DISASTER_TYPE_OPTIONS } from "../../features/disaster-events/disasterTypeOptions";
 import { useAuth } from "../../context/AuthContext";
-import { FiChevronDown, FiEdit2, FiEye, FiPlus, FiTrash2 } from "react-icons/fi";
+import {
+  FiChevronDown,
+  FiEdit2,
+  FiEye,
+  FiFilter,
+  FiPlus,
+  FiShoppingBag,
+} from "react-icons/fi";
 
 const getTabStyle = (isActive) => ({
   padding: "12px 24px",
   border: "none",
+  borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
   background: "none",
+  color: isActive ? "#17324d" : "#6b8298",
   fontSize: "14px",
   fontWeight: 700,
-  textTransform: "uppercase",
-  letterSpacing: "0.05em",
-  color: isActive ? "#17324d" : "#6b8298",
-  borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
-  cursor: "pointer",
-  transition: "all 0.2s ease",
   whiteSpace: "nowrap",
-});
-
-const scopeTabButtonStyles = (isActive) => ({
-  padding: "12px 24px",
-  border: "none",
-  background: "none",
-  fontSize: "14px",
-  fontWeight: 700,
-  textTransform: "uppercase",
-  color: isActive ? "#17324d" : "#6b8298",
-  borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
   cursor: "pointer",
 });
 
@@ -95,16 +91,16 @@ const filterStyles = {
 };
 
 const summaryBoxStyle = {
-  backgroundColor: "#b4c7be",
+  backgroundColor: "#e5f1fb",
   borderRadius: "12px",
   padding: "20px",
   marginBottom: "15px",
-  color: "#234260",
-  border: "1px solid rgba(35, 66, 96, 0.08)",
+  color: "#17324d",
+  border: "1px solid #c8ddef",
 };
 
 const cardTitleStyle = {
-  margin: "0 0 20px",
+  margin: 0,
   fontSize: "18px",
   fontWeight: 800,
   color: "#17324d",
@@ -114,6 +110,351 @@ const helperTextStyle = {
   margin: 0,
   color: "#6b8298",
   fontSize: "14px",
+};
+
+const packTypeFilterOptions = ["All", "Standard Pack", "Additional Pack"];
+const availabilityFilterOptions = [
+  "Available",
+  "No available packs",
+  "Has item shortage",
+];
+const disasterTypeFilterOptions = DISASTER_TYPE_OPTIONS;
+const sortOptions = [
+  { value: "oldest", label: "Oldest-Newest" },
+  { value: "newest", label: "Newest-Oldest" },
+  { value: "az", label: "A-Z" },
+  { value: "za", label: "Z-A" },
+];
+
+const FILTER_PANEL_GAP = 12;
+const FILTER_PANEL_VIEWPORT_PADDING = 16;
+const MIN_FILTER_PANEL_HEIGHT = 220;
+
+const getFilterPanelPosition = ({ triggerRect, panelHeight }) => {
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const constrainedPanelWidth = Math.min(
+    360,
+    viewportWidth - FILTER_PANEL_VIEWPORT_PADDING * 2,
+  );
+  const safePanelHeight = Math.max(panelHeight || 0, MIN_FILTER_PANEL_HEIGHT);
+  const spaceBelow =
+    viewportHeight - triggerRect.bottom - FILTER_PANEL_VIEWPORT_PADDING;
+  const spaceAbove = triggerRect.top - FILTER_PANEL_VIEWPORT_PADDING;
+  const shouldOpenBelow =
+    spaceBelow >= MIN_FILTER_PANEL_HEIGHT || spaceBelow >= spaceAbove;
+
+  let left = triggerRect.right - constrainedPanelWidth;
+  left = Math.min(
+    Math.max(left, FILTER_PANEL_VIEWPORT_PADDING),
+    viewportWidth - constrainedPanelWidth - FILTER_PANEL_VIEWPORT_PADDING,
+  );
+
+  if (shouldOpenBelow) {
+    const top = Math.max(
+      FILTER_PANEL_VIEWPORT_PADDING,
+      triggerRect.bottom + FILTER_PANEL_GAP,
+    );
+    const availableHeight =
+      viewportHeight - top - FILTER_PANEL_VIEWPORT_PADDING;
+
+    return {
+      top,
+      left,
+      maxHeight: Math.max(availableHeight, 0),
+    };
+  }
+
+  const maxHeight = Math.max(
+    triggerRect.top - FILTER_PANEL_GAP - FILTER_PANEL_VIEWPORT_PADDING,
+    0,
+  );
+  const top = Math.max(
+    FILTER_PANEL_VIEWPORT_PADDING,
+    triggerRect.top - FILTER_PANEL_GAP - Math.min(safePanelHeight, maxHeight),
+  );
+
+  return {
+    top,
+    left,
+    maxHeight,
+  };
+};
+
+const reliefPackPageStyles = {
+  pageStack: {
+    ...pageSpacingStyles.pageStack,
+    gap: "24px",
+  },
+  tabCard: {
+    ...shellStyles.card,
+    boxSizing: "border-box",
+  },
+  tabList: {
+    borderBottom: "1px solid #d6e2ef",
+    display: "flex",
+    gap: "8px",
+    flexWrap: "wrap",
+    overflowX: "auto",
+  },
+  reliefPackSection: {
+    ...shellStyles.card,
+    padding: "22px",
+    boxSizing: "border-box",
+  },
+  reliefPackGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: "18px",
+    alignItems: "stretch",
+    width: "100%",
+  },
+  reliefPackCard: {
+    ...shellStyles.card,
+    padding: "20px",
+    boxShadow: "0 8px 20px rgba(47, 100, 153, 0.10)",
+  },
+  reliefPackCardHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "12px",
+    flexWrap: "wrap",
+    marginBottom: "20px",
+  },
+  reliefPackCardActions: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: "10px",
+    flexShrink: 0,
+  },
+  viewDetailsIconButton: {
+    border: "1px solid #c6d8ea",
+    borderRadius: "12px",
+    width: "38px",
+    height: "38px",
+    padding: 0,
+    backgroundColor: "#f8fbfe",
+    color: "#24496e",
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  metricHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "14px",
+  },
+  metricLabel: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "15px",
+    fontWeight: 700,
+    lineHeight: 1.35,
+  },
+  metricValue: {
+    margin: 0,
+    color: "#2f6499",
+    fontSize: "36px",
+    fontWeight: 800,
+    lineHeight: 1,
+    textAlign: "right",
+    letterSpacing: "0",
+  },
+  barangayDemandList: {
+    marginTop: "14px",
+    paddingTop: "12px",
+    borderTop: "1px solid #c8ddef",
+    display: "grid",
+    gap: "6px",
+    color: "#17324d",
+    fontSize: "12px",
+    fontWeight: 600,
+  },
+  shortageHeader: {
+    marginBottom: "12px",
+  },
+  shortageTitle: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "15px",
+    fontWeight: 800,
+  },
+  shortageList: {
+    paddingTop: "12px",
+    borderTop: "1px solid rgba(157, 52, 66, 0.22)",
+    display: "grid",
+    gap: "6px",
+  },
+  shortageRow: {
+    display: "flex",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: "12px",
+  },
+  shortageItemName: {
+    minWidth: 0,
+    color: "#17324d",
+    fontSize: "12px",
+    fontWeight: 700,
+    lineHeight: 1.35,
+  },
+  shortageQuantity: {
+    flex: "0 0 auto",
+    color: "#9d3442",
+    fontSize: "12px",
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  },
+  customizationToolbar: {
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "16px",
+    flexWrap: "nowrap",
+  },
+  customizationSearchWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  toolbarControlsGroup: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    flex: "1 1 520px",
+    flexWrap: "wrap",
+    minWidth: 0,
+  },
+  inlineSelectWrap: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    flex: "0 0 auto",
+  },
+  inlineSelectLabel: {
+    color: "#17324d",
+    fontSize: "14px",
+    fontWeight: 700,
+  },
+  inlineSelect: {
+    minWidth: "150px",
+    border: "1px solid #c7d6e5",
+    borderRadius: "12px",
+    padding: "10px 12px",
+    background: "#ffffff",
+    color: "#17324d",
+    fontSize: "14px",
+    fontWeight: 600,
+    outline: "none",
+    boxSizing: "border-box",
+    appearance: "auto",
+  },
+  filterPanel: {
+    position: "fixed",
+    width: "min(360px, calc(100vw - 32px))",
+    backgroundColor: "#ffffff",
+    border: "1px solid #d6e2ef",
+    borderRadius: "18px",
+    boxShadow: "0 18px 36px rgba(31, 64, 95, 0.16)",
+    padding: "18px",
+    zIndex: 1200,
+    display: "flex",
+    flexDirection: "column",
+    gap: "14px",
+    overflow: "hidden",
+    boxSizing: "border-box",
+  },
+  filterTitle: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "16px",
+    fontWeight: 800,
+  },
+  filterField: {
+    display: "grid",
+    gap: "8px",
+  },
+  filterLabel: {
+    color: "#55718b",
+    fontSize: "13px",
+    fontWeight: 700,
+  },
+  filterSelect: {
+    minHeight: "44px",
+    borderRadius: "14px",
+    border: "1px solid #d0ddeb",
+    backgroundColor: "#ffffff",
+    color: "#17324d",
+    padding: "10px 12px",
+    fontSize: "14px",
+    fontWeight: 600,
+  },
+  filterList: {
+    display: "grid",
+    gap: "10px",
+    overflowY: "auto",
+    flex: "1 1 auto",
+    minHeight: 0,
+    paddingRight: "4px",
+  },
+  filterOption: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    color: "#1f405f",
+    fontSize: "14px",
+  },
+  filterActions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    marginTop: "auto",
+  },
+  clearAction: {
+    border: "none",
+    background: "transparent",
+    color: "#55718b",
+    padding: "2px 0",
+    fontSize: "13px",
+    fontWeight: 700,
+    cursor: "pointer",
+    textDecoration: "underline",
+    textUnderlineOffset: "3px",
+  },
+  customizationActionGroup: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: "12px",
+    flex: "0 0 auto",
+  },
+  createReliefPackIconWrap: {
+    position: "relative",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "18px",
+    height: "18px",
+    flexShrink: 0,
+  },
+  createReliefPackPlus: {
+    position: "absolute",
+    right: "-5px",
+    bottom: "-4px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    lineHeight: 1,
+  },
+  customizationTableSection: {
+    ...shellStyles.card,
+    padding: "24px",
+    boxSizing: "border-box",
+    overflow: "visible",
+  },
 };
 
 const staticCardGridStyle = {
@@ -141,26 +482,31 @@ const tableStyles = {
   table: {
     width: "100%",
     borderCollapse: "collapse",
-    minWidth: "1040px",
+    background: "transparent",
+    tableLayout: "fixed",
+    minWidth: "1280px",
   },
   headerCell: {
-    padding: "14px 16px",
-    textAlign: "left",
+    padding: "14px 10px",
+    textAlign: "center",
     fontSize: "12px",
     letterSpacing: "0.08em",
     textTransform: "uppercase",
     color: "#66809c",
+    fontWeight: 700,
     borderBottom: "1px solid #e0eaf4",
     whiteSpace: "nowrap",
   },
   bodyCell: {
-    padding: "16px",
+    padding: "16px 10px",
     color: "#21405f",
     borderBottom: "1px solid #edf3f8",
     fontSize: "14px",
-    verticalAlign: "top",
+    verticalAlign: "middle",
     lineHeight: 1.5,
     wordBreak: "break-word",
+    textAlign: "center",
+    fontWeight: 400,
   },
   countBadge: {
     display: "inline-block",
@@ -172,6 +518,26 @@ const tableStyles = {
     color: "#356592",
     fontSize: "12px",
     fontWeight: 700,
+  },
+  pillWrap: {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: "8px",
+  },
+  infoPill: {
+    display: "inline-block",
+    minWidth: "36px",
+    textAlign: "center",
+    padding: "6px 10px",
+    borderRadius: "999px",
+    fontSize: "12px",
+    fontWeight: 700,
+    backgroundColor: "#e5f1fb",
+    color: "#356592",
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
   },
   helperText: {
     display: "block",
@@ -193,20 +559,50 @@ const tableStyles = {
   itemRow: {
     display: "flex",
     alignItems: "baseline",
+    justifyContent: "flex-start",
     gap: "8px",
     color: "#21405f",
   },
   itemName: {
-    fontWeight: 600,
+    fontWeight: 400,
   },
   itemQuantity: {
     color: "#6b8298",
-    fontSize: "12px",
-    fontWeight: 600,
+    fontSize: "14px",
+    fontWeight: 400,
   },
   stackedList: {
     display: "grid",
     gap: "10px",
+  },
+  leftCell: {
+    textAlign: "left",
+  },
+  actionCell: {
+    width: "8%",
+    textAlign: "center",
+    whiteSpace: "nowrap",
+  },
+  nameCell: {
+    width: "15%",
+  },
+  packTypeCell: {
+    width: "11%",
+  },
+  itemsCell: {
+    width: "20%",
+  },
+  quantityCell: {
+    width: "12%",
+  },
+  ruleCell: {
+    width: "16%",
+  },
+  applicabilityCell: {
+    width: "14%",
+  },
+  availableCell: {
+    width: "7%",
   },
 };
 
@@ -242,124 +638,306 @@ const alertBoxStyle = {
   color: "#721c24",
 };
 
-const confirmModalStyles = {
-  overlay: {
-    position: "fixed",
-    inset: 0,
-    backgroundColor: "rgba(18, 34, 51, 0.45)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "24px",
-    zIndex: 1200,
+const emptyDashboardState = {
+  households: [],
+};
+
+const reliefPackDetailModalStyles = {
+  shellPanel: {
+    backgroundColor: "#eef5fb",
+    border: "1px solid #d7e2ef",
+    boxShadow: "0 24px 60px rgba(23, 50, 77, 0.18)",
   },
-  modal: {
-    width: "100%",
-    maxWidth: "460px",
+  sectionCard: {
+    ...shellStyles.card,
     backgroundColor: "#ffffff",
-    borderRadius: "20px",
-    padding: "28px",
-    boxShadow: "0 24px 48px rgba(20, 48, 78, 0.2)",
   },
-  title: {
+  summaryGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: "16px",
+  },
+  label: {
     margin: 0,
-    color: "#17324d",
-    fontSize: "22px",
+    color: "#66809c",
+    fontSize: "12px",
+    fontWeight: 700,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
   },
-  message: {
-    margin: "12px 0 0",
-    color: "#5d7188",
+  value: {
+    margin: "8px 0 0",
+    color: "#21405f",
     fontSize: "15px",
-    lineHeight: 1.6,
+    lineHeight: 1.55,
   },
-  actions: {
-    display: "flex",
-    justifyContent: "flex-end",
-    gap: "12px",
-    marginTop: "24px",
-    flexWrap: "wrap",
+  metricValue: {
+    margin: "8px 0 0",
+    color: "#21405f",
+    fontSize: "15px",
+    lineHeight: 1.55,
+    fontWeight: 400,
+    letterSpacing: "0",
+  },
+  tableWrap: {
+    overflowX: "auto",
+    marginTop: "12px",
+  },
+  table: {
+    width: "100%",
+    borderCollapse: "collapse",
+    minWidth: "720px",
+  },
+  th: {
+    padding: "10px 12px",
+    textAlign: "left",
+    fontSize: "12px",
+    color: "#66809c",
+    borderBottom: "1px solid #dfe8f2",
+    textTransform: "uppercase",
+    letterSpacing: "0.08em",
+    whiteSpace: "nowrap",
+  },
+  td: {
+    padding: "12px",
+    borderBottom: "1px solid #edf3f8",
+    color: "#21405f",
+    fontSize: "14px",
+    verticalAlign: "top",
+  },
+  shortageText: {
+    color: "#21405f",
+    fontWeight: 800,
+  },
+  healthyText: {
+    color: "#21405f",
+    fontWeight: 400,
   },
 };
 
-const emptyDashboardState = {
-  totalFamilies: 0,
-  perBarangayDemand: [],
-};
+const STANDARD_DISASTER_TYPES = DISASTER_TYPE_OPTIONS.filter(
+  (disasterType) => disasterType !== "Other",
+);
 
 const isHouseholdStillNeedingReliefPack = (household) => {
   const stubStatus = String(household?.stub?.status || "").toUpperCase();
-  return stubStatus !== "CLAIMED";
+  const stayType = String(household?.current_stay_type || "").toUpperCase();
+  const latestAttendanceStatus = String(
+    household?.latest_attendance?.status || "",
+  ).toUpperCase();
+
+  if (stubStatus === "CLAIMED") {
+    return false;
+  }
+
+  if (stayType !== "EVAC_CENTER") {
+    return false;
+  }
+
+  if (household?.is_active === false || household?.latest_attendance?.time_out) {
+    return false;
+  }
+
+  return (
+    latestAttendanceStatus === "PRESENT" ||
+    latestAttendanceStatus === "ARRIVED" ||
+    Boolean(household?.latest_attendance?.time_in)
+  );
 };
 
-const getInventoryItemBaseQuantity = (inventoryItem) => {
-  const quantityPerPackaging = Number(inventoryItem?.quantity || 1);
-  const unitOfMeasureValue = Number(inventoryItem?.unit_of_measure_value || 1);
-
-  const normalizedQuantityPerPackaging =
-    Number.isFinite(quantityPerPackaging) && quantityPerPackaging > 0
-      ? quantityPerPackaging
-      : 1;
-  const normalizedUnitOfMeasureValue =
-    Number.isFinite(unitOfMeasureValue) && unitOfMeasureValue > 0
-      ? unitOfMeasureValue
-      : 1;
-
-  return normalizedQuantityPerPackaging * normalizedUnitOfMeasureValue;
+const isOtherDisasterType = (disasterType) => {
+  const normalizedDisasterType = String(disasterType || "").trim();
+  return (
+    normalizedDisasterType &&
+    !STANDARD_DISASTER_TYPES.includes(normalizedDisasterType)
+  );
 };
 
-const getInventoryItemTotalStockQuantity = (inventoryItem) => {
-  const packagingCount = Number(inventoryItem?.packaging_count || 0);
-  const normalizedPackagingCount =
-    Number.isFinite(packagingCount) && packagingCount > 0 ? packagingCount : 0;
+const isTemplateApplicableToDisasterType = (template, disasterType) => {
+  const normalizedDisasterType = String(disasterType || "").trim();
 
-  return normalizedPackagingCount * getInventoryItemBaseQuantity(inventoryItem);
+  if (!normalizedDisasterType) {
+    return false;
+  }
+
+  if (template?.applies_to_all_disasters !== false) {
+    return true;
+  }
+
+  const templateDisasterTypes = Array.isArray(template?.disaster_types)
+    ? template.disaster_types
+    : [];
+
+  return templateDisasterTypes.some((templateDisasterType) => {
+    const normalizedTemplateType = String(templateDisasterType || "").trim();
+    return (
+      normalizedTemplateType === normalizedDisasterType ||
+      (normalizedTemplateType === "Other" &&
+        isOtherDisasterType(normalizedDisasterType))
+    );
+  });
 };
 
-const getTemplateItemRequiredBaseQuantity = (templateItem) => {
+const getTemplateApplicableHouseholds = (template, households) => {
+  return (households || []).filter((household) =>
+    isTemplateApplicableToDisasterType(
+      template,
+      household?.__reliefPackDemandDisasterType,
+    ) && isHouseholdApplicableToTemplateSector(template, household),
+  );
+};
+
+const getHouseholdSectorIds = (household) => {
+  return [
+    ...(household?.household_sectors || []).map((sector) => sector.id),
+    ...(household?.members || []).flatMap((member) =>
+      (member?.sectors || []).map((sector) => sector.id),
+    ),
+  ].filter(Boolean);
+};
+
+const isHouseholdApplicableToTemplateSector = (template, household) => {
+  if (!template?.is_additional_pack) {
+    return true;
+  }
+
+  const templateSectorIds = Array.isArray(template?.sector_ids)
+    ? template.sector_ids
+    : [];
+  const sectorIdSet = new Set(
+    [...templateSectorIds, template?.sector_id].filter(Boolean),
+  );
+
+  if (sectorIdSet.size === 0) {
+    return false;
+  }
+
+  return getHouseholdSectorIds(household).some((sectorId) =>
+    sectorIdSet.has(sectorId),
+  );
+};
+
+const getHouseholdSize = (household) => {
+  const householdSize = Number(
+    household?.household_size ??
+      household?.members_count ??
+      (Array.isArray(household?.members) ? household.members.length : 0),
+  );
+
+  return Number.isFinite(householdSize) && householdSize > 0 ? householdSize : 1;
+};
+
+const getTemplateFamilySizeCoverage = (template) => {
+  const parsedCoverage = Number.parseInt(String(template?.description || "").trim(), 10);
+  return Number.isInteger(parsedCoverage) && parsedCoverage > 0 ? parsedCoverage : 0;
+};
+
+const getReliefPackQuantityMultiplier = (template, householdSize) => {
+  if (!template?.based_on_family_size) {
+    return 1;
+  }
+
+  const normalizedHouseholdSize = Number.parseInt(String(householdSize || 0), 10);
+  const familySizeCoverage = getTemplateFamilySizeCoverage(template);
+
+  if (
+    !Number.isInteger(normalizedHouseholdSize) ||
+    normalizedHouseholdSize <= 0 ||
+    familySizeCoverage <= 0
+  ) {
+    return 1;
+  }
+
+  return Math.max(1, Math.ceil(normalizedHouseholdSize / familySizeCoverage));
+};
+
+const buildTemplateDemand = (template, households) => {
+  const barangayDemandMap = new Map();
+  let neededPacks = 0;
+
+  (households || []).forEach((household) => {
+    const packMultiplier = getReliefPackQuantityMultiplier(
+      template,
+      getHouseholdSize(household),
+    );
+    const barangayId = household?.barangay?.id || household?.household_id;
+    const barangayName = household?.barangay?.name || "Unknown barangay";
+    const key = barangayId || barangayName;
+    const existingBarangay = barangayDemandMap.get(key);
+
+    neededPacks += packMultiplier;
+
+    if (existingBarangay) {
+      existingBarangay.families_count += 1;
+      existingBarangay.packs_needed += packMultiplier;
+    } else {
+      barangayDemandMap.set(key, {
+        barangay_id: barangayId || key,
+        barangay_name: barangayName,
+        families_count: 1,
+        packs_needed: packMultiplier,
+      });
+    }
+  });
+
+  return {
+    neededPacks,
+    perBarangayDemand: Array.from(barangayDemandMap.values()).sort(
+      (leftBarangay, rightBarangay) =>
+        rightBarangay.packs_needed - leftBarangay.packs_needed,
+    ),
+  };
+};
+
+const getTemplateItemRequiredQuantity = (templateItem) => {
   const quantityRequired = Number(templateItem?.quantity_required || 0);
   return Number.isFinite(quantityRequired) && quantityRequired > 0
     ? quantityRequired
     : 0;
 };
 
-const buildAvailabilityByItemId = (inventoryBatches, inventoryItems) => {
-  const availabilityByItemId = new Map();
-  const inventoryItemById = new Map(
-    (inventoryItems || []).map((inventoryItem) => [inventoryItem.id, inventoryItem]),
+const NEAR_EXPIRY_DAYS = 30;
+
+const isBatchNearExpiry = (expirationDate) => {
+  if (!expirationDate) {
+    return false;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const thresholdDate = new Date(today);
+  thresholdDate.setDate(thresholdDate.getDate() + NEAR_EXPIRY_DAYS);
+
+  const parsedExpirationDate = new Date(expirationDate);
+  parsedExpirationDate.setHours(0, 0, 0, 0);
+
+  return (
+    !Number.isNaN(parsedExpirationDate.getTime()) &&
+    parsedExpirationDate >= today &&
+    parsedExpirationDate <= thresholdDate
   );
-  const itemsWithBatchStock = new Set();
+};
+
+const buildAvailabilityByItemId = (inventoryBatches) => {
+  const availabilityByItemId = new Map();
 
   (inventoryBatches || []).forEach((batch) => {
     if (
       !batch?.inventory_item_id ||
       !["AVAILABLE", "LOW_STOCK"].includes(batch.status) ||
+      isBatchNearExpiry(batch.expiration_date) ||
       Number(batch.quantity_available || 0) <= 0
     ) {
       return;
     }
 
-    itemsWithBatchStock.add(batch.inventory_item_id);
-
-    const inventoryItem = inventoryItemById.get(batch.inventory_item_id);
-    const quantityMultiplier = getInventoryItemBaseQuantity(inventoryItem);
-    const totalAvailableQuantity =
-      Number(batch.quantity_available || 0) * quantityMultiplier;
+    const totalAvailableQuantity = Number(batch.quantity_available || 0);
 
     availabilityByItemId.set(
       batch.inventory_item_id,
       (availabilityByItemId.get(batch.inventory_item_id) || 0) +
         totalAvailableQuantity,
-    );
-  });
-
-  (inventoryItems || []).forEach((inventoryItem) => {
-    if (!inventoryItem?.id || itemsWithBatchStock.has(inventoryItem.id)) {
-      return;
-    }
-
-    availabilityByItemId.set(
-      inventoryItem.id,
-      getInventoryItemTotalStockQuantity(inventoryItem),
     );
   });
 
@@ -369,24 +947,24 @@ const buildAvailabilityByItemId = (inventoryBatches, inventoryItems) => {
 const computeTemplateMetrics = ({
   template,
   availabilityByItemId,
-  inventoryItemById,
-  totalFamilies,
-  perBarangayDemand,
+  households,
 }) => {
   const items = template.items || [];
+  const applicableHouseholds = getTemplateApplicableHouseholds(template, households);
+  const demand = buildTemplateDemand(template, applicableHouseholds);
 
   const packsWeCanCreate = items.length
     ? Math.min(
         ...items.map((item) => {
           const availableQuantity =
             availabilityByItemId.get(item.inventory_item_id) || 0;
-          const requiredBaseQuantity = getTemplateItemRequiredBaseQuantity(item);
+          const requiredQuantity = getTemplateItemRequiredQuantity(item);
 
-          if (!requiredBaseQuantity) {
+          if (!requiredQuantity) {
             return 0;
           }
 
-          return Math.floor(availableQuantity / requiredBaseQuantity);
+          return Math.floor(availableQuantity / requiredQuantity);
         }),
       )
     : 0;
@@ -394,8 +972,8 @@ const computeTemplateMetrics = ({
   const shortageItems = items
     .map((item) => {
       const availableQuantity = availabilityByItemId.get(item.inventory_item_id) || 0;
-      const requiredBaseQuantity = getTemplateItemRequiredBaseQuantity(item);
-      const totalRequired = totalFamilies * requiredBaseQuantity;
+      const requiredQuantity = getTemplateItemRequiredQuantity(item);
+      const totalRequired = demand.neededPacks * requiredQuantity;
       const shortageQuantity = Math.max(totalRequired - availableQuantity, 0);
 
       return {
@@ -409,8 +987,8 @@ const computeTemplateMetrics = ({
 
   return {
     packsWeCanCreate: Number.isFinite(packsWeCanCreate) ? packsWeCanCreate : 0,
-    neededPacks: totalFamilies,
-    perBarangayDemand: perBarangayDemand.slice(0, 6),
+    neededPacks: demand.neededPacks,
+    perBarangayDemand: demand.perBarangayDemand.slice(0, 6),
     shortageItems,
   };
 };
@@ -425,16 +1003,323 @@ const formatTemplateItemQuantity = (item) => {
   return `${quantityRequired} pc${quantityRequired === 1 ? "" : "s"}`;
 };
 
-const formatTemplateDisasterApplicability = (template) => {
+const getTemplateDisasterApplicabilityLabels = (template) => {
   if (template?.applies_to_all_disasters !== false) {
-    return "All disaster types";
+    return ["All disaster types"];
   }
 
   const disasterTypes = Array.isArray(template?.disaster_types)
     ? template.disaster_types
     : [];
 
-  return disasterTypes.length > 0 ? disasterTypes.join(", ") : "--";
+  return disasterTypes.length > 0 ? disasterTypes : ["--"];
+};
+
+const getTemplateDisasterApplicabilityDetailLabels = (template) => {
+  if (template?.applies_to_all_disasters !== false) {
+    return DISASTER_TYPE_OPTIONS;
+  }
+
+  const disasterTypes = Array.isArray(template?.disaster_types)
+    ? template.disaster_types
+    : [];
+
+  if (disasterTypes.length === 0) {
+    return ["--"];
+  }
+
+  return disasterTypes.map((disasterType) => {
+    const normalizedDisasterType = String(disasterType || "").trim();
+
+    if (!normalizedDisasterType) {
+      return "--";
+    }
+
+    return isOtherDisasterType(normalizedDisasterType)
+      ? `Other: ${normalizedDisasterType}`
+      : normalizedDisasterType;
+  });
+};
+
+const getTemplatePackTypeLabel = (template) => {
+  return template?.is_additional_pack ? "Additional" : "Standard";
+};
+
+const getSectorLabelById = (sectorOptions) => {
+  return new Map(
+    (sectorOptions || []).map((sector) => [
+      sector.id,
+      getSectorDisplayLabel(sector) || "--",
+    ]),
+  );
+};
+
+const getTemplateRuleLabels = (template, sectorOptions) => {
+  if (!template?.is_additional_pack) {
+    return template?.description ? [`${template.description} family size`] : ["--"];
+  }
+
+  const sectorLabelById = getSectorLabelById(sectorOptions);
+  const sectorIds = [
+    ...new Set(
+      [
+        ...(Array.isArray(template?.sector_ids) ? template.sector_ids : []),
+        template?.sector_id,
+      ].filter(Boolean),
+    ),
+  ];
+
+  if (sectorIds.length === 0) {
+    return ["--"];
+  }
+
+  return sectorIds.map((sectorId) => sectorLabelById.get(sectorId) || "Unknown sector");
+};
+
+const getEventSortTimestamp = (event) => {
+  const timestamp = new Date(
+    event?.start_date || event?.created_at || event?.updated_at || 0,
+  ).getTime();
+
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+const sortDisasterEventsNewestFirst = (events) => {
+  return [...(events || [])].sort(
+    (leftEvent, rightEvent) =>
+      getEventSortTimestamp(rightEvent) - getEventSortTimestamp(leftEvent),
+  );
+};
+
+const sortTemplatesOldestFirst = (templateList) => {
+  return [...(templateList || [])].sort((leftTemplate, rightTemplate) => {
+    const leftTime = new Date(
+      leftTemplate?.created_at || leftTemplate?.updated_at || 0,
+    ).getTime();
+    const rightTime = new Date(
+      rightTemplate?.created_at || rightTemplate?.updated_at || 0,
+    ).getTime();
+
+    if (leftTime !== rightTime) {
+      return leftTime - rightTime;
+    }
+
+    return String(leftTemplate?.name || "").localeCompare(
+      String(rightTemplate?.name || ""),
+    );
+  });
+};
+
+const getTemplateSortableTimestamp = (template) => {
+  const timestamp = new Date(
+    template?.created_at || template?.updated_at || 0,
+  ).getTime();
+
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+const sortTemplateCards = (templateList, sortOrder) => {
+  const sortedTemplates = [...(templateList || [])];
+
+  if (sortOrder === "newest") {
+    return sortedTemplates.sort(
+      (leftTemplate, rightTemplate) =>
+        getTemplateSortableTimestamp(rightTemplate) -
+        getTemplateSortableTimestamp(leftTemplate),
+    );
+  }
+
+  if (sortOrder === "az") {
+    return sortedTemplates.sort((leftTemplate, rightTemplate) =>
+      String(leftTemplate?.name || "").localeCompare(
+        String(rightTemplate?.name || ""),
+      ),
+    );
+  }
+
+  if (sortOrder === "za") {
+    return sortedTemplates.sort((leftTemplate, rightTemplate) =>
+      String(rightTemplate?.name || "").localeCompare(
+        String(leftTemplate?.name || ""),
+      ),
+    );
+  }
+
+  return sortedTemplates.sort(
+    (leftTemplate, rightTemplate) =>
+      getTemplateSortableTimestamp(leftTemplate) -
+      getTemplateSortableTimestamp(rightTemplate),
+  );
+};
+
+const matchesTemplatePackTypeFilter = (template, packTypeFilter) => {
+  if (!packTypeFilter || packTypeFilter === "All") {
+    return true;
+  }
+
+  if (packTypeFilter === "Standard Pack") {
+    return !template?.is_additional_pack;
+  }
+
+  if (packTypeFilter === "Additional Pack") {
+    return Boolean(template?.is_additional_pack);
+  }
+
+  return true;
+};
+
+const matchesTemplateAvailabilityFilter = (template, availabilityFilters) => {
+  if (!Array.isArray(availabilityFilters) || availabilityFilters.length === 0) {
+    return true;
+  }
+
+  return availabilityFilters.some((filterValue) => {
+    if (filterValue === "Available") {
+      return Number(template?.metrics?.packsWeCanCreate || 0) > 0;
+    }
+
+    if (filterValue === "No available packs") {
+      return Number(template?.metrics?.packsWeCanCreate || 0) === 0;
+    }
+
+    if (filterValue === "Has item shortage") {
+      return (template?.metrics?.shortageItems || []).length > 0;
+    }
+
+    return false;
+  });
+};
+
+const matchesTemplateDisasterTypeFilter = (template, disasterTypeFilters) => {
+  if (!Array.isArray(disasterTypeFilters) || disasterTypeFilters.length === 0) {
+    return true;
+  }
+
+  if (template?.applies_to_all_disasters !== false) {
+    return true;
+  }
+
+  const templateDisasterTypes = Array.isArray(template?.disaster_types)
+    ? template.disaster_types
+    : [];
+
+  return disasterTypeFilters.some((filterValue) => {
+    if (filterValue === "Other") {
+      return templateDisasterTypes.some(isOtherDisasterType);
+    }
+
+    return templateDisasterTypes.some(
+      (templateDisasterType) =>
+        String(templateDisasterType || "").trim() === filterValue,
+    );
+  });
+};
+
+const normalizeApiList = (payload) => {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+
+  return Array.isArray(payload?.data) ? payload.data : [];
+};
+
+const sectorMatchOrder = [
+  "Infant",
+  "Toddler",
+  "Pre-schooler",
+  "School Age",
+  "Teenage",
+  "Adult",
+  "Senior Citizen",
+  "Pregnant",
+  "Lactating Mother",
+  "Persons with Disabilities",
+  "Indigenous",
+  "4Ps Beneficiaries",
+  "Child-Headed Family",
+  "Single-Headed Family",
+  "Solo Parents",
+];
+
+const sectorMatchCodeAliases = {
+  INFANT: "Infant",
+  TODDLER: "Toddler",
+  PRE_SCHOOLER: "Pre-schooler",
+  SCHOOL_AGE: "School Age",
+  TEENAGE: "Teenage",
+  ADULT: "Adult",
+  SENIOR_CITIZEN: "Senior Citizen",
+  PREGNANT: "Pregnant",
+  LACTATING: "Lactating Mother",
+  LACTATING_MOTHER: "Lactating Mother",
+  PWD: "Persons with Disabilities",
+  INDIGENOUS: "Indigenous",
+  FOUR_PS: "4Ps Beneficiaries",
+  CHILD_HEADED: "Child-Headed Family",
+  SINGLE_HEADED: "Single-Headed Family",
+  SOLO_PARENT: "Solo Parents",
+};
+
+const getSectorSortLabel = (sector) => {
+  const sectorCode = String(sector?.code || "").trim().toUpperCase();
+  return (
+    sectorMatchCodeAliases[sectorCode] ||
+    String(sector?.display_name || sector?.name || "").trim()
+  );
+};
+
+const getSectorDisplayLabel = (sector) => {
+  const sectorCode = String(sector?.code || "").trim().toUpperCase();
+  const fallbackLabel = String(sector?.display_name || sector?.name || "").trim();
+  return (
+    sectorMatchCodeAliases[sectorCode] ||
+    fallbackLabel.replace(/\s*\([^)]*\)\s*/g, "").trim()
+  );
+};
+
+const sortSectorOptionsForReliefPacks = (sectors) => {
+  const orderByLabel = new Map(
+    sectorMatchOrder.map((label, index) => [label.toLowerCase(), index]),
+  );
+
+  return [...(sectors || [])].sort((leftSector, rightSector) => {
+    const leftLabel = getSectorSortLabel(leftSector);
+    const rightLabel = getSectorSortLabel(rightSector);
+    const leftOrder = orderByLabel.get(leftLabel.toLowerCase()) ?? Number.MAX_SAFE_INTEGER;
+    const rightOrder = orderByLabel.get(rightLabel.toLowerCase()) ?? Number.MAX_SAFE_INTEGER;
+
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+
+    return leftLabel.localeCompare(rightLabel);
+  });
+};
+
+const formatDisasterEventOptionLabel = (event) => {
+  const title = String(event?.title || "").trim();
+  const eventCode = String(event?.event_code || "").trim();
+  const codePrefixPattern = /^DE-\d{4}-\d{4}\s*[-:]\s*/i;
+  const titleWithoutCode = title.replace(codePrefixPattern, "").trim();
+
+  if (
+    eventCode &&
+    titleWithoutCode.toLowerCase().startsWith(eventCode.toLowerCase())
+  ) {
+    return titleWithoutCode.slice(eventCode.length).replace(/^[-:\s]+/, "").trim();
+  }
+
+  return titleWithoutCode || title || "Untitled disaster event";
+};
+
+const getAffectedBarangayIds = (event) => {
+  const affectedBarangays = Array.isArray(event?.affected_barangays)
+    ? event.affected_barangays
+    : [];
+
+  return affectedBarangays
+    .map((barangay) => barangay?.id || barangay?.barangay_id || "")
+    .filter(Boolean);
 };
 
 const getTemplateSourceTypes = (template, inventoryBatches) => {
@@ -464,15 +1349,280 @@ const isDonatedReliefPackTemplate = (template, inventoryBatches) => {
   return sourceTypes.length > 0 && sourceTypes.every((sourceType) => sourceType === "DONATED");
 };
 
+const ReliefPackTemplateDetailModal = ({
+  isOpen,
+  template,
+  availabilityByItemId,
+  isLoadingDemand,
+  sectorOptions,
+  viewContext = "relief-packs",
+  onClose,
+}) => {
+  if (!isOpen) {
+    return null;
+  }
+
+  const metrics = template?.metrics || {
+    packsWeCanCreate: 0,
+    neededPacks: 0,
+    perBarangayDemand: [],
+    shortageItems: [],
+  };
+  const items = Array.isArray(template?.items) ? template.items : [];
+  const shortageByItemId = new Map(
+    (metrics.shortageItems || []).map((item) => [
+      item.inventory_item_id,
+      item.shortage_quantity,
+    ]),
+  );
+  const isCustomizationView = viewContext === "customization";
+  const sectorRuleLabels = getTemplateRuleLabels(template, sectorOptions);
+  const disasterApplicabilityLabels =
+    getTemplateDisasterApplicabilityDetailLabels(template);
+  const familySizeCoverage = getTemplateFamilySizeCoverage(template);
+
+  return (
+    <DetailsModalShell
+      isOpen={isOpen}
+      title="View Details"
+      onClose={onClose}
+      maxWidth="980px"
+      closeMode="icon"
+      titleStyle={{ fontSize: "30px", fontWeight: 700 }}
+      panelStyle={reliefPackDetailModalStyles.shellPanel}
+    >
+      {!template ? (
+        <section style={reliefPackDetailModalStyles.sectionCard}>
+          <p style={{ ...shellStyles.mutedText, margin: 0 }}>
+            Relief pack details are unavailable.
+          </p>
+        </section>
+      ) : (
+        <div style={{ display: "grid", gap: "20px" }}>
+          <section style={reliefPackDetailModalStyles.sectionCard}>
+            <h3 style={{ margin: 0, color: "#17324d" }}>Pack Information</h3>
+            <div
+              style={{
+                ...reliefPackDetailModalStyles.summaryGrid,
+                marginTop: "16px",
+              }}
+            >
+              <div>
+                <p style={reliefPackDetailModalStyles.label}>Pack Name</p>
+                <p style={reliefPackDetailModalStyles.value}>
+                  {template.name || "--"}
+                </p>
+              </div>
+              <div>
+                <p style={reliefPackDetailModalStyles.label}>Pack Type</p>
+                <p style={reliefPackDetailModalStyles.value}>
+                  {getTemplatePackTypeLabel(template)}
+                </p>
+              </div>
+              <div>
+                <p style={reliefPackDetailModalStyles.label}>Packs Available</p>
+                <p style={reliefPackDetailModalStyles.metricValue}>
+                  {metrics.packsWeCanCreate.toLocaleString()}
+                </p>
+              </div>
+              {isCustomizationView ? null : (
+                <div>
+                  <p style={reliefPackDetailModalStyles.label}>Packs Needed</p>
+                  <p style={reliefPackDetailModalStyles.metricValue}>
+                    {metrics.neededPacks.toLocaleString()}
+                  </p>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {isCustomizationView ? (
+            <section style={reliefPackDetailModalStyles.sectionCard}>
+              <h3 style={{ margin: 0, color: "#17324d" }}>
+                Rules & Applicability
+              </h3>
+              <div
+                style={{
+                  ...reliefPackDetailModalStyles.summaryGrid,
+                  marginTop: "16px",
+                }}
+              >
+                <div>
+                  <p style={reliefPackDetailModalStyles.label}>
+                    Family Size Covered
+                  </p>
+                  <p style={reliefPackDetailModalStyles.value}>
+                    {template.is_additional_pack
+                      ? "Not applicable"
+                      : familySizeCoverage > 0
+                        ? `${familySizeCoverage} family member${
+                            familySizeCoverage === 1 ? "" : "s"
+                          } per pack`
+                        : "--"}
+                  </p>
+                </div>
+                <div>
+                  <p style={reliefPackDetailModalStyles.label}>Sector Match</p>
+                  <p style={reliefPackDetailModalStyles.value}>
+                    {template.is_additional_pack
+                      ? sectorRuleLabels.join(", ")
+                      : "Not applicable"}
+                  </p>
+                </div>
+                <div>
+                  <p style={reliefPackDetailModalStyles.label}>
+                    Disaster Applicability
+                  </p>
+                  <p style={reliefPackDetailModalStyles.value}>
+                    {disasterApplicabilityLabels.join(", ")}
+                  </p>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          <section style={reliefPackDetailModalStyles.sectionCard}>
+            <h3 style={{ margin: 0, color: "#17324d" }}>Items Included</h3>
+
+            {items.length === 0 ? (
+              <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
+                No items are recorded in this relief pack.
+              </p>
+            ) : (
+              <div style={reliefPackDetailModalStyles.tableWrap}>
+                <table style={reliefPackDetailModalStyles.table}>
+                  <thead>
+                    <tr>
+                      <th style={reliefPackDetailModalStyles.th}>Item</th>
+                      <th style={reliefPackDetailModalStyles.th}>Quantity per Pack</th>
+                      {isCustomizationView ? null : (
+                        <>
+                          <th style={reliefPackDetailModalStyles.th}>
+                            Available Stock
+                          </th>
+                          <th style={reliefPackDetailModalStyles.th}>
+                            Needed Stock
+                          </th>
+                          <th style={reliefPackDetailModalStyles.th}>
+                            Item Still Needed
+                          </th>
+                        </>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((item) => {
+                      const quantityPerPack = getTemplateItemRequiredQuantity(item);
+                      const availableQuantity =
+                        availabilityByItemId.get(item.inventory_item_id) || 0;
+                      const neededQuantity = metrics.neededPacks * quantityPerPack;
+                      const shortageQuantity =
+                        shortageByItemId.get(item.inventory_item_id) || 0;
+
+                      return (
+                        <tr key={item.id || item.inventory_item_id}>
+                          <td style={reliefPackDetailModalStyles.td}>
+                            {item.inventory_item?.item_name || "Unknown item"}
+                          </td>
+                          <td style={reliefPackDetailModalStyles.td}>
+                            {formatTemplateItemQuantity(item)}
+                          </td>
+                          {isCustomizationView ? null : (
+                            <>
+                              <td style={reliefPackDetailModalStyles.td}>
+                                {availableQuantity.toLocaleString()} pcs
+                              </td>
+                              <td style={reliefPackDetailModalStyles.td}>
+                                {neededQuantity.toLocaleString()} pcs
+                              </td>
+                              <td style={reliefPackDetailModalStyles.td}>
+                                <span
+                                  style={
+                                    shortageQuantity > 0
+                                      ? reliefPackDetailModalStyles.shortageText
+                                      : reliefPackDetailModalStyles.healthyText
+                                  }
+                                >
+                                  {shortageQuantity > 0
+                                    ? `${shortageQuantity.toLocaleString()} pcs`
+                                    : "None"}
+                                </span>
+                              </td>
+                            </>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          {isCustomizationView ? null : (
+            <section style={reliefPackDetailModalStyles.sectionCard}>
+            <h3 style={{ margin: 0, color: "#17324d" }}>
+              Packs Needed per Barangay
+            </h3>
+
+            {isLoadingDemand ? (
+              <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
+                Loading demand...
+              </p>
+            ) : metrics.perBarangayDemand.length === 0 ? (
+              <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
+                No active event demand found.
+              </p>
+            ) : (
+              <div style={reliefPackDetailModalStyles.tableWrap}>
+                <table style={reliefPackDetailModalStyles.table}>
+                  <thead>
+                    <tr>
+                      <th style={reliefPackDetailModalStyles.th}>Barangay</th>
+                      <th style={reliefPackDetailModalStyles.th}>Families Count</th>
+                      <th style={reliefPackDetailModalStyles.th}>Packs Needed</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {metrics.perBarangayDemand.map((barangay) => (
+                      <tr key={`${template.id}-${barangay.barangay_id}`}>
+                        <td style={reliefPackDetailModalStyles.td}>
+                          {barangay.barangay_name}
+                        </td>
+                        <td style={reliefPackDetailModalStyles.td}>
+                          {barangay.families_count.toLocaleString()}
+                        </td>
+                        <td style={reliefPackDetailModalStyles.td}>
+                          {barangay.packs_needed.toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            </section>
+          )}
+        </div>
+      )}
+    </DetailsModalShell>
+  );
+};
+
 const ReliefPackTemplatesPage = () => {
   const { authenticatedUser } = useAuth();
   const [activeTab, setActiveTab] = useState("relief-packs");
-  const [filters, setFilters] = useState({ search: "" });
+  const [filters, setFilters] = useState({
+    search: "",
+    packType: "All",
+    availability: [],
+    disasterTypes: [],
+    sortOrder: "oldest",
+  });
   const [templates, setTemplates] = useState([]);
   const [inventoryItems, setInventoryItems] = useState([]);
   const [inventoryBatches, setInventoryBatches] = useState([]);
   const [activeDisasterEvents, setActiveDisasterEvents] = useState([]);
-  const [endedDisasterEvents, setEndedDisasterEvents] = useState([]);
   const [barangayOptions, setBarangayOptions] = useState([]);
   const [selectedDisasterEventId, setSelectedDisasterEventId] = useState("");
   const [selectedBarangayId, setSelectedBarangayId] = useState("");
@@ -488,8 +1638,30 @@ const ReliefPackTemplatesPage = () => {
   const [modalMode, setModalMode] = useState("create");
   const [modalErrorMessage, setModalErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [pendingDeleteTemplate, setPendingDeleteTemplate] = useState(null);
-  const [isDeletingTemplate, setIsDeletingTemplate] = useState(false);
+  const [detailTemplateId, setDetailTemplateId] = useState(null);
+  const [detailViewContext, setDetailViewContext] = useState("relief-packs");
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [filterPanelPosition, setFilterPanelPosition] = useState({
+    top: 0,
+    left: 0,
+    maxHeight: 320,
+  });
+  const filterButtonRef = useRef(null);
+  const filterPanelRef = useRef(null);
+  const selectedAvailabilityFilters = Array.isArray(filters.availability)
+    ? filters.availability
+    : [];
+  const selectedDisasterTypeFilters = Array.isArray(filters.disasterTypes)
+    ? filters.disasterTypes
+    : [];
+  const selectedSortOrder = filters.sortOrder || "oldest";
+  const selectedAdvancedFilters =
+    activeTab === "customization"
+      ? selectedDisasterTypeFilters
+      : selectedAvailabilityFilters;
+  const activeFilterCount =
+    selectedAdvancedFilters.length +
+    (selectedSortOrder !== "oldest" ? 1 : 0);
 
   const loadReliefPackPage = async () => {
     setIsLoading(true);
@@ -501,7 +1673,6 @@ const ReliefPackTemplatesPage = () => {
         inventoryItemResponse,
         inventoryBatchResponse,
         activeDisasterEventResponse,
-        endedDisasterEventResponse,
         barangayResponse,
         sectorResponse,
       ] = await Promise.all([
@@ -509,7 +1680,6 @@ const ReliefPackTemplatesPage = () => {
         fetchInventoryItems(),
         fetchInventoryBatches(),
         fetchActiveDisasterEvents(),
-        fetchEndedDisasterEvents(),
         fetchBarangays(),
         fetchSectors(),
       ]);
@@ -520,13 +1690,16 @@ const ReliefPackTemplatesPage = () => {
         ),
       );
 
-      setTemplates(templateDetails || []);
+      setTemplates(sortTemplatesOldestFirst(templateDetails));
       setInventoryItems(inventoryItemResponse || []);
       setInventoryBatches(inventoryBatchResponse || []);
-      setActiveDisasterEvents(activeDisasterEventResponse || []);
-      setEndedDisasterEvents(endedDisasterEventResponse || []);
+      setActiveDisasterEvents(
+        sortDisasterEventsNewestFirst(activeDisasterEventResponse),
+      );
       setBarangayOptions(barangayResponse || []);
-      setSectorOptions(Array.isArray(sectorResponse?.data) ? sectorResponse.data : []);
+      setSectorOptions(
+        sortSectorOptionsForReliefPacks(normalizeApiList(sectorResponse)),
+      );
     } catch (error) {
       setErrorMessage(error.message);
     } finally {
@@ -540,8 +1713,10 @@ const ReliefPackTemplatesPage = () => {
     setSelectedTemplate(response);
     setSelectedTemplateId(templateId);
     setTemplates((currentTemplates) =>
-      currentTemplates.map((template) =>
-        template.id === templateId ? response : template,
+      sortTemplatesOldestFirst(
+        currentTemplates.map((template) =>
+          template.id === templateId ? response : template,
+        ),
       ),
     );
 
@@ -552,9 +1727,80 @@ const ReliefPackTemplatesPage = () => {
     loadReliefPackPage();
   }, []);
 
+  const updateFilterPanelPosition = useCallback(() => {
+    if (!filterButtonRef.current) {
+      return;
+    }
+
+    const triggerRect = filterButtonRef.current.getBoundingClientRect();
+    const panelHeight =
+      filterPanelRef.current?.getBoundingClientRect().height || 0;
+
+    setFilterPanelPosition(
+      getFilterPanelPosition({ triggerRect, panelHeight }),
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!isFilterOpen) {
+      return undefined;
+    }
+
+    updateFilterPanelPosition();
+
+    const handleWindowChange = () => {
+      updateFilterPanelPosition();
+    };
+
+    window.addEventListener("resize", handleWindowChange);
+    window.addEventListener("scroll", handleWindowChange, true);
+
+    return () => {
+      window.removeEventListener("resize", handleWindowChange);
+      window.removeEventListener("scroll", handleWindowChange, true);
+    };
+  }, [activeFilterCount, isFilterOpen, updateFilterPanelPosition]);
+
+  useEffect(() => {
+    if (!isFilterOpen) {
+      return undefined;
+    }
+
+    const handleOutsideClick = (event) => {
+      if (
+        filterPanelRef.current?.contains(event.target) ||
+        filterButtonRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+
+      setIsFilterOpen(false);
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [isFilterOpen]);
+
+  useEffect(() => {
+    if (!isFilterOpen) {
+      return undefined;
+    }
+
+    const animationFrameId = window.requestAnimationFrame(() => {
+      updateFilterPanelPosition();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+    };
+  }, [activeFilterCount, isFilterOpen, updateFilterPanelPosition]);
+
   const scopedDisasterEvents = useMemo(
-    () => [...activeDisasterEvents, ...endedDisasterEvents],
-    [activeDisasterEvents, endedDisasterEvents],
+    () => activeDisasterEvents,
+    [activeDisasterEvents],
   );
 
   useEffect(() => {
@@ -568,6 +1814,42 @@ const ReliefPackTemplatesPage = () => {
 
     setSelectedDisasterEventId("");
   }, [scopedDisasterEvents, selectedDisasterEventId]);
+
+  const selectedDisasterEvent = useMemo(
+    () =>
+      scopedDisasterEvents.find((event) => event.id === selectedDisasterEventId) ||
+      null,
+    [scopedDisasterEvents, selectedDisasterEventId],
+  );
+
+  const selectableBarangayOptions = useMemo(() => {
+    if (!selectedDisasterEvent) {
+      return barangayOptions;
+    }
+
+    const affectedBarangayIds = getAffectedBarangayIds(selectedDisasterEvent);
+    const affectedBarangayIdSet = new Set(affectedBarangayIds);
+
+    return barangayOptions.filter((barangay) =>
+      affectedBarangayIdSet.has(barangay.id),
+    );
+  }, [barangayOptions, selectedDisasterEvent]);
+
+  useEffect(() => {
+    if (!selectedBarangayId) {
+      return;
+    }
+
+    if (
+      selectableBarangayOptions.some(
+        (barangay) => barangay.id === selectedBarangayId,
+      )
+    ) {
+      return;
+    }
+
+    setSelectedBarangayId("");
+  }, [selectableBarangayOptions, selectedBarangayId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -591,7 +1873,7 @@ const ReliefPackTemplatesPage = () => {
           return;
         }
 
-        setTemplates(templateDetails || []);
+        setTemplates(sortTemplatesOldestFirst(templateDetails));
         setInventoryItems(inventoryItemResponse || []);
         setInventoryBatches(inventoryBatchResponse || []);
       } catch (_error) {
@@ -630,17 +1912,22 @@ const ReliefPackTemplatesPage = () => {
       setIsLoadingDemand(true);
 
       try {
-        const masterlists = await Promise.all(
+        const masterlistResults = await Promise.all(
           scopedDisasterEvents
             .filter((disasterEvent) =>
               selectedDisasterEventId ? disasterEvent.id === selectedDisasterEventId : true,
             )
             .map((disasterEvent) =>
-            fetchConsolidatedMasterlist({
-              disasterEventId: disasterEvent.id,
-              barangayId: selectedBarangayId || null,
-              recordStatus: "active",
-            }).catch(() => null),
+              fetchConsolidatedMasterlist({
+                disasterEventId: disasterEvent.id,
+                barangayId: selectedBarangayId || null,
+                recordStatus: "active",
+              })
+                .then((masterlist) => ({
+                  disasterEvent,
+                  masterlist,
+                }))
+                .catch(() => null),
             ),
         );
 
@@ -648,40 +1935,31 @@ const ReliefPackTemplatesPage = () => {
           return;
         }
 
-        const barangayDemandMap = new Map();
-        let totalFamilies = 0;
+        const householdsNeedingReliefPacks = [];
 
-        masterlists.filter(Boolean).forEach((masterlist) => {
+        masterlistResults.filter(Boolean).forEach(({ disasterEvent, masterlist }) => {
+          const disasterType =
+            String(
+              masterlist?.disaster_event?.disaster_type ||
+                disasterEvent?.disaster_type ||
+                "",
+            ).trim() || null;
           const activeHouseholds = (Array.isArray(masterlist?.data)
             ? masterlist.data
-            : []).filter(isHouseholdStillNeedingReliefPack);
+            : [])
+            .filter(isHouseholdStillNeedingReliefPack)
+            .map((household) => ({
+              ...household,
+              __reliefPackDemandDisasterEventId:
+                masterlist?.disaster_event?.id || disasterEvent?.id || null,
+              __reliefPackDemandDisasterType: disasterType,
+            }));
 
-          totalFamilies += activeHouseholds.length;
-
-          activeHouseholds.forEach((household) => {
-            const barangayId = household?.barangay?.id || household?.household_id;
-            const barangayName = household?.barangay?.name || "Unknown barangay";
-            const key = barangayId || barangayName;
-            const existingBarangay = barangayDemandMap.get(key);
-
-            if (existingBarangay) {
-              existingBarangay.families_count += 1;
-            } else {
-              barangayDemandMap.set(key, {
-                barangay_id: barangayId || key,
-                barangay_name: barangayName,
-                families_count: 1,
-              });
-            }
-          });
+          householdsNeedingReliefPacks.push(...activeHouseholds);
         });
 
         setAggregatedDemand({
-          totalFamilies,
-          perBarangayDemand: Array.from(barangayDemandMap.values()).sort(
-            (leftBarangay, rightBarangay) =>
-              rightBarangay.families_count - leftBarangay.families_count,
-          ),
+          households: householdsNeedingReliefPacks,
         });
       } finally {
         if (isMounted) {
@@ -700,13 +1978,8 @@ const ReliefPackTemplatesPage = () => {
   }, [scopedDisasterEvents, selectedBarangayId, selectedDisasterEventId]);
 
   const availabilityByItemId = useMemo(
-    () => buildAvailabilityByItemId(inventoryBatches, inventoryItems),
-    [inventoryBatches, inventoryItems],
-  );
-
-  const inventoryItemById = useMemo(
-    () => new Map((inventoryItems || []).map((inventoryItem) => [inventoryItem.id, inventoryItem])),
-    [inventoryItems],
+    () => buildAvailabilityByItemId(inventoryBatches),
+    [inventoryBatches],
   );
 
   const templateCards = useMemo(() => {
@@ -715,21 +1988,37 @@ const ReliefPackTemplatesPage = () => {
       metrics: computeTemplateMetrics({
         template,
         availabilityByItemId,
-        inventoryItemById,
-        totalFamilies: aggregatedDemand.totalFamilies,
-        perBarangayDemand: aggregatedDemand.perBarangayDemand,
+        households: aggregatedDemand.households,
       }),
     }));
-  }, [aggregatedDemand, availabilityByItemId, inventoryItemById, templates]);
+  }, [aggregatedDemand.households, availabilityByItemId, templates]);
 
   const filteredTemplateCards = useMemo(() => {
     const normalizedSearch = filters.search.trim().toLowerCase();
 
-    if (!normalizedSearch) {
-      return templateCards;
-    }
+    const filteredTemplates = templateCards.filter((template) => {
+      if (!matchesTemplatePackTypeFilter(template, filters.packType)) {
+        return false;
+      }
 
-    return templateCards.filter((template) => {
+      if (
+        activeTab === "relief-packs" &&
+        !matchesTemplateAvailabilityFilter(template, selectedAvailabilityFilters)
+      ) {
+        return false;
+      }
+
+      if (
+        activeTab === "customization" &&
+        !matchesTemplateDisasterTypeFilter(template, selectedDisasterTypeFilters)
+      ) {
+        return false;
+      }
+
+      if (!normalizedSearch) {
+        return true;
+      }
+
       const templateName = template.name.toLowerCase();
       const itemNames = (template.items || [])
         .map((item) => item.inventory_item?.item_name || "")
@@ -741,14 +2030,31 @@ const ReliefPackTemplatesPage = () => {
       )
         .join(" ")
         .toLowerCase();
+      const packType = getTemplatePackTypeLabel(template).toLowerCase();
+      const ruleLabels = getTemplateRuleLabels(template, sectorOptions)
+        .join(" ")
+        .toLowerCase();
 
       return (
         templateName.includes(normalizedSearch) ||
         itemNames.includes(normalizedSearch) ||
-        disasterTypes.includes(normalizedSearch)
+        disasterTypes.includes(normalizedSearch) ||
+        packType.includes(normalizedSearch) ||
+        ruleLabels.includes(normalizedSearch)
       );
     });
-  }, [filters.search, templateCards]);
+
+    return sortTemplateCards(filteredTemplates, selectedSortOrder);
+  }, [
+    activeTab,
+    filters.packType,
+    filters.search,
+    sectorOptions,
+    selectedAvailabilityFilters,
+    selectedDisasterTypeFilters,
+    selectedSortOrder,
+    templateCards,
+  ]);
 
   const templateAccessMap = useMemo(() => {
     return new Map(
@@ -760,6 +2066,16 @@ const ReliefPackTemplatesPage = () => {
       ]),
     );
   }, [templates, inventoryBatches]);
+
+  const detailTemplate = useMemo(() => {
+    if (!detailTemplateId) {
+      return null;
+    }
+
+    return (
+      templateCards.find((template) => template.id === detailTemplateId) || null
+    );
+  }, [detailTemplateId, templateCards]);
 
   const handleOpenCreateModal = () => {
     setModalMode("create");
@@ -789,6 +2105,52 @@ const ReliefPackTemplatesPage = () => {
     }
   };
 
+  const handleFilterChange = (fieldName, value) => {
+    setFilters((currentFilters) => ({
+      ...currentFilters,
+      [fieldName]: value,
+    }));
+  };
+
+  const handleToggleAvailabilityFilter = (availabilityFilter) => {
+    const nextAvailabilityFilters = selectedAvailabilityFilters.includes(
+      availabilityFilter,
+    )
+      ? selectedAvailabilityFilters.filter((entry) => entry !== availabilityFilter)
+      : [...selectedAvailabilityFilters, availabilityFilter];
+
+    handleFilterChange("availability", nextAvailabilityFilters);
+  };
+
+  const handleToggleDisasterTypeFilter = (disasterTypeFilter) => {
+    const nextDisasterTypeFilters = selectedDisasterTypeFilters.includes(
+      disasterTypeFilter,
+    )
+      ? selectedDisasterTypeFilters.filter((entry) => entry !== disasterTypeFilter)
+      : [...selectedDisasterTypeFilters, disasterTypeFilter];
+
+    handleFilterChange("disasterTypes", nextDisasterTypeFilters);
+  };
+
+  const handleClearAdvancedFilters = () => {
+    handleFilterChange("sortOrder", "oldest");
+    handleFilterChange(
+      activeTab === "customization" ? "disasterTypes" : "availability",
+      [],
+    );
+  };
+
+  const handleOpenDetailModal = (template, viewContext = "relief-packs") => {
+    setDetailTemplateId(template?.id || null);
+    setDetailViewContext(viewContext);
+    setSuccessMessage("");
+  };
+
+  const handleCloseDetailModal = () => {
+    setDetailTemplateId(null);
+    setDetailViewContext("relief-packs");
+  };
+
   const handleSubmitModal = async (payload) => {
     setIsSubmitting(true);
     setModalErrorMessage("");
@@ -802,6 +2164,7 @@ const ReliefPackTemplatesPage = () => {
           based_on_sector: payload.based_on_sector,
           is_additional_pack: payload.is_additional_pack,
           sector_id: payload.sector_id,
+          sector_ids: payload.sector_ids,
           applies_to_all_disasters: payload.applies_to_all_disasters,
           is_active: payload.is_active,
           disaster_types: payload.disaster_types,
@@ -817,6 +2180,7 @@ const ReliefPackTemplatesPage = () => {
           based_on_sector: payload.based_on_sector,
           is_additional_pack: payload.is_additional_pack,
           sector_id: payload.sector_id,
+          sector_ids: payload.sector_ids,
           applies_to_all_disasters: payload.applies_to_all_disasters,
           created_by: authenticatedUser?.id || null,
           is_active: payload.is_active,
@@ -836,93 +2200,12 @@ const ReliefPackTemplatesPage = () => {
     }
   };
 
-  const handleDeleteTemplate = async (templateId) => {
-    try {
-      const targetTemplate =
-        templates.find((template) => template.id === templateId) ||
-        (await loadTemplateDetail(templateId));
-
-      setPendingDeleteTemplate(targetTemplate);
-    } catch (error) {
-      setErrorMessage(error.message);
-    }
-  };
-
-  const handleOpenViewModal = async (templateId) => {
-    setModalMode("view");
-    setModalErrorMessage("");
-    setSuccessMessage("");
-
-    try {
-      await loadTemplateDetail(templateId);
-      setIsModalOpen(true);
-    } catch (error) {
-      setErrorMessage(error.message);
-    }
-  };
-
-  const handleCancelDeleteTemplate = () => {
-    if (!isDeletingTemplate) {
-      setPendingDeleteTemplate(null);
-    }
-  };
-
-  const handleConfirmDeleteTemplate = async () => {
-    if (!pendingDeleteTemplate) {
-      return;
-    }
-
-    setIsDeletingTemplate(true);
-    setErrorMessage("");
-
-    try {
-      await updateReliefPackTemplate(pendingDeleteTemplate.id, {
-        name: pendingDeleteTemplate.name,
-        description: pendingDeleteTemplate.description,
-        based_on_family_size: pendingDeleteTemplate.based_on_family_size,
-        based_on_sector: pendingDeleteTemplate.based_on_sector,
-        is_additional_pack: pendingDeleteTemplate.is_additional_pack,
-        sector_id: pendingDeleteTemplate.sector_id,
-        applies_to_all_disasters: pendingDeleteTemplate.applies_to_all_disasters,
-        is_active: false,
-        disaster_types: pendingDeleteTemplate.disaster_types || [],
-        items: (pendingDeleteTemplate.items || []).map((item) => ({
-          inventory_item_id: item.inventory_item_id,
-          quantity_required: Number(item.quantity_required || 0),
-        })),
-      });
-
-      setSuccessMessage(
-        `"${pendingDeleteTemplate.name}" was removed from active relief packs.`,
-      );
-      setPendingDeleteTemplate(null);
-      await loadReliefPackPage();
-    } catch (error) {
-      setErrorMessage(error.message);
-    } finally {
-      setIsDeletingTemplate(false);
-    }
-  };
-
   return (
-    <div
-      style={{ flex: 1, minWidth: 0, maxWidth: "100%", overflowX: "hidden" }}
-    >
-      <PageHeader
-        eyebrow="Inventory"
-        title="RELIEF PACK MANAGEMENT"
-        actions={[]}
-      />
+    <div style={reliefPackPageStyles.pageStack}>
+      <PageHeader title="RELIEF PACK MANAGEMENT" actions={[]} />
 
       <section style={{ ...shellStyles.card, boxSizing: "border-box" }}>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: "16px",
-            alignItems: "end",
-          }}
-        >
+        <div style={pageSpacingStyles.filterGrid}>
           <div>
             <label
               htmlFor="relief-pack-management-event"
@@ -938,10 +2221,10 @@ const ReliefPackTemplatesPage = () => {
                 disabled={isLoading}
                 style={filterStyles.field}
               >
-                <option value="">All disaster events</option>
+                <option value="">All active disaster events</option>
                 {scopedDisasterEvents.map((event) => (
                   <option key={event.id} value={event.id}>
-                    {event.title}
+                    {formatDisasterEventOptionLabel(event)}
                   </option>
                 ))}
               </select>
@@ -967,7 +2250,7 @@ const ReliefPackTemplatesPage = () => {
                 style={filterStyles.field}
               >
                 <option value="">All barangays</option>
-                {barangayOptions.map((barangay) => (
+                {selectableBarangayOptions.map((barangay) => (
                   <option key={barangay.id} value={barangay.id}>
                     {barangay.name}
                   </option>
@@ -981,24 +2264,169 @@ const ReliefPackTemplatesPage = () => {
         </div>
       </section>
 
-      <section
-        style={{
-          ...shellStyles.card,
-          marginTop: "16px",
-          boxSizing: "border-box",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            borderBottom: "1px solid #d6e2ef",
-            flexWrap: "wrap",
-            gap: "8px",
-            overflowX: "auto",
-            msOverflowStyle: "none",
-            scrollbarWidth: "none",
-          }}
-        >
+      <div style={reliefPackPageStyles.customizationToolbar}>
+        <div style={reliefPackPageStyles.toolbarControlsGroup}>
+          <div style={reliefPackPageStyles.customizationSearchWrap}>
+            <SearchBar
+              value={filters.search}
+              onChange={(value) => handleFilterChange("search", value)}
+              placeholder={
+                activeTab === "relief-packs"
+                  ? "Search relief packs by name, item, or disaster applicability"
+                  : "Search templates by name, item, or disaster applicability"
+              }
+            />
+          </div>
+
+          <div style={reliefPackPageStyles.inlineSelectWrap}>
+            <label
+              htmlFor="relief-pack-type-filter"
+              style={reliefPackPageStyles.inlineSelectLabel}
+            >
+              Pack
+            </label>
+            <select
+              id="relief-pack-type-filter"
+              value={filters.packType}
+              onChange={(event) =>
+                handleFilterChange("packType", event.target.value)
+              }
+              style={reliefPackPageStyles.inlineSelect}
+            >
+              {packTypeFilterOptions.map((packType) => (
+                <option key={packType} value={packType}>
+                  {packType}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <button
+              ref={filterButtonRef}
+              type="button"
+              onClick={() => setIsFilterOpen((currentValue) => !currentValue)}
+              style={{
+                ...pageHeaderStyles.secondaryButton,
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+              }}
+            >
+              <FiFilter size={16} />
+              {activeFilterCount > 0 ? `Filter (${activeFilterCount})` : "Filter"}
+            </button>
+
+            {isFilterOpen ? (
+              <div
+                ref={filterPanelRef}
+                style={{
+                  ...reliefPackPageStyles.filterPanel,
+                  top: filterPanelPosition.top,
+                  left: filterPanelPosition.left,
+                  maxHeight: filterPanelPosition.maxHeight,
+                }}
+              >
+                <h3 style={reliefPackPageStyles.filterTitle}>Filter Records</h3>
+
+                <label style={reliefPackPageStyles.filterField}>
+                  <span style={reliefPackPageStyles.filterLabel}>Order List</span>
+                  <select
+                    value={selectedSortOrder}
+                    onChange={(event) =>
+                      handleFilterChange("sortOrder", event.target.value)
+                    }
+                    style={reliefPackPageStyles.filterSelect}
+                  >
+                    {sortOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <h3 style={reliefPackPageStyles.filterTitle}>
+                  {activeTab === "customization" ? "Disaster Types" : "Availability"}
+                </h3>
+
+                {activeTab === "customization" ? (
+                  <div style={reliefPackPageStyles.filterList}>
+                    {disasterTypeFilterOptions.map((disasterTypeFilter) => (
+                      <label
+                        key={disasterTypeFilter}
+                        style={reliefPackPageStyles.filterOption}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedDisasterTypeFilters.includes(
+                            disasterTypeFilter,
+                          )}
+                          onChange={() =>
+                            handleToggleDisasterTypeFilter(disasterTypeFilter)
+                          }
+                          style={{ accentColor: "#2f6499" }}
+                        />
+                        <span>{disasterTypeFilter}</span>
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={reliefPackPageStyles.filterList}>
+                    {availabilityFilterOptions.map((availabilityFilter) => (
+                      <label
+                        key={availabilityFilter}
+                        style={reliefPackPageStyles.filterOption}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedAvailabilityFilters.includes(
+                            availabilityFilter,
+                          )}
+                          onChange={() =>
+                            handleToggleAvailabilityFilter(availabilityFilter)
+                          }
+                          style={{ accentColor: "#2f6499" }}
+                        />
+                        <span>{availabilityFilter}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+
+                <div style={reliefPackPageStyles.filterActions}>
+                  <button
+                    type="button"
+                    onClick={handleClearAdvancedFilters}
+                    style={reliefPackPageStyles.clearAction}
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div style={reliefPackPageStyles.customizationActionGroup}>
+          <button
+            type="button"
+            style={pageHeaderStyles.primaryButton}
+            onClick={handleOpenCreateModal}
+          >
+            <span style={reliefPackPageStyles.createReliefPackIconWrap}>
+              <FiShoppingBag size={16} />
+              <span style={reliefPackPageStyles.createReliefPackPlus}>
+                <FiPlus size={10} strokeWidth={3} />
+              </span>
+            </span>
+            Create Relief Pack
+          </button>
+        </div>
+      </div>
+
+      <section style={reliefPackPageStyles.tabCard}>
+        <div style={reliefPackPageStyles.tabList}>
           <button
             type="button"
             style={getTabStyle(activeTab === "relief-packs")}
@@ -1017,166 +2445,122 @@ const ReliefPackTemplatesPage = () => {
       </section>
 
       {activeTab === "relief-packs" ? (
-        <section
-          style={{
-            ...shellStyles.card,
-            marginTop: "16px",
-            padding: "24px",
-            boxSizing: "border-box",
-          }}
-        >
+        <section style={reliefPackPageStyles.reliefPackSection}>
           {isLoading ? (
             <p style={helperTextStyle}>Loading relief packs...</p>
-          ) : templateCards.length === 0 ? (
+          ) : filteredTemplateCards.length === 0 ? (
             <p style={helperTextStyle}>No active relief packs are available yet.</p>
           ) : (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-                gap: "20px",
-              }}
-            >
-              {templateCards.map((template) => (
-                <div key={template.id} style={shellStyles.card}>
-                  <h2 style={cardTitleStyle}>{template.name.toUpperCase()}</h2>
+            <div style={reliefPackPageStyles.reliefPackGrid}>
+              {filteredTemplateCards.map((template) => {
+                const shortageItems = template.metrics.shortageItems;
+                const packTypeStatus = template.is_additional_pack
+                  ? "ACTIVE"
+                  : "COMPLETED";
 
-                  <div style={summaryBoxStyle}>
-                    <p style={{ margin: 0, fontWeight: 700, fontSize: "15px" }}>
-                      Packs Available
-                    </p>
-                    <h1
-                      style={{
-                        fontSize: "36px",
-                        margin: "8px 0 0",
-                        fontWeight: 800,
-                        lineHeight: 1.1,
-                      }}
-                    >
-                      {template.metrics.packsWeCanCreate.toLocaleString()}
-                    </h1>
-                  </div>
-
-                  <div style={summaryBoxStyle}>
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        gap: "12px",
-                      }}
-                    >
-                      <p style={{ margin: 0, fontWeight: 700, fontSize: "15px" }}>
-                        Packs Needed
-                      </p>
-                      <h1
-                        style={{
-                          fontSize: "36px",
-                          margin: 0,
-                          fontWeight: 800,
-                          lineHeight: 1.1,
-                        }}
-                      >
-                        {template.metrics.neededPacks.toLocaleString()}
-                      </h1>
-                    </div>
-
-                    {isLoadingDemand ? (
-                      <p style={{ fontSize: "12px", margin: "12px 0 0" }}>
-                        Loading demand...
-                      </p>
-                    ) : template.metrics.perBarangayDemand.length > 0 ? (
-                      <div
-                        style={{
-                          fontSize: "12px",
-                          marginTop: "12px",
-                          display: "grid",
-                          gap: "2px",
-                          color: "#234260",
-                          fontWeight: 600,
-                        }}
-                      >
-                        {template.metrics.perBarangayDemand.map((barangay) => (
-                          <span key={`${template.id}-${barangay.barangay_id}`}>
-                            {barangay.barangay_name}: {barangay.families_count}
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <p style={{ fontSize: "12px", margin: "12px 0 0" }}>
-                        No active event demand found.
-                      </p>
-                    )}
-                  </div>
-
-                  {template.metrics.shortageItems.length > 0 ? (
-                    <div style={alertBoxStyle}>
-                      <p style={{ margin: 0, fontWeight: 800, fontSize: "15px" }}>
-                        Stock Shortages
-                      </p>
-                      {template.metrics.shortageItems.slice(0, 3).map((item) => (
-                        <p
-                          key={`${template.id}-${item.inventory_item_id}`}
-                          style={{
-                            fontSize: "12px",
-                            margin: "8px 0 0",
-                            fontWeight: 600,
-                          }}
+                return (
+                  <div
+                    key={template.id}
+                    style={reliefPackPageStyles.reliefPackCard}
+                  >
+                    <div style={reliefPackPageStyles.reliefPackCardHeader}>
+                      <h2 style={cardTitleStyle}>{template.name.toUpperCase()}</h2>
+                      <div style={reliefPackPageStyles.reliefPackCardActions}>
+                        <StatusPill
+                          status={packTypeStatus}
+                          label={getTemplatePackTypeLabel(template)}
+                        />
+                        <button
+                          type="button"
+                          style={reliefPackPageStyles.viewDetailsIconButton}
+                          onClick={() => handleOpenDetailModal(template)}
+                          title="View Details"
+                          aria-label={`View details for ${template.name}`}
                         >
-                          Need {item.shortage_quantity} more {item.item_name}
-                        </p>
-                      ))}
+                          <FiEye size={18} />
+                        </button>
+                      </div>
                     </div>
-                  ) : null}
-                </div>
-              ))}
+
+                    <div style={summaryBoxStyle}>
+                      <div style={reliefPackPageStyles.metricHeader}>
+                        <p style={reliefPackPageStyles.metricLabel}>
+                          Packs Available
+                        </p>
+                        <p style={reliefPackPageStyles.metricValue}>
+                          {template.metrics.packsWeCanCreate.toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div style={summaryBoxStyle}>
+                      <div style={reliefPackPageStyles.metricHeader}>
+                        <p style={reliefPackPageStyles.metricLabel}>
+                          Packs Needed
+                        </p>
+                        <p style={reliefPackPageStyles.metricValue}>
+                          {template.metrics.neededPacks.toLocaleString()}
+                        </p>
+                      </div>
+
+                      {isLoadingDemand ? (
+                        <p style={{ fontSize: "12px", margin: "12px 0 0" }}>
+                          Loading demand...
+                        </p>
+                      ) : template.metrics.perBarangayDemand.length > 0 ? (
+                        <div style={reliefPackPageStyles.barangayDemandList}>
+                          {template.metrics.perBarangayDemand.map((barangay) => (
+                            <span key={`${template.id}-${barangay.barangay_id}`}>
+                              {barangay.barangay_name}: {barangay.packs_needed}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p style={{ fontSize: "12px", margin: "12px 0 0" }}>
+                          No active event demand found.
+                        </p>
+                      )}
+                    </div>
+
+                    {shortageItems.length > 0 ? (
+                      <div style={alertBoxStyle}>
+                        <div style={reliefPackPageStyles.shortageHeader}>
+                          <p style={reliefPackPageStyles.shortageTitle}>
+                            Items Still Needed
+                          </p>
+                        </div>
+                        <div style={reliefPackPageStyles.shortageList}>
+                          {shortageItems.slice(0, 3).map((item) => (
+                            <div
+                              key={`${template.id}-${item.inventory_item_id}`}
+                              style={reliefPackPageStyles.shortageRow}
+                            >
+                              <span style={reliefPackPageStyles.shortageItemName}>
+                                {item.item_name}
+                              </span>
+                              <span style={reliefPackPageStyles.shortageQuantity}>
+                                {item.shortage_quantity} pcs
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>
       ) : (
         <>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "12px",
-              marginTop: "16px",
-              marginBottom: "20px",
-              flexWrap: "wrap",
-            }}
-          >
-            <div style={{ flex: 1 }}>
-              <SearchBar
-                value={filters.search}
-                onChange={(value) =>
-                  setFilters((previousFilters) => ({
-                    ...previousFilters,
-                    search: value,
-                  }))
-                }
-                placeholder="Search relief pack templates"
-              />
+          <section style={reliefPackPageStyles.customizationTableSection}>
+            <div style={{ marginBottom: "18px" }}>
+              <h3 style={{ margin: 0, color: "#17324d" }}>
+                Relief Pack Templates
+              </h3>
             </div>
 
-            <button
-              type="button"
-              style={pageHeaderStyles.secondaryButton}
-              onClick={handleOpenCreateModal}
-            >
-              <FiPlus size={16} />
-              Create Relief Pack
-            </button>
-          </div>
-
-          <section
-            style={{
-              ...shellStyles.card,
-              marginTop: "0",
-              padding: "24px",
-              boxSizing: "border-box",
-              overflow: "visible",
-            }}
-          >
             {isLoading ? (
               <p style={helperTextStyle}>Loading pack customization...</p>
             ) : filteredTemplateCards.length === 0 ? (
@@ -1186,31 +2570,68 @@ const ReliefPackTemplatesPage = () => {
                 <table style={tableStyles.table}>
                   <thead>
                     <tr>
-                      <th style={tableStyles.headerCell}>Name</th>
-                      <th style={tableStyles.headerCell}>Items</th>
-                      <th style={tableStyles.headerCell}>Quantity Per Item</th>
                       <th
                         style={{
                           ...tableStyles.headerCell,
-                          ...tableStyles.centeredHeaderCell,
+                          ...tableStyles.leftCell,
+                          ...tableStyles.nameCell,
                         }}
                       >
-                        Recommended Family Size
-                      </th>
-                      <th style={tableStyles.headerCell}>Disaster Applicability</th>
-                      <th
-                        style={{
-                          ...tableStyles.headerCell,
-                          ...tableStyles.centeredHeaderCell,
-                        }}
-                      >
-                        Available Packs
+                        Name
                       </th>
                       <th
                         style={{
                           ...tableStyles.headerCell,
-                          ...tableStyles.centeredHeaderCell,
-                          width: "88px",
+                          ...tableStyles.packTypeCell,
+                        }}
+                      >
+                        Pack Type
+                      </th>
+                      <th
+                        style={{
+                          ...tableStyles.headerCell,
+                          ...tableStyles.leftCell,
+                          ...tableStyles.itemsCell,
+                        }}
+                      >
+                        Items
+                      </th>
+                      <th
+                        style={{
+                          ...tableStyles.headerCell,
+                          ...tableStyles.quantityCell,
+                        }}
+                      >
+                        Qty / Item
+                      </th>
+                      <th
+                        style={{
+                          ...tableStyles.headerCell,
+                          ...tableStyles.ruleCell,
+                        }}
+                      >
+                        Rule
+                      </th>
+                      <th
+                        style={{
+                          ...tableStyles.headerCell,
+                          ...tableStyles.applicabilityCell,
+                        }}
+                      >
+                        Applies To
+                      </th>
+                      <th
+                        style={{
+                          ...tableStyles.headerCell,
+                          ...tableStyles.availableCell,
+                        }}
+                      >
+                        Available
+                      </th>
+                      <th
+                        style={{
+                          ...tableStyles.headerCell,
+                          ...tableStyles.actionCell,
                         }}
                       >
                         Actions
@@ -1225,13 +2646,36 @@ const ReliefPackTemplatesPage = () => {
 
                       return (
                         <tr key={template.id}>
-                        <td style={tableStyles.bodyCell}>
-                          <div style={{ fontWeight: 700 }}>{template.name}</div>
+                        <td
+                          style={{
+                            ...tableStyles.bodyCell,
+                            ...tableStyles.leftCell,
+                            ...tableStyles.nameCell,
+                          }}
+                        >
+                          <div>{template.name}</div>
                           {templateAccess.isDonatedTemplate ? (
                             <span style={tableStyles.helperText}>Donated relief pack</span>
                           ) : null}
                         </td>
-                        <td style={tableStyles.bodyCell}>
+                        <td
+                          style={{
+                            ...tableStyles.bodyCell,
+                            ...tableStyles.packTypeCell,
+                          }}
+                        >
+                          <StatusPill
+                            status={template.is_additional_pack ? "ACTIVE" : "COMPLETED"}
+                            label={getTemplatePackTypeLabel(template)}
+                          />
+                        </td>
+                        <td
+                          style={{
+                            ...tableStyles.bodyCell,
+                            ...tableStyles.leftCell,
+                            ...tableStyles.itemsCell,
+                          }}
+                        >
                           {(template.items || []).length > 0 ? (
                             <div style={tableStyles.stackedList}>
                               {(template.items || []).map((item, index) => (
@@ -1249,13 +2693,21 @@ const ReliefPackTemplatesPage = () => {
                             <span style={tableStyles.helperText}>No items</span>
                           )}
                         </td>
-                        <td style={tableStyles.bodyCell}>
+                        <td
+                          style={{
+                            ...tableStyles.bodyCell,
+                            ...tableStyles.quantityCell,
+                          }}
+                        >
                           {(template.items || []).length > 0 ? (
                             <div style={tableStyles.stackedList}>
                               {(template.items || []).map((item, index) => (
                                 <div
                                   key={`qty-${item.id || `${template.id}-${item.inventory_item_id}`}`}
-                                  style={tableStyles.itemRow}
+                                  style={{
+                                    ...tableStyles.itemRow,
+                                    justifyContent: "center",
+                                  }}
                                 >
                                   <span style={tableStyles.itemQuantity}>
                                     {formatTemplateItemQuantity(item)}
@@ -1270,28 +2722,43 @@ const ReliefPackTemplatesPage = () => {
                         <td
                           style={{
                             ...tableStyles.bodyCell,
-                            ...tableStyles.centeredBodyCell,
+                            ...tableStyles.ruleCell,
                           }}
                         >
-                          {template.description || "--"}
-                        </td>
-                        <td style={tableStyles.bodyCell}>
-                          <div>{formatTemplateDisasterApplicability(template)}</div>
-                          {template.applies_to_all_disasters === false ? (
-                            <span style={tableStyles.helperText}>
-                              {template.disaster_types?.length || 0} selected type
-                              {(template.disaster_types?.length || 0) === 1 ? "" : "s"}
-                            </span>
-                          ) : (
-                            <span style={tableStyles.helperText}>
-                              Covers {DISASTER_TYPE_OPTIONS.length} defined disaster types
-                            </span>
-                          )}
+                          <div style={tableStyles.pillWrap}>
+                            {getTemplateRuleLabels(template, sectorOptions).map((label) => (
+                              <span
+                                key={`${template.id}-rule-${label}`}
+                                style={tableStyles.infoPill}
+                              >
+                                {label}
+                              </span>
+                            ))}
+                          </div>
                         </td>
                         <td
                           style={{
                             ...tableStyles.bodyCell,
-                            ...tableStyles.centeredBodyCell,
+                            ...tableStyles.applicabilityCell,
+                          }}
+                        >
+                          <div style={tableStyles.pillWrap}>
+                            {getTemplateDisasterApplicabilityLabels(template).map(
+                              (label) => (
+                                <span
+                                  key={`${template.id}-${label}`}
+                                  style={tableStyles.infoPill}
+                                >
+                                  {label}
+                                </span>
+                              ),
+                            )}
+                          </div>
+                        </td>
+                        <td
+                          style={{
+                            ...tableStyles.bodyCell,
+                            ...tableStyles.availableCell,
                           }}
                         >
                           {template.metrics.packsWeCanCreate.toLocaleString()}
@@ -1299,8 +2766,7 @@ const ReliefPackTemplatesPage = () => {
                         <td
                           style={{
                             ...tableStyles.bodyCell,
-                            ...tableStyles.centeredBodyCell,
-                            whiteSpace: "nowrap",
+                            ...tableStyles.actionCell,
                           }}
                         >
                           <TableActionsMenu
@@ -1317,7 +2783,7 @@ const ReliefPackTemplatesPage = () => {
                                 label: "View Relief Pack",
                                 icon: <FiEye size={18} />,
                                 onClick: (selectedRow) =>
-                                  handleOpenViewModal(selectedRow.id),
+                                  handleOpenDetailModal(selectedRow, "customization"),
                               },
                               ...(!templateAccess.isDonatedTemplate
                                 ? [
@@ -1327,14 +2793,6 @@ const ReliefPackTemplatesPage = () => {
                                       icon: <FiEdit2 size={18} />,
                                       onClick: (selectedRow) =>
                                         handleOpenEditModal(selectedRow.id),
-                                    },
-                                    {
-                                      key: "delete",
-                                      label: "Delete Relief Pack",
-                                      icon: <FiTrash2 size={18} />,
-                                      tone: "destructive",
-                                      onClick: (selectedRow) =>
-                                        handleDeleteTemplate(selectedRow.id),
                                     },
                                   ]
                                 : []),
@@ -1353,18 +2811,28 @@ const ReliefPackTemplatesPage = () => {
       )}
 
       {errorMessage ? (
-        <section style={{ ...shellStyles.card, marginTop: "16px" }}>
+        <section style={shellStyles.card}>
           <p style={{ ...helperTextStyle, color: "#9d4d58" }}>{errorMessage}</p>
         </section>
       ) : null}
 
       {successMessage ? (
-        <section style={{ ...shellStyles.card, marginTop: "16px" }}>
+        <section style={shellStyles.card}>
           <p style={{ ...helperTextStyle, color: "#17663a" }}>
             {successMessage}
           </p>
         </section>
       ) : null}
+
+      <ReliefPackTemplateDetailModal
+        isOpen={Boolean(detailTemplateId)}
+        template={detailTemplate}
+        availabilityByItemId={availabilityByItemId}
+        isLoadingDemand={isLoadingDemand}
+        sectorOptions={sectorOptions}
+        viewContext={detailViewContext}
+        onClose={handleCloseDetailModal}
+      />
 
       <ReliefPackTemplateFormModal
         isOpen={isModalOpen}
@@ -1377,40 +2845,6 @@ const ReliefPackTemplatesPage = () => {
         onSubmit={handleSubmitModal}
         isSubmitting={isSubmitting}
       />
-
-      {pendingDeleteTemplate ? (
-        <div style={confirmModalStyles.overlay}>
-          <div style={confirmModalStyles.modal}>
-            <h3 style={confirmModalStyles.title}>Remove Relief Pack</h3>
-            <p style={confirmModalStyles.message}>
-              Are you sure you want to remove "{pendingDeleteTemplate.name}" from
-              the active relief packs list?
-            </p>
-
-            <div style={confirmModalStyles.actions}>
-              <button
-                type="button"
-                onClick={handleCancelDeleteTemplate}
-                disabled={isDeletingTemplate}
-                style={pageHeaderStyles.secondaryButton}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDeleteTemplate}
-                disabled={isDeletingTemplate}
-                style={{
-                  ...pageHeaderStyles.primaryButton,
-                  opacity: isDeletingTemplate ? 0.7 : 1,
-                }}
-              >
-                {isDeletingTemplate ? "Removing..." : "Confirm"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 };

@@ -5,7 +5,8 @@ export const DISASTER_TYPE_OPTIONS = [
   "Landslide",
   "Volcanic Eruption",
   "Storm Surge",
-  "Drought / El Niño",
+  "Drought / El Ni\u00f1o",
   "Tsunami",
   "Fire",
+  "Other",
 ];

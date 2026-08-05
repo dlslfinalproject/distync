@@ -158,10 +158,46 @@ const getAvailableInventoryBatchesByItemIdForUpdate = async (inventoryItemId, db
     WHERE ib.inventory_item_id = $1
       AND COALESCE(ib.quantity_available, 0) > 0
     ORDER BY
-      CASE WHEN ib.expiration_date IS NULL THEN 1 ELSE 0 END,
-      ib.expiration_date ASC,
-      ib.received_at ASC,
-      ib.created_at ASC
+      ib.received_at ASC NULLS LAST,
+      ib.created_at ASC,
+      ib.batch_no ASC
+    FOR UPDATE
+  `;
+
+  const result = await dbClient.query(query, [inventoryItemId]);
+  return result.rows;
+};
+
+const getDistributableInventoryBatchesByItemIdForUpdate = async (
+  inventoryItemId,
+  dbClient,
+) => {
+  const query = `
+    SELECT
+      ib.id,
+      ib.inventory_item_id,
+      ib.batch_no,
+      ib.quantity_received,
+      ib.quantity_available,
+      ib.expiration_date,
+      ib.status,
+      ii.item_code,
+      ii.item_name,
+      ii.category,
+      ii.unit_of_measure
+    FROM inventory_batches ib
+    INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
+    WHERE ib.inventory_item_id = $1
+      AND COALESCE(ib.quantity_available, 0) > 0
+      AND ib.status IN ('AVAILABLE', 'LOW_STOCK')
+      AND (
+        ib.expiration_date IS NULL
+        OR ib.expiration_date > (CURRENT_DATE + INTERVAL '30 days')
+      )
+    ORDER BY
+      ib.received_at ASC NULLS LAST,
+      ib.created_at ASC,
+      ib.batch_no ASC
     FOR UPDATE
   `;
 
@@ -268,6 +304,7 @@ module.exports = {
   getInventoryTransactionById,
   getInventoryBatchByIdForUpdate,
   getAvailableInventoryBatchesByItemIdForUpdate,
+  getDistributableInventoryBatchesByItemIdForUpdate,
   getDisasterEventById,
   getUserById,
   insertInventoryTransaction,

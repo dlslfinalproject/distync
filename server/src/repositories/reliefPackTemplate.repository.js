@@ -1,5 +1,17 @@
 const pool = require("../config/db");
 
+const STANDARD_DISASTER_TYPES = [
+  "Typhoon",
+  "Flood",
+  "Earthquake",
+  "Landslide",
+  "Volcanic Eruption",
+  "Storm Surge",
+  "Drought / El Ni\u00f1o",
+  "Tsunami",
+  "Fire",
+];
+
 const getReliefPackTemplates = async (filters) => {
   const values = [];
   const conditions = [];
@@ -27,7 +39,12 @@ const getReliefPackTemplates = async (filters) => {
   }
 
   if (filters.disaster_type) {
-    values.push(filters.disaster_type);
+    const normalizedDisasterType = String(filters.disaster_type || "").trim();
+    const matchesOtherGroup =
+      normalizedDisasterType &&
+      !STANDARD_DISASTER_TYPES.includes(normalizedDisasterType);
+
+    values.push(normalizedDisasterType);
     conditions.push(`
       (
         rpt.applies_to_all_disasters = TRUE
@@ -35,7 +52,10 @@ const getReliefPackTemplates = async (filters) => {
           SELECT 1
           FROM relief_pack_template_disaster_types rptdt_filter
           WHERE rptdt_filter.template_id = rpt.id
-            AND rptdt_filter.disaster_type = $${values.length}
+            AND (
+              rptdt_filter.disaster_type = $${values.length}
+              ${matchesOtherGroup ? "OR rptdt_filter.disaster_type = 'Other'" : ""}
+            )
         )
       )
     `);
@@ -336,6 +356,24 @@ const getReliefPackTemplateDisasterTypesByTemplateId = async (templateId) => {
   return result.rows;
 };
 
+const getReliefPackTemplateUsageByTemplateId = async (templateId) => {
+  const query = `
+    SELECT
+      de.disaster_type,
+      de.status AS disaster_event_status,
+      COUNT(dt.id)::integer AS distributions_count
+    FROM distribution_transactions dt
+    INNER JOIN disaster_events de ON de.id = dt.disaster_event_id
+    WHERE dt.relief_pack_template_id = $1
+      AND dt.distribution_status = 'CLAIMED'
+    GROUP BY de.disaster_type, de.status
+    ORDER BY de.disaster_type ASC
+  `;
+
+  const result = await pool.query(query, [templateId]);
+  return result.rows;
+};
+
 const deleteReliefPackTemplateDisasterTypesByTemplateId = async (
   templateId,
   dbClient,
@@ -380,6 +418,7 @@ module.exports = {
   getInventoryItemById,
   getReliefPackTemplateItemsByTemplateId,
   getReliefPackTemplateDisasterTypesByTemplateId,
+  getReliefPackTemplateUsageByTemplateId,
   insertReliefPackTemplate,
   updateReliefPackTemplate,
   deleteReliefPackTemplateItemsByTemplateId,
