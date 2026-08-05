@@ -575,6 +575,23 @@ const getSyncHistory = async ({ auth, syncStatus, conflictStatus, limit }) => {
   };
 };
 
+const getSyncStatusSummary = async ({ auth }) => {
+  const [conflictCount, lastSuccessfulSyncAt] = await Promise.all([
+    syncRepository.countOpenSyncConflictsByUser({
+      userId: auth.userId,
+    }),
+    syncRepository.getLastSuccessfulSyncAtByUser({
+      userId: auth.userId,
+    }),
+  ]);
+
+  return {
+    conflictCount,
+    lastSuccessfulSyncAt,
+    backendReachable: true,
+  };
+};
+
 const getSyncConflictDetail = async ({ auth, conflictId }) => {
   const conflict = await syncRepository.getSyncConflictByIdForUser({
     id: conflictId,
@@ -654,6 +671,7 @@ const auditSyncRetryRequest = async ({ auth, entries }) => {
 module.exports = {
   processSyncEntries,
   getSyncHistory,
+  getSyncStatusSummary,
   getSyncConflictDetail,
   auditSyncRetryRequest,
 };

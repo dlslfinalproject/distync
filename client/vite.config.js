@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
+import packageJson from "./package.json";
 import {
   validateBuildTargetAccessMode,
 } from "./scripts/buildTargetConfig.cjs";
@@ -33,6 +34,9 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
+    define: {
+      __APP_VERSION__: JSON.stringify(packageJson.version),
+    },
     plugins: [
       VitePWA({
         registerType: "autoUpdate",

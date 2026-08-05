@@ -2,7 +2,7 @@ import React from "react";
 import NotificationPreferencesSection from "../components/NotificationPreferencesSection";
 import ProfileSection from "../components/ProfileSection";
 import RoleSettingsViewShell from "../components/RoleSettingsViewShell";
-import SyncPreferencesSection from "../components/SyncPreferencesSection";
+import SystemInformationSection from "../components/SystemInformationSection";
 
 const MayorSettingsView = ({
   activeSection,
@@ -22,20 +22,10 @@ const MayorSettingsView = ({
   ctx,
 }) => {
   const {
-    formatSyncDateTime,
-    navigate,
-    handleSyncNow,
-    isSyncingNow,
-    syncSummary,
-    getSyncStatusMeta,
-    isOnline,
-    localSyncLogRows,
-    syncHistoryErrorMessage,
-    lastQueueActivityAt,
-    lastSuccessfulSyncAt,
     profileSectionProps,
     notificationSectionProps,
     dashboardDescription,
+    systemInformation,
   } = ctx;
 
   const renderSectionContent = () => {
@@ -46,20 +36,9 @@ const MayorSettingsView = ({
         return <NotificationPreferencesSection {...notificationSectionProps} />;
       case "sync-preferences":
         return (
-          <SyncPreferencesSection
+          <SystemInformationSection
             {...ctx.syncSectionProps}
-            syncSummary={syncSummary}
-            syncStatusMeta={getSyncStatusMeta(syncSummary, isOnline)}
-            localSyncLogRows={localSyncLogRows.map((row) => ({
-              ...row,
-              timestamp: formatSyncDateTime(row.timestamp),
-            }))}
-            syncHistoryErrorMessage={syncHistoryErrorMessage}
-            handleSyncNow={handleSyncNow}
-            isSyncingNow={isSyncingNow}
-            onOpenFullSyncCenter={() => navigate("/inventory/sync")}
-            lastQueueActivityAt={lastQueueActivityAt}
-            lastSuccessfulSyncAt={lastSuccessfulSyncAt}
+            systemInformation={systemInformation}
           />
         );
       default:

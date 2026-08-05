@@ -78,6 +78,7 @@ import {
   hasCachedRoleSettingsData,
   mergeRefreshedSettingsWithLocalDraft,
 } from "./settingsOfflineHelpers";
+import { useSystemInformation } from "./useSystemInformation";
 
 const gridStyles = {
   display: "grid",
@@ -1767,6 +1768,11 @@ const RoleSettingsPage = () => {
     () => formatDateTime(latestSuccessfulSyncTimestamp),
     [latestSuccessfulSyncTimestamp],
   );
+  const systemInformation = useSystemInformation({
+    roleCode: currentRole,
+    syncEntries,
+    formatDateTime,
+  });
 
   const activeBarangaySection = useMemo(
     () => getActiveSettingsSection(BARANGAY_SETTINGS_SECTIONS, activeSection),
@@ -1929,15 +1935,7 @@ const RoleSettingsPage = () => {
       isOnline,
     resetPreferencesButtonRef,
     handleRetryNotificationPreferencesLoad: retryRoleSettingsLoad,
-    navigate,
-    handleSyncNow,
-    isSyncingNow,
-    syncSummary,
-    isOnline,
-    localSyncLogRows,
-    syncHistoryErrorMessage,
-    lastQueueActivityAt,
-    lastSuccessfulSyncAt,
+    systemInformation,
   });
 
   const mswdoViewContext = buildMswdoViewContext({
@@ -1963,15 +1961,7 @@ const RoleSettingsPage = () => {
     handleRetryNotificationPreferencesLoad: retryRoleSettingsLoad,
     unreadCount,
     notificationRuleCount,
-    navigate,
-    handleSyncNow,
-    isSyncingNow,
-    syncSummary,
-    isOnline,
-    localSyncLogRows,
-    syncHistoryErrorMessage,
-    lastQueueActivityAt,
-    lastSuccessfulSyncAt,
+    systemInformation,
   });
 
   const mayorViewContext = buildMayorViewContext({
@@ -1997,15 +1987,7 @@ const RoleSettingsPage = () => {
     handleRetryNotificationPreferencesLoad: retryRoleSettingsLoad,
     unreadCount,
     notificationRuleCount,
-    navigate,
-    handleSyncNow,
-    isSyncingNow,
-    syncSummary,
-    isOnline,
-    localSyncLogRows,
-    syncHistoryErrorMessage,
-    lastQueueActivityAt,
-    lastSuccessfulSyncAt,
+    systemInformation,
   });
 
   const settingsDialogs = (

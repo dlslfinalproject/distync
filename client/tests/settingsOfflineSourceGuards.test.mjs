@@ -19,7 +19,7 @@ const notificationSectionSourcePath = new URL(
   import.meta.url,
 );
 const systemSectionSourcePath = new URL(
-  "../src/pages/settings/components/SyncPreferencesSection.jsx",
+  "../src/pages/settings/components/SystemInformationSection.jsx",
   import.meta.url,
 );
 const roleShellSourcePath = new URL(
@@ -81,9 +81,9 @@ test("settings page and sections contain the dedicated offline messaging", async
   );
   assert.match(
     systemSource,
-    /Offline Access/,
+    /Offline Capability/,
   );
-  assert.match(
+  assert.doesNotMatch(
     systemSource,
     /Available for supported features/,
   );

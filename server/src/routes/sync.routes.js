@@ -57,6 +57,27 @@ router.post(
 );
 
 router.get(
+  "/status-summary",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
+  async (req, res) => {
+    try {
+      const payload = await syncService.getSyncStatusSummary({
+        auth: req.auth,
+      });
+
+      return res.status(200).json({
+        message: "Sync status summary fetched successfully",
+        data: payload,
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        message: error.message || "Failed to fetch sync status summary",
+      });
+    }
+  },
+);
+
+router.get(
   "/history",
   requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
   validateGetSyncHistory,

@@ -194,6 +194,34 @@ const getSyncConflictByIdForUser = async ({ id, userId }, dbClient = pool) => {
   return result.rows[0] || null;
 };
 
+const countOpenSyncConflictsByUser = async ({ userId }, dbClient = pool) => {
+  const query = `
+    SELECT COUNT(*)::int AS count
+    FROM sync_conflicts sc
+    INNER JOIN sync_transactions st
+      ON st.id = sc.sync_transaction_id
+    WHERE st.user_id = $1
+      AND sc.status = 'OPEN'
+  `;
+
+  const result = await dbClient.query(query, [userId]);
+  return result.rows[0]?.count || 0;
+};
+
+const getLastSuccessfulSyncAtByUser = async ({ userId }, dbClient = pool) => {
+  const query = `
+    SELECT COALESCE(server_timestamp, updated_at, created_at) AS last_successful_sync_at
+    FROM sync_transactions
+    WHERE user_id = $1
+      AND sync_status = 'SYNCED'
+    ORDER BY COALESCE(server_timestamp, updated_at, created_at) DESC
+    LIMIT 1
+  `;
+
+  const result = await dbClient.query(query, [userId]);
+  return result.rows[0]?.last_successful_sync_at || null;
+};
+
 module.exports = {
   insertSyncTransaction,
   updateSyncTransaction,
@@ -201,4 +229,6 @@ module.exports = {
   getSyncTransactionsByUser,
   getSyncConflictsByUser,
   getSyncConflictByIdForUser,
+  countOpenSyncConflictsByUser,
+  getLastSuccessfulSyncAtByUser,
 };
