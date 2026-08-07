@@ -97,7 +97,7 @@ test("insertNotification rejects unsupported notification types before touching 
   }
 });
 
-test("insertSummaryEvent uses summary_key conflict protection for restart-safe idempotency", async () => {
+test("insertSummaryEvent atomically appends a new event while suppressing retry duplicates", async () => {
   const queries = [];
   const { repository, restore } = loadRepositoryWithPoolStub({
     query: async (sql, params) => {
@@ -117,10 +117,10 @@ test("insertSummaryEvent uses summary_key conflict protection for restart-safe i
         timezone: "Asia/Manila",
       },
       payload: {
-        totals: {
-          newHouseholds: 2,
-        },
+        eventId: "HOUSEHOLD:household-1:registered",
+        action: "registered",
       },
+      aggregateEvents: true,
       windowStartedAt: "2026-08-05T05:00:00.000Z",
       windowEndsAt: "2026-08-05T06:00:00.000Z",
       readyAt: "2026-08-05T06:00:00.000Z",
@@ -128,7 +128,9 @@ test("insertSummaryEvent uses summary_key conflict protection for restart-safe i
 
     assert.equal(result, null);
     assert.equal(queries.length, 1);
-    assert.match(queries[0].sql, /ON CONFLICT \(summary_key\) DO NOTHING/);
+    assert.match(queries[0].sql, /ON CONFLICT \(summary_key\) DO UPDATE/);
+    assert.match(queries[0].sql, /jsonb_array_elements/);
+    assert.match(queries[0].sql, /eventId/);
     assert.equal(
       queries[0].params[0],
       "MAYOR:EVACUATION_SUMMARY_REPORT:event-1:all:2026-08-05T05:00:00.000Z",

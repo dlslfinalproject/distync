@@ -289,6 +289,28 @@ const getUserNotificationPreferencesByRole = async (
 };
 
 const insertSummaryEvent = async (payload, dbClient = pool) => {
+  if (!payload.aggregateEvents) {
+    const result = await dbClient.query(
+      `
+        INSERT INTO notification_summary_events (
+          summary_key, rule_code, role_code, barangay_id, disaster_event_id,
+          reference_scope_json, payload_json, window_started_at, window_ends_at,
+          ready_at, processed_at, created_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, NULL, NOW(), NOW())
+        ON CONFLICT (summary_key) DO NOTHING
+        RETURNING *
+      `,
+      [
+        payload.summaryKey, payload.ruleCode, payload.roleCode,
+        payload.barangayId || null, payload.disasterEventId || null,
+        JSON.stringify(payload.referenceScope || {}), JSON.stringify(payload.payload || {}),
+        payload.windowStartedAt, payload.windowEndsAt, payload.readyAt,
+      ],
+    );
+    return result.rows[0] || null;
+  }
+
   const result = await dbClient.query(
     `
       INSERT INTO notification_summary_events (
@@ -306,8 +328,27 @@ const insertSummaryEvent = async (payload, dbClient = pool) => {
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, NULL, NOW(), NOW())
-      ON CONFLICT (summary_key) DO NOTHING
+      VALUES ($1, $2, $3, $4, $5, $6::jsonb, jsonb_build_object('events', jsonb_build_array($7::jsonb)), $8, $9, $10, NULL, NOW(), NOW())
+      ON CONFLICT (summary_key) DO UPDATE
+      SET payload_json = CASE
+            WHEN jsonb_typeof(notification_summary_events.payload_json -> 'events') = 'array'
+              AND EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements(notification_summary_events.payload_json -> 'events') existing_event
+                WHERE existing_event ->> 'eventId' = $7::jsonb ->> 'eventId'
+              ) THEN notification_summary_events.payload_json
+            WHEN jsonb_typeof(notification_summary_events.payload_json -> 'events') = 'array'
+              THEN jsonb_set(
+                notification_summary_events.payload_json,
+                '{events}',
+                (notification_summary_events.payload_json -> 'events') || jsonb_build_array($7::jsonb)
+              )
+            ELSE jsonb_build_object(
+              'events',
+              jsonb_build_array(notification_summary_events.payload_json, $7::jsonb)
+            )
+          END,
+          updated_at = NOW()
       RETURNING *
     `,
     [

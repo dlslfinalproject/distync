@@ -266,22 +266,34 @@ const isNearExpiryDate = (value, thresholdDays = NEAR_EXPIRY_DAYS) => {
 };
 
 const getWindowBounds = (deliveryMode, now = new Date()) => {
-  const windowStartedAt = new Date(now);
-  const windowEndsAt = new Date(now);
+  const manilaNow = shiftDateByMilliseconds(now, MANILA_OFFSET_MS);
+  const windowStartedAtInManila = new Date(
+    Date.UTC(
+      manilaNow.getUTCFullYear(),
+      manilaNow.getUTCMonth(),
+      manilaNow.getUTCDate(),
+      deliveryMode === DELIVERY_MODE.DAILY_SUMMARY ? 0 : manilaNow.getUTCHours(),
+      0,
+      0,
+      0,
+    ),
+  );
+  const windowEndsAtInManila = new Date(windowStartedAtInManila);
 
   if (deliveryMode === DELIVERY_MODE.DAILY_SUMMARY) {
-    windowStartedAt.setHours(0, 0, 0, 0);
-    windowEndsAt.setHours(24, 0, 0, 0);
-    return {
-      windowStartedAt,
-      windowEndsAt,
-      readyAt: windowEndsAt,
-    };
+    windowEndsAtInManila.setUTCDate(windowEndsAtInManila.getUTCDate() + 1);
+  } else {
+    windowEndsAtInManila.setUTCHours(windowEndsAtInManila.getUTCHours() + 1);
   }
 
-  windowStartedAt.setMinutes(0, 0, 0);
-  windowEndsAt.setMinutes(0, 0, 0);
-  windowEndsAt.setHours(windowEndsAt.getHours() + 1);
+  const windowStartedAt = shiftDateByMilliseconds(
+    windowStartedAtInManila,
+    -MANILA_OFFSET_MS,
+  );
+  const windowEndsAt = shiftDateByMilliseconds(
+    windowEndsAtInManila,
+    -MANILA_OFFSET_MS,
+  );
 
   return {
     windowStartedAt,
@@ -304,6 +316,22 @@ const buildSummaryKey = ({
     barangayId || "all",
     windowStartedAt.toISOString(),
   ].join(":");
+
+const getSummaryEvents = (eventRow) => {
+  const payload = eventRow?.payload_json;
+  if (Array.isArray(payload?.events)) {
+    return payload.events;
+  }
+
+  // Pending rows created before Block 1 stored one event as an object.
+  return payload && typeof payload === "object" ? [payload] : [];
+};
+
+const getSummaryEventCount = (summaryGroup) =>
+  summaryGroup.events.reduce(
+    (count, eventRow) => count + getSummaryEvents(eventRow).length,
+    0,
+  );
 
 const resolveStoredPreferenceState = ({
   roleCode,
@@ -628,8 +656,11 @@ const enqueueSummaryNotification = async ({
           referenceId: reference_id,
           ...summaryMetadata,
         },
+        aggregateEvents: true,
         payload: {
-          count: 1,
+          eventId: [reference_type || "EVENT", reference_id || "unknown", summaryMetadata.action || ""].join(":"),
+          referenceType: reference_type,
+          referenceId: reference_id,
           ...summaryMetadata,
         },
         windowStartedAt: window.windowStartedAt.toISOString(),
@@ -1431,7 +1462,7 @@ const seedNotificationRules = async () => {
 };
 
 const buildSummaryNotificationContent = (summaryGroup) => {
-  const count = summaryGroup.events.length;
+  const count = getSummaryEventCount(summaryGroup);
   const roleLabel = summaryGroup.roleCode;
 
   switch (summaryGroup.ruleCode) {
@@ -1610,7 +1641,7 @@ const flushSummaryNotifications = async () => {
       old_values_json: {},
       new_values_json: {
         ruleCode: group.ruleCode,
-        eventCount: group.events.length,
+        eventCount: getSummaryEventCount(group),
         summaryKey: group.summaryKey,
       },
       ip_address: null,
@@ -1828,6 +1859,9 @@ module.exports = {
   scanExpiryNotifications,
   scanSyncNotifications,
   getPreviousCompletedManilaHourWindow,
+  getWindowBounds,
+  getSummaryEvents,
+  getSummaryEventCount,
   generateDueEvacuationSummaryReports,
   flushSummaryNotifications,
   initializeNotificationInfrastructure,
