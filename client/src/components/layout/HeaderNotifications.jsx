@@ -103,13 +103,21 @@ const supportedRoles = new Set([
 const HeaderNotifications = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { currentRole } = useAuth();
+  const { accessMode, authenticatedUser, currentRole, isAuthenticated } = useAuth();
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [recentNotifications, setRecentNotifications] = useState([]);
   const [isNotificationDropdownOpen, setIsNotificationDropdownOpen] =
     useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isOnline, setIsOnline] = useState(
+    () => typeof navigator === "undefined" || navigator.onLine,
+  );
   const notificationMenuRef = useRef(null);
+  const notificationScopeRef = useRef("");
+  const notificationScope =
+    isAuthenticated && authenticatedUser?.id && currentRole
+      ? `${accessMode}:${authenticatedUser.id}:${currentRole}`
+      : "";
 
   const notificationRouteByRole = useMemo(
     () => ({
@@ -124,13 +132,15 @@ const HeaderNotifications = () => {
     notificationRouteByRole[currentRole] || "/inventory/notifications";
 
   useEffect(() => {
-    if (!supportedRoles.has(currentRole)) {
+    notificationScopeRef.current = notificationScope;
+    if (!supportedRoles.has(currentRole) || !notificationScope || !isOnline) {
       setUnreadNotificationCount(0);
       setRecentNotifications([]);
       return undefined;
     }
 
     let isMounted = true;
+    const requestScope = notificationScope;
 
     const loadNotificationState = async () => {
       try {
@@ -142,14 +152,14 @@ const HeaderNotifications = () => {
           }),
         ]);
 
-        if (isMounted) {
+        if (isMounted && requestScope === notificationScopeRef.current) {
           setUnreadNotificationCount(Number(countResponse?.unread_count || 0));
           setRecentNotifications(
             Array.isArray(recentResponse?.items) ? recentResponse.items : [],
           );
         }
       } catch (_error) {
-        if (isMounted) {
+        if (isMounted && requestScope === notificationScopeRef.current) {
           setUnreadNotificationCount(0);
           setRecentNotifications([]);
         }
@@ -174,7 +184,31 @@ const HeaderNotifications = () => {
         handleNotificationRefresh,
       );
     };
-  }, [currentRole, location.pathname]);
+  }, [currentRole, isOnline, location.pathname, notificationScope]);
+
+  useEffect(() => {
+    notificationScopeRef.current = notificationScope;
+    setUnreadNotificationCount(0);
+    setRecentNotifications([]);
+    setIsNotificationDropdownOpen(false);
+    setIsUpdating(false);
+  }, [notificationScope]);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => {
+      setIsOnline(false);
+      setUnreadNotificationCount(0);
+      setRecentNotifications([]);
+      setIsNotificationDropdownOpen(false);
+    };
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isNotificationDropdownOpen) {
@@ -199,10 +233,16 @@ const HeaderNotifications = () => {
   }, [isNotificationDropdownOpen]);
 
   const markReadAndOpen = async (notification) => {
-    if (!notification.read_at && navigator.onLine) {
+    if (!isOnline || !notificationScope) {
+      return;
+    }
+
+    const mutationScope = notificationScope;
+    if (!notification.read_at) {
       setIsUpdating(true);
       try {
         await markNotificationAsRead(notification.id);
+        if (mutationScope !== notificationScopeRef.current) return;
         setUnreadNotificationCount((count) => Math.max(0, count - 1));
         setRecentNotifications((items) =>
           items.map((item) =>
@@ -232,10 +272,12 @@ const HeaderNotifications = () => {
   };
 
   const markAllRead = async () => {
-    if (!unreadNotificationCount || !navigator.onLine) return;
+    if (!unreadNotificationCount || !isOnline || !notificationScope) return;
+    const mutationScope = notificationScope;
     setIsUpdating(true);
     try {
       await markAllNotificationsAsRead();
+      if (mutationScope !== notificationScopeRef.current) return;
       setUnreadNotificationCount(0);
       setRecentNotifications((items) =>
         items.map((item) => ({ ...item, read_at: item.read_at || new Date().toISOString() })),
@@ -270,7 +312,7 @@ const HeaderNotifications = () => {
             <span style={headerNotificationStyles.icon}>
               <FiBell size={18} />
             </span>
-            {unreadNotificationCount > 0 ? (
+            {isOnline && unreadNotificationCount > 0 ? (
               <span style={headerNotificationStyles.badge}>
                 {unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}
               </span>
@@ -309,7 +351,7 @@ const HeaderNotifications = () => {
                       color: "#224565",
                     }}
                   >
-                    Unread: {unreadNotificationCount}
+                    Unread: {isOnline ? unreadNotificationCount : "Unavailable"}
                   </p>
                 </div>
 
@@ -337,7 +379,7 @@ const HeaderNotifications = () => {
               <button
                 type="button"
                 onClick={markAllRead}
-                disabled={!unreadNotificationCount || isUpdating}
+                disabled={!unreadNotificationCount || isUpdating || !isOnline}
                 style={{
                   border: "none", background: "transparent", color: "#1f4f7d",
                   fontSize: "12px", fontWeight: 700, cursor: unreadNotificationCount ? "pointer" : "not-allowed",
@@ -347,7 +389,11 @@ const HeaderNotifications = () => {
                 Mark all as read
               </button>
 
-              {recentNotifications.length === 0 ? (
+              {!isOnline ? (
+                <p style={{ margin: 0, color: "#6b8298", fontSize: "13px", lineHeight: 1.5 }} role="status">
+                  You're offline. Notifications are unavailable until you reconnect.
+                </p>
+              ) : recentNotifications.length === 0 ? (
                 <p
                   style={{
                     margin: 0,
