@@ -701,6 +701,10 @@ test("flushSummaryNotifications persists grouped summaries with the SUMMARY noti
 
       assert.equal(insertedNotifications.length, 1);
       assert.equal(insertedNotifications[0].type, "SUMMARY");
+      assert.equal(insertedNotifications[0].rule_code, "EVACUATION_SUMMARY_REPORT");
+      assert.equal(insertedNotifications[0].metadata_json.summary.eventCount, 2);
+      assert.equal(insertedNotifications[0].metadata_json.summary.newHouseholds, 12);
+      assert.equal(insertedNotifications[0].metadata_json.summary.newEvacuees, 48);
       assert.match(insertedNotifications[0].title, /1:00 PM to 2:00 PM/);
       assert.match(insertedNotifications[0].message, /12 newly registered households/);
       assert.match(insertedNotifications[0].message, /48 new evacuees/);

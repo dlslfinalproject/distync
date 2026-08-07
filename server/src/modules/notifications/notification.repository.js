@@ -494,6 +494,7 @@ const insertNotification = async (payload, dbClient = pool) => {
     `
       INSERT INTO notifications (
         disaster_event_id,
+        rule_code,
         type,
         title,
         message,
@@ -501,19 +502,22 @@ const insertNotification = async (payload, dbClient = pool) => {
         reference_type,
         reference_id,
         generated_at,
+        metadata_json,
         created_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9::jsonb, NOW())
       RETURNING id
     `,
     [
       payload.disaster_event_id,
+      payload.rule_code,
       payload.type,
       payload.title,
       payload.message,
       payload.severity,
       payload.reference_type,
       payload.reference_id,
+      JSON.stringify(payload.metadata_json || {}),
     ],
   );
 
@@ -624,12 +628,14 @@ const getNotificationsForUser = async (
         nr.id AS recipient_id,
         nr.read_at,
         n.disaster_event_id,
+        n.rule_code,
         n.type,
         n.title,
         n.message,
         n.severity,
         n.reference_type,
         n.reference_id,
+        COALESCE(n.metadata_json, '{}'::jsonb) AS metadata_json,
         n.generated_at,
         n.created_at,
         de.event_code,

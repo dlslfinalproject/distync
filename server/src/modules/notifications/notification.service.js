@@ -12,6 +12,7 @@ const {
   NOTIFICATION_POLICY_ROWS,
   NOTIFICATION_RULE_TARGETS,
   getCanonicalRuleCode,
+  getCanonicalRuleDefinition,
   getSettingsVisibleRuleCodesForRole,
   getPolicyRolesForRule,
   isVisibleInSettings,
@@ -30,6 +31,9 @@ const DEDUPE_LOOKBACK_HOURS = 24;
 const MANILA_TIME_ZONE = "Asia/Manila";
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
 const MAX_EVACUATION_SUMMARY_BARANGAYS = 3;
+const MAX_NOTIFICATION_METADATA_KEYS = 20;
+const MAX_NOTIFICATION_METADATA_STRING_LENGTH = 256;
+const MAX_SUMMARY_BREAKDOWN_ROWS = 20;
 const MAINTENANCE_SCAN_INTERVAL_MS = Number.parseInt(
   process.env.NOTIFICATION_SCAN_INTERVAL_MS || `${15 * 60 * 1000}`,
   10,
@@ -71,6 +75,65 @@ const FALLBACK_SYNC_NOTIFICATION_ROLE_CODES = [
 const toDisplayQuantity = (value) => Number(value || 0).toLocaleString();
 
 const toSafeInteger = (value) => Number.parseInt(value || 0, 10) || 0;
+
+const METADATA_FIELDS_BY_RULE = {
+  DISASTER_EVENT_CREATED: ["disasterEventId", "action"],
+  DISASTER_EVENT_UPDATED: ["disasterEventId", "action", "barangayIds"],
+  HOUSEHOLD_REGISTERED: ["householdId", "barangayId", "action"],
+  HOUSEHOLD_VERIFICATION_UPDATED: ["householdId", "barangayId"],
+  EVACUEE_ATTENDANCE_UPDATED: ["householdId", "barangayId", "attendanceAction"],
+  DISTRIBUTION_COMPLETED: ["distributionTransactionId", "barangayId", "stubNo"],
+  CRITICAL_INVENTORY_SHORTAGE: ["batchId", "itemId", "remainingQuantity"],
+  NEAR_EXPIRY_STOCK: ["batchId", "itemId", "expiresAt", "remainingQuantity"],
+  EXPIRED_STOCK: ["batchId", "itemId", "expiresAt", "remainingQuantity"],
+  INVENTORY_INCIDENT: ["inventoryTransactionId", "batchId", "itemId", "quantity", "transactionType"],
+  DONATION_RECEIVED: ["donationId", "donationItemId", "itemCount", "quantity"],
+  DONATION_STOCK_ANOMALY: ["donationId", "donationItemId", "quantity"],
+  SYNC_FAILURE: ["syncTransactionId", "operationType", "entityType"],
+  SYNC_CONFLICT: ["conflictId", "entityType"],
+};
+
+const sanitizeMetadataScalar = (value) => {
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") return value.slice(0, MAX_NOTIFICATION_METADATA_STRING_LENGTH);
+  if (Array.isArray(value)) {
+    return value.slice(0, MAX_SUMMARY_BREAKDOWN_ROWS).map(sanitizeMetadataScalar).filter((item) => item !== undefined);
+  }
+  return undefined;
+};
+
+const sanitizeNotificationMetadata = (ruleCode, metadata = {}) => {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return {};
+  const allowedFields = new Set(METADATA_FIELDS_BY_RULE[ruleCode] || []);
+  const result = {};
+  for (const key of allowedFields) {
+    const value = sanitizeMetadataScalar(metadata[key]);
+    if (value !== undefined) result[key] = value;
+  }
+
+  if (metadata.summary && typeof metadata.summary === "object" && !Array.isArray(metadata.summary)) {
+    const summary = {};
+    ["windowStart", "windowEnd", "eventCount", "newHouseholds", "newEvacuees", "presentCount", "departedCount", "itemCount"].forEach((key) => {
+      const value = sanitizeMetadataScalar(metadata.summary[key]);
+      if (value !== undefined) summary[key] = value;
+    });
+    if (Array.isArray(metadata.summary.breakdown)) {
+      summary.breakdown = metadata.summary.breakdown.slice(0, MAX_SUMMARY_BREAKDOWN_ROWS).map((row) => {
+        if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+        const clean = {};
+        ["barangayId", "action", "count", "householdCount", "evacueeCount"].forEach((key) => {
+          const value = sanitizeMetadataScalar(row[key]);
+          if (value !== undefined) clean[key] = value;
+        });
+        return Object.keys(clean).length ? clean : null;
+      }).filter(Boolean);
+    }
+    if (Object.keys(summary).length) result.summary = summary;
+  }
+
+  return Object.fromEntries(Object.entries(result).slice(0, MAX_NOTIFICATION_METADATA_KEYS));
+};
 
 const shiftDateByMilliseconds = (value, milliseconds) =>
   new Date(value.getTime() + milliseconds);
@@ -498,10 +561,18 @@ const createPersistentNotification = async ({
   severity = "INFO",
   reference_type = null,
   reference_id = null,
+  metadata = {},
   dedupeHours = DEDUPE_LOOKBACK_HOURS,
 }) => {
   const canonicalRuleCode = getCanonicalRuleCode(ruleCode);
   assertValidNotificationType(type);
+  if (!canonicalRuleCode || !getCanonicalRuleDefinition(canonicalRuleCode)) {
+    const error = new Error("Notification rule is invalid.");
+    error.code = "INVALID_NOTIFICATION_RULE";
+    error.statusCode = 500;
+    throw error;
+  }
+  const safeMetadata = sanitizeNotificationMetadata(canonicalRuleCode, metadata);
 
   const deliveryPlanBuckets = await Promise.all(
     (recipientGroups || []).map((group) =>
@@ -575,12 +646,14 @@ const createPersistentNotification = async ({
 
   const createdNotification = await notificationRepository.insertNotification({
     disaster_event_id,
+    rule_code: canonicalRuleCode,
     type,
     title,
     message,
     severity,
     reference_type,
     reference_id,
+    metadata_json: safeMetadata,
   });
 
   if (inAppRecipientIds.length > 0) {
@@ -685,9 +758,16 @@ const createNotificationForRecipientGroups = async ({
   reference_id = null,
   dedupeHours = DEDUPE_LOOKBACK_HOURS,
   summaryMetadata = {},
+  metadata = {},
   bypassSummaryQueue = false,
 }) => {
   const canonicalRuleCode = getCanonicalRuleCode(ruleCode);
+  if (!canonicalRuleCode || !getCanonicalRuleDefinition(canonicalRuleCode)) {
+    const error = new Error("Notification rule is invalid.");
+    error.code = "INVALID_NOTIFICATION_RULE";
+    error.statusCode = 500;
+    throw error;
+  }
   const matchingRule = canonicalRuleCode
     ? await notificationRepository.getNotificationRuleByCode(canonicalRuleCode)
     : null;
@@ -732,6 +812,7 @@ const createNotificationForRecipientGroups = async ({
     reference_type,
     reference_id,
     dedupeHours,
+    metadata: { ...summaryMetadata, ...metadata },
   });
 };
 
@@ -747,6 +828,7 @@ const createNotificationForUsers = async ({
   reference_type = null,
   reference_id = null,
   dedupeHours = DEDUPE_LOOKBACK_HOURS,
+  metadata = {},
 }) =>
   createNotificationForRecipientGroups({
     ruleCode: getCanonicalRuleCode(ruleCode),
@@ -759,6 +841,7 @@ const createNotificationForUsers = async ({
     reference_type,
     reference_id,
     dedupeHours,
+    metadata,
   });
 
 const createNotificationForRole = async ({
@@ -773,6 +856,7 @@ const createNotificationForRole = async ({
   reference_id = null,
   dedupeHours = DEDUPE_LOOKBACK_HOURS,
   summaryMetadata = {},
+  metadata = {},
 }) => {
   const canonicalRuleCode = getCanonicalRuleCode(ruleCode);
   const matchingRule = canonicalRuleCode
@@ -813,6 +897,7 @@ const createNotificationForRole = async ({
     reference_id,
     dedupeHours,
     summaryMetadata,
+    metadata,
   });
 };
 
@@ -827,6 +912,7 @@ const createNotificationForRoles = async ({
   reference_type = null,
   reference_id = null,
   dedupeHours = DEDUPE_LOOKBACK_HOURS,
+  metadata = {},
 }) => {
   const resolvedRoleCodes = [
     ...new Set([
@@ -857,6 +943,7 @@ const createNotificationForRoles = async ({
     reference_type,
     reference_id,
     dedupeHours,
+    metadata,
   });
 };
 
@@ -980,6 +1067,7 @@ const emitBatchAlerts = async ({
             severity: "CRITICAL",
             reference_type: "INVENTORY_BATCH",
             reference_id: batch.id,
+            metadata: { batchId: batch.id, itemId: batch.inventory_item_id, expiresAt: batch.expiration_date, remainingQuantity: quantityAvailable },
           }
         : {
             ruleCode: "NEAR_EXPIRY_STOCK",
@@ -990,6 +1078,7 @@ const emitBatchAlerts = async ({
             severity: "WARNING",
             reference_type: "INVENTORY_BATCH",
             reference_id: batch.id,
+            metadata: { batchId: batch.id, itemId: batch.inventory_item_id, expiresAt: batch.expiration_date, remainingQuantity: quantityAvailable },
           },
   });
 
@@ -1008,6 +1097,7 @@ const emitBatchAlerts = async ({
       severity: "CRITICAL",
       reference_type: "INVENTORY_BATCH",
       reference_id: batch.id,
+      metadata: { batchId: batch.id, itemId: batch.inventory_item_id, remainingQuantity: quantityAvailable },
     },
   });
 
@@ -1059,6 +1149,7 @@ const emitInventoryTransactionAlerts = async ({
       severity,
       reference_type: "INVENTORY_TRANSACTION",
       reference_id: transaction.id,
+      metadata: { inventoryTransactionId: transaction.id, batchId: batch.id, itemId: batch.inventory_item_id, quantity: Number(transaction.quantity || 0), transactionType: transaction.transaction_type },
     });
   }
 
@@ -1089,11 +1180,7 @@ const emitDonationStockUpdate = async ({
     severity,
     reference_type: "DONATION_ITEM",
     reference_id: referenceId,
-    summaryMetadata: {
-      donorName,
-      itemName,
-      quantity: Number(quantity || 0),
-    },
+    metadata: { donationItemId: referenceId, quantity: Number(quantity || 0) },
   });
 
 const emitDonationSummaryUpdate = async ({
@@ -1111,10 +1198,7 @@ const emitDonationSummaryUpdate = async ({
     severity: "INFO",
     reference_type: "DONATION",
     reference_id: referenceId,
-    summaryMetadata: {
-      donorName,
-      itemCount: Number(itemCount || 0),
-    },
+    metadata: { donationId: referenceId, itemCount: Number(itemCount || 0) },
   });
 
 const emitDisasterEventCreated = async ({ disasterEvent }) => {
@@ -1132,6 +1216,7 @@ const emitDisasterEventCreated = async ({ disasterEvent }) => {
     severity: "WARNING",
     reference_type: "DISASTER_EVENT",
     reference_id: disasterEvent.id,
+    metadata: { disasterEventId: disasterEvent.id, action: "created" },
   });
 };
 
@@ -1191,6 +1276,7 @@ const emitDisasterEventUpdate = async ({
     severity: normalizedAction === "ended" ? "INFO" : "WARNING",
     reference_type: "DISASTER_EVENT",
     reference_id: disasterEvent.id,
+    metadata: { disasterEventId: disasterEvent.id, action: actionLabel, barangayIds: affectedBarangayIds },
   });
 };
 
@@ -1230,6 +1316,7 @@ const emitDistributionUpdate = async ({
       barangayId,
       stubNo,
     },
+    metadata: { distributionTransactionId, barangayId, stubNo },
   });
 };
 
@@ -1275,6 +1362,7 @@ const emitHouseholdRegistrationUpdate = async ({
       barangayId,
       action: actionLabel,
     },
+    metadata: { householdId, barangayId, action: actionLabel },
   });
 
   if (requiresVerification) {
@@ -1305,6 +1393,7 @@ const emitHouseholdRegistrationUpdate = async ({
       severity: "WARNING",
       reference_type: "HOUSEHOLD",
       reference_id: householdId,
+      metadata: { householdId, barangayId },
     });
   }
 
@@ -1359,6 +1448,7 @@ const emitEvacueeAttendanceUpdate = async ({
       barangayId,
       action: normalizedAction,
     },
+    metadata: { householdId, barangayId, attendanceAction: normalizedAction },
   });
 };
 
@@ -1391,6 +1481,7 @@ const emitSyncTransactionFailureAlert = async (syncTransaction) => {
     severity: "WARNING",
     reference_type: "SYNC_TRANSACTION",
     reference_id: syncTransaction.id,
+    metadata: { syncTransactionId: syncTransaction.id, operationType: syncTransaction.operation_type, entityType: syncTransaction.entity_type },
   });
 };
 
@@ -1416,6 +1507,7 @@ const emitSyncConflictAlert = async (syncConflict) => {
     severity: "CRITICAL",
     reference_type: "SYNC_CONFLICT",
     reference_id: syncConflict.id,
+    metadata: { conflictId: syncConflict.id, entityType: syncConflict.entity_type },
   });
 };
 
@@ -1514,6 +1606,55 @@ const buildSummaryNotificationContent = (summaryGroup) => {
         message: `${count} ${summaryGroup.ruleCode} events were grouped into this summary.`,
       };
   }
+};
+
+const getSummaryPayloadEvents = (summaryGroup) =>
+  (summaryGroup.events || []).flatMap((eventRow) => {
+    const payload = eventRow?.payload_json;
+    if (Array.isArray(payload?.events)) return payload.events;
+    return payload && typeof payload === "object" ? [payload] : [];
+  });
+
+const buildSummaryNotificationMetadata = (summaryGroup) => {
+  const firstEvent = summaryGroup.events?.[0] || {};
+  const summary = {
+    windowStart: firstEvent.window_started_at || null,
+    windowEnd: firstEvent.window_ends_at || null,
+    eventCount: getSummaryEventCount(summaryGroup),
+  };
+
+  if (summaryGroup.ruleCode === "EVACUATION_SUMMARY_REPORT") {
+    const payload = getEvacuationSummaryPayload(summaryGroup) || {};
+    const totals = payload.totals || {};
+    summary.newHouseholds = toSafeInteger(totals.newHouseholds);
+    summary.newEvacuees = toSafeInteger(totals.newEvacuees);
+    summary.presentCount = toSafeInteger(totals.presentEvacuees);
+    summary.departedCount = toSafeInteger(totals.departedEvacuees);
+    summary.breakdown = (Array.isArray(payload.barangays) ? payload.barangays : [])
+      .slice(0, MAX_SUMMARY_BREAKDOWN_ROWS)
+      .map((row) => ({
+        barangayId: row.barangayId || row.barangay_id,
+        householdCount: toSafeInteger(row.newHouseholds),
+        evacueeCount: toSafeInteger(row.newEvacuees),
+      }))
+      .filter((row) => row.barangayId);
+  } else {
+    const counts = new Map();
+    getSummaryPayloadEvents(summaryGroup).forEach((payload) => {
+      const key = `${payload.barangayId || ""}:${payload.action || ""}`;
+      const current = counts.get(key) || {
+        barangayId: payload.barangayId || undefined,
+        action: payload.action || undefined,
+        count: 0,
+      };
+      current.count += 1;
+      counts.set(key, current);
+    });
+    const breakdown = [...counts.values()].slice(0, MAX_SUMMARY_BREAKDOWN_ROWS);
+    if (breakdown.length) summary.breakdown = breakdown;
+  }
+
+  return { summary };
 };
 
 const generateDueEvacuationSummaryReports = async (now = new Date()) => {
@@ -1624,6 +1765,7 @@ const flushSummaryNotifications = async () => {
       severity: "INFO",
       reference_type: "NOTIFICATION_SUMMARY",
       reference_id: null,
+      metadata: buildSummaryNotificationMetadata(group),
       bypassSummaryQueue: true,
     });
 
@@ -1715,8 +1857,22 @@ const initializeNotificationInfrastructure = async () => {
   startNotificationMaintenance();
 };
 
-const getNotificationsForUser = async (userId, filters) =>
-  notificationRepository.getNotificationsForUser(userId, filters);
+const getNotificationsForUser = async (userId, filters) => {
+  const notifications = await notificationRepository.getNotificationsForUser(userId, filters);
+  return notifications.map((notification) => {
+    const metadata =
+      notification.metadata_json &&
+      typeof notification.metadata_json === "object" &&
+      !Array.isArray(notification.metadata_json)
+        ? notification.metadata_json
+        : {};
+    return {
+      ...notification,
+      ruleCode: notification.rule_code || null,
+      metadata,
+    };
+  });
+};
 
 const getUnreadCountForUser = async (userId) =>
   notificationRepository.countUnreadNotificationsForUser(userId);
@@ -1866,6 +2022,7 @@ module.exports = {
   flushSummaryNotifications,
   initializeNotificationInfrastructure,
   getNotificationsForUser,
+  sanitizeNotificationMetadata,
   getUnreadCountForUser,
   getNotificationPreferenceCatalogForRole,
   getNotificationRulesForRole,

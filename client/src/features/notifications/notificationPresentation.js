@@ -34,8 +34,6 @@ export const getNotificationMessage = (notification) =>
     .replace(/\s{2,}/g, " ")
     .trim();
 
-// Summary payload metadata is not persisted with the notification record yet.
-// Keep cards concise without reconstructing structured values from prose.
 export const getNotificationCardMessage = (notification) => {
   const message = getNotificationMessage(notification);
   if (String(notification?.type || "").toUpperCase() !== "SUMMARY") return message;
@@ -60,6 +58,20 @@ export const getNotificationPreview = (notification, maxLength = 115) => {
 
 export const getNotificationMetadata = (notification) => {
   const rows = [];
+  const metadata =
+    notification?.metadata && typeof notification.metadata === "object"
+      ? notification.metadata
+      : {};
+  const summary = metadata.summary;
+  if (notification?.ruleCode) {
+    rows.push({ label: "Rule", value: notification.ruleCode.replace(/_/g, " ").toLowerCase() });
+  }
+  if (summary?.eventCount != null) {
+    rows.push({ label: "Events", value: String(summary.eventCount) });
+  }
+  if (summary?.windowStart && summary?.windowEnd) {
+    rows.push({ label: "Summary window", value: `${new Date(summary.windowStart).toLocaleString()} - ${new Date(summary.windowEnd).toLocaleString()}` });
+  }
   if (notification?.disaster_event_title) {
     rows.push({ label: "Disaster event", value: notification.disaster_event_title });
   }

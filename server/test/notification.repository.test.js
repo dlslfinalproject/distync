@@ -52,17 +52,21 @@ test("insertNotification accepts SUMMARY and forwards the payload to SQL inserti
   try {
     const result = await repository.insertNotification({
       disaster_event_id: null,
+      rule_code: "EVACUATION_SUMMARY_REPORT",
       type: "SUMMARY",
       title: "Evacuation summary report",
       message: "A prepared summary is ready for review.",
       severity: "INFO",
       reference_type: "NOTIFICATION_SUMMARY",
       reference_id: null,
+      metadata_json: { summary: { eventCount: 1 } },
     });
 
     assert.deepEqual(result, { id: "notification-summary-1" });
     assert.equal(queries.length, 1);
-    assert.equal(queries[0].params[1], "SUMMARY");
+    assert.equal(queries[0].params[1], "EVACUATION_SUMMARY_REPORT");
+    assert.equal(queries[0].params[2], "SUMMARY");
+    assert.equal(queries[0].params[8], JSON.stringify({ summary: { eventCount: 1 } }));
   } finally {
     restore();
   }
