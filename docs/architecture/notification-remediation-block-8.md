@@ -36,7 +36,7 @@ Email is deliberately after notification persistence. A provider failure is reco
 
 ### Schema and duplicate prevention
 
-Migration: `database/migrations/2026-08-07_add_notification_email_delivery_tracking.sql` (**MIGRATION_PREPARED_NOT_APPLIED**).
+Migration: `database/migrations/2026-08-07_add_notification_email_delivery_tracking.sql` (**MIGRATION_APPLIED**; the pre-testing finalization audit confirmed the live table and both partial indexes read-only).
 
 `notification_email_deliveries` contains `notification_id`, `recipient_user_id`, `role_code`, `status`, `attempt_count`, timing fields, provider message ID, and sanitized error fields. The unique constraint on `(notification_id, recipient_user_id)` defines one logical email delivery. An `INSERT … ON CONFLICT … DO UPDATE … WHERE` claim moves only an eligible row to `SENDING` and increments the count; the network call occurs after that claim commits. `SENT` cannot be claimed again.
 
@@ -60,12 +60,12 @@ Summary events are aggregated before final notification creation. The final aggr
 
 ### Verification
 
-- Server unit suite: **134 passed, 0 failed** after adding failure-classification and sanitization coverage.
+- Server unit suite: **137 passed, 0 failed** in the pre-testing finalization audit.
 - Client suite: **118 passed, 0 failed**.
 - Modern-preference static check: passed.
 - Production/PWA build: passed.
 - DB integration: `NOT_RUN_REQUIRES_TEST_DATABASE`; no `TEST_DATABASE_URL` was used and no development DB was mutated by tests.
-- Migration: prepared only, not applied.
+- Migration: applied; the audit verified the expected table columns, unique delivery constraint, and both retry/stale-claim partial indexes read-only.
 - Controlled send command: `npm run verify:notification-email`. It requires development/test mode, configured Resend credentials, and an explicit `TEST_NOTIFICATION_EMAIL_RECIPIENT`; it creates no notification records. This audit ran it without that recipient and received `EMAIL_DELIVERY_NOT_VERIFIED_NO_SAFE_TEST_RECIPIENT`. No real email was sent.
 
 The relevant environment placeholders are documented in `server/.env.example`: `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_FROM_NAME`, `EMAIL_NOTIFICATION_MAX_ATTEMPTS`, `EMAIL_NOTIFICATION_RETRY_BASE_SECONDS`, and `TEST_NOTIFICATION_EMAIL_RECIPIENT`.

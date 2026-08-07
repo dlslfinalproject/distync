@@ -18,6 +18,11 @@ const aliasMigrationPath = path.resolve(
   "../../database/migrations/2026-08-05_consolidate_legacy_notification_rule_aliases.sql",
 );
 const aliasMigrationSql = fs.readFileSync(aliasMigrationPath, "utf8");
+const correctiveMigrationPath = path.resolve(
+  __dirname,
+  "../../database/migrations/2026-08-07_deactivate_remaining_legacy_notification_policy.sql",
+);
+const correctiveMigrationSql = fs.readFileSync(correctiveMigrationPath, "utf8");
 
 const extractValueTuples = (sql, sectionLabel) => {
   const sectionPattern = new RegExp(
@@ -179,5 +184,35 @@ test("legacy alias consolidation migration deactivates legacy rows only after ac
   assert.match(
     aliasMigrationSql,
     /NOT EXISTS\s*\([\s\S]*legacy_policy[\s\S]*NOT EXISTS[\s\S]*canonical_policy/i,
+  );
+});
+
+test("corrective policy migration deactivates every remaining legacy rule and policy without rewriting preferences", () => {
+  const expectedLegacyRules = [
+    "CRITICAL_STOCK",
+    "DISASTER_EVENT_UPDATE",
+    "DISTRIBUTION_UPDATE",
+    "DONATION_STOCK_UPDATE",
+    "EVACUEE_ATTENDANCE_UPDATE",
+    "HOUSEHOLD_VERIFICATION",
+    "SYSTEM_ANOMALY",
+  ];
+
+  assert.match(correctiveMigrationSql, /^\s*BEGIN;/);
+  assert.match(correctiveMigrationSql, /COMMIT;\s*$/);
+  assert.doesNotMatch(correctiveMigrationSql, /user_role_settings|notification_rule_preferences_json/i);
+  assert.doesNotMatch(correctiveMigrationSql, /DELETE\s+FROM|INSERT\s+INTO/i);
+
+  for (const code of expectedLegacyRules) {
+    assert.match(correctiveMigrationSql, new RegExp(`\\('${code}'\\)`));
+  }
+
+  assert.match(
+    correctiveMigrationSql,
+    /UPDATE public\.notification_rule_role_policies[\s\S]*is_active = FALSE/i,
+  );
+  assert.match(
+    correctiveMigrationSql,
+    /UPDATE public\.notification_rules[\s\S]*is_active = FALSE/i,
   );
 });
