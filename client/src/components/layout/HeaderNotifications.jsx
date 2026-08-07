@@ -6,8 +6,14 @@ import { ROLE_CODES } from "../../utils/roleSession";
 import {
   fetchNotifications,
   fetchUnreadNotificationCount,
+  markAllNotificationsAsRead,
+  markNotificationAsRead,
 } from "../../features/notifications/notificationService";
 import { getNotificationDeepLink } from "../../features/notifications/notificationRouting";
+import {
+  getNotificationPreview,
+  getRelativeNotificationTime,
+} from "../../features/notifications/notificationPresentation";
 
 const headerNotificationStyles = {
   wrapper: {
@@ -102,6 +108,7 @@ const HeaderNotifications = () => {
   const [recentNotifications, setRecentNotifications] = useState([]);
   const [isNotificationDropdownOpen, setIsNotificationDropdownOpen] =
     useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
   const notificationMenuRef = useRef(null);
 
   const notificationRouteByRole = useMemo(
@@ -181,8 +188,65 @@ const HeaderNotifications = () => {
     };
 
     window.addEventListener("mousedown", handleOutsideClick);
-    return () => window.removeEventListener("mousedown", handleOutsideClick);
+    const handleEscape = (event) => {
+      if (event.key === "Escape") setIsNotificationDropdownOpen(false);
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("mousedown", handleOutsideClick);
+      window.removeEventListener("keydown", handleEscape);
+    };
   }, [isNotificationDropdownOpen]);
+
+  const markReadAndOpen = async (notification) => {
+    if (!notification.read_at && navigator.onLine) {
+      setIsUpdating(true);
+      try {
+        await markNotificationAsRead(notification.id);
+        setUnreadNotificationCount((count) => Math.max(0, count - 1));
+        setRecentNotifications((items) =>
+          items.map((item) =>
+            item.id === notification.id
+              ? { ...item, read_at: new Date().toISOString() }
+              : item,
+          ),
+        );
+        window.dispatchEvent(
+          new CustomEvent("distync-notifications-updated", {
+            detail: { id: notification.id },
+          }),
+        );
+      } catch (_error) {
+        return;
+      } finally {
+        setIsUpdating(false);
+      }
+    }
+    const deepLink = getNotificationDeepLink(notification, currentRole);
+    setIsNotificationDropdownOpen(false);
+    if (deepLink.kind === "details") {
+      navigate(notificationRoute, { state: { notificationDetail: notification } });
+    } else {
+      navigate(deepLink.to);
+    }
+  };
+
+  const markAllRead = async () => {
+    if (!unreadNotificationCount || !navigator.onLine) return;
+    setIsUpdating(true);
+    try {
+      await markAllNotificationsAsRead();
+      setUnreadNotificationCount(0);
+      setRecentNotifications((items) =>
+        items.map((item) => ({ ...item, read_at: item.read_at || new Date().toISOString() })),
+      );
+      window.dispatchEvent(
+        new CustomEvent("distync-notifications-updated", { detail: { all: true } }),
+      );
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   if (!supportedRoles.has(currentRole)) {
     return null;
@@ -199,6 +263,9 @@ const HeaderNotifications = () => {
             }}
             style={headerNotificationStyles.button}
             title="Notifications"
+            aria-label={`Notifications${unreadNotificationCount ? `, ${unreadNotificationCount} unread` : ""}`}
+            aria-expanded={isNotificationDropdownOpen}
+            aria-haspopup="menu"
           >
             <span style={headerNotificationStyles.icon}>
               <FiBell size={18} />
@@ -211,7 +278,7 @@ const HeaderNotifications = () => {
           </button>
 
           {isNotificationDropdownOpen ? (
-            <div style={headerNotificationStyles.dropdown}>
+            <div style={headerNotificationStyles.dropdown} role="menu" aria-label="Recent notifications">
               <div
                 style={{
                   display: "flex",
@@ -267,6 +334,19 @@ const HeaderNotifications = () => {
                 </button>
               </div>
 
+              <button
+                type="button"
+                onClick={markAllRead}
+                disabled={!unreadNotificationCount || isUpdating}
+                style={{
+                  border: "none", background: "transparent", color: "#1f4f7d",
+                  fontSize: "12px", fontWeight: 700, cursor: unreadNotificationCount ? "pointer" : "not-allowed",
+                  padding: "0 0 10px", opacity: unreadNotificationCount ? 1 : 0.5,
+                }}
+              >
+                Mark all as read
+              </button>
+
               {recentNotifications.length === 0 ? (
                 <p
                   style={{
@@ -281,32 +361,27 @@ const HeaderNotifications = () => {
               ) : (
                 <div style={{ display: "grid", gap: "10px" }}>
                   {recentNotifications.map((notification) => {
-                    const deepLink = getNotificationDeepLink(
-                      notification,
-                      currentRole,
-                    );
-
                     return (
                       <button
                         key={notification.id}
                         type="button"
-                        onClick={() => {
-                          setIsNotificationDropdownOpen(false);
-                          navigate(deepLink?.to || notificationRoute);
-                        }}
+                        onClick={() => markReadAndOpen(notification)}
+                        disabled={isUpdating}
+                        role="menuitem"
                         style={{
                           border: "1px solid #dce7f3",
                           borderRadius: "12px",
-                          backgroundColor: "#f8fbff",
+                          backgroundColor: notification.read_at ? "#ffffff" : "#f3f8ff",
                           padding: "12px",
                           textAlign: "left",
                           cursor: "pointer",
                           width: "100%",
-                          display: "grid",
-                          gap: "6px",
+                          display: "grid", gap: "5px",
                           boxSizing: "border-box",
                         }}
                       >
+                        <div style={{ display: "flex", gap: "8px", alignItems: "start" }}>
+                        {!notification.read_at ? <span aria-hidden="true" style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#2878bf", marginTop: "5px", flexShrink: 0 }} /> : null}
                         <div
                           style={{
                             fontSize: "12px",
@@ -318,6 +393,7 @@ const HeaderNotifications = () => {
                         >
                           {notification.title}
                         </div>
+                        </div>
                         <div
                           style={{
                             fontSize: "12px",
@@ -326,20 +402,11 @@ const HeaderNotifications = () => {
                             overflowWrap: "anywhere",
                           }}
                         >
-                          {notification.message}
+                          {getNotificationPreview(notification)}
                         </div>
-                        {deepLink?.label ? (
-                          <div
-                            style={{
-                              fontSize: "11px",
-                              fontWeight: 700,
-                              color: "#365472",
-                              overflowWrap: "anywhere",
-                            }}
-                          >
-                            {deepLink.label}
-                          </div>
-                        ) : null}
+                        <div style={{ fontSize: "11px", color: "#6b8298" }}>
+                          {getRelativeNotificationTime(notification.generated_at)}
+                        </div>
                       </button>
                     );
                   })}
