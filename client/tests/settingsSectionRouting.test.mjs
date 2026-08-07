@@ -19,8 +19,8 @@ const roleShellSourcePath = new URL(
   "../src/pages/settings/components/RoleSettingsViewShell.jsx",
   import.meta.url,
 );
-const headerNotificationsSourcePath = new URL(
-  "../src/components/layout/HeaderNotifications.jsx",
+const sidebarAccountMenuSourcePath = new URL(
+  "../src/components/layout/SidebarAccountMenu.jsx",
   import.meta.url,
 );
 
@@ -97,8 +97,11 @@ test("settings shell keeps subsection cards visible and marks the active section
   assert.match(source, /Current section/);
 });
 
-test("settings shortcut opens the canonical account subsection URL", async () => {
-  const source = await fs.readFile(headerNotificationsSourcePath, "utf8");
+test("account menu provides the existing role-specific settings destinations", async () => {
+  const source = await fs.readFile(sidebarAccountMenuSourcePath, "utf8");
 
-  assert.match(source, /\?section=\$\{DEFAULT_SETTINGS_SECTION\}/);
+  assert.match(source, /settingsRoute: "\/barangay\/settings"/);
+  assert.match(source, /settingsRoute: "\/mswdo\/settings"/);
+  assert.match(source, /settingsRoute: "\/inventory\/settings"/);
+  assert.match(source, /Account Settings/);
 });

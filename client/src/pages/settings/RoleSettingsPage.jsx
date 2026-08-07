@@ -1218,7 +1218,12 @@ const RoleSettingsPage = () => {
       });
 
       if (saveResult?.user) {
-        updateAuthenticatedSessionUser(saveResult.user);
+        updateAuthenticatedSessionUser({
+          ...saveResult.user,
+          profilePictureUrl: saveResult?.data?.profile?.profilePictureUrl || "",
+          profilePictureUrlExpiresAt:
+            saveResult?.data?.profile?.profilePictureUrlExpiresAt || "",
+        });
         syncAuthState();
       }
 

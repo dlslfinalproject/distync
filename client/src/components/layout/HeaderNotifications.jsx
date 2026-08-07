@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { FiBell, FiSettings } from "react-icons/fi";
+import { FiBell } from "react-icons/fi";
 import { useAuth } from "../../context/AuthContext";
 import { ROLE_CODES } from "../../utils/roleSession";
 import {
@@ -8,7 +8,6 @@ import {
   fetchUnreadNotificationCount,
 } from "../../features/notifications/notificationService";
 import { getNotificationDeepLink } from "../../features/notifications/notificationRouting";
-import { DEFAULT_SETTINGS_SECTION } from "../../pages/settings/settingsSectionRouting";
 
 const headerNotificationStyles = {
   wrapper: {
@@ -116,16 +115,6 @@ const HeaderNotifications = () => {
 
   const notificationRoute =
     notificationRouteByRole[currentRole] || "/inventory/notifications";
-  const settingsRouteByRole = useMemo(
-    () => ({
-      [ROLE_CODES.MAYOR]: "/inventory/settings",
-      [ROLE_CODES.MSWDO]: "/mswdo/settings",
-      [ROLE_CODES.BARANGAY]: "/barangay/settings",
-    }),
-    [],
-  );
-  const settingsRoute =
-    `${settingsRouteByRole[currentRole] || "/inventory/settings"}?section=${DEFAULT_SETTINGS_SECTION}`;
 
   useEffect(() => {
     if (!supportedRoles.has(currentRole)) {
@@ -359,17 +348,6 @@ const HeaderNotifications = () => {
             </div>
           ) : null}
         </div>
-
-        <button
-          type="button"
-          onClick={() => navigate(settingsRoute)}
-          style={headerNotificationStyles.button}
-          title="Settings"
-        >
-          <span style={headerNotificationStyles.icon}>
-            <FiSettings size={18} />
-          </span>
-        </button>
       </div>
     </div>
   );

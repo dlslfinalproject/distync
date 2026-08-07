@@ -1,4 +1,5 @@
 import React, { useEffect, useId, useRef } from "react";
+import { createPortal } from "react-dom";
 import { FiX } from "react-icons/fi";
 
 const overlayStyles = {
@@ -176,7 +177,7 @@ const FormModalShell = ({
     return null;
   }
 
-  return (
+  const modalContent = (
     <div
       ref={overlayRef}
       style={{
@@ -243,6 +244,14 @@ const FormModalShell = ({
       </div>
     </div>
   );
+
+  // A modal may be requested from inside a transformed sidebar or scrollable
+  // panel. Portaling keeps the fixed overlay relative to the browser viewport.
+  if (typeof document === "undefined") {
+    return modalContent;
+  }
+
+  return createPortal(modalContent, document.body);
 };
 
 export default FormModalShell;

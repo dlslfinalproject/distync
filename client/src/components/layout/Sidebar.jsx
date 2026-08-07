@@ -1,10 +1,10 @@
 import React from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 import { FiMenu } from "react-icons/fi";
 import { useAuth } from "../../context/AuthContext";
-import { getAccessMode, getEntryRouteForMode } from "../../utils/accessMode";
 import { ROLE_CODES } from "../../utils/roleSession";
 import distyncLogo from "../../assets/distync-logo.png";
+import SidebarAccountMenu from "./SidebarAccountMenu";
 
 const layoutBrandStyles = {
   topBar: {
@@ -155,32 +155,12 @@ const getSidebarStyles = (isCollapsed) => ({
     textOverflow: "clip",
     maxWidth: "none",
   },
-  roleActions: {
+  accountArea: {
     marginTop: "auto",
     display: "flex",
     flexDirection: "column",
     gap: "10px",
     flexShrink: 0,
-  },
-  roleCard: {
-    padding: "10px 12px",
-    borderRadius: "14px",
-    backgroundColor: "rgba(255, 255, 255, 0.72)",
-    border: "1px solid rgba(220, 231, 243, 0.9)",
-    color: "#365472",
-    backdropFilter: "blur(10px)",
-  },
-  roleButton: {
-    width: "100%",
-    border: "1px solid #c7d7e8",
-    borderRadius: "12px",
-    backgroundColor: "#ffffff",
-    color: "#24496e",
-    padding: "10px 12px",
-    fontSize: "13px",
-    fontWeight: 700,
-    cursor: "pointer",
-    textAlign: "left",
   },
 });
 
@@ -219,10 +199,7 @@ const roleMeta = {
 };
 
 const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
-  const navigate = useNavigate();
-  const { accessMode, clearSession, currentRole } = useAuth();
-  const resolvedAccessMode = accessMode || getAccessMode();
-  const entryRoute = getEntryRouteForMode(resolvedAccessMode);
+  const { currentRole } = useAuth();
 
   if (currentRole === ROLE_CODES.DONOR) return null;
 
@@ -277,37 +254,8 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
           ))}
         </nav>
 
-        <div
-          className="distync-sidebar__role-actions"
-          style={sidebarStyles.roleActions}
-        >
-          <div style={sidebarStyles.roleCard}>
-            <p
-              style={{
-                margin: 0,
-                fontSize: "12px",
-                fontWeight: 700,
-                textTransform: "uppercase",
-                letterSpacing: "0.08em",
-              }}
-            >
-              Current Role
-            </p>
-            <p style={{ margin: "8px 0 0", fontSize: "16px", fontWeight: 700 }}>
-              {currentRole || "Not selected"}
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              clearSession();
-              navigate(entryRoute, { replace: true });
-            }}
-            style={sidebarStyles.roleButton}
-          >
-            Switch Role
-          </button>
+        <div className="distync-sidebar__account-area" style={sidebarStyles.accountArea}>
+          <SidebarAccountMenu />
         </div>
       </div>
     </aside>
