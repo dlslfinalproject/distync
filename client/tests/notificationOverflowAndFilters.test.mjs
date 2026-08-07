@@ -8,7 +8,7 @@ const pagePath = path.join(
   "src",
   "pages",
   "inventory",
-  "MayorNotificationsPage.jsx",
+  "NotificationCenterPage.jsx",
 );
 
 test("notification overflow is isolated from read mutation", async () => {

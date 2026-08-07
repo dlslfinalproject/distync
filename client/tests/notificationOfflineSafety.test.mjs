@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
-const pagePath = path.join(process.cwd(), "src", "pages", "inventory", "MayorNotificationsPage.jsx");
+const pagePath = path.join(process.cwd(), "src", "pages", "inventory", "NotificationCenterPage.jsx");
 const bellPath = path.join(process.cwd(), "src", "components", "layout", "HeaderNotifications.jsx");
 const vitePath = path.join(process.cwd(), "vite.config.js");
 

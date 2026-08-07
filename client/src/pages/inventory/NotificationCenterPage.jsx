@@ -24,7 +24,7 @@ const NotificationDetail = ({ notification, deepLink, onClose, onOpen, finalFocu
   </FormModalShell>;
 };
 
-const MayorNotificationsPage = () => {
+const NotificationCenterPage = () => {
   const navigate = useNavigate(); const location = useLocation(); const { accessMode, authenticatedUser, currentRole, isAuthenticated } = useAuth();
   const [statusFilter, setStatusFilter] = useState("ALL"); const [filters, setFilters] = useState({ category: "ALL", priority: "ALL" }); const [draftFilters, setDraftFilters] = useState(filters);
   const [notifications, setNotifications] = useState([]); const [nextCursor, setNextCursor] = useState(null); const [categoryOptions, setCategoryOptions] = useState([]); const [isLoading, setIsLoading] = useState(true); const [isLoadingMore, setIsLoadingMore] = useState(false); const [isRefreshing, setIsRefreshing] = useState(false); const [isMarkingAllRead, setIsMarkingAllRead] = useState(false); const [activeNotificationId, setActiveNotificationId] = useState(""); const [selectedNotification, setSelectedNotification] = useState(null); const [isFilterOpen, setIsFilterOpen] = useState(false); const [openOverflowId, setOpenOverflowId] = useState(""); const [pendingReadIds, setPendingReadIds] = useState(() => new Set()); const [pendingPrimaryIds, setPendingPrimaryIds] = useState(() => new Set()); const [toast, setToast] = useState({ message: "", type: "info" }); const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine);
@@ -67,4 +67,4 @@ const MayorNotificationsPage = () => {
     <FeedbackToast message={toast.message} type={toast.type} onClose={() => setToast({ message: "", type: "info" })} />
   </div>;
 };
-export default MayorNotificationsPage;
+export default NotificationCenterPage;

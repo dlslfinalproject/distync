@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
-const pagePath = path.join(process.cwd(), "src", "pages", "inventory", "MayorNotificationsPage.jsx");
+const pagePath = path.join(process.cwd(), "src", "pages", "inventory", "NotificationCenterPage.jsx");
 const servicePath = path.join(process.cwd(), "src", "features", "notifications", "notificationService.js");
 
 test("Notification Center sends active filters to the server and appends cursor pages", async () => {

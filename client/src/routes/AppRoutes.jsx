@@ -17,7 +17,7 @@ import InventoryBatchesPage from "../pages/inventory/InventoryBatchesPage";
 import InventoryItemsPage from "../pages/inventory/InventoryItemsPage";
 import InventoryDistributionPage from "../pages/inventory/InventoryDistributionPage";
 import InventoryForecastsPage from "../pages/inventory/InventoryForecastsPage";
-import MayorNotificationsPage from "../pages/inventory/MayorNotificationsPage";
+import NotificationCenterPage from "../pages/inventory/NotificationCenterPage";
 import SyncManagementPage from "../pages/SyncManagementPage";
 import InventoryTransactionsPage from "../pages/inventory/InventoryTransactionsPage";
 import ReliefPackTemplatesPage from "../pages/inventory/ReliefPackTemplatesPage";
@@ -93,7 +93,7 @@ const AppRoutes = () => {
             path="stub-distribution"
             element={<StubDistributionPage />}
           />
-          <Route path="notifications" element={<MayorNotificationsPage />} />
+          <Route path="notifications" element={<NotificationCenterPage />} />
           <Route path="sync" element={<SyncManagementPage />} />
           <Route path="settings" element={<RoleSettingsPage />} />
         </Route>
@@ -131,7 +131,7 @@ const AppRoutes = () => {
             element={<DisasterEventReportsPage />}
           />
           <Route path="anomalies" element={<AnomalyTrackingPage />} />
-          <Route path="notifications" element={<MayorNotificationsPage />} />
+          <Route path="notifications" element={<NotificationCenterPage />} />
           <Route path="sync" element={<SyncManagementPage />} />
           <Route path="settings" element={<RoleSettingsPage />} />
         </Route>
@@ -166,7 +166,7 @@ const AppRoutes = () => {
             path="transactions"
             element={<InventoryTransactionsPage />}
           />
-          <Route path="notifications" element={<MayorNotificationsPage />} />
+          <Route path="notifications" element={<NotificationCenterPage />} />
           <Route path="sync" element={<SyncManagementPage />} />
           <Route path="suppliers" element={<SuppliersPage />} />
           <Route

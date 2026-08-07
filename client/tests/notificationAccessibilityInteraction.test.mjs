@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
-const pagePath = path.join(process.cwd(), "src", "pages", "inventory", "MayorNotificationsPage.jsx");
+const pagePath = path.join(process.cwd(), "src", "pages", "inventory", "NotificationCenterPage.jsx");
 const modalPath = path.join(process.cwd(), "src", "components", "shared", "FormModalShell.jsx");
 
 test("Notification detail drawer uses the shared accessible modal pattern", async () => {
