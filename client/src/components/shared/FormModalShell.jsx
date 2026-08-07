@@ -92,6 +92,7 @@ const FormModalShell = ({
   titleStyle,
   bodyStyle,
   closeButtonStyle,
+  closeButtonLabel = "Close modal",
 }) => {
   const panelRef = useRef(null);
   const overlayRef = useRef(null);
@@ -111,6 +112,8 @@ const FormModalShell = ({
 
     const activeElement =
       typeof document !== "undefined" ? document.activeElement : null;
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     const fallbackFocusTarget =
       initialFocusRef?.current ||
       panelElement.querySelector(
@@ -118,7 +121,7 @@ const FormModalShell = ({
       ) ||
       panelElement;
 
-    window.setTimeout(() => {
+    const focusTimer = window.setTimeout(() => {
       fallbackFocusTarget?.focus?.();
     }, 0);
 
@@ -160,9 +163,15 @@ const FormModalShell = ({
     document.addEventListener("keydown", handleKeyDown);
 
     return () => {
+      window.clearTimeout(focusTimer);
       document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousBodyOverflow;
       const returnFocusTarget =
-        finalFocusRef?.current || activeElement;
+        finalFocusRef?.current?.isConnected
+          ? finalFocusRef.current
+          : activeElement?.isConnected
+            ? activeElement
+            : null;
       returnFocusTarget?.focus?.();
     };
   }, [
@@ -229,7 +238,7 @@ const FormModalShell = ({
                 onClick={onClose}
                 style={{ ...closeButtonStyles, ...(closeButtonStyle || {}) }}
                 disabled={isCloseDisabled}
-                aria-label="Close modal"
+                aria-label={closeButtonLabel}
               >
                 <FiX size={20} />
               </button>

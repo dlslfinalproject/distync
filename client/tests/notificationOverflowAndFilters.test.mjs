@@ -14,7 +14,7 @@ const pagePath = path.join(
 test("notification overflow is isolated from read mutation", async () => {
   const source = await fs.readFile(pagePath, "utf8");
 
-  assert.match(source, /aria-label="More actions"/);
+  assert.match(source, /aria-label=\{`More actions for \$\{notification\.title\}`\}/);
   assert.match(source, /aria-haspopup="menu"/);
   assert.match(source, /event\.stopPropagation\(\); setOpenOverflowId/);
   assert.match(source, /role="menuitem"[\s\S]*?Mark as read/);
