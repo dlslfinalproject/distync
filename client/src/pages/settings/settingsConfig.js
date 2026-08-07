@@ -3,8 +3,8 @@ import {
   FiRefreshCw,
   FiUser,
 } from "react-icons/fi";
-import { ROLE_CODES } from "../../utils/roleSession";
-import { SETTINGS_SECTIONS } from "./settingsSectionRouting";
+import { ROLE_CODES } from "../../utils/roleSession.js";
+import { SETTINGS_SECTIONS } from "./settingsSectionRouting.js";
 
 export const BARANGAY_POSITION_LABEL = "Barangay Official";
 

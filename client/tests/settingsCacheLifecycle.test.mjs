@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { ACCESS_MODES } from "../src/utils/accessMode.js";
+import { ACCESS_MODES, configureAccessMode } from "../src/utils/accessMode.js";
 import { prepareModeScopedBrowserState } from "../src/utils/browserStorageIsolation.js";
 import {
   AUTH_SESSION_INVALIDATED_EVENT,
@@ -55,6 +55,7 @@ const createWindow = (
 ) => {
   const listeners = new Map();
   process.env.VITE_ACCESS_MODE = mode;
+  configureAccessMode({ VITE_ACCESS_MODE: mode });
 
   globalThis.window = {
     localStorage: storage,

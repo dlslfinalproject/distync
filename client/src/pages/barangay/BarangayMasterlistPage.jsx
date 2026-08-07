@@ -43,7 +43,7 @@ import {
   downloadExportFile,
   resolveExportErrorMessage,
 } from "../../utils/exportHelpers";
-import db from "../../offline/db";
+import db from "../../offline/db.js";
 
 const BarangayMasterlistPage = () => {
   const { authenticatedUser } = useAuth();

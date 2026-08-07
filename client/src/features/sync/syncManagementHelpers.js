@@ -1,4 +1,4 @@
-import { LOCAL_SYNC_STATUS } from "../../offline/db";
+import { LOCAL_SYNC_STATUS } from "../../offline/db.js";
 
 export const SYNC_FILTERS = [
   { key: "ALL", label: "All" },

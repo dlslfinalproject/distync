@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchSyncStatusSummary } from "../../features/sync/syncHistoryService";
-import { LOCAL_SYNC_STATUS } from "../../offline/db";
+import { LOCAL_SYNC_STATUS } from "../../offline/db.js";
 import {
   getDistyncServiceWorkerStatusSnapshot,
   refreshDistyncServiceWorkerStatus,

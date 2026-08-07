@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { ACCESS_MODES } from "../src/utils/accessMode.js";
+import { ACCESS_MODES, configureAccessMode } from "../src/utils/accessMode.js";
 import {
   buildRoleSettingsCacheKey,
   loadRoleSettingsState,
@@ -36,6 +36,7 @@ class MemoryStorage {
 
 const createOfflineWindow = (storage = new MemoryStorage()) => {
   process.env.VITE_ACCESS_MODE = ACCESS_MODES.DEMO;
+  configureAccessMode({ VITE_ACCESS_MODE: ACCESS_MODES.DEMO });
   globalThis.window = {
     localStorage: storage,
     location: {

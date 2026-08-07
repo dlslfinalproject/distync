@@ -7,7 +7,7 @@ import SyncStatusBadge from "../components/shared/SyncStatusBadge";
 import FeedbackToast from "../components/shared/FeedbackToast";
 import SyncConflictDetailModal from "../components/shared/SyncConflictDetailModal";
 import StatusCard from "../components/shared/StatusCard";
-import db, { LOCAL_SYNC_STATUS } from "../offline/db";
+import db, { LOCAL_SYNC_STATUS } from "../offline/db.js";
 import {
   retryFailedSyncEntries,
   subscribeToSyncUpdates,

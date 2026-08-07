@@ -15,7 +15,7 @@ import {
   fetchSuppliers,
   updateSupplier,
 } from "../../features/suppliers/supplierService";
-import db from "../../offline/db";
+import db from "../../offline/db.js";
 import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
 import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";

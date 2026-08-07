@@ -20,7 +20,7 @@ import {
   isDateExpired,
 } from "../../features/inventory-items/inventoryItemStockStatus";
 import { fetchSystemLogReview } from "../../features/system-logs/systemLogService";
-import db from "../../offline/db";
+import db from "../../offline/db.js";
 import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
 import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";

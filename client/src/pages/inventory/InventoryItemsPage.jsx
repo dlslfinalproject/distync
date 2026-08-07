@@ -31,7 +31,7 @@ import {
   createInventoryTransaction,
   fetchInventoryTransactions,
 } from "../../features/inventory-transactions/inventoryTransactionService";
-import db from "../../offline/db";
+import db from "../../offline/db.js";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
 import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
 import {

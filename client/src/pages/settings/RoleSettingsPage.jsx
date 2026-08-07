@@ -12,7 +12,7 @@ import {
   refreshCurrentProfilePicture,
   saveRoleSettings,
 } from "../../features/settings/settingsService";
-import { LOCAL_SYNC_STATUS } from "../../offline/db";
+import { LOCAL_SYNC_STATUS } from "../../offline/db.js";
 import { flushPendingSyncEntries } from "../../offline/syncService";
 import { getVisibleSyncQueueEntriesByUpdatedAt } from "../../offline/syncQueue";
 import {

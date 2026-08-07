@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useLocation } from "react-router-dom";
-import db, { LOCAL_SYNC_STATUS } from "../../offline/db";
+import db, { LOCAL_SYNC_STATUS } from "../../offline/db.js";
 import { formatCompactSyncChipLabel } from "../../offline/syncStatus";
 import {
   flushPendingSyncEntries,

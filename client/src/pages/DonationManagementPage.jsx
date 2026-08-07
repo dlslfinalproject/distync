@@ -35,7 +35,7 @@ import {
 } from "../features/donations/donationPageUi";
 import { useDonationManagementModals } from "../features/donations/useDonationManagementModals";
 import { useAuth } from "../context/AuthContext";
-import db from "../offline/db";
+import db from "../offline/db.js";
 import { subscribeToSyncUpdates } from "../offline/syncService";
 import { getVisibleSyncQueueEntries } from "../offline/syncQueue";
 import {
