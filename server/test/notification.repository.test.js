@@ -101,6 +101,44 @@ test("insertNotification rejects unsupported notification types before touching 
   }
 });
 
+test("recipient notification listing applies filters before deterministic keyset pagination", async () => {
+  const queries = [];
+  const { repository, restore } = loadRepositoryWithPoolStub({
+    query: async (sql, params) => {
+      queries.push({ sql, params });
+      return { rows: [] };
+    },
+  });
+
+  try {
+    await repository.getNotificationsForUser(
+      "user-1",
+      {
+        roleCode: "MAYOR",
+        status: "UNREAD",
+        category: "INVENTORY_MONITORING",
+        priority: "CRITICAL",
+        cursor: {
+          generatedAt: "2026-08-07T08:00:00.000Z",
+          id: "550e8400-e29b-41d4-a716-446655440000",
+        },
+        limit: 25,
+      },
+    );
+
+    assert.equal(queries.length, 1);
+    assert.match(queries[0].sql, /nr\.user_id = \$1/);
+    assert.match(queries[0].sql, /nr\.read_at IS NULL/);
+    assert.match(queries[0].sql, /p\.category_code = \$3/);
+    assert.match(queries[0].sql, /p\.priority = \$4/);
+    assert.match(queries[0].sql, /\(n\.generated_at, n\.id\) < \(\$5::timestamptz, \$6::uuid\)/);
+    assert.match(queries[0].sql, /ORDER BY n\.generated_at DESC, n\.id DESC/);
+    assert.equal(queries[0].params.at(-1), 26);
+  } finally {
+    restore();
+  }
+});
+
 test("insertSummaryEvent atomically appends a new event while suppressing retry duplicates", async () => {
   const queries = [];
   const { repository, restore } = loadRepositoryWithPoolStub({

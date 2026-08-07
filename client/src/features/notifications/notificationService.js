@@ -13,13 +13,26 @@ const handleJsonResponse = async (response, fallbackMessage) => {
 
 export const fetchNotifications = async ({
   status = "ALL",
-  limit = 40,
+  category = "ALL",
+  priority = "ALL",
+  cursor = null,
+  limit = 25,
 } = {}) => {
   const searchParams = new URLSearchParams();
 
   if (status && status !== "ALL") {
     searchParams.set("status", status);
   }
+
+  if (category && category !== "ALL") {
+    searchParams.set("category", category);
+  }
+
+  if (priority && priority !== "ALL") {
+    searchParams.set("priority", priority);
+  }
+
+  if (cursor) searchParams.set("cursor", cursor);
 
   searchParams.set("limit", String(limit));
 

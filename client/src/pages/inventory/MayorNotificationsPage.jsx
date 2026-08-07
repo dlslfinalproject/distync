@@ -74,7 +74,10 @@ const MayorNotificationsPage = () => {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [openOverflowId, setOpenOverflowId] = useState("");
   const [notifications, setNotifications] = useState([]);
+  const [nextCursor, setNextCursor] = useState(null);
+  const [categoryOptions, setCategoryOptions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
   const [activeNotificationId, setActiveNotificationId] = useState("");
   const [toast, setToast] = useState({ message: "", type: "info" });
@@ -83,20 +86,29 @@ const MayorNotificationsPage = () => {
   const overflowRef = useRef(null);
   const roleDescription = { [ROLE_CODES.MAYOR]: "Review inventory, donation, and system alerts.", [ROLE_CODES.MSWDO]: "Review operational updates for relief coordination.", [ROLE_CODES.BARANGAY]: "Review updates for your barangay operations." };
 
-  const loadNotifications = async (status = statusFilter) => {
-    setIsLoading(true);
+  const loadNotifications = async ({ append = false, cursor = null } = {}) => {
+    if (!append) setIsLoading(true);
     setOpenOverflowId("");
     try {
-      const response = await fetchNotifications({ status, limit: 50 });
-      setNotifications(Array.isArray(response) ? response : []);
+      const response = await fetchNotifications({
+        status: statusFilter,
+        category: filters.category,
+        priority: filters.priority,
+        cursor,
+        limit: 25,
+      });
+      const items = Array.isArray(response?.items) ? response.items : [];
+      setNotifications((current) => append ? [...current, ...items] : items);
+      setNextCursor(response?.nextCursor || null);
+      if (!append) setCategoryOptions(response?.filterOptions?.categories || []);
     } catch (_error) {
       setToast({ message: "Unable to load notifications. Please try again.", type: "error" });
     } finally {
-      setIsLoading(false);
+      if (!append) setIsLoading(false);
     }
   };
 
-  useEffect(() => { loadNotifications(statusFilter); }, [statusFilter]);
+  useEffect(() => { loadNotifications(); }, [statusFilter, filters]);
   useEffect(() => {
     const fromBell = location.state?.notificationDetail;
     if (fromBell) {
@@ -125,8 +137,6 @@ const MayorNotificationsPage = () => {
   }, []);
 
   const unreadCount = useMemo(() => notifications.filter((item) => !item.read_at).length, [notifications]);
-  const categoryOptions = useMemo(() => [...new Set(notifications.map(getNotificationCategory))].sort(), [notifications]);
-  const filtered = useMemo(() => notifications.filter((item) => (filters.category === "ALL" || getNotificationCategory(item) === filters.category) && (filters.priority === "ALL" || getNotificationPriority(item) === filters.priority)), [notifications, filters]);
   const activeFilterCount = Number(filters.category !== "ALL") + Number(filters.priority !== "ALL");
 
   const markRead = async (notification) => {
@@ -138,7 +148,7 @@ const MayorNotificationsPage = () => {
     setActiveNotificationId(notification.id);
     try {
       await markNotificationAsRead(notification.id);
-      setNotifications((items) => items.map((item) => item.id === notification.id ? { ...item, read_at: new Date().toISOString() } : item));
+      setNotifications((items) => statusFilter === "UNREAD" ? items.filter((item) => item.id !== notification.id) : items.map((item) => item.id === notification.id ? { ...item, read_at: new Date().toISOString() } : item));
       window.dispatchEvent(new CustomEvent("distync-notifications-updated", { detail: { id: notification.id } }));
       setToast({ message: "Notification marked as read.", type: "success" });
       return true;
@@ -162,7 +172,8 @@ const MayorNotificationsPage = () => {
     setIsMarkingAllRead(true);
     try {
       await markAllNotificationsAsRead();
-      setNotifications((items) => items.map((item) => ({ ...item, read_at: item.read_at || new Date().toISOString() })));
+      if (statusFilter === "UNREAD") await loadNotifications();
+      else setNotifications((items) => items.map((item) => ({ ...item, read_at: item.read_at || new Date().toISOString() })));
       window.dispatchEvent(new CustomEvent("distync-notifications-updated", { detail: { all: true } }));
       setToast({ message: "All notifications marked as read.", type: "success" });
     } catch (_error) {
@@ -180,7 +191,7 @@ const MayorNotificationsPage = () => {
   };
 
   return <div style={{ width: "100%", maxWidth: 1080, margin: "0 auto", display: "grid", gap: 20, paddingBottom: 28 }}>
-    <PageHeader eyebrow="Workspace" title="NOTIFICATIONS" description={roleDescription[currentRole] || "Review your notifications."} actions={[{ label: "Refresh", onClick: () => loadNotifications(statusFilter), variant: "secondary" }, { label: isMarkingAllRead ? "Marking..." : "Mark All as Read", onClick: markAll, disabled: !unreadCount || isMarkingAllRead }]} />
+    <PageHeader eyebrow="Workspace" title="NOTIFICATIONS" description={roleDescription[currentRole] || "Review your notifications."} actions={[{ label: "Refresh", onClick: () => loadNotifications(), variant: "secondary" }, { label: isMarkingAllRead ? "Marking..." : "Mark All as Read", onClick: markAll, disabled: !unreadCount || isMarkingAllRead }]} />
     <section style={{ ...shellStyles.card, padding: 20, display: "grid", gap: activeFilterCount ? 12 : 0 }}>
       <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -196,7 +207,7 @@ const MayorNotificationsPage = () => {
       {activeFilterCount ? <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>{filters.category !== "ALL" ? <button type="button" onClick={() => clearFilter("category")} aria-label={`Remove Category: ${filters.category} filter`} style={filterStyles.chip}>Category: {filters.category}<FiX /></button> : null}{filters.priority !== "ALL" ? <button type="button" onClick={() => clearFilter("priority")} aria-label={`Remove Priority: ${filters.priority} filter`} style={filterStyles.chip}>Priority: {filters.priority === "INFO" ? "Informational" : filters.priority[0] + filters.priority.slice(1).toLowerCase()}<FiX /></button> : null}</div> : null}
     </section>
     <section style={{ ...shellStyles.card, padding: 20 }}>
-      {isLoading ? <p style={shellStyles.mutedText}>Loading notifications...</p> : filtered.length === 0 ? <p style={shellStyles.mutedText}>No notifications are available right now.</p> : <div style={{ display: "grid", gap: 12 }}>{filtered.map((notification) => {
+      {isLoading ? <p style={shellStyles.mutedText}>Loading notifications...</p> : notifications.length === 0 ? <p style={shellStyles.mutedText}>No notifications are available right now.</p> : <div style={{ display: "grid", gap: 12 }}>{notifications.map((notification) => {
         const priority = getNotificationPriority(notification);
         const link = getNotificationDeepLink(notification, currentRole);
         const hasSecondaryAction = !notification.read_at;
@@ -207,6 +218,7 @@ const MayorNotificationsPage = () => {
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginLeft: "auto", position: "relative" }} ref={isMenuOpen ? overflowRef : null}><button type="button" onClick={() => openNotification(notification)} disabled={activeNotificationId === notification.id} style={{ ...pageHeaderStyles.secondaryButton, minHeight: 42, padding: "10px 14px" }}>{link.label}</button>{hasSecondaryAction ? <><button type="button" onClick={(event) => { event.stopPropagation(); setOpenOverflowId((id) => id === notification.id ? "" : notification.id); }} aria-label="More actions" aria-haspopup="menu" aria-expanded={isMenuOpen} style={{ border: "1px solid #c6d8ea", borderRadius: 12, background: "#f8fbfe", color: "#2a4c6f", minHeight: 42, minWidth: 42, cursor: "pointer" }}><FiMoreHorizontal /></button>{isMenuOpen ? <div role="menu" aria-label="Notification actions" style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 20, minWidth: 150, background: "#fff", border: "1px solid #d6e2ef", borderRadius: 12, boxShadow: "0 12px 24px rgba(31,64,95,.16)", padding: 6 }}><button type="button" role="menuitem" onClick={async (event) => { event.stopPropagation(); setOpenOverflowId(""); await markRead(notification); }} disabled={activeNotificationId === notification.id} style={{ border: 0, background: "transparent", color: "#2a4c6f", width: "100%", padding: "10px 12px", textAlign: "left", cursor: "pointer", fontWeight: 700 }}>Mark as read</button></div> : null}</> : null}</div>
         </article>;
       })}</div>}
+      {!isLoading && nextCursor ? <div style={{ marginTop: 18, display: "flex", justifyContent: "center" }}><button type="button" onClick={async () => { setIsLoadingMore(true); try { await loadNotifications({ append: true, cursor: nextCursor }); } finally { setIsLoadingMore(false); } }} disabled={isLoadingMore} style={pageHeaderStyles.secondaryButton}>{isLoadingMore ? "Loading..." : "Load more"}</button></div> : null}
     </section>
     <NotificationDetail notification={selectedNotification} deepLink={selectedNotification && getNotificationDeepLink(selectedNotification, currentRole)} onClose={() => setSelectedNotification(null)} onOpen={() => { const link = getNotificationDeepLink(selectedNotification, currentRole); setSelectedNotification(null); navigate(link.to); }} />
     <FeedbackToast message={toast.message} type={toast.type} onClose={() => setToast({ message: "", type: "info" })} />

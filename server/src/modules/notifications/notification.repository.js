@@ -609,17 +609,41 @@ const findRecentNotificationMatchForUsers = async (
 
 const getNotificationsForUser = async (
   userId,
-  { status = "ALL", limit = 30 } = {},
+  {
+    roleCode,
+    status = "ALL",
+    category = "ALL",
+    priority = "ALL",
+    cursor = null,
+    limit = 25,
+  } = {},
   dbClient = pool,
 ) => {
-  const values = [userId];
+  const values = [userId, roleCode];
   const conditions = ["nr.user_id = $1"];
 
   if (status === "UNREAD") {
     conditions.push("nr.read_at IS NULL");
   }
 
-  values.push(limit);
+  if (category !== "ALL") {
+    values.push(category);
+    conditions.push(`p.category_code = $${values.length}`);
+  }
+
+  if (priority !== "ALL") {
+    values.push(priority);
+    conditions.push(`p.priority = $${values.length}`);
+  }
+
+  if (cursor) {
+    values.push(cursor.generatedAt, cursor.id);
+    conditions.push(
+      `(n.generated_at, n.id) < ($${values.length - 1}::timestamptz, $${values.length}::uuid)`,
+    );
+  }
+
+  values.push(limit + 1);
 
   const result = await dbClient.query(
     `
@@ -638,14 +662,20 @@ const getNotificationsForUser = async (
         COALESCE(n.metadata_json, '{}'::jsonb) AS metadata_json,
         n.generated_at,
         n.created_at,
+        p.category_code,
+        p.category_label,
+        p.priority AS policy_priority,
         de.event_code,
         de.title AS disaster_event_title
       FROM notification_recipients nr
       INNER JOIN notifications n ON n.id = nr.notification_id
+      LEFT JOIN notification_rule_role_policies p
+        ON p.rule_code = n.rule_code
+       AND p.role_code = $2
       LEFT JOIN disaster_events de ON de.id = n.disaster_event_id
       WHERE ${conditions.join(" AND ")}
-      ORDER BY nr.read_at ASC NULLS FIRST, n.generated_at DESC, n.created_at DESC
-      LIMIT $2
+      ORDER BY n.generated_at DESC, n.id DESC
+      LIMIT $${values.length}
     `,
     values,
   );

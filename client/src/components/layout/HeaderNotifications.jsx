@@ -145,7 +145,7 @@ const HeaderNotifications = () => {
         if (isMounted) {
           setUnreadNotificationCount(Number(countResponse?.unread_count || 0));
           setRecentNotifications(
-            Array.isArray(recentResponse) ? recentResponse : [],
+            Array.isArray(recentResponse?.items) ? recentResponse.items : [],
           );
         }
       } catch (_error) {

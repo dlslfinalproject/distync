@@ -1904,9 +1904,31 @@ const initializeNotificationInfrastructure = async () => {
   startNotificationMaintenance();
 };
 
+const encodeNotificationCursor = (notification) =>
+  Buffer.from(
+    JSON.stringify({ generatedAt: notification.generated_at, id: notification.id }),
+  ).toString("base64url");
+
 const getNotificationsForUser = async (userId, filters) => {
+  const policyRows = await notificationRepository.getNotificationPolicyRowsByRoleCode(
+    filters.roleCode,
+  );
+  const availableCategories = new Set(
+    policyRows.map((row) => row.category_code).filter(Boolean),
+  );
+
+  if (filters.category !== "ALL" && !availableCategories.has(filters.category)) {
+    const error = new Error("Invalid notification category");
+    error.statusCode = 400;
+    throw error;
+  }
+
   const notifications = await notificationRepository.getNotificationsForUser(userId, filters);
-  return notifications.map((notification) => {
+  const hasMore = notifications.length > filters.limit;
+  const pageItems = hasMore ? notifications.slice(0, filters.limit) : notifications;
+
+  return {
+    items: pageItems.map((notification) => {
     const metadata =
       notification.metadata_json &&
       typeof notification.metadata_json === "object" &&
@@ -1915,10 +1937,18 @@ const getNotificationsForUser = async (userId, filters) => {
         : {};
     return {
       ...notification,
+      severity: notification.policy_priority || notification.severity,
       ruleCode: notification.rule_code || null,
       metadata,
     };
-  });
+    }),
+    nextCursor: hasMore
+      ? encodeNotificationCursor(pageItems[pageItems.length - 1])
+      : null,
+    filterOptions: {
+      categories: [...availableCategories],
+    },
+  };
 };
 
 const getUnreadCountForUser = async (userId) =>
