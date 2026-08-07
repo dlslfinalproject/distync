@@ -561,6 +561,8 @@ test("sync failure notifies only Mayor recipients for Mayor-owned inventory sync
 
       assert.deepEqual(resolverCalls, ["MAYOR"]);
       assert.equal(notificationPayloads.length, 1);
+      // The producer requests WARNING, but SYNC_FAILURE policy is CRITICAL.
+      assert.equal(notificationPayloads[0].severity, "CRITICAL");
       assert.match(notificationPayloads[0].message, /INVENTORY_ITEM/);
     },
   );

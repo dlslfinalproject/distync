@@ -451,8 +451,9 @@ const CANONICAL_NOTIFICATION_RULES = [
     name: "System Alerts",
     triggerType: "SYSTEM_ALERT",
     targetRoleCode: ROLE_CODES.BARANGAY,
-    isVisibleInSettings: true,
-    isActive: true,
+    // Retired: sync failures and conflicts have dedicated, actionable rules.
+    isVisibleInSettings: false,
+    isActive: false,
     rolePolicies: [
       {
         roleCode: ROLE_CODES.BARANGAY,
@@ -531,8 +532,9 @@ const CANONICAL_NOTIFICATION_RULES = [
     name: "Operational Anomaly Alerts",
     triggerType: "OPERATIONAL_ANOMALY",
     targetRoleCode: ROLE_CODES.MAYOR,
-    isVisibleInSettings: true,
-    isActive: true,
+    // Retired: the current application emits specific inventory/donation anomalies.
+    isVisibleInSettings: false,
+    isActive: false,
     rolePolicies: [
       {
         roleCode: ROLE_CODES.MAYOR,
@@ -622,7 +624,7 @@ const getCategorySortOrder = (roleCode = "", categoryCode = "") =>
 const isVisibleInSettings = (ruleCode = "", roleCode = "") => {
   const rule = getCanonicalRuleDefinition(ruleCode);
 
-  if (!rule || rule.isVisibleInSettings === false) {
+  if (!rule || rule.isActive === false || rule.isVisibleInSettings === false) {
     return false;
   }
 
@@ -632,6 +634,7 @@ const isVisibleInSettings = (ruleCode = "", roleCode = "") => {
 const getSettingsVisibleRuleCodesForRole = (roleCode = "") =>
   CANONICAL_NOTIFICATION_RULES.filter((rule) =>
     (rule.rolePolicies || []).some((policy) => policy.roleCode === roleCode) &&
+    rule.isActive !== false &&
     rule.isVisibleInSettings !== false,
   ).map((rule) => rule.code);
 

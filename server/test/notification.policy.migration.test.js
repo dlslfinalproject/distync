@@ -41,7 +41,7 @@ const extractValueTuples = (sql, sectionLabel) => {
     );
 };
 
-test("notification policy migration mirrors canonical notification rules", () => {
+test("original notification policy seed records its historical policy snapshot", () => {
   const migrationRules = extractValueTuples(migrationSql, "WITH canonical_rules AS").map(
     ([code, name, triggerType, targetRoleCode, isActive]) => ({
       code,
@@ -52,18 +52,21 @@ test("notification policy migration mirrors canonical notification rules", () =>
     }),
   );
 
-  const canonicalRules = NOTIFICATION_RULE_TARGETS.map((rule) => ({
+  const historicalRules = NOTIFICATION_RULE_TARGETS.map((rule) => ({
     code: rule.code,
     name: rule.name,
     triggerType: rule.triggerType,
     targetRoleCode: rule.targetRoleCode,
-    isActive: rule.isActive ?? true,
+    // These two rules were retired by the later Block 3 reconciliation.
+    isActive: ["SYSTEM_ALERT", "OPERATIONAL_ANOMALY"].includes(rule.code)
+      ? true
+      : rule.isActive ?? true,
   }));
 
-  assert.deepEqual(migrationRules, canonicalRules);
+  assert.deepEqual(migrationRules, historicalRules);
 });
 
-test("notification policy migration mirrors canonical role policy rows", () => {
+test("original notification policy seed records its historical role policy snapshot", () => {
   const migrationPolicies = extractValueTuples(
     migrationSql,
     "WITH canonical_policies AS",
@@ -93,7 +96,7 @@ test("notification policy migration mirrors canonical role policy rows", () => {
     }),
   );
 
-  const canonicalPolicies = NOTIFICATION_POLICY_ROWS.map((row) => ({
+  const historicalPolicies = NOTIFICATION_POLICY_ROWS.map((row) => ({
     ruleCode: row.ruleCode,
     roleCode: row.roleCode,
     categoryCode: row.categoryCode,
@@ -103,10 +106,12 @@ test("notification policy migration mirrors canonical role policy rows", () => {
     emailPolicy: row.emailPolicy,
     deliveryMode: row.deliveryMode,
     userConfigurability: row.userConfigurability,
-    isActive: row.isActive ?? true,
+    isActive: ["SYSTEM_ALERT", "OPERATIONAL_ANOMALY"].includes(row.ruleCode)
+      ? true
+      : row.isActive ?? true,
   }));
 
-  assert.deepEqual(migrationPolicies, canonicalPolicies);
+  assert.deepEqual(migrationPolicies, historicalPolicies);
 });
 
 test("notification policy migration is wrapped in a transaction", () => {

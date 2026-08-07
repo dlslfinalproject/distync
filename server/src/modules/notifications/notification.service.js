@@ -44,6 +44,7 @@ const DEFAULT_NOTIFICATION_RULES = NOTIFICATION_RULE_TARGETS.map((rule) => ({
   name: rule.name,
   trigger_type: rule.triggerType,
   target_role_code: rule.targetRoleCode,
+  is_active: rule.isActive,
 }));
 
 let notificationMaintenanceInterval = null;
@@ -84,6 +85,7 @@ const METADATA_FIELDS_BY_RULE = {
   EVACUEE_ATTENDANCE_UPDATED: ["householdId", "barangayId", "attendanceAction"],
   DISTRIBUTION_COMPLETED: ["distributionTransactionId", "barangayId", "stubNo"],
   CRITICAL_INVENTORY_SHORTAGE: ["batchId", "itemId", "remainingQuantity"],
+  LOW_STOCK: ["batchId", "itemId", "remainingQuantity"],
   NEAR_EXPIRY_STOCK: ["batchId", "itemId", "expiresAt", "remainingQuantity"],
   EXPIRED_STOCK: ["batchId", "itemId", "expiresAt", "remainingQuantity"],
   INVENTORY_INCIDENT: ["inventoryTransactionId", "batchId", "itemId", "quantity", "transactionType"],
@@ -558,7 +560,7 @@ const createPersistentNotification = async ({
   type,
   title,
   message,
-  severity = "INFO",
+  severity: _producerSeverity = "INFO",
   reference_type = null,
   reference_id = null,
   metadata = {},
@@ -573,6 +575,29 @@ const createPersistentNotification = async ({
     throw error;
   }
   const safeMetadata = sanitizeNotificationMetadata(canonicalRuleCode, metadata);
+
+  const policyRows = await Promise.all(
+    (recipientGroups || []).map((group) =>
+      notificationRepository.getNotificationPolicyRow(canonicalRuleCode, group.roleCode),
+    ),
+  );
+  const activePolicyRows = policyRows.filter(Boolean);
+
+  if (activePolicyRows.length === 0) {
+    return null;
+  }
+
+  const priorities = [...new Set(activePolicyRows.map((row) => row.priority))];
+  if (priorities.length !== 1) {
+    const error = new Error(
+      `Notification rule ${canonicalRuleCode} has inconsistent recipient priorities.`,
+    );
+    error.code = "INCONSISTENT_NOTIFICATION_POLICY";
+    error.statusCode = 500;
+    throw error;
+  }
+  // Priority is static for every active rule. Producers supply context only.
+  const severity = priorities[0];
 
   const deliveryPlanBuckets = await Promise.all(
     (recipientGroups || []).map((group) =>
@@ -1034,7 +1059,8 @@ const emitBatchAlerts = async ({
       ? null
       : Number(previousQuantityAvailable);
 
-  const stockStateKey = `INVENTORY_STOCK:${batch.id}`;
+  const lowStockStateKey = `INVENTORY_LOW_STOCK:${batch.id}`;
+  const criticalStockStateKey = `INVENTORY_CRITICAL_STOCK:${batch.id}`;
   const expiryStateKey = `INVENTORY_EXPIRY:${batch.id}`;
   const stockState =
     quantityAvailable <= CRITICAL_STOCK_THRESHOLD
@@ -1083,10 +1109,30 @@ const emitBatchAlerts = async ({
   });
 
   await maybeNotifyThresholdState({
-    stateKey: stockStateKey,
+    stateKey: lowStockStateKey,
+    ruleCode: "LOW_STOCK",
+    roleCode: ROLE_CODES.MAYOR,
+    // A critical shortage is still below the low-stock boundary. Keep this
+    // state latched until restock so a critical-to-low recovery is not noisy.
+    stateValue: stockState === "NORMAL" ? "NORMAL" : "BELOW_LOW",
+    shouldNotify: stockState === "LOW_STOCK",
+    notificationPayload: {
+      ruleCode: "LOW_STOCK",
+      disaster_event_id: disasterEventId,
+      type: NOTIFICATION_TYPES.INVENTORY,
+      title: "Low stock alert",
+      message: `${itemName} (${batchNumber}) is down to ${toDisplayQuantity(quantityAvailable)} available units.`,
+      reference_type: "INVENTORY_BATCH",
+      reference_id: batch.id,
+      metadata: { batchId: batch.id, itemId: batch.inventory_item_id, remainingQuantity: quantityAvailable },
+    },
+  });
+
+  await maybeNotifyThresholdState({
+    stateKey: criticalStockStateKey,
     ruleCode: "CRITICAL_INVENTORY_SHORTAGE",
     roleCode: ROLE_CODES.MAYOR,
-    stateValue: stockState,
+    stateValue: stockState === "CRITICAL_STOCK" ? "CRITICAL_STOCK" : "NORMAL",
     shouldNotify: stockState === "CRITICAL_STOCK",
     notificationPayload: {
       ruleCode: "CRITICAL_INVENTORY_SHORTAGE",
@@ -1523,6 +1569,7 @@ const seedNotificationRules = async () => {
       name: rule.name,
       trigger_type: rule.triggerType,
       target_role_code: rule.targetRoleCode,
+      is_active: rule.isActive,
     });
 
     if (result?.inserted) {

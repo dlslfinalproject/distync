@@ -1207,25 +1207,23 @@ test("getCurrentSettings returns the reorganized Mayor notification categories i
         },
         {
           label: "System Monitoring",
-          count: 5,
+          count: 3,
           codes: [
             "SYNC_FAILURE",
             "SYNC_CONFLICT",
             "DONATION_STOCK_ANOMALY",
-            "SYSTEM_ALERT",
-            "OPERATIONAL_ANOMALY",
           ],
         },
       ]);
       assert.equal(
         categorySummary.reduce((total, category) => total + category.count, 0),
-        14,
+        12,
       );
     },
   );
 });
 
-test("getCurrentSettings shows SYSTEM_ALERT but keeps SYSTEM_ANOMALY hidden to avoid duplicate system alert switches", async () => {
+test("getCurrentSettings omits retired generic system rules", async () => {
   const user = {
     id: "user-system-alert",
     email: "barangay-system@example.com",
@@ -1247,6 +1245,20 @@ test("getCurrentSettings shows SYSTEM_ALERT but keeps SYSTEM_ANOMALY hidden to a
       },
       [notificationRepositoryPath]: {
         getNotificationPolicyRowsByRoleCode: async () => [
+          {
+            code: "SYNC_FAILURE",
+            name: "Sync Failure",
+            role_code: "BARANGAY",
+            category_code: "SYSTEM_OPERATIONS",
+            category_label: "System Operations",
+            priority: "CRITICAL",
+            in_app_policy: "MANDATORY",
+            email_policy: "DEFAULT_ON",
+            delivery_mode: "IMMEDIATE",
+            user_configurability: "EMAIL_ONLY",
+            is_active: true,
+            policy_is_active: true,
+          },
           {
             code: "SYSTEM_ALERT",
             name: "System Alerts",
@@ -1292,7 +1304,7 @@ test("getCurrentSettings shows SYSTEM_ALERT but keeps SYSTEM_ANOMALY hidden to a
         (category.rules || []).map((rule) => rule.code),
       );
 
-      assert.deepEqual(ruleCodes, ["SYSTEM_ALERT"]);
+      assert.deepEqual(ruleCodes, ["SYNC_FAILURE"]);
     },
   );
 });
