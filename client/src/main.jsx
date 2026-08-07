@@ -2,16 +2,11 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import "./index.css";
 import AccessModeConfigurationScreen from "./components/shared/AccessModeConfigurationScreen";
-import { AuthProvider } from "./context/AuthContext";
-import { initializeSyncService } from "./offline/syncService";
-import { registerDistyncServiceWorker } from "./pwa/registerServiceWorker";
-import AppRoutes from "./routes/AppRoutes";
 import {
   AccessModeConfigurationError,
   getAccessMode,
 } from "./utils/accessMode";
-import { installAuthenticatedFetch } from "./utils/apiClient";
-import { prepareModeScopedBrowserState } from "./utils/browserStorageIsolation";
+import { configureClientAccessMode } from "./config/clientEnv";
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 
@@ -28,7 +23,24 @@ const renderConfigurationErrorScreen = () => {
 };
 
 const bootstrapApplication = async () => {
+  configureClientAccessMode();
   getAccessMode();
+  const [
+    { AuthProvider },
+    { initializeSyncService },
+    { registerDistyncServiceWorker },
+    { default: AppRoutes },
+    { installAuthenticatedFetch },
+    { prepareModeScopedBrowserState },
+  ] = await Promise.all([
+    import("./context/AuthContext"),
+    import("./offline/syncService"),
+    import("./pwa/registerServiceWorker"),
+    import("./routes/AppRoutes"),
+    import("./utils/apiClient"),
+    import("./utils/browserStorageIsolation"),
+  ]);
+
   await prepareModeScopedBrowserState();
   installAuthenticatedFetch();
   initializeSyncService();

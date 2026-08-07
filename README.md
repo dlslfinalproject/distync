@@ -29,6 +29,11 @@ are invalid.
 If `VITE_ACCESS_MODE` is missing or invalid, the normal React application
 does not render. DISTYNC shows a configuration error screen instead.
 
+`VITE_ACCESS_MODE` is read only by the frontend Vite environment adapter.
+Only `VITE_`-prefixed values are public browser configuration; never place
+server secrets such as database credentials, JWT secrets, or Supabase service
+role keys in `client/.env`.
+
 ### Dedicated Frontend Builds
 
 Use the dedicated frontend build commands when you want the build itself
@@ -52,7 +57,8 @@ before each build.
 
 The generic `npm run build` command remains a technical Vite build
 command. It still requires a valid explicit `VITE_ACCESS_MODE` and does
-not select the DISTYNC access mode for you.
+not select the DISTYNC access mode for you. Use the dedicated build commands
+for a mode-enforced artifact.
 
 ### Backend
 

@@ -5,6 +5,7 @@ export const ACCESS_MODES = {
 
 const ACCESS_MODE_ENV_NAME = "VITE_ACCESS_MODE";
 const validAccessModes = Object.values(ACCESS_MODES);
+let configuredAccessMode;
 
 export class AccessModeConfigurationError extends Error {
   constructor(message = "") {
@@ -36,15 +37,26 @@ export const parseAccessMode = (value) => {
 };
 
 export const validateAccessMode = (env) => {
-  const envSource =
-    env ||
-    import.meta.env ||
-    (typeof process !== "undefined" ? process.env : undefined);
-  return parseAccessMode(envSource?.VITE_ACCESS_MODE);
+  return parseAccessMode(env?.VITE_ACCESS_MODE);
+};
+
+export const configureAccessMode = (env) => {
+  configuredAccessMode = validateAccessMode(env);
+  return configuredAccessMode;
 };
 
 export const getAccessMode = (env) => {
-  return validateAccessMode(env);
+  if (env) {
+    return validateAccessMode(env);
+  }
+
+  if (configuredAccessMode) {
+    return configuredAccessMode;
+  }
+
+  throw new AccessModeConfigurationError(
+    getAccessModeConfigurationErrorMessage(),
+  );
 };
 
 export const getEntryRouteForMode = (mode) => {

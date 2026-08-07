@@ -8,6 +8,8 @@ import AccessModeConfigurationScreen from "../src/components/shared/AccessModeCo
 import {
   ACCESS_MODES,
   AccessModeConfigurationError,
+  configureAccessMode,
+  getAccessMode,
   parseAccessMode,
   getEntryRouteForMode,
   validateAccessMode,
@@ -76,6 +78,17 @@ test("frontend access mode rejects missing values without fallback", () => {
   assert.throws(() => validateAccessMode({}), /VITE_ACCESS_MODE/);
 });
 
+test("frontend access mode requires explicit configuration and rejects non-string values", () => {
+  assert.throws(() => getAccessMode(), /VITE_ACCESS_MODE/);
+
+  [true, false, {}, [], ["DEVELOPMENT"]].forEach((value) => {
+    assert.throws(() => parseAccessMode(value), /VITE_ACCESS_MODE/);
+  });
+
+  configureAccessMode({ VITE_ACCESS_MODE: ACCESS_MODES.DEMO });
+  assert.equal(getAccessMode(), ACCESS_MODES.DEMO);
+});
+
 test("entry route stays aligned with the validated access mode", () => {
   assert.equal(getEntryRouteForMode(ACCESS_MODES.DEVELOPMENT), "/role-switcher");
   assert.equal(getEntryRouteForMode(ACCESS_MODES.DEMO), "/access");
@@ -109,4 +122,19 @@ test("role switcher route stays gated behind development mode", async () => {
     source,
     /<Navigate to=\{getEntryRouteForMode\(resolvedAccessMode\)\} replace \/>/,
   );
+});
+
+test("the shared resolver is Vite-independent and the adapter owns import.meta.env", async () => {
+  const resolverSource = await fs.readFile(
+    new URL("../src/utils/accessMode.js", import.meta.url),
+    "utf8",
+  );
+  const adapterSource = await fs.readFile(
+    new URL("../src/config/clientEnv.js", import.meta.url),
+    "utf8",
+  );
+
+  assert.doesNotMatch(resolverSource, /import\.meta|process\.env/);
+  assert.match(adapterSource, /import\.meta\.env/);
+  assert.match(adapterSource, /configureAccessMode/);
 });
