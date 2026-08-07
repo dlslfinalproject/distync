@@ -181,3 +181,47 @@ test("insertSummaryEvent atomically appends a new event while suppressing retry 
     restore();
   }
 });
+
+test("email delivery state mutations explicitly maintain updated_at", async () => {
+  const queries = [];
+  const { repository, restore } = loadRepositoryWithPoolStub({
+    query: async (sql) => {
+      queries.push(sql);
+      return { rows: [] };
+    },
+  });
+
+  try {
+    await repository.claimNotificationEmailDelivery({
+      notificationId: "notification-1", recipientUserId: "user-1", roleCode: "MAYOR",
+      maxAttempts: 3, staleAfterSeconds: 900,
+    });
+    await repository.markNotificationEmailDeliveryResult({ deliveryId: "delivery-1", status: "SENT" });
+    await repository.markNotificationEmailDeliverySkipped({ notificationId: "notification-1", recipientUserId: "user-1", roleCode: "MAYOR", reason: "EMAIL_NO_LONGER_ELIGIBLE" });
+    await repository.markNotificationEmailDeliveryFailedWithoutAttempt({ notificationId: "notification-1", recipientUserId: "user-1", roleCode: "MAYOR", reason: "EMAIL_RECIPIENT_INVALID" });
+
+    assert.equal(queries.length, 4);
+    queries.forEach((sql) => assert.match(sql, /updated_at\s*=\s*NOW\(\)|updated_at\)/i));
+  } finally {
+    restore();
+  }
+});
+
+test("retry query covers due retries and stale SENDING claims without retrying inactive users", async () => {
+  const queries = [];
+  const { repository, restore } = loadRepositoryWithPoolStub({
+    query: async (sql) => {
+      queries.push(sql);
+      return { rows: [] };
+    },
+  });
+
+  try {
+    await repository.getRetryableNotificationEmailDeliveries();
+    assert.match(queries[0], /d\.status = 'RETRY_PENDING' AND d\.next_retry_at <= NOW\(\)/);
+    assert.match(queries[0], /d\.status = 'SENDING' AND d\.last_attempt_at <= NOW\(\) - \(15 \* INTERVAL '1 minute'\)/);
+    assert.doesNotMatch(queries[0], /u\.is_active = TRUE/);
+  } finally {
+    restore();
+  }
+});

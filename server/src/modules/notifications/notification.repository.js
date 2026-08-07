@@ -809,6 +809,112 @@ const getOpenSyncConflictsForNotificationScan = async (dbClient = pool) => {
   return result.rows;
 };
 
+// A single INSERT ... ON CONFLICT claim makes the database the concurrency
+// boundary. The provider call deliberately happens after this statement.
+const claimNotificationEmailDelivery = async ({
+  notificationId, recipientUserId, roleCode, maxAttempts, staleAfterSeconds,
+}, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      INSERT INTO notification_email_deliveries (
+        notification_id, recipient_user_id, role_code, status, attempt_count,
+        last_attempt_at, created_at, updated_at
+      ) VALUES ($1, $2, $3, 'SENDING', 1, NOW(), NOW(), NOW())
+      ON CONFLICT (notification_id, recipient_user_id) DO UPDATE
+      SET status = 'SENDING',
+          attempt_count = notification_email_deliveries.attempt_count + 1,
+          last_attempt_at = NOW(),
+          next_retry_at = NULL,
+          updated_at = NOW()
+      WHERE notification_email_deliveries.attempt_count < $4
+        AND (
+          (notification_email_deliveries.status = 'RETRY_PENDING'
+            AND notification_email_deliveries.next_retry_at <= NOW())
+          OR (notification_email_deliveries.status = 'SENDING'
+            AND notification_email_deliveries.last_attempt_at <= NOW() - ($5::integer * INTERVAL '1 second'))
+        )
+      RETURNING *
+    `,
+    [notificationId, recipientUserId, roleCode, maxAttempts, staleAfterSeconds],
+  );
+  return result.rows[0] || null;
+};
+
+const markNotificationEmailDeliveryResult = async ({
+  deliveryId, status, providerMessageId = null, errorCode = null,
+  errorMessage = null, nextRetryAt = null,
+}, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      UPDATE notification_email_deliveries
+      SET status = $2,
+          provider_message_id = $3,
+          last_error_code = $4,
+          last_error_message_sanitized = $5,
+          next_retry_at = $6,
+          sent_at = CASE WHEN $2 = 'SENT' THEN NOW() ELSE sent_at END,
+          updated_at = NOW()
+      WHERE id = $1 AND status = 'SENDING'
+      RETURNING *
+    `,
+    [deliveryId, status, providerMessageId, errorCode, errorMessage, nextRetryAt],
+  );
+  return result.rows[0] || null;
+};
+
+const markNotificationEmailDeliverySkipped = async ({ notificationId, recipientUserId, roleCode, reason }, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      INSERT INTO notification_email_deliveries (
+        notification_id, recipient_user_id, role_code, status, last_error_code,
+        created_at, updated_at
+      ) VALUES ($1, $2, $3, 'SKIPPED', $4, NOW(), NOW())
+      ON CONFLICT (notification_id, recipient_user_id) DO UPDATE
+      SET status = 'SKIPPED', last_error_code = EXCLUDED.last_error_code, updated_at = NOW()
+      WHERE notification_email_deliveries.status <> 'SENT'
+      RETURNING *
+    `,
+    [notificationId, recipientUserId, roleCode, reason],
+  );
+  return result.rows[0] || null;
+};
+
+const markNotificationEmailDeliveryFailedWithoutAttempt = async ({ notificationId, recipientUserId, roleCode, reason }, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      INSERT INTO notification_email_deliveries (
+        notification_id, recipient_user_id, role_code, status, attempt_count,
+        last_error_code, created_at, updated_at
+      ) VALUES ($1, $2, $3, 'FAILED', 0, $4, NOW(), NOW())
+      ON CONFLICT (notification_id, recipient_user_id) DO UPDATE
+      SET status = 'FAILED', last_error_code = EXCLUDED.last_error_code,
+          next_retry_at = NULL, updated_at = NOW()
+      WHERE notification_email_deliveries.status <> 'SENT'
+      RETURNING *
+    `,
+    [notificationId, recipientUserId, roleCode, reason],
+  );
+  return result.rows[0] || null;
+};
+
+const getRetryableNotificationEmailDeliveries = async (dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      SELECT d.*, n.rule_code, n.type, n.title, n.message, n.severity, u.email
+      FROM notification_email_deliveries d
+      INNER JOIN notifications n ON n.id = d.notification_id
+      INNER JOIN users u ON u.id = d.recipient_user_id
+      WHERE (
+          (d.status = 'RETRY_PENDING' AND d.next_retry_at <= NOW())
+          OR (d.status = 'SENDING' AND d.last_attempt_at <= NOW() - (15 * INTERVAL '1 minute'))
+        )
+      ORDER BY d.next_retry_at ASC NULLS FIRST, d.created_at ASC
+      LIMIT 100
+    `,
+  );
+  return result.rows;
+};
+
 module.exports = {
   getNotificationRuleByCode,
   getNotificationPolicyRow,
@@ -836,4 +942,9 @@ module.exports = {
   getBatchesForExpiryNotificationScan,
   getFailedSyncTransactionsForNotificationScan,
   getOpenSyncConflictsForNotificationScan,
+  claimNotificationEmailDelivery,
+  markNotificationEmailDeliveryResult,
+  markNotificationEmailDeliverySkipped,
+  markNotificationEmailDeliveryFailedWithoutAttempt,
+  getRetryableNotificationEmailDeliveries,
 };

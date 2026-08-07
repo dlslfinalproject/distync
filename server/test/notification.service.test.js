@@ -240,6 +240,11 @@ const buildNotificationRepositoryStub = (overrides = {}) => ({
   insertNotification: async () => ({ id: "notification-1" }),
   insertNotificationRecipients: async () => [],
   insertSummaryEvent: async () => ({}),
+  claimNotificationEmailDelivery: async () => ({ id: "email-delivery-1", attempt_count: 1 }),
+  markNotificationEmailDeliveryResult: async () => ({}),
+  markNotificationEmailDeliverySkipped: async () => ({}),
+  markNotificationEmailDeliveryFailedWithoutAttempt: async () => ({}),
+  getRetryableNotificationEmailDeliveries: async () => [],
   ...overrides,
 });
 
@@ -1534,6 +1539,56 @@ test("automatic evacuee emitters queue barangay and MSWDO summaries, but not EVA
         queuedSummaryEvents.every((row) => row.barangayId === "barangay-1"),
         true,
       );
+    },
+  );
+});
+
+test("tracked email retries keep a stable provider idempotency key and inactive users are skipped", async () => {
+  const providerCalls = [];
+  const skipped = [];
+  const claimed = [];
+
+  await withStubbedNotificationService(
+    {
+      [repositoryPath]: buildNotificationRepositoryStub({
+        claimNotificationEmailDelivery: async () => {
+          claimed.push(true);
+          return { id: "delivery-stable-1", attempt_count: 1 };
+        },
+        getRetryableNotificationEmailDeliveries: async () => [{
+          notification_id: "notification-inactive", recipient_user_id: "inactive-user",
+          role_code: "MAYOR", rule_code: "DONATION_RECEIVED", type: "INVENTORY",
+          title: "Donation received", message: "Summary", severity: "INFORMATIONAL",
+        }],
+        getUserNotificationPreferencesByRole: async () => [],
+        markNotificationEmailDeliverySkipped: async (payload) => skipped.push(payload),
+      }),
+      [authMiddlewarePath]: roleCodesStub,
+      [emailServicePath]: {
+        isNotificationEmailConfigured: () => true,
+        isValidNotificationEmailAddress: () => true,
+        sanitizeProviderError: (value) => value,
+        sendNotificationEmail: async (payload) => {
+          providerCalls.push(payload);
+          return { success: true, messageId: "provider-1" };
+        },
+      },
+      [systemLogRepositoryPath]: { insertAuditLog: async () => ({}) },
+    },
+    async ({ deliverTrackedNotificationEmail, retryNotificationEmailDeliveries }) => {
+      const recipient = { userId: "user-1", roleCode: "MAYOR", email: "mayor@example.com" };
+      await deliverTrackedNotificationEmail({ notificationId: "notification-1", recipient, ruleCode: "DONATION_RECEIVED", type: "INVENTORY", title: "Donation", message: "One", severity: "INFORMATIONAL" });
+      await deliverTrackedNotificationEmail({ notificationId: "notification-1", recipient, ruleCode: "DONATION_RECEIVED", type: "INVENTORY", title: "Donation", message: "One", severity: "INFORMATIONAL" });
+      await retryNotificationEmailDeliveries();
+
+      assert.equal(providerCalls.length, 2);
+      assert.equal(providerCalls[0].idempotencyKey, providerCalls[1].idempotencyKey);
+      assert.equal(providerCalls[0].idempotencyKey, "notification-email/delivery-stable-1");
+      assert.equal(claimed.length, 2);
+      assert.deepEqual(skipped, [{
+        notificationId: "notification-inactive", recipientUserId: "inactive-user",
+        roleCode: "MAYOR", reason: "EMAIL_NO_LONGER_ELIGIBLE",
+      }]);
     },
   );
 });

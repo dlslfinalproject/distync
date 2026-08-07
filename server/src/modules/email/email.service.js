@@ -6,6 +6,25 @@ const { logErrorSafely } = require("../../utils/systemLog");
 let resendClient = null;
 const EMAIL_ADDRESS_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+const sanitizeProviderError = (value = "") =>
+  String(value || "Email provider request failed.")
+    .replace(/(?:re|bearer)[_\s-]?[A-Za-z0-9_-]{8,}/gi, "[redacted]")
+    .replace(/api[_-]?key\s*[=:]\s*[^\s,;]+/gi, "api_key=[redacted]")
+    .slice(0, 500);
+
+const classifyProviderFailure = ({ statusCode, code, message } = {}) => {
+  const normalizedCode = String(code || "").toLowerCase();
+  const normalizedMessage = String(message || "").toLowerCase();
+  const numericStatus = Number(statusCode);
+
+  if (
+    numericStatus === 408 || numericStatus === 429 || numericStatus >= 500 ||
+    /timeout|timed out|network|econn|enotfound|temporar|concurrent_idempotent_requests/.test(normalizedCode + normalizedMessage)
+  ) return "TRANSIENT";
+  if (numericStatus >= 400 && numericStatus < 500) return "PERMANENT";
+  return "UNKNOWN";
+};
+
 const getResendClient = () => {
   const { apiKey, isConfigured } = getEmailConfig();
 
@@ -28,6 +47,7 @@ const sendNotificationEmail = async ({
   notificationMessage,
   severity = "INFO",
   timestamp = new Date().toISOString(),
+  idempotencyKey = undefined,
 }) => {
   const emailAddress = String(recipientEmail || "").trim().toLowerCase();
   const config = getEmailConfig();
@@ -47,6 +67,7 @@ const sendNotificationEmail = async ({
       skipped: true,
       reason: "missing-recipient-email",
       error: "Missing recipient email.",
+      failureClass: "PERMANENT",
     };
   }
 
@@ -64,6 +85,7 @@ const sendNotificationEmail = async ({
       skipped: false,
       reason: "invalid-recipient-email",
       error: "Invalid recipient email.",
+      failureClass: "PERMANENT",
     };
   }
 
@@ -73,6 +95,7 @@ const sendNotificationEmail = async ({
       skipped: true,
       reason: "email-service-not-configured",
       error: "Email service is not configured.",
+      failureClass: "CONFIGURATION",
     };
   }
 
@@ -84,20 +107,16 @@ const sendNotificationEmail = async ({
   });
 
   try {
-    const response = await client.emails.send({
-      from: config.from,
-      to: [emailAddress],
-      subject: template.subject,
-      html: template.html,
-    });
+    const response = await client.emails.send(
+      { from: config.from, to: [emailAddress], subject: template.subject, html: template.html },
+      idempotencyKey ? { idempotencyKey } : undefined,
+    );
 
     const providerError = response?.error;
     const messageId = response?.data?.id || "";
 
     if (providerError || !messageId) {
-      const providerMessage =
-        providerError?.message ||
-        "Email provider rejected the request.";
+      const providerMessage = sanitizeProviderError(providerError?.message);
 
       await logErrorSafely({
         actor,
@@ -112,7 +131,11 @@ const sendNotificationEmail = async ({
         skipped: false,
         reason: "provider-rejected-request",
         error: providerMessage,
-        providerResponse: response,
+        failureClass: classifyProviderFailure({
+          statusCode: providerError?.statusCode || providerError?.status,
+          code: providerError?.name || providerError?.code,
+          message: providerMessage,
+        }),
       };
     }
 
@@ -120,14 +143,14 @@ const sendNotificationEmail = async ({
       success: true,
       skipped: false,
       messageId,
-      providerResponse: response,
     };
   } catch (error) {
+    const safeErrorMessage = sanitizeProviderError(error.message);
     await logErrorSafely({
       actor,
       moduleName: "notification-email",
       errorCode: "RESEND_SEND_FAILED",
-      errorMessage: `Email delivery failed for ${notificationType} to ${emailAddress}: ${error.message} at ${timestamp}.`,
+      errorMessage: `Email delivery failed for ${notificationType} to ${emailAddress}: ${safeErrorMessage} at ${timestamp}.`,
       severity: "ERROR",
       error,
     });
@@ -136,11 +159,21 @@ const sendNotificationEmail = async ({
       success: false,
       skipped: false,
       reason: "send-failed",
-      error: error.message,
+      error: safeErrorMessage,
+      failureClass: classifyProviderFailure({
+        statusCode: error.statusCode || error.status,
+        code: error.code || error.name,
+        message: error.message,
+      }),
     };
   }
 };
 
 module.exports = {
   sendNotificationEmail,
+  isNotificationEmailConfigured: () => getEmailConfig().isConfigured,
+  isValidNotificationEmailAddress: (value) => EMAIL_ADDRESS_PATTERN.test(String(value || "").trim().toLowerCase()),
+  EMAIL_ADDRESS_PATTERN,
+  sanitizeProviderError,
+  classifyProviderFailure,
 };

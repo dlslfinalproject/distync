@@ -38,6 +38,9 @@ const MAINTENANCE_SCAN_INTERVAL_MS = Number.parseInt(
   process.env.NOTIFICATION_SCAN_INTERVAL_MS || `${15 * 60 * 1000}`,
   10,
 );
+const EMAIL_NOTIFICATION_MAX_ATTEMPTS = Math.max(1, Number.parseInt(process.env.EMAIL_NOTIFICATION_MAX_ATTEMPTS || "3", 10) || 3);
+const EMAIL_NOTIFICATION_RETRY_BASE_SECONDS = Math.max(60, Number.parseInt(process.env.EMAIL_NOTIFICATION_RETRY_BASE_SECONDS || "900", 10) || 900);
+const EMAIL_DELIVERY_STALE_AFTER_SECONDS = 15 * 60;
 
 const DEFAULT_NOTIFICATION_RULES = NOTIFICATION_RULE_TARGETS.map((rule) => ({
   code: rule.code,
@@ -691,17 +694,14 @@ const createPersistentNotification = async ({
   if (emailRecipients.length > 0) {
     await Promise.allSettled(
       emailRecipients.map((recipient) =>
-        emailService.sendNotificationEmail({
-          actor: {
-            userId: recipient.userId,
-            roleCode: recipient.roleCode,
-          },
-          recipientEmail: recipient.email,
-          notificationType: canonicalRuleCode || type,
-          notificationTitle: title,
-          notificationMessage: message,
+        deliverTrackedNotificationEmail({
+          notificationId: createdNotification.id,
+          recipient,
+          ruleCode: canonicalRuleCode,
+          type,
+          title,
+          message,
           severity,
-          timestamp: new Date().toISOString(),
         }),
       ),
     );
@@ -839,6 +839,58 @@ const createNotificationForRecipientGroups = async ({
     dedupeHours,
     metadata: { ...summaryMetadata, ...metadata },
   });
+};
+
+const getEmailRetryAt = (attemptCount) => new Date(Date.now() + EMAIL_NOTIFICATION_RETRY_BASE_SECONDS * 1000 * Math.max(1, 2 ** Math.max(0, attemptCount - 1)));
+
+const deliverTrackedNotificationEmail = async ({ notificationId, recipient, ruleCode, type, title, message, severity }) => {
+  if (typeof emailService.isValidNotificationEmailAddress === "function" && !emailService.isValidNotificationEmailAddress(recipient.email)) {
+    await notificationRepository.markNotificationEmailDeliveryFailedWithoutAttempt({ notificationId, recipientUserId: recipient.userId, roleCode: recipient.roleCode, reason: "EMAIL_RECIPIENT_INVALID" });
+    return { skipped: true, reason: "invalid-recipient-email" };
+  }
+  if (typeof emailService.isNotificationEmailConfigured === "function" && !emailService.isNotificationEmailConfigured()) {
+    await notificationRepository.markNotificationEmailDeliverySkipped({ notificationId, recipientUserId: recipient.userId, roleCode: recipient.roleCode, reason: "EMAIL_SERVICE_NOT_CONFIGURED" });
+    return { skipped: true, reason: "email-service-not-configured" };
+  }
+
+  const delivery = await notificationRepository.claimNotificationEmailDelivery({
+    notificationId, recipientUserId: recipient.userId, roleCode: recipient.roleCode,
+    maxAttempts: EMAIL_NOTIFICATION_MAX_ATTEMPTS, staleAfterSeconds: EMAIL_DELIVERY_STALE_AFTER_SECONDS,
+  });
+  if (!delivery) return { skipped: true, reason: "delivery-already-claimed-or-terminal" };
+
+  const result = await emailService.sendNotificationEmail({
+    actor: { userId: recipient.userId, roleCode: recipient.roleCode }, recipientEmail: recipient.email,
+    notificationType: ruleCode || type, notificationTitle: title, notificationMessage: message,
+    severity, timestamp: new Date().toISOString(), idempotencyKey: `notification-email/${delivery.id}`,
+  });
+  if (result.success) {
+    await notificationRepository.markNotificationEmailDeliveryResult({ deliveryId: delivery.id, status: "SENT", providerMessageId: result.messageId });
+    return result;
+  }
+
+  const canRetry = result.failureClass === "TRANSIENT" && delivery.attempt_count < EMAIL_NOTIFICATION_MAX_ATTEMPTS;
+  await notificationRepository.markNotificationEmailDeliveryResult({
+    deliveryId: delivery.id, status: canRetry ? "RETRY_PENDING" : result.skipped ? "SKIPPED" : "FAILED",
+    errorCode: String(result.reason || result.failureClass || "EMAIL_SEND_FAILED").slice(0, 100),
+    errorMessage: typeof emailService.sanitizeProviderError === "function"
+      ? emailService.sanitizeProviderError(result.error)
+      : String(result.error || "Email provider request failed.").slice(0, 500),
+    nextRetryAt: canRetry ? getEmailRetryAt(delivery.attempt_count) : null,
+  });
+  return result;
+};
+
+const retryNotificationEmailDeliveries = async () => {
+  const candidates = await notificationRepository.getRetryableNotificationEmailDeliveries();
+  await Promise.allSettled(candidates.map(async (candidate) => {
+    const plans = await buildRecipientDeliveryPlan({ userIds: [candidate.recipient_user_id], roleCode: candidate.role_code, ruleCode: candidate.rule_code });
+    const recipient = plans.find((plan) => plan.userId === candidate.recipient_user_id);
+    if (!recipient?.emailEnabled || !recipient.email) {
+      return notificationRepository.markNotificationEmailDeliverySkipped({ notificationId: candidate.notification_id, recipientUserId: candidate.recipient_user_id, roleCode: candidate.role_code, reason: "EMAIL_NO_LONGER_ELIGIBLE" });
+    }
+    return deliverTrackedNotificationEmail({ notificationId: candidate.notification_id, recipient, ruleCode: candidate.rule_code, type: candidate.type, title: candidate.title, message: candidate.message, severity: candidate.severity });
+  }));
 };
 
 const createNotificationForUsers = async ({
@@ -1878,6 +1930,7 @@ const runNotificationMaintenanceScans = async () => {
   await scanExpiryNotifications();
   await scanSyncNotifications();
   await flushSummaryNotifications();
+  await retryNotificationEmailDeliveries();
 };
 
 const startNotificationMaintenance = () => {
@@ -1901,6 +1954,7 @@ const initializeNotificationInfrastructure = async () => {
   await scanExpiryNotifications();
   await scanSyncNotifications();
   await flushSummaryNotifications();
+  await retryNotificationEmailDeliveries();
   startNotificationMaintenance();
 };
 
@@ -2075,6 +2129,7 @@ module.exports = {
   CRITICAL_STOCK_THRESHOLD,
   NEAR_EXPIRY_DAYS,
   DEFAULT_NOTIFICATION_RULES,
+  EMAIL_NOTIFICATION_MAX_ATTEMPTS,
   resolveNotificationRecipientRoles,
   emitSafely,
   emitBatchAlerts,
@@ -2097,6 +2152,8 @@ module.exports = {
   getSummaryEventCount,
   generateDueEvacuationSummaryReports,
   flushSummaryNotifications,
+  retryNotificationEmailDeliveries,
+  deliverTrackedNotificationEmail,
   initializeNotificationInfrastructure,
   getNotificationsForUser,
   sanitizeNotificationMetadata,
