@@ -725,6 +725,8 @@ CREATE INDEX idx_notification_email_deliveries_sending_stale
 
 CREATE TABLE public.sync_transactions (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
+  client_sync_id character varying(80),
+  processing_protocol_version smallint,
   device_id uuid,
   user_id uuid,
   entity_type character varying NOT NULL,
@@ -743,6 +745,14 @@ CREATE TABLE public.sync_transactions (
   CONSTRAINT sync_transactions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
 
+CREATE UNIQUE INDEX sync_transactions_client_sync_id_unique
+ON public.sync_transactions (client_sync_id)
+WHERE client_sync_id IS NOT NULL;
+
+CREATE INDEX sync_transactions_pending_protocol_updated_at_idx
+ON public.sync_transactions (sync_status, processing_protocol_version, updated_at)
+WHERE sync_status = 'PENDING';
+
 CREATE TABLE public.sync_conflicts (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   sync_transaction_id uuid NOT NULL,
@@ -751,7 +761,7 @@ CREATE TABLE public.sync_conflicts (
   conflict_type character varying NOT NULL,
   local_payload_json jsonb NOT NULL,
   server_payload_json jsonb NOT NULL,
-  resolution_strategy character varying NOT NULL CHECK (resolution_strategy::text = ANY (ARRAY['LATEST_TIMESTAMP'::character varying, 'MANUAL_REVIEW'::character varying, 'MERGED'::character varying]::text[])),
+  resolution_strategy character varying NOT NULL CHECK (resolution_strategy::text = ANY (ARRAY['FIRST_ACCEPTED'::character varying, 'LATEST_TIMESTAMP'::character varying, 'MANUAL_REVIEW'::character varying, 'MERGED'::character varying]::text[])),
   resolved_payload_json jsonb,
   resolved_by uuid,
   resolved_at timestamp with time zone,

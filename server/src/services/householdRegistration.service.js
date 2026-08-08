@@ -641,6 +641,7 @@ const buildDuplicateRegistrationSuggestions = async ({
   familyHead,
   members,
   contactNumber = null,
+  dbClient = undefined,
 }) => {
   const lookupPeople = buildDuplicateLookupPeople({
     familyHead,
@@ -657,11 +658,14 @@ const buildDuplicateRegistrationSuggestions = async ({
   }
 
   const rawMatches =
-    await householdRegistrationRepository.findPotentialDuplicatePersonMatches({
-      disasterEventId,
-      householdIdToExclude,
-      people: lookupPeople,
-    });
+    await householdRegistrationRepository.findPotentialDuplicatePersonMatches(
+      {
+        disasterEventId,
+        householdIdToExclude,
+        people: lookupPeople,
+      },
+      dbClient,
+    );
 
   const sourcePeopleByKey = lookupPeople.reduce((lookup, person) => {
     lookup[person.person_key] = person;
@@ -760,39 +764,52 @@ const buildDuplicateRegistrationSuggestions = async ({
   };
 };
 
-const buildRegistrationResponse = async (householdId) => {
+const buildRegistrationResponse = async (householdId, dbClient = undefined) => {
   const household =
-    await householdRegistrationRepository.getHouseholdSummaryById(householdId);
+    await householdRegistrationRepository.getHouseholdSummaryById(
+      householdId,
+      dbClient,
+    );
   const includeInactiveMembers = household?.is_active === false;
   const members =
-    await householdRegistrationRepository.getEvacueesByHouseholdId(householdId, {
-      includeInactive: includeInactiveMembers,
-    });
+    await householdRegistrationRepository.getEvacueesByHouseholdId(
+      householdId,
+      {
+        includeInactive: includeInactiveMembers,
+        dbClient,
+      },
+    );
   const evacueeSectorAssignments =
     await householdRegistrationRepository.getEvacueeSectorAssignmentsByHouseholdId(
       householdId,
       {
         includeInactive: includeInactiveMembers,
+        dbClient,
       },
     );
   const householdSectors =
     await householdRegistrationRepository.getHouseholdSectorAssignmentsByHouseholdId(
       householdId,
+      dbClient,
     );
   const stub = await householdRegistrationRepository.getStubByHouseholdId(
     householdId,
+    dbClient,
   );
   const latestAttendance =
     await householdRegistrationRepository.getLatestAttendanceByHouseholdId(
       householdId,
+      dbClient,
     );
   const latestDistribution =
     await householdRegistrationRepository.getLatestDistributionTransactionByStubId(
       stub?.id || null,
+      dbClient,
     );
   const latestPrivacyConsent =
     await householdRegistrationRepository.getLatestHouseholdPrivacyConsentByHouseholdId(
       householdId,
+      dbClient,
     );
 
   const membersWithSectors = members.map((member) => {
@@ -1170,6 +1187,7 @@ const updateHouseholdDetails = async ({
   householdId,
   requester,
   requestData,
+  dbClient = null,
 }) => {
   const existingHousehold =
     await householdRegistrationRepository.getHouseholdSummaryById(householdId);
@@ -1363,10 +1381,13 @@ const updateHouseholdDetails = async ({
   );
   const shouldKeepMembersArchived = existingHousehold.is_active === false;
 
-  const client = await pool.connect();
+  const externalClient = dbClient;
+  const client = externalClient || await pool.connect();
 
   try {
-    await client.query("BEGIN");
+    if (!externalClient) {
+      await client.query("BEGIN");
+    }
 
     await householdRegistrationRepository.updateHousehold(
       householdId,
@@ -1499,8 +1520,13 @@ const updateHouseholdDetails = async ({
       }
     }
 
-    await client.query("COMMIT");
-    const householdDetails = await buildRegistrationResponse(householdId);
+    if (!externalClient) {
+      await client.query("COMMIT");
+    }
+    const householdDetails = await buildRegistrationResponse(
+      householdId,
+      externalClient || undefined,
+    );
     const familyHeadName = [
       householdDetails.household?.family_head_first_name,
       householdDetails.household?.family_head_last_name,
@@ -1508,26 +1534,28 @@ const updateHouseholdDetails = async ({
       .filter(Boolean)
       .join(" ");
 
-    await notificationService.emitSafely(() =>
-      notificationService.emitHouseholdRegistrationUpdate({
-        householdId,
-        barangayId: requestDataWithDerivedAgeGroups.barangay_id,
-        familyHeadName,
-        action: "updated",
-        requiresVerification: !householdDetails.household?.family_head_photo_url,
-      }),
-    );
+    if (!externalClient) {
+      await notificationService.emitSafely(() =>
+        notificationService.emitHouseholdRegistrationUpdate({
+          householdId,
+          barangayId: requestDataWithDerivedAgeGroups.barangay_id,
+          familyHeadName,
+          action: "updated",
+          requiresVerification: !householdDetails.household?.family_head_photo_url,
+        }),
+      );
 
-    await logAuditSafely({
-      actor: requester,
-      action: "HOUSEHOLD_UPDATE",
-      entityType: "HOUSEHOLD",
-      entityId: householdId,
-      oldValues: previousHouseholdSummary,
-      newValues: summarizeHousehold(householdDetails.household),
-    });
+      await logAuditSafely({
+        actor: requester,
+        action: "HOUSEHOLD_UPDATE",
+        entityType: "HOUSEHOLD",
+        entityId: householdId,
+        oldValues: previousHouseholdSummary,
+        newValues: summarizeHousehold(householdDetails.household),
+      });
+    }
 
-    if (savedPrivacyRenewal) {
+    if (savedPrivacyRenewal && !externalClient) {
       await logAuditSafely({
         actor: buildPrivacyAuditActor({
           requester,
@@ -1542,6 +1570,9 @@ const updateHouseholdDetails = async ({
     }
 
     for (const deactivatedMember of deactivatedMemberSummaries) {
+      if (externalClient) {
+        break;
+      }
       await logAuditSafely({
         actor: requester,
         action: "HOUSEHOLD_MEMBER_DEACTIVATE",
@@ -1560,11 +1591,63 @@ const updateHouseholdDetails = async ({
 
     return householdDetails;
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (!externalClient) {
+      await client.query("ROLLBACK");
+    }
     throw error;
   } finally {
-    client.release();
+    if (!externalClient) {
+      client.release();
+    }
   }
+};
+
+const getStrongestDuplicateRegistrationMatch = async ({
+  disasterEventId,
+  familyHead,
+  members,
+  contactNumber = null,
+  dbClient = undefined,
+}) => {
+  const duplicateSuggestions = await buildDuplicateRegistrationSuggestions({
+    disasterEventId,
+    familyHead,
+    members,
+    contactNumber,
+    dbClient,
+  });
+
+  return duplicateSuggestions.groups
+    .flatMap((group) => group.matches)
+    .find((match) => match.match_confidence === "HIGH") || null;
+};
+
+const handleDuplicateRegistrationMatch = async ({
+  match,
+  registrationData,
+  dbClient = undefined,
+}) => {
+  if (!match) {
+    return null;
+  }
+
+  if (
+    registrationData.enforce_sync_duplicate_guard &&
+    registrationData.synced_client_timestamp &&
+    isEarlierTimestamp(
+      registrationData.synced_client_timestamp,
+      match.registered_at,
+    )
+  ) {
+    await householdRegistrationRepository.updateHouseholdRegistrationTimestamp(
+      match.household_id,
+      registrationData.synced_client_timestamp,
+      dbClient,
+    );
+    return match.household_id;
+  }
+
+  throw buildDuplicateRegistrationError(match);
 };
 
 const registerHousehold = async (requestData) => {
@@ -1633,39 +1716,25 @@ const registerHousehold = async (requestData) => {
     });
   const shouldAutoArchiveWithoutAttendance =
     isNonAdmittedResidentRecord(requestDataWithDerivedAgeGroups);
-  const duplicateSuggestions = await buildDuplicateRegistrationSuggestions({
+  const precheckDuplicateMatch = await getStrongestDuplicateRegistrationMatch({
     disasterEventId: requestDataWithDerivedAgeGroups.disaster_event_id,
     familyHead: requestDataWithDerivedAgeGroups.family_head,
     members: requestDataWithDerivedAgeGroups.members,
     contactNumber: requestDataWithDerivedAgeGroups.contact_number || null,
   });
-  const strongestDuplicateMatch = duplicateSuggestions.groups
-    .flatMap((group) => group.matches)
-    .find((match) => match.match_confidence === "HIGH");
 
   if (
-    registrationData.enforce_sync_duplicate_guard &&
-    registrationData.synced_client_timestamp &&
-    strongestDuplicateMatch
-  ) {
-    if (
+    precheckDuplicateMatch &&
+    !(
+      registrationData.enforce_sync_duplicate_guard &&
+      registrationData.synced_client_timestamp &&
       isEarlierTimestamp(
         registrationData.synced_client_timestamp,
-        strongestDuplicateMatch.registered_at,
+        precheckDuplicateMatch.registered_at,
       )
-    ) {
-      await householdRegistrationRepository.updateHouseholdRegistrationTimestamp(
-        strongestDuplicateMatch.household_id,
-        registrationData.synced_client_timestamp,
-      );
-      return buildRegistrationResponse(strongestDuplicateMatch.household_id);
-    }
-
-    throw buildDuplicateRegistrationError(strongestDuplicateMatch);
-  }
-
-  if (strongestDuplicateMatch) {
-    throw buildDuplicateRegistrationError(strongestDuplicateMatch);
+    )
+  ) {
+    throw buildDuplicateRegistrationError(precheckDuplicateMatch);
   }
 
   const householdSectors = await householdRegistrationRepository.getSectorsByIds(
@@ -1729,10 +1798,51 @@ const registerHousehold = async (requestData) => {
     throw error;
   }
 
-  const client = await pool.connect();
+  const externalClient = requestData.dbClient || null;
+  const client = externalClient || await pool.connect();
 
   try {
-    await client.query("BEGIN");
+    if (!externalClient) {
+      await client.query("BEGIN");
+    }
+
+    const lockedScope =
+      await householdRegistrationRepository.lockHouseholdRegistrationScope(
+        requestDataWithDerivedAgeGroups.disaster_event_id,
+        client,
+      );
+
+    if (!lockedScope) {
+      const error = new Error("disaster_event_id is invalid");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const authoritativeDuplicateMatch =
+      await getStrongestDuplicateRegistrationMatch({
+        disasterEventId: requestDataWithDerivedAgeGroups.disaster_event_id,
+        familyHead: requestDataWithDerivedAgeGroups.family_head,
+        members: requestDataWithDerivedAgeGroups.members,
+        contactNumber: requestDataWithDerivedAgeGroups.contact_number || null,
+        dbClient: client,
+      });
+
+    const existingHouseholdId = await handleDuplicateRegistrationMatch({
+      match: authoritativeDuplicateMatch,
+      registrationData,
+      dbClient: client,
+    });
+
+    if (existingHouseholdId) {
+      if (!externalClient) {
+        await client.query("COMMIT");
+      }
+
+      return buildRegistrationResponse(
+        existingHouseholdId,
+        externalClient ? client : undefined,
+      );
+    }
 
     const createdHousehold =
       await householdRegistrationRepository.insertHousehold(
@@ -1906,9 +2016,14 @@ const registerHousehold = async (requestData) => {
       );
     }
 
-    await client.query("COMMIT");
+    if (!externalClient) {
+      await client.query("COMMIT");
+    }
 
-    const registrationResponse = await buildRegistrationResponse(createdHousehold.id);
+    const registrationResponse = await buildRegistrationResponse(
+      createdHousehold.id,
+      externalClient || undefined,
+    );
     const familyHeadName = [
       registrationResponse.household?.family_head_first_name,
       registrationResponse.household?.family_head_last_name,
@@ -1916,35 +2031,41 @@ const registerHousehold = async (requestData) => {
       .filter(Boolean)
       .join(" ");
 
-    await notificationService.emitSafely(() =>
-      notificationService.emitHouseholdRegistrationUpdate({
-        householdId: createdHousehold.id,
-        barangayId: requestDataWithDerivedAgeGroups.barangay_id,
-        familyHeadName,
-        action: "registered",
-        requiresVerification: !registrationResponse.household?.family_head_photo_url,
-      }),
-    );
+    if (!externalClient) {
+      await notificationService.emitSafely(() =>
+        notificationService.emitHouseholdRegistrationUpdate({
+          householdId: createdHousehold.id,
+          barangayId: requestDataWithDerivedAgeGroups.barangay_id,
+          familyHeadName,
+          action: "registered",
+          requiresVerification: !registrationResponse.household?.family_head_photo_url,
+        }),
+      );
 
-    await logAuditSafely({
-      actor: buildPrivacyAuditActor({
-        recordedBy: requestDataWithDerivedAgeGroups.registered_by,
-        roleCode: userScope?.role_code || null,
-        deviceId: savedPrivacyAcknowledgment.device_id,
-      }),
-      action: "HOUSEHOLD_PRIVACY_ACKNOWLEDGED",
-      entityType: "HOUSEHOLD_PRIVACY_CONSENT",
-      entityId: savedPrivacyAcknowledgment.id,
-      oldValues: {},
-      newValues: summarizePrivacyConsent(savedPrivacyAcknowledgment),
-    });
+      await logAuditSafely({
+        actor: buildPrivacyAuditActor({
+          recordedBy: requestDataWithDerivedAgeGroups.registered_by,
+          roleCode: userScope?.role_code || null,
+          deviceId: savedPrivacyAcknowledgment.device_id,
+        }),
+        action: "HOUSEHOLD_PRIVACY_ACKNOWLEDGED",
+        entityType: "HOUSEHOLD_PRIVACY_CONSENT",
+        entityId: savedPrivacyAcknowledgment.id,
+        oldValues: {},
+        newValues: summarizePrivacyConsent(savedPrivacyAcknowledgment),
+      });
+    }
 
     return registrationResponse;
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (!externalClient) {
+      await client.query("ROLLBACK");
+    }
     throw error;
   } finally {
-    client.release();
+    if (!externalClient) {
+      client.release();
+    }
   }
 };
 
@@ -1952,6 +2073,7 @@ const departHousehold = async (
   householdId,
   departureDetails,
   requester = null,
+  options = {},
 ) => {
   const household =
     await householdRegistrationRepository.getHouseholdSummaryById(householdId);
@@ -2017,10 +2139,13 @@ const departHousehold = async (
   }
 
   const previousHouseholdSummary = summarizeHousehold(household);
-  const client = await pool.connect();
+  const externalClient = options.dbClient || null;
+  const client = externalClient || await pool.connect();
 
   try {
-    await client.query("BEGIN");
+    if (!externalClient) {
+      await client.query("BEGIN");
+    }
 
     const updatedLogs =
       await householdRegistrationRepository.markHouseholdDeparture(
@@ -2036,22 +2161,26 @@ const departHousehold = async (
         client,
       );
 
-    await client.query("COMMIT");
+    if (!externalClient) {
+      await client.query("COMMIT");
+    }
 
-    await logAuditSafely({
-      actor: requester,
-      action: "HOUSEHOLD_DEPART_AND_ARCHIVE",
-      entityType: "HOUSEHOLD",
-      entityId: householdId,
-      oldValues: previousHouseholdSummary,
-      newValues: {
-        ...summarizeHousehold(archivedHousehold),
-        departure_remarks: departureDetails?.remarks || null,
-        affected_logs_count: updatedLogs.length,
-        archived_members_count: archivedEvacuees.length,
-        status: "LEFT",
-      },
-    });
+    if (!externalClient) {
+      await logAuditSafely({
+        actor: requester,
+        action: "HOUSEHOLD_DEPART_AND_ARCHIVE",
+        entityType: "HOUSEHOLD",
+        entityId: householdId,
+        oldValues: previousHouseholdSummary,
+        newValues: {
+          ...summarizeHousehold(archivedHousehold),
+          departure_remarks: departureDetails?.remarks || null,
+          affected_logs_count: updatedLogs.length,
+          archived_members_count: archivedEvacuees.length,
+          status: "LEFT",
+        },
+      });
+    }
 
     const familyHeadName = [
       household.family_head_first_name,
@@ -2060,14 +2189,16 @@ const departHousehold = async (
       .filter(Boolean)
       .join(" ");
 
-    await notificationService.emitSafely(() =>
-      notificationService.emitEvacueeAttendanceUpdate({
-        householdId,
-        barangayId: household.barangay_id,
-        familyHeadName,
-        action: "departure-recorded",
-      }),
-    );
+    if (!externalClient) {
+      await notificationService.emitSafely(() =>
+        notificationService.emitEvacueeAttendanceUpdate({
+          householdId,
+          barangayId: household.barangay_id,
+          familyHeadName,
+          action: "departure-recorded",
+        }),
+      );
+    }
 
     return {
       household_id: householdId,
@@ -2078,10 +2209,14 @@ const departHousehold = async (
       household: archivedHousehold,
     };
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (!externalClient) {
+      await client.query("ROLLBACK");
+    }
     throw error;
   } finally {
-    client.release();
+    if (!externalClient) {
+      client.release();
+    }
   }
 };
 

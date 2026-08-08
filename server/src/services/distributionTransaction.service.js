@@ -378,6 +378,58 @@ const ROLE_CODES = {
   BARANGAY: "BARANGAY",
   MSWDO: "MSWDO",
 };
+const STUB_ALREADY_CLAIMED_CODE = "STUB_ALREADY_CLAIMED";
+const DISTRIBUTION_STUB_UNIQUE_CONSTRAINT = "distribution_transactions_stub_id_key";
+
+const isDistributionStubUniqueViolation = (error) =>
+  error?.code === "23505" &&
+  error?.constraint === DISTRIBUTION_STUB_UNIQUE_CONSTRAINT;
+
+const createStubAlreadyClaimedError = ({
+  stub,
+  latestDistributionTransaction = null,
+}) => {
+  const error = new Error("This stub has already been used for distribution");
+  error.code = STUB_ALREADY_CLAIMED_CODE;
+  error.statusCode = 409;
+  error.entityServerId = stub?.id || latestDistributionTransaction?.stub_id || null;
+  error.serverPayload = {
+    stub: stub
+      ? pickDefined(stub, [
+          "id",
+          "stub_no",
+          "serial_no",
+          "status",
+          "claimed_at",
+          "disaster_event_id",
+          "household_id",
+        ])
+      : {},
+    distribution_transaction: latestDistributionTransaction
+      ? pickDefined(latestDistributionTransaction, [
+          "id",
+          "disaster_event_id",
+          "household_id",
+          "stub_id",
+          "distribution_status",
+          "receipt_no",
+          "received_at",
+          "created_at",
+        ])
+      : null,
+  };
+  return error;
+};
+
+const throwStubAlreadyClaimedError = async (stub) => {
+  const latestDistributionTransaction =
+    await stubRepository.getLatestDistributionTransactionByStubId(stub?.id);
+
+  throw createStubAlreadyClaimedError({
+    stub,
+    latestDistributionTransaction,
+  });
+};
 
 const resolveRequesterBarangayId = async (requester) => {
   if (requester?.defaultBarangayId) {
@@ -930,10 +982,13 @@ const normalizeRestoredBatchStatus = (batch, restoredQuantity) => {
 };
 
 const createDistributionTransaction = async (requestData) => {
-  const client = await pool.connect();
+  const externalClient = requestData.dbClient || null;
+  const client = externalClient || await pool.connect();
 
   try {
-    await client.query("BEGIN");
+    if (!externalClient) {
+      await client.query("BEGIN");
+    }
 
     const stub = await distributionTransactionRepository.getStubByIdForUpdate(
       requestData.stub_id,
@@ -958,6 +1013,10 @@ const createDistributionTransaction = async (requestData) => {
       const error = new Error("household_id does not match the stub record");
       error.statusCode = 400;
       throw error;
+    }
+
+    if (stub.status === "CLAIMED") {
+      await throwStubAlreadyClaimedError(stub);
     }
 
     if (stub.status !== "ISSUED") {
@@ -1178,37 +1237,41 @@ const createDistributionTransaction = async (requestData) => {
       client,
     );
 
-    await client.query("COMMIT");
+    if (!externalClient) {
+      await client.query("COMMIT");
+    }
 
-    await notificationService.emitSafely(async () => {
-      for (const batchAlertPayload of batchAlertPayloads) {
-        await notificationService.emitBatchAlerts({
-          ...batchAlertPayload,
+    if (!externalClient) {
+      await notificationService.emitSafely(async () => {
+        for (const batchAlertPayload of batchAlertPayloads) {
+          await notificationService.emitBatchAlerts({
+            ...batchAlertPayload,
+            disasterEventId: requestData.disaster_event_id,
+          });
+        }
+
+        await notificationService.emitDistributionUpdate({
           disasterEventId: requestData.disaster_event_id,
+          stubNo: updatedStub.stub_no,
+          familyHeadName: buildFullName(
+            stub.family_head_first_name,
+            stub.family_head_middle_name,
+            stub.family_head_last_name,
+            stub.family_head_suffix,
+          ),
+          distributionTransactionId: distributionTransaction.id,
         });
-      }
-
-      await notificationService.emitDistributionUpdate({
-        disasterEventId: requestData.disaster_event_id,
-        stubNo: updatedStub.stub_no,
-        familyHeadName: buildFullName(
-          stub.family_head_first_name,
-          stub.family_head_middle_name,
-          stub.family_head_last_name,
-          stub.family_head_suffix,
-        ),
-        distributionTransactionId: distributionTransaction.id,
       });
-    });
 
-    await logAuditSafely({
-      actor: requestData.requester,
-      action: "DISTRIBUTION_RECORD",
-      entityType: "DISTRIBUTION_TRANSACTION",
-      entityId: distributionTransaction.id,
-      oldValues: {},
-      newValues: summarizeDistributionTransaction(distributionTransaction),
-    });
+      await logAuditSafely({
+        actor: requestData.requester,
+        action: "DISTRIBUTION_RECORD",
+        entityType: "DISTRIBUTION_TRANSACTION",
+        entityId: distributionTransaction.id,
+        oldValues: {},
+        newValues: summarizeDistributionTransaction(distributionTransaction),
+      });
+    }
 
     return {
       distribution_transaction_id: distributionTransaction.id,
@@ -1248,25 +1311,44 @@ const createDistributionTransaction = async (requestData) => {
       items: releasedItems,
     };
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (!externalClient) {
+      await client.query("ROLLBACK");
+    }
 
-    if (error.code === "23505") {
-      const duplicateError = new Error("This stub has already been used for distribution");
-      duplicateError.statusCode = 409;
-      throw duplicateError;
+    if (isDistributionStubUniqueViolation(error)) {
+      const latestDistributionTransaction =
+        await stubRepository.getLatestDistributionTransactionByStubId(
+          requestData.stub_id,
+        );
+      throw createStubAlreadyClaimedError({
+        stub: latestDistributionTransaction
+          ? {
+              id: requestData.stub_id,
+              status: "CLAIMED",
+              disaster_event_id: requestData.disaster_event_id,
+              household_id: requestData.household_id,
+            }
+          : { id: requestData.stub_id, status: "CLAIMED" },
+        latestDistributionTransaction,
+      });
     }
 
     throw error;
   } finally {
-    client.release();
+    if (!externalClient) {
+      client.release();
+    }
   }
 };
 
 const claimDistributionTransactionFromQr = async (requestData) => {
-  const client = await pool.connect();
+  const externalClient = requestData.dbClient || null;
+  const client = externalClient || await pool.connect();
 
   try {
-    await client.query("BEGIN");
+    if (!externalClient) {
+      await client.query("BEGIN");
+    }
 
     const stub = await distributionTransactionRepository.getStubByIdForUpdate(
       requestData.stub_id,
@@ -1291,6 +1373,10 @@ const claimDistributionTransactionFromQr = async (requestData) => {
       const error = new Error("household_id does not match the stub record");
       error.statusCode = 400;
       throw error;
+    }
+
+    if (stub.status === "CLAIMED") {
+      await throwStubAlreadyClaimedError(stub);
     }
 
     if (stub.status !== "ISSUED") {
@@ -1345,30 +1431,34 @@ const claimDistributionTransactionFromQr = async (requestData) => {
       donatedReliefPacks,
     } = automaticClaimResult;
 
-    await client.query("COMMIT");
+    if (!externalClient) {
+      await client.query("COMMIT");
+    }
 
-    await notificationService.emitSafely(() =>
-      notificationService.emitDistributionUpdate({
-        disasterEventId: requestData.disaster_event_id,
-        stubNo: updatedStub.stub_no,
-        familyHeadName: buildFullName(
-          stub.family_head_first_name,
-          stub.family_head_middle_name,
-          stub.family_head_last_name,
-          stub.family_head_suffix,
-        ),
-        distributionTransactionId: distributionTransaction.id,
-      }),
-    );
+    if (!externalClient) {
+      await notificationService.emitSafely(() =>
+        notificationService.emitDistributionUpdate({
+          disasterEventId: requestData.disaster_event_id,
+          stubNo: updatedStub.stub_no,
+          familyHeadName: buildFullName(
+            stub.family_head_first_name,
+            stub.family_head_middle_name,
+            stub.family_head_last_name,
+            stub.family_head_suffix,
+          ),
+          distributionTransactionId: distributionTransaction.id,
+        }),
+      );
 
-    await logAuditSafely({
-      actor: requestData.requester,
-      action: "DISTRIBUTION_QR_CLAIM",
-      entityType: "DISTRIBUTION_TRANSACTION",
-      entityId: distributionTransaction.id,
-      oldValues: {},
-      newValues: summarizeDistributionTransaction(distributionTransaction),
-    });
+      await logAuditSafely({
+        actor: requestData.requester,
+        action: "DISTRIBUTION_QR_CLAIM",
+        entityType: "DISTRIBUTION_TRANSACTION",
+        entityId: distributionTransaction.id,
+        oldValues: {},
+        newValues: summarizeDistributionTransaction(distributionTransaction),
+      });
+    }
 
     return {
       distribution_transaction_id: distributionTransaction.id,
@@ -1408,17 +1498,33 @@ const claimDistributionTransactionFromQr = async (requestData) => {
       items: releasedItems,
     };
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (!externalClient) {
+      await client.query("ROLLBACK");
+    }
 
-    if (error.code === "23505") {
-      const duplicateError = new Error("This stub has already been used for distribution");
-      duplicateError.statusCode = 409;
-      throw duplicateError;
+    if (isDistributionStubUniqueViolation(error)) {
+      const latestDistributionTransaction =
+        await stubRepository.getLatestDistributionTransactionByStubId(
+          requestData.stub_id,
+        );
+      throw createStubAlreadyClaimedError({
+        stub: latestDistributionTransaction
+          ? {
+              id: requestData.stub_id,
+              status: "CLAIMED",
+              disaster_event_id: requestData.disaster_event_id,
+              household_id: requestData.household_id,
+            }
+          : { id: requestData.stub_id, status: "CLAIMED" },
+        latestDistributionTransaction,
+      });
     }
 
     throw error;
   } finally {
-    client.release();
+    if (!externalClient) {
+      client.release();
+    }
   }
 };
 

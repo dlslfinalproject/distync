@@ -2,6 +2,9 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
+  PROFILE_PICTURE_MAX_BASE64_ENCODED_LENGTH,
+  PROFILE_PICTURE_MAX_BASE64_TRANSPORT_CHARS,
+  PROFILE_PICTURE_MAX_FILE_SIZE_BYTES,
   validateSaveCurrentSettings,
 } = require("../src/validators/settings.validator");
 
@@ -189,6 +192,61 @@ test("validateSaveCurrentSettings accepts pending profile picture replacement pa
   assert.equal(nextCalled, true);
   assert.equal(req.validatedBody.settings.profilePicture.action, "REPLACE");
   assert.equal(res.payload, null);
+});
+
+test("profile picture encoded transport limit covers the exact 2 MB Base64 length", () => {
+  assert.equal(PROFILE_PICTURE_MAX_FILE_SIZE_BYTES, 2 * 1024 * 1024);
+  assert.equal(PROFILE_PICTURE_MAX_BASE64_ENCODED_LENGTH, 2796204);
+  assert.equal(PROFILE_PICTURE_MAX_BASE64_TRANSPORT_CHARS, 3 * 1024 * 1024);
+  assert.ok(
+    PROFILE_PICTURE_MAX_BASE64_TRANSPORT_CHARS >
+      PROFILE_PICTURE_MAX_BASE64_ENCODED_LENGTH,
+  );
+});
+
+test("validateSaveCurrentSettings accepts maximum valid encoded profile picture payload", () => {
+  const req = {
+    body: {
+      settings: {
+        profilePicture: {
+          action: "REPLACE",
+          fileName: "avatar.png",
+          mimeType: "image/png",
+          fileDataBase64: "A".repeat(PROFILE_PICTURE_MAX_BASE64_ENCODED_LENGTH),
+        },
+      },
+    },
+  };
+  const res = createResponse();
+  let nextCalled = false;
+
+  validateSaveCurrentSettings(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(res.payload, null);
+});
+
+test("validateSaveCurrentSettings rejects excessive encoded profile picture payloads", () => {
+  const req = {
+    body: {
+      settings: {
+        profilePicture: {
+          action: "REPLACE",
+          fileName: "avatar.png",
+          mimeType: "image/png",
+          fileDataBase64: "A".repeat(PROFILE_PICTURE_MAX_BASE64_TRANSPORT_CHARS + 1),
+        },
+      },
+    },
+  };
+  const res = createResponse();
+
+  validateSaveCurrentSettings(req, res, () => {});
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.payload.message, "Profile picture must be 2 MB or smaller.");
 });
 
 test("validateSaveCurrentSettings rejects invalid pending profile picture actions", () => {

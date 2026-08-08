@@ -273,8 +273,10 @@ const getInventoryBatchDetail = async (id) => {
 };
 
 const createInventoryBatch = async (batchData) => {
+  const dbClient = batchData.dbClient || null;
   const inventoryItem = await inventoryBatchRepository.getInventoryItemById(
     batchData.inventory_item_id,
+    dbClient || undefined,
   );
 
   if (!inventoryItem) {
@@ -286,6 +288,7 @@ const createInventoryBatch = async (batchData) => {
   if (batchData.supplier_id) {
     const supplier = await inventoryBatchRepository.getSupplierById(
       batchData.supplier_id,
+      dbClient || undefined,
     );
 
     if (!supplier) {
@@ -301,6 +304,7 @@ const createInventoryBatch = async (batchData) => {
     const stockForm =
       await inventoryItemStockFormRepository.getInventoryItemStockFormById(
         resolvedStockFormId,
+        dbClient || undefined,
       );
 
     if (!stockForm) {
@@ -322,6 +326,7 @@ const createInventoryBatch = async (batchData) => {
     const stockForms =
       await inventoryItemStockFormRepository.getInventoryItemStockFormsByItemId(
         batchData.inventory_item_id,
+        dbClient || undefined,
       );
 
     const stockFormDefinition = normalizeStockFormDefinition(
@@ -333,6 +338,7 @@ const createInventoryBatch = async (batchData) => {
       const matchedStockForm =
         await inventoryItemStockFormRepository.getInventoryItemStockFormByDefinition(
           stockFormDefinition,
+          dbClient || undefined,
         );
 
       if (matchedStockForm) {
@@ -341,6 +347,7 @@ const createInventoryBatch = async (batchData) => {
         const createdStockForm =
           await inventoryItemStockFormRepository.insertInventoryItemStockForm(
             stockFormDefinition,
+            dbClient || undefined,
           );
         resolvedStockFormId = createdStockForm.id;
       }
@@ -359,6 +366,7 @@ const createInventoryBatch = async (batchData) => {
     await inventoryBatchRepository.getInventoryBatchByItemIdAndBatchNo(
       batchData.inventory_item_id,
       batchData.batch_no,
+      dbClient || undefined,
     );
 
   if (existingBatch) {
@@ -372,31 +380,34 @@ const createInventoryBatch = async (batchData) => {
     inventory_item_stock_form_id: resolvedStockFormId,
     quantity_available: batchData.quantity_received,
     status: getInitialStatus(batchData.expiration_date),
-  });
+  }, dbClient || undefined);
 
   const fullBatch = await inventoryBatchRepository.getInventoryBatchById(
     createdBatch.id,
+    dbClient || undefined,
   );
 
   const mappedBatch = mapInventoryBatch(fullBatch);
 
-  await notificationService.emitSafely(() =>
-    notificationService.emitBatchAlerts({
-      batch: mappedBatch,
-    }),
-  );
+  if (!dbClient) {
+    await notificationService.emitSafely(() =>
+      notificationService.emitBatchAlerts({
+        batch: mappedBatch,
+      }),
+    );
 
-  await logAuditSafely({
-    actor: {
-      userId: batchData.created_by,
-      roleCode: "MAYOR",
-    },
-    action: "INVENTORY_BATCH_CREATE",
-    entityType: "INVENTORY_BATCH",
-    entityId: mappedBatch.id,
-    oldValues: {},
-    newValues: summarizeInventoryBatch(mappedBatch),
-  });
+    await logAuditSafely({
+      actor: {
+        userId: batchData.created_by,
+        roleCode: "MAYOR",
+      },
+      action: "INVENTORY_BATCH_CREATE",
+      entityType: "INVENTORY_BATCH",
+      entityId: mappedBatch.id,
+      oldValues: {},
+      newValues: summarizeInventoryBatch(mappedBatch),
+    });
+  }
 
   return mappedBatch;
 };

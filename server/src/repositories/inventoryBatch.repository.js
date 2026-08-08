@@ -113,17 +113,17 @@ const getInventoryBatches = async (filters) => {
   return result.rows;
 };
 
-const getInventoryBatchById = async (id) => {
+const getInventoryBatchById = async (id, dbClient = pool) => {
   const query = `
     ${baseSelectQuery}
     WHERE ib.id = $1
   `;
 
-  const result = await pool.query(query, [id]);
+  const result = await dbClient.query(query, [id]);
   return result.rows[0] || null;
 };
 
-const getInventoryItemById = async (id) => {
+const getInventoryItemById = async (id, dbClient = pool) => {
   const query = `
     SELECT
       id,
@@ -138,11 +138,11 @@ const getInventoryItemById = async (id) => {
     WHERE id = $1
   `;
 
-  const result = await pool.query(query, [id]);
+  const result = await dbClient.query(query, [id]);
   return result.rows[0] || null;
 };
 
-const getSupplierById = async (id) => {
+const getSupplierById = async (id, dbClient = pool) => {
   const query = `
     SELECT
       id,
@@ -156,11 +156,15 @@ const getSupplierById = async (id) => {
     WHERE id = $1
   `;
 
-  const result = await pool.query(query, [id]);
+  const result = await dbClient.query(query, [id]);
   return result.rows[0] || null;
 };
 
-const getInventoryBatchByItemIdAndBatchNo = async (inventoryItemId, batchNo) => {
+const getInventoryBatchByItemIdAndBatchNo = async (
+  inventoryItemId,
+  batchNo,
+  dbClient = pool,
+) => {
   const query = `
     SELECT
       id,
@@ -172,7 +176,7 @@ const getInventoryBatchByItemIdAndBatchNo = async (inventoryItemId, batchNo) => 
       AND batch_no = $2
   `;
 
-  const result = await pool.query(query, [inventoryItemId, batchNo]);
+  const result = await dbClient.query(query, [inventoryItemId, batchNo]);
   return result.rows[0] || null;
 };
 

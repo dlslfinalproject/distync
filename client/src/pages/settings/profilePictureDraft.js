@@ -3,6 +3,11 @@ export const PROFILE_PICTURE_ACTIONS = Object.freeze({
   REPLACE: "REPLACE",
   REMOVE: "REMOVE",
 });
+export const PROFILE_PICTURE_MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
+
+export const isProfilePictureFileSizeAllowed = (file) =>
+  isSelectedProfilePictureFile(file) &&
+  file.size <= PROFILE_PICTURE_MAX_FILE_SIZE_BYTES;
 
 export const isSelectedProfilePictureFile = (value) =>
   typeof File !== "undefined" && value instanceof File;

@@ -151,6 +151,19 @@ current authenticated owner context.
 - Unauthenticated state does not receive Account Settings cache fallback.
 - Account Settings cache cleanup does not delete IndexedDB offline queue records or other operational offline data.
 
+### Account Settings unsaved navigation protection
+
+When Account Settings has unsaved profile, profile-picture, or notification
+preference changes, in-app navigation away from Settings is intercepted by the
+standard DISTYNC confirmation modal. Choosing Stay on This Page cancels the
+navigation and preserves the draft. Choosing Discard Changes and Leave
+continues to the originally requested route without saving.
+
+Browser refresh, tab close, and external navigation use the browser-native
+unsaved-changes warning while Settings is dirty. The unload listener is removed
+when Settings is clean, after a successful Save Changes, after local discard, or
+when Settings unmounts.
+
 ## Profile Picture Security
 
 DISTYNC profile pictures are now treated as controlled authenticated account data.
@@ -162,6 +175,7 @@ DISTYNC profile pictures are now treated as controlled authenticated account dat
 - Private profile pictures are stored in the `distync-profile-pictures` Supabase Storage bucket.
 - The database stores a private object path and update metadata, not a permanent public URL.
 - PostgreSQL persists `profile_picture_path` and related metadata only. Base64 profile-picture data is not stored.
+- Base64 image content is used only as transient request transport during Save Changes.
 - Display uses short-lived signed URLs returned by the backend.
 - Signed URLs are not stored in PostgreSQL.
 - Raw profile image data and Blob preview URLs are not stored in localStorage.
@@ -170,9 +184,7 @@ DISTYNC profile pictures are now treated as controlled authenticated account dat
 ### Backend behavior
 
 - `GET /api/v1/settings/current` returns role settings plus fresh signed profile-picture metadata when a picture exists.
-- `GET /api/v1/settings/current/profile-picture` refreshes only the current authenticated user’s signed profile-picture metadata.
-- `POST /api/v1/settings/current/profile-picture` uploads a new profile picture for the authenticated user only.
-- `DELETE /api/v1/settings/current/profile-picture` removes the current authenticated user’s picture and clears the database association.
+- Profile picture replacement/removal is persisted only through `PUT /api/v1/settings/current` when Account Settings saves.
 - The backend generates the storage path server-side and ignores client-supplied user ownership.
 - Replacing a picture uploads the new object first, updates the database, then removes the previous object after commit.
 - If the database write fails after upload, the new object is deleted during cleanup.
@@ -183,6 +195,10 @@ DISTYNC profile pictures are now treated as controlled authenticated account dat
 - Maximum size: 2 MB
 - SVG is not accepted
 - Empty uploads are rejected
+- The backend keeps the decoded image/file limit at 2 MiB. Because Base64
+  transport expands binary content by about 4/3, the request validator allows
+  a larger bounded encoded string before the storage service decodes the image
+  and enforces the 2 MB user-facing limit.
 - Profile pictures are separate from household family-head verification photos
 
 ### Cache and session behavior

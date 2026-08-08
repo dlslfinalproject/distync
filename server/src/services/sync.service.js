@@ -2,16 +2,12 @@ const syncRepository = require("../repositories/sync.repository");
 const householdRegistrationRepository = require("../repositories/householdRegistration.repository");
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const supplierRepository = require("../repositories/supplier.repository");
-const donationRepository = require("../repositories/donation.repository");
-const disasterEventRepository = require("../repositories/disasterEvent.repository");
 const householdRegistrationService = require("./householdRegistration.service");
 const distributionTransactionService = require("./distributionTransaction.service");
 const inventoryItemService = require("./inventoryItem.service");
 const inventoryBatchService = require("./inventoryBatch.service");
 const supplierService = require("./supplier.service");
 const inventoryTransactionService = require("./inventoryTransaction.service");
-const donationService = require("./donation.service");
-const disasterEventService = require("./disasterEvent.service");
 const stubService = require("./stub.service");
 const { ROLE_CODES } = require("../modules/auth/auth.middleware");
 const { logAuditSafely, logErrorSafely, pickDefined } = require("../utils/systemLog");
@@ -28,13 +24,70 @@ const CONFLICT_STATUS = {
   RESOLVED: "RESOLVED",
 };
 
-const RESOLUTION_STRATEGY = "LATEST_TIMESTAMP";
+const RESOLUTION_STRATEGY = {
+  FIRST_ACCEPTED: "FIRST_ACCEPTED",
+  LATEST_TIMESTAMP: "LATEST_TIMESTAMP",
+  MANUAL_REVIEW: "MANUAL_REVIEW",
+};
+
+const createConflictPersistenceError = (message) => {
+  const error = new Error(message);
+  error.code = "SYNC_CONFLICT_PERSISTENCE_FAILED";
+  error.statusCode = 500;
+  return error;
+};
 
 const createPermissionError = () => {
   const error = new Error("You do not have permission to sync this action");
   error.statusCode = 403;
   return error;
 };
+
+const createIdempotencyMismatchError = () => {
+  const error = new Error("client_sync_id was already used for a different sync request");
+  error.code = "IDEMPOTENCY_KEY_REUSE_MISMATCH";
+  error.statusCode = 409;
+  return error;
+};
+
+const createUnsupportedSyncActionError = () => {
+  const error = new Error("This type of change is not supported for offline synchronization.");
+  error.code = "SYNC_OPERATION_NOT_SUPPORTED";
+  error.statusCode = 400;
+  return error;
+};
+
+const markPostBusinessBookkeepingFailure = (error) => {
+  error.rollbackSyncTransaction = true;
+  return error;
+};
+
+const buildPersistedReplayResult = ({
+  entry,
+  syncTransaction,
+  conflictRecord = null,
+  message = null,
+}) => ({
+  client_sync_id: entry.client_sync_id,
+  sync_transaction_id: syncTransaction.id,
+  sync_status: syncTransaction.sync_status,
+  message:
+    message ||
+    syncTransaction.error_message ||
+    (syncTransaction.sync_status === SYNC_STATUS.SYNCED
+      ? "Sync completed successfully."
+      : syncTransaction.sync_status === SYNC_STATUS.CONFLICT
+        ? "Conflict detected during sync."
+        : syncTransaction.sync_status === SYNC_STATUS.PENDING
+          ? "Sync is already being processed. Please retry shortly."
+          : "Sync failed."),
+  data: {
+    id: syncTransaction.entity_server_id || null,
+    sync_transaction_id: syncTransaction.id,
+  },
+  conflict: conflictRecord,
+  replayed: true,
+});
 
 const getComparableTimestamp = (value) => {
   if (!value) {
@@ -56,21 +109,25 @@ const ACTION_HANDLERS = {
     entityType: "HOUSEHOLD",
     operationType: "CREATE",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    execute: async ({ payload, auth, clientTimestamp }) =>
+    execute: async ({ payload, auth, clientTimestamp, dbClient }) =>
       householdRegistrationService.registerHousehold({
         ...payload,
         registered_by: auth.userId,
         synced_client_timestamp: clientTimestamp,
         enforce_sync_duplicate_guard: true,
+        dbClient,
       }),
   },
   HOUSEHOLD_UPDATE: {
     entityType: "HOUSEHOLD",
     operationType: "UPDATE",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    getCurrentRecord: async ({ entityServerId }) =>
-      householdRegistrationRepository.getHouseholdSummaryById(entityServerId),
-    execute: async ({ entityServerId, payload, auth }) =>
+    getCurrentRecord: async ({ entityServerId, dbClient }) =>
+      householdRegistrationRepository.getHouseholdSummaryById(
+        entityServerId,
+        dbClient,
+      ),
+    execute: async ({ entityServerId, payload, auth, dbClient }) =>
       householdRegistrationService.updateHouseholdDetails({
         householdId: entityServerId,
         requester: getRequesterForSync(auth),
@@ -78,13 +135,14 @@ const ACTION_HANDLERS = {
           ...payload,
           registered_by: auth.userId,
         },
+        dbClient,
       }),
   },
   HOUSEHOLD_DEPART: {
     entityType: "HOUSEHOLD",
     operationType: "TIME_OUT",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    execute: async ({ entityServerId, payload, auth, clientTimestamp }) =>
+    execute: async ({ entityServerId, payload, auth, clientTimestamp, dbClient }) =>
       householdRegistrationService.departHousehold(
         entityServerId,
         {
@@ -93,171 +151,110 @@ const ACTION_HANDLERS = {
           allow_duplicate_departure_resolution: true,
         },
         getRequesterForSync(auth),
+        { dbClient },
       ),
   },
   STUB_CLAIM: {
     entityType: "STUB",
     operationType: "CLAIM",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    execute: async ({ entityServerId, auth, clientTimestamp }) =>
+    execute: async ({ entityServerId, auth, clientTimestamp, dbClient }) =>
       stubService.claimBarangayStub({
         id: entityServerId,
         user_id: auth.roleCode === ROLE_CODES.BARANGAY ? auth.userId : null,
         verified_by: auth.userId,
         claimed_at: clientTimestamp,
         override_barangay_id: null,
+        dbClient,
       }),
   },
   DISTRIBUTION_CREATE: {
     entityType: "DISTRIBUTION_TRANSACTION",
     operationType: "CREATE",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    execute: async ({ payload, auth }) =>
+    execute: async ({ payload, auth, dbClient }) =>
       distributionTransactionService.createDistributionTransaction({
         ...payload,
         verified_by: auth.userId,
         requester: getRequesterForSync(auth),
+        dbClient,
       }),
   },
   DISTRIBUTION_QR_CLAIM: {
     entityType: "DISTRIBUTION_TRANSACTION",
     operationType: "QR_SCAN",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    execute: async ({ payload, auth }) =>
+    execute: async ({ payload, auth, dbClient }) =>
       distributionTransactionService.claimDistributionTransactionFromQr({
         ...payload,
         verified_by: auth.userId,
         requester: getRequesterForSync(auth),
+        dbClient,
       }),
-  },
-  DISASTER_EVENT_CREATE: {
-    entityType: "DISASTER_EVENT",
-    operationType: "CREATE",
-    roles: [ROLE_CODES.MSWDO],
-    execute: async ({ payload, auth }) =>
-      disasterEventService.createDisasterEvent({
-        ...payload,
-        created_by: auth.userId,
-      }),
-  },
-  DISASTER_EVENT_EXTEND: {
-    entityType: "DISASTER_EVENT",
-    operationType: "UPDATE",
-    roles: [ROLE_CODES.MSWDO],
-    getCurrentRecord: async ({ entityServerId }) =>
-      disasterEventRepository.getDisasterEventById(entityServerId),
-    execute: async ({ entityServerId, payload }) =>
-      disasterEventService.extendDisasterEvent(entityServerId, payload.end_date),
-  },
-  DISASTER_EVENT_END: {
-    entityType: "DISASTER_EVENT",
-    operationType: "UPDATE",
-    roles: [ROLE_CODES.MSWDO],
-    getCurrentRecord: async ({ entityServerId }) =>
-      disasterEventRepository.getDisasterEventById(entityServerId),
-    execute: async ({ entityServerId }) =>
-      disasterEventService.endDisasterEvent(entityServerId),
   },
   INVENTORY_ITEM_CREATE: {
     entityType: "INVENTORY_ITEM",
     operationType: "CREATE",
     roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload, auth }) =>
-      inventoryItemService.createInventoryItem(payload, auth),
+    execute: async ({ payload, auth, dbClient }) =>
+      inventoryItemService.createInventoryItem(payload, auth, { dbClient }),
   },
   INVENTORY_ITEM_UPDATE: {
     entityType: "INVENTORY_ITEM",
     operationType: "UPDATE",
     roles: [ROLE_CODES.MAYOR],
-    getCurrentRecord: async ({ entityServerId }) =>
-      inventoryItemRepository.getInventoryItemById(entityServerId),
-    execute: async ({ entityServerId, payload, auth }) =>
-      inventoryItemService.updateInventoryItem(entityServerId, payload, auth),
+    getCurrentRecord: async ({ entityServerId, dbClient }) =>
+      inventoryItemRepository.getInventoryItemById(entityServerId, dbClient),
+    execute: async ({ entityServerId, payload, auth, dbClient }) =>
+      inventoryItemService.updateInventoryItem(entityServerId, payload, auth, {
+        dbClient,
+      }),
   },
   INVENTORY_BATCH_CREATE: {
     entityType: "INVENTORY_BATCH",
     operationType: "CREATE",
     roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload, auth }) =>
+    execute: async ({ payload, auth, dbClient }) =>
       inventoryBatchService.createInventoryBatch({
         ...payload,
         created_by: auth.userId,
+        dbClient,
       }),
   },
   SUPPLIER_CREATE: {
     entityType: "SUPPLIER",
     operationType: "CREATE",
     roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload }) => supplierService.createSupplier(payload),
+    execute: async ({ payload, dbClient }) =>
+      supplierService.createSupplier(payload, { dbClient }),
   },
   SUPPLIER_UPDATE: {
     entityType: "SUPPLIER",
     operationType: "UPDATE",
     roles: [ROLE_CODES.MAYOR],
-    getCurrentRecord: async ({ entityServerId }) =>
-      supplierRepository.getSupplierById(entityServerId),
-    execute: async ({ entityServerId, payload }) =>
-      supplierService.updateSupplier(entityServerId, payload),
+    getCurrentRecord: async ({ entityServerId, dbClient }) =>
+      supplierRepository.getSupplierById(entityServerId, dbClient),
+    execute: async ({ entityServerId, payload, dbClient }) =>
+      supplierService.updateSupplier(entityServerId, payload, { dbClient }),
   },
   INVENTORY_TRANSACTION_CREATE: {
     entityType: "INVENTORY_TRANSACTION",
     operationType: "INVENTORY_ADJUSTMENT",
     roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload, auth }) =>
+    execute: async ({ payload, auth, dbClient }) =>
       inventoryTransactionService.createInventoryTransaction({
         ...payload,
         performed_by: auth.userId,
+        dbClient,
       }),
   },
-  DONATION_NEED_CREATE: {
-    entityType: "DONATION_NEED",
-    operationType: "CREATE",
-    roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload, auth }) =>
-      donationService.createDonationNeed(payload, auth.userId),
-  },
-  DONATION_NEED_UPDATE: {
-    entityType: "DONATION_NEED",
-    operationType: "UPDATE",
-    roles: [ROLE_CODES.MAYOR],
-    getCurrentRecord: async ({ entityServerId }) =>
-      donationRepository.getDonationNeedById(entityServerId),
-    execute: async ({ entityServerId, payload }) =>
-      donationService.updateDonationNeed(entityServerId, payload),
-  },
-  DONATION_CREATE: {
-    entityType: "DONATION",
-    operationType: "DONATION_RECEIVE",
-    roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload, auth }) =>
-      donationService.createDonation(payload, auth),
-  },
-  DONATION_UPDATE: {
-    entityType: "DONATION",
-    operationType: "DONATION_UPDATE",
-    roles: [ROLE_CODES.MAYOR],
-    getCurrentRecord: async ({ entityServerId }) =>
-      donationRepository.getDonationById(entityServerId),
-    execute: async ({ entityServerId, payload, auth }) =>
-      donationService.updateDonation(entityServerId, payload, auth),
-  },
-  DONATION_ITEM_CREATE: {
-    entityType: "DONATION_ITEM",
-    operationType: "DONATION_RECEIVE",
-    roles: [ROLE_CODES.MAYOR],
-    execute: async ({ entityServerId, payload, auth }) =>
-      donationService.createDonationItem(entityServerId, payload, auth.userId),
-  },
-  DONATION_ITEM_UPDATE: {
-    entityType: "DONATION_ITEM",
-    operationType: "DONATION_UPDATE",
-    roles: [ROLE_CODES.MAYOR],
-    getCurrentRecord: async ({ entityServerId }) =>
-      donationRepository.getDonationItemById(entityServerId),
-    execute: async ({ entityServerId, payload, auth }) =>
-      donationService.updateDonationItem(entityServerId, payload, auth.userId),
-  },
 };
+
+const SUPPORTED_SYNC_ACTION_KEYS = Object.freeze(Object.keys(ACTION_HANDLERS));
+const SUPPORTED_SYNC_ACTION_KEY_SET = new Set(SUPPORTED_SYNC_ACTION_KEYS);
+
+const isSupportedSyncAction = (actionKey) =>
+  SUPPORTED_SYNC_ACTION_KEY_SET.has(actionKey);
 
 const ensureActionAccess = (actionConfig, auth) => {
   if (!actionConfig.roles.includes(auth.roleCode)) {
@@ -270,6 +267,7 @@ const maybeResolveTimestampConflict = async ({
   auth,
   actionConfig,
   syncTransaction,
+  dbClient,
 }) => {
   if (!actionConfig.getCurrentRecord || !entry.entity_server_id) {
     return {
@@ -284,6 +282,7 @@ const maybeResolveTimestampConflict = async ({
     entityServerId: entry.entity_server_id,
     payload: entry.payload,
     auth,
+    dbClient,
   });
 
   if (!currentRecord) {
@@ -320,57 +319,71 @@ const maybeResolveTimestampConflict = async ({
 
   const shouldApplyLocalChange = localTimestamp > serverTimestamp;
 
-  let conflictRecord = null;
-
-  try {
-    conflictRecord = await syncRepository.insertSyncConflict({
+  return {
+    hasConflict: true,
+    shouldApplyLocalChange,
+    currentRecord,
+    conflictPayload: {
       sync_transaction_id: syncTransaction.id,
       entity_type: actionConfig.entityType,
       entity_server_id: entry.entity_server_id,
       conflict_type: "UPDATED_AT_MISMATCH",
       local_payload_json: entry.payload,
       server_payload_json: currentRecord,
-      resolution_strategy: RESOLUTION_STRATEGY,
-      resolved_payload_json: {
-        winner: shouldApplyLocalChange ? "LOCAL" : "SERVER",
-        local_payload: entry.payload,
-        server_payload: currentRecord,
-      },
+      resolution_strategy: RESOLUTION_STRATEGY.LATEST_TIMESTAMP,
       resolved_by: auth.userId,
-      resolved_at: new Date().toISOString(),
       status: CONFLICT_STATUS.RESOLVED,
+    },
+  };
+};
+
+const recordConflictAndUpdateSyncTransactionSafely = async ({
+  auth,
+  actionConfig,
+  entry,
+  syncTransactionId,
+  transactionPayload,
+  conflictPayload,
+  dbClient,
+}) => {
+  try {
+    return await syncRepository.recordConflictAndUpdateSyncTransaction({
+      syncTransactionId,
+      transactionPayload,
+      conflictPayload,
+      dbClient,
     });
   } catch (error) {
+    const failureMessage =
+      "Sync conflict could not be recorded safely. Please retry synchronization.";
+
     await logErrorSafely({
       actor: auth,
       moduleName: "sync",
       errorCode: "SYNC_CONFLICT_RESOLUTION_FAILED",
-      errorMessage: `Failed to record sync conflict resolution for ${actionConfig.entityType}`,
+      errorMessage: `Failed to record sync conflict resolution for ${entry.action_key || actionConfig.entityType}`,
       error,
     });
-    throw error;
-  }
 
-  return {
-    hasConflict: true,
-    shouldApplyLocalChange,
-    currentRecord,
-    conflictRecord,
-  };
+    throw createConflictPersistenceError(failureMessage);
+  }
 };
 
 const processSingleSyncEntry = async (entry, auth) => {
   const actionConfig = ACTION_HANDLERS[entry.action_key];
 
-  if (!actionConfig) {
-    const error = new Error("Unsupported sync action");
-    error.statusCode = 400;
-    throw error;
+  if (!isSupportedSyncAction(entry.action_key)) {
+    throw createUnsupportedSyncActionError();
+  }
+
+  if (entry.entity_type !== actionConfig.entityType) {
+    throw createUnsupportedSyncActionError();
   }
 
   ensureActionAccess(actionConfig, auth);
 
-  const syncTransaction = await syncRepository.insertSyncTransaction({
+  const claimPayload = {
+    client_sync_id: entry.client_sync_id,
     device_id: entry.device_id,
     user_id: auth.userId,
     entity_type: actionConfig.entityType,
@@ -384,24 +397,80 @@ const processSingleSyncEntry = async (entry, auth) => {
     client_timestamp: entry.client_timestamp,
     sync_status: SYNC_STATUS.PENDING,
     error_message: null,
-  });
+  };
 
-  try {
-    const conflictState = await maybeResolveTimestampConflict({
-      entry,
-      auth,
-      actionConfig,
-      syncTransaction,
-    });
+  const runSyncProcessingTransaction =
+    syncRepository.withSyncProcessingTransaction ||
+    (async (callback) => callback(undefined));
+
+  return runSyncProcessingTransaction(async (dbClient) => {
+    const claim = await syncRepository.claimSyncTransaction(claimPayload, dbClient);
+
+    if (claim.decision === "REUSE_MISMATCH") {
+      throw createIdempotencyMismatchError();
+    }
+
+    if (claim.decision === "REPLAY_TERMINAL") {
+      return buildPersistedReplayResult({
+        entry,
+        syncTransaction: claim.transaction,
+        conflictRecord: claim.conflictRecord,
+      });
+    }
+
+    if (
+      claim.decision === "IN_PROGRESS" ||
+      claim.decision === "LEGACY_STALE_PENDING"
+    ) {
+      return buildPersistedReplayResult({
+        entry,
+        syncTransaction: claim.transaction,
+        message:
+          claim.decision === "LEGACY_STALE_PENDING"
+            ? "Sync is still pending server confirmation and requires controlled reconciliation before replay."
+            : "Sync is already being processed. Please retry shortly.",
+      });
+    }
+
+    const syncTransaction = claim.transaction;
+    let businessEffectApplied = false;
+
+    try {
+      const conflictState = await maybeResolveTimestampConflict({
+        entry,
+        auth,
+        actionConfig,
+        syncTransaction,
+        dbClient,
+      });
 
     if (conflictState.hasConflict && !conflictState.shouldApplyLocalChange) {
-      await syncRepository.updateSyncTransaction(syncTransaction.id, {
-        entity_server_id: entry.entity_server_id,
-        server_timestamp: new Date().toISOString(),
-        sync_status: SYNC_STATUS.CONFLICT,
-        error_message:
-          "Server version was newer. Server data was kept automatically.",
-      });
+      const serverTimestamp = new Date().toISOString();
+      const { syncTransaction: conflictTransaction, conflictRecord } =
+        await recordConflictAndUpdateSyncTransactionSafely({
+          auth,
+          actionConfig,
+          entry,
+          syncTransactionId: syncTransaction.id,
+          transactionPayload: {
+            entity_server_id: entry.entity_server_id,
+            server_timestamp: serverTimestamp,
+            sync_status: SYNC_STATUS.CONFLICT,
+            error_message:
+              "Server version was newer. Server data was kept automatically.",
+          },
+          conflictPayload: {
+            ...conflictState.conflictPayload,
+            resolved_payload_json: {
+              winner: "SERVER",
+              local_payload: entry.payload,
+              server_payload: conflictState.currentRecord,
+              authoritative_payload: conflictState.currentRecord,
+            },
+            resolved_at: serverTimestamp,
+          },
+          dbClient,
+        });
 
       return {
         client_sync_id: entry.client_sync_id,
@@ -409,7 +478,7 @@ const processSingleSyncEntry = async (entry, auth) => {
         sync_status: SYNC_STATUS.CONFLICT,
         message: "Conflict detected. Server version was newer and was kept.",
         data: conflictState.currentRecord,
-        conflict: conflictState.conflictRecord,
+        conflict: conflictRecord,
       };
     }
 
@@ -419,7 +488,9 @@ const processSingleSyncEntry = async (entry, auth) => {
       payload: entry.payload,
       auth,
       clientTimestamp: entry.client_timestamp,
+      dbClient,
     });
+    businessEffectApplied = true;
 
     const resolvedEntityServerId =
       entry.entity_server_id ||
@@ -434,12 +505,56 @@ const processSingleSyncEntry = async (entry, auth) => {
       ? SYNC_STATUS.CONFLICT
       : SYNC_STATUS.SYNCED;
 
-    await syncRepository.updateSyncTransaction(syncTransaction.id, {
-      entity_server_id: resolvedEntityServerId,
-      server_timestamp: new Date().toISOString(),
-      sync_status: nextStatus,
-      error_message: null,
-    });
+    const serverTimestamp = new Date().toISOString();
+    let conflictRecord = null;
+
+    if (conflictState.hasConflict) {
+      try {
+        const recordedConflict = await recordConflictAndUpdateSyncTransactionSafely({
+          auth,
+          actionConfig,
+          entry,
+          syncTransactionId: syncTransaction.id,
+          transactionPayload: {
+            entity_server_id: resolvedEntityServerId,
+            server_timestamp: serverTimestamp,
+            sync_status: nextStatus,
+            error_message: null,
+          },
+          conflictPayload: {
+            ...conflictState.conflictPayload,
+            entity_server_id: resolvedEntityServerId,
+            resolved_payload_json: {
+              winner: "LOCAL",
+              local_payload: entry.payload,
+              server_payload: conflictState.currentRecord,
+              authoritative_payload: result,
+            },
+            resolved_at: serverTimestamp,
+          },
+          dbClient,
+        });
+
+        conflictRecord = recordedConflict.conflictRecord;
+      } catch (error) {
+        throw markPostBusinessBookkeepingFailure(error);
+      }
+    } else {
+      try {
+        await syncRepository.updateSyncTransaction(
+          syncTransaction.id,
+          {
+            entity_server_id: resolvedEntityServerId,
+            server_timestamp: serverTimestamp,
+            sync_status: nextStatus,
+            error_message: null,
+          },
+          dbClient,
+        );
+      } catch (error) {
+        throw markPostBusinessBookkeepingFailure(error);
+      }
+    }
 
     return {
       client_sync_id: entry.client_sync_id,
@@ -449,50 +564,70 @@ const processSingleSyncEntry = async (entry, auth) => {
         ? "Conflict detected. Local version was newer and has been applied."
         : "Sync completed successfully.",
       data: result,
-      conflict: conflictState.conflictRecord,
+      conflict: conflictRecord,
     };
-  } catch (error) {
+    } catch (error) {
+      if (businessEffectApplied || error.rollbackSyncTransaction) {
+        await logErrorSafely({
+          actor: auth,
+          moduleName: "sync",
+          errorCode: "SYNC_POST_EFFECT_BOOKKEEPING_FAILED",
+          errorMessage: `Sync terminal bookkeeping failed after business processing for ${entry.action_key}`,
+          error,
+        });
+
+        throw error;
+      }
+
     const isDuplicateConflict =
       error.code === "DUPLICATE_HOUSEHOLD_REGISTRATION" ||
       error.code === "DUPLICATE_HOUSEHOLD_DEPARTURE" ||
       error.code === "STUB_ALREADY_CLAIMED";
 
     if (isDuplicateConflict) {
-      const requiresManualReview = error.code === "STUB_ALREADY_CLAIMED";
-      const conflictTransaction = await syncRepository.updateSyncTransaction(
-        syncTransaction.id,
-        {
-          entity_server_id: entry.entity_server_id || error.entityServerId || null,
-          server_timestamp: new Date().toISOString(),
-          sync_status: SYNC_STATUS.CONFLICT,
-          error_message: error.message || "Duplicate offline action was ignored",
-        },
-      );
-
-      let conflictRecord = null;
+      const serverTimestamp = new Date().toISOString();
+      const entityServerId = entry.entity_server_id || error.entityServerId || null;
 
       try {
-        conflictRecord = await syncRepository.insertSyncConflict({
+        const { syncTransaction: conflictTransaction, conflictRecord } =
+          await syncRepository.recordConflictAndUpdateSyncTransaction({
+            syncTransactionId: syncTransaction.id,
+            transactionPayload: {
+              entity_server_id: entityServerId,
+              server_timestamp: serverTimestamp,
+              sync_status: SYNC_STATUS.CONFLICT,
+              error_message:
+                error.message || "Duplicate offline action was ignored",
+            },
+            conflictPayload: {
+              sync_transaction_id: syncTransaction.id,
+              entity_type: actionConfig.entityType,
+              entity_server_id: entityServerId,
+              conflict_type: error.code,
+              local_payload_json: entry.payload,
+              server_payload_json: error.serverPayload || {},
+              resolution_strategy: RESOLUTION_STRATEGY.FIRST_ACCEPTED,
+              resolved_payload_json: {
+                winner: "SERVER",
+                reason: error.message,
+                local_payload: entry.payload,
+                server_payload: error.serverPayload || {},
+              },
+              resolved_by: auth.userId,
+              resolved_at: serverTimestamp,
+              status: CONFLICT_STATUS.RESOLVED,
+            },
+            dbClient,
+          });
+
+        return {
+          client_sync_id: entry.client_sync_id,
           sync_transaction_id: syncTransaction.id,
-          entity_type: actionConfig.entityType,
-          entity_server_id:
-            entry.entity_server_id || error.entityServerId || null,
-          conflict_type: error.code,
-          local_payload_json: entry.payload,
-          server_payload_json: error.serverPayload || {},
-          resolution_strategy: requiresManualReview
-            ? "MANUAL_REVIEW_REQUIRED"
-            : "EARLIEST_TIMESTAMP",
-          resolved_payload_json: {
-            winner: requiresManualReview ? null : "SERVER",
-            reason: error.message,
-          },
-          resolved_by: requiresManualReview ? null : auth.userId,
-          resolved_at: requiresManualReview ? null : new Date().toISOString(),
-          status: requiresManualReview
-            ? CONFLICT_STATUS.OPEN
-            : CONFLICT_STATUS.RESOLVED,
-        });
+          sync_status: SYNC_STATUS.CONFLICT,
+          message: error.message || "Duplicate offline action was ignored",
+          data: conflictTransaction,
+          conflict: conflictRecord,
+        };
       } catch (conflictError) {
         await logErrorSafely({
           actor: auth,
@@ -501,24 +636,66 @@ const processSingleSyncEntry = async (entry, auth) => {
           errorMessage: `Failed to record duplicate conflict for ${entry.action_key}`,
           error: conflictError,
         });
+
+        const failureMessage =
+          "Sync conflict could not be recorded safely. Please retry synchronization.";
+
+        await syncRepository.updateSyncTransaction(
+          syncTransaction.id,
+          {
+            entity_server_id: entityServerId,
+            server_timestamp: serverTimestamp,
+            sync_status: SYNC_STATUS.FAILED,
+            error_message: failureMessage,
+          },
+          dbClient,
+        );
+
+        return {
+          client_sync_id: entry.client_sync_id,
+          sync_transaction_id: syncTransaction.id,
+          sync_status: SYNC_STATUS.FAILED,
+          message: failureMessage,
+          data: null,
+          conflict: null,
+          error_code: createConflictPersistenceError(failureMessage).code,
+        };
       }
+    }
+
+    if (error.code === "SYNC_CONFLICT_PERSISTENCE_FAILED") {
+      await syncRepository.updateSyncTransaction(
+        syncTransaction.id,
+        {
+          entity_server_id: entry.entity_server_id || null,
+          server_timestamp: new Date().toISOString(),
+          sync_status: SYNC_STATUS.FAILED,
+          error_message: error.message,
+        },
+        dbClient,
+      );
 
       return {
         client_sync_id: entry.client_sync_id,
         sync_transaction_id: syncTransaction.id,
-        sync_status: SYNC_STATUS.CONFLICT,
-        message: error.message || "Duplicate offline action was ignored",
-        data: conflictTransaction,
-        conflict: conflictRecord,
+        sync_status: SYNC_STATUS.FAILED,
+        message: error.message,
+        data: null,
+        conflict: null,
+        error_code: error.code,
       };
     }
 
-    await syncRepository.updateSyncTransaction(syncTransaction.id, {
-      entity_server_id: entry.entity_server_id || null,
-      server_timestamp: new Date().toISOString(),
-      sync_status: SYNC_STATUS.FAILED,
-      error_message: error.message || "Sync failed",
-    });
+    await syncRepository.updateSyncTransaction(
+      syncTransaction.id,
+      {
+        entity_server_id: entry.entity_server_id || null,
+        server_timestamp: new Date().toISOString(),
+        sync_status: SYNC_STATUS.FAILED,
+        error_message: error.message || "Sync failed",
+      },
+      dbClient,
+    );
 
     await logErrorSafely({
       actor: auth,
@@ -536,7 +713,8 @@ const processSingleSyncEntry = async (entry, auth) => {
       data: null,
       conflict: null,
     };
-  }
+    }
+  });
 };
 
 const processSyncEntries = async ({ entries, auth }) => {
@@ -674,4 +852,6 @@ module.exports = {
   getSyncStatusSummary,
   getSyncConflictDetail,
   auditSyncRetryRequest,
+  isSupportedSyncAction,
+  SUPPORTED_SYNC_ACTION_KEYS,
 };

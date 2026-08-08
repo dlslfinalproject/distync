@@ -7,6 +7,7 @@ import { useAuth } from "../../context/AuthContext";
 import { ACCESS_MODES } from "../../utils/accessMode";
 import { ROLE_CODES } from "../../utils/roleSession";
 import { buildDisplayName } from "../../pages/settings/settingsHelpers";
+import { useSettingsUnsavedChangesGuard } from "../../pages/settings/SettingsUnsavedChangesContext";
 import { loadRoleSettingsState } from "../../features/settings/settingsService";
 
 const roleDetails = {
@@ -45,6 +46,7 @@ const getUserName = (user = {}) =>
 const SidebarAccountMenu = () => {
   const navigate = useNavigate();
   const { accessMode, authenticatedUser, clearSession, currentRole } = useAuth();
+  const { requestVoluntaryLogout } = useSettingsUnsavedChangesGuard();
   const [isOpen, setIsOpen] = useState(false);
   const [isLogoutDialogOpen, setIsLogoutDialogOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -104,6 +106,14 @@ const SidebarAccountMenu = () => {
 
   const handleLogoutClick = () => {
     setIsOpen(false);
+    const wasSettingsLogoutIntercepted = requestVoluntaryLogout({
+      onConfirm: completeLogout,
+    });
+
+    if (wasSettingsLogoutIntercepted) {
+      return;
+    }
+
     if (accessMode === ACCESS_MODES.DEVELOPMENT) {
       completeLogout();
       return;

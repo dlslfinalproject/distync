@@ -1,4 +1,16 @@
-const MAX_PROFILE_PICTURE_BASE64_LENGTH = 3 * 1024 * 1024;
+const {
+  PROFILE_PICTURE_MAX_FILE_SIZE_BYTES,
+  getMaxBase64EncodedLength,
+} = require("../services/profilePictureStorage.service");
+
+const PROFILE_PICTURE_MAX_BASE64_ENCODED_LENGTH = getMaxBase64EncodedLength(
+  PROFILE_PICTURE_MAX_FILE_SIZE_BYTES,
+);
+// Base64 expands binary content by 4/3. Keep a bounded transport ceiling above
+// the exact encoded 2 MiB image size; decoded size is enforced by storage.
+const PROFILE_PICTURE_MAX_BASE64_TRANSPORT_CHARS = Math.ceil(
+  PROFILE_PICTURE_MAX_FILE_SIZE_BYTES * 1.5,
+);
 const PHILIPPINE_CONTACT_NUMBER_PATTERN = /^\+639\d{9}$/;
 const PROFILE_PICTURE_ALLOWED_MIME_TYPES = new Set([
   "image/jpeg",
@@ -396,9 +408,12 @@ const validateSaveCurrentSettings = (req, res, next) => {
           });
         }
 
-        if (normalizedFileDataBase64.length > MAX_PROFILE_PICTURE_BASE64_LENGTH) {
+        if (
+          normalizedFileDataBase64.length >
+          PROFILE_PICTURE_MAX_BASE64_TRANSPORT_CHARS
+        ) {
           return res.status(400).json({
-            message: "Profile picture is too large.",
+            message: "Profile picture must be 2 MB or smaller.",
           });
         }
       } else if (
@@ -447,76 +462,9 @@ const validateSaveCurrentSettings = (req, res, next) => {
   }
 };
 
-const validateUploadCurrentProfilePicture = (req, res, next) => {
-  try {
-    const { fileName, mimeType, fileDataBase64 } = req.body || {};
-
-    const stringChecks = [
-      [fileName, "fileName"],
-      [mimeType, "mimeType"],
-      [fileDataBase64, "fileDataBase64"],
-    ];
-
-    for (const [value, fieldName] of stringChecks) {
-      const validationError = validateOptionalString(value, fieldName);
-
-      if (validationError) {
-        return res.status(400).json({ message: validationError });
-      }
-    }
-
-    const normalizedMimeType = String(mimeType || "").trim().toLowerCase();
-    const normalizedFileName = String(fileName || "").trim();
-    const normalizedFileDataBase64 = String(fileDataBase64 || "").trim();
-
-    if (!normalizedFileName) {
-      return res.status(400).json({ message: "fileName is required" });
-    }
-
-    if (!PROFILE_PICTURE_ALLOWED_MIME_TYPES.has(normalizedMimeType)) {
-      return res.status(400).json({
-        message: "Profile picture must be a JPG, PNG, or WEBP image.",
-      });
-    }
-
-    if (!normalizedFileDataBase64) {
-      return res.status(400).json({ message: "fileDataBase64 is required" });
-    }
-
-    if (isRejectedProfilePictureContent(normalizedFileDataBase64)) {
-      return res.status(400).json({
-        message:
-          "The selected profile picture could not be processed. Choose another image and try again.",
-      });
-    }
-
-    if (!/^[A-Za-z0-9+/=]+$/.test(normalizedFileDataBase64)) {
-      return res.status(400).json({
-        message: "fileDataBase64 must be a valid Base64 string",
-      });
-    }
-
-    if (normalizedFileDataBase64.length > MAX_PROFILE_PICTURE_BASE64_LENGTH) {
-      return res.status(400).json({
-        message: "Profile picture is too large.",
-      });
-    }
-
-    req.validatedBody = {
-      fileName: normalizedFileName,
-      mimeType: normalizedMimeType,
-      fileDataBase64: normalizedFileDataBase64,
-    };
-
-    return next();
-  } catch (_error) {
-    return res.status(500).json({
-      message: "Failed to validate profile picture upload payload",
-    });
-  }
-};
-
 module.exports = {
+  PROFILE_PICTURE_MAX_BASE64_ENCODED_LENGTH,
+  PROFILE_PICTURE_MAX_BASE64_TRANSPORT_CHARS,
+  PROFILE_PICTURE_MAX_FILE_SIZE_BYTES,
   validateSaveCurrentSettings,
-  validateUploadCurrentProfilePicture,
 };

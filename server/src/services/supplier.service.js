@@ -1,8 +1,15 @@
 const supplierRepository = require("../repositories/supplier.repository");
 const mayorReportExport = require("../utils/mayorReportExport");
 
-const ensureUniqueSupplierName = async (name, currentSupplierId = null) => {
-  const existingSupplier = await supplierRepository.getSupplierByName(name);
+const ensureUniqueSupplierName = async (
+  name,
+  currentSupplierId = null,
+  dbClient = null,
+) => {
+  const existingSupplier = await supplierRepository.getSupplierByName(
+    name,
+    dbClient || undefined,
+  );
 
   if (existingSupplier && existingSupplier.id !== currentSupplierId) {
     const error = new Error("Supplier name already exists");
@@ -19,13 +26,16 @@ const getSupplierById = async (id) => {
   return supplierRepository.getSupplierById(id);
 };
 
-const createSupplier = async (supplierData) => {
-  await ensureUniqueSupplierName(supplierData.name);
-  return supplierRepository.insertSupplier(supplierData);
+const createSupplier = async (supplierData, options = {}) => {
+  await ensureUniqueSupplierName(supplierData.name, null, options.dbClient);
+  return supplierRepository.insertSupplier(supplierData, options.dbClient);
 };
 
-const updateSupplier = async (id, supplierData) => {
-  const existingSupplier = await supplierRepository.getSupplierById(id);
+const updateSupplier = async (id, supplierData, options = {}) => {
+  const existingSupplier = await supplierRepository.getSupplierById(
+    id,
+    options.dbClient,
+  );
 
   if (!existingSupplier) {
     const error = new Error("Supplier not found");
@@ -33,9 +43,9 @@ const updateSupplier = async (id, supplierData) => {
     throw error;
   }
 
-  await ensureUniqueSupplierName(supplierData.name, id);
+  await ensureUniqueSupplierName(supplierData.name, id, options.dbClient);
 
-  return supplierRepository.updateSupplier(id, supplierData);
+  return supplierRepository.updateSupplier(id, supplierData, options.dbClient);
 };
 
 const exportSuppliers = async (filters, format) => {

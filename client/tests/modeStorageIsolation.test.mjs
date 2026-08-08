@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
 
 import { ACCESS_MODES } from "../src/utils/accessMode.js";
 import {
@@ -225,6 +226,26 @@ test("new sync queue records include mode metadata and remain hidden across mode
     ),
     false,
   );
+});
+
+test("sync queue preserves the original client sync id when updating an unsynced grouped entry", async () => {
+  const source = await fs.readFile(
+    new URL("../src/offline/syncQueue.js", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /id:\s*existingEntry\.id/);
+  assert.match(source, /clientTimestamp:\s*existingEntry\.clientTimestamp/);
+});
+
+test("sync service does not mark in-progress replay responses as synced locally", async () => {
+  const source = await fs.readFile(
+    new URL("../src/offline/syncService.js", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /isTerminalResult/);
+  assert.match(source, /syncedAt:\s*isTerminalResult \? getIsoNow\(\) : null/);
 });
 
 test("runtime cache names differ by mode and cleanup targets only known distync caches", () => {

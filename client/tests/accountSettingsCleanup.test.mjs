@@ -42,3 +42,12 @@ test("settings page no longer loads all barangays just to display the assigned b
   assert.doesNotMatch(source, /assignedBarangayName/);
   assert.match(source, /fetchUnreadNotificationCount/);
 });
+
+test("profile picture size copy stays user-facing at 2 MB", async () => {
+  const profileSectionSource = await fs.readFile(profileSectionSourcePath, "utf8");
+  const settingsPageSource = await fs.readFile(settingsPageSourcePath, "utf8");
+
+  assert.match(profileSectionSource, /JPG, PNG, or WEBP up to 2 MB\./);
+  assert.match(settingsPageSource, /Profile picture must be 2 MB or smaller\./);
+  assert.doesNotMatch(settingsPageSource, /3 MiB|3 MB|Base64 character/i);
+});

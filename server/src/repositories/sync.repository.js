@@ -1,8 +1,33 @@
 const pool = require("../config/db");
 
+const ACTIVE_PENDING_TIMEOUT_MINUTES = 5;
+const RECOVERY_PROTOCOL_VERSION = 2;
+
+const normalizeJsonValue = (value) => {
+  if (Array.isArray(value)) {
+    return value.map(normalizeJsonValue);
+  }
+
+  if (value && typeof value === "object") {
+    return Object.keys(value)
+      .sort()
+      .reduce((normalized, key) => {
+        normalized[key] = normalizeJsonValue(value[key]);
+        return normalized;
+      }, {});
+  }
+
+  return value;
+};
+
+const stableStringifyJson = (value) =>
+  JSON.stringify(normalizeJsonValue(value || {}));
+
 const insertSyncTransaction = async (payload, dbClient = pool) => {
   const query = `
     INSERT INTO sync_transactions (
+      client_sync_id,
+      processing_protocol_version,
       device_id,
       user_id,
       entity_type,
@@ -17,11 +42,13 @@ const insertSyncTransaction = async (payload, dbClient = pool) => {
       created_at,
       updated_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, NOW(), NOW())
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, NOW(), NOW())
     RETURNING *
   `;
 
   const values = [
+    payload.client_sync_id,
+    payload.processing_protocol_version || RECOVERY_PROTOCOL_VERSION,
     payload.device_id || null,
     payload.user_id || null,
     payload.entity_type,
@@ -37,6 +64,189 @@ const insertSyncTransaction = async (payload, dbClient = pool) => {
 
   const result = await dbClient.query(query, values);
   return result.rows[0];
+};
+
+const getConflictForSyncTransaction = async (syncTransactionId, dbClient = pool) => {
+  const query = `
+    SELECT *
+    FROM sync_conflicts
+    WHERE sync_transaction_id = $1
+    ORDER BY created_at DESC
+    LIMIT 1
+  `;
+
+  const result = await dbClient.query(query, [syncTransactionId]);
+  return result.rows[0] || null;
+};
+
+const isSameSyncRequest = (existingTransaction, payload) => {
+  return (
+    existingTransaction.user_id === payload.user_id &&
+    (existingTransaction.device_id || null) === (payload.device_id || null) &&
+    existingTransaction.entity_type === payload.entity_type &&
+    (existingTransaction.entity_local_id || null) ===
+      (payload.entity_local_id || null) &&
+    (existingTransaction.entity_server_id || null) ===
+      (payload.entity_server_id || null) &&
+    existingTransaction.operation_type === payload.operation_type &&
+    stableStringifyJson(existingTransaction.payload_json) ===
+      stableStringifyJson(payload.payload_json) &&
+    new Date(existingTransaction.client_timestamp).getTime() ===
+      new Date(payload.client_timestamp).getTime()
+  );
+};
+
+const claimExistingSyncTransaction = async ({ payload, dbClient }) => {
+  const existingResult = await dbClient.query(
+    `
+      SELECT *,
+        updated_at < NOW() - ($2::int * INTERVAL '1 minute') AS is_stale_pending
+      FROM sync_transactions
+      WHERE client_sync_id = $1
+      FOR UPDATE
+    `,
+    [payload.client_sync_id, ACTIVE_PENDING_TIMEOUT_MINUTES],
+  );
+
+  const existingTransaction = existingResult.rows[0] || null;
+
+  if (!existingTransaction || !isSameSyncRequest(existingTransaction, payload)) {
+    return {
+      decision: "REUSE_MISMATCH",
+      transaction: existingTransaction,
+    };
+  }
+
+  if (existingTransaction.sync_status === "FAILED") {
+    const retryResult = await dbClient.query(
+      `
+        UPDATE sync_transactions
+        SET
+          sync_status = 'PENDING',
+          error_message = NULL,
+          processing_protocol_version = COALESCE(processing_protocol_version, $2),
+          updated_at = NOW()
+        WHERE id = $1
+          AND sync_status = 'FAILED'
+        RETURNING *
+      `,
+      [existingTransaction.id, RECOVERY_PROTOCOL_VERSION],
+    );
+
+    return {
+      decision: "CLAIMED_RETRY",
+      transaction: retryResult.rows[0],
+    };
+  }
+
+  if (existingTransaction.sync_status === "PENDING") {
+    if (
+      existingTransaction.is_stale_pending &&
+      existingTransaction.processing_protocol_version === RECOVERY_PROTOCOL_VERSION
+    ) {
+      const retryResult = await dbClient.query(
+        `
+          UPDATE sync_transactions
+          SET
+            error_message = NULL,
+            updated_at = NOW()
+          WHERE id = $1
+            AND sync_status = 'PENDING'
+          RETURNING *
+        `,
+        [existingTransaction.id],
+      );
+
+      return {
+        decision: "CLAIMED_STALE_RETRY",
+        transaction: retryResult.rows[0],
+      };
+    }
+
+    return {
+      decision: existingTransaction.is_stale_pending
+        ? "LEGACY_STALE_PENDING"
+        : "IN_PROGRESS",
+      transaction: existingTransaction,
+    };
+  }
+
+  const conflictRecord =
+    existingTransaction.sync_status === "CONFLICT"
+      ? await getConflictForSyncTransaction(existingTransaction.id, dbClient)
+      : null;
+
+  return {
+    decision: "REPLAY_TERMINAL",
+    transaction: existingTransaction,
+    conflictRecord,
+  };
+};
+
+const claimSyncTransaction = async (payload, dbClient = null) => {
+  if (dbClient) {
+    try {
+      const inserted = await insertSyncTransaction(payload, dbClient);
+
+      return {
+        decision: "CLAIMED_NEW",
+        transaction: inserted,
+      };
+    } catch (error) {
+      if (
+        error.code !== "23505" ||
+        error.constraint !== "sync_transactions_client_sync_id_unique"
+      ) {
+        throw error;
+      }
+    }
+
+    return claimExistingSyncTransaction({ payload, dbClient });
+  }
+
+  const insertClient = await pool.connect();
+
+  try {
+    await insertClient.query("BEGIN");
+
+    const inserted = await insertSyncTransaction(payload, insertClient);
+    await insertClient.query("COMMIT");
+
+    return {
+      decision: "CLAIMED_NEW",
+      transaction: inserted,
+    };
+  } catch (error) {
+    await insertClient.query("ROLLBACK");
+
+    if (
+      error.code !== "23505" ||
+      error.constraint !== "sync_transactions_client_sync_id_unique"
+    ) {
+      throw error;
+    }
+  } finally {
+    insertClient.release();
+  }
+
+  const lockClient = await pool.connect();
+
+  try {
+    await lockClient.query("BEGIN");
+
+    const claim = await claimExistingSyncTransaction({
+      payload,
+      dbClient: lockClient,
+    });
+
+    await lockClient.query("COMMIT");
+    return claim;
+  } catch (error) {
+    await lockClient.query("ROLLBACK");
+    throw error;
+  } finally {
+    lockClient.release();
+  }
 };
 
 const updateSyncTransaction = async (id, payload, dbClient = pool) => {
@@ -222,13 +432,80 @@ const getLastSuccessfulSyncAtByUser = async ({ userId }, dbClient = pool) => {
   return result.rows[0]?.last_successful_sync_at || null;
 };
 
+const recordConflictAndUpdateSyncTransaction = async ({
+  syncTransactionId,
+  conflictPayload,
+  transactionPayload,
+  dbClient = null,
+}) => {
+  if (dbClient) {
+    const conflictRecord = await insertSyncConflict(conflictPayload, dbClient);
+    const syncTransaction = await updateSyncTransaction(
+      syncTransactionId,
+      transactionPayload,
+      dbClient,
+    );
+
+    return {
+      conflictRecord,
+      syncTransaction,
+    };
+  }
+
+  const txClient = await pool.connect();
+
+  try {
+    await txClient.query("BEGIN");
+
+    const conflictRecord = await insertSyncConflict(conflictPayload, txClient);
+    const syncTransaction = await updateSyncTransaction(
+      syncTransactionId,
+      transactionPayload,
+      txClient,
+    );
+
+    await txClient.query("COMMIT");
+
+    return {
+      conflictRecord,
+      syncTransaction,
+    };
+  } catch (error) {
+    await txClient.query("ROLLBACK");
+    throw error;
+  } finally {
+    txClient.release();
+  }
+};
+
+const withSyncProcessingTransaction = async (callback) => {
+  const dbClient = await pool.connect();
+
+  try {
+    await dbClient.query("BEGIN");
+    const result = await callback(dbClient);
+    await dbClient.query("COMMIT");
+    return result;
+  } catch (error) {
+    await dbClient.query("ROLLBACK");
+    throw error;
+  } finally {
+    dbClient.release();
+  }
+};
+
 module.exports = {
+  RECOVERY_PROTOCOL_VERSION,
   insertSyncTransaction,
+  claimSyncTransaction,
   updateSyncTransaction,
   insertSyncConflict,
+  getConflictForSyncTransaction,
+  recordConflictAndUpdateSyncTransaction,
   getSyncTransactionsByUser,
   getSyncConflictsByUser,
   getSyncConflictByIdForUser,
   countOpenSyncConflictsByUser,
   getLastSuccessfulSyncAtByUser,
+  withSyncProcessingTransaction,
 };
