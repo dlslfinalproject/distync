@@ -2,6 +2,11 @@ const crypto = require("crypto");
 const { createClient } = require("@supabase/supabase-js");
 
 const PROFILE_PICTURE_MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
+const getMaxBase64EncodedLength = (binaryByteLength) =>
+  4 * Math.ceil(binaryByteLength / 3);
+const PROFILE_PICTURE_MAX_BASE64_ENCODED_LENGTH = getMaxBase64EncodedLength(
+  PROFILE_PICTURE_MAX_FILE_SIZE_BYTES,
+);
 const PROFILE_PICTURE_SIGNED_URL_TTL_SECONDS = 10 * 60;
 const PROFILE_PICTURE_ALLOWED_MIME_TYPES = new Set([
   "image/jpeg",
@@ -170,7 +175,7 @@ const parseProfilePictureUpload = ({
   }
 
   if (buffer.length > PROFILE_PICTURE_MAX_FILE_SIZE_BYTES) {
-    const error = new Error("Profile picture is too large.");
+    const error = new Error("Profile picture must be 2 MB or smaller.");
     error.statusCode = 400;
     throw error;
   }
@@ -302,11 +307,14 @@ const removeProfilePicture = async (profilePicturePath = "") => {
 
 module.exports = {
   PROFILE_PICTURE_ALLOWED_MIME_TYPES,
+  PROFILE_PICTURE_MAX_BASE64_ENCODED_LENGTH,
   PROFILE_PICTURE_MAX_FILE_SIZE_BYTES,
   PROFILE_PICTURE_SIGNED_URL_TTL_SECONDS,
   createSignedProfilePictureUrl,
+  getMaxBase64EncodedLength,
   getStorageConfig,
   normalizeStoragePath,
+  parseProfilePictureUpload,
   removeProfilePicture,
   uploadProfilePicture,
 };

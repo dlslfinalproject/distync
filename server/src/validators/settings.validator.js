@@ -1,4 +1,16 @@
-const MAX_PROFILE_PICTURE_BASE64_LENGTH = 3 * 1024 * 1024;
+const {
+  PROFILE_PICTURE_MAX_FILE_SIZE_BYTES,
+  getMaxBase64EncodedLength,
+} = require("../services/profilePictureStorage.service");
+
+const PROFILE_PICTURE_MAX_BASE64_ENCODED_LENGTH = getMaxBase64EncodedLength(
+  PROFILE_PICTURE_MAX_FILE_SIZE_BYTES,
+);
+// Base64 expands binary content by 4/3. Keep a bounded transport ceiling above
+// the exact encoded 2 MiB image size; decoded size is enforced by storage.
+const PROFILE_PICTURE_MAX_BASE64_TRANSPORT_CHARS = Math.ceil(
+  PROFILE_PICTURE_MAX_FILE_SIZE_BYTES * 1.5,
+);
 const PHILIPPINE_CONTACT_NUMBER_PATTERN = /^\+639\d{9}$/;
 const PROFILE_PICTURE_ALLOWED_MIME_TYPES = new Set([
   "image/jpeg",
@@ -396,9 +408,12 @@ const validateSaveCurrentSettings = (req, res, next) => {
           });
         }
 
-        if (normalizedFileDataBase64.length > MAX_PROFILE_PICTURE_BASE64_LENGTH) {
+        if (
+          normalizedFileDataBase64.length >
+          PROFILE_PICTURE_MAX_BASE64_TRANSPORT_CHARS
+        ) {
           return res.status(400).json({
-            message: "Profile picture is too large.",
+            message: "Profile picture must be 2 MB or smaller.",
           });
         }
       } else if (
@@ -448,5 +463,8 @@ const validateSaveCurrentSettings = (req, res, next) => {
 };
 
 module.exports = {
+  PROFILE_PICTURE_MAX_BASE64_ENCODED_LENGTH,
+  PROFILE_PICTURE_MAX_BASE64_TRANSPORT_CHARS,
+  PROFILE_PICTURE_MAX_FILE_SIZE_BYTES,
   validateSaveCurrentSettings,
 };

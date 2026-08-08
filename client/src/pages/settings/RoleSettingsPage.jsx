@@ -65,6 +65,7 @@ import {
   createProfilePictureDraftState,
   getProfilePictureUiState,
   hasProfilePictureDraftChanges,
+  isProfilePictureFileSizeAllowed,
   isSelectedProfilePictureFile,
   PROFILE_PICTURE_ACTIONS,
 } from "./profilePictureDraft";
@@ -284,7 +285,6 @@ const tableStyles = {
   },
 };
 
-const PROFILE_PICTURE_MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
 const PROFILE_PICTURE_ALLOWED_MIME_TYPES = new Set([
   "image/jpeg",
   "image/jpg",
@@ -1580,11 +1580,11 @@ const RoleSettingsPage = () => {
       return;
     }
 
-    if (selectedFile.size > PROFILE_PICTURE_MAX_FILE_SIZE_BYTES) {
+    if (!isProfilePictureFileSizeAllowed(selectedFile)) {
       setToast({
         type: "error",
         title: "Profile Picture Error",
-        message: "Profile picture is too large. Please choose an image under 2 MB.",
+        message: "Profile picture must be 2 MB or smaller.",
       });
       event.target.value = "";
       return;

@@ -8,8 +8,10 @@ import {
   getProfilePicturePresentation,
   getProfilePictureUiState,
   hasProfilePictureDraftChanges,
+  isProfilePictureFileSizeAllowed,
   isSelectedProfilePictureFile,
   PROFILE_PICTURE_ACTIONS,
+  PROFILE_PICTURE_MAX_FILE_SIZE_BYTES,
 } from "../src/pages/settings/profilePictureDraft.js";
 
 test("profile picture draft selection creates a local preview replacement state", () => {
@@ -120,4 +122,31 @@ test("invalid replacement state is collapsed to unchanged when the selected file
   assert.deepEqual(draft, createProfilePictureDraftState());
   assert.equal(isSelectedProfilePictureFile(draft.selectedPictureFile), false);
   assert.equal(hasProfilePictureDraftChanges(draft), false);
+});
+
+test("profile picture file size validation accepts the 2 MB boundary", () => {
+  const justUnderLimit = new File(
+    [new Uint8Array(PROFILE_PICTURE_MAX_FILE_SIZE_BYTES - 1)],
+    "under-limit.png",
+    { type: "image/png" },
+  );
+  const atLimit = new File(
+    [new Uint8Array(PROFILE_PICTURE_MAX_FILE_SIZE_BYTES)],
+    "at-limit.png",
+    { type: "image/png" },
+  );
+
+  assert.equal(PROFILE_PICTURE_MAX_FILE_SIZE_BYTES, 2 * 1024 * 1024);
+  assert.equal(isProfilePictureFileSizeAllowed(justUnderLimit), true);
+  assert.equal(isProfilePictureFileSizeAllowed(atLimit), true);
+});
+
+test("profile picture file size validation rejects files above 2 MB", () => {
+  const overLimit = new File(
+    [new Uint8Array(PROFILE_PICTURE_MAX_FILE_SIZE_BYTES + 1)],
+    "over-limit.png",
+    { type: "image/png" },
+  );
+
+  assert.equal(isProfilePictureFileSizeAllowed(overLimit), false);
 });

@@ -175,6 +175,7 @@ DISTYNC profile pictures are now treated as controlled authenticated account dat
 - Private profile pictures are stored in the `distync-profile-pictures` Supabase Storage bucket.
 - The database stores a private object path and update metadata, not a permanent public URL.
 - PostgreSQL persists `profile_picture_path` and related metadata only. Base64 profile-picture data is not stored.
+- Base64 image content is used only as transient request transport during Save Changes.
 - Display uses short-lived signed URLs returned by the backend.
 - Signed URLs are not stored in PostgreSQL.
 - Raw profile image data and Blob preview URLs are not stored in localStorage.
@@ -194,6 +195,10 @@ DISTYNC profile pictures are now treated as controlled authenticated account dat
 - Maximum size: 2 MB
 - SVG is not accepted
 - Empty uploads are rejected
+- The backend keeps the decoded image/file limit at 2 MiB. Because Base64
+  transport expands binary content by about 4/3, the request validator allows
+  a larger bounded encoded string before the storage service decodes the image
+  and enforces the 2 MB user-facing limit.
 - Profile pictures are separate from household family-head verification photos
 
 ### Cache and session behavior
