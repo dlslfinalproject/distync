@@ -39,7 +39,7 @@ const getSuppliers = async (filters) => {
   return result.rows;
 };
 
-const getSupplierById = async (id) => {
+const getSupplierById = async (id, dbClient = pool) => {
   const query = `
     SELECT
       id,
@@ -55,11 +55,11 @@ const getSupplierById = async (id) => {
     WHERE id = $1
   `;
 
-  const result = await pool.query(query, [id]);
+  const result = await dbClient.query(query, [id]);
   return result.rows[0] || null;
 };
 
-const getSupplierByName = async (name) => {
+const getSupplierByName = async (name, dbClient = pool) => {
   const query = `
     SELECT
       id,
@@ -68,11 +68,11 @@ const getSupplierByName = async (name) => {
     WHERE name = $1
   `;
 
-  const result = await pool.query(query, [name]);
+  const result = await dbClient.query(query, [name]);
   return result.rows[0] || null;
 };
 
-const insertSupplier = async (supplierData) => {
+const insertSupplier = async (supplierData, dbClient = pool) => {
   const query = `
     INSERT INTO suppliers (
       name,
@@ -106,11 +106,11 @@ const insertSupplier = async (supplierData) => {
     supplierData.notes,
   ];
 
-  const result = await pool.query(query, values);
+  const result = await dbClient.query(query, values);
   return result.rows[0];
 };
 
-const updateSupplier = async (id, supplierData) => {
+const updateSupplier = async (id, supplierData, dbClient = pool) => {
   const query = `
     UPDATE suppliers
     SET name = $2,
@@ -143,7 +143,7 @@ const updateSupplier = async (id, supplierData) => {
     supplierData.notes,
   ];
 
-  const result = await pool.query(query, values);
+  const result = await dbClient.query(query, values);
   return result.rows[0] || null;
 };
 

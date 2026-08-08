@@ -2,16 +2,12 @@ const syncRepository = require("../repositories/sync.repository");
 const householdRegistrationRepository = require("../repositories/householdRegistration.repository");
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const supplierRepository = require("../repositories/supplier.repository");
-const donationRepository = require("../repositories/donation.repository");
-const disasterEventRepository = require("../repositories/disasterEvent.repository");
 const householdRegistrationService = require("./householdRegistration.service");
 const distributionTransactionService = require("./distributionTransaction.service");
 const inventoryItemService = require("./inventoryItem.service");
 const inventoryBatchService = require("./inventoryBatch.service");
 const supplierService = require("./supplier.service");
 const inventoryTransactionService = require("./inventoryTransaction.service");
-const donationService = require("./donation.service");
-const disasterEventService = require("./disasterEvent.service");
 const stubService = require("./stub.service");
 const { ROLE_CODES } = require("../modules/auth/auth.middleware");
 const { logAuditSafely, logErrorSafely, pickDefined } = require("../utils/systemLog");
@@ -51,6 +47,13 @@ const createIdempotencyMismatchError = () => {
   const error = new Error("client_sync_id was already used for a different sync request");
   error.code = "IDEMPOTENCY_KEY_REUSE_MISMATCH";
   error.statusCode = 409;
+  return error;
+};
+
+const createUnsupportedSyncActionError = () => {
+  const error = new Error("This type of change is not supported for offline synchronization.");
+  error.code = "SYNC_OPERATION_NOT_SUPPORTED";
+  error.statusCode = 400;
   return error;
 };
 
@@ -101,21 +104,25 @@ const ACTION_HANDLERS = {
     entityType: "HOUSEHOLD",
     operationType: "CREATE",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    execute: async ({ payload, auth, clientTimestamp }) =>
+    execute: async ({ payload, auth, clientTimestamp, dbClient }) =>
       householdRegistrationService.registerHousehold({
         ...payload,
         registered_by: auth.userId,
         synced_client_timestamp: clientTimestamp,
         enforce_sync_duplicate_guard: true,
+        dbClient,
       }),
   },
   HOUSEHOLD_UPDATE: {
     entityType: "HOUSEHOLD",
     operationType: "UPDATE",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    getCurrentRecord: async ({ entityServerId }) =>
-      householdRegistrationRepository.getHouseholdSummaryById(entityServerId),
-    execute: async ({ entityServerId, payload, auth }) =>
+    getCurrentRecord: async ({ entityServerId, dbClient }) =>
+      householdRegistrationRepository.getHouseholdSummaryById(
+        entityServerId,
+        dbClient,
+      ),
+    execute: async ({ entityServerId, payload, auth, dbClient }) =>
       householdRegistrationService.updateHouseholdDetails({
         householdId: entityServerId,
         requester: getRequesterForSync(auth),
@@ -123,13 +130,14 @@ const ACTION_HANDLERS = {
           ...payload,
           registered_by: auth.userId,
         },
+        dbClient,
       }),
   },
   HOUSEHOLD_DEPART: {
     entityType: "HOUSEHOLD",
     operationType: "TIME_OUT",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    execute: async ({ entityServerId, payload, auth, clientTimestamp }) =>
+    execute: async ({ entityServerId, payload, auth, clientTimestamp, dbClient }) =>
       householdRegistrationService.departHousehold(
         entityServerId,
         {
@@ -138,171 +146,110 @@ const ACTION_HANDLERS = {
           allow_duplicate_departure_resolution: true,
         },
         getRequesterForSync(auth),
+        { dbClient },
       ),
   },
   STUB_CLAIM: {
     entityType: "STUB",
     operationType: "CLAIM",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    execute: async ({ entityServerId, auth, clientTimestamp }) =>
+    execute: async ({ entityServerId, auth, clientTimestamp, dbClient }) =>
       stubService.claimBarangayStub({
         id: entityServerId,
         user_id: auth.roleCode === ROLE_CODES.BARANGAY ? auth.userId : null,
         verified_by: auth.userId,
         claimed_at: clientTimestamp,
         override_barangay_id: null,
+        dbClient,
       }),
   },
   DISTRIBUTION_CREATE: {
     entityType: "DISTRIBUTION_TRANSACTION",
     operationType: "CREATE",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    execute: async ({ payload, auth }) =>
+    execute: async ({ payload, auth, dbClient }) =>
       distributionTransactionService.createDistributionTransaction({
         ...payload,
         verified_by: auth.userId,
         requester: getRequesterForSync(auth),
+        dbClient,
       }),
   },
   DISTRIBUTION_QR_CLAIM: {
     entityType: "DISTRIBUTION_TRANSACTION",
     operationType: "QR_SCAN",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    execute: async ({ payload, auth }) =>
+    execute: async ({ payload, auth, dbClient }) =>
       distributionTransactionService.claimDistributionTransactionFromQr({
         ...payload,
         verified_by: auth.userId,
         requester: getRequesterForSync(auth),
+        dbClient,
       }),
-  },
-  DISASTER_EVENT_CREATE: {
-    entityType: "DISASTER_EVENT",
-    operationType: "CREATE",
-    roles: [ROLE_CODES.MSWDO],
-    execute: async ({ payload, auth }) =>
-      disasterEventService.createDisasterEvent({
-        ...payload,
-        created_by: auth.userId,
-      }),
-  },
-  DISASTER_EVENT_EXTEND: {
-    entityType: "DISASTER_EVENT",
-    operationType: "UPDATE",
-    roles: [ROLE_CODES.MSWDO],
-    getCurrentRecord: async ({ entityServerId }) =>
-      disasterEventRepository.getDisasterEventById(entityServerId),
-    execute: async ({ entityServerId, payload }) =>
-      disasterEventService.extendDisasterEvent(entityServerId, payload.end_date),
-  },
-  DISASTER_EVENT_END: {
-    entityType: "DISASTER_EVENT",
-    operationType: "UPDATE",
-    roles: [ROLE_CODES.MSWDO],
-    getCurrentRecord: async ({ entityServerId }) =>
-      disasterEventRepository.getDisasterEventById(entityServerId),
-    execute: async ({ entityServerId }) =>
-      disasterEventService.endDisasterEvent(entityServerId),
   },
   INVENTORY_ITEM_CREATE: {
     entityType: "INVENTORY_ITEM",
     operationType: "CREATE",
     roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload, auth }) =>
-      inventoryItemService.createInventoryItem(payload, auth),
+    execute: async ({ payload, auth, dbClient }) =>
+      inventoryItemService.createInventoryItem(payload, auth, { dbClient }),
   },
   INVENTORY_ITEM_UPDATE: {
     entityType: "INVENTORY_ITEM",
     operationType: "UPDATE",
     roles: [ROLE_CODES.MAYOR],
-    getCurrentRecord: async ({ entityServerId }) =>
-      inventoryItemRepository.getInventoryItemById(entityServerId),
-    execute: async ({ entityServerId, payload, auth }) =>
-      inventoryItemService.updateInventoryItem(entityServerId, payload, auth),
+    getCurrentRecord: async ({ entityServerId, dbClient }) =>
+      inventoryItemRepository.getInventoryItemById(entityServerId, dbClient),
+    execute: async ({ entityServerId, payload, auth, dbClient }) =>
+      inventoryItemService.updateInventoryItem(entityServerId, payload, auth, {
+        dbClient,
+      }),
   },
   INVENTORY_BATCH_CREATE: {
     entityType: "INVENTORY_BATCH",
     operationType: "CREATE",
     roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload, auth }) =>
+    execute: async ({ payload, auth, dbClient }) =>
       inventoryBatchService.createInventoryBatch({
         ...payload,
         created_by: auth.userId,
+        dbClient,
       }),
   },
   SUPPLIER_CREATE: {
     entityType: "SUPPLIER",
     operationType: "CREATE",
     roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload }) => supplierService.createSupplier(payload),
+    execute: async ({ payload, dbClient }) =>
+      supplierService.createSupplier(payload, { dbClient }),
   },
   SUPPLIER_UPDATE: {
     entityType: "SUPPLIER",
     operationType: "UPDATE",
     roles: [ROLE_CODES.MAYOR],
-    getCurrentRecord: async ({ entityServerId }) =>
-      supplierRepository.getSupplierById(entityServerId),
-    execute: async ({ entityServerId, payload }) =>
-      supplierService.updateSupplier(entityServerId, payload),
+    getCurrentRecord: async ({ entityServerId, dbClient }) =>
+      supplierRepository.getSupplierById(entityServerId, dbClient),
+    execute: async ({ entityServerId, payload, dbClient }) =>
+      supplierService.updateSupplier(entityServerId, payload, { dbClient }),
   },
   INVENTORY_TRANSACTION_CREATE: {
     entityType: "INVENTORY_TRANSACTION",
     operationType: "INVENTORY_ADJUSTMENT",
     roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload, auth }) =>
+    execute: async ({ payload, auth, dbClient }) =>
       inventoryTransactionService.createInventoryTransaction({
         ...payload,
         performed_by: auth.userId,
+        dbClient,
       }),
   },
-  DONATION_NEED_CREATE: {
-    entityType: "DONATION_NEED",
-    operationType: "CREATE",
-    roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload, auth }) =>
-      donationService.createDonationNeed(payload, auth.userId),
-  },
-  DONATION_NEED_UPDATE: {
-    entityType: "DONATION_NEED",
-    operationType: "UPDATE",
-    roles: [ROLE_CODES.MAYOR],
-    getCurrentRecord: async ({ entityServerId }) =>
-      donationRepository.getDonationNeedById(entityServerId),
-    execute: async ({ entityServerId, payload }) =>
-      donationService.updateDonationNeed(entityServerId, payload),
-  },
-  DONATION_CREATE: {
-    entityType: "DONATION",
-    operationType: "DONATION_RECEIVE",
-    roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload, auth }) =>
-      donationService.createDonation(payload, auth),
-  },
-  DONATION_UPDATE: {
-    entityType: "DONATION",
-    operationType: "DONATION_UPDATE",
-    roles: [ROLE_CODES.MAYOR],
-    getCurrentRecord: async ({ entityServerId }) =>
-      donationRepository.getDonationById(entityServerId),
-    execute: async ({ entityServerId, payload, auth }) =>
-      donationService.updateDonation(entityServerId, payload, auth),
-  },
-  DONATION_ITEM_CREATE: {
-    entityType: "DONATION_ITEM",
-    operationType: "DONATION_RECEIVE",
-    roles: [ROLE_CODES.MAYOR],
-    execute: async ({ entityServerId, payload, auth }) =>
-      donationService.createDonationItem(entityServerId, payload, auth.userId),
-  },
-  DONATION_ITEM_UPDATE: {
-    entityType: "DONATION_ITEM",
-    operationType: "DONATION_UPDATE",
-    roles: [ROLE_CODES.MAYOR],
-    getCurrentRecord: async ({ entityServerId }) =>
-      donationRepository.getDonationItemById(entityServerId),
-    execute: async ({ entityServerId, payload, auth }) =>
-      donationService.updateDonationItem(entityServerId, payload, auth.userId),
-  },
 };
+
+const SUPPORTED_SYNC_ACTION_KEYS = Object.freeze(Object.keys(ACTION_HANDLERS));
+const SUPPORTED_SYNC_ACTION_KEY_SET = new Set(SUPPORTED_SYNC_ACTION_KEYS);
+
+const isSupportedSyncAction = (actionKey) =>
+  SUPPORTED_SYNC_ACTION_KEY_SET.has(actionKey);
 
 const ensureActionAccess = (actionConfig, auth) => {
   if (!actionConfig.roles.includes(auth.roleCode)) {
@@ -315,6 +262,7 @@ const maybeResolveTimestampConflict = async ({
   auth,
   actionConfig,
   syncTransaction,
+  dbClient,
 }) => {
   if (!actionConfig.getCurrentRecord || !entry.entity_server_id) {
     return {
@@ -329,6 +277,7 @@ const maybeResolveTimestampConflict = async ({
     entityServerId: entry.entity_server_id,
     payload: entry.payload,
     auth,
+    dbClient,
   });
 
   if (!currentRecord) {
@@ -390,12 +339,14 @@ const recordConflictAndUpdateSyncTransactionSafely = async ({
   syncTransactionId,
   transactionPayload,
   conflictPayload,
+  dbClient,
 }) => {
   try {
     return await syncRepository.recordConflictAndUpdateSyncTransaction({
       syncTransactionId,
       transactionPayload,
       conflictPayload,
+      dbClient,
     });
   } catch (error) {
     const failureMessage =
@@ -416,15 +367,17 @@ const recordConflictAndUpdateSyncTransactionSafely = async ({
 const processSingleSyncEntry = async (entry, auth) => {
   const actionConfig = ACTION_HANDLERS[entry.action_key];
 
-  if (!actionConfig) {
-    const error = new Error("Unsupported sync action");
-    error.statusCode = 400;
-    throw error;
+  if (!isSupportedSyncAction(entry.action_key)) {
+    throw createUnsupportedSyncActionError();
+  }
+
+  if (entry.entity_type !== actionConfig.entityType) {
+    throw createUnsupportedSyncActionError();
   }
 
   ensureActionAccess(actionConfig, auth);
 
-  const claim = await syncRepository.claimSyncTransaction({
+  const claimPayload = {
     client_sync_id: entry.client_sync_id,
     device_id: entry.device_id,
     user_id: auth.userId,
@@ -439,40 +392,50 @@ const processSingleSyncEntry = async (entry, auth) => {
     client_timestamp: entry.client_timestamp,
     sync_status: SYNC_STATUS.PENDING,
     error_message: null,
-  });
+  };
 
-  if (claim.decision === "REUSE_MISMATCH") {
-    throw createIdempotencyMismatchError();
-  }
+  const runSyncProcessingTransaction =
+    syncRepository.withSyncProcessingTransaction ||
+    (async (callback) => callback(undefined));
 
-  if (claim.decision === "REPLAY_TERMINAL") {
-    return buildPersistedReplayResult({
-      entry,
-      syncTransaction: claim.transaction,
-      conflictRecord: claim.conflictRecord,
-    });
-  }
+  return runSyncProcessingTransaction(async (dbClient) => {
+    const claim = await syncRepository.claimSyncTransaction(claimPayload, dbClient);
 
-  if (claim.decision === "IN_PROGRESS" || claim.decision === "STALE_PENDING") {
-    return buildPersistedReplayResult({
-      entry,
-      syncTransaction: claim.transaction,
-      message:
-        claim.decision === "STALE_PENDING"
-          ? "Sync is still pending server confirmation. Please retry later or contact support if it does not resolve."
-          : "Sync is already being processed. Please retry shortly.",
-    });
-  }
+    if (claim.decision === "REUSE_MISMATCH") {
+      throw createIdempotencyMismatchError();
+    }
 
-  const syncTransaction = claim.transaction;
-  let businessEffectCommitted = false;
+    if (claim.decision === "REPLAY_TERMINAL") {
+      return buildPersistedReplayResult({
+        entry,
+        syncTransaction: claim.transaction,
+        conflictRecord: claim.conflictRecord,
+      });
+    }
 
-  try {
+    if (
+      claim.decision === "IN_PROGRESS" ||
+      claim.decision === "LEGACY_STALE_PENDING"
+    ) {
+      return buildPersistedReplayResult({
+        entry,
+        syncTransaction: claim.transaction,
+        message:
+          claim.decision === "LEGACY_STALE_PENDING"
+            ? "Sync is still pending server confirmation and requires controlled reconciliation before replay."
+            : "Sync is already being processed. Please retry shortly.",
+      });
+    }
+
+    const syncTransaction = claim.transaction;
+
+    try {
     const conflictState = await maybeResolveTimestampConflict({
       entry,
       auth,
       actionConfig,
       syncTransaction,
+      dbClient,
     });
 
     if (conflictState.hasConflict && !conflictState.shouldApplyLocalChange) {
@@ -500,6 +463,7 @@ const processSingleSyncEntry = async (entry, auth) => {
             },
             resolved_at: serverTimestamp,
           },
+          dbClient,
         });
 
       return {
@@ -518,8 +482,8 @@ const processSingleSyncEntry = async (entry, auth) => {
       payload: entry.payload,
       auth,
       clientTimestamp: entry.client_timestamp,
+      dbClient,
     });
-    businessEffectCommitted = true;
 
     const resolvedEntityServerId =
       entry.entity_server_id ||
@@ -549,7 +513,7 @@ const processSingleSyncEntry = async (entry, auth) => {
           sync_status: nextStatus,
           error_message: null,
         },
-        conflictPayload: {
+          conflictPayload: {
           ...conflictState.conflictPayload,
           entity_server_id: resolvedEntityServerId,
           resolved_payload_json: {
@@ -558,18 +522,23 @@ const processSingleSyncEntry = async (entry, auth) => {
             server_payload: conflictState.currentRecord,
             authoritative_payload: result,
           },
-          resolved_at: serverTimestamp,
-        },
-      });
+            resolved_at: serverTimestamp,
+          },
+          dbClient,
+        });
 
       conflictRecord = recordedConflict.conflictRecord;
     } else {
-      await syncRepository.updateSyncTransaction(syncTransaction.id, {
-        entity_server_id: resolvedEntityServerId,
-        server_timestamp: serverTimestamp,
-        sync_status: nextStatus,
-        error_message: null,
-      });
+      await syncRepository.updateSyncTransaction(
+        syncTransaction.id,
+        {
+          entity_server_id: resolvedEntityServerId,
+          server_timestamp: serverTimestamp,
+          sync_status: nextStatus,
+          error_message: null,
+        },
+        dbClient,
+      );
     }
 
     return {
@@ -582,27 +551,7 @@ const processSingleSyncEntry = async (entry, auth) => {
       data: result,
       conflict: conflictRecord,
     };
-  } catch (error) {
-    if (businessEffectCommitted) {
-      await logErrorSafely({
-        actor: auth,
-        moduleName: "sync",
-        errorCode: "SYNC_POST_EFFECT_BOOKKEEPING_FAILED",
-        errorMessage: `Sync bookkeeping failed after business effect for ${entry.action_key}`,
-        error,
-      });
-
-      return {
-        client_sync_id: entry.client_sync_id,
-        sync_transaction_id: syncTransaction.id,
-        sync_status: SYNC_STATUS.PENDING,
-        message:
-          "Sync is pending server confirmation. Please retry later or contact support if it does not resolve.",
-        data: null,
-        conflict: null,
-      };
-    }
-
+    } catch (error) {
     const isDuplicateConflict =
       error.code === "DUPLICATE_HOUSEHOLD_REGISTRATION" ||
       error.code === "DUPLICATE_HOUSEHOLD_DEPARTURE" ||
@@ -646,6 +595,7 @@ const processSingleSyncEntry = async (entry, auth) => {
                 ? CONFLICT_STATUS.OPEN
                 : CONFLICT_STATUS.RESOLVED,
             },
+            dbClient,
           });
 
         return {
@@ -668,12 +618,16 @@ const processSingleSyncEntry = async (entry, auth) => {
         const failureMessage =
           "Sync conflict could not be recorded safely. Please retry synchronization.";
 
-        await syncRepository.updateSyncTransaction(syncTransaction.id, {
-          entity_server_id: entityServerId,
-          server_timestamp: serverTimestamp,
-          sync_status: SYNC_STATUS.FAILED,
-          error_message: failureMessage,
-        });
+        await syncRepository.updateSyncTransaction(
+          syncTransaction.id,
+          {
+            entity_server_id: entityServerId,
+            server_timestamp: serverTimestamp,
+            sync_status: SYNC_STATUS.FAILED,
+            error_message: failureMessage,
+          },
+          dbClient,
+        );
 
         return {
           client_sync_id: entry.client_sync_id,
@@ -688,12 +642,16 @@ const processSingleSyncEntry = async (entry, auth) => {
     }
 
     if (error.code === "SYNC_CONFLICT_PERSISTENCE_FAILED") {
-      await syncRepository.updateSyncTransaction(syncTransaction.id, {
-        entity_server_id: entry.entity_server_id || null,
-        server_timestamp: new Date().toISOString(),
-        sync_status: SYNC_STATUS.FAILED,
-        error_message: error.message,
-      });
+      await syncRepository.updateSyncTransaction(
+        syncTransaction.id,
+        {
+          entity_server_id: entry.entity_server_id || null,
+          server_timestamp: new Date().toISOString(),
+          sync_status: SYNC_STATUS.FAILED,
+          error_message: error.message,
+        },
+        dbClient,
+      );
 
       return {
         client_sync_id: entry.client_sync_id,
@@ -706,12 +664,16 @@ const processSingleSyncEntry = async (entry, auth) => {
       };
     }
 
-    await syncRepository.updateSyncTransaction(syncTransaction.id, {
-      entity_server_id: entry.entity_server_id || null,
-      server_timestamp: new Date().toISOString(),
-      sync_status: SYNC_STATUS.FAILED,
-      error_message: error.message || "Sync failed",
-    });
+    await syncRepository.updateSyncTransaction(
+      syncTransaction.id,
+      {
+        entity_server_id: entry.entity_server_id || null,
+        server_timestamp: new Date().toISOString(),
+        sync_status: SYNC_STATUS.FAILED,
+        error_message: error.message || "Sync failed",
+      },
+      dbClient,
+    );
 
     await logErrorSafely({
       actor: auth,
@@ -729,7 +691,8 @@ const processSingleSyncEntry = async (entry, auth) => {
       data: null,
       conflict: null,
     };
-  }
+    }
+  });
 };
 
 const processSyncEntries = async ({ entries, auth }) => {
@@ -867,4 +830,6 @@ module.exports = {
   getSyncStatusSummary,
   getSyncConflictDetail,
   auditSyncRetryRequest,
+  isSupportedSyncAction,
+  SUPPORTED_SYNC_ACTION_KEYS,
 };

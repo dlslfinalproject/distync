@@ -73,7 +73,7 @@ const getInventoryItems = async (filters) => {
   return result.rows;
 };
 
-const getInventoryItemById = async (id) => {
+const getInventoryItemById = async (id, dbClient = pool) => {
   const hasReorderLevelColumn = await hasInventoryItemReorderLevelColumn();
   const query = `
     SELECT
@@ -97,7 +97,7 @@ const getInventoryItemById = async (id) => {
     WHERE id = $1
   `;
 
-  const result = await pool.query(query, [id]);
+  const result = await dbClient.query(query, [id]);
   return result.rows[0] || null;
 };
 
@@ -226,7 +226,7 @@ const insertInventoryItem = async (itemData, dbClient = pool) => {
   return result.rows[0];
 };
 
-const updateInventoryItem = async (id, itemData) => {
+const updateInventoryItem = async (id, itemData, dbClient = pool) => {
   const hasReorderLevelColumn = await hasInventoryItemReorderLevelColumn();
   const query = `
     UPDATE inventory_items
@@ -281,7 +281,7 @@ const updateInventoryItem = async (id, itemData) => {
     itemData.is_active,
   ];
 
-  const result = await pool.query(query, values);
+  const result = await dbClient.query(query, values);
   return result.rows[0] || null;
 };
 

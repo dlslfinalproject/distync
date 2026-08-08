@@ -930,10 +930,13 @@ const normalizeRestoredBatchStatus = (batch, restoredQuantity) => {
 };
 
 const createDistributionTransaction = async (requestData) => {
-  const client = await pool.connect();
+  const externalClient = requestData.dbClient || null;
+  const client = externalClient || await pool.connect();
 
   try {
-    await client.query("BEGIN");
+    if (!externalClient) {
+      await client.query("BEGIN");
+    }
 
     const stub = await distributionTransactionRepository.getStubByIdForUpdate(
       requestData.stub_id,
@@ -1178,37 +1181,41 @@ const createDistributionTransaction = async (requestData) => {
       client,
     );
 
-    await client.query("COMMIT");
+    if (!externalClient) {
+      await client.query("COMMIT");
+    }
 
-    await notificationService.emitSafely(async () => {
-      for (const batchAlertPayload of batchAlertPayloads) {
-        await notificationService.emitBatchAlerts({
-          ...batchAlertPayload,
+    if (!externalClient) {
+      await notificationService.emitSafely(async () => {
+        for (const batchAlertPayload of batchAlertPayloads) {
+          await notificationService.emitBatchAlerts({
+            ...batchAlertPayload,
+            disasterEventId: requestData.disaster_event_id,
+          });
+        }
+
+        await notificationService.emitDistributionUpdate({
           disasterEventId: requestData.disaster_event_id,
+          stubNo: updatedStub.stub_no,
+          familyHeadName: buildFullName(
+            stub.family_head_first_name,
+            stub.family_head_middle_name,
+            stub.family_head_last_name,
+            stub.family_head_suffix,
+          ),
+          distributionTransactionId: distributionTransaction.id,
         });
-      }
-
-      await notificationService.emitDistributionUpdate({
-        disasterEventId: requestData.disaster_event_id,
-        stubNo: updatedStub.stub_no,
-        familyHeadName: buildFullName(
-          stub.family_head_first_name,
-          stub.family_head_middle_name,
-          stub.family_head_last_name,
-          stub.family_head_suffix,
-        ),
-        distributionTransactionId: distributionTransaction.id,
       });
-    });
 
-    await logAuditSafely({
-      actor: requestData.requester,
-      action: "DISTRIBUTION_RECORD",
-      entityType: "DISTRIBUTION_TRANSACTION",
-      entityId: distributionTransaction.id,
-      oldValues: {},
-      newValues: summarizeDistributionTransaction(distributionTransaction),
-    });
+      await logAuditSafely({
+        actor: requestData.requester,
+        action: "DISTRIBUTION_RECORD",
+        entityType: "DISTRIBUTION_TRANSACTION",
+        entityId: distributionTransaction.id,
+        oldValues: {},
+        newValues: summarizeDistributionTransaction(distributionTransaction),
+      });
+    }
 
     return {
       distribution_transaction_id: distributionTransaction.id,
@@ -1248,7 +1255,9 @@ const createDistributionTransaction = async (requestData) => {
       items: releasedItems,
     };
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (!externalClient) {
+      await client.query("ROLLBACK");
+    }
 
     if (error.code === "23505") {
       const duplicateError = new Error("This stub has already been used for distribution");
@@ -1258,15 +1267,20 @@ const createDistributionTransaction = async (requestData) => {
 
     throw error;
   } finally {
-    client.release();
+    if (!externalClient) {
+      client.release();
+    }
   }
 };
 
 const claimDistributionTransactionFromQr = async (requestData) => {
-  const client = await pool.connect();
+  const externalClient = requestData.dbClient || null;
+  const client = externalClient || await pool.connect();
 
   try {
-    await client.query("BEGIN");
+    if (!externalClient) {
+      await client.query("BEGIN");
+    }
 
     const stub = await distributionTransactionRepository.getStubByIdForUpdate(
       requestData.stub_id,
@@ -1344,30 +1358,34 @@ const claimDistributionTransactionFromQr = async (requestData) => {
       updatedStub,
     } = automaticClaimResult;
 
-    await client.query("COMMIT");
+    if (!externalClient) {
+      await client.query("COMMIT");
+    }
 
-    await notificationService.emitSafely(() =>
-      notificationService.emitDistributionUpdate({
-        disasterEventId: requestData.disaster_event_id,
-        stubNo: updatedStub.stub_no,
-        familyHeadName: buildFullName(
-          stub.family_head_first_name,
-          stub.family_head_middle_name,
-          stub.family_head_last_name,
-          stub.family_head_suffix,
-        ),
-        distributionTransactionId: distributionTransaction.id,
-      }),
-    );
+    if (!externalClient) {
+      await notificationService.emitSafely(() =>
+        notificationService.emitDistributionUpdate({
+          disasterEventId: requestData.disaster_event_id,
+          stubNo: updatedStub.stub_no,
+          familyHeadName: buildFullName(
+            stub.family_head_first_name,
+            stub.family_head_middle_name,
+            stub.family_head_last_name,
+            stub.family_head_suffix,
+          ),
+          distributionTransactionId: distributionTransaction.id,
+        }),
+      );
 
-    await logAuditSafely({
-      actor: requestData.requester,
-      action: "DISTRIBUTION_QR_CLAIM",
-      entityType: "DISTRIBUTION_TRANSACTION",
-      entityId: distributionTransaction.id,
-      oldValues: {},
-      newValues: summarizeDistributionTransaction(distributionTransaction),
-    });
+      await logAuditSafely({
+        actor: requestData.requester,
+        action: "DISTRIBUTION_QR_CLAIM",
+        entityType: "DISTRIBUTION_TRANSACTION",
+        entityId: distributionTransaction.id,
+        oldValues: {},
+        newValues: summarizeDistributionTransaction(distributionTransaction),
+      });
+    }
 
     return {
       distribution_transaction_id: distributionTransaction.id,
@@ -1406,7 +1424,9 @@ const claimDistributionTransactionFromQr = async (requestData) => {
       items: releasedItems,
     };
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (!externalClient) {
+      await client.query("ROLLBACK");
+    }
 
     if (error.code === "23505") {
       const duplicateError = new Error("This stub has already been used for distribution");
@@ -1416,7 +1436,9 @@ const claimDistributionTransactionFromQr = async (requestData) => {
 
     throw error;
   } finally {
-    client.release();
+    if (!externalClient) {
+      client.release();
+    }
   }
 };
 

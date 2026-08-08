@@ -726,6 +726,7 @@ CREATE INDEX idx_notification_email_deliveries_sending_stale
 CREATE TABLE public.sync_transactions (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   client_sync_id character varying(80),
+  processing_protocol_version smallint,
   device_id uuid,
   user_id uuid,
   entity_type character varying NOT NULL,
@@ -747,6 +748,10 @@ CREATE TABLE public.sync_transactions (
 CREATE UNIQUE INDEX sync_transactions_client_sync_id_unique
 ON public.sync_transactions (client_sync_id)
 WHERE client_sync_id IS NOT NULL;
+
+CREATE INDEX sync_transactions_pending_protocol_updated_at_idx
+ON public.sync_transactions (sync_status, processing_protocol_version, updated_at)
+WHERE sync_status = 'PENDING';
 
 CREATE TABLE public.sync_conflicts (
   id uuid NOT NULL DEFAULT gen_random_uuid(),

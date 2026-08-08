@@ -795,17 +795,20 @@ const getInventoryItemDetail = async (id) => {
   };
 };
 
-const createInventoryItem = async (itemData, actor = null) => {
+const createInventoryItem = async (itemData, actor = null, options = {}) => {
   const inventoryItemToCreate = {
     ...itemData,
     item_code: itemData.item_code || await generateInventoryItemCode(itemData.item_name),
   };
 
   await ensureUniqueFields(inventoryItemToCreate);
-  const client = await pool.connect();
+  const externalClient = options.dbClient || null;
+  const client = externalClient || await pool.connect();
 
   try {
-    await client.query("BEGIN");
+    if (!externalClient) {
+      await client.query("BEGIN");
+    }
 
     const createdItem =
       await inventoryItemRepository.insertInventoryItem(inventoryItemToCreate, client);
@@ -817,25 +820,29 @@ const createInventoryItem = async (itemData, actor = null) => {
       );
 
     if (itemData.skip_opening_stock) {
-      await client.query("COMMIT");
+      if (!externalClient) {
+        await client.query("COMMIT");
+      }
 
-      await logAuditSafely({
-        actor,
-        action: "INVENTORY_ITEM_CREATE",
-        entityType: "INVENTORY_ITEM",
-        entityId: createdItem.id,
-        oldValues: {},
-        newValues: summarizeInventoryItem(createdItem),
-      });
+      if (!externalClient) {
+        await logAuditSafely({
+          actor,
+          action: "INVENTORY_ITEM_CREATE",
+          entityType: "INVENTORY_ITEM",
+          entityId: createdItem.id,
+          oldValues: {},
+          newValues: summarizeInventoryItem(createdItem),
+        });
 
-      await logAuditSafely({
-        actor,
-        action: "INVENTORY_ITEM_STOCK_FORM_CREATE",
-        entityType: "INVENTORY_ITEM_STOCK_FORM",
-        entityId: createdStockForm.id,
-        oldValues: {},
-        newValues: summarizeInventoryItemStockForm(createdStockForm),
-      });
+        await logAuditSafely({
+          actor,
+          action: "INVENTORY_ITEM_STOCK_FORM_CREATE",
+          entityType: "INVENTORY_ITEM_STOCK_FORM",
+          entityId: createdStockForm.id,
+          oldValues: {},
+          newValues: summarizeInventoryItemStockForm(createdStockForm),
+        });
+      }
 
       return createdItem;
     }
@@ -875,54 +882,62 @@ const createInventoryItem = async (itemData, actor = null) => {
         client,
       );
 
-    await client.query("COMMIT");
+    if (!externalClient) {
+      await client.query("COMMIT");
+    }
 
-    await logAuditSafely({
-      actor,
-      action: "INVENTORY_ITEM_CREATE",
-      entityType: "INVENTORY_ITEM",
-      entityId: createdItem.id,
-      oldValues: {},
-      newValues: summarizeInventoryItem(createdItem),
-    });
+    if (!externalClient) {
+      await logAuditSafely({
+        actor,
+        action: "INVENTORY_ITEM_CREATE",
+        entityType: "INVENTORY_ITEM",
+        entityId: createdItem.id,
+        oldValues: {},
+        newValues: summarizeInventoryItem(createdItem),
+      });
 
-    await logAuditSafely({
-      actor,
-      action: "INVENTORY_BATCH_CREATE",
-      entityType: "INVENTORY_BATCH",
-      entityId: createdBatch.id,
-      oldValues: {},
-      newValues: summarizeInventoryBatch(createdBatch),
-    });
+      await logAuditSafely({
+        actor,
+        action: "INVENTORY_BATCH_CREATE",
+        entityType: "INVENTORY_BATCH",
+        entityId: createdBatch.id,
+        oldValues: {},
+        newValues: summarizeInventoryBatch(createdBatch),
+      });
 
-    await logAuditSafely({
-      actor,
-      action: "INVENTORY_ITEM_STOCK_FORM_CREATE",
-      entityType: "INVENTORY_ITEM_STOCK_FORM",
-      entityId: createdStockForm.id,
-      oldValues: {},
-      newValues: summarizeInventoryItemStockForm(createdStockForm),
-    });
+      await logAuditSafely({
+        actor,
+        action: "INVENTORY_ITEM_STOCK_FORM_CREATE",
+        entityType: "INVENTORY_ITEM_STOCK_FORM",
+        entityId: createdStockForm.id,
+        oldValues: {},
+        newValues: summarizeInventoryItemStockForm(createdStockForm),
+      });
 
-    await logAuditSafely({
-      actor,
-      action: "INVENTORY_TRANSACTION_CREATE",
-      entityType: "INVENTORY_TRANSACTION",
-      entityId: createdTransaction.id,
-      oldValues: {},
-      newValues: summarizeInventoryTransaction(createdTransaction),
-    });
+      await logAuditSafely({
+        actor,
+        action: "INVENTORY_TRANSACTION_CREATE",
+        entityType: "INVENTORY_TRANSACTION",
+        entityId: createdTransaction.id,
+        oldValues: {},
+        newValues: summarizeInventoryTransaction(createdTransaction),
+      });
+    }
 
     return createdItem;
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (!externalClient) {
+      await client.query("ROLLBACK");
+    }
     throw error;
   } finally {
-    client.release();
+    if (!externalClient) {
+      client.release();
+    }
   }
 };
 
-const updateInventoryItem = async (id, itemData, actor = null) => {
+const updateInventoryItem = async (id, itemData, actor = null, options = {}) => {
   const existingItem = await inventoryItemRepository.getInventoryItemById(id);
 
   if (!existingItem) {
@@ -941,10 +956,14 @@ const updateInventoryItem = async (id, itemData, actor = null) => {
   const updatedItem = await inventoryItemRepository.updateInventoryItem(
     id,
     inventoryItemToUpdate,
+    options.dbClient,
   );
 
   const existingStockForms =
-    await inventoryItemStockFormRepository.getInventoryItemStockFormsByItemId(id);
+    await inventoryItemStockFormRepository.getInventoryItemStockFormsByItemId(
+      id,
+      options.dbClient,
+    );
   const primaryStockForm = existingStockForms[0] || null;
   const nextStockFormPayload = buildStockFormPayloadFromItem(
     updatedItem,
@@ -955,10 +974,12 @@ const updateInventoryItem = async (id, itemData, actor = null) => {
     await inventoryItemStockFormRepository.updateInventoryItemStockForm(
       primaryStockForm.id,
       nextStockFormPayload,
+      options.dbClient,
     );
   } else {
     await inventoryItemStockFormRepository.insertInventoryItemStockForm(
       nextStockFormPayload,
+      options.dbClient,
     );
   }
 

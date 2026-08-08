@@ -172,6 +172,7 @@ const getInventoryTransactionById = async (id) => {
 };
 
 const createInventoryTransaction = async (transactionData) => {
+  const externalClient = transactionData.dbClient || null;
   if (transactionData.disaster_event_id) {
     const disasterEvent = await inventoryTransactionRepository.getDisasterEventById(
       transactionData.disaster_event_id,
@@ -198,10 +199,12 @@ const createInventoryTransaction = async (transactionData) => {
     }
   }
 
-  const client = await pool.connect();
+  const client = externalClient || await pool.connect();
 
   try {
-    await client.query("BEGIN");
+    if (!externalClient) {
+      await client.query("BEGIN");
+    }
 
     let inventoryBatch = null;
     let inventoryItem = null;
@@ -339,59 +342,63 @@ const createInventoryTransaction = async (transactionData) => {
       client,
     );
 
-    await client.query("COMMIT");
+    if (!externalClient) {
+      await client.query("COMMIT");
+    }
 
-    await notificationService.emitSafely(() =>
-      notificationService.emitInventoryTransactionAlerts({
-        transaction: createdTransaction,
-        batch: {
-          id: inventoryBatch.id,
-          batch_no: inventoryBatch.batch_no,
-          quantity_available: newQuantityAvailable,
-          status: newBatchStatus,
-          expiration_date: inventoryBatch.expiration_date,
-          item_name: inventoryBatch.item_name,
-        },
-        previousQuantityAvailable: inventoryBatch.quantity_available,
-        previousStatus: inventoryBatch.status,
-        disasterEventId: transactionData.disaster_event_id,
-      }),
-    );
+    if (!externalClient) {
+      await notificationService.emitSafely(() =>
+        notificationService.emitInventoryTransactionAlerts({
+          transaction: createdTransaction,
+          batch: {
+            id: inventoryBatch.id,
+            batch_no: inventoryBatch.batch_no,
+            quantity_available: newQuantityAvailable,
+            status: newBatchStatus,
+            expiration_date: inventoryBatch.expiration_date,
+            item_name: inventoryBatch.item_name,
+          },
+          previousQuantityAvailable: inventoryBatch.quantity_available,
+          previousStatus: inventoryBatch.status,
+          disasterEventId: transactionData.disaster_event_id,
+        }),
+      );
 
-    await logAuditSafely({
-      actor: {
-        userId: transactionData.performed_by,
-        roleCode: "MAYOR",
-      },
-      action: "INVENTORY_TRANSACTION_CREATE",
-      entityType: "INVENTORY_TRANSACTION",
-      entityId: createdTransaction.id,
-      oldValues: {},
-      newValues: summarizeInventoryTransaction(createdTransaction),
-    });
-
-    if (createdFallbackBatch) {
       await logAuditSafely({
         actor: {
           userId: transactionData.performed_by,
           roleCode: "MAYOR",
         },
-        action: "INVENTORY_BATCH_CREATE",
-        entityType: "INVENTORY_BATCH",
-        entityId: createdFallbackBatch.id,
+        action: "INVENTORY_TRANSACTION_CREATE",
+        entityType: "INVENTORY_TRANSACTION",
+        entityId: createdTransaction.id,
         oldValues: {},
-        newValues: pickDefined(createdFallbackBatch, [
-          "inventory_item_id",
-          "batch_no",
-          "source_type",
-          "quantity_received",
-          "quantity_available",
-          "expiration_date",
-          "storage_location",
-          "status",
-          "created_by",
-        ]),
+        newValues: summarizeInventoryTransaction(createdTransaction),
       });
+
+      if (createdFallbackBatch) {
+        await logAuditSafely({
+          actor: {
+            userId: transactionData.performed_by,
+            roleCode: "MAYOR",
+          },
+          action: "INVENTORY_BATCH_CREATE",
+          entityType: "INVENTORY_BATCH",
+          entityId: createdFallbackBatch.id,
+          oldValues: {},
+          newValues: pickDefined(createdFallbackBatch, [
+            "inventory_item_id",
+            "batch_no",
+            "source_type",
+            "quantity_received",
+            "quantity_available",
+            "expiration_date",
+            "storage_location",
+            "status",
+            "created_by",
+          ]),
+        });
+      }
     }
 
     return {
@@ -403,10 +410,14 @@ const createInventoryTransaction = async (transactionData) => {
       new_batch_status: newBatchStatus,
     };
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (!externalClient) {
+      await client.query("ROLLBACK");
+    }
     throw error;
   } finally {
-    client.release();
+    if (!externalClient) {
+      client.release();
+    }
   }
 };
 

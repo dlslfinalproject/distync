@@ -405,10 +405,13 @@ const claimBarangayStub = async (params) => {
     });
   }
 
-  const client = await pool.connect();
+  const externalClient = params.dbClient || null;
+  const client = externalClient || await pool.connect();
 
   try {
-    await client.query("BEGIN");
+    if (!externalClient) {
+      await client.query("BEGIN");
+    }
 
     const lockedStub = await distributionTransactionRepository.getStubByIdForUpdate(
       params.id,
@@ -458,7 +461,9 @@ const claimBarangayStub = async (params) => {
     });
     const { distributionTransaction, updatedStub, packQuantity } = automaticClaimResult;
 
-    await client.query("COMMIT");
+    if (!externalClient) {
+      await client.query("COMMIT");
+    }
 
     return {
       message: "Stub marked as claimed successfully.",
@@ -473,7 +478,9 @@ const claimBarangayStub = async (params) => {
       },
     };
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (!externalClient) {
+      await client.query("ROLLBACK");
+    }
 
     if (error.code === "23505") {
       const latestDistributionTransaction =
@@ -491,7 +498,9 @@ const claimBarangayStub = async (params) => {
 
     throw error;
   } finally {
-    client.release();
+    if (!externalClient) {
+      client.release();
+    }
   }
 };
 

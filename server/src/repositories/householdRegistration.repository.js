@@ -1162,7 +1162,7 @@ const markDisasterEventHouseholdDepartures = async (
   return result.rows;
 };
 
-const getHouseholdSummaryById = async (id) => {
+const getHouseholdSummaryById = async (id, dbClient = pool) => {
   const query = `
     SELECT
       h.id,
@@ -1199,13 +1199,13 @@ const getHouseholdSummaryById = async (id) => {
     WHERE h.id = $1
   `;
 
-  const result = await pool.query(query, [id]);
+  const result = await dbClient.query(query, [id]);
   return result.rows[0] || null;
 };
 
 const getEvacueesByHouseholdId = async (
   householdId,
-  { includeInactive = false } = {},
+  { includeInactive = false, dbClient = pool } = {},
 ) => {
   const activeFilterClause = includeInactive ? "" : "AND is_active = TRUE";
   const query = `
@@ -1236,13 +1236,13 @@ const getEvacueesByHouseholdId = async (
     ORDER BY created_at ASC, first_name ASC, last_name ASC
   `;
 
-  const result = await pool.query(query, [householdId]);
+  const result = await dbClient.query(query, [householdId]);
   return result.rows;
 };
 
 const getEvacueeSectorAssignmentsByHouseholdId = async (
   householdId,
-  { includeInactive = false } = {},
+  { includeInactive = false, dbClient = pool } = {},
 ) => {
   const activeFilterClause = includeInactive ? "" : "AND e.is_active = TRUE";
   const query = `
@@ -1261,11 +1261,14 @@ const getEvacueeSectorAssignmentsByHouseholdId = async (
     ORDER BY e.created_at ASC, s.name ASC
   `;
 
-  const result = await pool.query(query, [householdId]);
+  const result = await dbClient.query(query, [householdId]);
   return result.rows;
 };
 
-const getHouseholdSectorAssignmentsByHouseholdId = async (householdId) => {
+const getHouseholdSectorAssignmentsByHouseholdId = async (
+  householdId,
+  dbClient = pool,
+) => {
   const query = `
     SELECT
       s.id,
@@ -1279,7 +1282,7 @@ const getHouseholdSectorAssignmentsByHouseholdId = async (householdId) => {
     ORDER BY s.name ASC
   `;
 
-  const result = await pool.query(query, [householdId]);
+  const result = await dbClient.query(query, [householdId]);
   return result.rows;
 };
 
@@ -1316,7 +1319,7 @@ const getLatestHouseholdPrivacyConsentByHouseholdId = async (
   return result.rows[0] || null;
 };
 
-const getStubByHouseholdId = async (householdId) => {
+const getStubByHouseholdId = async (householdId, dbClient = pool) => {
   const query = `
     SELECT
       id,
@@ -1340,11 +1343,11 @@ const getStubByHouseholdId = async (householdId) => {
     LIMIT 1
   `;
 
-  const result = await pool.query(query, [householdId]);
+  const result = await dbClient.query(query, [householdId]);
   return result.rows[0] || null;
 };
 
-const getLatestAttendanceByHouseholdId = async (householdId) => {
+const getLatestAttendanceByHouseholdId = async (householdId, dbClient = pool) => {
   const query = `
     SELECT
       id,
@@ -1368,11 +1371,14 @@ const getLatestAttendanceByHouseholdId = async (householdId) => {
     LIMIT 1
   `;
 
-  const result = await pool.query(query, [householdId]);
+  const result = await dbClient.query(query, [householdId]);
   return result.rows[0] || null;
 };
 
-const getLatestDistributionTransactionByStubId = async (stubId) => {
+const getLatestDistributionTransactionByStubId = async (
+  stubId,
+  dbClient = pool,
+) => {
   if (!stubId) {
     return null;
   }
@@ -1399,7 +1405,7 @@ const getLatestDistributionTransactionByStubId = async (stubId) => {
     LIMIT 1
   `;
 
-  const result = await pool.query(query, [stubId]);
+  const result = await dbClient.query(query, [stubId]);
   return result.rows[0] || null;
 };
 
