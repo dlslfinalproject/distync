@@ -204,6 +204,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     restrictNonResidentToEvacCenter: true,
     scopeNonResidentEvacuationCentersToBarangay: true,
     registeredBy: authenticatedUser?.id || null,
+    localHouseholdDuplicateCandidates: displayedRows,
     onSuccess: (response) => {
       setRegistrationSuccessMessage(
         response?.message || "Household registered successfully",

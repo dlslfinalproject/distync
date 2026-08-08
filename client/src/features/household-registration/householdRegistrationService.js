@@ -2,6 +2,9 @@ import {
   buildOfflineQueuedResponse,
   performSyncableMutation,
 } from "../../offline/syncService.js";
+import {
+  assertNoLocalDuplicateHouseholdRegistration,
+} from "./localDuplicatePreflight.js";
 import { HOUSEHOLD_PRIVACY_OFFLINE_MESSAGE } from "./privacyNotice.mjs";
 import {
   getRegistrationStorageKey,
@@ -71,6 +74,21 @@ const parseJsonResponse = async (response) => {
 
   return payload;
 };
+
+const inFlightHouseholdRegistrationKeys = new Set();
+
+const normalizeDuplicateGuardText = (value) =>
+  String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+
+const buildLocalRegistrationGuardKey = (payload = {}) =>
+  [
+    payload.disaster_event_id || "",
+    payload.barangay_id || "",
+    normalizeDuplicateGuardText(payload.family_head?.first_name),
+    normalizeDuplicateGuardText(payload.family_head?.middle_name),
+    normalizeDuplicateGuardText(payload.family_head?.last_name),
+    normalizeDuplicateGuardText(payload.family_head?.suffix),
+  ].join("|");
 
 export const fetchActiveDisasterEvents = async () => {
   const response = await fetch(`${API_BASE_URL}/api/v1/disaster-events/active`);
@@ -269,41 +287,67 @@ export const clearSelectedDisasterEventCache = () => {
   );
 };
 
-export const registerHousehold = async (payload) => {
-  return performSyncableMutation({
-    moduleName: "barangay-households",
-    actionKey: "HOUSEHOLD_REGISTER",
-    entityType: "HOUSEHOLD",
-    entityLocalId: payload?.family_head?.first_name
-      ? `${payload.family_head.first_name}-${payload.family_head.last_name}-${payload.disaster_event_id}-${payload.barangay_id}`
-      : null,
-    payload,
-    requiredFields: ["disaster_event_id", "barangay_id", "family_head"],
-    request: async () => {
-      const response = await fetch(`${API_BASE_URL}/api/v1/households/register`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
+export const registerHousehold = async (payload, options = {}) => {
+  const guardKey = buildLocalRegistrationGuardKey(payload);
 
-      return parseJsonResponse(response);
-    },
-    buildQueuedResponse: ({ clientSyncId, entityLocalId, clientTimestamp }) =>
-      buildOfflineQueuedResponse({
-        message: HOUSEHOLD_PRIVACY_OFFLINE_MESSAGE,
-        data: {
-          household: {
-            id: entityLocalId,
-            updated_at: clientTimestamp,
+  if (guardKey && inFlightHouseholdRegistrationKeys.has(guardKey)) {
+    const error = new Error(
+      "This household registration is already being saved. Please wait for the current save to finish.",
+    );
+    error.code = "LOCAL_HOUSEHOLD_REGISTRATION_IN_PROGRESS";
+    throw error;
+  }
+
+  if (guardKey) {
+    inFlightHouseholdRegistrationKeys.add(guardKey);
+  }
+
+  try {
+    await assertNoLocalDuplicateHouseholdRegistration({
+      payload,
+      cachedHouseholds: options.cachedHouseholds,
+      excludeClientSyncId: options.excludeClientSyncId,
+    });
+
+    return await performSyncableMutation({
+      moduleName: "barangay-households",
+      actionKey: "HOUSEHOLD_REGISTER",
+      entityType: "HOUSEHOLD",
+      entityLocalId: payload?.family_head?.first_name
+        ? `${payload.family_head.first_name}-${payload.family_head.last_name}-${payload.disaster_event_id}-${payload.barangay_id}`
+        : null,
+      payload,
+      requiredFields: ["disaster_event_id", "barangay_id", "family_head"],
+      request: async () => {
+        const response = await fetch(`${API_BASE_URL}/api/v1/households/register`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
           },
-        },
-        clientSyncId,
-        entityLocalId,
-        clientTimestamp,
-      }),
-  });
+          body: JSON.stringify(payload),
+        });
+
+        return parseJsonResponse(response);
+      },
+      buildQueuedResponse: ({ clientSyncId, entityLocalId, clientTimestamp }) =>
+        buildOfflineQueuedResponse({
+          message: HOUSEHOLD_PRIVACY_OFFLINE_MESSAGE,
+          data: {
+            household: {
+              id: entityLocalId,
+              updated_at: clientTimestamp,
+            },
+          },
+          clientSyncId,
+          entityLocalId,
+          clientTimestamp,
+        }),
+    });
+  } finally {
+    if (guardKey) {
+      inFlightHouseholdRegistrationKeys.delete(guardKey);
+    }
+  }
 };
 
 export const fetchDuplicateRegistrationSuggestions = async (payload) => {
