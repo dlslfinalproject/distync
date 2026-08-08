@@ -585,7 +585,6 @@ const processSingleSyncEntry = async (entry, auth) => {
       error.code === "STUB_ALREADY_CLAIMED";
 
     if (isDuplicateConflict) {
-      const requiresManualReview = error.code === "STUB_ALREADY_CLAIMED";
       const serverTimestamp = new Date().toISOString();
       const entityServerId = entry.entity_server_id || error.entityServerId || null;
 
@@ -607,20 +606,16 @@ const processSingleSyncEntry = async (entry, auth) => {
               conflict_type: error.code,
               local_payload_json: entry.payload,
               server_payload_json: error.serverPayload || {},
-              resolution_strategy: requiresManualReview
-                ? RESOLUTION_STRATEGY.MANUAL_REVIEW
-                : RESOLUTION_STRATEGY.FIRST_ACCEPTED,
+              resolution_strategy: RESOLUTION_STRATEGY.FIRST_ACCEPTED,
               resolved_payload_json: {
-                winner: requiresManualReview ? null : "SERVER",
+                winner: "SERVER",
                 reason: error.message,
                 local_payload: entry.payload,
                 server_payload: error.serverPayload || {},
               },
-              resolved_by: requiresManualReview ? null : auth.userId,
-              resolved_at: requiresManualReview ? null : serverTimestamp,
-              status: requiresManualReview
-                ? CONFLICT_STATUS.OPEN
-                : CONFLICT_STATUS.RESOLVED,
+              resolved_by: auth.userId,
+              resolved_at: serverTimestamp,
+              status: CONFLICT_STATUS.RESOLVED,
             },
             dbClient,
           });

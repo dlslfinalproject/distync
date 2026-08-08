@@ -378,6 +378,58 @@ const ROLE_CODES = {
   BARANGAY: "BARANGAY",
   MSWDO: "MSWDO",
 };
+const STUB_ALREADY_CLAIMED_CODE = "STUB_ALREADY_CLAIMED";
+const DISTRIBUTION_STUB_UNIQUE_CONSTRAINT = "distribution_transactions_stub_id_key";
+
+const isDistributionStubUniqueViolation = (error) =>
+  error?.code === "23505" &&
+  error?.constraint === DISTRIBUTION_STUB_UNIQUE_CONSTRAINT;
+
+const createStubAlreadyClaimedError = ({
+  stub,
+  latestDistributionTransaction = null,
+}) => {
+  const error = new Error("This stub has already been used for distribution");
+  error.code = STUB_ALREADY_CLAIMED_CODE;
+  error.statusCode = 409;
+  error.entityServerId = stub?.id || latestDistributionTransaction?.stub_id || null;
+  error.serverPayload = {
+    stub: stub
+      ? pickDefined(stub, [
+          "id",
+          "stub_no",
+          "serial_no",
+          "status",
+          "claimed_at",
+          "disaster_event_id",
+          "household_id",
+        ])
+      : {},
+    distribution_transaction: latestDistributionTransaction
+      ? pickDefined(latestDistributionTransaction, [
+          "id",
+          "disaster_event_id",
+          "household_id",
+          "stub_id",
+          "distribution_status",
+          "receipt_no",
+          "received_at",
+          "created_at",
+        ])
+      : null,
+  };
+  return error;
+};
+
+const throwStubAlreadyClaimedError = async (stub) => {
+  const latestDistributionTransaction =
+    await stubRepository.getLatestDistributionTransactionByStubId(stub?.id);
+
+  throw createStubAlreadyClaimedError({
+    stub,
+    latestDistributionTransaction,
+  });
+};
 
 const resolveRequesterBarangayId = async (requester) => {
   if (requester?.defaultBarangayId) {
@@ -963,6 +1015,10 @@ const createDistributionTransaction = async (requestData) => {
       throw error;
     }
 
+    if (stub.status === "CLAIMED") {
+      await throwStubAlreadyClaimedError(stub);
+    }
+
     if (stub.status !== "ISSUED") {
       const error = new Error("Stub is not claimable");
       error.statusCode = 400;
@@ -1259,10 +1315,22 @@ const createDistributionTransaction = async (requestData) => {
       await client.query("ROLLBACK");
     }
 
-    if (error.code === "23505") {
-      const duplicateError = new Error("This stub has already been used for distribution");
-      duplicateError.statusCode = 409;
-      throw duplicateError;
+    if (isDistributionStubUniqueViolation(error)) {
+      const latestDistributionTransaction =
+        await stubRepository.getLatestDistributionTransactionByStubId(
+          requestData.stub_id,
+        );
+      throw createStubAlreadyClaimedError({
+        stub: latestDistributionTransaction
+          ? {
+              id: requestData.stub_id,
+              status: "CLAIMED",
+              disaster_event_id: requestData.disaster_event_id,
+              household_id: requestData.household_id,
+            }
+          : { id: requestData.stub_id, status: "CLAIMED" },
+        latestDistributionTransaction,
+      });
     }
 
     throw error;
@@ -1305,6 +1373,10 @@ const claimDistributionTransactionFromQr = async (requestData) => {
       const error = new Error("household_id does not match the stub record");
       error.statusCode = 400;
       throw error;
+    }
+
+    if (stub.status === "CLAIMED") {
+      await throwStubAlreadyClaimedError(stub);
     }
 
     if (stub.status !== "ISSUED") {
@@ -1428,10 +1500,22 @@ const claimDistributionTransactionFromQr = async (requestData) => {
       await client.query("ROLLBACK");
     }
 
-    if (error.code === "23505") {
-      const duplicateError = new Error("This stub has already been used for distribution");
-      duplicateError.statusCode = 409;
-      throw duplicateError;
+    if (isDistributionStubUniqueViolation(error)) {
+      const latestDistributionTransaction =
+        await stubRepository.getLatestDistributionTransactionByStubId(
+          requestData.stub_id,
+        );
+      throw createStubAlreadyClaimedError({
+        stub: latestDistributionTransaction
+          ? {
+              id: requestData.stub_id,
+              status: "CLAIMED",
+              disaster_event_id: requestData.disaster_event_id,
+              household_id: requestData.household_id,
+            }
+          : { id: requestData.stub_id, status: "CLAIMED" },
+        latestDistributionTransaction,
+      });
     }
 
     throw error;

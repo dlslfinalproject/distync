@@ -86,6 +86,7 @@ router.post(
     const statusCode = error.statusCode || 500;
 
     return res.status(statusCode).json({
+      code: error.code || null,
       message: error.message || "Failed to claim stub from QR verification",
     });
   }
@@ -115,6 +116,7 @@ router.post(
     const statusCode = error.statusCode || 500;
 
     return res.status(statusCode).json({
+      code: error.code || null,
       message: error.message || "Failed to record distribution",
     });
   }

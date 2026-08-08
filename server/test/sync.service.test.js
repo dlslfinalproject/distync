@@ -876,7 +876,7 @@ test("processSyncEntries records duplicate accepted-server conflicts with FIRST_
   );
 });
 
-test("processSyncEntries records unsafe claimed-stub duplicates for MANUAL_REVIEW", async () => {
+test("H05-01 processSyncEntries records claimed-stub duplicates with FIRST_ACCEPTED", async () => {
   let conflictPayload;
 
   await withStubbedSyncService(
@@ -934,10 +934,178 @@ test("processSyncEntries records unsafe claimed-stub duplicates for MANUAL_REVIE
       });
 
       assert.equal(result.sync_status, "CONFLICT");
-      assert.equal(conflictPayload.resolution_strategy, "MANUAL_REVIEW");
-      assert.equal(conflictPayload.status, "OPEN");
-      assert.equal(conflictPayload.resolved_by, null);
-      assert.equal(conflictPayload.resolved_at, null);
+      assert.equal(conflictPayload.resolution_strategy, "FIRST_ACCEPTED");
+      assert.equal(conflictPayload.status, "RESOLVED");
+      assert.equal(conflictPayload.resolved_by, baseAuth.userId);
+      assert.ok(conflictPayload.resolved_at);
+      assert.equal(conflictPayload.resolved_payload_json.winner, "SERVER");
+    },
+  );
+});
+
+test("H05-13 different client_sync_id QR duplicate claim becomes CONFLICT with FIRST_ACCEPTED", async () => {
+  let conflictPayload;
+  let handlerCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: `sync-${payload.client_sync_id}`,
+            ...payload,
+          },
+        }),
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayload = payload.conflictPayload;
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: "conflict-h05-13",
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [distributionTransactionServicePath]: {
+        claimDistributionTransactionFromQr: async ({ dbClient: _dbClient, ...payload }) => {
+          handlerCalls += 1;
+
+          if (handlerCalls === 1) {
+            return {
+              distribution_transaction_id: "dist-first",
+              stub: {
+                id: "stub-h05",
+                status: "CLAIMED",
+              },
+            };
+          }
+
+          const error = new Error("This stub has already been used for distribution");
+          error.code = "STUB_ALREADY_CLAIMED";
+          error.statusCode = 409;
+          error.entityServerId = "stub-h05";
+          error.serverPayload = {
+            stub: {
+              id: "stub-h05",
+              status: "CLAIMED",
+            },
+            distribution_transaction: {
+              id: "dist-first",
+              stub_id: "stub-h05",
+            },
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h05-a",
+            action_key: "DISTRIBUTION_QR_CLAIM",
+            entity_type: "DISTRIBUTION_TRANSACTION",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              stub_id: "stub-h05",
+              disaster_event_id: "event-h05",
+              household_id: "household-h05",
+              claimed_by_name: "Local A",
+            },
+          },
+          {
+            client_sync_id: "h05-b",
+            action_key: "DISTRIBUTION_QR_CLAIM",
+            entity_type: "DISTRIBUTION_TRANSACTION",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:01:00.000Z",
+            payload: {
+              stub_id: "stub-h05",
+              disaster_event_id: "event-h05",
+              household_id: "household-h05",
+              claimed_by_name: "Local B",
+            },
+          },
+        ],
+      });
+
+      assert.equal(results[0].sync_status, "SYNCED");
+      assert.equal(results[1].sync_status, "CONFLICT");
+      assert.equal(conflictPayload.conflict_type, "STUB_ALREADY_CLAIMED");
+      assert.equal(conflictPayload.resolution_strategy, "FIRST_ACCEPTED");
+      assert.equal(conflictPayload.status, "RESOLVED");
+      assert.equal(conflictPayload.resolved_payload_json.winner, "SERVER");
+      assert.equal(handlerCalls, 2);
+    },
+  );
+});
+
+test("H05-09 generic 409 without canonical duplicate code remains FAILED", async () => {
+  let conflictWrites = 0;
+  const updates = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictWrites += 1;
+          throw new Error("generic 409 must not be persisted as conflict");
+        },
+        updateSyncTransaction: async (id, payload) => {
+          updates.push({ id, payload });
+          return {
+            id,
+            ...payload,
+          };
+        },
+      }),
+      [distributionTransactionServicePath]: {
+        createDistributionTransaction: async () => {
+          const error = new Error("Distribution action is already complete.");
+          error.statusCode = 409;
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h05-generic-409",
+            action_key: "DISTRIBUTION_CREATE",
+            entity_type: "DISTRIBUTION_TRANSACTION",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              stub_id: "stub-h05",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(conflictWrites, 0);
+      assert.equal(updates.at(-1).payload.sync_status, "FAILED");
     },
   );
 });

@@ -13,6 +13,8 @@ const {
 
 const isOverrideAllowed = process.env.NODE_ENV !== "production";
 const ACTIVE_QR_STATUS = "ACTIVE";
+const STUB_ALREADY_CLAIMED_CODE = "STUB_ALREADY_CLAIMED";
+const DISTRIBUTION_STUB_UNIQUE_CONSTRAINT = "distribution_transactions_stub_id_key";
 
 const buildFullName = (firstName, middleName, lastName, suffix) => {
   return [firstName, middleName, lastName, suffix].filter(Boolean).join(" ");
@@ -116,6 +118,31 @@ const buildClaimedStubDetails = (stub, latestDistributionTransaction = null) => 
         latestDistributionTransaction?.distribution_status || stub?.status || null,
     }).filter(([, value]) => value),
   );
+};
+
+const buildStubAlreadyClaimedError = (stub, latestDistributionTransaction = null) => {
+  const error = buildQrValidationError({
+    code: STUB_ALREADY_CLAIMED_CODE,
+    message: "Only unclaimed stubs can be marked as claimed.",
+    statusCode: 409,
+    details: buildClaimedStubDetails(stub, latestDistributionTransaction),
+  });
+  error.entityServerId = stub?.id || latestDistributionTransaction?.stub_id || null;
+  error.serverPayload = {
+    stub: stub
+      ? {
+          id: stub.id,
+          stub_no: stub.stub_no || null,
+          serial_no: stub.serial_no || null,
+          status: stub.status || null,
+          claimed_at: stub.claimed_at || null,
+          disaster_event_id: stub.disaster_event_id || null,
+          household_id: stub.household_id || null,
+        }
+      : {},
+    distribution_transaction: latestDistributionTransaction || null,
+  };
+  return error;
 };
 
 const ensureStubQrMetadata = async (stub, qrGeneratedBy) => {
@@ -394,14 +421,18 @@ const claimBarangayStub = async (params) => {
     throw error;
   }
 
-  if (scopedStub.status !== "ISSUED") {
+  if (scopedStub.status === "CLAIMED") {
     const latestDistributionTransaction =
       await stubRepository.getLatestDistributionTransactionByStubId(scopedStub.id);
+    throw buildStubAlreadyClaimedError(scopedStub, latestDistributionTransaction);
+  }
+
+  if (scopedStub.status !== "ISSUED") {
     throw buildQrValidationError({
-      code: "STUB_ALREADY_CLAIMED",
+      code: "STUB_NOT_CLAIMABLE",
       message: "Only unclaimed stubs can be marked as claimed.",
-      statusCode: 409,
-      details: buildClaimedStubDetails(scopedStub, latestDistributionTransaction),
+      statusCode: 400,
+      details: buildStubReferenceDetails(scopedStub),
     });
   }
 
@@ -425,19 +456,20 @@ const claimBarangayStub = async (params) => {
       throw error;
     }
 
-    if (lockedStub.status !== "ISSUED") {
+    if (lockedStub.status === "CLAIMED") {
       const latestDistributionTransaction =
         await stubRepository.getLatestDistributionTransactionByStubId(
           lockedStub.id,
         );
+      throw buildStubAlreadyClaimedError(lockedStub, latestDistributionTransaction);
+    }
+
+    if (lockedStub.status !== "ISSUED") {
       throw buildQrValidationError({
-        code: "STUB_ALREADY_CLAIMED",
+        code: "STUB_NOT_CLAIMABLE",
         message: "Only unclaimed stubs can be marked as claimed.",
-        statusCode: 409,
-        details: buildClaimedStubDetails(
-          lockedStub,
-          latestDistributionTransaction,
-        ),
+        statusCode: 400,
+        details: buildStubReferenceDetails(lockedStub),
       });
     }
 
@@ -482,18 +514,13 @@ const claimBarangayStub = async (params) => {
       await client.query("ROLLBACK");
     }
 
-    if (error.code === "23505") {
+    if (
+      error.code === "23505" &&
+      error.constraint === DISTRIBUTION_STUB_UNIQUE_CONSTRAINT
+    ) {
       const latestDistributionTransaction =
         await stubRepository.getLatestDistributionTransactionByStubId(params.id);
-      throw buildQrValidationError({
-        code: "STUB_ALREADY_CLAIMED",
-        message: "This stub has already been used for distribution",
-        statusCode: 409,
-        details: buildClaimedStubDetails(
-          scopedStub,
-          latestDistributionTransaction,
-        ),
-      });
+      throw buildStubAlreadyClaimedError(scopedStub, latestDistributionTransaction);
     }
 
     throw error;
