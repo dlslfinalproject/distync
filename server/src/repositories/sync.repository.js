@@ -222,10 +222,42 @@ const getLastSuccessfulSyncAtByUser = async ({ userId }, dbClient = pool) => {
   return result.rows[0]?.last_successful_sync_at || null;
 };
 
+const recordConflictAndUpdateSyncTransaction = async ({
+  syncTransactionId,
+  conflictPayload,
+  transactionPayload,
+}) => {
+  const dbClient = await pool.connect();
+
+  try {
+    await dbClient.query("BEGIN");
+
+    const conflictRecord = await insertSyncConflict(conflictPayload, dbClient);
+    const syncTransaction = await updateSyncTransaction(
+      syncTransactionId,
+      transactionPayload,
+      dbClient,
+    );
+
+    await dbClient.query("COMMIT");
+
+    return {
+      conflictRecord,
+      syncTransaction,
+    };
+  } catch (error) {
+    await dbClient.query("ROLLBACK");
+    throw error;
+  } finally {
+    dbClient.release();
+  }
+};
+
 module.exports = {
   insertSyncTransaction,
   updateSyncTransaction,
   insertSyncConflict,
+  recordConflictAndUpdateSyncTransaction,
   getSyncTransactionsByUser,
   getSyncConflictsByUser,
   getSyncConflictByIdForUser,

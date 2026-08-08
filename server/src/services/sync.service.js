@@ -28,7 +28,18 @@ const CONFLICT_STATUS = {
   RESOLVED: "RESOLVED",
 };
 
-const RESOLUTION_STRATEGY = "LATEST_TIMESTAMP";
+const RESOLUTION_STRATEGY = {
+  FIRST_ACCEPTED: "FIRST_ACCEPTED",
+  LATEST_TIMESTAMP: "LATEST_TIMESTAMP",
+  MANUAL_REVIEW: "MANUAL_REVIEW",
+};
+
+const createConflictPersistenceError = (message) => {
+  const error = new Error(message);
+  error.code = "SYNC_CONFLICT_PERSISTENCE_FAILED";
+  error.statusCode = 500;
+  return error;
+};
 
 const createPermissionError = () => {
   const error = new Error("You do not have permission to sync this action");
@@ -320,43 +331,52 @@ const maybeResolveTimestampConflict = async ({
 
   const shouldApplyLocalChange = localTimestamp > serverTimestamp;
 
-  let conflictRecord = null;
-
-  try {
-    conflictRecord = await syncRepository.insertSyncConflict({
+  return {
+    hasConflict: true,
+    shouldApplyLocalChange,
+    currentRecord,
+    conflictPayload: {
       sync_transaction_id: syncTransaction.id,
       entity_type: actionConfig.entityType,
       entity_server_id: entry.entity_server_id,
       conflict_type: "UPDATED_AT_MISMATCH",
       local_payload_json: entry.payload,
       server_payload_json: currentRecord,
-      resolution_strategy: RESOLUTION_STRATEGY,
-      resolved_payload_json: {
-        winner: shouldApplyLocalChange ? "LOCAL" : "SERVER",
-        local_payload: entry.payload,
-        server_payload: currentRecord,
-      },
+      resolution_strategy: RESOLUTION_STRATEGY.LATEST_TIMESTAMP,
       resolved_by: auth.userId,
-      resolved_at: new Date().toISOString(),
       status: CONFLICT_STATUS.RESOLVED,
+    },
+  };
+};
+
+const recordConflictAndUpdateSyncTransactionSafely = async ({
+  auth,
+  actionConfig,
+  entry,
+  syncTransactionId,
+  transactionPayload,
+  conflictPayload,
+}) => {
+  try {
+    return await syncRepository.recordConflictAndUpdateSyncTransaction({
+      syncTransactionId,
+      transactionPayload,
+      conflictPayload,
     });
   } catch (error) {
+    const failureMessage =
+      "Sync conflict could not be recorded safely. Please retry synchronization.";
+
     await logErrorSafely({
       actor: auth,
       moduleName: "sync",
       errorCode: "SYNC_CONFLICT_RESOLUTION_FAILED",
-      errorMessage: `Failed to record sync conflict resolution for ${actionConfig.entityType}`,
+      errorMessage: `Failed to record sync conflict resolution for ${entry.action_key || actionConfig.entityType}`,
       error,
     });
-    throw error;
-  }
 
-  return {
-    hasConflict: true,
-    shouldApplyLocalChange,
-    currentRecord,
-    conflictRecord,
-  };
+    throw createConflictPersistenceError(failureMessage);
+  }
 };
 
 const processSingleSyncEntry = async (entry, auth) => {
@@ -395,13 +415,31 @@ const processSingleSyncEntry = async (entry, auth) => {
     });
 
     if (conflictState.hasConflict && !conflictState.shouldApplyLocalChange) {
-      await syncRepository.updateSyncTransaction(syncTransaction.id, {
-        entity_server_id: entry.entity_server_id,
-        server_timestamp: new Date().toISOString(),
-        sync_status: SYNC_STATUS.CONFLICT,
-        error_message:
-          "Server version was newer. Server data was kept automatically.",
-      });
+      const serverTimestamp = new Date().toISOString();
+      const { syncTransaction: conflictTransaction, conflictRecord } =
+        await recordConflictAndUpdateSyncTransactionSafely({
+          auth,
+          actionConfig,
+          entry,
+          syncTransactionId: syncTransaction.id,
+          transactionPayload: {
+            entity_server_id: entry.entity_server_id,
+            server_timestamp: serverTimestamp,
+            sync_status: SYNC_STATUS.CONFLICT,
+            error_message:
+              "Server version was newer. Server data was kept automatically.",
+          },
+          conflictPayload: {
+            ...conflictState.conflictPayload,
+            resolved_payload_json: {
+              winner: "SERVER",
+              local_payload: entry.payload,
+              server_payload: conflictState.currentRecord,
+              authoritative_payload: conflictState.currentRecord,
+            },
+            resolved_at: serverTimestamp,
+          },
+        });
 
       return {
         client_sync_id: entry.client_sync_id,
@@ -409,7 +447,7 @@ const processSingleSyncEntry = async (entry, auth) => {
         sync_status: SYNC_STATUS.CONFLICT,
         message: "Conflict detected. Server version was newer and was kept.",
         data: conflictState.currentRecord,
-        conflict: conflictState.conflictRecord,
+        conflict: conflictRecord,
       };
     }
 
@@ -434,12 +472,43 @@ const processSingleSyncEntry = async (entry, auth) => {
       ? SYNC_STATUS.CONFLICT
       : SYNC_STATUS.SYNCED;
 
-    await syncRepository.updateSyncTransaction(syncTransaction.id, {
-      entity_server_id: resolvedEntityServerId,
-      server_timestamp: new Date().toISOString(),
-      sync_status: nextStatus,
-      error_message: null,
-    });
+    const serverTimestamp = new Date().toISOString();
+    let conflictRecord = null;
+
+    if (conflictState.hasConflict) {
+      const recordedConflict = await recordConflictAndUpdateSyncTransactionSafely({
+        auth,
+        actionConfig,
+        entry,
+        syncTransactionId: syncTransaction.id,
+        transactionPayload: {
+          entity_server_id: resolvedEntityServerId,
+          server_timestamp: serverTimestamp,
+          sync_status: nextStatus,
+          error_message: null,
+        },
+        conflictPayload: {
+          ...conflictState.conflictPayload,
+          entity_server_id: resolvedEntityServerId,
+          resolved_payload_json: {
+            winner: "LOCAL",
+            local_payload: entry.payload,
+            server_payload: conflictState.currentRecord,
+            authoritative_payload: result,
+          },
+          resolved_at: serverTimestamp,
+        },
+      });
+
+      conflictRecord = recordedConflict.conflictRecord;
+    } else {
+      await syncRepository.updateSyncTransaction(syncTransaction.id, {
+        entity_server_id: resolvedEntityServerId,
+        server_timestamp: serverTimestamp,
+        sync_status: nextStatus,
+        error_message: null,
+      });
+    }
 
     return {
       client_sync_id: entry.client_sync_id,
@@ -449,7 +518,7 @@ const processSingleSyncEntry = async (entry, auth) => {
         ? "Conflict detected. Local version was newer and has been applied."
         : "Sync completed successfully.",
       data: result,
-      conflict: conflictState.conflictRecord,
+      conflict: conflictRecord,
     };
   } catch (error) {
     const isDuplicateConflict =
@@ -459,40 +528,52 @@ const processSingleSyncEntry = async (entry, auth) => {
 
     if (isDuplicateConflict) {
       const requiresManualReview = error.code === "STUB_ALREADY_CLAIMED";
-      const conflictTransaction = await syncRepository.updateSyncTransaction(
-        syncTransaction.id,
-        {
-          entity_server_id: entry.entity_server_id || error.entityServerId || null,
-          server_timestamp: new Date().toISOString(),
-          sync_status: SYNC_STATUS.CONFLICT,
-          error_message: error.message || "Duplicate offline action was ignored",
-        },
-      );
-
-      let conflictRecord = null;
+      const serverTimestamp = new Date().toISOString();
+      const entityServerId = entry.entity_server_id || error.entityServerId || null;
 
       try {
-        conflictRecord = await syncRepository.insertSyncConflict({
+        const { syncTransaction: conflictTransaction, conflictRecord } =
+          await syncRepository.recordConflictAndUpdateSyncTransaction({
+            syncTransactionId: syncTransaction.id,
+            transactionPayload: {
+              entity_server_id: entityServerId,
+              server_timestamp: serverTimestamp,
+              sync_status: SYNC_STATUS.CONFLICT,
+              error_message:
+                error.message || "Duplicate offline action was ignored",
+            },
+            conflictPayload: {
+              sync_transaction_id: syncTransaction.id,
+              entity_type: actionConfig.entityType,
+              entity_server_id: entityServerId,
+              conflict_type: error.code,
+              local_payload_json: entry.payload,
+              server_payload_json: error.serverPayload || {},
+              resolution_strategy: requiresManualReview
+                ? RESOLUTION_STRATEGY.MANUAL_REVIEW
+                : RESOLUTION_STRATEGY.FIRST_ACCEPTED,
+              resolved_payload_json: {
+                winner: requiresManualReview ? null : "SERVER",
+                reason: error.message,
+                local_payload: entry.payload,
+                server_payload: error.serverPayload || {},
+              },
+              resolved_by: requiresManualReview ? null : auth.userId,
+              resolved_at: requiresManualReview ? null : serverTimestamp,
+              status: requiresManualReview
+                ? CONFLICT_STATUS.OPEN
+                : CONFLICT_STATUS.RESOLVED,
+            },
+          });
+
+        return {
+          client_sync_id: entry.client_sync_id,
           sync_transaction_id: syncTransaction.id,
-          entity_type: actionConfig.entityType,
-          entity_server_id:
-            entry.entity_server_id || error.entityServerId || null,
-          conflict_type: error.code,
-          local_payload_json: entry.payload,
-          server_payload_json: error.serverPayload || {},
-          resolution_strategy: requiresManualReview
-            ? "MANUAL_REVIEW_REQUIRED"
-            : "EARLIEST_TIMESTAMP",
-          resolved_payload_json: {
-            winner: requiresManualReview ? null : "SERVER",
-            reason: error.message,
-          },
-          resolved_by: requiresManualReview ? null : auth.userId,
-          resolved_at: requiresManualReview ? null : new Date().toISOString(),
-          status: requiresManualReview
-            ? CONFLICT_STATUS.OPEN
-            : CONFLICT_STATUS.RESOLVED,
-        });
+          sync_status: SYNC_STATUS.CONFLICT,
+          message: error.message || "Duplicate offline action was ignored",
+          data: conflictTransaction,
+          conflict: conflictRecord,
+        };
       } catch (conflictError) {
         await logErrorSafely({
           actor: auth,
@@ -501,15 +582,45 @@ const processSingleSyncEntry = async (entry, auth) => {
           errorMessage: `Failed to record duplicate conflict for ${entry.action_key}`,
           error: conflictError,
         });
+
+        const failureMessage =
+          "Sync conflict could not be recorded safely. Please retry synchronization.";
+
+        await syncRepository.updateSyncTransaction(syncTransaction.id, {
+          entity_server_id: entityServerId,
+          server_timestamp: serverTimestamp,
+          sync_status: SYNC_STATUS.FAILED,
+          error_message: failureMessage,
+        });
+
+        return {
+          client_sync_id: entry.client_sync_id,
+          sync_transaction_id: syncTransaction.id,
+          sync_status: SYNC_STATUS.FAILED,
+          message: failureMessage,
+          data: null,
+          conflict: null,
+          error_code: createConflictPersistenceError(failureMessage).code,
+        };
       }
+    }
+
+    if (error.code === "SYNC_CONFLICT_PERSISTENCE_FAILED") {
+      await syncRepository.updateSyncTransaction(syncTransaction.id, {
+        entity_server_id: entry.entity_server_id || null,
+        server_timestamp: new Date().toISOString(),
+        sync_status: SYNC_STATUS.FAILED,
+        error_message: error.message,
+      });
 
       return {
         client_sync_id: entry.client_sync_id,
         sync_transaction_id: syncTransaction.id,
-        sync_status: SYNC_STATUS.CONFLICT,
-        message: error.message || "Duplicate offline action was ignored",
-        data: conflictTransaction,
-        conflict: conflictRecord,
+        sync_status: SYNC_STATUS.FAILED,
+        message: error.message,
+        data: null,
+        conflict: null,
+        error_code: error.code,
       };
     }
 
