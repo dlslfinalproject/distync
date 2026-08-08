@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FiAlertTriangle, FiEye, FiFilter, FiSearch } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { pageSpacingStyles, shellStyles } from "../../components/layout/BarangayLayout";
 import EmptyState from "../../components/shared/EmptyState";
 import ErrorState from "../../components/shared/ErrorState";
+import FormModalShell from "../../components/shared/FormModalShell";
 import LoadingState from "../../components/shared/LoadingState";
 import StatusCard from "../../components/shared/StatusCard";
 import {
@@ -117,37 +118,10 @@ const DEFAULT_PAGE_SIZE = 50;
 const pageSizeOptions = [25, 50, 100];
 
 const modalStyles = {
-  overlay: {
-    position: "fixed",
-    inset: 0,
-    backgroundColor: "rgba(18, 34, 51, 0.45)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "24px",
-    zIndex: 1400,
-  },
-  modal: {
-    width: "100%",
-    maxWidth: "760px",
-    maxHeight: "85vh",
-    overflowY: "auto",
-    backgroundColor: "#ffffff",
-    borderRadius: "22px",
-    padding: "28px",
-    boxShadow: "0 24px 48px rgba(20, 48, 78, 0.2)",
-  },
-  title: {
-    margin: 0,
-    color: "#17324d",
-    fontSize: "24px",
-    lineHeight: 1.2,
-  },
   grid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))",
     gap: "16px",
-    marginTop: "20px",
   },
   card: {
     padding: "16px",
@@ -164,7 +138,6 @@ const modalStyles = {
   actions: {
     display: "flex",
     justifyContent: "flex-end",
-    marginTop: "24px",
   },
 };
 
@@ -394,67 +367,81 @@ const StatusPill = ({ row }) => {
   );
 };
 
-const AnomalyDetailModal = ({ anomaly, onClose }) => {
+const modalPanelStyles = {
+  maxHeight: "calc(100vh - 32px)",
+  overflowY: "auto",
+  overflowX: "hidden",
+  borderRadius: "20px",
+};
+
+const AnomalyDetailModal = ({ anomaly, onClose, finalFocusRef }) => {
   if (!anomaly) {
     return null;
   }
 
   return (
-    <div style={modalStyles.overlay}>
-      <div style={modalStyles.modal}>
-        <h3 style={modalStyles.title}>Anomaly Details</h3>
-
-        <div style={modalStyles.grid}>
-          <div style={modalStyles.card}>
-            <div style={labelStyles}>Anomaly Type</div>
-            <div style={modalStyles.value}>{formatAnomalyType(anomaly.anomaly_type)}</div>
-          </div>
-
-          <div style={modalStyles.card}>
-            <div style={labelStyles}>Status</div>
-            <div style={modalStyles.value}>
-              <StatusPill row={anomaly} />
-            </div>
-          </div>
-
-          <div style={modalStyles.card}>
-            <div style={labelStyles}>Disaster Event</div>
-            <div style={modalStyles.value}>{formatEventLabel(anomaly)}</div>
-          </div>
-
-          <div style={modalStyles.card}>
-            <div style={labelStyles}>Barangay</div>
-            <div style={modalStyles.value}>{anomaly.barangay_name || "--"}</div>
-          </div>
-
-          <div style={modalStyles.card}>
-            <div style={labelStyles}>Household / Stub</div>
-            <div style={modalStyles.value}>{anomaly.family_head_name || "--"}</div>
-          </div>
-
-          <div style={modalStyles.card}>
-            <div style={labelStyles}>Detected At</div>
-            <div style={modalStyles.value}>{formatDateTime(anomaly.occurred_at)}</div>
-          </div>
-
-          <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
-            <div style={labelStyles}>Reason</div>
-            <div style={modalStyles.value}>{anomaly.anomaly_reason || "--"}</div>
-          </div>
-
-          <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
-            <div style={labelStyles}>Resolution Notes</div>
-            <div style={modalStyles.value}>{anomaly.resolution_status || "--"}</div>
-          </div>
-        </div>
-
+    <FormModalShell
+      isOpen
+      title="Anomaly Details"
+      onClose={onClose}
+      closeButtonLabel="Close anomaly details"
+      closeOnBackdrop={false}
+      finalFocusRef={finalFocusRef}
+      maxWidth="min(760px, 100vw)"
+      overlayStyle={{ padding: "16px" }}
+      contentStyle={modalPanelStyles}
+      footer={
         <div style={modalStyles.actions}>
           <button type="button" onClick={onClose} style={pageHeaderStyles.secondaryButton}>
             Close
           </button>
         </div>
+      }
+    >
+      <div style={modalStyles.grid}>
+        <div style={modalStyles.card}>
+          <div style={labelStyles}>Anomaly Type</div>
+          <div style={modalStyles.value}>{formatAnomalyType(anomaly.anomaly_type)}</div>
+        </div>
+
+        <div style={modalStyles.card}>
+          <div style={labelStyles}>Status</div>
+          <div style={modalStyles.value}>
+            <StatusPill row={anomaly} />
+          </div>
+        </div>
+
+        <div style={modalStyles.card}>
+          <div style={labelStyles}>Disaster Event</div>
+          <div style={modalStyles.value}>{formatEventLabel(anomaly)}</div>
+        </div>
+
+        <div style={modalStyles.card}>
+          <div style={labelStyles}>Barangay</div>
+          <div style={modalStyles.value}>{anomaly.barangay_name || "--"}</div>
+        </div>
+
+        <div style={modalStyles.card}>
+          <div style={labelStyles}>Household / Stub</div>
+          <div style={modalStyles.value}>{anomaly.family_head_name || "--"}</div>
+        </div>
+
+        <div style={modalStyles.card}>
+          <div style={labelStyles}>Detected At</div>
+          <div style={modalStyles.value}>{formatDateTime(anomaly.occurred_at)}</div>
+        </div>
+
+        <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
+          <div style={labelStyles}>Reason</div>
+          <div style={modalStyles.value}>{anomaly.anomaly_reason || "--"}</div>
+        </div>
+
+        <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
+          <div style={labelStyles}>Resolution Notes</div>
+          <div style={modalStyles.value}>{anomaly.resolution_status || "--"}</div>
+        </div>
       </div>
-    </div>
+    </FormModalShell>
   );
 };
 
@@ -496,6 +483,28 @@ const AnomalyTrackingPage = ({
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
   const [isLoadingRows, setIsLoadingRows] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const anomalyDetailsTriggerRef = useRef(null);
+  const anomalyRecordsHeadingRef = useRef(null);
+  const anomalyDetailsFinalFocusRef = useMemo(
+    () => ({
+      get current() {
+        const triggerElement = anomalyDetailsTriggerRef.current;
+
+        if (triggerElement?.isConnected && typeof triggerElement.focus === "function") {
+          return triggerElement;
+        }
+
+        const fallbackElement = anomalyRecordsHeadingRef.current;
+
+        if (fallbackElement?.isConnected && typeof fallbackElement.focus === "function") {
+          return fallbackElement;
+        }
+
+        return null;
+      },
+    }),
+    [],
+  );
 
   const updateFilters = (updater) => {
     setPage(1);
@@ -771,6 +780,13 @@ const AnomalyTrackingPage = ({
     ? 0
     : Math.min(firstVisibleItem + rows.length - 1, totalItems);
   const shouldShowPaginationControls = totalItems > 0;
+  const openAnomalyDetails = useCallback((row, event) => {
+    anomalyDetailsTriggerRef.current = event.currentTarget;
+    setSelectedAnomaly(row);
+  }, []);
+  const closeAnomalyDetails = useCallback(() => {
+    setSelectedAnomaly(null);
+  }, []);
   const paginationControls = shouldShowPaginationControls ? (
     <div style={paginationStyles.wrapper}>
       <div style={paginationStyles.controls}>
@@ -1069,7 +1085,13 @@ const AnomalyTrackingPage = ({
 
       <section style={shellStyles.card}>
         <div style={pageSpacingStyles.tableHeader}>
-          <h3 style={{ margin: 0, color: "#17324d" }}>Anomaly Records</h3>
+          <h3
+            ref={anomalyRecordsHeadingRef}
+            tabIndex={-1}
+            style={{ margin: 0, color: "#17324d", outline: "none" }}
+          >
+            Anomaly Records
+          </h3>
           <span style={paginationStyles.resultText}>
             {totalItems === 0
               ? "No anomalies found"
@@ -1132,8 +1154,9 @@ const AnomalyTrackingPage = ({
                       <td style={{ ...tableStyles.td, textAlign: "center" }}>
                         <button
                           type="button"
-                          onClick={() => setSelectedAnomaly(row)}
-                          title="View details"
+                          onClick={(event) => openAnomalyDetails(row, event)}
+                          aria-label={`View details for ${formatAnomalyType(row.anomaly_type)}`}
+                          title={`View details for ${formatAnomalyType(row.anomaly_type)}`}
                           style={{
                             width: "46px",
                             height: "46px",
@@ -1163,7 +1186,8 @@ const AnomalyTrackingPage = ({
 
       <AnomalyDetailModal
         anomaly={selectedAnomaly}
-        onClose={() => setSelectedAnomaly(null)}
+        onClose={closeAnomalyDetails}
+        finalFocusRef={anomalyDetailsFinalFocusRef}
       />
     </div>
   );
