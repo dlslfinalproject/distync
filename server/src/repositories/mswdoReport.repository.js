@@ -1,5 +1,40 @@
 const pool = require("../config/db");
 
+const getAnomalyOrderByClause = (order) => {
+  const stableTieBreaker = `
+      source_type ASC,
+      source_id ASC
+  `;
+
+  if (order === "oldest") {
+    return `
+      occurred_at ASC NULLS FIRST,
+      anomaly_type ASC,
+      reference_id ASC NULLS LAST,
+      ${stableTieBreaker}
+    `;
+  }
+
+  if (order === "az" || order === "za") {
+    const direction = order === "az" ? "ASC" : "DESC";
+
+    return `
+      LOWER(CONCAT_WS(' ', disaster_event_title, family_head_name)) ${direction},
+      occurred_at DESC NULLS LAST,
+      anomaly_type ASC,
+      reference_id ASC NULLS LAST,
+      ${stableTieBreaker}
+    `;
+  }
+
+  return `
+    occurred_at DESC NULLS LAST,
+    anomaly_type ASC,
+    reference_id ASC NULLS LAST,
+    ${stableTieBreaker}
+  `;
+};
+
 const getDisasterEventReportSummary = async ({
   disasterEventId = null,
   barangayId = null,
@@ -122,10 +157,17 @@ const getMswdoAnomalyTracking = async ({
   disasterEventId = null,
   barangayId = null,
   status = null,
+  statusCategory = null,
+  anomalyType = null,
+  search = null,
+  order = "newest",
   dateFrom = null,
   dateTo = null,
-  limit = 100,
+  limit = null,
+  page = 1,
+  pageSize = null,
 }) => {
+  const effectivePageSize = pageSize || limit || 50;
   const values = [];
   const distributionConditions = ["dt.distribution_status = 'CLAIMED'"];
   const syncConditions = [];
@@ -162,8 +204,9 @@ const getMswdoAnomalyTracking = async ({
   }
 
   const statusIndex = status ? values.push(status) : null;
-  values.push(limit);
-  const limitIndex = values.length;
+  const anomalyTypeIndex = anomalyType ? values.push(anomalyType) : null;
+  const statusCategoryIndex = statusCategory ? values.push(statusCategory) : null;
+  const searchIndex = search ? values.push(`%${search}%`) : null;
 
   const suspiciousDistributionWhere = distributionConditions.join(" AND ");
   const syncFailedWhere = [
@@ -181,6 +224,38 @@ const getMswdoAnomalyTracking = async ({
     finalConditions.push(`status = $${statusIndex}`);
   }
 
+  if (anomalyTypeIndex) {
+    finalConditions.push(`anomaly_type = $${anomalyTypeIndex}`);
+  }
+
+  if (statusCategoryIndex) {
+    finalConditions.push(`
+      CASE
+        WHEN UPPER(COALESCE(status, '')) IN ('FAILED', 'ERROR') THEN 'failed'
+        WHEN UPPER(COALESCE(status, '')) = 'OPEN'
+          OR UPPER(COALESCE(resolution_status, '')) LIKE '%PENDING%'
+          OR UPPER(COALESCE(resolution_status, '')) LIKE '%RECOMMENDED%'
+        THEN 'open'
+        ELSE 'resolved'
+      END = $${statusCategoryIndex}
+    `);
+  }
+
+  if (searchIndex) {
+    finalConditions.push(`
+      (
+        anomaly_type ILIKE $${searchIndex}
+        OR COALESCE(event_code, '') ILIKE $${searchIndex}
+        OR COALESCE(disaster_event_title, '') ILIKE $${searchIndex}
+        OR COALESCE(barangay_name, '') ILIKE $${searchIndex}
+        OR COALESCE(family_head_name, '') ILIKE $${searchIndex}
+        OR COALESCE(anomaly_reason, '') ILIKE $${searchIndex}
+        OR COALESCE(status, '') ILIKE $${searchIndex}
+        OR COALESCE(resolution_status, '') ILIKE $${searchIndex}
+      )
+    `);
+  }
+
   if (barangayId) {
     finalConditions.push(`barangay_id = $${barangayParamIndex}`);
   }
@@ -189,11 +264,13 @@ const getMswdoAnomalyTracking = async ({
     ? `WHERE ${finalConditions.join(" AND ")}`
     : "";
 
-  const query = `
+  const anomalyRelationSql = `
     WITH suspicious_distribution AS (
       SELECT
         'SUSPICIOUS_DISTRIBUTION_ACTIVITY' AS anomaly_type,
         CONCAT(dt.household_id::text, ':', dt.disaster_event_id::text) AS reference_id,
+        'SUSPICIOUS_DISTRIBUTION_ACTIVITY' AS source_type,
+        CONCAT(dt.household_id::text, ':', dt.disaster_event_id::text) AS source_id,
         de.event_code,
         de.title AS disaster_event_title,
         b.id AS barangay_id,
@@ -385,6 +462,8 @@ const getMswdoAnomalyTracking = async ({
       SELECT
         'SYNC_FAILED' AS anomaly_type,
         st.id::text AS reference_id,
+        'SYNC_TRANSACTION' AS source_type,
+        st.id::text AS source_id,
         de.event_code,
         de.title AS disaster_event_title,
         b.id AS barangay_id,
@@ -408,6 +487,8 @@ const getMswdoAnomalyTracking = async ({
       SELECT
         'SYNC_CONFLICT' AS anomaly_type,
         sc.id::text AS reference_id,
+        'SYNC_CONFLICT' AS source_type,
+        sc.id::text AS source_id,
         de.event_code,
         de.title AS disaster_event_title,
         b.id AS barangay_id,
@@ -432,6 +513,8 @@ const getMswdoAnomalyTracking = async ({
       SELECT
         'DUPLICATE_CLAIM_ATTEMPT' AS anomaly_type,
         el.id::text AS reference_id,
+        'ERROR_LOG' AS source_type,
+        el.id::text AS source_id,
         de.event_code,
         de.title AS disaster_event_title,
         b.id AS barangay_id,
@@ -457,6 +540,8 @@ const getMswdoAnomalyTracking = async ({
       SELECT
         'FAILED_STUB_OR_QR_VERIFICATION' AS anomaly_type,
         el.id::text AS reference_id,
+        'ERROR_LOG' AS source_type,
+        el.id::text AS source_id,
         de.event_code,
         de.title AS disaster_event_title,
         b.id AS barangay_id,
@@ -486,9 +571,8 @@ const getMswdoAnomalyTracking = async ({
         )
         ${disasterEventId ? `AND eba.disaster_event_id = $${disasterEventParamIndex}` : ""}
         ${errorWhere}
-    )
-    SELECT *
-    FROM (
+    ),
+    anomaly_rows AS (
       SELECT * FROM suspicious_distribution
       UNION ALL
       SELECT * FROM sync_failed
@@ -498,14 +582,63 @@ const getMswdoAnomalyTracking = async ({
       SELECT * FROM duplicate_claim_attempts
       UNION ALL
       SELECT * FROM failed_stub_verification
-    ) anomalies
-    ${finalWhere}
-    ORDER BY occurred_at DESC
-    LIMIT $${limitIndex}
+    ),
+    filtered_anomalies AS (
+      SELECT *
+      FROM anomaly_rows
+      ${finalWhere}
+    )
   `;
 
-  const result = await pool.query(query, values);
-  return result.rows;
+  const countResult = await pool.query(
+    `
+      ${anomalyRelationSql}
+      SELECT COUNT(*)::int AS total_items
+      FROM filtered_anomalies
+    `,
+    values,
+  );
+
+  const totalItems = countResult.rows[0]?.total_items || 0;
+  const totalPages = totalItems === 0 ? 0 : Math.ceil(totalItems / effectivePageSize);
+  const offset = (page - 1) * effectivePageSize;
+  const itemValues = [...values, effectivePageSize, offset];
+  const limitIndex = itemValues.length - 1;
+  const offsetIndex = itemValues.length;
+  const result = await pool.query(
+    `
+      ${anomalyRelationSql}
+      SELECT
+        anomaly_type,
+        reference_id,
+        event_code,
+        disaster_event_title,
+        barangay_id,
+        barangay_name,
+        family_head_name,
+        anomaly_reason,
+        status,
+        occurred_at,
+        resolution_status
+      FROM filtered_anomalies
+      ORDER BY ${getAnomalyOrderByClause(order)}
+      LIMIT $${limitIndex}
+      OFFSET $${offsetIndex}
+    `,
+    itemValues,
+  );
+
+  return {
+    items: result.rows,
+    pagination: {
+      page,
+      pageSize: effectivePageSize,
+      totalItems,
+      totalPages,
+      hasPreviousPage: page > 1,
+      hasNextPage: totalPages > 0 && page < totalPages,
+    },
+  };
 };
 
 module.exports = {

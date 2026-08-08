@@ -40,13 +40,15 @@ router.get(
             }
           : req.validatedQuery;
 
-      const rows = await mswdoReportService.getAnomalyTracking(
+      const report = await mswdoReportService.getAnomalyTracking(
         protectedQuery,
       );
+      const rows = Array.isArray(report) ? report : report.items;
 
       return res.status(200).json({
         message: "MSWDO anomaly tracking fetched successfully",
-        data: rows,
+        data: rows || [],
+        pagination: report.pagination || null,
       });
     } catch (error) {
       return res.status(error.statusCode || 500).json({
