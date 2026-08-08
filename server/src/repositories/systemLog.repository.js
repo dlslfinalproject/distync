@@ -44,9 +44,12 @@ const insertErrorLog = async (payload, dbClient = pool) => {
       error_message,
       stack_trace,
       severity,
+      reference_type,
+      reference_id,
+      context_json,
       created_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, NOW())
     RETURNING *
   `;
 
@@ -58,6 +61,9 @@ const insertErrorLog = async (payload, dbClient = pool) => {
     payload.error_message,
     payload.stack_trace || null,
     payload.severity || "ERROR",
+    payload.reference_type || null,
+    payload.reference_id || null,
+    JSON.stringify(payload.context_json || {}),
   ];
 
   const result = await dbClient.query(query, values);
@@ -99,6 +105,9 @@ const getErrorLogs = async ({ limit = 50 } = {}, dbClient = pool) => {
       el.error_message,
       el.stack_trace,
       el.severity,
+      el.reference_type,
+      el.reference_id,
+      el.context_json,
       el.created_at,
       u.id AS user_id,
       u.first_name,

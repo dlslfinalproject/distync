@@ -193,7 +193,7 @@ const getMswdoAnomalyTracking = async ({
     WITH suspicious_distribution AS (
       SELECT
         'SUSPICIOUS_DISTRIBUTION_ACTIVITY' AS anomaly_type,
-        dt.id::text AS reference_id,
+        CONCAT(dt.household_id::text, ':', dt.disaster_event_id::text) AS reference_id,
         de.event_code,
         de.title AS disaster_event_title,
         b.id AS barangay_id,
@@ -207,22 +207,29 @@ const getMswdoAnomalyTracking = async ({
         ) AS family_head_name,
         CONCAT(
           'Household has ',
-          COUNT(*) OVER (PARTITION BY dt.household_id, dt.disaster_event_id),
+          COUNT(*),
           ' claimed distribution records for the same disaster event.'
         ) AS anomaly_reason,
-        dt.distribution_status AS status,
-        dt.distribution_date AS occurred_at,
+        'CLAIMED' AS status,
+        MAX(dt.distribution_date) AS occurred_at,
         'Distribution history review recommended.' AS resolution_status
       FROM distribution_transactions dt
       INNER JOIN households h ON h.id = dt.household_id
       INNER JOIN barangays b ON b.id = h.barangay_id
       INNER JOIN disaster_events de ON de.id = dt.disaster_event_id
       WHERE ${suspiciousDistributionWhere}
-    ),
-    suspicious_distribution_filtered AS (
-      SELECT *
-      FROM suspicious_distribution
-      WHERE anomaly_reason NOT LIKE 'Household has 1 claimed%'
+      GROUP BY
+        dt.household_id,
+        dt.disaster_event_id,
+        de.event_code,
+        de.title,
+        b.id,
+        b.name,
+        h.family_head_first_name,
+        h.family_head_middle_name,
+        h.family_head_last_name,
+        h.family_head_suffix
+      HAVING COUNT(*) > 1
     ),
     sync_barangay_attribution AS (
       SELECT
@@ -331,28 +338,48 @@ const getMswdoAnomalyTracking = async ({
     error_barangay_attribution AS (
       SELECT
         el.id AS error_log_id,
-        u.default_barangay_id AS barangay_id
+        s_error.disaster_event_id,
+        COALESCE(
+          h_error.barangay_id,
+          CASE
+            WHEN el.reference_type IS NULL
+              AND u.default_barangay_id IS NOT NULL
+              AND EXISTS (
+                SELECT 1
+                FROM user_roles ur_barangay
+                INNER JOIN roles r_barangay
+                  ON r_barangay.id = ur_barangay.role_id
+                WHERE ur_barangay.user_id = u.id
+                  AND r_barangay.code = 'BARANGAY'
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM user_roles ur_other
+                INNER JOIN roles r_other
+                  ON r_other.id = ur_other.role_id
+                WHERE ur_other.user_id = u.id
+                  AND r_other.code IN ('MSWDO', 'MAYOR')
+              )
+            THEN u.default_barangay_id
+            ELSE NULL
+          END
+        ) AS barangay_id,
+        NULLIF(TRIM(CONCAT_WS(
+          ' ',
+          h_error.family_head_first_name,
+          h_error.family_head_middle_name,
+          h_error.family_head_last_name,
+          h_error.family_head_suffix
+        )), '') AS family_head_name
       FROM error_logs el
-      INNER JOIN users u
+      LEFT JOIN users u
         ON u.id = el.user_id
+      LEFT JOIN stubs s_error
+        ON el.reference_type = 'STUB'
+        AND s_error.id = el.reference_id
+      LEFT JOIN households h_error
+        ON h_error.id = s_error.household_id
       WHERE el.module_name IN ('distribution', 'stubs')
-        AND u.default_barangay_id IS NOT NULL
-        AND EXISTS (
-          SELECT 1
-          FROM user_roles ur_barangay
-          INNER JOIN roles r_barangay
-            ON r_barangay.id = ur_barangay.role_id
-          WHERE ur_barangay.user_id = u.id
-            AND r_barangay.code = 'BARANGAY'
-        )
-        AND NOT EXISTS (
-          SELECT 1
-          FROM user_roles ur_other
-          INNER JOIN roles r_other
-            ON r_other.id = ur_other.role_id
-          WHERE ur_other.user_id = u.id
-            AND r_other.code IN ('MSWDO', 'MAYOR')
-        )
     ),
     sync_failed AS (
       SELECT
@@ -405,11 +432,11 @@ const getMswdoAnomalyTracking = async ({
       SELECT
         'DUPLICATE_CLAIM_ATTEMPT' AS anomaly_type,
         el.id::text AS reference_id,
-        NULL::text AS event_code,
-        NULL::text AS disaster_event_title,
+        de.event_code,
+        de.title AS disaster_event_title,
         b.id AS barangay_id,
         b.name AS barangay_name,
-        NULL::text AS family_head_name,
+        eba.family_head_name,
         el.error_message AS anomaly_reason,
         el.severity AS status,
         el.created_at AS occurred_at,
@@ -419,23 +446,22 @@ const getMswdoAnomalyTracking = async ({
         ON eba.error_log_id = el.id
       LEFT JOIN barangays b
         ON b.id = eba.barangay_id
+      LEFT JOIN disaster_events de
+        ON de.id = eba.disaster_event_id
       WHERE el.module_name IN ('distribution', 'stubs')
-        AND (
-          el.error_message ILIKE '%already been used for distribution%'
-          OR el.error_message ILIKE '%already claimed%'
-        )
-        ${disasterEventId ? "AND FALSE" : ""}
+        AND el.error_code = 'STUB_ALREADY_CLAIMED'
+        ${disasterEventId ? `AND eba.disaster_event_id = $${disasterEventParamIndex}` : ""}
         ${errorWhere}
     ),
     failed_stub_verification AS (
       SELECT
         'FAILED_STUB_OR_QR_VERIFICATION' AS anomaly_type,
         el.id::text AS reference_id,
-        NULL::text AS event_code,
-        NULL::text AS disaster_event_title,
+        de.event_code,
+        de.title AS disaster_event_title,
         b.id AS barangay_id,
         b.name AS barangay_name,
-        NULL::text AS family_head_name,
+        eba.family_head_name,
         el.error_message AS anomaly_reason,
         el.severity AS status,
         el.created_at AS occurred_at,
@@ -445,18 +471,25 @@ const getMswdoAnomalyTracking = async ({
         ON eba.error_log_id = el.id
       LEFT JOIN barangays b
         ON b.id = eba.barangay_id
+      LEFT JOIN disaster_events de
+        ON de.id = eba.disaster_event_id
       WHERE el.module_name IN ('stubs', 'distribution')
-        AND (
-          el.error_message ILIKE '%stub not found%'
-          OR el.error_message ILIKE '%qr_reference_value does not match%'
-          OR el.error_message ILIKE '%The scanned QR reference is not active%'
+        AND el.error_code IN (
+          'INVALID_QR_STUB',
+          'STUB_NOT_FOUND',
+          'QR_REFERENCE_MISMATCH',
+          'QR_INACTIVE',
+          'STUB_NOT_CLAIMABLE',
+          'STUB_CANCELLED',
+          'STUB_VOID',
+          'STUB_UNAVAILABLE'
         )
-        ${disasterEventId ? "AND FALSE" : ""}
+        ${disasterEventId ? `AND eba.disaster_event_id = $${disasterEventParamIndex}` : ""}
         ${errorWhere}
     )
     SELECT *
     FROM (
-      SELECT * FROM suspicious_distribution_filtered
+      SELECT * FROM suspicious_distribution
       UNION ALL
       SELECT * FROM sync_failed
       UNION ALL
