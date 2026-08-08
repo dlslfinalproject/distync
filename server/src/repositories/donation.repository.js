@@ -42,6 +42,7 @@ const donationSelect = `
     d.updated_at,
     de.event_code,
     de.title AS disaster_event_title,
+    de.status AS disaster_event_status,
     u.first_name AS received_by_first_name,
     u.last_name AS received_by_last_name
   FROM donations d
@@ -645,11 +646,13 @@ const getInventoryBatchByIdForUpdate = async (id, dbClient) => {
       SELECT
         id,
         inventory_item_id,
+        inventory_item_stock_form_id,
         batch_no,
         source_type,
         quantity_received,
         quantity_available,
         expiration_date,
+        received_at,
         storage_location,
         status
       FROM inventory_batches
@@ -878,6 +881,7 @@ const getPublicDonationDisasterSummaries = async (
         COALESCE(affected_barangays.affected_barangays, '[]'::json) AS affected_barangays,
         COALESCE(barangay_summary.affected_barangays_count, 0)::int AS affected_barangays_count,
         COALESCE(household_summary.registered_households_count, 0)::int AS registered_households_count,
+        COALESCE(eligible_household_summary.eligible_unclaimed_households_count, 0)::int AS eligible_unclaimed_households_count,
         COALESCE(individual_summary.affected_individuals_count, 0)::int AS affected_individuals_count,
         COALESCE(need_summary.published_need_count, 0)::int AS published_need_count,
         COALESCE(need_summary.published_needed_quantity, 0)::int AS published_needed_quantity
@@ -915,6 +919,28 @@ const getPublicDonationDisasterSummaries = async (
         WHERE h.disaster_event_id = de.id
           AND h.is_active = TRUE
       ) household_summary ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT COUNT(DISTINCT h.id)::int AS eligible_unclaimed_households_count
+        FROM stubs s
+        INNER JOIN households h ON h.id = s.household_id
+        INNER JOIN LATERAL (
+          SELECT el.status, el.time_in, el.time_out
+          FROM evacuation_logs el
+          WHERE el.household_id = h.id
+            AND el.disaster_event_id = s.disaster_event_id
+          ORDER BY
+            COALESCE(el.time_out, el.time_in) DESC,
+            el.updated_at DESC,
+            el.created_at DESC
+          LIMIT 1
+        ) latest_attendance ON TRUE
+        WHERE s.disaster_event_id = de.id
+          AND s.status = 'ISSUED'
+          AND h.current_stay_type = 'EVAC_CENTER'
+          AND h.is_active = TRUE
+          AND latest_attendance.status = 'PRESENT'
+          AND latest_attendance.time_out IS NULL
+      ) eligible_household_summary ON TRUE
       LEFT JOIN LATERAL (
         SELECT COUNT(DISTINCT e.id)::int AS affected_individuals_count
         FROM households h

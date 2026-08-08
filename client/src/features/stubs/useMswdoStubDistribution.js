@@ -52,9 +52,22 @@ const getMappedRows = (stubRows) =>
     qr_generated_by: stubRow.qr_generated_by || "",
     qr_status: stubRow.qr_status || "",
     qr_notes: stubRow.qr_notes || "",
+    queue_time_in: stubRow.queue_time_in || "",
+    latest_attendance_status: stubRow.latest_attendance_status || "",
+    unclaimed_queue_position: stubRow.unclaimed_queue_position || null,
     relief_pack_name: stubRow.relief_pack_name || "--",
     assigned_relief_packs: Array.isArray(stubRow.assigned_relief_packs)
       ? stubRow.assigned_relief_packs
+      : [],
+    available_donated_relief_packs: Array.isArray(
+      stubRow.available_donated_relief_packs,
+    )
+      ? stubRow.available_donated_relief_packs
+      : [],
+    available_donated_loose_items: Array.isArray(
+      stubRow.available_donated_loose_items,
+    )
+      ? stubRow.available_donated_loose_items
       : [],
     sectors_text: stubRow.sectors_text || "-",
     sector_ids: Array.isArray(stubRow.sector_ids) ? stubRow.sector_ids : [],

@@ -173,6 +173,12 @@ const getAvailableInventoryBatchesByItemIdForUpdate = async (
     WHERE ib.inventory_item_id = $1
       AND COALESCE(ib.quantity_available, 0) > 0
       AND ib.status IN ('AVAILABLE', 'LOW_STOCK')
+      AND NOT EXISTS (
+        SELECT 1
+        FROM donation_items relief_pack_donation_items
+        WHERE relief_pack_donation_items.inventory_batch_id = ib.id
+          AND COALESCE(relief_pack_donation_items.remarks, '') ILIKE 'Relief Pack:%'
+      )
       AND (
         ib.expiration_date IS NULL
         OR ib.expiration_date > (CURRENT_DATE + INTERVAL '30 days')
@@ -186,6 +192,247 @@ const getAvailableInventoryBatchesByItemIdForUpdate = async (
 
   const result = await dbClient.query(query, [inventoryItemId]);
   return result.rows;
+};
+
+const getDonatedReliefPackItemsByDisasterEventId = async (
+  disasterEventId,
+  dbClient = pool,
+  { forUpdate = false } = {},
+) => {
+  const query = `
+    SELECT
+      d.id AS donation_id,
+      d.donor_name,
+      d.received_at AS donation_received_at,
+      d.created_at AS donation_created_at,
+      di.id AS donation_item_id,
+      di.inventory_item_id,
+      di.inventory_batch_id,
+      di.quantity_received,
+      di.remarks,
+      di.created_at AS donation_item_created_at,
+      ib.batch_no,
+      ib.quantity_available,
+      ib.expiration_date,
+      ib.status,
+      ii.item_code,
+      ii.item_name,
+      ii.unit_of_measure
+    FROM donation_items di
+    INNER JOIN donations d ON d.id = di.donation_id
+    INNER JOIN inventory_batches ib ON ib.id = di.inventory_batch_id
+    INNER JOIN inventory_items ii ON ii.id = di.inventory_item_id
+    WHERE d.disaster_event_id = $1
+      AND d.status <> 'CANCELLED'
+      AND ib.source_type = 'DONATED'
+      AND COALESCE(di.remarks, '') ILIKE 'Relief Pack:%'
+    ORDER BY
+      d.received_at ASC,
+      d.created_at ASC,
+      d.id ASC,
+      di.created_at ASC,
+      ii.item_name ASC
+    ${forUpdate ? "FOR UPDATE OF ib" : ""}
+  `;
+
+  const result = await dbClient.query(query, [disasterEventId]);
+  return result.rows;
+};
+
+const getAvailableDonatedLooseItemsByDisasterEventId = async (
+  disasterEventId,
+  dbClient = pool,
+  { forUpdate = false } = {},
+) => {
+  const query = `
+    SELECT
+      d.id AS donation_id,
+      d.donor_name,
+      d.received_at AS donation_received_at,
+      d.created_at AS donation_created_at,
+      di.id AS donation_item_id,
+      di.inventory_item_id,
+      di.inventory_batch_id,
+      di.quantity_received,
+      di.remarks,
+      ib.batch_no,
+      ib.quantity_available,
+      ib.expiration_date,
+      ib.status,
+      ii.item_code,
+      ii.item_name,
+      ii.unit_of_measure
+    FROM donation_items di
+    INNER JOIN donations d ON d.id = di.donation_id
+    INNER JOIN inventory_batches ib ON ib.id = di.inventory_batch_id
+    INNER JOIN inventory_items ii ON ii.id = di.inventory_item_id
+    WHERE d.disaster_event_id = $1
+      AND d.status <> 'CANCELLED'
+      AND ib.source_type = 'DONATED'
+      AND COALESCE(di.remarks, '') NOT ILIKE 'Relief Pack:%'
+      AND COALESCE(ib.quantity_available, 0) > 0
+      AND ib.status IN ('AVAILABLE', 'LOW_STOCK')
+      AND (
+        ib.expiration_date IS NULL
+        OR ib.expiration_date >= CURRENT_DATE
+      )
+    ORDER BY
+      d.received_at ASC,
+      d.created_at ASC,
+      d.id ASC,
+      di.created_at ASC,
+      ii.item_name ASC
+    ${forUpdate ? "FOR UPDATE OF ib" : ""}
+  `;
+
+  const result = await dbClient.query(query, [disasterEventId]);
+  return result.rows;
+};
+
+const updateDonationStatusesByIds = async (donationIds, dbClient) => {
+  if (!Array.isArray(donationIds) || donationIds.length === 0) {
+    return [];
+  }
+
+  const query = `
+    WITH donation_totals AS (
+      SELECT
+        d.id,
+        COALESCE(SUM(di.quantity_received), 0)::integer AS quantity_received,
+        COALESCE(SUM(ib.quantity_available), 0)::integer AS quantity_available
+      FROM donations d
+      LEFT JOIN donation_items di ON di.donation_id = d.id
+      LEFT JOIN inventory_batches ib ON ib.id = di.inventory_batch_id
+      WHERE d.id = ANY($1::uuid[])
+        AND d.status <> 'CANCELLED'
+      GROUP BY d.id
+    )
+    UPDATE donations d
+    SET status = CASE
+          WHEN donation_totals.quantity_received > 0
+            AND donation_totals.quantity_available <= 0
+            THEN 'DISTRIBUTED'
+          WHEN donation_totals.quantity_available < donation_totals.quantity_received
+            THEN 'PARTIALLY_DISTRIBUTED'
+          ELSE 'RECEIVED'
+        END,
+        updated_at = NOW()
+    FROM donation_totals
+    WHERE d.id = donation_totals.id
+    RETURNING d.id, d.status, d.updated_at
+  `;
+
+  const result = await dbClient.query(query, [donationIds]);
+  return result.rows;
+};
+
+const getPresentUnclaimedStubQueuePosition = async (stubId, dbClient = pool) => {
+  const query = `
+    WITH target_stub AS (
+      SELECT
+        s.id,
+        s.disaster_event_id,
+        h.barangay_id
+      FROM stubs s
+      INNER JOIN households h ON h.id = s.household_id
+      WHERE s.id = $1
+    ),
+    eligible_queue AS (
+      SELECT
+        s.id,
+        ROW_NUMBER() OVER (
+          ORDER BY
+            latest_attendance.time_in ASC,
+            s.issued_at ASC,
+            s.id ASC
+        )::integer AS queue_position
+      FROM stubs s
+      INNER JOIN households h ON h.id = s.household_id
+      INNER JOIN target_stub target
+        ON target.disaster_event_id = s.disaster_event_id
+        AND h.barangay_id IS NOT DISTINCT FROM target.barangay_id
+      INNER JOIN LATERAL (
+        SELECT el.status, el.time_in, el.time_out
+        FROM evacuation_logs el
+        WHERE el.household_id = h.id
+          AND el.disaster_event_id = s.disaster_event_id
+        ORDER BY
+          COALESCE(el.time_out, el.time_in) DESC,
+          el.updated_at DESC,
+          el.created_at DESC
+        LIMIT 1
+      ) latest_attendance ON TRUE
+      WHERE s.status = 'ISSUED'
+        AND h.current_stay_type = 'EVAC_CENTER'
+        AND h.is_active = TRUE
+        AND latest_attendance.status = 'PRESENT'
+        AND latest_attendance.time_out IS NULL
+    )
+    SELECT queue_position
+    FROM eligible_queue
+    WHERE id = $1
+  `;
+
+  const result = await dbClient.query(query, [stubId]);
+  return Number(result.rows[0]?.queue_position || 0);
+};
+
+const getPresentUnclaimedStubQueueContext = async (stubId, dbClient = pool) => {
+  const query = `
+    WITH target_stub AS (
+      SELECT
+        s.id,
+        s.disaster_event_id,
+        h.barangay_id
+      FROM stubs s
+      INNER JOIN households h ON h.id = s.household_id
+      WHERE s.id = $1
+    ),
+    eligible_queue AS (
+      SELECT
+        s.id,
+        ROW_NUMBER() OVER (
+          ORDER BY
+            latest_attendance.time_in ASC,
+            s.issued_at ASC,
+            s.id ASC
+        )::integer AS queue_position,
+        COUNT(*) OVER ()::integer AS eligible_households_count
+      FROM stubs s
+      INNER JOIN households h ON h.id = s.household_id
+      INNER JOIN target_stub target
+        ON target.disaster_event_id = s.disaster_event_id
+        AND h.barangay_id IS NOT DISTINCT FROM target.barangay_id
+      INNER JOIN LATERAL (
+        SELECT el.status, el.time_in, el.time_out
+        FROM evacuation_logs el
+        WHERE el.household_id = h.id
+          AND el.disaster_event_id = s.disaster_event_id
+        ORDER BY
+          COALESCE(el.time_out, el.time_in) DESC,
+          el.updated_at DESC,
+          el.created_at DESC
+        LIMIT 1
+      ) latest_attendance ON TRUE
+      WHERE s.status = 'ISSUED'
+        AND h.current_stay_type = 'EVAC_CENTER'
+        AND h.is_active = TRUE
+        AND latest_attendance.status = 'PRESENT'
+        AND latest_attendance.time_out IS NULL
+    )
+    SELECT queue_position, eligible_households_count
+    FROM eligible_queue
+    WHERE id = $1
+  `;
+
+  const result = await dbClient.query(query, [stubId]);
+
+  return {
+    queue_position: Number(result.rows[0]?.queue_position || 0),
+    eligible_households_count: Number(
+      result.rows[0]?.eligible_households_count || 0,
+    ),
+  };
 };
 
 const insertDistributionTransaction = async (transactionData, dbClient) => {
@@ -715,6 +962,11 @@ module.exports = {
   getReliefPackTemplateItemsByTemplateIdForUpdate,
   getLatestAttendanceByHouseholdId,
   getAvailableInventoryBatchesByItemIdForUpdate,
+  getDonatedReliefPackItemsByDisasterEventId,
+  getAvailableDonatedLooseItemsByDisasterEventId,
+  updateDonationStatusesByIds,
+  getPresentUnclaimedStubQueuePosition,
+  getPresentUnclaimedStubQueueContext,
   insertDistributionTransaction,
   insertDistributionTransactionItem,
   insertInventoryTransaction,

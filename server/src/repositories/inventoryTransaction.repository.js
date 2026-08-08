@@ -15,6 +15,8 @@ const baseSelectQuery = `
     it.created_at,
     ib.batch_no,
     ib.inventory_item_stock_form_id,
+    ib.supplier_id,
+    ib.source_type,
     ib.status AS batch_status,
     ib.quantity_available,
     ib.expiration_date,
@@ -23,6 +25,9 @@ const baseSelectQuery = `
     ii.item_name,
     d.id AS donation_id,
     d.donor_name,
+    source_donation.donation_id AS source_donation_id,
+    source_donation.donor_name AS source_donor_name,
+    s.name AS supplier_name,
     stock_forms.barcode AS stock_form_barcode,
     stock_forms.packaging AS stock_form_packaging,
     stock_forms.units_per_packaging AS stock_form_units_per_packaging,
@@ -38,6 +43,18 @@ const baseSelectQuery = `
     AND it.reference_type = 'DONATION'
   LEFT JOIN donations d
     ON d.id = di.donation_id
+  LEFT JOIN LATERAL (
+    SELECT
+      source_di.donation_id,
+      source_d.donor_name
+    FROM donation_items source_di
+    INNER JOIN donations source_d
+      ON source_d.id = source_di.donation_id
+    WHERE source_di.inventory_batch_id = ib.id
+    ORDER BY source_di.created_at ASC
+    LIMIT 1
+  ) source_donation ON TRUE
+  LEFT JOIN suppliers s ON s.id = ib.supplier_id
   LEFT JOIN inventory_item_stock_forms stock_forms
     ON stock_forms.id = ib.inventory_item_stock_form_id
   LEFT JOIN users u ON u.id = it.performed_by
@@ -190,6 +207,12 @@ const getDistributableInventoryBatchesByItemIdForUpdate = async (
     WHERE ib.inventory_item_id = $1
       AND COALESCE(ib.quantity_available, 0) > 0
       AND ib.status IN ('AVAILABLE', 'LOW_STOCK')
+      AND NOT EXISTS (
+        SELECT 1
+        FROM donation_items relief_pack_donation_items
+        WHERE relief_pack_donation_items.inventory_batch_id = ib.id
+          AND COALESCE(relief_pack_donation_items.remarks, '') ILIKE 'Relief Pack:%'
+      )
       AND (
         ib.expiration_date IS NULL
         OR ib.expiration_date > (CURRENT_DATE + INTERVAL '30 days')

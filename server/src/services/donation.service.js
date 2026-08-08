@@ -1,6 +1,7 @@
 const pool = require("../config/db");
 const crypto = require("crypto");
 const donationRepository = require("../repositories/donation.repository");
+const distributionTransactionRepository = require("../repositories/distributionTransaction.repository");
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const inventoryBatchRepository = require("../repositories/inventoryBatch.repository");
 const inventoryItemStockFormRepository = require("../repositories/inventoryItemStockForm.repository");
@@ -64,6 +65,20 @@ const normalizeDonationOtherDonorType = (value) => {
 };
 
 const normalizeDonationDonorName = (value) => String(value || "").trim().toLowerCase();
+
+const buildPerFamilyAllocationRemark = (quantity) =>
+  `Per Family Allocation: ${Number(quantity || 0)}`;
+
+const isReliefPackDonationRemark = (remarks) =>
+  String(remarks || "").trim().toLowerCase().startsWith("relief pack:");
+
+const parsePerFamilyAllocationRemark = (remarks) => {
+  const matchedRemark = String(remarks || "")
+    .trim()
+    .match(/^Per Family Allocation:\s*(\d+)$/i);
+
+  return Number(matchedRemark?.[1] || 0);
+};
 
 const neededItemSourceMeta = {
   FORECAST: {
@@ -165,6 +180,7 @@ const mapDonationNeed = (row) => {
       id: row.disaster_event_id,
       event_code: row.event_code,
       title: row.disaster_event_title,
+      status: row.disaster_event_status,
     },
     inventory_item: {
       id: row.inventory_item_id,
@@ -359,6 +375,9 @@ const mapPublicDisasterSummary = (row) => ({
     : [],
   affected_barangays_count: Number(row.affected_barangays_count || 0),
   registered_households_count: Number(row.registered_households_count || 0),
+  eligible_unclaimed_households_count: Number(
+    row.eligible_unclaimed_households_count || 0,
+  ),
   affected_individuals_count: Number(row.affected_individuals_count || 0),
 });
 
@@ -1880,6 +1899,289 @@ const deleteDonationItem = async (id, performedBy) => {
   }
 };
 
+const reassignLeftoverDonationStock = async (
+  donationItemId,
+  payload,
+  performedBy,
+) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const sourceDonationItem =
+      await donationRepository.getDonationItemByIdForUpdate(
+        donationItemId,
+        client,
+      );
+
+    if (!sourceDonationItem) {
+      const error = new Error("Donation item not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const sourceDonation = await donationRepository.getDonationByIdForUpdate(
+      sourceDonationItem.donation_id,
+      client,
+    );
+
+    if (!sourceDonation) {
+      const error = new Error("Source donation not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const sourceEvent = await donationRepository.getDisasterEventById(
+      sourceDonation.disaster_event_id,
+      client,
+    );
+    const targetEvent = await donationRepository.getDisasterEventById(
+      payload.target_disaster_event_id,
+      client,
+    );
+
+    if (!sourceEvent || !targetEvent) {
+      const error = new Error("Disaster event not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (
+      !["CLOSED", "ARCHIVED"].includes(String(sourceEvent.status).toUpperCase())
+    ) {
+      const error = new Error(
+        "Leftover stock can only be reassigned after the source disaster event is closed.",
+      );
+      error.statusCode = 409;
+      throw error;
+    }
+
+    if (String(sourceEvent.id) === String(targetEvent.id)) {
+      const error = new Error(
+        "Target disaster event must be different from the source event.",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (
+      ["CLOSED", "ARCHIVED"].includes(String(targetEvent.status).toUpperCase())
+    ) {
+      const error = new Error("Target disaster event must be planned or active.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const quantityToReassign = Number(payload.quantity || 0);
+    const perFamilyAllocation = Number(payload.per_family_allocation || 0);
+
+    if (
+      !Number.isInteger(quantityToReassign) ||
+      quantityToReassign <= 0 ||
+      !Number.isInteger(perFamilyAllocation) ||
+      perFamilyAllocation <= 0
+    ) {
+      const error = new Error(
+        "Quantity and Per Family Allocation must be positive whole numbers.",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (perFamilyAllocation > quantityToReassign) {
+      const error = new Error(
+        "Per Family Allocation cannot exceed the reassigned quantity.",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (isReliefPackDonationRemark(sourceDonationItem.remarks)) {
+      const error = new Error(
+        "Relief pack stock cannot be reassigned as loose leftover stock.",
+      );
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const sourcePerFamilyAllocation = parsePerFamilyAllocationRemark(
+      sourceDonationItem.remarks,
+    );
+
+    if (sourcePerFamilyAllocation <= 0) {
+      const error = new Error(
+        "Only loose donated stock with a Per Family Allocation can be reassigned.",
+      );
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const sourceBatch = await donationRepository.getInventoryBatchByIdForUpdate(
+      sourceDonationItem.inventory_batch_id,
+      client,
+    );
+
+    if (!sourceBatch || sourceBatch.source_type !== "DONATED") {
+      const error = new Error("Linked donated inventory batch not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const sourceQuantityAvailable = Number(sourceBatch.quantity_available || 0);
+    const sourceBatchStatus = String(sourceBatch.status || "").toUpperCase();
+    const sourceExpirationDate = sourceBatch.expiration_date
+      ? new Date(sourceBatch.expiration_date)
+      : null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (sourceExpirationDate) {
+      sourceExpirationDate.setHours(0, 0, 0, 0);
+    }
+
+    if (!["AVAILABLE", "LOW_STOCK"].includes(sourceBatchStatus)) {
+      const error = new Error(
+        "Only available donated leftover stock can be reassigned.",
+      );
+      error.statusCode = 409;
+      throw error;
+    }
+
+    if (
+      sourceExpirationDate &&
+      !Number.isNaN(sourceExpirationDate.getTime()) &&
+      sourceExpirationDate < today
+    ) {
+      const error = new Error("Expired donated stock cannot be reassigned.");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    if (sourceQuantityAvailable < quantityToReassign) {
+      const error = new Error(
+        "Reassigned quantity cannot exceed the remaining stock.",
+      );
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const inventoryItem = await ensureInventoryItem(
+      sourceDonationItem.inventory_item_id,
+      client,
+    );
+    const nextSourceQuantityAvailable =
+      sourceQuantityAvailable - quantityToReassign;
+
+    await donationRepository.updateInventoryBatchStock(
+      sourceBatch.id,
+      {
+        quantity_received: sourceBatch.quantity_received,
+        quantity_available: nextSourceQuantityAvailable,
+        expiration_date: sourceBatch.expiration_date,
+        storage_location: sourceBatch.storage_location,
+        status: getBatchStatus(
+          sourceBatch.expiration_date,
+          nextSourceQuantityAvailable,
+        ),
+      },
+      client,
+    );
+
+    await donationRepository.insertInventoryTransaction(
+      {
+        disaster_event_id: sourceDonation.disaster_event_id,
+        inventory_batch_id: sourceBatch.id,
+        transaction_type: "OUTFLOW",
+        quantity: quantityToReassign,
+        reference_type: "DONATION",
+        reference_id: sourceDonationItem.id,
+        performed_by: performedBy,
+        remarks: `Reassigned leftover donated stock for ${inventoryItem.item_name} from ${sourceDonation.donor_name} to ${targetEvent.title}`,
+      },
+      client,
+    );
+
+    const createdDonation = await donationRepository.insertDonation(
+      {
+        disaster_event_id: targetEvent.id,
+        donor_name: sourceDonation.donor_name,
+        donor_type: sourceDonation.donor_type,
+        donor_type_other: sourceDonation.donor_type_other,
+        contact_information: sourceDonation.contact_information,
+        received_by: performedBy,
+        received_at: new Date().toISOString(),
+        status: "RECEIVED",
+        remarks: `Reassigned leftover stock from ${sourceEvent.title}. Original donation ID: ${sourceDonation.id}.`,
+      },
+      client,
+    );
+
+    const createdBatch = await inventoryBatchRepository.insertInventoryBatch(
+      {
+        inventory_item_id: sourceDonationItem.inventory_item_id,
+        inventory_item_stock_form_id: sourceBatch.inventory_item_stock_form_id,
+        batch_no: await buildDonationBatchNumber({
+          inventoryItem,
+          dbClient: client,
+        }),
+        supplier_id: null,
+        source_type: "DONATED",
+        quantity_received: quantityToReassign,
+        quantity_available: quantityToReassign,
+        expiration_date: sourceBatch.expiration_date,
+        storage_location: sourceBatch.storage_location,
+        status: getBatchStatus(sourceBatch.expiration_date, quantityToReassign),
+        created_by: performedBy,
+      },
+      client,
+    );
+
+    const createdDonationItem = await donationRepository.insertDonationItem(
+      {
+        donation_id: createdDonation.id,
+        inventory_item_id: sourceDonationItem.inventory_item_id,
+        inventory_batch_id: createdBatch.id,
+        quantity_received: quantityToReassign,
+        remarks: buildPerFamilyAllocationRemark(perFamilyAllocation),
+      },
+      client,
+    );
+
+    await donationRepository.insertInventoryTransaction(
+      {
+        disaster_event_id: targetEvent.id,
+        inventory_batch_id: createdBatch.id,
+        transaction_type: "INFLOW",
+        quantity: quantityToReassign,
+        reference_type: "DONATION",
+        reference_id: createdDonationItem.id,
+        performed_by: performedBy,
+        remarks: `Received reassigned leftover donated stock for ${inventoryItem.item_name} from ${sourceDonation.donor_name}; source event: ${sourceEvent.title}`,
+      },
+      client,
+    );
+
+    await refreshInventoryItemStockSnapshot(
+      sourceDonationItem.inventory_item_id,
+      client,
+    );
+    await distributionTransactionRepository.updateDonationStatusesByIds(
+      [sourceDonation.id, createdDonation.id],
+      client,
+    );
+
+    await client.query("COMMIT");
+
+    return getDonationById(createdDonation.id);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
 const deleteDonationRecord = async (id, performedBy) => {
   const client = await pool.connect();
 
@@ -2295,6 +2597,7 @@ module.exports = {
   createDonationItem,
   updateDonationItem,
   deleteDonationItem,
+  reassignLeftoverDonationStock,
   deleteDonationRecord,
   getPublicDonationPortal,
   exportReceivedDonationsReport,

@@ -163,6 +163,14 @@ const getReliefPackMeta = (remarks) => {
   };
 };
 
+const getPerFamilyAllocation = (remarks) => {
+  const matchedRemark = String(remarks || "")
+    .trim()
+    .match(/^Per Family Allocation:\s*(\d+)$/i);
+
+  return matchedRemark?.[1] || "";
+};
+
 const buildDonationPresentation = (items) => {
   const normalizedItems = Array.isArray(items) ? items : [];
 
@@ -260,6 +268,11 @@ const DonationDetailModal = ({
   const items = donation?.items || [];
   const eventTitle = donation?.disaster_event?.title || "--";
   const donationPresentation = buildDonationPresentation(items);
+  const shouldShowPerFamilyAllocationColumn =
+    donationPresentation.looseItems.length > 0;
+  const itemsReceivedRows = shouldShowPerFamilyAllocationColumn
+    ? donationPresentation.looseItems
+    : items;
 
   return (
     <DetailsModalShell
@@ -386,7 +399,7 @@ const DonationDetailModal = ({
           <section style={modalStyles.sectionCard}>
             <h3 style={{ margin: 0, color: "#17324d" }}>Items Received</h3>
 
-            {items.length === 0 ? (
+            {itemsReceivedRows.length === 0 ? (
               <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
                 No donation items were recorded.
               </p>
@@ -401,10 +414,13 @@ const DonationDetailModal = ({
                       <th style={modalStyles.th}>Packaging</th>
                       <th style={modalStyles.th}>Batch Number</th>
                       <th style={modalStyles.th}>Expiration Date</th>
+                      {shouldShowPerFamilyAllocationColumn ? (
+                        <th style={modalStyles.th}>Per Family Allocation</th>
+                      ) : null}
                     </tr>
                   </thead>
                   <tbody>
-                    {items.map((item) => {
+                    {itemsReceivedRows.map((item) => {
                       return (
                         <tr key={item.id}>
                           <td style={modalStyles.td}>
@@ -433,6 +449,11 @@ const DonationDetailModal = ({
                                 item.expiration_date,
                             )}
                           </td>
+                          {shouldShowPerFamilyAllocationColumn ? (
+                            <td style={modalStyles.td}>
+                              {getPerFamilyAllocation(item.remarks) || "--"}
+                            </td>
+                          ) : null}
                         </tr>
                       );
                     })}

@@ -373,3 +373,21 @@ export const deleteDonationItem = async (donationItemId) => {
 
   return handleJsonResponse(response, "Failed to delete donation item");
 };
+
+export const reassignLeftoverDonationStock = async (donationItemId, payload) => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/donations/items/${donationItemId}/reassign-leftover`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  return handleJsonResponse(
+    response,
+    "Failed to reassign leftover donated stock",
+  );
+};

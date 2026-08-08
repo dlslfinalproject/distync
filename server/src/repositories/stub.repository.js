@@ -28,9 +28,23 @@ const getStubDashboardMetrics = async (disasterEventId, barangayId) => {
       COUNT(DISTINCT s.household_id)::int AS beneficiary_families
     FROM stubs s
     JOIN households h ON h.id = s.household_id
+    INNER JOIN LATERAL (
+      SELECT el.status, el.time_in, el.time_out
+      FROM evacuation_logs el
+      WHERE el.household_id = h.id
+        AND el.disaster_event_id = s.disaster_event_id
+      ORDER BY
+        COALESCE(el.time_out, el.time_in) DESC,
+        el.updated_at DESC,
+        el.created_at DESC
+      LIMIT 1
+    ) latest_attendance ON TRUE
     WHERE s.disaster_event_id = $1
       AND h.barangay_id = $2
       AND h.current_stay_type = 'EVAC_CENTER'
+      AND h.is_active = TRUE
+      AND latest_attendance.status = 'PRESENT'
+      AND latest_attendance.time_out IS NULL
       AND s.status IN ('ISSUED', 'CLAIMED')
   `;
 
@@ -67,6 +81,47 @@ const getBarangayStubDashboardRows = async (disasterEventId, barangayId) => {
       h.family_head_photo_url,
       h.photo_captured_at,
       h.photo_verification_notes,
+      latest_attendance.time_in AS queue_time_in,
+      latest_attendance.status AS latest_attendance_status,
+      CASE
+        WHEN s.status = 'ISSUED' THEN (
+          SELECT COUNT(*)::int
+          FROM stubs queued_stubs
+          INNER JOIN households queued_households
+            ON queued_households.id = queued_stubs.household_id
+          INNER JOIN LATERAL (
+            SELECT el.status, el.time_in, el.time_out
+            FROM evacuation_logs el
+            WHERE el.household_id = queued_households.id
+              AND el.disaster_event_id = queued_stubs.disaster_event_id
+            ORDER BY
+              COALESCE(el.time_out, el.time_in) DESC,
+              el.updated_at DESC,
+              el.created_at DESC
+            LIMIT 1
+          ) queued_attendance ON TRUE
+          WHERE queued_stubs.disaster_event_id = s.disaster_event_id
+            AND queued_households.barangay_id IS NOT DISTINCT FROM h.barangay_id
+            AND queued_households.current_stay_type = 'EVAC_CENTER'
+            AND queued_households.is_active = TRUE
+            AND queued_stubs.status = 'ISSUED'
+            AND queued_attendance.status = 'PRESENT'
+            AND queued_attendance.time_out IS NULL
+            AND (
+              queued_attendance.time_in < latest_attendance.time_in
+              OR (
+                queued_attendance.time_in = latest_attendance.time_in
+                AND queued_stubs.issued_at < s.issued_at
+              )
+              OR (
+                queued_attendance.time_in = latest_attendance.time_in
+                AND queued_stubs.issued_at = s.issued_at
+                AND queued_stubs.id <= s.id
+              )
+            )
+        )
+        ELSE NULL
+      END AS unclaimed_queue_position,
       (
         SELECT COUNT(*)::int
         FROM evacuees e
@@ -75,11 +130,28 @@ const getBarangayStubDashboardRows = async (disasterEventId, barangayId) => {
       ${stubSequenceSelect}
     FROM stubs s
     INNER JOIN households h ON h.id = s.household_id
+    INNER JOIN LATERAL (
+      SELECT el.status, el.time_in, el.time_out
+      FROM evacuation_logs el
+      WHERE el.household_id = h.id
+        AND el.disaster_event_id = s.disaster_event_id
+      ORDER BY
+        COALESCE(el.time_out, el.time_in) DESC,
+        el.updated_at DESC,
+        el.created_at DESC
+      LIMIT 1
+    ) latest_attendance ON TRUE
     WHERE s.disaster_event_id = $1
       AND h.barangay_id = $2
       AND h.current_stay_type = 'EVAC_CENTER'
+      AND h.is_active = TRUE
+      AND latest_attendance.status = 'PRESENT'
+      AND latest_attendance.time_out IS NULL
       AND s.status IN ('ISSUED', 'CLAIMED')
-    ORDER BY stub_sequence_no ASC
+    ORDER BY
+      latest_attendance.time_in ASC,
+      s.issued_at ASC,
+      s.id ASC
   `;
 
   const result = await pool.query(query, [disasterEventId, barangayId]);

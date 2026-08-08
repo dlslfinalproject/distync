@@ -37,13 +37,26 @@ const baseSelectQuery = `
     s.contact_number AS supplier_contact_number,
     s.address AS supplier_address,
     s.has_moa AS supplier_has_moa,
-    s.notes AS supplier_notes
+    s.notes AS supplier_notes,
+    source_donation.donation_id AS source_donation_id,
+    source_donation.donor_name AS source_donor_name
   FROM inventory_batches ib
   INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
   LEFT JOIN inventory_item_stock_forms stock_forms
     ON stock_forms.id = ib.inventory_item_stock_form_id
   LEFT JOIN users u ON u.id = ib.created_by
   LEFT JOIN suppliers s ON s.id = ib.supplier_id
+  LEFT JOIN LATERAL (
+    SELECT
+      source_di.donation_id,
+      source_d.donor_name
+    FROM donation_items source_di
+    INNER JOIN donations source_d
+      ON source_d.id = source_di.donation_id
+    WHERE source_di.inventory_batch_id = ib.id
+    ORDER BY source_di.created_at ASC
+    LIMIT 1
+  ) source_donation ON TRUE
 `;
 
 const getInventoryBatches = async (filters) => {

@@ -5,6 +5,8 @@ const reliefPackTemplateRepository = require("../repositories/reliefPackTemplate
 const stubRepository = require("../repositories/stub.repository");
 const mswdoReportExport = require("../utils/mswdoReportExport");
 const {
+  getAvailableDonatedLooseItemsForClaimPreview,
+  getAvailableDonatedReliefPacksForClaimPreview,
   recordAutomaticReliefPackClaim,
 } = require("./automaticReliefPackClaim.service");
 const {
@@ -303,6 +305,47 @@ const getBarangayStubDashboard = async (filters) => {
     memberSectors,
     "household_id",
   );
+  const donatedReliefPackPreviewByQueuePosition = new Map();
+  const getDonatedReliefPackPreviewForQueuePosition = async (queuePosition) => {
+    const normalizedQueuePosition = Number(queuePosition || 0);
+
+    if (normalizedQueuePosition <= 0) {
+      return [];
+    }
+
+    if (!donatedReliefPackPreviewByQueuePosition.has(normalizedQueuePosition)) {
+      donatedReliefPackPreviewByQueuePosition.set(
+        normalizedQueuePosition,
+        await getAvailableDonatedReliefPacksForClaimPreview(
+          filters.disaster_event_id,
+          normalizedQueuePosition,
+        ),
+      );
+    }
+
+    return donatedReliefPackPreviewByQueuePosition.get(normalizedQueuePosition);
+  };
+  const donatedLooseItemPreviewByQueuePosition = new Map();
+  const getDonatedLooseItemPreviewForQueuePosition = async (queuePosition) => {
+    const normalizedQueuePosition = Number(queuePosition || 0);
+
+    if (normalizedQueuePosition <= 0) {
+      return [];
+    }
+
+    if (!donatedLooseItemPreviewByQueuePosition.has(normalizedQueuePosition)) {
+      donatedLooseItemPreviewByQueuePosition.set(
+        normalizedQueuePosition,
+        await getAvailableDonatedLooseItemsForClaimPreview(
+          filters.disaster_event_id,
+          normalizedQueuePosition,
+          metrics.unclaimed_stubs,
+        ),
+      );
+    }
+
+    return donatedLooseItemPreviewByQueuePosition.get(normalizedQueuePosition);
+  };
 
   return {
     assigned_barangay: {
@@ -318,7 +361,7 @@ const getBarangayStubDashboard = async (filters) => {
     disaster_event: scopedDisasterEvent,
     metrics,
     count: rows.length,
-    data: rowsWithQr.map((row) => {
+    data: await Promise.all(rowsWithQr.map(async (row) => {
       const sectorIds = buildSectorIds(
         row.household_id,
         householdSectorsByHouseholdId,
@@ -353,6 +396,9 @@ const getBarangayStubDashboard = async (filters) => {
         qr_generated_by: row.qr_generated_by || null,
         qr_status: row.qr_status || null,
         qr_notes: row.qr_notes || null,
+        queue_time_in: row.queue_time_in || null,
+        latest_attendance_status: row.latest_attendance_status || null,
+        unclaimed_queue_position: row.unclaimed_queue_position || null,
         household: {
           id: row.household_id,
           family_head_name: buildFullName(
@@ -374,9 +420,17 @@ const getBarangayStubDashboard = async (filters) => {
         ),
         sector_ids: sectorIds,
         assigned_relief_packs: assignedReliefPacks,
+        available_donated_relief_packs:
+          await getDonatedReliefPackPreviewForQueuePosition(
+            row.unclaimed_queue_position,
+          ),
+        available_donated_loose_items:
+          await getDonatedLooseItemPreviewForQueuePosition(
+            row.unclaimed_queue_position,
+          ),
         relief_pack_name: reliefPackName || "--",
       };
-    }),
+    })),
   };
 };
 
@@ -456,7 +510,13 @@ const claimBarangayStub = async (params) => {
       claimedAt: params.claimed_at || null,
       remarks: "Claimed through Relief Goods Distribution confirmation",
     });
-    const { distributionTransaction, updatedStub, packQuantity } = automaticClaimResult;
+    const {
+      distributionTransaction,
+      updatedStub,
+      packQuantity,
+      donatedReliefPacks,
+      donatedLooseItems,
+    } = automaticClaimResult;
 
     await client.query("COMMIT");
 
@@ -470,6 +530,8 @@ const claimBarangayStub = async (params) => {
         distribution_transaction_id: distributionTransaction.id,
         distribution_status: distributionTransaction.distribution_status,
         relief_pack_quantity: packQuantity || 1,
+        donated_relief_packs: donatedReliefPacks || [],
+        donated_loose_items: donatedLooseItems || [],
       },
     };
   } catch (error) {
@@ -579,6 +641,27 @@ const getStubDetails = async (id) => {
     .map((template) => template.name)
     .filter(Boolean)
     .join(", ");
+  const stubQueueContext =
+    ensuredStub.status === "ISSUED"
+      ? await distributionTransactionRepository.getPresentUnclaimedStubQueueContext(
+          ensuredStub.id,
+        )
+      : { queue_position: 0, eligible_households_count: 0 };
+  const availableDonatedReliefPacks =
+    ensuredStub.status === "ISSUED"
+      ? await getAvailableDonatedReliefPacksForClaimPreview(
+          ensuredStub.disaster_event_id,
+          stubQueueContext.queue_position,
+        )
+      : [];
+  const availableDonatedLooseItems =
+    ensuredStub.status === "ISSUED"
+      ? await getAvailableDonatedLooseItemsForClaimPreview(
+          ensuredStub.disaster_event_id,
+          stubQueueContext.queue_position,
+          stubQueueContext.eligible_households_count,
+        )
+      : [];
 
   return {
     id: ensuredStub.id,
@@ -625,6 +708,8 @@ const getStubDetails = async (id) => {
     },
     distribution_transaction: latestDistributionTransaction,
     assigned_relief_packs: assignedReliefPacks,
+    available_donated_relief_packs: availableDonatedReliefPacks,
+    available_donated_loose_items: availableDonatedLooseItems,
     relief_pack_name:
       latestDistributionTransaction?.relief_pack_template_name ||
       assignedReliefPackNames ||

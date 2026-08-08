@@ -1342,6 +1342,7 @@ const claimDistributionTransactionFromQr = async (requestData) => {
       distributionTransaction,
       releasedItems,
       updatedStub,
+      donatedReliefPacks,
     } = automaticClaimResult;
 
     await client.query("COMMIT");
@@ -1381,6 +1382,7 @@ const claimDistributionTransactionFromQr = async (requestData) => {
       relief_pack_template_id: distributionTransaction.relief_pack_template_id,
       relief_pack_template_name: assignedReliefPackTemplate?.name || null,
       relief_pack_quantity: automaticClaimResult.packQuantity || 1,
+      donated_relief_packs: donatedReliefPacks || [],
       stub: {
         id: updatedStub.id,
         stub_no: updatedStub.stub_no,

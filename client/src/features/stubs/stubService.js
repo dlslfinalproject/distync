@@ -90,7 +90,11 @@ export const fetchStubDetails = async (stubId) => {
   return handleJsonResponse(response, "Failed to fetch stub details");
 };
 
-export const claimStub = async ({ stubId, userId, overrideBarangayId }) => {
+export const claimStub = async ({
+  stubId,
+  userId,
+  overrideBarangayId,
+}) => {
   const payload = {
     user_id: userId || null,
     override_barangay_id: overrideBarangayId || null,

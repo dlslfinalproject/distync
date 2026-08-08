@@ -14,6 +14,7 @@ const {
   validateDonationUpdatePayload,
   validateDonationItemId,
   validateDonationItemPayload,
+  validateReassignLeftoverStockPayload,
   validateDonationTransparencyExportFilters,
   validatePublicDonationPortal,
 } = require("../validators/donation.validator");
@@ -423,6 +424,33 @@ router.delete(
 
       return res.status(statusCode).json({
         message: error.message || "Failed to delete donation item",
+      });
+    }
+  },
+);
+
+router.post(
+  "/items/:id/reassign-leftover",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateDonationItemId,
+  validateReassignLeftoverStockPayload,
+  async (req, res) => {
+    try {
+      const donation = await donationService.reassignLeftoverDonationStock(
+        req.params.id,
+        req.validatedBody,
+        req.auth.userId,
+      );
+
+      return res.status(201).json({
+        message: "Leftover donated stock reassigned successfully",
+        data: donation,
+      });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+
+      return res.status(statusCode).json({
+        message: error.message || "Failed to reassign leftover donated stock",
       });
     }
   },

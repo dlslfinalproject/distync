@@ -1,6 +1,7 @@
 import { normalizeDonorType } from "./donationFormatters";
 
 export const defaultPortalData = {
+  disaster_events: [],
   donation_needs: [],
   transparency_summary: {
     total_donations_received: 0,

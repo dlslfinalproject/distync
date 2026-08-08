@@ -20,6 +20,7 @@ import {
   exportReceivedDonationsReport,
   fetchDonationPortalData,
   fetchDonations,
+  reassignLeftoverDonationStock,
 } from "../features/donations/donationService";
 import { mergeDonationsWithSyncStatus } from "../features/donations/donationSync";
 import {
@@ -85,6 +86,66 @@ const donationEventSummaryStyles = {
     gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
     gap: "16px",
   },
+};
+
+const parsePerFamilyAllocationRemark = (remarks) => {
+  const matchedRemark = String(remarks || "")
+    .trim()
+    .match(/^Per Family Allocation:\s*(\d+)$/i);
+
+  return Number(matchedRemark?.[1] || 0);
+};
+
+const isReliefPackDonationRemark = (remarks) =>
+  String(remarks || "").trim().toLowerCase().startsWith("relief pack:");
+
+const isExpiredDate = (value) => {
+  if (!value) {
+    return false;
+  }
+
+  const expirationDate = new Date(value);
+
+  if (Number.isNaN(expirationDate.getTime())) {
+    return false;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  expirationDate.setHours(0, 0, 0, 0);
+
+  return expirationDate < today;
+};
+
+const getDonationLeftoverItems = (donation) => {
+  return (donation?.items || [])
+    .filter((item) => {
+      const inventoryBatch = item?.inventory_batch || {};
+      const quantityAvailable = Number(inventoryBatch.quantity_available || 0);
+      const batchStatus = String(inventoryBatch.status || "").toUpperCase();
+      const perFamilyAllocation = parsePerFamilyAllocationRemark(item?.remarks);
+
+      return (
+        quantityAvailable > 0 &&
+        perFamilyAllocation > 0 &&
+        !isReliefPackDonationRemark(item?.remarks) &&
+        ["AVAILABLE", "LOW_STOCK"].includes(batchStatus) &&
+        !isExpiredDate(inventoryBatch.expiration_date)
+      );
+    })
+    .map((item) => ({
+      ...item,
+      quantity_available: Number(item?.inventory_batch?.quantity_available || 0),
+      per_family_allocation: parsePerFamilyAllocationRemark(item?.remarks),
+    }));
+};
+
+const canReassignDonationLeftoverStock = (donation) => {
+  const status = String(donation?.disaster_event?.status || "").toUpperCase();
+  return (
+    ["CLOSED", "ARCHIVED"].includes(status) &&
+    getDonationLeftoverItems(donation).length > 0
+  );
 };
 
 const exportFilterStyles = {
@@ -260,6 +321,18 @@ const DonationManagementPage = () => {
   const [exportFeedback, setExportFeedback] = useState({
     type: "",
     message: "",
+  });
+  const [reassignModal, setReassignModal] = useState({
+    isOpen: false,
+    donation: null,
+    leftoverItems: [],
+    donationItemId: "",
+    targetDisasterEventId: "",
+    quantity: "",
+    perFamilyAllocation: "",
+    errorMessage: "",
+    fieldErrors: {},
+    isSubmitting: false,
   });
 
   const syncQueueEntries =
@@ -445,7 +518,10 @@ const DonationManagementPage = () => {
         donationToolbarFilters.donorTypes,
       ),
       donationToolbarFilters.sortOrder,
-    );
+    ).map((donation) => ({
+      ...donation,
+      can_reassign_leftover_stock: canReassignDonationLeftoverStock(donation),
+    }));
   }, [
     donationsWithSyncStatus,
     donationSearch,
@@ -540,6 +616,187 @@ const DonationManagementPage = () => {
     transparencyToolbarFilters.movements,
     transparencyToolbarFilters.sortOrder,
   ]);
+
+  const getReassignTargetEvents = (sourceDonation) => {
+    return disasterEvents.filter((eventRow) => {
+      const status = String(eventRow?.status || "").toUpperCase();
+
+      return (
+        eventRow?.id &&
+        String(eventRow.id) !== String(sourceDonation?.disaster_event_id) &&
+        !["CLOSED", "ARCHIVED"].includes(status)
+      );
+    });
+  };
+
+  const getSelectedReassignItem = () => {
+    return (
+      reassignModal.leftoverItems.find(
+        (item) => String(item.id) === String(reassignModal.donationItemId),
+      ) || null
+    );
+  };
+
+  const openReassignLeftoverStockModal = (donation) => {
+    const leftoverItems = getDonationLeftoverItems(donation);
+    const targetEvents = getReassignTargetEvents(donation);
+    const firstItem = leftoverItems[0] || null;
+
+    setReassignModal({
+      isOpen: true,
+      donation,
+      leftoverItems,
+      donationItemId: firstItem?.id || "",
+      targetDisasterEventId: targetEvents[0]?.id || "",
+      quantity: firstItem?.quantity_available
+        ? String(firstItem.quantity_available)
+        : "",
+      perFamilyAllocation: firstItem?.per_family_allocation
+        ? String(firstItem.per_family_allocation)
+        : "",
+      errorMessage: "",
+      fieldErrors: {},
+      isSubmitting: false,
+    });
+  };
+
+  const closeReassignLeftoverStockModal = () => {
+    if (reassignModal.isSubmitting) {
+      return;
+    }
+
+    setReassignModal({
+      isOpen: false,
+      donation: null,
+      leftoverItems: [],
+      donationItemId: "",
+      targetDisasterEventId: "",
+      quantity: "",
+      perFamilyAllocation: "",
+      errorMessage: "",
+      fieldErrors: {},
+      isSubmitting: false,
+    });
+  };
+
+  const handleReassignFieldChange = (fieldName, value) => {
+    setReassignModal((currentValues) => {
+      const nextValues = {
+        ...currentValues,
+        [fieldName]: value,
+        errorMessage: "",
+        fieldErrors: {
+          ...currentValues.fieldErrors,
+          [fieldName]: "",
+        },
+      };
+
+      if (fieldName === "donationItemId") {
+        const selectedItem =
+          currentValues.leftoverItems.find(
+            (item) => String(item.id) === String(value),
+          ) || null;
+
+        nextValues.quantity = selectedItem?.quantity_available
+          ? String(selectedItem.quantity_available)
+          : "";
+        nextValues.perFamilyAllocation = selectedItem?.per_family_allocation
+          ? String(selectedItem.per_family_allocation)
+          : "";
+      }
+
+      return nextValues;
+    });
+  };
+
+  const validateReassignForm = () => {
+    const nextErrors = {};
+    const selectedItem = getSelectedReassignItem();
+    const quantity = Number(reassignModal.quantity || 0);
+    const perFamilyAllocation = Number(reassignModal.perFamilyAllocation || 0);
+    const targetEvents = getReassignTargetEvents(reassignModal.donation);
+
+    if (!selectedItem) {
+      nextErrors.donationItemId = "Select leftover stock to reassign.";
+    }
+
+    if (!reassignModal.targetDisasterEventId) {
+      nextErrors.targetDisasterEventId = "Select the target disaster event.";
+    } else if (
+      !targetEvents.some(
+        (eventRow) =>
+          String(eventRow.id) === String(reassignModal.targetDisasterEventId),
+      )
+    ) {
+      nextErrors.targetDisasterEventId =
+        "Target disaster event must be planned or active.";
+    }
+
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      nextErrors.quantity = "Quantity must be a positive whole number.";
+    } else if (selectedItem && quantity > selectedItem.quantity_available) {
+      nextErrors.quantity = "Quantity cannot exceed remaining stock.";
+    }
+
+    if (!Number.isInteger(perFamilyAllocation) || perFamilyAllocation <= 0) {
+      nextErrors.perFamilyAllocation =
+        "Per family allocation must be a positive whole number.";
+    } else if (quantity > 0 && perFamilyAllocation > quantity) {
+      nextErrors.perFamilyAllocation =
+        "Per family allocation cannot exceed reassigned quantity.";
+    }
+
+    return nextErrors;
+  };
+
+  const submitReassignLeftoverStock = async (event) => {
+    event.preventDefault();
+
+    const fieldErrors = validateReassignForm();
+
+    if (Object.values(fieldErrors).some(Boolean)) {
+      setReassignModal((currentValues) => ({
+        ...currentValues,
+        fieldErrors,
+      }));
+      return;
+    }
+
+    setReassignModal((currentValues) => ({
+      ...currentValues,
+      isSubmitting: true,
+      errorMessage: "",
+    }));
+
+    try {
+      await reassignLeftoverDonationStock(reassignModal.donationItemId, {
+        target_disaster_event_id: reassignModal.targetDisasterEventId,
+        quantity: Number(reassignModal.quantity),
+        per_family_allocation: Number(reassignModal.perFamilyAllocation),
+      });
+      await loadPageData(selectedEventId);
+      setSuccessMessage("Leftover donated stock reassigned successfully.");
+      setReassignModal({
+        isOpen: false,
+        donation: null,
+        leftoverItems: [],
+        donationItemId: "",
+        targetDisasterEventId: "",
+        quantity: "",
+        perFamilyAllocation: "",
+        errorMessage: "",
+        fieldErrors: {},
+        isSubmitting: false,
+      });
+    } catch (error) {
+      setReassignModal((currentValues) => ({
+        ...currentValues,
+        isSubmitting: false,
+        errorMessage:
+          error.message || "Failed to reassign leftover donated stock.",
+      }));
+    }
+  };
 
   const selectedEventLabel = useMemo(() => {
     return getSelectedDonationEventLabel(disasterEvents, selectedEventId);
@@ -716,6 +973,11 @@ const DonationManagementPage = () => {
     }
   };
 
+  const selectedReassignItem = getSelectedReassignItem();
+  const reassignTargetEvents = getReassignTargetEvents(reassignModal.donation);
+  const selectedReassignItemLabel = selectedReassignItem
+    ? `${selectedReassignItem.inventory_item?.item_name || "Donation item"} - ${selectedReassignItem.quantity_available} ${selectedReassignItem.inventory_item?.unit_of_measure || "unit(s)"} remaining`
+    : "";
   const pageMeta = getDonationPageMeta(canManageDonations);
 
   return (
@@ -832,6 +1094,7 @@ const DonationManagementPage = () => {
           selectedEventLabel={selectedEventLabel}
           onOpenDonationDetail={openDonationDetailModal}
           onOpenDonationModal={openDonationModal}
+          onOpenReassignLeftoverStock={openReassignLeftoverStockModal}
         />
       ) : null}
 
@@ -851,6 +1114,7 @@ const DonationManagementPage = () => {
           inventoryItems={inventoryItems}
           donorSuggestions={donorSuggestions}
           disasterEvents={disasterEvents}
+          portalData={portalData}
           isSubmitting={isDonationSubmitting}
           errorMessage={donationErrorMessage}
           fieldErrors={donationFieldErrors}
@@ -873,6 +1137,214 @@ const DonationManagementPage = () => {
           onCancelEditItem={cancelEditDonationItem}
           onSubmit={submitDonation}
         />
+      ) : null}
+
+      {reassignModal.isOpen ? (
+        <div style={exportFilterStyles.overlay}>
+          <form
+            onSubmit={submitReassignLeftoverStock}
+            style={exportFilterStyles.modal}
+          >
+            <div style={exportFilterStyles.header}>
+              <div>
+                <h3 style={exportFilterStyles.title}>Reassign Leftover Stock</h3>
+                <p style={{ ...shellStyles.mutedText, margin: "8px 0 0" }}>
+                  Create a new donation record for another disaster event using
+                  the remaining donated stock from this closed event.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeReassignLeftoverStockModal}
+                disabled={reassignModal.isSubmitting}
+                style={exportFilterStyles.closeButton}
+                aria-label="Close reassign leftover stock modal"
+              >
+                <FiX size={20} />
+              </button>
+            </div>
+
+            <section style={exportFilterStyles.detailsCard}>
+              <h4 style={exportFilterStyles.detailsTitle}>Source Donation</h4>
+              <div style={exportFilterStyles.secondRow}>
+                <div>
+                  <p style={exportFilterStyles.label}>Donor</p>
+                  <p style={{ margin: "6px 0 0", color: "#17324d" }}>
+                    {reassignModal.donation?.donor_name || "--"}
+                  </p>
+                </div>
+                <div>
+                  <p style={exportFilterStyles.label}>Source Event</p>
+                  <p style={{ margin: "6px 0 0", color: "#17324d" }}>
+                    {reassignModal.donation?.disaster_event?.title || "--"}
+                  </p>
+                </div>
+                <div>
+                  <p style={exportFilterStyles.label}>Selected Stock</p>
+                  <p style={{ margin: "6px 0 0", color: "#17324d" }}>
+                    {selectedReassignItemLabel || "--"}
+                  </p>
+                </div>
+              </div>
+            </section>
+
+            <section style={exportFilterStyles.detailsCard}>
+              <h4 style={exportFilterStyles.detailsTitle}>Reassignment Details</h4>
+              {reassignModal.errorMessage ? (
+                <p
+                  style={{
+                    ...shellStyles.errorText,
+                    margin: "0 0 14px",
+                  }}
+                >
+                  {reassignModal.errorMessage}
+                </p>
+              ) : null}
+              <div style={exportFilterStyles.firstRow}>
+                <div style={exportFilterStyles.field}>
+                  <label
+                    htmlFor="reassign-leftover-item"
+                    style={exportFilterStyles.label}
+                  >
+                    Leftover Stock
+                  </label>
+                  <select
+                    id="reassign-leftover-item"
+                    value={reassignModal.donationItemId}
+                    onChange={(event) =>
+                      handleReassignFieldChange("donationItemId", event.target.value)
+                    }
+                    style={exportFilterStyles.select}
+                    disabled={reassignModal.isSubmitting}
+                  >
+                    {reassignModal.leftoverItems.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.inventory_item?.item_name || "Donation item"} -{" "}
+                        {item.quantity_available}{" "}
+                        {item.inventory_item?.unit_of_measure || "unit(s)"}
+                      </option>
+                    ))}
+                  </select>
+                  {reassignModal.fieldErrors.donationItemId ? (
+                    <p style={shellStyles.errorText}>
+                      {reassignModal.fieldErrors.donationItemId}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div style={exportFilterStyles.field}>
+                  <label
+                    htmlFor="reassign-target-event"
+                    style={exportFilterStyles.label}
+                  >
+                    Target Disaster Event
+                  </label>
+                  <select
+                    id="reassign-target-event"
+                    value={reassignModal.targetDisasterEventId}
+                    onChange={(event) =>
+                      handleReassignFieldChange(
+                        "targetDisasterEventId",
+                        event.target.value,
+                      )
+                    }
+                    style={exportFilterStyles.select}
+                    disabled={reassignModal.isSubmitting}
+                  >
+                    <option value="">Select disaster event</option>
+                    {reassignTargetEvents.map((eventRow) => (
+                      <option key={eventRow.id} value={eventRow.id}>
+                        {eventRow.title}
+                      </option>
+                    ))}
+                  </select>
+                  {reassignModal.fieldErrors.targetDisasterEventId ? (
+                    <p style={shellStyles.errorText}>
+                      {reassignModal.fieldErrors.targetDisasterEventId}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+
+              <div style={exportFilterStyles.secondRow}>
+                <div style={exportFilterStyles.field}>
+                  <label
+                    htmlFor="reassign-quantity"
+                    style={exportFilterStyles.label}
+                  >
+                    Quantity to Reassign
+                  </label>
+                  <input
+                    id="reassign-quantity"
+                    type="number"
+                    min="1"
+                    step="1"
+                    max={selectedReassignItem?.quantity_available || undefined}
+                    value={reassignModal.quantity}
+                    onChange={(event) =>
+                      handleReassignFieldChange("quantity", event.target.value)
+                    }
+                    style={exportFilterStyles.select}
+                    disabled={reassignModal.isSubmitting}
+                  />
+                  {reassignModal.fieldErrors.quantity ? (
+                    <p style={shellStyles.errorText}>
+                      {reassignModal.fieldErrors.quantity}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div style={exportFilterStyles.field}>
+                  <label
+                    htmlFor="reassign-per-family-allocation"
+                    style={exportFilterStyles.label}
+                  >
+                    Per Family Allocation
+                  </label>
+                  <input
+                    id="reassign-per-family-allocation"
+                    type="number"
+                    min="1"
+                    step="1"
+                    max={reassignModal.quantity || undefined}
+                    value={reassignModal.perFamilyAllocation}
+                    onChange={(event) =>
+                      handleReassignFieldChange(
+                        "perFamilyAllocation",
+                        event.target.value,
+                      )
+                    }
+                    style={exportFilterStyles.select}
+                    disabled={reassignModal.isSubmitting}
+                  />
+                  {reassignModal.fieldErrors.perFamilyAllocation ? (
+                    <p style={shellStyles.errorText}>
+                      {reassignModal.fieldErrors.perFamilyAllocation}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            </section>
+
+            <div style={exportFilterStyles.actions}>
+              <button
+                type="button"
+                onClick={closeReassignLeftoverStockModal}
+                disabled={reassignModal.isSubmitting}
+                style={pageHeaderStyles.secondaryButton}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={reassignModal.isSubmitting}
+                style={pageHeaderStyles.primaryButton}
+              >
+                {reassignModal.isSubmitting ? "Reassigning..." : "Reassign Stock"}
+              </button>
+            </div>
+          </form>
+        </div>
       ) : null}
 
       {isDonationExportModalOpen ? (

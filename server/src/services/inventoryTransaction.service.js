@@ -104,8 +104,22 @@ const mapInventoryTransaction = (transaction) => {
       id: transaction.inventory_batch_id,
       batch_no: transaction.batch_no,
       inventory_item_stock_form_id: transaction.inventory_item_stock_form_id,
+      supplier_id: transaction.supplier_id,
+      source_type: transaction.source_type,
       status: transaction.batch_status,
       quantity_available: transaction.quantity_available,
+      supplier: transaction.supplier_id
+        ? {
+            id: transaction.supplier_id,
+            name: transaction.supplier_name || null,
+          }
+        : null,
+      donation: transaction.source_donation_id
+        ? {
+            id: transaction.source_donation_id,
+            donor_name: transaction.source_donor_name || null,
+          }
+        : null,
     },
     inventory_item: {
       id: transaction.inventory_item_id,

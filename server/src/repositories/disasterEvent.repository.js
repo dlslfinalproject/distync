@@ -13,7 +13,29 @@ const selectDisasterEventColumns = `
     status,
     created_by,
     created_at,
-    updated_at
+    updated_at,
+    COALESCE((
+      SELECT COUNT(DISTINCT h.id)::int
+      FROM stubs s
+      INNER JOIN households h ON h.id = s.household_id
+      INNER JOIN LATERAL (
+        SELECT el.status, el.time_in, el.time_out
+        FROM evacuation_logs el
+        WHERE el.household_id = h.id
+          AND el.disaster_event_id = s.disaster_event_id
+        ORDER BY
+          COALESCE(el.time_out, el.time_in) DESC,
+          el.updated_at DESC,
+          el.created_at DESC
+        LIMIT 1
+      ) latest_attendance ON TRUE
+      WHERE s.disaster_event_id = disaster_events.id
+        AND s.status = 'ISSUED'
+        AND h.current_stay_type = 'EVAC_CENTER'
+        AND h.is_active = TRUE
+        AND latest_attendance.status = 'PRESENT'
+        AND latest_attendance.time_out IS NULL
+    ), 0)::int AS eligible_unclaimed_households_count
   FROM disaster_events
 `;
 

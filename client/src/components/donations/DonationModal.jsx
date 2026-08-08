@@ -175,10 +175,14 @@ const buildDonationItemGroups = (items) => {
       type: "item",
       title: getDonationItemDisplayName(item),
       subtitle: "",
-      supportingText: getQuantityLabel(
-        item.quantity_received,
-        getDonationItemDisplayUnit(item),
-      ),
+      supportingText: [
+        getQuantityLabel(item.quantity_received, getDonationItemDisplayUnit(item)),
+        item.per_family_allocation
+          ? `${item.per_family_allocation} per family`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" | "),
       lines: [],
       canRemove: !item.id,
       sourceItem: item,
@@ -216,6 +220,13 @@ const lookupFeedbackTextStyles = {
   color: "#35597c",
   fontSize: "12px",
   lineHeight: 1.5,
+};
+
+const allocationSuggestionTextStyles = {
+  margin: "8px 0 0",
+  color: "#60738a",
+  fontSize: "12px",
+  lineHeight: 1.45,
 };
 
 const autocompleteStyles = {
@@ -307,6 +318,100 @@ const formatPackagingExample = (packaging) => {
   return `Example: 20 ${packaging}s`;
 };
 
+const getLooseItemTotalQuantity = (draft) => {
+  const packageCount = Number(draft?.packaging_count || 0);
+  const unitsPerPackaging = isPiecePackaging(draft?.new_item_packaging)
+    ? 1
+    : Number(draft?.units_per_packaging || 0);
+
+  return packageCount > 0 && unitsPerPackaging > 0
+    ? packageCount * unitsPerPackaging
+    : 0;
+};
+
+const getEventHouseholdCount = ({ formValues, disasterEvents, portalData }) => {
+  const selectedEventId = formValues?.disaster_event_id || "";
+  const selectedEvent =
+    disasterEvents.find((eventRow) => String(eventRow?.id) === String(selectedEventId)) ||
+    null;
+  const selectedPortalEvent =
+    (portalData?.disaster_events || []).find(
+      (eventRow) =>
+        String(eventRow?.title || "").trim().toLowerCase() ===
+        String(selectedEvent?.title || "").trim().toLowerCase(),
+    ) || null;
+
+  return Number(
+    selectedEvent?.eligible_unclaimed_households_count ||
+      selectedPortalEvent?.eligible_unclaimed_households_count ||
+      0,
+  );
+};
+
+const buildAllocationStatusLines = ({ quantity, allocation, households }) => {
+  if (quantity <= 0 || allocation <= 0 || households <= 0) {
+    return [];
+  }
+
+  if (quantity < allocation * households) {
+    const reachable = Math.floor(quantity / allocation);
+    const leftover = quantity % allocation;
+    const lines = [
+      `Allocation: Only covers first ${reachable} of ${households} household(s) by FCFS at ${allocation} per family.`,
+    ];
+
+    if (leftover > 0) {
+      lines.push(
+        `Estimated remaining stock after allocation: ${leftover} item(s).`,
+      );
+    }
+
+    return lines;
+  }
+
+  const estimatedRemainingStock = quantity - allocation * households;
+
+  return [
+    `Allocation: Covers all households at ${allocation} per family.`,
+    `Estimated remaining stock after allocation: ${estimatedRemainingStock} item(s).`,
+  ];
+};
+
+const buildPerFamilyAllocationGuidance = ({
+  totalQuantity,
+  perFamilyAllocation,
+  householdCount,
+  hasSelectedDisasterEvent,
+}) => {
+  const quantity = Number(totalQuantity || 0);
+  const allocation = Number(perFamilyAllocation || 0);
+  const households = Number(householdCount || 0);
+
+  if (!hasSelectedDisasterEvent) {
+    return ["Select a disaster event first to load the current eligible households."];
+  }
+
+  if (quantity <= 0) {
+    return ["Enter the donated quantity first to calculate family coverage."];
+  }
+
+  if (households <= 0) {
+    return [
+      "Current Number of Household: 0.",
+      "No eligible unclaimed evacuee household is currently present in the evacuation center.",
+    ];
+  }
+
+  return [
+    `Current Number of Household: ${households}.`,
+    ...buildAllocationStatusLines({
+      quantity,
+      allocation,
+      households,
+    }),
+  ].filter(Boolean);
+};
+
 const buildAutocompleteSuggestions = (items, query, { collapseBarcodeVariants = false } = {}) => {
   const normalizedQuery = getNormalizedInventoryText(query);
 
@@ -395,6 +500,7 @@ const DonationModal = ({
   inventoryItems,
   donorSuggestions = [],
   disasterEvents,
+  portalData = {},
   isSubmitting,
   errorMessage,
   fieldErrors = {},
@@ -581,6 +687,18 @@ const DonationModal = ({
     ? getDonationItemDisplayName(editingDonationItem)
     : editingInventoryItem?.item_name || "";
   const donationItemGroups = buildDonationItemGroups(formValues.items);
+  const looseItemTotalQuantity = getLooseItemTotalQuantity(itemDraft);
+  const currentHouseholdCount = getEventHouseholdCount({
+    formValues,
+    disasterEvents,
+    portalData,
+  });
+  const perFamilyAllocationGuidance = buildPerFamilyAllocationGuidance({
+    totalQuantity: looseItemTotalQuantity,
+    perFamilyAllocation: itemDraft.per_family_allocation,
+    householdCount: currentHouseholdCount,
+    hasSelectedDisasterEvent: Boolean(formValues.disaster_event_id),
+  });
 
   useEffect(() => {
     if (!isOpen) {
@@ -1229,6 +1347,44 @@ const DonationModal = ({
                   />
                   {itemFieldErrors.expiration_date ? (
                     <p style={fieldErrorTextStyles}>{itemFieldErrors.expiration_date}</p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {!isAddingReliefPack ? (
+                <div>
+                  <label htmlFor="per_family_allocation" style={labelStyles}>
+                    Per Family Allocation
+                  </label>
+                  <input
+                    id="per_family_allocation"
+                    type="number"
+                    inputMode="numeric"
+                    pattern="[1-9][0-9]*"
+                    min="1"
+                    step="1"
+                    value={itemDraft.per_family_allocation || ""}
+                    onChange={(event) =>
+                      onItemDraftChange("per_family_allocation", event.target.value)
+                    }
+                    style={
+                      formValues.disaster_event_id ? inputStyles : lockedInputStyles
+                    }
+                    placeholder="Example: 2 per family"
+                    disabled={!formValues.disaster_event_id}
+                    aria-invalid={Boolean(itemFieldErrors.per_family_allocation)}
+                  />
+                  <div style={allocationSuggestionTextStyles}>
+                    {perFamilyAllocationGuidance.map((line) => (
+                      <p key={line} style={{ margin: 0 }}>
+                        {line}
+                      </p>
+                    ))}
+                  </div>
+                  {itemFieldErrors.per_family_allocation ? (
+                    <p style={fieldErrorTextStyles}>
+                      {itemFieldErrors.per_family_allocation}
+                    </p>
                   ) : null}
                 </div>
               ) : null}

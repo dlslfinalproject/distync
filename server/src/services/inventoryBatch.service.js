@@ -58,6 +58,12 @@ const mapInventoryBatch = (batch) => {
           notes: batch.supplier_notes,
         }
       : null,
+    donation: batch.source_donation_id
+      ? {
+          id: batch.source_donation_id,
+          donor_name: batch.source_donor_name || null,
+        }
+      : null,
     creator: batch.created_by
       ? {
           id: batch.created_by,

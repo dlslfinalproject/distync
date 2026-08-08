@@ -1,6 +1,6 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
-import { FiEdit2, FiEye } from "react-icons/fi";
+import { FiEdit2, FiEye, FiRepeat } from "react-icons/fi";
 import {
   formatDonationDateTime,
   formatDonorType,
@@ -114,6 +114,7 @@ const DonationsTab = ({
   showDisasterEventColumn = false,
   onOpenDonationDetail,
   onOpenDonationModal,
+  onOpenReassignLeftoverStock,
 }) => {
   const headerLabels = showDisasterEventColumn
     ? [
@@ -259,15 +260,11 @@ const DonationsTab = ({
                         menuId={`donation-actions-${donation.id}`}
                         disabled={donation.is_local_only}
                         buttonTitle={
-                          donation.is_local_only ? "Available after sync" : "Donation actions"
+                          donation.is_local_only ? "Available after sync" : "Actions"
                         }
-                        buttonAriaLabel={
-                          donation.is_local_only
-                            ? "Donation actions unavailable until synced"
-                            : "Donation actions"
-                        }
+                        buttonAriaLabel="Actions"
                         variant="icon-grid"
-                        menuWidth={112}
+                        menuWidth={168}
                         items={[
                           {
                             key: "view-details",
@@ -284,6 +281,20 @@ const DonationsTab = ({
                             onClick: (row) => onOpenDonationModal(row.id),
                             disabled: donation.is_local_only,
                             title: donation.is_local_only ? "Available after sync" : undefined,
+                          },
+                          {
+                            key: "reassign-leftover",
+                            label: "Reassign Leftover Stock",
+                            icon: <FiRepeat size={18} />,
+                            onClick: (row) => onOpenReassignLeftoverStock(row),
+                            disabled:
+                              donation.is_local_only ||
+                              !donation.can_reassign_leftover_stock,
+                            title: donation.is_local_only
+                              ? "Available after sync"
+                              : donation.can_reassign_leftover_stock
+                                ? undefined
+                                : "Available for remaining donated stock after the event is closed",
                           },
                         ]}
                       />

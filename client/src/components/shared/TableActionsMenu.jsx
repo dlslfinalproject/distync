@@ -49,6 +49,7 @@ const menuStyles = {
     padding: "10px",
     zIndex: 1300,
     display: "flex",
+    flexWrap: "wrap",
     gap: "12px",
     justifyContent: "center",
     border: "1px solid #d7e2ef",
@@ -163,9 +164,11 @@ const TableActionsMenu = ({
     event.preventDefault();
 
     const buttonRect = event.currentTarget.getBoundingClientRect();
+    const iconGridColumns = Math.max(1, Math.floor((menuWidth - 20 + 12) / 52));
+    const iconGridRows = Math.ceil(availableItems.length / iconGridColumns);
     const dropdownHeight =
       variant === "icon-grid"
-        ? 64
+        ? 20 + iconGridRows * 40 + Math.max(iconGridRows - 1, 0) * 12
         : Math.max(availableItems.length * 52, 64);
     const spacing = 8;
 

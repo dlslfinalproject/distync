@@ -537,8 +537,8 @@ const buildBatchInflowRows = (inventoryBatches, transactionRows) => {
     is_local_only: false,
     inventory_item: batch.inventory_item || null,
     creator: batch.creator || null,
-    source_label: "Malvar LGU",
-    source_details: "Malvar LGU",
+    source_label: getBatchSourceLabel(batch),
+    source_details: getBatchSourceDetails(batch, "Malvar LGU"),
     performed_by_label: batch.creator?.full_name || "--",
   })).filter((row) => !batchesWithTransactionRows.has(String(row.inventory_batch_id || "")));
 };
@@ -560,40 +560,52 @@ const getTransactionDirection = (transactionType) => {
   return transactionType || "--";
 };
 
-const getSourceLabel = (transaction, batch) => {
-  const resolvedDirection = String(
-    transaction.transaction_direction ||
-      getTransactionDirection(transaction.transaction_type) ||
-      "",
-  ).toUpperCase();
+const getBatchSourceLabel = (batch) => {
+  const sourceType = String(batch?.source_type || "").toUpperCase();
 
+  if (sourceType === "DONATED") {
+    return "Donors";
+  }
+
+  return "Malvar LGU";
+};
+
+const getBatchSourceDetails = (batch, fallback = "--") => {
+  const sourceType = String(batch?.source_type || "").toUpperCase();
+
+  if (sourceType === "DONATED") {
+    return batch?.donation?.donor_name || "Donors";
+  }
+
+  return fallback;
+};
+
+const getSourceLabel = (transaction, batch) => {
   if (
     transaction.reference_type === "DONATION" ||
+    transaction.donation?.donor_name ||
     batch?.source_type === "DONATED"
   ) {
     return "Donors";
   }
 
-  if (resolvedDirection === "INFLOW") {
-    return "Malvar LGU";
-  }
+  return getBatchSourceLabel(batch);
+};
 
+const getSourceDetails = (transaction, batch) => {
   if (
-    resolvedDirection === "OUTFLOW" &&
-    String(transaction.reference_type || "").toUpperCase() === "MANUAL"
+    transaction.reference_type === "DONATION" ||
+    transaction.donation?.donor_name ||
+    batch?.source_type === "DONATED"
   ) {
-    return "Malvar LGU";
+    return (
+      transaction.donation?.donor_name ||
+      batch?.donation?.donor_name ||
+      "Donors"
+    );
   }
 
-  if (transaction.reference_type === "DISTRIBUTION") {
-    return "Malvar LGU";
-  }
-
-  if (batch?.supplier_id || batch?.source_type === "PURCHASED") {
-    return "Malvar LGU";
-  }
-
-  return "Malvar LGU";
+  return getBatchSourceDetails(batch, "Malvar LGU");
 };
 
 const formatTransactionLabel = (value) => {
@@ -874,7 +886,9 @@ const InventoryTransactionsPage = () => {
           batch_no: batch.batch_no || "",
           source_type: batch.source_type,
           supplier_id: batch.supplier_id,
+          supplier: batch.supplier || null,
           supplier_name: batch.supplier?.name || "",
+          donation: batch.donation || null,
           quantity_available: batch.quantity_available,
           expiration_date: batch.expiration_date || null,
           stock_form_packaging:
@@ -902,19 +916,16 @@ const InventoryTransactionsPage = () => {
         );
       });
 
-      const linkedBatch = batchById.get(transaction.inventory_batch_id);
+      const linkedBatch =
+        batchById.get(transaction.inventory_batch_id) ||
+        transaction.inventory_batch ||
+        null;
 
       return {
         ...transaction,
         transaction_direction: getTransactionDirection(transaction.transaction_type),
         source_label: getSourceLabel(transaction, linkedBatch),
-        source_details:
-          transaction.reference_type === "DONATION" || linkedBatch?.source_type === "DONATED"
-            ? transaction.donation?.donor_name || "Donors"
-            : linkedBatch?.supplier_name &&
-                getSourceLabel(transaction, linkedBatch) === "Supplier"
-              ? linkedBatch.supplier_name
-              : transaction.reference_type || "--",
+        source_details: getSourceDetails(transaction, linkedBatch),
         sync_status: buildSyncDescriptor(matchingEntry).status,
         is_local_only: false,
       };
@@ -940,10 +951,7 @@ const InventoryTransactionsPage = () => {
           ...queuedRow,
           transaction_direction: getTransactionDirection(queuedRow.transaction_type),
           source_label: getSourceLabel(queuedRow, linkedBatch),
-          source_details:
-            linkedBatch?.supplier_name && getSourceLabel(queuedRow, linkedBatch) === "Supplier"
-              ? linkedBatch.supplier_name
-              : queuedRow.reference_type || "--",
+          source_details: getSourceDetails(queuedRow, linkedBatch),
         };
       });
 

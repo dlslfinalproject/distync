@@ -151,7 +151,7 @@ const validateStubVerify = (req, res, next) => {
 const validateClaimBarangayStub = (req, res, next) => {
   try {
     const { id } = req.params;
-    const { user_id, override_barangay_id } = req.body;
+    const { user_id, override_barangay_id, donated_loose_items } = req.body;
 
     const hasUserId =
       user_id !== undefined &&
@@ -188,10 +188,43 @@ const validateClaimBarangayStub = (req, res, next) => {
       });
     }
 
+    if (
+      donated_loose_items !== undefined &&
+      !Array.isArray(donated_loose_items)
+    ) {
+      return res.status(400).json({
+        message: "donated_loose_items must be an array when provided",
+      });
+    }
+
+    const normalizedDonatedLooseItems = Array.isArray(donated_loose_items)
+      ? donated_loose_items
+          .map((item) => ({
+            donation_item_id: item?.donation_item_id,
+            quantity: Number.parseInt(String(item?.quantity || 0), 10),
+          }))
+          .filter((item) => item.donation_item_id || item.quantity > 0)
+      : [];
+
+    for (const item of normalizedDonatedLooseItems) {
+      if (!isValidUuid(item.donation_item_id)) {
+        return res.status(400).json({
+          message: "donated_loose_items donation_item_id must be a valid UUID",
+        });
+      }
+
+      if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+        return res.status(400).json({
+          message: "donated_loose_items quantity must be a positive integer",
+        });
+      }
+    }
+
     req.validatedBody = {
       id,
       user_id: hasUserId ? user_id : null,
       override_barangay_id: override_barangay_id || null,
+      donated_loose_items: normalizedDonatedLooseItems,
     };
 
     return next();

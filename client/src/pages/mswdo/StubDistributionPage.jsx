@@ -110,7 +110,8 @@ const stubStatusOptions = [
 ];
 
 const getStubSortTime = (row) => {
-  const timestamp = row.qr_generated_at || row.issued_at || row.created_at || "";
+  const timestamp =
+    row.queue_time_in || row.qr_generated_at || row.issued_at || row.created_at || "";
   const parsedTime = timestamp ? new Date(timestamp).getTime() : 0;
 
   if (Number.isFinite(parsedTime) && parsedTime > 0) {

@@ -135,6 +135,11 @@ const parsePositiveNumber = (value) => {
   return parsedValue;
 };
 
+const isPositiveIntegerValue = (value) => {
+  const parsedValue = Number(value);
+  return Number.isInteger(parsedValue) && parsedValue > 0;
+};
+
 const computeDonationQuantityReceived = (draft) => {
   const packageCount = parsePositiveNumber(draft.packaging_count);
   const unitsPerPackaging = isPiecePackaging(draft.new_item_packaging)
@@ -156,6 +161,71 @@ const computeReliefPackItemTotalQuantity = (packItem, reliefPackQuantity) => {
   return quantityPerReliefPack > 0 && totalReliefPacks > 0 && unitsPerPackaging > 0
     ? quantityPerReliefPack * totalReliefPacks * unitsPerPackaging
     : 0;
+};
+
+const resolveSavedDonationItemStockDetails = (item) => {
+  const stockForm = item?.inventory_item_stock_form || {};
+  const batch = item?.inventory_batch || {};
+  const batchStockForm = batch?.inventory_item_stock_form || {};
+  const inventoryItem = item?.inventory_item || {};
+  const packaging =
+    stockForm.packaging ||
+    batchStockForm.packaging ||
+    batch.stock_form_packaging ||
+    item?.packaging ||
+    inventoryItem.packaging ||
+    "piece";
+  const unitsPerPackaging = isPiecePackaging(packaging)
+    ? 1
+    : Number(
+        stockForm.units_per_packaging ||
+          batchStockForm.units_per_packaging ||
+          batch.stock_form_units_per_packaging ||
+          item?.units_per_packaging ||
+          0,
+      ) || 0;
+  const quantityReceived = Number(
+    item?.quantity_received ?? item?.total_quantity_received ?? 0,
+  );
+  const packagingCount =
+    unitsPerPackaging > 0
+      ? quantityReceived / unitsPerPackaging
+      : quantityReceived;
+
+  return {
+    stockFormId:
+      batch.inventory_item_stock_form_id ||
+      stockForm.id ||
+      item?.inventory_item_stock_form_id ||
+      "",
+    barcode:
+      stockForm.barcode ||
+      batchStockForm.barcode ||
+      batch.stock_form_barcode ||
+      item?.barcode ||
+      "",
+    packaging,
+    unitsPerPackaging,
+    packagingCount,
+    unitOfMeasure:
+      inventoryItem.unit_of_measure ||
+      stockForm.unit_of_measure ||
+      batchStockForm.unit_of_measure ||
+      batch.stock_form_unit_of_measure ||
+      item?.unit_of_measure ||
+      "pc",
+    unitOfMeasureValue:
+      inventoryItem.unit_of_measure_value ??
+      stockForm.unit_of_measure_value ??
+      batchStockForm.unit_of_measure_value ??
+      batch.stock_form_unit_of_measure_value ??
+      item?.unit_of_measure_value ??
+      "",
+    batchNumber: batch.batch_no || item?.batch_number || "",
+    expirationDate: batch.expiration_date
+      ? batch.expiration_date.slice(0, 10)
+      : item?.expiration_date || "",
+  };
 };
 
 const resolveDonationInventoryItem = async ({ draft, inventoryItems }) => {
@@ -180,6 +250,21 @@ const resolveDonationInventoryItem = async ({ draft, inventoryItems }) => {
 
 const buildReliefPackRemark = (templateName, packQuantity) =>
   `Relief Pack: ${templateName} x ${packQuantity}`;
+
+const buildPerFamilyAllocationRemark = (quantity) =>
+  `Per Family Allocation: ${Number(quantity || 0)}`;
+
+const parsePerFamilyAllocationRemark = (remark) => {
+  const matchedRemark = String(remark || "")
+    .trim()
+    .match(/^Per Family Allocation:\s*(\d+)$/i);
+
+  if (!matchedRemark) {
+    return 0;
+  }
+
+  return Number(matchedRemark[1]) || 0;
+};
 
 const parseReliefPackRemark = (remark) => {
   const normalizedRemark = String(remark || "").trim();
@@ -254,7 +339,10 @@ const normalizeDonationFormItems = (items = []) => {
     const parsedReliefPack = parseReliefPackRemark(item?.remarks);
 
     if (!parsedReliefPack || parsedReliefPack.relief_pack_quantity <= 0) {
-      groupedItems.push(item);
+      groupedItems.push({
+        ...item,
+        per_family_allocation: parsePerFamilyAllocationRemark(item?.remarks),
+      });
       return;
     }
 
@@ -356,6 +444,8 @@ const buildLooseDonationDraft = (draft) => ({
     ),
   barcode: draft.barcode || null,
   expiration_date: draft.expiration_date || null,
+  per_family_allocation: Number(draft.per_family_allocation || 0),
+  remarks: buildPerFamilyAllocationRemark(draft.per_family_allocation),
 });
 
 const buildReliefPackDraft = (draft) => ({
@@ -377,7 +467,9 @@ const buildExistingLooseDonationItemPayload = (item) => ({
     item.inventory_item_stock_form?.id ||
     null,
   quantity_received: Number(item.quantity_received || 0),
-  remarks: null,
+  remarks:
+    item.remarks ||
+    buildPerFamilyAllocationRemark(item.per_family_allocation),
   expiration_date:
     item.inventory_batch?.expiration_date?.slice?.(0, 10) ||
     item.expiration_date ||
@@ -552,6 +644,10 @@ export const useDonationManagementModals = ({
   };
 
   useEffect(() => {
+    if (editingDonationItemId) {
+      return;
+    }
+
     if (donationItemDraft.item_entry_method !== "BARCODE") {
       return;
     }
@@ -648,10 +744,15 @@ export const useDonationManagementModals = ({
     donationItemDraft.barcode,
     donationItemDraft.entry_type,
     donationItemDraft.item_entry_method,
+    editingDonationItemId,
     inventoryItems,
   ]);
 
   useEffect(() => {
+    if (editingDonationItemId) {
+      return undefined;
+    }
+
     if (donationItemDraft.item_entry_method !== "BARCODE") {
       return undefined;
     }
@@ -711,9 +812,14 @@ export const useDonationManagementModals = ({
     donationItemDraft.barcode,
     donationItemDraft.entry_type,
     donationItemDraft.item_entry_method,
+    editingDonationItemId,
   ]);
 
   useEffect(() => {
+    if (editingDonationItemId) {
+      return;
+    }
+
     if (donationItemDraft.item_entry_method !== "BARCODE") {
       return;
     }
@@ -768,6 +874,7 @@ export const useDonationManagementModals = ({
     donationItemDraft.entry_type,
     donationItemDraft.item_entry_method,
     donationItemDraft.new_item_name,
+    editingDonationItemId,
     inventoryItems,
   ]);
 
@@ -882,6 +989,10 @@ export const useDonationManagementModals = ({
     if (fieldName === "new_item_packaging") {
       clearDonationItemFieldError("units_per_packaging");
       clearDonationItemFieldError("packaging_count");
+    }
+
+    if (fieldName === "per_family_allocation") {
+      clearDonationItemFieldError("per_family_allocation");
     }
 
     if (fieldName === "entry_type") {
@@ -1164,6 +1275,16 @@ export const useDonationManagementModals = ({
     }
 
     if (isExistingDonationItem) {
+      const quantityReceived = computeDonationQuantityReceived(donationItemDraft);
+      const perFamilyAllocation = parsePositiveNumber(
+        donationItemDraft.per_family_allocation,
+      );
+
+      if (!donationForm.disaster_event_id) {
+        nextErrors.per_family_allocation =
+          "Select a disaster event before setting per family allocation.";
+      }
+
       if (parsePositiveNumber(donationItemDraft.packaging_count) <= 0) {
         nextErrors.packaging_count = "Quantity on hand is required.";
       }
@@ -1180,11 +1301,26 @@ export const useDonationManagementModals = ({
           "Expiration date cannot be earlier than today.";
       }
 
+      if (perFamilyAllocation <= 0) {
+        nextErrors.per_family_allocation = "Per family allocation is required.";
+      } else if (!isPositiveIntegerValue(donationItemDraft.per_family_allocation)) {
+        nextErrors.per_family_allocation =
+          "Per family allocation must be a whole number.";
+      } else if (quantityReceived > 0 && perFamilyAllocation > quantityReceived) {
+        nextErrors.per_family_allocation =
+          "Per family allocation cannot exceed quantity on hand.";
+      }
+
       return nextErrors;
     }
 
     if (!donationItemDraft.new_item_name.trim()) {
       nextErrors.new_item_name = "Enter the item name.";
+    }
+
+    if (!donationForm.disaster_event_id) {
+      nextErrors.per_family_allocation =
+        "Select a disaster event before setting per family allocation.";
     }
 
     if (!donationItemDraft.new_item_tracking_method) {
@@ -1221,7 +1357,12 @@ export const useDonationManagementModals = ({
       nextErrors.units_per_packaging = "Units per packaging is required.";
     }
 
-    if (computeDonationQuantityReceived(donationItemDraft) <= 0) {
+    const quantityReceived = computeDonationQuantityReceived(donationItemDraft);
+    const perFamilyAllocation = parsePositiveNumber(
+      donationItemDraft.per_family_allocation,
+    );
+
+    if (quantityReceived <= 0) {
       nextErrors.packaging_count = nextErrors.packaging_count || "Quantity on hand is required.";
     }
 
@@ -1235,6 +1376,16 @@ export const useDonationManagementModals = ({
     if (isEarlierThanToday(donationItemDraft.expiration_date)) {
       nextErrors.expiration_date =
         "Expiration date cannot be earlier than today.";
+    }
+
+    if (perFamilyAllocation <= 0) {
+      nextErrors.per_family_allocation = "Per family allocation is required.";
+    } else if (!isPositiveIntegerValue(donationItemDraft.per_family_allocation)) {
+      nextErrors.per_family_allocation =
+        "Per family allocation must be a whole number.";
+    } else if (quantityReceived > 0 && perFamilyAllocation > quantityReceived) {
+      nextErrors.per_family_allocation =
+        "Per family allocation cannot exceed quantity on hand.";
     }
 
     return nextErrors;
@@ -1631,6 +1782,8 @@ export const useDonationManagementModals = ({
 
   const startEditDonationItem = (item) => {
     setEditingDonationItemId(item.id);
+    const savedItemStockDetails = resolveSavedDonationItemStockDetails(item);
+
     if (item.entry_type === "RELIEF_PACK") {
       setDonationItemDraft({
         ...createDonationItemForm(),
@@ -1652,67 +1805,36 @@ export const useDonationManagementModals = ({
     setDonationItemDraft({
         entry_type: "ITEM",
         inventory_item_id: item.inventory_item_id,
-        inventory_item_stock_form_id:
-          item.inventory_batch?.inventory_item_stock_form_id ||
-          item.inventory_item_stock_form?.id ||
-          "",
+        inventory_item_stock_form_id: savedItemStockDetails.stockFormId,
         relief_pack_template_id: "",
         relief_pack_quantity: "1",
-        item_entry_method:
-          item.inventory_item_stock_form?.barcode ||
-          item.inventory_batch?.inventory_item_stock_form?.barcode
-            ? "BARCODE"
-            : "MANUAL",
-        barcode:
-          item.inventory_item_stock_form?.barcode ||
-          item.inventory_batch?.inventory_item_stock_form?.barcode ||
-          "",
-        new_item_name: item.inventory_item?.item_name || "",
+        item_entry_method: savedItemStockDetails.barcode ? "BARCODE" : "MANUAL",
+        barcode: savedItemStockDetails.barcode,
+        new_item_name: item.inventory_item?.item_name || item.item_name || "",
         new_item_category: normalizeDonationCategoryValue(
-          item.inventory_item?.category,
+          item.inventory_item?.category || item.category,
         ),
         new_item_tracking_method:
-          item.inventory_item?.tracking_method || "Count-Based",
-        new_item_unit_of_measure: item.inventory_item?.unit_of_measure || "pc",
+          item.inventory_item?.tracking_method || item.tracking_method || "Count-Based",
+        new_item_unit_of_measure: savedItemStockDetails.unitOfMeasure,
         new_item_unit_of_measure_value:
-          item.inventory_item?.unit_of_measure_value != null
-            ? String(item.inventory_item.unit_of_measure_value)
+          savedItemStockDetails.unitOfMeasureValue !== ""
+            ? String(savedItemStockDetails.unitOfMeasureValue)
             : "",
-        new_item_packaging:
-          item.inventory_item_stock_form?.packaging ||
-          item.inventory_batch?.inventory_item_stock_form?.packaging ||
-          item.inventory_batch?.stock_form_packaging ||
-          item.inventory_item?.packaging ||
-          "piece",
-        batch_number: item.inventory_batch?.batch_no || "",
+        new_item_packaging: savedItemStockDetails.packaging,
+        batch_number: savedItemStockDetails.batchNumber,
         packaging_count:
-          item.inventory_item_stock_form?.units_per_packaging ||
-          item.inventory_batch?.inventory_item_stock_form?.units_per_packaging ||
-          item.inventory_batch?.stock_form_units_per_packaging
-            ? String(
-                Math.max(
-                  1,
-                  Number(item.quantity_received || 0) /
-                    Number(
-                      item.inventory_item_stock_form?.units_per_packaging ||
-                        item.inventory_batch?.inventory_item_stock_form
-                          ?.units_per_packaging ||
-                        item.inventory_batch?.stock_form_units_per_packaging ||
-                        1,
-                    ),
-                ),
-              )
-            : String(item.quantity_received || ""),
-        units_per_packaging: String(
-          item.inventory_item_stock_form?.units_per_packaging ||
-            item.inventory_batch?.inventory_item_stock_form?.units_per_packaging ||
-            item.inventory_batch?.stock_form_units_per_packaging ||
-            1,
-        ),
+          savedItemStockDetails.packagingCount > 0
+            ? String(savedItemStockDetails.packagingCount)
+            : "",
+        units_per_packaging: String(savedItemStockDetails.unitsPerPackaging || ""),
         remarks: "",
-        expiration_date: item.inventory_batch?.expiration_date
-          ? item.inventory_batch.expiration_date.slice(0, 10)
-          : "",
+        per_family_allocation: String(
+          item.per_family_allocation ||
+            parsePerFamilyAllocationRemark(item.remarks) ||
+            "",
+        ),
+        expiration_date: savedItemStockDetails.expirationDate,
         storage_location: "",
     });
   };
@@ -1768,10 +1890,15 @@ export const useDonationManagementModals = ({
           : Number(donationItemDraft.units_per_packaging || 0) || null;
         const nextExpirationDate = donationItemDraft.expiration_date || null;
         const nextQuantityReceived = computeDonationQuantityReceived(donationItemDraft);
+        const nextPerFamilyAllocation = Number(
+          donationItemDraft.per_family_allocation || 0,
+        );
 
         return {
           ...item,
           quantity_received: nextQuantityReceived,
+          remarks: buildPerFamilyAllocationRemark(nextPerFamilyAllocation),
+          per_family_allocation: nextPerFamilyAllocation,
           expiration_date: nextExpirationDate,
           inventory_item: {
             ...item.inventory_item,
@@ -1889,7 +2016,9 @@ export const useDonationManagementModals = ({
             inventory_item_stock_form_id:
               donationItemDraft.inventory_item_stock_form_id || null,
             quantity_received: computeDonationQuantityReceived(donationItemDraft),
-            remarks: null,
+            remarks: buildPerFamilyAllocationRemark(
+              donationItemDraft.per_family_allocation,
+            ),
             expiration_date: donationItemDraft.expiration_date || null,
             packaging: donationItemDraft.new_item_packaging,
             units_per_packaging: donationItemDraft.units_per_packaging,

@@ -157,6 +157,44 @@ const modalStyles = {
     lineHeight: 1.7,
     textAlign: "left",
   },
+  donatedLooseList: {
+    width: "100%",
+    display: "grid",
+    gap: "10px",
+    marginTop: "8px",
+  },
+  donatedLooseItem: {
+    display: "grid",
+    gridTemplateColumns: "1fr 92px",
+    gap: "10px",
+    alignItems: "center",
+    padding: "10px 12px",
+    borderRadius: "14px",
+    border: "1px solid #d7e2ef",
+    backgroundColor: "#ffffff",
+    boxSizing: "border-box",
+    textAlign: "left",
+  },
+  donatedLooseName: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "14px",
+    fontWeight: 800,
+    lineHeight: 1.35,
+  },
+  donatedLooseMeta: {
+    margin: "3px 0 0",
+    color: "#60738a",
+    fontSize: "12px",
+    lineHeight: 1.4,
+  },
+  donatedLooseQuantity: {
+    margin: 0,
+    color: "#17324d",
+    fontSize: "15px",
+    fontWeight: 800,
+    textAlign: "center",
+  },
   capturedText: {
     margin: "6px 0 0",
     color: "#60738a",
@@ -304,6 +342,39 @@ const buildReliefPackDisplayParts = (stub) => {
   };
 };
 
+const getDonatedReliefPackNames = (stub) => {
+  const donatedPacks = Array.isArray(stub?.available_donated_relief_packs)
+    ? stub.available_donated_relief_packs
+    : [];
+
+  return donatedPacks
+    .map((pack) => pack?.name)
+    .filter(Boolean);
+};
+
+const getAvailableDonatedLooseItems = (stub) => {
+  return Array.isArray(stub?.available_donated_loose_items)
+    ? stub.available_donated_loose_items
+    : [];
+};
+
+const getDonatedLooseItemNames = (stub) => {
+  return getAvailableDonatedLooseItems(stub)
+    .map((item) => {
+      const allocation = Number(
+        item?.quantity_released || item?.per_family_allocation || 0,
+      );
+      const itemName = item?.item_name || "";
+
+      if (!itemName || allocation <= 0) {
+        return "";
+      }
+
+      return `${itemName} x${allocation}`;
+    })
+    .filter(Boolean);
+};
+
 const getDisplayStubNumber = (stub) => {
   if (stub?.display_stub_no) {
     return stub.display_stub_no;
@@ -316,6 +387,8 @@ const getDisplayStubNumber = (stub) => {
 
 const getSelectedStubSummary = (stub) => {
   const reliefPackParts = buildReliefPackDisplayParts(stub);
+  const donatedReliefPackNames = getDonatedReliefPackNames(stub);
+  const donatedLooseItemNames = getDonatedLooseItemNames(stub);
 
   return {
     id: stub?.id || stub?.stub_id || stub?.stub_no,
@@ -329,6 +402,12 @@ const getSelectedStubSummary = (stub) => {
       0,
     reliefPackDisplay: reliefPackParts.reliefPackDisplay,
     reliefPackMultiplierText: reliefPackParts.multiplierText,
+    donatedReliefPackDisplay:
+      donatedReliefPackNames.length > 0
+        ? donatedReliefPackNames.join(", ").toUpperCase()
+        : "",
+    donatedLooseItemDisplay:
+      donatedLooseItemNames.length > 0 ? donatedLooseItemNames.join(", ") : "",
   };
 };
 
@@ -355,7 +434,13 @@ const StubClaimConfirmModal = ({
     : [];
   const reliefPackParts = buildReliefPackDisplayParts(stubDetails);
   const reliefPackDisplay = reliefPackParts.reliefPackDisplay;
+  const donatedReliefPackNames = getDonatedReliefPackNames(stubDetails);
+  const availableDonatedLooseItems = getAvailableDonatedLooseItems(stubDetails);
   const selectedStubSummaries = selectedStubs.map(getSelectedStubSummary);
+  const canPickDonatedLooseItems =
+    selectedCount === 1 && availableDonatedLooseItems.length > 0;
+  const hasDonatedRelief =
+    donatedReliefPackNames.length > 0 || canPickDonatedLooseItems;
 
   return (
     <div style={modalStyles.overlay}>
@@ -381,12 +466,48 @@ const StubClaimConfirmModal = ({
                 imageStyle={modalStyles.qrImage}
                 valueStyle={modalStyles.qrValue}
               />
-              <p style={modalStyles.label}>Relief Pack</p>
+              <p style={modalStyles.label}>Standard Relief</p>
               <p style={modalStyles.centeredValue}>{reliefPackDisplay}</p>
               {reliefPackParts.multiplierText ? (
                 <p style={{ ...modalStyles.capturedText, textAlign: "center" }}>
                   {reliefPackParts.multiplierText}
                 </p>
+              ) : null}
+              {hasDonatedRelief ? (
+                <>
+                  <p style={{ ...modalStyles.label, marginTop: "8px" }}>
+                    Donated Relief
+                  </p>
+                  {donatedReliefPackNames.length > 0 ? (
+                    <p style={modalStyles.centeredValue}>
+                      {donatedReliefPackNames.join(", ").toUpperCase()}
+                    </p>
+                  ) : null}
+                  {canPickDonatedLooseItems ? (
+                    <div style={modalStyles.donatedLooseList}>
+                      {availableDonatedLooseItems.map((item) => (
+                        <div
+                          key={item.donation_item_id}
+                          style={modalStyles.donatedLooseItem}
+                        >
+                          <div>
+                            <p style={modalStyles.donatedLooseName}>
+                              {item.item_name || "--"}
+                            </p>
+                            <p style={modalStyles.donatedLooseMeta}>
+                              {item.donor_name || "Donors"} | Available:{" "}
+                              {item.quantity_available ?? 0}{" "}
+                              {item.unit_of_measure || "unit(s)"}
+                            </p>
+                          </div>
+                          <p style={modalStyles.donatedLooseQuantity}>
+                            x{item.quantity_released || item.per_family_allocation || 0}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </>
               ) : null}
             </div>
 
@@ -448,11 +569,21 @@ const StubClaimConfirmModal = ({
                       Stub Number: {stub.stubNumber}
                     </p>
                     <p style={modalStyles.bulkMeta}>
-                      Relief Pack: {stub.reliefPackDisplay}
+                      Standard Relief: {stub.reliefPackDisplay}
                     </p>
                     {stub.reliefPackMultiplierText ? (
                       <p style={modalStyles.bulkMeta}>
                         {stub.reliefPackMultiplierText}
+                      </p>
+                    ) : null}
+                    {stub.donatedReliefPackDisplay ? (
+                      <p style={modalStyles.bulkMeta}>
+                        Donated Relief: {stub.donatedReliefPackDisplay}
+                      </p>
+                    ) : null}
+                    {stub.donatedLooseItemDisplay ? (
+                      <p style={modalStyles.bulkMeta}>
+                        Donated Relief: {stub.donatedLooseItemDisplay}
                       </p>
                     ) : null}
                   </div>
