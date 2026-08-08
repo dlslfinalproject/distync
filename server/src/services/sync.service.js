@@ -57,6 +57,11 @@ const createUnsupportedSyncActionError = () => {
   return error;
 };
 
+const markPostBusinessBookkeepingFailure = (error) => {
+  error.rollbackSyncTransaction = true;
+  return error;
+};
+
 const buildPersistedReplayResult = ({
   entry,
   syncTransaction,
@@ -428,15 +433,16 @@ const processSingleSyncEntry = async (entry, auth) => {
     }
 
     const syncTransaction = claim.transaction;
+    let businessEffectApplied = false;
 
     try {
-    const conflictState = await maybeResolveTimestampConflict({
-      entry,
-      auth,
-      actionConfig,
-      syncTransaction,
-      dbClient,
-    });
+      const conflictState = await maybeResolveTimestampConflict({
+        entry,
+        auth,
+        actionConfig,
+        syncTransaction,
+        dbClient,
+      });
 
     if (conflictState.hasConflict && !conflictState.shouldApplyLocalChange) {
       const serverTimestamp = new Date().toISOString();
@@ -484,6 +490,7 @@ const processSingleSyncEntry = async (entry, auth) => {
       clientTimestamp: entry.client_timestamp,
       dbClient,
     });
+    businessEffectApplied = true;
 
     const resolvedEntityServerId =
       entry.entity_server_id ||
@@ -502,43 +509,51 @@ const processSingleSyncEntry = async (entry, auth) => {
     let conflictRecord = null;
 
     if (conflictState.hasConflict) {
-      const recordedConflict = await recordConflictAndUpdateSyncTransactionSafely({
-        auth,
-        actionConfig,
-        entry,
-        syncTransactionId: syncTransaction.id,
-        transactionPayload: {
-          entity_server_id: resolvedEntityServerId,
-          server_timestamp: serverTimestamp,
-          sync_status: nextStatus,
-          error_message: null,
-        },
-          conflictPayload: {
-          ...conflictState.conflictPayload,
-          entity_server_id: resolvedEntityServerId,
-          resolved_payload_json: {
-            winner: "LOCAL",
-            local_payload: entry.payload,
-            server_payload: conflictState.currentRecord,
-            authoritative_payload: result,
+      try {
+        const recordedConflict = await recordConflictAndUpdateSyncTransactionSafely({
+          auth,
+          actionConfig,
+          entry,
+          syncTransactionId: syncTransaction.id,
+          transactionPayload: {
+            entity_server_id: resolvedEntityServerId,
+            server_timestamp: serverTimestamp,
+            sync_status: nextStatus,
+            error_message: null,
           },
+          conflictPayload: {
+            ...conflictState.conflictPayload,
+            entity_server_id: resolvedEntityServerId,
+            resolved_payload_json: {
+              winner: "LOCAL",
+              local_payload: entry.payload,
+              server_payload: conflictState.currentRecord,
+              authoritative_payload: result,
+            },
             resolved_at: serverTimestamp,
           },
           dbClient,
         });
 
-      conflictRecord = recordedConflict.conflictRecord;
+        conflictRecord = recordedConflict.conflictRecord;
+      } catch (error) {
+        throw markPostBusinessBookkeepingFailure(error);
+      }
     } else {
-      await syncRepository.updateSyncTransaction(
-        syncTransaction.id,
-        {
-          entity_server_id: resolvedEntityServerId,
-          server_timestamp: serverTimestamp,
-          sync_status: nextStatus,
-          error_message: null,
-        },
-        dbClient,
-      );
+      try {
+        await syncRepository.updateSyncTransaction(
+          syncTransaction.id,
+          {
+            entity_server_id: resolvedEntityServerId,
+            server_timestamp: serverTimestamp,
+            sync_status: nextStatus,
+            error_message: null,
+          },
+          dbClient,
+        );
+      } catch (error) {
+        throw markPostBusinessBookkeepingFailure(error);
+      }
     }
 
     return {
@@ -552,6 +567,18 @@ const processSingleSyncEntry = async (entry, auth) => {
       conflict: conflictRecord,
     };
     } catch (error) {
+      if (businessEffectApplied || error.rollbackSyncTransaction) {
+        await logErrorSafely({
+          actor: auth,
+          moduleName: "sync",
+          errorCode: "SYNC_POST_EFFECT_BOOKKEEPING_FAILED",
+          errorMessage: `Sync terminal bookkeeping failed after business processing for ${entry.action_key}`,
+          error,
+        });
+
+        throw error;
+      }
+
     const isDuplicateConflict =
       error.code === "DUPLICATE_HOUSEHOLD_REGISTRATION" ||
       error.code === "DUPLICATE_HOUSEHOLD_DEPARTURE" ||

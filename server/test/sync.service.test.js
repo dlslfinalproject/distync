@@ -12,6 +12,15 @@ const householdRegistrationServicePath = require.resolve(
   "../src/services/householdRegistration.service",
 );
 const stubServicePath = require.resolve("../src/services/stub.service");
+const distributionTransactionServicePath = require.resolve(
+  "../src/services/distributionTransaction.service",
+);
+const inventoryTransactionServicePath = require.resolve(
+  "../src/services/inventoryTransaction.service",
+);
+const inventoryItemServicePath = require.resolve("../src/services/inventoryItem.service");
+const inventoryBatchServicePath = require.resolve("../src/services/inventoryBatch.service");
+const supplierServicePath = require.resolve("../src/services/supplier.service");
 const systemLogPath = require.resolve("../src/utils/systemLog");
 
 const withStubbedSyncService = async (stubs, runTest) => {
@@ -397,13 +406,25 @@ test("processSyncEntries retries a FAILED row using the existing sync transactio
   );
 });
 
-test("processSyncEntries does not mark post-business bookkeeping failures as retryable FAILED", async () => {
+test("processSyncEntries rolls back post-business bookkeeping failures instead of committing FAILED", async () => {
   const loggedErrors = [];
+  const txEvents = [];
   let handlerCalls = 0;
 
   await withStubbedSyncService(
     {
       [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        withSyncProcessingTransaction: async (callback) => {
+          txEvents.push("BEGIN");
+          try {
+            const result = await callback({ query: async () => ({ rows: [] }) });
+            txEvents.push("COMMIT");
+            return result;
+          } catch (error) {
+            txEvents.push("ROLLBACK");
+            throw error;
+          }
+        },
         updateSyncTransaction: async () => {
           throw new Error("database unavailable after effect");
         },
@@ -427,14 +448,348 @@ test("processSyncEntries does not mark post-business bookkeeping failures as ret
       },
     },
     async ({ processSyncEntries }) => {
+      await assert.rejects(
+        () =>
+          processSyncEntries({
+            auth: baseAuth,
+            entries: [
+              {
+                client_sync_id: "client-post-effect-1",
+                action_key: "HOUSEHOLD_REGISTER",
+                entity_type: "HOUSEHOLD",
+                entity_local_id: "local-household-post-effect",
+                client_timestamp: "2026-08-08T01:00:00.000Z",
+                payload: {
+                  family_head_first_name: "Local",
+                },
+              },
+            ],
+          }),
+        /database unavailable after effect/,
+      );
+
+      assert.deepEqual(txEvents, ["BEGIN", "ROLLBACK"]);
+      assert.equal(handlerCalls, 1);
+      assert.equal(loggedErrors[0].errorCode, "SYNC_POST_EFFECT_BOOKKEEPING_FAILED");
+    },
+  );
+});
+
+test("H03F-01/H03F-03/H03F-04 covered handlers roll back when terminal sync update fails after business SQL", async () => {
+  const cases = [
+    {
+      id: "H03F-01",
+      actionKey: "HOUSEHOLD_REGISTER",
+      entityType: "HOUSEHOLD",
+      servicePath: householdRegistrationServicePath,
+      serviceStub: {
+        registerHousehold: async () => ({
+          household: { id: "11111111-1111-4111-8111-111111111111" },
+        }),
+      },
+      auth: baseAuth,
+    },
+    {
+      id: "H03F-03",
+      actionKey: "INVENTORY_TRANSACTION_CREATE",
+      entityType: "INVENTORY_TRANSACTION",
+      servicePath: inventoryTransactionServicePath,
+      serviceStub: {
+        createInventoryTransaction: async () => ({
+          transaction_id: "22222222-2222-4222-8222-222222222222",
+          new_quantity_available: 150,
+        }),
+      },
+      auth: {
+        ...baseAuth,
+        roleCode: "MAYOR",
+        defaultBarangayId: null,
+      },
+    },
+    {
+      id: "H03F-04",
+      actionKey: "DISTRIBUTION_CREATE",
+      entityType: "DISTRIBUTION_TRANSACTION",
+      servicePath: distributionTransactionServicePath,
+      serviceStub: {
+        createDistributionTransaction: async () => ({
+          distribution_transaction_id: "33333333-3333-4333-8333-333333333333",
+          stub: { id: "44444444-4444-4444-8444-444444444444", status: "CLAIMED" },
+          items: [{ inventory_item_id: "55555555-5555-4555-8555-555555555555" }],
+        }),
+      },
+      auth: baseAuth,
+    },
+  ];
+
+  for (const faultCase of cases) {
+    const txEvents = [];
+    let handlerCalls = 0;
+    let failedStatusWrites = 0;
+
+    const serviceStub = Object.fromEntries(
+      Object.entries(faultCase.serviceStub).map(([methodName, handler]) => [
+        methodName,
+        async (...args) => {
+          handlerCalls += 1;
+          return handler(...args);
+        },
+      ]),
+    );
+
+    await withStubbedSyncService(
+      {
+        [syncRepositoryPath]: createBaseSyncRepositoryStub({
+          withSyncProcessingTransaction: async (callback) => {
+            txEvents.push("BEGIN");
+            try {
+              const result = await callback({ query: async () => ({ rows: [] }) });
+              txEvents.push("COMMIT");
+              return result;
+            } catch (error) {
+              txEvents.push("ROLLBACK");
+              throw error;
+            }
+          },
+          updateSyncTransaction: async (_id, payload) => {
+            if (payload.sync_status === "FAILED") {
+              failedStatusWrites += 1;
+            }
+
+            throw new Error(`${faultCase.id} forced terminal failure`);
+          },
+        }),
+        [faultCase.servicePath]: serviceStub,
+        [systemLogPath]: {
+          logAuditSafely: async () => {},
+          logErrorSafely: async () => {},
+          pickDefined: () => ({}),
+        },
+      },
+      async ({ processSyncEntries }) => {
+        await assert.rejects(
+          () =>
+            processSyncEntries({
+              auth: faultCase.auth,
+              entries: [
+                {
+                  client_sync_id: `${faultCase.id.toLowerCase()}-rollback`,
+                  action_key: faultCase.actionKey,
+                  entity_type: faultCase.entityType,
+                  entity_local_id: `${faultCase.id.toLowerCase()}-local`,
+                  client_timestamp: "2026-08-08T01:00:00.000Z",
+                  payload: {},
+                },
+              ],
+            }),
+          new RegExp(`${faultCase.id} forced terminal failure`),
+        );
+      },
+    );
+
+    assert.equal(handlerCalls, 1);
+    assert.equal(failedStatusWrites, 0);
+    assert.deepEqual(txEvents, ["BEGIN", "ROLLBACK"]);
+  }
+});
+
+test("H03F-02 same client_sync_id retry after rollback can claim one logical row and commit once", async () => {
+  const txEvents = [];
+  const claimIds = [];
+  let handlerCalls = 0;
+  let terminalWrites = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        withSyncProcessingTransaction: async (callback) => {
+          txEvents.push("BEGIN");
+          const result = await callback({ query: async () => ({ rows: [] }) });
+          txEvents.push("COMMIT");
+          return result;
+        },
+        claimSyncTransaction: async () => {
+          claimIds.push("sync-household-retry");
+          return {
+            decision: "CLAIMED_NEW",
+            transaction: {
+              id: "sync-household-retry",
+            },
+          };
+        },
+        updateSyncTransaction: async (id, payload) => {
+          terminalWrites += 1;
+          return {
+            id,
+            ...payload,
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          handlerCalls += 1;
+          return {
+            household: { id: "88888888-8888-4888-8888-888888888888" },
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
       const [result] = await processSyncEntries({
         auth: baseAuth,
         entries: [
           {
-            client_sync_id: "client-post-effect-1",
+            client_sync_id: "h03f-02-household-retry",
             action_key: "HOUSEHOLD_REGISTER",
             entity_type: "HOUSEHOLD",
-            entity_local_id: "local-household-post-effect",
+            entity_local_id: "local-household-retry",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {},
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.sync_transaction_id, "sync-household-retry");
+    },
+  );
+
+  assert.deepEqual(claimIds, ["sync-household-retry"]);
+  assert.equal(handlerCalls, 1);
+  assert.equal(terminalWrites, 1);
+  assert.deepEqual(txEvents, ["BEGIN", "COMMIT"]);
+});
+
+test("H03F-05 rolls back local-newer conflict when conflict persistence fails after business update", async () => {
+  const txEvents = [];
+  let updateCalled = false;
+  let failedStatusWrites = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        withSyncProcessingTransaction: async (callback) => {
+          txEvents.push("BEGIN");
+          try {
+            const result = await callback({ query: async () => ({ rows: [] }) });
+            txEvents.push("COMMIT");
+            return result;
+          } catch (error) {
+            txEvents.push("ROLLBACK");
+            throw error;
+          }
+        },
+        recordConflictAndUpdateSyncTransaction: async () => {
+          throw new Error("conflict persistence unavailable after update");
+        },
+        updateSyncTransaction: async (id, payload) => {
+          if (payload.sync_status === "FAILED") {
+            failedStatusWrites += 1;
+          }
+
+          return {
+            id,
+            ...payload,
+          };
+        },
+      }),
+      [householdRegistrationRepositoryPath]: {
+        getHouseholdSummaryById: async () => ({
+          id: "66666666-6666-4666-8666-666666666666",
+          family_head_first_name: "Server",
+          updated_at: "2026-08-08T01:00:00.000Z",
+        }),
+      },
+      [householdRegistrationServicePath]: {
+        updateHouseholdDetails: async (_payload) => {
+          updateCalled = true;
+          return {
+            id: "66666666-6666-4666-8666-666666666666",
+            family_head_first_name: "Local",
+            updated_at: "2026-08-08T02:00:00.000Z",
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      await assert.rejects(
+        () =>
+          processSyncEntries({
+            auth: baseAuth,
+            entries: [
+              {
+                client_sync_id: "h03f-05-local-newer",
+                action_key: "HOUSEHOLD_UPDATE",
+                entity_type: "HOUSEHOLD",
+                entity_server_id: "66666666-6666-4666-8666-666666666666",
+                client_timestamp: "2026-08-08T02:00:00.000Z",
+                client_updated_at: "2026-08-08T02:00:00.000Z",
+                payload: {
+                  family_head_first_name: "Local",
+                },
+              },
+            ],
+          }),
+        /Sync conflict could not be recorded safely/,
+      );
+
+      assert.equal(updateCalled, true);
+      assert.equal(failedStatusWrites, 0);
+      assert.deepEqual(txEvents, ["BEGIN", "ROLLBACK"]);
+    },
+  );
+});
+
+test("H03F-06 response-loss replay returns stored terminal result without handler rerun", async () => {
+  let handlerCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async () => ({
+          decision: "REPLAY_TERMINAL",
+          transaction: {
+            id: "sync-response-loss",
+            client_sync_id: "h03f-06-response-loss",
+            entity_server_id: "77777777-7777-4777-8777-777777777777",
+            sync_status: "SYNCED",
+            error_message: null,
+            processing_protocol_version: 2,
+          },
+          conflictRecord: null,
+        }),
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          handlerCalls += 1;
+          throw new Error("handler must not run on terminal replay");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h03f-06-response-loss",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-response-loss",
             client_timestamp: "2026-08-08T01:00:00.000Z",
             payload: {
               family_head_first_name: "Local",
@@ -443,10 +798,10 @@ test("processSyncEntries does not mark post-business bookkeeping failures as ret
         ],
       });
 
-      assert.equal(handlerCalls, 1);
-      assert.equal(result.sync_status, "PENDING");
-      assert.equal(result.sync_transaction_id, "sync-transaction-1");
-      assert.equal(loggedErrors[0].errorCode, "SYNC_POST_EFFECT_BOOKKEEPING_FAILED");
+      assert.equal(handlerCalls, 0);
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.replayed, true);
+      assert.equal(result.sync_transaction_id, "sync-response-loss");
     },
   );
 });
