@@ -673,12 +673,17 @@ CREATE TABLE public.notifications (
   severity character varying NOT NULL DEFAULT 'INFO'::character varying CHECK (severity::text = ANY (ARRAY['INFO'::character varying, 'WARNING'::character varying, 'CRITICAL'::character varying]::text[])),
   reference_type character varying,
   reference_id uuid,
+  source_event_key text,
   metadata_json jsonb NOT NULL DEFAULT '{}'::jsonb,
   generated_at timestamp with time zone NOT NULL DEFAULT now(),
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT notifications_pkey PRIMARY KEY (id),
   CONSTRAINT notifications_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id)
 );
+
+CREATE UNIQUE INDEX notifications_source_event_key_unique
+  ON public.notifications(source_event_key)
+  WHERE source_event_key IS NOT NULL;
 
 CREATE TABLE public.notification_recipients (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -710,6 +715,25 @@ CREATE TABLE public.notification_email_deliveries (
   CONSTRAINT notification_email_deliveries_pkey PRIMARY KEY (id),
   CONSTRAINT notification_email_deliveries_unique_delivery UNIQUE (notification_id, recipient_user_id)
 );
+
+CREATE TABLE public.notification_outbox (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  event_type text NOT NULL CHECK (event_type IN ('SYNC_FAILURE', 'SYNC_CONFLICT')),
+  source_type text NOT NULL CHECK (source_type IN ('SYNC_TRANSACTION', 'SYNC_CONFLICT')),
+  source_id uuid NOT NULL,
+  status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'PROCESSED', 'FAILED')),
+  attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+  last_error text,
+  processed_at timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT notification_outbox_pkey PRIMARY KEY (id),
+  CONSTRAINT notification_outbox_source_unique UNIQUE (event_type, source_type, source_id)
+);
+
+CREATE INDEX notification_outbox_pending_idx
+  ON public.notification_outbox(status, created_at)
+  WHERE status IN ('PENDING', 'FAILED', 'PROCESSING');
 
 CREATE INDEX idx_notification_email_deliveries_retry_due
   ON public.notification_email_deliveries(next_retry_at)

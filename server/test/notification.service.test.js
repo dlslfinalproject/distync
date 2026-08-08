@@ -237,9 +237,23 @@ const buildNotificationRepositoryStub = (overrides = {}) => ({
   getRecipientUserIdsByRoleCodeAndBarangayIds: async () => [],
   getRoleCodesByUserId: async () => [],
   findRecentNotificationMatchForUsers: async () => null,
+  findNotificationBySourceEventKey: async () => null,
   insertNotification: async () => ({ id: "notification-1" }),
   insertNotificationRecipients: async () => [],
   insertSummaryEvent: async () => ({}),
+  ensureNotificationOutboxEvent: async ({ eventType, sourceType, sourceId }) => ({
+    id: `outbox-${sourceId}`,
+    event_type: eventType,
+    source_type: sourceType,
+    source_id: sourceId,
+    status: "PENDING",
+  }),
+  claimNotificationOutboxEventById: async () => null,
+  claimPendingNotificationOutboxEvents: async () => [],
+  markNotificationOutboxEventProcessed: async () => ({}),
+  markNotificationOutboxEventFailed: async () => ({}),
+  getSyncTransactionNotificationSourceById: async () => null,
+  getSyncConflictNotificationSourceById: async () => null,
   claimNotificationEmailDelivery: async () => ({ id: "email-delivery-1", attempt_count: 1 }),
   markNotificationEmailDeliveryResult: async () => ({}),
   markNotificationEmailDeliverySkipped: async () => ({}),
@@ -611,6 +625,468 @@ test("sync conflict does not notify Mayor for Barangay-owned conflicts", async (
       assert.equal(createdNotifications.length, 1);
       assert.equal(createdNotifications[0].reference_type, "SYNC_CONFLICT");
       assert.match(createdNotifications[0].message, /HOUSEHOLD/);
+    },
+  );
+});
+
+test("M02-04 processes a committed SYNC_CONFLICT outbox event immediately", async () => {
+  const createdNotifications = [];
+  const processedEvents = [];
+
+  await withStubbedNotificationService(
+    {
+      [repositoryPath]: buildNotificationRepositoryStub({
+        claimNotificationOutboxEventById: async (id) => ({
+          id,
+          event_type: "SYNC_CONFLICT",
+          source_type: "SYNC_CONFLICT",
+          source_id: "conflict-immediate",
+        }),
+        getSyncConflictNotificationSourceById: async (id) => ({
+          id,
+          user_id: "barangay-user",
+          entity_type: "DISTRIBUTION_TRANSACTION",
+          status: "OPEN",
+        }),
+        getRoleCodesByUserId: async () => ["BARANGAY"],
+        getRecipientUserIdsByRoleCode: async () => ["barangay-user"],
+        getUserNotificationPreferencesByRole: async (userIds) =>
+          userIds.map((userId) => ({
+            user_id: userId,
+            email: "barangay@example.com",
+            notification_rule_preferences_json: { SYNC_CONFLICT: { email: false } },
+          })),
+        insertNotification: async (payload) => {
+          createdNotifications.push(payload);
+          return { id: "notification-conflict-immediate" };
+        },
+        markNotificationOutboxEventProcessed: async (id) => {
+          processedEvents.push(id);
+        },
+        getFailedSyncTransactionsForNotificationScan: async () => {
+          throw new Error("broad failure scanner should not run");
+        },
+        getOpenSyncConflictsForNotificationScan: async () => {
+          throw new Error("broad conflict scanner should not run");
+        },
+      }),
+      [authMiddlewarePath]: roleCodesStub,
+      [emailServicePath]: {
+        sendNotificationEmail: async () => true,
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ processNotificationOutboxEventById }) => {
+      await processNotificationOutboxEventById("outbox-conflict-immediate");
+
+      assert.equal(createdNotifications.length, 1);
+      assert.equal(createdNotifications[0].rule_code, "SYNC_CONFLICT");
+      assert.equal(createdNotifications[0].reference_type, "SYNC_CONFLICT");
+      assert.equal(createdNotifications[0].reference_id, "conflict-immediate");
+      assert.equal(
+        createdNotifications[0].source_event_key,
+        "SYNC_CONFLICT:conflict-immediate",
+      );
+      assert.deepEqual(processedEvents, ["outbox-conflict-immediate"]);
+    },
+  );
+});
+
+test("M02-05 processes a committed SYNC_FAILURE outbox event immediately", async () => {
+  const createdNotifications = [];
+
+  await withStubbedNotificationService(
+    {
+      [repositoryPath]: buildNotificationRepositoryStub({
+        claimNotificationOutboxEventById: async (id) => ({
+          id,
+          event_type: "SYNC_FAILURE",
+          source_type: "SYNC_TRANSACTION",
+          source_id: "sync-failed-immediate",
+        }),
+        getSyncTransactionNotificationSourceById: async (id) => ({
+          id,
+          user_id: "barangay-user",
+          entity_type: "HOUSEHOLD",
+          operation_type: "CREATE",
+          sync_status: "FAILED",
+        }),
+        getRoleCodesByUserId: async () => ["BARANGAY"],
+        getRecipientUserIdsByRoleCode: async () => ["barangay-user"],
+        getUserNotificationPreferencesByRole: async (userIds) =>
+          userIds.map((userId) => ({
+            user_id: userId,
+            email: "barangay@example.com",
+            notification_rule_preferences_json: { SYNC_FAILURE: { email: false } },
+          })),
+        insertNotification: async (payload) => {
+          createdNotifications.push(payload);
+          return { id: "notification-failure-immediate" };
+        },
+      }),
+      [authMiddlewarePath]: roleCodesStub,
+      [emailServicePath]: {
+        sendNotificationEmail: async () => true,
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ processNotificationOutboxEventById }) => {
+      await processNotificationOutboxEventById("outbox-failure-immediate");
+
+      assert.equal(createdNotifications.length, 1);
+      assert.equal(createdNotifications[0].rule_code, "SYNC_FAILURE");
+      assert.equal(createdNotifications[0].reference_type, "SYNC_TRANSACTION");
+      assert.equal(createdNotifications[0].reference_id, "sync-failed-immediate");
+      assert.equal(
+        createdNotifications[0].source_event_key,
+        "SYNC_FAILURE:sync-failed-immediate",
+      );
+    },
+  );
+});
+
+test("M02-06/M02-07 processor failure leaves outbox retryable and later retry creates one notification", async () => {
+  const failedEvents = [];
+  const processedEvents = [];
+  const createdNotifications = [];
+  let failFirstAttempt = true;
+
+  const sourceEvent = {
+    id: "outbox-retry",
+    event_type: "SYNC_CONFLICT",
+    source_type: "SYNC_CONFLICT",
+    source_id: "conflict-retry",
+  };
+
+  await withStubbedNotificationService(
+    {
+      [repositoryPath]: buildNotificationRepositoryStub({
+        claimNotificationOutboxEventById: async () => sourceEvent,
+        getSyncConflictNotificationSourceById: async (id) => ({
+          id,
+          user_id: "barangay-user",
+          entity_type: "HOUSEHOLD",
+          status: "OPEN",
+        }),
+        getRoleCodesByUserId: async () => ["BARANGAY"],
+        getUserNotificationPreferencesByRole: async (userIds) =>
+          userIds.map((userId) => ({
+            user_id: userId,
+            email: "barangay@example.com",
+            notification_rule_preferences_json: { SYNC_CONFLICT: { email: false } },
+          })),
+        insertNotification: async (payload) => {
+          if (failFirstAttempt) {
+            failFirstAttempt = false;
+            throw new Error("notification insert unavailable");
+          }
+          createdNotifications.push(payload);
+          return { id: "notification-retry" };
+        },
+        markNotificationOutboxEventFailed: async ({ id, errorMessage }) => {
+          failedEvents.push({ id, errorMessage });
+        },
+        markNotificationOutboxEventProcessed: async (id) => {
+          processedEvents.push(id);
+        },
+      }),
+      [authMiddlewarePath]: roleCodesStub,
+      [emailServicePath]: {
+        sendNotificationEmail: async () => true,
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ processNotificationOutboxEventById }) => {
+      await assert.rejects(
+        () => processNotificationOutboxEventById("outbox-retry"),
+        /notification insert unavailable/,
+      );
+      await processNotificationOutboxEventById("outbox-retry");
+
+      assert.equal(failedEvents.length, 1);
+      assert.equal(createdNotifications.length, 1);
+      assert.deepEqual(processedEvents, ["outbox-retry"]);
+    },
+  );
+});
+
+test("M02-08/M02-24 scanSyncNotifications reconciles legacy sources through outbox", async () => {
+  const ensuredEvents = [];
+  const processedIds = [];
+
+  await withStubbedNotificationService(
+    {
+      [repositoryPath]: buildNotificationRepositoryStub({
+        getFailedSyncTransactionsForNotificationScan: async () => [
+          {
+            id: "sync-legacy-failed",
+            user_id: "barangay-user",
+            entity_type: "HOUSEHOLD",
+            operation_type: "CREATE",
+            sync_status: "FAILED",
+          },
+        ],
+        getOpenSyncConflictsForNotificationScan: async () => [
+          {
+            id: "conflict-legacy",
+            user_id: "barangay-user",
+            entity_type: "HOUSEHOLD",
+            status: "OPEN",
+          },
+        ],
+        ensureNotificationOutboxEvent: async (payload) => {
+          ensuredEvents.push(payload);
+          return { id: `outbox-${payload.sourceId}`, ...payload };
+        },
+        claimNotificationOutboxEventById: async (id) => {
+          processedIds.push(id);
+          if (id === "outbox-sync-legacy-failed") {
+            return {
+              id,
+              event_type: "SYNC_FAILURE",
+              source_type: "SYNC_TRANSACTION",
+              source_id: "sync-legacy-failed",
+            };
+          }
+          return {
+            id,
+            event_type: "SYNC_CONFLICT",
+            source_type: "SYNC_CONFLICT",
+            source_id: "conflict-legacy",
+          };
+        },
+        getSyncTransactionNotificationSourceById: async (id) => ({
+          id,
+          user_id: "barangay-user",
+          entity_type: "HOUSEHOLD",
+          operation_type: "CREATE",
+          sync_status: "FAILED",
+        }),
+        getSyncConflictNotificationSourceById: async (id) => ({
+          id,
+          user_id: "barangay-user",
+          entity_type: "HOUSEHOLD",
+          status: "OPEN",
+        }),
+        getRoleCodesByUserId: async () => ["BARANGAY"],
+        getUserNotificationPreferencesByRole: async (userIds) =>
+          userIds.map((userId) => ({
+            user_id: userId,
+            email: "barangay@example.com",
+            notification_rule_preferences_json: { SYNC_FAILURE: { email: false }, SYNC_CONFLICT: { email: false } },
+          })),
+      }),
+      [authMiddlewarePath]: roleCodesStub,
+      [emailServicePath]: {
+        sendNotificationEmail: async () => true,
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ scanSyncNotifications }) => {
+      await scanSyncNotifications();
+
+      assert.deepEqual(
+        ensuredEvents.map((event) => [event.eventType, event.sourceType, event.sourceId]),
+        [
+          ["SYNC_FAILURE", "SYNC_TRANSACTION", "sync-legacy-failed"],
+          ["SYNC_CONFLICT", "SYNC_CONFLICT", "conflict-legacy"],
+        ],
+      );
+      assert.deepEqual(processedIds, [
+        "outbox-sync-legacy-failed",
+        "outbox-conflict-legacy",
+      ]);
+    },
+  );
+});
+
+test("M02-10/M02-11 source event key prevents duplicate notification materialization", async () => {
+  const insertedNotifications = [];
+
+  await withStubbedNotificationService(
+    {
+      [repositoryPath]: buildNotificationRepositoryStub({
+        getRoleCodesByUserId: async () => ["BARANGAY"],
+        getUserNotificationPreferencesByRole: async (userIds) =>
+          userIds.map((userId) => ({
+            user_id: userId,
+            email: "barangay@example.com",
+            notification_rule_preferences_json: { SYNC_CONFLICT: { email: false } },
+          })),
+        findNotificationBySourceEventKey: async (sourceEventKey) =>
+          sourceEventKey === "SYNC_CONFLICT:conflict-dedupe"
+            ? { id: "notification-existing", generated_at: "2026-08-08T00:00:00.000Z" }
+            : null,
+        insertNotification: async (payload) => {
+          insertedNotifications.push(payload);
+          return { id: "notification-should-not-insert" };
+        },
+      }),
+      [authMiddlewarePath]: roleCodesStub,
+      [emailServicePath]: {
+        sendNotificationEmail: async () => true,
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ emitSyncConflictAlert }) => {
+      const result = await emitSyncConflictAlert({
+        id: "conflict-dedupe",
+        user_id: "barangay-user",
+        entity_type: "HOUSEHOLD",
+        status: "OPEN",
+      });
+
+      assert.equal(result.id, "notification-existing");
+      assert.equal(insertedNotifications.length, 0);
+    },
+  );
+});
+
+test("M02-12 distinct conflicts use distinct source event keys", async () => {
+  const insertedNotifications = [];
+
+  await withStubbedNotificationService(
+    {
+      [repositoryPath]: buildNotificationRepositoryStub({
+        getRoleCodesByUserId: async () => ["BARANGAY"],
+        getUserNotificationPreferencesByRole: async (userIds) =>
+          userIds.map((userId) => ({
+            user_id: userId,
+            email: "barangay@example.com",
+            notification_rule_preferences_json: { SYNC_CONFLICT: { email: false } },
+          })),
+        insertNotification: async (payload) => {
+          insertedNotifications.push(payload);
+          return { id: `notification-${insertedNotifications.length}` };
+        },
+      }),
+      [authMiddlewarePath]: roleCodesStub,
+      [emailServicePath]: {
+        sendNotificationEmail: async () => true,
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ emitSyncConflictAlert }) => {
+      await emitSyncConflictAlert({
+        id: "conflict-a",
+        user_id: "barangay-user",
+        entity_type: "HOUSEHOLD",
+        status: "OPEN",
+      });
+      await emitSyncConflictAlert({
+        id: "conflict-b",
+        user_id: "barangay-user",
+        entity_type: "HOUSEHOLD",
+        status: "OPEN",
+      });
+
+      assert.deepEqual(
+        insertedNotifications.map((payload) => payload.source_event_key),
+        ["SYNC_CONFLICT:conflict-a", "SYNC_CONFLICT:conflict-b"],
+      );
+    },
+  );
+});
+
+test("M02-15 mandatory in-app sync conflict survives missing preference row", async () => {
+  const insertedRecipients = [];
+
+  await withStubbedNotificationService(
+    {
+      [repositoryPath]: buildNotificationRepositoryStub({
+        getRoleCodesByUserId: async () => ["BARANGAY"],
+        getUserNotificationPreferencesByRole: async (userIds) =>
+          userIds.map((userId) => ({
+            user_id: userId,
+            email: "barangay@example.com",
+            notification_rule_preferences_json: null,
+          })),
+        insertNotification: async () => ({ id: "notification-missing-pref" }),
+        insertNotificationRecipients: async (notificationId, userIds) => {
+          insertedRecipients.push({ notificationId, userIds });
+        },
+      }),
+      [authMiddlewarePath]: roleCodesStub,
+      [emailServicePath]: {
+        sendNotificationEmail: async () => true,
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ emitSyncConflictAlert }) => {
+      await emitSyncConflictAlert({
+        id: "conflict-missing-pref",
+        user_id: "barangay-user",
+        entity_type: "HOUSEHOLD",
+        status: "OPEN",
+      });
+
+      assert.deepEqual(insertedRecipients, [
+        {
+          notificationId: "notification-missing-pref",
+          userIds: ["barangay-user"],
+        },
+      ]);
+    },
+  );
+});
+
+test("M02-17/M02-20/M02-21 sync outbox does not emit SYSTEM_ANOMALY or non-terminal sync alerts", async () => {
+  const insertedNotifications = [];
+
+  await withStubbedNotificationService(
+    {
+      [repositoryPath]: buildNotificationRepositoryStub({
+        getRoleCodesByUserId: async () => ["BARANGAY"],
+        getUserNotificationPreferencesByRole: async (userIds) =>
+          userIds.map((userId) => ({
+            user_id: userId,
+            email: "barangay@example.com",
+            notification_rule_preferences_json: {},
+          })),
+        insertNotification: async (payload) => {
+          insertedNotifications.push(payload);
+          return { id: "notification-terminal-only" };
+        },
+      }),
+      [authMiddlewarePath]: roleCodesStub,
+      [emailServicePath]: {
+        sendNotificationEmail: async () => true,
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ emitSyncTransactionFailureAlert }) => {
+      await emitSyncTransactionFailureAlert({
+        id: "sync-pending",
+        user_id: "barangay-user",
+        entity_type: "HOUSEHOLD",
+        operation_type: "CREATE",
+        sync_status: "PENDING",
+      });
+      await emitSyncTransactionFailureAlert({
+        id: "sync-synced",
+        user_id: "barangay-user",
+        entity_type: "HOUSEHOLD",
+        operation_type: "CREATE",
+        sync_status: "SYNCED",
+      });
+
+      assert.equal(insertedNotifications.length, 0);
     },
   );
 });

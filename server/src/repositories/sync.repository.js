@@ -1,4 +1,5 @@
 const pool = require("../config/db");
+const notificationRepository = require("../modules/notifications/notification.repository");
 
 const ACTIVE_PENDING_TIMEOUT_MINUTES = 5;
 const RECOVERY_PROTOCOL_VERSION = 2;
@@ -445,10 +446,20 @@ const recordConflictAndUpdateSyncTransaction = async ({
       transactionPayload,
       dbClient,
     );
+    const notificationOutboxEvent =
+      await notificationRepository.ensureNotificationOutboxEvent(
+        {
+          eventType: "SYNC_CONFLICT",
+          sourceType: "SYNC_CONFLICT",
+          sourceId: conflictRecord.id,
+        },
+        dbClient,
+      );
 
     return {
       conflictRecord,
       syncTransaction,
+      notificationOutboxEvent,
     };
   }
 
@@ -463,12 +474,22 @@ const recordConflictAndUpdateSyncTransaction = async ({
       transactionPayload,
       txClient,
     );
+    const notificationOutboxEvent =
+      await notificationRepository.ensureNotificationOutboxEvent(
+        {
+          eventType: "SYNC_CONFLICT",
+          sourceType: "SYNC_CONFLICT",
+          sourceId: conflictRecord.id,
+        },
+        txClient,
+      );
 
     await txClient.query("COMMIT");
 
     return {
       conflictRecord,
       syncTransaction,
+      notificationOutboxEvent,
     };
   } catch (error) {
     await txClient.query("ROLLBACK");
@@ -476,6 +497,36 @@ const recordConflictAndUpdateSyncTransaction = async ({
   } finally {
     txClient.release();
   }
+};
+
+const recordSyncFailureAndNotificationIntent = async ({
+  syncTransactionId,
+  transactionPayload,
+  dbClient = pool,
+}) => {
+  const syncTransaction = await updateSyncTransaction(
+    syncTransactionId,
+    {
+      ...transactionPayload,
+      sync_status: "FAILED",
+    },
+    dbClient,
+  );
+
+  const notificationOutboxEvent =
+    await notificationRepository.ensureNotificationOutboxEvent(
+      {
+        eventType: "SYNC_FAILURE",
+        sourceType: "SYNC_TRANSACTION",
+        sourceId: syncTransactionId,
+      },
+      dbClient,
+    );
+
+  return {
+    syncTransaction,
+    notificationOutboxEvent,
+  };
 };
 
 const withSyncProcessingTransaction = async (callback) => {
@@ -502,6 +553,7 @@ module.exports = {
   insertSyncConflict,
   getConflictForSyncTransaction,
   recordConflictAndUpdateSyncTransaction,
+  recordSyncFailureAndNotificationIntent,
   getSyncTransactionsByUser,
   getSyncConflictsByUser,
   getSyncConflictByIdForUser,
