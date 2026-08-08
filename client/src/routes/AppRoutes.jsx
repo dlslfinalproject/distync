@@ -1,9 +1,8 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
-  BrowserRouter,
+  createBrowserRouter,
   Navigate,
-  Route,
-  Routes,
+  RouterProvider,
 } from "react-router-dom";
 import BarangayLayout from "../components/layout/BarangayLayout";
 import RoleProtectedRoute from "./RoleProtectedRoute";
@@ -54,147 +53,138 @@ const DefaultAppRedirect = () => {
 
 const AppRoutes = () => {
   const resolvedAccessMode = getAccessMode();
-
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<DefaultAppRedirect />} />
-        <Route path="/access" element={<AccessPage />} />
-        <Route path="/verify-stub" element={<VerifyStubPage />} />
-        <Route
-          path="/role-switcher"
-          element={
+  const router = useMemo(
+    () =>
+      createBrowserRouter([
+        { path: "/", element: <DefaultAppRedirect /> },
+        { path: "/access", element: <AccessPage /> },
+        { path: "/verify-stub", element: <VerifyStubPage /> },
+        {
+          path: "/role-switcher",
+          element:
             resolvedAccessMode === ACCESS_MODES.DEVELOPMENT ? (
               <RoleSwitcherPage />
             ) : (
               <Navigate to={getEntryRouteForMode(resolvedAccessMode)} replace />
-            )
-          }
-        />
-        <Route
-          path="/barangay"
-          element={
+            ),
+        },
+        {
+          path: "/barangay",
+          element: (
             <RoleProtectedRoute>
               <BarangayLayout />
             </RoleProtectedRoute>
-          }
-        >
-          <Route path="masterlist" element={<BarangayMasterlistPage />} />
-          <Route
-            path="distribution-transaction"
-            element={<DistributionTransactionPage />}
-          />
-          <Route
-            path="distribution-history"
-            element={<DistributionHistoryPage />}
-          />
-          <Route path="anomalies" element={<BarangayAnomalyTrackingPage />} />
-          <Route
-            path="stub-distribution"
-            element={<StubDistributionPage />}
-          />
-          <Route path="notifications" element={<NotificationCenterPage />} />
-          <Route path="sync" element={<SyncManagementPage />} />
-          <Route path="settings" element={<RoleSettingsPage />} />
-        </Route>
-        <Route
-          path="/mswdo"
-          element={
+          ),
+          children: [
+            { path: "masterlist", element: <BarangayMasterlistPage /> },
+            {
+              path: "distribution-transaction",
+              element: <DistributionTransactionPage />,
+            },
+            {
+              path: "distribution-history",
+              element: <DistributionHistoryPage />,
+            },
+            { path: "anomalies", element: <BarangayAnomalyTrackingPage /> },
+            { path: "stub-distribution", element: <StubDistributionPage /> },
+            { path: "notifications", element: <NotificationCenterPage /> },
+            { path: "sync", element: <SyncManagementPage /> },
+            { path: "settings", element: <RoleSettingsPage /> },
+          ],
+        },
+        {
+          path: "/mswdo",
+          element: (
             <RoleProtectedRoute>
               <BarangayLayout />
             </RoleProtectedRoute>
-          }
-        >
-          <Route
-            path="analytics"
-            element={<AnalyticsDashboardPage />}
-          />
-          <Route
-            path="analytics-dashboard"
-            element={<AnalyticsDashboardPage />}
-          />
-          <Route
-            path="consolidated-masterlist"
-            element={<ConsolidatedMasterlistPage />}
-          />
-          <Route
-            path="stub-distribution"
-            element={<StubDistributionPageMswdo />}
-          />
-          <Route
-            path="distribution-history"
-            element={<DistributionHistoryPage />}
-          />
-          <Route path="disaster-events" element={<DisasterEventsPage />} />
-          <Route
-            path="disaster-reports"
-            element={<DisasterEventReportsPage />}
-          />
-          <Route path="anomalies" element={<AnomalyTrackingPage />} />
-          <Route path="notifications" element={<NotificationCenterPage />} />
-          <Route path="sync" element={<SyncManagementPage />} />
-          <Route path="settings" element={<RoleSettingsPage />} />
-        </Route>
-        <Route
-          path="/mswdo/print/stubs"
-          element={
+          ),
+          children: [
+            { path: "analytics", element: <AnalyticsDashboardPage /> },
+            {
+              path: "analytics-dashboard",
+              element: <AnalyticsDashboardPage />,
+            },
+            {
+              path: "consolidated-masterlist",
+              element: <ConsolidatedMasterlistPage />,
+            },
+            {
+              path: "stub-distribution",
+              element: <StubDistributionPageMswdo />,
+            },
+            {
+              path: "distribution-history",
+              element: <DistributionHistoryPage />,
+            },
+            { path: "disaster-events", element: <DisasterEventsPage /> },
+            {
+              path: "disaster-reports",
+              element: <DisasterEventReportsPage />,
+            },
+            { path: "anomalies", element: <AnomalyTrackingPage /> },
+            { path: "notifications", element: <NotificationCenterPage /> },
+            { path: "sync", element: <SyncManagementPage /> },
+            { path: "settings", element: <RoleSettingsPage /> },
+          ],
+        },
+        {
+          path: "/mswdo/print/stubs",
+          element: (
             <RoleProtectedRoute>
               <PrintStubsPage />
             </RoleProtectedRoute>
-          }
-        />
-        <Route
-          path="/barangay/print/stubs"
-          element={
+          ),
+        },
+        {
+          path: "/barangay/print/stubs",
+          element: (
             <RoleProtectedRoute>
               <PrintStubsPage />
             </RoleProtectedRoute>
-          }
-        />
-        <Route
-          path="/inventory"
-          element={
+          ),
+        },
+        {
+          path: "/inventory",
+          element: (
             <RoleProtectedRoute>
               <BarangayLayout />
             </RoleProtectedRoute>
-          }
-        >
-          <Route index element={<Navigate to="items" replace />} />
-          <Route path="items" element={<InventoryItemsPage />} />
-          <Route path="batches" element={<InventoryBatchesPage />} />
-          <Route
-            path="transactions"
-            element={<InventoryTransactionsPage />}
-          />
-          <Route path="notifications" element={<NotificationCenterPage />} />
-          <Route path="sync" element={<SyncManagementPage />} />
-          <Route path="suppliers" element={<SuppliersPage />} />
-          <Route
-            path="relief-pack-templates"
-            element={<ReliefPackTemplatesPage />}
-          />
-          <Route
-            path="distribution"
-            element={<InventoryDistributionPage />}
-          />
-          <Route
-            path="forecasts"
-            element={<InventoryForecastsPage />}
-          />
-          <Route path="donations" element={<DonationManagementPage />} />
-          <Route
-            path="distribution-history"
-            element={<DistributionHistoryPage />}
-          />
-          <Route path="system-logs" element={<SystemLogReviewPage />} />
-          <Route path="settings" element={<RoleSettingsPage />} />
-        </Route>
-        <Route path="/donations" element={<DonationInformationPage />} />
-        <Route path="/donor/information" element={<DonationInformationPage />} />
-        <Route path="*" element={<DefaultAppRedirect />} />
-      </Routes>
-    </BrowserRouter>
+          ),
+          children: [
+            { index: true, element: <Navigate to="items" replace /> },
+            { path: "items", element: <InventoryItemsPage /> },
+            { path: "batches", element: <InventoryBatchesPage /> },
+            {
+              path: "transactions",
+              element: <InventoryTransactionsPage />,
+            },
+            { path: "notifications", element: <NotificationCenterPage /> },
+            { path: "sync", element: <SyncManagementPage /> },
+            { path: "suppliers", element: <SuppliersPage /> },
+            {
+              path: "relief-pack-templates",
+              element: <ReliefPackTemplatesPage />,
+            },
+            { path: "distribution", element: <InventoryDistributionPage /> },
+            { path: "forecasts", element: <InventoryForecastsPage /> },
+            { path: "donations", element: <DonationManagementPage /> },
+            {
+              path: "distribution-history",
+              element: <DistributionHistoryPage />,
+            },
+            { path: "system-logs", element: <SystemLogReviewPage /> },
+            { path: "settings", element: <RoleSettingsPage /> },
+          ],
+        },
+        { path: "/donations", element: <DonationInformationPage /> },
+        { path: "/donor/information", element: <DonationInformationPage /> },
+        { path: "*", element: <DefaultAppRedirect /> },
+      ]),
+    [resolvedAccessMode],
   );
+
+  return <RouterProvider router={router} />;
 };
 
 export default AppRoutes;

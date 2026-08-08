@@ -151,6 +151,19 @@ current authenticated owner context.
 - Unauthenticated state does not receive Account Settings cache fallback.
 - Account Settings cache cleanup does not delete IndexedDB offline queue records or other operational offline data.
 
+### Account Settings unsaved navigation protection
+
+When Account Settings has unsaved profile, profile-picture, or notification
+preference changes, in-app navigation away from Settings is intercepted by the
+standard DISTYNC confirmation modal. Choosing Stay on This Page cancels the
+navigation and preserves the draft. Choosing Discard Changes and Leave
+continues to the originally requested route without saving.
+
+Browser refresh, tab close, and external navigation use the browser-native
+unsaved-changes warning while Settings is dirty. The unload listener is removed
+when Settings is clean, after a successful Save Changes, after local discard, or
+when Settings unmounts.
+
 ## Profile Picture Security
 
 DISTYNC profile pictures are now treated as controlled authenticated account data.

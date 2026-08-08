@@ -5,6 +5,7 @@ import { ROLE_CODES } from "../../utils/roleSession";
 import Sidebar from "./Sidebar";
 import ShellHeader from "./ShellHeader";
 import SyncStatusBanner from "./SyncStatusBanner";
+import { SettingsUnsavedChangesProvider } from "../../pages/settings/SettingsUnsavedChangesContext";
 
 const SIDEBAR_EXPANDED_WIDTH = "280px";
 const SIDEBAR_COLLAPSED_WIDTH = "0px";
@@ -159,28 +160,30 @@ const BarangayLayout = () => {
   );
 
   return (
-    <div className="distync-shell" style={pageStyle}>
-      {!isDonorPortal ? (
-        <ShellHeader
-          isSidebarCollapsed={isSidebarCollapsed}
-          onToggleSidebarCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
-        />
-      ) : null}
+    <SettingsUnsavedChangesProvider>
+      <div className="distync-shell" style={pageStyle}>
+        {!isDonorPortal ? (
+          <ShellHeader
+            isSidebarCollapsed={isSidebarCollapsed}
+            onToggleSidebarCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
+          />
+        ) : null}
 
-      {!isDonorPortal ? (
-        <Sidebar
-          isCollapsed={isSidebarCollapsed}
-          onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
-        />
-      ) : null}
+        {!isDonorPortal ? (
+          <Sidebar
+            isCollapsed={isSidebarCollapsed}
+            onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
+          />
+        ) : null}
 
-      <main className="distync-shell__main" style={shellStyles.main}>
-        <div className="distync-shell__content" style={contentStyle}>
-          <SyncStatusBanner />
-          <Outlet />
-        </div>
-      </main>
-    </div>
+        <main className="distync-shell__main" style={shellStyles.main}>
+          <div className="distync-shell__content" style={contentStyle}>
+            <SyncStatusBanner />
+            <Outlet />
+          </div>
+        </main>
+      </div>
+    </SettingsUnsavedChangesProvider>
   );
 };
 

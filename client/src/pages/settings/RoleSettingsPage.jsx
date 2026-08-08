@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { useSearchParams } from "react-router-dom";
+import { useBlocker, useSearchParams } from "react-router-dom";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import ConfirmationModal from "../../components/shared/ConfirmationModal";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import { useAuth } from "../../context/AuthContext";
 import { fetchUnreadNotificationCount } from "../../features/notifications/notificationService";
+import { useSettingsUnsavedChangesGuard } from "./SettingsUnsavedChangesContext";
 import {
   loadRoleSettingsState,
   refreshCurrentProfilePicture,
@@ -80,6 +81,11 @@ import {
   SETTINGS_SECTIONS,
   withSettingsSection,
 } from "./settingsSectionRouting";
+import {
+  createSettingsBeforeUnloadHandler,
+  hasProfileSettingsChanges,
+  shouldBlockSettingsRouteLeave,
+} from "./settingsUnsavedChanges";
 import { useSystemInformation } from "./useSystemInformation";
 
 const gridStyles = {
@@ -348,6 +354,7 @@ const hasStructuredProfileData = (profile = {}) =>
 const RoleSettingsPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { accessMode, currentRole, authenticatedUser, syncAuthState } = useAuth();
+  const { registerVoluntaryLogoutGuard } = useSettingsUnsavedChangesGuard();
   const syncEntries =
     useLiveQuery(() => getVisibleSyncQueueEntriesByUpdatedAt(), [], []) ||
     [];
@@ -366,6 +373,9 @@ const RoleSettingsPage = () => {
   const [settingsReloadVersion, setSettingsReloadVersion] = useState(0);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [isUnsavedModalOpen, setIsUnsavedModalOpen] = useState(false);
+  const [unsavedModalMode, setUnsavedModalMode] = useState("local-discard");
+  const [isConfirmedLogoutPending, setIsConfirmedLogoutPending] =
+    useState(false);
   const [isReconnectConflictModalOpen, setIsReconnectConflictModalOpen] =
     useState(false);
   const [toast, setToast] = useState({
@@ -412,6 +422,7 @@ const RoleSettingsPage = () => {
   const hasUnsavedChangesRef = useRef(false);
   const hasProfileChangesRef = useRef(false);
   const hasNotificationChangesRef = useRef(false);
+  const pendingConfirmedLogoutRef = useRef(null);
   const offlineToastKeyRef = useRef("");
 
   const roleMeta = useMemo(() => getRoleMeta(currentRole), [currentRole]);
@@ -482,56 +493,20 @@ const RoleSettingsPage = () => {
       preferences.profile.emailAddress,
     ],
   );
-  const normalizedCurrentProfile = useMemo(
-    () => ({
-      firstName: String(preferences.profile.firstName || "").trim(),
-      middleName: String(preferences.profile.middleName || "").trim(),
-      lastName: String(preferences.profile.lastName || "").trim(),
-      contactNumber: normalizePhilippineContactNumber(
-        preferences.profile.contactNumber || "",
-      ),
-      emailAddress: String(
-        authenticatedUser?.email || preferences.profile.emailAddress || "",
-      ).trim(),
-    }),
-    [
-      authenticatedUser?.email,
-      preferences.profile.contactNumber,
-      preferences.profile.emailAddress,
-      preferences.profile.firstName,
-      preferences.profile.middleName,
-      preferences.profile.lastName,
-    ],
-  );
-  const normalizedSavedProfile = useMemo(
-    () => ({
-      firstName: String(savedProfilePreferences.profile.firstName || "").trim(),
-      middleName: String(savedProfilePreferences.profile.middleName || "").trim(),
-      lastName: String(savedProfilePreferences.profile.lastName || "").trim(),
-      contactNumber: normalizePhilippineContactNumber(
-        savedProfilePreferences.profile.contactNumber || "",
-      ),
-      emailAddress: String(
-        authenticatedUser?.email ||
-          savedProfilePreferences.profile.emailAddress ||
-          "",
-      ).trim(),
-    }),
-    [
-      authenticatedUser?.email,
-      savedProfilePreferences.profile.contactNumber,
-      savedProfilePreferences.profile.emailAddress,
-      savedProfilePreferences.profile.firstName,
-      savedProfilePreferences.profile.middleName,
-      savedProfilePreferences.profile.lastName,
-    ],
-  );
   const hasProfileChanges = useMemo(
     () =>
-      JSON.stringify(normalizedCurrentProfile) !==
-        JSON.stringify(normalizedSavedProfile) ||
-      hasProfilePictureDraftChanges(profilePictureDraft),
-    [normalizedCurrentProfile, normalizedSavedProfile, profilePictureDraft],
+      hasProfileSettingsChanges({
+        currentPreferences: preferences,
+        savedPreferences: savedProfilePreferences,
+        profilePictureDraft,
+        authenticatedEmail: authenticatedUser?.email || "",
+      }),
+    [
+      authenticatedUser?.email,
+      preferences,
+      profilePictureDraft,
+      savedProfilePreferences,
+    ],
   );
   const hasNotificationChanges = useMemo(
     () =>
@@ -539,6 +514,13 @@ const RoleSettingsPage = () => {
     [preferences, savedProfilePreferences],
   );
   const hasUnsavedChanges = hasProfileChanges || hasNotificationChanges;
+  const routeLeaveBlocker = useBlocker(({ currentLocation, nextLocation }) =>
+    shouldBlockSettingsRouteLeave({
+      hasUnsavedChanges,
+      currentLocation,
+      nextLocation,
+    }),
+  );
   const hasCachedSettings = useMemo(
     () =>
       hasCachedRoleSettingsData(preferences) ||
@@ -604,6 +586,58 @@ const RoleSettingsPage = () => {
     hasProfileChangesRef.current = hasProfileChanges;
     hasNotificationChangesRef.current = hasNotificationChanges;
   }, [hasNotificationChanges, hasProfileChanges, hasUnsavedChanges]);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges || typeof window === "undefined") {
+      return undefined;
+    }
+
+    const handleBeforeUnload = createSettingsBeforeUnloadHandler();
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [hasUnsavedChanges]);
+
+  useEffect(() => {
+    if (routeLeaveBlocker.state !== "blocked") {
+      return;
+    }
+
+    setUnsavedModalMode("route-leave");
+    setIsUnsavedModalOpen(true);
+  }, [routeLeaveBlocker.state]);
+
+  useEffect(
+    () =>
+      registerVoluntaryLogoutGuard(({ onConfirm } = {}) => {
+        if (!hasUnsavedChangesRef.current) {
+          return false;
+        }
+
+        pendingConfirmedLogoutRef.current =
+          typeof onConfirm === "function" ? onConfirm : null;
+        setUnsavedModalMode("logout");
+        setIsUnsavedModalOpen(true);
+        return true;
+      }),
+    [registerVoluntaryLogoutGuard],
+  );
+
+  useEffect(() => {
+    if (!isConfirmedLogoutPending || hasUnsavedChanges) {
+      return;
+    }
+
+    const confirmedLogout = pendingConfirmedLogoutRef.current;
+    pendingConfirmedLogoutRef.current = null;
+    setIsConfirmedLogoutPending(false);
+
+    if (typeof confirmedLogout === "function") {
+      confirmedLogout();
+    }
+  }, [hasUnsavedChanges, isConfirmedLogoutPending]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1364,6 +1398,27 @@ const RoleSettingsPage = () => {
     });
   };
 
+  const discardSettingsDraft = () => {
+    setIsRemoveProfilePictureModalOpen(false);
+    resetProfilePictureDraft();
+    const restoredPreferences =
+      applyAuthenticatedUserProfileFallbacks(savedProfilePreferences);
+    setPreferences(restoredPreferences);
+    setProfileTouched({
+      firstName: false,
+      middleName: false,
+      lastName: false,
+      contactNumber: false,
+    });
+    setProfileErrors({
+      firstName: "",
+      middleName: "",
+      lastName: "",
+      contactNumber: "",
+    });
+    setNotificationTouched(false);
+  };
+
   const handleNotificationRuleChannelToggle = (ruleCode, type) => {
     if (isSettingsReadOnlyOffline) {
       return;
@@ -1439,6 +1494,7 @@ const RoleSettingsPage = () => {
 
   const handleBackAction = () => {
     if (hasUnsavedChanges) {
+      setUnsavedModalMode("local-discard");
       setIsUnsavedModalOpen(true);
       return;
     }
@@ -1455,22 +1511,35 @@ const RoleSettingsPage = () => {
 
   const handleKeepEditing = () => {
     setIsUnsavedModalOpen(false);
+    pendingConfirmedLogoutRef.current = null;
+    setIsConfirmedLogoutPending(false);
+    setUnsavedModalMode("local-discard");
+
+    if (routeLeaveBlocker.state === "blocked") {
+      routeLeaveBlocker.reset();
+    }
   };
 
   const handleDiscardChanges = () => {
     setIsUnsavedModalOpen(false);
-    setIsRemoveProfilePictureModalOpen(false);
-    resetProfilePictureDraft();
-    const restoredPreferences =
-      applyAuthenticatedUserProfileFallbacks(savedProfilePreferences);
-    setPreferences(restoredPreferences);
-    setProfileTouched({
-      firstName: false,
-      middleName: false,
-      lastName: false,
-      contactNumber: false,
-    });
-    setNotificationTouched(false);
+    discardSettingsDraft();
+
+    if (unsavedModalMode === "logout") {
+      setIsConfirmedLogoutPending(true);
+      setUnsavedModalMode("local-discard");
+      return;
+    }
+
+    if (
+      unsavedModalMode === "route-leave" &&
+      routeLeaveBlocker.state === "blocked"
+    ) {
+      routeLeaveBlocker.proceed();
+      setUnsavedModalMode("local-discard");
+      return;
+    }
+
+    setUnsavedModalMode("local-discard");
   };
 
   const handleOpenSection = (nextSection) => {
@@ -1952,18 +2021,36 @@ const RoleSettingsPage = () => {
 
       <ConfirmationModal
         isOpen={isUnsavedModalOpen}
-        title="Discard unsaved changes?"
-        message="Your account settings have not been saved. Connect to the internet to save them, or discard them now."
+        title={
+          unsavedModalMode === "route-leave" ||
+          unsavedModalMode === "logout"
+            ? "Unsaved Changes"
+            : "Discard unsaved changes?"
+        }
+        message={
+          unsavedModalMode === "logout"
+            ? "You have unsaved changes. Logging out will discard them."
+            : unsavedModalMode === "route-leave"
+            ? "You have unsaved changes. If you leave this page, your changes will be discarded."
+            : "Your account settings have not been saved. Connect to the internet to save them, or discard them now."
+        }
         onCancel={handleKeepEditing}
         onClose={handleKeepEditing}
         onConfirm={handleDiscardChanges}
-        cancelLabel="Keep Editing"
-        confirmLabel="Discard Changes"
-        confirmButtonStyle={{
-          backgroundColor: "#fff3f1",
-          borderColor: "#f1d2cc",
-          color: "#9d4d58",
-        }}
+        cancelLabel={
+          unsavedModalMode === "route-leave" ||
+          unsavedModalMode === "logout"
+            ? "Stay on This Page"
+            : "Keep Editing"
+        }
+        confirmLabel={
+          unsavedModalMode === "logout"
+            ? "Discard Changes and Logout"
+            : unsavedModalMode === "route-leave"
+            ? "Discard Changes and Leave"
+            : "Discard Changes"
+        }
+        confirmTone="destructive"
         initialFocusRef={unsavedKeepEditingButtonRef}
         cancelButtonRef={unsavedKeepEditingButtonRef}
       />
