@@ -170,9 +170,7 @@ DISTYNC profile pictures are now treated as controlled authenticated account dat
 ### Backend behavior
 
 - `GET /api/v1/settings/current` returns role settings plus fresh signed profile-picture metadata when a picture exists.
-- `GET /api/v1/settings/current/profile-picture` refreshes only the current authenticated user’s signed profile-picture metadata.
-- `POST /api/v1/settings/current/profile-picture` uploads a new profile picture for the authenticated user only.
-- `DELETE /api/v1/settings/current/profile-picture` removes the current authenticated user’s picture and clears the database association.
+- Profile picture replacement/removal is persisted only through `PUT /api/v1/settings/current` when Account Settings saves.
 - The backend generates the storage path server-side and ignores client-supplied user ownership.
 - Replacing a picture uploads the new object first, updates the database, then removes the previous object after commit.
 - If the database write fails after upload, the new object is deleted during cleanup.

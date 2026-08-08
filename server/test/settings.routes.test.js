@@ -96,7 +96,6 @@ test("settings save route hides raw SQL errors from the client", async () => {
           };
           next();
         },
-        validateUploadCurrentProfilePicture: (_req, _res, next) => next(),
       },
     },
     async (router) => {
@@ -201,7 +200,6 @@ test("settings current route returns 200 for Barangay, MSWDO, and Mayor with non
       },
       validatorStub: {
         validateSaveCurrentSettings: (_req, _res, next) => next(),
-        validateUploadCurrentProfilePicture: (_req, _res, next) => next(),
       },
     },
     async (router) => {
@@ -267,7 +265,6 @@ test("settings current route returns a controlled 500 response for internal load
       },
       validatorStub: {
         validateSaveCurrentSettings: (_req, _res, next) => next(),
-        validateUploadCurrentProfilePicture: (_req, _res, next) => next(),
       },
     },
     async (router) => {
@@ -289,6 +286,72 @@ test("settings current route returns a controlled 500 response for internal load
           payload.message,
           "Cannot read properties of null (reading 'query')",
         );
+      } finally {
+        await new Promise((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        });
+      }
+    },
+  );
+});
+
+test("settings direct profile picture mutation routes are not available", async () => {
+  await withStubbedSettingsRoute(
+    {
+      authMiddlewareStub: {
+        ROLE_CODES: {
+          MAYOR: "MAYOR",
+          MSWDO: "MSWDO",
+          BARANGAY: "BARANGAY",
+        },
+        requireRoles: () => (req, _res, next) => {
+          req.auth = {
+            userId: "user-direct-picture",
+            roleCode: "MAYOR",
+          };
+          next();
+        },
+      },
+      settingsServiceStub: {
+        getCurrentSettings: async () => ({ data: {} }),
+        saveCurrentSettings: async () => ({ data: {} }),
+      },
+      validatorStub: {
+        validateSaveCurrentSettings: (_req, _res, next) => next(),
+      },
+    },
+    async (router) => {
+      const app = express();
+      app.use(express.json());
+      app.use("/api/v1/settings", router);
+
+      const server = await new Promise((resolve) => {
+        const instance = app.listen(0, () => resolve(instance));
+      });
+
+      try {
+        const port = server.address().port;
+        const endpoint =
+          `http://127.0.0.1:${port}/api/v1/settings/current/profile-picture`;
+        const refreshResponse = await fetch(endpoint);
+        const uploadResponse = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            fileName: "avatar.webp",
+            mimeType: "image/webp",
+            fileDataBase64: "ZmFrZQ==",
+          }),
+        });
+        const deleteResponse = await fetch(endpoint, {
+          method: "DELETE",
+        });
+
+        assert.equal(refreshResponse.status, 404);
+        assert.equal(uploadResponse.status, 404);
+        assert.equal(deleteResponse.status, 404);
       } finally {
         await new Promise((resolve, reject) => {
           server.close((error) => (error ? reject(error) : resolve()));

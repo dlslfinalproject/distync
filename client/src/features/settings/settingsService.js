@@ -602,55 +602,15 @@ export const saveRoleSettings = async ({
   };
 };
 
-export const uploadCurrentProfilePicture = async ({
-  fileName,
-  mimeType,
-  fileDataBase64,
-}) => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/settings/current/profile-picture`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      fileName,
-      mimeType,
-      fileDataBase64,
-    }),
-  });
-  const payload = await handleJsonResponse(
-    response,
-    "Failed to upload the profile picture",
-  );
-
-  return normalizeStoredSettings({
-    profile: payload?.data || {},
-  }).profile;
-};
-
-export const removeCurrentProfilePicture = async () => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/settings/current/profile-picture`, {
-    method: "DELETE",
-  });
-  const payload = await handleJsonResponse(
-    response,
-    "Failed to remove the profile picture",
-  );
-
-  return normalizeStoredSettings({
-    profile: payload?.data || {},
-  }).profile;
-};
-
 export const refreshCurrentProfilePicture = async () => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/settings/current/profile-picture`);
+  const response = await fetch(`${API_BASE_URL}/api/v1/settings/current`);
   const payload = await handleJsonResponse(
     response,
     "Failed to refresh the profile picture",
   );
 
   return normalizeStoredSettings({
-    profile: payload?.data || {},
+    profile: payload?.data?.profile || {},
   }).profile;
 };
 
