@@ -641,6 +641,7 @@ const buildDuplicateRegistrationSuggestions = async ({
   familyHead,
   members,
   contactNumber = null,
+  dbClient = undefined,
 }) => {
   const lookupPeople = buildDuplicateLookupPeople({
     familyHead,
@@ -657,11 +658,14 @@ const buildDuplicateRegistrationSuggestions = async ({
   }
 
   const rawMatches =
-    await householdRegistrationRepository.findPotentialDuplicatePersonMatches({
-      disasterEventId,
-      householdIdToExclude,
-      people: lookupPeople,
-    });
+    await householdRegistrationRepository.findPotentialDuplicatePersonMatches(
+      {
+        disasterEventId,
+        householdIdToExclude,
+        people: lookupPeople,
+      },
+      dbClient,
+    );
 
   const sourcePeopleByKey = lookupPeople.reduce((lookup, person) => {
     lookup[person.person_key] = person;
@@ -1598,6 +1602,54 @@ const updateHouseholdDetails = async ({
   }
 };
 
+const getStrongestDuplicateRegistrationMatch = async ({
+  disasterEventId,
+  familyHead,
+  members,
+  contactNumber = null,
+  dbClient = undefined,
+}) => {
+  const duplicateSuggestions = await buildDuplicateRegistrationSuggestions({
+    disasterEventId,
+    familyHead,
+    members,
+    contactNumber,
+    dbClient,
+  });
+
+  return duplicateSuggestions.groups
+    .flatMap((group) => group.matches)
+    .find((match) => match.match_confidence === "HIGH") || null;
+};
+
+const handleDuplicateRegistrationMatch = async ({
+  match,
+  registrationData,
+  dbClient = undefined,
+}) => {
+  if (!match) {
+    return null;
+  }
+
+  if (
+    registrationData.enforce_sync_duplicate_guard &&
+    registrationData.synced_client_timestamp &&
+    isEarlierTimestamp(
+      registrationData.synced_client_timestamp,
+      match.registered_at,
+    )
+  ) {
+    await householdRegistrationRepository.updateHouseholdRegistrationTimestamp(
+      match.household_id,
+      registrationData.synced_client_timestamp,
+      dbClient,
+    );
+    return match.household_id;
+  }
+
+  throw buildDuplicateRegistrationError(match);
+};
+
 const registerHousehold = async (requestData) => {
   const {
     userScope,
@@ -1664,39 +1716,25 @@ const registerHousehold = async (requestData) => {
     });
   const shouldAutoArchiveWithoutAttendance =
     isNonAdmittedResidentRecord(requestDataWithDerivedAgeGroups);
-  const duplicateSuggestions = await buildDuplicateRegistrationSuggestions({
+  const precheckDuplicateMatch = await getStrongestDuplicateRegistrationMatch({
     disasterEventId: requestDataWithDerivedAgeGroups.disaster_event_id,
     familyHead: requestDataWithDerivedAgeGroups.family_head,
     members: requestDataWithDerivedAgeGroups.members,
     contactNumber: requestDataWithDerivedAgeGroups.contact_number || null,
   });
-  const strongestDuplicateMatch = duplicateSuggestions.groups
-    .flatMap((group) => group.matches)
-    .find((match) => match.match_confidence === "HIGH");
 
   if (
-    registrationData.enforce_sync_duplicate_guard &&
-    registrationData.synced_client_timestamp &&
-    strongestDuplicateMatch
-  ) {
-    if (
+    precheckDuplicateMatch &&
+    !(
+      registrationData.enforce_sync_duplicate_guard &&
+      registrationData.synced_client_timestamp &&
       isEarlierTimestamp(
         registrationData.synced_client_timestamp,
-        strongestDuplicateMatch.registered_at,
+        precheckDuplicateMatch.registered_at,
       )
-    ) {
-      await householdRegistrationRepository.updateHouseholdRegistrationTimestamp(
-        strongestDuplicateMatch.household_id,
-        registrationData.synced_client_timestamp,
-      );
-      return buildRegistrationResponse(strongestDuplicateMatch.household_id);
-    }
-
-    throw buildDuplicateRegistrationError(strongestDuplicateMatch);
-  }
-
-  if (strongestDuplicateMatch) {
-    throw buildDuplicateRegistrationError(strongestDuplicateMatch);
+    )
+  ) {
+    throw buildDuplicateRegistrationError(precheckDuplicateMatch);
   }
 
   const householdSectors = await householdRegistrationRepository.getSectorsByIds(
@@ -1766,6 +1804,44 @@ const registerHousehold = async (requestData) => {
   try {
     if (!externalClient) {
       await client.query("BEGIN");
+    }
+
+    const lockedScope =
+      await householdRegistrationRepository.lockHouseholdRegistrationScope(
+        requestDataWithDerivedAgeGroups.disaster_event_id,
+        client,
+      );
+
+    if (!lockedScope) {
+      const error = new Error("disaster_event_id is invalid");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const authoritativeDuplicateMatch =
+      await getStrongestDuplicateRegistrationMatch({
+        disasterEventId: requestDataWithDerivedAgeGroups.disaster_event_id,
+        familyHead: requestDataWithDerivedAgeGroups.family_head,
+        members: requestDataWithDerivedAgeGroups.members,
+        contactNumber: requestDataWithDerivedAgeGroups.contact_number || null,
+        dbClient: client,
+      });
+
+    const existingHouseholdId = await handleDuplicateRegistrationMatch({
+      match: authoritativeDuplicateMatch,
+      registrationData,
+      dbClient: client,
+    });
+
+    if (existingHouseholdId) {
+      if (!externalClient) {
+        await client.query("COMMIT");
+      }
+
+      return buildRegistrationResponse(
+        existingHouseholdId,
+        externalClient ? client : undefined,
+      );
     }
 
     const createdHousehold =

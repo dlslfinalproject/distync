@@ -102,6 +102,18 @@ const getDisasterEventBarangayLink = async (disasterEventId, barangayId) => {
   return result.rows[0] || null;
 };
 
+const lockHouseholdRegistrationScope = async (disasterEventId, dbClient) => {
+  const query = `
+    SELECT id
+    FROM disaster_events
+    WHERE id = $1
+    FOR UPDATE
+  `;
+
+  const result = await dbClient.query(query, [disasterEventId]);
+  return result.rows[0] || null;
+};
+
 const getSectorsByIds = async (sectorIds) => {
   if (sectorIds.length === 0) {
     return [];
@@ -1718,6 +1730,7 @@ module.exports = {
   getEvacuationCenterById,
   getActiveEvacuationCentersByBarangayId,
   getDisasterEventBarangayLink,
+  lockHouseholdRegistrationScope,
   getSectorsByIds,
   getSectorsByCodes,
   getAgeGroupSectors,
