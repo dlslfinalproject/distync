@@ -126,6 +126,8 @@ export const queueSyncEntry = async (entry) => {
   if (existingEntry) {
     await db.syncQueue.update(existingEntry.id, {
       ...storedEntry,
+      id: existingEntry.id,
+      clientTimestamp: existingEntry.clientTimestamp || storedEntry.clientTimestamp,
       status: LOCAL_SYNC_STATUS.PENDING,
       lastError: null,
       syncedAt: null,

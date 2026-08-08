@@ -81,6 +81,13 @@ test("getSyncStatusSummary returns unresolved conflict count and last successful
 });
 
 const createBaseSyncRepositoryStub = (overrides = {}) => ({
+  claimSyncTransaction: async (payload) => ({
+    decision: "CLAIMED_NEW",
+    transaction: {
+      id: "sync-transaction-1",
+      ...payload,
+    },
+  }),
   insertSyncTransaction: async () => ({
     id: "sync-transaction-1",
   }),
@@ -116,6 +123,333 @@ const baseAuth = {
   roleCode: "BARANGAY",
   defaultBarangayId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
 };
+
+test("processSyncEntries returns a terminal SYNCED replay without rerunning the handler", async () => {
+  let handlerCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async () => ({
+          decision: "REPLAY_TERMINAL",
+          transaction: {
+            id: "sync-transaction-replay",
+            client_sync_id: "client-replay-1",
+            entity_server_id: "11111111-1111-4111-8111-111111111111",
+            sync_status: "SYNCED",
+            error_message: null,
+          },
+          conflictRecord: null,
+        }),
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          handlerCalls += 1;
+          throw new Error("handler must not run for terminal replay");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "client-replay-1",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-household-replay",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(handlerCalls, 0);
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.sync_transaction_id, "sync-transaction-replay");
+      assert.equal(result.data.id, "11111111-1111-4111-8111-111111111111");
+      assert.equal(result.replayed, true);
+    },
+  );
+});
+
+test("processSyncEntries returns an existing CONFLICT replay without writing another conflict", async () => {
+  let conflictWrites = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async () => ({
+          decision: "REPLAY_TERMINAL",
+          transaction: {
+            id: "sync-transaction-conflict",
+            client_sync_id: "client-conflict-1",
+            entity_server_id: "22222222-2222-4222-8222-222222222222",
+            sync_status: "CONFLICT",
+            error_message: "Duplicate offline action was ignored",
+          },
+          conflictRecord: {
+            id: "sync-conflict-existing",
+            sync_transaction_id: "sync-transaction-conflict",
+            resolution_strategy: "FIRST_ACCEPTED",
+          },
+        }),
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictWrites += 1;
+          throw new Error("conflict must not be written for replay");
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          throw new Error("handler must not run for conflict replay");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "client-conflict-1",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-household-conflict",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(conflictWrites, 0);
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(result.conflict.id, "sync-conflict-existing");
+      assert.equal(result.replayed, true);
+    },
+  );
+});
+
+test("processSyncEntries returns PENDING for duplicate in-progress same-key submission", async () => {
+  let handlerCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async () => ({
+          decision: "IN_PROGRESS",
+          transaction: {
+            id: "sync-transaction-pending",
+            client_sync_id: "client-pending-1",
+            entity_server_id: null,
+            sync_status: "PENDING",
+            error_message: null,
+          },
+        }),
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          handlerCalls += 1;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "client-pending-1",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-household-pending",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(handlerCalls, 0);
+      assert.equal(result.sync_status, "PENDING");
+      assert.equal(result.sync_transaction_id, "sync-transaction-pending");
+      assert.equal(result.replayed, true);
+    },
+  );
+});
+
+test("processSyncEntries rejects same client_sync_id reused for a changed request", async () => {
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async () => ({
+          decision: "REUSE_MISMATCH",
+          transaction: {
+            id: "sync-transaction-mismatch",
+          },
+        }),
+      }),
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      await assert.rejects(
+        () =>
+          processSyncEntries({
+            auth: baseAuth,
+            entries: [
+              {
+                client_sync_id: "client-mismatch-1",
+                action_key: "HOUSEHOLD_REGISTER",
+                entity_type: "HOUSEHOLD",
+                entity_local_id: "local-household-mismatch",
+                client_timestamp: "2026-08-08T01:00:00.000Z",
+                payload: {
+                  family_head_first_name: "Changed",
+                },
+              },
+            ],
+          }),
+        (error) => {
+          assert.equal(error.code, "IDEMPOTENCY_KEY_REUSE_MISMATCH");
+          assert.equal(error.statusCode, 409);
+          return true;
+        },
+      );
+    },
+  );
+});
+
+test("processSyncEntries retries a FAILED row using the existing sync transaction", async () => {
+  let handlerCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async () => ({
+          decision: "CLAIMED_RETRY",
+          transaction: {
+            id: "sync-transaction-retry",
+          },
+        }),
+        updateSyncTransaction: async (id, payload) => ({
+          id,
+          ...payload,
+        }),
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          handlerCalls += 1;
+          return {
+            household: {
+              id: "33333333-3333-4333-8333-333333333333",
+            },
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "client-retry-1",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-household-retry",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(handlerCalls, 1);
+      assert.equal(result.sync_transaction_id, "sync-transaction-retry");
+      assert.equal(result.sync_status, "SYNCED");
+    },
+  );
+});
+
+test("processSyncEntries does not mark post-business bookkeeping failures as retryable FAILED", async () => {
+  const loggedErrors = [];
+  let handlerCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        updateSyncTransaction: async () => {
+          throw new Error("database unavailable after effect");
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          handlerCalls += 1;
+          return {
+            household: {
+              id: "44444444-4444-4444-8444-444444444444",
+            },
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async (entry) => {
+          loggedErrors.push(entry);
+        },
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "client-post-effect-1",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-household-post-effect",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(handlerCalls, 1);
+      assert.equal(result.sync_status, "PENDING");
+      assert.equal(result.sync_transaction_id, "sync-transaction-1");
+      assert.equal(loggedErrors[0].errorCode, "SYNC_POST_EFFECT_BOOKKEEPING_FAILED");
+    },
+  );
+});
 
 test("processSyncEntries records duplicate accepted-server conflicts with FIRST_ACCEPTED", async () => {
   const captured = {};

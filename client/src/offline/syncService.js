@@ -122,8 +122,13 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
     const syncResults = Array.isArray(payload?.data) ? payload.data : [];
 
     for (const result of syncResults) {
+      const resultStatus = result.sync_status || LOCAL_SYNC_STATUS.FAILED;
+      const isTerminalResult =
+        resultStatus === LOCAL_SYNC_STATUS.SYNCED ||
+        resultStatus === LOCAL_SYNC_STATUS.CONFLICT;
+
       await updateSyncEntryStatus(result.client_sync_id, {
-        status: result.sync_status || LOCAL_SYNC_STATUS.FAILED,
+        status: resultStatus,
         syncTransactionId: result.sync_transaction_id || null,
         entityServerId:
           result.data?.id ||
@@ -131,9 +136,9 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
           result.data?.distribution_transaction_id ||
           result.data?.transaction_id ||
           null,
-        syncedAt: getIsoNow(),
+        syncedAt: isTerminalResult ? getIsoNow() : null,
         lastError:
-          result.sync_status === LOCAL_SYNC_STATUS.FAILED
+          resultStatus === LOCAL_SYNC_STATUS.FAILED
             ? result.message || "Sync failed."
             : null,
         serverMessage: result.message || null,

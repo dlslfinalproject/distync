@@ -47,6 +47,40 @@ const createPermissionError = () => {
   return error;
 };
 
+const createIdempotencyMismatchError = () => {
+  const error = new Error("client_sync_id was already used for a different sync request");
+  error.code = "IDEMPOTENCY_KEY_REUSE_MISMATCH";
+  error.statusCode = 409;
+  return error;
+};
+
+const buildPersistedReplayResult = ({
+  entry,
+  syncTransaction,
+  conflictRecord = null,
+  message = null,
+}) => ({
+  client_sync_id: entry.client_sync_id,
+  sync_transaction_id: syncTransaction.id,
+  sync_status: syncTransaction.sync_status,
+  message:
+    message ||
+    syncTransaction.error_message ||
+    (syncTransaction.sync_status === SYNC_STATUS.SYNCED
+      ? "Sync completed successfully."
+      : syncTransaction.sync_status === SYNC_STATUS.CONFLICT
+        ? "Conflict detected during sync."
+        : syncTransaction.sync_status === SYNC_STATUS.PENDING
+          ? "Sync is already being processed. Please retry shortly."
+          : "Sync failed."),
+  data: {
+    id: syncTransaction.entity_server_id || null,
+    sync_transaction_id: syncTransaction.id,
+  },
+  conflict: conflictRecord,
+  replayed: true,
+});
+
 const getComparableTimestamp = (value) => {
   if (!value) {
     return null;
@@ -390,7 +424,8 @@ const processSingleSyncEntry = async (entry, auth) => {
 
   ensureActionAccess(actionConfig, auth);
 
-  const syncTransaction = await syncRepository.insertSyncTransaction({
+  const claim = await syncRepository.claimSyncTransaction({
+    client_sync_id: entry.client_sync_id,
     device_id: entry.device_id,
     user_id: auth.userId,
     entity_type: actionConfig.entityType,
@@ -405,6 +440,32 @@ const processSingleSyncEntry = async (entry, auth) => {
     sync_status: SYNC_STATUS.PENDING,
     error_message: null,
   });
+
+  if (claim.decision === "REUSE_MISMATCH") {
+    throw createIdempotencyMismatchError();
+  }
+
+  if (claim.decision === "REPLAY_TERMINAL") {
+    return buildPersistedReplayResult({
+      entry,
+      syncTransaction: claim.transaction,
+      conflictRecord: claim.conflictRecord,
+    });
+  }
+
+  if (claim.decision === "IN_PROGRESS" || claim.decision === "STALE_PENDING") {
+    return buildPersistedReplayResult({
+      entry,
+      syncTransaction: claim.transaction,
+      message:
+        claim.decision === "STALE_PENDING"
+          ? "Sync is still pending server confirmation. Please retry later or contact support if it does not resolve."
+          : "Sync is already being processed. Please retry shortly.",
+    });
+  }
+
+  const syncTransaction = claim.transaction;
+  let businessEffectCommitted = false;
 
   try {
     const conflictState = await maybeResolveTimestampConflict({
@@ -458,6 +519,7 @@ const processSingleSyncEntry = async (entry, auth) => {
       auth,
       clientTimestamp: entry.client_timestamp,
     });
+    businessEffectCommitted = true;
 
     const resolvedEntityServerId =
       entry.entity_server_id ||
@@ -521,6 +583,26 @@ const processSingleSyncEntry = async (entry, auth) => {
       conflict: conflictRecord,
     };
   } catch (error) {
+    if (businessEffectCommitted) {
+      await logErrorSafely({
+        actor: auth,
+        moduleName: "sync",
+        errorCode: "SYNC_POST_EFFECT_BOOKKEEPING_FAILED",
+        errorMessage: `Sync bookkeeping failed after business effect for ${entry.action_key}`,
+        error,
+      });
+
+      return {
+        client_sync_id: entry.client_sync_id,
+        sync_transaction_id: syncTransaction.id,
+        sync_status: SYNC_STATUS.PENDING,
+        message:
+          "Sync is pending server confirmation. Please retry later or contact support if it does not resolve.",
+        data: null,
+        conflict: null,
+      };
+    }
+
     const isDuplicateConflict =
       error.code === "DUPLICATE_HOUSEHOLD_REGISTRATION" ||
       error.code === "DUPLICATE_HOUSEHOLD_DEPARTURE" ||

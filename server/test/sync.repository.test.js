@@ -1,5 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const repositoryPath = require.resolve("../src/repositories/sync.repository");
 const dbPath = require.resolve("../src/config/db");
@@ -166,4 +168,40 @@ test("recordConflictAndUpdateSyncTransaction rolls back when conflict insert fai
       );
     },
   );
+});
+
+test("sync repository claims client_sync_id with database locking and same-row failed retry", () => {
+  const repoRoot = path.resolve(__dirname, "../..");
+  const source = fs.readFileSync(
+    path.join(repoRoot, "server/src/repositories/sync.repository.js"),
+    "utf8",
+  );
+
+  assert.match(source, /client_sync_id/);
+  assert.match(source, /sync_transactions_client_sync_id_unique/);
+  assert.match(source, /FOR UPDATE/);
+  assert.match(source, /sync_status = 'FAILED'/);
+  assert.match(source, /SET\s+sync_status = 'PENDING'/);
+  assert.match(source, /REUSE_MISMATCH/);
+});
+
+test("H-03 migration and schema persist a nullable unique client_sync_id", () => {
+  const repoRoot = path.resolve(__dirname, "../..");
+  const migrationSql = fs.readFileSync(
+    path.join(
+      repoRoot,
+      "database/migrations/2026-08-08_add_sync_transaction_client_sync_id.sql",
+    ),
+    "utf8",
+  );
+  const schemaSql = fs.readFileSync(
+    path.join(repoRoot, "database/schema/distync_schema.sql"),
+    "utf8",
+  );
+
+  assert.match(migrationSql, /ADD COLUMN IF NOT EXISTS client_sync_id character varying\(80\)/);
+  assert.match(migrationSql, /CREATE UNIQUE INDEX IF NOT EXISTS sync_transactions_client_sync_id_unique/);
+  assert.match(migrationSql, /WHERE client_sync_id IS NOT NULL/);
+  assert.match(schemaSql, /client_sync_id character varying\(80\)/);
+  assert.match(schemaSql, /CREATE UNIQUE INDEX sync_transactions_client_sync_id_unique/);
 });

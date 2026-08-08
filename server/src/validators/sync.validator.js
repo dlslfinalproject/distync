@@ -5,6 +5,14 @@ const isValidUuid = (value) => {
   return typeof value === "string" && uuidPattern.test(value);
 };
 
+const isValidClientSyncId = (value) => {
+  return (
+    typeof value === "string" &&
+    value.length <= 80 &&
+    /^[A-Za-z0-9:_-]+$/.test(value)
+  );
+};
+
 const isValidDateString = (value) => {
   if (typeof value !== "string" || !value.trim()) {
     return false;
@@ -35,6 +43,15 @@ const validateProcessSyncEntries = (req, res, next) => {
       if (typeof entry.client_sync_id !== "string" || !entry.client_sync_id.trim()) {
         return res.status(400).json({
           message: "client_sync_id is required for every sync entry",
+        });
+      }
+
+      const clientSyncId = entry.client_sync_id.trim();
+
+      if (!isValidClientSyncId(clientSyncId)) {
+        return res.status(400).json({
+          message:
+            "client_sync_id must be 80 characters or fewer and contain only letters, numbers, colon, underscore, or hyphen",
         });
       }
 
@@ -93,7 +110,7 @@ const validateProcessSyncEntries = (req, res, next) => {
       }
 
       normalizedEntries.push({
-        client_sync_id: entry.client_sync_id.trim(),
+        client_sync_id: clientSyncId,
         action_key: entry.action_key.trim(),
         entity_type: entry.entity_type.trim(),
         entity_local_id:
