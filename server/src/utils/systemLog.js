@@ -84,6 +84,9 @@ const logErrorSafely = async ({
   errorMessage,
   severity = "ERROR",
   error,
+  referenceType,
+  referenceId,
+  context = {},
 }) => {
   const normalizedActor = normalizeActor(actor);
 
@@ -96,6 +99,9 @@ const logErrorSafely = async ({
       error_message: errorMessage,
       stack_trace: buildStackTrace(error),
       severity,
+      reference_type: referenceType || null,
+      reference_id: referenceId || null,
+      context_json: context || {},
     });
   } catch (loggingError) {
     console.error("Failed to write error log:", loggingError.message);

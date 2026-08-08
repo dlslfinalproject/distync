@@ -205,6 +205,7 @@ export const useHouseholdRegistrationForm = ({
   restrictNonResidentToEvacCenter = false,
   scopeNonResidentEvacuationCentersToBarangay = false,
   registeredBy = null,
+  localHouseholdDuplicateCandidates = [],
   onSuccess,
 }) => {
   const isEditMode = mode === "edit";
@@ -1538,7 +1539,9 @@ export const useHouseholdRegistrationForm = ({
       );
       const response = isEditMode
         ? await updateHousehold(initialHouseholdDetails?.household?.id, payload)
-        : await registerHousehold(payload);
+        : await registerHousehold(payload, {
+            cachedHouseholds: localHouseholdDuplicateCandidates,
+          });
 
       setSuccessMessage(
         response.message ||

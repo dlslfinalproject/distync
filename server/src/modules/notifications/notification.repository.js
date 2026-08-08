@@ -501,11 +501,15 @@ const insertNotification = async (payload, dbClient = pool) => {
         severity,
         reference_type,
         reference_id,
+        source_event_key,
         generated_at,
         metadata_json,
         created_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9::jsonb, NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10::jsonb, NOW())
+      ON CONFLICT (source_event_key)
+      WHERE source_event_key IS NOT NULL
+      DO NOTHING
       RETURNING id
     `,
     [
@@ -517,8 +521,27 @@ const insertNotification = async (payload, dbClient = pool) => {
       payload.severity,
       payload.reference_type,
       payload.reference_id,
+      payload.source_event_key || null,
       JSON.stringify(payload.metadata_json || {}),
     ],
+  );
+
+  return result.rows[0] || null;
+};
+
+const findNotificationBySourceEventKey = async (sourceEventKey, dbClient = pool) => {
+  if (!sourceEventKey) {
+    return null;
+  }
+
+  const result = await dbClient.query(
+    `
+      SELECT id, generated_at
+      FROM notifications
+      WHERE source_event_key = $1
+      LIMIT 1
+    `,
+    [sourceEventKey],
   );
 
   return result.rows[0] || null;
@@ -809,6 +832,164 @@ const getOpenSyncConflictsForNotificationScan = async (dbClient = pool) => {
   return result.rows;
 };
 
+const ensureNotificationOutboxEvent = async (
+  { eventType, sourceType, sourceId },
+  dbClient = pool,
+) => {
+  const result = await dbClient.query(
+    `
+      INSERT INTO notification_outbox (
+        event_type,
+        source_type,
+        source_id,
+        status,
+        attempt_count,
+        created_at,
+        updated_at
+      )
+      VALUES ($1, $2, $3, 'PENDING', 0, NOW(), NOW())
+      ON CONFLICT (event_type, source_type, source_id)
+      DO UPDATE SET updated_at = notification_outbox.updated_at
+      RETURNING *
+    `,
+    [eventType, sourceType, sourceId],
+  );
+
+  return result.rows[0] || null;
+};
+
+const claimNotificationOutboxEventById = async (id, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      UPDATE notification_outbox
+      SET status = 'PROCESSING',
+          attempt_count = attempt_count + 1,
+          last_error = NULL,
+          updated_at = NOW()
+      WHERE id = $1
+        AND status IN ('PENDING', 'FAILED')
+      RETURNING *
+    `,
+    [id],
+  );
+
+  return result.rows[0] || null;
+};
+
+const claimPendingNotificationOutboxEvents = async (limit = 25, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      WITH candidates AS (
+        SELECT id
+        FROM notification_outbox
+        WHERE status IN ('PENDING', 'FAILED')
+           OR (status = 'PROCESSING' AND updated_at <= NOW() - (15 * INTERVAL '1 minute'))
+        ORDER BY created_at ASC
+        LIMIT $1
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE notification_outbox no
+      SET status = 'PROCESSING',
+          attempt_count = no.attempt_count + 1,
+          last_error = NULL,
+          updated_at = NOW()
+      FROM candidates
+      WHERE no.id = candidates.id
+      RETURNING no.*
+    `,
+    [limit],
+  );
+
+  return result.rows;
+};
+
+const markNotificationOutboxEventProcessed = async (id, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      UPDATE notification_outbox
+      SET status = 'PROCESSED',
+          processed_at = NOW(),
+          updated_at = NOW()
+      WHERE id = $1
+      RETURNING *
+    `,
+    [id],
+  );
+
+  return result.rows[0] || null;
+};
+
+const markNotificationOutboxEventFailed = async (
+  { id, errorMessage },
+  dbClient = pool,
+) => {
+  const result = await dbClient.query(
+    `
+      UPDATE notification_outbox
+      SET status = 'FAILED',
+          last_error = $2,
+          updated_at = NOW()
+      WHERE id = $1
+      RETURNING *
+    `,
+    [id, String(errorMessage || "Notification processing failed.").slice(0, 500)],
+  );
+
+  return result.rows[0] || null;
+};
+
+const getSyncTransactionNotificationSourceById = async (id, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      SELECT
+        st.id,
+        st.user_id,
+        st.entity_type,
+        st.operation_type,
+        st.sync_status,
+        st.error_message,
+        st.created_at,
+        st.updated_at,
+        u.first_name,
+        u.last_name
+      FROM sync_transactions st
+      LEFT JOIN users u ON u.id = st.user_id
+      WHERE st.id = $1
+      LIMIT 1
+    `,
+    [id],
+  );
+
+  return result.rows[0] || null;
+};
+
+const getSyncConflictNotificationSourceById = async (id, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      SELECT
+        sc.id,
+        sc.entity_type,
+        sc.entity_server_id,
+        sc.conflict_type,
+        sc.status,
+        sc.created_at,
+        st.id AS sync_transaction_id,
+        st.user_id,
+        st.operation_type,
+        u.first_name,
+        u.last_name
+      FROM sync_conflicts sc
+      INNER JOIN sync_transactions st ON st.id = sc.sync_transaction_id
+      LEFT JOIN users u ON u.id = st.user_id
+      WHERE sc.id = $1
+      LIMIT 1
+    `,
+    [id],
+  );
+
+  return result.rows[0] || null;
+};
+
 // A single INSERT ... ON CONFLICT claim makes the database the concurrency
 // boundary. The provider call deliberately happens after this statement.
 const claimNotificationEmailDelivery = async ({
@@ -933,6 +1114,7 @@ module.exports = {
   getNotificationDeliveryState,
   upsertNotificationDeliveryState,
   insertNotification,
+  findNotificationBySourceEventKey,
   insertNotificationRecipients,
   findRecentNotificationMatchForUsers,
   getNotificationsForUser,
@@ -942,6 +1124,13 @@ module.exports = {
   getBatchesForExpiryNotificationScan,
   getFailedSyncTransactionsForNotificationScan,
   getOpenSyncConflictsForNotificationScan,
+  ensureNotificationOutboxEvent,
+  claimNotificationOutboxEventById,
+  claimPendingNotificationOutboxEvents,
+  markNotificationOutboxEventProcessed,
+  markNotificationOutboxEventFailed,
+  getSyncTransactionNotificationSourceById,
+  getSyncConflictNotificationSourceById,
   claimNotificationEmailDelivery,
   markNotificationEmailDeliveryResult,
   markNotificationEmailDeliverySkipped,

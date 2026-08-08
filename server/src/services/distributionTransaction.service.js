@@ -998,6 +998,7 @@ const createDistributionTransaction = async (requestData) => {
     if (!stub) {
       const error = new Error("Stub not found");
       error.statusCode = 404;
+      error.code = "STUB_NOT_FOUND";
       throw error;
     }
 
@@ -1022,6 +1023,8 @@ const createDistributionTransaction = async (requestData) => {
     if (stub.status !== "ISSUED") {
       const error = new Error("Stub is not claimable");
       error.statusCode = 400;
+      error.code = "STUB_NOT_CLAIMABLE";
+      error.entityServerId = stub.id;
       throw error;
     }
 
@@ -1056,6 +1059,8 @@ const createDistributionTransaction = async (requestData) => {
     ) {
       const error = new Error("qr_reference_value does not match the stub record");
       error.statusCode = 400;
+      error.code = "QR_REFERENCE_MISMATCH";
+      error.entityServerId = stub.id;
       throw error;
     }
 
@@ -1066,6 +1071,8 @@ const createDistributionTransaction = async (requestData) => {
     ) {
       const error = new Error("The scanned QR reference is not active");
       error.statusCode = 400;
+      error.code = "QR_INACTIVE";
+      error.entityServerId = stub.id;
       throw error;
     }
 
@@ -1358,6 +1365,7 @@ const claimDistributionTransactionFromQr = async (requestData) => {
     if (!stub) {
       const error = new Error("Stub not found");
       error.statusCode = 404;
+      error.code = "STUB_NOT_FOUND";
       throw error;
     }
 
@@ -1382,6 +1390,8 @@ const claimDistributionTransactionFromQr = async (requestData) => {
     if (stub.status !== "ISSUED") {
       const error = new Error("Stub is not claimable");
       error.statusCode = 400;
+      error.code = "STUB_NOT_CLAIMABLE";
+      error.entityServerId = stub.id;
       throw error;
     }
 
@@ -1391,6 +1401,8 @@ const claimDistributionTransactionFromQr = async (requestData) => {
     ) {
       const error = new Error("qr_reference_value does not match the stub record");
       error.statusCode = 400;
+      error.code = "QR_REFERENCE_MISMATCH";
+      error.entityServerId = stub.id;
       throw error;
     }
 
@@ -1401,6 +1413,8 @@ const claimDistributionTransactionFromQr = async (requestData) => {
     ) {
       const error = new Error("The scanned QR reference is not active");
       error.statusCode = 400;
+      error.code = "QR_INACTIVE";
+      error.entityServerId = stub.id;
       throw error;
     }
 

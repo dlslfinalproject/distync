@@ -1,5 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const repositoryPath = require.resolve(
   "../src/modules/notifications/notification.repository",
@@ -66,10 +68,113 @@ test("insertNotification accepts SUMMARY and forwards the payload to SQL inserti
     assert.equal(queries.length, 1);
     assert.equal(queries[0].params[1], "EVACUATION_SUMMARY_REPORT");
     assert.equal(queries[0].params[2], "SUMMARY");
-    assert.equal(queries[0].params[8], JSON.stringify({ summary: { eventCount: 1 } }));
+    assert.equal(queries[0].params[8], null);
+    assert.equal(queries[0].params[9], JSON.stringify({ summary: { eventCount: 1 } }));
   } finally {
     restore();
   }
+});
+
+test("M02 notification insert uses source_event_key for DB-backed materialization deduplication", async () => {
+  const queries = [];
+  const { repository, restore } = loadRepositoryWithPoolStub({
+    query: async (sql, params) => {
+      queries.push({ sql, params });
+      return { rows: [{ id: "notification-source-key" }] };
+    },
+  });
+
+  try {
+    await repository.insertNotification({
+      disaster_event_id: null,
+      rule_code: "SYNC_CONFLICT",
+      type: "SYNC",
+      title: "Synchronization conflict detected",
+      message: "Conflict detected.",
+      severity: "CRITICAL",
+      reference_type: "SYNC_CONFLICT",
+      reference_id: "conflict-1",
+      source_event_key: "SYNC_CONFLICT:conflict-1",
+      metadata_json: { conflictId: "conflict-1" },
+    });
+
+    assert.match(queries[0].sql, /source_event_key/);
+    assert.match(queries[0].sql, /ON CONFLICT \(source_event_key\)/);
+    assert.match(queries[0].sql, /WHERE source_event_key IS NOT NULL/);
+    assert.equal(queries[0].params[8], "SYNC_CONFLICT:conflict-1");
+  } finally {
+    restore();
+  }
+});
+
+test("M02 outbox event insertion is source unique and idempotent", async () => {
+  const queries = [];
+  const { repository, restore } = loadRepositoryWithPoolStub({
+    query: async (sql, params) => {
+      queries.push({ sql, params });
+      return { rows: [{ id: "outbox-1", event_type: params[0], source_id: params[2] }] };
+    },
+  });
+
+  try {
+    const event = await repository.ensureNotificationOutboxEvent({
+      eventType: "SYNC_FAILURE",
+      sourceType: "SYNC_TRANSACTION",
+      sourceId: "sync-1",
+    });
+
+    assert.equal(event.id, "outbox-1");
+    assert.match(queries[0].sql, /INSERT INTO notification_outbox/);
+    assert.match(queries[0].sql, /ON CONFLICT \(event_type, source_type, source_id\)/);
+    assert.equal(queries[0].params[0], "SYNC_FAILURE");
+    assert.equal(queries[0].params[1], "SYNC_TRANSACTION");
+    assert.equal(queries[0].params[2], "sync-1");
+  } finally {
+    restore();
+  }
+});
+
+test("M02 pending outbox claim uses SKIP LOCKED and stale PROCESSING recovery", async () => {
+  const queries = [];
+  const { repository, restore } = loadRepositoryWithPoolStub({
+    query: async (sql, params) => {
+      queries.push({ sql, params });
+      return { rows: [] };
+    },
+  });
+
+  try {
+    await repository.claimPendingNotificationOutboxEvents(10);
+
+    assert.match(queries[0].sql, /FOR UPDATE SKIP LOCKED/);
+    assert.match(queries[0].sql, /status IN \('PENDING', 'FAILED'\)/);
+    assert.match(queries[0].sql, /status = 'PROCESSING'/);
+    assert.equal(queries[0].params[0], 10);
+  } finally {
+    restore();
+  }
+});
+
+test("M02 migration and schema define notification outbox and source-event deduplication", () => {
+  const repoRoot = path.resolve(__dirname, "../..");
+  const migrationSql = fs.readFileSync(
+    path.join(
+      repoRoot,
+      "database/migrations/2026-08-08_add_notification_outbox_for_sync_events.sql",
+    ),
+    "utf8",
+  );
+  const schemaSql = fs.readFileSync(
+    path.join(repoRoot, "database/schema/distync_schema.sql"),
+    "utf8",
+  );
+
+  assert.match(migrationSql, /CREATE TABLE IF NOT EXISTS public\.notification_outbox/);
+  assert.match(migrationSql, /UNIQUE \(event_type, source_type, source_id\)/);
+  assert.match(migrationSql, /notifications_source_event_key_unique/);
+  assert.match(schemaSql, /CREATE TABLE public\.notification_outbox/);
+  assert.match(schemaSql, /source_event_key text/);
+  assert.match(schemaSql, /WHERE source_event_key IS NOT NULL/);
 });
 
 test("insertNotification rejects unsupported notification types before touching the database", async () => {

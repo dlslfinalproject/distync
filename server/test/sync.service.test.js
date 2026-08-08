@@ -22,6 +22,9 @@ const inventoryItemServicePath = require.resolve("../src/services/inventoryItem.
 const inventoryBatchServicePath = require.resolve("../src/services/inventoryBatch.service");
 const supplierServicePath = require.resolve("../src/services/supplier.service");
 const systemLogPath = require.resolve("../src/utils/systemLog");
+const notificationServicePath = require.resolve(
+  "../src/modules/notifications/notification.service",
+);
 
 const withStubbedSyncService = async (stubs, runTest) => {
   const dependencyPaths = Object.keys(stubs);
@@ -132,6 +135,286 @@ const baseAuth = {
   roleCode: "BARANGAY",
   defaultBarangayId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
 };
+
+test("M02-04 normal conflict processes notification intent after sync transaction commit", async () => {
+  const processedIntentIds = [];
+  const transactionEvents = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        withSyncProcessingTransaction: async (callback) => {
+          transactionEvents.push("BEGIN");
+          const result = await callback({ id: "tx-client" });
+          transactionEvents.push("COMMIT");
+          return result;
+        },
+        recordConflictAndUpdateSyncTransaction: async ({
+          syncTransactionId,
+          conflictPayload,
+          transactionPayload,
+        }) => ({
+          syncTransaction: {
+            id: syncTransactionId,
+            ...transactionPayload,
+          },
+          conflictRecord: {
+            id: "sync-conflict-post-commit",
+            user_id: baseAuth.userId,
+            ...conflictPayload,
+          },
+          notificationOutboxEvent: {
+            id: "outbox-post-commit",
+          },
+        }),
+      }),
+      [householdRegistrationRepositoryPath]: {
+        getHouseholdSummaryById: async () => ({
+          id: "33333333-3333-4333-8333-333333333333",
+          family_head_first_name: "Server",
+          updated_at: "2026-08-08T02:00:00.000Z",
+        }),
+      },
+      [notificationServicePath]: {
+        processNotificationOutboxEventById: async (eventId) => {
+          processedIntentIds.push({
+            eventId,
+            afterCommit: transactionEvents.includes("COMMIT"),
+          });
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "m02-conflict-post-commit",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "33333333-3333-4333-8333-333333333333",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.deepEqual(transactionEvents, ["BEGIN", "COMMIT"]);
+      assert.deepEqual(processedIntentIds, [
+        {
+          eventId: "outbox-post-commit",
+          afterCommit: true,
+        },
+      ]);
+    },
+  );
+});
+
+test("M02-05 genuine FAILED transition persists notification intent and processes it after commit", async () => {
+  const processedIntentIds = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordSyncFailureAndNotificationIntent: async ({
+          syncTransactionId,
+          transactionPayload,
+        }) => ({
+          syncTransaction: {
+            id: syncTransactionId,
+            sync_status: "FAILED",
+            ...transactionPayload,
+          },
+          notificationOutboxEvent: {
+            id: "outbox-failed-sync",
+          },
+        }),
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          throw new Error("validator rejected offline household");
+        },
+      },
+      [notificationServicePath]: {
+        processNotificationOutboxEventById: async (eventId) => {
+          processedIntentIds.push(eventId);
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "m02-failed-sync",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-m02-failed",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.deepEqual(processedIntentIds, ["outbox-failed-sync"]);
+    },
+  );
+});
+
+test("M02-06 post-commit notification processing failure does not change committed sync result", async () => {
+  const loggedErrors = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordSyncFailureAndNotificationIntent: async ({
+          syncTransactionId,
+          transactionPayload,
+        }) => ({
+          syncTransaction: {
+            id: syncTransactionId,
+            sync_status: "FAILED",
+            ...transactionPayload,
+          },
+          notificationOutboxEvent: {
+            id: "outbox-processing-fails",
+          },
+        }),
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          throw new Error("business validation failed");
+        },
+      },
+      [notificationServicePath]: {
+        processNotificationOutboxEventById: async () => {
+          throw new Error("notification processor unavailable");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async (entry) => {
+          loggedErrors.push(entry);
+        },
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "m02-post-commit-failure",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-m02-post-commit-failure",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.match(result.message, /business validation failed/);
+      assert.equal(
+        loggedErrors.some(
+          (entry) =>
+            entry.errorCode === "SYNC_NOTIFICATION_OUTBOX_PROCESSING_FAILED",
+        ),
+        true,
+      );
+    },
+  );
+});
+
+test("M02-18 H-05 duplicate QR claim conflict carries SYNC_CONFLICT notification intent", async () => {
+  const processedIntentIds = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async ({
+          syncTransactionId,
+          conflictPayload,
+          transactionPayload,
+        }) => ({
+          syncTransaction: {
+            id: syncTransactionId,
+            ...transactionPayload,
+          },
+          conflictRecord: {
+            id: "sync-conflict-h05-m02",
+            ...conflictPayload,
+          },
+          notificationOutboxEvent: {
+            id: "outbox-h05-conflict",
+          },
+        }),
+      }),
+      [distributionTransactionServicePath]: {
+        claimDistributionTransactionFromQr: async () => {
+          const error = new Error("Stub was already claimed.");
+          error.code = "STUB_ALREADY_CLAIMED";
+          error.entityServerId = "distribution-server-h05";
+          error.serverPayload = { id: "distribution-server-h05" };
+          throw error;
+        },
+      },
+      [notificationServicePath]: {
+        processNotificationOutboxEventById: async (eventId) => {
+          processedIntentIds.push(eventId);
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "m02-h05-duplicate-claim",
+            action_key: "DISTRIBUTION_QR_CLAIM",
+            entity_type: "DISTRIBUTION_TRANSACTION",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              stub_id: "stub-h05",
+              disaster_event_id: "event-h05",
+              household_id: "household-h05",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(result.conflict.resolution_strategy, "FIRST_ACCEPTED");
+      assert.deepEqual(processedIntentIds, ["outbox-h05-conflict"]);
+    },
+  );
+});
 
 test("processSyncEntries returns a terminal SYNCED replay without rerunning the handler", async () => {
   let handlerCalls = 0;

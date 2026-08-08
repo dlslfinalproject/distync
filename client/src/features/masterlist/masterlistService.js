@@ -171,7 +171,39 @@ const hasAdmittedSuccessor = (household, households) => {
   });
 };
 
-export const mapMasterlistRow = (household, households = []) => {
+const buildLocalDuplicateProfile = ({ household, disasterEventId }) => {
+  const members = Array.isArray(household.members) ? household.members : [];
+  const familyHeadMember = members.find((member) => member.is_family_head);
+
+  if (!familyHeadMember) {
+    return null;
+  }
+
+  const mapPerson = (person) => ({
+    first_name: person.first_name || "",
+    middle_name: person.middle_name || null,
+    last_name: person.last_name || "",
+    suffix: person.suffix || null,
+    sex: person.sex || null,
+    age_value: Number.isInteger(person.age_value) ? person.age_value : null,
+    age_unit: person.age_unit || null,
+    relationship_to_head: person.relationship_to_head || null,
+  });
+
+  return {
+    household_id: household.household_id || null,
+    disaster_event_id:
+      household.disaster_event?.id || household.disaster_event_id || disasterEventId,
+    barangay_id: household.barangay?.id || household.barangay_id || null,
+    barangay_name: household.barangay?.name || "",
+    contact_number: household.contact_number || null,
+    household_size: household.household_size || members.length || null,
+    family_head: mapPerson(familyHeadMember),
+    members: members.filter((member) => !member.is_family_head).map(mapPerson),
+  };
+};
+
+export const mapMasterlistRow = (household, households = [], options = {}) => {
   const departureTimeValue = household.latest_attendance?.time_out || null;
   const locationLabel =
     household.residency_status === "NON_RESIDENT"
@@ -223,6 +255,13 @@ export const mapMasterlistRow = (household, households = []) => {
     has_used_admit_action: admitAlreadyUsed,
     sector_ids: [...new Set(sectorIds)],
     sector_codes: [...new Set(sectorCodes)],
+    current_stay_type: household.current_stay_type || null,
+    contact_number: household.contact_number || null,
+    barangay: household.barangay || null,
+    local_duplicate_profile: buildLocalDuplicateProfile({
+      household,
+      disasterEventId: options.disasterEventId || "",
+    }),
   };
 };
 
@@ -317,7 +356,7 @@ export const fetchMasterlist = async ({
       : allHouseholds;
 
   const rows = households.map((household) =>
-    mapMasterlistRow(household, allHouseholds),
+    mapMasterlistRow(household, allHouseholds, { disasterEventId }),
   );
   const totalMembers = households.reduce((total, household) => {
     return total + (household.members?.length || 0);

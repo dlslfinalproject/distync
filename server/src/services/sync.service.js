@@ -9,6 +9,7 @@ const inventoryBatchService = require("./inventoryBatch.service");
 const supplierService = require("./supplier.service");
 const inventoryTransactionService = require("./inventoryTransaction.service");
 const stubService = require("./stub.service");
+const notificationService = require("../modules/notifications/notification.service");
 const { ROLE_CODES } = require("../modules/auth/auth.middleware");
 const { logAuditSafely, logErrorSafely, pickDefined } = require("../utils/systemLog");
 
@@ -369,6 +370,57 @@ const recordConflictAndUpdateSyncTransactionSafely = async ({
   }
 };
 
+const recordSyncFailureAndNotificationIntent = async ({
+  syncTransactionId,
+  transactionPayload,
+  dbClient,
+}) => {
+  if (typeof syncRepository.recordSyncFailureAndNotificationIntent === "function") {
+    return syncRepository.recordSyncFailureAndNotificationIntent({
+      syncTransactionId,
+      transactionPayload,
+      dbClient,
+    });
+  }
+
+  const syncTransaction = await syncRepository.updateSyncTransaction(
+    syncTransactionId,
+    {
+      ...transactionPayload,
+      sync_status: SYNC_STATUS.FAILED,
+    },
+    dbClient,
+  );
+
+  return { syncTransaction, notificationOutboxEvent: null };
+};
+
+const processCommittedNotificationIntentsSafely = async ({
+  eventIds,
+  auth,
+  syncResult,
+}) => {
+  const uniqueEventIds = [...new Set(eventIds.filter(Boolean))];
+
+  for (const eventId of uniqueEventIds) {
+    try {
+      await notificationService.processNotificationOutboxEventById(eventId);
+    } catch (error) {
+      await logErrorSafely({
+        actor: auth,
+        moduleName: "sync",
+        errorCode: "SYNC_NOTIFICATION_OUTBOX_PROCESSING_FAILED",
+        errorMessage: `Committed sync notification intent ${eventId} could not be processed immediately.`,
+        error,
+        reference_type: "NOTIFICATION_OUTBOX",
+        reference_id: eventId,
+      });
+    }
+  }
+
+  return syncResult;
+};
+
 const processSingleSyncEntry = async (entry, auth) => {
   const actionConfig = ACTION_HANDLERS[entry.action_key];
 
@@ -402,8 +454,9 @@ const processSingleSyncEntry = async (entry, auth) => {
   const runSyncProcessingTransaction =
     syncRepository.withSyncProcessingTransaction ||
     (async (callback) => callback(undefined));
+  const notificationOutboxEventIds = [];
 
-  return runSyncProcessingTransaction(async (dbClient) => {
+  const syncResult = await runSyncProcessingTransaction(async (dbClient) => {
     const claim = await syncRepository.claimSyncTransaction(claimPayload, dbClient);
 
     if (claim.decision === "REUSE_MISMATCH") {
@@ -446,7 +499,11 @@ const processSingleSyncEntry = async (entry, auth) => {
 
     if (conflictState.hasConflict && !conflictState.shouldApplyLocalChange) {
       const serverTimestamp = new Date().toISOString();
-      const { syncTransaction: conflictTransaction, conflictRecord } =
+      const {
+        syncTransaction: conflictTransaction,
+        conflictRecord,
+        notificationOutboxEvent,
+      } =
         await recordConflictAndUpdateSyncTransactionSafely({
           auth,
           actionConfig,
@@ -471,6 +528,9 @@ const processSingleSyncEntry = async (entry, auth) => {
           },
           dbClient,
         });
+      if (notificationOutboxEvent?.id) {
+        notificationOutboxEventIds.push(notificationOutboxEvent.id);
+      }
 
       return {
         client_sync_id: entry.client_sync_id,
@@ -536,6 +596,9 @@ const processSingleSyncEntry = async (entry, auth) => {
         });
 
         conflictRecord = recordedConflict.conflictRecord;
+        if (recordedConflict.notificationOutboxEvent?.id) {
+          notificationOutboxEventIds.push(recordedConflict.notificationOutboxEvent.id);
+        }
       } catch (error) {
         throw markPostBusinessBookkeepingFailure(error);
       }
@@ -589,7 +652,11 @@ const processSingleSyncEntry = async (entry, auth) => {
       const entityServerId = entry.entity_server_id || error.entityServerId || null;
 
       try {
-        const { syncTransaction: conflictTransaction, conflictRecord } =
+        const {
+          syncTransaction: conflictTransaction,
+          conflictRecord,
+          notificationOutboxEvent,
+        } =
           await syncRepository.recordConflictAndUpdateSyncTransaction({
             syncTransactionId: syncTransaction.id,
             transactionPayload: {
@@ -619,6 +686,9 @@ const processSingleSyncEntry = async (entry, auth) => {
             },
             dbClient,
           });
+        if (notificationOutboxEvent?.id) {
+          notificationOutboxEventIds.push(notificationOutboxEvent.id);
+        }
 
         return {
           client_sync_id: entry.client_sync_id,
@@ -640,16 +710,18 @@ const processSingleSyncEntry = async (entry, auth) => {
         const failureMessage =
           "Sync conflict could not be recorded safely. Please retry synchronization.";
 
-        await syncRepository.updateSyncTransaction(
-          syncTransaction.id,
-          {
+        const failureRecord = await recordSyncFailureAndNotificationIntent({
+          syncTransactionId: syncTransaction.id,
+          transactionPayload: {
             entity_server_id: entityServerId,
             server_timestamp: serverTimestamp,
-            sync_status: SYNC_STATUS.FAILED,
             error_message: failureMessage,
           },
           dbClient,
-        );
+        });
+        if (failureRecord.notificationOutboxEvent?.id) {
+          notificationOutboxEventIds.push(failureRecord.notificationOutboxEvent.id);
+        }
 
         return {
           client_sync_id: entry.client_sync_id,
@@ -664,16 +736,18 @@ const processSingleSyncEntry = async (entry, auth) => {
     }
 
     if (error.code === "SYNC_CONFLICT_PERSISTENCE_FAILED") {
-      await syncRepository.updateSyncTransaction(
-        syncTransaction.id,
-        {
+      const failureRecord = await recordSyncFailureAndNotificationIntent({
+        syncTransactionId: syncTransaction.id,
+        transactionPayload: {
           entity_server_id: entry.entity_server_id || null,
           server_timestamp: new Date().toISOString(),
-          sync_status: SYNC_STATUS.FAILED,
           error_message: error.message,
         },
         dbClient,
-      );
+      });
+      if (failureRecord.notificationOutboxEvent?.id) {
+        notificationOutboxEventIds.push(failureRecord.notificationOutboxEvent.id);
+      }
 
       return {
         client_sync_id: entry.client_sync_id,
@@ -686,16 +760,18 @@ const processSingleSyncEntry = async (entry, auth) => {
       };
     }
 
-    await syncRepository.updateSyncTransaction(
-      syncTransaction.id,
-      {
+    const failureRecord = await recordSyncFailureAndNotificationIntent({
+      syncTransactionId: syncTransaction.id,
+      transactionPayload: {
         entity_server_id: entry.entity_server_id || null,
         server_timestamp: new Date().toISOString(),
-        sync_status: SYNC_STATUS.FAILED,
         error_message: error.message || "Sync failed",
       },
       dbClient,
-    );
+    });
+    if (failureRecord.notificationOutboxEvent?.id) {
+      notificationOutboxEventIds.push(failureRecord.notificationOutboxEvent.id);
+    }
 
     await logErrorSafely({
       actor: auth,
@@ -714,6 +790,12 @@ const processSingleSyncEntry = async (entry, auth) => {
       conflict: null,
     };
     }
+  });
+
+  return processCommittedNotificationIntentsSafely({
+    eventIds: notificationOutboxEventIds,
+    auth,
+    syncResult,
   });
 };
 

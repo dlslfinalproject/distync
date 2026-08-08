@@ -156,6 +156,7 @@ const BarangayMasterlistPage = () => {
     restrictNonResidentToEvacCenter: true,
     scopeNonResidentEvacuationCentersToBarangay: true,
     registeredBy: authenticatedUser?.id || null,
+    localHouseholdDuplicateCandidates: data.rows,
     onSuccess: (response) => {
       setRegistrationSuccessMessage(
         response?.message || "Household registered successfully",

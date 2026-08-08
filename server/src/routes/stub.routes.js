@@ -2,6 +2,7 @@ const express = require("express");
 
 const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
 const stubService = require("../services/stub.service");
+const { logErrorSafely } = require("../utils/systemLog");
 const {
   validateGetBarangayStubDashboard,
   validateStubSearch,
@@ -13,6 +14,51 @@ const {
 } = require("../validators/stub.validator");
 
 const router = express.Router();
+
+const DUPLICATE_CLAIM_ERROR_CODES = new Set(["STUB_ALREADY_CLAIMED"]);
+const VERIFICATION_ERROR_CODES = new Set([
+  "INVALID_QR_STUB",
+  "STUB_NOT_FOUND",
+  "QR_INACTIVE",
+  "STUB_NOT_CLAIMABLE",
+  "STUB_CANCELLED",
+  "STUB_VOID",
+  "STUB_UNAVAILABLE",
+]);
+
+const logStubAnomalySource = async ({
+  req,
+  code,
+  message,
+  severity = "ERROR",
+  referenceId = null,
+  action = "DIRECT_STUB_OR_QR_VERIFICATION_FAILURE",
+  details = null,
+}) => {
+  if (!DUPLICATE_CLAIM_ERROR_CODES.has(code) && !VERIFICATION_ERROR_CODES.has(code)) {
+    return;
+  }
+
+  await logErrorSafely({
+    actor: req.auth,
+    moduleName: "stubs",
+    errorCode: code,
+    errorMessage: message || "Stub verification failed.",
+    severity,
+    error: null,
+    referenceType: referenceId ? "STUB" : null,
+    referenceId,
+    context: {
+      route: req.originalUrl,
+      action,
+      has_qr_reference: Boolean(req.validatedBody?.qr_code_value),
+      has_stub_identifier: Boolean(
+        req.validatedBody?.stub_no || req.validatedBody?.serial_no,
+      ),
+      details: details || {},
+    },
+  });
+};
 
 router.get(
   "/barangay-dashboard",
@@ -95,6 +141,23 @@ router.post(
 
     return res.status(200).json(result);
   } catch (error) {
+    await logStubAnomalySource({
+      req,
+      code: error.code,
+      message: error.message,
+      severity: error.code === "STUB_ALREADY_CLAIMED" ? "WARNING" : "ERROR",
+      referenceId:
+        error.entityServerId ||
+        error.serverPayload?.stub?.id ||
+        req.validatedParams?.id ||
+        req.params?.id ||
+        null,
+      action:
+        error.code === "STUB_ALREADY_CLAIMED"
+          ? "DIRECT_DUPLICATE_CLAIM_ATTEMPT"
+          : "DIRECT_STUB_OR_QR_VERIFICATION_FAILURE",
+      details: error.details || null,
+    });
     const statusCode = error.statusCode || 500;
 
     return res.status(statusCode).json({
@@ -185,8 +248,32 @@ router.post(
   try {
     const result = await stubService.verifyStub(req.validatedBody);
 
+    if (
+      result?.data?.code &&
+      !result.data.is_claimable &&
+      VERIFICATION_ERROR_CODES.has(result.data.code)
+    ) {
+      await logStubAnomalySource({
+        req,
+        code: result.data.code,
+        message: result.message,
+        severity: "ERROR",
+        referenceId: result.data.stub?.id || null,
+        action: "DIRECT_STUB_OR_QR_VERIFICATION_FAILURE",
+        details: result.data.details || null,
+      });
+    }
+
     return res.status(200).json(result);
   } catch (error) {
+    await logStubAnomalySource({
+      req,
+      code: error.code,
+      message: error.message,
+      severity: "ERROR",
+      referenceId: error.entityServerId || null,
+      details: error.details || null,
+    });
     const statusCode = error.statusCode || 500;
 
     return res.status(statusCode).json({
