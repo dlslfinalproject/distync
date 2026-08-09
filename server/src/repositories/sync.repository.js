@@ -1,5 +1,10 @@
 const pool = require("../config/db");
 const notificationRepository = require("../modules/notifications/notification.repository");
+const {
+  CONFLICT_STATUS,
+  RESOLUTION_STRATEGY,
+  INVENTORY_STOCK_STATE_DRIFT,
+} = require("../utils/syncConflictReviewPolicy");
 
 const ACTIVE_PENDING_TIMEOUT_MINUTES = 5;
 const RECOVERY_PROTOCOL_VERSION = 2;
@@ -413,6 +418,40 @@ const getSyncConflictByIdForUser = async ({ id, userId }, dbClient = pool) => {
   return result.rows[0] || null;
 };
 
+const getReviewableManualInventoryConflicts = async ({ limit = 50 }) => {
+  const query = `
+    SELECT
+      sc.*,
+      st.user_id,
+      st.entity_local_id,
+      st.sync_status,
+      st.error_message,
+      st.client_timestamp,
+      st.server_timestamp,
+      st.operation_type,
+      st.payload_json,
+      st.created_at AS sync_transaction_created_at,
+      st.updated_at AS sync_transaction_updated_at
+    FROM sync_conflicts sc
+    INNER JOIN sync_transactions st
+      ON st.id = sc.sync_transaction_id
+    WHERE sc.status = $1
+      AND sc.resolution_strategy = $2
+      AND sc.conflict_type = $3
+    ORDER BY sc.created_at DESC
+    LIMIT $4
+  `;
+
+  const result = await pool.query(query, [
+    CONFLICT_STATUS.OPEN,
+    RESOLUTION_STRATEGY.MANUAL_REVIEW,
+    INVENTORY_STOCK_STATE_DRIFT,
+    limit,
+  ]);
+
+  return result.rows;
+};
+
 const getSyncConflictById = async ({ id }, dbClient = pool) => {
   const query = `
     SELECT
@@ -510,6 +549,31 @@ const countOpenSyncConflictsByUser = async ({ userId }, dbClient = pool) => {
   `;
 
   const result = await dbClient.query(query, [userId]);
+  return result.rows[0]?.count || 0;
+};
+
+const countOpenReviewableManualInventoryConflicts = async (
+  { userId },
+  dbClient = pool,
+) => {
+  const query = `
+    SELECT COUNT(DISTINCT sc.id)::int AS count
+    FROM sync_conflicts sc
+    INNER JOIN sync_transactions st
+      ON st.id = sc.sync_transaction_id
+    WHERE st.user_id <> $1
+      AND sc.status = $2
+      AND sc.resolution_strategy = $3
+      AND sc.conflict_type = $4
+  `;
+
+  const result = await dbClient.query(query, [
+    userId,
+    CONFLICT_STATUS.OPEN,
+    RESOLUTION_STRATEGY.MANUAL_REVIEW,
+    INVENTORY_STOCK_STATE_DRIFT,
+  ]);
+
   return result.rows[0]?.count || 0;
 };
 
@@ -651,10 +715,12 @@ module.exports = {
   recordSyncFailureAndNotificationIntent,
   getSyncTransactionsByUser,
   getSyncConflictsByUser,
+  getReviewableManualInventoryConflicts,
   getSyncConflictByIdForUser,
   lockSyncConflictById,
   markSyncConflictResolved,
   countOpenSyncConflictsByUser,
+  countOpenReviewableManualInventoryConflicts,
   getLastSuccessfulSyncAtByUser,
   withSyncProcessingTransaction,
 };

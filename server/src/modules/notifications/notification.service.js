@@ -23,6 +23,9 @@ const {
   resolveEffectiveNotificationPreferences,
   sanitizeNotificationRulePreferences,
 } = require("./notificationPreferenceUtils");
+const {
+  isManualInventoryStockDriftReviewable,
+} = require("../../utils/syncConflictReviewPolicy");
 
 const LOW_STOCK_THRESHOLD = 10;
 const CRITICAL_STOCK_THRESHOLD = 5;
@@ -1623,9 +1626,17 @@ const emitSyncConflictAlert = async (syncConflict) => {
     return null;
   }
 
+  const recipientUserIds =
+    recipientRoleCode === ROLE_CODES.MAYOR &&
+    isManualInventoryStockDriftReviewable(syncConflict)
+      ? await notificationRepository.getRecipientUserIdsByRoleCode(
+          ROLE_CODES.MAYOR,
+        )
+      : [syncConflict.user_id];
+
   return createNotificationForUsers({
     ruleCode: "SYNC_CONFLICT",
-    userIds: [syncConflict.user_id],
+    userIds: recipientUserIds,
     roleCode: recipientRoleCode,
     type: NOTIFICATION_TYPES.SYNC,
     title: "Synchronization conflict detected",

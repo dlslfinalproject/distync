@@ -22,6 +22,13 @@ const {
 const {
   verifyInventoryStateBasis,
 } = require("../utils/inventoryStateBasis");
+const {
+  CONFLICT_STATUS,
+  RESOLUTION_STRATEGY,
+  RESOLUTION_ACTION,
+  INVENTORY_STOCK_STATE_DRIFT,
+  getSyncConflictReviewCapability,
+} = require("../utils/syncConflictReviewPolicy");
 
 const SYNC_STATUS = {
   PENDING: "PENDING",
@@ -29,25 +36,6 @@ const SYNC_STATUS = {
   CONFLICT: "CONFLICT",
   FAILED: "FAILED",
 };
-
-const CONFLICT_STATUS = {
-  OPEN: "OPEN",
-  RESOLVED: "RESOLVED",
-};
-
-const RESOLUTION_STRATEGY = {
-  FIRST_ACCEPTED: "FIRST_ACCEPTED",
-  LATEST_TIMESTAMP: "LATEST_TIMESTAMP",
-  MANUAL_REVIEW: "MANUAL_REVIEW",
-};
-
-const RESOLUTION_ACTION = {
-  MARK_REVIEWED: "MARK_REVIEWED",
-  KEEP_SERVER: "KEEP_SERVER",
-  APPLY_LOCAL: "APPLY_LOCAL",
-};
-
-const INVENTORY_STOCK_STATE_DRIFT = "INVENTORY_STOCK_STATE_DRIFT";
 const subtractiveInventoryTransactionTypes = new Set([
   "OUTFLOW",
   "EXPIRED",
@@ -491,6 +479,25 @@ const getResolutionCapability = (conflict, auth) => {
     basis: "No safe manual resolution path is configured for this conflict type.",
   };
 };
+
+const isReviewableConflictStatusFilter = (status) =>
+  !status || status === CONFLICT_STATUS.OPEN;
+
+const mergeConflictsById = (...conflictLists) =>
+  conflictLists.flat().reduce((current, conflict) => {
+    if (conflict?.id && !current.has(conflict.id)) {
+      current.set(conflict.id, conflict);
+    }
+
+    return current;
+  }, new Map());
+
+const sortConflictsByCreatedAtDesc = (conflicts) =>
+  [...conflicts].sort((first, second) => {
+    const firstTime = new Date(first.created_at || 0).getTime() || 0;
+    const secondTime = new Date(second.created_at || 0).getTime() || 0;
+    return secondTime - firstTime;
+  });
 
 const getSafeConflictServerSummary = (conflict) => ({
   conflict_id: conflict.id,
@@ -1129,7 +1136,15 @@ const processSyncEntries = async ({ entries, auth }) => {
 };
 
 const getSyncHistory = async ({ auth, syncStatus, conflictStatus, limit }) => {
-  const [transactions, conflicts] = await Promise.all([
+  const reviewablePromise =
+    auth.roleCode === ROLE_CODES.MAYOR &&
+    isReviewableConflictStatusFilter(conflictStatus)
+      ? syncRepository.getReviewableManualInventoryConflicts({
+          limit,
+        })
+      : Promise.resolve([]);
+
+  const [transactions, ownedConflicts, reviewableConflicts] = await Promise.all([
     syncRepository.getSyncTransactionsByUser({
       userId: auth.userId,
       syncStatus,
@@ -1140,7 +1155,12 @@ const getSyncHistory = async ({ auth, syncStatus, conflictStatus, limit }) => {
       status: conflictStatus,
       limit,
     }),
+    reviewablePromise,
   ]);
+
+  const conflicts = sortConflictsByCreatedAtDesc(
+    [...mergeConflictsById(ownedConflicts, reviewableConflicts).values()],
+  ).slice(0, limit);
 
   return {
     transactions,
@@ -1153,29 +1173,38 @@ const getSyncHistory = async ({ auth, syncStatus, conflictStatus, limit }) => {
 };
 
 const getSyncStatusSummary = async ({ auth }) => {
-  const [conflictCount, lastSuccessfulSyncAt] = await Promise.all([
-    syncRepository.countOpenSyncConflictsByUser({
-      userId: auth.userId,
-    }),
-    syncRepository.getLastSuccessfulSyncAtByUser({
-      userId: auth.userId,
-    }),
-  ]);
+  const reviewableCountPromise =
+    auth.roleCode === ROLE_CODES.MAYOR
+      ? syncRepository.countOpenReviewableManualInventoryConflicts({
+          userId: auth.userId,
+        })
+      : Promise.resolve(0);
+
+  const [ownedConflictCount, reviewableConflictCount, lastSuccessfulSyncAt] =
+    await Promise.all([
+      syncRepository.countOpenSyncConflictsByUser({
+        userId: auth.userId,
+      }),
+      reviewableCountPromise,
+      syncRepository.getLastSuccessfulSyncAtByUser({
+        userId: auth.userId,
+      }),
+    ]);
 
   return {
-    conflictCount,
+    conflictCount: ownedConflictCount + reviewableConflictCount,
     lastSuccessfulSyncAt,
     backendReachable: true,
   };
 };
 
 const getSyncConflictDetail = async ({ auth, conflictId }) => {
-  const conflict = await syncRepository.getSyncConflictByIdForUser({
+  const conflict = await syncRepository.getSyncConflictById({
     id: conflictId,
-    userId: auth.userId,
   });
+  const capability = getSyncConflictReviewCapability(conflict, auth);
 
-  if (!conflict) {
+  if (!conflict || (!capability.isOwnedByUser && !capability.canReview)) {
     const error = new Error("Sync conflict not found");
     error.statusCode = 404;
     throw error;

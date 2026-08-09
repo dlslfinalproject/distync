@@ -2405,10 +2405,10 @@ test("M04-01 stock drift detail exposes only Mayor MARK_REVIEWED and KEEP_SERVER
   await withStubbedSyncService(
     {
       [syncRepositoryPath]: {
-        getSyncConflictByIdForUser: async ({ id, userId }) => ({
+        getSyncConflictById: async ({ id }) => ({
           id,
           sync_transaction_id: "sync-1",
-          user_id: userId,
+          user_id: "mayor-1",
           entity_type: "INVENTORY_TRANSACTION",
           entity_server_id: null,
           conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
@@ -2449,6 +2449,275 @@ test("M04-01 stock drift detail exposes only Mayor MARK_REVIEWED and KEEP_SERVER
         "MARK_REVIEWED",
         "KEEP_SERVER",
       ]);
+    },
+  );
+});
+
+test("BRG-SC-04B peer Mayor discovers eligible stock-drift conflict without foreign history", async () => {
+  const ownedConflict = {
+    id: "owned-conflict",
+    user_id: "mayor-b",
+    entity_type: "INVENTORY_TRANSACTION",
+    conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+    resolution_strategy: "MANUAL_REVIEW",
+    status: "OPEN",
+    created_at: "2026-08-09T01:00:00.000Z",
+  };
+  const peerConflict = {
+    id: "peer-conflict",
+    user_id: "mayor-a",
+    entity_type: "INVENTORY_TRANSACTION",
+    conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+    resolution_strategy: "MANUAL_REVIEW",
+    status: "OPEN",
+    created_at: "2026-08-09T02:00:00.000Z",
+  };
+  const duplicateOwnedReviewable = {
+    ...ownedConflict,
+    created_at: "2026-08-09T03:00:00.000Z",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncTransactionsByUser: async ({ userId }) => {
+          assert.equal(userId, "mayor-b");
+          return [{ id: "mayor-b-own-transaction", user_id: "mayor-b" }];
+        },
+        getSyncConflictsByUser: async ({ userId }) => {
+          assert.equal(userId, "mayor-b");
+          return [ownedConflict];
+        },
+        getReviewableManualInventoryConflicts: async () => [
+          peerConflict,
+          duplicateOwnedReviewable,
+        ],
+      },
+    },
+    async ({ getSyncHistory }) => {
+      const history = await getSyncHistory({
+        auth: {
+          userId: "mayor-b",
+          roleCode: "MAYOR",
+        },
+        syncStatus: null,
+        conflictStatus: null,
+        limit: 100,
+      });
+
+      assert.deepEqual(
+        history.transactions.map((transaction) => transaction.id),
+        ["mayor-b-own-transaction"],
+      );
+      assert.deepEqual(
+        history.conflicts.map((conflict) => conflict.id),
+        ["peer-conflict", "owned-conflict"],
+      );
+      assert.deepEqual(history.conflicts[0].availableResolutionActions, [
+        "MARK_REVIEWED",
+        "KEEP_SERVER",
+      ]);
+    },
+  );
+});
+
+test("BRG-SC-04B non-Mayor history excludes peer review workload", async () => {
+  let reviewableQueryCalled = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncTransactionsByUser: async ({ userId }) => {
+          assert.equal(userId, "barangay-b");
+          return [];
+        },
+        getSyncConflictsByUser: async ({ userId }) => {
+          assert.equal(userId, "barangay-b");
+          return [];
+        },
+        getReviewableManualInventoryConflicts: async () => {
+          reviewableQueryCalled = true;
+          return [];
+        },
+      },
+    },
+    async ({ getSyncHistory }) => {
+      const history = await getSyncHistory({
+        auth: {
+          userId: "barangay-b",
+          roleCode: "BARANGAY",
+        },
+        syncStatus: null,
+        conflictStatus: null,
+        limit: 100,
+      });
+
+      assert.deepEqual(history.conflicts, []);
+      assert.equal(reviewableQueryCalled, false);
+    },
+  );
+});
+
+test("BRG-SC-04B peer Mayor Needs Review count includes eligible conflict once", async () => {
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        countOpenSyncConflictsByUser: async ({ userId }) => {
+          assert.equal(userId, "mayor-b");
+          return 1;
+        },
+        countOpenReviewableManualInventoryConflicts: async ({ userId }) => {
+          assert.equal(userId, "mayor-b");
+          return 2;
+        },
+        getLastSuccessfulSyncAtByUser: async ({ userId }) => {
+          assert.equal(userId, "mayor-b");
+          return null;
+        },
+      },
+    },
+    async ({ getSyncStatusSummary }) => {
+      const summary = await getSyncStatusSummary({
+        auth: {
+          userId: "mayor-b",
+          roleCode: "MAYOR",
+        },
+      });
+
+      assert.equal(summary.conflictCount, 3);
+    },
+  );
+});
+
+test("BRG-SC-04B peer Mayor can view eligible conflict detail but not automatic foreign conflict", async () => {
+  const conflictsById = {
+    "peer-stock-drift": {
+      id: "peer-stock-drift",
+      sync_transaction_id: "sync-1",
+      user_id: "mayor-a",
+      entity_type: "INVENTORY_TRANSACTION",
+      entity_server_id: null,
+      conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+      local_payload_json: { payload: { quantity: 10 } },
+      server_payload_json: { quantityAvailable: 4, stockVersion: 2 },
+      resolution_strategy: "MANUAL_REVIEW",
+      resolved_payload_json: null,
+      resolved_by: null,
+      resolved_at: null,
+      status: "OPEN",
+      sync_status: "CONFLICT",
+      operation_type: "INVENTORY_ADJUSTMENT",
+    },
+    "foreign-automatic": {
+      id: "foreign-automatic",
+      sync_transaction_id: "sync-2",
+      user_id: "mayor-a",
+      entity_type: "INVENTORY_TRANSACTION",
+      entity_server_id: null,
+      conflict_type: "DUPLICATE_INVENTORY_BATCH",
+      local_payload_json: {},
+      server_payload_json: {},
+      resolution_strategy: "FIRST_ACCEPTED",
+      resolved_payload_json: { winner: "SERVER" },
+      resolved_by: null,
+      resolved_at: "2026-08-09T03:00:00.000Z",
+      status: "RESOLVED",
+      sync_status: "CONFLICT",
+      operation_type: "CREATE",
+    },
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncConflictById: async ({ id }) => conflictsById[id] || null,
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail }) => {
+      const detail = await getSyncConflictDetail({
+        auth: {
+          userId: "mayor-b",
+          roleCode: "MAYOR",
+        },
+        conflictId: "peer-stock-drift",
+      });
+
+      assert.equal(detail.id, "peer-stock-drift");
+      assert.deepEqual(detail.availableResolutionActions, [
+        "MARK_REVIEWED",
+        "KEEP_SERVER",
+      ]);
+
+      await assert.rejects(
+        () =>
+          getSyncConflictDetail({
+            auth: {
+              userId: "mayor-b",
+              roleCode: "MAYOR",
+            },
+            conflictId: "foreign-automatic",
+          }),
+        /Sync conflict not found/,
+      );
+    },
+  );
+});
+
+test("BRG-SC-04B Barangay and MSWDO cannot view eligible peer stock-drift detail", async () => {
+  const conflict = {
+    id: "peer-stock-drift",
+    sync_transaction_id: "sync-1",
+    user_id: "mayor-a",
+    entity_type: "INVENTORY_TRANSACTION",
+    entity_server_id: null,
+    conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+    local_payload_json: { payload: { quantity: 10 } },
+    server_payload_json: { quantityAvailable: 4, stockVersion: 2 },
+    resolution_strategy: "MANUAL_REVIEW",
+    resolved_payload_json: null,
+    resolved_by: null,
+    resolved_at: null,
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    operation_type: "INVENTORY_ADJUSTMENT",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncConflictById: async () => conflict,
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail }) => {
+      for (const roleCode of ["BARANGAY", "MSWDO"]) {
+        await assert.rejects(
+          () =>
+            getSyncConflictDetail({
+              auth: {
+                userId: `${roleCode.toLowerCase()}-user`,
+                roleCode,
+              },
+              conflictId: "peer-stock-drift",
+            }),
+          /Sync conflict not found/,
+        );
+      }
     },
   );
 });
@@ -2527,9 +2796,68 @@ test("M04-02 KEEP_SERVER resolves stock drift without changing original sync sta
       assert.equal(resolved.status, "RESOLVED");
       assert.equal(resolved.sync_status, "CONFLICT");
       assert.equal(resolved.resolution_action, "KEEP_SERVER");
+      assert.equal(resolved.resolved_by, "mayor-1");
+      assert.equal(resolved.user_id, "origin-user");
       assert.equal(outboxEvents[0].eventType, "SYNC_CONFLICT_RESOLVED");
       assert.deepEqual(processedEvents, ["outbox-resolution-1"]);
       assert.equal(auditRows[0].action, "SYNC_CONFLICT_RESOLUTION");
+    },
+  );
+});
+
+test("BRG-SC-04B APPLY_LOCAL remains rejected for eligible stock-drift conflict", async () => {
+  const baseConflict = {
+    id: "conflict-stock-drift",
+    sync_transaction_id: "sync-1",
+    user_id: "origin-user",
+    entity_type: "INVENTORY_TRANSACTION",
+    entity_server_id: null,
+    conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+    local_payload_json: { payload: { quantity: 10 } },
+    server_payload_json: { quantityAvailable: 4, stockVersion: 2 },
+    resolution_strategy: "MANUAL_REVIEW",
+    resolution_action: null,
+    resolution_reason: null,
+    resolved_payload_json: null,
+    resolved_by: null,
+    resolved_at: null,
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    operation_type: "INVENTORY_ADJUSTMENT",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        lockSyncConflictById: async () => baseConflict,
+        markSyncConflictResolved: async () => {
+          throw new Error("APPLY_LOCAL must not persist resolution");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ resolveSyncConflict }) => {
+      await assert.rejects(
+        () =>
+          resolveSyncConflict({
+            auth: {
+              userId: "mayor-2",
+              roleCode: "MAYOR",
+            },
+            conflictId: "conflict-stock-drift",
+            action: "APPLY_LOCAL",
+            reason: "Force local",
+          }),
+        /not allowed/,
+      );
     },
   );
 });
@@ -2556,7 +2884,7 @@ test("M04-03 FIRST_ACCEPTED resolved conflicts expose no actions and cannot be r
   await withStubbedSyncService(
     {
       [syncRepositoryPath]: {
-        getSyncConflictByIdForUser: async () => firstAcceptedConflict,
+        getSyncConflictById: async () => firstAcceptedConflict,
         withSyncProcessingTransaction: async (callback) => callback({}),
         lockSyncConflictById: async () => firstAcceptedConflict,
       },
