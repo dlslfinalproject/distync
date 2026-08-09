@@ -11,6 +11,7 @@ class InventoryForecastItemInput(BaseModel):
     category: Optional[str] = None
     unit_of_measure: Optional[str] = None
     current_available_stock: float = Field(default=0)
+    reorder_level: float = Field(default=0)
     usage_series: List[float] = Field(default_factory=list)
 
 
@@ -30,6 +31,7 @@ class InventoryForecastResult(BaseModel):
     category: Optional[str] = None
     unit_of_measure: Optional[str] = None
     current_available_stock: float
+    reorder_level: float
     average_daily_usage: float
     forecasted_usage: float
     projected_depletion_date: Optional[date] = None

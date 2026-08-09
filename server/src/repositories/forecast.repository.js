@@ -23,11 +23,12 @@ const getInventoryForecastItems = async (dbClient = pool) => {
         ii.item_name,
         ii.category,
         ii.unit_of_measure,
+        ii.reorder_level,
         COALESCE(SUM(ib.quantity_available), 0) AS current_available_stock
       FROM inventory_items ii
       LEFT JOIN inventory_batches ib ON ib.inventory_item_id = ii.id
       WHERE ii.is_active = TRUE
-      GROUP BY ii.id, ii.item_code, ii.item_name, ii.category, ii.unit_of_measure
+      GROUP BY ii.id, ii.item_code, ii.item_name, ii.category, ii.unit_of_measure, ii.reorder_level
       ORDER BY ii.item_name ASC
     `,
   );

@@ -1,6 +1,6 @@
 import React from "react";
 import PageHeader from "../../components/layout/PageHeader";
-import { shellStyles } from "../../components/layout/BarangayLayout";
+import { pageSpacingStyles } from "../../components/layout/BarangayLayout";
 import ForecastingPanel from "../../components/inventory-items/ForecastingPanel";
 import { useInventoryForecast } from "../../features/inventory-items/useInventoryForecast";
 import {
@@ -31,37 +31,33 @@ const InventoryForecastsPage = () => {
   } = useInventoryForecast();
 
   return (
-    <div
-      style={{ flex: 1, minWidth: 0, maxWidth: "100%", overflowX: "hidden" }}
-    >
+    <div style={pageSpacingStyles.pageStack}>
       <PageHeader
-        title="INVENTORY FORECASTS"
+        title="INVENTORY FORECASTING"
       />
 
-      <section style={shellStyles.card}>
-        <ForecastingPanel
-          forecastEvents={forecastEvents}
-          selectedForecastEventId={selectedForecastEventId}
-          selectedForecastModel={selectedForecastModel}
-          forecastModelOptions={forecastModelOptions}
-          forecastContext={forecastContext}
-          forecastRunData={forecastRunData}
-          forecastHistory={forecastHistory}
-          forecastHistoryDetails={forecastHistoryDetails}
-          forecastSuccessMessage={forecastSuccessMessage}
-          forecastErrorMessage={forecastErrorMessage}
-          isForecastContextLoading={isForecastContextLoading}
-          isForecastLoading={isForecastLoading}
-          isRunningForecast={isRunningForecast}
-          isForecastHistoryLoading={isForecastHistoryLoading}
-          isForecastHistoryDetailLoading={isForecastHistoryDetailLoading}
-          getForecastModelLabel={getForecastModelLabel}
-          onForecastEventChange={setSelectedForecastEventId}
-          onForecastModelChange={setSelectedForecastModel}
-          onRunForecast={handleRunForecast}
-          onSelectForecastHistoryRun={handleSelectForecastHistoryRun}
-        />
-      </section>
+      <ForecastingPanel
+        forecastEvents={forecastEvents}
+        selectedForecastEventId={selectedForecastEventId}
+        selectedForecastModel={selectedForecastModel}
+        forecastModelOptions={forecastModelOptions}
+        forecastContext={forecastContext}
+        forecastRunData={forecastRunData}
+        forecastHistory={forecastHistory}
+        forecastHistoryDetails={forecastHistoryDetails}
+        forecastSuccessMessage={forecastSuccessMessage}
+        forecastErrorMessage={forecastErrorMessage}
+        isForecastContextLoading={isForecastContextLoading}
+        isForecastLoading={isForecastLoading}
+        isRunningForecast={isRunningForecast}
+        isForecastHistoryLoading={isForecastHistoryLoading}
+        isForecastHistoryDetailLoading={isForecastHistoryDetailLoading}
+        getForecastModelLabel={getForecastModelLabel}
+        onForecastEventChange={setSelectedForecastEventId}
+        onForecastModelChange={setSelectedForecastModel}
+        onRunForecast={handleRunForecast}
+        onSelectForecastHistoryRun={handleSelectForecastHistoryRun}
+      />
     </div>
   );
 };
