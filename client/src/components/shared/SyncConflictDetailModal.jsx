@@ -63,8 +63,28 @@ const modalStyles = {
   },
   actions: {
     display: "flex",
+    gap: "12px",
+    flexWrap: "wrap",
     justifyContent: "flex-end",
     marginTop: "24px",
+  },
+  textarea: {
+    width: "100%",
+    minHeight: "90px",
+    resize: "vertical",
+    border: "1px solid #bfd0e0",
+    borderRadius: "8px",
+    padding: "10px 12px",
+    color: "#17324d",
+    fontSize: "14px",
+    lineHeight: 1.5,
+    boxSizing: "border-box",
+  },
+  warningText: {
+    margin: "8px 0 0",
+    color: "#8a5a00",
+    fontSize: "13px",
+    lineHeight: 1.5,
   },
 };
 
@@ -85,18 +105,40 @@ const formatSummary = (value) => {
   return entries.map(([key, itemValue]) => `${key}: ${String(itemValue)}`).join("\n");
 };
 
-const SyncConflictDetailModal = ({ isOpen, conflict, onClose }) => {
+const ACTION_LABELS = {
+  MARK_REVIEWED: "Mark Reviewed",
+  KEEP_SERVER: "Keep Server",
+  APPLY_LOCAL: "Apply Local",
+};
+
+const SyncConflictDetailModal = ({
+  isOpen,
+  conflict,
+  onClose,
+  onResolve,
+  resolutionReason,
+  onResolutionReasonChange,
+  isResolving = false,
+}) => {
   if (!isOpen || !conflict) {
     return null;
   }
+
+  const availableActions = Array.isArray(conflict.availableResolutionActions)
+    ? conflict.availableResolutionActions
+    : [];
+  const isResolved = conflict.status === "RESOLVED";
+  const requiresReason = availableActions.some((action) =>
+    ["KEEP_SERVER", "APPLY_LOCAL"].includes(action),
+  );
 
   return (
     <div style={modalStyles.overlay}>
       <div style={modalStyles.modal}>
         <h3 style={modalStyles.title}>Sync Conflict Detail</h3>
         <p style={modalStyles.message}>
-          Review why this conflict was raised, which timestamp won, and what
-          payload summaries were compared during automatic resolution.
+          Review the recorded local and server values before taking an
+          authorized resolution action.
         </p>
 
         <div style={modalStyles.grid}>
@@ -114,8 +156,11 @@ const SyncConflictDetailModal = ({ isOpen, conflict, onClose }) => {
             <div style={modalStyles.value}>
               <SyncStatusBadge status="CONFLICT" />
               <span style={{ marginLeft: "8px" }}>
-                <SyncStatusBadge status="RESOLVED" />
+                <SyncStatusBadge status={isResolved ? "RESOLVED" : "CONFLICT"} />
               </span>
+              <div style={{ marginTop: "8px" }}>
+                {isResolved ? "Conflict - Resolved" : "Conflict - For Review"}
+              </div>
             </div>
           </div>
 
@@ -131,8 +176,12 @@ const SyncConflictDetailModal = ({ isOpen, conflict, onClose }) => {
           </div>
 
           <div style={modalStyles.card}>
-            <div style={modalStyles.label}>Resolution Status</div>
-            <div style={modalStyles.value}>{conflict.status || "--"}</div>
+            <div style={modalStyles.label}>Resolution Action</div>
+            <div style={modalStyles.value}>
+              {conflict.resolution_action || "--"}
+              {"\n"}
+              Reason: {conflict.resolution_reason || "--"}
+            </div>
           </div>
 
           <div style={modalStyles.card}>
@@ -173,7 +222,45 @@ const SyncConflictDetailModal = ({ isOpen, conflict, onClose }) => {
           </div>
         </div>
 
+        {availableActions.length > 0 ? (
+          <div style={{ ...modalStyles.card, marginTop: "16px" }}>
+            <div style={modalStyles.label}>Resolution Reason</div>
+            <textarea
+              value={resolutionReason}
+              onChange={(event) => onResolutionReasonChange(event.target.value)}
+              style={modalStyles.textarea}
+              placeholder={
+                requiresReason
+                  ? "Reason required for Keep Server or Apply Local"
+                  : "Optional review note"
+              }
+              disabled={isResolving}
+            />
+            {availableActions.includes("KEEP_SERVER") ? (
+              <p style={modalStyles.warningText}>
+                Keeping the server record closes the conflict without changing
+                authoritative domain data.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         <div style={modalStyles.actions}>
+          {availableActions.map((action) => (
+            <button
+              key={action}
+              type="button"
+              onClick={() => onResolve(action)}
+              style={
+                action === "MARK_REVIEWED"
+                  ? pageHeaderStyles.secondaryButton
+                  : pageHeaderStyles.primaryButton
+              }
+              disabled={isResolving}
+            >
+              {ACTION_LABELS[action] || action}
+            </button>
+          ))}
           <button
             type="button"
             onClick={onClose}

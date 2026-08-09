@@ -1161,6 +1161,35 @@ const getHouseholdDetails = async ({ householdId, requester }) => {
   return buildRegistrationResponse(householdId);
 };
 
+const getAuthorizedHouseholdSummaryForUpdate = async ({
+  householdId,
+  requester,
+  dbClient = null,
+}) => {
+  const existingHousehold =
+    await householdRegistrationRepository.getHouseholdSummaryById(
+      householdId,
+      dbClient || undefined,
+    );
+
+  if (!existingHousehold) {
+    const error = new Error("Household not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (
+    requester?.roleCode === BARANGAY_ROLE_CODE &&
+    existingHousehold.barangay_id !== requester.defaultBarangayId
+  ) {
+    const error = new Error("You do not have access to update this household");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  return existingHousehold;
+};
+
 const getDuplicateRegistrationSuggestions = async (requestData) => {
   const { registrationData } = await prepareRegistrationContext(requestData);
 
@@ -1189,23 +1218,11 @@ const updateHouseholdDetails = async ({
   requestData,
   dbClient = null,
 }) => {
-  const existingHousehold =
-    await householdRegistrationRepository.getHouseholdSummaryById(householdId);
-
-  if (!existingHousehold) {
-    const error = new Error("Household not found");
-    error.statusCode = 404;
-    throw error;
-  }
-
-  if (
-    requester?.roleCode === BARANGAY_ROLE_CODE &&
-    existingHousehold.barangay_id !== requester.defaultBarangayId
-  ) {
-    const error = new Error("You do not have access to update this household");
-    error.statusCode = 403;
-    throw error;
-  }
+  const existingHousehold = await getAuthorizedHouseholdSummaryForUpdate({
+    householdId,
+    requester,
+    dbClient,
+  });
 
   if (requestData.disaster_event_id !== existingHousehold.disaster_event_id) {
     const error = new Error("disaster_event_id cannot be changed");
@@ -2589,6 +2606,7 @@ const restoreHousehold = async ({ householdId, requester, restoreData }) => {
 
 module.exports = {
   getHouseholdDetails,
+  getAuthorizedHouseholdSummaryForUpdate,
   getDuplicateRegistrationSuggestions,
   registerHousehold,
   updateHouseholdDetails,

@@ -443,6 +443,7 @@ CREATE TABLE public.inventory_batches (
   source_type character varying NOT NULL DEFAULT 'LGU'::character varying CHECK (source_type::text = ANY (ARRAY['PURCHASED'::character varying, 'DONATED'::character varying, 'DSWD'::character varying, 'LGU'::character varying, 'OTHER'::character varying]::text[])),
   quantity_received integer NOT NULL CHECK (quantity_received >= 0),
   quantity_available integer NOT NULL CHECK (quantity_available >= 0),
+  stock_version integer NOT NULL DEFAULT 0,
   expiration_date date,
   received_at timestamp with time zone NOT NULL DEFAULT now(),
   storage_location character varying,
@@ -451,11 +452,35 @@ CREATE TABLE public.inventory_batches (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT inventory_batches_pkey PRIMARY KEY (id),
+  CONSTRAINT inventory_batches_inventory_item_id_batch_no_unique UNIQUE (inventory_item_id, batch_no),
   CONSTRAINT inventory_batches_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id),
   CONSTRAINT inventory_batches_inventory_item_stock_form_id_fkey FOREIGN KEY (inventory_item_stock_form_id) REFERENCES public.inventory_item_stock_forms(id),
   CONSTRAINT inventory_batches_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES public.suppliers(id),
   CONSTRAINT inventory_batches_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id)
 );
+
+CREATE OR REPLACE FUNCTION public.increment_inventory_batch_stock_version()
+RETURNS trigger AS $$
+BEGIN
+  IF
+    NEW.quantity_available IS DISTINCT FROM OLD.quantity_available
+    OR NEW.status IS DISTINCT FROM OLD.status
+    OR NEW.expiration_date IS DISTINCT FROM OLD.expiration_date
+  THEN
+    NEW.stock_version := OLD.stock_version + 1;
+  ELSE
+    NEW.stock_version := OLD.stock_version;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER inventory_batches_stock_version_before_update
+BEFORE UPDATE
+ON public.inventory_batches
+FOR EACH ROW
+EXECUTE FUNCTION public.increment_inventory_batch_stock_version();
 
 CREATE TABLE public.inventory_transactions (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -465,6 +490,7 @@ CREATE TABLE public.inventory_transactions (
   quantity integer NOT NULL CHECK (quantity >= 0),
   reference_type character varying NOT NULL DEFAULT 'MANUAL'::character varying CHECK (reference_type::text = ANY (ARRAY['MANUAL'::character varying, 'BARCODE_SCAN'::character varying, 'QR_SCAN'::character varying, 'DISTRIBUTION'::character varying, 'DONATION'::character varying, 'PROOF_OF_RECEIPT'::character varying, 'SYNC'::character varying, 'SYSTEM'::character varying]::text[])),
   reference_id uuid,
+  inventory_transaction_reference_no character varying(15) CHECK (inventory_transaction_reference_no IS NULL OR (inventory_transaction_reference_no::text ~ '^ITR-[0-9]{4}-[0-9]{6}$'::text AND RIGHT(inventory_transaction_reference_no::text, 6) <> '000000'::text)),
   performed_by uuid,
   performed_at timestamp with time zone NOT NULL DEFAULT now(),
   remarks text,
@@ -474,6 +500,10 @@ CREATE TABLE public.inventory_transactions (
   CONSTRAINT inventory_transactions_inventory_batch_id_fkey FOREIGN KEY (inventory_batch_id) REFERENCES public.inventory_batches(id),
   CONSTRAINT inventory_transactions_performed_by_fkey FOREIGN KEY (performed_by) REFERENCES public.users(id)
 );
+
+CREATE UNIQUE INDEX inventory_transactions_reference_no_unique
+ON public.inventory_transactions (inventory_transaction_reference_no)
+WHERE inventory_transaction_reference_no IS NOT NULL;
 
 CREATE TABLE public.relief_pack_templates (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -718,7 +748,7 @@ CREATE TABLE public.notification_email_deliveries (
 
 CREATE TABLE public.notification_outbox (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
-  event_type text NOT NULL CHECK (event_type IN ('SYNC_FAILURE', 'SYNC_CONFLICT')),
+  event_type text NOT NULL CHECK (event_type IN ('SYNC_FAILURE', 'SYNC_CONFLICT', 'SYNC_CONFLICT_RESOLVED')),
   source_type text NOT NULL CHECK (source_type IN ('SYNC_TRANSACTION', 'SYNC_CONFLICT')),
   source_id uuid NOT NULL,
   status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'PROCESSED', 'FAILED')),
@@ -777,6 +807,29 @@ CREATE INDEX sync_transactions_pending_protocol_updated_at_idx
 ON public.sync_transactions (sync_status, processing_protocol_version, updated_at)
 WHERE sync_status = 'PENDING';
 
+CREATE TABLE public.inventory_domain_effect_intents (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  inventory_transaction_id uuid NOT NULL,
+  sync_transaction_id uuid,
+  effect_payload_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'PROCESSED', 'FAILED')),
+  attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+  audit_processed_at timestamp with time zone,
+  alerts_processed_at timestamp with time zone,
+  processed_at timestamp with time zone,
+  last_error text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT inventory_domain_effect_intents_pkey PRIMARY KEY (id),
+  CONSTRAINT inventory_domain_effect_intents_inventory_transaction_unique UNIQUE (inventory_transaction_id),
+  CONSTRAINT inventory_domain_effect_intents_inventory_transaction_id_fkey FOREIGN KEY (inventory_transaction_id) REFERENCES public.inventory_transactions(id),
+  CONSTRAINT inventory_domain_effect_intents_sync_transaction_id_fkey FOREIGN KEY (sync_transaction_id) REFERENCES public.sync_transactions(id)
+);
+
+CREATE INDEX inventory_domain_effect_intents_pending_idx
+  ON public.inventory_domain_effect_intents(status, created_at)
+  WHERE status IN ('PENDING', 'FAILED', 'PROCESSING');
+
 CREATE TABLE public.sync_conflicts (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   sync_transaction_id uuid NOT NULL,
@@ -786,6 +839,8 @@ CREATE TABLE public.sync_conflicts (
   local_payload_json jsonb NOT NULL,
   server_payload_json jsonb NOT NULL,
   resolution_strategy character varying NOT NULL CHECK (resolution_strategy::text = ANY (ARRAY['FIRST_ACCEPTED'::character varying, 'LATEST_TIMESTAMP'::character varying, 'MANUAL_REVIEW'::character varying, 'MERGED'::character varying]::text[])),
+  resolution_action character varying CHECK (resolution_action::text = ANY (ARRAY['MARK_REVIEWED'::character varying, 'KEEP_SERVER'::character varying, 'APPLY_LOCAL'::character varying]::text[])),
+  resolution_reason text,
   resolved_payload_json jsonb,
   resolved_by uuid,
   resolved_at timestamp with time zone,
@@ -842,11 +897,16 @@ CREATE TABLE public.audit_logs (
   old_values_json jsonb,
   new_values_json jsonb,
   ip_address inet,
+  source_event_key text,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT audit_logs_pkey PRIMARY KEY (id),
   CONSTRAINT audit_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
   CONSTRAINT audit_logs_device_id_fkey FOREIGN KEY (device_id) REFERENCES public.devices(id)
 );
+
+CREATE UNIQUE INDEX audit_logs_source_event_key_unique
+  ON public.audit_logs(source_event_key)
+  WHERE source_event_key IS NOT NULL;
 
 CREATE TABLE public.error_logs (
   id uuid NOT NULL DEFAULT gen_random_uuid(),

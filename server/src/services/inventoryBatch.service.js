@@ -5,6 +5,10 @@ const systemLogRepository = require("../repositories/systemLog.repository");
 const mayorReportExport = require("../utils/mayorReportExport");
 const notificationService = require("../modules/notifications/notification.service");
 const { logAuditSafely, pickDefined } = require("../utils/systemLog");
+const { createInventoryStateBasis } = require("../utils/inventoryStateBasis");
+const {
+  createDuplicateInventoryBatchError,
+} = require("../utils/inventoryBatchIdentity");
 
 const buildFullName = (firstName, lastName) =>
   [firstName, lastName].filter(Boolean).join(" ").trim();
@@ -19,6 +23,8 @@ const mapInventoryBatch = (batch) => {
     source_type: batch.source_type,
     quantity_received: batch.quantity_received,
     quantity_available: batch.quantity_available,
+    stock_version: batch.stock_version,
+    inventoryStateBasis: createInventoryStateBasis(batch),
     expiration_date: batch.expiration_date,
     received_at: batch.received_at,
     storage_location: batch.storage_location,
@@ -370,9 +376,7 @@ const createInventoryBatch = async (batchData) => {
     );
 
   if (existingBatch) {
-    const error = new Error("batch_no already exists for the selected inventory_item_id");
-    error.statusCode = 409;
-    throw error;
+    throw createDuplicateInventoryBatchError(existingBatch);
   }
 
   const createdBatch = await inventoryBatchRepository.insertInventoryBatch({
@@ -381,6 +385,17 @@ const createInventoryBatch = async (batchData) => {
     quantity_available: batchData.quantity_received,
     status: getInitialStatus(batchData.expiration_date),
   }, dbClient || undefined);
+
+  if (!createdBatch) {
+    const authoritativeBatch =
+      await inventoryBatchRepository.getInventoryBatchByItemIdAndBatchNo(
+        batchData.inventory_item_id,
+        batchData.batch_no,
+        dbClient || undefined,
+      );
+
+    throw createDuplicateInventoryBatchError(authoritativeBatch);
+  }
 
   const fullBatch = await inventoryBatchRepository.getInventoryBatchById(
     createdBatch.id,

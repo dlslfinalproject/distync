@@ -1,6 +1,6 @@
 const syncRepository = require("../repositories/sync.repository");
-const householdRegistrationRepository = require("../repositories/householdRegistration.repository");
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
+const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
 const supplierRepository = require("../repositories/supplier.repository");
 const householdRegistrationService = require("./householdRegistration.service");
 const distributionTransactionService = require("./distributionTransaction.service");
@@ -12,6 +12,23 @@ const stubService = require("./stub.service");
 const notificationService = require("../modules/notifications/notification.service");
 const { ROLE_CODES } = require("../modules/auth/auth.middleware");
 const { logAuditSafely, logErrorSafely, pickDefined } = require("../utils/systemLog");
+const { insertAuditLog } = require("../repositories/systemLog.repository");
+const {
+  DUPLICATE_INVENTORY_TRANSACTION_REFERENCE_NO,
+} = require("../utils/inventoryTransactionReference");
+const {
+  DUPLICATE_INVENTORY_BATCH,
+} = require("../utils/inventoryBatchIdentity");
+const {
+  verifyInventoryStateBasis,
+} = require("../utils/inventoryStateBasis");
+const {
+  CONFLICT_STATUS,
+  RESOLUTION_STRATEGY,
+  RESOLUTION_ACTION,
+  INVENTORY_STOCK_STATE_DRIFT,
+  getSyncConflictReviewCapability,
+} = require("../utils/syncConflictReviewPolicy");
 
 const SYNC_STATUS = {
   PENDING: "PENDING",
@@ -19,17 +36,14 @@ const SYNC_STATUS = {
   CONFLICT: "CONFLICT",
   FAILED: "FAILED",
 };
-
-const CONFLICT_STATUS = {
-  OPEN: "OPEN",
-  RESOLVED: "RESOLVED",
-};
-
-const RESOLUTION_STRATEGY = {
-  FIRST_ACCEPTED: "FIRST_ACCEPTED",
-  LATEST_TIMESTAMP: "LATEST_TIMESTAMP",
-  MANUAL_REVIEW: "MANUAL_REVIEW",
-};
+const subtractiveInventoryTransactionTypes = new Set([
+  "OUTFLOW",
+  "EXPIRED",
+  "MISSING",
+  "DAMAGED",
+  "SPOILED",
+  "STOLEN",
+]);
 
 const createConflictPersistenceError = (message) => {
   const error = new Error(message);
@@ -123,11 +137,12 @@ const ACTION_HANDLERS = {
     entityType: "HOUSEHOLD",
     operationType: "UPDATE",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    getCurrentRecord: async ({ entityServerId, dbClient }) =>
-      householdRegistrationRepository.getHouseholdSummaryById(
-        entityServerId,
+    getCurrentRecord: async ({ entityServerId, auth, dbClient }) =>
+      householdRegistrationService.getAuthorizedHouseholdSummaryForUpdate({
+        householdId: entityServerId,
+        requester: getRequesterForSync(auth),
         dbClient,
-      ),
+      }),
     execute: async ({ entityServerId, payload, auth, dbClient }) =>
       householdRegistrationService.updateHouseholdDetails({
         householdId: entityServerId,
@@ -242,10 +257,26 @@ const ACTION_HANDLERS = {
     entityType: "INVENTORY_TRANSACTION",
     operationType: "INVENTORY_ADJUSTMENT",
     roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload, auth, dbClient }) =>
+    execute: async ({
+      payload,
+      auth,
+      dbClient,
+      entry,
+      syncTransaction,
+      deferDomainSideEffect,
+    }) =>
       inventoryTransactionService.createInventoryTransaction({
         ...payload,
+        reference_type: "MANUAL",
+        reference_id: null,
         performed_by: auth.userId,
+        syncTransactionId: syncTransaction.id,
+        auditActor: {
+          userId: auth.userId,
+          roleCode: auth.roleCode,
+          deviceId: entry.device_id || null,
+        },
+        deferDomainSideEffect,
         dbClient,
       }),
   },
@@ -395,6 +426,232 @@ const recordSyncFailureAndNotificationIntent = async ({
   return { syncTransaction, notificationOutboxEvent: null };
 };
 
+const createConflictNotFoundError = () => {
+  const error = new Error("Sync conflict not found");
+  error.statusCode = 404;
+  return error;
+};
+
+const createConflictAlreadyResolvedError = () => {
+  const error = new Error("Sync conflict has already been resolved");
+  error.statusCode = 409;
+  error.code = "SYNC_CONFLICT_ALREADY_RESOLVED";
+  return error;
+};
+
+const createResolutionActionNotAllowedError = () => {
+  const error = new Error("This resolution action is not allowed for this conflict");
+  error.statusCode = 403;
+  error.code = "SYNC_CONFLICT_RESOLUTION_ACTION_NOT_ALLOWED";
+  return error;
+};
+
+const getResolutionCapability = (conflict, auth) => {
+  const isOpen = conflict?.status === CONFLICT_STATUS.OPEN;
+
+  if (!isOpen || conflict?.resolution_strategy !== RESOLUTION_STRATEGY.MANUAL_REVIEW) {
+    return {
+      availableResolutionActions: [],
+      canResolve: false,
+      domainOwner: null,
+      basis: "Only OPEN MANUAL_REVIEW conflicts can be manually resolved.",
+    };
+  }
+
+  if (conflict.conflict_type === INVENTORY_STOCK_STATE_DRIFT) {
+    const mayResolve = auth?.roleCode === ROLE_CODES.MAYOR;
+
+    return {
+      availableResolutionActions: mayResolve
+        ? [RESOLUTION_ACTION.MARK_REVIEWED, RESOLUTION_ACTION.KEEP_SERVER]
+        : [],
+      canResolve: mayResolve,
+      domainOwner: ROLE_CODES.MAYOR,
+      basis:
+        "Mayor inventory authority may review stock-state drift; losing inventory movement replay is not supported.",
+    };
+  }
+
+  return {
+    availableResolutionActions: [],
+    canResolve: false,
+    domainOwner: null,
+    basis: "No safe manual resolution path is configured for this conflict type.",
+  };
+};
+
+const isReviewableConflictStatusFilter = (status) =>
+  !status || status === CONFLICT_STATUS.OPEN;
+
+const mergeConflictsById = (...conflictLists) =>
+  conflictLists.flat().reduce((current, conflict) => {
+    if (conflict?.id && !current.has(conflict.id)) {
+      current.set(conflict.id, conflict);
+    }
+
+    return current;
+  }, new Map());
+
+const sortConflictsByCreatedAtDesc = (conflicts) =>
+  [...conflicts].sort((first, second) => {
+    const firstTime = new Date(first.created_at || 0).getTime() || 0;
+    const secondTime = new Date(second.created_at || 0).getTime() || 0;
+    return secondTime - firstTime;
+  });
+
+const getSafeConflictServerSummary = (conflict) => ({
+  conflict_id: conflict.id,
+  entity_type: conflict.entity_type,
+  entity_server_id: conflict.entity_server_id || null,
+  conflict_type: conflict.conflict_type,
+  authoritative_payload: conflict.server_payload_json || {},
+});
+
+const isInsufficientInventoryStockError = (error) =>
+  error?.statusCode === 400 &&
+  /Insufficient quantity_available/i.test(String(error?.message || ""));
+
+const buildInventoryBasisEvidence = ({ basis, currentBatch, payload }) => ({
+  basis: {
+    basisVersion: basis.basisVersion,
+    inventoryBatchId: basis.inventoryBatchId,
+    inventoryItemId: basis.inventoryItemId,
+    stockVersion: basis.stockVersion,
+    quantityAvailable: basis.quantityAvailable,
+    status: basis.status,
+    expirationDate: basis.expirationDate,
+    observedServerAt: basis.observedServerAt,
+  },
+  current: currentBatch
+    ? {
+        inventoryBatchId: currentBatch.id,
+        inventoryItemId: currentBatch.inventory_item_id,
+        stockVersion: Number(currentBatch.stock_version),
+        quantityAvailable: Number(currentBatch.quantity_available),
+        status: currentBatch.status || null,
+        expirationDate: currentBatch.expiration_date || null,
+      }
+    : null,
+  requested: {
+    inventoryBatchId: payload.inventory_batch_id || null,
+    transactionType: payload.transaction_type || null,
+    quantity: Number(payload.quantity || 0),
+    inventoryTransactionReferenceNo:
+      payload.inventoryTransactionReferenceNo ||
+      payload.inventory_transaction_reference_no ||
+      null,
+  },
+});
+
+const maybeRecordInventoryStockStateDriftConflict = async ({
+  error,
+  entry,
+  auth,
+  actionConfig,
+  syncTransaction,
+  dbClient,
+}) => {
+  const payload = entry.payload || {};
+
+  if (
+    entry.action_key !== "INVENTORY_TRANSACTION_CREATE" ||
+    !isInsufficientInventoryStockError(error) ||
+    !subtractiveInventoryTransactionTypes.has(payload.transaction_type)
+  ) {
+    return null;
+  }
+
+  const verification = verifyInventoryStateBasis(payload.inventoryStateBasis);
+
+  if (!verification.valid) {
+    return null;
+  }
+
+  const basis = verification.basis;
+
+  if (String(basis.inventoryBatchId) !== String(payload.inventory_batch_id || "")) {
+    return null;
+  }
+
+  if (Number(basis.quantityAvailable) < Number(payload.quantity || 0)) {
+    return null;
+  }
+
+  const currentBatch =
+    await inventoryTransactionRepository.getInventoryBatchByIdForUpdate(
+      payload.inventory_batch_id,
+      dbClient,
+    );
+
+  if (!currentBatch) {
+    return null;
+  }
+
+  const currentStockVersion = Number(currentBatch.stock_version);
+  const currentQuantityAvailable = Number(currentBatch.quantity_available);
+  const currentEvidence = buildInventoryBasisEvidence({
+    basis,
+    currentBatch,
+    payload,
+  });
+
+  if (
+    currentStockVersion <= Number(basis.stockVersion) ||
+    currentQuantityAvailable >= Number(payload.quantity || 0)
+  ) {
+    return null;
+  }
+
+  const serverTimestamp = new Date().toISOString();
+  const {
+    syncTransaction: conflictTransaction,
+    conflictRecord,
+    notificationOutboxEvent,
+  } = await recordConflictAndUpdateSyncTransactionSafely({
+    auth,
+    actionConfig,
+    entry,
+    syncTransactionId: syncTransaction.id,
+    transactionPayload: {
+      entity_server_id: null,
+      server_timestamp: serverTimestamp,
+      sync_status: SYNC_STATUS.CONFLICT,
+      error_message:
+        "Inventory stock changed after the offline state basis. Manual review is required.",
+    },
+    conflictPayload: {
+      sync_transaction_id: syncTransaction.id,
+      entity_type: actionConfig.entityType,
+      entity_server_id: null,
+      conflict_type: INVENTORY_STOCK_STATE_DRIFT,
+      local_payload_json: {
+        payload,
+        inventory_state_basis: currentEvidence.basis,
+      },
+      server_payload_json: currentEvidence.current,
+      resolution_strategy: RESOLUTION_STRATEGY.MANUAL_REVIEW,
+      resolved_payload_json: null,
+      resolved_by: null,
+      resolved_at: null,
+      status: CONFLICT_STATUS.OPEN,
+    },
+    dbClient,
+  });
+
+  return {
+    notificationOutboxEvent,
+    result: {
+      client_sync_id: entry.client_sync_id,
+      sync_transaction_id: syncTransaction.id,
+      sync_status: SYNC_STATUS.CONFLICT,
+      message:
+        "Inventory stock changed after this offline transaction was recorded. Manual review is required.",
+      data: conflictTransaction,
+      conflict: conflictRecord,
+    },
+  };
+};
+
 const processCommittedNotificationIntentsSafely = async ({
   eventIds,
   auth,
@@ -414,6 +671,29 @@ const processCommittedNotificationIntentsSafely = async ({
         error,
         reference_type: "NOTIFICATION_OUTBOX",
         reference_id: eventId,
+      });
+    }
+  }
+
+  return syncResult;
+};
+
+const processCommittedDomainSideEffectsSafely = async ({
+  sideEffects,
+  auth,
+  syncResult,
+}) => {
+  for (const sideEffect of sideEffects) {
+    try {
+      await sideEffect();
+    } catch (error) {
+      await logErrorSafely({
+        actor: auth,
+        moduleName: "sync",
+        errorCode: "SYNC_DOMAIN_SIDE_EFFECT_PROCESSING_FAILED",
+        errorMessage:
+          "Committed inventory domain side effect could not be processed immediately.",
+        error,
       });
     }
   }
@@ -455,6 +735,7 @@ const processSingleSyncEntry = async (entry, auth) => {
     syncRepository.withSyncProcessingTransaction ||
     (async (callback) => callback(undefined));
   const notificationOutboxEventIds = [];
+  const domainSideEffects = [];
 
   const syncResult = await runSyncProcessingTransaction(async (dbClient) => {
     const claim = await syncRepository.claimSyncTransaction(claimPayload, dbClient);
@@ -549,6 +830,13 @@ const processSingleSyncEntry = async (entry, auth) => {
       auth,
       clientTimestamp: entry.client_timestamp,
       dbClient,
+      entry,
+      syncTransaction,
+      deferDomainSideEffect: (sideEffect) => {
+        if (typeof sideEffect === "function") {
+          domainSideEffects.push(sideEffect);
+        }
+      },
     });
     businessEffectApplied = true;
 
@@ -645,11 +933,17 @@ const processSingleSyncEntry = async (entry, auth) => {
     const isDuplicateConflict =
       error.code === "DUPLICATE_HOUSEHOLD_REGISTRATION" ||
       error.code === "DUPLICATE_HOUSEHOLD_DEPARTURE" ||
-      error.code === "STUB_ALREADY_CLAIMED";
+      error.code === "STUB_ALREADY_CLAIMED" ||
+      error.code === DUPLICATE_INVENTORY_TRANSACTION_REFERENCE_NO ||
+      error.code === DUPLICATE_INVENTORY_BATCH;
 
     if (isDuplicateConflict) {
       const serverTimestamp = new Date().toISOString();
       const entityServerId = entry.entity_server_id || error.entityServerId || null;
+      const isInventoryItrDuplicate =
+        error.code === DUPLICATE_INVENTORY_TRANSACTION_REFERENCE_NO;
+      const isSystemResolvedDuplicate =
+        isInventoryItrDuplicate || error.code === DUPLICATE_INVENTORY_BATCH;
 
       try {
         const {
@@ -677,10 +971,9 @@ const processSingleSyncEntry = async (entry, auth) => {
               resolved_payload_json: {
                 winner: "SERVER",
                 reason: error.message,
-                local_payload: entry.payload,
-                server_payload: error.serverPayload || {},
+                authoritative_payload: error.serverPayload || {},
               },
-              resolved_by: auth.userId,
+              resolved_by: isSystemResolvedDuplicate ? null : auth.userId,
               resolved_at: serverTimestamp,
               status: CONFLICT_STATUS.RESOLVED,
             },
@@ -733,6 +1026,26 @@ const processSingleSyncEntry = async (entry, auth) => {
           error_code: createConflictPersistenceError(failureMessage).code,
         };
       }
+    }
+
+    const stockStateDriftConflict =
+      await maybeRecordInventoryStockStateDriftConflict({
+        error,
+        entry,
+        auth,
+        actionConfig,
+        syncTransaction,
+        dbClient,
+      });
+
+    if (stockStateDriftConflict) {
+      if (stockStateDriftConflict.notificationOutboxEvent?.id) {
+        notificationOutboxEventIds.push(
+          stockStateDriftConflict.notificationOutboxEvent.id,
+        );
+      }
+
+      return stockStateDriftConflict.result;
     }
 
     if (error.code === "SYNC_CONFLICT_PERSISTENCE_FAILED") {
@@ -792,10 +1105,17 @@ const processSingleSyncEntry = async (entry, auth) => {
     }
   });
 
-  return processCommittedNotificationIntentsSafely({
+  const syncResultWithProcessedNotificationIntents =
+    await processCommittedNotificationIntentsSafely({
     eventIds: notificationOutboxEventIds,
     auth,
     syncResult,
+  });
+
+  return processCommittedDomainSideEffectsSafely({
+    sideEffects: domainSideEffects,
+    auth,
+    syncResult: syncResultWithProcessedNotificationIntents,
   });
 };
 
@@ -816,7 +1136,15 @@ const processSyncEntries = async ({ entries, auth }) => {
 };
 
 const getSyncHistory = async ({ auth, syncStatus, conflictStatus, limit }) => {
-  const [transactions, conflicts] = await Promise.all([
+  const reviewablePromise =
+    auth.roleCode === ROLE_CODES.MAYOR &&
+    isReviewableConflictStatusFilter(conflictStatus)
+      ? syncRepository.getReviewableManualInventoryConflicts({
+          limit,
+        })
+      : Promise.resolve([]);
+
+  const [transactions, ownedConflicts, reviewableConflicts] = await Promise.all([
     syncRepository.getSyncTransactionsByUser({
       userId: auth.userId,
       syncStatus,
@@ -827,38 +1155,56 @@ const getSyncHistory = async ({ auth, syncStatus, conflictStatus, limit }) => {
       status: conflictStatus,
       limit,
     }),
+    reviewablePromise,
   ]);
+
+  const conflicts = sortConflictsByCreatedAtDesc(
+    [...mergeConflictsById(ownedConflicts, reviewableConflicts).values()],
+  ).slice(0, limit);
 
   return {
     transactions,
-    conflicts,
+    conflicts: conflicts.map((conflict) => ({
+      ...conflict,
+      availableResolutionActions:
+        getResolutionCapability(conflict, auth).availableResolutionActions,
+    })),
   };
 };
 
 const getSyncStatusSummary = async ({ auth }) => {
-  const [conflictCount, lastSuccessfulSyncAt] = await Promise.all([
-    syncRepository.countOpenSyncConflictsByUser({
-      userId: auth.userId,
-    }),
-    syncRepository.getLastSuccessfulSyncAtByUser({
-      userId: auth.userId,
-    }),
-  ]);
+  const reviewableCountPromise =
+    auth.roleCode === ROLE_CODES.MAYOR
+      ? syncRepository.countOpenReviewableManualInventoryConflicts({
+          userId: auth.userId,
+        })
+      : Promise.resolve(0);
+
+  const [ownedConflictCount, reviewableConflictCount, lastSuccessfulSyncAt] =
+    await Promise.all([
+      syncRepository.countOpenSyncConflictsByUser({
+        userId: auth.userId,
+      }),
+      reviewableCountPromise,
+      syncRepository.getLastSuccessfulSyncAtByUser({
+        userId: auth.userId,
+      }),
+    ]);
 
   return {
-    conflictCount,
+    conflictCount: ownedConflictCount + reviewableConflictCount,
     lastSuccessfulSyncAt,
     backendReachable: true,
   };
 };
 
 const getSyncConflictDetail = async ({ auth, conflictId }) => {
-  const conflict = await syncRepository.getSyncConflictByIdForUser({
+  const conflict = await syncRepository.getSyncConflictById({
     id: conflictId,
-    userId: auth.userId,
   });
+  const capability = getSyncConflictReviewCapability(conflict, auth);
 
-  if (!conflict) {
+  if (!conflict || (!capability.isOwnedByUser && !capability.canReview)) {
     const error = new Error("Sync conflict not found");
     error.statusCode = 404;
     throw error;
@@ -883,6 +1229,8 @@ const getSyncConflictDetail = async ({ auth, conflictId }) => {
 
   return {
     ...conflict,
+    availableResolutionActions:
+      getResolutionCapability(conflict, auth).availableResolutionActions,
     local_payload_summary: pickDefined(conflict.local_payload_json?.payload || conflict.local_payload_json, [
       "disaster_event_id",
       "household_id",
@@ -904,6 +1252,123 @@ const getSyncConflictDetail = async ({ auth, conflictId }) => {
       "donor_name",
     ]),
   };
+};
+
+const resolveSyncConflict = async ({ auth, conflictId, action, reason = null }) => {
+  const notificationOutboxEventIds = [];
+  let resolvedConflict = null;
+
+  const result = await syncRepository.withSyncProcessingTransaction(
+    async (dbClient) => {
+      const conflict = await syncRepository.lockSyncConflictById(
+        { id: conflictId },
+        dbClient,
+      );
+
+      if (!conflict) {
+        throw createConflictNotFoundError();
+      }
+
+      if (conflict.status !== CONFLICT_STATUS.OPEN) {
+        throw createConflictAlreadyResolvedError();
+      }
+
+      const capability = getResolutionCapability(conflict, auth);
+
+      if (!capability.availableResolutionActions.includes(action)) {
+        throw createResolutionActionNotAllowedError();
+      }
+
+      if (action === RESOLUTION_ACTION.APPLY_LOCAL) {
+        throw createResolutionActionNotAllowedError();
+      }
+
+      const resolvedPayload = {
+        ...getSafeConflictServerSummary(conflict),
+        resolution_action: action,
+        reviewer_role_code: auth.roleCode,
+      };
+
+      const updatedConflict = await syncRepository.markSyncConflictResolved(
+        {
+          conflictId: conflict.id,
+          resolutionAction: action,
+          resolutionReason: reason,
+          resolvedPayloadJson: resolvedPayload,
+          resolvedBy: auth.userId,
+        },
+        dbClient,
+      );
+
+      if (!updatedConflict) {
+        throw createConflictAlreadyResolvedError();
+      }
+
+      await insertAuditLog(
+        {
+          user_id: auth.userId,
+          role_code: auth.roleCode,
+          device_id: null,
+          action: "SYNC_CONFLICT_RESOLUTION",
+          entity_type: "SYNC_CONFLICT",
+          entity_id: conflict.id,
+          old_values_json: {
+            status: conflict.status,
+            resolution_strategy: conflict.resolution_strategy,
+            resolution_action: conflict.resolution_action || null,
+          },
+          new_values_json: {
+            status: updatedConflict.status,
+            resolution_strategy: updatedConflict.resolution_strategy,
+            resolution_action: updatedConflict.resolution_action,
+            conflict_type: updatedConflict.conflict_type,
+            reason_provided: Boolean(reason),
+            sync_transaction_id: updatedConflict.sync_transaction_id,
+          },
+          ip_address: null,
+          source_event_key: `SYNC_CONFLICT_RESOLUTION:${conflict.id}:${action}`,
+        },
+        dbClient,
+      );
+
+      if (action !== RESOLUTION_ACTION.MARK_REVIEWED) {
+        const notificationOutboxEvent =
+          await notificationService.ensureSyncNotificationIntent(
+            {
+              eventType: "SYNC_CONFLICT_RESOLVED",
+              sourceType: "SYNC_CONFLICT",
+              sourceId: conflict.id,
+            },
+            dbClient,
+          );
+
+        if (notificationOutboxEvent?.id) {
+          notificationOutboxEventIds.push(notificationOutboxEvent.id);
+        }
+      }
+
+      resolvedConflict = {
+        ...conflict,
+        ...updatedConflict,
+        sync_status: conflict.sync_status,
+        user_id: conflict.user_id,
+        client_timestamp: conflict.client_timestamp,
+        server_timestamp: conflict.server_timestamp,
+        operation_type: conflict.operation_type,
+        availableResolutionActions: [],
+      };
+
+      return resolvedConflict;
+    },
+  );
+
+  await processCommittedNotificationIntentsSafely({
+    eventIds: notificationOutboxEventIds,
+    auth,
+    syncResult: result,
+  });
+
+  return resolvedConflict;
 };
 
 const auditSyncRetryRequest = async ({ auth, entries }) => {
@@ -933,6 +1398,7 @@ module.exports = {
   getSyncHistory,
   getSyncStatusSummary,
   getSyncConflictDetail,
+  resolveSyncConflict,
   auditSyncRetryRequest,
   isSupportedSyncAction,
   SUPPORTED_SYNC_ACTION_KEYS,

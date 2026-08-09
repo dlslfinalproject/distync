@@ -198,6 +198,7 @@ const createDefaultForm = (inventoryBatches = []) => ({
   inventory_batch_id: inventoryBatches[0]?.id || "",
   transaction_type: "DAMAGED",
   quantity: "",
+  inventoryTransactionReferenceNo: "",
   remarks: "",
   logged_date: getTodayDateInputValue(),
 });
@@ -301,6 +302,20 @@ const InventoryItemStatusLogModal = ({
       nextErrors.remarks = "Reason / notes is required.";
     }
 
+    const normalizedReferenceNo =
+      formValues.inventoryTransactionReferenceNo.trim().toUpperCase();
+
+    if (!normalizedReferenceNo) {
+      nextErrors.inventoryTransactionReferenceNo =
+        "Inventory Transaction Reference No. is required.";
+    } else if (
+      !/^ITR-[0-9]{4}-[0-9]{6}$/.test(normalizedReferenceNo) ||
+      normalizedReferenceNo.endsWith("000000")
+    ) {
+      nextErrors.inventoryTransactionReferenceNo =
+        "Use ITR-YYYY-NNNNNN and do not use 000000.";
+    }
+
     setFieldErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   };
@@ -316,11 +331,14 @@ const InventoryItemStatusLogModal = ({
       inventory_batch_id: formValues.inventory_batch_id,
       transaction_type: formValues.transaction_type,
       quantity: Number.parseInt(formValues.quantity, 10),
+      inventoryTransactionReferenceNo:
+        formValues.inventoryTransactionReferenceNo.trim().toUpperCase(),
       reference_type: "MANUAL",
       reference_id: null,
       disaster_event_id: null,
       performed_by: authenticatedUser?.id || null,
       remarks: formValues.remarks.trim(),
+      inventoryStateBasis: selectedBatch?.inventoryStateBasis || null,
     });
   };
 
@@ -552,6 +570,37 @@ const InventoryItemStatusLogModal = ({
                     readOnly
                     style={lockedInputStyles}
                   />
+                </div>
+
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label
+                    htmlFor="inventory_transaction_reference_no"
+                    style={labelStyles}
+                  >
+                    Inventory Transaction Reference No.
+                  </label>
+                  <input
+                    id="inventory_transaction_reference_no"
+                    type="text"
+                    value={formValues.inventoryTransactionReferenceNo}
+                    onChange={(event) =>
+                      handleChange(
+                        "inventoryTransactionReferenceNo",
+                        event.target.value.toUpperCase(),
+                      )
+                    }
+                    style={inputStyles}
+                    placeholder="ITR-2026-000123"
+                    maxLength={15}
+                    aria-invalid={Boolean(
+                      fieldErrors.inventoryTransactionReferenceNo,
+                    )}
+                  />
+                  {fieldErrors.inventoryTransactionReferenceNo ? (
+                    <p style={fieldErrorTextStyles}>
+                      {fieldErrors.inventoryTransactionReferenceNo}
+                    </p>
+                  ) : null}
                 </div>
 
                 <div style={{ gridColumn: "1 / -1" }}>

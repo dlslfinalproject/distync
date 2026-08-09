@@ -90,6 +90,7 @@ test("sync status summary route returns a read-only status payload for authorize
         validateAuditSyncRetryRequest: (_req, _res, next) => next(),
         validateGetSyncHistory: (_req, _res, next) => next(),
         validateGetSyncConflictDetail: (_req, _res, next) => next(),
+        validateResolveSyncConflict: (_req, _res, next) => next(),
         validateProcessSyncEntries: (_req, _res, next) => next(),
       },
     },

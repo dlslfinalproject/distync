@@ -629,6 +629,124 @@ test("sync conflict does not notify Mayor for Barangay-owned conflicts", async (
   );
 });
 
+test("BRG-SC-04B open manual inventory stock drift notifies all Mayor reviewers once", async () => {
+  const createdNotifications = [];
+  const insertedRecipients = [];
+  const roleRecipientLookups = [];
+
+  await withStubbedNotificationService(
+    {
+      [repositoryPath]: buildNotificationRepositoryStub({
+        getRoleCodesByUserId: async (userId) =>
+          userId === "mayor-a" ? ["MAYOR"] : [],
+        getRecipientUserIdsByRoleCode: async (roleCode) => {
+          roleRecipientLookups.push(roleCode);
+          return ["mayor-a", "mayor-b", "mayor-b"];
+        },
+        getUserNotificationPreferencesByRole: async (userIds, roleCode) =>
+          userIds.map((userId) => ({
+            user_id: userId,
+            email: `${userId}@example.com`,
+            notification_rule_preferences_json: {
+              SYNC_CONFLICT: { email: false },
+            },
+            role_code: roleCode,
+          })),
+        insertNotification: async (payload) => {
+          createdNotifications.push(payload);
+          return { id: "notification-mayor-stock-drift" };
+        },
+        insertNotificationRecipients: async (notificationId, userIds) => {
+          insertedRecipients.push({ notificationId, userIds });
+          return [];
+        },
+      }),
+      [authMiddlewarePath]: roleCodesStub,
+      [emailServicePath]: {
+        sendNotificationEmail: async () => true,
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ emitSyncConflictAlert }) => {
+      await emitSyncConflictAlert({
+        id: "conflict-stock-drift",
+        user_id: "mayor-a",
+        entity_type: "INVENTORY_TRANSACTION",
+        conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+        resolution_strategy: "MANUAL_REVIEW",
+        status: "OPEN",
+      });
+
+      assert.deepEqual(roleRecipientLookups, ["MAYOR"]);
+      assert.equal(createdNotifications.length, 1);
+      assert.equal(createdNotifications[0].reference_type, "SYNC_CONFLICT");
+      assert.deepEqual(insertedRecipients, [
+        {
+          notificationId: "notification-mayor-stock-drift",
+          userIds: ["mayor-a", "mayor-b"],
+        },
+      ]);
+    },
+  );
+});
+
+test("BRG-SC-04B automatic inventory conflicts do not become Mayor-wide review alerts", async () => {
+  const insertedRecipients = [];
+  let roleWideRecipientLookupCalled = false;
+
+  await withStubbedNotificationService(
+    {
+      [repositoryPath]: buildNotificationRepositoryStub({
+        getRoleCodesByUserId: async (userId) =>
+          userId === "mayor-a" ? ["MAYOR"] : [],
+        getRecipientUserIdsByRoleCode: async () => {
+          roleWideRecipientLookupCalled = true;
+          return ["mayor-a", "mayor-b"];
+        },
+        getUserNotificationPreferencesByRole: async (userIds) =>
+          userIds.map((userId) => ({
+            user_id: userId,
+            email: `${userId}@example.com`,
+            notification_rule_preferences_json: {
+              SYNC_CONFLICT: { email: false },
+            },
+          })),
+        insertNotificationRecipients: async (notificationId, userIds) => {
+          insertedRecipients.push({ notificationId, userIds });
+          return [];
+        },
+      }),
+      [authMiddlewarePath]: roleCodesStub,
+      [emailServicePath]: {
+        sendNotificationEmail: async () => true,
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ emitSyncConflictAlert }) => {
+      await emitSyncConflictAlert({
+        id: "conflict-duplicate-batch",
+        user_id: "mayor-a",
+        entity_type: "INVENTORY_BATCH",
+        conflict_type: "DUPLICATE_INVENTORY_BATCH",
+        resolution_strategy: "FIRST_ACCEPTED",
+        status: "RESOLVED",
+      });
+
+      assert.equal(roleWideRecipientLookupCalled, false);
+      assert.deepEqual(insertedRecipients, [
+        {
+          notificationId: "notification-1",
+          userIds: ["mayor-a"],
+        },
+      ]);
+    },
+  );
+});
+
 test("M02-04 processes a committed SYNC_CONFLICT outbox event immediately", async () => {
   const createdNotifications = [];
   const processedEvents = [];

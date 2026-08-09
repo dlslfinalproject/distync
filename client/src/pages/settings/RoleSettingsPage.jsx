@@ -15,7 +15,10 @@ import {
 } from "../../features/settings/settingsService";
 import { LOCAL_SYNC_STATUS } from "../../offline/db.js";
 import { flushPendingSyncEntries } from "../../offline/syncService";
-import { getVisibleSyncQueueEntriesByUpdatedAt } from "../../offline/syncQueue";
+import {
+  getVisibleSyncQueueEntriesByUpdatedAt,
+  isUnsupportedOfflineActionKey,
+} from "../../offline/syncQueue";
 import {
   ROLE_CODES,
   updateAuthenticatedSessionUser,
@@ -427,6 +430,16 @@ const RoleSettingsPage = () => {
 
   const roleMeta = useMemo(() => getRoleMeta(currentRole), [currentRole]);
   const syncSummary = useMemo(() => buildSyncSummary(syncEntries), [syncEntries]);
+  const retryableSyncEntryCount = useMemo(
+    () =>
+      syncEntries.filter(
+        (entry) =>
+          !isUnsupportedOfflineActionKey(entry.actionKey) &&
+          (entry.status === LOCAL_SYNC_STATUS.PENDING ||
+            entry.status === LOCAL_SYNC_STATUS.FAILED),
+      ).length,
+    [syncEntries],
+  );
   const isBarangayRole = currentRole === ROLE_CODES.BARANGAY;
   const isMswdoRole = currentRole === ROLE_CODES.MSWDO;
   const isMayorRole = currentRole === ROLE_CODES.MAYOR;
@@ -1707,10 +1720,7 @@ const RoleSettingsPage = () => {
       return;
     }
 
-    if (
-      syncSummary[LOCAL_SYNC_STATUS.PENDING] === 0 &&
-      syncSummary[LOCAL_SYNC_STATUS.FAILED] === 0
-    ) {
+    if (retryableSyncEntryCount === 0) {
       setToast({
         type: "info",
         title: "Nothing To Sync",
