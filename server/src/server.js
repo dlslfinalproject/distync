@@ -5,6 +5,7 @@ let app;
 let pool;
 let notificationService;
 let disasterEventService;
+let inventoryTransactionService;
 
 try {
   const {
@@ -23,6 +24,7 @@ try {
   app = require("./app");
   notificationService = require("./modules/notifications/notification.service");
   disasterEventService = require("./services/disasterEvent.service");
+  inventoryTransactionService = require("./services/inventoryTransaction.service");
 } catch (error) {
   if (error.name === "AccessModeConfigurationError") {
     console.error(error.message);
@@ -50,6 +52,13 @@ const startServer = async () => {
     } catch (notificationError) {
       console.error(
         `Notification infrastructure failed to initialize: ${notificationError.message}`,
+      );
+    }
+    try {
+      await inventoryTransactionService.initializeInventoryDomainEffectRecovery();
+    } catch (inventoryDomainEffectError) {
+      console.error(
+        `Inventory domain effect recovery failed: ${inventoryDomainEffectError.message}`,
       );
     }
 

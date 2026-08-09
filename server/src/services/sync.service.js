@@ -259,12 +259,26 @@ const ACTION_HANDLERS = {
     entityType: "INVENTORY_TRANSACTION",
     operationType: "INVENTORY_ADJUSTMENT",
     roles: [ROLE_CODES.MAYOR],
-    execute: async ({ payload, auth, dbClient }) =>
+    execute: async ({
+      payload,
+      auth,
+      dbClient,
+      entry,
+      syncTransaction,
+      deferDomainSideEffect,
+    }) =>
       inventoryTransactionService.createInventoryTransaction({
         ...payload,
         reference_type: "MANUAL",
         reference_id: null,
         performed_by: auth.userId,
+        syncTransactionId: syncTransaction.id,
+        auditActor: {
+          userId: auth.userId,
+          roleCode: auth.roleCode,
+          deviceId: entry.device_id || null,
+        },
+        deferDomainSideEffect,
         dbClient,
       }),
   },
@@ -585,6 +599,29 @@ const processCommittedNotificationIntentsSafely = async ({
   return syncResult;
 };
 
+const processCommittedDomainSideEffectsSafely = async ({
+  sideEffects,
+  auth,
+  syncResult,
+}) => {
+  for (const sideEffect of sideEffects) {
+    try {
+      await sideEffect();
+    } catch (error) {
+      await logErrorSafely({
+        actor: auth,
+        moduleName: "sync",
+        errorCode: "SYNC_DOMAIN_SIDE_EFFECT_PROCESSING_FAILED",
+        errorMessage:
+          "Committed inventory domain side effect could not be processed immediately.",
+        error,
+      });
+    }
+  }
+
+  return syncResult;
+};
+
 const processSingleSyncEntry = async (entry, auth) => {
   const actionConfig = ACTION_HANDLERS[entry.action_key];
 
@@ -619,6 +656,7 @@ const processSingleSyncEntry = async (entry, auth) => {
     syncRepository.withSyncProcessingTransaction ||
     (async (callback) => callback(undefined));
   const notificationOutboxEventIds = [];
+  const domainSideEffects = [];
 
   const syncResult = await runSyncProcessingTransaction(async (dbClient) => {
     const claim = await syncRepository.claimSyncTransaction(claimPayload, dbClient);
@@ -713,6 +751,13 @@ const processSingleSyncEntry = async (entry, auth) => {
       auth,
       clientTimestamp: entry.client_timestamp,
       dbClient,
+      entry,
+      syncTransaction,
+      deferDomainSideEffect: (sideEffect) => {
+        if (typeof sideEffect === "function") {
+          domainSideEffects.push(sideEffect);
+        }
+      },
     });
     businessEffectApplied = true;
 
@@ -978,10 +1023,17 @@ const processSingleSyncEntry = async (entry, auth) => {
     }
   });
 
-  return processCommittedNotificationIntentsSafely({
+  const syncResultWithProcessedNotificationIntents =
+    await processCommittedNotificationIntentsSafely({
     eventIds: notificationOutboxEventIds,
     auth,
     syncResult,
+  });
+
+  return processCommittedDomainSideEffectsSafely({
+    sideEffects: domainSideEffects,
+    auth,
+    syncResult: syncResultWithProcessedNotificationIntents,
   });
 };
 

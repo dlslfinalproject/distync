@@ -951,6 +951,7 @@ const createNotificationForRole = async ({
   severity = "INFO",
   reference_type = null,
   reference_id = null,
+  source_event_key = null,
   dedupeHours = DEDUPE_LOOKBACK_HOURS,
   summaryMetadata = {},
   metadata = {},
@@ -992,6 +993,7 @@ const createNotificationForRole = async ({
     severity,
     reference_type,
     reference_id,
+    source_event_key,
     dedupeHours,
     summaryMetadata,
     metadata,
@@ -1267,6 +1269,7 @@ const emitInventoryTransactionAlerts = async ({
       severity,
       reference_type: "INVENTORY_TRANSACTION",
       reference_id: transaction.id,
+      source_event_key: `INVENTORY_INCIDENT:${transaction.id}`,
       metadata: { inventoryTransactionId: transaction.id, batchId: batch.id, itemId: batch.inventory_item_id, quantity: Number(transaction.quantity || 0), transactionType: transaction.transaction_type },
     });
   }

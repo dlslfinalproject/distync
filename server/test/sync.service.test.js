@@ -472,6 +472,100 @@ test("M02-06 post-commit notification processing failure does not change committ
   );
 });
 
+test("INV-M-02 successful offline inventory sync runs domain audit and alerts after commit", async () => {
+  const transactionEvents = [];
+  const domainSideEffects = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        withSyncProcessingTransaction: async (callback) => {
+          transactionEvents.push("BEGIN");
+          const result = await callback({ id: "tx-client" });
+          transactionEvents.push("COMMIT");
+          return result;
+        },
+      }),
+      [inventoryTransactionServicePath]: {
+        createInventoryTransaction: async (payload) => {
+          assert.equal(payload.performed_by, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+          assert.equal(payload.auditActor.userId, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+          assert.equal(payload.auditActor.roleCode, "MAYOR");
+          assert.equal(payload.auditActor.deviceId, "99999999-9999-4999-8999-999999999999");
+          assert.equal(payload.syncTransactionId, "sync-transaction-1");
+          assert.equal(typeof payload.deferDomainSideEffect, "function");
+
+          payload.deferDomainSideEffect(async () => {
+            domainSideEffects.push({
+              afterCommit: transactionEvents.includes("COMMIT"),
+              actor: payload.auditActor,
+            });
+          });
+
+          return {
+            transaction_id: "22222222-2222-4222-8222-222222222222",
+            inventory_transaction_reference_no: "ITR-2026-000777",
+            inventory_batch_id: "11111111-1111-4111-8111-111111111111",
+            transaction_type: "OUTFLOW",
+            quantity: 2,
+            new_quantity_available: 8,
+            new_batch_status: "LOW_STOCK",
+          };
+        },
+      },
+      [notificationServicePath]: {
+        processNotificationOutboxEventById: async () => {
+          throw new Error("No sync notification outbox event expected");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MAYOR",
+          defaultBarangayId: null,
+        },
+        entries: [
+          {
+            client_sync_id: "inv-m02-success",
+            action_key: "INVENTORY_TRANSACTION_CREATE",
+            entity_type: "INVENTORY_TRANSACTION",
+            entity_local_id: "local-inv-m02",
+            entity_server_id: null,
+            device_id: "99999999-9999-4999-8999-999999999999",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              inventory_batch_id: "11111111-1111-4111-8111-111111111111",
+              transaction_type: "OUTFLOW",
+              quantity: 2,
+              inventoryTransactionReferenceNo: "ITR-2026-000777",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.deepEqual(transactionEvents, ["BEGIN", "COMMIT"]);
+      assert.deepEqual(domainSideEffects, [
+        {
+          afterCommit: true,
+          actor: {
+            userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            roleCode: "MAYOR",
+            deviceId: "99999999-9999-4999-8999-999999999999",
+          },
+        },
+      ]);
+    },
+  );
+});
+
 test("M02-18 H-05 duplicate QR claim conflict carries SYNC_CONFLICT notification intent", async () => {
   const processedIntentIds = [];
 

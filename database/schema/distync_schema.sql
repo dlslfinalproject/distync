@@ -806,6 +806,29 @@ CREATE INDEX sync_transactions_pending_protocol_updated_at_idx
 ON public.sync_transactions (sync_status, processing_protocol_version, updated_at)
 WHERE sync_status = 'PENDING';
 
+CREATE TABLE public.inventory_domain_effect_intents (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  inventory_transaction_id uuid NOT NULL,
+  sync_transaction_id uuid,
+  effect_payload_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'PROCESSED', 'FAILED')),
+  attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+  audit_processed_at timestamp with time zone,
+  alerts_processed_at timestamp with time zone,
+  processed_at timestamp with time zone,
+  last_error text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT inventory_domain_effect_intents_pkey PRIMARY KEY (id),
+  CONSTRAINT inventory_domain_effect_intents_inventory_transaction_unique UNIQUE (inventory_transaction_id),
+  CONSTRAINT inventory_domain_effect_intents_inventory_transaction_id_fkey FOREIGN KEY (inventory_transaction_id) REFERENCES public.inventory_transactions(id),
+  CONSTRAINT inventory_domain_effect_intents_sync_transaction_id_fkey FOREIGN KEY (sync_transaction_id) REFERENCES public.sync_transactions(id)
+);
+
+CREATE INDEX inventory_domain_effect_intents_pending_idx
+  ON public.inventory_domain_effect_intents(status, created_at)
+  WHERE status IN ('PENDING', 'FAILED', 'PROCESSING');
+
 CREATE TABLE public.sync_conflicts (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   sync_transaction_id uuid NOT NULL,
@@ -871,11 +894,16 @@ CREATE TABLE public.audit_logs (
   old_values_json jsonb,
   new_values_json jsonb,
   ip_address inet,
+  source_event_key text,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT audit_logs_pkey PRIMARY KEY (id),
   CONSTRAINT audit_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
   CONSTRAINT audit_logs_device_id_fkey FOREIGN KEY (device_id) REFERENCES public.devices(id)
 );
+
+CREATE UNIQUE INDEX audit_logs_source_event_key_unique
+  ON public.audit_logs(source_event_key)
+  WHERE source_event_key IS NOT NULL;
 
 CREATE TABLE public.error_logs (
   id uuid NOT NULL DEFAULT gen_random_uuid(),

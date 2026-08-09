@@ -12,9 +12,13 @@ const insertAuditLog = async (payload, dbClient = pool) => {
       old_values_json,
       new_values_json,
       ip_address,
+      source_event_key,
       created_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, NOW())
+    VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, NOW())
+    ON CONFLICT (source_event_key)
+    WHERE source_event_key IS NOT NULL
+    DO NOTHING
     RETURNING *
   `;
 
@@ -28,6 +32,7 @@ const insertAuditLog = async (payload, dbClient = pool) => {
     JSON.stringify(payload.old_values_json || {}),
     JSON.stringify(payload.new_values_json || {}),
     payload.ip_address || null,
+    payload.source_event_key || null,
   ];
 
   const result = await dbClient.query(query, values);

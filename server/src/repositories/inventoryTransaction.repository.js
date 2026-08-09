@@ -348,6 +348,146 @@ const updateInventoryBatchQuantityAndStatus = async (
   return result.rows[0] || null;
 };
 
+const ensureInventoryDomainEffectIntent = async (payload, dbClient) => {
+  const query = `
+    INSERT INTO inventory_domain_effect_intents (
+      inventory_transaction_id,
+      sync_transaction_id,
+      effect_payload_json,
+      status,
+      attempt_count,
+      created_at,
+      updated_at
+    )
+    VALUES ($1, $2, $3::jsonb, 'PENDING', 0, NOW(), NOW())
+    ON CONFLICT (inventory_transaction_id)
+    DO UPDATE SET updated_at = inventory_domain_effect_intents.updated_at
+    RETURNING *
+  `;
+
+  const values = [
+    payload.inventoryTransactionId,
+    payload.syncTransactionId || null,
+    JSON.stringify(payload.effectPayload || {}),
+  ];
+
+  const result = await dbClient.query(query, values);
+  return result.rows[0] || null;
+};
+
+const claimInventoryDomainEffectIntentById = async (id, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      UPDATE inventory_domain_effect_intents
+      SET status = 'PROCESSING',
+          attempt_count = attempt_count + 1,
+          last_error = NULL,
+          updated_at = NOW()
+      WHERE id = $1
+        AND status IN ('PENDING', 'FAILED')
+      RETURNING *
+    `,
+    [id],
+  );
+
+  return result.rows[0] || null;
+};
+
+const claimPendingInventoryDomainEffectIntents = async (
+  limit = 25,
+  dbClient = pool,
+) => {
+  const result = await dbClient.query(
+    `
+      WITH candidates AS (
+        SELECT id
+        FROM inventory_domain_effect_intents
+        WHERE status IN ('PENDING', 'FAILED')
+           OR (status = 'PROCESSING' AND updated_at <= NOW() - (15 * INTERVAL '1 minute'))
+        ORDER BY created_at ASC
+        LIMIT $1
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE inventory_domain_effect_intents idei
+      SET status = 'PROCESSING',
+          attempt_count = idei.attempt_count + 1,
+          last_error = NULL,
+          updated_at = NOW()
+      FROM candidates
+      WHERE idei.id = candidates.id
+      RETURNING idei.*
+    `,
+    [limit],
+  );
+
+  return result.rows;
+};
+
+const markInventoryDomainEffectAuditProcessed = async (id, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      UPDATE inventory_domain_effect_intents
+      SET audit_processed_at = COALESCE(audit_processed_at, NOW()),
+          updated_at = NOW()
+      WHERE id = $1
+      RETURNING *
+    `,
+    [id],
+  );
+
+  return result.rows[0] || null;
+};
+
+const markInventoryDomainEffectAlertsProcessed = async (id, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      UPDATE inventory_domain_effect_intents
+      SET alerts_processed_at = COALESCE(alerts_processed_at, NOW()),
+          updated_at = NOW()
+      WHERE id = $1
+      RETURNING *
+    `,
+    [id],
+  );
+
+  return result.rows[0] || null;
+};
+
+const markInventoryDomainEffectIntentProcessed = async (id, dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      UPDATE inventory_domain_effect_intents
+      SET status = 'PROCESSED',
+          processed_at = COALESCE(processed_at, NOW()),
+          updated_at = NOW()
+      WHERE id = $1
+      RETURNING *
+    `,
+    [id],
+  );
+
+  return result.rows[0] || null;
+};
+
+const markInventoryDomainEffectIntentFailed = async (
+  { id, errorMessage },
+  dbClient = pool,
+) => {
+  const result = await dbClient.query(
+    `
+      UPDATE inventory_domain_effect_intents
+      SET status = 'FAILED',
+          last_error = $2,
+          updated_at = NOW()
+      WHERE id = $1
+      RETURNING *
+    `,
+    [id, String(errorMessage || "Inventory domain effect processing failed.").slice(0, 500)],
+  );
+
+  return result.rows[0] || null;
+};
+
 module.exports = {
   getInventoryTransactions,
   getInventoryTransactionById,
@@ -359,4 +499,11 @@ module.exports = {
   getUserById,
   insertInventoryTransaction,
   updateInventoryBatchQuantityAndStatus,
+  ensureInventoryDomainEffectIntent,
+  claimInventoryDomainEffectIntentById,
+  claimPendingInventoryDomainEffectIntents,
+  markInventoryDomainEffectAuditProcessed,
+  markInventoryDomainEffectAlertsProcessed,
+  markInventoryDomainEffectIntentProcessed,
+  markInventoryDomainEffectIntentFailed,
 };
