@@ -347,6 +347,9 @@ const buildBarangayDistributionLink = (stubDetails) => {
   return `/barangay/distribution-transaction?${searchParams.toString()}`;
 };
 
+const isArchivedHousehold = (stubDetails) =>
+  stubDetails?.household?.is_active === false;
+
 const VerifyStubPage = () => {
   const [searchParams] = useSearchParams();
   const { currentRole, isAuthenticated } = useAuth();
@@ -418,7 +421,8 @@ const VerifyStubPage = () => {
   const canProceedToValidation =
     isAuthenticated &&
     (currentRole === ROLE_CODES.BARANGAY || currentRole === ROLE_CODES.MSWDO) &&
-    stubDetails?.status === "ISSUED";
+    stubDetails?.status === "ISSUED" &&
+    !isArchivedHousehold(stubDetails);
 
   const isClaimedStub = stubDetails?.status === "CLAIMED";
   const proceedLink =
@@ -577,8 +581,14 @@ const VerifyStubPage = () => {
             (currentRole === ROLE_CODES.BARANGAY ||
               currentRole === ROLE_CODES.MSWDO) ? (
             <p style={pageStyles.text}>
-              This stub cannot proceed to validation because its current status is{" "}
-              <strong>{stubDetails?.status || "UNKNOWN"}</strong>.
+              {isArchivedHousehold(stubDetails)
+                ? "This stub cannot proceed to validation because this household is archived and cannot receive a new relief distribution."
+                : (
+                  <>
+                    This stub cannot proceed to validation because its current status is{" "}
+                    <strong>{stubDetails?.status || "UNKNOWN"}</strong>.
+                  </>
+                )}
             </p>
           ) : (
             <>

@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FiAlertTriangle, FiEye, FiFilter, FiSearch } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { pageSpacingStyles, shellStyles } from "../../components/layout/BarangayLayout";
 import EmptyState from "../../components/shared/EmptyState";
 import ErrorState from "../../components/shared/ErrorState";
+import FormModalShell from "../../components/shared/FormModalShell";
 import LoadingState from "../../components/shared/LoadingState";
 import StatusCard from "../../components/shared/StatusCard";
 import {
@@ -113,38 +114,14 @@ const orderOptions = [
   { value: "za", label: "Sort Z-A" },
 ];
 
+const DEFAULT_PAGE_SIZE = 50;
+const pageSizeOptions = [25, 50, 100];
+
 const modalStyles = {
-  overlay: {
-    position: "fixed",
-    inset: 0,
-    backgroundColor: "rgba(18, 34, 51, 0.45)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "24px",
-    zIndex: 1400,
-  },
-  modal: {
-    width: "100%",
-    maxWidth: "760px",
-    maxHeight: "85vh",
-    overflowY: "auto",
-    backgroundColor: "#ffffff",
-    borderRadius: "22px",
-    padding: "28px",
-    boxShadow: "0 24px 48px rgba(20, 48, 78, 0.2)",
-  },
-  title: {
-    margin: 0,
-    color: "#17324d",
-    fontSize: "24px",
-    lineHeight: 1.2,
-  },
   grid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))",
     gap: "16px",
-    marginTop: "20px",
   },
   card: {
     padding: "16px",
@@ -161,7 +138,6 @@ const modalStyles = {
   actions: {
     display: "flex",
     justifyContent: "flex-end",
-    marginTop: "24px",
   },
 };
 
@@ -180,6 +156,32 @@ const statusPalette = {
     backgroundColor: "#fdecec",
     borderColor: "#f5c2c7",
     color: "#b23b47",
+  },
+};
+
+const paginationStyles = {
+  wrapper: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "14px",
+    marginTop: "18px",
+  },
+  controls: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+  },
+  pageText: {
+    color: "#17324d",
+    fontSize: "14px",
+    fontWeight: 700,
+  },
+  resultText: {
+    color: "#5f7892",
+    fontSize: "14px",
+    fontWeight: 600,
   },
 };
 
@@ -365,67 +367,81 @@ const StatusPill = ({ row }) => {
   );
 };
 
-const AnomalyDetailModal = ({ anomaly, onClose }) => {
+const modalPanelStyles = {
+  maxHeight: "calc(100vh - 32px)",
+  overflowY: "auto",
+  overflowX: "hidden",
+  borderRadius: "20px",
+};
+
+const AnomalyDetailModal = ({ anomaly, onClose, finalFocusRef }) => {
   if (!anomaly) {
     return null;
   }
 
   return (
-    <div style={modalStyles.overlay}>
-      <div style={modalStyles.modal}>
-        <h3 style={modalStyles.title}>Anomaly Details</h3>
-
-        <div style={modalStyles.grid}>
-          <div style={modalStyles.card}>
-            <div style={labelStyles}>Anomaly Type</div>
-            <div style={modalStyles.value}>{formatAnomalyType(anomaly.anomaly_type)}</div>
-          </div>
-
-          <div style={modalStyles.card}>
-            <div style={labelStyles}>Status</div>
-            <div style={modalStyles.value}>
-              <StatusPill row={anomaly} />
-            </div>
-          </div>
-
-          <div style={modalStyles.card}>
-            <div style={labelStyles}>Disaster Event</div>
-            <div style={modalStyles.value}>{formatEventLabel(anomaly)}</div>
-          </div>
-
-          <div style={modalStyles.card}>
-            <div style={labelStyles}>Barangay</div>
-            <div style={modalStyles.value}>{anomaly.barangay_name || "--"}</div>
-          </div>
-
-          <div style={modalStyles.card}>
-            <div style={labelStyles}>Household / Stub</div>
-            <div style={modalStyles.value}>{anomaly.family_head_name || "--"}</div>
-          </div>
-
-          <div style={modalStyles.card}>
-            <div style={labelStyles}>Detected At</div>
-            <div style={modalStyles.value}>{formatDateTime(anomaly.occurred_at)}</div>
-          </div>
-
-          <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
-            <div style={labelStyles}>Reason</div>
-            <div style={modalStyles.value}>{anomaly.anomaly_reason || "--"}</div>
-          </div>
-
-          <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
-            <div style={labelStyles}>Resolution Notes</div>
-            <div style={modalStyles.value}>{anomaly.resolution_status || "--"}</div>
-          </div>
-        </div>
-
+    <FormModalShell
+      isOpen
+      title="Anomaly Details"
+      onClose={onClose}
+      closeButtonLabel="Close anomaly details"
+      closeOnBackdrop={false}
+      finalFocusRef={finalFocusRef}
+      maxWidth="min(760px, 100vw)"
+      overlayStyle={{ padding: "16px" }}
+      contentStyle={modalPanelStyles}
+      footer={
         <div style={modalStyles.actions}>
           <button type="button" onClick={onClose} style={pageHeaderStyles.secondaryButton}>
             Close
           </button>
         </div>
+      }
+    >
+      <div style={modalStyles.grid}>
+        <div style={modalStyles.card}>
+          <div style={labelStyles}>Anomaly Type</div>
+          <div style={modalStyles.value}>{formatAnomalyType(anomaly.anomaly_type)}</div>
+        </div>
+
+        <div style={modalStyles.card}>
+          <div style={labelStyles}>Status</div>
+          <div style={modalStyles.value}>
+            <StatusPill row={anomaly} />
+          </div>
+        </div>
+
+        <div style={modalStyles.card}>
+          <div style={labelStyles}>Disaster Event</div>
+          <div style={modalStyles.value}>{formatEventLabel(anomaly)}</div>
+        </div>
+
+        <div style={modalStyles.card}>
+          <div style={labelStyles}>Barangay</div>
+          <div style={modalStyles.value}>{anomaly.barangay_name || "--"}</div>
+        </div>
+
+        <div style={modalStyles.card}>
+          <div style={labelStyles}>Household / Stub</div>
+          <div style={modalStyles.value}>{anomaly.family_head_name || "--"}</div>
+        </div>
+
+        <div style={modalStyles.card}>
+          <div style={labelStyles}>Detected At</div>
+          <div style={modalStyles.value}>{formatDateTime(anomaly.occurred_at)}</div>
+        </div>
+
+        <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
+          <div style={labelStyles}>Reason</div>
+          <div style={modalStyles.value}>{anomaly.anomaly_reason || "--"}</div>
+        </div>
+
+        <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
+          <div style={labelStyles}>Resolution Notes</div>
+          <div style={modalStyles.value}>{anomaly.resolution_status || "--"}</div>
+        </div>
       </div>
-    </div>
+    </FormModalShell>
   );
 };
 
@@ -440,6 +456,16 @@ const AnomalyTrackingPage = ({
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
   const [rows, setRows] = useState([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: DEFAULT_PAGE_SIZE,
+    totalItems: 0,
+    totalPages: 0,
+    hasPreviousPage: false,
+    hasNextPage: false,
+  });
   const [filters, setFilters] = useState({
     disaster_event_id: "",
     barangay_id: "",
@@ -457,6 +483,38 @@ const AnomalyTrackingPage = ({
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
   const [isLoadingRows, setIsLoadingRows] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const anomalyDetailsTriggerRef = useRef(null);
+  const anomalyRecordsHeadingRef = useRef(null);
+  const anomalyDetailsFinalFocusRef = useMemo(
+    () => ({
+      get current() {
+        const triggerElement = anomalyDetailsTriggerRef.current;
+
+        if (triggerElement?.isConnected && typeof triggerElement.focus === "function") {
+          return triggerElement;
+        }
+
+        const fallbackElement = anomalyRecordsHeadingRef.current;
+
+        if (fallbackElement?.isConnected && typeof fallbackElement.focus === "function") {
+          return fallbackElement;
+        }
+
+        return null;
+      },
+    }),
+    [],
+  );
+
+  const updateFilters = (updater) => {
+    setPage(1);
+    setFilters(updater);
+  };
+
+  const updateViewState = (updater) => {
+    setPage(1);
+    setViewState(updater);
+  };
 
   const resolvedAssignedBarangay = useMemo(() => {
     if (!isBarangayScope) {
@@ -518,6 +576,7 @@ const AnomalyTrackingPage = ({
       return;
     }
 
+    setPage(1);
     setFilters((currentValue) => {
       const nextBarangayId = resolvedAssignedBarangay?.id || "";
 
@@ -545,6 +604,7 @@ const AnomalyTrackingPage = ({
       return;
     }
 
+    setPage(1);
     setFilters((currentValue) => ({
       ...currentValue,
       disaster_event_id: "",
@@ -601,6 +661,14 @@ const AnomalyTrackingPage = ({
     const loadRows = async () => {
       if (isBarangayScope && !resolvedAssignedBarangay?.id) {
         setRows([]);
+        setPagination({
+          page,
+          pageSize,
+          totalItems: 0,
+          totalPages: 0,
+          hasPreviousPage: false,
+          hasNextPage: false,
+        });
         setErrorMessage(
           scopeErrorMessage || "No assigned barangay. Please contact administrator.",
         );
@@ -617,7 +685,12 @@ const AnomalyTrackingPage = ({
           barangay_id: isBarangayScope
             ? resolvedAssignedBarangay.id
             : filters.barangay_id,
-          limit: 500,
+          anomaly_type: viewState.anomaly_type === "all" ? "" : viewState.anomaly_type,
+          status_category: viewState.status === "all" ? "" : viewState.status,
+          search: viewState.search.trim(),
+          order: viewState.order,
+          page,
+          pageSize,
         });
 
         if (!isMounted) {
@@ -625,9 +698,27 @@ const AnomalyTrackingPage = ({
         }
 
         setRows(Array.isArray(response.data) ? response.data : []);
+        setPagination(
+          response.pagination || {
+            page,
+            pageSize,
+            totalItems: Array.isArray(response.data) ? response.data.length : 0,
+            totalPages: Array.isArray(response.data) && response.data.length ? 1 : 0,
+            hasPreviousPage: page > 1,
+            hasNextPage: false,
+          },
+        );
       } catch (error) {
         if (isMounted) {
           setRows([]);
+          setPagination({
+            page,
+            pageSize,
+            totalItems: 0,
+            totalPages: 0,
+            hasPreviousPage: false,
+            hasNextPage: false,
+          });
           setErrorMessage(error.message || "Failed to load anomalies.");
         }
       } finally {
@@ -642,54 +733,15 @@ const AnomalyTrackingPage = ({
     return () => {
       isMounted = false;
     };
-  }, [filters, isBarangayScope, resolvedAssignedBarangay?.id, scopeErrorMessage]);
-
-  const filteredRows = useMemo(() => {
-    const searchValue = viewState.search.trim().toLowerCase();
-
-    return rows
-      .filter((row) => {
-        if (viewState.anomaly_type !== "all" && row.anomaly_type !== viewState.anomaly_type) {
-          return false;
-        }
-
-        if (viewState.status !== "all" && getStatusCategory(row) !== viewState.status) {
-          return false;
-        }
-
-        if (!searchValue) {
-          return true;
-        }
-
-        const searchableText = [
-          formatAnomalyType(row.anomaly_type),
-          formatEventLabel(row),
-          row.barangay_name,
-          row.family_head_name,
-          row.anomaly_reason,
-          row.status,
-          row.resolution_status,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-
-        return searchableText.includes(searchValue);
-      })
-      .sort((firstRow, secondRow) => {
-        if (viewState.order === "az" || viewState.order === "za") {
-          const firstLabel = `${formatEventLabel(firstRow)} ${firstRow.family_head_name || ""}`;
-          const secondLabel = `${formatEventLabel(secondRow)} ${secondRow.family_head_name || ""}`;
-          const comparison = firstLabel.localeCompare(secondLabel);
-          return viewState.order === "az" ? comparison : comparison * -1;
-        }
-
-        const firstDate = new Date(firstRow.occurred_at || 0).getTime();
-        const secondDate = new Date(secondRow.occurred_at || 0).getTime();
-
-        return viewState.order === "oldest" ? firstDate - secondDate : secondDate - firstDate;
-      });
-  }, [rows, viewState]);
+  }, [
+    filters,
+    isBarangayScope,
+    page,
+    pageSize,
+    resolvedAssignedBarangay?.id,
+    scopeErrorMessage,
+    viewState,
+  ]);
 
   const summary = useMemo(() => {
     return rows.reduce(
@@ -721,6 +773,73 @@ const AnomalyTrackingPage = ({
     );
   }, [rows]);
 
+  const totalItems = pagination.totalItems || 0;
+  const totalPages = pagination.totalPages || 0;
+  const firstVisibleItem = totalItems === 0 ? 0 : (pagination.page - 1) * pagination.pageSize + 1;
+  const lastVisibleItem = totalItems === 0
+    ? 0
+    : Math.min(firstVisibleItem + rows.length - 1, totalItems);
+  const shouldShowPaginationControls = totalItems > 0;
+  const openAnomalyDetails = useCallback((row, event) => {
+    anomalyDetailsTriggerRef.current = event.currentTarget;
+    setSelectedAnomaly(row);
+  }, []);
+  const closeAnomalyDetails = useCallback(() => {
+    setSelectedAnomaly(null);
+  }, []);
+  const paginationControls = shouldShowPaginationControls ? (
+    <div style={paginationStyles.wrapper}>
+      <div style={paginationStyles.controls}>
+        <button
+          type="button"
+          onClick={() => setPage((currentPage) => Math.max(1, currentPage - 1))}
+          disabled={!pagination.hasPreviousPage || isLoadingRows}
+          style={pageHeaderStyles.secondaryButton}
+        >
+          Previous
+        </button>
+        <span style={paginationStyles.pageText}>
+          Page {pagination.page} of {totalPages}
+        </span>
+        <button
+          type="button"
+          onClick={() => setPage((currentPage) => currentPage + 1)}
+          disabled={!pagination.hasNextPage || isLoadingRows}
+          style={pageHeaderStyles.secondaryButton}
+        >
+          Next
+        </button>
+      </div>
+
+      <label style={{ ...paginationStyles.controls, color: "#17324d", fontWeight: 700 }}>
+        Rows per page
+        <select
+          value={pageSize}
+          onChange={(event) => {
+            setPage(1);
+            setPageSize(Number(event.target.value));
+          }}
+          style={{
+            minWidth: "92px",
+            borderRadius: "12px",
+            border: "1px solid #c7d6e5",
+            backgroundColor: "#ffffff",
+            color: "#17324d",
+            padding: "10px 12px",
+            fontSize: "14px",
+            fontWeight: 600,
+          }}
+        >
+          {pageSizeOptions.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
+  ) : null;
+
   return (
     <div style={pageSpacingStyles.pageStack}>
       <PageHeader title="ANOMALY TRACKING MANAGEMENT" actions={[]} />
@@ -735,7 +854,7 @@ const AnomalyTrackingPage = ({
               id="anomaly-event"
               value={filters.disaster_event_id}
               onChange={(event) =>
-                setFilters((currentValue) => ({
+                updateFilters((currentValue) => ({
                   ...currentValue,
                   disaster_event_id: event.target.value,
                   barangay_id: isBarangayScope
@@ -764,7 +883,7 @@ const AnomalyTrackingPage = ({
                 id="anomaly-barangay"
                 value={filters.barangay_id}
                 onChange={(event) =>
-                  setFilters((currentValue) => ({
+                  updateFilters((currentValue) => ({
                     ...currentValue,
                     barangay_id: event.target.value,
                   }))
@@ -790,7 +909,7 @@ const AnomalyTrackingPage = ({
               id="anomaly-type"
               value={viewState.anomaly_type}
               onChange={(event) =>
-                setViewState((currentValue) => ({
+                updateViewState((currentValue) => ({
                   ...currentValue,
                   anomaly_type: event.target.value,
                 }))
@@ -814,7 +933,7 @@ const AnomalyTrackingPage = ({
               type="date"
               value={filters.date_from}
               onChange={(event) =>
-                setFilters((currentValue) => ({
+                updateFilters((currentValue) => ({
                   ...currentValue,
                   date_from: event.target.value,
                 }))
@@ -832,7 +951,7 @@ const AnomalyTrackingPage = ({
               type="date"
               value={filters.date_to}
               onChange={(event) =>
-                setFilters((currentValue) => ({
+                updateFilters((currentValue) => ({
                   ...currentValue,
                   date_to: event.target.value,
                 }))
@@ -844,10 +963,10 @@ const AnomalyTrackingPage = ({
       </section>
 
       <div style={shellStyles.statGrid}>
-        <StatusCard label="Total Anomalies" value={summary.total} />
-        <StatusCard label="Open Review" value={summary.open} />
-        <StatusCard label="Failed Sync / Error" value={summary.failed} />
-        <StatusCard label="Resolved / Logged" value={summary.resolved} />
+        <StatusCard label="Total Anomalies" value={totalItems} />
+        <StatusCard label="Open on Page" value={summary.open} />
+        <StatusCard label="Failed on Page" value={summary.failed} />
+        <StatusCard label="Resolved on Page" value={summary.resolved} />
       </div>
 
       <div style={pageSpacingStyles.toolbar}>
@@ -866,7 +985,7 @@ const AnomalyTrackingPage = ({
             type="search"
             value={viewState.search}
             onChange={(event) =>
-              setViewState((currentValue) => ({
+              updateViewState((currentValue) => ({
                 ...currentValue,
                 search: event.target.value,
               }))
@@ -896,7 +1015,7 @@ const AnomalyTrackingPage = ({
               id="anomaly-status"
               value={viewState.status}
               onChange={(event) =>
-                setViewState((currentValue) => ({
+                updateViewState((currentValue) => ({
                   ...currentValue,
                   status: event.target.value,
                 }))
@@ -945,7 +1064,7 @@ const AnomalyTrackingPage = ({
                   id="anomaly-order"
                   value={viewState.order}
                   onChange={(event) =>
-                    setViewState((currentValue) => ({
+                    updateViewState((currentValue) => ({
                       ...currentValue,
                       order: event.target.value,
                     }))
@@ -966,88 +1085,109 @@ const AnomalyTrackingPage = ({
 
       <section style={shellStyles.card}>
         <div style={pageSpacingStyles.tableHeader}>
-          <h3 style={{ margin: 0, color: "#17324d" }}>Anomaly Records</h3>
+          <h3
+            ref={anomalyRecordsHeadingRef}
+            tabIndex={-1}
+            style={{ margin: 0, color: "#17324d", outline: "none" }}
+          >
+            Anomaly Records
+          </h3>
+          <span style={paginationStyles.resultText}>
+            {totalItems === 0
+              ? "No anomalies found"
+              : `Showing ${firstVisibleItem}-${lastVisibleItem} of ${totalItems}`}
+          </span>
         </div>
 
         {errorMessage ? <ErrorState message={errorMessage} style={{ marginBottom: "16px" }} /> : null}
 
         {isLoadingRows ? (
           <LoadingState message="Loading anomaly tracking..." />
-        ) : filteredRows.length === 0 ? (
+        ) : rows.length === 0 ? (
           <EmptyState message="No matching records found. Try adjusting your search or filters." />
         ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table style={tableStyles.table}>
-              <thead>
-                <tr>
-                  <th style={tableStyles.th}>Anomaly Type</th>
-                  <th style={tableStyles.th}>Disaster Event</th>
-                  <th style={tableStyles.th}>Barangay</th>
-                  <th style={tableStyles.th}>Household / Stub</th>
-                  <th style={tableStyles.th}>Reason</th>
-                  <th style={tableStyles.th}>Status</th>
-                  <th style={tableStyles.th}>Detected At</th>
-                  <th style={{ ...tableStyles.th, textAlign: "center" }}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredRows.map((row) => (
-                  <tr key={`${row.anomaly_type}-${row.reference_id}`}>
-                    <td style={tableStyles.td}>
-                      <span
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "8px",
-                          fontWeight: 700,
-                        }}
-                      >
-                        <FiAlertTriangle size={16} color="#9a6400" />
-                        {formatAnomalyType(row.anomaly_type)}
-                      </span>
-                    </td>
-                    <td style={tableStyles.td}>{formatEventLabel(row)}</td>
-                    <td style={tableStyles.td}>{row.barangay_name || "--"}</td>
-                    <td style={tableStyles.td}>{row.family_head_name || "--"}</td>
-                    <td style={{ ...tableStyles.td, minWidth: "260px" }}>
-                      {row.anomaly_reason || "--"}
-                    </td>
-                    <td style={tableStyles.td}>
-                      <StatusPill row={row} />
-                    </td>
-                    <td style={tableStyles.td}>{formatDateTime(row.occurred_at)}</td>
-                    <td style={{ ...tableStyles.td, textAlign: "center" }}>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedAnomaly(row)}
-                        title="View details"
-                        style={{
-                          width: "46px",
-                          height: "46px",
-                          borderRadius: "14px",
-                          border: "1px solid #c6d8ea",
-                          backgroundColor: "#f8fbfe",
-                          color: "#24496e",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <FiEye size={18} />
-                      </button>
-                    </td>
+          <>
+            <div style={{ overflowX: "auto" }}>
+              <table style={tableStyles.table}>
+                <thead>
+                  <tr>
+                    <th style={tableStyles.th}>Anomaly Type</th>
+                    <th style={tableStyles.th}>Disaster Event</th>
+                    <th style={tableStyles.th}>Barangay</th>
+                    <th style={tableStyles.th}>Household / Stub</th>
+                    <th style={tableStyles.th}>Reason</th>
+                    <th style={tableStyles.th}>Status</th>
+                    <th style={tableStyles.th}>Detected At</th>
+                    <th style={{ ...tableStyles.th, textAlign: "center" }}>Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {rows.map((row, rowIndex) => (
+                    <tr
+                      key={`${row.anomaly_type}-${row.reference_id || "no-reference"}-${
+                        row.occurred_at || "no-date"
+                      }-${rowIndex}`}
+                    >
+                      <td style={tableStyles.td}>
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            fontWeight: 700,
+                          }}
+                        >
+                          <FiAlertTriangle size={16} color="#9a6400" />
+                          {formatAnomalyType(row.anomaly_type)}
+                        </span>
+                      </td>
+                      <td style={tableStyles.td}>{formatEventLabel(row)}</td>
+                      <td style={tableStyles.td}>{row.barangay_name || "--"}</td>
+                      <td style={tableStyles.td}>{row.family_head_name || "--"}</td>
+                      <td style={{ ...tableStyles.td, minWidth: "260px" }}>
+                        {row.anomaly_reason || "--"}
+                      </td>
+                      <td style={tableStyles.td}>
+                        <StatusPill row={row} />
+                      </td>
+                      <td style={tableStyles.td}>{formatDateTime(row.occurred_at)}</td>
+                      <td style={{ ...tableStyles.td, textAlign: "center" }}>
+                        <button
+                          type="button"
+                          onClick={(event) => openAnomalyDetails(row, event)}
+                          aria-label={`View details for ${formatAnomalyType(row.anomaly_type)}`}
+                          title={`View details for ${formatAnomalyType(row.anomaly_type)}`}
+                          style={{
+                            width: "46px",
+                            height: "46px",
+                            borderRadius: "14px",
+                            border: "1px solid #c6d8ea",
+                            backgroundColor: "#f8fbfe",
+                            color: "#24496e",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <FiEye size={18} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {paginationControls}
+          </>
         )}
       </section>
 
       <AnomalyDetailModal
         anomaly={selectedAnomaly}
-        onClose={() => setSelectedAnomaly(null)}
+        onClose={closeAnomalyDetails}
+        finalFocusRef={anomalyDetailsFinalFocusRef}
       />
     </div>
   );

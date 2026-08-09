@@ -422,7 +422,8 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
           </div>
           <p style={duplicateErrorTitleStyles}>Duplicate</p>
           <p style={duplicateErrorMessageStyles}>
-            Evacuee registration already exists.
+            {form.errorMessage ||
+              "Evacuee registration already exists in records available on this device."}
           </p>
         </div>
       </FormModalShell>

@@ -5,12 +5,17 @@ const path = require("node:path");
 
 const repositoryPath = require.resolve("../src/repositories/sync.repository");
 const dbPath = require.resolve("../src/config/db");
+const notificationRepositoryPath = require.resolve(
+  "../src/modules/notifications/notification.repository",
+);
 
 const withStubbedPool = async (poolStub, runTest) => {
   const originalRepository = require.cache[repositoryPath];
   const originalDb = require.cache[dbPath];
+  const originalNotificationRepository = require.cache[notificationRepositoryPath];
 
   delete require.cache[repositoryPath];
+  delete require.cache[notificationRepositoryPath];
 
   try {
     require.cache[dbPath] = {
@@ -24,6 +29,7 @@ const withStubbedPool = async (poolStub, runTest) => {
     await runTest(repository);
   } finally {
     delete require.cache[repositoryPath];
+    delete require.cache[notificationRepositoryPath];
 
     if (originalRepository) {
       require.cache[repositoryPath] = originalRepository;
@@ -33,6 +39,10 @@ const withStubbedPool = async (poolStub, runTest) => {
       require.cache[dbPath] = originalDb;
     } else {
       delete require.cache[dbPath];
+    }
+
+    if (originalNotificationRepository) {
+      require.cache[notificationRepositoryPath] = originalNotificationRepository;
     }
   }
 };
@@ -59,6 +69,18 @@ test("recordConflictAndUpdateSyncTransaction inserts conflict and updates sync s
             {
               id: "sync-1",
               sync_status: "CONFLICT",
+            },
+          ],
+        };
+      }
+
+      if (/INSERT INTO notification_outbox/i.test(query)) {
+        return {
+          rows: [
+            {
+              id: "outbox-conflict-1",
+              event_type: "SYNC_CONFLICT",
+              source_id: "conflict-1",
             },
           ],
         };
@@ -105,12 +127,18 @@ test("recordConflictAndUpdateSyncTransaction inserts conflict and updates sync s
           id: "sync-1",
           sync_status: "CONFLICT",
         },
+        notificationOutboxEvent: {
+          id: "outbox-conflict-1",
+          event_type: "SYNC_CONFLICT",
+          source_id: "conflict-1",
+        },
       });
       assert.match(statements[0], /^BEGIN$/);
       assert.match(statements[1], /INSERT INTO sync_conflicts/i);
       assert.match(statements[2], /UPDATE sync_transactions/i);
-      assert.match(statements[3], /^COMMIT$/);
-      assert.match(statements[4], /^RELEASE$/);
+      assert.match(statements[3], /INSERT INTO notification_outbox/i);
+      assert.match(statements[4], /^COMMIT$/);
+      assert.match(statements[5], /^RELEASE$/);
     },
   );
 });
@@ -166,6 +194,64 @@ test("recordConflictAndUpdateSyncTransaction rolls back when conflict insert fai
         statements.some((statement) => /UPDATE sync_transactions/i.test(statement)),
         false,
       );
+    },
+  );
+});
+
+test("M02-03 recordConflictAndUpdateSyncTransaction rolls back when outbox intent insert fails", async () => {
+  const statements = [];
+  const fakeClient = {
+    query: async (query) => {
+      statements.push(query);
+
+      if (/INSERT INTO sync_conflicts/i.test(query)) {
+        return { rows: [{ id: "conflict-outbox-fail" }] };
+      }
+
+      if (/UPDATE sync_transactions/i.test(query)) {
+        return { rows: [{ id: "sync-1", sync_status: "CONFLICT" }] };
+      }
+
+      if (/INSERT INTO notification_outbox/i.test(query)) {
+        throw new Error("outbox unavailable");
+      }
+
+      return { rows: [] };
+    },
+    release: () => {
+      statements.push("RELEASE");
+    },
+  };
+
+  await withStubbedPool(
+    {
+      connect: async () => fakeClient,
+      on: () => {},
+    },
+    async ({ recordConflictAndUpdateSyncTransaction }) => {
+      await assert.rejects(
+        () =>
+          recordConflictAndUpdateSyncTransaction({
+            syncTransactionId: "sync-1",
+            transactionPayload: {
+              sync_status: "CONFLICT",
+            },
+            conflictPayload: {
+              sync_transaction_id: "sync-1",
+              entity_type: "HOUSEHOLD",
+              conflict_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+              resolution_strategy: "FIRST_ACCEPTED",
+            },
+          }),
+        /outbox unavailable/,
+      );
+
+      assert.match(statements[0], /^BEGIN$/);
+      assert.match(statements[1], /INSERT INTO sync_conflicts/i);
+      assert.match(statements[2], /UPDATE sync_transactions/i);
+      assert.match(statements[3], /INSERT INTO notification_outbox/i);
+      assert.match(statements[4], /^ROLLBACK$/);
+      assert.match(statements[5], /^RELEASE$/);
     },
   );
 });

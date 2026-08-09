@@ -787,7 +787,7 @@ const getHouseholdsByFilters = async (
 ) => {
   const values = [disasterEventId];
   let barangayFilterClause = "";
-  let activeFilterClause = "";
+  let recordStatusFilterClause = "";
 
   if (barangayId) {
     values.push(barangayId);
@@ -795,38 +795,159 @@ const getHouseholdsByFilters = async (
   }
 
   if (recordStatus === "active") {
-    activeFilterClause = "AND h.is_active = TRUE";
+    recordStatusFilterClause = `
+      WHERE (
+        records.is_active = TRUE
+        AND records.attendance_log_id IS NOT NULL
+        AND records.attendance_time_out IS NULL
+        AND UPPER(COALESCE(records.attendance_status, '')) = 'PRESENT'
+      )
+    `;
   } else if (recordStatus === "archived") {
-    activeFilterClause = "AND h.is_active = FALSE";
+    recordStatusFilterClause = `
+      WHERE (
+        records.attendance_log_id IS NOT NULL
+        AND (
+          records.attendance_time_out IS NOT NULL
+          OR UPPER(COALESCE(records.attendance_status, '')) = 'LEFT'
+        )
+      ) OR (
+        records.attendance_log_id IS NULL
+        AND records.is_active = FALSE
+      )
+    `;
   }
 
   const query = `
+    WITH household_scope AS (
+      SELECT
+        h.id AS household_id,
+        h.disaster_event_id,
+        h.barangay_id,
+        h.residency_status,
+        h.family_head_first_name,
+        h.family_head_middle_name,
+        h.family_head_last_name,
+        h.family_head_suffix,
+        h.household_size,
+        h.current_stay_type,
+        h.current_address_details,
+        h.contact_number,
+        h.is_active,
+        h.registered_at,
+        h.family_head_evacuee_id,
+        b.code AS barangay_code,
+        b.name AS barangay_name,
+        b.municipality_name,
+        b.province_name
+      FROM households h
+      LEFT JOIN barangays b ON b.id = h.barangay_id
+      WHERE h.disaster_event_id = $1
+      ${barangayFilterClause}
+    ),
+    family_head_evacuees AS (
+      SELECT
+        hs.household_id,
+        COALESCE(
+          hs.family_head_evacuee_id,
+          (
+            SELECT e.id
+            FROM evacuees e
+            WHERE e.household_id = hs.household_id
+              AND e.is_family_head = TRUE
+            ORDER BY e.created_at ASC
+            LIMIT 1
+          )
+        ) AS family_head_evacuee_id
+      FROM household_scope hs
+    ),
+    attendance_occurrences AS (
+      SELECT
+        hs.household_id,
+        el.id AS attendance_log_id,
+        el.status AS attendance_status,
+        el.time_in AS attendance_time_in,
+        el.time_out AS attendance_time_out,
+        el.evacuation_center_id AS attendance_evacuation_center_id,
+        el.created_at AS attendance_created_at,
+        el.updated_at AS attendance_updated_at
+      FROM household_scope hs
+      INNER JOIN family_head_evacuees fhe
+        ON fhe.household_id = hs.household_id
+      INNER JOIN evacuation_logs el
+        ON el.household_id = hs.household_id
+        AND el.disaster_event_id = $1
+        AND el.evacuee_id = fhe.family_head_evacuee_id
+    ),
+    records AS (
+      SELECT
+        hs.household_id,
+        hs.disaster_event_id,
+        hs.barangay_id,
+        hs.residency_status,
+        hs.family_head_first_name,
+        hs.family_head_middle_name,
+        hs.family_head_last_name,
+        hs.family_head_suffix,
+        hs.household_size,
+        hs.current_stay_type,
+        hs.current_address_details,
+        hs.contact_number,
+        hs.is_active,
+        hs.registered_at,
+        hs.family_head_evacuee_id,
+        hs.barangay_code,
+        hs.barangay_name,
+        hs.municipality_name,
+        hs.province_name,
+        ao.attendance_log_id,
+        ao.attendance_status,
+        ao.attendance_time_in,
+        ao.attendance_time_out,
+        ao.attendance_evacuation_center_id,
+        ao.attendance_created_at,
+        ao.attendance_updated_at,
+        COALESCE(ao.attendance_log_id::text, hs.household_id::text) AS masterlist_record_id
+      FROM household_scope hs
+      LEFT JOIN attendance_occurrences ao
+        ON ao.household_id = hs.household_id
+    )
     SELECT
-      h.id AS household_id,
-      h.disaster_event_id,
-      h.barangay_id,
-      h.residency_status,
-      h.family_head_first_name,
-      h.family_head_middle_name,
-      h.family_head_last_name,
-      h.family_head_suffix,
-      h.household_size,
-      h.current_stay_type,
-      h.current_address_details,
-      h.contact_number,
-      h.is_active,
-      h.registered_at,
-      h.family_head_evacuee_id,
-      b.code AS barangay_code,
-      b.name AS barangay_name,
-      b.municipality_name,
-      b.province_name
-    FROM households h
-    LEFT JOIN barangays b ON b.id = h.barangay_id
-    WHERE h.disaster_event_id = $1
-    ${barangayFilterClause}
-    ${activeFilterClause}
-    ORDER BY h.registered_at DESC, h.family_head_last_name ASC
+      records.household_id,
+      records.disaster_event_id,
+      records.barangay_id,
+      records.residency_status,
+      records.family_head_first_name,
+      records.family_head_middle_name,
+      records.family_head_last_name,
+      records.family_head_suffix,
+      records.household_size,
+      records.current_stay_type,
+      records.current_address_details,
+      records.contact_number,
+      records.is_active,
+      records.registered_at,
+      records.family_head_evacuee_id,
+      records.barangay_code,
+      records.barangay_name,
+      records.municipality_name,
+      records.province_name,
+      records.attendance_log_id,
+      records.attendance_status,
+      records.attendance_time_in,
+      records.attendance_time_out,
+      records.attendance_evacuation_center_id,
+      records.masterlist_record_id
+    FROM records
+    ${recordStatusFilterClause}
+    ORDER BY
+      COALESCE(
+        records.attendance_time_out,
+        records.attendance_time_in,
+        records.registered_at
+      ) DESC,
+      records.family_head_last_name ASC,
+      records.family_head_first_name ASC
   `;
 
   const result = await pool.query(query, values);

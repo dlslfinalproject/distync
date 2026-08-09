@@ -81,6 +81,12 @@ const withStubbedMswdoReportRoute = async (
             date_from: req.query.date_from || null,
             date_to: req.query.date_to || null,
             limit: req.query.limit ? Number(req.query.limit) : 100,
+            page: req.query.page ? Number(req.query.page) : 1,
+            pageSize: req.query.pageSize ? Number(req.query.pageSize) : 50,
+            anomaly_type: req.query.anomaly_type || null,
+            status_category: req.query.status_category || null,
+            search: req.query.search || null,
+            order: req.query.order || "newest",
           };
           next();
         },
@@ -145,6 +151,51 @@ test("H01-10 Barangay route ignores query barangay_id override and uses authenti
         assert.deepEqual(payload.data, []);
         assert.equal(capturedFilters.barangay_id, "barangay-a");
         assert.equal(capturedFilters.limit, 12);
+      } finally {
+        await closeServer(server);
+      }
+    },
+  );
+});
+
+test("M05 route returns page items plus pagination metadata", async () => {
+  await withStubbedMswdoReportRoute(
+    {
+      roleCode: "MSWDO",
+      serviceImpl: async () => ({
+        items: [{ anomaly_type: "SYNC_FAILED", reference_id: "sync-1" }],
+        pagination: {
+          page: 2,
+          pageSize: 25,
+          totalItems: 26,
+          totalPages: 2,
+          hasPreviousPage: true,
+          hasNextPage: false,
+        },
+      }),
+    },
+    async (router) => {
+      const server = await listen(router);
+
+      try {
+        const port = server.address().port;
+        const response = await fetch(
+          `http://127.0.0.1:${port}/api/v1/mswdo-reports/anomalies?page=2&pageSize=25`,
+        );
+        const payload = await response.json();
+
+        assert.equal(response.status, 200);
+        assert.deepEqual(payload.data, [
+          { anomaly_type: "SYNC_FAILED", reference_id: "sync-1" },
+        ]);
+        assert.deepEqual(payload.pagination, {
+          page: 2,
+          pageSize: 25,
+          totalItems: 26,
+          totalPages: 2,
+          hasPreviousPage: true,
+          hasNextPage: false,
+        });
       } finally {
         await closeServer(server);
       }

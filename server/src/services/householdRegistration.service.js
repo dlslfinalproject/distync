@@ -2415,77 +2415,176 @@ const restoreHousehold = async ({ householdId, requester, restoreData }) => {
 
   const restoreMode =
     restoreData.restore_mode || RESTORE_MODES.RETURN_TO_EVAC_CENTER;
-  const latestAttendance =
-    await householdRegistrationRepository.getLatestAttendanceByHouseholdId(
-      householdId,
-    );
-  const latestAttendanceStatus = String(latestAttendance?.status || "").toUpperCase();
-  const hasDepartedLatestAttendance =
-    Boolean(latestAttendance?.time_out) ||
-    latestAttendanceStatus === "LEFT";
-
-  if (
-    restoreMode !== RESTORE_MODES.RETURN_TO_EVAC_CENTER ||
-    (existingHousehold.is_active && !hasDepartedLatestAttendance)
-  ) {
-    const error = new Error("This household is already active");
+  if (restoreMode !== RESTORE_MODES.RETURN_TO_EVAC_CENTER) {
+    const error = new Error("This household cannot be re-admitted.");
     error.statusCode = 400;
     throw error;
   }
 
   const archivedHouseholdDetails = await buildRegistrationResponse(householdId);
+  const activeEvacuationLogs =
+    await householdRegistrationRepository.getActiveEvacuationLogsByHouseholdId(
+      householdId,
+    );
 
-  if (existingHousehold.is_active) {
-    const client = await pool.connect();
+  if (activeEvacuationLogs.length > 0) {
+    const error = new Error("This household is already admitted.");
+    error.statusCode = 400;
+    throw error;
+  }
 
-    try {
-      await client.query("BEGIN");
-      await householdRegistrationRepository.archiveHousehold(householdId, client);
-      await householdRegistrationRepository.deactivateEvacueesByHouseholdId(
-        householdId,
-        client,
+  if (!isCurrentHouseholdPrivacyConsent(archivedHouseholdDetails.privacy_consent)) {
+    const error = new Error(
+      "A valid Data Privacy Notice acknowledgment is required before this household can be re-admitted.",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const shouldConvertNonAdmittedResident =
+    isNonAdmittedResidentRecord(existingHousehold);
+  const restoreEvacuationCenterId = shouldConvertNonAdmittedResident
+    ? await resolveSingleActiveEvacuationCenterId(existingHousehold.barangay_id)
+    : existingHousehold.evacuation_center_id;
+
+  if (restoreEvacuationCenterId) {
+    const evacuationCenter =
+      await householdRegistrationRepository.getEvacuationCenterById(
+        restoreEvacuationCenterId,
       );
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
+
+    if (!evacuationCenter || !evacuationCenter.is_active) {
+      const error = new Error("evacuation_center_id is invalid");
+      error.statusCode = 400;
       throw error;
-    } finally {
-      client.release();
+    }
+
+    if (evacuationCenter.barangay_id !== existingHousehold.barangay_id) {
+      const error = new Error(
+        "Selected evacuation center must belong to the chosen barangay",
+      );
+      error.statusCode = 400;
+      throw error;
     }
   }
 
-  const returnRegistrationRequest = await buildReturnRegistrationRequest({
-    householdDetails: archivedHouseholdDetails,
-    existingHousehold,
-    requester,
-    restoreData,
-  });
-  const returnedHouseholdDetails =
-    await registerHousehold(returnRegistrationRequest);
+  const client = await pool.connect();
 
-  await logAuditSafely({
-    actor: requester,
-    action: "HOUSEHOLD_RETURN_TO_EVAC_CENTER",
-    entityType: "HOUSEHOLD",
-    entityId: householdId,
-    oldValues: {
-      ...summarizeHousehold(existingHousehold),
-      restore_mode: restoreMode,
-    },
-    newValues: {
+  try {
+    await client.query("BEGIN");
+
+    if (!existingHousehold.is_active) {
+      await householdRegistrationRepository.restoreHousehold(householdId, client);
+      await householdRegistrationRepository.reactivateEvacueesByHouseholdId(
+        householdId,
+        client,
+      );
+    }
+
+    await householdRegistrationRepository.updateHousehold(
+      householdId,
+      {
+        evacuation_center_id: restoreEvacuationCenterId,
+        residency_status: existingHousehold.residency_status,
+        contact_number: existingHousehold.contact_number || null,
+        current_stay_type: shouldConvertNonAdmittedResident
+          ? "EVAC_CENTER"
+          : existingHousehold.current_stay_type,
+        current_address_details: existingHousehold.current_address_details || null,
+        household_size:
+          archivedHouseholdDetails.members_count || existingHousehold.household_size,
+      },
+      client,
+    );
+
+    const evacuees =
+      await householdRegistrationRepository.getEvacueesByHouseholdId(
+        householdId,
+        {
+          includeInactive: true,
+          dbClient: client,
+        },
+      );
+
+    if (evacuees.length === 0) {
+      const error = new Error(
+        "This household has no family members to re-admit.",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const createdLogs = [];
+
+    for (const evacuee of evacuees) {
+      const createdLog = await householdRegistrationRepository.insertEvacuationLog(
+        {
+          disaster_event_id: existingHousehold.disaster_event_id,
+          household_id: householdId,
+          evacuee_id: evacuee.id,
+          evacuation_center_id: restoreEvacuationCenterId,
+          status: "PRESENT",
+          recorded_by: requester?.userId || existingHousehold.registered_by || null,
+          remarks: "Automatic arrival recorded during household re-admission",
+        },
+        client,
+      );
+
+      createdLogs.push(createdLog);
+    }
+
+    await client.query("COMMIT");
+
+    const returnedHouseholdDetails = await buildRegistrationResponse(householdId);
+    const familyHeadName = [
+      returnedHouseholdDetails.household?.family_head_first_name,
+      returnedHouseholdDetails.household?.family_head_last_name,
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const familyHeadArrivalLog =
+      createdLogs.find((log) => log.evacuee_id === existingHousehold.family_head_evacuee_id) ||
+      createdLogs[0] ||
+      null;
+
+    await logAuditSafely({
+      actor: requester,
+      action: "HOUSEHOLD_RETURN_TO_EVAC_CENTER",
+      entityType: "HOUSEHOLD",
+      entityId: householdId,
+      oldValues: {
+        ...summarizeHousehold(existingHousehold),
+        restore_mode: restoreMode,
+      },
+      newValues: {
+        ...summarizeHousehold(returnedHouseholdDetails.household),
+        restore_mode: restoreMode,
+        new_arrival_time: familyHeadArrivalLog?.time_in || null,
+      },
+    });
+
+    await notificationService.emitSafely(() =>
+      notificationService.emitEvacueeAttendanceUpdate({
+        householdId,
+        barangayId: existingHousehold.barangay_id,
+        familyHeadName,
+        action: "arrival-recorded",
+      }),
+    );
+
+    return {
+      household_id: householdId,
       source_household_id: householdId,
-      new_household_id: returnedHouseholdDetails.household?.id || null,
+      status: "ACTIVE",
       restore_mode: restoreMode,
-    },
-  });
-
-  return {
-    household_id: returnedHouseholdDetails.household?.id || null,
-    source_household_id: householdId,
-    status: "ACTIVE",
-    restore_mode: restoreMode,
-    household: returnedHouseholdDetails.household,
-  };
+      household: returnedHouseholdDetails.household,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 };
 
 module.exports = {

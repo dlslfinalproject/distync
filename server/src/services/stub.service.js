@@ -16,6 +16,7 @@ const {
 const isOverrideAllowed = process.env.NODE_ENV !== "production";
 const ACTIVE_QR_STATUS = "ACTIVE";
 const STUB_ALREADY_CLAIMED_CODE = "STUB_ALREADY_CLAIMED";
+const ARCHIVED_HOUSEHOLD_CODE = "HOUSEHOLD_ARCHIVED";
 const DISTRIBUTION_STUB_UNIQUE_CONSTRAINT = "distribution_transactions_stub_id_key";
 
 const buildFullName = (firstName, middleName, lastName, suffix) => {
@@ -163,6 +164,17 @@ const buildStubAlreadyClaimedError = (stub, latestDistributionTransaction = null
       : {},
     distribution_transaction: latestDistributionTransaction || null,
   };
+  return error;
+};
+
+const buildArchivedHouseholdError = (stub) => {
+  const error = buildQrValidationError({
+    code: ARCHIVED_HOUSEHOLD_CODE,
+    message: "This household is archived and cannot receive a new relief distribution.",
+    statusCode: 400,
+    details: buildStubReferenceDetails(stub),
+  });
+  error.entityServerId = stub?.id || null;
   return error;
 };
 
@@ -460,6 +472,7 @@ const getBarangayStubDashboard = async (filters) => {
           ),
           household_size: row.household_size || row.members_count,
           members_count: row.members_count,
+          is_active: row.is_active !== false,
           family_head_photo_url: row.family_head_photo_url || null,
           photo_captured_at: row.photo_captured_at || null,
           photo_verification_notes: row.photo_verification_notes || null,
@@ -504,6 +517,10 @@ const claimBarangayStub = async (params) => {
     throw error;
   }
 
+  if (scopedStub.is_active === false) {
+    throw buildArchivedHouseholdError(scopedStub);
+  }
+
   if (scopedStub.status === "CLAIMED") {
     const latestDistributionTransaction =
       await stubRepository.getLatestDistributionTransactionByStubId(scopedStub.id);
@@ -537,6 +554,10 @@ const claimBarangayStub = async (params) => {
       error.statusCode = 404;
       error.code = "STUB_NOT_FOUND";
       throw error;
+    }
+
+    if (lockedStub.is_active === false) {
+      throw buildArchivedHouseholdError(lockedStub);
     }
 
     if (lockedStub.status === "CLAIMED") {
@@ -805,6 +826,16 @@ const getClaimabilityResult = ({
   stub,
   latestDistributionTransaction = null,
 }) => {
+  if (stub.is_active === false) {
+    return {
+      is_claimable: false,
+      code: ARCHIVED_HOUSEHOLD_CODE,
+      reason: "This household is archived and cannot receive a new relief distribution.",
+      message: "This household is archived and cannot receive a new relief distribution.",
+      details: buildStubReferenceDetails(stub),
+    };
+  }
+
   if (
     stub.status === "ISSUED" &&
     (!stub.qr_status || stub.qr_status === ACTIVE_QR_STATUS)
@@ -934,6 +965,7 @@ const verifyStub = async (identifier) => {
           ensuredStub.family_head_suffix,
         ),
         household_size: ensuredStub.household_size,
+        is_active: ensuredStub.is_active !== false,
         contact_number: ensuredStub.contact_number,
         barangay_name:
           ensuredStub.barangay_name || "Non-Resident (Outside Malvar)",

@@ -114,6 +114,7 @@ export const getPendingLocalStubRows = async ({
           id: entry.entityLocalId || entry.id,
           family_head_name: familyHeadName,
           members_count: membersCount,
+          is_active: true,
         },
         members_count: membersCount,
         display_stub_no: "Available after sync",

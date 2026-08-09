@@ -156,6 +156,7 @@ const BarangayMasterlistPage = () => {
     restrictNonResidentToEvacCenter: true,
     scopeNonResidentEvacuationCentersToBarangay: true,
     registeredBy: authenticatedUser?.id || null,
+    localHouseholdDuplicateCandidates: data.rows,
     onSuccess: (response) => {
       setRegistrationSuccessMessage(
         response?.message || "Household registered successfully",
@@ -625,7 +626,7 @@ const BarangayMasterlistPage = () => {
       });
 
       setRegistrationSuccessMessage(
-        response.message || "Household return recorded successfully",
+        response.message || "Household re-admitted successfully",
       );
       setPendingRestoreHouseholdId("");
       setPendingRestoreHouseholdDetails(null);
@@ -633,7 +634,7 @@ const BarangayMasterlistPage = () => {
       reloadMasterlist();
     } catch (error) {
       setAttendanceActionMessage(
-        error.message || "Failed to record household return",
+        error.message || "Failed to re-admit household",
       );
     } finally {
       setIsRestoringHousehold(false);
@@ -870,6 +871,7 @@ const BarangayMasterlistPage = () => {
         onEditHousehold={
           isSelectedEventEnded ? undefined : handleEditHouseholdFromDetails
         }
+        showAdministrativeMetadata={false}
       />
 
       <HouseholdArchiveConfirmModal

@@ -327,7 +327,7 @@ const MasterlistTable = ({
 
               return (
                 <tr
-                  key={row.household_id}
+                  key={row.masterlist_record_id || row.household_id}
                   style={isArchivedRow ? tableStyles.archivedRow : undefined}
                 >
                   {showSelectionColumn ? (

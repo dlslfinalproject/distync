@@ -86,7 +86,7 @@ const getMasterlist = async (filters) => {
     };
   }
 
-  const householdIds = households.map((household) => household.household_id);
+  const householdIds = [...new Set(households.map((household) => household.household_id))];
   const includeInactiveMembers = filters.record_status !== "active";
 
   const stubs = await masterlistRepository.getStubsByHouseholdIds(householdIds);
@@ -100,9 +100,6 @@ const getMasterlist = async (filters) => {
     await masterlistRepository.getMemberSectorsByHouseholdIds(householdIds, {
       includeInactive: includeInactiveMembers,
     });
-  const latestAttendance =
-    await masterlistRepository.getLatestAttendanceByHouseholdIds(householdIds);
-
   const stubsByHouseholdId = Object.fromEntries(
     stubs.map((stub) => [stub.household_id, stub]),
   );
@@ -112,10 +109,6 @@ const getMasterlist = async (filters) => {
   );
   const membersByHouseholdId = groupByKey(members, "household_id");
   const memberSectorsByEvacueeId = groupByKey(memberSectors, "evacuee_id");
-  const latestAttendanceByHouseholdId = Object.fromEntries(
-    latestAttendance.map((attendance) => [attendance.household_id, attendance]),
-  );
-
   const data = households.map((household) => {
     const householdMembers = (membersByHouseholdId[household.household_id] || []).map(
       (member) => ({
@@ -143,11 +136,20 @@ const getMasterlist = async (filters) => {
     );
 
     const stub = stubsByHouseholdId[household.household_id] || null;
-    const attendance =
-      latestAttendanceByHouseholdId[household.household_id] || null;
+    const attendance = household.attendance_log_id
+      ? {
+          id: household.attendance_log_id,
+          status: household.attendance_status,
+          time_in: household.attendance_time_in,
+          time_out: household.attendance_time_out,
+          evacuation_center_id: household.attendance_evacuation_center_id,
+        }
+      : null;
 
     return {
       household_id: household.household_id,
+      masterlist_record_id:
+        household.masterlist_record_id || household.attendance_log_id || household.household_id,
       family_head_name: buildFullName(
         household.family_head_first_name,
         household.family_head_middle_name,
@@ -167,7 +169,8 @@ const getMasterlist = async (filters) => {
       current_address_details: household.current_address_details,
       contact_number: household.contact_number,
       is_active: household.is_active,
-      registered_at: household.registered_at,
+      registered_at: attendance?.time_in || household.registered_at,
+      household_registered_at: household.registered_at,
       stub: stub
         ? {
             id: stub.id,
@@ -185,6 +188,7 @@ const getMasterlist = async (filters) => {
       ),
       latest_attendance: attendance
         ? {
+            id: attendance.id,
             status: attendance.status,
             time_in: attendance.time_in,
             time_out: attendance.time_out,

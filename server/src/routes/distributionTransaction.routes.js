@@ -2,6 +2,7 @@ const express = require("express");
 
 const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
 const distributionTransactionService = require("../services/distributionTransaction.service");
+const { logErrorSafely } = require("../utils/systemLog");
 const {
   validateCreateDistributionTransaction,
   validateClaimDistributionFromQr,
@@ -14,6 +15,50 @@ const {
 } = require("../validators/distributionTransaction.validator");
 
 const router = express.Router();
+
+const DUPLICATE_CLAIM_ERROR_CODES = new Set(["STUB_ALREADY_CLAIMED"]);
+const VERIFICATION_ERROR_CODES = new Set([
+  "STUB_NOT_FOUND",
+  "QR_REFERENCE_MISMATCH",
+  "QR_INACTIVE",
+  "STUB_NOT_CLAIMABLE",
+]);
+
+const getStubReferenceId = (error, requestBody = {}) =>
+  error?.entityServerId ||
+  error?.serverPayload?.stub?.id ||
+  requestBody.stub_id ||
+  null;
+
+const logDistributionAnomalySource = async ({ req, error }) => {
+  if (
+    !DUPLICATE_CLAIM_ERROR_CODES.has(error?.code) &&
+    !VERIFICATION_ERROR_CODES.has(error?.code)
+  ) {
+    return;
+  }
+
+  await logErrorSafely({
+    actor: req.auth,
+    moduleName: "distribution",
+    errorCode: error.code,
+    errorMessage: error.message || "Distribution verification failed.",
+    severity: error.code === "STUB_ALREADY_CLAIMED" ? "WARNING" : "ERROR",
+    error: null,
+    referenceType: "STUB",
+    referenceId: getStubReferenceId(error, req.validatedBody),
+    context: {
+      route: req.originalUrl,
+      action:
+        error.code === "STUB_ALREADY_CLAIMED"
+          ? "DIRECT_DUPLICATE_CLAIM_ATTEMPT"
+          : "DIRECT_STUB_OR_QR_VERIFICATION_FAILURE",
+      disaster_event_id: req.validatedBody?.disaster_event_id || null,
+      household_id: req.validatedBody?.household_id || null,
+      has_qr_reference: Boolean(req.validatedBody?.qr_reference_value),
+    },
+  });
+};
 
 router.get(
   "/inventory-distribution/export-options",
@@ -168,6 +213,7 @@ router.post(
       data: distributionTransaction,
     });
   } catch (error) {
+    await logDistributionAnomalySource({ req, error });
     const statusCode = error.statusCode || 500;
 
     return res.status(statusCode).json({
@@ -198,6 +244,7 @@ router.post(
       data: distributionTransaction,
     });
   } catch (error) {
+    await logDistributionAnomalySource({ req, error });
     const statusCode = error.statusCode || 500;
 
     return res.status(statusCode).json({

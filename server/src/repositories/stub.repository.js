@@ -74,6 +74,7 @@ const getBarangayStubDashboardRows = async (disasterEventId, barangayId) => {
       s.qr_generated_by,
       s.qr_status,
       s.qr_notes,
+      h.is_active,
       h.barangay_id,
       b.name AS barangay_name,
       h.family_head_first_name,
@@ -89,7 +90,12 @@ const getBarangayStubDashboardRows = async (disasterEventId, barangayId) => {
       latest_distribution.distribution_date,
       latest_distribution.received_at,
       CASE
-        WHEN s.status = 'ISSUED' THEN (
+        WHEN
+          s.status = 'ISSUED'
+          AND h.is_active = TRUE
+          AND latest_attendance.status = 'PRESENT'
+          AND latest_attendance.time_out IS NULL
+        THEN (
           SELECT COUNT(*)::int
           FROM stubs queued_stubs
           INNER JOIN households queued_households
@@ -136,7 +142,7 @@ const getBarangayStubDashboardRows = async (disasterEventId, barangayId) => {
     FROM stubs s
     INNER JOIN households h ON h.id = s.household_id
     LEFT JOIN barangays b ON b.id = h.barangay_id
-    INNER JOIN LATERAL (
+    LEFT JOIN LATERAL (
       SELECT el.status, el.time_in, el.time_out
       FROM evacuation_logs el
       WHERE el.household_id = h.id
@@ -160,12 +166,18 @@ const getBarangayStubDashboardRows = async (disasterEventId, barangayId) => {
     WHERE s.disaster_event_id = $1
       AND h.barangay_id = $2
       AND h.current_stay_type = 'EVAC_CENTER'
-      AND h.is_active = TRUE
-      AND latest_attendance.status = 'PRESENT'
-      AND latest_attendance.time_out IS NULL
       AND s.status IN ('ISSUED', 'CLAIMED')
+      AND (
+        (
+          h.is_active = TRUE
+          AND latest_attendance.status = 'PRESENT'
+          AND latest_attendance.time_out IS NULL
+        )
+        OR h.is_active = FALSE
+      )
     ORDER BY
-      latest_attendance.time_in ASC,
+      CASE WHEN h.is_active = FALSE THEN 1 ELSE 0 END ASC,
+      latest_attendance.time_in ASC NULLS LAST,
       s.issued_at ASC,
       s.id ASC
   `;
@@ -315,6 +327,7 @@ const getScopedStubById = async (id, barangayId) => {
       s.qr_notes,
       ${stubSequenceSelect},
       h.barangay_id,
+      h.is_active,
       h.family_head_first_name,
       h.family_head_middle_name,
       h.family_head_last_name,
@@ -361,6 +374,7 @@ const getStubByStubNoOrSerialNo = async ({ stub_no, serial_no }) => {
       h.photo_verification_notes,
       h.household_size,
       h.contact_number,
+      h.is_active,
       h.barangay_id,
       b.name AS barangay_name
     FROM stubs s
@@ -398,6 +412,7 @@ const getStubByQrCodeValue = async (qrCodeValue) => {
       h.family_head_suffix,
       h.household_size,
       h.contact_number,
+      h.is_active,
       h.family_head_photo_url,
       h.photo_captured_at,
       h.photo_verification_notes,

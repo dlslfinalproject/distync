@@ -80,6 +80,19 @@ const tableStyles = {
     gap: "8px",
     flexWrap: "wrap",
   },
+  archivedRow: {
+    backgroundColor: "#f8fbfe",
+  },
+  archivedBodyCell: {
+    color: "#5f7690",
+  },
+  archivedMembersBadge: {
+    backgroundColor: "#eef5fb",
+    color: "#6a87a6",
+  },
+  archivedCheckbox: {
+    opacity: 0.65,
+  },
 };
 
 const getStatusChipStyles = (status, isActionable = false) => {
@@ -203,6 +216,8 @@ const getStatusLabel = (status) => {
   return status || "-";
 };
 
+const isArchivedHouseholdRow = (row) => row?.household?.is_active === false;
+
 const StubResultsTable = ({
   rows,
   isLoading,
@@ -273,7 +288,12 @@ const StubResultsTable = ({
 
   const selectableRows = isClaimReadOnly
     ? []
-    : rows.filter((row) => row.status === "ISSUED" && !row.is_local_only);
+    : rows.filter(
+        (row) =>
+          row.status === "ISSUED" &&
+          !row.is_local_only &&
+          !isArchivedHouseholdRow(row),
+      );
 
   const areAllSelected =
     selectableRows.length > 0 &&
@@ -365,15 +385,23 @@ const StubResultsTable = ({
           </thead>
           <tbody>
             {rows.map((row) => {
+              const isArchivedRow = isArchivedHouseholdRow(row);
               const isSelectable =
-                !isClaimReadOnly && row.status === "ISSUED" && !row.is_local_only;
+                !isClaimReadOnly &&
+                row.status === "ISSUED" &&
+                !row.is_local_only &&
+                !isArchivedRow;
               const isSelected = safeSelectedStubIds.includes(row.id);
 
               return (
-                <tr key={row.id}>
+                <tr
+                  key={row.id}
+                  style={isArchivedRow ? tableStyles.archivedRow : undefined}
+                >
                   <td
                     style={{
                       ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
                       textAlign: "center",
                       verticalAlign: "middle",
                     }}
@@ -383,9 +411,15 @@ const StubResultsTable = ({
                       checked={isSelected}
                       disabled={!isSelectable}
                       onChange={() => onToggleSelect(row.id)}
+                      style={isArchivedRow ? tableStyles.archivedCheckbox : undefined}
                     />
                   </td>
-                  <td style={tableStyles.bodyCell}>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
+                    }}
+                  >
                     <div style={tableStyles.familyHeadCell}>
                       <span>{row.household?.family_head_name || "-"}</span>
                       <SyncStatusIcon status={row.sync_status} />
@@ -394,22 +428,39 @@ const StubResultsTable = ({
                   <td
                     style={{
                       ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
                       textAlign: "center",
                     }}
                   >
-                    <span style={tableStyles.membersBadge}>
+                    <span
+                      style={{
+                        ...tableStyles.membersBadge,
+                        ...(isArchivedRow ? tableStyles.archivedMembersBadge : {}),
+                      }}
+                    >
                       {row.household?.members_count || 0}
                     </span>
                   </td>
-                  <td style={tableStyles.bodyCell}>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
+                    }}
+                  >
                     {formatOrderedSectorText(row.sectors_text)}
                   </td>
-                  <td style={tableStyles.bodyCell}>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
+                    }}
+                  >
                     {getReliefPackDisplay(row)}
                   </td>
                   <td
                     style={{
                       ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
                       textAlign: "center",
                     }}
                   >
@@ -420,6 +471,7 @@ const StubResultsTable = ({
                   <td
                     style={{
                       ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
                       textAlign: "center",
                     }}
                   >
@@ -433,6 +485,7 @@ const StubResultsTable = ({
                   <td
                     style={{
                       ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
                       textAlign: "center",
                       verticalAlign: "middle",
                     }}
@@ -449,13 +502,22 @@ const StubResultsTable = ({
                       <button
                         type="button"
                         onClick={() => onClaimStub(row.id)}
-                        disabled={claimingStubId === row.id}
-                        title="Mark as Claimed"
+                        disabled={claimingStubId === row.id || isArchivedRow}
+                        title={
+                          isArchivedRow
+                            ? "Archived households cannot receive a new relief distribution"
+                            : "Mark as Claimed"
+                        }
                         style={{
                           ...tableStyles.statusButton,
-                          opacity: claimingStubId === row.id ? 0.7 : 1,
+                          opacity:
+                            claimingStubId === row.id || isArchivedRow ? 0.55 : 1,
                           cursor:
-                            claimingStubId === row.id ? "wait" : "pointer",
+                            claimingStubId === row.id
+                              ? "wait"
+                              : isArchivedRow
+                                ? "not-allowed"
+                                : "pointer",
                         }}
                       >
                         <FaHandHolding size={18} />

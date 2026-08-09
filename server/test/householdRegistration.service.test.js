@@ -583,3 +583,253 @@ test("H04-12/H04-13 sync registration uses supplied transaction client for lock,
     harness.restore();
   }
 });
+
+test("restoreHousehold re-admits the same household and creates new evacuation logs", async () => {
+  const events = [];
+  const fakeClient = {
+    query: async (query) => {
+      events.push(String(query).trim());
+      return { rows: [] };
+    },
+    release: () => {
+      events.push("RELEASE");
+    },
+  };
+  const householdState = {
+    id: "household-archived",
+    disaster_event_id: "event-1",
+    barangay_id: "barangay-1",
+    evacuation_center_id: "center-1",
+    residency_status: "RESIDENT",
+    family_head_first_name: "HOSHI",
+    family_head_last_name: "KWON",
+    current_stay_type: "EVAC_CENTER",
+    current_address_details: "Purok 1",
+    contact_number: "09170000000",
+    household_size: 2,
+    is_active: false,
+    registered_by: "user-1",
+    family_head_evacuee_id: "head-1",
+  };
+  const evacuees = [
+    {
+      id: "head-1",
+      household_id: "household-archived",
+      first_name: "HOSHI",
+      last_name: "KWON",
+      age_value: 24,
+      age_unit: "YEARS",
+      sex: "MALE",
+      relationship_to_head: "HEAD",
+      is_family_head: true,
+    },
+    {
+      id: "member-1",
+      household_id: "household-archived",
+      first_name: "WOOZI",
+      last_name: "LEE",
+      age_value: 23,
+      age_unit: "YEARS",
+      sex: "MALE",
+      relationship_to_head: "BROTHER",
+      is_family_head: false,
+    },
+  ];
+  let latestAttendance = {
+    id: "old-log",
+    household_id: "household-archived",
+    evacuee_id: "head-1",
+    status: "LEFT",
+    time_in: "2026-08-09T09:43:50.100Z",
+    time_out: "2026-08-09T09:44:14.448Z",
+    evacuation_center_id: "center-1",
+  };
+  let insertedLogCount = 0;
+
+  const harness = loadServiceWithMocks(
+    {
+      getHouseholdSummaryById: async () => ({ ...householdState }),
+      getEvacueesByHouseholdId: async () => evacuees,
+      getEvacueeSectorAssignmentsByHouseholdId: async () => [],
+      getHouseholdSectorAssignmentsByHouseholdId: async () => [],
+      getStubByHouseholdId: async () => ({
+        id: "stub-1",
+        household_id: "household-archived",
+      }),
+      getLatestAttendanceByHouseholdId: async () => latestAttendance,
+      getLatestDistributionTransactionByStubId: async () => null,
+      getLatestHouseholdPrivacyConsentByHouseholdId: async () => ({
+        id: "privacy-1",
+        consent_status: "ACKNOWLEDGED",
+        notice_version: "v1",
+        acknowledged_at: "2026-08-04T03:32:00.000Z",
+      }),
+      getActiveEvacuationLogsByHouseholdId: async () => [],
+      getEvacuationCenterById: async () => ({
+        id: "center-1",
+        barangay_id: "barangay-1",
+        is_active: true,
+      }),
+      restoreHousehold: async (_householdId, dbClient) => {
+        events.push(`RESTORE:${dbClient === fakeClient}`);
+        householdState.is_active = true;
+        return { ...householdState };
+      },
+      reactivateEvacueesByHouseholdId: async (_householdId, dbClient) => {
+        events.push(`REACTIVATE:${dbClient === fakeClient}`);
+        return evacuees;
+      },
+      updateHousehold: async (_householdId, payload, dbClient) => {
+        events.push(`UPDATE_HOUSEHOLD:${dbClient === fakeClient}`);
+        householdState.evacuation_center_id = payload.evacuation_center_id;
+        householdState.current_stay_type = payload.current_stay_type;
+        return { ...householdState };
+      },
+      insertEvacuationLog: async (payload, dbClient) => {
+        insertedLogCount += 1;
+        events.push(`INSERT_LOG:${payload.evacuee_id}:${dbClient === fakeClient}`);
+        const createdLog = {
+          id: `log-${insertedLogCount}`,
+          household_id: payload.household_id,
+          evacuee_id: payload.evacuee_id,
+          evacuation_center_id: payload.evacuation_center_id,
+          status: payload.status,
+          time_in: `2026-08-09T11:3${insertedLogCount}:00.000Z`,
+          time_out: null,
+        };
+
+        if (payload.evacuee_id === "head-1") {
+          latestAttendance = createdLog;
+        }
+
+        return createdLog;
+      },
+      insertHousehold: async () => {
+        throw new Error("insertHousehold should not be called during re-admission");
+      },
+      insertEvacuee: async () => {
+        throw new Error("insertEvacuee should not be called during re-admission");
+      },
+      insertHouseholdPrivacyConsent: async () => {
+        throw new Error("insertHouseholdPrivacyConsent should not be called during re-admission");
+      },
+    },
+    {
+      connect: async () => fakeClient,
+    },
+  );
+
+  try {
+    const result = await harness.service.restoreHousehold({
+      householdId: "household-archived",
+      requester: {
+        userId: "user-1",
+        roleCode: "BARANGAY",
+        defaultBarangayId: "barangay-1",
+      },
+      restoreData: {
+        restore_mode: "RETURN_TO_EVAC_CENTER",
+      },
+    });
+
+    assert.equal(result.household_id, "household-archived");
+    assert.equal(result.source_household_id, "household-archived");
+    assert.equal(result.status, "ACTIVE");
+    assert.equal(result.household.id, "household-archived");
+    assert.equal(result.household.is_active, true);
+    assert.equal(insertedLogCount, 2);
+    assert.deepEqual(events, [
+      "BEGIN",
+      "RESTORE:true",
+      "REACTIVATE:true",
+      "UPDATE_HOUSEHOLD:true",
+      "INSERT_LOG:head-1:true",
+      "INSERT_LOG:member-1:true",
+      "COMMIT",
+      "RELEASE",
+    ]);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("restoreHousehold blocks a household with an existing open admission", async () => {
+  const harness = loadServiceWithMocks({
+    getHouseholdSummaryById: async () => ({
+      id: "household-active",
+      disaster_event_id: "event-1",
+      barangay_id: "barangay-1",
+      evacuation_center_id: "center-1",
+      residency_status: "RESIDENT",
+      family_head_first_name: "HOSHI",
+      family_head_last_name: "KWON",
+      current_stay_type: "EVAC_CENTER",
+      current_address_details: "Purok 1",
+      contact_number: "09170000000",
+      household_size: 2,
+      is_active: true,
+      registered_by: "user-1",
+      family_head_evacuee_id: "head-1",
+    }),
+    getEvacueesByHouseholdId: async () => [
+      {
+        id: "head-1",
+        household_id: "household-active",
+        first_name: "HOSHI",
+        last_name: "KWON",
+        is_family_head: true,
+      },
+    ],
+    getEvacueeSectorAssignmentsByHouseholdId: async () => [],
+    getHouseholdSectorAssignmentsByHouseholdId: async () => [],
+    getStubByHouseholdId: async () => null,
+    getLatestAttendanceByHouseholdId: async () => ({
+      id: "open-log",
+      status: "PRESENT",
+      time_in: "2026-08-09T11:00:00.000Z",
+      time_out: null,
+      evacuation_center_id: "center-1",
+    }),
+    getLatestDistributionTransactionByStubId: async () => null,
+    getLatestHouseholdPrivacyConsentByHouseholdId: async () => ({
+      id: "privacy-1",
+      consent_status: "ACKNOWLEDGED",
+      notice_version: "v1",
+      acknowledged_at: "2026-08-04T03:32:00.000Z",
+    }),
+    getActiveEvacuationLogsByHouseholdId: async () => [
+      {
+        id: "open-log",
+        status: "PRESENT",
+        time_in: "2026-08-09T11:00:00.000Z",
+        time_out: null,
+      },
+    ],
+    restoreHousehold: async () => {
+      throw new Error("restoreHousehold should not be called when admission is open");
+    },
+  });
+
+  try {
+    await assert.rejects(
+      harness.service.restoreHousehold({
+        householdId: "household-active",
+        requester: {
+          userId: "user-1",
+          roleCode: "BARANGAY",
+          defaultBarangayId: "barangay-1",
+        },
+        restoreData: {
+          restore_mode: "RETURN_TO_EVAC_CENTER",
+        },
+      }),
+      (error) => {
+        assert.equal(error.statusCode, 400);
+        assert.match(error.message, /already admitted/i);
+        return true;
+      },
+    );
+  } finally {
+    harness.restore();
+  }
+});

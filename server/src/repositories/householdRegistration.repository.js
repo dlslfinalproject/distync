@@ -1201,12 +1201,14 @@ const getHouseholdSummaryById = async (id, dbClient = pool) => {
       h.registered_at,
       h.updated_at,
       h.family_head_evacuee_id,
+      CONCAT_WS(' ', registered_by_user.first_name, registered_by_user.last_name) AS registered_by_name,
       b.code AS barangay_code,
       b.name AS barangay_name,
       de.event_code,
       de.title AS disaster_event_title
     FROM households h
     LEFT JOIN barangays b ON b.id = h.barangay_id
+    LEFT JOIN users registered_by_user ON registered_by_user.id = h.registered_by
     INNER JOIN disaster_events de ON de.id = h.disaster_event_id
     WHERE h.id = $1
   `;

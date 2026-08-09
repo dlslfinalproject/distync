@@ -204,6 +204,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     restrictNonResidentToEvacCenter: true,
     scopeNonResidentEvacuationCentersToBarangay: true,
     registeredBy: authenticatedUser?.id || null,
+    localHouseholdDuplicateCandidates: displayedRows,
     onSuccess: (response) => {
       setRegistrationSuccessMessage(
         response?.message || "Household registered successfully",
@@ -832,7 +833,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
       });
 
       setRegistrationSuccessMessage(
-        response.message || "Household return recorded successfully",
+        response.message || "Household re-admitted successfully",
       );
       setPendingRestoreHouseholdId("");
       setPendingRestoreHouseholdDetails(null);
@@ -840,7 +841,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
       reloadMasterlist();
     } catch (error) {
       setAttendanceActionMessage(
-        error.message || "Failed to record household return",
+        error.message || "Failed to re-admit household",
       );
     } finally {
       setIsRestoringHousehold(false);

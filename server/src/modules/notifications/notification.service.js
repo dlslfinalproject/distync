@@ -41,6 +41,10 @@ const MAINTENANCE_SCAN_INTERVAL_MS = Number.parseInt(
 const EMAIL_NOTIFICATION_MAX_ATTEMPTS = Math.max(1, Number.parseInt(process.env.EMAIL_NOTIFICATION_MAX_ATTEMPTS || "3", 10) || 3);
 const EMAIL_NOTIFICATION_RETRY_BASE_SECONDS = Math.max(60, Number.parseInt(process.env.EMAIL_NOTIFICATION_RETRY_BASE_SECONDS || "900", 10) || 900);
 const EMAIL_DELIVERY_STALE_AFTER_SECONDS = 15 * 60;
+const NOTIFICATION_OUTBOX_BATCH_SIZE = Math.max(
+  1,
+  Number.parseInt(process.env.NOTIFICATION_OUTBOX_BATCH_SIZE || "25", 10) || 25,
+);
 
 const DEFAULT_NOTIFICATION_RULES = NOTIFICATION_RULE_TARGETS.map((rule) => ({
   code: rule.code,
@@ -566,6 +570,7 @@ const createPersistentNotification = async ({
   severity: _producerSeverity = "INFO",
   reference_type = null,
   reference_id = null,
+  source_event_key = null,
   metadata = {},
   dedupeHours = DEDUPE_LOOKBACK_HOURS,
 }) => {
@@ -653,7 +658,11 @@ const createPersistentNotification = async ({
       ? inAppRecipientIds
       : emailRecipients.map((plan) => plan.userId);
   const existingNotification =
-    dedupeRecipientIds.length > 0
+    source_event_key
+      ? await notificationRepository.findNotificationBySourceEventKey(
+          source_event_key,
+        )
+      : dedupeRecipientIds.length > 0
       ? await notificationRepository.findRecentNotificationMatchForUsers(
           {
             type,
@@ -681,8 +690,15 @@ const createPersistentNotification = async ({
     severity,
     reference_type,
     reference_id,
+    source_event_key,
     metadata_json: safeMetadata,
   });
+
+  if (!createdNotification) {
+    return notificationRepository.findNotificationBySourceEventKey(
+      source_event_key,
+    );
+  }
 
   if (inAppRecipientIds.length > 0) {
     await notificationRepository.insertNotificationRecipients(
@@ -781,6 +797,7 @@ const createNotificationForRecipientGroups = async ({
   severity = "INFO",
   reference_type = null,
   reference_id = null,
+  source_event_key = null,
   dedupeHours = DEDUPE_LOOKBACK_HOURS,
   summaryMetadata = {},
   metadata = {},
@@ -836,6 +853,7 @@ const createNotificationForRecipientGroups = async ({
     severity,
     reference_type,
     reference_id,
+    source_event_key,
     dedupeHours,
     metadata: { ...summaryMetadata, ...metadata },
   });
@@ -904,6 +922,7 @@ const createNotificationForUsers = async ({
   severity = "INFO",
   reference_type = null,
   reference_id = null,
+  source_event_key = null,
   dedupeHours = DEDUPE_LOOKBACK_HOURS,
   metadata = {},
 }) =>
@@ -917,6 +936,7 @@ const createNotificationForUsers = async ({
     severity,
     reference_type,
     reference_id,
+    source_event_key,
     dedupeHours,
     metadata,
   });
@@ -1555,6 +1575,10 @@ const emitSyncTransactionFailureAlert = async (syncTransaction) => {
     return null;
   }
 
+  if (syncTransaction.sync_status && syncTransaction.sync_status !== "FAILED") {
+    return null;
+  }
+
   const recipientRoleCodes =
     await resolveSyncFailureRecipientRoleCodes(syncTransaction);
 
@@ -1579,6 +1603,7 @@ const emitSyncTransactionFailureAlert = async (syncTransaction) => {
     severity: "WARNING",
     reference_type: "SYNC_TRANSACTION",
     reference_id: syncTransaction.id,
+    source_event_key: `SYNC_FAILURE:${syncTransaction.id}`,
     metadata: { syncTransactionId: syncTransaction.id, operationType: syncTransaction.operation_type, entityType: syncTransaction.entity_type },
   });
 };
@@ -1605,8 +1630,100 @@ const emitSyncConflictAlert = async (syncConflict) => {
     severity: "CRITICAL",
     reference_type: "SYNC_CONFLICT",
     reference_id: syncConflict.id,
+    source_event_key: `SYNC_CONFLICT:${syncConflict.id}`,
     metadata: { conflictId: syncConflict.id, entityType: syncConflict.entity_type },
   });
+};
+
+const ensureSyncNotificationIntent = async (
+  { eventType, sourceType, sourceId },
+  dbClient = undefined,
+) => {
+  if (!eventType || !sourceType || !sourceId) {
+    return null;
+  }
+
+  return notificationRepository.ensureNotificationOutboxEvent(
+    { eventType, sourceType, sourceId },
+    dbClient,
+  );
+};
+
+const materializeNotificationOutboxEvent = async (event) => {
+  if (!event?.id) {
+    return null;
+  }
+
+  if (
+    event.event_type === "SYNC_FAILURE" &&
+    event.source_type === "SYNC_TRANSACTION"
+  ) {
+    const syncTransaction =
+      await notificationRepository.getSyncTransactionNotificationSourceById(
+        event.source_id,
+      );
+    return emitSyncTransactionFailureAlert(syncTransaction);
+  }
+
+  if (
+    event.event_type === "SYNC_CONFLICT" &&
+    event.source_type === "SYNC_CONFLICT"
+  ) {
+    const syncConflict =
+      await notificationRepository.getSyncConflictNotificationSourceById(
+        event.source_id,
+      );
+    return emitSyncConflictAlert(syncConflict);
+  }
+
+  return null;
+};
+
+const processNotificationOutboxEventById = async (id) => {
+  const claimedEvent =
+    await notificationRepository.claimNotificationOutboxEventById(id);
+
+  if (!claimedEvent) {
+    return null;
+  }
+
+  try {
+    const notification = await materializeNotificationOutboxEvent(claimedEvent);
+    await notificationRepository.markNotificationOutboxEventProcessed(
+      claimedEvent.id,
+    );
+    return notification;
+  } catch (error) {
+    await notificationRepository.markNotificationOutboxEventFailed({
+      id: claimedEvent.id,
+      errorMessage: error.message,
+    });
+    throw error;
+  }
+};
+
+const processPendingNotificationOutboxEvents = async (
+  limit = NOTIFICATION_OUTBOX_BATCH_SIZE,
+) => {
+  const claimedEvents =
+    await notificationRepository.claimPendingNotificationOutboxEvents(limit);
+  const results = [];
+
+  for (const event of claimedEvents) {
+    try {
+      const notification = await materializeNotificationOutboxEvent(event);
+      await notificationRepository.markNotificationOutboxEventProcessed(event.id);
+      results.push({ eventId: event.id, status: "PROCESSED", notification });
+    } catch (error) {
+      await notificationRepository.markNotificationOutboxEventFailed({
+        id: event.id,
+        errorMessage: error.message,
+      });
+      results.push({ eventId: event.id, status: "FAILED", error });
+    }
+  }
+
+  return results;
 };
 
 const seedNotificationRules = async () => {
@@ -1916,11 +2033,25 @@ const scanSyncNotifications = async () => {
   ]);
 
   for (const syncTransaction of failedSyncTransactions) {
-    await emitSyncTransactionFailureAlert(syncTransaction);
+    const event = await ensureSyncNotificationIntent({
+      eventType: "SYNC_FAILURE",
+      sourceType: "SYNC_TRANSACTION",
+      sourceId: syncTransaction.id,
+    });
+    if (event?.id) {
+      await processNotificationOutboxEventById(event.id);
+    }
   }
 
   for (const syncConflict of openSyncConflicts) {
-    await emitSyncConflictAlert(syncConflict);
+    const event = await ensureSyncNotificationIntent({
+      eventType: "SYNC_CONFLICT",
+      sourceType: "SYNC_CONFLICT",
+      sourceId: syncConflict.id,
+    });
+    if (event?.id) {
+      await processNotificationOutboxEventById(event.id);
+    }
   }
 };
 
@@ -1928,6 +2059,7 @@ const runNotificationMaintenanceScans = async () => {
   await seedNotificationRules();
   await generateDueEvacuationSummaryReports();
   await scanExpiryNotifications();
+  await processPendingNotificationOutboxEvents();
   await scanSyncNotifications();
   await flushSummaryNotifications();
   await retryNotificationEmailDeliveries();
@@ -1952,6 +2084,7 @@ const initializeNotificationInfrastructure = async () => {
 
   await generateDueEvacuationSummaryReports();
   await scanExpiryNotifications();
+  await processPendingNotificationOutboxEvents();
   await scanSyncNotifications();
   await flushSummaryNotifications();
   await retryNotificationEmailDeliveries();
@@ -2143,6 +2276,9 @@ module.exports = {
   emitEvacueeAttendanceUpdate,
   emitSyncTransactionFailureAlert,
   emitSyncConflictAlert,
+  ensureSyncNotificationIntent,
+  processNotificationOutboxEventById,
+  processPendingNotificationOutboxEvents,
   seedNotificationRules,
   scanExpiryNotifications,
   scanSyncNotifications,

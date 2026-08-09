@@ -204,7 +204,7 @@ test("H05-04 non-claimed invalid stub status remains a non-conflict validation e
       await assert.rejects(
         () => claimDistributionTransactionFromQr(baseRequest),
         (error) => {
-          assert.equal(error.code, undefined);
+          assert.equal(error.code, "STUB_NOT_CLAIMABLE");
           assert.equal(error.statusCode, 400);
           assert.equal(error.message, "Stub is not claimable");
           return true;
