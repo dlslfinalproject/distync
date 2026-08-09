@@ -5,6 +5,11 @@ const inventoryItemRepository = require("../repositories/inventoryItem.repositor
 const mayorReportExport = require("../utils/mayorReportExport");
 const notificationService = require("../modules/notifications/notification.service");
 const { logAuditSafely, pickDefined } = require("../utils/systemLog");
+const {
+  createDuplicateInventoryTransactionReferenceError,
+  isValidInventoryTransactionReferenceNo,
+  normalizeInventoryTransactionReferenceNo,
+} = require("../utils/inventoryTransactionReference");
 
 const additiveTransactionTypes = new Set(["INFLOW", "RETURN", "ADJUSTMENT"]);
 const subtractiveTransactionTypes = new Set([
@@ -96,6 +101,8 @@ const mapInventoryTransaction = (transaction) => {
     quantity: transaction.quantity,
     reference_type: transaction.reference_type,
     reference_id: transaction.reference_id,
+    inventory_transaction_reference_no:
+      transaction.inventory_transaction_reference_no,
     performed_by: transaction.performed_by,
     performed_at: transaction.performed_at,
     remarks: transaction.remarks,
@@ -162,6 +169,7 @@ const summarizeInventoryTransaction = (transaction) =>
     "quantity",
     "reference_type",
     "reference_id",
+    "inventory_transaction_reference_no",
     "performed_by",
     "performed_at",
     "remarks",
@@ -187,6 +195,31 @@ const getInventoryTransactionById = async (id) => {
 
 const createInventoryTransaction = async (transactionData) => {
   const externalClient = transactionData.dbClient || null;
+  const normalizedReferenceNo = normalizeInventoryTransactionReferenceNo(
+    transactionData.inventoryTransactionReferenceNo ??
+      transactionData.inventory_transaction_reference_no,
+  );
+  const isTrustedSourceGenerated =
+    transactionData.trustedSourceGenerated === true;
+
+  if (!isTrustedSourceGenerated) {
+    if (!normalizedReferenceNo) {
+      const error = new Error(
+        "Inventory Transaction Reference No. is required for manual inventory transactions.",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (!isValidInventoryTransactionReferenceNo(normalizedReferenceNo)) {
+      const error = new Error(
+        "Inventory Transaction Reference No. must use ITR-YYYY-NNNNNN and cannot end in 000000.",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+
   if (transactionData.disaster_event_id) {
     const disasterEvent = await inventoryTransactionRepository.getDisasterEventById(
       transactionData.disaster_event_id,
@@ -323,9 +356,22 @@ const createInventoryTransaction = async (transactionData) => {
         {
           ...transactionData,
           inventory_batch_id: inventoryBatch.id,
+          inventory_transaction_reference_no: normalizedReferenceNo,
         },
         client,
       );
+
+    if (!createdTransaction && normalizedReferenceNo) {
+      const existingTransaction =
+        await inventoryTransactionRepository.getInventoryTransactionByReferenceNo(
+          normalizedReferenceNo,
+          client,
+        );
+
+      throw createDuplicateInventoryTransactionReferenceError(
+        summarizeInventoryTransaction(existingTransaction),
+      );
+    }
 
     await inventoryTransactionRepository.updateInventoryBatchQuantityAndStatus(
       inventoryBatch.id,
@@ -417,6 +463,8 @@ const createInventoryTransaction = async (transactionData) => {
 
     return {
       transaction_id: createdTransaction.id,
+      inventory_transaction_reference_no:
+        createdTransaction.inventory_transaction_reference_no || null,
       inventory_batch_id: createdTransaction.inventory_batch_id,
       transaction_type: createdTransaction.transaction_type,
       quantity: createdTransaction.quantity,
@@ -440,6 +488,8 @@ const exportInventoryTransactions = async (filters, format) => {
   const rows = transactions.map((transaction) => ({
     transaction_type: transaction.transaction_type || "--",
     quantity: transaction.quantity ?? 0,
+    inventory_transaction_reference_no:
+      transaction.inventory_transaction_reference_no || "--",
     reference_type: transaction.reference_type || "--",
     performed_by: transaction.performer?.full_name || "--",
     performed_at: mayorReportExport.formatDateTime(transaction.performed_at),
@@ -458,6 +508,7 @@ const exportInventoryTransactions = async (filters, format) => {
     columns: [
       { key: "transaction_type", label: "Transaction Type", width: 20, pdfWidth: 95 },
       { key: "quantity", label: "Quantity", width: 12, pdfWidth: 55 },
+      { key: "inventory_transaction_reference_no", label: "ITR No.", width: 18, pdfWidth: 85 },
       { key: "reference_type", label: "Reference Type", width: 18, pdfWidth: 90 },
       { key: "performed_by", label: "Performed By", width: 24, pdfWidth: 120 },
       { key: "performed_at", label: "Performed At", width: 22, pdfWidth: 95 },

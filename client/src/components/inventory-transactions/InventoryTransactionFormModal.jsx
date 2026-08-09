@@ -54,18 +54,11 @@ const transactionTypes = [
   "RETURN",
 ];
 
-const referenceTypes = [
-  "MANUAL",
-  "BARCODE_SCAN",
-  "DISTRIBUTION",
-  "SYNC",
-  "SYSTEM",
-];
-
 const createDefaultForm = () => ({
   inventory_batch_id: "",
   transaction_type: "OUTFLOW",
   quantity: 1,
+  inventoryTransactionReferenceNo: "",
   reference_type: "MANUAL",
   remarks: "",
 });
@@ -107,7 +100,9 @@ const InventoryTransactionFormModal = ({
       inventory_batch_id: formValues.inventory_batch_id,
       transaction_type: formValues.transaction_type,
       quantity: Number.parseInt(formValues.quantity, 10),
-      reference_type: formValues.reference_type,
+      inventoryTransactionReferenceNo:
+        formValues.inventoryTransactionReferenceNo.trim().toUpperCase(),
+      reference_type: "MANUAL",
       reference_id: null,
       performed_by: null,
       remarks: formValues.remarks.trim() || null,
@@ -215,23 +210,24 @@ const InventoryTransactionFormModal = ({
             </div>
 
             <div style={{ gridColumn: "1 / -1" }}>
-              <label htmlFor="reference_type" style={labelStyles}>
-                Reference Type
+              <label htmlFor="inventory_transaction_reference_no" style={labelStyles}>
+                Inventory Transaction Reference No.
               </label>
-              <select
-                id="reference_type"
-                value={formValues.reference_type}
+              <input
+                id="inventory_transaction_reference_no"
+                type="text"
+                value={formValues.inventoryTransactionReferenceNo}
                 onChange={(event) =>
-                  handleChange("reference_type", event.target.value)
+                  handleChange(
+                    "inventoryTransactionReferenceNo",
+                    event.target.value.toUpperCase(),
+                  )
                 }
                 style={inputStyles}
-              >
-                {referenceTypes.map((referenceType) => (
-                  <option key={referenceType} value={referenceType}>
-                    {referenceType}
-                  </option>
-                ))}
-              </select>
+                placeholder="ITR-2026-000123"
+                maxLength={15}
+                required
+              />
             </div>
 
             <div style={{ gridColumn: "1 / -1" }}>

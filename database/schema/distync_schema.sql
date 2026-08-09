@@ -465,6 +465,7 @@ CREATE TABLE public.inventory_transactions (
   quantity integer NOT NULL CHECK (quantity >= 0),
   reference_type character varying NOT NULL DEFAULT 'MANUAL'::character varying CHECK (reference_type::text = ANY (ARRAY['MANUAL'::character varying, 'BARCODE_SCAN'::character varying, 'QR_SCAN'::character varying, 'DISTRIBUTION'::character varying, 'DONATION'::character varying, 'PROOF_OF_RECEIPT'::character varying, 'SYNC'::character varying, 'SYSTEM'::character varying]::text[])),
   reference_id uuid,
+  inventory_transaction_reference_no character varying(15) CHECK (inventory_transaction_reference_no IS NULL OR (inventory_transaction_reference_no::text ~ '^ITR-[0-9]{4}-[0-9]{6}$'::text AND RIGHT(inventory_transaction_reference_no::text, 6) <> '000000'::text)),
   performed_by uuid,
   performed_at timestamp with time zone NOT NULL DEFAULT now(),
   remarks text,
@@ -474,6 +475,10 @@ CREATE TABLE public.inventory_transactions (
   CONSTRAINT inventory_transactions_inventory_batch_id_fkey FOREIGN KEY (inventory_batch_id) REFERENCES public.inventory_batches(id),
   CONSTRAINT inventory_transactions_performed_by_fkey FOREIGN KEY (performed_by) REFERENCES public.users(id)
 );
+
+CREATE UNIQUE INDEX inventory_transactions_reference_no_unique
+ON public.inventory_transactions (inventory_transaction_reference_no)
+WHERE inventory_transaction_reference_no IS NOT NULL;
 
 CREATE TABLE public.relief_pack_templates (
   id uuid NOT NULL DEFAULT gen_random_uuid(),

@@ -6,6 +6,10 @@ import {
   queueSyncEntry,
   updateSyncEntryStatus,
 } from "./syncQueue.js";
+import {
+  isValidInventoryTransactionReferenceNo,
+  normalizeInventoryTransactionReferenceNo,
+} from "../features/inventory-transactions/inventoryTransactionReference.js";
 
 const API_BASE_URL =
   import.meta.env?.VITE_API_BASE_URL || "http://localhost:5000";
@@ -55,6 +59,22 @@ const notifySyncListeners = () => {
   });
 };
 
+const isLegacyInventoryTransactionEntry = (entry) => {
+  if (
+    entry?.moduleName !== "mayor-inventory" ||
+    entry?.actionKey !== "INVENTORY_TRANSACTION_CREATE"
+  ) {
+    return false;
+  }
+
+  const referenceNo = normalizeInventoryTransactionReferenceNo(
+    entry.payload?.inventoryTransactionReferenceNo ||
+      entry.payload?.inventory_transaction_reference_no,
+  );
+
+  return !isValidInventoryTransactionReferenceNo(referenceNo);
+};
+
 const emitSyncFeedbackEvent = (detail) => {
   if (typeof window !== "undefined") {
     window.dispatchEvent(
@@ -89,6 +109,32 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
     return;
   }
 
+  const legacyInventoryEntries = queuedEntries.filter(
+    isLegacyInventoryTransactionEntry,
+  );
+  const entriesToSync = queuedEntries.filter(
+    (entry) => !isLegacyInventoryTransactionEntry(entry),
+  );
+
+  for (const entry of legacyInventoryEntries) {
+    await updateSyncEntryStatus(entry.id, {
+      status: LOCAL_SYNC_STATUS.FAILED,
+      lastError:
+        "Legacy pre-ITR inventory transaction. Keep this entry for reconciliation, assign a real official ITR to the written transaction, then re-enter it under the new process.",
+      serverMessage:
+        "Legacy pre-ITR inventory transaction requires reconciliation and re-entry with an official ITR.",
+    });
+  }
+
+  if (entriesToSync.length === 0) {
+    emitSyncFeedbackEvent({
+      type: "failed",
+      message:
+        "Legacy pre-ITR inventory transactions require reconciliation before syncing.",
+    });
+    return;
+  }
+
   isSyncInFlight = true;
   notifySyncListeners();
 
@@ -99,7 +145,7 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        entries: queuedEntries.map((entry) => ({
+        entries: entriesToSync.map((entry) => ({
           client_sync_id: entry.id,
           action_key: entry.actionKey,
           entity_type: entry.entityType,
@@ -170,7 +216,7 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
             : "Offline changes synced successfully.",
     });
   } catch (error) {
-    for (const entry of queuedEntries) {
+    for (const entry of entriesToSync) {
       await updateSyncEntryStatus(entry.id, {
         status: LOCAL_SYNC_STATUS.FAILED,
         lastError: error.message || "Sync failed.",

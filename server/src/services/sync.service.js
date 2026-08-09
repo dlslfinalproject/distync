@@ -12,6 +12,9 @@ const stubService = require("./stub.service");
 const notificationService = require("../modules/notifications/notification.service");
 const { ROLE_CODES } = require("../modules/auth/auth.middleware");
 const { logAuditSafely, logErrorSafely, pickDefined } = require("../utils/systemLog");
+const {
+  DUPLICATE_INVENTORY_TRANSACTION_REFERENCE_NO,
+} = require("../utils/inventoryTransactionReference");
 
 const SYNC_STATUS = {
   PENDING: "PENDING",
@@ -245,6 +248,8 @@ const ACTION_HANDLERS = {
     execute: async ({ payload, auth, dbClient }) =>
       inventoryTransactionService.createInventoryTransaction({
         ...payload,
+        reference_type: "MANUAL",
+        reference_id: null,
         performed_by: auth.userId,
         dbClient,
       }),
@@ -645,11 +650,14 @@ const processSingleSyncEntry = async (entry, auth) => {
     const isDuplicateConflict =
       error.code === "DUPLICATE_HOUSEHOLD_REGISTRATION" ||
       error.code === "DUPLICATE_HOUSEHOLD_DEPARTURE" ||
-      error.code === "STUB_ALREADY_CLAIMED";
+      error.code === "STUB_ALREADY_CLAIMED" ||
+      error.code === DUPLICATE_INVENTORY_TRANSACTION_REFERENCE_NO;
 
     if (isDuplicateConflict) {
       const serverTimestamp = new Date().toISOString();
       const entityServerId = entry.entity_server_id || error.entityServerId || null;
+      const isInventoryItrDuplicate =
+        error.code === DUPLICATE_INVENTORY_TRANSACTION_REFERENCE_NO;
 
       try {
         const {
@@ -677,10 +685,9 @@ const processSingleSyncEntry = async (entry, auth) => {
               resolved_payload_json: {
                 winner: "SERVER",
                 reason: error.message,
-                local_payload: entry.payload,
-                server_payload: error.serverPayload || {},
+                authoritative_payload: error.serverPayload || {},
               },
-              resolved_by: auth.userId,
+              resolved_by: isInventoryItrDuplicate ? null : auth.userId,
               resolved_at: serverTimestamp,
               status: CONFLICT_STATUS.RESOLVED,
             },

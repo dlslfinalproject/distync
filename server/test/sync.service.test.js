@@ -1336,6 +1336,91 @@ test("H05-13 different client_sync_id QR duplicate claim becomes CONFLICT with F
   );
 });
 
+test("ITR duplicate with different client_sync_id becomes resolved FIRST_ACCEPTED conflict", async () => {
+  let conflictPayload;
+  let transactionPayload;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayload = payload.conflictPayload;
+          transactionPayload = payload.transactionPayload;
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: "conflict-itr",
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [inventoryTransactionServicePath]: {
+        createInventoryTransaction: async () => {
+          const error = new Error(
+            "This Inventory Transaction Reference No. has already been recorded. Check the written inventory transaction before trying again.",
+          );
+          error.code = "DUPLICATE_INVENTORY_TRANSACTION_REFERENCE_NO";
+          error.statusCode = 409;
+          error.entityServerId = "33333333-3333-4333-8333-333333333333";
+          error.serverPayload = {
+            id: "33333333-3333-4333-8333-333333333333",
+            inventory_transaction_reference_no: "ITR-2026-000123",
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MAYOR",
+        },
+        entries: [
+          {
+            client_sync_id: "itr-b",
+            action_key: "INVENTORY_TRANSACTION_CREATE",
+            entity_type: "INVENTORY_TRANSACTION",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              inventory_batch_id: "11111111-1111-4111-8111-111111111111",
+              transaction_type: "OUTFLOW",
+              quantity: 1,
+              inventoryTransactionReferenceNo: "ITR-2026-000123",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(transactionPayload.sync_status, "CONFLICT");
+      assert.equal(
+        transactionPayload.entity_server_id,
+        "33333333-3333-4333-8333-333333333333",
+      );
+      assert.equal(
+        conflictPayload.conflict_type,
+        "DUPLICATE_INVENTORY_TRANSACTION_REFERENCE_NO",
+      );
+      assert.equal(conflictPayload.resolution_strategy, "FIRST_ACCEPTED");
+      assert.equal(conflictPayload.status, "RESOLVED");
+      assert.equal(conflictPayload.resolved_by, null);
+      assert.equal(conflictPayload.resolved_payload_json.winner, "SERVER");
+    },
+  );
+});
+
 test("H05-09 generic 409 without canonical duplicate code remains FAILED", async () => {
   let conflictWrites = 0;
   const updates = [];

@@ -9,6 +9,7 @@ const baseSelectQuery = `
     it.quantity,
     it.reference_type,
     it.reference_id,
+    it.inventory_transaction_reference_no,
     it.performed_by,
     it.performed_at,
     it.remarks,
@@ -97,7 +98,7 @@ const getInventoryTransactions = async (filters) => {
   if (filters.search) {
     values.push(`%${filters.search}%`);
     conditions.push(
-      `(ib.batch_no ILIKE $${values.length} OR ii.item_name ILIKE $${values.length} OR ii.item_code ILIKE $${values.length} OR it.remarks ILIKE $${values.length})`,
+      `(ib.batch_no ILIKE $${values.length} OR ii.item_name ILIKE $${values.length} OR ii.item_code ILIKE $${values.length} OR it.remarks ILIKE $${values.length} OR it.inventory_transaction_reference_no ILIKE $${values.length})`,
     );
   }
 
@@ -121,6 +122,20 @@ const getInventoryTransactionById = async (id) => {
   `;
 
   const result = await pool.query(query, [id]);
+  return result.rows[0] || null;
+};
+
+const getInventoryTransactionByReferenceNo = async (
+  inventoryTransactionReferenceNo,
+  dbClient = pool,
+) => {
+  const query = `
+    ${baseSelectQuery}
+    WHERE it.inventory_transaction_reference_no = $1
+    LIMIT 1
+  `;
+
+  const result = await dbClient.query(query, [inventoryTransactionReferenceNo]);
   return result.rows[0] || null;
 };
 
@@ -259,14 +274,18 @@ const insertInventoryTransaction = async (transactionData, dbClient) => {
       quantity,
       reference_type,
       reference_id,
+      inventory_transaction_reference_no,
       performed_by,
       performed_at,
       remarks,
       created_at
     )
     VALUES (
-      $1, $2, $3, $4, $5, $6, $7, NOW(), $8, NOW()
+      $1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9, NOW()
     )
+    ON CONFLICT (inventory_transaction_reference_no)
+    WHERE inventory_transaction_reference_no IS NOT NULL
+    DO NOTHING
     RETURNING
       id,
       disaster_event_id,
@@ -275,6 +294,7 @@ const insertInventoryTransaction = async (transactionData, dbClient) => {
       quantity,
       reference_type,
       reference_id,
+      inventory_transaction_reference_no,
       performed_by,
       performed_at,
       remarks,
@@ -288,6 +308,7 @@ const insertInventoryTransaction = async (transactionData, dbClient) => {
     transactionData.quantity,
     transactionData.reference_type,
     transactionData.reference_id,
+    transactionData.inventory_transaction_reference_no || null,
     transactionData.performed_by,
     transactionData.remarks,
   ];
@@ -325,6 +346,7 @@ const updateInventoryBatchQuantityAndStatus = async (
 module.exports = {
   getInventoryTransactions,
   getInventoryTransactionById,
+  getInventoryTransactionByReferenceNo,
   getInventoryBatchByIdForUpdate,
   getAvailableInventoryBatchesByItemIdForUpdate,
   getDistributableInventoryBatchesByItemIdForUpdate,
