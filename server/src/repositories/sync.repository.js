@@ -285,6 +285,8 @@ const insertSyncConflict = async (payload, dbClient = pool) => {
       local_payload_json,
       server_payload_json,
       resolution_strategy,
+      resolution_action,
+      resolution_reason,
       resolved_payload_json,
       resolved_by,
       resolved_at,
@@ -299,10 +301,12 @@ const insertSyncConflict = async (payload, dbClient = pool) => {
       $5::jsonb,
       $6::jsonb,
       $7,
-      $8::jsonb,
+      $8,
       $9,
-      $10,
+      $10::jsonb,
       $11,
+      $12,
+      $13,
       NOW()
     )
     RETURNING *
@@ -316,6 +320,8 @@ const insertSyncConflict = async (payload, dbClient = pool) => {
     JSON.stringify(payload.local_payload_json || {}),
     JSON.stringify(payload.server_payload_json || {}),
     payload.resolution_strategy,
+    payload.resolution_action || null,
+    payload.resolution_reason || null,
     payload.resolved_payload_json === null
       ? null
       : JSON.stringify(payload.resolved_payload_json || {}),
@@ -404,6 +410,92 @@ const getSyncConflictByIdForUser = async ({ id, userId }, dbClient = pool) => {
   `;
 
   const result = await dbClient.query(query, [id, userId]);
+  return result.rows[0] || null;
+};
+
+const getSyncConflictById = async ({ id }, dbClient = pool) => {
+  const query = `
+    SELECT
+      sc.*,
+      st.user_id,
+      st.entity_local_id,
+      st.sync_status,
+      st.error_message,
+      st.client_timestamp,
+      st.server_timestamp,
+      st.operation_type,
+      st.payload_json,
+      st.created_at AS sync_transaction_created_at,
+      st.updated_at AS sync_transaction_updated_at
+    FROM sync_conflicts sc
+    INNER JOIN sync_transactions st
+      ON st.id = sc.sync_transaction_id
+    WHERE sc.id = $1
+    LIMIT 1
+  `;
+
+  const result = await dbClient.query(query, [id]);
+  return result.rows[0] || null;
+};
+
+const lockSyncConflictById = async ({ id }, dbClient = pool) => {
+  const query = `
+    SELECT
+      sc.*,
+      st.user_id,
+      st.entity_local_id,
+      st.sync_status,
+      st.error_message,
+      st.client_timestamp,
+      st.server_timestamp,
+      st.operation_type,
+      st.payload_json,
+      st.created_at AS sync_transaction_created_at,
+      st.updated_at AS sync_transaction_updated_at
+    FROM sync_conflicts sc
+    INNER JOIN sync_transactions st
+      ON st.id = sc.sync_transaction_id
+    WHERE sc.id = $1
+    LIMIT 1
+    FOR UPDATE OF sc
+  `;
+
+  const result = await dbClient.query(query, [id]);
+  return result.rows[0] || null;
+};
+
+const markSyncConflictResolved = async (
+  {
+    conflictId,
+    resolutionAction,
+    resolutionReason = null,
+    resolvedPayloadJson = {},
+    resolvedBy,
+  },
+  dbClient = pool,
+) => {
+  const query = `
+    UPDATE sync_conflicts
+    SET
+      status = 'RESOLVED',
+      resolution_action = $2,
+      resolution_reason = $3,
+      resolved_payload_json = $4::jsonb,
+      resolved_by = $5,
+      resolved_at = NOW()
+    WHERE id = $1
+      AND status = 'OPEN'
+    RETURNING *
+  `;
+
+  const result = await dbClient.query(query, [
+    conflictId,
+    resolutionAction,
+    resolutionReason,
+    JSON.stringify(resolvedPayloadJson || {}),
+    resolvedBy,
+  ]);
+
   return result.rows[0] || null;
 };
 
@@ -553,12 +645,15 @@ module.exports = {
   claimSyncTransaction,
   updateSyncTransaction,
   insertSyncConflict,
+  getSyncConflictById,
   getConflictForSyncTransaction,
   recordConflictAndUpdateSyncTransaction,
   recordSyncFailureAndNotificationIntent,
   getSyncTransactionsByUser,
   getSyncConflictsByUser,
   getSyncConflictByIdForUser,
+  lockSyncConflictById,
+  markSyncConflictResolved,
   countOpenSyncConflictsByUser,
   getLastSuccessfulSyncAtByUser,
   withSyncProcessingTransaction,

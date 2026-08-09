@@ -25,6 +25,9 @@ const inventoryItemServicePath = require.resolve("../src/services/inventoryItem.
 const inventoryBatchServicePath = require.resolve("../src/services/inventoryBatch.service");
 const supplierServicePath = require.resolve("../src/services/supplier.service");
 const systemLogPath = require.resolve("../src/utils/systemLog");
+const systemLogRepositoryPath = require.resolve(
+  "../src/repositories/systemLog.repository",
+);
 const notificationServicePath = require.resolve(
   "../src/modules/notifications/notification.service",
 );
@@ -2062,5 +2065,201 @@ test("sync conflict strategy migration and schema use the canonical H-02 vocabul
   assert.doesNotMatch(
     schemaSql,
     /MANUAL_REVIEW_REQUIRED|EARLIEST_TIMESTAMP/,
+  );
+});
+
+test("M04-01 stock drift detail exposes only Mayor MARK_REVIEWED and KEEP_SERVER actions", async () => {
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncConflictByIdForUser: async ({ id, userId }) => ({
+          id,
+          sync_transaction_id: "sync-1",
+          user_id: userId,
+          entity_type: "INVENTORY_TRANSACTION",
+          entity_server_id: null,
+          conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+          local_payload_json: { payload: { quantity: 10 } },
+          server_payload_json: { quantityAvailable: 4, stockVersion: 2 },
+          resolution_strategy: "MANUAL_REVIEW",
+          resolved_payload_json: null,
+          resolved_by: null,
+          resolved_at: null,
+          status: "OPEN",
+          sync_status: "CONFLICT",
+          operation_type: "INVENTORY_ADJUSTMENT",
+        }),
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: (payload, keys) =>
+          keys.reduce((summary, key) => {
+            if (payload?.[key] !== undefined) summary[key] = payload[key];
+            return summary;
+          }, {}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail }) => {
+      const detail = await getSyncConflictDetail({
+        auth: {
+          userId: "mayor-1",
+          roleCode: "MAYOR",
+        },
+        conflictId: "conflict-stock-drift",
+      });
+
+      assert.deepEqual(detail.availableResolutionActions, [
+        "MARK_REVIEWED",
+        "KEEP_SERVER",
+      ]);
+    },
+  );
+});
+
+test("M04-02 KEEP_SERVER resolves stock drift without changing original sync status", async () => {
+  const auditRows = [];
+  const outboxEvents = [];
+  const processedEvents = [];
+  const baseConflict = {
+    id: "conflict-stock-drift",
+    sync_transaction_id: "sync-1",
+    user_id: "origin-user",
+    entity_type: "INVENTORY_TRANSACTION",
+    entity_server_id: null,
+    conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+    local_payload_json: { payload: { quantity: 10 } },
+    server_payload_json: { quantityAvailable: 4, stockVersion: 2 },
+    resolution_strategy: "MANUAL_REVIEW",
+    resolution_action: null,
+    resolution_reason: null,
+    resolved_payload_json: null,
+    resolved_by: null,
+    resolved_at: null,
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    operation_type: "INVENTORY_ADJUSTMENT",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        lockSyncConflictById: async () => baseConflict,
+        markSyncConflictResolved: async (payload) => ({
+          ...baseConflict,
+          status: "RESOLVED",
+          resolution_action: payload.resolutionAction,
+          resolution_reason: payload.resolutionReason,
+          resolved_payload_json: payload.resolvedPayloadJson,
+          resolved_by: payload.resolvedBy,
+          resolved_at: "2026-08-09T05:00:00.000Z",
+        }),
+      },
+      [notificationServicePath]: {
+        ensureSyncNotificationIntent: async (payload) => {
+          outboxEvents.push(payload);
+          return { id: "outbox-resolution-1" };
+        },
+        processNotificationOutboxEventById: async (eventId) => {
+          processedEvents.push(eventId);
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async (payload) => {
+          auditRows.push(payload);
+          return payload;
+        },
+      },
+    },
+    async ({ resolveSyncConflict }) => {
+      const resolved = await resolveSyncConflict({
+        auth: {
+          userId: "mayor-1",
+          roleCode: "MAYOR",
+        },
+        conflictId: "conflict-stock-drift",
+        action: "KEEP_SERVER",
+        reason: "Server inventory stock is authoritative.",
+      });
+
+      assert.equal(resolved.status, "RESOLVED");
+      assert.equal(resolved.sync_status, "CONFLICT");
+      assert.equal(resolved.resolution_action, "KEEP_SERVER");
+      assert.equal(outboxEvents[0].eventType, "SYNC_CONFLICT_RESOLVED");
+      assert.deepEqual(processedEvents, ["outbox-resolution-1"]);
+      assert.equal(auditRows[0].action, "SYNC_CONFLICT_RESOLUTION");
+    },
+  );
+});
+
+test("M04-03 FIRST_ACCEPTED resolved conflicts expose no actions and cannot be resolved again", async () => {
+  const firstAcceptedConflict = {
+    id: "conflict-first-accepted",
+    sync_transaction_id: "sync-1",
+    user_id: "origin-user",
+    entity_type: "STUB",
+    entity_server_id: "stub-1",
+    conflict_type: "STUB_ALREADY_CLAIMED",
+    local_payload_json: {},
+    server_payload_json: {},
+    resolution_strategy: "FIRST_ACCEPTED",
+    resolved_payload_json: { winner: "SERVER" },
+    resolved_by: null,
+    resolved_at: "2026-08-09T04:00:00.000Z",
+    status: "RESOLVED",
+    sync_status: "CONFLICT",
+    operation_type: "CLAIM",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncConflictByIdForUser: async () => firstAcceptedConflict,
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        lockSyncConflictById: async () => firstAcceptedConflict,
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail, resolveSyncConflict }) => {
+      const detail = await getSyncConflictDetail({
+        auth: {
+          userId: "origin-user",
+          roleCode: "BARANGAY",
+        },
+        conflictId: "conflict-first-accepted",
+      });
+
+      assert.deepEqual(detail.availableResolutionActions, []);
+
+      await assert.rejects(
+        () =>
+          resolveSyncConflict({
+            auth: {
+              userId: "origin-user",
+              roleCode: "BARANGAY",
+            },
+            conflictId: "conflict-first-accepted",
+            action: "MARK_REVIEWED",
+            reason: null,
+          }),
+        /already been resolved/,
+      );
+    },
   );
 });

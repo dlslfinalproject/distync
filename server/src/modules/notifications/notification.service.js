@@ -1638,6 +1638,40 @@ const emitSyncConflictAlert = async (syncConflict) => {
   });
 };
 
+const emitSyncConflictResolutionAlert = async (syncConflict) => {
+  if (!syncConflict?.user_id || syncConflict.status !== "RESOLVED") {
+    return null;
+  }
+
+  const recipientRoleCode =
+    await resolveSyncConflictRecipientRoleCode(syncConflict);
+
+  if (!recipientRoleCode) {
+    return null;
+  }
+
+  const actionLabel =
+    syncConflict.resolution_action === "APPLY_LOCAL"
+      ? "Local change applied"
+      : syncConflict.resolution_action === "KEEP_SERVER"
+        ? "Server record kept"
+        : "Conflict reviewed";
+
+  return createNotificationForUsers({
+    ruleCode: "SYNC_CONFLICT",
+    userIds: [syncConflict.user_id],
+    roleCode: recipientRoleCode,
+    type: NOTIFICATION_TYPES.SYNC,
+    title: "Synchronization conflict resolved",
+    message: `${actionLabel} for ${syncConflict.entity_type}. Open the Sync Center to review the resolution record.`,
+    severity: "INFO",
+    reference_type: "SYNC_CONFLICT",
+    reference_id: syncConflict.id,
+    source_event_key: `SYNC_CONFLICT_RESOLVED:${syncConflict.id}`,
+    metadata: { conflictId: syncConflict.id, entityType: syncConflict.entity_type },
+  });
+};
+
 const ensureSyncNotificationIntent = async (
   { eventType, sourceType, sourceId },
   dbClient = undefined,
@@ -1677,6 +1711,17 @@ const materializeNotificationOutboxEvent = async (event) => {
         event.source_id,
       );
     return emitSyncConflictAlert(syncConflict);
+  }
+
+  if (
+    event.event_type === "SYNC_CONFLICT_RESOLVED" &&
+    event.source_type === "SYNC_CONFLICT"
+  ) {
+    const syncConflict =
+      await notificationRepository.getSyncConflictNotificationSourceById(
+        event.source_id,
+      );
+    return emitSyncConflictResolutionAlert(syncConflict);
   }
 
   return null;

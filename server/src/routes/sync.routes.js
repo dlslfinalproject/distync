@@ -6,6 +6,7 @@ const {
   validateAuditSyncRetryRequest,
   validateGetSyncHistory,
   validateGetSyncConflictDetail,
+  validateResolveSyncConflict,
   validateProcessSyncEntries,
 } = require("../validators/sync.validator");
 
@@ -117,6 +118,31 @@ router.get(
     } catch (error) {
       return res.status(error.statusCode || 500).json({
         message: error.message || "Failed to fetch sync conflict detail",
+      });
+    }
+  },
+);
+
+router.post(
+  "/conflicts/:conflictId/resolve",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
+  validateResolveSyncConflict,
+  async (req, res) => {
+    try {
+      const payload = await syncService.resolveSyncConflict({
+        auth: req.auth,
+        conflictId: req.validatedParams.conflictId,
+        action: req.validatedBody.action,
+        reason: req.validatedBody.reason,
+      });
+
+      return res.status(200).json({
+        message: "Sync conflict resolved successfully",
+        data: payload,
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        message: error.message || "Failed to resolve sync conflict",
       });
     }
   },

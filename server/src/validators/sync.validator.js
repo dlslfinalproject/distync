@@ -194,6 +194,65 @@ const validateGetSyncConflictDetail = (req, res, next) => {
   }
 };
 
+const ALLOWED_RESOLUTION_ACTIONS = new Set([
+  "MARK_REVIEWED",
+  "KEEP_SERVER",
+  "APPLY_LOCAL",
+]);
+
+const validateResolveSyncConflict = (req, res, next) => {
+  try {
+    const { conflictId } = req.params || {};
+    const { action, reason } = req.body || {};
+
+    if (!isValidUuid(conflictId)) {
+      return res.status(400).json({
+        message: "conflictId must be a valid UUID",
+      });
+    }
+
+    const normalizedAction =
+      typeof action === "string" ? action.trim().toUpperCase() : "";
+
+    if (!ALLOWED_RESOLUTION_ACTIONS.has(normalizedAction)) {
+      return res.status(400).json({
+        message:
+          "action must be one of: MARK_REVIEWED, KEEP_SERVER, APPLY_LOCAL",
+      });
+    }
+
+    const normalizedReason =
+      typeof reason === "string" && reason.trim()
+        ? reason.trim().slice(0, 1000)
+        : null;
+
+    if (
+      (normalizedAction === "KEEP_SERVER" ||
+        normalizedAction === "APPLY_LOCAL") &&
+      !normalizedReason
+    ) {
+      return res.status(400).json({
+        message: "reason is required for this resolution action",
+      });
+    }
+
+    req.validatedParams = {
+      conflictId,
+    };
+    req.validatedBody = {
+      action: normalizedAction,
+      reason: normalizedReason,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate sync conflict resolution request",
+      error: error.message,
+    });
+  }
+};
+
 const validateAuditSyncRetryRequest = (req, res, next) => {
   try {
     const { entries } = req.body || {};
@@ -257,5 +316,6 @@ module.exports = {
   validateProcessSyncEntries,
   validateGetSyncHistory,
   validateGetSyncConflictDetail,
+  validateResolveSyncConflict,
   validateAuditSyncRetryRequest,
 };

@@ -748,7 +748,7 @@ CREATE TABLE public.notification_email_deliveries (
 
 CREATE TABLE public.notification_outbox (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
-  event_type text NOT NULL CHECK (event_type IN ('SYNC_FAILURE', 'SYNC_CONFLICT')),
+  event_type text NOT NULL CHECK (event_type IN ('SYNC_FAILURE', 'SYNC_CONFLICT', 'SYNC_CONFLICT_RESOLVED')),
   source_type text NOT NULL CHECK (source_type IN ('SYNC_TRANSACTION', 'SYNC_CONFLICT')),
   source_id uuid NOT NULL,
   status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'PROCESSED', 'FAILED')),
@@ -839,6 +839,8 @@ CREATE TABLE public.sync_conflicts (
   local_payload_json jsonb NOT NULL,
   server_payload_json jsonb NOT NULL,
   resolution_strategy character varying NOT NULL CHECK (resolution_strategy::text = ANY (ARRAY['FIRST_ACCEPTED'::character varying, 'LATEST_TIMESTAMP'::character varying, 'MANUAL_REVIEW'::character varying, 'MERGED'::character varying]::text[])),
+  resolution_action character varying CHECK (resolution_action::text = ANY (ARRAY['MARK_REVIEWED'::character varying, 'KEEP_SERVER'::character varying, 'APPLY_LOCAL'::character varying]::text[])),
+  resolution_reason text,
   resolved_payload_json jsonb,
   resolved_by uuid,
   resolved_at timestamp with time zone,

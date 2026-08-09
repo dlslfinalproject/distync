@@ -13,6 +13,7 @@ const stubService = require("./stub.service");
 const notificationService = require("../modules/notifications/notification.service");
 const { ROLE_CODES } = require("../modules/auth/auth.middleware");
 const { logAuditSafely, logErrorSafely, pickDefined } = require("../utils/systemLog");
+const { insertAuditLog } = require("../repositories/systemLog.repository");
 const {
   DUPLICATE_INVENTORY_TRANSACTION_REFERENCE_NO,
 } = require("../utils/inventoryTransactionReference");
@@ -39,6 +40,12 @@ const RESOLUTION_STRATEGY = {
   FIRST_ACCEPTED: "FIRST_ACCEPTED",
   LATEST_TIMESTAMP: "LATEST_TIMESTAMP",
   MANUAL_REVIEW: "MANUAL_REVIEW",
+};
+
+const RESOLUTION_ACTION = {
+  MARK_REVIEWED: "MARK_REVIEWED",
+  KEEP_SERVER: "KEEP_SERVER",
+  APPLY_LOCAL: "APPLY_LOCAL",
 };
 
 const INVENTORY_STOCK_STATE_DRIFT = "INVENTORY_STOCK_STATE_DRIFT";
@@ -430,6 +437,68 @@ const recordSyncFailureAndNotificationIntent = async ({
 
   return { syncTransaction, notificationOutboxEvent: null };
 };
+
+const createConflictNotFoundError = () => {
+  const error = new Error("Sync conflict not found");
+  error.statusCode = 404;
+  return error;
+};
+
+const createConflictAlreadyResolvedError = () => {
+  const error = new Error("Sync conflict has already been resolved");
+  error.statusCode = 409;
+  error.code = "SYNC_CONFLICT_ALREADY_RESOLVED";
+  return error;
+};
+
+const createResolutionActionNotAllowedError = () => {
+  const error = new Error("This resolution action is not allowed for this conflict");
+  error.statusCode = 403;
+  error.code = "SYNC_CONFLICT_RESOLUTION_ACTION_NOT_ALLOWED";
+  return error;
+};
+
+const getResolutionCapability = (conflict, auth) => {
+  const isOpen = conflict?.status === CONFLICT_STATUS.OPEN;
+
+  if (!isOpen || conflict?.resolution_strategy !== RESOLUTION_STRATEGY.MANUAL_REVIEW) {
+    return {
+      availableResolutionActions: [],
+      canResolve: false,
+      domainOwner: null,
+      basis: "Only OPEN MANUAL_REVIEW conflicts can be manually resolved.",
+    };
+  }
+
+  if (conflict.conflict_type === INVENTORY_STOCK_STATE_DRIFT) {
+    const mayResolve = auth?.roleCode === ROLE_CODES.MAYOR;
+
+    return {
+      availableResolutionActions: mayResolve
+        ? [RESOLUTION_ACTION.MARK_REVIEWED, RESOLUTION_ACTION.KEEP_SERVER]
+        : [],
+      canResolve: mayResolve,
+      domainOwner: ROLE_CODES.MAYOR,
+      basis:
+        "Mayor inventory authority may review stock-state drift; losing inventory movement replay is not supported.",
+    };
+  }
+
+  return {
+    availableResolutionActions: [],
+    canResolve: false,
+    domainOwner: null,
+    basis: "No safe manual resolution path is configured for this conflict type.",
+  };
+};
+
+const getSafeConflictServerSummary = (conflict) => ({
+  conflict_id: conflict.id,
+  entity_type: conflict.entity_type,
+  entity_server_id: conflict.entity_server_id || null,
+  conflict_type: conflict.conflict_type,
+  authoritative_payload: conflict.server_payload_json || {},
+});
 
 const isInsufficientInventoryStockError = (error) =>
   error?.statusCode === 400 &&
@@ -1075,7 +1144,11 @@ const getSyncHistory = async ({ auth, syncStatus, conflictStatus, limit }) => {
 
   return {
     transactions,
-    conflicts,
+    conflicts: conflicts.map((conflict) => ({
+      ...conflict,
+      availableResolutionActions:
+        getResolutionCapability(conflict, auth).availableResolutionActions,
+    })),
   };
 };
 
@@ -1127,6 +1200,8 @@ const getSyncConflictDetail = async ({ auth, conflictId }) => {
 
   return {
     ...conflict,
+    availableResolutionActions:
+      getResolutionCapability(conflict, auth).availableResolutionActions,
     local_payload_summary: pickDefined(conflict.local_payload_json?.payload || conflict.local_payload_json, [
       "disaster_event_id",
       "household_id",
@@ -1148,6 +1223,123 @@ const getSyncConflictDetail = async ({ auth, conflictId }) => {
       "donor_name",
     ]),
   };
+};
+
+const resolveSyncConflict = async ({ auth, conflictId, action, reason = null }) => {
+  const notificationOutboxEventIds = [];
+  let resolvedConflict = null;
+
+  const result = await syncRepository.withSyncProcessingTransaction(
+    async (dbClient) => {
+      const conflict = await syncRepository.lockSyncConflictById(
+        { id: conflictId },
+        dbClient,
+      );
+
+      if (!conflict) {
+        throw createConflictNotFoundError();
+      }
+
+      if (conflict.status !== CONFLICT_STATUS.OPEN) {
+        throw createConflictAlreadyResolvedError();
+      }
+
+      const capability = getResolutionCapability(conflict, auth);
+
+      if (!capability.availableResolutionActions.includes(action)) {
+        throw createResolutionActionNotAllowedError();
+      }
+
+      if (action === RESOLUTION_ACTION.APPLY_LOCAL) {
+        throw createResolutionActionNotAllowedError();
+      }
+
+      const resolvedPayload = {
+        ...getSafeConflictServerSummary(conflict),
+        resolution_action: action,
+        reviewer_role_code: auth.roleCode,
+      };
+
+      const updatedConflict = await syncRepository.markSyncConflictResolved(
+        {
+          conflictId: conflict.id,
+          resolutionAction: action,
+          resolutionReason: reason,
+          resolvedPayloadJson: resolvedPayload,
+          resolvedBy: auth.userId,
+        },
+        dbClient,
+      );
+
+      if (!updatedConflict) {
+        throw createConflictAlreadyResolvedError();
+      }
+
+      await insertAuditLog(
+        {
+          user_id: auth.userId,
+          role_code: auth.roleCode,
+          device_id: null,
+          action: "SYNC_CONFLICT_RESOLUTION",
+          entity_type: "SYNC_CONFLICT",
+          entity_id: conflict.id,
+          old_values_json: {
+            status: conflict.status,
+            resolution_strategy: conflict.resolution_strategy,
+            resolution_action: conflict.resolution_action || null,
+          },
+          new_values_json: {
+            status: updatedConflict.status,
+            resolution_strategy: updatedConflict.resolution_strategy,
+            resolution_action: updatedConflict.resolution_action,
+            conflict_type: updatedConflict.conflict_type,
+            reason_provided: Boolean(reason),
+            sync_transaction_id: updatedConflict.sync_transaction_id,
+          },
+          ip_address: null,
+          source_event_key: `SYNC_CONFLICT_RESOLUTION:${conflict.id}:${action}`,
+        },
+        dbClient,
+      );
+
+      if (action !== RESOLUTION_ACTION.MARK_REVIEWED) {
+        const notificationOutboxEvent =
+          await notificationService.ensureSyncNotificationIntent(
+            {
+              eventType: "SYNC_CONFLICT_RESOLVED",
+              sourceType: "SYNC_CONFLICT",
+              sourceId: conflict.id,
+            },
+            dbClient,
+          );
+
+        if (notificationOutboxEvent?.id) {
+          notificationOutboxEventIds.push(notificationOutboxEvent.id);
+        }
+      }
+
+      resolvedConflict = {
+        ...conflict,
+        ...updatedConflict,
+        sync_status: conflict.sync_status,
+        user_id: conflict.user_id,
+        client_timestamp: conflict.client_timestamp,
+        server_timestamp: conflict.server_timestamp,
+        operation_type: conflict.operation_type,
+        availableResolutionActions: [],
+      };
+
+      return resolvedConflict;
+    },
+  );
+
+  await processCommittedNotificationIntentsSafely({
+    eventIds: notificationOutboxEventIds,
+    auth,
+    syncResult: result,
+  });
+
+  return resolvedConflict;
 };
 
 const auditSyncRetryRequest = async ({ auth, entries }) => {
@@ -1177,6 +1369,7 @@ module.exports = {
   getSyncHistory,
   getSyncStatusSummary,
   getSyncConflictDetail,
+  resolveSyncConflict,
   auditSyncRetryRequest,
   isSupportedSyncAction,
   SUPPORTED_SYNC_ACTION_KEYS,
