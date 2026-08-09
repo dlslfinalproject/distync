@@ -143,6 +143,332 @@ const baseAuth = {
   defaultBarangayId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
 };
 
+test("BRG-SC-03 TEST A rejects foreign Barangay HOUSEHOLD_UPDATE before conflict evidence is stored", async () => {
+  const foreignHousehold = {
+    id: "11111111-1111-4111-8111-111111111111",
+    barangay_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    family_head_first_name: "Foreign",
+    contact_number: "09170000000",
+    household_size: 6,
+    updated_at: "2026-08-08T02:00:00.000Z",
+  };
+  let conflictCalls = 0;
+  let updateCalled = false;
+  let failedTransactionPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async ({ conflictPayload }) => {
+          conflictCalls += 1;
+          assert.notDeepEqual(conflictPayload.server_payload_json, foreignHousehold);
+          throw new Error("Unauthorized household must not become conflict evidence");
+        },
+        updateSyncTransaction: async (id, payload) => {
+          if (payload.sync_status === "FAILED") {
+            failedTransactionPayload = payload;
+          }
+
+          return {
+            id,
+            ...payload,
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async ({ requester }) => {
+          assert.equal(requester.roleCode, "BARANGAY");
+          assert.equal(requester.defaultBarangayId, baseAuth.defaultBarangayId);
+          const error = new Error("You do not have access to update this household");
+          error.statusCode = 403;
+          throw error;
+        },
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          throw new Error("Foreign household update must not execute");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "brg-sc-03-foreign-older",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: foreignHousehold.id,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              barangay_id: baseAuth.defaultBarangayId,
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(result.data, null);
+      assert.equal(result.message, "You do not have access to update this household");
+      assert.equal(conflictCalls, 0);
+      assert.equal(updateCalled, false);
+      assert.equal(failedTransactionPayload.sync_status, "FAILED");
+      assert.doesNotMatch(JSON.stringify(result), /Foreign|09170000000|household_size/);
+    },
+  );
+});
+
+test("BRG-SC-03 TEST B preserves same-Barangay older timestamp conflict handling", async () => {
+  let conflictPayload = null;
+  let updateCalled = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayload = payload.conflictPayload;
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: "brg-sc-03-same-barangay-conflict",
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => ({
+          id: "22222222-2222-4222-8222-222222222222",
+          barangay_id: baseAuth.defaultBarangayId,
+          family_head_first_name: "Server",
+          updated_at: "2026-08-08T02:00:00.000Z",
+        }),
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          throw new Error("Server-newer conflict should keep server copy");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "brg-sc-03-same-older",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "22222222-2222-4222-8222-222222222222",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(result.conflict.id, "brg-sc-03-same-barangay-conflict");
+      assert.equal(result.data.family_head_first_name, "Server");
+      assert.equal(conflictPayload.server_payload_json.family_head_first_name, "Server");
+      assert.equal(conflictPayload.resolved_payload_json.winner, "SERVER");
+      assert.equal(updateCalled, false);
+    },
+  );
+});
+
+test("BRG-SC-03 TEST C preserves same-Barangay non-conflicting HOUSEHOLD_UPDATE", async () => {
+  let conflictCalls = 0;
+  let updateCalled = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("Non-conflicting update should not create conflict");
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => ({
+          id: "33333333-3333-4333-8333-333333333333",
+          barangay_id: baseAuth.defaultBarangayId,
+          family_head_first_name: "Server",
+          updated_at: "2026-08-08T01:00:00.000Z",
+        }),
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          return {
+            id: "33333333-3333-4333-8333-333333333333",
+            family_head_first_name: "Local",
+            updated_at: "2026-08-08T01:00:00.000Z",
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "brg-sc-03-same-valid",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "33333333-3333-4333-8333-333333333333",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.data.family_head_first_name, "Local");
+      assert.equal(updateCalled, true);
+      assert.equal(conflictCalls, 0);
+    },
+  );
+});
+
+test("BRG-SC-03 TEST D rejects foreign Barangay HOUSEHOLD_UPDATE without mutation on non-conflicting timestamp", async () => {
+  let conflictCalls = 0;
+  let updateCalled = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("Unauthorized update should not create conflict");
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => {
+          const error = new Error("You do not have access to update this household");
+          error.statusCode = 403;
+          throw error;
+        },
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          throw new Error("Foreign household update must not execute");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "brg-sc-03-foreign-non-conflict",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "44444444-4444-4444-8444-444444444444",
+            client_timestamp: "2026-08-08T02:00:00.000Z",
+            client_updated_at: "2026-08-08T02:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(result.data, null);
+      assert.equal(conflictCalls, 0);
+      assert.equal(updateCalled, false);
+    },
+  );
+});
+
+test("BRG-SC-03 TEST F preserves MSWDO HOUSEHOLD_UPDATE access", async () => {
+  let updateCalled = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub(),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async ({ requester }) => {
+          assert.equal(requester.roleCode, "MSWDO");
+          return {
+            id: "55555555-5555-4555-8555-555555555555",
+            barangay_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            family_head_first_name: "Server",
+            updated_at: "2026-08-08T01:00:00.000Z",
+          };
+        },
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          return {
+            id: "55555555-5555-4555-8555-555555555555",
+            family_head_first_name: "MSWDO Local",
+            updated_at: "2026-08-08T01:00:00.000Z",
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MSWDO",
+          defaultBarangayId: null,
+        },
+        entries: [
+          {
+            client_sync_id: "brg-sc-03-mswdo-valid",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "55555555-5555-4555-8555-555555555555",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "MSWDO Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.data.family_head_first_name, "MSWDO Local");
+      assert.equal(updateCalled, true);
+    },
+  );
+});
+
 test("INV-M-01 insufficient stock with trusted stale basis becomes OPEN manual-review conflict", async () => {
   const previousSecret = process.env.INVENTORY_STATE_BASIS_SECRET;
   process.env.INVENTORY_STATE_BASIS_SECRET = "unit-test-inventory-state-basis-secret";
@@ -297,12 +623,16 @@ test("M02-04 normal conflict processes notification intent after sync transactio
           },
         }),
       }),
-      [householdRegistrationRepositoryPath]: {
-        getHouseholdSummaryById: async () => ({
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => ({
           id: "33333333-3333-4333-8333-333333333333",
+          barangay_id: baseAuth.defaultBarangayId,
           family_head_first_name: "Server",
           updated_at: "2026-08-08T02:00:00.000Z",
         }),
+        updateHouseholdDetails: async () => {
+          throw new Error("Server-newer conflict should not execute update");
+        },
       },
       [notificationServicePath]: {
         processNotificationOutboxEventById: async (eventId) => {
@@ -1212,6 +1542,12 @@ test("H03F-05 rolls back local-newer conflict when conflict persistence fails af
         }),
       },
       [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => ({
+          id: "66666666-6666-4666-8666-666666666666",
+          barangay_id: baseAuth.defaultBarangayId,
+          family_head_first_name: "Server",
+          updated_at: "2026-08-08T01:00:00.000Z",
+        }),
         updateHouseholdDetails: async (_payload) => {
           updateCalled = true;
           return {
@@ -1859,14 +2195,13 @@ test("processSyncEntries marks timestamp conflict persistence failures as failed
           throw new Error("database unavailable");
         },
       }),
-      [householdRegistrationRepositoryPath]: {
-        getHouseholdSummaryById: async () => ({
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => ({
           id: "33333333-3333-4333-8333-333333333333",
+          barangay_id: baseAuth.defaultBarangayId,
           family_head_first_name: "Server",
           updated_at: "2026-08-08T02:00:00.000Z",
         }),
-      },
-      [householdRegistrationServicePath]: {
         updateHouseholdDetails: async () => {
           throw new Error("Local change should not be applied");
         },
@@ -1926,14 +2261,13 @@ test("processSyncEntries records LATEST_TIMESTAMP only after a newer local updat
           };
         },
       }),
-      [householdRegistrationRepositoryPath]: {
-        getHouseholdSummaryById: async () => ({
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => ({
           id: "44444444-4444-4444-8444-444444444444",
+          barangay_id: baseAuth.defaultBarangayId,
           family_head_first_name: "Server",
           updated_at: "2026-08-08T01:00:00.000Z",
         }),
-      },
-      [householdRegistrationServicePath]: {
         updateHouseholdDetails: async () => {
           updateCalled = true;
           return {
@@ -1991,14 +2325,13 @@ test("processSyncEntries does not record LATEST_TIMESTAMP when newer local updat
           throw new Error("Conflict should not be recorded");
         },
       }),
-      [householdRegistrationRepositoryPath]: {
-        getHouseholdSummaryById: async () => ({
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => ({
           id: "55555555-5555-4555-8555-555555555555",
+          barangay_id: baseAuth.defaultBarangayId,
           family_head_first_name: "Server",
           updated_at: "2026-08-08T01:00:00.000Z",
         }),
-      },
-      [householdRegistrationServicePath]: {
         updateHouseholdDetails: async () => {
           const error = new Error("Invalid household update.");
           error.statusCode = 400;

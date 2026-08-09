@@ -1,5 +1,4 @@
 const syncRepository = require("../repositories/sync.repository");
-const householdRegistrationRepository = require("../repositories/householdRegistration.repository");
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
 const supplierRepository = require("../repositories/supplier.repository");
@@ -150,11 +149,12 @@ const ACTION_HANDLERS = {
     entityType: "HOUSEHOLD",
     operationType: "UPDATE",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    getCurrentRecord: async ({ entityServerId, dbClient }) =>
-      householdRegistrationRepository.getHouseholdSummaryById(
-        entityServerId,
+    getCurrentRecord: async ({ entityServerId, auth, dbClient }) =>
+      householdRegistrationService.getAuthorizedHouseholdSummaryForUpdate({
+        householdId: entityServerId,
+        requester: getRequesterForSync(auth),
         dbClient,
-      ),
+      }),
     execute: async ({ entityServerId, payload, auth, dbClient }) =>
       householdRegistrationService.updateHouseholdDetails({
         householdId: entityServerId,
