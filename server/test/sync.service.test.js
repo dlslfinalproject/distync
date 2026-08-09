@@ -706,6 +706,94 @@ test("BRG-SC-06-H01 TEST H MSWDO HOUSEHOLD_DEPART sync access remains broad", as
   );
 });
 
+test("BRG-SC-06-H02 HOUSEHOLD_DEPART duplicate records resolved FIRST_ACCEPTED without reporting SYNCED", async () => {
+  let departCall = null;
+  let conflictPayload = null;
+  let transactionPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          transactionPayload = payload.transactionPayload;
+          conflictPayload = payload.conflictPayload;
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: "conflict-household-depart-first-accepted",
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        departHousehold: async (
+          entityServerId,
+          departureDetails,
+          requester,
+        ) => {
+          departCall = { entityServerId, departureDetails, requester };
+          const error = new Error(
+            "Duplicate household departure detected. Accepted server departure time was kept.",
+          );
+          error.statusCode = 409;
+          error.code = "DUPLICATE_HOUSEHOLD_DEPARTURE";
+          error.entityServerId = entityServerId;
+          error.serverPayload = {
+            id: "accepted-log-1",
+            household_id: entityServerId,
+            status: "LEFT",
+            time_in: "2026-08-09T01:00:00.000Z",
+            time_out: "2026-08-09T03:00:00.000Z",
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "brg-sc-06-h02-earlier-depart",
+            action_key: "HOUSEHOLD_DEPART",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "99999999-9999-4999-8999-999999999999",
+            client_timestamp: "2026-08-09T02:30:00.000Z",
+            payload: {
+              departure_time: "2026-08-09T02:30:00.000Z",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(result.conflict.id, "conflict-household-depart-first-accepted");
+      assert.equal(result.conflict.conflict_type, "DUPLICATE_HOUSEHOLD_DEPARTURE");
+      assert.equal(result.conflict.resolution_strategy, "FIRST_ACCEPTED");
+      assert.equal(result.conflict.status, "RESOLVED");
+      assert.equal(result.conflict.resolved_payload_json.winner, "SERVER");
+      assert.equal(
+        result.conflict.server_payload_json.time_out,
+        "2026-08-09T03:00:00.000Z",
+      );
+      assert.equal(transactionPayload.sync_status, "CONFLICT");
+      assert.equal(departCall.departureDetails.allow_duplicate_departure_resolution, true);
+      assert.equal(departCall.requester.defaultBarangayId, baseAuth.defaultBarangayId);
+      assert.equal(conflictPayload.local_payload_json.departure_time, "2026-08-09T02:30:00.000Z");
+    },
+  );
+});
+
 test("INV-M-01 insufficient stock with trusted stale basis becomes OPEN manual-review conflict", async () => {
   const previousSecret = process.env.INVENTORY_STATE_BASIS_SECRET;
   process.env.INVENTORY_STATE_BASIS_SECRET = "unit-test-inventory-state-basis-secret";

@@ -40,7 +40,7 @@ const NON_ADMITTED_RESIDENT_STAY_TYPES = new Set([
 
 const buildDuplicateDepartureError = (householdId, latestAttendance) => {
   const error = new Error(
-    "Duplicate household departure detected. Earlier departure time was kept.",
+    "Duplicate household departure detected. Accepted server departure time was kept.",
   );
   error.statusCode = 409;
   error.code = "DUPLICATE_HOUSEHOLD_DEPARTURE";
@@ -2119,29 +2119,6 @@ const departHousehold = async (
         );
 
       if (latestAttendance?.time_out) {
-        if (
-          isEarlierTimestamp(
-            departureDetails.departure_time,
-            latestAttendance.time_out,
-          )
-        ) {
-          const updatedLogs =
-            await householdRegistrationRepository.updateHouseholdDepartureTimestamp(
-              householdId,
-              departureDetails.departure_time,
-            );
-
-          return {
-            household_id: householdId,
-            affected_logs_count: updatedLogs.length,
-            archived_members_count: 0,
-            latest_departure_time:
-              updatedLogs[0]?.time_out || latestAttendance.time_out,
-            status: "ARCHIVED",
-            household,
-          };
-        }
-
         throw buildDuplicateDepartureError(householdId, latestAttendance);
       }
     }

@@ -691,6 +691,98 @@ test("BRG-SC-06-H01 TEST B rejects foreign already-departed Barangay household b
   }
 });
 
+[
+  {
+    label: "earlier",
+    incomingTime: "2026-08-09T02:30:00.000Z",
+  },
+  {
+    label: "equal",
+    incomingTime: "2026-08-09T03:00:00.000Z",
+  },
+  {
+    label: "later",
+    incomingTime: "2026-08-09T03:30:00.000Z",
+  },
+].forEach(({ label, incomingTime }) => {
+  test(`BRG-SC-06-H02 ${label} duplicate departure returns FIRST_ACCEPTED domain duplicate without mutation`, async () => {
+    const events = [];
+    const acceptedAttendance = {
+      id: "accepted-log-1",
+      household_id: "household-local-archived",
+      status: "LEFT",
+      time_in: "2026-08-09T01:00:00.000Z",
+      time_out: "2026-08-09T03:00:00.000Z",
+    };
+    const harness = loadServiceWithMocks({
+      getHouseholdSummaryById: async () => {
+        events.push("SUMMARY");
+        return {
+          id: "household-local-archived",
+          disaster_event_id: "event-1",
+          barangay_id: "barangay-a",
+          is_active: false,
+        };
+      },
+      getLatestAttendanceByHouseholdId: async (householdId, disasterEventId) => {
+        events.push(`LATEST:${householdId}:${disasterEventId}`);
+        return acceptedAttendance;
+      },
+      getActiveEvacuationLogsByHouseholdId: async () => {
+        events.push("ACTIVE_LOGS");
+        throw new Error("Duplicate departure must not inspect active logs");
+      },
+      markHouseholdDeparture: async () => {
+        events.push("MARK_DEPARTURE");
+        throw new Error("Duplicate departure must not mark departure again");
+      },
+      updateHouseholdDepartureTimestamp: async () => {
+        events.push("REWRITE_DEPARTURE_TIME");
+        throw new Error("Duplicate departure must not rewrite accepted time_out");
+      },
+      archiveHousehold: async () => {
+        events.push("ARCHIVE");
+        throw new Error("Duplicate departure must not archive again");
+      },
+      deactivateEvacueesByHouseholdId: async () => {
+        events.push("DEACTIVATE");
+        throw new Error("Duplicate departure must not deactivate evacuees again");
+      },
+    });
+
+    try {
+      await assert.rejects(
+        harness.service.departHousehold(
+          "household-local-archived",
+          {
+            departure_time: incomingTime,
+            allow_duplicate_departure_resolution: true,
+          },
+          {
+            userId: "barangay-user-a",
+            roleCode: "BARANGAY",
+            defaultBarangayId: "barangay-a",
+          },
+        ),
+        (error) => {
+          assert.equal(error.statusCode, 409);
+          assert.equal(error.code, "DUPLICATE_HOUSEHOLD_DEPARTURE");
+          assert.equal(error.entityServerId, "household-local-archived");
+          assert.deepEqual(error.serverPayload, acceptedAttendance);
+          return true;
+        },
+      );
+
+      assert.deepEqual(events, [
+        "SUMMARY",
+        "LATEST:household-local-archived:event-1",
+      ]);
+    } finally {
+      harness.restore();
+    }
+  });
+});
+
 test("BRG-SC-06-H01 TEST C keeps same-Barangay departure success unchanged", async () => {
   const events = [];
   const externalClient = {
