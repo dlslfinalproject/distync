@@ -1,0 +1,3 @@
+ALTER TABLE public.inventory_batches
+ADD CONSTRAINT inventory_batches_inventory_item_id_batch_no_unique
+UNIQUE (inventory_item_id, batch_no);

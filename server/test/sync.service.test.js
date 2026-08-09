@@ -1641,6 +1641,94 @@ test("ITR duplicate with different client_sync_id becomes resolved FIRST_ACCEPTE
   );
 });
 
+test("INVENTORY_BATCH_CREATE duplicate becomes resolved FIRST_ACCEPTED conflict", async () => {
+  let conflictPayload;
+  let transactionPayload;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayload = payload.conflictPayload;
+          transactionPayload = payload.transactionPayload;
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: "conflict-inventory-batch",
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async () => {
+          const error = new Error(
+            "This batch number already exists for the selected inventory item.",
+          );
+          error.code = "DUPLICATE_INVENTORY_BATCH";
+          error.statusCode = 409;
+          error.entityServerId = "44444444-4444-4444-8444-444444444444";
+          error.serverPayload = {
+            id: "44444444-4444-4444-8444-444444444444",
+            inventory_item_id: "11111111-1111-4111-8111-111111111111",
+            batch_no: "LOT-A",
+            quantity_received: 10,
+            quantity_available: 10,
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MAYOR",
+        },
+        entries: [
+          {
+            client_sync_id: "batch-duplicate-b",
+            action_key: "INVENTORY_BATCH_CREATE",
+            entity_type: "INVENTORY_BATCH",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              inventory_item_id: "11111111-1111-4111-8111-111111111111",
+              batch_no: "LOT-A",
+              source_type: "LGU",
+              quantity_received: 20,
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(transactionPayload.sync_status, "CONFLICT");
+      assert.equal(
+        transactionPayload.entity_server_id,
+        "44444444-4444-4444-8444-444444444444",
+      );
+      assert.equal(conflictPayload.conflict_type, "DUPLICATE_INVENTORY_BATCH");
+      assert.equal(conflictPayload.entity_server_id, "44444444-4444-4444-8444-444444444444");
+      assert.equal(conflictPayload.resolution_strategy, "FIRST_ACCEPTED");
+      assert.equal(conflictPayload.status, "RESOLVED");
+      assert.equal(conflictPayload.resolved_by, null);
+      assert.equal(conflictPayload.local_payload_json.quantity_received, 20);
+      assert.equal(conflictPayload.server_payload_json.quantity_available, 10);
+      assert.equal(conflictPayload.resolved_payload_json.winner, "SERVER");
+    },
+  );
+});
+
 test("H05-09 generic 409 without canonical duplicate code remains FAILED", async () => {
   let conflictWrites = 0;
   const updates = [];

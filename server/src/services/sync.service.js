@@ -17,6 +17,9 @@ const {
   DUPLICATE_INVENTORY_TRANSACTION_REFERENCE_NO,
 } = require("../utils/inventoryTransactionReference");
 const {
+  DUPLICATE_INVENTORY_BATCH,
+} = require("../utils/inventoryBatchIdentity");
+const {
   verifyInventoryStateBasis,
 } = require("../utils/inventoryStateBasis");
 
@@ -855,13 +858,16 @@ const processSingleSyncEntry = async (entry, auth) => {
       error.code === "DUPLICATE_HOUSEHOLD_REGISTRATION" ||
       error.code === "DUPLICATE_HOUSEHOLD_DEPARTURE" ||
       error.code === "STUB_ALREADY_CLAIMED" ||
-      error.code === DUPLICATE_INVENTORY_TRANSACTION_REFERENCE_NO;
+      error.code === DUPLICATE_INVENTORY_TRANSACTION_REFERENCE_NO ||
+      error.code === DUPLICATE_INVENTORY_BATCH;
 
     if (isDuplicateConflict) {
       const serverTimestamp = new Date().toISOString();
       const entityServerId = entry.entity_server_id || error.entityServerId || null;
       const isInventoryItrDuplicate =
         error.code === DUPLICATE_INVENTORY_TRANSACTION_REFERENCE_NO;
+      const isSystemResolvedDuplicate =
+        isInventoryItrDuplicate || error.code === DUPLICATE_INVENTORY_BATCH;
 
       try {
         const {
@@ -891,7 +897,7 @@ const processSingleSyncEntry = async (entry, auth) => {
                 reason: error.message,
                 authoritative_payload: error.serverPayload || {},
               },
-              resolved_by: isInventoryItrDuplicate ? null : auth.userId,
+              resolved_by: isSystemResolvedDuplicate ? null : auth.userId,
               resolved_at: serverTimestamp,
               status: CONFLICT_STATUS.RESOLVED,
             },
