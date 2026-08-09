@@ -42,6 +42,10 @@ const loadServiceWithMocks = (repositoryOverrides = {}, dbOverrides = {}) => {
     findPotentialDuplicatePersonMatches: async () => [],
     ...repositoryOverrides,
   };
+  if (!mockRepository.getHouseholdSummaryByIdForUpdate) {
+    mockRepository.getHouseholdSummaryByIdForUpdate =
+      mockRepository.getHouseholdSummaryById;
+  }
   const mockDb = {
     connect: async () => ({
       query: async () => ({ rows: [] }),
@@ -724,8 +728,17 @@ test("BRG-SC-06-H01 TEST B rejects foreign already-departed Barangay household b
           is_active: false,
         };
       },
-      getLatestAttendanceByHouseholdId: async (householdId, disasterEventId) => {
-        events.push(`LATEST:${householdId}:${disasterEventId}`);
+      getHouseholdSummaryByIdForUpdate: async (_householdId, dbClient) => {
+        events.push(`LOCK:${Boolean(dbClient)}`);
+        return {
+          id: "household-local-archived",
+          disaster_event_id: "event-1",
+          barangay_id: "barangay-a",
+          is_active: false,
+        };
+      },
+      getLatestAttendanceByHouseholdId: async (householdId, dbClient) => {
+        events.push(`LATEST:${householdId}:${Boolean(dbClient)}`);
         return acceptedAttendance;
       },
       getActiveEvacuationLogsByHouseholdId: async () => {
@@ -775,7 +788,8 @@ test("BRG-SC-06-H01 TEST B rejects foreign already-departed Barangay household b
 
       assert.deepEqual(events, [
         "SUMMARY",
-        "LATEST:household-local-archived:event-1",
+        "LOCK:true",
+        "LATEST:household-local-archived:true",
       ]);
     } finally {
       harness.restore();
@@ -794,6 +808,17 @@ test("BRG-SC-06-H01 TEST C keeps same-Barangay departure success unchanged", asy
   const harness = loadServiceWithMocks({
     getHouseholdSummaryById: async () => {
       events.push("SUMMARY");
+      return {
+        id: "household-local",
+        disaster_event_id: "event-1",
+        barangay_id: "barangay-a",
+        family_head_first_name: "Local",
+        family_head_last_name: "Family",
+        is_active: true,
+      };
+    },
+    getHouseholdSummaryByIdForUpdate: async (_householdId, dbClient) => {
+      events.push(`LOCK:${dbClient === externalClient}`);
       return {
         id: "household-local",
         disaster_event_id: "event-1",
@@ -845,6 +870,7 @@ test("BRG-SC-06-H01 TEST C keeps same-Barangay departure success unchanged", asy
     assert.equal(result.archived_members_count, 1);
     assert.deepEqual(events, [
       "SUMMARY",
+      "LOCK:true",
       "ACTIVE_LOGS",
       "MARK:true",
       "ARCHIVE:true",
@@ -903,6 +929,375 @@ test("BRG-SC-06-H01 TEST D preserves MSWDO broader departure access", async () =
 
     assert.equal(result.status, "ARCHIVED");
     assert.deepEqual(events, ["ACTIVE_LOGS", "MARK", "ARCHIVE", "DEACTIVATE"]);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("BRG-SC-06-M01 revalidates changed household state after acquiring departure lock", async () => {
+  const events = [];
+  const externalClient = {
+    query: async () => ({ rows: [] }),
+  };
+  const acceptedAttendance = {
+    id: "accepted-log-1",
+    household_id: "household-race",
+    status: "LEFT",
+    time_out: "2026-08-09T03:00:00.000Z",
+  };
+  const harness = loadServiceWithMocks({
+    getHouseholdSummaryById: async (_householdId, dbClient) => {
+      events.push(`SCOPE:${dbClient === externalClient}`);
+      return {
+        id: "household-race",
+        disaster_event_id: "event-1",
+        barangay_id: "barangay-a",
+        is_active: true,
+      };
+    },
+    getHouseholdSummaryByIdForUpdate: async (_householdId, dbClient) => {
+      events.push(`LOCK:${dbClient === externalClient}`);
+      return {
+        id: "household-race",
+        disaster_event_id: "event-1",
+        barangay_id: "barangay-a",
+        is_active: false,
+      };
+    },
+    getLatestAttendanceByHouseholdId: async (_householdId, dbClient) => {
+      events.push(`LATEST:${dbClient === externalClient}`);
+      return acceptedAttendance;
+    },
+    getActiveEvacuationLogsByHouseholdId: async () => {
+      events.push("ACTIVE_LOGS");
+      throw new Error("Changed locked state must not inspect active logs");
+    },
+    markHouseholdDeparture: async () => {
+      events.push("MARK");
+      throw new Error("Changed locked state must not mutate");
+    },
+  });
+
+  try {
+    await assert.rejects(
+      harness.service.departHousehold(
+        "household-race",
+        {
+          departure_time: "2026-08-09T03:01:00.000Z",
+          allow_duplicate_departure_resolution: true,
+        },
+        {
+          userId: "barangay-user-a",
+          roleCode: "BARANGAY",
+          defaultBarangayId: "barangay-a",
+        },
+        { dbClient: externalClient },
+      ),
+      (error) => {
+        assert.equal(error.code, "DUPLICATE_HOUSEHOLD_DEPARTURE");
+        assert.deepEqual(error.serverPayload, acceptedAttendance);
+        return true;
+      },
+    );
+
+    assert.deepEqual(events, ["SCOPE:true", "LOCK:true", "LATEST:true"]);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("BRG-SC-06-M01 uses the same supplied dbClient for departure reads and writes", async () => {
+  const events = [];
+  const externalClient = {
+    query: async (query) => {
+      events.push(`SQL:${String(query).trim()}`);
+      return { rows: [] };
+    },
+  };
+  const household = {
+    id: "household-client",
+    disaster_event_id: "event-1",
+    barangay_id: "barangay-a",
+    family_head_first_name: "Client",
+    family_head_last_name: "Check",
+    is_active: true,
+  };
+  const harness = loadServiceWithMocks({
+    getHouseholdSummaryById: async (_householdId, dbClient) => {
+      events.push(`SCOPE:${dbClient === externalClient}`);
+      return household;
+    },
+    getHouseholdSummaryByIdForUpdate: async (_householdId, dbClient) => {
+      events.push(`LOCK:${dbClient === externalClient}`);
+      return household;
+    },
+    getActiveEvacuationLogsByHouseholdId: async (_householdId, dbClient) => {
+      events.push(`ACTIVE:${dbClient === externalClient}`);
+      return [{ id: "log-1" }];
+    },
+    markHouseholdDeparture: async (_householdId, _details, dbClient) => {
+      events.push(`MARK:${dbClient === externalClient}`);
+      return [{ id: "log-1", time_out: "2026-08-09T03:00:00.000Z" }];
+    },
+    archiveHousehold: async (_householdId, dbClient) => {
+      events.push(`ARCHIVE:${dbClient === externalClient}`);
+      return { ...household, is_active: false };
+    },
+    deactivateEvacueesByHouseholdId: async (_householdId, dbClient) => {
+      events.push(`DEACTIVATE:${dbClient === externalClient}`);
+      return [];
+    },
+  });
+
+  try {
+    const result = await harness.service.departHousehold(
+      "household-client",
+      {
+        departure_time: "2026-08-09T03:00:00.000Z",
+      },
+      {
+        userId: "barangay-user-a",
+        roleCode: "BARANGAY",
+        defaultBarangayId: "barangay-a",
+      },
+      { dbClient: externalClient },
+    );
+
+    assert.equal(result.status, "ARCHIVED");
+    assert.deepEqual(events, [
+      "SCOPE:true",
+      "LOCK:true",
+      "ACTIVE:true",
+      "MARK:true",
+      "ARCHIVE:true",
+      "DEACTIVATE:true",
+    ]);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("BRG-SC-06-M01 HTTP departure owns one local transaction around reads and writes", async () => {
+  const events = [];
+  const fakeClient = {
+    query: async (query) => {
+      events.push(String(query).trim());
+      return { rows: [] };
+    },
+    release: () => {
+      events.push("RELEASE");
+    },
+  };
+  const household = {
+    id: "household-http",
+    disaster_event_id: "event-1",
+    barangay_id: "barangay-a",
+    family_head_first_name: "Http",
+    family_head_last_name: "Path",
+    is_active: true,
+  };
+  const harness = loadServiceWithMocks(
+    {
+      getHouseholdSummaryById: async (_householdId, dbClient) => {
+        events.push(`SCOPE:${dbClient === fakeClient}`);
+        return household;
+      },
+      getHouseholdSummaryByIdForUpdate: async (_householdId, dbClient) => {
+        events.push(`LOCK:${dbClient === fakeClient}`);
+        return household;
+      },
+      getActiveEvacuationLogsByHouseholdId: async (_householdId, dbClient) => {
+        events.push(`ACTIVE:${dbClient === fakeClient}`);
+        return [{ id: "log-1" }];
+      },
+      markHouseholdDeparture: async (_householdId, _details, dbClient) => {
+        events.push(`MARK:${dbClient === fakeClient}`);
+        return [{ id: "log-1", time_out: "2026-08-09T03:00:00.000Z" }];
+      },
+      archiveHousehold: async (_householdId, dbClient) => {
+        events.push(`ARCHIVE:${dbClient === fakeClient}`);
+        return { ...household, is_active: false };
+      },
+      deactivateEvacueesByHouseholdId: async (_householdId, dbClient) => {
+        events.push(`DEACTIVATE:${dbClient === fakeClient}`);
+        return [];
+      },
+    },
+    {
+      connect: async () => fakeClient,
+    },
+  );
+
+  try {
+    const result = await harness.service.departHousehold(
+      "household-http",
+      {
+        departure_time: "2026-08-09T03:00:00.000Z",
+      },
+      {
+        userId: "barangay-user-a",
+        roleCode: "BARANGAY",
+        defaultBarangayId: "barangay-a",
+      },
+    );
+
+    assert.equal(result.status, "ARCHIVED");
+    assert.deepEqual(events, [
+      "BEGIN",
+      "SCOPE:true",
+      "LOCK:true",
+      "ACTIVE:true",
+      "MARK:true",
+      "ARCHIVE:true",
+      "DEACTIVATE:true",
+      "COMMIT",
+      "RELEASE",
+    ]);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("BRG-SC-06-M01 supplied sync transaction client is reused without nested BEGIN", async () => {
+  const events = [];
+  const externalClient = {
+    query: async (query) => {
+      events.push(String(query).trim());
+      throw new Error("departHousehold must not issue transaction control on supplied dbClient");
+    },
+  };
+  const household = {
+    id: "household-sync",
+    disaster_event_id: "event-1",
+    barangay_id: "barangay-a",
+    family_head_first_name: "Sync",
+    family_head_last_name: "Path",
+    is_active: true,
+  };
+  const harness = loadServiceWithMocks({
+    getHouseholdSummaryById: async (_householdId, dbClient) => {
+      events.push(`SCOPE:${dbClient === externalClient}`);
+      return household;
+    },
+    getHouseholdSummaryByIdForUpdate: async (_householdId, dbClient) => {
+      events.push(`LOCK:${dbClient === externalClient}`);
+      return household;
+    },
+    getActiveEvacuationLogsByHouseholdId: async (_householdId, dbClient) => {
+      events.push(`ACTIVE:${dbClient === externalClient}`);
+      return [{ id: "log-1" }];
+    },
+    markHouseholdDeparture: async (_householdId, _details, dbClient) => {
+      events.push(`MARK:${dbClient === externalClient}`);
+      return [{ id: "log-1", time_out: "2026-08-09T03:00:00.000Z" }];
+    },
+    archiveHousehold: async (_householdId, dbClient) => {
+      events.push(`ARCHIVE:${dbClient === externalClient}`);
+      return { ...household, is_active: false };
+    },
+    deactivateEvacueesByHouseholdId: async (_householdId, dbClient) => {
+      events.push(`DEACTIVATE:${dbClient === externalClient}`);
+      return [];
+    },
+  });
+
+  try {
+    const result = await harness.service.departHousehold(
+      "household-sync",
+      {
+        departure_time: "2026-08-09T03:00:00.000Z",
+      },
+      {
+        userId: "barangay-user-a",
+        roleCode: "BARANGAY",
+        defaultBarangayId: "barangay-a",
+      },
+      { dbClient: externalClient },
+    );
+
+    assert.equal(result.status, "ARCHIVED");
+    assert.deepEqual(events, [
+      "SCOPE:true",
+      "LOCK:true",
+      "ACTIVE:true",
+      "MARK:true",
+      "ARCHIVE:true",
+      "DEACTIVATE:true",
+    ]);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("BRG-SC-06-M01 zero affected departure rows cannot return success", async () => {
+  const events = [];
+  const externalClient = {
+    query: async () => ({ rows: [] }),
+  };
+  const household = {
+    id: "household-zero",
+    disaster_event_id: "event-1",
+    barangay_id: "barangay-a",
+    family_head_first_name: "Zero",
+    family_head_last_name: "Rows",
+    is_active: true,
+  };
+  const harness = loadServiceWithMocks({
+    getHouseholdSummaryById: async (_householdId, dbClient) => {
+      events.push(`SUMMARY:${dbClient === externalClient}`);
+      return household;
+    },
+    getHouseholdSummaryByIdForUpdate: async (_householdId, dbClient) => {
+      events.push(`LOCK:${dbClient === externalClient}`);
+      return household;
+    },
+    getActiveEvacuationLogsByHouseholdId: async (_householdId, dbClient) => {
+      events.push(`ACTIVE:${dbClient === externalClient}`);
+      return [{ id: "log-1" }];
+    },
+    markHouseholdDeparture: async (_householdId, _details, dbClient) => {
+      events.push(`MARK:${dbClient === externalClient}`);
+      return [];
+    },
+    archiveHousehold: async () => {
+      events.push("ARCHIVE");
+      throw new Error("Zero affected rows must not archive");
+    },
+    deactivateEvacueesByHouseholdId: async () => {
+      events.push("DEACTIVATE");
+      throw new Error("Zero affected rows must not deactivate evacuees");
+    },
+  });
+
+  try {
+    await assert.rejects(
+      harness.service.departHousehold(
+        "household-zero",
+        {
+          departure_time: "2026-08-09T03:00:00.000Z",
+          allow_duplicate_departure_resolution: true,
+        },
+        {
+          userId: "barangay-user-a",
+          roleCode: "BARANGAY",
+          defaultBarangayId: "barangay-a",
+        },
+        { dbClient: externalClient },
+      ),
+      (error) => {
+        assert.equal(error.statusCode, 409);
+        assert.equal(error.code, "HOUSEHOLD_DEPARTURE_STATE_CONSUMED");
+        return true;
+      },
+    );
+
+    assert.deepEqual(events, [
+      "SUMMARY:true",
+      "LOCK:true",
+      "ACTIVE:true",
+      "MARK:true",
+      "SUMMARY:true",
+    ]);
   } finally {
     harness.restore();
   }
