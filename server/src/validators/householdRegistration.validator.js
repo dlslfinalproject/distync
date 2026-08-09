@@ -53,10 +53,15 @@ const MAX_PRIVACY_NOTICE_VERSION_LENGTH = 100;
 const MAX_PRIVACY_ACKNOWLEDGED_NAME_LENGTH = 200;
 const MAX_PRIVACY_RELATIONSHIP_LENGTH = 100;
 
-const validateHouseholdRegistrationRequest = (
-  req,
-  res,
-  next,
+const createValidationError = (message) => {
+  const error = new Error(message);
+  error.statusCode = 400;
+  error.code = "HOUSEHOLD_REGISTRATION_VALIDATION_FAILED";
+  return error;
+};
+
+const validateAndNormalizeHouseholdRegistrationPayload = (
+  payload = {},
   {
     requirePrivacyAcknowledgment = true,
     requireFamilyHead = true,
@@ -64,21 +69,20 @@ const validateHouseholdRegistrationRequest = (
     requireHouseholdSize = true,
   } = {},
 ) => {
-  try {
     const hasFamilyHeadField = Object.prototype.hasOwnProperty.call(
-      req.body || {},
+      payload || {},
       "family_head",
     );
     const hasFamilyHeadPhotoUrlField = Object.prototype.hasOwnProperty.call(
-      req.body || {},
+      payload || {},
       "family_head_photo_url",
     );
     const hasPhotoVerificationNotesField = Object.prototype.hasOwnProperty.call(
-      req.body || {},
+      payload || {},
       "photo_verification_notes",
     );
     const hasHouseholdSizeField = Object.prototype.hasOwnProperty.call(
-      req.body || {},
+      payload || {},
       "household_size",
     );
     const {
@@ -97,26 +101,26 @@ const validateHouseholdRegistrationRequest = (
       family_head_photo_url,
       photo_verification_notes,
       privacy_acknowledgment,
-    } = req.body;
+    } = payload || {};
 
     if (!isValidUuid(disaster_event_id)) {
-      return res.status(400).json({
-        message: "disaster_event_id is required and must be a valid UUID",
-      });
+      throw createValidationError(
+        "disaster_event_id is required and must be a valid UUID",
+      );
     }
 
     const normalizedResidencyStatus = residency_status || "RESIDENT";
 
     if (!allowedResidencyStatuses.includes(normalizedResidencyStatus)) {
-      return res.status(400).json({
-        message: "residency_status must be RESIDENT or NON_RESIDENT",
-      });
+      throw createValidationError(
+        "residency_status must be RESIDENT or NON_RESIDENT",
+      );
     }
 
     if (!isValidUuid(barangay_id)) {
-      return res.status(400).json({
-        message: "barangay_id is required and must be a valid handling barangay",
-      });
+      throw createValidationError(
+        "barangay_id is required and must be a valid handling barangay",
+      );
     }
 
     if (
@@ -124,28 +128,24 @@ const validateHouseholdRegistrationRequest = (
       evacuation_center_id !== null &&
       !isValidUuid(evacuation_center_id)
     ) {
-      return res.status(400).json({
-        message: "evacuation_center_id must be a valid UUID or null",
-      });
+      throw createValidationError(
+        "evacuation_center_id must be a valid UUID or null",
+      );
     }
 
     if (requireFamilyHead && (!family_head || typeof family_head !== "object")) {
-      return res.status(400).json({
-        message: "family_head is required",
-      });
+      throw createValidationError("family_head is required");
     }
 
     if (family_head !== undefined && family_head !== null) {
       if (typeof family_head !== "object") {
-        return res.status(400).json({
-          message: "family_head must be an object when provided",
-        });
+        throw createValidationError("family_head must be an object when provided");
       }
 
       if (!family_head.first_name || typeof family_head.first_name !== "string") {
-        return res.status(400).json({
-          message: "family_head.first_name is required and must be a string",
-        });
+        throw createValidationError(
+          "family_head.first_name is required and must be a string",
+        );
       }
 
       if (
@@ -153,15 +153,15 @@ const validateHouseholdRegistrationRequest = (
         family_head.middle_name !== null &&
         typeof family_head.middle_name !== "string"
       ) {
-        return res.status(400).json({
-          message: "family_head.middle_name must be a string or null",
-        });
+        throw createValidationError(
+          "family_head.middle_name must be a string or null",
+        );
       }
 
       if (!family_head.last_name || typeof family_head.last_name !== "string") {
-        return res.status(400).json({
-          message: "family_head.last_name is required and must be a string",
-        });
+        throw createValidationError(
+          "family_head.last_name is required and must be a string",
+        );
       }
 
       if (
@@ -169,72 +169,62 @@ const validateHouseholdRegistrationRequest = (
         family_head.suffix !== null &&
         typeof family_head.suffix !== "string"
       ) {
-        return res.status(400).json({
-          message: "family_head.suffix must be a string or null",
-        });
+        throw createValidationError("family_head.suffix must be a string or null");
       }
 
       if (!allowedSexValues.includes(family_head.sex)) {
-        return res.status(400).json({
-          message: "family_head.sex must be MALE or FEMALE",
-        });
+        throw createValidationError("family_head.sex must be MALE or FEMALE");
       }
 
       if (
         !Number.isInteger(family_head.age_value) ||
         family_head.age_value < 0
       ) {
-        return res.status(400).json({
-          message:
-            "family_head.age_value is required and must be a non-negative integer",
-        });
+        throw createValidationError(
+          "family_head.age_value is required and must be a non-negative integer",
+        );
       }
 
       if (!ALLOWED_AGE_UNITS.includes(family_head.age_unit)) {
-        return res.status(400).json({
-          message: "family_head.age_unit must be YEARS",
-        });
+        throw createValidationError("family_head.age_unit must be YEARS");
       }
 
       if (family_head.age_unit !== "YEARS") {
-        return res.status(400).json({
-          message: "family_head.age_unit must be YEARS",
-        });
+        throw createValidationError("family_head.age_unit must be YEARS");
       }
 
       if (
         family_head.sector_ids !== undefined &&
         !Array.isArray(family_head.sector_ids)
       ) {
-        return res.status(400).json({
-          message: "family_head.sector_ids must be an array when provided",
-        });
+        throw createValidationError(
+          "family_head.sector_ids must be an array when provided",
+        );
       }
 
       if (
         Array.isArray(family_head.sector_ids) &&
         !validateUuidArray(family_head.sector_ids)
       ) {
-        return res.status(400).json({
-          message: "Each family_head.sector_ids value must be a valid UUID",
-        });
+        throw createValidationError(
+          "Each family_head.sector_ids value must be a valid UUID",
+        );
       }
     }
 
     if (!allowedStayTypes.includes(current_stay_type)) {
-      return res.status(400).json({
-        message:
-          "current_stay_type must be EVAC_CENTER, RELATIVES, or OTHER_SAFE_PLACE",
-      });
+      throw createValidationError(
+        "current_stay_type must be EVAC_CENTER, RELATIVES, or OTHER_SAFE_PLACE",
+      );
     }
 
     if (
       requireHouseholdSize &&
       (!Number.isInteger(household_size) || household_size <= 0)
     ) {
-      return res.status(400).json({
-        message: "household_size is required and must be a positive integer",
-      });
+      throw createValidationError(
+        "household_size is required and must be a positive integer",
+      );
     }
 
     if (
@@ -243,9 +233,9 @@ const validateHouseholdRegistrationRequest = (
       household_size !== null &&
       (!Number.isInteger(household_size) || household_size <= 0)
     ) {
-      return res.status(400).json({
-        message: "household_size must be a positive integer when provided",
-      });
+      throw createValidationError(
+        "household_size must be a positive integer when provided",
+      );
     }
 
     if (
@@ -253,18 +243,14 @@ const validateHouseholdRegistrationRequest = (
       contact_number !== null &&
       typeof contact_number !== "string"
     ) {
-      return res.status(400).json({
-        message: "contact_number must be a string or null",
-      });
+      throw createValidationError("contact_number must be a string or null");
     }
 
     if (
       typeof contact_number === "string" &&
       contact_number.length > MAX_CONTACT_NUMBER_LENGTH
     ) {
-      return res.status(400).json({
-        message: "contact_number must be 50 characters or fewer",
-      });
+      throw createValidationError("contact_number must be 50 characters or fewer");
     }
 
     if (
@@ -272,18 +258,18 @@ const validateHouseholdRegistrationRequest = (
       current_address_details !== null &&
       typeof current_address_details !== "string"
     ) {
-      return res.status(400).json({
-        message: "current_address_details must be a string or null",
-      });
+      throw createValidationError(
+        "current_address_details must be a string or null",
+      );
     }
 
     if (
       typeof current_address_details === "string" &&
       current_address_details.length > MAX_CURRENT_ADDRESS_LENGTH
     ) {
-      return res.status(400).json({
-        message: "current_address_details must be 500 characters or fewer",
-      });
+      throw createValidationError(
+        "current_address_details must be 500 characters or fewer",
+      );
     }
 
     if (
@@ -291,9 +277,7 @@ const validateHouseholdRegistrationRequest = (
       registered_by !== null &&
       !isValidUuid(registered_by)
     ) {
-      return res.status(400).json({
-        message: "registered_by must be a valid UUID or null",
-      });
+      throw createValidationError("registered_by must be a valid UUID or null");
     }
 
     if (
@@ -301,18 +285,14 @@ const validateHouseholdRegistrationRequest = (
       family_head_photo_url !== null &&
       typeof family_head_photo_url !== "string"
     ) {
-      return res.status(400).json({
-        message: "family_head_photo_url must be a string or null",
-      });
+      throw createValidationError("family_head_photo_url must be a string or null");
     }
 
     if (
       typeof family_head_photo_url === "string" &&
       family_head_photo_url.length > MAX_FAMILY_HEAD_PHOTO_URL_LENGTH
     ) {
-      return res.status(400).json({
-        message: "family_head_photo_url is too large",
-      });
+      throw createValidationError("family_head_photo_url is too large");
     }
 
     if (
@@ -322,9 +302,9 @@ const validateHouseholdRegistrationRequest = (
         (typeof family_head_photo_url === "string" &&
           !family_head_photo_url.trim()))
     ) {
-      return res.status(400).json({
-        message: "Family head photo is required for verification.",
-      });
+      throw createValidationError(
+        "Family head photo is required for verification.",
+      );
     }
 
     if (
@@ -332,18 +312,18 @@ const validateHouseholdRegistrationRequest = (
       photo_verification_notes !== null &&
       typeof photo_verification_notes !== "string"
     ) {
-      return res.status(400).json({
-        message: "photo_verification_notes must be a string or null",
-      });
+      throw createValidationError(
+        "photo_verification_notes must be a string or null",
+      );
     }
 
     if (
       typeof photo_verification_notes === "string" &&
       photo_verification_notes.length > MAX_PHOTO_VERIFICATION_NOTES_LENGTH
     ) {
-      return res.status(400).json({
-        message: "photo_verification_notes must be 1000 characters or fewer",
-      });
+      throw createValidationError(
+        "photo_verification_notes must be 1000 characters or fewer",
+      );
     }
 
     if (
@@ -351,17 +331,15 @@ const validateHouseholdRegistrationRequest = (
       privacy_acknowledgment !== null &&
       typeof privacy_acknowledgment !== "object"
     ) {
-      return res.status(400).json({
-        message:
-          "privacy_acknowledgment must be an object when provided",
-      });
+      throw createValidationError(
+        "privacy_acknowledgment must be an object when provided",
+      );
     }
 
     if (requirePrivacyAcknowledgment && !privacy_acknowledgment) {
-      return res.status(400).json({
-        message:
-          "Data Privacy Notice acknowledgment is required before the family can be registered.",
-      });
+      throw createValidationError(
+        "Data Privacy Notice acknowledgment is required before the family can be registered.",
+      );
     }
 
     let normalizedPrivacyAcknowledgment = null;
@@ -379,10 +357,9 @@ const validateHouseholdRegistrationRequest = (
       } = privacy_acknowledgment;
 
       if (consent_status !== HOUSEHOLD_PRIVACY_CONSENT_STATUS.ACKNOWLEDGED) {
-        return res.status(400).json({
-          message:
-            "Data Privacy Notice acknowledgment is required before the family can be registered.",
-        });
+        throw createValidationError(
+          "Data Privacy Notice acknowledgment is required before the family can be registered.",
+        );
       }
 
       if (
@@ -390,24 +367,21 @@ const validateHouseholdRegistrationRequest = (
         !notice_version.trim() ||
         notice_version.length > MAX_PRIVACY_NOTICE_VERSION_LENGTH
       ) {
-        return res.status(400).json({
-          message:
-            "privacy_acknowledgment.notice_version is required and must be 100 characters or fewer",
-        });
+        throw createValidationError(
+          "privacy_acknowledgment.notice_version is required and must be 100 characters or fewer",
+        );
       }
 
       if (notice_version.trim() !== HOUSEHOLD_PRIVACY_NOTICE_VERSION) {
-        return res.status(400).json({
-          message:
-            "privacy_acknowledgment.notice_version is invalid or outdated",
-        });
+        throw createValidationError(
+          "privacy_acknowledgment.notice_version is invalid or outdated",
+        );
       }
 
       if (!isValidDateString(acknowledged_at)) {
-        return res.status(400).json({
-          message:
-            "privacy_acknowledgment.acknowledged_at must be a valid ISO date string",
-        });
+        throw createValidationError(
+          "privacy_acknowledgment.acknowledged_at must be a valid ISO date string",
+        );
       }
 
       if (
@@ -417,10 +391,9 @@ const validateHouseholdRegistrationRequest = (
           !acknowledged_by_name.trim() ||
           acknowledged_by_name.length > MAX_PRIVACY_ACKNOWLEDGED_NAME_LENGTH)
       ) {
-        return res.status(400).json({
-          message:
-            "privacy_acknowledgment.acknowledged_by_name must be 200 characters or fewer when provided",
-        });
+        throw createValidationError(
+          "privacy_acknowledgment.acknowledged_by_name must be 200 characters or fewer when provided",
+        );
       }
 
       if (
@@ -429,10 +402,9 @@ const validateHouseholdRegistrationRequest = (
         (typeof representative_relationship !== "string" ||
           representative_relationship.length > MAX_PRIVACY_RELATIONSHIP_LENGTH)
       ) {
-        return res.status(400).json({
-          message:
-            "privacy_acknowledgment.representative_relationship must be 100 characters or fewer when provided",
-        });
+        throw createValidationError(
+          "privacy_acknowledgment.representative_relationship must be 100 characters or fewer when provided",
+        );
       }
 
       if (
@@ -440,20 +412,18 @@ const validateHouseholdRegistrationRequest = (
         device_id !== null &&
         !isValidUuid(device_id)
       ) {
-        return res.status(400).json({
-          message:
-            "privacy_acknowledgment.device_id must be a valid UUID or null",
-        });
+        throw createValidationError(
+          "privacy_acknowledgment.device_id must be a valid UUID or null",
+        );
       }
 
       if (
         is_offline_encoded !== undefined &&
         typeof is_offline_encoded !== "boolean"
       ) {
-        return res.status(400).json({
-          message:
-            "privacy_acknowledgment.is_offline_encoded must be a boolean when provided",
-        });
+        throw createValidationError(
+          "privacy_acknowledgment.is_offline_encoded must be a boolean when provided",
+        );
       }
 
       if (
@@ -463,10 +433,9 @@ const validateHouseholdRegistrationRequest = (
           String(sync_status).toUpperCase(),
         )
       ) {
-        return res.status(400).json({
-          message:
-            "privacy_acknowledgment.sync_status must be PENDING, SYNCED, FAILED, or CONFLICT when provided",
-        });
+        throw createValidationError(
+          "privacy_acknowledgment.sync_status must be PENDING, SYNCED, FAILED, or CONFLICT when provided",
+        );
       }
 
       normalizedPrivacyAcknowledgment = {
@@ -493,9 +462,7 @@ const validateHouseholdRegistrationRequest = (
     }
 
     if (!Array.isArray(members)) {
-      return res.status(400).json({
-        message: "members must be an array",
-      });
+      throw createValidationError("members must be an array");
     }
 
     for (const member of members) {
@@ -505,15 +472,15 @@ const validateHouseholdRegistrationRequest = (
         member.id !== "" &&
         !isValidUuid(member.id)
       ) {
-        return res.status(400).json({
-          message: "Each member.id must be a valid UUID when provided",
-        });
+        throw createValidationError(
+          "Each member.id must be a valid UUID when provided",
+        );
       }
 
       if (!member.first_name || typeof member.first_name !== "string") {
-        return res.status(400).json({
-          message: "Each member.first_name is required and must be a string",
-        });
+        throw createValidationError(
+          "Each member.first_name is required and must be a string",
+        );
       }
 
       if (
@@ -521,15 +488,15 @@ const validateHouseholdRegistrationRequest = (
         member.middle_name !== null &&
         typeof member.middle_name !== "string"
       ) {
-        return res.status(400).json({
-          message: "Each member.middle_name must be a string or null",
-        });
+        throw createValidationError(
+          "Each member.middle_name must be a string or null",
+        );
       }
 
       if (!member.last_name || typeof member.last_name !== "string") {
-        return res.status(400).json({
-          message: "Each member.last_name is required and must be a string",
-        });
+        throw createValidationError(
+          "Each member.last_name is required and must be a string",
+        );
       }
 
       if (
@@ -537,53 +504,47 @@ const validateHouseholdRegistrationRequest = (
         member.suffix !== null &&
         typeof member.suffix !== "string"
       ) {
-        return res.status(400).json({
-          message: "Each member.suffix must be a string or null",
-        });
+        throw createValidationError("Each member.suffix must be a string or null");
       }
 
       if (!allowedSexValues.includes(member.sex)) {
-        return res.status(400).json({
-          message: "Each member.sex must be MALE or FEMALE",
-        });
+        throw createValidationError("Each member.sex must be MALE or FEMALE");
       }
 
       if (!Number.isInteger(member.age_value) || member.age_value < 0) {
-        return res.status(400).json({
-          message:
-            "Each member.age_value is required and must be a non-negative integer",
-        });
+        throw createValidationError(
+          "Each member.age_value is required and must be a non-negative integer",
+        );
       }
 
       if (!ALLOWED_AGE_UNITS.includes(member.age_unit)) {
-        return res.status(400).json({
-          message: "Each member.age_unit must be MONTHS or YEARS",
-        });
+        throw createValidationError(
+          "Each member.age_unit must be MONTHS or YEARS",
+        );
       }
 
       if (
         !member.relationship_to_head ||
         typeof member.relationship_to_head !== "string"
       ) {
-        return res.status(400).json({
-          message:
-            "Each member.relationship_to_head is required and must be a string",
-        });
+        throw createValidationError(
+          "Each member.relationship_to_head is required and must be a string",
+        );
       }
 
       if (member.sector_ids !== undefined && !Array.isArray(member.sector_ids)) {
-        return res.status(400).json({
-          message: "Each member.sector_ids must be an array when provided",
-        });
+        throw createValidationError(
+          "Each member.sector_ids must be an array when provided",
+        );
       }
 
       if (
         Array.isArray(member.sector_ids) &&
         !validateUuidArray(member.sector_ids)
       ) {
-        return res.status(400).json({
-          message: "Each member.sector_ids value must be a valid UUID",
-        });
+        throw createValidationError(
+          "Each member.sector_ids value must be a valid UUID",
+        );
       }
     }
 
@@ -591,18 +552,18 @@ const validateHouseholdRegistrationRequest = (
       household_sector_ids !== undefined &&
       !Array.isArray(household_sector_ids)
     ) {
-      return res.status(400).json({
-        message: "household_sector_ids must be an array when provided",
-      });
+      throw createValidationError(
+        "household_sector_ids must be an array when provided",
+      );
     }
 
     if (
       Array.isArray(household_sector_ids) &&
       !validateUuidArray(household_sector_ids)
     ) {
-      return res.status(400).json({
-        message: "Each household_sector_ids value must be a valid UUID",
-      });
+      throw createValidationError(
+        "Each household_sector_ids value must be a valid UUID",
+      );
     }
 
     const familyHeadComparableFullName = buildComparableFullName(family_head);
@@ -616,23 +577,21 @@ const validateHouseholdRegistrationRequest = (
       }
 
       if (memberComparableFullName === familyHeadComparableFullName) {
-        return res.status(400).json({
-          message:
-            "A household member cannot have the exact same full name as the family head.",
-        });
+        throw createValidationError(
+          "A household member cannot have the exact same full name as the family head.",
+        );
       }
 
       if (seenMemberFullNames.has(memberComparableFullName)) {
-        return res.status(400).json({
-          message:
-            "Household members cannot contain exact duplicate full names.",
-        });
+        throw createValidationError(
+          "Household members cannot contain exact duplicate full names.",
+        );
       }
 
       seenMemberFullNames.set(memberComparableFullName, memberIndex);
     }
 
-    req.validatedBody = {
+    const validatedBody = {
       disaster_event_id,
       barangay_id,
       residency_status: normalizedResidencyStatus,
@@ -697,30 +656,42 @@ const validateHouseholdRegistrationRequest = (
     };
 
     const hasInvalidFamilyHeadManualSector =
-      Array.isArray(req.validatedBody.family_head?.sector_ids) &&
-      req.validatedBody.family_head.sector_ids.some((value) => !isValidUuid(value));
+      Array.isArray(validatedBody.family_head?.sector_ids) &&
+      validatedBody.family_head.sector_ids.some((value) => !isValidUuid(value));
 
     if (hasInvalidFamilyHeadManualSector) {
-      return res.status(400).json({
-        message: "Each family_head.sector_ids value must be a valid UUID",
-      });
+      throw createValidationError(
+        "Each family_head.sector_ids value must be a valid UUID",
+      );
     }
 
-    const hasInvalidMemberSectorShape = req.validatedBody.members.some((member) =>
+    const hasInvalidMemberSectorShape = validatedBody.members.some((member) =>
       member.sector_ids.some((value) => !isValidUuid(value)),
     );
 
     if (hasInvalidMemberSectorShape) {
-      return res.status(400).json({
-        message: "Each member.sector_ids value must be a valid UUID",
-      });
+      throw createValidationError(
+        "Each member.sector_ids value must be a valid UUID",
+      );
     }
+
+    return validatedBody;
+};
+
+const validateHouseholdRegistrationRequest = (req, res, next, options = {}) => {
+  try {
+    req.validatedBody = validateAndNormalizeHouseholdRegistrationPayload(
+      req.body,
+      options,
+    );
 
     return next();
   } catch (error) {
-    return res.status(500).json({
-      message: "Failed to validate household registration request",
-      error: error.message,
+    const statusCode = error.statusCode || 500;
+
+    return res.status(statusCode).json({
+      message:
+        error.message || "Failed to validate household registration request",
     });
   }
 };
@@ -1131,6 +1102,7 @@ const validateUpdateHouseholdDetails = (req, res, next) => {
 };
 
 module.exports = {
+  validateAndNormalizeHouseholdRegistrationPayload,
   validateCreateHouseholdRegistration,
   validateDuplicateRegistrationSuggestions,
   validateDepartHousehold,
@@ -1140,3 +1112,4 @@ module.exports = {
   validateRestoreHousehold,
   validateCorrectEvacuationLog,
 };
+

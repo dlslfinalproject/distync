@@ -143,6 +143,55 @@ const baseAuth = {
   defaultBarangayId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
 };
 
+const buildValidHouseholdRegisterSyncPayload = (overrides = {}) => ({
+  disaster_event_id: "11111111-1111-4111-8111-111111111111",
+  barangay_id: baseAuth.defaultBarangayId,
+  residency_status: "RESIDENT",
+  evacuation_center_id: "22222222-2222-4222-8222-222222222222",
+  family_head: {
+    first_name: "Ana",
+    middle_name: null,
+    last_name: "Dela Cruz",
+    suffix: null,
+    sex: "FEMALE",
+    age_value: 34,
+    age_unit: "YEARS",
+    sector_ids: [],
+  },
+  current_stay_type: "EVAC_CENTER",
+  household_size: 2,
+  contact_number: " 09171234567 ",
+  current_address_details: " Poblacion, Malvar ",
+  family_head_photo_url: " data:image/jpeg;base64,ZmFrZQ== ",
+  photo_verification_notes: " Verified offline ",
+  privacy_acknowledgment: {
+    consent_status: "ACKNOWLEDGED",
+    notice_version: "2026-07-30-v2",
+    acknowledged_at: "2026-08-08T00:45:00.000Z",
+    acknowledged_by_name: " Ana Dela Cruz ",
+    representative_relationship: null,
+    device_id: null,
+    is_offline_encoded: true,
+    sync_status: "PENDING",
+  },
+  members: [
+    {
+      id: null,
+      first_name: "Marco",
+      middle_name: null,
+      last_name: "Dela Cruz",
+      suffix: null,
+      sex: "MALE",
+      age_value: 12,
+      age_unit: "YEARS",
+      relationship_to_head: "SON",
+      sector_ids: [],
+    },
+  ],
+  household_sector_ids: [],
+  ...overrides,
+});
+
 test("BRG-SC-03 TEST A rejects foreign Barangay HOUSEHOLD_UPDATE before conflict evidence is stored", async () => {
   const foreignHousehold = {
     id: "11111111-1111-4111-8111-111111111111",
@@ -680,6 +729,7 @@ test("M02-04 normal conflict processes notification intent after sync transactio
 
 test("M02-05 genuine FAILED transition persists notification intent and processes it after commit", async () => {
   const processedIntentIds = [];
+  let registerHouseholdCalls = 0;
 
   await withStubbedSyncService(
     {
@@ -700,7 +750,8 @@ test("M02-05 genuine FAILED transition persists notification intent and processe
       }),
       [householdRegistrationServicePath]: {
         registerHousehold: async () => {
-          throw new Error("validator rejected offline household");
+          registerHouseholdCalls += 1;
+          throw new Error("missing-photo sync must not reach business mutation");
         },
       },
       [notificationServicePath]: {
@@ -724,14 +775,17 @@ test("M02-05 genuine FAILED transition persists notification intent and processe
             entity_type: "HOUSEHOLD",
             entity_local_id: "local-m02-failed",
             client_timestamp: "2026-08-08T01:00:00.000Z",
-            payload: {
-              family_head_first_name: "Local",
-            },
+            payload: buildValidHouseholdRegisterSyncPayload({
+              family_head_photo_url: " ",
+            }),
           },
         ],
       });
 
       assert.equal(result.sync_status, "FAILED");
+      assert.match(result.message, /Family head photo is required/i);
+      assert.equal(result.conflict, null);
+      assert.equal(registerHouseholdCalls, 0);
       assert.deepEqual(processedIntentIds, ["outbox-failed-sync"]);
     },
   );
@@ -785,9 +839,7 @@ test("M02-06 post-commit notification processing failure does not change committ
             entity_type: "HOUSEHOLD",
             entity_local_id: "local-m02-post-commit-failure",
             client_timestamp: "2026-08-08T01:00:00.000Z",
-            payload: {
-              family_head_first_name: "Local",
-            },
+            payload: buildValidHouseholdRegisterSyncPayload(),
           },
         ],
       });
@@ -1228,9 +1280,7 @@ test("processSyncEntries retries a FAILED row using the existing sync transactio
             entity_type: "HOUSEHOLD",
             entity_local_id: "local-household-retry",
             client_timestamp: "2026-08-08T01:00:00.000Z",
-            payload: {
-              family_head_first_name: "Local",
-            },
+            payload: buildValidHouseholdRegisterSyncPayload(),
           },
         ],
       });
@@ -1295,9 +1345,7 @@ test("processSyncEntries rolls back post-business bookkeeping failures instead o
                 entity_type: "HOUSEHOLD",
                 entity_local_id: "local-household-post-effect",
                 client_timestamp: "2026-08-08T01:00:00.000Z",
-                payload: {
-                  family_head_first_name: "Local",
-                },
+                payload: buildValidHouseholdRegisterSyncPayload(),
               },
             ],
           }),
@@ -1414,7 +1462,10 @@ test("H03F-01/H03F-03/H03F-04 covered handlers roll back when terminal sync upda
                   entity_type: faultCase.entityType,
                   entity_local_id: `${faultCase.id.toLowerCase()}-local`,
                   client_timestamp: "2026-08-08T01:00:00.000Z",
-                  payload: {},
+                  payload:
+                    faultCase.actionKey === "HOUSEHOLD_REGISTER"
+                      ? buildValidHouseholdRegisterSyncPayload()
+                      : {},
                 },
               ],
             }),
@@ -1485,7 +1536,7 @@ test("H03F-02 same client_sync_id retry after rollback can claim one logical row
             entity_type: "HOUSEHOLD",
             entity_local_id: "local-household-retry",
             client_timestamp: "2026-08-08T01:00:00.000Z",
-            payload: {},
+            payload: buildValidHouseholdRegisterSyncPayload(),
           },
         ],
       });
@@ -1700,9 +1751,7 @@ test("processSyncEntries records duplicate accepted-server conflicts with FIRST_
             entity_server_id: null,
             device_id: null,
             client_timestamp: "2026-08-08T01:00:00.000Z",
-            payload: {
-              family_head_first_name: "Local",
-            },
+            payload: buildValidHouseholdRegisterSyncPayload(),
           },
         ],
       });
@@ -1711,7 +1760,7 @@ test("processSyncEntries records duplicate accepted-server conflicts with FIRST_
       assert.equal(result.conflict.id, "conflict-first-accepted");
       assert.equal(captured.conflictPayload.resolution_strategy, "FIRST_ACCEPTED");
       assert.equal(captured.conflictPayload.resolved_payload_json.winner, "SERVER");
-      assert.equal(captured.conflictPayload.local_payload_json.family_head_first_name, "Local");
+      assert.equal(captured.conflictPayload.local_payload_json.family_head.first_name, "Ana");
       assert.equal(captured.conflictPayload.server_payload_json.family_head_first_name, "Server");
       assert.equal(captured.transactionPayload.sync_status, "CONFLICT");
     },
@@ -2169,9 +2218,7 @@ test("processSyncEntries does not return successful CONFLICT when duplicate conf
             entity_type: "HOUSEHOLD",
             entity_local_id: "local-household-3",
             client_timestamp: "2026-08-08T01:00:00.000Z",
-            payload: {
-              family_head_first_name: "Local",
-            },
+            payload: buildValidHouseholdRegisterSyncPayload(),
           },
         ],
       });
