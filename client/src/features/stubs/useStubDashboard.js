@@ -173,7 +173,7 @@ export const useStubDashboard = ({
         value: dashboard.metrics.claimed_stubs || 0,
       },
       {
-        label: "Unclaimed Stubs",
+        label: "For Claim Stubs",
         value: dashboard.metrics.unclaimed_stubs || 0,
       },
     ];

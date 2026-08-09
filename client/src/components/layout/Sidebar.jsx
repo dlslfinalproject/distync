@@ -191,7 +191,7 @@ const roleMeta = {
       { label: "Inventory Items Management", to: "/inventory/items" },
       { label: "Relief Pack Templates", to: "/inventory/relief-pack-templates", },
       { label: "Inventory Tracking Management", to: "/inventory/transactions" },
-      { label: "Inventory Distribution", to: "/inventory/distribution" },
+      { label: "Inventory Distribution Management", to: "/inventory/distribution" },
       { label: "Inventory Forecasts", to: "/inventory/forecasts" },
       { label: "Donation Management", to: "/inventory/donations" },
     ],

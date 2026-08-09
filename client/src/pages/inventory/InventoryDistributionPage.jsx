@@ -1,11 +1,29 @@
 import React, { useMemo, useRef, useState } from "react";
 import { FiChevronDown, FiFileText, FiFilter } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
-import { shellStyles } from "../../components/layout/BarangayLayout";
+import {
+  pageSpacingStyles,
+  shellStyles,
+} from "../../components/layout/BarangayLayout";
 import InventoryDistributionTable from "../../components/inventory-distribution/InventoryDistributionTable";
+import InventoryDistributionDetailModal from "../../components/inventory-distribution/InventoryDistributionDetailModal";
+import MswdoExportModal from "../../components/mswdo-masterlist/MswdoExportModal";
 import SearchBar from "../../components/shared/SearchBar";
 import StatusCard from "../../components/shared/StatusCard";
+import StatusPill from "../../components/shared/StatusPill";
+import FeedbackToast from "../../components/shared/FeedbackToast";
 import { useInventoryDistribution } from "../../features/inventory-distribution/useInventoryDistribution";
+import { MASTERLIST_SORT_OPTIONS } from "../../features/masterlist/masterlistService";
+import {
+  exportInventoryDistribution,
+  fetchInventoryDistributionExportOptions,
+  fetchInventoryDistributionDetail,
+} from "../../features/distribution/distributionService";
+import {
+  buildExportSuccessMessage,
+  downloadExportFile,
+  resolveExportErrorMessage,
+} from "../../utils/exportHelpers";
 
 const filterStyles = {
   field: {
@@ -52,7 +70,7 @@ const filterStyles = {
 const filterPanelStyles = {
   panel: {
     position: "fixed",
-    width: "min(380px, calc(100vw - 32px))",
+    width: "min(360px, calc(100vw - 32px))",
     backgroundColor: "#ffffff",
     border: "1px solid #d6e2ef",
     borderRadius: "18px",
@@ -62,7 +80,7 @@ const filterPanelStyles = {
     display: "flex",
     flexDirection: "column",
     gap: "14px",
-    overflowY: "auto",
+    overflow: "hidden",
     boxSizing: "border-box",
   },
   title: {
@@ -72,31 +90,31 @@ const filterPanelStyles = {
     fontWeight: 800,
   },
   field: {
-    display: "flex",
-    flexDirection: "column",
+    display: "grid",
     gap: "8px",
   },
   label: {
     color: "#55718b",
-    fontSize: "12px",
-    fontWeight: 800,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
+    fontSize: "13px",
+    fontWeight: 700,
   },
   select: {
-    minHeight: "42px",
+    minHeight: "44px",
     border: "1px solid #d0ddeb",
-    borderRadius: "12px",
+    borderRadius: "14px",
     padding: "10px 12px",
     fontSize: "14px",
     color: "#1f405f",
-    backgroundColor: "#f8fbfe",
+    backgroundColor: "#ffffff",
     boxSizing: "border-box",
+    fontWeight: 600,
   },
   list: {
     display: "grid",
     gap: "10px",
-    overflow: "visible",
+    overflowY: "auto",
+    flex: "1 1 auto",
+    minHeight: 0,
     paddingRight: "4px",
   },
   option: {
@@ -108,9 +126,19 @@ const filterPanelStyles = {
   },
   actions: {
     display: "flex",
-    justifyContent: "space-between",
-    gap: "10px",
-    marginTop: "8px",
+    justifyContent: "flex-end",
+    marginTop: "auto",
+  },
+  clearAction: {
+    border: "none",
+    background: "transparent",
+    color: "#55718b",
+    padding: "2px 0",
+    fontSize: "13px",
+    fontWeight: 700,
+    cursor: "pointer",
+    textDecoration: "underline",
+    textUnderlineOffset: "3px",
   },
 };
 
@@ -120,49 +148,33 @@ const layoutStyles = {
     minWidth: 0,
     maxWidth: "100%",
     overflowX: "hidden",
+    display: "flex",
+    flexDirection: "column",
+    gap: "24px",
   },
   stack: {
-    display: "grid",
-    gap: "18px",
+    ...pageSpacingStyles.pageStack,
   },
   eventCard: {
     ...shellStyles.card,
-    padding: "22px 24px",
   },
-  eventTitleRow: {
+  eventInfoPanel: {
+    border: "1px solid #d6e2ef",
+    borderRadius: "16px",
+    padding: "18px 20px",
+    backgroundColor: "#f8fbfe",
+  },
+  eventInfoRow: {
     display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: "12px",
+    gap: "24px",
     flexWrap: "wrap",
+    marginTop: "14px",
   },
   eventTitle: {
     margin: 0,
     color: "#17324d",
-    fontSize: "22px",
+    fontSize: "18px",
     fontWeight: 800,
-  },
-  eventLabel: {
-    margin: "0 0 8px",
-    color: "#5f7892",
-    fontSize: "12px",
-    fontWeight: 800,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
-  },
-  templateBadge: {
-    display: "inline-flex",
-    alignItems: "center",
-    padding: "8px 12px",
-    borderRadius: "999px",
-    backgroundColor: "#eef5fc",
-    color: "#295f92",
-    fontSize: "12px",
-    fontWeight: 700,
-  },
-  toolbarCard: {
-    ...shellStyles.card,
-    padding: "18px 20px",
   },
 };
 
@@ -186,7 +198,7 @@ const getFilterPanelPosition = ({ triggerRect, panelHeight }) => {
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
   const constrainedPanelWidth = Math.min(
-    380,
+    360,
     viewportWidth - FILTER_PANEL_VIEWPORT_PADDING * 2,
   );
   const safePanelHeight = Math.max(panelHeight || 0, MIN_FILTER_PANEL_HEIGHT);
@@ -234,91 +246,65 @@ const getFilterPanelPosition = ({ triggerRect, panelHeight }) => {
 };
 
 const distributionStatusOptions = [
-  { value: "", label: "All Statuses" },
+  { value: "", label: "All" },
   { value: "CLAIMED", label: "Claimed" },
-  { value: "PENDING", label: "For Claim" },
-  { value: "NOT_DISTRIBUTED", label: "Not Distributed" },
+  { value: "ISSUED", label: "For Claim" },
 ];
 
-const buildCsvCell = (value) => {
-  return `"${String(value || "").replace(/"/g, '""')}"`;
+const formatDisplayDate = (value) => {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("en-PH", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+  }).format(new Date(value));
 };
 
-const downloadCsvFile = (rows, selectedEvent, selectedBarangay) => {
-  const header = [
-    "Family Head",
-    "Address",
-    "Family Members",
-    "Sectors",
-    "Relief Pack",
-    "Status",
-  ];
+const formatReliefPeriod = (event) => {
+  if (!event) return "-";
 
-  const csvRows = rows.map((row) => [
-    row.family_head_name,
-    row.address,
-    row.family_members_count,
-    row.sectors_text,
-    Array.isArray(row.relief_pack_templates) && row.relief_pack_templates.length > 0
-      ? row.relief_pack_templates
-          .map((template) => {
-            const itemSummary = (template.items || [])
-              .map(
-                (item) =>
-                  `${item.inventory_item?.item_name || "Unnamed Item"} (${item.quantity_required})`,
-              )
-              .join(", ");
+  const start = formatDisplayDate(event.start_date);
 
-            return itemSummary
-              ? `${template.name || "Relief Pack"}: ${itemSummary}`
-              : template.name || "Relief Pack";
-          })
-          .join("; ")
-      : "Template linkage pending",
-    row.distribution_status_label,
-  ]);
+  if (!event.end_date && event.status === "ACTIVE") {
+    return `${start} - Ongoing`;
+  }
 
-  const csvContent = [header, ...csvRows]
-    .map((cells) => cells.map(buildCsvCell).join(","))
-    .join("\n");
+  if (event.end_date) {
+    return `${start} - ${formatDisplayDate(event.end_date)}`;
+  }
 
-  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-  const downloadUrl = window.URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  const safeEventCode = (
-    selectedEvent?.event_code ||
-    selectedEvent?.title ||
-    "event"
-  ).replace(/[^a-z0-9-_]+/gi, "-");
-  const safeBarangayName = (
-    selectedBarangay?.name ||
-    "all-barangays"
-  ).replace(/[^a-z0-9-_]+/gi, "-");
+  return start;
+};
 
-  anchor.href = downloadUrl;
-  anchor.download = `inventory-distribution-${safeEventCode}-${safeBarangayName}.csv`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  window.URL.revokeObjectURL(downloadUrl);
+const formatDisasterEventTitle = (event) =>
+  String(event?.title || "").trim() || "No disaster event selected";
+
+const formatCardValue = (value) => String(value || 0).padStart(2, "0");
+
+const areSameStringValues = (leftValues, rightValues) => {
+  if (leftValues.length !== rightValues.length) {
+    return false;
+  }
+
+  return leftValues.every((value, index) => value === rightValues[index]);
 };
 
 const InventoryDistributionPage = () => {
   const {
     activeTab,
+    disasterEvents,
+    barangays,
     scopedDisasterEvents,
     selectableBarangays,
     sectorOptions,
     selectedDisasterEvent,
-    selectedBarangay,
     selectedDisasterEventId,
     selectedBarangayId,
     selectedStatus,
     selectedSectorIds,
+    selectedSortOrder,
     searchTerm,
-    selectedTemplate,
-    selectedStandardTemplates,
-    templateNotice,
+    templateDetails,
     displayedRows,
     analytics,
     isLoadingFilters,
@@ -332,9 +318,37 @@ const InventoryDistributionPage = () => {
     setSelectedBarangayId,
     setSelectedStatus,
     setSelectedSectorIds,
+    setSelectedSortOrder,
   } = useInventoryDistribution();
 
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [selectedDistributionRow, setSelectedDistributionRow] = useState(null);
+  const [selectedStubDetails, setSelectedStubDetails] = useState(null);
+  const [isDistributionDetailOpen, setIsDistributionDetailOpen] = useState(false);
+  const [isDistributionDetailLoading, setIsDistributionDetailLoading] =
+    useState(false);
+  const [distributionDetailErrorMessage, setDistributionDetailErrorMessage] =
+    useState("");
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
+  const [selectedExportDisasterEventId, setSelectedExportDisasterEventId] =
+    useState("");
+  const [selectedExportStatus, setSelectedExportStatus] = useState("");
+  const [selectedExportSortOrder, setSelectedExportSortOrder] =
+    useState("newest");
+  const [selectedExportSectorIds, setSelectedExportSectorIds] = useState([]);
+  const [selectedExportBarangayIds, setSelectedExportBarangayIds] = useState([]);
+  const [availableExportSectorIds, setAvailableExportSectorIds] = useState([]);
+  const [availableExportBarangayIds, setAvailableExportBarangayIds] = useState([]);
+  const [exportValidationErrors, setExportValidationErrors] = useState({
+    sectors: "",
+    barangays: "",
+  });
+  const [exportFeedback, setExportFeedback] = useState({
+    type: "",
+    message: "",
+  });
   const [filterPanelPosition, setFilterPanelPosition] = useState({
     top: 0,
     left: 0,
@@ -395,44 +409,294 @@ const InventoryDistributionPage = () => {
   }, [selectedBarangayId, selectedDisasterEventId]);
 
   const activeFilterCount = useMemo(() => {
-    return Number(Boolean(selectedStatus)) + selectedSectorIds.length;
-  }, [selectedStatus, selectedSectorIds.length]);
+    return selectedSectorIds.length + (selectedSortOrder !== "oldest" ? 1 : 0);
+  }, [selectedSectorIds.length, selectedSortOrder]);
 
   const summaryCards = useMemo(() => {
+    const issuedLabel =
+      activeTab === "ended" ? "Not Claimed Relief Packs" : "For Claim Relief Packs";
+
     return [
       {
-        label: "Total Families",
-        value: analytics.totalFamiliesServed,
+        label: "Barangay Covered",
+        value: formatCardValue(analytics.barangaysCovered),
         description: "",
-        accentColor: "#2f6499",
+      },
+      {
+        label: "Total Families",
+        value: formatCardValue(analytics.totalFamiliesServed),
+        description: "",
       },
       {
         label: "Claimed Relief Packs",
-        value: analytics.claimedCount,
+        value: formatCardValue(analytics.claimedCount),
         description: "",
-        accentColor: "#c9792b",
       },
       {
-        label: "Unclaimed Relief Packs",
-        value: analytics.pendingCount,
+        label: issuedLabel,
+        value: formatCardValue(analytics.pendingCount),
         description: "",
-        accentColor: "#2d7a4f",
-      },
-      {
-        label: "Top Sector",
-        value: analytics.topSector
-          ? `${analytics.topSector.name} (${analytics.topSector.count})`
-          : "No tagged sector",
-        description: "",
-        accentColor: "#7b61a8",
       },
     ];
-  }, [analytics]);
+  }, [activeTab, analytics]);
+
+  const statusOptions = useMemo(
+    () =>
+      distributionStatusOptions.map((option) =>
+        option.value === "ISSUED" && activeTab === "ended"
+          ? { ...option, label: "Not Claimed" }
+          : option,
+      ),
+    [activeTab],
+  );
+
+  const selectedExportDisasterEvent = useMemo(
+    () =>
+      disasterEvents.find((event) => event.id === selectedExportDisasterEventId) ||
+      null,
+    [disasterEvents, selectedExportDisasterEventId],
+  );
+
+  const selectedExportEventScope =
+    selectedExportDisasterEvent?.status === "ACTIVE" ? "active" : "ended";
+
+  const exportStatusOptions = useMemo(
+    () =>
+      distributionStatusOptions.map((option) =>
+        option.value === "ISSUED" && selectedExportEventScope === "ended"
+          ? { ...option, label: "Not Claimed" }
+          : option,
+      ),
+    [selectedExportEventScope],
+  );
+
+  React.useEffect(() => {
+    if (!isExportModalOpen) {
+      setAvailableExportBarangayIds([]);
+      setAvailableExportSectorIds([]);
+      setExportValidationErrors({ sectors: "", barangays: "" });
+      return undefined;
+    }
+
+    if (!selectedExportDisasterEventId) {
+      setAvailableExportBarangayIds([]);
+      setAvailableExportSectorIds([]);
+      return undefined;
+    }
+
+    if (selectedExportBarangayIds.length === 0) {
+      const affectedBarangayIds = Array.isArray(
+        selectedExportDisasterEvent?.affected_barangays,
+      )
+        ? selectedExportDisasterEvent.affected_barangays
+            .map((barangay) => barangay?.id)
+            .filter(Boolean)
+        : [];
+
+      setAvailableExportBarangayIds(affectedBarangayIds);
+      setAvailableExportSectorIds([]);
+      setSelectedExportSectorIds([]);
+      return undefined;
+    }
+
+    let isMounted = true;
+
+    const loadExportOptions = async () => {
+      try {
+        const payload = await fetchInventoryDistributionExportOptions({
+          disaster_event_id: selectedExportDisasterEventId,
+          barangay_ids: selectedExportBarangayIds,
+          status: selectedExportStatus,
+        });
+
+        if (!isMounted) {
+          return;
+        }
+
+        const data = payload?.data || {};
+        const nextAvailableBarangayIds = Array.isArray(
+          data.available_barangay_ids,
+        )
+          ? data.available_barangay_ids
+          : [];
+        const availableSourceSectorIds = new Set(
+          Array.isArray(data.available_sector_ids)
+            ? data.available_sector_ids
+            : [],
+        );
+        const nextAvailableSectorIds = sectorOptions
+          .filter((sector) => availableSourceSectorIds.has(sector.source_sector_id))
+          .map((sector) => sector.id);
+
+        setAvailableExportBarangayIds(nextAvailableBarangayIds);
+        setAvailableExportSectorIds(nextAvailableSectorIds);
+        setSelectedExportBarangayIds((currentIds) => {
+          const nextIds = currentIds.filter((barangayId) =>
+            nextAvailableBarangayIds.includes(barangayId),
+          );
+
+          return areSameStringValues(currentIds, nextIds) ? currentIds : nextIds;
+        });
+        setSelectedExportSectorIds((currentIds) => {
+          const nextIds = currentIds.filter((sectorId) =>
+            nextAvailableSectorIds.includes(sectorId),
+          );
+
+          const resolvedIds = nextIds.length > 0 ? nextIds : nextAvailableSectorIds;
+          return areSameStringValues(currentIds, resolvedIds)
+            ? currentIds
+            : resolvedIds;
+        });
+      } catch (_error) {
+        if (isMounted) {
+          setAvailableExportSectorIds([]);
+          setSelectedExportSectorIds([]);
+        }
+      }
+    };
+
+    loadExportOptions();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [
+    isExportModalOpen,
+    sectorOptions,
+    selectedExportBarangayIds,
+    selectedExportDisasterEvent,
+    selectedExportDisasterEventId,
+    selectedExportStatus,
+  ]);
+
+  const handleExportDisasterEventChange = (nextEventId) => {
+    const nextEvent = disasterEvents.find((event) => event.id === nextEventId);
+    const affectedBarangayIds = Array.isArray(nextEvent?.affected_barangays)
+      ? nextEvent.affected_barangays
+          .map((barangay) => barangay?.id)
+          .filter(Boolean)
+      : [];
+
+    setSelectedExportDisasterEventId(nextEventId);
+    setSelectedExportStatus("");
+    setSelectedExportBarangayIds(affectedBarangayIds);
+    setSelectedExportSectorIds(sectorOptions.map((sector) => sector.id));
+  };
+
+  const handleOpenExportModal = () => {
+    setSelectedExportDisasterEventId(selectedDisasterEventId || "");
+    setSelectedExportBarangayIds(
+      selectableBarangays.map((barangay) => barangay.id).filter(Boolean),
+    );
+    setSelectedExportStatus(selectedStatus || "");
+    setSelectedExportSortOrder(selectedSortOrder || "newest");
+    setSelectedExportSectorIds(sectorOptions.map((sector) => sector.id));
+    setSelectedExportFormat("csv");
+    setExportValidationErrors({ sectors: "", barangays: "" });
+    setExportFeedback({ type: "", message: "" });
+    setIsExportModalOpen(true);
+  };
+
+  const handleExportSubmit = async () => {
+    const nextErrors = {
+      sectors: selectedExportSectorIds.length ? "" : "Select at least one sector.",
+      barangays: selectedExportBarangayIds.length
+        ? ""
+        : "Select at least one barangay.",
+    };
+
+    if (nextErrors.sectors || nextErrors.barangays) {
+      setExportValidationErrors(nextErrors);
+      return;
+    }
+
+    setIsExporting(true);
+    setIsExportModalOpen(false);
+
+    try {
+      const selectedSourceSectorIds = selectedExportSectorIds
+        .map(
+          (sectorCode) =>
+            sectorOptions.find((sector) => sector.id === sectorCode)
+              ?.source_sector_id || null,
+        )
+        .filter(Boolean);
+      const file = await exportInventoryDistribution({
+        disaster_event_id: selectedExportDisasterEventId,
+        barangay_ids: selectedExportBarangayIds,
+        status: selectedExportStatus,
+        sort_order: selectedExportSortOrder,
+        sector_ids: selectedSourceSectorIds,
+        format: selectedExportFormat,
+      });
+
+      downloadExportFile(file);
+      setExportFeedback({
+        type: "success",
+        message: buildExportSuccessMessage("Inventory distribution report"),
+      });
+    } catch (error) {
+      setExportFeedback({
+        type: "error",
+        message: resolveExportErrorMessage(
+          error,
+          "Unable to export the inventory distribution report.",
+        ),
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleOpenDistributionDetails = async (row) => {
+    setSelectedDistributionRow(row);
+    setSelectedStubDetails(null);
+    setDistributionDetailErrorMessage("");
+    setIsDistributionDetailOpen(true);
+    setIsDistributionDetailLoading(true);
+
+    if (!row?.stub_id) {
+      setIsDistributionDetailLoading(false);
+      return;
+    }
+
+    try {
+      const payload = await fetchInventoryDistributionDetail(row.stub_id);
+      const detail = payload?.data || null;
+
+      if (detail) {
+        setSelectedStubDetails({
+          id: detail.stub?.id,
+          ...detail.stub,
+          disaster_event: detail.disaster_event,
+          household: detail.household,
+          barangay: detail.barangay,
+          household_sectors: detail.household_sectors,
+          member_sectors: detail.member_sectors,
+          latest_attendance: detail.latest_attendance,
+          distribution_transaction: detail.distribution_transaction,
+        });
+      }
+    } catch (error) {
+      setDistributionDetailErrorMessage(
+        error.message || "Failed to load distribution details.",
+      );
+    } finally {
+      setIsDistributionDetailLoading(false);
+    }
+  };
+
+  const handleCloseDistributionDetails = () => {
+    setIsDistributionDetailOpen(false);
+    setSelectedDistributionRow(null);
+    setSelectedStubDetails(null);
+    setDistributionDetailErrorMessage("");
+  };
 
   if (!hasActiveEvents && !isLoadingFilters) {
     return (
       <div style={layoutStyles.page}>
-        <PageHeader title="INVENTORY DISTRIBUTION" />
+        <PageHeader title="INVENTORY DISTRIBUTION MANAGEMENT" />
 
         <section style={shellStyles.card}>
           <p style={{ ...shellStyles.mutedText, margin: 0 }}>
@@ -445,7 +709,7 @@ const InventoryDistributionPage = () => {
 
   return (
     <div style={layoutStyles.page}>
-      <PageHeader title="INVENTORY DISTRIBUTION" />
+      <PageHeader title="INVENTORY DISTRIBUTION MANAGEMENT" />
 
       <div style={layoutStyles.stack}>
         <section style={shellStyles.card}>
@@ -548,188 +812,196 @@ const InventoryDistributionPage = () => {
 
         {selectedDisasterEvent ? (
           <section style={layoutStyles.eventCard}>
-            <p style={layoutStyles.eventLabel}>Selected Disaster Event</p>
-
-            <div style={layoutStyles.eventTitleRow}>
+            <div style={layoutStyles.eventInfoPanel}>
               <p style={layoutStyles.eventTitle}>
-                {selectedDisasterEvent.event_code} -{" "}
-                {selectedDisasterEvent.title}
+                {formatDisasterEventTitle(selectedDisasterEvent)}
               </p>
 
-              {selectedStandardTemplates.length > 1 ? (
-                <span style={layoutStyles.templateBadge}>
-                  {selectedStandardTemplates.length} Standard Packs Active
-                </span>
-              ) : selectedTemplate ? (
-                <span style={layoutStyles.templateBadge}>
-                  {selectedTemplate.name}
-                </span>
-              ) : null}
+              <div style={layoutStyles.eventInfoRow}>
+                <span>Period: {formatReliefPeriod(selectedDisasterEvent)}</span>
+                <StatusPill status={selectedDisasterEvent.status} />
+              </div>
             </div>
 
-            <p style={{ ...shellStyles.mutedText, margin: "10px 0 0" }}>
-              {templateNotice ||
-                "No relief pack template is linked yet."}
-            </p>
-
             {(isLoadingTemplate || isLoadingFilters) && !errorMessage ? (
-              <p style={{ ...shellStyles.mutedText, margin: "10px 0 0" }}>
+              <p style={{ ...shellStyles.mutedText, marginTop: "16px" }}>
                 Loading relief pack...
               </p>
             ) : null}
           </section>
         ) : null}
 
-        <section style={shellStyles.statGrid}>
-          {summaryCards.map((card) => (
-            <StatusCard key={card.label} {...card} />
-          ))}
-        </section>
+        {selectedDisasterEvent ? (
+          <section style={shellStyles.statGrid}>
+            {summaryCards.map((card) => (
+              <StatusCard key={card.label} {...card} />
+            ))}
+          </section>
+        ) : null}
 
-        <section style={layoutStyles.toolbarCard}>
+        <section style={pageSpacingStyles.toolbar}>
+          <div style={{ flex: "1 1 320px" }}>
+            <SearchBar
+              value={searchTerm}
+              onChange={setSearchTerm}
+              placeholder="Search family head, barangay, sector, relief pack, or status"
+            />
+          </div>
+
           <div
             style={{
               display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
               gap: "16px",
               flexWrap: "wrap",
+              alignItems: "center",
             }}
           >
-            <div style={{ flex: "1 1 320px" }}>
-              <SearchBar
-                value={searchTerm}
-                onChange={setSearchTerm}
-                placeholder="Search family head, address, or sector"
-              />
-            </div>
-
-            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-              <div style={{ position: "relative" }}>
-                <button
-                  ref={filterButtonRef}
-                  type="button"
-                  onClick={() =>
-                    setIsFilterOpen((currentValue) => !currentValue)
-                  }
-                  style={pageHeaderStyles.secondaryButton}
-                >
-                  <FiFilter size={16} />
-                  {activeFilterCount > 0
-                    ? `Filter (${activeFilterCount})`
-                    : "Filter"}
-                </button>
-
-                {isFilterOpen ? (
-                  <div
-                    ref={filterPanelRef}
-                    style={{
-                      ...filterPanelStyles.panel,
-                      top: filterPanelPosition.top,
-                      left: filterPanelPosition.left,
-                      maxHeight: filterPanelPosition.maxHeight,
-                    }}
-                  >
-                    <h3 style={filterPanelStyles.title}>Filters</h3>
-
-                    <label style={filterPanelStyles.field}>
-                      <span style={filterPanelStyles.label}>Status</span>
-                      <select
-                        value={selectedStatus}
-                        onChange={(event) =>
-                          setSelectedStatus(event.target.value)
-                        }
-                        style={filterPanelStyles.select}
-                      >
-                        {distributionStatusOptions.map((option) => (
-                          <option
-                            key={option.value || "all"}
-                            value={option.value}
-                          >
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <div style={filterPanelStyles.field}>
-                      <span style={filterPanelStyles.label}>Sector</span>
-                      <div style={filterPanelStyles.list}>
-                        {sectorOptions.length > 0 ? (
-                          sectorOptions.map((sector) => (
-                            <label
-                              key={sector.id}
-                              style={filterPanelStyles.option}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={selectedSectorIds.includes(sector.id)}
-                                onChange={() =>
-                                  setSelectedSectorIds((currentValues) =>
-                                    currentValues.includes(sector.id)
-                                      ? currentValues.filter(
-                                          (value) => value !== sector.id,
-                                        )
-                                      : [...currentValues, sector.id],
-                                  )
-                                }
-                                style={{ accentColor: "#2f6499" }}
-                              />
-                              <span>{sector.name}</span>
-                            </label>
-                          ))
-                        ) : (
-                          <p style={{ ...shellStyles.mutedText, margin: 0 }}>
-                            No sector filters are available for the selected
-                            records.
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div style={filterPanelStyles.actions}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedStatus("");
-                          setSelectedSectorIds([]);
-                        }}
-                        style={pageHeaderStyles.secondaryButton}
-                      >
-                        Clear
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setIsFilterOpen(false)}
-                        style={pageHeaderStyles.primaryButton}
-                      >
-                        Apply
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-
-              <button
-                type="button"
-                onClick={() =>
-                  downloadCsvFile(
-                    displayedRows,
-                    selectedDisasterEvent,
-                    selectedBarangay,
-                  )
-                }
-                disabled={!displayedRows.length}
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                color: "#17324d",
+                fontWeight: 700,
+              }}
+            >
+              <span style={{ fontSize: "14px" }}>Status</span>
+              <select
+                value={selectedStatus}
+                onChange={(event) => setSelectedStatus(event.target.value)}
                 style={{
-                  ...pageHeaderStyles.secondaryButton,
-                  cursor: displayedRows.length ? "pointer" : "not-allowed",
-                  opacity: displayedRows.length ? 1 : 0.7,
+                  minWidth: "120px",
+                  borderRadius: "12px",
+                  border: "1px solid #c7d6e5",
+                  backgroundColor: "#ffffff",
+                  color: "#17324d",
+                  padding: "10px 12px",
+                  fontSize: "14px",
+                  fontWeight: 600,
                 }}
               >
-                <FiFileText size={16} />
-                Export
+                {statusOptions.map((option) => (
+                  <option key={option.value || "all"} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div style={{ position: "relative" }}>
+              <button
+                ref={filterButtonRef}
+                type="button"
+                onClick={() =>
+                  setIsFilterOpen((currentValue) => !currentValue)
+                }
+                style={{
+                  ...pageHeaderStyles.secondaryButton,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                }}
+              >
+                <FiFilter size={16} />
+                {activeFilterCount > 0
+                  ? `Filter (${activeFilterCount})`
+                  : "Filter"}
               </button>
+
+              {isFilterOpen ? (
+                <div
+                  ref={filterPanelRef}
+                  style={{
+                    ...filterPanelStyles.panel,
+                    top: filterPanelPosition.top,
+                    left: filterPanelPosition.left,
+                    maxHeight: filterPanelPosition.maxHeight,
+                  }}
+                >
+                  <h3 style={filterPanelStyles.title}>Filter Records</h3>
+
+                  <label style={filterPanelStyles.field}>
+                    <span style={filterPanelStyles.label}>Order List</span>
+                    <select
+                      value={selectedSortOrder}
+                      onChange={(event) =>
+                        setSelectedSortOrder(event.target.value)
+                      }
+                      style={filterPanelStyles.select}
+                    >
+                      {MASTERLIST_SORT_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <h3 style={filterPanelStyles.title}>Filter by Sector</h3>
+
+                  <div style={filterPanelStyles.list}>
+                    {sectorOptions.length > 0 ? (
+                      sectorOptions.map((sector) => (
+                        <label
+                          key={sector.id}
+                          style={filterPanelStyles.option}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedSectorIds.includes(sector.id)}
+                            onChange={() =>
+                              setSelectedSectorIds((currentValues) =>
+                                currentValues.includes(sector.id)
+                                  ? currentValues.filter(
+                                      (value) => value !== sector.id,
+                                    )
+                                  : [...currentValues, sector.id],
+                              )
+                            }
+                            style={{ accentColor: "#2f6499" }}
+                          />
+                          <span>{sector.display_name || sector.name}</span>
+                        </label>
+                      ))
+                    ) : (
+                      <p style={{ margin: 0, color: "#5d7188", fontSize: "14px" }}>
+                        No sectors are available.
+                      </p>
+                    )}
+                  </div>
+
+                  <div style={filterPanelStyles.actions}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedSectorIds([]);
+                        setSelectedSortOrder("oldest");
+                      }}
+                      style={filterPanelStyles.clearAction}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
+
+            <button
+              type="button"
+              onClick={handleOpenExportModal}
+              disabled={!selectedDisasterEventId || isExporting}
+              style={{
+                ...pageHeaderStyles.secondaryButton,
+                cursor:
+                  selectedDisasterEventId && !isExporting
+                    ? "pointer"
+                    : "not-allowed",
+                opacity: selectedDisasterEventId && !isExporting ? 1 : 0.7,
+              }}
+            >
+              <FiFileText size={16} />
+              {isExporting ? "Exporting..." : "Export"}
+            </button>
           </div>
         </section>
 
@@ -738,6 +1010,96 @@ const InventoryDistributionPage = () => {
           isLoading={isLoadingFilters || isLoadingMasterlist}
           errorMessage={errorMessage}
           hasSelectedEvent={Boolean(selectedDisasterEventId)}
+          showBarangayColumn={!selectedBarangayId}
+          onViewDetails={handleOpenDistributionDetails}
+        />
+
+        <InventoryDistributionDetailModal
+          isOpen={isDistributionDetailOpen}
+          isLoading={isDistributionDetailLoading}
+          errorMessage={distributionDetailErrorMessage}
+          row={selectedDistributionRow}
+          stubDetails={selectedStubDetails}
+          templateDetails={templateDetails}
+          onClose={handleCloseDistributionDetails}
+        />
+
+        <MswdoExportModal
+          isOpen={isExportModalOpen}
+          title="Inventory Distribution Report"
+          isSubmitting={isExporting}
+          disasterEvents={disasterEvents}
+          barangays={barangays}
+          sectors={sectorOptions}
+          selectedDisasterEventId={selectedExportDisasterEventId}
+          selectedBarangayIds={selectedExportBarangayIds}
+          selectedRecordStatus={selectedExportStatus}
+          selectedSortOrder={selectedExportSortOrder}
+          selectedSectorIds={selectedExportSectorIds}
+          availableSectorIds={availableExportSectorIds}
+          availableBarangayIds={availableExportBarangayIds}
+          selectedFormat={selectedExportFormat}
+          validationErrors={exportValidationErrors}
+          recordStatusLabel="Status Record"
+          recordStatusOptions={exportStatusOptions}
+          sortOptions={MASTERLIST_SORT_OPTIONS}
+          onClose={() => {
+            if (!isExporting) {
+              setIsExportModalOpen(false);
+            }
+          }}
+          onSubmit={handleExportSubmit}
+          onDisasterEventChange={handleExportDisasterEventChange}
+          onBarangayToggle={(barangayId) => {
+            setSelectedExportBarangayIds((currentValues) => {
+              const nextValues = currentValues.includes(barangayId)
+                ? currentValues.filter((id) => id !== barangayId)
+                : [...currentValues, barangayId];
+
+              if (nextValues.length > 0) {
+                setExportValidationErrors((currentErrors) => ({
+                  ...currentErrors,
+                  barangays: "",
+                }));
+              }
+
+              return nextValues;
+            });
+          }}
+          onSelectAllBarangays={() => {
+            setSelectedExportBarangayIds(availableExportBarangayIds);
+            setExportValidationErrors((currentErrors) => ({
+              ...currentErrors,
+              barangays: "",
+            }));
+          }}
+          onClearBarangays={() => setSelectedExportBarangayIds([])}
+          onRecordStatusChange={setSelectedExportStatus}
+          onSortOrderChange={setSelectedExportSortOrder}
+          onSectorToggle={(sectorId) => {
+            setSelectedExportSectorIds((currentValues) => {
+              const nextValues = currentValues.includes(sectorId)
+                ? currentValues.filter((id) => id !== sectorId)
+                : [...currentValues, sectorId];
+
+              if (nextValues.length > 0) {
+                setExportValidationErrors((currentErrors) => ({
+                  ...currentErrors,
+                  sectors: "",
+                }));
+              }
+
+              return nextValues;
+            });
+          }}
+          onClearSectors={() => setSelectedExportSectorIds([])}
+          onFormatChange={setSelectedExportFormat}
+        />
+
+        <FeedbackToast
+          type={exportFeedback.type}
+          message={exportFeedback.message}
+          onClose={() => setExportFeedback({ type: "", message: "" })}
         />
       </div>
     </div>

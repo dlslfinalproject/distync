@@ -2,7 +2,7 @@ import {
   MASTERLIST_FILTER_SECTOR_CODES,
   formatMasterlistFilterSectorLabel,
   getCanonicalMemberSectorCode,
-} from "./registrationOptions";
+} from "./registrationOptions.js";
 
 const normalizeSectorToken = (value) =>
   String(value || "")

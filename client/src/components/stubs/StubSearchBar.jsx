@@ -7,7 +7,7 @@ import { STATUS_FILTERS } from "../../features/stubs/stubStatusFilters";
 const filterPanelStyles = {
   panel: {
     position: "fixed",
-    width: "min(380px, calc(100vw - 32px))",
+    width: "min(360px, calc(100vw - 32px))",
     backgroundColor: "#ffffff",
     border: "1px solid #d6e2ef",
     borderRadius: "18px",
@@ -17,7 +17,7 @@ const filterPanelStyles = {
     display: "flex",
     flexDirection: "column",
     gap: "14px",
-    overflowY: "auto",
+    overflow: "hidden",
     boxSizing: "border-box",
   },
   title: {
@@ -27,31 +27,31 @@ const filterPanelStyles = {
     fontWeight: 800,
   },
   field: {
-    display: "flex",
-    flexDirection: "column",
+    display: "grid",
     gap: "8px",
   },
   label: {
     color: "#55718b",
-    fontSize: "12px",
-    fontWeight: 800,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
+    fontSize: "13px",
+    fontWeight: 700,
   },
   select: {
-    minHeight: "42px",
+    minHeight: "44px",
     border: "1px solid #d0ddeb",
-    borderRadius: "12px",
+    borderRadius: "14px",
     padding: "10px 12px",
     fontSize: "14px",
     color: "#1f405f",
-    backgroundColor: "#f8fbfe",
+    backgroundColor: "#ffffff",
     boxSizing: "border-box",
+    fontWeight: 600,
   },
   list: {
     display: "grid",
     gap: "10px",
-    overflow: "visible",
+    overflowY: "auto",
+    flex: "1 1 auto",
+    minHeight: 0,
     paddingRight: "4px",
   },
   option: {
@@ -63,18 +63,19 @@ const filterPanelStyles = {
   },
   actions: {
     display: "flex",
-    justifyContent: "space-between",
-    gap: "10px",
-    marginTop: "18px",
+    justifyContent: "flex-end",
+    marginTop: "auto",
   },
   clearAction: {
     border: "none",
-    backgroundColor: "transparent",
-    color: "#2f6499",
-    fontSize: "14px",
-    fontWeight: 800,
+    background: "transparent",
+    color: "#55718b",
+    padding: "2px 0",
+    fontSize: "13px",
+    fontWeight: 700,
     cursor: "pointer",
-    padding: 0,
+    textDecoration: "underline",
+    textUnderlineOffset: "3px",
   },
 };
 
@@ -93,7 +94,7 @@ const getFilterPanelPosition = ({ triggerRect, panelHeight }) => {
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
   const constrainedPanelWidth = Math.min(
-    380,
+    360,
     viewportWidth - FILTER_PANEL_VIEWPORT_PADDING * 2,
   );
   const safePanelHeight = Math.max(panelHeight || 0, MIN_FILTER_PANEL_HEIGHT);
@@ -147,7 +148,7 @@ const StubSearchBar = ({
   sectorOptions = [],
   selectedSectorNames = [],
   stubStatusOptions = [],
-  selectedStubStatus = STATUS_FILTERS.UNCLAIMED,
+  selectedStubStatus = STATUS_FILTERS.ALL,
   selectedSortOrder = "oldest",
   onToggleSector,
   onSelectStubStatus,
@@ -340,32 +341,31 @@ const StubSearchBar = ({
                 </select>
               </label>
 
-              <div style={filterPanelStyles.field}>
-                <h3 style={filterPanelStyles.title}>Filter by Sector</h3>
-                <div style={filterPanelStyles.list}>
-                  {sectorOptions.length > 0 ? (
-                    sectorOptions.map((sectorOption) => {
-                      const sectorValue = getSectorOptionValue(sectorOption);
-                      const sectorLabel = getSectorOptionLabel(sectorOption);
+              <h3 style={filterPanelStyles.title}>Filter by Sector</h3>
 
-                      return (
-                        <label key={sectorValue} style={filterPanelStyles.option}>
-                          <input
-                            type="checkbox"
-                            checked={selectedSectorNames.includes(sectorValue)}
-                            onChange={() => onToggleSector(sectorValue)}
-                            style={{ accentColor: "#2f6499" }}
-                          />
-                          <span>{sectorLabel}</span>
-                        </label>
-                      );
-                    })
-                  ) : (
-                    <p style={{ margin: 0, color: "#5d7188", fontSize: "14px" }}>
-                      No sectors are available.
-                    </p>
-                  )}
-                </div>
+              <div style={filterPanelStyles.list}>
+                {sectorOptions.length > 0 ? (
+                  sectorOptions.map((sectorOption) => {
+                    const sectorValue = getSectorOptionValue(sectorOption);
+                    const sectorLabel = getSectorOptionLabel(sectorOption);
+
+                    return (
+                      <label key={sectorValue} style={filterPanelStyles.option}>
+                        <input
+                          type="checkbox"
+                          checked={selectedSectorNames.includes(sectorValue)}
+                          onChange={() => onToggleSector(sectorValue)}
+                          style={{ accentColor: "#2f6499" }}
+                        />
+                        <span>{sectorLabel}</span>
+                      </label>
+                    );
+                  })
+                ) : (
+                  <p style={{ margin: 0, color: "#5d7188", fontSize: "14px" }}>
+                    No sectors are available.
+                  </p>
+                )}
               </div>
 
               <div style={filterPanelStyles.actions}>

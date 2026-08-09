@@ -352,6 +352,159 @@ const validateExportDistributionHistory = (req, res, next) => {
   return next();
 };
 
+const parseUuidList = (value) => {
+  if (!value || typeof value !== "string") {
+    return [];
+  }
+
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
+
+const validateExportInventoryDistribution = (req, res, next) => {
+  try {
+    const {
+      disaster_event_id,
+      barangay_ids,
+      status,
+      sort_order,
+      sector_ids,
+      format,
+    } = req.query;
+    const normalizedFormat = String(format || "").toLowerCase();
+    const normalizedStatus = String(status || "").toUpperCase();
+    const normalizedSortOrder = String(sort_order || "newest").toLowerCase();
+    const allowedStatuses = ["CLAIMED", "ISSUED"];
+    const allowedSortOrders = ["newest", "oldest", "az", "za"];
+
+    if (!isValidUuid(disaster_event_id)) {
+      return res.status(400).json({
+        message: "disaster_event_id is required and must be a valid UUID",
+      });
+    }
+
+    const parsedBarangayIds = parseUuidList(barangay_ids);
+
+    if (parsedBarangayIds.some((barangayId) => !isValidUuid(barangayId))) {
+      return res.status(400).json({
+        message: "barangay_ids must contain valid UUID values",
+      });
+    }
+
+    if (normalizedStatus && !allowedStatuses.includes(normalizedStatus)) {
+      return res.status(400).json({
+        message: "status must be one of: CLAIMED, ISSUED",
+      });
+    }
+
+    if (!allowedSortOrders.includes(normalizedSortOrder)) {
+      return res.status(400).json({
+        message: "sort_order must be one of: newest, oldest, az, za",
+      });
+    }
+
+    const parsedSectorIds = parseUuidList(sector_ids);
+
+    if (parsedSectorIds.some((sectorId) => !isValidUuid(sectorId))) {
+      return res.status(400).json({
+        message: "sector_ids must contain valid UUID values",
+      });
+    }
+
+    if (!["csv", "excel", "pdf"].includes(normalizedFormat)) {
+      return res.status(400).json({
+        message: "format must be one of: csv, excel, pdf",
+      });
+    }
+
+    req.validatedQuery = {
+      disaster_event_id,
+      barangay_ids: parsedBarangayIds,
+      status: normalizedStatus || null,
+      sort_order: normalizedSortOrder,
+      sector_ids: parsedSectorIds,
+      format: normalizedFormat,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate inventory distribution export request",
+      error: error.message,
+    });
+  }
+};
+
+const validateInventoryDistributionExportOptions = (req, res, next) => {
+  try {
+    const {
+      disaster_event_id,
+      barangay_ids,
+      status,
+    } = req.query;
+    const normalizedStatus = String(status || "").toUpperCase();
+    const allowedStatuses = ["CLAIMED", "ISSUED"];
+
+    if (!isValidUuid(disaster_event_id)) {
+      return res.status(400).json({
+        message: "disaster_event_id is required and must be a valid UUID",
+      });
+    }
+
+    const parsedBarangayIds = parseUuidList(barangay_ids);
+
+    if (parsedBarangayIds.some((barangayId) => !isValidUuid(barangayId))) {
+      return res.status(400).json({
+        message: "barangay_ids must contain valid UUID values",
+      });
+    }
+
+    if (normalizedStatus && !allowedStatuses.includes(normalizedStatus)) {
+      return res.status(400).json({
+        message: "status must be one of: CLAIMED, ISSUED",
+      });
+    }
+
+    req.validatedQuery = {
+      disaster_event_id,
+      barangay_ids: parsedBarangayIds,
+      status: normalizedStatus || null,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate inventory distribution export options request",
+      error: error.message,
+    });
+  }
+};
+
+const validateInventoryDistributionDetail = (req, res, next) => {
+  try {
+    const { stubId } = req.params;
+
+    if (!isValidUuid(stubId)) {
+      return res.status(400).json({
+        message: "stubId must be a valid UUID",
+      });
+    }
+
+    req.validatedParams = {
+      stubId,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate inventory distribution detail request",
+      error: error.message,
+    });
+  }
+};
+
 const validateUpdateDistributionLifecycle = (req, res, next) => {
   try {
     const { transactionId } = req.params;
@@ -398,5 +551,8 @@ module.exports = {
   validateClaimDistributionFromQr,
   validateGetDistributionHistory,
   validateExportDistributionHistory,
+  validateExportInventoryDistribution,
+  validateInventoryDistributionExportOptions,
+  validateInventoryDistributionDetail,
   validateUpdateDistributionLifecycle,
 };

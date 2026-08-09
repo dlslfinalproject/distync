@@ -67,6 +67,7 @@ const getBarangayStubDashboardRows = async (disasterEventId, barangayId) => {
       s.serial_no,
       s.status,
       s.issued_at,
+      s.claimed_at,
       s.updated_at,
       s.qr_code_value,
       s.qr_generated_at,
@@ -74,15 +75,19 @@ const getBarangayStubDashboardRows = async (disasterEventId, barangayId) => {
       s.qr_status,
       s.qr_notes,
       h.barangay_id,
+      b.name AS barangay_name,
       h.family_head_first_name,
       h.family_head_middle_name,
       h.family_head_last_name,
       h.family_head_suffix,
+      h.household_size,
       h.family_head_photo_url,
       h.photo_captured_at,
       h.photo_verification_notes,
       latest_attendance.time_in AS queue_time_in,
       latest_attendance.status AS latest_attendance_status,
+      latest_distribution.distribution_date,
+      latest_distribution.received_at,
       CASE
         WHEN s.status = 'ISSUED' THEN (
           SELECT COUNT(*)::int
@@ -130,6 +135,7 @@ const getBarangayStubDashboardRows = async (disasterEventId, barangayId) => {
       ${stubSequenceSelect}
     FROM stubs s
     INNER JOIN households h ON h.id = s.household_id
+    LEFT JOIN barangays b ON b.id = h.barangay_id
     INNER JOIN LATERAL (
       SELECT el.status, el.time_in, el.time_out
       FROM evacuation_logs el
@@ -141,6 +147,16 @@ const getBarangayStubDashboardRows = async (disasterEventId, barangayId) => {
         el.created_at DESC
       LIMIT 1
     ) latest_attendance ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT
+        dt.distribution_date,
+        dt.received_at
+      FROM distribution_transactions dt
+      WHERE dt.stub_id = s.id
+        AND dt.distribution_status = 'CLAIMED'
+      ORDER BY dt.distribution_date DESC, dt.created_at DESC
+      LIMIT 1
+    ) latest_distribution ON TRUE
     WHERE s.disaster_event_id = $1
       AND h.barangay_id = $2
       AND h.current_stay_type = 'EVAC_CENTER'

@@ -6,7 +6,10 @@ const notificationService = require("../modules/notifications/notification.servi
 const stubRepository = require("../repositories/stub.repository");
 const settingsRepository = require("../repositories/settings.repository");
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
+const masterlistService = require("./masterlist.service");
 const {
+  getAvailableDonatedLooseItemsForClaimPreview,
+  getAvailableDonatedReliefPacksForClaimPreview,
   recordAutomaticReliefPackClaim,
 } = require("./automaticReliefPackClaim.service");
 const { logAuditSafely, pickDefined } = require("../utils/systemLog");
@@ -328,6 +331,594 @@ const groupByKey = (rows, key) => {
   }, {});
 };
 
+const mapInventoryDistributionDetail = (detail) => {
+  if (!detail) {
+    return null;
+  }
+
+  const base = detail.base;
+  const memberSectorsByEvacueeId = groupByKey(
+    detail.member_sectors || [],
+    "evacuee_id",
+  );
+  const members = (detail.members || []).map((member) => ({
+    evacuee_id: member.evacuee_id,
+    full_name: buildFullName(
+      member.first_name,
+      member.middle_name,
+      member.last_name,
+      member.suffix,
+    ),
+    sex: member.sex,
+    age: member.age,
+    age_value: member.age_value,
+    age_unit: member.age_unit,
+    relationship_to_head: member.relationship_to_head,
+    is_family_head: member.is_family_head,
+    sectors: (memberSectorsByEvacueeId[member.evacuee_id] || []).map((sector) => ({
+      id: sector.id,
+      code: sector.code,
+      name: sector.name,
+    })),
+  }));
+
+  return {
+    stub: {
+      id: base.stub_id,
+      stub_no: base.stub_no,
+      serial_no: base.serial_no,
+      status: base.stub_status,
+      issued_at: base.issued_at,
+      claimed_at: base.claimed_at,
+      updated_at: base.stub_updated_at,
+      qr_code_value: base.qr_code_value,
+      qr_generated_at: base.qr_generated_at,
+      qr_status: base.qr_status,
+      qr_notes: base.qr_notes,
+    },
+    disaster_event: {
+      id: base.disaster_event_id,
+      event_code: base.event_code,
+      title: base.disaster_event_title,
+      disaster_type: base.disaster_type,
+    },
+    household: {
+      id: base.household_id,
+      family_head_name: buildFullName(
+        base.family_head_first_name,
+        base.family_head_middle_name,
+        base.family_head_last_name,
+        base.family_head_suffix,
+      ),
+      household_size: base.household_size,
+      residency_status: base.residency_status,
+      contact_number: base.contact_number,
+      current_stay_type: base.current_stay_type,
+      current_address_details: base.current_address_details,
+      is_active: base.is_active,
+      registered_at: base.registered_at,
+      registered_by: base.registered_by,
+      registered_by_name: base.registered_by_name,
+      family_head_photo_url: base.family_head_photo_url,
+      photo_captured_at: base.photo_captured_at,
+      photo_verification_notes: base.photo_verification_notes,
+      members,
+    },
+    barangay: {
+      id: base.barangay_id,
+      code: base.barangay_code,
+      name: base.barangay_id ? base.barangay_name : "Non-Resident (Outside Malvar)",
+    },
+    household_sectors: (detail.household_sectors || []).map((sector) => ({
+      id: sector.id,
+      code: sector.code,
+      name: sector.name,
+    })),
+    member_sectors: detail.member_sectors || [],
+    latest_attendance: detail.latest_attendance || null,
+    distribution_transaction: detail.distribution_transaction || null,
+  };
+};
+
+const getInventoryDistributionDetail = async ({ stubId }) => {
+  const detail =
+    await distributionTransactionRepository.getInventoryDistributionDetailByStubId(
+      stubId,
+    );
+
+  return mapInventoryDistributionDetail(detail);
+};
+
+const getStandardTemplates = (templates) => {
+  return (Array.isArray(templates) ? templates : [])
+    .filter((template) => template.is_active && !template.is_additional_pack)
+    .sort((left, right) => {
+      if (left.based_on_family_size && !right.based_on_family_size) {
+        return -1;
+      }
+
+      if (!left.based_on_family_size && right.based_on_family_size) {
+        return 1;
+      }
+
+      return String(left.name || "").localeCompare(String(right.name || ""));
+    });
+};
+
+const getHouseholdSectorIdsFromMasterlist = (household) => {
+  return [
+    ...(household?.household_sectors || []).map((sector) => sector.id),
+    ...(household?.members || []).flatMap((member) =>
+      (member.sectors || []).map((sector) => sector.id),
+    ),
+  ].filter(Boolean);
+};
+
+const buildInventoryExportSectorsText = (household) => {
+  const sectorNames = [
+    ...(household?.household_sectors || []).map((sector) => sector.name),
+    ...(household?.members || []).flatMap((member) =>
+      (member.sectors || []).map((sector) => sector.name),
+    ),
+  ].filter(Boolean);
+
+  return [...new Set(sectorNames)].join(", ") || "--";
+};
+
+const getAssignedTemplatesForExport = (household, templates) => {
+  const householdSectorIds = new Set(getHouseholdSectorIdsFromMasterlist(household));
+
+  return (Array.isArray(templates) ? templates : []).filter((template) => {
+    if (!template?.is_active) {
+      return false;
+    }
+
+    if (!template.is_additional_pack) {
+      return true;
+    }
+
+    return template.sector_id && householdSectorIds.has(template.sector_id);
+  });
+};
+
+const parseDonatedReliefPackName = (remarks) => {
+  const normalizedRemarks = String(remarks || "").trim();
+
+  if (!normalizedRemarks.toLowerCase().startsWith("relief pack:")) {
+    return "";
+  }
+
+  return normalizedRemarks
+    .replace(/^Relief Pack:\s*/i, "")
+    .split(".")[0]
+    .replace(/\sx\s\d+$/i, "")
+    .trim();
+};
+
+const addUniqueInventoryExportLine = (lineMap, value) => {
+  const label = String(value || "").trim();
+
+  if (!label || label === "--") {
+    return;
+  }
+
+  const key = label.toUpperCase();
+
+  if (!lineMap.has(key)) {
+    lineMap.set(key, label);
+  }
+};
+
+const formatInventoryExportReliefPack = ({
+  templates = [],
+  sourceRows = [],
+  donatedReliefPacks = [],
+  donatedLooseItems = [],
+}) => {
+  const lineMap = new Map();
+
+  sourceRows.forEach((row) => {
+    addUniqueInventoryExportLine(lineMap, row.relief_pack_template_name);
+
+    if (row.is_relief_pack_donation) {
+      addUniqueInventoryExportLine(
+        lineMap,
+        parseDonatedReliefPackName(row.donation_item_remarks),
+      );
+      return;
+    }
+
+    if (row.donor_name) {
+      addUniqueInventoryExportLine(lineMap, `${row.donor_name} Donation`);
+    }
+  });
+
+  donatedReliefPacks.forEach((pack) => {
+    addUniqueInventoryExportLine(lineMap, pack.name);
+  });
+
+  donatedLooseItems.forEach((item) => {
+    const donorName = String(item.donor_name || "").trim();
+    addUniqueInventoryExportLine(
+      lineMap,
+      donorName ? `${donorName} Donation` : "Donor Donation",
+    );
+  });
+
+  templates.forEach((template) => {
+    addUniqueInventoryExportLine(lineMap, template.name || "Relief Pack");
+  });
+
+  return lineMap.size > 0
+    ? [...lineMap.values()].join("; ")
+    : "Template linkage pending";
+};
+
+const getInventoryExportStatusLabel = (status, disasterEventStatus) => {
+  if (status === "CLAIMED") {
+    return "Claimed";
+  }
+
+  if (status === "ISSUED") {
+    return disasterEventStatus === "ACTIVE" ? "For Claim" : "Not Claimed";
+  }
+
+  return "--";
+};
+
+const getInventoryExportSortableDate = (row) => {
+  const parsedTime = new Date(row?.registered_at || 0).getTime();
+  return Number.isNaN(parsedTime) ? 0 : parsedTime;
+};
+
+const sortInventoryExportRows = (rows, sortOrder = "newest") => {
+  return [...rows].sort((leftRow, rightRow) => {
+    if (sortOrder === "az" || sortOrder === "za") {
+      const comparison = String(leftRow.family_head_name || "").localeCompare(
+        String(rightRow.family_head_name || ""),
+        undefined,
+        { sensitivity: "base" },
+      );
+
+      return sortOrder === "za" ? -comparison : comparison;
+    }
+
+    const leftTime = getInventoryExportSortableDate(leftRow);
+    const rightTime = getInventoryExportSortableDate(rightRow);
+
+    return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
+  });
+};
+
+const loadInventoryExportTemplates = async (disasterEvent) => {
+  const templates = await reliefPackTemplateRepository.getReliefPackTemplates({
+    is_active: true,
+    based_on_family_size: null,
+    based_on_sector: null,
+    disaster_type: disasterEvent?.disaster_type || null,
+    search: "",
+  });
+
+  const standardTemplates = getStandardTemplates(templates);
+  const additionalTemplates = templates.filter(
+    (template) => template.is_active && template.is_additional_pack,
+  );
+  const selectedTemplates = [...standardTemplates, ...additionalTemplates];
+
+  return Promise.all(
+    selectedTemplates.map(async (template) => {
+      const items =
+        await reliefPackTemplateRepository.getReliefPackTemplateItemsByTemplateId(
+          template.id,
+        );
+
+      return {
+        ...template,
+        items: items.map((item) => ({
+          quantity_required: item.quantity_required,
+          inventory_item: {
+            item_name: item.item_name,
+          },
+        })),
+      };
+    }),
+  );
+};
+
+const filterInventoryExportByBarangays = (rows, barangayIds = []) => {
+  if (!Array.isArray(barangayIds) || barangayIds.length === 0) {
+    return rows;
+  }
+
+  const selectedBarangayIds = new Set(barangayIds);
+  return rows.filter((row) => selectedBarangayIds.has(row?.barangay?.id));
+};
+
+const filterInventoryExportBySectors = (rows, sectorIds = []) => {
+  if (!Array.isArray(sectorIds) || sectorIds.length === 0) {
+    return rows;
+  }
+
+  const selectedSectorIds = new Set(sectorIds);
+
+  return rows.filter((row) =>
+    getHouseholdSectorIdsFromMasterlist(row).some((sectorId) =>
+      selectedSectorIds.has(sectorId),
+    ),
+  );
+};
+
+const getAffectedBarangayIdsForExport = async (disasterEventId) => {
+  const affectedBarangays =
+    await disasterEventRepository.getAffectedBarangaysByDisasterEventId(
+      disasterEventId,
+    );
+
+  return affectedBarangays
+    .map((barangay) => barangay?.id || barangay?.barangay_id)
+    .filter(Boolean);
+};
+
+const getScopedInventoryExportBarangayIds = async ({
+  disasterEventId,
+  requestedBarangayIds = [],
+}) => {
+  const affectedBarangayIds = await getAffectedBarangayIdsForExport(disasterEventId);
+
+  if (!Array.isArray(requestedBarangayIds) || requestedBarangayIds.length === 0) {
+    return affectedBarangayIds;
+  }
+
+  const affectedBarangayIdSet = new Set(affectedBarangayIds);
+  return requestedBarangayIds.filter((barangayId) =>
+    affectedBarangayIdSet.has(barangayId),
+  );
+};
+
+const getInventoryExportRowStatus = (household) => {
+  if (household?.stub?.status === "CLAIMED") {
+    return "CLAIMED";
+  }
+
+  if (household?.stub?.status === "ISSUED") {
+    return "ISSUED";
+  }
+
+  return "";
+};
+
+const filterInventoryExportByStatus = (rows, status) => {
+  if (!status) {
+    return rows;
+  }
+
+  return rows.filter((row) => getInventoryExportRowStatus(row) === status);
+};
+
+const getInventoryDistributionExportContext = async (filters) => {
+  const masterlist = await masterlistService.getMasterlist({
+    disaster_event_id: filters.disaster_event_id,
+    barangay_id: null,
+    record_status: "all",
+  });
+  const disasterEvent =
+    (await disasterEventRepository.getDisasterEventById(
+      filters.disaster_event_id,
+    )) || masterlist.disaster_event;
+  const scopedBarangayIds = await getScopedInventoryExportBarangayIds({
+    disasterEventId: filters.disaster_event_id,
+    requestedBarangayIds: filters.barangay_ids || [],
+  });
+  const barangayFilteredRows =
+    scopedBarangayIds.length > 0
+      ? filterInventoryExportByBarangays(masterlist.data || [], scopedBarangayIds)
+      : [];
+  const statusFilteredRows = filterInventoryExportByStatus(
+    barangayFilteredRows,
+    filters.status,
+  );
+  const sectorFilteredRows = filterInventoryExportBySectors(
+    statusFilteredRows,
+    filters.sector_ids || [],
+  );
+
+  return {
+    disasterEvent,
+    affectedBarangayIds: await getAffectedBarangayIdsForExport(
+      filters.disaster_event_id,
+    ),
+    scopedBarangayIds,
+    optionRows: statusFilteredRows,
+    exportRows: sectorFilteredRows,
+  };
+};
+
+const formatInventoryExportEventLabel = (event) =>
+  [event?.event_code, event?.title].filter(Boolean).join(" - ") ||
+  event?.title ||
+  "No disaster event selected";
+
+const getInventoryExportBarangayLabel = (rows, barangayIds = []) => {
+  if (!Array.isArray(barangayIds) || barangayIds.length === 0) {
+    return "All Barangays";
+  }
+
+  if (barangayIds.length === 1) {
+    return rows[0]?.barangay?.name || "Selected barangay";
+  }
+
+  return "Selected Barangays";
+};
+
+const getInventoryDistributionExportOptions = async ({ requester, filters }) => {
+  if (
+    requester?.roleCode !== ROLE_CODES.MSWDO &&
+    requester?.roleCode !== ROLE_CODES.MAYOR
+  ) {
+    const error = new Error(
+      "Only MSWDO and Office of the Mayor can view inventory distribution export options.",
+    );
+    error.statusCode = 403;
+    throw error;
+  }
+
+  const context = await getInventoryDistributionExportContext({
+    ...filters,
+    sector_ids: [],
+  });
+  const availableSectorIds = [
+    ...new Set(
+      context.optionRows.flatMap((household) =>
+        getHouseholdSectorIdsFromMasterlist(household),
+      ),
+    ),
+  ];
+
+  return {
+    available_barangay_ids: context.affectedBarangayIds,
+    selected_barangay_ids: context.scopedBarangayIds,
+    available_sector_ids: availableSectorIds,
+  };
+};
+
+const exportInventoryDistribution = async ({ requester, filters }) => {
+  if (
+    requester?.roleCode !== ROLE_CODES.MSWDO &&
+    requester?.roleCode !== ROLE_CODES.MAYOR
+  ) {
+    const error = new Error(
+      "Only MSWDO and Office of the Mayor can export inventory distribution reports.",
+    );
+    error.statusCode = 403;
+    throw error;
+  }
+
+  const context = await getInventoryDistributionExportContext(filters);
+  const disasterEvent = context.disasterEvent;
+  const templates = await loadInventoryExportTemplates(disasterEvent);
+  const exportStubIds = context.exportRows
+    .map((household) => household?.stub?.id)
+    .filter(Boolean);
+  const reliefSourceRows =
+    await distributionTransactionRepository.getLatestDistributionReliefSourcesByStubIds(
+      exportStubIds,
+    );
+  const reliefSourceRowsByStubId = groupByKey(reliefSourceRows, "stub_id");
+  const mappedRows = await Promise.all(context.exportRows.map(async (household) => {
+    const assignedTemplates = getAssignedTemplatesForExport(household, templates);
+    const stubStatus = getInventoryExportRowStatus(household);
+    const sourceRows = reliefSourceRowsByStubId[household?.stub?.id] || [];
+    const stubQueueContext =
+      stubStatus === "ISSUED" && household?.stub?.id
+        ? await distributionTransactionRepository.getPresentUnclaimedStubQueueContext(
+            household.stub.id,
+          )
+        : { queue_position: 0, eligible_households_count: 0 };
+    const donatedReliefPacks =
+      stubStatus === "ISSUED"
+        ? await getAvailableDonatedReliefPacksForClaimPreview(
+            filters.disaster_event_id,
+            stubQueueContext.queue_position,
+          )
+        : [];
+    const donatedLooseItems =
+      stubStatus === "ISSUED"
+        ? await getAvailableDonatedLooseItemsForClaimPreview(
+            filters.disaster_event_id,
+            stubQueueContext.queue_position,
+            stubQueueContext.eligible_households_count,
+          )
+        : [];
+
+    return {
+      family_head_name: household.family_head_name || "--",
+      barangay_name: household.barangay?.name || "--",
+      address:
+        household.current_address_details ||
+        household.barangay?.name ||
+        "--",
+      family_members_count: household.household_size || household.members?.length || 0,
+      sectors_text: buildInventoryExportSectorsText(household),
+      relief_pack_summary: formatInventoryExportReliefPack({
+        templates: assignedTemplates,
+        sourceRows,
+        donatedReliefPacks,
+        donatedLooseItems,
+      }),
+      claimed_date_time:
+        stubStatus === "CLAIMED"
+          ? mswdoReportExport.formatDateTime(
+              sourceRows[0]?.received_at ||
+                sourceRows[0]?.distribution_date ||
+                household?.stub?.claimed_at,
+            )
+          : "--",
+      distribution_status: stubStatus,
+      status_label: getInventoryExportStatusLabel(stubStatus, disasterEvent?.status),
+      registered_at: household.registered_at,
+    };
+  }));
+  const sortedRows = sortInventoryExportRows(
+    mappedRows,
+    filters.sort_order || "newest",
+  );
+
+  if (sortedRows.length === 0) {
+    const error = new Error("No inventory distribution data available for export.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const includeBarangayColumn = context.scopedBarangayIds.length !== 1;
+  const columns = [
+    ...(includeBarangayColumn
+      ? [{ key: "barangay_name", label: "Barangay", width: 20, pdfWidth: 70 }]
+      : []),
+    { key: "family_head_name", label: "Family Head", width: 28, pdfWidth: 95 },
+    { key: "address", label: "Address", width: 32, pdfWidth: 105 },
+    { key: "family_members_count", label: "Family Members", width: 16, pdfWidth: 50 },
+    { key: "sectors_text", label: "Sectors", width: 30, pdfWidth: 105 },
+    { key: "relief_pack_summary", label: "Relief Pack", width: 36, pdfWidth: 130 },
+    { key: "status_label", label: "Status", width: 16, pdfWidth: 55 },
+    { key: "claimed_date_time", label: "Claimed Date / Time", width: 22, pdfWidth: 75 },
+  ];
+  const eventLabel = formatInventoryExportEventLabel(disasterEvent);
+  const barangayLabel = getInventoryExportBarangayLabel(
+    sortedRows.map((row) => ({
+      barangay: {
+        name: row.barangay_name,
+      },
+    })),
+    context.scopedBarangayIds,
+  );
+
+  const sourceName =
+    requester?.roleCode === ROLE_CODES.MAYOR ? "Office of the Mayor" : "MSWDO";
+
+  return mswdoReportExport.buildExportFile({
+    filePrefix:
+      requester?.roleCode === ROLE_CODES.MAYOR
+        ? "office-mayor-inventory-distribution"
+        : "mswdo-inventory-distribution",
+    worksheetName: "Inventory Distribution",
+    reportTitle: "Inventory Distribution Report",
+    sourceName,
+    metadata: [
+      { label: "Disaster Event", value: eventLabel },
+      { label: "Barangay", value: barangayLabel },
+      {
+        label: "Status",
+        value: filters.status
+          ? getInventoryExportStatusLabel(filters.status, disasterEvent?.status)
+          : "All",
+      },
+    ],
+    columns,
+    rows: sortedRows,
+    format: filters.format,
+  });
+};
+
 const buildSectorsText = (
   householdId,
   householdSectorsByHouseholdId,
@@ -377,6 +968,7 @@ const BARANGAY_ROLE_CODE = "BARANGAY";
 const ROLE_CODES = {
   BARANGAY: "BARANGAY",
   MSWDO: "MSWDO",
+  MAYOR: "MAYOR",
 };
 const STUB_ALREADY_CLAIMED_CODE = "STUB_ALREADY_CLAIMED";
 const DISTRIBUTION_STUB_UNIQUE_CONSTRAINT = "distribution_transactions_stub_id_key";
@@ -1951,7 +2543,10 @@ const updateDistributionTransactionLifecycle = async ({
 module.exports = {
   createDistributionTransaction,
   claimDistributionTransactionFromQr,
+  getInventoryDistributionDetail,
+  getInventoryDistributionExportOptions,
   getDistributionHistory,
+  exportInventoryDistribution,
   exportDistributionHistory,
   updateDistributionTransactionLifecycle,
 };

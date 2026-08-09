@@ -104,7 +104,7 @@ const InventoryExportModal = ({
               fontWeight: 800,
             }}
           >
-            Inventory Items report
+            Inventory Items Report
           </h3>
           <button
             type="button"

@@ -140,7 +140,7 @@ export const useMswdoStubDistribution = () => {
   const [selectedBarangayId, setSelectedBarangayId] = useState("");
   const [selectedSectorIds, setSelectedSectorIds] = useState([]);
   const [selectedStubStatus, setSelectedStubStatus] = useState(
-    STATUS_FILTERS.UNCLAIMED,
+    STATUS_FILTERS.ALL,
   );
   const [searchTerm, setSearchTerm] = useState("");
   const [dashboard, setDashboard] = useState(emptyDashboard);
@@ -325,7 +325,7 @@ export const useMswdoStubDistribution = () => {
         value: dashboard.metrics.claimed_stubs || 0,
       },
       {
-        label: "Unclaimed Stubs",
+        label: "For Claim Stubs",
         value: dashboard.metrics.unclaimed_stubs || 0,
       },
     ];

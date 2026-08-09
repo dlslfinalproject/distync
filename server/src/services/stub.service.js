@@ -47,6 +47,25 @@ const buildSectorIds = (householdId, householdSectorsByHouseholdId, memberSector
   return [...new Set([...householdSectorIds, ...memberSectorIds])];
 };
 
+const buildSectors = (householdId, householdSectorsByHouseholdId, memberSectorsByHouseholdId) => {
+  const uniqueSectorsById = new Map();
+
+  [
+    ...(householdSectorsByHouseholdId[householdId] || []),
+    ...(memberSectorsByHouseholdId[householdId] || []),
+  ].forEach((sector) => {
+    if (sector?.id && !uniqueSectorsById.has(sector.id)) {
+      uniqueSectorsById.set(sector.id, {
+        id: sector.id,
+        code: sector.code,
+        name: sector.name,
+      });
+    }
+  });
+
+  return [...uniqueSectorsById.values()];
+};
+
 const groupByKey = (items, keyName) => {
   return items.reduce((groups, item) => {
     const key = item[keyName];
@@ -418,6 +437,9 @@ const getBarangayStubDashboard = async (filters) => {
         stub_sequence_no: row.stub_sequence_no,
         status: row.status,
         issued_at: row.issued_at,
+        claimed_at: row.claimed_at || null,
+        distribution_date: row.distribution_date || null,
+        received_at: row.received_at || null,
         qr_code_value: row.qr_code_value || null,
         qr_generated_at: row.qr_generated_at || null,
         qr_generated_by: row.qr_generated_by || null,
@@ -425,6 +447,8 @@ const getBarangayStubDashboard = async (filters) => {
         qr_notes: row.qr_notes || null,
         queue_time_in: row.queue_time_in || null,
         latest_attendance_status: row.latest_attendance_status || null,
+        barangay_id: row.barangay_id || null,
+        barangay_name: row.barangay_name || null,
         unclaimed_queue_position: row.unclaimed_queue_position || null,
         household: {
           id: row.household_id,
@@ -434,13 +458,18 @@ const getBarangayStubDashboard = async (filters) => {
             row.family_head_last_name,
             row.family_head_suffix,
           ),
-          household_size: row.members_count,
+          household_size: row.household_size || row.members_count,
           members_count: row.members_count,
           family_head_photo_url: row.family_head_photo_url || null,
           photo_captured_at: row.photo_captured_at || null,
           photo_verification_notes: row.photo_verification_notes || null,
         },
         sectors_text: buildSectorsText(
+          row.household_id,
+          householdSectorsByHouseholdId,
+          memberSectorsByHouseholdId,
+        ),
+        sectors: buildSectors(
           row.household_id,
           householdSectorsByHouseholdId,
           memberSectorsByHouseholdId,

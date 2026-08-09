@@ -700,6 +700,47 @@ const getDistributionTransactionItemsForUpdate = async (
   return result.rows;
 };
 
+const getLatestDistributionReliefSourcesByStubIds = async (stubIds = []) => {
+  if (!Array.isArray(stubIds) || stubIds.length === 0) {
+    return [];
+  }
+
+  const query = `
+    WITH latest_distributions AS (
+      SELECT DISTINCT ON (dt.stub_id)
+        dt.id,
+        dt.stub_id,
+        dt.relief_pack_template_id,
+        dt.distribution_date,
+        dt.received_at
+      FROM distribution_transactions dt
+      WHERE dt.stub_id = ANY($1::uuid[])
+      ORDER BY dt.stub_id, dt.distribution_date DESC, dt.created_at DESC
+    )
+    SELECT
+      ld.stub_id,
+      ld.distribution_date,
+      ld.received_at,
+      rpt.name AS relief_pack_template_name,
+      d.donor_name,
+      di.remarks AS donation_item_remarks,
+      COALESCE(di.remarks, '') ILIKE 'Relief Pack:%' AS is_relief_pack_donation
+    FROM latest_distributions ld
+    LEFT JOIN relief_pack_templates rpt ON rpt.id = ld.relief_pack_template_id
+    LEFT JOIN distribution_transaction_items dti
+      ON dti.distribution_transaction_id = ld.id
+    LEFT JOIN inventory_batches ib ON ib.id = dti.inventory_batch_id
+    LEFT JOIN donation_items di
+      ON di.inventory_batch_id = ib.id
+      AND di.inventory_item_id = dti.inventory_item_id
+    LEFT JOIN donations d ON d.id = di.donation_id
+    ORDER BY ld.stub_id ASC, rpt.name ASC, d.donor_name ASC, di.remarks ASC
+  `;
+
+  const result = await pool.query(query, [stubIds]);
+  return result.rows;
+};
+
 const updateDistributionTransactionStatus = async (
   transactionId,
   {
@@ -954,6 +995,177 @@ const getDistributionHistoryExportRows = async ({
   });
 };
 
+const getInventoryDistributionDetailByStubId = async (stubId) => {
+  const baseQuery = `
+    SELECT
+      s.id AS stub_id,
+      s.disaster_event_id,
+      s.household_id,
+      s.stub_no,
+      s.serial_no,
+      s.status AS stub_status,
+      s.issued_at,
+      s.claimed_at,
+      s.updated_at AS stub_updated_at,
+      s.qr_code_value,
+      s.qr_generated_at,
+      s.qr_status,
+      s.qr_notes,
+      de.event_code,
+      de.title AS disaster_event_title,
+      de.disaster_type,
+      h.residency_status,
+      h.family_head_first_name,
+      h.family_head_middle_name,
+      h.family_head_last_name,
+      h.family_head_suffix,
+      h.household_size,
+      h.current_stay_type,
+      h.current_address_details,
+      h.contact_number,
+      h.is_active,
+      h.registered_at,
+      h.registered_by,
+      CONCAT_WS(' ', registered_user.first_name, registered_user.middle_name, registered_user.last_name) AS registered_by_name,
+      h.family_head_photo_url,
+      h.photo_captured_at,
+      h.photo_verification_notes,
+      b.id AS barangay_id,
+      b.code AS barangay_code,
+      b.name AS barangay_name
+    FROM stubs s
+    INNER JOIN disaster_events de ON de.id = s.disaster_event_id
+    INNER JOIN households h ON h.id = s.household_id
+    LEFT JOIN users registered_user ON registered_user.id = h.registered_by
+    LEFT JOIN barangays b ON b.id = h.barangay_id
+    WHERE s.id = $1
+  `;
+  const baseResult = await pool.query(baseQuery, [stubId]);
+  const baseRow = baseResult.rows[0] || null;
+
+  if (!baseRow) {
+    return null;
+  }
+
+  const householdId = baseRow.household_id;
+
+  const membersQuery = `
+    SELECT
+      id AS evacuee_id,
+      household_id,
+      first_name,
+      middle_name,
+      last_name,
+      suffix,
+      sex,
+      age,
+      age_value,
+      age_unit,
+      relationship_to_head,
+      is_family_head
+    FROM evacuees
+    WHERE household_id = $1
+      AND is_active = TRUE
+    ORDER BY is_family_head DESC, created_at ASC
+  `;
+  const householdSectorsQuery = `
+    SELECT
+      hs.household_id,
+      s.id,
+      s.code,
+      s.name
+    FROM household_sectors hs
+    INNER JOIN sectors s ON s.id = hs.sector_id
+    WHERE hs.household_id = $1
+    ORDER BY s.name ASC
+  `;
+  const memberSectorsQuery = `
+    SELECT
+      e.household_id,
+      es.evacuee_id,
+      s.id,
+      s.code,
+      s.name
+    FROM evacuee_sectors es
+    INNER JOIN evacuees e ON e.id = es.evacuee_id
+    INNER JOIN sectors s ON s.id = es.sector_id
+    WHERE e.household_id = $1
+      AND e.is_active = TRUE
+    ORDER BY e.household_id ASC, s.name ASC
+  `;
+  const attendanceQuery = `
+    SELECT
+      id,
+      household_id,
+      disaster_event_id,
+      status,
+      time_in,
+      time_out,
+      evacuation_center_id
+    FROM evacuation_logs
+    WHERE household_id = $1
+      AND disaster_event_id = $2
+    ORDER BY
+      COALESCE(time_out, time_in) DESC,
+      updated_at DESC,
+      created_at DESC
+    LIMIT 1
+  `;
+  const transactionQuery = `
+    SELECT
+      dt.id,
+      dt.disaster_event_id,
+      dt.household_id,
+      dt.stub_id,
+      dt.distribution_date,
+      dt.distribution_status,
+      dt.claimed_by_name,
+      dt.verified_by,
+      CONCAT_WS(' ', u.first_name, u.middle_name, u.last_name) AS verified_by_name,
+      dt.qr_reference_value,
+      dt.qr_scanned_at,
+      dt.receipt_no,
+      dt.receipt_status,
+      dt.received_at,
+      dt.relief_pack_template_id,
+      rpt.name AS relief_pack_template_name,
+      dt.remarks,
+      dt.sync_status,
+      dt.created_at,
+      dt.updated_at
+    FROM distribution_transactions dt
+    LEFT JOIN users u ON u.id = dt.verified_by
+    LEFT JOIN relief_pack_templates rpt ON rpt.id = dt.relief_pack_template_id
+    WHERE dt.stub_id = $1
+    ORDER BY dt.distribution_date DESC, dt.created_at DESC
+    LIMIT 1
+  `;
+  const [
+    membersResult,
+    householdSectorsResult,
+    memberSectorsResult,
+    attendanceResult,
+    transactionResult,
+  ] = await Promise.all([
+    pool.query(membersQuery, [householdId]),
+    pool.query(householdSectorsQuery, [householdId]),
+    pool.query(memberSectorsQuery, [householdId]),
+    pool.query(attendanceQuery, [householdId, baseRow.disaster_event_id]),
+    pool.query(transactionQuery, [stubId]),
+  ]);
+
+  const transaction = transactionResult.rows[0] || null;
+
+  return {
+    base: baseRow,
+    members: membersResult.rows,
+    household_sectors: householdSectorsResult.rows,
+    member_sectors: memberSectorsResult.rows,
+    latest_attendance: attendanceResult.rows[0] || null,
+    distribution_transaction: transaction,
+  };
+};
+
 module.exports = {
   getDistributionReceiptSequence,
   getStubByIdForUpdate,
@@ -974,9 +1186,11 @@ module.exports = {
   updateStubAsClaimed,
   getDistributionTransactionByIdForUpdate,
   getDistributionTransactionItemsForUpdate,
+  getLatestDistributionReliefSourcesByStubIds,
   updateDistributionTransactionStatus,
   updateStubStatus,
   getDistributionHistory,
   getDistributionHistoryStubSummaryByEventIds,
   getDistributionHistoryExportRows,
+  getInventoryDistributionDetailByStubId,
 };

@@ -7,10 +7,95 @@ const {
   validateClaimDistributionFromQr,
   validateGetDistributionHistory,
   validateExportDistributionHistory,
+  validateExportInventoryDistribution,
+  validateInventoryDistributionExportOptions,
+  validateInventoryDistributionDetail,
   validateUpdateDistributionLifecycle,
 } = require("../validators/distributionTransaction.validator");
 
 const router = express.Router();
+
+router.get(
+  "/inventory-distribution/export-options",
+  requireRoles(ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
+  validateInventoryDistributionExportOptions,
+  async (req, res) => {
+    try {
+      const options =
+        await distributionTransactionService.getInventoryDistributionExportOptions({
+          requester: req.auth,
+          filters: req.validatedQuery,
+        });
+
+      return res.status(200).json({
+        message: "Inventory distribution export options fetched successfully",
+        data: options,
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        message:
+          error.message || "Failed to fetch inventory distribution export options",
+      });
+    }
+  },
+);
+
+router.get(
+  "/inventory-distribution/export",
+  requireRoles(ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
+  validateExportInventoryDistribution,
+  async (req, res) => {
+    try {
+      const file =
+        await distributionTransactionService.exportInventoryDistribution({
+          requester: req.auth,
+          filters: req.validatedQuery,
+        });
+
+      res.setHeader("Content-Type", file.contentType);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${file.filename}"`,
+      );
+
+      return res.status(200).send(file.buffer);
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        message: error.message || "Failed to export inventory distribution",
+      });
+    }
+  },
+);
+
+router.get(
+  "/inventory-distribution/:stubId",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
+  validateInventoryDistributionDetail,
+  async (req, res) => {
+    try {
+      const detail =
+        await distributionTransactionService.getInventoryDistributionDetail({
+          stubId: req.validatedParams.stubId,
+        });
+
+      if (!detail) {
+        return res.status(404).json({
+          message: "Inventory distribution detail not found",
+        });
+      }
+
+      return res.status(200).json({
+        message: "Inventory distribution detail fetched successfully",
+        data: detail,
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        message:
+          error.message || "Failed to fetch inventory distribution detail",
+      });
+    }
+  },
+);
 
 router.get(
   "/history",

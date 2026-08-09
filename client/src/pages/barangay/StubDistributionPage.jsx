@@ -37,7 +37,7 @@ import {
   createWrongEventQrScanError,
 } from "../../features/stubs/stubQrScanErrors";
 
-const DEFAULT_STUB_STATUS = STATUS_FILTERS.UNCLAIMED;
+const DEFAULT_STUB_STATUS = STATUS_FILTERS.ALL;
 const DEFAULT_STUB_SORT_ORDER = "oldest";
 const QR_SCAN_COOLDOWN_MS = 1800;
 
@@ -346,7 +346,7 @@ const StubDistributionPage = () => {
 
   const stubStatusOptions = [
     { value: STATUS_FILTERS.CLAIMED, label: "Claimed" },
-    { value: STATUS_FILTERS.UNCLAIMED, label: "Unclaimed" },
+    { value: STATUS_FILTERS.UNCLAIMED, label: "For Claim" },
   ];
 
   const toggleSectorFilter = (sectorName) => {
