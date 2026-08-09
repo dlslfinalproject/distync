@@ -12,9 +12,13 @@ try {
     getServerAccessMode,
     isDevelopmentBypassEnabled,
   } = require("./config/accessMode");
+  const {
+    assertInventoryStateBasisSecretConfigured,
+  } = require("./utils/inventoryStateBasis");
 
   getServerAccessMode();
   isDevelopmentBypassEnabled();
+  assertInventoryStateBasisSecretConfigured();
   pool = require("./config/db");
   app = require("./app");
   notificationService = require("./modules/notifications/notification.service");

@@ -338,6 +338,7 @@ const InventoryItemStatusLogModal = ({
       disaster_event_id: null,
       performed_by: authenticatedUser?.id || null,
       remarks: formValues.remarks.trim(),
+      inventoryStateBasis: selectedBatch?.inventoryStateBasis || null,
     });
   };
 

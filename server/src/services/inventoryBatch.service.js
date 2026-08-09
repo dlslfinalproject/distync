@@ -5,6 +5,7 @@ const systemLogRepository = require("../repositories/systemLog.repository");
 const mayorReportExport = require("../utils/mayorReportExport");
 const notificationService = require("../modules/notifications/notification.service");
 const { logAuditSafely, pickDefined } = require("../utils/systemLog");
+const { createInventoryStateBasis } = require("../utils/inventoryStateBasis");
 
 const buildFullName = (firstName, lastName) =>
   [firstName, lastName].filter(Boolean).join(" ").trim();
@@ -19,6 +20,8 @@ const mapInventoryBatch = (batch) => {
     source_type: batch.source_type,
     quantity_received: batch.quantity_received,
     quantity_available: batch.quantity_available,
+    stock_version: batch.stock_version,
+    inventoryStateBasis: createInventoryStateBasis(batch),
     expiration_date: batch.expiration_date,
     received_at: batch.received_at,
     storage_location: batch.storage_location,

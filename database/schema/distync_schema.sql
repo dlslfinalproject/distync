@@ -443,6 +443,7 @@ CREATE TABLE public.inventory_batches (
   source_type character varying NOT NULL DEFAULT 'LGU'::character varying CHECK (source_type::text = ANY (ARRAY['PURCHASED'::character varying, 'DONATED'::character varying, 'DSWD'::character varying, 'LGU'::character varying, 'OTHER'::character varying]::text[])),
   quantity_received integer NOT NULL CHECK (quantity_received >= 0),
   quantity_available integer NOT NULL CHECK (quantity_available >= 0),
+  stock_version integer NOT NULL DEFAULT 0,
   expiration_date date,
   received_at timestamp with time zone NOT NULL DEFAULT now(),
   storage_location character varying,
@@ -456,6 +457,29 @@ CREATE TABLE public.inventory_batches (
   CONSTRAINT inventory_batches_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES public.suppliers(id),
   CONSTRAINT inventory_batches_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id)
 );
+
+CREATE OR REPLACE FUNCTION public.increment_inventory_batch_stock_version()
+RETURNS trigger AS $$
+BEGIN
+  IF
+    NEW.quantity_available IS DISTINCT FROM OLD.quantity_available
+    OR NEW.status IS DISTINCT FROM OLD.status
+    OR NEW.expiration_date IS DISTINCT FROM OLD.expiration_date
+  THEN
+    NEW.stock_version := OLD.stock_version + 1;
+  ELSE
+    NEW.stock_version := OLD.stock_version;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER inventory_batches_stock_version_before_update
+BEFORE UPDATE
+ON public.inventory_batches
+FOR EACH ROW
+EXECUTE FUNCTION public.increment_inventory_batch_stock_version();
 
 CREATE TABLE public.inventory_transactions (
   id uuid NOT NULL DEFAULT gen_random_uuid(),

@@ -316,7 +316,9 @@ const insertSyncConflict = async (payload, dbClient = pool) => {
     JSON.stringify(payload.local_payload_json || {}),
     JSON.stringify(payload.server_payload_json || {}),
     payload.resolution_strategy,
-    JSON.stringify(payload.resolved_payload_json || {}),
+    payload.resolved_payload_json === null
+      ? null
+      : JSON.stringify(payload.resolved_payload_json || {}),
     payload.resolved_by || null,
     payload.resolved_at || null,
     payload.status || "OPEN",

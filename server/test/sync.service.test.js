@@ -18,6 +18,9 @@ const distributionTransactionServicePath = require.resolve(
 const inventoryTransactionServicePath = require.resolve(
   "../src/services/inventoryTransaction.service",
 );
+const inventoryTransactionRepositoryPath = require.resolve(
+  "../src/repositories/inventoryTransaction.repository",
+);
 const inventoryItemServicePath = require.resolve("../src/services/inventoryItem.service");
 const inventoryBatchServicePath = require.resolve("../src/services/inventoryBatch.service");
 const supplierServicePath = require.resolve("../src/services/supplier.service");
@@ -25,6 +28,7 @@ const systemLogPath = require.resolve("../src/utils/systemLog");
 const notificationServicePath = require.resolve(
   "../src/modules/notifications/notification.service",
 );
+const inventoryStateBasisPath = require.resolve("../src/utils/inventoryStateBasis");
 
 const withStubbedSyncService = async (stubs, runTest) => {
   const dependencyPaths = Object.keys(stubs);
@@ -135,6 +139,128 @@ const baseAuth = {
   roleCode: "BARANGAY",
   defaultBarangayId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
 };
+
+test("INV-M-01 insufficient stock with trusted stale basis becomes OPEN manual-review conflict", async () => {
+  const previousSecret = process.env.INVENTORY_STATE_BASIS_SECRET;
+  process.env.INVENTORY_STATE_BASIS_SECRET = "unit-test-inventory-state-basis-secret";
+  delete require.cache[inventoryStateBasisPath];
+  const { createInventoryStateBasis } = require(inventoryStateBasisPath);
+  const basis = createInventoryStateBasis(
+    {
+      id: "11111111-1111-4111-8111-111111111111",
+      inventory_item_id: "22222222-2222-4222-8222-222222222222",
+      stock_version: 1,
+      quantity_available: 10,
+      status: "AVAILABLE",
+      expiration_date: null,
+    },
+    "2026-08-09T01:00:00.000Z",
+  );
+  const recordedConflicts = [];
+  const processedOutbox = [];
+
+  try {
+    await withStubbedSyncService(
+      {
+        [syncRepositoryPath]: createBaseSyncRepositoryStub({
+          withSyncProcessingTransaction: async (callback) => callback({ id: "tx-client" }),
+          recordConflictAndUpdateSyncTransaction: async ({
+            syncTransactionId,
+            conflictPayload,
+            transactionPayload,
+          }) => {
+            recordedConflicts.push({ conflictPayload, transactionPayload });
+            return {
+              syncTransaction: {
+                id: syncTransactionId,
+                ...transactionPayload,
+              },
+              conflictRecord: {
+                id: "sync-conflict-inv-m01",
+                ...conflictPayload,
+              },
+              notificationOutboxEvent: {
+                id: "outbox-inv-m01",
+              },
+            };
+          },
+        }),
+        [inventoryTransactionServicePath]: {
+          createInventoryTransaction: async () => {
+            const error = new Error(
+              "Insufficient quantity_available for batch BATCH-1",
+            );
+            error.statusCode = 400;
+            throw error;
+          },
+        },
+        [inventoryTransactionRepositoryPath]: {
+          getInventoryBatchByIdForUpdate: async () => ({
+            id: "11111111-1111-4111-8111-111111111111",
+            inventory_item_id: "22222222-2222-4222-8222-222222222222",
+            stock_version: 2,
+            quantity_available: 4,
+            status: "LOW_STOCK",
+            expiration_date: null,
+          }),
+        },
+        [notificationServicePath]: {
+          processNotificationOutboxEventById: async (eventId) => {
+            processedOutbox.push(eventId);
+          },
+        },
+        [systemLogPath]: {
+          logAuditSafely: async () => {},
+          logErrorSafely: async () => {},
+          pickDefined: () => ({}),
+        },
+      },
+      async ({ processSyncEntries }) => {
+        const [result] = await processSyncEntries({
+          auth: {
+            ...baseAuth,
+            roleCode: "MAYOR",
+          },
+          entries: [
+            {
+              client_sync_id: "inv-m01-state-drift",
+              action_key: "INVENTORY_TRANSACTION_CREATE",
+              entity_type: "INVENTORY_TRANSACTION",
+              entity_local_id: "local-inv-m01",
+              entity_server_id: null,
+              client_timestamp: "2026-08-09T01:05:00.000Z",
+              payload: {
+                inventory_batch_id: "11111111-1111-4111-8111-111111111111",
+                transaction_type: "OUTFLOW",
+                quantity: 8,
+                inventoryTransactionReferenceNo: "ITR-2026-000555",
+                inventoryStateBasis: basis,
+              },
+            },
+          ],
+        });
+
+        assert.equal(result.sync_status, "CONFLICT");
+        assert.equal(result.conflict.conflict_type, "INVENTORY_STOCK_STATE_DRIFT");
+        assert.equal(result.conflict.resolution_strategy, "MANUAL_REVIEW");
+        assert.equal(result.conflict.status, "OPEN");
+        assert.equal(result.conflict.resolved_by, null);
+        assert.equal(result.conflict.resolved_at, null);
+        assert.equal(result.conflict.resolved_payload_json, null);
+        assert.equal(recordedConflicts[0].transactionPayload.entity_server_id, null);
+        assert.equal(recordedConflicts[0].conflictPayload.entity_server_id, null);
+        assert.deepEqual(processedOutbox, ["outbox-inv-m01"]);
+      },
+    );
+  } finally {
+    if (previousSecret === undefined) {
+      delete process.env.INVENTORY_STATE_BASIS_SECRET;
+    } else {
+      process.env.INVENTORY_STATE_BASIS_SECRET = previousSecret;
+    }
+    delete require.cache[inventoryStateBasisPath];
+  }
+});
 
 test("M02-04 normal conflict processes notification intent after sync transaction commit", async () => {
   const processedIntentIds = [];

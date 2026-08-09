@@ -10,6 +10,7 @@ const baseSelectQuery = `
     ib.source_type,
     ib.quantity_received,
     ib.quantity_available,
+    ib.stock_version,
     ib.expiration_date,
     ib.received_at,
     ib.storage_location,
@@ -199,7 +200,7 @@ const insertInventoryBatch = async (batchData, dbClient = pool) => {
       updated_at
     )
     VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9, $10, $11, NOW(), NOW()
+      $1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9, $10, NOW(), NOW()
     )
     RETURNING
       id,
@@ -210,6 +211,7 @@ const insertInventoryBatch = async (batchData, dbClient = pool) => {
       source_type,
       quantity_received,
       quantity_available,
+      stock_version,
       expiration_date,
       received_at,
       storage_location,
@@ -257,6 +259,7 @@ const updateInventoryBatchExpiry = async (
       source_type,
       quantity_received,
       quantity_available,
+      stock_version,
       expiration_date,
       received_at,
       storage_location,

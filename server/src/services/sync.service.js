@@ -1,6 +1,7 @@
 const syncRepository = require("../repositories/sync.repository");
 const householdRegistrationRepository = require("../repositories/householdRegistration.repository");
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
+const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
 const supplierRepository = require("../repositories/supplier.repository");
 const householdRegistrationService = require("./householdRegistration.service");
 const distributionTransactionService = require("./distributionTransaction.service");
@@ -15,6 +16,9 @@ const { logAuditSafely, logErrorSafely, pickDefined } = require("../utils/system
 const {
   DUPLICATE_INVENTORY_TRANSACTION_REFERENCE_NO,
 } = require("../utils/inventoryTransactionReference");
+const {
+  verifyInventoryStateBasis,
+} = require("../utils/inventoryStateBasis");
 
 const SYNC_STATUS = {
   PENDING: "PENDING",
@@ -33,6 +37,16 @@ const RESOLUTION_STRATEGY = {
   LATEST_TIMESTAMP: "LATEST_TIMESTAMP",
   MANUAL_REVIEW: "MANUAL_REVIEW",
 };
+
+const INVENTORY_STOCK_STATE_DRIFT = "INVENTORY_STOCK_STATE_DRIFT";
+const subtractiveInventoryTransactionTypes = new Set([
+  "OUTFLOW",
+  "EXPIRED",
+  "MISSING",
+  "DAMAGED",
+  "SPOILED",
+  "STOLEN",
+]);
 
 const createConflictPersistenceError = (message) => {
   const error = new Error(message);
@@ -400,6 +414,151 @@ const recordSyncFailureAndNotificationIntent = async ({
   return { syncTransaction, notificationOutboxEvent: null };
 };
 
+const isInsufficientInventoryStockError = (error) =>
+  error?.statusCode === 400 &&
+  /Insufficient quantity_available/i.test(String(error?.message || ""));
+
+const buildInventoryBasisEvidence = ({ basis, currentBatch, payload }) => ({
+  basis: {
+    basisVersion: basis.basisVersion,
+    inventoryBatchId: basis.inventoryBatchId,
+    inventoryItemId: basis.inventoryItemId,
+    stockVersion: basis.stockVersion,
+    quantityAvailable: basis.quantityAvailable,
+    status: basis.status,
+    expirationDate: basis.expirationDate,
+    observedServerAt: basis.observedServerAt,
+  },
+  current: currentBatch
+    ? {
+        inventoryBatchId: currentBatch.id,
+        inventoryItemId: currentBatch.inventory_item_id,
+        stockVersion: Number(currentBatch.stock_version),
+        quantityAvailable: Number(currentBatch.quantity_available),
+        status: currentBatch.status || null,
+        expirationDate: currentBatch.expiration_date || null,
+      }
+    : null,
+  requested: {
+    inventoryBatchId: payload.inventory_batch_id || null,
+    transactionType: payload.transaction_type || null,
+    quantity: Number(payload.quantity || 0),
+    inventoryTransactionReferenceNo:
+      payload.inventoryTransactionReferenceNo ||
+      payload.inventory_transaction_reference_no ||
+      null,
+  },
+});
+
+const maybeRecordInventoryStockStateDriftConflict = async ({
+  error,
+  entry,
+  auth,
+  actionConfig,
+  syncTransaction,
+  dbClient,
+}) => {
+  const payload = entry.payload || {};
+
+  if (
+    entry.action_key !== "INVENTORY_TRANSACTION_CREATE" ||
+    !isInsufficientInventoryStockError(error) ||
+    !subtractiveInventoryTransactionTypes.has(payload.transaction_type)
+  ) {
+    return null;
+  }
+
+  const verification = verifyInventoryStateBasis(payload.inventoryStateBasis);
+
+  if (!verification.valid) {
+    return null;
+  }
+
+  const basis = verification.basis;
+
+  if (String(basis.inventoryBatchId) !== String(payload.inventory_batch_id || "")) {
+    return null;
+  }
+
+  if (Number(basis.quantityAvailable) < Number(payload.quantity || 0)) {
+    return null;
+  }
+
+  const currentBatch =
+    await inventoryTransactionRepository.getInventoryBatchByIdForUpdate(
+      payload.inventory_batch_id,
+      dbClient,
+    );
+
+  if (!currentBatch) {
+    return null;
+  }
+
+  const currentStockVersion = Number(currentBatch.stock_version);
+  const currentQuantityAvailable = Number(currentBatch.quantity_available);
+  const currentEvidence = buildInventoryBasisEvidence({
+    basis,
+    currentBatch,
+    payload,
+  });
+
+  if (
+    currentStockVersion <= Number(basis.stockVersion) ||
+    currentQuantityAvailable >= Number(payload.quantity || 0)
+  ) {
+    return null;
+  }
+
+  const serverTimestamp = new Date().toISOString();
+  const {
+    syncTransaction: conflictTransaction,
+    conflictRecord,
+    notificationOutboxEvent,
+  } = await recordConflictAndUpdateSyncTransactionSafely({
+    auth,
+    actionConfig,
+    entry,
+    syncTransactionId: syncTransaction.id,
+    transactionPayload: {
+      entity_server_id: null,
+      server_timestamp: serverTimestamp,
+      sync_status: SYNC_STATUS.CONFLICT,
+      error_message:
+        "Inventory stock changed after the offline state basis. Manual review is required.",
+    },
+    conflictPayload: {
+      sync_transaction_id: syncTransaction.id,
+      entity_type: actionConfig.entityType,
+      entity_server_id: null,
+      conflict_type: INVENTORY_STOCK_STATE_DRIFT,
+      local_payload_json: {
+        payload,
+        inventory_state_basis: currentEvidence.basis,
+      },
+      server_payload_json: currentEvidence.current,
+      resolution_strategy: RESOLUTION_STRATEGY.MANUAL_REVIEW,
+      resolved_payload_json: null,
+      resolved_by: null,
+      resolved_at: null,
+      status: CONFLICT_STATUS.OPEN,
+    },
+    dbClient,
+  });
+
+  return {
+    notificationOutboxEvent,
+    result: {
+      client_sync_id: entry.client_sync_id,
+      sync_transaction_id: syncTransaction.id,
+      sync_status: SYNC_STATUS.CONFLICT,
+      message:
+        "Inventory stock changed after this offline transaction was recorded. Manual review is required.",
+      data: conflictTransaction,
+      conflict: conflictRecord,
+    },
+  };
+};
+
 const processCommittedNotificationIntentsSafely = async ({
   eventIds,
   auth,
@@ -740,6 +899,26 @@ const processSingleSyncEntry = async (entry, auth) => {
           error_code: createConflictPersistenceError(failureMessage).code,
         };
       }
+    }
+
+    const stockStateDriftConflict =
+      await maybeRecordInventoryStockStateDriftConflict({
+        error,
+        entry,
+        auth,
+        actionConfig,
+        syncTransaction,
+        dbClient,
+      });
+
+    if (stockStateDriftConflict) {
+      if (stockStateDriftConflict.notificationOutboxEvent?.id) {
+        notificationOutboxEventIds.push(
+          stockStateDriftConflict.notificationOutboxEvent.id,
+        );
+      }
+
+      return stockStateDriftConflict.result;
     }
 
     if (error.code === "SYNC_CONFLICT_PERSISTENCE_FAILED") {

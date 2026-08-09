@@ -94,6 +94,9 @@ const InventoryTransactionFormModal = ({
 
   const handleSubmit = (event) => {
     event.preventDefault();
+    const selectedBatch = inventoryBatches.find(
+      (batch) => String(batch.id) === String(formValues.inventory_batch_id),
+    );
 
     onSubmit({
       disaster_event_id: null,
@@ -106,6 +109,7 @@ const InventoryTransactionFormModal = ({
       reference_id: null,
       performed_by: null,
       remarks: formValues.remarks.trim() || null,
+      inventoryStateBasis: selectedBatch?.inventoryStateBasis || null,
     });
   };
 
