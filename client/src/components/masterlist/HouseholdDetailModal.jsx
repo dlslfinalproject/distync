@@ -242,6 +242,7 @@ const HouseholdDetailModal = ({
   householdDetails,
   onClose,
   onEditHousehold,
+  showAdministrativeMetadata = true,
 }) => {
   if (!isOpen) {
     return null;
@@ -280,6 +281,84 @@ const HouseholdDetailModal = ({
   );
   const stayTypeLabel = formatStayTypeLabel(household?.current_stay_type);
   const privacyConsent = householdDetails?.privacy_consent || null;
+  const summaryItems = [
+    {
+      label: "Disaster Event",
+      value: household?.disaster_event_title || "--",
+    },
+    {
+      label: "Barangay",
+      value: household?.barangay_name || "--",
+    },
+    {
+      label: "Stay Type",
+      value: stayTypeLabel || "--",
+    },
+    {
+      label: "Family Head",
+      value:
+        [
+          household?.family_head_first_name,
+          household?.family_head_middle_name,
+          household?.family_head_last_name,
+          household?.family_head_suffix,
+        ]
+          .filter(Boolean)
+          .join(" ") || "--",
+    },
+    {
+      label: "Contact Number",
+      value: formatContactNumber(household?.contact_number),
+    },
+    {
+      label: "Household Size",
+      value: household?.household_size || 0,
+    },
+    {
+      label: "Registered At",
+      value: formatDateTime(household?.registered_at),
+    },
+    {
+      label: "Record Status",
+      value: household?.is_active === false ? "Archived" : "Active",
+    },
+    {
+      label: "Registered By",
+      value:
+        household?.registered_by_name ||
+        household?.registered_by ||
+        "Not recorded",
+    },
+  ];
+
+  if (showAdministrativeMetadata) {
+    summaryItems.push(
+      {
+        label: "Privacy Acknowledgment",
+        value: formatPrivacyStatus(privacyConsent),
+      },
+      {
+        label: "Privacy Notice Version",
+        value: privacyConsent?.notice_version || "Not recorded",
+      },
+      {
+        label: "Acknowledged On",
+        value: formatDateTime(privacyConsent?.recorded_at),
+      },
+      {
+        label: "Sync Status",
+        value: privacyConsent?.sync_status || "--",
+      },
+      {
+        label: "Recorded Offline",
+        value: privacyConsent
+          ? privacyConsent.is_offline_encoded
+            ? "Yes"
+            : "No"
+          : "--",
+      },
+    );
+  }
 
   return (
     <div style={modalStyles.backdrop}>
@@ -331,97 +410,12 @@ const HouseholdDetailModal = ({
           <div style={{ display: "grid", gap: "20px" }}>
             <section style={shellStyles.card}>
               <div style={modalStyles.grid}>
-                <div>
-                  <p style={modalStyles.label}>Disaster Event</p>
-                  <p style={modalStyles.value}>
-                    {household.disaster_event_title || "--"}
-                  </p>
-                </div>
-                <div>
-                  <p style={modalStyles.label}>Barangay</p>
-                  <p style={modalStyles.value}>{household.barangay_name || "--"}</p>
-                </div>
-                <div>
-                  <p style={modalStyles.label}>Stay Type</p>
-                  <p style={modalStyles.value}>{stayTypeLabel || "--"}</p>
-                </div>
-                <div>
-                  <p style={modalStyles.label}>Family Head</p>
-                  <p style={modalStyles.value}>
-                    {[
-                      household.family_head_first_name,
-                      household.family_head_middle_name,
-                      household.family_head_last_name,
-                      household.family_head_suffix,
-                    ]
-                      .filter(Boolean)
-                      .join(" ") || "--"}
-                  </p>
-                </div>
-                <div>
-                  <p style={modalStyles.label}>Contact Number</p>
-                  <p style={modalStyles.value}>
-                    {formatContactNumber(household.contact_number)}
-                  </p>
-                </div>
-                <div>
-                  <p style={modalStyles.label}>Household Size</p>
-                  <p style={modalStyles.value}>{household.household_size || 0}</p>
-                </div>
-                <div>
-                  <p style={modalStyles.label}>Registered At</p>
-                  <p style={modalStyles.value}>
-                    {formatDateTime(household.registered_at)}
-                  </p>
-                </div>
-                <div>
-                  <p style={modalStyles.label}>Record Status</p>
-                  <p style={modalStyles.value}>
-                    {household.is_active === false ? "Archived" : "Active"}
-                  </p>
-                </div>
-                <div>
-                  <p style={modalStyles.label}>Privacy Acknowledgment</p>
-                  <p style={modalStyles.value}>
-                    {formatPrivacyStatus(privacyConsent)}
-                  </p>
-                </div>
-                <div>
-                  <p style={modalStyles.label}>Privacy Notice Version</p>
-                  <p style={modalStyles.value}>
-                    {privacyConsent?.notice_version || "Not recorded"}
-                  </p>
-                </div>
-                <div>
-                  <p style={modalStyles.label}>Acknowledged On</p>
-                  <p style={modalStyles.value}>
-                    {formatDateTime(privacyConsent?.recorded_at)}
-                  </p>
-                </div>
-                <div>
-                  <p style={modalStyles.label}>Sync Status</p>
-                  <p style={modalStyles.value}>
-                    {privacyConsent?.sync_status || "--"}
-                  </p>
-                </div>
-                <div>
-                  <p style={modalStyles.label}>Recorded By</p>
-                  <p style={modalStyles.value}>
-                    {privacyConsent?.recorded_by_name ||
-                      privacyConsent?.recorded_by ||
-                      "Not recorded"}
-                  </p>
-                </div>
-                <div>
-                  <p style={modalStyles.label}>Recorded Offline</p>
-                  <p style={modalStyles.value}>
-                    {privacyConsent
-                      ? privacyConsent.is_offline_encoded
-                        ? "Yes"
-                        : "No"
-                      : "--"}
-                  </p>
-                </div>
+                {summaryItems.map((item) => (
+                  <div key={item.label}>
+                    <p style={modalStyles.label}>{item.label}</p>
+                    <p style={modalStyles.value}>{item.value}</p>
+                  </div>
+                ))}
               </div>
             </section>
 

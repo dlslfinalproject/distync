@@ -871,6 +871,7 @@ const BarangayMasterlistPage = () => {
         onEditHousehold={
           isSelectedEventEnded ? undefined : handleEditHouseholdFromDetails
         }
+        showAdministrativeMetadata={false}
       />
 
       <HouseholdArchiveConfirmModal
