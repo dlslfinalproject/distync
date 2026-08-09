@@ -626,7 +626,7 @@ const BarangayMasterlistPage = () => {
       });
 
       setRegistrationSuccessMessage(
-        response.message || "Household return recorded successfully",
+        response.message || "Household re-admitted successfully",
       );
       setPendingRestoreHouseholdId("");
       setPendingRestoreHouseholdDetails(null);
@@ -634,7 +634,7 @@ const BarangayMasterlistPage = () => {
       reloadMasterlist();
     } catch (error) {
       setAttendanceActionMessage(
-        error.message || "Failed to record household return",
+        error.message || "Failed to re-admit household",
       );
     } finally {
       setIsRestoringHousehold(false);

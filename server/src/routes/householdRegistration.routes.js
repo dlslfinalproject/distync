@@ -164,14 +164,14 @@ router.patch(
       });
 
       return res.status(200).json({
-        message: "Household return recorded successfully",
+        message: "Household re-admitted successfully",
         data: restoreResult,
       });
     } catch (error) {
       const statusCode = error.statusCode || 500;
 
       return res.status(statusCode).json({
-        message: error.message || "Failed to record household return",
+        message: error.message || "Failed to re-admit household",
       });
     }
   },

@@ -52,6 +52,7 @@ export const buildQueuedHouseholdRow = (entry, assignedBarangayName) => {
 
   return {
     household_id: entry.entityLocalId || entry.id,
+    masterlist_record_id: entry.id || entry.entityLocalId || `local-${entry.clientTimestamp}`,
     family_head_name: familyHeadName || "Pending household",
     address: currentAddress,
     members_count: Array.isArray(entry.payload?.members)

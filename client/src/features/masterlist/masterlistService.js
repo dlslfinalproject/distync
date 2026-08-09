@@ -231,6 +231,10 @@ export const mapMasterlistRow = (household, households = [], options = {}) => {
 
   return {
     household_id: household.household_id,
+    masterlist_record_id:
+      household.masterlist_record_id ||
+      household.latest_attendance?.id ||
+      household.household_id,
     family_head_name: household.family_head_name || "-",
     address:
       household.current_address_details ||
@@ -333,11 +337,8 @@ export const fetchMasterlist = async ({
     searchParams.set("barangay_id", barangayId);
   }
 
-  const requestedRecordStatus =
-    recordStatus === "archived" ? "all" : recordStatus;
-
-  if (requestedRecordStatus) {
-    searchParams.set("record_status", requestedRecordStatus);
+  if (recordStatus) {
+    searchParams.set("record_status", recordStatus);
   }
 
   const response = await fetch(
@@ -527,7 +528,7 @@ export const restoreHousehold = async ({
     },
   );
 
-  return parseJsonResponse(response, "Failed to record household return");
+  return parseJsonResponse(response, "Failed to re-admit household");
 };
 
 export const correctEvacuationLog = async ({
