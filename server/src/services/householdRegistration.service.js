@@ -2101,6 +2101,15 @@ const departHousehold = async (
     throw error;
   }
 
+  if (
+    requester?.roleCode === BARANGAY_ROLE_CODE &&
+    household.barangay_id !== requester.defaultBarangayId
+  ) {
+    const error = new Error("You do not have access to depart this household");
+    error.statusCode = 403;
+    throw error;
+  }
+
   if (!household.is_active) {
     if (departureDetails?.allow_duplicate_departure_resolution) {
       const latestAttendance =

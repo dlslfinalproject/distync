@@ -518,6 +518,194 @@ test("BRG-SC-03 TEST F preserves MSWDO HOUSEHOLD_UPDATE access", async () => {
   );
 });
 
+test("BRG-SC-06-H01 TEST F foreign Barangay HOUSEHOLD_DEPART sync fails without conflict evidence", async () => {
+  let conflictCalls = 0;
+  let departCall = null;
+  let failedTransactionPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("Unauthorized departure must not become a conflict");
+        },
+        updateSyncTransaction: async (id, payload) => {
+          if (payload.sync_status === "FAILED") {
+            failedTransactionPayload = payload;
+          }
+
+          return {
+            id,
+            ...payload,
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        departHousehold: async (
+          entityServerId,
+          departureDetails,
+          requester,
+        ) => {
+          departCall = { entityServerId, departureDetails, requester };
+          const error = new Error("You do not have access to depart this household");
+          error.statusCode = 403;
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "brg-sc-06-h01-foreign-depart",
+            action_key: "HOUSEHOLD_DEPART",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "66666666-6666-4666-8666-666666666666",
+            client_timestamp: "2026-08-09T03:00:00.000Z",
+            payload: {
+              barangay_id: baseAuth.defaultBarangayId,
+              departure_time: "2026-08-09T03:00:00.000Z",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(result.data, null);
+      assert.equal(result.message, "You do not have access to depart this household");
+      assert.equal(conflictCalls, 0);
+      assert.equal(departCall.requester.roleCode, "BARANGAY");
+      assert.equal(departCall.requester.defaultBarangayId, baseAuth.defaultBarangayId);
+      assert.equal(departCall.departureDetails.allow_duplicate_departure_resolution, true);
+      assert.equal(failedTransactionPayload.sync_status, "FAILED");
+      assert.doesNotMatch(JSON.stringify(result), /time_out|serverPayload|FIRST_ACCEPTED/);
+    },
+  );
+});
+
+test("BRG-SC-06-H01 TEST G same-Barangay HOUSEHOLD_DEPART sync remains SYNCED", async () => {
+  let departCall = null;
+  let conflictCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("Successful departure should not create conflict");
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        departHousehold: async (
+          entityServerId,
+          departureDetails,
+          requester,
+        ) => {
+          departCall = { entityServerId, departureDetails, requester };
+          return {
+            household_id: entityServerId,
+            affected_logs_count: 1,
+            archived_members_count: 2,
+            latest_departure_time: departureDetails.departure_time,
+            status: "ARCHIVED",
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "brg-sc-06-h01-same-depart",
+            action_key: "HOUSEHOLD_DEPART",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "77777777-7777-4777-8777-777777777777",
+            client_timestamp: "2026-08-09T03:00:00.000Z",
+            payload: {
+              departure_time: "2026-08-09T03:00:00.000Z",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.data.status, "ARCHIVED");
+      assert.equal(result.conflict, null);
+      assert.equal(conflictCalls, 0);
+      assert.equal(departCall.requester.defaultBarangayId, baseAuth.defaultBarangayId);
+    },
+  );
+});
+
+test("BRG-SC-06-H01 TEST H MSWDO HOUSEHOLD_DEPART sync access remains broad", async () => {
+  let requesterRole = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub(),
+      [householdRegistrationServicePath]: {
+        departHousehold: async (
+          entityServerId,
+          _departureDetails,
+          requester,
+        ) => {
+          requesterRole = requester.roleCode;
+          return {
+            household_id: entityServerId,
+            affected_logs_count: 1,
+            archived_members_count: 1,
+            status: "ARCHIVED",
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MSWDO",
+          defaultBarangayId: null,
+        },
+        entries: [
+          {
+            client_sync_id: "brg-sc-06-h01-mswdo-depart",
+            action_key: "HOUSEHOLD_DEPART",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "88888888-8888-4888-8888-888888888888",
+            client_timestamp: "2026-08-09T03:00:00.000Z",
+            payload: {
+              departure_time: "2026-08-09T03:00:00.000Z",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.conflict, null);
+      assert.equal(requesterRole, "MSWDO");
+    },
+  );
+});
+
 test("INV-M-01 insufficient stock with trusted stale basis becomes OPEN manual-review conflict", async () => {
   const previousSecret = process.env.INVENTORY_STATE_BASIS_SECRET;
   process.env.INVENTORY_STATE_BASIS_SECRET = "unit-test-inventory-state-basis-secret";
