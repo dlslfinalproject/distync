@@ -7,7 +7,7 @@ const tableStyles = {
   table: {
     width: "100%",
     borderCollapse: "collapse",
-    minWidth: "760px",
+    minWidth: "860px",
   },
   headerCell: {
     padding: "14px 16px",
@@ -127,6 +127,7 @@ const InventoryTransactionsTable = ({
           <tr>
             <th style={tableStyles.headerCell}>Item Name</th>
             <th style={tableStyles.headerCell}>Batch Number</th>
+            <th style={tableStyles.headerCell}>ITR No.</th>
             <th style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Quantity</th>
             <th style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Movement</th>
             <th style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Transaction Type</th>
@@ -152,6 +153,9 @@ const InventoryTransactionsTable = ({
                 </div>
               </td>
               <td style={tableStyles.bodyCell}>{row.batch_no || "--"}</td>
+              <td style={tableStyles.bodyCell}>
+                {row.inventory_transaction_reference_no || "Not applicable"}
+              </td>
               <td style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
                 {row.quantity ?? 0}
               </td>

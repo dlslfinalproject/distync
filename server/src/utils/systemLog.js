@@ -57,6 +57,7 @@ const logAuditSafely = async ({
   entityId,
   oldValues = {},
   newValues = {},
+  sourceEventKey = null,
 }) => {
   const normalizedActor = normalizeActor(actor);
 
@@ -71,6 +72,7 @@ const logAuditSafely = async ({
       old_values_json: oldValues,
       new_values_json: newValues,
       ip_address: normalizedActor.ipAddress,
+      source_event_key: sourceEventKey,
     });
   } catch (error) {
     console.error("Failed to write audit log:", error.message);

@@ -17,6 +17,7 @@ import {
   auditSyncRetryRequest,
   fetchSyncConflictDetail,
   fetchSyncHistory,
+  resolveSyncConflict,
 } from "../features/sync/syncHistoryService";
 import {
   buildConflictPayloadSummary,
@@ -27,7 +28,7 @@ import {
   getResolutionStatusLabel,
   getSyncRecordDetails,
   getWinningSide,
-  isSafeRetryableStatus,
+  isSafeRetryableQueueEntry,
   matchesRecordTypeFilter,
   matchesSyncFilter,
 } from "../features/sync/syncManagementHelpers";
@@ -239,7 +240,9 @@ const SyncManagementPage = () => {
   const [errorMessage, setErrorMessage] = useState("");
   const [isRetrying, setIsRetrying] = useState(false);
   const [isLoadingConflictDetail, setIsLoadingConflictDetail] = useState(false);
+  const [isResolvingConflict, setIsResolvingConflict] = useState(false);
   const [selectedConflictDetail, setSelectedConflictDetail] = useState(null);
+  const [resolutionReason, setResolutionReason] = useState("");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [activeSyncTab, setActiveSyncTab] = useState("QUEUE");
   const [filters, setFilters] = useState({
@@ -265,7 +268,7 @@ const SyncManagementPage = () => {
   const failedQueueEntries = useMemo(
     () =>
       syncQueueEntries.filter(
-        (entry) => entry.status === LOCAL_SYNC_STATUS.FAILED,
+        (entry) => isSafeRetryableQueueEntry(entry),
       ),
     [syncQueueEntries],
   );
@@ -416,6 +419,7 @@ const SyncManagementPage = () => {
             }
           : null,
       );
+      setResolutionReason("");
     } catch (error) {
       setFeedback({
         type: "error",
@@ -424,6 +428,62 @@ const SyncManagementPage = () => {
       });
     } finally {
       setIsLoadingConflictDetail(false);
+    }
+  };
+
+  const handleResolveConflict = async (action) => {
+    if (!selectedConflictDetail?.id || isResolvingConflict) {
+      return;
+    }
+
+    const trimmedReason = resolutionReason.trim();
+
+    if (["KEEP_SERVER", "APPLY_LOCAL"].includes(action) && !trimmedReason) {
+      setFeedback({
+        type: "error",
+        title: "Resolution Reason Required",
+        message: "Add a reason before submitting this resolution.",
+      });
+      return;
+    }
+
+    setIsResolvingConflict(true);
+
+    try {
+      const response = await resolveSyncConflict(selectedConflictDetail.id, {
+        action,
+        reason: trimmedReason,
+      });
+      const resolvedConflict = response?.data || null;
+
+      setSelectedConflictDetail(
+        resolvedConflict
+          ? {
+              ...selectedConflictDetail,
+              ...resolvedConflict,
+              conflict_reason: getConflictReasonLabel(resolvedConflict),
+              resolution_status_label: getResolutionStatusLabel(resolvedConflict),
+            }
+          : null,
+      );
+      setResolutionReason("");
+      await loadSyncHistory();
+      setFeedback({
+        type: "success",
+        title: "Conflict Resolved",
+        message: "The conflict review decision was recorded.",
+      });
+    } catch (error) {
+      setFeedback({
+        type: "error",
+        title: "Resolution Error",
+        message:
+          error.message ||
+          "The conflict could not be resolved. Refresh and review the latest state.",
+      });
+      await loadSyncHistory();
+    } finally {
+      setIsResolvingConflict(false);
     }
   };
 
@@ -667,14 +727,14 @@ const SyncManagementPage = () => {
                           onClick={() => handleRetrySync([entry.id])}
                           disabled={
                             !isOnline ||
-                            !isSafeRetryableStatus(entry.status) ||
+                            !isSafeRetryableQueueEntry(entry) ||
                             isRetrying
                           }
                           style={{
                             ...pageHeaderStyles.secondaryButton,
                             opacity:
                               !isOnline ||
-                              !isSafeRetryableStatus(entry.status) ||
+                              !isSafeRetryableQueueEntry(entry) ||
                               isRetrying
                                 ? 0.7
                                 : 1,
@@ -828,7 +888,14 @@ const SyncManagementPage = () => {
       <SyncConflictDetailModal
         isOpen={Boolean(selectedConflictDetail)}
         conflict={selectedConflictDetail}
-        onClose={() => setSelectedConflictDetail(null)}
+        onClose={() => {
+          setSelectedConflictDetail(null);
+          setResolutionReason("");
+        }}
+        onResolve={handleResolveConflict}
+        resolutionReason={resolutionReason}
+        onResolutionReasonChange={setResolutionReason}
+        isResolving={isResolvingConflict}
       />
 
       <FeedbackToast

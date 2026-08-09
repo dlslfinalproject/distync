@@ -6,6 +6,7 @@ const inventoryTransactionRepository = require("../repositories/inventoryTransac
 const forecastRepository = require("../repositories/forecast.repository");
 const systemLogRepository = require("../repositories/systemLog.repository");
 const inventoryItemExport = require("../utils/inventoryItemExport");
+const { createInventoryStateBasis } = require("../utils/inventoryStateBasis");
 const mayorReportExport = require("../utils/mayorReportExport");
 const { logAuditSafely, pickDefined } = require("../utils/systemLog");
 
@@ -788,7 +789,10 @@ const getInventoryItemDetail = async (id) => {
     stock_forms: await inventoryItemStockFormRepository.getInventoryItemStockFormsByItemId(
       id,
     ),
-    related_batches: relatedBatches,
+    related_batches: relatedBatches.map((batch) => ({
+      ...batch,
+      inventoryStateBasis: createInventoryStateBasis(batch),
+    })),
     related_transactions: relatedTransactions,
     forecast_summary: forecastSummary,
     audit_history: auditLogs.map(mapAuditLogRow),

@@ -23,6 +23,9 @@ const {
   resolveEffectiveNotificationPreferences,
   sanitizeNotificationRulePreferences,
 } = require("./notificationPreferenceUtils");
+const {
+  isManualInventoryStockDriftReviewable,
+} = require("../../utils/syncConflictReviewPolicy");
 
 const LOW_STOCK_THRESHOLD = 10;
 const CRITICAL_STOCK_THRESHOLD = 5;
@@ -951,6 +954,7 @@ const createNotificationForRole = async ({
   severity = "INFO",
   reference_type = null,
   reference_id = null,
+  source_event_key = null,
   dedupeHours = DEDUPE_LOOKBACK_HOURS,
   summaryMetadata = {},
   metadata = {},
@@ -992,6 +996,7 @@ const createNotificationForRole = async ({
     severity,
     reference_type,
     reference_id,
+    source_event_key,
     dedupeHours,
     summaryMetadata,
     metadata,
@@ -1267,6 +1272,7 @@ const emitInventoryTransactionAlerts = async ({
       severity,
       reference_type: "INVENTORY_TRANSACTION",
       reference_id: transaction.id,
+      source_event_key: `INVENTORY_INCIDENT:${transaction.id}`,
       metadata: { inventoryTransactionId: transaction.id, batchId: batch.id, itemId: batch.inventory_item_id, quantity: Number(transaction.quantity || 0), transactionType: transaction.transaction_type },
     });
   }
@@ -1620,9 +1626,17 @@ const emitSyncConflictAlert = async (syncConflict) => {
     return null;
   }
 
+  const recipientUserIds =
+    recipientRoleCode === ROLE_CODES.MAYOR &&
+    isManualInventoryStockDriftReviewable(syncConflict)
+      ? await notificationRepository.getRecipientUserIdsByRoleCode(
+          ROLE_CODES.MAYOR,
+        )
+      : [syncConflict.user_id];
+
   return createNotificationForUsers({
     ruleCode: "SYNC_CONFLICT",
-    userIds: [syncConflict.user_id],
+    userIds: recipientUserIds,
     roleCode: recipientRoleCode,
     type: NOTIFICATION_TYPES.SYNC,
     title: "Synchronization conflict detected",
@@ -1631,6 +1645,40 @@ const emitSyncConflictAlert = async (syncConflict) => {
     reference_type: "SYNC_CONFLICT",
     reference_id: syncConflict.id,
     source_event_key: `SYNC_CONFLICT:${syncConflict.id}`,
+    metadata: { conflictId: syncConflict.id, entityType: syncConflict.entity_type },
+  });
+};
+
+const emitSyncConflictResolutionAlert = async (syncConflict) => {
+  if (!syncConflict?.user_id || syncConflict.status !== "RESOLVED") {
+    return null;
+  }
+
+  const recipientRoleCode =
+    await resolveSyncConflictRecipientRoleCode(syncConflict);
+
+  if (!recipientRoleCode) {
+    return null;
+  }
+
+  const actionLabel =
+    syncConflict.resolution_action === "APPLY_LOCAL"
+      ? "Local change applied"
+      : syncConflict.resolution_action === "KEEP_SERVER"
+        ? "Server record kept"
+        : "Conflict reviewed";
+
+  return createNotificationForUsers({
+    ruleCode: "SYNC_CONFLICT",
+    userIds: [syncConflict.user_id],
+    roleCode: recipientRoleCode,
+    type: NOTIFICATION_TYPES.SYNC,
+    title: "Synchronization conflict resolved",
+    message: `${actionLabel} for ${syncConflict.entity_type}. Open the Sync Center to review the resolution record.`,
+    severity: "INFO",
+    reference_type: "SYNC_CONFLICT",
+    reference_id: syncConflict.id,
+    source_event_key: `SYNC_CONFLICT_RESOLVED:${syncConflict.id}`,
     metadata: { conflictId: syncConflict.id, entityType: syncConflict.entity_type },
   });
 };
@@ -1674,6 +1722,17 @@ const materializeNotificationOutboxEvent = async (event) => {
         event.source_id,
       );
     return emitSyncConflictAlert(syncConflict);
+  }
+
+  if (
+    event.event_type === "SYNC_CONFLICT_RESOLVED" &&
+    event.source_type === "SYNC_CONFLICT"
+  ) {
+    const syncConflict =
+      await notificationRepository.getSyncConflictNotificationSourceById(
+        event.source_id,
+      );
+    return emitSyncConflictResolutionAlert(syncConflict);
   }
 
   return null;

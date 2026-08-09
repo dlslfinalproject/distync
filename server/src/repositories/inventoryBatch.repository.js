@@ -1,4 +1,7 @@
 const pool = require("../config/db");
+const {
+  INVENTORY_BATCH_IDENTITY_CONSTRAINT,
+} = require("../utils/inventoryBatchIdentity");
 
 const baseSelectQuery = `
   SELECT
@@ -10,6 +13,7 @@ const baseSelectQuery = `
     ib.source_type,
     ib.quantity_received,
     ib.quantity_available,
+    ib.stock_version,
     ib.expiration_date,
     ib.received_at,
     ib.storage_location,
@@ -170,7 +174,19 @@ const getInventoryBatchByItemIdAndBatchNo = async (
       id,
       inventory_item_id,
       inventory_item_stock_form_id,
-      batch_no
+      batch_no,
+      supplier_id,
+      source_type,
+      quantity_received,
+      quantity_available,
+      stock_version,
+      expiration_date,
+      received_at,
+      storage_location,
+      status,
+      created_by,
+      created_at,
+      updated_at
     FROM inventory_batches
     WHERE inventory_item_id = $1
       AND batch_no = $2
@@ -199,8 +215,10 @@ const insertInventoryBatch = async (batchData, dbClient = pool) => {
       updated_at
     )
     VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9, $10, $11, NOW(), NOW()
+      $1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9, $10, NOW(), NOW()
     )
+    ON CONFLICT ON CONSTRAINT ${INVENTORY_BATCH_IDENTITY_CONSTRAINT}
+    DO NOTHING
     RETURNING
       id,
       inventory_item_id,
@@ -210,6 +228,7 @@ const insertInventoryBatch = async (batchData, dbClient = pool) => {
       source_type,
       quantity_received,
       quantity_available,
+      stock_version,
       expiration_date,
       received_at,
       storage_location,
@@ -257,6 +276,7 @@ const updateInventoryBatchExpiry = async (
       source_type,
       quantity_received,
       quantity_available,
+      stock_version,
       expiration_date,
       received_at,
       storage_location,

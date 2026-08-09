@@ -68,6 +68,7 @@ const donationItemSelect = `
     ib.batch_no,
     ib.source_type,
     ib.quantity_available,
+    ib.stock_version,
     ib.expiration_date,
     ib.storage_location,
     stock_forms.barcode AS stock_form_barcode,

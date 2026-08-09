@@ -292,6 +292,36 @@ test("H-03 migration and schema persist a nullable unique client_sync_id", () =>
   assert.match(schemaSql, /CREATE UNIQUE INDEX sync_transactions_client_sync_id_unique/);
 });
 
+test("BRG-SC-04B reviewable conflict repository queries are limited to open manual stock drift", () => {
+  const repoRoot = path.resolve(__dirname, "../..");
+  const source = fs.readFileSync(
+    path.join(repoRoot, "server/src/repositories/sync.repository.js"),
+    "utf8",
+  );
+
+  assert.match(source, /getReviewableManualInventoryConflicts/);
+  assert.match(source, /countOpenReviewableManualInventoryConflicts/);
+  assert.match(source, /sc\.status = \$1/);
+  assert.match(source, /sc\.resolution_strategy = \$2/);
+  assert.match(source, /sc\.conflict_type = \$3/);
+  assert.match(source, /INVENTORY_STOCK_STATE_DRIFT/);
+  assert.match(source, /COUNT\(DISTINCT sc\.id\)::int AS count/);
+  assert.match(source, /st\.user_id <> \$1/);
+});
+
+test("BRG-SC-04B generic sync transaction history remains user scoped", () => {
+  const repoRoot = path.resolve(__dirname, "../..");
+  const source = fs.readFileSync(
+    path.join(repoRoot, "server/src/repositories/sync.repository.js"),
+    "utf8",
+  );
+
+  assert.match(source, /const getSyncTransactionsByUser/);
+  assert.match(source, /WHERE \$\{conditions\.join\(" AND "\)\}/);
+  assert.match(source, /const conditions = \["user_id = \$1"\]/);
+  assert.doesNotMatch(source, /FROM sync_transactions[\s\S]*r\.code = 'MAYOR'/);
+});
+
 test("H03F-07/H03F-08/H03F-09 claim decisions protect stale, active, and legacy pending rows", async () => {
   const createClient = (existingRow) => ({
     query: async (query, values) => {

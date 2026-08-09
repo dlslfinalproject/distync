@@ -18,13 +18,20 @@ const distributionTransactionServicePath = require.resolve(
 const inventoryTransactionServicePath = require.resolve(
   "../src/services/inventoryTransaction.service",
 );
+const inventoryTransactionRepositoryPath = require.resolve(
+  "../src/repositories/inventoryTransaction.repository",
+);
 const inventoryItemServicePath = require.resolve("../src/services/inventoryItem.service");
 const inventoryBatchServicePath = require.resolve("../src/services/inventoryBatch.service");
 const supplierServicePath = require.resolve("../src/services/supplier.service");
 const systemLogPath = require.resolve("../src/utils/systemLog");
+const systemLogRepositoryPath = require.resolve(
+  "../src/repositories/systemLog.repository",
+);
 const notificationServicePath = require.resolve(
   "../src/modules/notifications/notification.service",
 );
+const inventoryStateBasisPath = require.resolve("../src/utils/inventoryStateBasis");
 
 const withStubbedSyncService = async (stubs, runTest) => {
   const dependencyPaths = Object.keys(stubs);
@@ -136,6 +143,454 @@ const baseAuth = {
   defaultBarangayId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
 };
 
+test("BRG-SC-03 TEST A rejects foreign Barangay HOUSEHOLD_UPDATE before conflict evidence is stored", async () => {
+  const foreignHousehold = {
+    id: "11111111-1111-4111-8111-111111111111",
+    barangay_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    family_head_first_name: "Foreign",
+    contact_number: "09170000000",
+    household_size: 6,
+    updated_at: "2026-08-08T02:00:00.000Z",
+  };
+  let conflictCalls = 0;
+  let updateCalled = false;
+  let failedTransactionPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async ({ conflictPayload }) => {
+          conflictCalls += 1;
+          assert.notDeepEqual(conflictPayload.server_payload_json, foreignHousehold);
+          throw new Error("Unauthorized household must not become conflict evidence");
+        },
+        updateSyncTransaction: async (id, payload) => {
+          if (payload.sync_status === "FAILED") {
+            failedTransactionPayload = payload;
+          }
+
+          return {
+            id,
+            ...payload,
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async ({ requester }) => {
+          assert.equal(requester.roleCode, "BARANGAY");
+          assert.equal(requester.defaultBarangayId, baseAuth.defaultBarangayId);
+          const error = new Error("You do not have access to update this household");
+          error.statusCode = 403;
+          throw error;
+        },
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          throw new Error("Foreign household update must not execute");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "brg-sc-03-foreign-older",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: foreignHousehold.id,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              barangay_id: baseAuth.defaultBarangayId,
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(result.data, null);
+      assert.equal(result.message, "You do not have access to update this household");
+      assert.equal(conflictCalls, 0);
+      assert.equal(updateCalled, false);
+      assert.equal(failedTransactionPayload.sync_status, "FAILED");
+      assert.doesNotMatch(JSON.stringify(result), /Foreign|09170000000|household_size/);
+    },
+  );
+});
+
+test("BRG-SC-03 TEST B preserves same-Barangay older timestamp conflict handling", async () => {
+  let conflictPayload = null;
+  let updateCalled = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayload = payload.conflictPayload;
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: "brg-sc-03-same-barangay-conflict",
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => ({
+          id: "22222222-2222-4222-8222-222222222222",
+          barangay_id: baseAuth.defaultBarangayId,
+          family_head_first_name: "Server",
+          updated_at: "2026-08-08T02:00:00.000Z",
+        }),
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          throw new Error("Server-newer conflict should keep server copy");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "brg-sc-03-same-older",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "22222222-2222-4222-8222-222222222222",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(result.conflict.id, "brg-sc-03-same-barangay-conflict");
+      assert.equal(result.data.family_head_first_name, "Server");
+      assert.equal(conflictPayload.server_payload_json.family_head_first_name, "Server");
+      assert.equal(conflictPayload.resolved_payload_json.winner, "SERVER");
+      assert.equal(updateCalled, false);
+    },
+  );
+});
+
+test("BRG-SC-03 TEST C preserves same-Barangay non-conflicting HOUSEHOLD_UPDATE", async () => {
+  let conflictCalls = 0;
+  let updateCalled = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("Non-conflicting update should not create conflict");
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => ({
+          id: "33333333-3333-4333-8333-333333333333",
+          barangay_id: baseAuth.defaultBarangayId,
+          family_head_first_name: "Server",
+          updated_at: "2026-08-08T01:00:00.000Z",
+        }),
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          return {
+            id: "33333333-3333-4333-8333-333333333333",
+            family_head_first_name: "Local",
+            updated_at: "2026-08-08T01:00:00.000Z",
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "brg-sc-03-same-valid",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "33333333-3333-4333-8333-333333333333",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.data.family_head_first_name, "Local");
+      assert.equal(updateCalled, true);
+      assert.equal(conflictCalls, 0);
+    },
+  );
+});
+
+test("BRG-SC-03 TEST D rejects foreign Barangay HOUSEHOLD_UPDATE without mutation on non-conflicting timestamp", async () => {
+  let conflictCalls = 0;
+  let updateCalled = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("Unauthorized update should not create conflict");
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => {
+          const error = new Error("You do not have access to update this household");
+          error.statusCode = 403;
+          throw error;
+        },
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          throw new Error("Foreign household update must not execute");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "brg-sc-03-foreign-non-conflict",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "44444444-4444-4444-8444-444444444444",
+            client_timestamp: "2026-08-08T02:00:00.000Z",
+            client_updated_at: "2026-08-08T02:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(result.data, null);
+      assert.equal(conflictCalls, 0);
+      assert.equal(updateCalled, false);
+    },
+  );
+});
+
+test("BRG-SC-03 TEST F preserves MSWDO HOUSEHOLD_UPDATE access", async () => {
+  let updateCalled = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub(),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async ({ requester }) => {
+          assert.equal(requester.roleCode, "MSWDO");
+          return {
+            id: "55555555-5555-4555-8555-555555555555",
+            barangay_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            family_head_first_name: "Server",
+            updated_at: "2026-08-08T01:00:00.000Z",
+          };
+        },
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          return {
+            id: "55555555-5555-4555-8555-555555555555",
+            family_head_first_name: "MSWDO Local",
+            updated_at: "2026-08-08T01:00:00.000Z",
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MSWDO",
+          defaultBarangayId: null,
+        },
+        entries: [
+          {
+            client_sync_id: "brg-sc-03-mswdo-valid",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "55555555-5555-4555-8555-555555555555",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "MSWDO Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.data.family_head_first_name, "MSWDO Local");
+      assert.equal(updateCalled, true);
+    },
+  );
+});
+
+test("INV-M-01 insufficient stock with trusted stale basis becomes OPEN manual-review conflict", async () => {
+  const previousSecret = process.env.INVENTORY_STATE_BASIS_SECRET;
+  process.env.INVENTORY_STATE_BASIS_SECRET = "unit-test-inventory-state-basis-secret";
+  delete require.cache[inventoryStateBasisPath];
+  const { createInventoryStateBasis } = require(inventoryStateBasisPath);
+  const basis = createInventoryStateBasis(
+    {
+      id: "11111111-1111-4111-8111-111111111111",
+      inventory_item_id: "22222222-2222-4222-8222-222222222222",
+      stock_version: 1,
+      quantity_available: 10,
+      status: "AVAILABLE",
+      expiration_date: null,
+    },
+    "2026-08-09T01:00:00.000Z",
+  );
+  const recordedConflicts = [];
+  const processedOutbox = [];
+
+  try {
+    await withStubbedSyncService(
+      {
+        [syncRepositoryPath]: createBaseSyncRepositoryStub({
+          withSyncProcessingTransaction: async (callback) => callback({ id: "tx-client" }),
+          recordConflictAndUpdateSyncTransaction: async ({
+            syncTransactionId,
+            conflictPayload,
+            transactionPayload,
+          }) => {
+            recordedConflicts.push({ conflictPayload, transactionPayload });
+            return {
+              syncTransaction: {
+                id: syncTransactionId,
+                ...transactionPayload,
+              },
+              conflictRecord: {
+                id: "sync-conflict-inv-m01",
+                ...conflictPayload,
+              },
+              notificationOutboxEvent: {
+                id: "outbox-inv-m01",
+              },
+            };
+          },
+        }),
+        [inventoryTransactionServicePath]: {
+          createInventoryTransaction: async () => {
+            const error = new Error(
+              "Insufficient quantity_available for batch BATCH-1",
+            );
+            error.statusCode = 400;
+            throw error;
+          },
+        },
+        [inventoryTransactionRepositoryPath]: {
+          getInventoryBatchByIdForUpdate: async () => ({
+            id: "11111111-1111-4111-8111-111111111111",
+            inventory_item_id: "22222222-2222-4222-8222-222222222222",
+            stock_version: 2,
+            quantity_available: 4,
+            status: "LOW_STOCK",
+            expiration_date: null,
+          }),
+        },
+        [notificationServicePath]: {
+          processNotificationOutboxEventById: async (eventId) => {
+            processedOutbox.push(eventId);
+          },
+        },
+        [systemLogPath]: {
+          logAuditSafely: async () => {},
+          logErrorSafely: async () => {},
+          pickDefined: () => ({}),
+        },
+      },
+      async ({ processSyncEntries }) => {
+        const [result] = await processSyncEntries({
+          auth: {
+            ...baseAuth,
+            roleCode: "MAYOR",
+          },
+          entries: [
+            {
+              client_sync_id: "inv-m01-state-drift",
+              action_key: "INVENTORY_TRANSACTION_CREATE",
+              entity_type: "INVENTORY_TRANSACTION",
+              entity_local_id: "local-inv-m01",
+              entity_server_id: null,
+              client_timestamp: "2026-08-09T01:05:00.000Z",
+              payload: {
+                inventory_batch_id: "11111111-1111-4111-8111-111111111111",
+                transaction_type: "OUTFLOW",
+                quantity: 8,
+                inventoryTransactionReferenceNo: "ITR-2026-000555",
+                inventoryStateBasis: basis,
+              },
+            },
+          ],
+        });
+
+        assert.equal(result.sync_status, "CONFLICT");
+        assert.equal(result.conflict.conflict_type, "INVENTORY_STOCK_STATE_DRIFT");
+        assert.equal(result.conflict.resolution_strategy, "MANUAL_REVIEW");
+        assert.equal(result.conflict.status, "OPEN");
+        assert.equal(result.conflict.resolved_by, null);
+        assert.equal(result.conflict.resolved_at, null);
+        assert.equal(result.conflict.resolved_payload_json, null);
+        assert.equal(recordedConflicts[0].transactionPayload.entity_server_id, null);
+        assert.equal(recordedConflicts[0].conflictPayload.entity_server_id, null);
+        assert.deepEqual(processedOutbox, ["outbox-inv-m01"]);
+      },
+    );
+  } finally {
+    if (previousSecret === undefined) {
+      delete process.env.INVENTORY_STATE_BASIS_SECRET;
+    } else {
+      process.env.INVENTORY_STATE_BASIS_SECRET = previousSecret;
+    }
+    delete require.cache[inventoryStateBasisPath];
+  }
+});
+
 test("M02-04 normal conflict processes notification intent after sync transaction commit", async () => {
   const processedIntentIds = [];
   const transactionEvents = [];
@@ -168,12 +623,16 @@ test("M02-04 normal conflict processes notification intent after sync transactio
           },
         }),
       }),
-      [householdRegistrationRepositoryPath]: {
-        getHouseholdSummaryById: async () => ({
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => ({
           id: "33333333-3333-4333-8333-333333333333",
+          barangay_id: baseAuth.defaultBarangayId,
           family_head_first_name: "Server",
           updated_at: "2026-08-08T02:00:00.000Z",
         }),
+        updateHouseholdDetails: async () => {
+          throw new Error("Server-newer conflict should not execute update");
+        },
       },
       [notificationServicePath]: {
         processNotificationOutboxEventById: async (eventId) => {
@@ -342,6 +801,100 @@ test("M02-06 post-commit notification processing failure does not change committ
         ),
         true,
       );
+    },
+  );
+});
+
+test("INV-M-02 successful offline inventory sync runs domain audit and alerts after commit", async () => {
+  const transactionEvents = [];
+  const domainSideEffects = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        withSyncProcessingTransaction: async (callback) => {
+          transactionEvents.push("BEGIN");
+          const result = await callback({ id: "tx-client" });
+          transactionEvents.push("COMMIT");
+          return result;
+        },
+      }),
+      [inventoryTransactionServicePath]: {
+        createInventoryTransaction: async (payload) => {
+          assert.equal(payload.performed_by, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+          assert.equal(payload.auditActor.userId, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+          assert.equal(payload.auditActor.roleCode, "MAYOR");
+          assert.equal(payload.auditActor.deviceId, "99999999-9999-4999-8999-999999999999");
+          assert.equal(payload.syncTransactionId, "sync-transaction-1");
+          assert.equal(typeof payload.deferDomainSideEffect, "function");
+
+          payload.deferDomainSideEffect(async () => {
+            domainSideEffects.push({
+              afterCommit: transactionEvents.includes("COMMIT"),
+              actor: payload.auditActor,
+            });
+          });
+
+          return {
+            transaction_id: "22222222-2222-4222-8222-222222222222",
+            inventory_transaction_reference_no: "ITR-2026-000777",
+            inventory_batch_id: "11111111-1111-4111-8111-111111111111",
+            transaction_type: "OUTFLOW",
+            quantity: 2,
+            new_quantity_available: 8,
+            new_batch_status: "LOW_STOCK",
+          };
+        },
+      },
+      [notificationServicePath]: {
+        processNotificationOutboxEventById: async () => {
+          throw new Error("No sync notification outbox event expected");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MAYOR",
+          defaultBarangayId: null,
+        },
+        entries: [
+          {
+            client_sync_id: "inv-m02-success",
+            action_key: "INVENTORY_TRANSACTION_CREATE",
+            entity_type: "INVENTORY_TRANSACTION",
+            entity_local_id: "local-inv-m02",
+            entity_server_id: null,
+            device_id: "99999999-9999-4999-8999-999999999999",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              inventory_batch_id: "11111111-1111-4111-8111-111111111111",
+              transaction_type: "OUTFLOW",
+              quantity: 2,
+              inventoryTransactionReferenceNo: "ITR-2026-000777",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.deepEqual(transactionEvents, ["BEGIN", "COMMIT"]);
+      assert.deepEqual(domainSideEffects, [
+        {
+          afterCommit: true,
+          actor: {
+            userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            roleCode: "MAYOR",
+            deviceId: "99999999-9999-4999-8999-999999999999",
+          },
+        },
+      ]);
     },
   );
 });
@@ -989,6 +1542,12 @@ test("H03F-05 rolls back local-newer conflict when conflict persistence fails af
         }),
       },
       [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => ({
+          id: "66666666-6666-4666-8666-666666666666",
+          barangay_id: baseAuth.defaultBarangayId,
+          family_head_first_name: "Server",
+          updated_at: "2026-08-08T01:00:00.000Z",
+        }),
         updateHouseholdDetails: async (_payload) => {
           updateCalled = true;
           return {
@@ -1336,6 +1895,179 @@ test("H05-13 different client_sync_id QR duplicate claim becomes CONFLICT with F
   );
 });
 
+test("ITR duplicate with different client_sync_id becomes resolved FIRST_ACCEPTED conflict", async () => {
+  let conflictPayload;
+  let transactionPayload;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayload = payload.conflictPayload;
+          transactionPayload = payload.transactionPayload;
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: "conflict-itr",
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [inventoryTransactionServicePath]: {
+        createInventoryTransaction: async () => {
+          const error = new Error(
+            "This Inventory Transaction Reference No. has already been recorded. Check the written inventory transaction before trying again.",
+          );
+          error.code = "DUPLICATE_INVENTORY_TRANSACTION_REFERENCE_NO";
+          error.statusCode = 409;
+          error.entityServerId = "33333333-3333-4333-8333-333333333333";
+          error.serverPayload = {
+            id: "33333333-3333-4333-8333-333333333333",
+            inventory_transaction_reference_no: "ITR-2026-000123",
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MAYOR",
+        },
+        entries: [
+          {
+            client_sync_id: "itr-b",
+            action_key: "INVENTORY_TRANSACTION_CREATE",
+            entity_type: "INVENTORY_TRANSACTION",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              inventory_batch_id: "11111111-1111-4111-8111-111111111111",
+              transaction_type: "OUTFLOW",
+              quantity: 1,
+              inventoryTransactionReferenceNo: "ITR-2026-000123",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(transactionPayload.sync_status, "CONFLICT");
+      assert.equal(
+        transactionPayload.entity_server_id,
+        "33333333-3333-4333-8333-333333333333",
+      );
+      assert.equal(
+        conflictPayload.conflict_type,
+        "DUPLICATE_INVENTORY_TRANSACTION_REFERENCE_NO",
+      );
+      assert.equal(conflictPayload.resolution_strategy, "FIRST_ACCEPTED");
+      assert.equal(conflictPayload.status, "RESOLVED");
+      assert.equal(conflictPayload.resolved_by, null);
+      assert.equal(conflictPayload.resolved_payload_json.winner, "SERVER");
+    },
+  );
+});
+
+test("INVENTORY_BATCH_CREATE duplicate becomes resolved FIRST_ACCEPTED conflict", async () => {
+  let conflictPayload;
+  let transactionPayload;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayload = payload.conflictPayload;
+          transactionPayload = payload.transactionPayload;
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: "conflict-inventory-batch",
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [inventoryBatchServicePath]: {
+        createInventoryBatch: async () => {
+          const error = new Error(
+            "This batch number already exists for the selected inventory item.",
+          );
+          error.code = "DUPLICATE_INVENTORY_BATCH";
+          error.statusCode = 409;
+          error.entityServerId = "44444444-4444-4444-8444-444444444444";
+          error.serverPayload = {
+            id: "44444444-4444-4444-8444-444444444444",
+            inventory_item_id: "11111111-1111-4111-8111-111111111111",
+            batch_no: "LOT-A",
+            quantity_received: 10,
+            quantity_available: 10,
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MAYOR",
+        },
+        entries: [
+          {
+            client_sync_id: "batch-duplicate-b",
+            action_key: "INVENTORY_BATCH_CREATE",
+            entity_type: "INVENTORY_BATCH",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              inventory_item_id: "11111111-1111-4111-8111-111111111111",
+              batch_no: "LOT-A",
+              source_type: "LGU",
+              quantity_received: 20,
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(transactionPayload.sync_status, "CONFLICT");
+      assert.equal(
+        transactionPayload.entity_server_id,
+        "44444444-4444-4444-8444-444444444444",
+      );
+      assert.equal(conflictPayload.conflict_type, "DUPLICATE_INVENTORY_BATCH");
+      assert.equal(conflictPayload.entity_server_id, "44444444-4444-4444-8444-444444444444");
+      assert.equal(conflictPayload.resolution_strategy, "FIRST_ACCEPTED");
+      assert.equal(conflictPayload.status, "RESOLVED");
+      assert.equal(conflictPayload.resolved_by, null);
+      assert.equal(conflictPayload.local_payload_json.quantity_received, 20);
+      assert.equal(conflictPayload.server_payload_json.quantity_available, 10);
+      assert.equal(conflictPayload.resolved_payload_json.winner, "SERVER");
+    },
+  );
+});
+
 test("H05-09 generic 409 without canonical duplicate code remains FAILED", async () => {
   let conflictWrites = 0;
   const updates = [];
@@ -1463,14 +2195,13 @@ test("processSyncEntries marks timestamp conflict persistence failures as failed
           throw new Error("database unavailable");
         },
       }),
-      [householdRegistrationRepositoryPath]: {
-        getHouseholdSummaryById: async () => ({
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => ({
           id: "33333333-3333-4333-8333-333333333333",
+          barangay_id: baseAuth.defaultBarangayId,
           family_head_first_name: "Server",
           updated_at: "2026-08-08T02:00:00.000Z",
         }),
-      },
-      [householdRegistrationServicePath]: {
         updateHouseholdDetails: async () => {
           throw new Error("Local change should not be applied");
         },
@@ -1530,14 +2261,13 @@ test("processSyncEntries records LATEST_TIMESTAMP only after a newer local updat
           };
         },
       }),
-      [householdRegistrationRepositoryPath]: {
-        getHouseholdSummaryById: async () => ({
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => ({
           id: "44444444-4444-4444-8444-444444444444",
+          barangay_id: baseAuth.defaultBarangayId,
           family_head_first_name: "Server",
           updated_at: "2026-08-08T01:00:00.000Z",
         }),
-      },
-      [householdRegistrationServicePath]: {
         updateHouseholdDetails: async () => {
           updateCalled = true;
           return {
@@ -1595,14 +2325,13 @@ test("processSyncEntries does not record LATEST_TIMESTAMP when newer local updat
           throw new Error("Conflict should not be recorded");
         },
       }),
-      [householdRegistrationRepositoryPath]: {
-        getHouseholdSummaryById: async () => ({
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => ({
           id: "55555555-5555-4555-8555-555555555555",
+          barangay_id: baseAuth.defaultBarangayId,
           family_head_first_name: "Server",
           updated_at: "2026-08-08T01:00:00.000Z",
         }),
-      },
-      [householdRegistrationServicePath]: {
         updateHouseholdDetails: async () => {
           const error = new Error("Invalid household update.");
           error.statusCode = 400;
@@ -1669,5 +2398,529 @@ test("sync conflict strategy migration and schema use the canonical H-02 vocabul
   assert.doesNotMatch(
     schemaSql,
     /MANUAL_REVIEW_REQUIRED|EARLIEST_TIMESTAMP/,
+  );
+});
+
+test("M04-01 stock drift detail exposes only Mayor MARK_REVIEWED and KEEP_SERVER actions", async () => {
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncConflictById: async ({ id }) => ({
+          id,
+          sync_transaction_id: "sync-1",
+          user_id: "mayor-1",
+          entity_type: "INVENTORY_TRANSACTION",
+          entity_server_id: null,
+          conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+          local_payload_json: { payload: { quantity: 10 } },
+          server_payload_json: { quantityAvailable: 4, stockVersion: 2 },
+          resolution_strategy: "MANUAL_REVIEW",
+          resolved_payload_json: null,
+          resolved_by: null,
+          resolved_at: null,
+          status: "OPEN",
+          sync_status: "CONFLICT",
+          operation_type: "INVENTORY_ADJUSTMENT",
+        }),
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: (payload, keys) =>
+          keys.reduce((summary, key) => {
+            if (payload?.[key] !== undefined) summary[key] = payload[key];
+            return summary;
+          }, {}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail }) => {
+      const detail = await getSyncConflictDetail({
+        auth: {
+          userId: "mayor-1",
+          roleCode: "MAYOR",
+        },
+        conflictId: "conflict-stock-drift",
+      });
+
+      assert.deepEqual(detail.availableResolutionActions, [
+        "MARK_REVIEWED",
+        "KEEP_SERVER",
+      ]);
+    },
+  );
+});
+
+test("BRG-SC-04B peer Mayor discovers eligible stock-drift conflict without foreign history", async () => {
+  const ownedConflict = {
+    id: "owned-conflict",
+    user_id: "mayor-b",
+    entity_type: "INVENTORY_TRANSACTION",
+    conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+    resolution_strategy: "MANUAL_REVIEW",
+    status: "OPEN",
+    created_at: "2026-08-09T01:00:00.000Z",
+  };
+  const peerConflict = {
+    id: "peer-conflict",
+    user_id: "mayor-a",
+    entity_type: "INVENTORY_TRANSACTION",
+    conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+    resolution_strategy: "MANUAL_REVIEW",
+    status: "OPEN",
+    created_at: "2026-08-09T02:00:00.000Z",
+  };
+  const duplicateOwnedReviewable = {
+    ...ownedConflict,
+    created_at: "2026-08-09T03:00:00.000Z",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncTransactionsByUser: async ({ userId }) => {
+          assert.equal(userId, "mayor-b");
+          return [{ id: "mayor-b-own-transaction", user_id: "mayor-b" }];
+        },
+        getSyncConflictsByUser: async ({ userId }) => {
+          assert.equal(userId, "mayor-b");
+          return [ownedConflict];
+        },
+        getReviewableManualInventoryConflicts: async () => [
+          peerConflict,
+          duplicateOwnedReviewable,
+        ],
+      },
+    },
+    async ({ getSyncHistory }) => {
+      const history = await getSyncHistory({
+        auth: {
+          userId: "mayor-b",
+          roleCode: "MAYOR",
+        },
+        syncStatus: null,
+        conflictStatus: null,
+        limit: 100,
+      });
+
+      assert.deepEqual(
+        history.transactions.map((transaction) => transaction.id),
+        ["mayor-b-own-transaction"],
+      );
+      assert.deepEqual(
+        history.conflicts.map((conflict) => conflict.id),
+        ["peer-conflict", "owned-conflict"],
+      );
+      assert.deepEqual(history.conflicts[0].availableResolutionActions, [
+        "MARK_REVIEWED",
+        "KEEP_SERVER",
+      ]);
+    },
+  );
+});
+
+test("BRG-SC-04B non-Mayor history excludes peer review workload", async () => {
+  let reviewableQueryCalled = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncTransactionsByUser: async ({ userId }) => {
+          assert.equal(userId, "barangay-b");
+          return [];
+        },
+        getSyncConflictsByUser: async ({ userId }) => {
+          assert.equal(userId, "barangay-b");
+          return [];
+        },
+        getReviewableManualInventoryConflicts: async () => {
+          reviewableQueryCalled = true;
+          return [];
+        },
+      },
+    },
+    async ({ getSyncHistory }) => {
+      const history = await getSyncHistory({
+        auth: {
+          userId: "barangay-b",
+          roleCode: "BARANGAY",
+        },
+        syncStatus: null,
+        conflictStatus: null,
+        limit: 100,
+      });
+
+      assert.deepEqual(history.conflicts, []);
+      assert.equal(reviewableQueryCalled, false);
+    },
+  );
+});
+
+test("BRG-SC-04B peer Mayor Needs Review count includes eligible conflict once", async () => {
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        countOpenSyncConflictsByUser: async ({ userId }) => {
+          assert.equal(userId, "mayor-b");
+          return 1;
+        },
+        countOpenReviewableManualInventoryConflicts: async ({ userId }) => {
+          assert.equal(userId, "mayor-b");
+          return 2;
+        },
+        getLastSuccessfulSyncAtByUser: async ({ userId }) => {
+          assert.equal(userId, "mayor-b");
+          return null;
+        },
+      },
+    },
+    async ({ getSyncStatusSummary }) => {
+      const summary = await getSyncStatusSummary({
+        auth: {
+          userId: "mayor-b",
+          roleCode: "MAYOR",
+        },
+      });
+
+      assert.equal(summary.conflictCount, 3);
+    },
+  );
+});
+
+test("BRG-SC-04B peer Mayor can view eligible conflict detail but not automatic foreign conflict", async () => {
+  const conflictsById = {
+    "peer-stock-drift": {
+      id: "peer-stock-drift",
+      sync_transaction_id: "sync-1",
+      user_id: "mayor-a",
+      entity_type: "INVENTORY_TRANSACTION",
+      entity_server_id: null,
+      conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+      local_payload_json: { payload: { quantity: 10 } },
+      server_payload_json: { quantityAvailable: 4, stockVersion: 2 },
+      resolution_strategy: "MANUAL_REVIEW",
+      resolved_payload_json: null,
+      resolved_by: null,
+      resolved_at: null,
+      status: "OPEN",
+      sync_status: "CONFLICT",
+      operation_type: "INVENTORY_ADJUSTMENT",
+    },
+    "foreign-automatic": {
+      id: "foreign-automatic",
+      sync_transaction_id: "sync-2",
+      user_id: "mayor-a",
+      entity_type: "INVENTORY_TRANSACTION",
+      entity_server_id: null,
+      conflict_type: "DUPLICATE_INVENTORY_BATCH",
+      local_payload_json: {},
+      server_payload_json: {},
+      resolution_strategy: "FIRST_ACCEPTED",
+      resolved_payload_json: { winner: "SERVER" },
+      resolved_by: null,
+      resolved_at: "2026-08-09T03:00:00.000Z",
+      status: "RESOLVED",
+      sync_status: "CONFLICT",
+      operation_type: "CREATE",
+    },
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncConflictById: async ({ id }) => conflictsById[id] || null,
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail }) => {
+      const detail = await getSyncConflictDetail({
+        auth: {
+          userId: "mayor-b",
+          roleCode: "MAYOR",
+        },
+        conflictId: "peer-stock-drift",
+      });
+
+      assert.equal(detail.id, "peer-stock-drift");
+      assert.deepEqual(detail.availableResolutionActions, [
+        "MARK_REVIEWED",
+        "KEEP_SERVER",
+      ]);
+
+      await assert.rejects(
+        () =>
+          getSyncConflictDetail({
+            auth: {
+              userId: "mayor-b",
+              roleCode: "MAYOR",
+            },
+            conflictId: "foreign-automatic",
+          }),
+        /Sync conflict not found/,
+      );
+    },
+  );
+});
+
+test("BRG-SC-04B Barangay and MSWDO cannot view eligible peer stock-drift detail", async () => {
+  const conflict = {
+    id: "peer-stock-drift",
+    sync_transaction_id: "sync-1",
+    user_id: "mayor-a",
+    entity_type: "INVENTORY_TRANSACTION",
+    entity_server_id: null,
+    conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+    local_payload_json: { payload: { quantity: 10 } },
+    server_payload_json: { quantityAvailable: 4, stockVersion: 2 },
+    resolution_strategy: "MANUAL_REVIEW",
+    resolved_payload_json: null,
+    resolved_by: null,
+    resolved_at: null,
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    operation_type: "INVENTORY_ADJUSTMENT",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncConflictById: async () => conflict,
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail }) => {
+      for (const roleCode of ["BARANGAY", "MSWDO"]) {
+        await assert.rejects(
+          () =>
+            getSyncConflictDetail({
+              auth: {
+                userId: `${roleCode.toLowerCase()}-user`,
+                roleCode,
+              },
+              conflictId: "peer-stock-drift",
+            }),
+          /Sync conflict not found/,
+        );
+      }
+    },
+  );
+});
+
+test("M04-02 KEEP_SERVER resolves stock drift without changing original sync status", async () => {
+  const auditRows = [];
+  const outboxEvents = [];
+  const processedEvents = [];
+  const baseConflict = {
+    id: "conflict-stock-drift",
+    sync_transaction_id: "sync-1",
+    user_id: "origin-user",
+    entity_type: "INVENTORY_TRANSACTION",
+    entity_server_id: null,
+    conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+    local_payload_json: { payload: { quantity: 10 } },
+    server_payload_json: { quantityAvailable: 4, stockVersion: 2 },
+    resolution_strategy: "MANUAL_REVIEW",
+    resolution_action: null,
+    resolution_reason: null,
+    resolved_payload_json: null,
+    resolved_by: null,
+    resolved_at: null,
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    operation_type: "INVENTORY_ADJUSTMENT",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        lockSyncConflictById: async () => baseConflict,
+        markSyncConflictResolved: async (payload) => ({
+          ...baseConflict,
+          status: "RESOLVED",
+          resolution_action: payload.resolutionAction,
+          resolution_reason: payload.resolutionReason,
+          resolved_payload_json: payload.resolvedPayloadJson,
+          resolved_by: payload.resolvedBy,
+          resolved_at: "2026-08-09T05:00:00.000Z",
+        }),
+      },
+      [notificationServicePath]: {
+        ensureSyncNotificationIntent: async (payload) => {
+          outboxEvents.push(payload);
+          return { id: "outbox-resolution-1" };
+        },
+        processNotificationOutboxEventById: async (eventId) => {
+          processedEvents.push(eventId);
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async (payload) => {
+          auditRows.push(payload);
+          return payload;
+        },
+      },
+    },
+    async ({ resolveSyncConflict }) => {
+      const resolved = await resolveSyncConflict({
+        auth: {
+          userId: "mayor-1",
+          roleCode: "MAYOR",
+        },
+        conflictId: "conflict-stock-drift",
+        action: "KEEP_SERVER",
+        reason: "Server inventory stock is authoritative.",
+      });
+
+      assert.equal(resolved.status, "RESOLVED");
+      assert.equal(resolved.sync_status, "CONFLICT");
+      assert.equal(resolved.resolution_action, "KEEP_SERVER");
+      assert.equal(resolved.resolved_by, "mayor-1");
+      assert.equal(resolved.user_id, "origin-user");
+      assert.equal(outboxEvents[0].eventType, "SYNC_CONFLICT_RESOLVED");
+      assert.deepEqual(processedEvents, ["outbox-resolution-1"]);
+      assert.equal(auditRows[0].action, "SYNC_CONFLICT_RESOLUTION");
+    },
+  );
+});
+
+test("BRG-SC-04B APPLY_LOCAL remains rejected for eligible stock-drift conflict", async () => {
+  const baseConflict = {
+    id: "conflict-stock-drift",
+    sync_transaction_id: "sync-1",
+    user_id: "origin-user",
+    entity_type: "INVENTORY_TRANSACTION",
+    entity_server_id: null,
+    conflict_type: "INVENTORY_STOCK_STATE_DRIFT",
+    local_payload_json: { payload: { quantity: 10 } },
+    server_payload_json: { quantityAvailable: 4, stockVersion: 2 },
+    resolution_strategy: "MANUAL_REVIEW",
+    resolution_action: null,
+    resolution_reason: null,
+    resolved_payload_json: null,
+    resolved_by: null,
+    resolved_at: null,
+    status: "OPEN",
+    sync_status: "CONFLICT",
+    operation_type: "INVENTORY_ADJUSTMENT",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        lockSyncConflictById: async () => baseConflict,
+        markSyncConflictResolved: async () => {
+          throw new Error("APPLY_LOCAL must not persist resolution");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ resolveSyncConflict }) => {
+      await assert.rejects(
+        () =>
+          resolveSyncConflict({
+            auth: {
+              userId: "mayor-2",
+              roleCode: "MAYOR",
+            },
+            conflictId: "conflict-stock-drift",
+            action: "APPLY_LOCAL",
+            reason: "Force local",
+          }),
+        /not allowed/,
+      );
+    },
+  );
+});
+
+test("M04-03 FIRST_ACCEPTED resolved conflicts expose no actions and cannot be resolved again", async () => {
+  const firstAcceptedConflict = {
+    id: "conflict-first-accepted",
+    sync_transaction_id: "sync-1",
+    user_id: "origin-user",
+    entity_type: "STUB",
+    entity_server_id: "stub-1",
+    conflict_type: "STUB_ALREADY_CLAIMED",
+    local_payload_json: {},
+    server_payload_json: {},
+    resolution_strategy: "FIRST_ACCEPTED",
+    resolved_payload_json: { winner: "SERVER" },
+    resolved_by: null,
+    resolved_at: "2026-08-09T04:00:00.000Z",
+    status: "RESOLVED",
+    sync_status: "CONFLICT",
+    operation_type: "CLAIM",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncConflictById: async () => firstAcceptedConflict,
+        withSyncProcessingTransaction: async (callback) => callback({}),
+        lockSyncConflictById: async () => firstAcceptedConflict,
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+      [systemLogRepositoryPath]: {
+        insertAuditLog: async () => ({}),
+      },
+    },
+    async ({ getSyncConflictDetail, resolveSyncConflict }) => {
+      const detail = await getSyncConflictDetail({
+        auth: {
+          userId: "origin-user",
+          roleCode: "BARANGAY",
+        },
+        conflictId: "conflict-first-accepted",
+      });
+
+      assert.deepEqual(detail.availableResolutionActions, []);
+
+      await assert.rejects(
+        () =>
+          resolveSyncConflict({
+            auth: {
+              userId: "origin-user",
+              roleCode: "BARANGAY",
+            },
+            conflictId: "conflict-first-accepted",
+            action: "MARK_REVIEWED",
+            reason: null,
+          }),
+        /already been resolved/,
+      );
+    },
   );
 });

@@ -90,6 +90,10 @@ const InventoryTransactionDetailModal = ({ isOpen, row, onClose }) => {
   ];
 
   const transactionInformation = [
+    [
+      "ITR No.",
+      row.inventory_transaction_reference_no || "Not applicable",
+    ],
     ["Quantity Moved", String(row.quantity ?? 0)],
     ["Movement", row.transaction_direction || "--"],
     ["Transaction Type", row.transaction_type_label || row.transaction_type || "--"],

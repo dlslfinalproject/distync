@@ -4,7 +4,13 @@ const inventoryBatchRepository = require("../repositories/inventoryBatch.reposit
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const mayorReportExport = require("../utils/mayorReportExport");
 const notificationService = require("../modules/notifications/notification.service");
-const { logAuditSafely, pickDefined } = require("../utils/systemLog");
+const { logErrorSafely, normalizeActor, pickDefined } = require("../utils/systemLog");
+const { insertAuditLog } = require("../repositories/systemLog.repository");
+const {
+  createDuplicateInventoryTransactionReferenceError,
+  isValidInventoryTransactionReferenceNo,
+  normalizeInventoryTransactionReferenceNo,
+} = require("../utils/inventoryTransactionReference");
 
 const additiveTransactionTypes = new Set(["INFLOW", "RETURN", "ADJUSTMENT"]);
 const subtractiveTransactionTypes = new Set([
@@ -96,6 +102,8 @@ const mapInventoryTransaction = (transaction) => {
     quantity: transaction.quantity,
     reference_type: transaction.reference_type,
     reference_id: transaction.reference_id,
+    inventory_transaction_reference_no:
+      transaction.inventory_transaction_reference_no,
     performed_by: transaction.performed_by,
     performed_at: transaction.performed_at,
     remarks: transaction.remarks,
@@ -162,10 +170,207 @@ const summarizeInventoryTransaction = (transaction) =>
     "quantity",
     "reference_type",
     "reference_id",
+    "inventory_transaction_reference_no",
     "performed_by",
     "performed_at",
     "remarks",
   ]);
+
+const INVENTORY_DOMAIN_EFFECT_BATCH_SIZE = Math.max(
+  1,
+  Number.parseInt(process.env.INVENTORY_DOMAIN_EFFECT_BATCH_SIZE || "25", 10) ||
+    25,
+);
+const INVENTORY_DOMAIN_EFFECT_SCAN_INTERVAL_MS = Math.max(
+  60 * 1000,
+  Number.parseInt(
+    process.env.INVENTORY_DOMAIN_EFFECT_SCAN_INTERVAL_MS || `${15 * 60 * 1000}`,
+    10,
+  ) ||
+    15 * 60 * 1000,
+);
+let inventoryDomainEffectRecoveryInterval = null;
+
+const buildInventoryTransactionAuditSourceKey = (transactionId) =>
+  `INVENTORY_TRANSACTION_CREATE:${transactionId}`;
+
+const buildInventoryBatchAuditSourceKey = ({ batchId, transactionId }) =>
+  `INVENTORY_BATCH_CREATE:${batchId}:INVENTORY_TRANSACTION:${transactionId}`;
+
+const persistInventoryAudit = async ({
+  transaction,
+  actor = {},
+  fallbackBatch = null,
+}) => {
+  const normalizedActor = normalizeActor(actor);
+
+  await insertAuditLog({
+    user_id: normalizedActor.userId,
+    role_code: normalizedActor.roleCode,
+    device_id: normalizedActor.deviceId,
+    action: "INVENTORY_TRANSACTION_CREATE",
+    entity_type: "INVENTORY_TRANSACTION",
+    entity_id: transaction.id,
+    old_values_json: {},
+    new_values_json: summarizeInventoryTransaction(transaction),
+    ip_address: normalizedActor.ipAddress,
+    source_event_key: buildInventoryTransactionAuditSourceKey(transaction.id),
+  });
+
+  if (fallbackBatch) {
+    await insertAuditLog({
+      user_id: normalizedActor.userId,
+      role_code: normalizedActor.roleCode,
+      device_id: normalizedActor.deviceId,
+      action: "INVENTORY_BATCH_CREATE",
+      entity_type: "INVENTORY_BATCH",
+      entity_id: fallbackBatch.id,
+      old_values_json: {},
+      new_values_json: pickDefined(fallbackBatch, [
+        "inventory_item_id",
+        "batch_no",
+        "source_type",
+        "quantity_received",
+        "quantity_available",
+        "expiration_date",
+        "storage_location",
+        "status",
+        "created_by",
+      ]),
+      ip_address: normalizedActor.ipAddress,
+      source_event_key: buildInventoryBatchAuditSourceKey({
+        batchId: fallbackBatch.id,
+        transactionId: transaction.id,
+      }),
+    });
+  }
+};
+
+const emitInventoryTransactionDomainSideEffects = async ({
+  transaction,
+  batch,
+  previousQuantityAvailable,
+  previousStatus,
+  disasterEventId = null,
+  actor = {},
+  fallbackBatch = null,
+}) => {
+  await persistInventoryAudit({
+    transaction,
+    actor,
+    fallbackBatch,
+  });
+
+  await notificationService.emitInventoryTransactionAlerts({
+    transaction,
+    batch,
+    previousQuantityAvailable,
+    previousStatus,
+    disasterEventId,
+  });
+};
+
+const processClaimedInventoryDomainEffectIntent = async (intent) => {
+  const effectPayload =
+    typeof intent.effect_payload_json === "string"
+      ? JSON.parse(intent.effect_payload_json)
+      : intent.effect_payload_json || {};
+
+  if (!intent.audit_processed_at) {
+    await persistInventoryAudit({
+      transaction: effectPayload.transaction,
+      actor: effectPayload.actor,
+      fallbackBatch: effectPayload.fallbackBatch,
+    });
+    await inventoryTransactionRepository.markInventoryDomainEffectAuditProcessed(
+      intent.id,
+    );
+  }
+
+  if (!intent.alerts_processed_at) {
+    await notificationService.emitInventoryTransactionAlerts({
+      transaction: effectPayload.transaction,
+      batch: effectPayload.batch,
+      previousQuantityAvailable: effectPayload.previousQuantityAvailable,
+      previousStatus: effectPayload.previousStatus,
+      disasterEventId: effectPayload.disasterEventId,
+    });
+    await inventoryTransactionRepository.markInventoryDomainEffectAlertsProcessed(
+      intent.id,
+    );
+  }
+
+  await inventoryTransactionRepository.markInventoryDomainEffectIntentProcessed(
+    intent.id,
+  );
+};
+
+const processInventoryDomainEffectIntentById = async (intentId) => {
+  const intent =
+    await inventoryTransactionRepository.claimInventoryDomainEffectIntentById(
+      intentId,
+    );
+
+  if (!intent) {
+    return null;
+  }
+
+  try {
+    await processClaimedInventoryDomainEffectIntent(intent);
+    return { id: intent.id, status: "PROCESSED" };
+  } catch (error) {
+    await inventoryTransactionRepository.markInventoryDomainEffectIntentFailed({
+      id: intent.id,
+      errorMessage: error.message,
+    });
+    throw error;
+  }
+};
+
+const processPendingInventoryDomainEffectIntents = async (
+  limit = INVENTORY_DOMAIN_EFFECT_BATCH_SIZE,
+) => {
+  const intents =
+    await inventoryTransactionRepository.claimPendingInventoryDomainEffectIntents(
+      limit,
+    );
+  const results = [];
+
+  for (const intent of intents) {
+    try {
+      await processClaimedInventoryDomainEffectIntent(intent);
+      results.push({ id: intent.id, status: "PROCESSED" });
+    } catch (error) {
+      await inventoryTransactionRepository.markInventoryDomainEffectIntentFailed({
+        id: intent.id,
+        errorMessage: error.message,
+      });
+      results.push({ id: intent.id, status: "FAILED", error });
+    }
+  }
+
+  return results;
+};
+
+const startInventoryDomainEffectRecovery = () => {
+  if (inventoryDomainEffectRecoveryInterval) {
+    return;
+  }
+
+  inventoryDomainEffectRecoveryInterval = setInterval(() => {
+    processPendingInventoryDomainEffectIntents().catch((error) => {
+      console.error(
+        `Inventory domain effect recovery scan failed: ${error.message}`,
+      );
+    });
+  }, INVENTORY_DOMAIN_EFFECT_SCAN_INTERVAL_MS);
+};
+
+const initializeInventoryDomainEffectRecovery = async () => {
+  const results = await processPendingInventoryDomainEffectIntents();
+  startInventoryDomainEffectRecovery();
+  return results;
+};
 
 const getInventoryTransactions = async (filters) => {
   const transactions =
@@ -187,6 +392,37 @@ const getInventoryTransactionById = async (id) => {
 
 const createInventoryTransaction = async (transactionData) => {
   const externalClient = transactionData.dbClient || null;
+  const deferDomainSideEffect =
+    typeof transactionData.deferDomainSideEffect === "function"
+      ? transactionData.deferDomainSideEffect
+      : null;
+  const syncTransactionId = transactionData.syncTransactionId || null;
+  let committed = false;
+  const normalizedReferenceNo = normalizeInventoryTransactionReferenceNo(
+    transactionData.inventoryTransactionReferenceNo ??
+      transactionData.inventory_transaction_reference_no,
+  );
+  const isTrustedSourceGenerated =
+    transactionData.trustedSourceGenerated === true;
+
+  if (!isTrustedSourceGenerated) {
+    if (!normalizedReferenceNo) {
+      const error = new Error(
+        "Inventory Transaction Reference No. is required for manual inventory transactions.",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (!isValidInventoryTransactionReferenceNo(normalizedReferenceNo)) {
+      const error = new Error(
+        "Inventory Transaction Reference No. must use ITR-YYYY-NNNNNN and cannot end in 000000.",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+
   if (transactionData.disaster_event_id) {
     const disasterEvent = await inventoryTransactionRepository.getDisasterEventById(
       transactionData.disaster_event_id,
@@ -323,9 +559,22 @@ const createInventoryTransaction = async (transactionData) => {
         {
           ...transactionData,
           inventory_batch_id: inventoryBatch.id,
+          inventory_transaction_reference_no: normalizedReferenceNo,
         },
         client,
       );
+
+    if (!createdTransaction && normalizedReferenceNo) {
+      const existingTransaction =
+        await inventoryTransactionRepository.getInventoryTransactionByReferenceNo(
+          normalizedReferenceNo,
+          client,
+        );
+
+      throw createDuplicateInventoryTransactionReferenceError(
+        summarizeInventoryTransaction(existingTransaction),
+      );
+    }
 
     await inventoryTransactionRepository.updateInventoryBatchQuantityAndStatus(
       inventoryBatch.id,
@@ -356,67 +605,68 @@ const createInventoryTransaction = async (transactionData) => {
       client,
     );
 
-    if (!externalClient) {
-      await client.query("COMMIT");
-    }
-
-    if (!externalClient) {
-      await notificationService.emitSafely(() =>
-        notificationService.emitInventoryTransactionAlerts({
-          transaction: createdTransaction,
-          batch: {
-            id: inventoryBatch.id,
-            batch_no: inventoryBatch.batch_no,
-            quantity_available: newQuantityAvailable,
-            status: newBatchStatus,
-            expiration_date: inventoryBatch.expiration_date,
-            item_name: inventoryBatch.item_name,
-          },
-          previousQuantityAvailable: inventoryBatch.quantity_available,
-          previousStatus: inventoryBatch.status,
-          disasterEventId: transactionData.disaster_event_id,
-        }),
+    const domainSideEffect = {
+      transaction: createdTransaction,
+      batch: {
+        id: inventoryBatch.id,
+        inventory_item_id: inventoryBatch.inventory_item_id,
+        batch_no: inventoryBatch.batch_no,
+        quantity_available: newQuantityAvailable,
+        status: newBatchStatus,
+        expiration_date: inventoryBatch.expiration_date,
+        item_name: inventoryBatch.item_name,
+      },
+      previousQuantityAvailable: inventoryBatch.quantity_available,
+      previousStatus: inventoryBatch.status,
+      disasterEventId: transactionData.disaster_event_id,
+      actor: {
+        userId: transactionData.performed_by,
+        roleCode: transactionData.auditActor?.roleCode || "MAYOR",
+        deviceId: transactionData.auditActor?.deviceId || null,
+        ipAddress: transactionData.auditActor?.ipAddress || null,
+      },
+      fallbackBatch: createdFallbackBatch,
+    };
+    const domainEffectIntent =
+      await inventoryTransactionRepository.ensureInventoryDomainEffectIntent(
+        {
+          inventoryTransactionId: createdTransaction.id,
+          syncTransactionId,
+          effectPayload: domainSideEffect,
+        },
+        client,
       );
 
-      await logAuditSafely({
-        actor: {
-          userId: transactionData.performed_by,
-          roleCode: "MAYOR",
-        },
-        action: "INVENTORY_TRANSACTION_CREATE",
-        entityType: "INVENTORY_TRANSACTION",
-        entityId: createdTransaction.id,
-        oldValues: {},
-        newValues: summarizeInventoryTransaction(createdTransaction),
-      });
+    if (!externalClient) {
+      await client.query("COMMIT");
+      committed = true;
+    }
 
-      if (createdFallbackBatch) {
-        await logAuditSafely({
-          actor: {
-            userId: transactionData.performed_by,
-            roleCode: "MAYOR",
-          },
-          action: "INVENTORY_BATCH_CREATE",
-          entityType: "INVENTORY_BATCH",
-          entityId: createdFallbackBatch.id,
-          oldValues: {},
-          newValues: pickDefined(createdFallbackBatch, [
-            "inventory_item_id",
-            "batch_no",
-            "source_type",
-            "quantity_received",
-            "quantity_available",
-            "expiration_date",
-            "storage_location",
-            "status",
-            "created_by",
-          ]),
+    if (externalClient && deferDomainSideEffect) {
+      deferDomainSideEffect(() =>
+        processInventoryDomainEffectIntentById(domainEffectIntent.id),
+      );
+    } else if (!externalClient) {
+      try {
+        await processInventoryDomainEffectIntentById(domainEffectIntent.id);
+      } catch (error) {
+        await logErrorSafely({
+          actor: domainSideEffect.actor,
+          moduleName: "inventory",
+          errorCode: "INVENTORY_DOMAIN_EFFECT_PROCESSING_FAILED",
+          errorMessage:
+            "Committed inventory domain effect could not be processed immediately.",
+          error,
+          referenceType: "INVENTORY_DOMAIN_EFFECT_INTENT",
+          referenceId: domainEffectIntent.id,
         });
       }
     }
 
     return {
       transaction_id: createdTransaction.id,
+      inventory_transaction_reference_no:
+        createdTransaction.inventory_transaction_reference_no || null,
       inventory_batch_id: createdTransaction.inventory_batch_id,
       transaction_type: createdTransaction.transaction_type,
       quantity: createdTransaction.quantity,
@@ -424,7 +674,7 @@ const createInventoryTransaction = async (transactionData) => {
       new_batch_status: newBatchStatus,
     };
   } catch (error) {
-    if (!externalClient) {
+    if (!externalClient && !committed) {
       await client.query("ROLLBACK");
     }
     throw error;
@@ -440,6 +690,8 @@ const exportInventoryTransactions = async (filters, format) => {
   const rows = transactions.map((transaction) => ({
     transaction_type: transaction.transaction_type || "--",
     quantity: transaction.quantity ?? 0,
+    inventory_transaction_reference_no:
+      transaction.inventory_transaction_reference_no || "--",
     reference_type: transaction.reference_type || "--",
     performed_by: transaction.performer?.full_name || "--",
     performed_at: mayorReportExport.formatDateTime(transaction.performed_at),
@@ -458,6 +710,7 @@ const exportInventoryTransactions = async (filters, format) => {
     columns: [
       { key: "transaction_type", label: "Transaction Type", width: 20, pdfWidth: 95 },
       { key: "quantity", label: "Quantity", width: 12, pdfWidth: 55 },
+      { key: "inventory_transaction_reference_no", label: "ITR No.", width: 18, pdfWidth: 85 },
       { key: "reference_type", label: "Reference Type", width: 18, pdfWidth: 90 },
       { key: "performed_by", label: "Performed By", width: 24, pdfWidth: 120 },
       { key: "performed_at", label: "Performed At", width: 22, pdfWidth: 95 },
@@ -472,5 +725,10 @@ module.exports = {
   getInventoryTransactions,
   getInventoryTransactionById,
   createInventoryTransaction,
+  emitInventoryTransactionDomainSideEffects,
+  processInventoryDomainEffectIntentById,
+  processPendingInventoryDomainEffectIntents,
+  startInventoryDomainEffectRecovery,
+  initializeInventoryDomainEffectRecovery,
   exportInventoryTransactions,
 };

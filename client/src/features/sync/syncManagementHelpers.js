@@ -1,4 +1,8 @@
 import { LOCAL_SYNC_STATUS } from "../../offline/db.js";
+import {
+  getUnsupportedOfflineActionMessage,
+  isUnsupportedOfflineActionKey,
+} from "../../offline/syncQueue.js";
 
 export const SYNC_FILTERS = [
   { key: "ALL", label: "All" },
@@ -19,6 +23,9 @@ const RECORD_TYPE_LABELS = {
   DISTRIBUTION: "Relief Goods Distribution",
   STUB: "Relief Goods Distribution",
   STUBS: "Relief Goods Distribution",
+  DONATION: "Donation Management",
+  DONATION_ITEM: "Donation Management",
+  DONATION_NEED: "Donation Management",
   DISASTER_EVENT: "Disaster Event Management",
   DISASTER_EVENTS: "Disaster Event Management",
   INVENTORY: "Inventory",
@@ -35,8 +42,16 @@ const ACTION_LABELS = {
   STUB_CLAIM: "Confirm Relief Claim",
   DISTRIBUTION_QR_CLAIM: "Confirm QR Relief Claim",
   DISTRIBUTION_CREATE: "Relief Distribution Record",
+  DONATION_NEED_CREATE: "Create Donation Need",
+  DONATION_NEED_UPDATE: "Edit Donation Need",
+  DONATION_CREATE: "Record Donation",
+  DONATION_UPDATE: "Edit Donation",
+  DONATION_ITEM_CREATE: "Add Donation Item",
+  DONATION_ITEM_UPDATE: "Edit Donation Item",
   DISASTER_EVENT_CREATE: "Create Disaster Event",
   DISASTER_EVENT_UPDATE: "Edit Disaster Event",
+  DISASTER_EVENT_EXTEND: "Extend Disaster Event",
+  DISASTER_EVENT_END: "End Disaster Event",
   INVENTORY_ITEM_CREATE: "Add Inventory Item",
   INVENTORY_ITEM_UPDATE: "Edit Inventory Item",
   INVENTORY_TRANSACTION_CREATE: "Inventory Movement",
@@ -80,6 +95,10 @@ export const matchesSyncFilter = (status, filterKey) => {
 
 export const isSafeRetryableStatus = (status) =>
   status === LOCAL_SYNC_STATUS.FAILED;
+
+export const isSafeRetryableQueueEntry = (entry = {}) =>
+  isSafeRetryableStatus(entry.status) &&
+  !isUnsupportedOfflineActionKey(entry.actionKey);
 
 export const getWinningSide = (conflict) => {
   const winner = conflict?.resolved_payload_json?.winner;
@@ -188,6 +207,10 @@ const getRecordTypeLabel = (record = {}, payload = {}) => {
     return "Disaster Event Management";
   }
 
+  if (actionKey.includes("DONATION")) {
+    return "Donation Management";
+  }
+
   if (actionKey.includes("INVENTORY")) {
     return "Inventory";
   }
@@ -250,7 +273,8 @@ export const getSyncRecordDetails = (record = {}) => {
     entityType,
     familyHeadName: asDisplayValue(familyHeadName),
     notes: asDisplayValue(
-      record.lastError ||
+      getUnsupportedOfflineActionMessage(actionKey) ||
+        record.lastError ||
         record.serverMessage ||
         record.error_message ||
         payload.remarks ||
