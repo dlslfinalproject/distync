@@ -10,7 +10,31 @@ const terminalStatuses = new Set([
   LOCAL_SYNC_STATUS.CONFLICT,
 ]);
 
+const unsupportedOfflineActionKeys = new Set([
+  "DONATION_NEED_CREATE",
+  "DONATION_NEED_UPDATE",
+  "DONATION_CREATE",
+  "DONATION_UPDATE",
+  "DONATION_ITEM_CREATE",
+  "DONATION_ITEM_UPDATE",
+  "DISASTER_EVENT_CREATE",
+  "DISASTER_EVENT_UPDATE",
+  "DISASTER_EVENT_EXTEND",
+  "DISASTER_EVENT_END",
+]);
+
 const getIsoNow = () => new Date().toISOString();
+
+export const isUnsupportedOfflineActionKey = (actionKey) =>
+  unsupportedOfflineActionKeys.has(String(actionKey || "").trim().toUpperCase());
+
+export const getUnsupportedOfflineActionMessage = (actionKey) => {
+  if (isUnsupportedOfflineActionKey(actionKey)) {
+    return "This operation is no longer supported for offline synchronization. Please complete the action while online.";
+  }
+
+  return "";
+};
 
 export const getSyncQueueActorContext = () => {
   return {
@@ -87,6 +111,7 @@ export const getRetryableSyncEntries = async () => {
     .filter(
       (entry) =>
         isSyncEntryVisibleForContext(entry) &&
+        !isUnsupportedOfflineActionKey(entry.actionKey) &&
         (entry.status === LOCAL_SYNC_STATUS.PENDING ||
           entry.status === LOCAL_SYNC_STATUS.FAILED),
     )
@@ -101,6 +126,7 @@ export const getFailedSyncEntries = async (entryIds = []) => {
     .filter(
       (entry) =>
         isSyncEntryVisibleForContext(entry) &&
+        !isUnsupportedOfflineActionKey(entry.actionKey) &&
         entry.status === LOCAL_SYNC_STATUS.FAILED &&
         (requestedIds.length === 0 || requestedIds.includes(entry.id)),
     )

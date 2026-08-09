@@ -1,7 +1,4 @@
-import {
-  buildOfflineQueuedResponse,
-  performSyncableMutation,
-} from "../../offline/syncService";
+import { performOnlineOnlyMutation } from "../../offline/syncService";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -15,6 +12,9 @@ const handleJsonResponse = async (response, fallbackMessage) => {
 
   return payload;
 };
+
+const DONATION_ONLINE_ONLY_MESSAGE =
+  "An internet connection is required to save donation changes.";
 
 const downloadResponseAsFile = async (response, fallbackMessage) => {
   if (!response.ok) {
@@ -108,13 +108,10 @@ export const fetchDonationNeeds = async (filters = {}) => {
 };
 
 export const createDonationNeed = async (payload) => {
-  return performSyncableMutation({
-    moduleName: "mayor-donations",
-    actionKey: "DONATION_NEED_CREATE",
-    entityType: "DONATION_NEED",
-    entityLocalId: `${payload?.disaster_event_id || "event"}:${payload?.inventory_item_id || "item"}`,
+  return performOnlineOnlyMutation({
     payload,
     requiredFields: ["disaster_event_id", "inventory_item_id", "quantity_needed"],
+    offlineMessage: DONATION_ONLINE_ONLY_MESSAGE,
     request: async () => {
       const response = await fetch(`${API_BASE_URL}/api/v1/donations/needs`, {
         method: "POST",
@@ -126,29 +123,14 @@ export const createDonationNeed = async (payload) => {
 
       return handleJsonResponse(response, "Failed to create donation need");
     },
-    buildQueuedResponse: ({ clientSyncId, entityLocalId, clientTimestamp }) =>
-      buildOfflineQueuedResponse({
-        message:
-          "Donation need saved offline. Pending sync once connection is restored.",
-        data: {
-          id: entityLocalId,
-          updated_at: clientTimestamp,
-        },
-        clientSyncId,
-        entityLocalId,
-        clientTimestamp,
-      }),
   });
 };
 
 export const updateDonationNeed = async (donationNeedId, payload) => {
-  return performSyncableMutation({
-    moduleName: "mayor-donations",
-    actionKey: "DONATION_NEED_UPDATE",
-    entityType: "DONATION_NEED",
-    entityServerId: donationNeedId,
+  return performOnlineOnlyMutation({
     payload,
     requiredFields: ["disaster_event_id", "inventory_item_id", "quantity_needed"],
+    offlineMessage: DONATION_ONLINE_ONLY_MESSAGE,
     request: async () => {
       const response = await fetch(
         `${API_BASE_URL}/api/v1/donations/needs/${donationNeedId}`,
@@ -163,18 +145,6 @@ export const updateDonationNeed = async (donationNeedId, payload) => {
 
       return handleJsonResponse(response, "Failed to update donation need");
     },
-    buildQueuedResponse: ({ clientSyncId, clientTimestamp }) =>
-      buildOfflineQueuedResponse({
-        message:
-          "Donation need update saved offline. Pending sync once connection is restored.",
-        data: {
-          id: donationNeedId,
-          updated_at: clientTimestamp,
-        },
-        clientSyncId,
-        entityLocalId: donationNeedId,
-        clientTimestamp,
-      }),
   });
 };
 
@@ -213,13 +183,10 @@ export const fetchDonationDetail = async (donationId) => {
 };
 
 export const createDonation = async (payload) => {
-  return performSyncableMutation({
-    moduleName: "mayor-donations",
-    actionKey: "DONATION_CREATE",
-    entityType: "DONATION",
-    entityLocalId: payload?.donor_name || null,
+  return performOnlineOnlyMutation({
     payload,
     requiredFields: ["disaster_event_id", "donor_name", "status"],
+    offlineMessage: DONATION_ONLINE_ONLY_MESSAGE,
     request: async () => {
       const response = await fetch(`${API_BASE_URL}/api/v1/donations`, {
         method: "POST",
@@ -231,29 +198,14 @@ export const createDonation = async (payload) => {
 
       return handleJsonResponse(response, "Failed to record donation");
     },
-    buildQueuedResponse: ({ clientSyncId, entityLocalId, clientTimestamp }) =>
-      buildOfflineQueuedResponse({
-        message:
-          "Donation record saved offline. Pending sync once connection is restored.",
-        data: {
-          id: entityLocalId,
-          updated_at: clientTimestamp,
-        },
-        clientSyncId,
-        entityLocalId,
-        clientTimestamp,
-      }),
   });
 };
 
 export const updateDonation = async (donationId, payload) => {
-  return performSyncableMutation({
-    moduleName: "mayor-donations",
-    actionKey: "DONATION_UPDATE",
-    entityType: "DONATION",
-    entityServerId: donationId,
+  return performOnlineOnlyMutation({
     payload,
     requiredFields: ["disaster_event_id", "donor_name", "status"],
+    offlineMessage: DONATION_ONLINE_ONLY_MESSAGE,
     request: async () => {
       const response = await fetch(`${API_BASE_URL}/api/v1/donations/${donationId}`, {
         method: "PUT",
@@ -265,18 +217,6 @@ export const updateDonation = async (donationId, payload) => {
 
       return handleJsonResponse(response, "Failed to update donation");
     },
-    buildQueuedResponse: ({ clientSyncId, clientTimestamp }) =>
-      buildOfflineQueuedResponse({
-        message:
-          "Donation update saved offline. Pending sync once connection is restored.",
-        data: {
-          id: donationId,
-          updated_at: clientTimestamp,
-        },
-        clientSyncId,
-        entityLocalId: donationId,
-        clientTimestamp,
-      }),
   });
 };
 
@@ -289,14 +229,10 @@ export const deleteDonation = async (donationId) => {
 };
 
 export const createDonationItem = async (donationId, payload) => {
-  return performSyncableMutation({
-    moduleName: "mayor-donations",
-    actionKey: "DONATION_ITEM_CREATE",
-    entityType: "DONATION_ITEM",
-    entityServerId: donationId,
-    entityLocalId: `${donationId}:${payload?.inventory_item_id || "item"}`,
+  return performOnlineOnlyMutation({
     payload,
     requiredFields: ["inventory_item_id", "quantity_received"],
+    offlineMessage: DONATION_ONLINE_ONLY_MESSAGE,
     request: async () => {
       const response = await fetch(
         `${API_BASE_URL}/api/v1/donations/${donationId}/items`,
@@ -311,29 +247,14 @@ export const createDonationItem = async (donationId, payload) => {
 
       return handleJsonResponse(response, "Failed to record donation item");
     },
-    buildQueuedResponse: ({ clientSyncId, entityLocalId, clientTimestamp }) =>
-      buildOfflineQueuedResponse({
-        message:
-          "Donation item saved offline. Pending sync once connection is restored.",
-        data: {
-          id: entityLocalId,
-          updated_at: clientTimestamp,
-        },
-        clientSyncId,
-        entityLocalId,
-        clientTimestamp,
-      }),
   });
 };
 
 export const updateDonationItem = async (donationItemId, payload) => {
-  return performSyncableMutation({
-    moduleName: "mayor-donations",
-    actionKey: "DONATION_ITEM_UPDATE",
-    entityType: "DONATION_ITEM",
-    entityServerId: donationItemId,
+  return performOnlineOnlyMutation({
     payload,
     requiredFields: ["inventory_item_id", "quantity_received"],
+    offlineMessage: DONATION_ONLINE_ONLY_MESSAGE,
     request: async () => {
       const response = await fetch(
         `${API_BASE_URL}/api/v1/donations/items/${donationItemId}`,
@@ -348,18 +269,6 @@ export const updateDonationItem = async (donationItemId, payload) => {
 
       return handleJsonResponse(response, "Failed to update donation item");
     },
-    buildQueuedResponse: ({ clientSyncId, clientTimestamp }) =>
-      buildOfflineQueuedResponse({
-        message:
-          "Donation item update saved offline. Pending sync once connection is restored.",
-        data: {
-          id: donationItemId,
-          updated_at: clientTimestamp,
-        },
-        clientSyncId,
-        entityLocalId: donationItemId,
-        clientTimestamp,
-      }),
   });
 };
 

@@ -8,7 +8,10 @@ import {
   initializeSyncService,
   subscribeToSyncUpdates,
 } from "../../offline/syncService";
-import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
+import {
+  getVisibleSyncQueueEntries,
+  isUnsupportedOfflineActionKey,
+} from "../../offline/syncQueue";
 
 const badgeStylesByStatus = {
   [LOCAL_SYNC_STATUS.SYNCED]: {
@@ -78,6 +81,16 @@ const SyncStatusBanner = () => {
       },
     );
   }, [syncEntries]);
+
+  const retryablePendingCount = useMemo(
+    () =>
+      syncEntries.filter(
+        (entry) =>
+          entry.status === LOCAL_SYNC_STATUS.PENDING &&
+          !isUnsupportedOfflineActionKey(entry.actionKey),
+      ).length,
+    [syncEntries],
+  );
 
   const statusChips = useMemo(() => {
     const chips = [];
@@ -180,7 +193,7 @@ const SyncStatusBanner = () => {
           </p>
         </div>
 
-        {isOnline && counts[LOCAL_SYNC_STATUS.PENDING] > 0 ? (
+        {isOnline && retryablePendingCount > 0 ? (
           <button
             type="button"
             onClick={() => void flushPendingSyncEntries()}

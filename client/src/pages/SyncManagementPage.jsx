@@ -28,7 +28,7 @@ import {
   getResolutionStatusLabel,
   getSyncRecordDetails,
   getWinningSide,
-  isSafeRetryableStatus,
+  isSafeRetryableQueueEntry,
   matchesRecordTypeFilter,
   matchesSyncFilter,
 } from "../features/sync/syncManagementHelpers";
@@ -268,7 +268,7 @@ const SyncManagementPage = () => {
   const failedQueueEntries = useMemo(
     () =>
       syncQueueEntries.filter(
-        (entry) => entry.status === LOCAL_SYNC_STATUS.FAILED,
+        (entry) => isSafeRetryableQueueEntry(entry),
       ),
     [syncQueueEntries],
   );
@@ -727,14 +727,14 @@ const SyncManagementPage = () => {
                           onClick={() => handleRetrySync([entry.id])}
                           disabled={
                             !isOnline ||
-                            !isSafeRetryableStatus(entry.status) ||
+                            !isSafeRetryableQueueEntry(entry) ||
                             isRetrying
                           }
                           style={{
                             ...pageHeaderStyles.secondaryButton,
                             opacity:
                               !isOnline ||
-                              !isSafeRetryableStatus(entry.status) ||
+                              !isSafeRetryableQueueEntry(entry) ||
                               isRetrying
                                 ? 0.7
                                 : 1,

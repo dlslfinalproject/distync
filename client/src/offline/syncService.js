@@ -334,6 +334,29 @@ export const performSyncableMutation = async ({
   }
 };
 
+export const performOnlineOnlyMutation = async ({
+  payload,
+  requiredFields = [],
+  request,
+  offlineMessage,
+}) => {
+  validateRequiredFields(payload, requiredFields);
+
+  if (typeof navigator !== "undefined" && !navigator.onLine) {
+    const message =
+      offlineMessage || "An internet connection is required to complete this action.";
+
+    emitSyncFeedbackEvent({
+      type: "failed",
+      message,
+    });
+
+    throw new Error(message);
+  }
+
+  return request();
+};
+
 export const buildOfflineQueuedResponse = ({
   message,
   data = null,

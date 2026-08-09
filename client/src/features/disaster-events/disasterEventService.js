@@ -1,7 +1,4 @@
-import {
-  buildOfflineQueuedResponse,
-  performSyncableMutation,
-} from "../../offline/syncService";
+import { performOnlineOnlyMutation } from "../../offline/syncService";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -17,6 +14,9 @@ const handleJsonResponse = async (response, fallbackMessage) => {
 
   return responseData;
 };
+
+const DISASTER_EVENT_ONLINE_ONLY_MESSAGE =
+  "An internet connection is required to create or update disaster events.";
 
 const getFallbackExportFilename = (format) => {
   if (format === "excel") {
@@ -61,13 +61,10 @@ export const fetchDisasterEventById = async (eventId) => {
 };
 
 export const createDisasterEvent = async (payload) => {
-  return performSyncableMutation({
-    moduleName: "mswdo-disaster-events",
-    actionKey: "DISASTER_EVENT_CREATE",
-    entityType: "DISASTER_EVENT",
-    entityLocalId: payload?.event_code || payload?.title || null,
+  return performOnlineOnlyMutation({
     payload,
     requiredFields: ["title", "disaster_type", "start_date"],
+    offlineMessage: DISASTER_EVENT_ONLINE_ONLY_MESSAGE,
     request: async () => {
       const response = await fetch(`${API_BASE_URL}/api/v1/disaster-events`, {
         method: "POST",
@@ -79,29 +76,14 @@ export const createDisasterEvent = async (payload) => {
 
       return handleJsonResponse(response, "Failed to create disaster event");
     },
-    buildQueuedResponse: ({ clientSyncId, entityLocalId, clientTimestamp }) =>
-      buildOfflineQueuedResponse({
-        message:
-          "Disaster event saved offline. Pending sync once connection is restored.",
-        data: {
-          id: entityLocalId,
-          updated_at: clientTimestamp,
-        },
-        clientSyncId,
-        entityLocalId,
-        clientTimestamp,
-      }),
   });
 };
 
 export const updateDisasterEvent = async (eventId, payload) => {
-  return performSyncableMutation({
-    moduleName: "mswdo-disaster-events",
-    actionKey: "DISASTER_EVENT_UPDATE",
-    entityType: "DISASTER_EVENT",
-    entityServerId: eventId,
+  return performOnlineOnlyMutation({
     payload,
     requiredFields: ["title", "disaster_type", "start_date", "end_date"],
+    offlineMessage: DISASTER_EVENT_ONLINE_ONLY_MESSAGE,
     request: async () => {
       const response = await fetch(
         `${API_BASE_URL}/api/v1/disaster-events/${eventId}`,
@@ -116,18 +98,6 @@ export const updateDisasterEvent = async (eventId, payload) => {
 
       return handleJsonResponse(response, "Failed to update disaster event");
     },
-    buildQueuedResponse: ({ clientSyncId, clientTimestamp }) =>
-      buildOfflineQueuedResponse({
-        message:
-          "Disaster event update saved offline. Pending sync once connection is restored.",
-        data: {
-          id: eventId,
-          updated_at: clientTimestamp,
-        },
-        clientSyncId,
-        entityLocalId: eventId,
-        clientTimestamp,
-      }),
   });
 };
 
