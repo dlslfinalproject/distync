@@ -146,6 +146,14 @@ const getStubReferenceNumber = (stubDetails, verification) =>
   stubDetails?.stub_no ||
   "";
 
+const isArchivedStubHousehold = (stubLike) =>
+  stubLike?.household?.is_active === false;
+
+const isSelectableClaimStubRow = (row) =>
+  row?.status === "ISSUED" &&
+  !row?.is_local_only &&
+  !isArchivedStubHousehold(row);
+
 const buildQrScanErrorDetails = (verification, stubDetails) => {
   return {
     ...((verification?.data?.details && typeof verification.data.details === "object")
@@ -399,6 +407,14 @@ const StubDistributionPage = () => {
       return;
     }
 
+    const selectedRow =
+      filteredRows.find((row) => row.id === stubId) ||
+      stubRows.find((row) => row.id === stubId);
+
+    if (!isSelectableClaimStubRow(selectedRow)) {
+      return;
+    }
+
     setSelectedStubIds((currentValues) =>
       currentValues.includes(stubId)
         ? currentValues.filter((id) => id !== stubId)
@@ -413,7 +429,7 @@ const StubDistributionPage = () => {
     }
 
     const selectableStubIds = filteredRows
-      .filter((row) => row.status === "ISSUED")
+      .filter((row) => isSelectableClaimStubRow(row))
       .map((row) => row.id);
 
     const areAllSelected =
@@ -422,6 +438,28 @@ const StubDistributionPage = () => {
 
     setSelectedStubIds(areAllSelected ? [] : selectableStubIds);
   };
+
+  useEffect(() => {
+    if (isSelectedEventEnded) {
+      return;
+    }
+
+    const selectableStubIds = new Set(
+      stubRows
+        .filter((row) => isSelectableClaimStubRow(row))
+        .map((row) => row.id),
+    );
+
+    setSelectedStubIds((currentValues) => {
+      const nextValues = currentValues.filter((stubId) =>
+        selectableStubIds.has(stubId),
+      );
+
+      return nextValues.length === currentValues.length
+        ? currentValues
+        : nextValues;
+    });
+  }, [isSelectedEventEnded, stubRows]);
 
   const handleOpenBulkClaimConfirmation = () => {
     if (isSelectedEventEnded || !selectedStubIds.length || claimingStubId) {
@@ -441,6 +479,19 @@ const StubDistributionPage = () => {
 
   const handleOpenClaimConfirmation = (stubId) => {
     if (isSelectedEventEnded || claimingStubId) {
+      return;
+    }
+
+    const selectedRow =
+      filteredRows.find((row) => row.id === stubId) ||
+      stubRows.find((row) => row.id === stubId);
+
+    if (!isSelectableClaimStubRow(selectedRow)) {
+      setClaimErrorMessage(
+        isArchivedStubHousehold(selectedRow)
+          ? "This household is archived and cannot receive a new relief distribution."
+          : "Only active unclaimed stubs can be marked as claimed.",
+      );
       return;
     }
 
@@ -506,11 +557,23 @@ const StubDistributionPage = () => {
     setClaimErrorMessage("");
 
     if (isBulkClaimConfirmOpen && selectedStubIds.length > 0) {
+      const claimableSelectedStubIds = selectedStubIds.filter((stubId) => {
+        const row = stubRows.find((candidate) => candidate.id === stubId);
+        return isSelectableClaimStubRow(row);
+      });
+
+      if (!claimableSelectedStubIds.length) {
+        setClaimErrorMessage(
+          "This household is archived and cannot receive a new relief distribution.",
+        );
+        return;
+      }
+
       setClaimingStubId("bulk");
 
       try {
         await Promise.all(
-          selectedStubIds.map((stubId) =>
+          claimableSelectedStubIds.map((stubId) =>
             claimStub({
               stubId,
               userId: authenticatedUser?.id || "",
@@ -535,6 +598,19 @@ const StubDistributionPage = () => {
     }
 
     if (!pendingClaimStubId) {
+      return;
+    }
+
+    const pendingClaimRow = stubRows.find((row) => row.id === pendingClaimStubId);
+
+    if (!isSelectableClaimStubRow(pendingClaimRow)) {
+      setClaimErrorMessage(
+        isArchivedStubHousehold(pendingClaimRow)
+          ? "This household is archived and cannot receive a new relief distribution."
+          : "Only active unclaimed stubs can be marked as claimed.",
+      );
+      setPendingClaimStubId("");
+      setPendingClaimStubDetails(null);
       return;
     }
 

@@ -1,5 +1,6 @@
 const QR_SCAN_ERROR_CODES = {
   STUB_ALREADY_CLAIMED: "STUB_ALREADY_CLAIMED",
+  HOUSEHOLD_ARCHIVED: "HOUSEHOLD_ARCHIVED",
   INVALID_QR_STUB: "INVALID_QR_STUB",
   STUB_NOT_FOUND: "STUB_NOT_FOUND",
   WRONG_EVENT: "WRONG_EVENT",
@@ -79,6 +80,10 @@ const normalizeErrorCode = (error) => {
     return QR_SCAN_ERROR_CODES.QR_INACTIVE;
   }
 
+  if (normalizedMessage.includes("HOUSEHOLD IS ARCHIVED")) {
+    return QR_SCAN_ERROR_CODES.HOUSEHOLD_ARCHIVED;
+  }
+
   return "";
 };
 
@@ -150,6 +155,15 @@ export const getQrScanBlockingErrorConfig = (error) => {
         hideDescription: true,
         detailLayout: "cards",
         detailRows: getClaimedStubDetailRows(details),
+      };
+    case QR_SCAN_ERROR_CODES.HOUSEHOLD_ARCHIVED:
+      return {
+        title: "Household Archived",
+        message:
+          "This household is archived and cannot receive a new relief distribution.",
+        detailRows: details.stubNumber
+          ? [{ label: "Stub Number", value: details.stubNumber }]
+          : [],
       };
     case QR_SCAN_ERROR_CODES.INVALID_QR_STUB:
       return {

@@ -91,6 +91,7 @@ const createBaseStubs = ({
   scopedStub = baseStub,
   lockedStub = scopedStub,
   claimHandler = null,
+  verificationStub = scopedStub,
 }) => ({
   [masterlistRepositoryPath]: {
     BARANGAY_ROLE_CODE: "BARANGAY",
@@ -110,6 +111,8 @@ const createBaseStubs = ({
   [reliefPackTemplateRepositoryPath]: {},
   [stubRepositoryPath]: {
     getScopedStubById: async () => scopedStub,
+    getStubByQrCodeValue: async () => verificationStub,
+    getStubByStubNoOrSerialNo: async () => verificationStub,
     getLatestDistributionTransactionByStubId: async (stubId) => ({
       id: "55555555-5555-4555-8555-555555555555",
       stub_id: stubId,
@@ -163,6 +166,32 @@ test("H05-08 claimBarangayStub keeps cancelled stubs as non-conflict validation 
         (error) => {
           assert.equal(error.code, "STUB_NOT_CLAIMABLE");
           assert.equal(error.statusCode, 400);
+          return true;
+        },
+      );
+    },
+  );
+});
+
+test("H05-09 claimBarangayStub blocks archived households before any claim processing", async () => {
+  await withStubbedStubService(
+    createBaseStubs({
+      scopedStub: {
+        ...baseStub,
+        status: "ISSUED",
+        is_active: false,
+      },
+    }),
+    async ({ claimBarangayStub }) => {
+      await assert.rejects(
+        () => claimBarangayStub(baseParams),
+        (error) => {
+          assert.equal(error.code, "HOUSEHOLD_ARCHIVED");
+          assert.equal(error.statusCode, 400);
+          assert.equal(
+            error.message,
+            "This household is archived and cannot receive a new relief distribution.",
+          );
           return true;
         },
       );
@@ -241,4 +270,29 @@ test("H05-11 claimBarangayStub leaves unrelated unique violations technical", as
   );
 
   assert.deepEqual(events, ["BEGIN", "ROLLBACK", "RELEASE"]);
+});
+
+test("H05-12 verifyStub marks archived households as not claimable", async () => {
+  await withStubbedStubService(
+    createBaseStubs({
+      verificationStub: {
+        ...baseStub,
+        status: "ISSUED",
+        qr_code_value: "DISTYNC-STUB|test",
+        is_active: false,
+      },
+    }),
+    async ({ verifyStub }) => {
+      const result = await verifyStub({
+        qr_code_value: "DISTYNC-STUB|test",
+      });
+
+      assert.equal(result.data.is_claimable, false);
+      assert.equal(result.data.code, "HOUSEHOLD_ARCHIVED");
+      assert.equal(
+        result.message,
+        "This household is archived and cannot receive a new relief distribution.",
+      );
+    },
+  );
 });
