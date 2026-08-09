@@ -6,6 +6,7 @@ import {
   queueSyncEntry,
   updateSyncEntryStatus,
 } from "./syncQueue.js";
+import { reconcileOfflineStubCacheForSyncResult } from "../features/stubs/stubCache.js";
 import {
   isValidInventoryTransactionReferenceNo,
   normalizeInventoryTransactionReferenceNo,
@@ -168,6 +169,9 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
     const syncResults = Array.isArray(payload?.data) ? payload.data : [];
 
     for (const result of syncResults) {
+      const sourceEntry = entriesToSync.find(
+        (entry) => entry.id === result.client_sync_id,
+      );
       const resultStatus = result.sync_status || LOCAL_SYNC_STATUS.FAILED;
       const isTerminalResult =
         resultStatus === LOCAL_SYNC_STATUS.SYNCED ||
@@ -190,6 +194,8 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
         serverMessage: result.message || null,
         conflict: result.conflict || null,
       });
+
+      await reconcileOfflineStubCacheForSyncResult(sourceEntry, result);
     }
 
     await clearSyncedEntries();
