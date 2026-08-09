@@ -10,6 +10,9 @@ const supplierService = require("./supplier.service");
 const inventoryTransactionService = require("./inventoryTransaction.service");
 const stubService = require("./stub.service");
 const notificationService = require("../modules/notifications/notification.service");
+const {
+  validateAndNormalizeHouseholdRegistrationPayload,
+} = require("../validators/householdRegistration.validator");
 const { ROLE_CODES } = require("../modules/auth/auth.middleware");
 const { logAuditSafely, logErrorSafely, pickDefined } = require("../utils/systemLog");
 const { insertAuditLog } = require("../repositories/systemLog.repository");
@@ -124,14 +127,18 @@ const ACTION_HANDLERS = {
     entityType: "HOUSEHOLD",
     operationType: "CREATE",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    execute: async ({ payload, auth, clientTimestamp, dbClient }) =>
-      householdRegistrationService.registerHousehold({
-        ...payload,
+    execute: async ({ payload, auth, clientTimestamp, dbClient }) => {
+      const validatedPayload =
+        validateAndNormalizeHouseholdRegistrationPayload(payload);
+
+      return householdRegistrationService.registerHousehold({
+        ...validatedPayload,
         registered_by: auth.userId,
         synced_client_timestamp: clientTimestamp,
         enforce_sync_duplicate_guard: true,
         dbClient,
-      }),
+      });
+    },
   },
   HOUSEHOLD_UPDATE: {
     entityType: "HOUSEHOLD",

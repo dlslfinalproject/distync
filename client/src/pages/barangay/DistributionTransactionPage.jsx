@@ -15,6 +15,12 @@ import {
   fetchReliefPackTemplates,
   recordDistributionTransaction,
 } from "../../features/distribution/distributionService";
+import {
+  UNTRUSTED_DISTRIBUTION_TARGET_MESSAGE,
+  isServerVerifiedDistributionTarget,
+  markDistributionTargetAsServerVerified,
+  markDistributionTargetAsUnverified,
+} from "../../features/distribution/distributionTargetProvenance";
 
 QrScanner.WORKER_PATH = qrScannerWorkerPath;
 
@@ -83,7 +89,7 @@ const buildStubContextFromDetails = (stubDetails) => {
     return null;
   }
 
-  return {
+  const context = {
     stub_id: stubDetails.id,
     household_id: stubDetails.household?.id || "",
     disaster_event_id: stubDetails.disaster_event?.id || "",
@@ -102,11 +108,33 @@ const buildStubContextFromDetails = (stubDetails) => {
     qr_status: stubDetails.qr_status || "",
     qr_notes: stubDetails.qr_notes || "",
   };
+
+  return stubDetails.is_cached_offline
+    ? markDistributionTargetAsUnverified(context)
+    : markDistributionTargetAsServerVerified(context);
 };
 
 const buildStubContextFromLocation = (locationState, searchParams) => {
   if (locationState?.stubContext) {
-    return locationState.stubContext;
+    return markDistributionTargetAsUnverified({
+      stub_id: locationState.stubContext.stub_id || "",
+      household_id: locationState.stubContext.household_id || "",
+      disaster_event_id: locationState.stubContext.disaster_event_id || "",
+      display_stub_no: locationState.stubContext.display_stub_no || "",
+      stub_no: locationState.stubContext.stub_no || "--",
+      serial_no: locationState.stubContext.serial_no || "--",
+      status: locationState.stubContext.status || "--",
+      family_head_name: locationState.stubContext.family_head_name || "--",
+      barangay_name: locationState.stubContext.barangay_name || "--",
+      household_size: Number(locationState.stubContext.household_size || 0),
+      family_head_photo_url: locationState.stubContext.family_head_photo_url || "",
+      photo_captured_at: locationState.stubContext.photo_captured_at || "",
+      photo_verification_notes:
+        locationState.stubContext.photo_verification_notes || "",
+      qr_code_value: locationState.stubContext.qr_code_value || "",
+      qr_status: locationState.stubContext.qr_status || "",
+      qr_notes: locationState.stubContext.qr_notes || "",
+    });
   }
 
   const stubId = searchParams.get("stub_id");
@@ -117,7 +145,7 @@ const buildStubContextFromLocation = (locationState, searchParams) => {
     return null;
   }
 
-  return {
+  return markDistributionTargetAsUnverified({
     stub_id: stubId,
     household_id: householdId,
     disaster_event_id: disasterEventId,
@@ -135,7 +163,7 @@ const buildStubContextFromLocation = (locationState, searchParams) => {
     qr_code_value: searchParams.get("qr_code_value") || "",
     qr_status: searchParams.get("qr_status") || "",
     qr_notes: searchParams.get("qr_notes") || "",
-  };
+  });
 };
 
 const getTemplateFamilySizeCoverage = (template) => {
@@ -195,6 +223,7 @@ const DistributionTransactionPage = () => {
     typeof navigator !== "undefined" &&
     Boolean(navigator.mediaDevices?.getUserMedia) &&
     Boolean(window.isSecureContext);
+  const hasTrustedStubContext = isServerVerifiedDistributionTarget(stubContext);
 
   useEffect(() => {
     const loadFormOptions = async () => {
@@ -231,9 +260,7 @@ const DistributionTransactionPage = () => {
 
     setStubContext(currentStubContext);
 
-    if (location.state?.stubContext?.family_head_name) {
-      setClaimedByName(location.state.stubContext.family_head_name);
-    }
+    setClaimedByName(currentStubContext?.family_head_name || "");
   }, [location.state, searchParams]);
 
   useEffect(() => {
@@ -471,6 +498,10 @@ const DistributionTransactionPage = () => {
       return "No stub was selected for distribution.";
     }
 
+    if (!isServerVerifiedDistributionTarget(stubContext)) {
+      return UNTRUSTED_DISTRIBUTION_TARGET_MESSAGE;
+    }
+
     if (stubContext.status !== "ISSUED") {
       return "Selected stub is not claimable for distribution.";
     }
@@ -521,6 +552,12 @@ const DistributionTransactionPage = () => {
   };
 
   const handleSubmit = async () => {
+    if (!isServerVerifiedDistributionTarget(stubContext)) {
+      setErrorMessage(UNTRUSTED_DISTRIBUTION_TARGET_MESSAGE);
+      setSuccessMessage("");
+      return;
+    }
+
     const validationMessage = validateForm();
 
     if (validationMessage) {
@@ -700,6 +737,7 @@ const DistributionTransactionPage = () => {
         successMessage={successMessage}
         isSubmitting={isSubmitting}
         isLoadingData={isLoadingData}
+        isSubmitDisabled={!hasTrustedStubContext}
         onClaimedByNameChange={setClaimedByName}
         onRemarksChange={setRemarks}
         onTemplateChange={setSelectedTemplateId}

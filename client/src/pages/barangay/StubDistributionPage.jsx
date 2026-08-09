@@ -36,6 +36,10 @@ import {
   createWrongBarangayQrScanError,
   createWrongEventQrScanError,
 } from "../../features/stubs/stubQrScanErrors";
+import {
+  getCachedStubDetailsByQrValue,
+  upsertOfflineStubSnapshots,
+} from "../../features/stubs/stubCache";
 
 const DEFAULT_STUB_STATUS = STATUS_FILTERS.ALL;
 const DEFAULT_STUB_SORT_ORDER = "oldest";
@@ -152,6 +156,9 @@ const isArchivedStubHousehold = (stubLike) =>
 const isSelectableClaimStubRow = (row) =>
   row?.status === "ISSUED" &&
   !row?.is_local_only &&
+  !row?.is_claim_pending &&
+  row?.sync_status !== "PENDING" &&
+  row?.sync_status !== "CONFLICT" &&
   !isArchivedStubHousehold(row);
 
 const buildQrScanErrorDetails = (verification, stubDetails) => {
@@ -514,7 +521,9 @@ const StubDistributionPage = () => {
       setIsLoadingPendingClaimStubDetails(true);
 
       try {
-        const stubDetails = await fetchStubDetails(pendingClaimStubId);
+        const stubDetails = await fetchStubDetails(pendingClaimStubId, {
+          currentBarangayId: selectedBarangayForPrintId,
+        });
 
         if (isMounted) {
           setPendingClaimStubDetails(stubDetails);
@@ -694,17 +703,40 @@ const StubDistributionPage = () => {
     setScannerHelperMessage("");
 
     try {
-      const verification = await verifyStub({ qrCodeValue });
-      const resolvedStubId = verification?.data?.stub?.id;
+      let verification = null;
+      let stubDetails = null;
+      let resolvedStubId = "";
 
-      if (!resolvedStubId) {
-        throw createQrScanError({
-          code: QR_SCAN_ERROR_CODES.INVALID_QR_STUB,
-          message: "QR lookup did not return a valid stub record.",
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        stubDetails = await getCachedStubDetailsByQrValue(qrCodeValue, {
+          currentBarangayId: selectedBarangayForPrintId,
         });
-      }
 
-      const stubDetails = await fetchStubDetails(resolvedStubId);
+        if (!stubDetails) {
+          throw createQrScanError({
+            code: QR_SCAN_ERROR_CODES.STUB_NOT_AVAILABLE_OFFLINE,
+            message:
+              "This stub is not saved on this device for offline use. Reconnect to verify it.",
+          });
+        }
+
+        resolvedStubId = stubDetails.id;
+      } else {
+        verification = await verifyStub({ qrCodeValue });
+        resolvedStubId = verification?.data?.stub?.id || "";
+
+        if (!resolvedStubId) {
+          throw createQrScanError({
+            code: QR_SCAN_ERROR_CODES.INVALID_QR_STUB,
+            message: "QR lookup did not return a valid stub record.",
+          });
+        }
+
+        stubDetails = await fetchStubDetails(resolvedStubId, {
+          currentBarangayId: selectedBarangayForPrintId,
+        });
+        await upsertOfflineStubSnapshots([stubDetails]);
+      }
       const stubEventId = stubDetails?.disaster_event?.id || "";
       const stubBarangayId = stubDetails?.barangay?.id || "";
 
@@ -720,7 +752,10 @@ const StubDistributionPage = () => {
         });
       }
 
-      if (!verification?.data?.is_claimable || stubDetails?.status !== "ISSUED") {
+      if (
+        (verification && !verification?.data?.is_claimable) ||
+        stubDetails?.status !== "ISSUED"
+      ) {
         throw createQrScanError({
           code:
             verification?.data?.code ||
@@ -780,7 +815,9 @@ const StubDistributionPage = () => {
     setStubDetailsErrorMessage("");
 
     try {
-      const details = await fetchStubDetails(row.id);
+      const details = await fetchStubDetails(row.id, {
+        currentBarangayId: selectedBarangayForPrintId,
+      });
       setSelectedStubDetails(details);
     } catch (error) {
       setStubDetailsErrorMessage(

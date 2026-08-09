@@ -217,6 +217,8 @@ const getStatusLabel = (status) => {
 };
 
 const isArchivedHouseholdRow = (row) => row?.household?.is_active === false;
+const isRowBlockedByClaimSync = (row) =>
+  row?.is_claim_pending || row?.sync_status === "PENDING" || row?.sync_status === "CONFLICT";
 
 const StubResultsTable = ({
   rows,
@@ -292,7 +294,8 @@ const StubResultsTable = ({
         (row) =>
           row.status === "ISSUED" &&
           !row.is_local_only &&
-          !isArchivedHouseholdRow(row),
+          !isArchivedHouseholdRow(row) &&
+          !isRowBlockedByClaimSync(row),
       );
 
   const areAllSelected =
@@ -390,7 +393,8 @@ const StubResultsTable = ({
                 !isClaimReadOnly &&
                 row.status === "ISSUED" &&
                 !row.is_local_only &&
-                !isArchivedRow;
+                !isArchivedRow &&
+                !isRowBlockedByClaimSync(row);
               const isSelected = safeSelectedStubIds.includes(row.id);
 
               return (
@@ -491,6 +495,10 @@ const StubResultsTable = ({
                     }}
                   >
                     {row.is_local_only ? (
+                      <span style={getStatusChipStyles("PENDING_SYNC")}>
+                        Pending Sync
+                      </span>
+                    ) : isRowBlockedByClaimSync(row) ? (
                       <span style={getStatusChipStyles("PENDING_SYNC")}>
                         Pending Sync
                       </span>

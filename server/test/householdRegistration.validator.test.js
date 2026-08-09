@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
+  validateAndNormalizeHouseholdRegistrationPayload,
   validateCreateHouseholdRegistration,
   validateDuplicateRegistrationSuggestions,
   validateUpdateHouseholdDetails,
@@ -129,6 +130,34 @@ test("create validation accepts a valid privacy acknowledgment payload", async (
   assert.equal(
     result.req.validatedBody.privacy_acknowledgment.consent_status,
     "ACKNOWLEDGED",
+  );
+});
+
+test("shared create validator normalizes the same payload without Express middleware", () => {
+  const payload = buildValidPayload();
+  payload.contact_number = "  +639171234567  ";
+  payload.current_address_details = "  Poblacion, Malvar, Batangas  ";
+  payload.family_head_photo_url = "  data:image/jpeg;base64,ZmFrZQ==  ";
+  payload.privacy_acknowledgment.acknowledged_by_name = "  Ana Dela Cruz  ";
+
+  const normalized = validateAndNormalizeHouseholdRegistrationPayload(payload);
+
+  assert.equal(normalized.contact_number, "+639171234567");
+  assert.equal(normalized.current_address_details, "Poblacion, Malvar, Batangas");
+  assert.equal(normalized.family_head_photo_url, "data:image/jpeg;base64,ZmFrZQ==");
+  assert.equal(
+    normalized.privacy_acknowledgment.acknowledged_by_name,
+    "Ana Dela Cruz",
+  );
+});
+
+test("shared create validator rejects missing family-head photo", () => {
+  const payload = buildValidPayload();
+  delete payload.family_head_photo_url;
+
+  assert.throws(
+    () => validateAndNormalizeHouseholdRegistrationPayload(payload),
+    /Family head photo is required/i,
   );
 });
 

@@ -2,6 +2,12 @@ import {
   buildOfflineQueuedResponse,
   performSyncableMutation,
 } from "../../offline/syncService";
+import {
+  canUseOfflineStubCacheFallback,
+  getCachedStubDetailsById,
+  markCachedStubClaimTerminal,
+  upsertOfflineStubSnapshots,
+} from "./stubCache.js";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -57,7 +63,14 @@ export const fetchBarangayStubDashboard = async ({
     `${API_BASE_URL}/api/v1/stubs/barangay-dashboard?${searchParams.toString()}`,
   );
 
-  return handleJsonResponse(response, "Failed to fetch stub dashboard");
+  const responseData = await handleJsonResponse(
+    response,
+    "Failed to fetch stub dashboard",
+  );
+
+  await upsertOfflineStubSnapshots(responseData?.data || []);
+
+  return responseData;
 };
 
 export const searchStubs = async ({ query, disasterEventId, barangayId }) => {
@@ -84,10 +97,29 @@ export const verifyStub = async ({ stubNo, serialNo, qrCodeValue }) => {
   return handleJsonResponse(response, "Failed to verify stub");
 };
 
-export const fetchStubDetails = async (stubId) => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/stubs/${stubId}`);
+export const fetchStubDetails = async (stubId, { currentBarangayId = "" } = {}) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/stubs/${stubId}`);
+    const responseData = await handleJsonResponse(response, "Failed to fetch stub details");
 
-  return handleJsonResponse(response, "Failed to fetch stub details");
+    await upsertOfflineStubSnapshots(responseData ? [responseData] : []);
+
+    return responseData;
+  } catch (error) {
+    if (!canUseOfflineStubCacheFallback(error)) {
+      throw error;
+    }
+
+    const cachedDetails = await getCachedStubDetailsById(stubId, {
+      currentBarangayId,
+    });
+
+    if (!cachedDetails) {
+      throw error;
+    }
+
+    return cachedDetails;
+  }
 };
 
 export const claimStub = async ({
@@ -115,7 +147,14 @@ export const claimStub = async ({
         body: JSON.stringify(payload),
       });
 
-      return handleJsonResponse(response, "Failed to mark the stub as claimed");
+      const responseData = await handleJsonResponse(
+        response,
+        "Failed to mark the stub as claimed",
+      );
+
+      await markCachedStubClaimTerminal(stubId);
+
+      return responseData;
     },
     buildQueuedResponse: ({ clientSyncId, clientTimestamp }) =>
       buildOfflineQueuedResponse({
