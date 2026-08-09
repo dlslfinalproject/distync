@@ -714,9 +714,9 @@ const StubDistributionPage = () => {
 
         if (!stubDetails) {
           throw createQrScanError({
-            code: QR_SCAN_ERROR_CODES.STUB_NOT_FOUND,
+            code: QR_SCAN_ERROR_CODES.STUB_NOT_AVAILABLE_OFFLINE,
             message:
-              "This QR stub is not locally available. Connect to the internet to verify it first.",
+              "This stub is not saved on this device for offline use. Reconnect to verify it.",
           });
         }
 
