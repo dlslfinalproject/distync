@@ -415,8 +415,9 @@ const getMswdoAnomalyTracking = async ({
     error_barangay_attribution AS (
       SELECT
         el.id AS error_log_id,
-        s_error.disaster_event_id,
+        COALESCE(h_direct.disaster_event_id, s_error.disaster_event_id) AS disaster_event_id,
         COALESCE(
+          h_direct.barangay_id,
           h_error.barangay_id,
           CASE
             WHEN el.reference_type IS NULL
@@ -443,20 +444,23 @@ const getMswdoAnomalyTracking = async ({
         ) AS barangay_id,
         NULLIF(TRIM(CONCAT_WS(
           ' ',
-          h_error.family_head_first_name,
-          h_error.family_head_middle_name,
-          h_error.family_head_last_name,
-          h_error.family_head_suffix
+          COALESCE(h_direct.family_head_first_name, h_error.family_head_first_name),
+          COALESCE(h_direct.family_head_middle_name, h_error.family_head_middle_name),
+          COALESCE(h_direct.family_head_last_name, h_error.family_head_last_name),
+          COALESCE(h_direct.family_head_suffix, h_error.family_head_suffix)
         )), '') AS family_head_name
       FROM error_logs el
       LEFT JOIN users u
         ON u.id = el.user_id
+      LEFT JOIN households h_direct
+        ON el.reference_type = 'HOUSEHOLD'
+        AND h_direct.id = el.reference_id
       LEFT JOIN stubs s_error
         ON el.reference_type = 'STUB'
         AND s_error.id = el.reference_id
       LEFT JOIN households h_error
         ON h_error.id = s_error.household_id
-      WHERE el.module_name IN ('distribution', 'stubs')
+      WHERE el.module_name IN ('distribution', 'stubs', 'household-registration')
     ),
     sync_failed AS (
       SELECT
@@ -536,6 +540,33 @@ const getMswdoAnomalyTracking = async ({
         ${disasterEventId ? `AND eba.disaster_event_id = $${disasterEventParamIndex}` : ""}
         ${errorWhere}
     ),
+    duplicate_household_registration AS (
+      SELECT
+        'DUPLICATE_HOUSEHOLD_REGISTRATION' AS anomaly_type,
+        el.id::text AS reference_id,
+        'ERROR_LOG' AS source_type,
+        el.id::text AS source_id,
+        de.event_code,
+        de.title AS disaster_event_title,
+        b.id AS barangay_id,
+        b.name AS barangay_name,
+        eba.family_head_name,
+        el.error_message AS anomaly_reason,
+        el.severity AS status,
+        el.created_at AS occurred_at,
+        'Captured through error logging.' AS resolution_status
+      FROM error_logs el
+      LEFT JOIN error_barangay_attribution eba
+        ON eba.error_log_id = el.id
+      LEFT JOIN barangays b
+        ON b.id = eba.barangay_id
+      LEFT JOIN disaster_events de
+        ON de.id = eba.disaster_event_id
+      WHERE el.module_name = 'household-registration'
+        AND el.error_code = 'DUPLICATE_HOUSEHOLD_REGISTRATION'
+        ${disasterEventId ? `AND eba.disaster_event_id = $${disasterEventParamIndex}` : ""}
+        ${errorWhere}
+    ),
     failed_stub_verification AS (
       SELECT
         'FAILED_STUB_OR_QR_VERIFICATION' AS anomaly_type,
@@ -580,6 +611,8 @@ const getMswdoAnomalyTracking = async ({
       SELECT * FROM sync_conflict
       UNION ALL
       SELECT * FROM duplicate_claim_attempts
+      UNION ALL
+      SELECT * FROM duplicate_household_registration
       UNION ALL
       SELECT * FROM failed_stub_verification
     ),

@@ -13,6 +13,7 @@ const allowedAnomalyTypes = new Set([
   "SYNC_FAILED",
   "SYNC_CONFLICT",
   "DUPLICATE_CLAIM_ATTEMPT",
+  "DUPLICATE_HOUSEHOLD_REGISTRATION",
   "FAILED_STUB_OR_QR_VERIFICATION",
 ]);
 const allowedStatusCategories = new Set(["open", "resolved", "failed"]);

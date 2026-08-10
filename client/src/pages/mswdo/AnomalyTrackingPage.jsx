@@ -97,6 +97,7 @@ const anomalyTypes = [
   { value: "SYNC_FAILED", label: "Failed Sync" },
   { value: "SYNC_CONFLICT", label: "Sync Conflict" },
   { value: "DUPLICATE_CLAIM_ATTEMPT", label: "Duplicate Claim Attempt" },
+  { value: "DUPLICATE_HOUSEHOLD_REGISTRATION", label: "Duplicate Household Registration" },
   { value: "FAILED_STUB_OR_QR_VERIFICATION", label: "Failed Stub or QR Verification" },
 ];
 

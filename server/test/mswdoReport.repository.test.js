@@ -140,13 +140,15 @@ test("H01-04 and H01-05 error-log anomalies use a narrow Barangay-only actor fal
     });
 
     assert.match(capturedQuery, /error_barangay_attribution AS/);
-    assert.match(capturedQuery, /el\.module_name IN \('distribution', 'stubs'\)/);
+    assert.match(capturedQuery, /el\.module_name IN \('distribution', 'stubs', 'household-registration'\)/);
+    assert.match(capturedQuery, /LEFT JOIN households h_direct\s+ON el\.reference_type = 'HOUSEHOLD'\s+AND h_direct\.id = el\.reference_id/);
     assert.match(capturedQuery, /LEFT JOIN stubs s_error\s+ON el\.reference_type = 'STUB'\s+AND s_error\.id = el\.reference_id/);
     assert.match(capturedQuery, /LEFT JOIN households h_error\s+ON h_error\.id = s_error\.household_id/);
     assert.match(capturedQuery, /r_barangay\.code = 'BARANGAY'/);
     assert.match(capturedQuery, /r_other\.code IN \('MSWDO', 'MAYOR'\)/);
     assert.match(capturedQuery, /LEFT JOIN error_barangay_attribution eba\s+ON eba\.error_log_id = el\.id/);
     assert.match(capturedQuery, /DUPLICATE_CLAIM_ATTEMPT/);
+    assert.match(capturedQuery, /DUPLICATE_HOUSEHOLD_REGISTRATION/);
     assert.match(capturedQuery, /FAILED_STUB_OR_QR_VERIFICATION/);
   } finally {
     harness.restore();
@@ -220,6 +222,47 @@ test("ANOMSRC-04/05 error-log anomalies use structured codes and stub references
     assert.doesNotMatch(capturedQuery, /ILIKE '%already claimed%'/);
     assert.doesNotMatch(capturedQuery, /ILIKE '%stub not found%'/);
     assert.match(capturedQuery, /LEFT JOIN disaster_events de\s+ON de\.id = eba\.disaster_event_id/);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("MSWDO-ANOM-I01 direct duplicate household errors become attributed anomaly rows", async () => {
+  let capturedQuery = "";
+  let capturedValues = [];
+  const harness = loadRepositoryWithMockPool(async (query, values) => {
+    capturedQuery = query;
+    capturedValues = values;
+    return { rows: [] };
+  });
+
+  try {
+    await harness.repository.getMswdoAnomalyTracking({
+      disasterEventId: "event-1",
+      barangayId: "barangay-a",
+      anomalyType: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+      search: "Duplicate Household",
+      page: 1,
+      pageSize: 25,
+    });
+
+    assert.match(capturedQuery, /duplicate_household_registration AS/);
+    assert.match(capturedQuery, /'DUPLICATE_HOUSEHOLD_REGISTRATION' AS anomaly_type/);
+    assert.match(capturedQuery, /el\.module_name = 'household-registration'/);
+    assert.match(capturedQuery, /el\.error_code = 'DUPLICATE_HOUSEHOLD_REGISTRATION'/);
+    assert.match(capturedQuery, /'ERROR_LOG' AS source_type[\s\S]*el\.id::text AS source_id/);
+    assert.match(capturedQuery, /COALESCE\(h_direct\.disaster_event_id, s_error\.disaster_event_id\) AS disaster_event_id/);
+    assert.match(capturedQuery, /h_direct\.barangay_id/);
+    assert.match(capturedQuery, /SELECT \* FROM duplicate_household_registration/);
+    assert.match(capturedQuery, /anomaly_type = \$3/);
+    assert.match(capturedQuery, /ILIKE \$4/);
+    assert.match(capturedQuery, /barangay_id = \$2/);
+    assert.deepEqual(capturedValues.slice(0, 4), [
+      "event-1",
+      "barangay-a",
+      "DUPLICATE_HOUSEHOLD_REGISTRATION",
+      "%Duplicate Household%",
+    ]);
   } finally {
     harness.restore();
   }
@@ -513,7 +556,7 @@ test("M05F-08 source semantics stay unchanged while adding internal source ident
     assert.match(itemQuery, /sc\.status = 'OPEN'/);
     assert.match(itemQuery, /el\.error_code = 'STUB_ALREADY_CLAIMED'/);
     assert.match(itemQuery, /el\.error_code IN \(/);
-    assert.equal((itemQuery.match(/UNION ALL/g) || []).length, 4);
+    assert.equal((itemQuery.match(/UNION ALL/g) || []).length, 5);
   } finally {
     harness.restore();
   }

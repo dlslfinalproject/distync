@@ -24,6 +24,17 @@ test("M05 anomaly page requests bounded server pages instead of the old 500-row 
   assert.doesNotMatch(source, /\.sort\(\(firstRow,\s*secondRow\)/);
 });
 
+test("MSWDO-ANOM-I01 anomaly page exposes duplicate household registration label and filter id", async () => {
+  const source = await fs.readFile(pageSourcePath, "utf8");
+
+  assert.match(
+    source,
+    /value:\s*"DUPLICATE_HOUSEHOLD_REGISTRATION",\s*label:\s*"Duplicate Household Registration"/,
+  );
+  assert.match(source, /formatAnomalyType\(row\.anomaly_type\)/);
+  assert.doesNotMatch(source, />\{row\.anomaly_type\}</);
+});
+
 test("M05 anomaly page resets pagination when result filters change", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
 

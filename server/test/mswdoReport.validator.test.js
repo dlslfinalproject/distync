@@ -64,6 +64,22 @@ test("M05 validator allowlists anomaly filters and sort order", async () => {
   assert.equal(invalidOrder.statusCode, 400);
 });
 
+test("MSWDO-ANOM-I01 validator accepts duplicate household anomaly filter only by canonical id", async () => {
+  const valid = await runValidator({
+    anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+  });
+  const invalidSynonym = await runValidator({
+    anomaly_type: "DUPLICATE_EVACUEE_REGISTRATION",
+  });
+
+  assert.equal(valid.statusCode, 200);
+  assert.equal(
+    valid.validatedQuery.anomaly_type,
+    "DUPLICATE_HOUSEHOLD_REGISTRATION",
+  );
+  assert.equal(invalidSynonym.statusCode, 400);
+});
+
 test("M05NULL-11 validator keeps the server-owned anomaly sort allowlist unchanged", async () => {
   for (const order of ["newest", "oldest", "az", "za"]) {
     const result = await runValidator({ order });
