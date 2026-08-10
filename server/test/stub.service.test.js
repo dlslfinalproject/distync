@@ -78,6 +78,7 @@ const baseStub = {
   status: "CLAIMED",
   claimed_at: "2026-08-08T01:00:00.000Z",
   barangay_id: baseBarangayId,
+  disaster_event_status: "ACTIVE",
 };
 
 const baseParams = {
@@ -295,4 +296,94 @@ test("H05-12 verifyStub marks archived households as not claimable", async () =>
       );
     },
   );
+});
+
+test("EE-FIX-03 claimBarangayStub blocks new claims when the event is not ACTIVE", async () => {
+  for (const disasterEventStatus of ["PLANNED", "CLOSED", "ARCHIVED"]) {
+    const events = [];
+    let claimHandlerCalled = false;
+
+    await withStubbedStubService(
+      createBaseStubs({
+        events,
+        scopedStub: {
+          ...baseStub,
+          status: "ISSUED",
+          disaster_event_status: "ACTIVE",
+        },
+        lockedStub: {
+          ...baseStub,
+          status: "ISSUED",
+          disaster_event_status: disasterEventStatus,
+        },
+        claimHandler: async () => {
+          claimHandlerCalled = true;
+          throw new Error("claim handler should not run for inactive events");
+        },
+      }),
+      async ({ claimBarangayStub }) => {
+        await assert.rejects(
+          () => claimBarangayStub(baseParams),
+          (error) => {
+            assert.equal(error.code, "DISASTER_EVENT_NOT_ACTIVE");
+            assert.equal(error.statusCode, 400);
+            assert.equal(error.entityServerId, baseStub.id);
+            return true;
+          },
+        );
+      },
+    );
+
+    assert.equal(claimHandlerCalled, false);
+    assert.deepEqual(events, ["BEGIN", "ROLLBACK", "RELEASE"]);
+  }
+});
+
+test("EE-FIX-03 claimBarangayStub allows ACTIVE event claims to reach domain mutation", async () => {
+  const events = [];
+  let claimHandlerCalled = false;
+
+  await withStubbedStubService(
+    createBaseStubs({
+      events,
+      scopedStub: {
+        ...baseStub,
+        status: "ISSUED",
+      },
+      lockedStub: {
+        ...baseStub,
+        status: "ISSUED",
+        disaster_event_status: "ACTIVE",
+      },
+      claimHandler: async () => {
+        claimHandlerCalled = true;
+        return {
+          distributionTransaction: {
+            id: "66666666-6666-4666-8666-666666666666",
+            distribution_status: "CLAIMED",
+          },
+          updatedStub: {
+            ...baseStub,
+            status: "CLAIMED",
+            updated_at: "2026-08-10T01:00:00.000Z",
+          },
+          packQuantity: 1,
+          donatedReliefPacks: [],
+          donatedLooseItems: [],
+        };
+      },
+    }),
+    async ({ claimBarangayStub }) => {
+      const result = await claimBarangayStub(baseParams);
+
+      assert.equal(result.data.status, "CLAIMED");
+      assert.equal(
+        result.data.distribution_transaction_id,
+        "66666666-6666-4666-8666-666666666666",
+      );
+    },
+  );
+
+  assert.equal(claimHandlerCalled, true);
+  assert.deepEqual(events, ["BEGIN", "COMMIT", "RELEASE"]);
 });

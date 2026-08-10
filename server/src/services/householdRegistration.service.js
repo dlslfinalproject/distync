@@ -40,7 +40,7 @@ const NON_ADMITTED_RESIDENT_STAY_TYPES = new Set([
 
 const buildDuplicateDepartureError = (householdId, latestAttendance) => {
   const error = new Error(
-    "Duplicate household departure detected. Earlier departure time was kept.",
+    "Duplicate household departure detected. Accepted server departure time was kept.",
   );
   error.statusCode = 409;
   error.code = "DUPLICATE_HOUSEHOLD_DEPARTURE";
@@ -98,6 +98,21 @@ const buildHouseholdPrivacySaveFailedError = (cause = null) => {
     error.cause = cause;
   }
   return error;
+};
+
+const buildDisasterEventNotActiveError = () => {
+  const error = new Error(
+    "Household registration cannot be completed because the disaster event is not active.",
+  );
+  error.statusCode = 400;
+  error.code = "DISASTER_EVENT_NOT_ACTIVE";
+  return error;
+};
+
+const assertHouseholdUpdateDisasterEventActive = (household) => {
+  if (household?.disaster_event_status !== "ACTIVE") {
+    throw buildDisasterEventNotActiveError();
+  }
 };
 
 const buildFullName = ({
@@ -1224,6 +1239,8 @@ const updateHouseholdDetails = async ({
     dbClient,
   });
 
+  assertHouseholdUpdateDisasterEventActive(existingHousehold);
+
   if (requestData.disaster_event_id !== existingHousehold.disaster_event_id) {
     const error = new Error("disaster_event_id cannot be changed");
     error.statusCode = 400;
@@ -1835,6 +1852,10 @@ const registerHousehold = async (requestData) => {
       throw error;
     }
 
+    if (lockedScope.status !== "ACTIVE") {
+      throw buildDisasterEventNotActiveError();
+    }
+
     const authoritativeDuplicateMatch =
       await getStrongestDuplicateRegistrationMatch({
         disasterEventId: requestDataWithDerivedAgeGroups.disaster_event_id,
@@ -2092,84 +2113,118 @@ const departHousehold = async (
   requester = null,
   options = {},
 ) => {
-  const household =
-    await householdRegistrationRepository.getHouseholdSummaryById(householdId);
-
-  if (!household) {
-    const error = new Error("Household not found");
-    error.statusCode = 404;
-    throw error;
-  }
-
-  if (!household.is_active) {
-    if (departureDetails?.allow_duplicate_departure_resolution) {
-      const latestAttendance =
-        await householdRegistrationRepository.getLatestAttendanceByHouseholdId(
-          householdId,
-          household.disaster_event_id,
-        );
-
-      if (latestAttendance?.time_out) {
-        if (
-          isEarlierTimestamp(
-            departureDetails.departure_time,
-            latestAttendance.time_out,
-          )
-        ) {
-          const updatedLogs =
-            await householdRegistrationRepository.updateHouseholdDepartureTimestamp(
-              householdId,
-              departureDetails.departure_time,
-            );
-
-          return {
-            household_id: householdId,
-            affected_logs_count: updatedLogs.length,
-            archived_members_count: 0,
-            latest_departure_time:
-              updatedLogs[0]?.time_out || latestAttendance.time_out,
-            status: "ARCHIVED",
-            household,
-          };
-        }
-
-        throw buildDuplicateDepartureError(householdId, latestAttendance);
-      }
-    }
-
-    const error = new Error("Archived households cannot be marked as departed");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  const activeEvacuationLogs =
-    await householdRegistrationRepository.getActiveEvacuationLogsByHouseholdId(
-      householdId,
-    );
-
-  if (activeEvacuationLogs.length === 0) {
-    const error = new Error(
-      "This household has no active arrival record to mark as departed",
-    );
-    error.statusCode = 400;
-    throw error;
-  }
-
-  const previousHouseholdSummary = summarizeHousehold(household);
   const externalClient = options.dbClient || null;
   const client = externalClient || await pool.connect();
+  let transactionResult = null;
 
   try {
     if (!externalClient) {
       await client.query("BEGIN");
     }
 
+    const scopedHousehold =
+      await householdRegistrationRepository.getHouseholdSummaryById(
+        householdId,
+        client,
+      );
+
+    if (!scopedHousehold) {
+      const error = new Error("Household not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (
+      requester?.roleCode === BARANGAY_ROLE_CODE &&
+      scopedHousehold.barangay_id !== requester.defaultBarangayId
+    ) {
+      const error = new Error("You do not have access to depart this household");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    const lockedHousehold =
+      await householdRegistrationRepository.getHouseholdSummaryByIdForUpdate(
+        householdId,
+        client,
+      );
+
+    if (!lockedHousehold) {
+      const error = new Error("Household not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (!lockedHousehold.is_active) {
+      if (departureDetails?.allow_duplicate_departure_resolution) {
+        const latestAttendance =
+          await householdRegistrationRepository.getLatestAttendanceByHouseholdId(
+            householdId,
+            client,
+          );
+
+        if (latestAttendance?.time_out) {
+          throw buildDuplicateDepartureError(householdId, latestAttendance);
+        }
+      }
+
+      const error = new Error("Archived households cannot be marked as departed");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const activeEvacuationLogs =
+      await householdRegistrationRepository.getActiveEvacuationLogsByHouseholdId(
+        householdId,
+        client,
+      );
+
+    if (activeEvacuationLogs.length === 0) {
+      const error = new Error(
+        "This household has no active arrival record to mark as departed",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const previousHouseholdSummary = summarizeHousehold(lockedHousehold);
     const updatedLogs =
       await householdRegistrationRepository.markHouseholdDeparture(
         householdId,
         departureDetails,
         client,
       );
+
+    if (updatedLogs.length === 0) {
+      const currentHousehold =
+        await householdRegistrationRepository.getHouseholdSummaryById(
+          householdId,
+          client,
+        );
+
+      if (
+        !currentHousehold?.is_active &&
+        departureDetails?.allow_duplicate_departure_resolution
+      ) {
+        const latestAttendance =
+          await householdRegistrationRepository.getLatestAttendanceByHouseholdId(
+            householdId,
+            client,
+          );
+
+        if (latestAttendance?.time_out) {
+          throw buildDuplicateDepartureError(householdId, latestAttendance);
+        }
+      }
+
+      const error = new Error(
+        "This household departure could not be completed because the active arrival state was no longer available",
+      );
+      error.statusCode = 409;
+      error.code = "HOUSEHOLD_DEPARTURE_STATE_CONSUMED";
+      throw error;
+    }
+
     const archivedHousehold =
       await householdRegistrationRepository.archiveHousehold(householdId, client);
     const archivedEvacuees =
@@ -2182,13 +2237,30 @@ const departHousehold = async (
       await client.query("COMMIT");
     }
 
+    transactionResult = {
+      household_id: householdId,
+      affected_logs_count: updatedLogs.length,
+      archived_members_count: archivedEvacuees.length,
+      latest_departure_time: updatedLogs[0]?.time_out || null,
+      status: "ARCHIVED",
+      household: archivedHousehold,
+      previousHouseholdSummary,
+      familyHeadName: [
+        lockedHousehold.family_head_first_name,
+        lockedHousehold.family_head_last_name,
+      ]
+        .filter(Boolean)
+        .join(" "),
+      barangayId: lockedHousehold.barangay_id,
+    };
+
     if (!externalClient) {
       await logAuditSafely({
         actor: requester,
         action: "HOUSEHOLD_DEPART_AND_ARCHIVE",
         entityType: "HOUSEHOLD",
         entityId: householdId,
-        oldValues: previousHouseholdSummary,
+        oldValues: transactionResult.previousHouseholdSummary,
         newValues: {
           ...summarizeHousehold(archivedHousehold),
           departure_remarks: departureDetails?.remarks || null,
@@ -2199,31 +2271,24 @@ const departHousehold = async (
       });
     }
 
-    const familyHeadName = [
-      household.family_head_first_name,
-      household.family_head_last_name,
-    ]
-      .filter(Boolean)
-      .join(" ");
-
     if (!externalClient) {
       await notificationService.emitSafely(() =>
         notificationService.emitEvacueeAttendanceUpdate({
           householdId,
-          barangayId: household.barangay_id,
-          familyHeadName,
+          barangayId: transactionResult.barangayId,
+          familyHeadName: transactionResult.familyHeadName,
           action: "departure-recorded",
         }),
       );
     }
 
     return {
-      household_id: householdId,
-      affected_logs_count: updatedLogs.length,
-      archived_members_count: archivedEvacuees.length,
-      latest_departure_time: updatedLogs[0]?.time_out || null,
-      status: "ARCHIVED",
-      household: archivedHousehold,
+      household_id: transactionResult.household_id,
+      affected_logs_count: transactionResult.affected_logs_count,
+      archived_members_count: transactionResult.archived_members_count,
+      latest_departure_time: transactionResult.latest_departure_time,
+      status: transactionResult.status,
+      household: transactionResult.household,
     };
   } catch (error) {
     if (!externalClient) {
@@ -2607,6 +2672,7 @@ const restoreHousehold = async ({ householdId, requester, restoreData }) => {
 module.exports = {
   getHouseholdDetails,
   getAuthorizedHouseholdSummaryForUpdate,
+  assertHouseholdUpdateDisasterEventActive,
   getDuplicateRegistrationSuggestions,
   registerHousehold,
   updateHouseholdDetails,

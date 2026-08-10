@@ -35,6 +35,7 @@ const DistributionForm = ({
   successMessage,
   isSubmitting,
   isLoadingData,
+  isSubmitDisabled = false,
   onClaimedByNameChange,
   onRemarksChange,
   onTemplateChange,
@@ -174,10 +175,10 @@ const DistributionForm = ({
         <button
           type="button"
           onClick={onSubmit}
-          disabled={isLoadingData || isSubmitting}
+          disabled={isLoadingData || isSubmitting || isSubmitDisabled}
           style={{
             ...pageHeaderStyles.primaryButton,
-            opacity: isLoadingData || isSubmitting ? 0.7 : 1,
+            opacity: isLoadingData || isSubmitting || isSubmitDisabled ? 0.7 : 1,
           }}
         >
           {isSubmitting ? "Recording Distribution..." : "Record Distribution"}

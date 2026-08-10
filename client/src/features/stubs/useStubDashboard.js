@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchBarangayStubDashboard } from "./stubService";
 import { getPendingLocalStubRows } from "./stubOfflineRows";
+import {
+  canUseOfflineStubCacheFallback,
+  getCachedStubRowsForScope,
+} from "./stubCache";
 
 const emptyMetrics = {
   total_issued_stubs: 0,
@@ -105,16 +109,25 @@ export const useStubDashboard = ({
         }
       } catch (error) {
         if (isMounted) {
-          const localRows = await getPendingLocalStubRows({
+          const scopedBarangayId = overrideBarangayId || assignedBarangayId || null;
+          const pendingRows = await getPendingLocalStubRows({
             disasterEventId,
-            barangayId: overrideBarangayId || assignedBarangayId || null,
+            barangayId: scopedBarangayId,
             sectorOptions,
           });
+          const cachedRows = canUseOfflineStubCacheFallback(error)
+            ? await getCachedStubRowsForScope({
+                disasterEventId,
+                currentBarangayId: scopedBarangayId,
+              })
+            : [];
 
           setDashboard(emptyDashboard);
-          setPendingLocalRows(localRows);
+          setPendingLocalRows([...pendingRows, ...cachedRows]);
           setErrorMessage(
-            localRows.length > 0 ? "" : getFriendlyStubDashboardErrorMessage(error),
+            pendingRows.length > 0 || cachedRows.length > 0
+              ? ""
+              : getFriendlyStubDashboardErrorMessage(error),
           );
         }
       } finally {

@@ -1,4 +1,4 @@
-import { ACCESS_MODES, getAccessMode } from "./accessMode";
+import { ACCESS_MODES, getAccessMode } from "./accessMode.js";
 
 const resolveStubQrBaseUrl = () => {
   const configuredBaseUrl = String(import.meta.env.VITE_PUBLIC_APP_URL || "").trim();

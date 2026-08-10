@@ -19,6 +19,23 @@ const STUB_ALREADY_CLAIMED_CODE = "STUB_ALREADY_CLAIMED";
 const ARCHIVED_HOUSEHOLD_CODE = "HOUSEHOLD_ARCHIVED";
 const DISTRIBUTION_STUB_UNIQUE_CONSTRAINT = "distribution_transactions_stub_id_key";
 
+const buildDisasterEventNotActiveError = (stub) => {
+  const error = buildQrValidationError({
+    code: "DISASTER_EVENT_NOT_ACTIVE",
+    message: "Relief claim cannot be completed because the disaster event is not active.",
+    statusCode: 400,
+    details: buildStubReferenceDetails(stub),
+  });
+  error.entityServerId = stub?.id || null;
+  return error;
+};
+
+const assertDisasterEventActiveForNewClaim = (stub) => {
+  if (stub?.disaster_event_status !== "ACTIVE") {
+    throw buildDisasterEventNotActiveError(stub);
+  }
+};
+
 const buildFullName = (firstName, middleName, lastName, suffix) => {
   return [firstName, middleName, lastName, suffix].filter(Boolean).join(" ");
 };
@@ -576,6 +593,8 @@ const claimBarangayStub = async (params) => {
         details: buildStubReferenceDetails(lockedStub),
       });
     }
+
+    assertDisasterEventActiveForNewClaim(lockedStub);
 
     const receivedAt = params.claimed_at || new Date().toISOString();
     const automaticClaimResult = await recordAutomaticReliefPackClaim({

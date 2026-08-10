@@ -143,6 +143,55 @@ const baseAuth = {
   defaultBarangayId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
 };
 
+const buildValidHouseholdRegisterSyncPayload = (overrides = {}) => ({
+  disaster_event_id: "11111111-1111-4111-8111-111111111111",
+  barangay_id: baseAuth.defaultBarangayId,
+  residency_status: "RESIDENT",
+  evacuation_center_id: "22222222-2222-4222-8222-222222222222",
+  family_head: {
+    first_name: "Ana",
+    middle_name: null,
+    last_name: "Dela Cruz",
+    suffix: null,
+    sex: "FEMALE",
+    age_value: 34,
+    age_unit: "YEARS",
+    sector_ids: [],
+  },
+  current_stay_type: "EVAC_CENTER",
+  household_size: 2,
+  contact_number: " 09171234567 ",
+  current_address_details: " Poblacion, Malvar ",
+  family_head_photo_url: " data:image/jpeg;base64,ZmFrZQ== ",
+  photo_verification_notes: " Verified offline ",
+  privacy_acknowledgment: {
+    consent_status: "ACKNOWLEDGED",
+    notice_version: "2026-07-30-v2",
+    acknowledged_at: "2026-08-08T00:45:00.000Z",
+    acknowledged_by_name: " Ana Dela Cruz ",
+    representative_relationship: null,
+    device_id: null,
+    is_offline_encoded: true,
+    sync_status: "PENDING",
+  },
+  members: [
+    {
+      id: null,
+      first_name: "Marco",
+      middle_name: null,
+      last_name: "Dela Cruz",
+      suffix: null,
+      sex: "MALE",
+      age_value: 12,
+      age_unit: "YEARS",
+      relationship_to_head: "SON",
+      sector_ids: [],
+    },
+  ],
+  household_sector_ids: [],
+  ...overrides,
+});
+
 test("BRG-SC-03 TEST A rejects foreign Barangay HOUSEHOLD_UPDATE before conflict evidence is stored", async () => {
   const foreignHousehold = {
     id: "11111111-1111-4111-8111-111111111111",
@@ -469,6 +518,282 @@ test("BRG-SC-03 TEST F preserves MSWDO HOUSEHOLD_UPDATE access", async () => {
   );
 });
 
+test("BRG-SC-06-H01 TEST F foreign Barangay HOUSEHOLD_DEPART sync fails without conflict evidence", async () => {
+  let conflictCalls = 0;
+  let departCall = null;
+  let failedTransactionPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("Unauthorized departure must not become a conflict");
+        },
+        updateSyncTransaction: async (id, payload) => {
+          if (payload.sync_status === "FAILED") {
+            failedTransactionPayload = payload;
+          }
+
+          return {
+            id,
+            ...payload,
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        departHousehold: async (
+          entityServerId,
+          departureDetails,
+          requester,
+        ) => {
+          departCall = { entityServerId, departureDetails, requester };
+          const error = new Error("You do not have access to depart this household");
+          error.statusCode = 403;
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "brg-sc-06-h01-foreign-depart",
+            action_key: "HOUSEHOLD_DEPART",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "66666666-6666-4666-8666-666666666666",
+            client_timestamp: "2026-08-09T03:00:00.000Z",
+            payload: {
+              barangay_id: baseAuth.defaultBarangayId,
+              departure_time: "2026-08-09T03:00:00.000Z",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(result.data, null);
+      assert.equal(result.message, "You do not have access to depart this household");
+      assert.equal(conflictCalls, 0);
+      assert.equal(departCall.requester.roleCode, "BARANGAY");
+      assert.equal(departCall.requester.defaultBarangayId, baseAuth.defaultBarangayId);
+      assert.equal(departCall.departureDetails.allow_duplicate_departure_resolution, true);
+      assert.equal(failedTransactionPayload.sync_status, "FAILED");
+      assert.doesNotMatch(JSON.stringify(result), /time_out|serverPayload|FIRST_ACCEPTED/);
+    },
+  );
+});
+
+test("BRG-SC-06-H01 TEST G same-Barangay HOUSEHOLD_DEPART sync remains SYNCED", async () => {
+  let departCall = null;
+  let conflictCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("Successful departure should not create conflict");
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        departHousehold: async (
+          entityServerId,
+          departureDetails,
+          requester,
+        ) => {
+          departCall = { entityServerId, departureDetails, requester };
+          return {
+            household_id: entityServerId,
+            affected_logs_count: 1,
+            archived_members_count: 2,
+            latest_departure_time: departureDetails.departure_time,
+            status: "ARCHIVED",
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "brg-sc-06-h01-same-depart",
+            action_key: "HOUSEHOLD_DEPART",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "77777777-7777-4777-8777-777777777777",
+            client_timestamp: "2026-08-09T03:00:00.000Z",
+            payload: {
+              departure_time: "2026-08-09T03:00:00.000Z",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.data.status, "ARCHIVED");
+      assert.equal(result.conflict, null);
+      assert.equal(conflictCalls, 0);
+      assert.equal(departCall.requester.defaultBarangayId, baseAuth.defaultBarangayId);
+    },
+  );
+});
+
+test("BRG-SC-06-H01 TEST H MSWDO HOUSEHOLD_DEPART sync access remains broad", async () => {
+  let requesterRole = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub(),
+      [householdRegistrationServicePath]: {
+        departHousehold: async (
+          entityServerId,
+          _departureDetails,
+          requester,
+        ) => {
+          requesterRole = requester.roleCode;
+          return {
+            household_id: entityServerId,
+            affected_logs_count: 1,
+            archived_members_count: 1,
+            status: "ARCHIVED",
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MSWDO",
+          defaultBarangayId: null,
+        },
+        entries: [
+          {
+            client_sync_id: "brg-sc-06-h01-mswdo-depart",
+            action_key: "HOUSEHOLD_DEPART",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "88888888-8888-4888-8888-888888888888",
+            client_timestamp: "2026-08-09T03:00:00.000Z",
+            payload: {
+              departure_time: "2026-08-09T03:00:00.000Z",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.conflict, null);
+      assert.equal(requesterRole, "MSWDO");
+    },
+  );
+});
+
+test("BRG-SC-06-H02 HOUSEHOLD_DEPART duplicate records resolved FIRST_ACCEPTED without reporting SYNCED", async () => {
+  let departCall = null;
+  let conflictPayload = null;
+  let transactionPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          transactionPayload = payload.transactionPayload;
+          conflictPayload = payload.conflictPayload;
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: "conflict-household-depart-first-accepted",
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        departHousehold: async (
+          entityServerId,
+          departureDetails,
+          requester,
+        ) => {
+          departCall = { entityServerId, departureDetails, requester };
+          const error = new Error(
+            "Duplicate household departure detected. Accepted server departure time was kept.",
+          );
+          error.statusCode = 409;
+          error.code = "DUPLICATE_HOUSEHOLD_DEPARTURE";
+          error.entityServerId = entityServerId;
+          error.serverPayload = {
+            id: "accepted-log-1",
+            household_id: entityServerId,
+            status: "LEFT",
+            time_in: "2026-08-09T01:00:00.000Z",
+            time_out: "2026-08-09T03:00:00.000Z",
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "brg-sc-06-h02-earlier-depart",
+            action_key: "HOUSEHOLD_DEPART",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "99999999-9999-4999-8999-999999999999",
+            client_timestamp: "2026-08-09T02:30:00.000Z",
+            payload: {
+              departure_time: "2026-08-09T02:30:00.000Z",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "CONFLICT");
+      assert.equal(result.conflict.id, "conflict-household-depart-first-accepted");
+      assert.equal(result.conflict.conflict_type, "DUPLICATE_HOUSEHOLD_DEPARTURE");
+      assert.equal(result.conflict.resolution_strategy, "FIRST_ACCEPTED");
+      assert.equal(result.conflict.status, "RESOLVED");
+      assert.equal(result.conflict.resolved_payload_json.winner, "SERVER");
+      assert.equal(
+        result.conflict.server_payload_json.time_out,
+        "2026-08-09T03:00:00.000Z",
+      );
+      assert.equal(transactionPayload.sync_status, "CONFLICT");
+      assert.equal(departCall.departureDetails.allow_duplicate_departure_resolution, true);
+      assert.equal(departCall.requester.defaultBarangayId, baseAuth.defaultBarangayId);
+      assert.equal(conflictPayload.local_payload_json.departure_time, "2026-08-09T02:30:00.000Z");
+    },
+  );
+});
+
 test("INV-M-01 insufficient stock with trusted stale basis becomes OPEN manual-review conflict", async () => {
   const previousSecret = process.env.INVENTORY_STATE_BASIS_SECRET;
   process.env.INVENTORY_STATE_BASIS_SECRET = "unit-test-inventory-state-basis-secret";
@@ -680,6 +1005,7 @@ test("M02-04 normal conflict processes notification intent after sync transactio
 
 test("M02-05 genuine FAILED transition persists notification intent and processes it after commit", async () => {
   const processedIntentIds = [];
+  let registerHouseholdCalls = 0;
 
   await withStubbedSyncService(
     {
@@ -700,7 +1026,8 @@ test("M02-05 genuine FAILED transition persists notification intent and processe
       }),
       [householdRegistrationServicePath]: {
         registerHousehold: async () => {
-          throw new Error("validator rejected offline household");
+          registerHouseholdCalls += 1;
+          throw new Error("missing-photo sync must not reach business mutation");
         },
       },
       [notificationServicePath]: {
@@ -724,6 +1051,263 @@ test("M02-05 genuine FAILED transition persists notification intent and processe
             entity_type: "HOUSEHOLD",
             entity_local_id: "local-m02-failed",
             client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: buildValidHouseholdRegisterSyncPayload({
+              family_head_photo_url: " ",
+            }),
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.match(result.message, /Family head photo is required/i);
+      assert.equal(result.conflict, null);
+      assert.equal(registerHouseholdCalls, 0);
+      assert.deepEqual(processedIntentIds, ["outbox-failed-sync"]);
+    },
+  );
+});
+
+test("EE-FIX-01 HOUSEHOLD_REGISTER non-ACTIVE event business failure becomes FAILED, not CONFLICT", async () => {
+  let conflictCalls = 0;
+  let failedTransactionPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("non-ACTIVE registration must not create conflict");
+        },
+        updateSyncTransaction: async (id, payload) => {
+          if (payload.sync_status === "FAILED") {
+            failedTransactionPayload = payload;
+          }
+
+          return {
+            id,
+            ...payload,
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          const error = new Error(
+            "Household registration cannot be completed because the disaster event is not active.",
+          );
+          error.statusCode = 400;
+          error.code = "DISASTER_EVENT_NOT_ACTIVE";
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "ee-fix-01-non-active-register",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-ee-fix-01",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: buildValidHouseholdRegisterSyncPayload(),
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(result.data, null);
+      assert.match(result.message, /disaster event is not active/i);
+      assert.equal(conflictCalls, 0);
+      assert.equal(
+        failedTransactionPayload.error_message,
+        "Household registration cannot be completed because the disaster event is not active.",
+      );
+    },
+  );
+});
+
+test("EE-FIX-02 HOUSEHOLD_UPDATE non-ACTIVE events fail before LATEST_TIMESTAMP conflict handling", async () => {
+  const cases = [
+    {
+      label: "closed-client-newer",
+      disaster_event_status: "CLOSED",
+      serverUpdatedAt: "2026-08-08T01:00:00.000Z",
+      clientUpdatedAt: "2026-08-08T02:00:00.000Z",
+      current_stay_type: "EVAC_CENTER",
+      is_active: true,
+    },
+    {
+      label: "closed-server-newer",
+      disaster_event_status: "CLOSED",
+      serverUpdatedAt: "2026-08-08T03:00:00.000Z",
+      clientUpdatedAt: "2026-08-08T02:00:00.000Z",
+      current_stay_type: "EVAC_CENTER",
+      is_active: true,
+    },
+    {
+      label: "closed-equal",
+      disaster_event_status: "CLOSED",
+      serverUpdatedAt: "2026-08-08T02:00:00.000Z",
+      clientUpdatedAt: "2026-08-08T02:00:00.000Z",
+      current_stay_type: "EVAC_CENTER",
+      is_active: true,
+    },
+    {
+      label: "closed-non-admitted-resident",
+      disaster_event_status: "CLOSED",
+      serverUpdatedAt: "2026-08-08T01:00:00.000Z",
+      clientUpdatedAt: "2026-08-08T02:00:00.000Z",
+      current_stay_type: "RELATIVES",
+      residency_status: "RESIDENT",
+      is_active: false,
+    },
+    {
+      label: "planned",
+      disaster_event_status: "PLANNED",
+      serverUpdatedAt: "2026-08-08T01:00:00.000Z",
+      clientUpdatedAt: "2026-08-08T02:00:00.000Z",
+      current_stay_type: "EVAC_CENTER",
+      is_active: true,
+    },
+    {
+      label: "archived",
+      disaster_event_status: "ARCHIVED",
+      serverUpdatedAt: "2026-08-08T01:00:00.000Z",
+      clientUpdatedAt: "2026-08-08T02:00:00.000Z",
+      current_stay_type: "EVAC_CENTER",
+      is_active: true,
+    },
+  ];
+
+  for (const currentCase of cases) {
+    let conflictCalls = 0;
+    let updateCalled = false;
+    let failedTransactionPayload = null;
+
+    await withStubbedSyncService(
+      {
+        [syncRepositoryPath]: createBaseSyncRepositoryStub({
+          recordConflictAndUpdateSyncTransaction: async () => {
+            conflictCalls += 1;
+            throw new Error("non-ACTIVE HOUSEHOLD_UPDATE must not create conflict");
+          },
+          updateSyncTransaction: async (id, payload) => {
+            if (payload.sync_status === "FAILED") {
+              failedTransactionPayload = payload;
+            }
+
+            return {
+              id,
+              ...payload,
+            };
+          },
+        }),
+        [householdRegistrationServicePath]: {
+          getAuthorizedHouseholdSummaryForUpdate: async () => ({
+            id: `household-${currentCase.label}`,
+            disaster_event_id: "event-1",
+            disaster_event_status: currentCase.disaster_event_status,
+            barangay_id: baseAuth.defaultBarangayId,
+            residency_status: currentCase.residency_status || "RESIDENT",
+            current_stay_type: currentCase.current_stay_type,
+            is_active: currentCase.is_active,
+            family_head_first_name: "Server",
+            updated_at: currentCase.serverUpdatedAt,
+          }),
+          updateHouseholdDetails: async () => {
+            updateCalled = true;
+            throw new Error("non-ACTIVE HOUSEHOLD_UPDATE must not mutate");
+          },
+        },
+        [systemLogPath]: {
+          logAuditSafely: async () => {},
+          logErrorSafely: async () => {},
+          pickDefined: () => ({}),
+        },
+      },
+      async ({ processSyncEntries }) => {
+        const [result] = await processSyncEntries({
+          auth: baseAuth,
+          entries: [
+            {
+              client_sync_id: `ee-fix-02-${currentCase.label}`,
+              action_key: "HOUSEHOLD_UPDATE",
+              entity_type: "HOUSEHOLD",
+              entity_server_id: `household-${currentCase.label}`,
+              client_timestamp: currentCase.clientUpdatedAt,
+              client_updated_at: currentCase.clientUpdatedAt,
+              payload: {
+                disaster_event_id: "event-1",
+                barangay_id: baseAuth.defaultBarangayId,
+                family_head_first_name: "Local",
+              },
+            },
+          ],
+        });
+
+        assert.equal(result.sync_status, "FAILED", currentCase.label);
+        assert.equal(result.conflict, null, currentCase.label);
+        assert.equal(result.data, null, currentCase.label);
+        assert.match(result.message, /disaster event is not active/i);
+        assert.equal(conflictCalls, 0, currentCase.label);
+        assert.equal(updateCalled, false, currentCase.label);
+        assert.equal(failedTransactionPayload.sync_status, "FAILED");
+        assert.equal(
+          failedTransactionPayload.error_message,
+          "Household registration cannot be completed because the disaster event is not active.",
+        );
+      },
+    );
+  }
+});
+
+test("EE-FIX-02 foreign Barangay CLOSED HOUSEHOLD_UPDATE remains authorization failure without lifecycle evidence", async () => {
+  let conflictCalls = 0;
+  let updateCalled = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("foreign non-ACTIVE household must not create conflict");
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => {
+          const error = new Error("You do not have access to update this household");
+          error.statusCode = 403;
+          throw error;
+        },
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          throw new Error("foreign non-ACTIVE household must not mutate");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "ee-fix-02-foreign-closed",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "foreign-closed-household",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
             payload: {
               family_head_first_name: "Local",
             },
@@ -732,7 +1316,73 @@ test("M02-05 genuine FAILED transition persists notification intent and processe
       });
 
       assert.equal(result.sync_status, "FAILED");
-      assert.deepEqual(processedIntentIds, ["outbox-failed-sync"]);
+      assert.equal(result.conflict, null);
+      assert.equal(result.data, null);
+      assert.equal(result.message, "You do not have access to update this household");
+      assert.doesNotMatch(JSON.stringify(result), /DISASTER_EVENT_NOT_ACTIVE|CLOSED|Foreign/);
+      assert.equal(conflictCalls, 0);
+      assert.equal(updateCalled, false);
+    },
+  );
+});
+
+test("EE-FIX-02 same-ID HOUSEHOLD_UPDATE replay after closure returns terminal result without lifecycle recheck", async () => {
+  let authorizationLookupCalled = false;
+  let updateCalled = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async () => ({
+          decision: "REPLAY_TERMINAL",
+          transaction: {
+            id: "sync-replay-after-close",
+            sync_status: "SYNCED",
+            entity_server_id: "household-replay",
+            error_message: null,
+          },
+          conflictRecord: null,
+        }),
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => {
+          authorizationLookupCalled = true;
+          throw new Error("terminal replay must not reauthorize or recheck lifecycle");
+        },
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          throw new Error("terminal replay must not mutate");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "ee-fix-02-replay-after-close",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "household-replay",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Previously Accepted",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.replayed, true);
+      assert.equal(result.conflict, null);
+      assert.equal(authorizationLookupCalled, false);
+      assert.equal(updateCalled, false);
     },
   );
 });
@@ -785,9 +1435,7 @@ test("M02-06 post-commit notification processing failure does not change committ
             entity_type: "HOUSEHOLD",
             entity_local_id: "local-m02-post-commit-failure",
             client_timestamp: "2026-08-08T01:00:00.000Z",
-            payload: {
-              family_head_first_name: "Local",
-            },
+            payload: buildValidHouseholdRegisterSyncPayload(),
           },
         ],
       });
@@ -1228,9 +1876,7 @@ test("processSyncEntries retries a FAILED row using the existing sync transactio
             entity_type: "HOUSEHOLD",
             entity_local_id: "local-household-retry",
             client_timestamp: "2026-08-08T01:00:00.000Z",
-            payload: {
-              family_head_first_name: "Local",
-            },
+            payload: buildValidHouseholdRegisterSyncPayload(),
           },
         ],
       });
@@ -1295,9 +1941,7 @@ test("processSyncEntries rolls back post-business bookkeeping failures instead o
                 entity_type: "HOUSEHOLD",
                 entity_local_id: "local-household-post-effect",
                 client_timestamp: "2026-08-08T01:00:00.000Z",
-                payload: {
-                  family_head_first_name: "Local",
-                },
+                payload: buildValidHouseholdRegisterSyncPayload(),
               },
             ],
           }),
@@ -1414,7 +2058,10 @@ test("H03F-01/H03F-03/H03F-04 covered handlers roll back when terminal sync upda
                   entity_type: faultCase.entityType,
                   entity_local_id: `${faultCase.id.toLowerCase()}-local`,
                   client_timestamp: "2026-08-08T01:00:00.000Z",
-                  payload: {},
+                  payload:
+                    faultCase.actionKey === "HOUSEHOLD_REGISTER"
+                      ? buildValidHouseholdRegisterSyncPayload()
+                      : {},
                 },
               ],
             }),
@@ -1485,7 +2132,7 @@ test("H03F-02 same client_sync_id retry after rollback can claim one logical row
             entity_type: "HOUSEHOLD",
             entity_local_id: "local-household-retry",
             client_timestamp: "2026-08-08T01:00:00.000Z",
-            payload: {},
+            payload: buildValidHouseholdRegisterSyncPayload(),
           },
         ],
       });
@@ -1700,9 +2347,7 @@ test("processSyncEntries records duplicate accepted-server conflicts with FIRST_
             entity_server_id: null,
             device_id: null,
             client_timestamp: "2026-08-08T01:00:00.000Z",
-            payload: {
-              family_head_first_name: "Local",
-            },
+            payload: buildValidHouseholdRegisterSyncPayload(),
           },
         ],
       });
@@ -1711,7 +2356,7 @@ test("processSyncEntries records duplicate accepted-server conflicts with FIRST_
       assert.equal(result.conflict.id, "conflict-first-accepted");
       assert.equal(captured.conflictPayload.resolution_strategy, "FIRST_ACCEPTED");
       assert.equal(captured.conflictPayload.resolved_payload_json.winner, "SERVER");
-      assert.equal(captured.conflictPayload.local_payload_json.family_head_first_name, "Local");
+      assert.equal(captured.conflictPayload.local_payload_json.family_head.first_name, "Ana");
       assert.equal(captured.conflictPayload.server_payload_json.family_head_first_name, "Server");
       assert.equal(captured.transactionPayload.sync_status, "CONFLICT");
     },
@@ -1890,6 +2535,702 @@ test("H05-13 different client_sync_id QR duplicate claim becomes CONFLICT with F
       assert.equal(conflictPayload.resolution_strategy, "FIRST_ACCEPTED");
       assert.equal(conflictPayload.status, "RESOLVED");
       assert.equal(conflictPayload.resolved_payload_json.winner, "SERVER");
+      assert.equal(handlerCalls, 2);
+    },
+  );
+});
+
+test("EE-FIX-03 STUB_CLAIM lifecycle failure becomes FAILED without FIRST_ACCEPTED conflict", async () => {
+  let conflictCalls = 0;
+  let failurePayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("lifecycle failure must not create a conflict");
+        },
+        updateSyncTransaction: async (id, payload) => {
+          if (payload.sync_status === "FAILED") {
+            failurePayload = payload;
+          }
+
+          return {
+            id,
+            ...payload,
+          };
+        },
+      }),
+      [stubServicePath]: {
+        claimBarangayStub: async () => {
+          const error = new Error(
+            "Relief claim cannot be completed because the disaster event is not active.",
+          );
+          error.code = "DISASTER_EVENT_NOT_ACTIVE";
+          error.statusCode = 400;
+          error.entityServerId = "22222222-2222-4222-8222-222222222222";
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "ee-fix-03-closed-stub",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "22222222-2222-4222-8222-222222222222",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              stub_id: "22222222-2222-4222-8222-222222222222",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(result.data, null);
+      assert.equal(conflictCalls, 0);
+      assert.equal(failurePayload.sync_status, "FAILED");
+      assert.equal(failurePayload.entity_server_id, "22222222-2222-4222-8222-222222222222");
+    },
+  );
+});
+
+test("EE-FIX-03 same-ID STUB_CLAIM terminal replay bypasses lifecycle handler", async () => {
+  let handlerCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async () => ({
+          decision: "REPLAY_TERMINAL",
+          transaction: {
+            id: "sync-terminal-stub-claim",
+            sync_status: "SYNCED",
+            entity_server_id: "22222222-2222-4222-8222-222222222222",
+            error_message: null,
+          },
+          conflictRecord: null,
+        }),
+      }),
+      [stubServicePath]: {
+        claimBarangayStub: async () => {
+          handlerCalls += 1;
+          throw new Error("terminal replay must not run handler");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "ee-fix-03-replay-stub",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "22222222-2222-4222-8222-222222222222",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              stub_id: "22222222-2222-4222-8222-222222222222",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.replayed, true);
+      assert.equal(handlerCalls, 0);
+    },
+  );
+});
+
+test("BRG-SC-10-H01 Test A keeps same-stub STUB_CLAIM processing in received order despite inverted client_timestamp", async () => {
+  const callOrder = [];
+  let conflictPayload;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: `sync-${payload.client_sync_id}`,
+            ...payload,
+          },
+        }),
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayload = payload.conflictPayload;
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: "conflict-h01-a",
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [stubServicePath]: {
+        claimBarangayStub: async ({ id, claimed_at }) => {
+          callOrder.push({ id, claimed_at });
+
+          if (callOrder.length === 1) {
+            return {
+              id,
+              status: "CLAIMED",
+              claimed_at,
+              winner: "input-later-timestamp",
+            };
+          }
+
+          const error = new Error("Only unclaimed stubs can be marked as claimed.");
+          error.code = "STUB_ALREADY_CLAIMED";
+          error.statusCode = 409;
+          error.entityServerId = id;
+          error.serverPayload = {
+            stub: {
+              id,
+              status: "CLAIMED",
+            },
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h01-stub-later",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-h01",
+            client_timestamp: "2026-08-08T05:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01",
+              claimed_by_name: "Later Timestamp",
+            },
+          },
+          {
+            client_sync_id: "h01-stub-earlier",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-h01",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01",
+              claimed_by_name: "Earlier Timestamp",
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(
+        callOrder.map((call) => call.claimed_at),
+        ["2026-08-08T05:00:00.000Z", "2026-08-08T01:00:00.000Z"],
+      );
+      assert.equal(results[0].client_sync_id, "h01-stub-later");
+      assert.equal(results[0].sync_status, "SYNCED");
+      assert.equal(results[0].data.winner, "input-later-timestamp");
+      assert.equal(results[1].client_sync_id, "h01-stub-earlier");
+      assert.equal(results[1].sync_status, "CONFLICT");
+      assert.equal(conflictPayload.conflict_type, "STUB_ALREADY_CLAIMED");
+      assert.equal(conflictPayload.resolution_strategy, "FIRST_ACCEPTED");
+    },
+  );
+});
+
+test("BRG-SC-10-H01 Test B keeps reverse same-stub STUB_CLAIM input order without timestamp priority", async () => {
+  const callOrder = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: `sync-${payload.client_sync_id}`,
+            ...payload,
+          },
+        }),
+      }),
+      [stubServicePath]: {
+        claimBarangayStub: async ({ id, claimed_at }) => {
+          callOrder.push(claimed_at);
+
+          if (callOrder.length === 1) {
+            return {
+              id,
+              status: "CLAIMED",
+              claimed_at,
+            };
+          }
+
+          const error = new Error("Only unclaimed stubs can be marked as claimed.");
+          error.code = "STUB_ALREADY_CLAIMED";
+          error.statusCode = 409;
+          error.entityServerId = id;
+          error.serverPayload = {
+            stub: {
+              id,
+              status: "CLAIMED",
+            },
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h01-stub-earlier-first",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-h01-reverse",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-reverse",
+            },
+          },
+          {
+            client_sync_id: "h01-stub-later-second",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-h01-reverse",
+            client_timestamp: "2026-08-08T05:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-reverse",
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(callOrder, [
+        "2026-08-08T01:00:00.000Z",
+        "2026-08-08T05:00:00.000Z",
+      ]);
+      assert.equal(results[0].client_sync_id, "h01-stub-earlier-first");
+      assert.equal(results[0].sync_status, "SYNCED");
+      assert.equal(results[1].client_sync_id, "h01-stub-later-second");
+      assert.equal(results[1].sync_status, "CONFLICT");
+      assert.equal(results[1].conflict.resolution_strategy, "FIRST_ACCEPTED");
+    },
+  );
+});
+
+test("BRG-SC-10-H01 Test C far-past critical timestamp cannot jump ahead in one batch", async () => {
+  const callOrder = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: `sync-${payload.client_sync_id}`,
+            ...payload,
+          },
+        }),
+      }),
+      [stubServicePath]: {
+        claimBarangayStub: async ({ id, claimed_at }) => {
+          callOrder.push(claimed_at);
+
+          if (callOrder.length === 1) {
+            return {
+              id,
+              status: "CLAIMED",
+              claimed_at,
+            };
+          }
+
+          const error = new Error("Only unclaimed stubs can be marked as claimed.");
+          error.code = "STUB_ALREADY_CLAIMED";
+          error.entityServerId = id;
+          error.serverPayload = {
+            stub: {
+              id,
+              status: "CLAIMED",
+            },
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h01-normal-clock",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-h01-skew",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-skew",
+            },
+          },
+          {
+            client_sync_id: "h01-far-past-clock",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-h01-skew",
+            client_timestamp: "1970-01-01T00:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-skew",
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(callOrder, [
+        "2026-08-08T01:00:00.000Z",
+        "1970-01-01T00:00:00.000Z",
+      ]);
+      assert.equal(results[0].client_sync_id, "h01-normal-clock");
+      assert.equal(results[0].sync_status, "SYNCED");
+      assert.equal(results[1].client_sync_id, "h01-far-past-clock");
+      assert.equal(results[1].sync_status, "CONFLICT");
+    },
+  );
+});
+
+test("BRG-SC-10-H01 Test D keeps STUB_CLAIM and DISTRIBUTION_CREATE cross-action ordering in received order", async () => {
+  const callOrder = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: `sync-${payload.client_sync_id}`,
+            ...payload,
+          },
+        }),
+      }),
+      [stubServicePath]: {
+        claimBarangayStub: async ({ id }) => {
+          callOrder.push("STUB_CLAIM");
+          return {
+            id,
+            status: "CLAIMED",
+          };
+        },
+      },
+      [distributionTransactionServicePath]: {
+        createDistributionTransaction: async ({ stub_id }) => {
+          callOrder.push("DISTRIBUTION_CREATE");
+          const error = new Error("This stub has already been used for distribution");
+          error.code = "STUB_ALREADY_CLAIMED";
+          error.statusCode = 409;
+          error.entityServerId = stub_id;
+          error.serverPayload = {
+            stub: {
+              id: stub_id,
+              status: "CLAIMED",
+            },
+          };
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h01-cross-stub",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-h01-cross",
+            client_timestamp: "2026-08-08T05:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-cross",
+            },
+          },
+          {
+            client_sync_id: "h01-cross-distribution",
+            action_key: "DISTRIBUTION_CREATE",
+            entity_type: "DISTRIBUTION_TRANSACTION",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-cross",
+              disaster_event_id: "event-h01-cross",
+              household_id: "household-h01-cross",
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(callOrder, ["STUB_CLAIM", "DISTRIBUTION_CREATE"]);
+      assert.equal(results[0].client_sync_id, "h01-cross-stub");
+      assert.equal(results[0].sync_status, "SYNCED");
+      assert.equal(results[1].client_sync_id, "h01-cross-distribution");
+      assert.equal(results[1].sync_status, "CONFLICT");
+      assert.equal(results[1].conflict.resolution_strategy, "FIRST_ACCEPTED");
+    },
+  );
+});
+
+test("BRG-SC-10-H01-V01-A keeps reverse DISTRIBUTION_CREATE then STUB_CLAIM order despite inverted timestamps", async () => {
+  const callOrder = [];
+  let stubConsumed = false;
+  const conflictPayloads = [];
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: `sync-${payload.client_sync_id}`,
+            ...payload,
+          },
+        }),
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictPayloads.push(payload.conflictPayload);
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: `conflict-${payload.syncTransactionId}`,
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [stubServicePath]: {
+        claimBarangayStub: async ({ id, claimed_at }) => {
+          callOrder.push({
+            action: "STUB_CLAIM",
+            client_timestamp: claimed_at,
+            stub_id: id,
+          });
+
+          if (stubConsumed) {
+            const error = new Error("Only unclaimed stubs can be marked as claimed.");
+            error.code = "STUB_ALREADY_CLAIMED";
+            error.statusCode = 409;
+            error.entityServerId = id;
+            error.serverPayload = {
+              stub: {
+                id,
+                status: "CLAIMED",
+              },
+            };
+            throw error;
+          }
+
+          stubConsumed = true;
+          return {
+            id,
+            status: "CLAIMED",
+            claimed_at,
+          };
+        },
+      },
+      [distributionTransactionServicePath]: {
+        createDistributionTransaction: async ({ stub_id }) => {
+          callOrder.push({
+            action: "DISTRIBUTION_CREATE",
+            client_timestamp: "2026-08-10T20:00:00.000Z",
+            stub_id,
+          });
+
+          if (stubConsumed) {
+            const error = new Error("This stub has already been used for distribution");
+            error.code = "STUB_ALREADY_CLAIMED";
+            error.statusCode = 409;
+            error.entityServerId = stub_id;
+            error.serverPayload = {
+              stub: {
+                id: stub_id,
+                status: "CLAIMED",
+              },
+            };
+            throw error;
+          }
+
+          stubConsumed = true;
+          return {
+            id: "distribution-h01-v01-a",
+            stub_id,
+            status: "RELEASED",
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h01-v01-a-distribution-first",
+            action_key: "DISTRIBUTION_CREATE",
+            entity_type: "DISTRIBUTION_TRANSACTION",
+            entity_server_id: null,
+            client_timestamp: "2026-08-10T20:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-v01-a",
+              disaster_event_id: "event-h01-v01-a",
+              household_id: "household-h01-v01-a",
+            },
+          },
+          {
+            client_sync_id: "h01-v01-a-stub-second",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-h01-v01-a",
+            client_timestamp: "2026-08-10T02:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-v01-a",
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(
+        callOrder.map((call) => call.action),
+        ["DISTRIBUTION_CREATE", "STUB_CLAIM"],
+      );
+      assert.deepEqual(
+        callOrder.map((call) => call.stub_id),
+        ["stub-h01-v01-a", "stub-h01-v01-a"],
+      );
+      assert.equal(results.length, 2);
+      assert.equal(results[0].client_sync_id, "h01-v01-a-distribution-first");
+      assert.equal(results[0].sync_status, "SYNCED");
+      assert.equal(results[1].client_sync_id, "h01-v01-a-stub-second");
+      assert.equal(results[1].sync_status, "CONFLICT");
+      assert.equal(results[1].conflict.resolution_strategy, "FIRST_ACCEPTED");
+      assert.deepEqual(
+        conflictPayloads.map((payload) => payload.resolution_strategy),
+        ["FIRST_ACCEPTED"],
+      );
+    },
+  );
+});
+
+test("BRG-SC-10-H01 Test F invalid first critical entry does not reserve FIRST_ACCEPTED winner", async () => {
+  let handlerCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: `sync-${payload.client_sync_id}`,
+            ...payload,
+          },
+        }),
+      }),
+      [stubServicePath]: {
+        claimBarangayStub: async ({ id }) => {
+          handlerCalls += 1;
+
+          if (handlerCalls === 1) {
+            const error = new Error("Stub not found for this barangay");
+            error.statusCode = 404;
+            error.code = "STUB_NOT_FOUND";
+            throw error;
+          }
+
+          return {
+            id,
+            status: "CLAIMED",
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h01-invalid-first",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-h01-invalid-first",
+            client_timestamp: "2026-08-08T05:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-invalid-first",
+            },
+          },
+          {
+            client_sync_id: "h01-valid-second",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-h01-valid-second",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-valid-second",
+            },
+          },
+        ],
+      });
+
+      assert.equal(results[0].client_sync_id, "h01-invalid-first");
+      assert.equal(results[0].sync_status, "FAILED");
+      assert.equal(results[1].client_sync_id, "h01-valid-second");
+      assert.equal(results[1].sync_status, "SYNCED");
       assert.equal(handlerCalls, 2);
     },
   );
@@ -2169,9 +3510,7 @@ test("processSyncEntries does not return successful CONFLICT when duplicate conf
             entity_type: "HOUSEHOLD",
             entity_local_id: "local-household-3",
             client_timestamp: "2026-08-08T01:00:00.000Z",
-            payload: {
-              family_head_first_name: "Local",
-            },
+            payload: buildValidHouseholdRegisterSyncPayload(),
           },
         ],
       });
@@ -2365,6 +3704,504 @@ test("processSyncEntries does not record LATEST_TIMESTAMP when newer local updat
       assert.equal(result.sync_status, "FAILED");
       assert.equal(result.conflict, null);
       assert.equal(recordConflictCalls, 0);
+    },
+  );
+});
+
+test("BRG-SC-10-H01 Test G HOUSEHOLD_UPDATE older then newer preserves latest valid authoritative state", async () => {
+  const conflictWinners = [];
+  let authoritativeHousehold = {
+    id: "66666666-6666-4666-8666-666666666666",
+    barangay_id: baseAuth.defaultBarangayId,
+    family_head_first_name: "Server",
+    updated_at: "2026-08-08T01:30:00.000Z",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: `sync-${payload.client_sync_id}`,
+            ...payload,
+          },
+        }),
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictWinners.push(payload.conflictPayload.resolved_payload_json.winner);
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: `conflict-${payload.syncTransactionId}`,
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => authoritativeHousehold,
+        updateHouseholdDetails: async ({ requestData }) => {
+          authoritativeHousehold = {
+            ...authoritativeHousehold,
+            ...requestData,
+            updated_at: requestData.client_updated_at || "2026-08-08T02:00:00.000Z",
+          };
+          return authoritativeHousehold;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h01-household-older",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: authoritativeHousehold.id,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Older Local",
+              client_updated_at: "2026-08-08T01:00:00.000Z",
+            },
+          },
+          {
+            client_sync_id: "h01-household-newer",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: authoritativeHousehold.id,
+            client_timestamp: "2026-08-08T02:00:00.000Z",
+            client_updated_at: "2026-08-08T02:00:00.000Z",
+            payload: {
+              family_head_first_name: "Newer Local",
+              client_updated_at: "2026-08-08T02:00:00.000Z",
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(
+        results.map((result) => result.client_sync_id),
+        ["h01-household-older", "h01-household-newer"],
+      );
+      assert.deepEqual(conflictWinners, ["SERVER", "LOCAL"]);
+      assert.equal(authoritativeHousehold.family_head_first_name, "Newer Local");
+      assert.equal(authoritativeHousehold.updated_at, "2026-08-08T02:00:00.000Z");
+    },
+  );
+});
+
+test("BRG-SC-10-H01 Test H HOUSEHOLD_UPDATE newer then older still preserves latest valid authoritative state", async () => {
+  const conflictWinners = [];
+  let authoritativeHousehold = {
+    id: "77777777-7777-4777-8777-777777777777",
+    barangay_id: baseAuth.defaultBarangayId,
+    family_head_first_name: "Server",
+    updated_at: "2026-08-08T01:30:00.000Z",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: `sync-${payload.client_sync_id}`,
+            ...payload,
+          },
+        }),
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictWinners.push(payload.conflictPayload.resolved_payload_json.winner);
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: `conflict-${payload.syncTransactionId}`,
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => authoritativeHousehold,
+        updateHouseholdDetails: async ({ requestData }) => {
+          authoritativeHousehold = {
+            ...authoritativeHousehold,
+            ...requestData,
+            updated_at: requestData.client_updated_at,
+          };
+          return authoritativeHousehold;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h01-household-newer-first",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: authoritativeHousehold.id,
+            client_timestamp: "2026-08-08T02:00:00.000Z",
+            client_updated_at: "2026-08-08T02:00:00.000Z",
+            payload: {
+              family_head_first_name: "Newer First",
+              client_updated_at: "2026-08-08T02:00:00.000Z",
+            },
+          },
+          {
+            client_sync_id: "h01-household-older-second",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: authoritativeHousehold.id,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Older Second",
+              client_updated_at: "2026-08-08T01:00:00.000Z",
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(
+        results.map((result) => result.client_sync_id),
+        ["h01-household-newer-first", "h01-household-older-second"],
+      );
+      assert.deepEqual(conflictWinners, ["LOCAL", "SERVER"]);
+      assert.equal(authoritativeHousehold.family_head_first_name, "Newer First");
+      assert.equal(authoritativeHousehold.updated_at, "2026-08-08T02:00:00.000Z");
+    },
+  );
+});
+
+test("BRG-SC-10-H01 Test I invalid newer HOUSEHOLD_UPDATE does not override latest valid state", async () => {
+  const conflictWinners = [];
+  let authoritativeHousehold = {
+    id: "88888888-8888-4888-8888-888888888888",
+    barangay_id: baseAuth.defaultBarangayId,
+    family_head_first_name: "Server",
+    updated_at: "2026-08-08T01:00:00.000Z",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => ({
+          decision: "CLAIMED_NEW",
+          transaction: {
+            id: `sync-${payload.client_sync_id}`,
+            ...payload,
+          },
+        }),
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictWinners.push(payload.conflictPayload.resolved_payload_json.winner);
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: `conflict-${payload.syncTransactionId}`,
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => authoritativeHousehold,
+        updateHouseholdDetails: async ({ requestData }) => {
+          if (!requestData.family_head_first_name) {
+            const error = new Error("Invalid household update.");
+            error.statusCode = 400;
+            throw error;
+          }
+
+          authoritativeHousehold = {
+            ...authoritativeHousehold,
+            ...requestData,
+            updated_at: requestData.client_updated_at,
+          };
+          return authoritativeHousehold;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h01-household-invalid-newer",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: authoritativeHousehold.id,
+            client_timestamp: "2026-08-08T03:00:00.000Z",
+            client_updated_at: "2026-08-08T03:00:00.000Z",
+            payload: {
+              family_head_first_name: "",
+              client_updated_at: "2026-08-08T03:00:00.000Z",
+            },
+          },
+          {
+            client_sync_id: "h01-household-valid-older",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: authoritativeHousehold.id,
+            client_timestamp: "2026-08-08T02:00:00.000Z",
+            client_updated_at: "2026-08-08T02:00:00.000Z",
+            payload: {
+              family_head_first_name: "Valid Older",
+              client_updated_at: "2026-08-08T02:00:00.000Z",
+            },
+          },
+        ],
+      });
+
+      assert.equal(results[0].client_sync_id, "h01-household-invalid-newer");
+      assert.equal(results[0].sync_status, "FAILED");
+      assert.equal(results[1].client_sync_id, "h01-household-valid-older");
+      assert.equal(results[1].sync_status, "CONFLICT");
+      assert.deepEqual(conflictWinners, ["LOCAL"]);
+      assert.equal(authoritativeHousehold.family_head_first_name, "Valid Older");
+      assert.equal(authoritativeHousehold.updated_at, "2026-08-08T02:00:00.000Z");
+    },
+  );
+});
+
+test("BRG-SC-10-H01-V01-B preserves one mixed critical and noncritical batch without global timestamp sorting", async () => {
+  const processingOrder = [];
+  const actionOrder = [];
+  const claimOrder = [];
+  const conflictWinners = [];
+  let householdLookupCount = 0;
+  let stubConsumed = false;
+  let authoritativeHousehold = {
+    id: "99999999-9999-4999-8999-999999999999",
+    barangay_id: baseAuth.defaultBarangayId,
+    family_head_first_name: "Server",
+    updated_at: "2026-08-10T14:00:00.000Z",
+  };
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async (payload) => {
+          claimOrder.push(payload.client_sync_id);
+          actionOrder.push(payload.payload_json.action_key);
+
+          return {
+            decision: "CLAIMED_NEW",
+            transaction: {
+              id: `sync-${payload.client_sync_id}`,
+              ...payload,
+            },
+          };
+        },
+        recordConflictAndUpdateSyncTransaction: async (payload) => {
+          conflictWinners.push(payload.conflictPayload.resolved_payload_json.winner);
+
+          return {
+            syncTransaction: {
+              id: payload.syncTransactionId,
+              ...payload.transactionPayload,
+            },
+            conflictRecord: {
+              id: `conflict-${payload.syncTransactionId}`,
+              ...payload.conflictPayload,
+            },
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => {
+          householdLookupCount += 1;
+          processingOrder.push(`HOUSEHOLD_UPDATE_${householdLookupCount}`);
+          return authoritativeHousehold;
+        },
+        updateHouseholdDetails: async ({ requestData }) => {
+          authoritativeHousehold = {
+            ...authoritativeHousehold,
+            ...requestData,
+            updated_at: requestData.client_updated_at,
+          };
+          return authoritativeHousehold;
+        },
+      },
+      [stubServicePath]: {
+        claimBarangayStub: async ({ id, claimed_at }) => {
+          processingOrder.push("STUB_CLAIM");
+
+          if (stubConsumed) {
+            const error = new Error("Only unclaimed stubs can be marked as claimed.");
+            error.code = "STUB_ALREADY_CLAIMED";
+            error.statusCode = 409;
+            error.entityServerId = id;
+            error.serverPayload = {
+              stub: {
+                id,
+                status: "CLAIMED",
+              },
+            };
+            throw error;
+          }
+
+          stubConsumed = true;
+          return {
+            id,
+            status: "CLAIMED",
+            claimed_at,
+          };
+        },
+      },
+      [distributionTransactionServicePath]: {
+        createDistributionTransaction: async ({ stub_id }) => {
+          processingOrder.push("DISTRIBUTION_CREATE");
+
+          if (stubConsumed) {
+            const error = new Error("This stub has already been used for distribution");
+            error.code = "STUB_ALREADY_CLAIMED";
+            error.statusCode = 409;
+            error.entityServerId = stub_id;
+            error.serverPayload = {
+              stub: {
+                id: stub_id,
+                status: "CLAIMED",
+              },
+            };
+            throw error;
+          }
+
+          stubConsumed = true;
+          return {
+            id: "distribution-h01-v01-b",
+            stub_id,
+            status: "RELEASED",
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const results = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "h01-v01-b-household-older-a",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: authoritativeHousehold.id,
+            client_timestamp: "2026-08-10T12:00:00.000Z",
+            client_updated_at: "2026-08-10T12:00:00.000Z",
+            payload: {
+              family_head_first_name: "HOUSEHOLD_UPDATE_A",
+              client_updated_at: "2026-08-10T12:00:00.000Z",
+            },
+          },
+          {
+            client_sync_id: "h01-v01-b-stub-claim",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "stub-h01-v01-b",
+            client_timestamp: "2026-08-10T20:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-v01-b",
+            },
+          },
+          {
+            client_sync_id: "h01-v01-b-household-newer-b",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: authoritativeHousehold.id,
+            client_timestamp: "2026-08-10T16:00:00.000Z",
+            client_updated_at: "2026-08-10T16:00:00.000Z",
+            payload: {
+              family_head_first_name: "HOUSEHOLD_UPDATE_B",
+              client_updated_at: "2026-08-10T16:00:00.000Z",
+            },
+          },
+          {
+            client_sync_id: "h01-v01-b-distribution",
+            action_key: "DISTRIBUTION_CREATE",
+            entity_type: "DISTRIBUTION_TRANSACTION",
+            entity_server_id: null,
+            client_timestamp: "2026-08-10T01:00:00.000Z",
+            payload: {
+              stub_id: "stub-h01-v01-b",
+              disaster_event_id: "event-h01-v01-b",
+              household_id: authoritativeHousehold.id,
+            },
+          },
+        ],
+      });
+
+      assert.deepEqual(processingOrder, [
+        "HOUSEHOLD_UPDATE_1",
+        "STUB_CLAIM",
+        "HOUSEHOLD_UPDATE_2",
+        "DISTRIBUTION_CREATE",
+      ]);
+      assert.deepEqual(actionOrder, [
+        "HOUSEHOLD_UPDATE",
+        "STUB_CLAIM",
+        "HOUSEHOLD_UPDATE",
+        "DISTRIBUTION_CREATE",
+      ]);
+      assert.deepEqual(claimOrder, [
+        "h01-v01-b-household-older-a",
+        "h01-v01-b-stub-claim",
+        "h01-v01-b-household-newer-b",
+        "h01-v01-b-distribution",
+      ]);
+      assert.deepEqual(
+        results.map((result) => result.client_sync_id),
+        [
+          "h01-v01-b-household-older-a",
+          "h01-v01-b-stub-claim",
+          "h01-v01-b-household-newer-b",
+          "h01-v01-b-distribution",
+        ],
+      );
+      assert.deepEqual(
+        results.map((result) => result.sync_status),
+        ["CONFLICT", "SYNCED", "CONFLICT", "CONFLICT"],
+      );
+      assert.deepEqual(conflictWinners, ["SERVER", "LOCAL", "SERVER"]);
+      assert.equal(authoritativeHousehold.family_head_first_name, "HOUSEHOLD_UPDATE_B");
+      assert.equal(authoritativeHousehold.updated_at, "2026-08-10T16:00:00.000Z");
+      assert.equal(results.length, 4);
+      assert.equal(new Set(processingOrder).size, 4);
+      assert.equal(results[0].conflict.resolution_strategy, "LATEST_TIMESTAMP");
+      assert.equal(results[2].conflict.resolution_strategy, "LATEST_TIMESTAMP");
+      assert.equal(results[3].conflict.resolution_strategy, "FIRST_ACCEPTED");
     },
   );
 });

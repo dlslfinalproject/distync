@@ -104,7 +104,9 @@ const getDisasterEventBarangayLink = async (disasterEventId, barangayId) => {
 
 const lockHouseholdRegistrationScope = async (disasterEventId, dbClient) => {
   const query = `
-    SELECT id
+    SELECT
+      id,
+      status
     FROM disaster_events
     WHERE id = $1
     FOR UPDATE
@@ -1205,12 +1207,58 @@ const getHouseholdSummaryById = async (id, dbClient = pool) => {
       b.code AS barangay_code,
       b.name AS barangay_name,
       de.event_code,
-      de.title AS disaster_event_title
+      de.title AS disaster_event_title,
+      de.status AS disaster_event_status
     FROM households h
     LEFT JOIN barangays b ON b.id = h.barangay_id
     LEFT JOIN users registered_by_user ON registered_by_user.id = h.registered_by
     INNER JOIN disaster_events de ON de.id = h.disaster_event_id
     WHERE h.id = $1
+  `;
+
+  const result = await dbClient.query(query, [id]);
+  return result.rows[0] || null;
+};
+
+const getHouseholdSummaryByIdForUpdate = async (id, dbClient) => {
+  const query = `
+    SELECT
+      h.id,
+      h.disaster_event_id,
+      h.barangay_id,
+      h.evacuation_center_id,
+      h.residency_status,
+      h.family_head_first_name,
+      h.family_head_middle_name,
+      h.family_head_last_name,
+      h.family_head_suffix,
+      h.sex,
+      h.birth_date,
+      h.contact_number,
+      h.current_stay_type,
+      h.current_address_details,
+      h.household_size,
+      h.is_active,
+      h.registered_by,
+      h.family_head_photo_url,
+      h.photo_captured_at,
+      h.photo_captured_by,
+      h.photo_verification_notes,
+      h.registered_at,
+      h.updated_at,
+      h.family_head_evacuee_id,
+      CONCAT_WS(' ', registered_by_user.first_name, registered_by_user.last_name) AS registered_by_name,
+      b.code AS barangay_code,
+      b.name AS barangay_name,
+      de.event_code,
+      de.title AS disaster_event_title,
+      de.status AS disaster_event_status
+    FROM households h
+    LEFT JOIN barangays b ON b.id = h.barangay_id
+    LEFT JOIN users registered_by_user ON registered_by_user.id = h.registered_by
+    INNER JOIN disaster_events de ON de.id = h.disaster_event_id
+    WHERE h.id = $1
+    FOR UPDATE OF h
   `;
 
   const result = await dbClient.query(query, [id]);
@@ -1758,6 +1806,7 @@ module.exports = {
   updateHouseholdDepartureTimestamp,
   markDisasterEventHouseholdDepartures,
   getHouseholdSummaryById,
+  getHouseholdSummaryByIdForUpdate,
   getEvacueesByHouseholdId,
   getEvacueeSectorAssignmentsByHouseholdId,
   getHouseholdSectorAssignmentsByHouseholdId,
