@@ -6,6 +6,7 @@ import {
   FiBarChart2,
   FiCheckCircle,
   FiFlag,
+  FiFileText,
   FiPackage,
   FiPlusCircle,
   FiTrendingUp,
@@ -63,6 +64,8 @@ const panelStyles = {
   forecastActionRow: {
     display: "flex",
     justifyContent: "flex-end",
+    gap: "12px",
+    flexWrap: "wrap",
   },
   section: {
     display: "grid",
@@ -171,6 +174,18 @@ const panelStyles = {
     padding: "16px 18px",
     color: "#17324d",
     fontSize: "15px",
+    fontWeight: 700,
+    lineHeight: 1.45,
+  },
+  readinessList: {
+    display: "grid",
+    gap: "8px",
+  },
+  readinessItem: {
+    borderRadius: "10px",
+    border: "1px solid #d6e2ef",
+    padding: "12px 14px",
+    fontSize: "14px",
     fontWeight: 700,
     lineHeight: 1.45,
   },
@@ -292,7 +307,7 @@ const panelStyles = {
   },
   table: {
     width: "100%",
-    minWidth: "1080px",
+    minWidth: "1320px",
     borderCollapse: "collapse",
     background: "transparent",
     tableLayout: "fixed",
@@ -313,13 +328,14 @@ const panelStyles = {
     risk: "12%",
   },
   detailedColumnWidths: {
-    item: "24%",
+    item: "20%",
     currentStock: "12%",
+    assignedPackDemand: "14%",
     forecastNeed: "12%",
-    addStock: "12%",
+    addStock: "10%",
     afterForecast: "12%",
-    shortage: "20%",
-    risk: "8%",
+    shortage: "13%",
+    risk: "7%",
   },
   th: {
     textAlign: "center",
@@ -330,7 +346,9 @@ const panelStyles = {
     letterSpacing: "0.08em",
     textTransform: "uppercase",
     borderBottom: "1px solid #e0eaf4",
-    whiteSpace: "nowrap",
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
+    lineHeight: 1.25,
   },
   td: {
     padding: "16px 10px",
@@ -562,6 +580,7 @@ const getDashboardFromSources = ({
         projected_stock_levels: [],
       },
       recommendations: [],
+      readiness_warnings: forecastContext?.readiness_warnings || [],
     }
   );
 };
@@ -1036,6 +1055,7 @@ const ForecastingPanel = ({
   isForecastHistoryLoading,
   isForecastHistoryDetailLoading,
   getForecastModelLabel,
+  onOpenExportModal,
   onForecastEventChange,
   onForecastModelChange,
   onRunForecast,
@@ -1067,6 +1087,20 @@ const ForecastingPanel = ({
   const usageTrendRows = activeDashboard?.charts?.inventory_usage_trend || [];
   const demandRows = activeDashboard?.charts?.forecasted_demand || [];
   const stockRows = activeDashboard?.charts?.projected_stock_levels || [];
+  const readinessWarnings =
+    activeDashboard?.readiness_warnings ||
+    forecastContext?.readiness_warnings ||
+    [];
+  const hasReadinessWarning = (code) =>
+    readinessWarnings.some((warning) => warning?.code === code);
+  const hasNoForecastTargets = hasReadinessWarning("NO_ACTIVE_INVENTORY_ITEMS");
+  const hasNoUnclaimedEligibleFamilies = hasReadinessWarning(
+    "NO_UNCLAIMED_ELIGIBLE_FAMILIES",
+  );
+  const hasNoAssignedPackDemand = hasReadinessWarning(
+    "NO_ASSIGNED_PACK_ITEM_DEMAND",
+  );
+  const hasNoStandardPacks = hasReadinessWarning("NO_ACTIVE_STANDARD_RELIEF_PACKS");
   const priorityResultRows = [...resultRows].sort((left, right) => {
     const riskDifference =
       getRiskPriority(right.risk_level) - getRiskPriority(left.risk_level);
@@ -1127,38 +1161,55 @@ const ForecastingPanel = ({
   const criticalItemCount = resultRows.filter(
     (row) => row.risk_level === "CRITICAL",
   ).length;
-  const interpretationText = !modelHasResults
-    ? "Run a forecast to generate stock-up priorities and donor-facing needs."
-    : eventSummary.seven_day_shortage_count > 0
-      ? `${eventSummary.seven_day_shortage_count} item(s) may run short within 7 days. Prioritize restocking and donor requests for the listed items.`
-      : totalAddStock > 0
-        ? "Some items need replenishment, but no immediate 7-day shortage is flagged."
-        : "Current stock can cover the forecasted need for this event.";
+  const getInterpretationText = () => {
+    if (!modelHasResults) {
+      return "Run a forecast to generate stock-up priorities and donor-facing needs.";
+    }
+
+    if (hasNoUnclaimedEligibleFamilies) {
+      return "There are no not-yet-received eligible families, so planned relief demand is currently zero.";
+    }
+
+    if (hasNoAssignedPackDemand || hasNoStandardPacks) {
+      return "Forecast results may be limited because assigned relief pack demand is not fully configured.";
+    }
+
+    if (eventSummary.seven_day_shortage_count > 0) {
+      return `${eventSummary.seven_day_shortage_count} item(s) may run short within 7 days. Prioritize restocking and donor requests for the listed items.`;
+    }
+
+    if (totalAddStock > 0) {
+      return "Some items need replenishment, but no immediate 7-day shortage is flagged.";
+    }
+
+    return "Current stock can cover the forecasted need for this event.";
+  };
+  const interpretationText = getInterpretationText();
 
   const sourceCards = [
     {
-      label: "Families",
+      label: "Registered Families",
       value: eventSummary.household_count || 0,
       accent: accentMap.blue,
     },
     {
-      label: "Evacuees",
-      value: eventSummary.evacuee_count || 0,
+      label: "Eligible Families",
+      value: eventSummary.eligible_household_count || 0,
       accent: accentMap.orange,
     },
     {
-      label: "Attendance Logs",
-      value: eventSummary.attendance_record_count || 0,
+      label: "Eligible Evacuees",
+      value: eventSummary.eligible_evacuee_count || 0,
       accent: accentMap.green,
     },
     {
-      label: "Release Records",
-      value: eventSummary.distribution_transaction_count || 0,
+      label: "Already Received",
+      value: eventSummary.claimed_household_count || 0,
       accent: accentMap.purple,
     },
     {
-      label: "Standard Packs",
-      value: eventSummary.active_standard_pack_count || 0,
+      label: "Not Yet Received",
+      value: eventSummary.unclaimed_eligible_household_count || 0,
       accent: accentMap.blue,
     },
   ];
@@ -1247,7 +1298,7 @@ const ForecastingPanel = ({
               style={panelStyles.filterField}
             >
               {forecastEvents.length === 0 ? (
-                <option value="">No disaster events available</option>
+                <option value="">No active disaster events available</option>
               ) : (
                 forecastEvents.map((event) => (
                   <option key={event.id} value={event.id}>
@@ -1299,6 +1350,25 @@ const ForecastingPanel = ({
           <FiTrendingUp size={16} />
           {isRunningForecast ? "Running Forecast..." : "Run Forecast"}
         </button>
+        <button
+          type="button"
+          onClick={onOpenExportModal}
+          disabled={!selectedForecastEventId || isForecastLoading || isRunningForecast}
+          style={{
+            ...pageHeaderStyles.secondaryButton,
+            cursor:
+              !selectedForecastEventId || isForecastLoading || isRunningForecast
+                ? "not-allowed"
+                : "pointer",
+            opacity:
+              !selectedForecastEventId || isForecastLoading || isRunningForecast
+                ? 0.7
+                : 1,
+          }}
+        >
+          <FiFileText size={16} />
+          Export
+        </button>
       </div>
 
       {forecastSuccessMessage ? (
@@ -1328,6 +1398,28 @@ const ForecastingPanel = ({
           }}
         >
           {forecastErrorMessage}
+        </div>
+      ) : null}
+
+      {readinessWarnings.length ? (
+        <div style={panelStyles.readinessList} aria-live="polite">
+          {readinessWarnings.map((warning) => {
+            const isWarning = warning.severity === "WARNING";
+
+            return (
+              <div
+                key={warning.code || warning.message}
+                style={{
+                  ...panelStyles.readinessItem,
+                  backgroundColor: isWarning ? "#fff8eb" : "#f3f8fd",
+                  borderColor: isWarning ? "#f2d4a3" : "#cfe0f2",
+                  color: isWarning ? "#8a5a14" : "#2f5f8f",
+                }}
+              >
+                {warning.message}
+              </div>
+            );
+          })}
         </div>
       ) : null}
 
@@ -1426,11 +1518,17 @@ const ForecastingPanel = ({
             <h4 style={panelStyles.tableTitle}>Stock Action List</h4>
             {!resultRows.length ? (
               <p style={{ ...panelStyles.emptyState, marginTop: "14px" }}>
-                Run a forecast to identify the highest-priority stock-up items.
+                {hasNoForecastTargets
+                  ? "No active inventory items are available to forecast."
+                  : hasNoAssignedPackDemand
+                    ? "Eligible families exist, but no assigned relief pack item demand is available."
+                    : "Run a forecast to identify the highest-priority stock-up items."}
               </p>
             ) : stockActionRows.length === 0 ? (
               <p style={{ ...panelStyles.emptyState, marginTop: "14px" }}>
-                No stock-up actions are needed for this forecast.
+                {hasNoUnclaimedEligibleFamilies
+                  ? "No stock-up actions are needed because there are no not-yet-received eligible families."
+                  : "No stock-up actions are needed for this forecast."}
               </p>
             ) : (
               <div style={{ ...panelStyles.tableWrap, marginTop: "14px" }}>
@@ -1568,9 +1666,13 @@ const ForecastingPanel = ({
             <h4 style={panelStyles.tableTitle}>Donor Request List</h4>
             {!donorNeedRows.length ? (
               <p style={{ ...panelStyles.emptyState, marginTop: "14px" }}>
-                {modelHasResults
-                  ? "No donor requests are needed for this forecast."
-                  : "Run a forecast to identify items that may need donor support."}
+                {hasNoForecastTargets
+                  ? "No donor requests can be prepared because no active inventory items are available."
+                  : hasNoAssignedPackDemand
+                    ? "No donor requests can be prepared from assigned packs until relief pack item demand is configured."
+                    : modelHasResults
+                      ? "No donor requests are needed for this forecast."
+                      : "Run a forecast to identify items that may need donor support."}
               </p>
             ) : (
               <div style={{ ...panelStyles.tableWrap, marginTop: "14px" }}>
@@ -1696,6 +1798,7 @@ const ForecastingPanel = ({
                 {[
                   ["Item Name", panelStyles.detailedColumnWidths.item],
                   ["Current Stock", panelStyles.detailedColumnWidths.currentStock],
+                  ["Assigned Pack Demand", panelStyles.detailedColumnWidths.assignedPackDemand],
                   ["Forecast Need", panelStyles.detailedColumnWidths.forecastNeed],
                   ["Add Stock", panelStyles.detailedColumnWidths.addStock],
                   ["After Forecast", panelStyles.detailedColumnWidths.afterForecast],
@@ -1718,19 +1821,19 @@ const ForecastingPanel = ({
             <tbody>
               {isForecastLoading ? (
                 <tr>
-                  <td colSpan="7" style={panelStyles.td}>
+                  <td colSpan="8" style={panelStyles.td}>
                     Loading latest forecast...
                   </td>
                 </tr>
               ) : isForecastHistoryDetailLoading ? (
                 <tr>
-                  <td colSpan="7" style={panelStyles.td}>
+                  <td colSpan="8" style={panelStyles.td}>
                     Loading forecast run details...
                   </td>
                 </tr>
               ) : !resultRows.length ? (
                 <tr>
-                  <td colSpan="7" style={panelStyles.td}>
+                  <td colSpan="8" style={panelStyles.td}>
                     Run a forecast to see item needs, shortage warnings, and suggested stock additions.
                   </td>
                 </tr>
@@ -1760,6 +1863,18 @@ const ForecastingPanel = ({
                       {formatForecastQuantity(
                         result.current_available_stock,
                         result.unit_of_measure,
+                      )}
+                    </td>
+                    <td
+                      style={{
+                        ...panelStyles.td,
+                        width: panelStyles.detailedColumnWidths.assignedPackDemand,
+                      }}
+                    >
+                      {formatForecastQuantity(
+                        result.projected_household_demand,
+                        result.unit_of_measure,
+                        { roundUp: true },
                       )}
                     </td>
                     <td

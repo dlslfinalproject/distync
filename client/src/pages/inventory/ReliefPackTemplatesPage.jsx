@@ -2283,7 +2283,7 @@ const ReliefPackTemplatesPage = () => {
 
   return (
     <div style={reliefPackPageStyles.pageStack}>
-      <PageHeader title="RELIEF PACK MANAGEMENT" actions={[]} />
+      <PageHeader title="RELIEF PACK TEMPLATES MANAGEMENT" actions={[]} />
 
       {activeTab === "relief-packs" ? (
         <section style={{ ...shellStyles.card, boxSizing: "border-box" }}>

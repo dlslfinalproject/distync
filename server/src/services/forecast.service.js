@@ -99,6 +99,62 @@ const formatUsageTrend = (trendRows) => {
   }));
 };
 
+const buildForecastReadinessWarnings = ({
+  eventContext,
+  demandRows = [],
+  forecastItems = null,
+}) => {
+  const warnings = [];
+  const activeInventoryItemCount = Array.isArray(forecastItems)
+    ? forecastItems.length
+    : Number(eventContext?.active_inventory_item_count || 0);
+  const unclaimedEligibleHouseholdCount = Number(
+    eventContext?.unclaimed_eligible_household_count || 0,
+  );
+  const activeStandardPackCount = Number(
+    eventContext?.active_standard_pack_count || 0,
+  );
+  const demandRowCount = Array.isArray(demandRows) ? demandRows.length : 0;
+
+  if (activeInventoryItemCount <= 0) {
+    warnings.push({
+      code: "NO_ACTIVE_INVENTORY_ITEMS",
+      severity: "WARNING",
+      message:
+        "No active inventory items are available, so the forecast has no item targets.",
+    });
+  }
+
+  if (unclaimedEligibleHouseholdCount <= 0) {
+    warnings.push({
+      code: "NO_UNCLAIMED_ELIGIBLE_FAMILIES",
+      severity: "INFO",
+      message:
+        "There are no eligible evacuation-center families marked as not yet received.",
+    });
+  }
+
+  if (activeStandardPackCount <= 0) {
+    warnings.push({
+      code: "NO_ACTIVE_STANDARD_RELIEF_PACKS",
+      severity: "WARNING",
+      message:
+        "No active standard relief pack templates are available for planned relief demand.",
+    });
+  }
+
+  if (unclaimedEligibleHouseholdCount > 0 && demandRowCount <= 0) {
+    warnings.push({
+      code: "NO_ASSIGNED_PACK_ITEM_DEMAND",
+      severity: "WARNING",
+      message:
+        "Eligible not-yet-received families exist, but no active assigned relief pack items were found.",
+    });
+  }
+
+  return warnings;
+};
+
 const getResolvedForecastedUsage = ({
   analyticsForecastedUsage,
   projectedHouseholdDemand,
@@ -246,6 +302,7 @@ const buildForecastDashboard = ({
   forecastResults,
   eventContext,
   usageTrend,
+  readinessWarnings = [],
 }) => {
   const enrichedResults = [...(forecastResults || [])].sort(
     (left, right) => right.forecasted_usage - left.forecasted_usage,
@@ -313,10 +370,21 @@ const buildForecastDashboard = ({
       household_count: Number(eventContext?.household_count || 0),
       attendance_record_count: Number(eventContext?.attendance_record_count || 0),
       present_evacuee_count: Number(eventContext?.present_evacuee_count || 0),
+      eligible_household_count: Number(
+        eventContext?.eligible_household_count || 0,
+      ),
+      eligible_evacuee_count: Number(eventContext?.eligible_evacuee_count || 0),
+      claimed_household_count: Number(eventContext?.claimed_household_count || 0),
+      unclaimed_eligible_household_count: Number(
+        eventContext?.unclaimed_eligible_household_count || 0,
+      ),
       distribution_transaction_count: Number(
         eventContext?.distribution_transaction_count || 0,
       ),
       total_released_quantity: Number(eventContext?.total_released_quantity || 0),
+      active_inventory_item_count: Number(
+        eventContext?.active_inventory_item_count || 0,
+      ),
       active_standard_pack_count: Number(
         eventContext?.active_standard_pack_count || 0,
       ),
@@ -344,6 +412,7 @@ const buildForecastDashboard = ({
       shortage_within_seven_days: Boolean(result.shortage_within_seven_days),
       unit_of_measure: result.unit_of_measure,
     })),
+    readiness_warnings: readinessWarnings,
   };
 };
 
@@ -498,11 +567,27 @@ const mapStoredForecastRun = (forecastRun, resultRows) => {
         present_evacuee_count: Number(
           forecastRun.parameters_json?.event_context?.present_evacuee_count || 0,
         ),
+        eligible_household_count: Number(
+          forecastRun.parameters_json?.event_context?.eligible_household_count || 0,
+        ),
+        eligible_evacuee_count: Number(
+          forecastRun.parameters_json?.event_context?.eligible_evacuee_count || 0,
+        ),
+        claimed_household_count: Number(
+          forecastRun.parameters_json?.event_context?.claimed_household_count || 0,
+        ),
+        unclaimed_eligible_household_count: Number(
+          forecastRun.parameters_json?.event_context
+            ?.unclaimed_eligible_household_count || 0,
+        ),
         distribution_transaction_count: Number(
           forecastRun.parameters_json?.event_context?.distribution_transaction_count || 0,
         ),
         total_released_quantity: Number(
           forecastRun.parameters_json?.event_context?.total_released_quantity || 0,
+        ),
+        active_inventory_item_count: Number(
+          forecastRun.parameters_json?.event_context?.active_inventory_item_count || 0,
         ),
         active_standard_pack_count: Number(
           forecastRun.parameters_json?.event_context?.active_standard_pack_count || 0,
@@ -582,6 +667,7 @@ const mapStoredForecastRun = (forecastRun, resultRows) => {
           ),
           unit_of_measure: result.unit_of_measure,
         })),
+      readiness_warnings: forecastRun.parameters_json?.readiness_warnings || [],
     },
     results: mappedResults,
   };
@@ -598,6 +684,21 @@ const ensureDisasterEvent = async (disasterEventId, dbClient = pool) => {
       "disaster_event_id does not refer to an existing disaster event",
     );
     error.statusCode = 400;
+    throw error;
+  }
+
+  return disasterEvent;
+};
+
+const ensureForecastableDisasterEvent = async (disasterEventId, dbClient = pool) => {
+  const disasterEvent = await ensureDisasterEvent(disasterEventId, dbClient);
+
+  if (disasterEvent.status !== "ACTIVE") {
+    const error = new Error(
+      "Inventory forecasting can only be run for active disaster events.",
+    );
+    error.statusCode = 400;
+    error.code = "DISASTER_EVENT_NOT_ACTIVE_FOR_FORECAST";
     throw error;
   }
 
@@ -867,7 +968,7 @@ const buildResponseResults = (analyticsResults) => {
 
 const runInventoryForecast = async ({ disaster_event_id, model_name, run_by }) => {
   const resolvedModelName = model_name || DEFAULT_FORECAST_MODEL;
-  const disasterEvent = await ensureDisasterEvent(disaster_event_id);
+  const disasterEvent = await ensureForecastableDisasterEvent(disaster_event_id);
   const forecastItems = await forecastRepository.getInventoryForecastItems();
   const eventContext = await forecastRepository.getForecastEventContext(
     disaster_event_id,
@@ -888,6 +989,11 @@ const runInventoryForecast = async ({ disaster_event_id, model_name, run_by }) =
     forecastItems.map((item) => item.id),
   );
   const demandMap = buildDemandMap(demandRows);
+  const readinessWarnings = buildForecastReadinessWarnings({
+    eventContext,
+    demandRows,
+    forecastItems,
+  });
 
   const analyticsPayload = buildAnalyticsPayload({
     forecastItems,
@@ -916,6 +1022,7 @@ const runInventoryForecast = async ({ disaster_event_id, model_name, run_by }) =
     forecastResults: enrichedResults,
     eventContext,
     usageTrend: usageTrendRows,
+    readinessWarnings,
   });
   const client = await pool.connect();
 
@@ -945,16 +1052,32 @@ const runInventoryForecast = async ({ disaster_event_id, model_name, run_by }) =
             present_evacuee_count: Number(
               eventContext?.present_evacuee_count || 0,
             ),
+            eligible_household_count: Number(
+              eventContext?.eligible_household_count || 0,
+            ),
+            eligible_evacuee_count: Number(
+              eventContext?.eligible_evacuee_count || 0,
+            ),
+            claimed_household_count: Number(
+              eventContext?.claimed_household_count || 0,
+            ),
+            unclaimed_eligible_household_count: Number(
+              eventContext?.unclaimed_eligible_household_count || 0,
+            ),
             distribution_transaction_count: Number(
               eventContext?.distribution_transaction_count || 0,
             ),
             total_released_quantity: Number(
               eventContext?.total_released_quantity || 0,
             ),
+            active_inventory_item_count: Number(
+              forecastItems.length || eventContext?.active_inventory_item_count || 0,
+            ),
             active_standard_pack_count: Number(
               eventContext?.active_standard_pack_count || 0,
             ),
           },
+          readiness_warnings: readinessWarnings,
           inventory_usage_trend: dashboard.charts.inventory_usage_trend,
         },
       },
@@ -1035,6 +1158,10 @@ const getInventoryForecastContext = async (disasterEventId) => {
     disasterEventId,
     LOOKBACK_DAYS,
   );
+  const readinessWarnings = buildForecastReadinessWarnings({
+    eventContext,
+    demandRows,
+  });
 
   return {
     disaster_event: {
@@ -1051,10 +1178,21 @@ const getInventoryForecastContext = async (disasterEventId) => {
       evacuee_count: Number(eventContext?.evacuee_count || 0),
       attendance_record_count: Number(eventContext?.attendance_record_count || 0),
       present_evacuee_count: Number(eventContext?.present_evacuee_count || 0),
+      eligible_household_count: Number(
+        eventContext?.eligible_household_count || 0,
+      ),
+      eligible_evacuee_count: Number(eventContext?.eligible_evacuee_count || 0),
+      claimed_household_count: Number(eventContext?.claimed_household_count || 0),
+      unclaimed_eligible_household_count: Number(
+        eventContext?.unclaimed_eligible_household_count || 0,
+      ),
       distribution_transaction_count: Number(
         eventContext?.distribution_transaction_count || 0,
       ),
       total_released_quantity: Number(eventContext?.total_released_quantity || 0),
+      active_inventory_item_count: Number(
+        eventContext?.active_inventory_item_count || 0,
+      ),
       active_standard_pack_count: Number(
         eventContext?.active_standard_pack_count || 0,
       ),
@@ -1069,6 +1207,7 @@ const getInventoryForecastContext = async (disasterEventId) => {
       projected_household_demand: Number(row.projected_household_demand || 0),
     })),
     usage_trend: formatUsageTrend(usageTrendRows),
+    readiness_warnings: readinessWarnings,
   };
 };
 

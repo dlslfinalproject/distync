@@ -55,15 +55,16 @@ export const useInventoryForecast = () => {
           return;
         }
 
-        const normalizedEvents = Array.isArray(eventRows) ? eventRows : [];
-        setForecastEvents(normalizedEvents);
+        const activeEvents = (Array.isArray(eventRows) ? eventRows : [])
+          .filter((event) => event.status === "ACTIVE")
+          .sort(compareMostRecentForecastEvent);
+        setForecastEvents(activeEvents);
 
-        if (normalizedEvents.length > 0) {
-          const activeEvents = normalizedEvents
-            .filter((event) => event.status === "ACTIVE")
-            .sort(compareMostRecentForecastEvent);
-          const preferredEvent = activeEvents[0] || normalizedEvents[0];
+        if (activeEvents.length > 0) {
+          const preferredEvent = activeEvents[0];
           setSelectedForecastEventId(preferredEvent.id);
+        } else {
+          setSelectedForecastEventId("");
         }
       } catch (error) {
         if (isMounted) {
