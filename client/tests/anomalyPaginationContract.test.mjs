@@ -35,6 +35,16 @@ test("MSWDO-ANOM-I01 anomaly page exposes duplicate household registration label
   assert.doesNotMatch(source, />\{row\.anomaly_type\}</);
 });
 
+test("MSWDO-ANOM-I13 anomaly page exposes inventory-distribution mismatch label and filter id", async () => {
+  const source = await fs.readFile(pageSourcePath, "utf8");
+
+  assert.match(
+    source,
+    /value:\s*"INVENTORY_DISTRIBUTION_MISMATCH",\s*label:\s*"Inventory-Distribution Mismatch"/,
+  );
+  assert.match(source, /formatAnomalyType\(row\.anomaly_type\)/);
+});
+
 test("M05 anomaly page resets pagination when result filters change", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
 

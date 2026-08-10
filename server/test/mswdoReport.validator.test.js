@@ -80,6 +80,22 @@ test("MSWDO-ANOM-I01 validator accepts duplicate household anomaly filter only b
   assert.equal(invalidSynonym.statusCode, 400);
 });
 
+test("MSWDO-ANOM-I13 validator accepts inventory-distribution mismatch by canonical id", async () => {
+  const valid = await runValidator({
+    anomaly_type: "INVENTORY_DISTRIBUTION_MISMATCH",
+  });
+  const invalidSynonym = await runValidator({
+    anomaly_type: "INVENTORY_RECONCILIATION_MISMATCH",
+  });
+
+  assert.equal(valid.statusCode, 200);
+  assert.equal(
+    valid.validatedQuery.anomaly_type,
+    "INVENTORY_DISTRIBUTION_MISMATCH",
+  );
+  assert.equal(invalidSynonym.statusCode, 400);
+});
+
 test("M05NULL-11 validator keeps the server-owned anomaly sort allowlist unchanged", async () => {
   for (const order of ["newest", "oldest", "az", "za"]) {
     const result = await runValidator({ order });
