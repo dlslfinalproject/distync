@@ -1627,3 +1627,58 @@ test("restoreHousehold blocks a household with an existing open admission", asyn
     harness.restore();
   }
 });
+
+test("EE-FIX-02 updateHouseholdDetails blocks authorized non-ACTIVE disaster events before ordinary update validation", async () => {
+  for (const disasterEventStatus of ["PLANNED", "CLOSED", "ARCHIVED"]) {
+    let privacyReadCalled = false;
+    let updateCalled = false;
+    const harness = loadServiceWithMocks({
+      getHouseholdSummaryById: async () => ({
+        id: "household-ee-fix-02",
+        disaster_event_id: "event-1",
+        disaster_event_status: disasterEventStatus,
+        barangay_id: "barangay-1",
+        residency_status: "RESIDENT",
+        current_stay_type: "RELATIVES",
+        is_active: false,
+        updated_at: "2026-08-08T01:00:00.000Z",
+      }),
+      getLatestHouseholdPrivacyConsentByHouseholdId: async () => {
+        privacyReadCalled = true;
+        return null;
+      },
+      updateHousehold: async () => {
+        updateCalled = true;
+        throw new Error("non-ACTIVE event must not mutate");
+      },
+    });
+
+    try {
+      await assert.rejects(
+        harness.service.updateHouseholdDetails({
+          householdId: "household-ee-fix-02",
+          requester: {
+            userId: "barangay-user-1",
+            roleCode: "BARANGAY",
+            defaultBarangayId: "barangay-1",
+          },
+          requestData: {
+            disaster_event_id: "event-1",
+            barangay_id: "barangay-1",
+          },
+        }),
+        (error) => {
+          assert.equal(error.code, "DISASTER_EVENT_NOT_ACTIVE");
+          assert.equal(error.statusCode, 400);
+          assert.match(error.message, /disaster event is not active/i);
+          return true;
+        },
+      );
+
+      assert.equal(privacyReadCalled, false, disasterEventStatus);
+      assert.equal(updateCalled, false, disasterEventStatus);
+    } finally {
+      harness.restore();
+    }
+  }
+});

@@ -109,6 +109,12 @@ const buildDisasterEventNotActiveError = () => {
   return error;
 };
 
+const assertHouseholdUpdateDisasterEventActive = (household) => {
+  if (household?.disaster_event_status !== "ACTIVE") {
+    throw buildDisasterEventNotActiveError();
+  }
+};
+
 const buildFullName = ({
   first_name,
   middle_name,
@@ -1232,6 +1238,8 @@ const updateHouseholdDetails = async ({
     requester,
     dbClient,
   });
+
+  assertHouseholdUpdateDisasterEventActive(existingHousehold);
 
   if (requestData.disaster_event_id !== existingHousehold.disaster_event_id) {
     const error = new Error("disaster_event_id cannot be changed");
@@ -2664,6 +2672,7 @@ const restoreHousehold = async ({ householdId, requester, restoreData }) => {
 module.exports = {
   getHouseholdDetails,
   getAuthorizedHouseholdSummaryForUpdate,
+  assertHouseholdUpdateDisasterEventActive,
   getDuplicateRegistrationSuggestions,
   registerHousehold,
   updateHouseholdDetails,

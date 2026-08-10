@@ -1133,6 +1133,260 @@ test("EE-FIX-01 HOUSEHOLD_REGISTER non-ACTIVE event business failure becomes FAI
   );
 });
 
+test("EE-FIX-02 HOUSEHOLD_UPDATE non-ACTIVE events fail before LATEST_TIMESTAMP conflict handling", async () => {
+  const cases = [
+    {
+      label: "closed-client-newer",
+      disaster_event_status: "CLOSED",
+      serverUpdatedAt: "2026-08-08T01:00:00.000Z",
+      clientUpdatedAt: "2026-08-08T02:00:00.000Z",
+      current_stay_type: "EVAC_CENTER",
+      is_active: true,
+    },
+    {
+      label: "closed-server-newer",
+      disaster_event_status: "CLOSED",
+      serverUpdatedAt: "2026-08-08T03:00:00.000Z",
+      clientUpdatedAt: "2026-08-08T02:00:00.000Z",
+      current_stay_type: "EVAC_CENTER",
+      is_active: true,
+    },
+    {
+      label: "closed-equal",
+      disaster_event_status: "CLOSED",
+      serverUpdatedAt: "2026-08-08T02:00:00.000Z",
+      clientUpdatedAt: "2026-08-08T02:00:00.000Z",
+      current_stay_type: "EVAC_CENTER",
+      is_active: true,
+    },
+    {
+      label: "closed-non-admitted-resident",
+      disaster_event_status: "CLOSED",
+      serverUpdatedAt: "2026-08-08T01:00:00.000Z",
+      clientUpdatedAt: "2026-08-08T02:00:00.000Z",
+      current_stay_type: "RELATIVES",
+      residency_status: "RESIDENT",
+      is_active: false,
+    },
+    {
+      label: "planned",
+      disaster_event_status: "PLANNED",
+      serverUpdatedAt: "2026-08-08T01:00:00.000Z",
+      clientUpdatedAt: "2026-08-08T02:00:00.000Z",
+      current_stay_type: "EVAC_CENTER",
+      is_active: true,
+    },
+    {
+      label: "archived",
+      disaster_event_status: "ARCHIVED",
+      serverUpdatedAt: "2026-08-08T01:00:00.000Z",
+      clientUpdatedAt: "2026-08-08T02:00:00.000Z",
+      current_stay_type: "EVAC_CENTER",
+      is_active: true,
+    },
+  ];
+
+  for (const currentCase of cases) {
+    let conflictCalls = 0;
+    let updateCalled = false;
+    let failedTransactionPayload = null;
+
+    await withStubbedSyncService(
+      {
+        [syncRepositoryPath]: createBaseSyncRepositoryStub({
+          recordConflictAndUpdateSyncTransaction: async () => {
+            conflictCalls += 1;
+            throw new Error("non-ACTIVE HOUSEHOLD_UPDATE must not create conflict");
+          },
+          updateSyncTransaction: async (id, payload) => {
+            if (payload.sync_status === "FAILED") {
+              failedTransactionPayload = payload;
+            }
+
+            return {
+              id,
+              ...payload,
+            };
+          },
+        }),
+        [householdRegistrationServicePath]: {
+          getAuthorizedHouseholdSummaryForUpdate: async () => ({
+            id: `household-${currentCase.label}`,
+            disaster_event_id: "event-1",
+            disaster_event_status: currentCase.disaster_event_status,
+            barangay_id: baseAuth.defaultBarangayId,
+            residency_status: currentCase.residency_status || "RESIDENT",
+            current_stay_type: currentCase.current_stay_type,
+            is_active: currentCase.is_active,
+            family_head_first_name: "Server",
+            updated_at: currentCase.serverUpdatedAt,
+          }),
+          updateHouseholdDetails: async () => {
+            updateCalled = true;
+            throw new Error("non-ACTIVE HOUSEHOLD_UPDATE must not mutate");
+          },
+        },
+        [systemLogPath]: {
+          logAuditSafely: async () => {},
+          logErrorSafely: async () => {},
+          pickDefined: () => ({}),
+        },
+      },
+      async ({ processSyncEntries }) => {
+        const [result] = await processSyncEntries({
+          auth: baseAuth,
+          entries: [
+            {
+              client_sync_id: `ee-fix-02-${currentCase.label}`,
+              action_key: "HOUSEHOLD_UPDATE",
+              entity_type: "HOUSEHOLD",
+              entity_server_id: `household-${currentCase.label}`,
+              client_timestamp: currentCase.clientUpdatedAt,
+              client_updated_at: currentCase.clientUpdatedAt,
+              payload: {
+                disaster_event_id: "event-1",
+                barangay_id: baseAuth.defaultBarangayId,
+                family_head_first_name: "Local",
+              },
+            },
+          ],
+        });
+
+        assert.equal(result.sync_status, "FAILED", currentCase.label);
+        assert.equal(result.conflict, null, currentCase.label);
+        assert.equal(result.data, null, currentCase.label);
+        assert.match(result.message, /disaster event is not active/i);
+        assert.equal(conflictCalls, 0, currentCase.label);
+        assert.equal(updateCalled, false, currentCase.label);
+        assert.equal(failedTransactionPayload.sync_status, "FAILED");
+        assert.equal(
+          failedTransactionPayload.error_message,
+          "Household registration cannot be completed because the disaster event is not active.",
+        );
+      },
+    );
+  }
+});
+
+test("EE-FIX-02 foreign Barangay CLOSED HOUSEHOLD_UPDATE remains authorization failure without lifecycle evidence", async () => {
+  let conflictCalls = 0;
+  let updateCalled = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("foreign non-ACTIVE household must not create conflict");
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => {
+          const error = new Error("You do not have access to update this household");
+          error.statusCode = 403;
+          throw error;
+        },
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          throw new Error("foreign non-ACTIVE household must not mutate");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "ee-fix-02-foreign-closed",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "foreign-closed-household",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Local",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(result.data, null);
+      assert.equal(result.message, "You do not have access to update this household");
+      assert.doesNotMatch(JSON.stringify(result), /DISASTER_EVENT_NOT_ACTIVE|CLOSED|Foreign/);
+      assert.equal(conflictCalls, 0);
+      assert.equal(updateCalled, false);
+    },
+  );
+});
+
+test("EE-FIX-02 same-ID HOUSEHOLD_UPDATE replay after closure returns terminal result without lifecycle recheck", async () => {
+  let authorizationLookupCalled = false;
+  let updateCalled = false;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async () => ({
+          decision: "REPLAY_TERMINAL",
+          transaction: {
+            id: "sync-replay-after-close",
+            sync_status: "SYNCED",
+            entity_server_id: "household-replay",
+            error_message: null,
+          },
+          conflictRecord: null,
+        }),
+      }),
+      [householdRegistrationServicePath]: {
+        getAuthorizedHouseholdSummaryForUpdate: async () => {
+          authorizationLookupCalled = true;
+          throw new Error("terminal replay must not reauthorize or recheck lifecycle");
+        },
+        updateHouseholdDetails: async () => {
+          updateCalled = true;
+          throw new Error("terminal replay must not mutate");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "ee-fix-02-replay-after-close",
+            action_key: "HOUSEHOLD_UPDATE",
+            entity_type: "HOUSEHOLD",
+            entity_server_id: "household-replay",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            client_updated_at: "2026-08-08T01:00:00.000Z",
+            payload: {
+              family_head_first_name: "Previously Accepted",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.replayed, true);
+      assert.equal(result.conflict, null);
+      assert.equal(authorizationLookupCalled, false);
+      assert.equal(updateCalled, false);
+    },
+  );
+});
+
 test("M02-06 post-commit notification processing failure does not change committed sync result", async () => {
   const loggedErrors = [];
 

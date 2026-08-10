@@ -1207,7 +1207,8 @@ const getHouseholdSummaryById = async (id, dbClient = pool) => {
       b.code AS barangay_code,
       b.name AS barangay_name,
       de.event_code,
-      de.title AS disaster_event_title
+      de.title AS disaster_event_title,
+      de.status AS disaster_event_status
     FROM households h
     LEFT JOIN barangays b ON b.id = h.barangay_id
     LEFT JOIN users registered_by_user ON registered_by_user.id = h.registered_by
@@ -1250,7 +1251,8 @@ const getHouseholdSummaryByIdForUpdate = async (id, dbClient) => {
       b.code AS barangay_code,
       b.name AS barangay_name,
       de.event_code,
-      de.title AS disaster_event_title
+      de.title AS disaster_event_title,
+      de.status AS disaster_event_status
     FROM households h
     LEFT JOIN barangays b ON b.id = h.barangay_id
     LEFT JOIN users registered_by_user ON registered_by_user.id = h.registered_by

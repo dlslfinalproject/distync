@@ -29,3 +29,16 @@ test("EE-FIX-01 household registration scope lock projects authoritative event s
   assert.match(source, /SELECT[\s\S]*id,[\s\S]*status[\s\S]*FROM disaster_events/);
   assert.match(source, /WHERE id = \$1[\s\S]*FOR UPDATE/);
 });
+
+test("EE-FIX-02 household update summaries project authoritative disaster event status", () => {
+  const source = fs.readFileSync(repositoryPath, "utf8");
+
+  assert.match(
+    source,
+    /const getHouseholdSummaryById = async \(id, dbClient = pool\) => \{[\s\S]*de\.status AS disaster_event_status/,
+  );
+  assert.match(
+    source,
+    /const getHouseholdSummaryByIdForUpdate = async \(id, dbClient\) => \{[\s\S]*de\.status AS disaster_event_status/,
+  );
+});
