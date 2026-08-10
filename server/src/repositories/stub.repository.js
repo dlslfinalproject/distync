@@ -279,6 +279,7 @@ const getStubById = async (id) => {
       ${stubSequenceSelect},
       de.event_code,
       de.title AS disaster_event_title,
+      de.status AS disaster_event_status,
       de.disaster_type,
       h.family_head_first_name,
       h.family_head_middle_name,
@@ -326,6 +327,7 @@ const getScopedStubById = async (id, barangayId) => {
       s.qr_status,
       s.qr_notes,
       ${stubSequenceSelect},
+      de.status AS disaster_event_status,
       h.barangay_id,
       h.is_active,
       h.family_head_first_name,
@@ -333,6 +335,7 @@ const getScopedStubById = async (id, barangayId) => {
       h.family_head_last_name,
       h.family_head_suffix
     FROM stubs s
+    INNER JOIN disaster_events de ON de.id = s.disaster_event_id
     INNER JOIN households h ON h.id = s.household_id
     WHERE s.id = $1
       AND h.barangay_id = $2
@@ -365,6 +368,7 @@ const getStubByStubNoOrSerialNo = async ({ stub_no, serial_no }) => {
       s.qr_status,
       s.qr_notes,
       ${stubSequenceSelect},
+      de.status AS disaster_event_status,
       h.family_head_first_name,
       h.family_head_middle_name,
       h.family_head_last_name,
@@ -378,6 +382,7 @@ const getStubByStubNoOrSerialNo = async ({ stub_no, serial_no }) => {
       h.barangay_id,
       b.name AS barangay_name
     FROM stubs s
+    INNER JOIN disaster_events de ON de.id = s.disaster_event_id
     INNER JOIN households h ON h.id = s.household_id
     LEFT JOIN barangays b ON b.id = h.barangay_id
     WHERE s.${field} = $1
@@ -406,6 +411,7 @@ const getStubByQrCodeValue = async (qrCodeValue) => {
       s.qr_status,
       s.qr_notes,
       ${stubSequenceSelect},
+      de.status AS disaster_event_status,
       h.family_head_first_name,
       h.family_head_middle_name,
       h.family_head_last_name,
@@ -419,6 +425,7 @@ const getStubByQrCodeValue = async (qrCodeValue) => {
       h.barangay_id,
       b.name AS barangay_name
     FROM stubs s
+    INNER JOIN disaster_events de ON de.id = s.disaster_event_id
     INNER JOIN households h ON h.id = s.household_id
     LEFT JOIN barangays b ON b.id = h.barangay_id
     WHERE s.qr_code_value = $1

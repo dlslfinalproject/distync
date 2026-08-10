@@ -2540,6 +2540,125 @@ test("H05-13 different client_sync_id QR duplicate claim becomes CONFLICT with F
   );
 });
 
+test("EE-FIX-03 STUB_CLAIM lifecycle failure becomes FAILED without FIRST_ACCEPTED conflict", async () => {
+  let conflictCalls = 0;
+  let failurePayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("lifecycle failure must not create a conflict");
+        },
+        updateSyncTransaction: async (id, payload) => {
+          if (payload.sync_status === "FAILED") {
+            failurePayload = payload;
+          }
+
+          return {
+            id,
+            ...payload,
+          };
+        },
+      }),
+      [stubServicePath]: {
+        claimBarangayStub: async () => {
+          const error = new Error(
+            "Relief claim cannot be completed because the disaster event is not active.",
+          );
+          error.code = "DISASTER_EVENT_NOT_ACTIVE";
+          error.statusCode = 400;
+          error.entityServerId = "22222222-2222-4222-8222-222222222222";
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "ee-fix-03-closed-stub",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "22222222-2222-4222-8222-222222222222",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              stub_id: "22222222-2222-4222-8222-222222222222",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(result.data, null);
+      assert.equal(conflictCalls, 0);
+      assert.equal(failurePayload.sync_status, "FAILED");
+      assert.equal(failurePayload.entity_server_id, "22222222-2222-4222-8222-222222222222");
+    },
+  );
+});
+
+test("EE-FIX-03 same-ID STUB_CLAIM terminal replay bypasses lifecycle handler", async () => {
+  let handlerCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async () => ({
+          decision: "REPLAY_TERMINAL",
+          transaction: {
+            id: "sync-terminal-stub-claim",
+            sync_status: "SYNCED",
+            entity_server_id: "22222222-2222-4222-8222-222222222222",
+            error_message: null,
+          },
+          conflictRecord: null,
+        }),
+      }),
+      [stubServicePath]: {
+        claimBarangayStub: async () => {
+          handlerCalls += 1;
+          throw new Error("terminal replay must not run handler");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "ee-fix-03-replay-stub",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "22222222-2222-4222-8222-222222222222",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              stub_id: "22222222-2222-4222-8222-222222222222",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.replayed, true);
+      assert.equal(handlerCalls, 0);
+    },
+  );
+});
+
 test("BRG-SC-10-H01 Test A keeps same-stub STUB_CLAIM processing in received order despite inverted client_timestamp", async () => {
   const callOrder = [];
   let conflictPayload;
