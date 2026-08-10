@@ -1128,13 +1128,8 @@ const processSingleSyncEntry = async (entry, auth) => {
 
 const processSyncEntries = async ({ entries, auth }) => {
   const results = [];
-  const orderedEntries = [...entries].sort((a, b) => {
-    const aTime = getComparableTimestamp(a.client_timestamp)?.getTime() || 0;
-    const bTime = getComparableTimestamp(b.client_timestamp)?.getTime() || 0;
-    return aTime - bTime;
-  });
 
-  for (const entry of orderedEntries) {
+  for (const entry of entries) {
     const result = await processSingleSyncEntry(entry, auth);
     results.push(result);
   }
