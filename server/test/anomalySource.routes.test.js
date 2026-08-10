@@ -106,6 +106,9 @@ test("ANOMSRC-06 direct duplicate QR claim writes one structured error-log sourc
           next();
         },
         validateCreateDistributionTransaction: (_req, _res, next) => next(),
+        validateInventoryDistributionExportOptions: (_req, _res, next) => next(),
+        validateExportInventoryDistribution: (_req, _res, next) => next(),
+        validateInventoryDistributionDetail: (_req, _res, next) => next(),
         validateGetDistributionHistory: (_req, _res, next) => next(),
         validateExportDistributionHistory: (_req, _res, next) => next(),
         validateUpdateDistributionLifecycle: (_req, _res, next) => next(),

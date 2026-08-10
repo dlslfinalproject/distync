@@ -38,7 +38,10 @@ const loadServiceWithMocks = (repositoryOverrides = {}, dbOverrides = {}) => {
       disaster_event_id: "event-1",
       barangay_id: "barangay-1",
     }),
-    lockHouseholdRegistrationScope: async () => ({ id: "event-1" }),
+    lockHouseholdRegistrationScope: async () => ({
+      id: "event-1",
+      status: "ACTIVE",
+    }),
     findPotentialDuplicatePersonMatches: async () => [],
     ...repositoryOverrides,
   };
@@ -347,7 +350,7 @@ test("H04-01/H04-02 registerHousehold locks scope before authoritative duplicate
       getAgeGroupSectors: async () => [{ id: "adult-sector", code: "ADULT" }],
       lockHouseholdRegistrationScope: async (disasterEventId, dbClient) => {
         events.push(`LOCK:${disasterEventId}:${dbClient === fakeClient}`);
-        return { id: disasterEventId };
+        return { id: disasterEventId, status: "ACTIVE" };
       },
       findPotentialDuplicatePersonMatches: async (_payload, dbClient) => {
         duplicateLookupCount += 1;
@@ -385,6 +388,78 @@ test("H04-01/H04-02 registerHousehold locks scope before authoritative duplicate
     ]);
   } finally {
     harness.restore();
+  }
+});
+
+test("EE-FIX-01 registerHousehold allows only ACTIVE locked disaster events before domain writes", async () => {
+  const blockedStatuses = ["PLANNED", "CLOSED", "ARCHIVED"];
+
+  for (const status of blockedStatuses) {
+    const events = [];
+    const fakeClient = {
+      query: async (query) => {
+        events.push(String(query).trim());
+        return { rows: [] };
+      },
+      release: () => {
+        events.push("RELEASE");
+      },
+    };
+    const forbiddenMutation = (name) => async () => {
+      events.push(name);
+      throw new Error(`${name} must not be called for ${status}`);
+    };
+    const harness = loadServiceWithMocks(
+      {
+        getSectorsByIds: async () => [],
+        getSectorsByCodes: async () => [{ id: "adult-sector", code: "ADULT" }],
+        getAgeGroupSectors: async () => [{ id: "adult-sector", code: "ADULT" }],
+        lockHouseholdRegistrationScope: async (disasterEventId, dbClient) => {
+          events.push(`LOCK:${disasterEventId}:${status}:${dbClient === fakeClient}`);
+          return { id: disasterEventId, status };
+        },
+        findPotentialDuplicatePersonMatches: async (_payload, dbClient) => {
+          events.push(`DUPLICATE:${dbClient === fakeClient}`);
+          return [];
+        },
+        insertHousehold: forbiddenMutation("INSERT_HOUSEHOLD"),
+        insertHouseholdPrivacyConsent: forbiddenMutation("INSERT_PRIVACY"),
+        insertEvacuee: forbiddenMutation("INSERT_EVACUEE"),
+        insertEvacueeSectors: forbiddenMutation("INSERT_EVACUEE_SECTORS"),
+        insertEvacuationLog: forbiddenMutation("INSERT_ATTENDANCE"),
+        updateHouseholdFamilyHeadEvacueeId: forbiddenMutation("UPDATE_HEAD"),
+        insertHouseholdSectors: forbiddenMutation("INSERT_HOUSEHOLD_SECTORS"),
+        generateStubNumbers: forbiddenMutation("GENERATE_STUB"),
+        insertStub: forbiddenMutation("INSERT_STUB"),
+        archiveHousehold: forbiddenMutation("ARCHIVE_HOUSEHOLD"),
+        deactivateEvacueesByHouseholdId: forbiddenMutation("DEACTIVATE_EVACUEES"),
+      },
+      {
+        connect: async () => fakeClient,
+      },
+    );
+
+    try {
+      await assert.rejects(
+        harness.service.registerHousehold(buildValidRegistrationRequest()),
+        (error) => {
+          assert.equal(error.code, "DISASTER_EVENT_NOT_ACTIVE");
+          assert.equal(error.statusCode, 400);
+          assert.match(error.message, /disaster event is not active/i);
+          return true;
+        },
+      );
+
+      assert.deepEqual(events, [
+        "DUPLICATE:false",
+        "BEGIN",
+        `LOCK:event-1:${status}:true`,
+        "ROLLBACK",
+        "RELEASE",
+      ]);
+    } finally {
+      harness.restore();
+    }
   }
 });
 
@@ -431,7 +506,7 @@ test("H04-05 different household in the same lock scope still registers", async 
       getAgeGroupSectors: async () => [{ id: "adult-sector", code: "ADULT" }],
       lockHouseholdRegistrationScope: async (disasterEventId, dbClient) => {
         events.push(`LOCK:${disasterEventId}:${dbClient === fakeClient}`);
-        return { id: disasterEventId };
+        return { id: disasterEventId, status: "ACTIVE" };
       },
       findPotentialDuplicatePersonMatches: async (_payload, dbClient) => {
         events.push(`DUPLICATE:${dbClient === fakeClient}`);
@@ -520,7 +595,7 @@ test("H04-12/H04-13 sync registration uses supplied transaction client for lock,
     getAgeGroupSectors: async () => [{ id: "adult-sector", code: "ADULT" }],
     lockHouseholdRegistrationScope: async (disasterEventId, dbClient) => {
       events.push(`LOCK:${disasterEventId}:${dbClient === externalClient}`);
-      return { id: disasterEventId };
+      return { id: disasterEventId, status: "ACTIVE" };
     },
     findPotentialDuplicatePersonMatches: async (_payload, dbClient) => {
       duplicateLookupCount += 1;
@@ -1550,5 +1625,60 @@ test("restoreHousehold blocks a household with an existing open admission", asyn
     );
   } finally {
     harness.restore();
+  }
+});
+
+test("EE-FIX-02 updateHouseholdDetails blocks authorized non-ACTIVE disaster events before ordinary update validation", async () => {
+  for (const disasterEventStatus of ["PLANNED", "CLOSED", "ARCHIVED"]) {
+    let privacyReadCalled = false;
+    let updateCalled = false;
+    const harness = loadServiceWithMocks({
+      getHouseholdSummaryById: async () => ({
+        id: "household-ee-fix-02",
+        disaster_event_id: "event-1",
+        disaster_event_status: disasterEventStatus,
+        barangay_id: "barangay-1",
+        residency_status: "RESIDENT",
+        current_stay_type: "RELATIVES",
+        is_active: false,
+        updated_at: "2026-08-08T01:00:00.000Z",
+      }),
+      getLatestHouseholdPrivacyConsentByHouseholdId: async () => {
+        privacyReadCalled = true;
+        return null;
+      },
+      updateHousehold: async () => {
+        updateCalled = true;
+        throw new Error("non-ACTIVE event must not mutate");
+      },
+    });
+
+    try {
+      await assert.rejects(
+        harness.service.updateHouseholdDetails({
+          householdId: "household-ee-fix-02",
+          requester: {
+            userId: "barangay-user-1",
+            roleCode: "BARANGAY",
+            defaultBarangayId: "barangay-1",
+          },
+          requestData: {
+            disaster_event_id: "event-1",
+            barangay_id: "barangay-1",
+          },
+        }),
+        (error) => {
+          assert.equal(error.code, "DISASTER_EVENT_NOT_ACTIVE");
+          assert.equal(error.statusCode, 400);
+          assert.match(error.message, /disaster event is not active/i);
+          return true;
+        },
+      );
+
+      assert.equal(privacyReadCalled, false, disasterEventStatus);
+      assert.equal(updateCalled, false, disasterEventStatus);
+    } finally {
+      harness.restore();
+    }
   }
 });

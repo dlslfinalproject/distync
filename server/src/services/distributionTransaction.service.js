@@ -977,6 +977,22 @@ const isDistributionStubUniqueViolation = (error) =>
   error?.code === "23505" &&
   error?.constraint === DISTRIBUTION_STUB_UNIQUE_CONSTRAINT;
 
+const createDisasterEventNotActiveError = (stub) => {
+  const error = new Error(
+    "Relief distribution cannot be completed because the disaster event is not active.",
+  );
+  error.code = "DISASTER_EVENT_NOT_ACTIVE";
+  error.statusCode = 400;
+  error.entityServerId = stub?.id || null;
+  return error;
+};
+
+const assertDisasterEventActiveForNewDistribution = (stub) => {
+  if (stub?.disaster_event_status !== "ACTIVE") {
+    throw createDisasterEventNotActiveError(stub);
+  }
+};
+
 const createStubAlreadyClaimedError = ({
   stub,
   latestDistributionTransaction = null,
@@ -1620,6 +1636,8 @@ const createDistributionTransaction = async (requestData) => {
       throw error;
     }
 
+    assertDisasterEventActiveForNewDistribution(stub);
+
     const disasterEvent = await disasterEventRepository.getDisasterEventById(
       stub.disaster_event_id,
     );
@@ -1986,6 +2004,8 @@ const claimDistributionTransactionFromQr = async (requestData) => {
       error.entityServerId = stub.id;
       throw error;
     }
+
+    assertDisasterEventActiveForNewDistribution(stub);
 
     if (
       requestData.qr_reference_value &&

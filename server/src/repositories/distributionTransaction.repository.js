@@ -41,6 +41,7 @@ const getStubByIdForUpdate = async (stubId, dbClient) => {
       s.qr_status,
       s.qr_notes,
       s.claimed_at,
+      de.status AS disaster_event_status,
       h.barangay_id,
       h.household_size,
       h.current_stay_type,
@@ -50,6 +51,7 @@ const getStubByIdForUpdate = async (stubId, dbClient) => {
       h.family_head_last_name,
       h.family_head_suffix
     FROM stubs s
+    INNER JOIN disaster_events de ON de.id = s.disaster_event_id
     INNER JOIN households h ON h.id = s.household_id
     WHERE s.id = $1
     FOR UPDATE

@@ -75,6 +75,15 @@ const createUnsupportedSyncActionError = () => {
   return error;
 };
 
+const createDisasterEventNotActiveError = () => {
+  const error = new Error(
+    "Household registration cannot be completed because the disaster event is not active.",
+  );
+  error.statusCode = 400;
+  error.code = "DISASTER_EVENT_NOT_ACTIVE";
+  return error;
+};
+
 const markPostBusinessBookkeepingFailure = (error) => {
   error.rollbackSyncTransaction = true;
   return error;
@@ -150,6 +159,27 @@ const ACTION_HANDLERS = {
         requester: getRequesterForSync(auth),
         dbClient,
       }),
+    assertCurrentRecordCanSync: ({ currentRecord }) => {
+      if (
+        typeof householdRegistrationService.assertHouseholdUpdateDisasterEventActive ===
+        "function"
+      ) {
+        householdRegistrationService.assertHouseholdUpdateDisasterEventActive(
+          currentRecord,
+        );
+        return;
+      }
+
+      if (
+        Object.prototype.hasOwnProperty.call(
+          currentRecord || {},
+          "disaster_event_status",
+        ) &&
+        currentRecord.disaster_event_status !== "ACTIVE"
+      ) {
+        throw createDisasterEventNotActiveError();
+      }
+    },
     execute: async ({ entityServerId, payload, auth, dbClient }) =>
       householdRegistrationService.updateHouseholdDetails({
         householdId: entityServerId,
@@ -333,16 +363,22 @@ const maybeResolveTimestampConflict = async ({
     };
   }
 
+  if (typeof actionConfig.assertCurrentRecordCanSync === "function") {
+    actionConfig.assertCurrentRecordCanSync({ currentRecord, entry, auth });
+  }
+
+  const { disaster_event_status, ...syncSafeCurrentRecord } = currentRecord;
+
   const localTimestamp =
     getComparableTimestamp(entry.client_updated_at) ||
     getComparableTimestamp(entry.client_timestamp);
-  const serverTimestamp = getComparableTimestamp(currentRecord.updated_at);
+  const serverTimestamp = getComparableTimestamp(syncSafeCurrentRecord.updated_at);
 
   if (!localTimestamp || !serverTimestamp) {
     return {
       hasConflict: false,
       shouldApplyLocalChange: true,
-      currentRecord,
+      currentRecord: syncSafeCurrentRecord,
       conflictRecord: null,
     };
   }
@@ -351,7 +387,7 @@ const maybeResolveTimestampConflict = async ({
     return {
       hasConflict: false,
       shouldApplyLocalChange: true,
-      currentRecord,
+      currentRecord: syncSafeCurrentRecord,
       conflictRecord: null,
     };
   }
@@ -368,7 +404,7 @@ const maybeResolveTimestampConflict = async ({
       entity_server_id: entry.entity_server_id,
       conflict_type: "UPDATED_AT_MISMATCH",
       local_payload_json: entry.payload,
-      server_payload_json: currentRecord,
+      server_payload_json: syncSafeCurrentRecord,
       resolution_strategy: RESOLUTION_STRATEGY.LATEST_TIMESTAMP,
       resolved_by: auth.userId,
       status: CONFLICT_STATUS.RESOLVED,
@@ -1128,13 +1164,8 @@ const processSingleSyncEntry = async (entry, auth) => {
 
 const processSyncEntries = async ({ entries, auth }) => {
   const results = [];
-  const orderedEntries = [...entries].sort((a, b) => {
-    const aTime = getComparableTimestamp(a.client_timestamp)?.getTime() || 0;
-    const bTime = getComparableTimestamp(b.client_timestamp)?.getTime() || 0;
-    return aTime - bTime;
-  });
 
-  for (const entry of orderedEntries) {
+  for (const entry of entries) {
     const result = await processSingleSyncEntry(entry, auth);
     results.push(result);
   }

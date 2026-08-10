@@ -11,6 +11,11 @@ import {
   toStubDetailsFromOfflineSnapshot,
   toStubRowFromOfflineSnapshot,
 } from "../src/features/stubs/stubCache.js";
+import {
+  QR_SCAN_ERROR_CODES,
+  createQrScanError,
+  getQrScanBlockingErrorConfig,
+} from "../src/features/stubs/stubQrScanErrors.js";
 
 const ownerContext = {
   accessMode: ACCESS_MODES.DEVELOPMENT,
@@ -274,9 +279,99 @@ test("BRG-SC-07-M01 TEST N QR component IDs are not trusted independently", asyn
 test("BRG-SC-07-M01 TEST O uncached offline QR blocks without queue creation", async () => {
   const source = await readSource("../src/pages/barangay/StubDistributionPage.jsx");
 
-  assert.match(source, /This QR stub is not locally available/);
-  assert.match(source, /QR_SCAN_ERROR_CODES\.STUB_NOT_FOUND/);
+  assert.match(source, /This stub is not saved on this device for offline use/);
+  assert.match(source, /QR_SCAN_ERROR_CODES\.STUB_NOT_AVAILABLE_OFFLINE/);
+  assert.doesNotMatch(source, /if \(!stubDetails\) \{[\s\S]*QR_SCAN_ERROR_CODES\.STUB_NOT_FOUND/);
   assert.doesNotMatch(source, /queueSyncEntry\(|performSyncableMutation\(/);
+});
+
+test("BRG-SC-08-L01 TEST A offline cache miss has distinct local availability copy", () => {
+  const config = getQrScanBlockingErrorConfig(
+    createQrScanError({
+      code: QR_SCAN_ERROR_CODES.STUB_NOT_AVAILABLE_OFFLINE,
+      message:
+        "This stub is not saved on this device for offline use. Reconnect to verify it.",
+    }),
+  );
+
+  assert.equal(config.title, "Not Available Offline");
+  assert.equal(
+    config.message,
+    "This stub is not saved on this device for offline use. Reconnect to verify it.",
+  );
+  assert.equal(config.detailRows.length, 0);
+  assert.doesNotMatch(`${config.title} ${config.message}`, /Stub Not Found|not linked|does not exist/i);
+});
+
+test("BRG-SC-08-L01 TEST B server 404 not found remains authoritative Stub Not Found", () => {
+  const config = getQrScanBlockingErrorConfig(
+    createQrScanError({
+      code: QR_SCAN_ERROR_CODES.STUB_NOT_FOUND,
+      message: "Stub not found",
+    }),
+  );
+
+  assert.equal(config.title, "Stub Not Found");
+  assert.equal(
+    config.message,
+    "The scanned QR code is not linked to an existing relief stub.",
+  );
+});
+
+test("BRG-SC-08-L01 TEST C other QR errors remain distinct from offline availability", () => {
+  assert.equal(
+    getQrScanBlockingErrorConfig(
+      createQrScanError({ code: QR_SCAN_ERROR_CODES.INVALID_QR_STUB }),
+    ).title,
+    "Invalid QR Stub",
+  );
+  assert.equal(
+    getQrScanBlockingErrorConfig(
+      createQrScanError({ code: QR_SCAN_ERROR_CODES.STUB_ALREADY_CLAIMED }),
+    ).title,
+    "Stub Already Claimed",
+  );
+  assert.equal(
+    getQrScanBlockingErrorConfig(
+      createQrScanError({ code: QR_SCAN_ERROR_CODES.ACCESS_RESTRICTED }),
+    ).title,
+    "Access Restricted",
+  );
+  assert.equal(
+    getQrScanBlockingErrorConfig(
+      createQrScanError({ code: QR_SCAN_ERROR_CODES.STUB_UNAVAILABLE }),
+    ).title,
+    "Stub Unavailable",
+  );
+});
+
+test("BRG-SC-08-L01 TEST D offline miss does not set a claim target before throwing", async () => {
+  const source = await readSource("../src/pages/barangay/StubDistributionPage.jsx");
+  const offlineMissIndex = source.indexOf("QR_SCAN_ERROR_CODES.STUB_NOT_AVAILABLE_OFFLINE");
+  const pendingClaimIndex = source.indexOf("setPendingClaimStubId(resolvedStubId)");
+
+  assert.notEqual(offlineMissIndex, -1);
+  assert.notEqual(pendingClaimIndex, -1);
+  assert.equal(offlineMissIndex < pendingClaimIndex, true);
+
+  const offlineMissBlock = source.slice(
+    source.indexOf("if (!stubDetails)"),
+    source.indexOf("resolvedStubId = stubDetails.id;"),
+  );
+  assert.doesNotMatch(offlineMissBlock, /setPendingClaimStubId|claimStub|performSyncableMutation/);
+});
+
+test("BRG-SC-08-L01 TEST E offline unavailable copy is privacy-safe across context misses", () => {
+  const config = getQrScanBlockingErrorConfig(
+    createQrScanError({
+      code: QR_SCAN_ERROR_CODES.STUB_NOT_AVAILABLE_OFFLINE,
+    }),
+  );
+
+  assert.doesNotMatch(
+    `${config.title} ${config.message}`,
+    /other user|another user|other role|another role|access mode|Barangay assignment|belongs to/i,
+  );
 });
 
 test("BRG-SC-07-M01 TEST P existing STUB_CLAIM payload contract is unchanged", async () => {

@@ -100,6 +100,21 @@ const buildHouseholdPrivacySaveFailedError = (cause = null) => {
   return error;
 };
 
+const buildDisasterEventNotActiveError = () => {
+  const error = new Error(
+    "Household registration cannot be completed because the disaster event is not active.",
+  );
+  error.statusCode = 400;
+  error.code = "DISASTER_EVENT_NOT_ACTIVE";
+  return error;
+};
+
+const assertHouseholdUpdateDisasterEventActive = (household) => {
+  if (household?.disaster_event_status !== "ACTIVE") {
+    throw buildDisasterEventNotActiveError();
+  }
+};
+
 const buildFullName = ({
   first_name,
   middle_name,
@@ -1224,6 +1239,8 @@ const updateHouseholdDetails = async ({
     dbClient,
   });
 
+  assertHouseholdUpdateDisasterEventActive(existingHousehold);
+
   if (requestData.disaster_event_id !== existingHousehold.disaster_event_id) {
     const error = new Error("disaster_event_id cannot be changed");
     error.statusCode = 400;
@@ -1833,6 +1850,10 @@ const registerHousehold = async (requestData) => {
       const error = new Error("disaster_event_id is invalid");
       error.statusCode = 400;
       throw error;
+    }
+
+    if (lockedScope.status !== "ACTIVE") {
+      throw buildDisasterEventNotActiveError();
     }
 
     const authoritativeDuplicateMatch =
@@ -2651,6 +2672,7 @@ const restoreHousehold = async ({ householdId, requester, restoreData }) => {
 module.exports = {
   getHouseholdDetails,
   getAuthorizedHouseholdSummaryForUpdate,
+  assertHouseholdUpdateDisasterEventActive,
   getDuplicateRegistrationSuggestions,
   registerHousehold,
   updateHouseholdDetails,

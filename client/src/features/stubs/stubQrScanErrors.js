@@ -2,6 +2,7 @@ const QR_SCAN_ERROR_CODES = {
   STUB_ALREADY_CLAIMED: "STUB_ALREADY_CLAIMED",
   HOUSEHOLD_ARCHIVED: "HOUSEHOLD_ARCHIVED",
   INVALID_QR_STUB: "INVALID_QR_STUB",
+  STUB_NOT_AVAILABLE_OFFLINE: "STUB_NOT_AVAILABLE_OFFLINE",
   STUB_NOT_FOUND: "STUB_NOT_FOUND",
   WRONG_EVENT: "WRONG_EVENT",
   WRONG_BARANGAY: "WRONG_BARANGAY",
@@ -176,6 +177,13 @@ export const getQrScanBlockingErrorConfig = (error) => {
           maxWidth: "none",
           whiteSpace: "nowrap",
         },
+        detailRows: [],
+      };
+    case QR_SCAN_ERROR_CODES.STUB_NOT_AVAILABLE_OFFLINE:
+      return {
+        title: "Not Available Offline",
+        message:
+          "This stub is not saved on this device for offline use. Reconnect to verify it.",
         detailRows: [],
       };
     case QR_SCAN_ERROR_CODES.STUB_NOT_FOUND:

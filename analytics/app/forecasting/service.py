@@ -111,8 +111,9 @@ def _calculate_projected_depletion_date(
 def _calculate_recommended_reorder_quantity(
     current_stock: float,
     forecasted_usage: float,
+    reorder_level: float,
 ) -> int:
-    shortfall = max(0.0, forecasted_usage - current_stock)
+    shortfall = max(0.0, forecasted_usage + reorder_level - current_stock)
     return ceil(shortfall)
 
 
@@ -170,6 +171,7 @@ def run_inventory_forecast(
     for item in items:
         normalized_series = _normalize_series(item.usage_series, lookback_days)
         current_stock = max(0.0, float(item.current_available_stock or 0))
+        reorder_level = max(0.0, float(item.reorder_level or 0))
         average_daily_usage = _average_daily_usage(normalized_series)
         daily_forecast, forecasted_usage = _get_forecast_values(
             model_name,
@@ -185,6 +187,7 @@ def run_inventory_forecast(
         recommended_reorder_quantity = _calculate_recommended_reorder_quantity(
             current_stock,
             forecasted_usage,
+            reorder_level,
         )
         risk_level = _calculate_risk_level(current_stock, daily_forecast)
 
@@ -196,6 +199,7 @@ def run_inventory_forecast(
                 category=item.category,
                 unit_of_measure=item.unit_of_measure,
                 current_available_stock=_round_two(current_stock),
+                reorder_level=_round_two(reorder_level),
                 average_daily_usage=_round_two(average_daily_usage),
                 forecasted_usage=_round_two(forecasted_usage),
                 projected_depletion_date=projected_depletion_date,

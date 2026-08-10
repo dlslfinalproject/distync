@@ -134,7 +134,38 @@ const getResolvedRiskLevel = ({
     return "HIGH";
   }
 
-  return "MEDIUM";
+  return "LOW";
+};
+
+const getRiskPriority = (riskLevel) => {
+  const priorities = {
+    CRITICAL: 4,
+    HIGH: 3,
+    MEDIUM: 2,
+    LOW: 1,
+  };
+
+  return priorities[String(riskLevel || "").toUpperCase()] || 0;
+};
+
+const getRecommendedReorderQuantity = ({
+  currentAvailableStock,
+  forecastedUsage,
+  reorderLevel,
+  analyticsRecommendedReorderQuantity,
+}) => {
+  const reorderBuffer = Math.max(0, Number(reorderLevel || 0));
+  const forecastWithBufferShortfall = Math.ceil(
+    Math.max(
+      0,
+      Number(forecastedUsage || 0) + reorderBuffer - Number(currentAvailableStock || 0),
+    ),
+  );
+
+  return Math.max(
+    Number(analyticsRecommendedReorderQuantity || 0),
+    forecastWithBufferShortfall,
+  );
 };
 
 const enrichForecastResult = ({
@@ -144,6 +175,7 @@ const enrichForecastResult = ({
   fallbackModelName,
 }) => {
   const currentAvailableStock = Number(result.current_available_stock || 0);
+  const reorderLevel = Number(result.reorder_level || 0);
   const averageDailyUsage = Number(result.average_daily_usage || 0);
   const analyticsForecastedUsage = Number(result.forecasted_usage || 0);
   const projectedHouseholdDemand = Number(
@@ -158,10 +190,12 @@ const enrichForecastResult = ({
     0,
     currentAvailableStock - resolvedForecastedUsage,
   );
-  const recommendedReorderQuantity = Math.max(
-    Number(result.recommended_reorder_quantity || 0),
-    Math.ceil(Math.max(0, resolvedForecastedUsage - currentAvailableStock)),
-  );
+  const recommendedReorderQuantity = getRecommendedReorderQuantity({
+    currentAvailableStock,
+    forecastedUsage: resolvedForecastedUsage,
+    reorderLevel,
+    analyticsRecommendedReorderQuantity: result.recommended_reorder_quantity,
+  });
   const dailyForecast = Number(
     result.daily_forecast ||
       (forecastHorizonDays > 0 ? resolvedForecastedUsage / forecastHorizonDays : 0),
@@ -185,6 +219,7 @@ const enrichForecastResult = ({
   return {
     ...result,
     current_available_stock: currentAvailableStock,
+    reorder_level: reorderLevel,
     average_daily_usage: averageDailyUsage,
     forecasted_usage: resolvedForecastedUsage,
     projected_depletion_date: projectedDepletionDate,
@@ -238,13 +273,30 @@ const buildForecastDashboard = ({
     recommended_reorder_quantity: Number(result.recommended_reorder_quantity || 0),
     unit_of_measure: result.unit_of_measure,
   }));
-  const projectedStockLevels = enrichedResults.slice(0, 8).map((result) => ({
-    inventory_item_id: result.inventory_item_id,
-    item_name: result.item_name,
-    current_available_stock: Number(result.current_available_stock || 0),
-    projected_remaining_stock: Number(result.projected_remaining_stock || 0),
-    forecasted_usage: Number(result.forecasted_usage || 0),
-  }));
+  const projectedStockLevels = [...enrichedResults]
+    .sort((left, right) => {
+      const riskDifference =
+        getRiskPriority(right.risk_level) - getRiskPriority(left.risk_level);
+
+      if (riskDifference !== 0) {
+        return riskDifference;
+      }
+
+      return (
+        Number(left.projected_remaining_stock || 0) -
+        Number(right.projected_remaining_stock || 0)
+      );
+    })
+    .slice(0, 8)
+    .map((result) => ({
+      inventory_item_id: result.inventory_item_id,
+      item_name: result.item_name,
+      current_available_stock: Number(result.current_available_stock || 0),
+      projected_remaining_stock: Number(result.projected_remaining_stock || 0),
+      forecasted_usage: Number(result.forecasted_usage || 0),
+      risk_level: result.risk_level,
+      unit_of_measure: result.unit_of_measure,
+    }));
 
   return {
     disaster_event: {
@@ -387,6 +439,7 @@ const mapStoredForecastRun = (forecastRun, resultRows) => {
       category: row.category,
       unit_of_measure: row.unit_of_measure,
       current_available_stock: Number(parsedNotes.current_available_stock || 0),
+      reorder_level: Number(parsedNotes.reorder_level || 0),
       average_daily_usage: Number(parsedNotes.average_daily_usage || 0),
       forecasted_usage: Number(row.predicted_quantity_needed || 0),
       projected_depletion_date: row.predicted_depletion_date,
@@ -565,6 +618,7 @@ const buildAnalyticsPayload = ({ forecastItems, usageSeriesMap, modelName }) => 
       category: item.category,
       unit_of_measure: item.unit_of_measure,
       current_available_stock: Number(item.current_available_stock || 0),
+      reorder_level: Number(item.reorder_level || 0),
       usage_series: usageSeriesMap.get(item.id) || new Array(LOOKBACK_DAYS).fill(0),
     })),
   };
@@ -759,6 +813,7 @@ const buildResultConfidenceNotes = ({
   return JSON.stringify({
     risk_level: analyticsResult.risk_level || "LOW",
     current_available_stock: Number(analyticsResult.current_available_stock || 0),
+    reorder_level: Number(analyticsResult.reorder_level || 0),
     average_daily_usage: Number(analyticsResult.average_daily_usage || 0),
     forecasted_usage: Number(analyticsResult.forecasted_usage || 0),
     daily_forecast: Number(analyticsResult.daily_forecast || 0),
@@ -791,6 +846,7 @@ const buildResponseResults = (analyticsResults) => {
     category: result.category,
     unit_of_measure: result.unit_of_measure,
     current_available_stock: Number(result.current_available_stock || 0),
+    reorder_level: Number(result.reorder_level || 0),
     average_daily_usage: Number(result.average_daily_usage || 0),
     forecasted_usage: Number(result.forecasted_usage || 0),
     projected_depletion_date: result.projected_depletion_date,

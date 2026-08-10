@@ -93,6 +93,7 @@ const baseStub = {
   claimed_at: "2026-08-08T01:00:00.000Z",
   barangay_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
   qr_code_value: "DISTYNC-STUB|event|household|stub|STUB-001",
+  disaster_event_status: "ACTIVE",
 };
 
 const baseRequest = {
@@ -108,12 +109,31 @@ const baseRequest = {
   },
 };
 
-const createBaseStubs = ({ events, stub = baseStub, claimHandler = null }) => ({
+const createBaseStubs = ({
+  events,
+  stub = baseStub,
+  claimHandler = null,
+  latestAttendance = {
+    status: "PRESENT",
+    time_out: null,
+  },
+  disasterEvent = {
+    id: baseStub.disaster_event_id,
+    status: "ACTIVE",
+    disaster_type: "Typhoon",
+  },
+}) => ({
   [dbPath]: createFakePool(events),
   [distributionTransactionRepositoryPath]: {
     getStubByIdForUpdate: async () => stub,
+    getLatestAttendanceByHouseholdId: async (...args) =>
+      typeof latestAttendance === "function"
+        ? latestAttendance(...args)
+        : latestAttendance,
   },
-  [disasterEventRepositoryPath]: {},
+  [disasterEventRepositoryPath]: {
+    getDisasterEventById: async () => disasterEvent,
+  },
   [reliefPackTemplateRepositoryPath]: {},
   [notificationServicePath]: {
     emitSafely: async () => {},
@@ -280,4 +300,78 @@ test("H05-06 unrelated unique violations remain technical errors", async () => {
   );
 
   assert.deepEqual(events, ["BEGIN", "ROLLBACK", "RELEASE"]);
+});
+
+test("EE-FIX-03 createDistributionTransaction blocks new distributions when the event is not ACTIVE", async () => {
+  for (const disasterEventStatus of ["PLANNED", "CLOSED", "ARCHIVED"]) {
+    const events = [];
+    let attendanceChecked = false;
+
+    await withStubbedDistributionService(
+      createBaseStubs({
+        events,
+        stub: {
+          ...baseStub,
+          status: "ISSUED",
+          disaster_event_status: disasterEventStatus,
+        },
+        latestAttendance: async () => {
+          attendanceChecked = true;
+          return { status: "PRESENT", time_out: null };
+        },
+      }),
+      async ({ createDistributionTransaction }) => {
+        await assert.rejects(
+          () => createDistributionTransaction(baseRequest),
+          (error) => {
+            assert.equal(error.code, "DISASTER_EVENT_NOT_ACTIVE");
+            assert.equal(error.statusCode, 400);
+            return true;
+          },
+        );
+      },
+    );
+
+    assert.equal(attendanceChecked, false);
+    assert.deepEqual(events, ["BEGIN", "ROLLBACK", "RELEASE"]);
+  }
+});
+
+test("EE-FIX-03 claimDistributionTransactionFromQr blocks new QR claims when the event is not ACTIVE", async () => {
+  for (const disasterEventStatus of ["PLANNED", "CLOSED", "ARCHIVED"]) {
+    const events = [];
+    let claimHandlerCalled = false;
+
+    await withStubbedDistributionService(
+      createBaseStubs({
+        events,
+        stub: {
+          ...baseStub,
+          status: "ISSUED",
+          disaster_event_status: disasterEventStatus,
+        },
+        claimHandler: async () => {
+          claimHandlerCalled = true;
+          throw new Error("claim handler should not run for inactive events");
+        },
+      }),
+      async ({ claimDistributionTransactionFromQr }) => {
+        await assert.rejects(
+          () =>
+            claimDistributionTransactionFromQr({
+              ...baseRequest,
+              qr_reference_value: baseStub.qr_code_value,
+            }),
+          (error) => {
+            assert.equal(error.code, "DISASTER_EVENT_NOT_ACTIVE");
+            assert.equal(error.statusCode, 400);
+            return true;
+          },
+        );
+      },
+    );
+
+    assert.equal(claimHandlerCalled, false);
+    assert.deepEqual(events, ["BEGIN", "ROLLBACK", "RELEASE"]);
+  }
 });
