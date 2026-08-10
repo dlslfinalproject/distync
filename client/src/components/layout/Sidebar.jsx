@@ -189,10 +189,10 @@ const roleMeta = {
   [ROLE_CODES.MAYOR]: {
     navItems: [
       { label: "Inventory Items Management", to: "/inventory/items" },
-      { label: "Relief Pack Templates", to: "/inventory/relief-pack-templates", },
-      { label: "Inventory Tracking Management", to: "/inventory/transactions" },
+      { label: "Relief Pack Templates Management", to: "/inventory/relief-pack-templates", },
       { label: "Inventory Distribution Management", to: "/inventory/distribution" },
-      { label: "Inventory Forecasting", to: "/inventory/forecasts" },
+      { label: "Inventory Tracking Management", to: "/inventory/transactions" },
+      { label: "Inventory Forecasting Management", to: "/inventory/forecasts" },
       { label: "Donation Management", to: "/inventory/donations" },
     ],
   },

@@ -19,7 +19,6 @@ import {
   getTrackedExpirationDate,
   isDateExpired,
 } from "../../features/inventory-items/inventoryItemStockStatus";
-import { fetchSystemLogReview } from "../../features/system-logs/systemLogService";
 import db from "../../offline/db.js";
 import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
 import { subscribeToSyncUpdates } from "../../offline/syncService";
@@ -103,26 +102,6 @@ const summaryHelperStyles = {
   fontSize: "14px",
   lineHeight: 1.6,
 };
-
-const subtabWrapStyles = {
-  borderBottom: "1px solid #d6e2ef",
-  display: "flex",
-  flexWrap: "wrap",
-  gap: "8px",
-  overflowX: "auto",
-};
-
-const getSubtabStyles = (isActive) => ({
-  padding: "12px 24px",
-  border: "none",
-  borderBottom: isActive ? "3px solid #17324d" : "3px solid transparent",
-  background: "none",
-  color: isActive ? "#17324d" : "#6b8298",
-  cursor: "pointer",
-  fontSize: "14px",
-  fontWeight: 700,
-  whiteSpace: "nowrap",
-});
 
 const sectionTitleStyles = {
   margin: 0,
@@ -305,39 +284,6 @@ const getFilterPanelPosition = ({ triggerRect, panelHeight }) => {
   };
 };
 
-const tableStyles = {
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-    minWidth: "860px",
-  },
-  th: {
-    padding: "12px 14px",
-    textAlign: "left",
-    fontSize: "12px",
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
-    color: "#66809c",
-    borderBottom: "1px solid #e0eaf4",
-    whiteSpace: "nowrap",
-  },
-  td: {
-    padding: "14px",
-    borderBottom: "1px solid #edf3f8",
-    color: "#21405f",
-    fontSize: "14px",
-    verticalAlign: "top",
-    lineHeight: 1.6,
-  },
-};
-
-const auditEntityTypes = new Set([
-  "INVENTORY_ITEM",
-  "INVENTORY_BATCH",
-  "INVENTORY_TRANSACTION",
-  "SUPPLIER",
-]);
-
 const inflowTransactionTypes = new Set(["INFLOW", "RETURN", "ADJUSTMENT"]);
 const outflowTransactionTypes = new Set([
   "OUTFLOW",
@@ -419,29 +365,6 @@ const sampleTransactionRows = [
     performed_at: "2026-07-11T11:40:00+08:00",
     source_label: "Distribution",
     source_details: "Validated distribution release",
-  },
-];
-
-const sampleAuditEntries = [
-  {
-    id: "AUD-2026-001",
-    action: "INVENTORY_BATCH_CREATE",
-    performed_by: "Mayor Admin",
-    role_code: "MAYOR",
-    timestamp: "2026-07-11T09:10:00+08:00",
-    details: {
-      changed_fields: "batch_no, quantity_received, quantity_available",
-    },
-  },
-  {
-    id: "AUD-2026-002",
-    action: "INVENTORY_TRANSACTION_CREATE",
-    performed_by: "Warehouse Staff",
-    role_code: "MAYOR",
-    timestamp: "2026-07-11T11:42:00+08:00",
-    details: {
-      changed_fields: "transaction_type, quantity, reference_type",
-    },
   },
 ];
 
@@ -720,20 +643,6 @@ const isLowStockItem = (item, trackingStats) => {
   return reorderLevel > 0 && onHand > 0 && onHand <= reorderLevel;
 };
 
-const formatDateTime = (value) => {
-  if (!value) {
-    return "--";
-  }
-
-  return new Intl.DateTimeFormat("en-PH", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
-};
-
 const matchesSearch = (row, searchValue) => {
   const normalizedSearch = String(searchValue || "").trim().toLowerCase();
 
@@ -758,11 +667,6 @@ const matchesSearch = (row, searchValue) => {
   );
 };
 
-const getAuditChangedFields = (entry) => {
-  const changedFields = entry.details?.changed_fields;
-  return changedFields && changedFields !== "-" ? changedFields : "No field details";
-};
-
 const SummaryCard = ({ label, value, helper }) => (
   <article style={summaryCardStyles}>
     <p style={summaryEyebrowStyles}>{label}</p>
@@ -772,7 +676,6 @@ const SummaryCard = ({ label, value, helper }) => (
 );
 
 const InventoryTransactionsPage = () => {
-  const [activeSubtab, setActiveSubtab] = useState("transactions");
   const [filters, setFilters] = useState({
     inventory_item_id: "",
     inventory_batch_id: "",
@@ -784,7 +687,6 @@ const InventoryTransactionsPage = () => {
   const [inventoryTransactions, setInventoryTransactions] = useState([]);
   const [inventoryItems, setInventoryItems] = useState([]);
   const [inventoryBatches, setInventoryBatches] = useState([]);
-  const [inventoryAuditLogs, setInventoryAuditLogs] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [isExporting, setIsExporting] = useState("");
@@ -821,26 +723,15 @@ const InventoryTransactionsPage = () => {
     setErrorMessage("");
 
     try {
-      const [
-        transactionResponse,
-        itemResponse,
-        batchResponse,
-        systemLogResponse,
-      ] = await Promise.all([
+      const [transactionResponse, itemResponse, batchResponse] = await Promise.all([
         fetchInventoryTransactions(),
         fetchInventoryItems(),
         fetchInventoryBatches(),
-        fetchSystemLogReview({ type: "audit", limit: 100 }),
       ]);
 
       setInventoryTransactions(transactionResponse || []);
       setInventoryItems(itemResponse || []);
       setInventoryBatches(batchResponse || []);
-      setInventoryAuditLogs(
-        (systemLogResponse?.audit_logs || []).filter((entry) =>
-          auditEntityTypes.has(entry.entity_type),
-        ),
-      );
     } catch (error) {
       setErrorMessage(error.message);
     } finally {
@@ -1243,26 +1134,16 @@ const InventoryTransactionsPage = () => {
     };
   }, [inventoryBatches, inventoryItems, mergedTransactionRows, trackingMap]);
 
-  const latestAuditEntries = useMemo(() => {
-    if (!inventoryAuditLogs.length && !mergedTransactionRows.length) {
-      return sampleAuditEntries;
-    }
-
-    return inventoryAuditLogs.slice(0, 8);
-  }, [inventoryAuditLogs]);
-
   const isPreviewMode = useMemo(() => {
     return (
       !isLoading &&
       !errorMessage &&
       !inventoryItems.length &&
       !inventoryBatches.length &&
-      !mergedTransactionRows.length &&
-      !inventoryAuditLogs.length
+      !mergedTransactionRows.length
     );
   }, [
     errorMessage,
-    inventoryAuditLogs.length,
     inventoryBatches.length,
     inventoryItems.length,
     mergedTransactionRows.length,
@@ -1428,8 +1309,7 @@ const InventoryTransactionsPage = () => {
     <div style={pageStackStyles}>
       <PageHeader title="INVENTORY TRACKING MANAGEMENT" />
 
-      {activeSubtab === "transactions" ? (
-        <section style={{ ...shellStyles.card, marginTop: "18px" }}>
+      <section style={{ ...shellStyles.card, marginTop: "18px" }}>
           <div style={transactionFilterGridStyles}>
             <div>
               <label htmlFor="tracking-item-filter" style={labelStyles}>
@@ -1548,8 +1428,7 @@ const InventoryTransactionsPage = () => {
               </select>
             </div>
           </div>
-        </section>
-      ) : null}
+      </section>
 
       <section style={overviewSectionStyles}>
         <div style={summaryGridStyles}>
@@ -1586,8 +1465,7 @@ const InventoryTransactionsPage = () => {
         </div>
       </section>
 
-      {activeSubtab === "transactions" ? (
-        <section style={toolbarStyles}>
+      <section style={toolbarStyles}>
           <div style={searchWrapStyles}>
             <SearchBar
               value={toolbarState.search}
@@ -1721,102 +1599,24 @@ const InventoryTransactionsPage = () => {
             <FiFileText size={16} />
             {isExporting ? `Exporting ${isExporting.toUpperCase()}...` : "Export"}
           </button>
-        </section>
-      ) : null}
-
-      <section style={{ ...shellStyles.card, padding: "22px 36px 0", marginBottom: "24px" }}>
-        <div style={subtabWrapStyles}>
-          <button
-            type="button"
-            onClick={() => setActiveSubtab("transactions")}
-            style={getSubtabStyles(activeSubtab === "transactions")}
-          >
-            Transactions
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveSubtab("audit")}
-            style={getSubtabStyles(activeSubtab === "audit")}
-          >
-            Audit Trail
-          </button>
-        </div>
       </section>
 
       <section style={shellStyles.card}>
-        {activeSubtab === "transactions" ? (
-          <>
-            <div style={{ marginBottom: "18px" }}>
-              <h3 style={sectionTitleStyles}>Inventory Transactions</h3>
-              {isPreviewMode ? (
-                <p style={{ ...summaryHelperStyles, marginTop: "8px", color: "#2f6499" }}>
-                  Showing sample records until live stock movement is available.
-                </p>
-              ) : null}
-            </div>
+        <div style={{ marginBottom: "18px" }}>
+          <h3 style={sectionTitleStyles}>Inventory Transactions</h3>
+          {isPreviewMode ? (
+            <p style={{ ...summaryHelperStyles, marginTop: "8px", color: "#2f6499" }}>
+              Showing sample records until live stock movement is available.
+            </p>
+          ) : null}
+        </div>
 
-            <InventoryTransactionsTable
-              rows={presentedRows}
-              isLoading={isLoading}
-              errorMessage={errorMessage}
-              onViewDetails={handleOpenTransactionDetail}
-            />
-          </>
-        ) : (
-          <>
-            <div style={{ marginBottom: "18px" }}>
-              <h3 style={sectionTitleStyles}>Audit Trail</h3>
-              <p style={{ ...summaryHelperStyles, marginTop: "8px" }}>
-                Changes made to inventory records.
-              </p>
-              {isPreviewMode ? (
-                <p style={{ ...summaryHelperStyles, marginTop: "8px", color: "#2f6499" }}>
-                  Showing sample audit entries until live audit logs are available.
-                </p>
-              ) : null}
-            </div>
-
-            {errorMessage ? (
-              <p style={{ margin: 0, color: "#9d4d58", fontWeight: 700 }}>
-                {errorMessage}
-              </p>
-            ) : latestAuditEntries.length === 0 ? (
-              <p style={{ margin: 0, color: "#60738a", fontSize: "14px" }}>
-                No inventory audit trail entries are available yet.
-              </p>
-            ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table style={tableStyles.table}>
-                  <thead>
-                    <tr>
-                      <th style={tableStyles.th}>Action</th>
-                      <th style={tableStyles.th}>Changed By</th>
-                      <th style={tableStyles.th}>Date</th>
-                      <th style={tableStyles.th}>What Was Changed</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {latestAuditEntries.map((entry) => (
-                      <tr key={entry.id}>
-                        <td style={tableStyles.td}>{entry.action}</td>
-                        <td style={tableStyles.td}>
-                          <div>{entry.performed_by}</div>
-                          {entry.role_code ? (
-                            <div style={{ color: "#6b8298", fontSize: "12px" }}>
-                              {entry.role_code}
-                            </div>
-                          ) : null}
-                        </td>
-                        <td style={tableStyles.td}>{formatDateTime(entry.timestamp)}</td>
-                        <td style={tableStyles.td}>{getAuditChangedFields(entry)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </>
-        )}
+        <InventoryTransactionsTable
+          rows={presentedRows}
+          isLoading={isLoading}
+          errorMessage={errorMessage}
+          onViewDetails={handleOpenTransactionDetail}
+        />
       </section>
 
       <ExportModal
