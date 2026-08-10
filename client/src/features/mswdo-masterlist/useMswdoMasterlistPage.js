@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useHouseholdRegistrationForm } from "../household-registration/useHouseholdRegistrationForm";
+import { buildActiveCrossEventInfoMessage } from "../household-registration/crossEventInformation";
 import {
   departHousehold,
   fetchHouseholdDetails,
@@ -209,6 +210,9 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
       setRegistrationSuccessMessage(
         response?.message || "Household registered successfully",
       );
+      setAttendanceActionMessage(
+        buildActiveCrossEventInfoMessage(response, selectedDisasterEvent),
+      );
       reloadMasterlist();
     },
   });
@@ -229,6 +233,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
       setRegistrationSuccessMessage(
         response?.message || "Household updated successfully",
       );
+      setAttendanceActionMessage("");
       reloadMasterlist();
     },
   });
@@ -725,6 +730,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     }
 
     setRegistrationSuccessMessage("");
+    setAttendanceActionMessage("");
     setIsRegisterModalOpen(true);
   };
 

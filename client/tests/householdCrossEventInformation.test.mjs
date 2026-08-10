@@ -1,6 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 import { buildActiveCrossEventInfoMessage } from "../src/features/household-registration/crossEventInformation.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const readClientSource = (relativePath) =>
+  readFileSync(resolve(__dirname, "..", relativePath), "utf8");
 
 test("active cross-event information builds non-blocking post-success copy with event titles", () => {
   const message = buildActiveCrossEventInfoMessage(
@@ -82,4 +89,23 @@ test("completed or absent cross-event metadata produces no extra notice", () => 
     ),
     "",
   );
+});
+
+test("MSWDO masterlist reuses shared non-blocking cross-event information UI", () => {
+  const hookSource = readClientSource(
+    "src/features/mswdo-masterlist/useMswdoMasterlistPage.js",
+  );
+  const pageSource = readClientSource("src/pages/mswdo/ConsolidatedMasterlistPage.jsx");
+
+  assert.match(
+    hookSource,
+    /import \{ buildActiveCrossEventInfoMessage \} from "\.\.\/household-registration\/crossEventInformation";/,
+  );
+  assert.match(
+    hookSource,
+    /setAttendanceActionMessage\(\s*buildActiveCrossEventInfoMessage\(response, selectedDisasterEvent\),\s*\)/,
+  );
+  assert.match(hookSource, /mode: "edit"[\s\S]*?setAttendanceActionMessage\(""\);/);
+  assert.match(pageSource, /import MasterlistStatusMessages/);
+  assert.match(pageSource, /infoMessage=\{attendanceActionMessage\}/);
 });
