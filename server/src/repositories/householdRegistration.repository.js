@@ -104,7 +104,9 @@ const getDisasterEventBarangayLink = async (disasterEventId, barangayId) => {
 
 const lockHouseholdRegistrationScope = async (disasterEventId, dbClient) => {
   const query = `
-    SELECT id
+    SELECT
+      id,
+      status
     FROM disaster_events
     WHERE id = $1
     FOR UPDATE

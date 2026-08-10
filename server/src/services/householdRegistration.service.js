@@ -100,6 +100,15 @@ const buildHouseholdPrivacySaveFailedError = (cause = null) => {
   return error;
 };
 
+const buildDisasterEventNotActiveError = () => {
+  const error = new Error(
+    "Household registration cannot be completed because the disaster event is not active.",
+  );
+  error.statusCode = 400;
+  error.code = "DISASTER_EVENT_NOT_ACTIVE";
+  return error;
+};
+
 const buildFullName = ({
   first_name,
   middle_name,
@@ -1833,6 +1842,10 @@ const registerHousehold = async (requestData) => {
       const error = new Error("disaster_event_id is invalid");
       error.statusCode = 400;
       throw error;
+    }
+
+    if (lockedScope.status !== "ACTIVE") {
+      throw buildDisasterEventNotActiveError();
     }
 
     const authoritativeDuplicateMatch =

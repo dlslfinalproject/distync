@@ -1067,6 +1067,72 @@ test("M02-05 genuine FAILED transition persists notification intent and processe
   );
 });
 
+test("EE-FIX-01 HOUSEHOLD_REGISTER non-ACTIVE event business failure becomes FAILED, not CONFLICT", async () => {
+  let conflictCalls = 0;
+  let failedTransactionPayload = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        recordConflictAndUpdateSyncTransaction: async () => {
+          conflictCalls += 1;
+          throw new Error("non-ACTIVE registration must not create conflict");
+        },
+        updateSyncTransaction: async (id, payload) => {
+          if (payload.sync_status === "FAILED") {
+            failedTransactionPayload = payload;
+          }
+
+          return {
+            id,
+            ...payload,
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async () => {
+          const error = new Error(
+            "Household registration cannot be completed because the disaster event is not active.",
+          );
+          error.statusCode = 400;
+          error.code = "DISASTER_EVENT_NOT_ACTIVE";
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "ee-fix-01-non-active-register",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "local-ee-fix-01",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: buildValidHouseholdRegisterSyncPayload(),
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.equal(result.data, null);
+      assert.match(result.message, /disaster event is not active/i);
+      assert.equal(conflictCalls, 0);
+      assert.equal(
+        failedTransactionPayload.error_message,
+        "Household registration cannot be completed because the disaster event is not active.",
+      );
+    },
+  );
+});
+
 test("M02-06 post-commit notification processing failure does not change committed sync result", async () => {
   const loggedErrors = [];
 
