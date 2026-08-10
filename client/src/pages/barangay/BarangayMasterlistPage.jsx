@@ -37,6 +37,7 @@ import {
   cacheSelectedDisasterEventId,
   fetchEvacuationCentersByBarangay,
 } from "../../features/household-registration/householdRegistrationService";
+import { buildActiveCrossEventInfoMessage } from "../../features/household-registration/crossEventInformation";
 import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
 import {
   buildExportSuccessMessage,
@@ -161,6 +162,9 @@ const BarangayMasterlistPage = () => {
       setRegistrationSuccessMessage(
         response?.message || "Household registered successfully",
       );
+      setAttendanceActionMessage(
+        buildActiveCrossEventInfoMessage(response, selectedEvent),
+      );
       reloadMasterlist();
     },
   });
@@ -181,6 +185,7 @@ const BarangayMasterlistPage = () => {
       setRegistrationSuccessMessage(
         response?.message || "Household updated successfully",
       );
+      setAttendanceActionMessage("");
       reloadMasterlist();
     },
   });

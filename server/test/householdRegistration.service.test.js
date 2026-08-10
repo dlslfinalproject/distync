@@ -43,6 +43,7 @@ const loadServiceWithMocks = (repositoryOverrides = {}, dbOverrides = {}) => {
       status: "ACTIVE",
     }),
     findPotentialDuplicatePersonMatches: async () => [],
+    findActiveCrossEventFamilyHeadMatches: async () => [],
     ...repositoryOverrides,
   };
   if (!mockRepository.getHouseholdSummaryByIdForUpdate) {
@@ -574,6 +575,256 @@ test("H04-05 different household in the same lock scope still registers", async 
       "COMMIT",
       "RELEASE",
     ]);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("registerHousehold returns non-blocking active cross-event information after successful create", async () => {
+  const fakeClient = {
+    query: async () => ({ rows: [] }),
+    release: () => {},
+  };
+  const harness = loadServiceWithMocks(
+    {
+      getSectorsByIds: async () => [],
+      getSectorsByCodes: async () => [{ id: "adult-sector", code: "ADULT" }],
+      getAgeGroupSectors: async () => [{ id: "adult-sector", code: "ADULT" }],
+      findPotentialDuplicatePersonMatches: async () => [],
+      insertHousehold: async () => ({
+        id: "household-new",
+        disaster_event_id: "event-1",
+        barangay_id: "barangay-1",
+      }),
+      insertHouseholdPrivacyConsent: async () => ({
+        id: "privacy-1",
+        device_id: null,
+      }),
+      insertEvacuee: async (_householdId, member) => ({
+        id: member.is_family_head ? "family-head-1" : "member-1",
+        ...member,
+      }),
+      insertEvacueeSectors: async () => [],
+      updateHouseholdFamilyHeadEvacueeId: async () => {},
+      insertHouseholdSectors: async () => [],
+      archiveHousehold: async () => null,
+      deactivateEvacueesByHouseholdId: async () => [],
+      findActiveCrossEventFamilyHeadMatches: async () => [
+        {
+          household_id: "other-household-1",
+          disaster_event_id: "event-active-other",
+          disaster_event_title: "Typhoon Quiapo",
+          disaster_event_status: "ACTIVE",
+          family_head_first_name: "HOSHI",
+          family_head_middle_name: "",
+          family_head_last_name: "KWON",
+          family_head_suffix: "",
+          sex: "MALE",
+          age_value: 24,
+          age_unit: "YEARS",
+          contact_number: "0917 000 0000",
+        },
+      ],
+      getHouseholdSummaryById: async () => ({
+        id: "household-new",
+        disaster_event_id: "event-1",
+        barangay_id: "barangay-1",
+        family_head_first_name: "HOSHI",
+        family_head_last_name: "KWON",
+        is_active: true,
+      }),
+      getEvacueesByHouseholdId: async () => [],
+      getEvacueeSectorAssignmentsByHouseholdId: async () => [],
+      getHouseholdSectorAssignmentsByHouseholdId: async () => [],
+      getStubByHouseholdId: async () => null,
+      getLatestAttendanceByHouseholdId: async () => null,
+      getLatestDistributionTransactionByStubId: async () => null,
+      getLatestHouseholdPrivacyConsentByHouseholdId: async () => null,
+    },
+    {
+      connect: async () => fakeClient,
+    },
+  );
+
+  try {
+    const result = await harness.service.registerHousehold(
+      buildValidRegistrationRequest(),
+    );
+
+    assert.equal(result.household.id, "household-new");
+    assert.deepEqual(result.active_cross_event_information, {
+      has_active_cross_event_match: true,
+      active_disaster_events: [
+        {
+          disaster_event_title: "Typhoon Quiapo",
+        },
+      ],
+    });
+  } finally {
+    harness.restore();
+  }
+});
+
+test("registerHousehold does not fail a committed registration when active cross-event notice lookup fails", async () => {
+  const fakeClient = {
+    query: async () => ({ rows: [] }),
+    release: () => {},
+  };
+  const harness = loadServiceWithMocks(
+    {
+      getSectorsByIds: async () => [],
+      getSectorsByCodes: async () => [{ id: "adult-sector", code: "ADULT" }],
+      getAgeGroupSectors: async () => [{ id: "adult-sector", code: "ADULT" }],
+      findPotentialDuplicatePersonMatches: async () => [],
+      insertHousehold: async () => ({
+        id: "household-new",
+        disaster_event_id: "event-1",
+        barangay_id: "barangay-1",
+      }),
+      insertHouseholdPrivacyConsent: async () => ({
+        id: "privacy-1",
+        device_id: null,
+      }),
+      insertEvacuee: async (_householdId, member) => ({
+        id: "family-head-1",
+        ...member,
+      }),
+      insertEvacueeSectors: async () => [],
+      updateHouseholdFamilyHeadEvacueeId: async () => {},
+      insertHouseholdSectors: async () => [],
+      archiveHousehold: async () => null,
+      deactivateEvacueesByHouseholdId: async () => [],
+      findActiveCrossEventFamilyHeadMatches: async () => {
+        throw new Error("temporary metadata lookup failure");
+      },
+      getHouseholdSummaryById: async () => ({
+        id: "household-new",
+        disaster_event_id: "event-1",
+        barangay_id: "barangay-1",
+        family_head_first_name: "HOSHI",
+        family_head_last_name: "KWON",
+        is_active: true,
+      }),
+      getEvacueesByHouseholdId: async () => [],
+      getEvacueeSectorAssignmentsByHouseholdId: async () => [],
+      getHouseholdSectorAssignmentsByHouseholdId: async () => [],
+      getStubByHouseholdId: async () => null,
+      getLatestAttendanceByHouseholdId: async () => null,
+      getLatestDistributionTransactionByStubId: async () => null,
+      getLatestHouseholdPrivacyConsentByHouseholdId: async () => null,
+    },
+    {
+      connect: async () => fakeClient,
+    },
+  );
+
+  try {
+    const result = await harness.service.registerHousehold(
+      buildValidRegistrationRequest(),
+    );
+
+    assert.equal(result.household.id, "household-new");
+    assert.equal(result.active_cross_event_information, null);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("registerHousehold does not swallow same-event duplicate lookup failures as optional metadata", async () => {
+  let insertHouseholdCalled = false;
+  const harness = loadServiceWithMocks({
+    getSectorsByIds: async () => [],
+    getSectorsByCodes: async () => [{ id: "adult-sector", code: "ADULT" }],
+    getAgeGroupSectors: async () => [{ id: "adult-sector", code: "ADULT" }],
+    findPotentialDuplicatePersonMatches: async () => {
+      throw new Error("same-event duplicate lookup failed");
+    },
+    insertHousehold: async () => {
+      insertHouseholdCalled = true;
+      return { id: "household-should-not-exist" };
+    },
+  });
+
+  try {
+    await assert.rejects(
+      harness.service.registerHousehold(buildValidRegistrationRequest()),
+      /same-event duplicate lookup failed/,
+    );
+    assert.equal(insertHouseholdCalled, false);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("registerHousehold isolates optional active cross-event lookup from supplied sync transaction client", async () => {
+  const externalClient = {
+    query: async () => ({ rows: [] }),
+  };
+  const optionalLookupClients = [];
+  const harness = loadServiceWithMocks({
+    getSectorsByIds: async () => [],
+    getSectorsByCodes: async () => [{ id: "adult-sector", code: "ADULT" }],
+    getAgeGroupSectors: async () => [{ id: "adult-sector", code: "ADULT" }],
+    findPotentialDuplicatePersonMatches: async () => [],
+    insertHousehold: async (_payload, dbClient) => {
+      assert.equal(dbClient, externalClient);
+      return {
+        id: "household-sync-new",
+        disaster_event_id: "event-1",
+        barangay_id: "barangay-1",
+      };
+    },
+    insertHouseholdPrivacyConsent: async () => ({
+      id: "privacy-1",
+      device_id: null,
+    }),
+    insertEvacuee: async (_householdId, member, dbClient) => {
+      assert.equal(dbClient, externalClient);
+      return {
+        id: member.is_family_head ? "family-head-1" : "member-1",
+        ...member,
+      };
+    },
+    insertEvacueeSectors: async () => [],
+    updateHouseholdFamilyHeadEvacueeId: async () => {},
+    insertHouseholdSectors: async () => [],
+    archiveHousehold: async () => null,
+    deactivateEvacueesByHouseholdId: async () => [],
+    findActiveCrossEventFamilyHeadMatches: async (_payload, dbClient) => {
+      optionalLookupClients.push(dbClient);
+      throw new Error("optional lookup must not poison sync transaction");
+    },
+    getHouseholdSummaryById: async (_householdId, dbClient) => {
+      assert.equal(dbClient, externalClient);
+      return {
+        id: "household-sync-new",
+        disaster_event_id: "event-1",
+        barangay_id: "barangay-1",
+        family_head_first_name: "HOSHI",
+        family_head_last_name: "KWON",
+        is_active: true,
+      };
+    },
+    getEvacueesByHouseholdId: async () => [],
+    getEvacueeSectorAssignmentsByHouseholdId: async () => [],
+    getHouseholdSectorAssignmentsByHouseholdId: async () => [],
+    getStubByHouseholdId: async () => null,
+    getLatestAttendanceByHouseholdId: async () => null,
+    getLatestDistributionTransactionByStubId: async () => null,
+    getLatestHouseholdPrivacyConsentByHouseholdId: async () => null,
+  });
+
+  try {
+    const result = await harness.service.registerHousehold(
+      buildValidRegistrationRequest({
+        enforce_sync_duplicate_guard: true,
+        dbClient: externalClient,
+      }),
+    );
+
+    assert.equal(result.household.id, "household-sync-new");
+    assert.deepEqual(optionalLookupClients, [undefined]);
+    assert.equal(result.active_cross_event_information, null);
   } finally {
     harness.restore();
   }
@@ -1623,6 +1874,149 @@ test("restoreHousehold blocks a household with an existing open admission", asyn
         return true;
       },
     );
+  } finally {
+    harness.restore();
+  }
+});
+
+test("updateHouseholdDetails validates members against persisted family head without registration-only variable", async () => {
+  const fakeClient = {
+    query: async () => ({ rows: [] }),
+    release: () => {},
+  };
+  let updateHouseholdCalls = 0;
+  let insertHouseholdCalls = 0;
+  const existingHousehold = {
+    id: "household-edit-1",
+    disaster_event_id: "event-1",
+    disaster_event_status: "ACTIVE",
+    barangay_id: "barangay-1",
+    evacuation_center_id: "center-1",
+    residency_status: "RESIDENT",
+    family_head_first_name: "Ana",
+    family_head_middle_name: null,
+    family_head_last_name: "Dela Cruz",
+    family_head_suffix: null,
+    sex: "FEMALE",
+    current_stay_type: "EVAC_CENTER",
+    current_address_details: "Purok 1",
+    contact_number: "+639171234567",
+    household_size: 2,
+    is_active: true,
+    family_head_evacuee_id: "head-1",
+  };
+  const existingMembers = [
+    {
+      id: "head-1",
+      household_id: "household-edit-1",
+      first_name: "Ana",
+      middle_name: null,
+      last_name: "Dela Cruz",
+      suffix: null,
+      sex: "FEMALE",
+      age_value: 34,
+      age_unit: "YEARS",
+      relationship_to_head: "HEAD",
+      is_family_head: true,
+      is_active: true,
+    },
+    {
+      id: "member-1",
+      household_id: "household-edit-1",
+      first_name: "Marco",
+      middle_name: null,
+      last_name: "Dela Cruz",
+      suffix: null,
+      sex: "MALE",
+      age_value: 12,
+      age_unit: "YEARS",
+      relationship_to_head: "SON",
+      is_family_head: false,
+      is_active: true,
+    },
+  ];
+  const harness = loadServiceWithMocks(
+    {
+      getHouseholdSummaryById: async () => existingHousehold,
+      getLatestHouseholdPrivacyConsentByHouseholdId: async () => ({
+        id: "privacy-1",
+        consent_status: "ACKNOWLEDGED",
+        notice_version: "v1",
+      }),
+      getEvacueesByHouseholdId: async () => existingMembers,
+      getEvacueeSectorAssignmentsByHouseholdId: async () => [],
+      getHouseholdSectorAssignmentsByHouseholdId: async () => [],
+      getSectorsByIds: async () => [],
+      getSectorsByCodes: async () => [{ id: "adult-sector", code: "ADULT" }],
+      getAgeGroupSectors: async () => [{ id: "adult-sector", code: "ADULT" }],
+      updateHousehold: async (_householdId, payload) => {
+        updateHouseholdCalls += 1;
+        existingHousehold.contact_number = payload.contact_number;
+        existingHousehold.household_size = payload.household_size;
+        return existingHousehold;
+      },
+      deleteEvacueeSectorsByEvacueeId: async () => {},
+      deactivateEvacuee: async () => {},
+      getActiveEvacuationLogsByHouseholdId: async () => [],
+      updateEvacuee: async (_memberId, member) => ({
+        id: "member-1",
+        ...member,
+      }),
+      insertEvacuee: async () => {
+        insertHouseholdCalls += 1;
+        throw new Error("member insert should not be needed");
+      },
+      insertEvacueeSectors: async () => {},
+      deleteHouseholdSectorsByHouseholdId: async () => {},
+      insertHouseholdSectors: async () => {},
+      getStubByHouseholdId: async () => null,
+      getLatestAttendanceByHouseholdId: async () => null,
+      getLatestDistributionTransactionByStubId: async () => null,
+    },
+    {
+      connect: async () => fakeClient,
+    },
+  );
+
+  try {
+    const result = await harness.service.updateHouseholdDetails({
+      householdId: "household-edit-1",
+      requester: {
+        userId: "barangay-user-1",
+        roleCode: "BARANGAY",
+        defaultBarangayId: "barangay-1",
+      },
+      requestData: {
+        disaster_event_id: "event-1",
+        barangay_id: "barangay-1",
+        residency_status: "RESIDENT",
+        evacuation_center_id: "center-1",
+        current_stay_type: "EVAC_CENTER",
+        registered_by: "barangay-user-1",
+        contact_number: "+639179999999",
+        current_address_details: "Purok 2",
+        members: [
+          {
+            id: "member-1",
+            first_name: "Marco",
+            middle_name: null,
+            last_name: "Dela Cruz",
+            suffix: null,
+            sex: "MALE",
+            age_value: 12,
+            age_unit: "YEARS",
+            relationship_to_head: "SON",
+            sector_ids: [],
+          },
+        ],
+        household_sector_ids: [],
+      },
+    });
+
+    assert.equal(result.household.id, "household-edit-1");
+    assert.equal(updateHouseholdCalls, 1);
+    assert.equal(insertHouseholdCalls, 0);
+    assert.equal(result.active_cross_event_information, undefined);
   } finally {
     harness.restore();
   }

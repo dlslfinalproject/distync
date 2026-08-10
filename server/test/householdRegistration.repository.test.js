@@ -42,3 +42,22 @@ test("EE-FIX-02 household update summaries project authoritative disaster event 
     /const getHouseholdSummaryByIdForUpdate = async \(id, dbClient\) => \{[\s\S]*de\.status AS disaster_event_status/,
   );
 });
+
+test("active cross-event family-head lookup surfaces active registrations without presence filtering", () => {
+  const source = fs.readFileSync(repositoryPath, "utf8");
+  const match = source.match(
+    /const findActiveCrossEventFamilyHeadMatches = async \([\s\S]*?const updateHouseholdRegistrationTimestamp/,
+  );
+
+  assert.ok(match, "findActiveCrossEventFamilyHeadMatches source is present");
+
+  const lookupSource = match[0];
+
+  assert.match(lookupSource, /de\.status = 'ACTIVE'/);
+  assert.match(lookupSource, /h\.disaster_event_id <> \$1/);
+  assert.match(lookupSource, /h\.is_active = TRUE/);
+  assert.doesNotMatch(lookupSource, /latest_attendance/);
+  assert.doesNotMatch(lookupSource, /evacuation_logs/);
+  assert.doesNotMatch(lookupSource, /time_out/);
+  assert.doesNotMatch(lookupSource, /<> 'LEFT'|!= 'LEFT'/);
+});
