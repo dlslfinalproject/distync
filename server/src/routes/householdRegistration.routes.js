@@ -111,6 +111,7 @@ router.get(
       const householdDetails =
         await householdRegistrationService.getHouseholdDetails({
           householdId: req.validatedParams.householdId,
+          evacuationLogId: req.validatedQuery?.evacuationLogId || null,
           requester: req.auth,
         });
 

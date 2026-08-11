@@ -165,6 +165,20 @@ const formatPrivacyStatus = (privacyConsent) => {
   return status || "--";
 };
 
+const formatEvacuationStatus = (status) => {
+  const normalizedStatus = String(status || "").toUpperCase();
+
+  if (!normalizedStatus) {
+    return "No attendance record yet";
+  }
+
+  if (normalizedStatus === "LEFT") {
+    return "DEPARTED";
+  }
+
+  return normalizedStatus;
+};
+
 const buildFullName = (person) => {
   if (!person) {
     return "--";
@@ -445,7 +459,7 @@ const HouseholdDetailModal = ({
                     Evacuation Status
                   </p>
                   <p style={modalStyles.value}>
-                    {latestAttendance?.status || "No attendance record yet"}
+                    {formatEvacuationStatus(latestAttendance?.status)}
                   </p>
 
                   <p style={{ ...modalStyles.label, marginTop: "18px" }}>

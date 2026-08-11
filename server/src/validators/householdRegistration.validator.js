@@ -886,6 +886,11 @@ const validateDepartHousehold = (req, res, next) => {
 const validateGetHouseholdDetails = (req, res, next) => {
   try {
     const { householdId } = req.params;
+    const rawEvacuationLogId = req.query?.evacuation_log_id;
+    const evacuationLogId =
+      typeof rawEvacuationLogId === "string" && rawEvacuationLogId.trim()
+        ? rawEvacuationLogId.trim()
+        : null;
 
     if (!isValidUuid(householdId)) {
       return res.status(400).json({
@@ -893,8 +898,18 @@ const validateGetHouseholdDetails = (req, res, next) => {
       });
     }
 
+    if (evacuationLogId && !isValidUuid(evacuationLogId)) {
+      return res.status(400).json({
+        message: "evacuation_log_id must be a valid UUID",
+      });
+    }
+
     req.validatedParams = {
       householdId,
+    };
+
+    req.validatedQuery = {
+      evacuationLogId,
     };
 
     return next();
