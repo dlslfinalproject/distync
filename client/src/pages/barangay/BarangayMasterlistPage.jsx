@@ -3,6 +3,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import PageHeader from "../../components/layout/PageHeader";
 import BarangayDashboardOverview from "../../components/barangay-dashboard/BarangayDashboardOverview";
 import HouseholdArchiveConfirmModal from "../../components/masterlist/HouseholdArchiveConfirmModal";
+import ActiveCrossEventInformationModal from "../../components/masterlist/ActiveCrossEventInformationModal";
 import MasterlistDepartureConfirmModal from "../../components/masterlist/MasterlistDepartureConfirmModal";
 import HouseholdDetailModal from "../../components/masterlist/HouseholdDetailModal";
 import MasterlistSelectionBar from "../../components/masterlist/MasterlistSelectionBar";
@@ -37,7 +38,7 @@ import {
   cacheSelectedDisasterEventId,
   fetchEvacuationCentersByBarangay,
 } from "../../features/household-registration/householdRegistrationService";
-import { buildActiveCrossEventInfoMessage } from "../../features/household-registration/crossEventInformation";
+import { getActiveCrossEventTitles } from "../../features/household-registration/crossEventInformation";
 import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
 import {
   buildExportSuccessMessage,
@@ -54,6 +55,7 @@ const BarangayMasterlistPage = () => {
   const [registrationSuccessMessage, setRegistrationSuccessMessage] =
     useState("");
   const [attendanceActionMessage, setAttendanceActionMessage] = useState("");
+  const [activeCrossEventModalTitles, setActiveCrossEventModalTitles] = useState([]);
   const [pendingDepartureHouseholdId, setPendingDepartureHouseholdId] =
     useState("");
   const [pendingDepartureHouseholdDetails, setPendingDepartureHouseholdDetails] =
@@ -162,9 +164,8 @@ const BarangayMasterlistPage = () => {
       setRegistrationSuccessMessage(
         response?.message || "Household registered successfully",
       );
-      setAttendanceActionMessage(
-        buildActiveCrossEventInfoMessage(response, selectedEvent),
-      );
+      setAttendanceActionMessage("");
+      setActiveCrossEventModalTitles(getActiveCrossEventTitles(response));
       reloadMasterlist();
     },
   });
@@ -186,6 +187,7 @@ const BarangayMasterlistPage = () => {
         response?.message || "Household updated successfully",
       );
       setAttendanceActionMessage("");
+      setActiveCrossEventModalTitles([]);
       reloadMasterlist();
     },
   });
@@ -504,6 +506,13 @@ const BarangayMasterlistPage = () => {
     }
   };
 
+  const handleOpenRegisterModal = () => {
+    setRegistrationSuccessMessage("");
+    setAttendanceActionMessage("");
+    setActiveCrossEventModalTitles([]);
+    setIsRegisterModalOpen(true);
+  };
+
   const handleOpenDepartureConfirmation = async (householdId) => {
     if (isSelectedEventEnded || isRecordingDeparture) {
       return;
@@ -802,7 +811,7 @@ const BarangayMasterlistPage = () => {
       <MasterlistToolbar
         searchValue={searchTerm}
         onSearchChange={setSearchTerm}
-        onOpenRegisterFamily={() => setIsRegisterModalOpen(true)}
+        onOpenRegisterFamily={handleOpenRegisterModal}
         hideRegisterButton={eventScope === "ended" || !hasSelectedEvent}
         recordStatus={recordStatus}
         onRecordStatusChange={setRecordStatus}
@@ -952,6 +961,11 @@ const BarangayMasterlistPage = () => {
         type={exportFeedback.type}
         message={exportFeedback.message}
         onClose={() => setExportFeedback({ type: "", message: "" })}
+      />
+
+      <ActiveCrossEventInformationModal
+        eventTitles={activeCrossEventModalTitles}
+        onClose={() => setActiveCrossEventModalTitles([])}
       />
     </>
   );

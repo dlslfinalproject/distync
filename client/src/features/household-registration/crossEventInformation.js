@@ -1,27 +1,24 @@
-export const buildActiveCrossEventInfoMessage = (response, selectedEvent) => {
+export const getActiveCrossEventTitles = (response) => {
+  const activeCrossEventInformation =
+    response?.data?.active_cross_event_information;
   const activeEvents =
-    response?.data?.active_cross_event_information?.active_disaster_events;
+    activeCrossEventInformation?.active_disaster_events;
 
-  if (!Array.isArray(activeEvents) || activeEvents.length === 0) {
-    return "";
+  if (
+    !activeCrossEventInformation?.has_active_cross_event_match ||
+    !Array.isArray(activeEvents) ||
+    activeEvents.length === 0
+  ) {
+    return [];
   }
 
-  const eventTitles = activeEvents
-    .map((eventItem) => String(eventItem?.disaster_event_title || "").trim())
-    .filter(Boolean);
+  return activeEvents.reduce((eventTitles, eventItem) => {
+    const eventTitle = String(eventItem?.disaster_event_title || "").trim();
 
-  if (eventTitles.length === 0) {
-    return "";
-  }
+    if (eventTitle && !eventTitles.includes(eventTitle)) {
+      eventTitles.push(eventTitle);
+    }
 
-  const targetEventTitle =
-    selectedEvent?.title || selectedEvent?.event_name || "the selected disaster event";
-  const formattedEventTitles =
-    eventTitles.length === 1
-      ? eventTitles[0]
-      : `${eventTitles.slice(0, -1).join(", ")} and ${eventTitles.at(-1)}`;
-
-  return eventTitles.length === 1
-    ? `Note: This household is also registered under the active disaster event "${formattedEventTitles}". Records for "${targetEventTitle}" are maintained separately.`
-    : `Note: This household is also registered under other active disaster events: ${formattedEventTitles}. Records remain separate for each event.`;
+    return eventTitles;
+  }, []);
 };
