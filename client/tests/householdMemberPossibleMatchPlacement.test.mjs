@@ -113,3 +113,49 @@ test("HMR-PM-07 existing shared registration UI is used by Barangay and MSWDO", 
     /import RegisterFamilyModal from "\.\.\/\.\.\/components\/household-registration\/RegisterFamilyModal"/,
   );
 });
+
+test("HMR-PM-08 MSWDO household details uses Barangay presentation without administrative metadata", () => {
+  assert.match(
+    barangayMasterlistSource,
+    /<HouseholdDetailModal[\s\S]*showAdministrativeMetadata=\{false\}/,
+  );
+  assert.match(
+    mswdoMasterlistSource,
+    /<HouseholdDetailModal[\s\S]*showAdministrativeMetadata=\{false\}/,
+  );
+});
+
+test("HMR-PM-09 household details keeps operational sections available", () => {
+  const detailModalSource = readSource(
+    "src/components/masterlist/HouseholdDetailModal.jsx",
+  );
+
+  [
+    "Disaster Event",
+    "Barangay",
+    "Stay Type",
+    "Family Head",
+    "Contact Number",
+    "Household Size",
+    "Family Head Photo",
+    "Household Sectors / Vulnerabilities",
+    "Evacuation Status",
+    "Arrival Time",
+    "Departure Time",
+    "Family Members",
+    "Sectors:",
+  ].forEach((label) => {
+    assert.match(detailModalSource, new RegExp(label.replace("/", "\\/")));
+  });
+});
+
+test("HMR-PM-10 MSWDO household details does not render privacy sync offline metadata", () => {
+  assert.match(
+    mswdoMasterlistSource,
+    /<HouseholdDetailModal[\s\S]*showAdministrativeMetadata=\{false\}/,
+  );
+  assert.doesNotMatch(
+    mswdoMasterlistSource,
+    /Privacy Acknowledgment|Privacy Notice Version|Sync Status|Recorded Offline/,
+  );
+});
