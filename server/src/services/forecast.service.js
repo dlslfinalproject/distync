@@ -24,6 +24,12 @@ const ANALYTICS_TIMEOUT_MS = Number.parseInt(
   10,
 );
 
+if (process.env.NODE_ENV === "production" && !process.env.ANALYTICS_SERVICE_URL) {
+  throw new Error(
+    "ANALYTICS_SERVICE_URL is required in production so forecasting does not target localhost.",
+  );
+}
+
 const normalizeAnalyticsServiceUrl = (value) => {
   const normalizedValue = String(value || "").trim().replace(/\/+$/, "");
 
