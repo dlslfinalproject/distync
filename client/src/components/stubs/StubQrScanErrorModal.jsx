@@ -9,6 +9,10 @@ const modalStyles = {
     justifyItems: "center",
     textAlign: "center",
     gap: 0,
+    width: "100%",
+    maxWidth: "100%",
+    minWidth: 0,
+    boxSizing: "border-box",
   },
   centeredTitle: {
     margin: 0,
@@ -16,6 +20,8 @@ const modalStyles = {
     fontSize: "18px",
     fontWeight: 700,
     lineHeight: 1.3,
+    width: "100%",
+    overflowWrap: "anywhere",
   },
   centeredMessage: {
     margin: "12px auto 0",
@@ -23,22 +29,33 @@ const modalStyles = {
     fontSize: "14px",
     fontWeight: 400,
     lineHeight: 1.6,
-    maxWidth: "320px",
+    width: "100%",
+    maxWidth: "360px",
+    minWidth: 0,
+    overflowWrap: "anywhere",
+    wordBreak: "break-word",
+    boxSizing: "border-box",
   },
   centeredDetailBlock: {
     display: "grid",
     justifyItems: "center",
     gap: "6px",
     marginTop: "12px",
+    width: "100%",
+    maxWidth: "100%",
+    minWidth: 0,
   },
   centeredFooter: {
-    display: "flex",
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
     justifyContent: "center",
-    alignItems: "center",
+    alignItems: "stretch",
     gap: "14px",
     marginTop: "24px",
-    flexWrap: "wrap",
     width: "100%",
+    maxWidth: "100%",
+    minWidth: 0,
+    boxSizing: "border-box",
   },
   detailGrid: {
     display: "grid",
@@ -93,9 +110,11 @@ const modalStyles = {
     fontWeight: 700,
     minWidth: 0,
     width: "100%",
+    maxWidth: "100%",
     padding: "0 18px",
-    flex: "1 1 0",
     boxShadow: "none",
+    whiteSpace: "normal",
+    textAlign: "center",
   },
   centeredPrimaryButton: {
     ...pageHeaderStyles.primaryButton,
@@ -105,9 +124,11 @@ const modalStyles = {
     fontWeight: 700,
     minWidth: 0,
     width: "100%",
+    maxWidth: "100%",
     padding: "0 18px",
-    flex: "1 1 0",
     boxShadow: "0 8px 18px rgba(58, 97, 141, 0.16)",
+    whiteSpace: "normal",
+    textAlign: "center",
   },
 };
 
@@ -122,7 +143,7 @@ const StubQrScanErrorModal = ({
   const useDetailCards = modalContent.detailLayout === "cards";
   const isCenteredAlert = modalContent.layout === "centeredAlert";
   const isNarrowViewport =
-    typeof window !== "undefined" ? window.innerWidth <= 420 : false;
+    typeof window !== "undefined" ? window.innerWidth <= 520 : false;
   const isCompactViewport =
     typeof window !== "undefined" ? window.innerWidth <= 600 : false;
   const centeredMessageStyle = {
@@ -141,9 +162,6 @@ const StubQrScanErrorModal = ({
           isCenteredAlert
             ? {
                 ...modalStyles.centeredSecondaryButton,
-                ...(isNarrowViewport
-                  ? { flex: "1 1 100%", maxWidth: "100%" }
-                  : null),
               }
             : pageHeaderStyles.secondaryButton
         }
@@ -157,9 +175,6 @@ const StubQrScanErrorModal = ({
           isCenteredAlert
             ? {
                 ...modalStyles.centeredPrimaryButton,
-                ...(isNarrowViewport
-                  ? { flex: "1 1 100%", maxWidth: "100%" }
-                  : null),
               }
             : pageHeaderStyles.primaryButton
         }
@@ -186,12 +201,14 @@ const StubQrScanErrorModal = ({
       contentStyle={
         isCenteredAlert
           ? {
-              padding: "28px 32px 26px",
+              width: `min(100%, ${modalContent.maxWidth || "500px"})`,
+              padding: isNarrowViewport ? "24px 18px 22px" : "28px 24px 26px",
+              boxSizing: "border-box",
             }
           : undefined
       }
       onClose={onTryAgain}
-      showCloseButton={!isCenteredAlert}
+      showCloseButton={!isCenteredAlert && modalContent.showCloseButton !== false}
       closeOnBackdrop={false}
       footer={isCenteredAlert ? null : actionButtons}
     >
@@ -216,7 +233,9 @@ const StubQrScanErrorModal = ({
           <div
             style={{
               ...modalStyles.centeredFooter,
-              ...(isNarrowViewport ? { flexDirection: "column" } : null),
+              ...(isNarrowViewport
+                ? { gridTemplateColumns: "minmax(0, 1fr)" }
+                : null),
             }}
           >
             {actionButtons}
