@@ -1,22 +1,29 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { FiRefreshCw } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../components/layout/PageHeader";
-import { shellStyles } from "../components/layout/BarangayLayout";
+import {
+  pageSpacingStyles,
+  shellStyles,
+} from "../components/layout/BarangayLayout";
+import EmptyState from "../components/shared/EmptyState";
+import SearchBar from "../components/shared/SearchBar";
+import StatusCard from "../components/shared/StatusCard";
 import { fetchSystemLogReview } from "../features/system-logs/systemLogService";
 
-const filterButtonStyles = (isActive) => ({
-  border: "none",
-  borderRadius: "999px",
-  padding: "10px 16px",
-  backgroundColor: isActive ? "#dbe8f6" : "#eef5fc",
-  color: isActive ? "#17324d" : "#40617f",
-  fontWeight: 700,
-  cursor: "pointer",
-});
+const ALL_MODULES_VALUE = "all";
+const MODULE_FILTER_OPTIONS = [
+  { value: ALL_MODULES_VALUE, label: "All" },
+  { value: "Inventory", label: "Inventory" },
+  { value: "Relief Pack", label: "Relief Pack" },
+  { value: "Donation", label: "Donation" },
+  { value: "Distribution", label: "Distribution" },
+];
 
 const tableStyles = {
   table: {
     width: "100%",
     borderCollapse: "collapse",
+    tableLayout: "fixed",
   },
   th: {
     padding: "12px 14px",
@@ -36,29 +43,83 @@ const tableStyles = {
     verticalAlign: "top",
     lineHeight: 1.5,
   },
+  actionColumn: {
+    width: "148px",
+  },
+  moduleColumn: {
+    width: "92px",
+  },
+  recordColumn: {
+    width: "32%",
+  },
+  performedByColumn: {
+    width: "150px",
+  },
+  dateColumn: {
+    width: "138px",
+  },
+  viewColumn: {
+    width: "100px",
+  },
+  centeredColumn: {
+    textAlign: "center",
+  },
+  wrapCell: {
+    overflowWrap: "anywhere",
+    wordBreak: "break-word",
+  },
+  strong: {
+    color: "#17324d",
+    fontWeight: 800,
+  },
+  muted: {
+    color: "#60738a",
+    fontSize: "12px",
+    marginTop: "4px",
+  },
 };
 
-const statusStyles = {
-  SUCCESS: {
-    backgroundColor: "#edf8f1",
-    color: "#2f6c47",
+const filterStyles = {
+  grid: {
+    ...pageSpacingStyles.filterGrid,
   },
-  ERROR: {
-    backgroundColor: "#fff3f1",
-    color: "#9d4d58",
+  field: {
+    minHeight: "52px",
+    padding: "0 14px",
+    borderRadius: "16px",
+    border: "1px solid #d3dfec",
+    backgroundColor: "#ffffff",
+    color: "#234260",
+    fontSize: "14px",
+    boxSizing: "border-box",
+    outline: "none",
+    boxShadow: "0 8px 18px rgba(75, 101, 132, 0.05)",
   },
-  WARNING: {
-    backgroundColor: "#fff6e8",
-    color: "#9a6519",
+  label: {
+    display: "block",
+    marginBottom: "8px",
+    color: "#5f7892",
+    fontSize: "12px",
+    fontWeight: 700,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
   },
-  CRITICAL: {
-    backgroundColor: "#fdecec",
-    color: "#aa2a2a",
+  fieldGroup: {
+    minWidth: 0,
   },
-  INFO: {
-    backgroundColor: "#eef6ff",
-    color: "#2a4c6f",
-  },
+};
+
+const formatActionLabel = (entryOrValue) => {
+  const value =
+    typeof entryOrValue === "object"
+      ? entryOrValue.action_label || entryOrValue.action
+      : entryOrValue;
+
+  if (!value) {
+    return "-";
+  }
+
+  return String(value);
 };
 
 const formatDateTime = (value) => {
@@ -75,145 +136,197 @@ const formatDateTime = (value) => {
   }).format(new Date(value));
 };
 
-const StatusPill = ({ value }) => {
-  const normalizedValue = String(value || "INFO").toUpperCase();
-  const selectedStyles = statusStyles[normalizedValue] || statusStyles.INFO;
+const formatEntityLabel = (entry) => {
+  if (entry.record_label) {
+    return entry.record_label;
+  }
 
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        minWidth: "92px",
-        borderRadius: "999px",
-        padding: "6px 10px",
-        fontSize: "12px",
-        fontWeight: 800,
-        letterSpacing: "0.03em",
-        ...selectedStyles,
-      }}
-    >
-      {normalizedValue}
-    </span>
-  );
+  return "Inventory record";
 };
 
-const EmptyState = ({ message }) => (
-  <p style={{ margin: 0, color: "#60738a", fontSize: "14px", lineHeight: 1.6 }}>
-    {message}
-  </p>
-);
+const getRecordLines = (entry) => {
+  if (Array.isArray(entry.record_lines) && entry.record_lines.length) {
+    return entry.record_lines.filter(Boolean);
+  }
+
+  return [formatEntityLabel(entry)];
+};
+
+const matchesSearch = (entry, searchTerm) => {
+  const normalizedSearchTerm = searchTerm.trim().toLowerCase();
+
+  if (!normalizedSearchTerm) {
+    return true;
+  }
+
+  return [
+    entry.action_label,
+    entry.action_detail,
+    formatActionLabel(entry),
+    entry.module,
+    entry.record_label,
+    ...(Array.isArray(entry.record_lines) ? entry.record_lines : []),
+    entry.performed_by,
+    entry.details?.changed_fields,
+    entry.details?.previous_fields,
+  ]
+    .filter(Boolean)
+    .some((value) =>
+      String(value).toLowerCase().includes(normalizedSearchTerm),
+    );
+};
 
 const SystemLogReviewPage = () => {
-  const [activeFilter, setActiveFilter] = useState("all");
-  const [reviewData, setReviewData] = useState({
-    audit_logs: [],
-    error_logs: [],
-  });
+  const [auditLogs, setAuditLogs] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedModule, setSelectedModule] = useState(ALL_MODULES_VALUE);
 
-  const loadLogs = async (selectedFilter = activeFilter) => {
+  const loadLogs = async () => {
     setIsLoading(true);
     setErrorMessage("");
 
     try {
       const response = await fetchSystemLogReview({
-        type: selectedFilter,
-        limit: 50,
+        type: "audit",
+        limit: "all",
       });
 
-      setReviewData({
-        audit_logs: response.audit_logs || [],
-        error_logs: response.error_logs || [],
-      });
+      setAuditLogs(response.audit_logs || []);
     } catch (error) {
-      setErrorMessage(error.message || "Failed to load system logs.");
+      setErrorMessage(error.message || "Failed to load audit trail.");
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    loadLogs(activeFilter);
-  }, [activeFilter]);
+    loadLogs();
+  }, []);
+
+  const filteredAuditLogs = useMemo(() => {
+    return auditLogs
+      .filter((entry) => {
+        const moduleMatches =
+          selectedModule === ALL_MODULES_VALUE ||
+          entry.module === selectedModule;
+
+        return moduleMatches && matchesSearch(entry, searchTerm);
+      })
+      .sort((firstEntry, secondEntry) => {
+        const firstTime = new Date(firstEntry.timestamp || 0).getTime();
+        const secondTime = new Date(secondEntry.timestamp || 0).getTime();
+
+        return secondTime - firstTime;
+      });
+  }, [auditLogs, searchTerm, selectedModule]);
 
   const summary = useMemo(() => {
+    const stockMovementCount = auditLogs.filter((entry) =>
+      ["Stock Added", "Stock Adjusted", "Written Off"].includes(
+        formatActionLabel(entry),
+      ),
+    ).length;
+    const itemRecordCount = auditLogs.filter((entry) =>
+      ["Item Created", "Item Details Edited"].includes(formatActionLabel(entry)),
+    ).length;
+    const reliefPackTemplateCount = auditLogs.filter((entry) =>
+      [
+        "Relief Pack Template Created",
+        "Relief Pack Details Edited",
+      ].includes(formatActionLabel(entry)),
+    ).length;
+    const donationRecordCount = auditLogs.filter(
+      (entry) => entry.module === "Donation",
+    ).length;
+
     return {
-      auditCount: reviewData.audit_logs.length,
-      errorCount: reviewData.error_logs.length,
+      total: auditLogs.length,
+      stockMovementCount,
+      itemRecordCount,
+      reliefPackTemplateCount,
+      donationRecordCount,
+      visibleCount: filteredAuditLogs.length,
     };
-  }, [reviewData]);
+  }, [auditLogs, filteredAuditLogs.length]);
 
   return (
-    <>
+    <div style={pageSpacingStyles.pageStack}>
       <PageHeader
-        title="SYSTEM LOG REVIEW"
-        description="Review audit and error logs for inventory, donations, households, sync, and forecasting."
+        title="AUDIT TRAIL"
+        description="Read-only activity history for inventory, relief pack, and donation records."
+        actions={[
+          {
+            label: isLoading ? "Refreshing..." : "Refresh",
+            onClick: loadLogs,
+            disabled: isLoading,
+            variant: "secondary",
+          },
+        ]}
       />
 
+      <div style={shellStyles.statGrid}>
+        <StatusCard
+          label="Audit Entries Loaded"
+          value={summary.total}
+          description="Showing finalized inventory, relief pack, and donation audit records."
+          accentColor="#4c86be"
+        />
+        <StatusCard
+          label="Stock Movements"
+          value={summary.stockMovementCount}
+          description="Stock added, adjusted, or written off."
+          accentColor="#5b8f72"
+        />
+        <StatusCard
+          label="Item Record Changes"
+          value={summary.itemRecordCount}
+          description="Items created or item details edited."
+          accentColor="#b8844b"
+        />
+        <StatusCard
+          label="Relief Pack Changes"
+          value={summary.reliefPackTemplateCount}
+          description="Templates created or details edited."
+          accentColor="#a76c6c"
+        />
+        <StatusCard
+          label="Donation Records"
+          value={summary.donationRecordCount}
+          description="Donation entries, detail edits, and write-offs."
+          accentColor="#5e8f9d"
+        />
+        <StatusCard
+          label="Matching Current Filters"
+          value={summary.visibleCount}
+          description="Rows shown after applying search and filters."
+          accentColor="#7a6fa8"
+        />
+      </div>
+
       <section style={shellStyles.card}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: "16px",
-            flexWrap: "wrap",
-          }}
-        >
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            {[
-              { key: "all", label: "All" },
-              { key: "audit", label: "Audit Logs" },
-              { key: "error", label: "Error Logs" },
-            ].map((filterOption) => (
-              <button
-                key={filterOption.key}
-                type="button"
-                onClick={() => setActiveFilter(filterOption.key)}
-                style={filterButtonStyles(activeFilter === filterOption.key)}
-              >
-                {filterOption.label}
-              </button>
-            ))}
-          </div>
+        <div style={filterStyles.grid}>
+          <SearchBar
+            value={searchTerm}
+            onChange={setSearchTerm}
+            placeholder="Search by user, action, affected record, or field"
+          />
 
-          <button
-            type="button"
-            onClick={() => loadLogs(activeFilter)}
-            style={pageHeaderStyles.secondaryButton}
-            disabled={isLoading}
-          >
-            {isLoading ? "Refreshing..." : "Refresh"}
-          </button>
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-            gap: "12px",
-            marginTop: "18px",
-          }}
-        >
-          <div style={{ ...shellStyles.card, marginTop: 0 }}>
-            <p style={{ margin: 0, color: "#60738a", fontSize: "13px" }}>
-              Audit Entries
-            </p>
-            <p style={{ margin: "8px 0 0", color: "#17324d", fontSize: "28px", fontWeight: 800 }}>
-              {summary.auditCount}
-            </p>
-          </div>
-          <div style={{ ...shellStyles.card, marginTop: 0 }}>
-            <p style={{ margin: 0, color: "#60738a", fontSize: "13px" }}>
-              Error Entries
-            </p>
-            <p style={{ margin: "8px 0 0", color: "#17324d", fontSize: "28px", fontWeight: 800 }}>
-              {summary.errorCount}
-            </p>
-          </div>
+          <label style={filterStyles.fieldGroup}>
+            <span style={filterStyles.label}>Module</span>
+            <select
+              value={selectedModule}
+              onChange={(event) => setSelectedModule(event.target.value)}
+              style={filterStyles.field}
+            >
+              {MODULE_FILTER_OPTIONS.map((moduleOption) => (
+                <option key={moduleOption.value} value={moduleOption.value}>
+                  {moduleOption.label}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </section>
 
@@ -226,101 +339,93 @@ const SystemLogReviewPage = () => {
       ) : null}
 
       <section style={shellStyles.card}>
-        <h3 style={{ margin: "0 0 16px", color: "#17324d" }}>Audit Logs</h3>
+        <div style={pageSpacingStyles.toolbar}>
+          <div>
+            <h3 style={{ margin: 0, color: "#17324d" }}>Activity Records</h3>
+            <p style={{ ...shellStyles.mutedText, marginTop: "6px" }}>
+              Showing {summary.visibleCount} of {summary.total} audit entries.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={loadLogs}
+            style={pageHeaderStyles.secondaryButton}
+            disabled={isLoading}
+          >
+            <FiRefreshCw />
+            {isLoading ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
 
         {isLoading ? (
-          <EmptyState message="Loading audit log review..." />
-        ) : reviewData.audit_logs.length === 0 ? (
-          <EmptyState message="No matching records found. Try adjusting your search or filters." />
+          <EmptyState message="Loading audit trail records..." />
+        ) : filteredAuditLogs.length === 0 ? (
+          <EmptyState message="No matching audit records found. Try adjusting the search or filters." />
         ) : (
-          <div style={{ overflowX: "auto" }}>
+          <div style={{ marginTop: "18px", overflowX: "auto" }}>
             <table style={tableStyles.table}>
               <thead>
                 <tr>
-                  <th style={tableStyles.th}>Action</th>
-                  <th style={tableStyles.th}>Module</th>
-                  <th style={tableStyles.th}>Performed By</th>
-                  <th style={tableStyles.th}>Timestamp</th>
-                  <th style={tableStyles.th}>Status</th>
-                  <th style={tableStyles.th}>Details</th>
+                  <th style={{ ...tableStyles.th, ...tableStyles.actionColumn }}>Audit Action</th>
+                  <th style={{ ...tableStyles.th, ...tableStyles.moduleColumn }}>Module</th>
+                  <th style={{ ...tableStyles.th, ...tableStyles.recordColumn }}>Record</th>
+                  <th style={{ ...tableStyles.th, ...tableStyles.performedByColumn }}>Performed By</th>
+                  <th style={{ ...tableStyles.th, ...tableStyles.dateColumn, ...tableStyles.centeredColumn }}>Date & Time</th>
+                  <th style={{ ...tableStyles.th, ...tableStyles.viewColumn, ...tableStyles.centeredColumn }}>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {reviewData.audit_logs.map((entry) => (
-                  <tr key={entry.id}>
-                    <td style={tableStyles.td}>
-                      <strong>{entry.action}</strong>
-                    </td>
-                    <td style={tableStyles.td}>{entry.module}</td>
-                    <td style={tableStyles.td}>
-                      <div>{entry.performed_by}</div>
-                      {entry.role_code ? (
-                        <div style={{ color: "#60738a", fontSize: "12px", marginTop: "4px" }}>
-                          {entry.role_code}
+                {filteredAuditLogs.map((entry) => {
+                  return (
+                    <tr key={entry.id}>
+                      <td style={{ ...tableStyles.td, ...tableStyles.actionColumn }}>
+                        <div style={tableStyles.strong}>
+                          {formatActionLabel(entry)}
                         </div>
-                      ) : null}
-                    </td>
-                    <td style={tableStyles.td}>{formatDateTime(entry.timestamp)}</td>
-                    <td style={tableStyles.td}>
-                      <StatusPill value={entry.status} />
-                    </td>
-                    <td style={tableStyles.td}>
-                      <div>Updated: {entry.details.changed_fields}</div>
-                      <div style={{ color: "#60738a", fontSize: "12px", marginTop: "4px" }}>
-                        Previous: {entry.details.previous_fields}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                        {entry.action_detail ? (
+                          <div style={tableStyles.muted}>
+                            {entry.action_detail}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td style={{ ...tableStyles.td, ...tableStyles.moduleColumn }}>{entry.module}</td>
+                      <td style={{ ...tableStyles.td, ...tableStyles.recordColumn, ...tableStyles.wrapCell }}>
+                        {getRecordLines(entry).map((line, index) => (
+                          <div
+                            key={`${entry.id}-record-${index}`}
+                            style={index === 0 ? tableStyles.strong : tableStyles.muted}
+                          >
+                            {line}
+                          </div>
+                        ))}
+                      </td>
+                      <td style={{ ...tableStyles.td, ...tableStyles.performedByColumn }}>
+                        <div style={tableStyles.strong}>{entry.performed_by}</div>
+                        {entry.role_code ? (
+                          <div style={tableStyles.muted}>{entry.role_code}</div>
+                        ) : null}
+                      </td>
+                      <td style={{ ...tableStyles.td, ...tableStyles.dateColumn, ...tableStyles.centeredColumn }}>
+                        {formatDateTime(entry.timestamp)}
+                      </td>
+                      <td style={{ ...tableStyles.td, ...tableStyles.viewColumn, ...tableStyles.centeredColumn }}>
+                        <button
+                          type="button"
+                          style={pageHeaderStyles.secondaryButton}
+                        >
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </section>
-
-      <section style={shellStyles.card}>
-        <h3 style={{ margin: "0 0 16px", color: "#17324d" }}>Error Logs</h3>
-
-        {isLoading ? (
-          <EmptyState message="Loading error log review..." />
-        ) : reviewData.error_logs.length === 0 ? (
-          <EmptyState message="No matching records found. Try adjusting your search or filters." />
-        ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table style={tableStyles.table}>
-              <thead>
-                <tr>
-                  <th style={tableStyles.th}>Action</th>
-                  <th style={tableStyles.th}>Module</th>
-                  <th style={tableStyles.th}>Performed By</th>
-                  <th style={tableStyles.th}>Timestamp</th>
-                  <th style={tableStyles.th}>Status</th>
-                  <th style={tableStyles.th}>Error Message</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reviewData.error_logs.map((entry) => (
-                  <tr key={entry.id}>
-                    <td style={tableStyles.td}>
-                      <strong>{entry.action}</strong>
-                    </td>
-                    <td style={tableStyles.td}>{entry.module}</td>
-                    <td style={tableStyles.td}>{entry.performed_by}</td>
-                    <td style={tableStyles.td}>{formatDateTime(entry.timestamp)}</td>
-                    <td style={tableStyles.td}>
-                      <StatusPill value={entry.status} />
-                    </td>
-                    <td style={tableStyles.td}>
-                      <div>{entry.error_message}</div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-    </>
+    </div>
   );
 };
 

@@ -86,6 +86,26 @@ test("manual inventory transaction validator rejects missing or zero-sequence IT
   }
 });
 
+test("manual inventory transaction validator requires an explicit batch", () => {
+  const req = {
+    body: {
+      ...validPayload,
+      inventory_batch_id: "",
+      inventory_item_id: "22222222-2222-4222-8222-222222222222",
+    },
+  };
+  const res = createResponse();
+  let nextCalled = false;
+
+  validateCreateInventoryTransaction(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.payload.message, "inventory_batch_id is required");
+});
+
 test("ITR migration and schema preserve nullable historical rows and enforce format plus uniqueness", () => {
   const migrationSql = fs.readFileSync(
     path.resolve(

@@ -58,6 +58,7 @@ const logAuditSafely = async ({
   oldValues = {},
   newValues = {},
   sourceEventKey = null,
+  throwOnError = false,
 }) => {
   const normalizedActor = normalizeActor(actor);
 
@@ -75,6 +76,10 @@ const logAuditSafely = async ({
       source_event_key: sourceEventKey,
     });
   } catch (error) {
+    if (throwOnError) {
+      throw error;
+    }
+
     console.error("Failed to write audit log:", error.message);
   }
 };

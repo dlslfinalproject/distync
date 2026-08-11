@@ -2870,7 +2870,7 @@ const ReliefPackTemplatesPage = () => {
                             buttonTitle="Actions"
                             buttonAriaLabel="Actions"
                             dataPrefix="relief-pack-template-action"
-                            menuWidth={112}
+                            menuWidth={116}
                             variant="icon-grid"
                             items={[
                               {

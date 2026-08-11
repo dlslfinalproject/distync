@@ -326,57 +326,6 @@ const sourceOptions = [
   { value: "Donors", label: "Donors" },
 ];
 
-const sampleTransactionRows = [
-  {
-    id: "TRX-2026-001",
-    transaction_direction: "INFLOW",
-    transaction_type: "INFLOW",
-    inventory_item: {
-      item_name: "Rice",
-      item_code: "INV-RICE-001",
-    },
-    quantity: 250,
-    performed_at: "2026-07-11T09:15:00+08:00",
-    source_label: "Supplier",
-    source_details: "Malvar Food Trading",
-  },
-  {
-    id: "TRX-2026-002",
-    transaction_direction: "INFLOW",
-    transaction_type: "INFLOW",
-    inventory_item: {
-      item_name: "Canned Sardines",
-      item_code: "INV-SARD-002",
-    },
-    quantity: 480,
-    performed_at: "2026-07-11T10:05:00+08:00",
-    source_label: "Donation",
-    source_details: "Private Donor",
-  },
-  {
-    id: "TRX-2026-003",
-    transaction_direction: "OUTFLOW",
-    transaction_type: "OUTFLOW",
-    inventory_item: {
-      item_name: "Relief Water",
-      item_code: "INV-WATR-003",
-    },
-    quantity: 120,
-    performed_at: "2026-07-11T11:40:00+08:00",
-    source_label: "Distribution",
-    source_details: "Validated distribution release",
-  },
-];
-
-const sampleSummaryMetrics = {
-  totalInflow: 730,
-  totalOutflow: 120,
-  totalWriteOff: 30,
-  nearExpiryItems: 2,
-  expiredItems: 1,
-  lowStockItems: 2,
-};
-
 const buildQueuedInventoryTransaction = (entry, inventoryBatches) => {
   const linkedBatch =
     inventoryBatches.find((batch) => batch.id === entry.payload?.inventory_batch_id) ||
@@ -1054,14 +1003,6 @@ const InventoryTransactionsPage = () => {
   }, [inventoryBatches, inventoryItems, inventoryTransactionsWithSyncStatus]);
 
   const summaryMetrics = useMemo(() => {
-    if (
-      !inventoryItems.length &&
-      !inventoryBatches.length &&
-      !mergedTransactionRows.length
-    ) {
-      return sampleSummaryMetrics;
-    }
-
     const totalInflow = mergedTransactionRows.reduce((sum, row) => {
       return row.transaction_direction === "INFLOW"
         ? sum + normalizeQuantity(row.quantity)
@@ -1133,24 +1074,6 @@ const InventoryTransactionsPage = () => {
       expiredItems,
     };
   }, [inventoryBatches, inventoryItems, mergedTransactionRows, trackingMap]);
-
-  const isPreviewMode = useMemo(() => {
-    return (
-      !isLoading &&
-      !errorMessage &&
-      !inventoryItems.length &&
-      !inventoryBatches.length &&
-      !mergedTransactionRows.length
-    );
-  }, [
-    errorMessage,
-    inventoryBatches.length,
-    inventoryItems.length,
-    mergedTransactionRows.length,
-    isLoading,
-  ]);
-
-  const presentedRows = isPreviewMode ? sampleTransactionRows : displayedRows;
 
   const handleExport = async (format) => {
     setErrorMessage("");
@@ -1604,15 +1527,10 @@ const InventoryTransactionsPage = () => {
       <section style={shellStyles.card}>
         <div style={{ marginBottom: "18px" }}>
           <h3 style={sectionTitleStyles}>Inventory Transactions</h3>
-          {isPreviewMode ? (
-            <p style={{ ...summaryHelperStyles, marginTop: "8px", color: "#2f6499" }}>
-              Showing sample records until live stock movement is available.
-            </p>
-          ) : null}
         </div>
 
         <InventoryTransactionsTable
-          rows={presentedRows}
+          rows={displayedRows}
           isLoading={isLoading}
           errorMessage={errorMessage}
           onViewDetails={handleOpenTransactionDetail}

@@ -72,6 +72,11 @@ router.post(
           ...req.validatedBody,
           created_by: req.auth.userId,
         },
+        {
+          userId: req.auth.userId,
+          roleCode: req.auth.roleCode,
+          ipAddress: req.ip,
+        },
       );
 
     return res.status(201).json({

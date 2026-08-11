@@ -414,7 +414,7 @@ const getReliefPackTemplateById = async (id) => {
   };
 };
 
-const createReliefPackTemplate = async (templateData) => {
+const createReliefPackTemplate = async (templateData, actor = null) => {
   await ensureUniqueTemplateName(templateData.name);
 
   if (templateData.items.length > 0) {
@@ -481,6 +481,17 @@ const createReliefPackTemplate = async (templateData) => {
     }
 
     await client.query("COMMIT");
+
+    const createdTemplateDetails = await getReliefPackTemplateById(createdTemplate.id);
+
+    await logAuditSafely({
+      actor,
+      action: "RELIEF_PACK_TEMPLATE_CREATE",
+      entityType: "RELIEF_PACK_TEMPLATE",
+      entityId: createdTemplate.id,
+      oldValues: {},
+      newValues: buildTemplateAuditValues(createdTemplateDetails),
+    });
 
     const sectorIds = normalizeSectorIds(
       persistencePayload.sector_ids,
@@ -594,7 +605,7 @@ const updateReliefPackTemplate = async (id, templateData, actor = null) => {
 
     await logAuditSafely({
       actor,
-      action: "RELIEF_PACK_TEMPLATE_UPDATED",
+      action: "RELIEF_PACK_TEMPLATE_UPDATE",
       entityType: "RELIEF_PACK_TEMPLATE",
       entityId: id,
       oldValues: buildTemplateAuditValues(previousTemplateDetails),
@@ -663,7 +674,7 @@ const replaceReliefPackTemplateItems = async (id, itemsPayload, actor = null) =>
 
     await logAuditSafely({
       actor,
-      action: "RELIEF_PACK_TEMPLATE_ITEMS_UPDATED",
+      action: "RELIEF_PACK_TEMPLATE_UPDATE",
       entityType: "RELIEF_PACK_TEMPLATE",
       entityId: id,
       oldValues: buildTemplateAuditValues(previousTemplateDetails),
