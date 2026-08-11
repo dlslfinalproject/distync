@@ -6,8 +6,7 @@ import {
   fetchBarangays,
   fetchDisasterEventById,
   fetchEndedDisasterEvents,
-  extendDisasterEvent,
-  endDisasterEvent,
+  updateDisasterEvent,
 } from "./disasterEventService";
 
 const NON_RESIDENT_BARANGAY_CODE = "NON_RESIDENT_OUTSIDE_MALVAR";
@@ -55,6 +54,7 @@ export const useDisasterEvents = () => {
   const [successMessage, setSuccessMessage] = useState("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [editingEvent, setEditingEvent] = useState(null);
 
   const loadEvents = async (filterValue = selectedFilter) => {
     setIsLoading(true);
@@ -122,6 +122,23 @@ export const useDisasterEvents = () => {
 
     setIsCreateModalOpen(false);
     setFormErrorMessage("");
+    setEditingEvent(null);
+  };
+
+  const openEditModal = async (eventId) => {
+    setFormErrorMessage("");
+    setSuccessMessage("");
+    setIsSubmitting(true);
+
+    try {
+      const eventDetail = await fetchDisasterEventById(eventId);
+      setEditingEvent(eventDetail);
+      setIsCreateModalOpen(true);
+    } catch (error) {
+      setFormErrorMessage(error.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const openDetailModal = async (eventId) => {
@@ -164,48 +181,29 @@ export const useDisasterEvents = () => {
     }
   };
 
-  const extendEvent = async (id, newEndDate) => {
+  const submitEditEvent = async (payload) => {
+    if (!editingEvent?.id) {
+      throw new Error("Disaster event not found");
+    }
+
     setIsSubmitting(true);
     setFormErrorMessage("");
     setSuccessMessage("");
 
     try {
-      const response = await extendDisasterEvent(id, newEndDate);
-
-      setSuccessMessage(response.message || "Event extended successfully");
-
+      const response = await updateDisasterEvent(editingEvent.id, payload);
+      setSuccessMessage(response.message || "Disaster event updated successfully");
+      setIsCreateModalOpen(false);
+      setEditingEvent(null);
       await loadEvents(selectedFilter);
 
-      if (selectedEvent?.id === id) {
-        const updated = await fetchDisasterEventById(id);
+      if (selectedEvent?.id === editingEvent.id) {
+        const updated = await fetchDisasterEventById(editingEvent.id);
         setSelectedEvent(updated);
       }
     } catch (error) {
       setFormErrorMessage(error.message);
       throw error;
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const endEvent = async (id) => {
-    setIsSubmitting(true);
-    setFormErrorMessage("");
-    setSuccessMessage("");
-
-    try {
-      const response = await endDisasterEvent(id);
-
-      setSuccessMessage(response.message || "Event ended successfully");
-
-      await loadEvents(selectedFilter);
-
-      if (selectedEvent?.id === id) {
-        const updated = await fetchDisasterEventById(id);
-        setSelectedEvent(updated);
-      }
-    } catch (error) {
-      setFormErrorMessage(error.message);
     } finally {
       setIsSubmitting(false);
     }
@@ -226,13 +224,14 @@ export const useDisasterEvents = () => {
     successMessage,
     isCreateModalOpen,
     isDetailModalOpen,
+    editingEvent,
     openCreateModal,
+    openEditModal,
     closeCreateModal,
     openDetailModal,
     closeDetailModal,
     submitCreateEvent,
-    extendEvent,
-    endEvent,
+    submitEditEvent,
     filterOptions,
     refreshEvents: () => loadEvents(selectedFilter),
   };

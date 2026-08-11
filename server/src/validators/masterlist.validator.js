@@ -18,7 +18,7 @@ const parseUuidList = (value) => {
 
 const validateGetMasterlist = (req, res, next) => {
   try {
-    const { disaster_event_id, barangay_id } = req.query;
+    const { disaster_event_id, barangay_id, record_status } = req.query;
 
     if (!isValidUuid(disaster_event_id)) {
       return res.status(400).json({
@@ -32,9 +32,19 @@ const validateGetMasterlist = (req, res, next) => {
       });
     }
 
+    if (
+      record_status !== undefined &&
+      !["active", "archived", "all"].includes(String(record_status).toLowerCase())
+    ) {
+      return res.status(400).json({
+        message: "record_status must be active, archived, or all when provided",
+      });
+    }
+
     req.validatedQuery = {
       disaster_event_id,
       barangay_id: barangay_id || null,
+      record_status: String(record_status || "active").toLowerCase(),
     };
 
     return next();
@@ -48,7 +58,16 @@ const validateGetMasterlist = (req, res, next) => {
 
 const validateExportMswdoMasterlist = (req, res, next) => {
   try {
-    const { disaster_event_id, barangay_id, format, search, sector_ids } =
+    const {
+      disaster_event_id,
+      barangay_id,
+      barangay_ids,
+      format,
+      search,
+      sector_ids,
+      record_status,
+      sort_order,
+    } =
       req.query;
 
     if (!isValidUuid(disaster_event_id)) {
@@ -60,6 +79,14 @@ const validateExportMswdoMasterlist = (req, res, next) => {
     if (barangay_id !== undefined && barangay_id !== "" && !isValidUuid(barangay_id)) {
       return res.status(400).json({
         message: "barangay_id must be a valid UUID when provided",
+      });
+    }
+
+    const parsedBarangayIds = parseUuidList(barangay_ids);
+
+    if (parsedBarangayIds.some((barangayUuid) => !isValidUuid(barangayUuid))) {
+      return res.status(400).json({
+        message: "barangay_ids must contain valid UUID values",
       });
     }
 
@@ -77,11 +104,36 @@ const validateExportMswdoMasterlist = (req, res, next) => {
       });
     }
 
+    if (
+      record_status !== undefined &&
+      !["active", "archived", "all"].includes(
+        String(record_status).toLowerCase(),
+      )
+    ) {
+      return res.status(400).json({
+        message: "record_status must be active, archived, or all when provided",
+      });
+    }
+
+    if (
+      sort_order !== undefined &&
+      !["newest", "oldest", "az", "za"].includes(
+        String(sort_order).toLowerCase(),
+      )
+    ) {
+      return res.status(400).json({
+        message: "sort_order must be newest, oldest, az, or za when provided",
+      });
+    }
+
     req.validatedQuery = {
       disaster_event_id,
       barangay_id: barangay_id || null,
+      barangay_ids: parsedBarangayIds,
       format: String(format).toLowerCase(),
       search: typeof search === "string" ? search : "",
+      record_status: String(record_status || "active").toLowerCase(),
+      sort_order: String(sort_order || "newest").toLowerCase(),
       sector_ids: parsedSectorIds,
     };
 

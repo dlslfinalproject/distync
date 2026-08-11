@@ -1,8 +1,13 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import PageHeader from "../../components/layout/PageHeader";
+import QrScanner from "qr-scanner";
+import qrScannerWorkerPath from "qr-scanner/qr-scanner-worker.min.js?url";
+import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import StubSummaryCard from "../../components/distribution/StubSummaryCard";
 import DistributionForm from "../../components/distribution/DistributionForm";
+import { shellStyles } from "../../components/layout/BarangayLayout";
+import { fetchStubDetails, verifyStub } from "../../features/stubs/stubService";
+import { extractStubQrValue } from "../../utils/stubQr";
 import {
   fetchInventoryBatches,
   fetchInventoryItems,
@@ -10,6 +15,44 @@ import {
   fetchReliefPackTemplates,
   recordDistributionTransaction,
 } from "../../features/distribution/distributionService";
+import {
+  UNTRUSTED_DISTRIBUTION_TARGET_MESSAGE,
+  isServerVerifiedDistributionTarget,
+  markDistributionTargetAsServerVerified,
+  markDistributionTargetAsUnverified,
+} from "../../features/distribution/distributionTargetProvenance";
+
+QrScanner.WORKER_PATH = qrScannerWorkerPath;
+
+const qrLookupStyles = {
+  field: {
+    width: "100%",
+    minHeight: "48px",
+    padding: "12px 14px",
+    borderRadius: "14px",
+    border: "1px solid #d2deea",
+    boxSizing: "border-box",
+    fontSize: "14px",
+    color: "#21405f",
+    backgroundColor: "#ffffff",
+  },
+  label: {
+    display: "block",
+    marginBottom: "8px",
+    color: "#4f677f",
+    fontSize: "13px",
+    fontWeight: 700,
+  },
+  video: {
+    width: "100%",
+    maxWidth: "320px",
+    aspectRatio: "4 / 3",
+    objectFit: "cover",
+    borderRadius: "16px",
+    border: "1px solid #d3dfeb",
+    backgroundColor: "#0f2236",
+  },
+};
 
 const createEmptyReleasedItem = () => ({
   id: `${Date.now()}-${Math.random()}`,
@@ -18,9 +61,80 @@ const createEmptyReleasedItem = () => ({
   quantity_released: 1,
 });
 
+const NEAR_EXPIRY_DAYS = 30;
+
+const isNearExpiryBatch = (expirationDate) => {
+  if (!expirationDate) {
+    return false;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const thresholdDate = new Date(today);
+  thresholdDate.setDate(thresholdDate.getDate() + NEAR_EXPIRY_DAYS);
+
+  const parsedExpirationDate = new Date(expirationDate);
+  parsedExpirationDate.setHours(0, 0, 0, 0);
+
+  return (
+    !Number.isNaN(parsedExpirationDate.getTime()) &&
+    parsedExpirationDate >= today &&
+    parsedExpirationDate <= thresholdDate
+  );
+};
+
+const buildStubContextFromDetails = (stubDetails) => {
+  if (!stubDetails) {
+    return null;
+  }
+
+  const context = {
+    stub_id: stubDetails.id,
+    household_id: stubDetails.household?.id || "",
+    disaster_event_id: stubDetails.disaster_event?.id || "",
+    display_stub_no: stubDetails.display_stub_no || "",
+    stub_no: stubDetails.stub_no || "--",
+    serial_no: stubDetails.serial_no || "--",
+    status: stubDetails.status || "--",
+    family_head_name: stubDetails.household?.family_head_name || "--",
+    barangay_name: stubDetails.barangay?.name || "--",
+    household_size: stubDetails.household?.household_size || 0,
+    family_head_photo_url: stubDetails.household?.family_head_photo_url || "",
+    photo_captured_at: stubDetails.household?.photo_captured_at || "",
+    photo_verification_notes:
+      stubDetails.household?.photo_verification_notes || "",
+    qr_code_value: stubDetails.qr_code_value || "",
+    qr_status: stubDetails.qr_status || "",
+    qr_notes: stubDetails.qr_notes || "",
+  };
+
+  return stubDetails.is_cached_offline
+    ? markDistributionTargetAsUnverified(context)
+    : markDistributionTargetAsServerVerified(context);
+};
+
 const buildStubContextFromLocation = (locationState, searchParams) => {
   if (locationState?.stubContext) {
-    return locationState.stubContext;
+    return markDistributionTargetAsUnverified({
+      stub_id: locationState.stubContext.stub_id || "",
+      household_id: locationState.stubContext.household_id || "",
+      disaster_event_id: locationState.stubContext.disaster_event_id || "",
+      display_stub_no: locationState.stubContext.display_stub_no || "",
+      stub_no: locationState.stubContext.stub_no || "--",
+      serial_no: locationState.stubContext.serial_no || "--",
+      status: locationState.stubContext.status || "--",
+      family_head_name: locationState.stubContext.family_head_name || "--",
+      barangay_name: locationState.stubContext.barangay_name || "--",
+      household_size: Number(locationState.stubContext.household_size || 0),
+      family_head_photo_url: locationState.stubContext.family_head_photo_url || "",
+      photo_captured_at: locationState.stubContext.photo_captured_at || "",
+      photo_verification_notes:
+        locationState.stubContext.photo_verification_notes || "",
+      qr_code_value: locationState.stubContext.qr_code_value || "",
+      qr_status: locationState.stubContext.qr_status || "",
+      qr_notes: locationState.stubContext.qr_notes || "",
+    });
   }
 
   const stubId = searchParams.get("stub_id");
@@ -31,23 +145,58 @@ const buildStubContextFromLocation = (locationState, searchParams) => {
     return null;
   }
 
-  return {
+  return markDistributionTargetAsUnverified({
     stub_id: stubId,
     household_id: householdId,
     disaster_event_id: disasterEventId,
+    display_stub_no: searchParams.get("display_stub_no") || "",
     stub_no: searchParams.get("stub_no") || "--",
     serial_no: searchParams.get("serial_no") || "--",
     status: searchParams.get("status") || "--",
     family_head_name: searchParams.get("family_head_name") || "--",
     barangay_name: searchParams.get("barangay_name") || "--",
     household_size: Number(searchParams.get("household_size") || 0),
-  };
+    family_head_photo_url: searchParams.get("family_head_photo_url") || "",
+    photo_captured_at: searchParams.get("photo_captured_at") || "",
+    photo_verification_notes:
+      searchParams.get("photo_verification_notes") || "",
+    qr_code_value: searchParams.get("qr_code_value") || "",
+    qr_status: searchParams.get("qr_status") || "",
+    qr_notes: searchParams.get("qr_notes") || "",
+  });
+};
+
+const getTemplateFamilySizeCoverage = (template) => {
+  const parsedCoverage = Number.parseInt(String(template?.description || "").trim(), 10);
+  return Number.isInteger(parsedCoverage) && parsedCoverage > 0 ? parsedCoverage : 0;
+};
+
+const getTemplatePackMultiplier = (template, householdSize) => {
+  if (!template?.based_on_family_size) {
+    return 1;
+  }
+
+  const normalizedHouseholdSize = Number.parseInt(String(householdSize || 0), 10);
+  const familySizeCoverage = getTemplateFamilySizeCoverage(template);
+
+  if (
+    !Number.isInteger(normalizedHouseholdSize) ||
+    normalizedHouseholdSize <= 0 ||
+    familySizeCoverage <= 0
+  ) {
+    return 1;
+  }
+
+  return Math.max(1, Math.ceil(normalizedHouseholdSize / familySizeCoverage));
 };
 
 const DistributionTransactionPage = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const qrScannerVideoRef = useRef(null);
+  const qrScannerInstanceRef = useRef(null);
+
   const [stubContext, setStubContext] = useState(() =>
     buildStubContextFromLocation(location.state, searchParams),
   );
@@ -64,6 +213,17 @@ const DistributionTransactionPage = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [isLoadingStubDetails, setIsLoadingStubDetails] = useState(false);
+  const [qrLookupValue, setQrLookupValue] = useState("");
+  const [isResolvingQrLookup, setIsResolvingQrLookup] = useState(false);
+  const [isQrScannerOpen, setIsQrScannerOpen] = useState(false);
+  const [qrScannerMessage, setQrScannerMessage] = useState("");
+
+  const canUseQrScanner =
+    typeof navigator !== "undefined" &&
+    Boolean(navigator.mediaDevices?.getUserMedia) &&
+    Boolean(window.isSecureContext);
+  const hasTrustedStubContext = isServerVerifiedDistributionTarget(stubContext);
 
   useEffect(() => {
     const loadFormOptions = async () => {
@@ -72,7 +232,9 @@ const DistributionTransactionPage = () => {
 
       try {
         const [templateList, itemList, batchList] = await Promise.all([
-          fetchReliefPackTemplates(),
+          fetchReliefPackTemplates({
+            disaster_event_id: stubContext?.disaster_event_id || null,
+          }),
           fetchInventoryItems(),
           fetchInventoryBatches(),
         ]);
@@ -88,7 +250,7 @@ const DistributionTransactionPage = () => {
     };
 
     loadFormOptions();
-  }, []);
+  }, [stubContext?.disaster_event_id]);
 
   useEffect(() => {
     const currentStubContext = buildStubContextFromLocation(
@@ -98,16 +260,117 @@ const DistributionTransactionPage = () => {
 
     setStubContext(currentStubContext);
 
-    if (location.state?.stubContext?.family_head_name) {
-      setClaimedByName(location.state.stubContext.family_head_name);
-    }
+    setClaimedByName(currentStubContext?.family_head_name || "");
   }, [location.state, searchParams]);
+
+  useEffect(() => {
+    if (!stubContext?.stub_id) {
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadStubDetails = async () => {
+      setIsLoadingStubDetails(true);
+
+      try {
+        const stubDetails = await fetchStubDetails(stubContext.stub_id);
+
+        if (!isMounted) {
+          return;
+        }
+
+        setStubContext((currentValue) => {
+          if (!currentValue) {
+            return currentValue;
+          }
+
+          return {
+            ...currentValue,
+            ...buildStubContextFromDetails(stubDetails),
+          };
+        });
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(
+            error.message || "Failed to load family head verification photo.",
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingStubDetails(false);
+        }
+      }
+    };
+
+    loadStubDetails();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [stubContext?.stub_id]);
+
+  useEffect(() => {
+    if (!isQrScannerOpen || !qrScannerVideoRef.current) {
+      return;
+    }
+
+    setQrScannerMessage("");
+
+    const scanner = new QrScanner(
+      qrScannerVideoRef.current,
+      (scanResult) => {
+        const scannedValue =
+          typeof scanResult === "string" ? scanResult : scanResult?.data || "";
+
+        if (!scannedValue) {
+          return;
+        }
+
+        setQrLookupValue(scannedValue);
+        setIsQrScannerOpen(false);
+        void resolveStubFromQrLookup(scannedValue);
+      },
+      {
+        returnDetailedScanResult: true,
+        preferredCamera: "environment",
+        highlightScanRegion: true,
+        highlightCodeOutline: true,
+      },
+    );
+
+    qrScannerInstanceRef.current = scanner;
+
+    scanner.start().catch(() => {
+      setQrScannerMessage(
+        "Unable to start QR camera scanning. You can enter the QR reference manually instead.",
+      );
+      setIsQrScannerOpen(false);
+    });
+
+    return () => {
+      scanner.stop();
+      scanner.destroy();
+      qrScannerInstanceRef.current = null;
+    };
+  }, [isQrScannerOpen]);
+
+  const handleCloseQrScanner = () => {
+    qrScannerInstanceRef.current?.stop();
+    qrScannerInstanceRef.current?.destroy();
+    qrScannerInstanceRef.current = null;
+    setIsQrScannerOpen(false);
+  };
 
   const availableInventoryBatches = useMemo(() => {
     return inventoryBatches.filter(
-      (batch) => batch.quantity_available > 0 && batch.status !== "EXPIRED",
+      (batch) =>
+        batch.quantity_available > 0 &&
+        ["AVAILABLE", "LOW_STOCK"].includes(batch.status) &&
+        !isNearExpiryBatch(batch.expiration_date),
     );
   }, [inventoryBatches]);
+  const usesTemplateFifo = Boolean(selectedTemplateId);
 
   const updateReleasedItem = (rowId, fieldName, fieldValue) => {
     setReleasedItems((currentRows) =>
@@ -160,6 +423,10 @@ const DistributionTransactionPage = () => {
 
     try {
       const template = await fetchReliefPackTemplateById(selectedTemplateId);
+      const packMultiplier = getTemplatePackMultiplier(
+        template,
+        stubContext?.household_size,
+      );
 
       if (!template.items || template.items.length === 0) {
         setReleasedItems([createEmptyReleasedItem()]);
@@ -171,7 +438,7 @@ const DistributionTransactionPage = () => {
           id: `${Date.now()}-${index}`,
           inventory_item_id: item.inventory_item_id,
           inventory_batch_id: "",
-          quantity_released: item.quantity_required,
+          quantity_released: Number(item.quantity_required || 0) * packMultiplier,
         })),
       );
     } catch (error) {
@@ -179,9 +446,64 @@ const DistributionTransactionPage = () => {
     }
   };
 
+  const resolveStubFromQrLookup = async (lookupValue) => {
+    const normalizedValue = extractStubQrValue(lookupValue);
+
+    if (!normalizedValue) {
+      setErrorMessage("Enter or scan a QR reference value first.");
+      setSuccessMessage("");
+      return;
+    }
+
+    setIsResolvingQrLookup(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      const verification = await verifyStub({
+        qrCodeValue: normalizedValue,
+      });
+
+      const resolvedStubId = verification?.data?.stub?.id;
+
+      if (!resolvedStubId) {
+        throw new Error("QR lookup did not return a valid stub record.");
+      }
+
+      const stubDetails = await fetchStubDetails(resolvedStubId);
+      const nextStubContext = buildStubContextFromDetails(stubDetails);
+
+      setStubContext(nextStubContext);
+      setClaimedByName(nextStubContext?.family_head_name || "");
+      setQrLookupValue(normalizedValue);
+
+      if (verification?.data?.is_claimable) {
+        setSuccessMessage("QR verified successfully. You can now record distribution.");
+      } else {
+        setErrorMessage(
+          verification?.data?.reason ||
+            verification?.message ||
+            "This QR-linked stub is not claimable.",
+        );
+      }
+    } catch (error) {
+      setErrorMessage(error.message || "Failed to resolve the QR reference.");
+    } finally {
+      setIsResolvingQrLookup(false);
+    }
+  };
+
   const validateForm = () => {
     if (!stubContext) {
       return "No stub was selected for distribution.";
+    }
+
+    if (!isServerVerifiedDistributionTarget(stubContext)) {
+      return UNTRUSTED_DISTRIBUTION_TARGET_MESSAGE;
+    }
+
+    if (stubContext.status !== "ISSUED") {
+      return "Selected stub is not claimable for distribution.";
     }
 
     if (!claimedByName.trim()) {
@@ -197,12 +519,16 @@ const DistributionTransactionPage = () => {
         return "Each released item row must have an inventory item.";
       }
 
-      if (!row.inventory_batch_id) {
+      if (!usesTemplateFifo && !row.inventory_batch_id) {
         return "Each released item row must have a selected batch.";
       }
 
       if (!Number.isInteger(row.quantity_released) || row.quantity_released <= 0) {
         return "Each released item quantity must be a positive integer.";
+      }
+
+      if (usesTemplateFifo) {
+        continue;
       }
 
       const batch = availableInventoryBatches.find(
@@ -226,6 +552,12 @@ const DistributionTransactionPage = () => {
   };
 
   const handleSubmit = async () => {
+    if (!isServerVerifiedDistributionTarget(stubContext)) {
+      setErrorMessage(UNTRUSTED_DISTRIBUTION_TARGET_MESSAGE);
+      setSuccessMessage("");
+      return;
+    }
+
     const validationMessage = validateForm();
 
     if (validationMessage) {
@@ -248,18 +580,32 @@ const DistributionTransactionPage = () => {
         device_id: null,
         is_offline_encoded: false,
         sync_status: "SYNCED",
+        qr_reference_value: stubContext.qr_code_value || qrLookupValue.trim() || null,
+        relief_pack_template_id: selectedTemplateId || null,
         remarks: remarks.trim() || null,
         items: releasedItems.map((row) => ({
           inventory_item_id: row.inventory_item_id,
-          inventory_batch_id: row.inventory_batch_id,
+          inventory_batch_id: usesTemplateFifo ? null : row.inventory_batch_id,
           quantity_released: row.quantity_released,
         })),
       });
 
-      setSuccessMessage(response.message || "Distribution recorded successfully.");
+      setSuccessMessage(
+        response.message
+          ? `${response.message}${response.data?.receipt_no ? ` Receipt No: ${response.data.receipt_no}` : ""}`
+          : "Distribution recorded successfully.",
+      );
       setReleasedItems([createEmptyReleasedItem()]);
       setSelectedTemplateId("");
       setRemarks("");
+      setStubContext((currentValue) =>
+        currentValue
+          ? {
+              ...currentValue,
+              status: response.data?.stub?.status || "CLAIMED",
+            }
+          : currentValue,
+      );
     } catch (error) {
       setErrorMessage(error.message);
     } finally {
@@ -282,7 +628,102 @@ const DistributionTransactionPage = () => {
         ]}
       />
 
-      <StubSummaryCard stubContext={stubContext} />
+      <section style={shellStyles.card}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(260px, 1fr) auto auto",
+            gap: "12px",
+            alignItems: "end",
+          }}
+        >
+          <div>
+            <label htmlFor="qr_reference_lookup" style={qrLookupStyles.label}>
+              QR Reference Lookup
+            </label>
+            <input
+              id="qr_reference_lookup"
+              type="text"
+              value={qrLookupValue}
+              onChange={(event) => setQrLookupValue(event.target.value)}
+              placeholder="Scan or enter the stub QR reference value"
+              style={qrLookupStyles.field}
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={() => resolveStubFromQrLookup(qrLookupValue)}
+            disabled={isResolvingQrLookup}
+            style={{
+              ...pageHeaderStyles.primaryButton,
+              minHeight: "48px",
+              opacity: isResolvingQrLookup ? 0.7 : 1,
+            }}
+          >
+            {isResolvingQrLookup ? "Verifying..." : "Verify QR"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsQrScannerOpen((currentValue) => !currentValue)}
+            disabled={!canUseQrScanner || isResolvingQrLookup}
+            style={{
+              ...pageHeaderStyles.secondaryButton,
+              minHeight: "48px",
+              opacity: !canUseQrScanner || isResolvingQrLookup ? 0.7 : 1,
+              cursor:
+                !canUseQrScanner || isResolvingQrLookup
+                  ? "not-allowed"
+                  : "pointer",
+            }}
+          >
+            {isQrScannerOpen ? "Close Scanner" : "Scan QR"}
+          </button>
+        </div>
+
+        <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
+          Manual stub search and the existing stub-based workflow still work. QR lookup
+          is an added proof-of-receipt and distribution validation path.
+        </p>
+
+        {!canUseQrScanner ? (
+          <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
+            Camera QR scanning is available only on HTTPS or localhost in a supported browser.
+          </p>
+        ) : null}
+
+        {qrScannerMessage ? (
+          <p style={{ ...shellStyles.mutedText, marginTop: "8px", color: "#a14d58" }}>
+            {qrScannerMessage}
+          </p>
+        ) : null}
+
+        {isQrScannerOpen ? (
+          <div style={{ marginTop: "16px" }}>
+            <video
+              ref={qrScannerVideoRef}
+              style={qrLookupStyles.video}
+              muted
+              playsInline
+            />
+            <div style={{ marginTop: "12px" }}>
+              <button
+                type="button"
+                onClick={handleCloseQrScanner}
+                style={pageHeaderStyles.secondaryButton}
+              >
+                Stop Scanner
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </section>
+
+      <StubSummaryCard
+        stubContext={stubContext}
+        isLoadingStubDetails={isLoadingStubDetails}
+      />
 
       <DistributionForm
         claimedByName={claimedByName}
@@ -296,6 +737,7 @@ const DistributionTransactionPage = () => {
         successMessage={successMessage}
         isSubmitting={isSubmitting}
         isLoadingData={isLoadingData}
+        isSubmitDisabled={!hasTrustedStubContext}
         onClaimedByNameChange={setClaimedByName}
         onRemarksChange={setRemarks}
         onTemplateChange={setSelectedTemplateId}

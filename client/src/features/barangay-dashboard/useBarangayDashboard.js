@@ -1,7 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getAccessMode, ACCESS_MODES } from "../../utils/accessMode";
+import { ROLE_CODES } from "../../utils/roleSession";
 import { fetchBarangays } from "../masterlist/masterlistService";
 import { fetchBarangayDashboard } from "./barangayDashboardService";
+import {
+  persistOperationalDisasterEventSelection,
+  readOperationalDisasterEventId,
+  readOperationalDisasterEventScope,
+} from "../disaster-events/operationalDisasterEventSelection";
 
 const emptyMetrics = {
   total_evacuees_individuals: 0,
@@ -37,11 +43,73 @@ const getFriendlyDashboardErrorMessage = (error) => {
   return "Unable to load analytics.";
 };
 
+const getEventSortValue = (event) => {
+  const sortableDate =
+    event?.ended_at ||
+    event?.end_date ||
+    event?.start_date ||
+    event?.created_at ||
+    null;
+
+  if (!sortableDate) {
+    return 0;
+  }
+
+  const parsedValue = new Date(sortableDate).getTime();
+  return Number.isNaN(parsedValue) ? 0 : parsedValue;
+};
+
+const getEventCodeSortValue = (event) => {
+  const code = String(event?.event_code || "");
+  const match = code.match(/^DE-(\d{4})-(\d{4})$/i);
+
+  if (!match) {
+    return 0;
+  }
+
+  return Number(`${match[1]}${match[2]}`);
+};
+
+const sortDashboardEvents = (events) => {
+  return [...(events || [])].sort((left, right) => {
+    const codeDifference =
+      getEventCodeSortValue(right) - getEventCodeSortValue(left);
+
+    if (codeDifference !== 0) {
+      return codeDifference;
+    }
+
+    const dateDifference = getEventSortValue(right) - getEventSortValue(left);
+
+    if (dateDifference !== 0) {
+      return dateDifference;
+    }
+
+    return String(right?.event_code || "").localeCompare(
+      String(left?.event_code || ""),
+      undefined,
+      { numeric: true, sensitivity: "base" },
+    );
+  });
+};
+
 export const useBarangayDashboard = ({ userId }) => {
   const accessMode = getAccessMode();
   const allowFallback = accessMode === ACCESS_MODES.DEVELOPMENT;
-  const [eventScope, setEventScope] = useState("active");
-  const [selectedDisasterEventId, setSelectedDisasterEventId] = useState("");
+  const [eventScope, setEventScopeState] = useState(
+    () =>
+      readOperationalDisasterEventScope({
+        roleCode: ROLE_CODES.BARANGAY,
+        userId,
+      }) || "active",
+  );
+  const [selectedDisasterEventId, setSelectedDisasterEventIdState] = useState(
+    () =>
+      readOperationalDisasterEventId({
+        roleCode: ROLE_CODES.BARANGAY,
+        userId,
+      }) || "",
+  );
   const [overrideBarangayId, setOverrideBarangayId] = useState("");
   const [payload, setPayload] = useState(emptyPayload);
   const [isLoading, setIsLoading] = useState(false);
@@ -49,6 +117,49 @@ export const useBarangayDashboard = ({ userId }) => {
   const [errorCode, setErrorCode] = useState("");
   const [devBarangayOptions, setDevBarangayOptions] = useState([]);
   const hasScopedBarangayContext = Boolean(userId || overrideBarangayId);
+
+  const persistSelection = useCallback(
+    (eventId, scope = eventScope) => {
+      persistOperationalDisasterEventSelection({
+        roleCode: ROLE_CODES.BARANGAY,
+        userId,
+        eventId,
+        eventScope: scope,
+      });
+    },
+    [eventScope, userId],
+  );
+
+  const setEventScope = useCallback(
+    (nextScope) => {
+      setEventScopeState(nextScope);
+      persistSelection(selectedDisasterEventId, nextScope);
+    },
+    [persistSelection, selectedDisasterEventId],
+  );
+
+  const setSelectedDisasterEventId = useCallback(
+    (nextEventId) => {
+      setSelectedDisasterEventIdState(nextEventId);
+      persistSelection(nextEventId);
+    },
+    [persistSelection],
+  );
+
+  useEffect(() => {
+    const storedScope =
+      readOperationalDisasterEventScope({
+        roleCode: ROLE_CODES.BARANGAY,
+        userId,
+      }) || "active";
+    const storedEventId = readOperationalDisasterEventId({
+      roleCode: ROLE_CODES.BARANGAY,
+      userId,
+    });
+
+    setEventScopeState(storedScope);
+    setSelectedDisasterEventIdState(storedEventId);
+  }, [userId]);
 
   useEffect(() => {
     if (!allowFallback) {
@@ -81,7 +192,7 @@ export const useBarangayDashboard = ({ userId }) => {
   useEffect(() => {
     if (!hasScopedBarangayContext) {
       setPayload(emptyPayload);
-      setSelectedDisasterEventId("");
+      setSelectedDisasterEventIdState("");
       setErrorMessage(
         allowFallback
           ? "Select a fallback barangay to continue."
@@ -110,25 +221,44 @@ export const useBarangayDashboard = ({ userId }) => {
           return;
         }
 
+        const sortedAvailableEvents = sortDashboardEvents(
+          Array.isArray(response.available_events) ? response.available_events : [],
+        );
+        const nextSelectedEvent =
+          response.selected_event &&
+          sortedAvailableEvents.some((event) => event.id === response.selected_event.id)
+            ? response.selected_event
+            : sortedAvailableEvents[0] || null;
+
         setPayload({
           assigned_barangay: response.assigned_barangay || null,
           assigned_barangay_id: response.assigned_barangay_id || null,
           event_scope: response.event_scope || eventScope,
-          available_events: Array.isArray(response.available_events)
-            ? response.available_events
-            : [],
-          selected_event: response.selected_event || null,
+          available_events: sortedAvailableEvents,
+          selected_event: nextSelectedEvent,
           metrics: response.metrics || emptyMetrics,
           has_data: Boolean(response.has_data),
           is_dev_override: Boolean(response.is_dev_override),
         });
         setErrorCode("");
         setErrorMessage("");
-        setSelectedDisasterEventId(response.selected_event?.id || "");
+        setSelectedDisasterEventIdState(nextSelectedEvent?.id || "");
+        persistOperationalDisasterEventSelection({
+          roleCode: ROLE_CODES.BARANGAY,
+          userId,
+          eventId: nextSelectedEvent?.id || "",
+          eventScope,
+        });
       } catch (error) {
         if (isMounted) {
           setPayload(emptyPayload);
-          setSelectedDisasterEventId("");
+          setSelectedDisasterEventIdState("");
+          persistOperationalDisasterEventSelection({
+            roleCode: ROLE_CODES.BARANGAY,
+            userId,
+            eventId: "",
+            eventScope,
+          });
           setErrorMessage(getFriendlyDashboardErrorMessage(error));
           setErrorCode(error.code || "");
         }
@@ -156,24 +286,28 @@ export const useBarangayDashboard = ({ userId }) => {
   const summaryCards = useMemo(() => {
     return [
       {
-        label: "Total Number of Evacuees",
+        label: "Total Affected Individuals",
         value: payload.metrics.total_evacuees_individuals || 0,
-        helperText: "Individuals under the selected disaster event and scoped barangay.",
+        helperText:
+          "All registered individuals under the selected disaster event and scoped barangay, regardless of stay type.",
       },
       {
-        label: "Number of Families",
+        label: "Total Affected Families",
         value: payload.metrics.total_families || 0,
-        helperText: "Active household records for the selected disaster event and scoped barangay.",
+        helperText:
+          "All household records under the selected disaster event and scoped barangay, regardless of stay type.",
       },
       {
         label: "Currently Admitted Evacuees",
         value: payload.metrics.currently_admitted_evacuees || 0,
-        helperText: "Evacuees whose latest evacuation log still shows PRESENT.",
+        helperText:
+          "Individuals whose latest evacuation record still shows PRESENT in an evacuation center.",
       },
       {
-        label: "Total Departed Evacuees",
+        label: "Departed Evacuees",
         value: payload.metrics.total_departed_evacuees || 0,
-        helperText: "Evacuees whose latest evacuation log shows LEFT or TRANSFERRED.",
+        helperText:
+          "Individuals whose latest evacuation record shows LEFT from an evacuation center.",
       },
     ];
   }, [payload.metrics]);

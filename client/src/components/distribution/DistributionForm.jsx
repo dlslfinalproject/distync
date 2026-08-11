@@ -35,6 +35,7 @@ const DistributionForm = ({
   successMessage,
   isSubmitting,
   isLoadingData,
+  isSubmitDisabled = false,
   onClaimedByNameChange,
   onRemarksChange,
   onTemplateChange,
@@ -44,6 +45,8 @@ const DistributionForm = ({
   onUpdateItemRow,
   onSubmit,
 }) => {
+  const usesTemplateFifo = Boolean(selectedTemplateId);
+
   return (
     <>
       <section style={shellStyles.card}>
@@ -158,6 +161,7 @@ const DistributionForm = ({
         onRemoveRow={onRemoveItemRow}
         onUpdateRow={onUpdateItemRow}
         isDisabled={isLoadingData || isSubmitting}
+        usesTemplateFifo={usesTemplateFifo}
       />
 
       <section
@@ -171,10 +175,10 @@ const DistributionForm = ({
         <button
           type="button"
           onClick={onSubmit}
-          disabled={isLoadingData || isSubmitting}
+          disabled={isLoadingData || isSubmitting || isSubmitDisabled}
           style={{
             ...pageHeaderStyles.primaryButton,
-            opacity: isLoadingData || isSubmitting ? 0.7 : 1,
+            opacity: isLoadingData || isSubmitting || isSubmitDisabled ? 0.7 : 1,
           }}
         >
           {isSubmitting ? "Recording Distribution..." : "Record Distribution"}

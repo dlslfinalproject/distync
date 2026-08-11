@@ -1,6 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { shellStyles } from "../components/layout/BarangayLayout";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { renderGoogleSignInButton } from "../features/auth/authService";
 import { ACCESS_MODES, getAccessMode } from "../utils/accessMode";
@@ -8,11 +7,32 @@ import {
   ROLE_CODES,
   getDefaultRouteForRole,
 } from "../utils/roleSession";
+import StaffAccessPanel from "../components/access/StaffAccessPanel";
+import "../components/access/accessPage.css";
+
+const getReadableAccessError = (message) => {
+  const normalizedMessage = String(message || "").trim();
+
+  if (!normalizedMessage) {
+    return "";
+  }
+
+  if (
+    normalizedMessage.includes("Failed to fetch") ||
+    normalizedMessage.includes("NetworkError") ||
+    normalizedMessage.includes("Load failed")
+  ) {
+    return "Unable to reach the DISTYNC server right now. Please check the internet connection and try again.";
+  }
+
+  return normalizedMessage;
+};
 
 const AccessPage = () => {
   const navigate = useNavigate();
-  const googleButtonRef = useRef(null);
+  const googleButtonRef = React.useRef(null);
   const [pageError, setPageError] = useState("");
+  const [isGoogleReady, setIsGoogleReady] = useState(false);
   const accessMode = getAccessMode();
   const {
     authError,
@@ -23,9 +43,20 @@ const AccessPage = () => {
   } = useAuth();
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
-  const isDemoMode = useMemo(() => {
-    return accessMode === ACCESS_MODES.DEMO;
-  }, [accessMode]);
+  const isDevelopmentMode = accessMode === ACCESS_MODES.DEVELOPMENT;
+
+  const combinedError = useMemo(() => {
+    return getReadableAccessError(pageError || authError);
+  }, [authError, pageError]);
+
+  const handleAuthenticatedRedirect = useCallback(
+    (sessionPayload) => {
+      navigate(getDefaultRouteForRole(sessionPayload.user.role), {
+        replace: true,
+      });
+    },
+    [navigate],
+  );
 
   const handleGoogleCredential = useCallback(
     async (credential) => {
@@ -33,33 +64,30 @@ const AccessPage = () => {
       setPageError("");
 
       if (!credential) {
-        setPageError("Google sign-in did not return a credential");
+        setPageError("Google sign-in did not finish correctly. Please try again.");
         return;
       }
 
       try {
         const sessionPayload = await signInWithGoogleCredential(credential);
-
-        navigate(getDefaultRouteForRole(sessionPayload.user.role), {
-          replace: true,
-        });
+        handleAuthenticatedRedirect(sessionPayload);
       } catch (error) {
         setPageError(error.message || "Google sign-in failed");
       }
     },
-    [clearAuthError, navigate, signInWithGoogleCredential],
+    [clearAuthError, handleAuthenticatedRedirect, signInWithGoogleCredential],
   );
 
   useEffect(() => {
     let isMounted = true;
 
     const setupGoogleButton = async () => {
-      if (!isDemoMode || !googleButtonRef.current) {
+      if (isDevelopmentMode || !googleButtonRef.current) {
         return;
       }
 
       if (!googleClientId) {
-        setPageError("VITE_GOOGLE_CLIENT_ID is missing");
+        setIsGoogleReady(false);
         return;
       }
 
@@ -69,33 +97,33 @@ const AccessPage = () => {
           clientId: googleClientId,
           onCredential: (credential) => {
             if (isMounted) {
-              handleGoogleCredential(credential);
+              void handleGoogleCredential(credential);
             }
           },
         });
-      } catch (error) {
+
         if (isMounted) {
-          setPageError(error.message || "Failed to load Google Sign-In");
+          setIsGoogleReady(true);
+        }
+      } catch (_error) {
+        if (isMounted) {
+          setIsGoogleReady(false);
         }
       }
     };
 
-    setupGoogleButton();
+    void setupGoogleButton();
 
     return () => {
       isMounted = false;
     };
-  }, [
-    googleClientId,
-    handleGoogleCredential,
-    isDemoMode,
-  ]);
+  }, [googleClientId, handleGoogleCredential, isDevelopmentMode]);
 
   useEffect(() => {
-    if (isDemoMode && authError) {
+    if (!isDevelopmentMode && authError) {
       setPageError(authError);
     }
-  }, [authError, isDemoMode]);
+  }, [authError, isDevelopmentMode]);
 
   const handleDonorAccess = () => {
     clearAuthError();
@@ -104,259 +132,21 @@ const AccessPage = () => {
     navigate(getDefaultRouteForRole(ROLE_CODES.DONOR), { replace: true });
   };
 
-  const handleDevelopmentStaffAccess = () => {
-    clearAuthError();
-    setPageError("");
-    navigate("/role-switcher", { replace: true });
-  };
+  if (isDevelopmentMode) {
+    return <Navigate to="/role-switcher" replace />;
+  }
 
   return (
-    <div
-      style={{
-        ...shellStyles.page,
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "32px",
-        boxSizing: "border-box",
-      }}
-    >
-      <div
-        style={{
-          width: "min(1080px, 100%)",
-          display: "grid",
-          gridTemplateColumns: "minmax(0, 1.1fr) minmax(320px, 0.9fr)",
-          gap: "20px",
-        }}
-      >
-        <section
-          style={{
-            ...shellStyles.card,
-            display: "flex",
-            flexDirection: "column",
-            gap: "16px",
-            background: "linear-gradient(180deg, #ffffff 0%, #f5faff 100%)",
-          }}
-        >
-          <p
-            style={{
-              margin: 0,
-              color: "#60738a",
-              fontSize: "12px",
-              fontWeight: 700,
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-            }}
-          >
-            {isDemoMode ? "Demo Access Mode" : "Access Entry"}
-          </p>
-          <h1 style={{ margin: 0, color: "#17324d", fontSize: "36px" }}>
-            Welcome to DISTYNC
-          </h1>
-          <p style={shellStyles.mutedText}>
-            This entry flow is ready for demos now and structured so we can plug
-            real authentication into the same redirect logic later.
-          </p>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: "16px",
-              marginTop: "6px",
-            }}
-          >
-            <div
-              style={{
-                ...shellStyles.card,
-                padding: "18px",
-                textAlign: "left",
-                backgroundColor: "#ffffff",
-              }}
-            >
-              <p
-                style={{
-                  margin: 0,
-                  color: "#6a8097",
-                  fontSize: "12px",
-                  fontWeight: 700,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                }}
-              >
-                Authorized User Access
-              </p>
-              <h2 style={{ margin: "10px 0 0", color: "#17324d", fontSize: "22px" }}>
-                Staff Login Path
-              </h2>
-              <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-                {isDemoMode
-                  ? "Sign in with the authorized Google account linked to your DISTYNC user record. Your role will be loaded from the database."
-                  : "Development Mode uses the role switcher for fast testing instead of Google sign-in."}
-              </p>
-              {isDemoMode ? (
-                <>
-                  <div
-                    ref={googleButtonRef}
-                    style={{ marginTop: "18px", minHeight: "44px" }}
-                  />
-                  {isAuthLoading ? (
-                    <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
-                      Verifying Google sign-in...
-                    </p>
-                  ) : null}
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleDevelopmentStaffAccess}
-                  style={{
-                    marginTop: "18px",
-                    border: "1px solid #c7d7e8",
-                    borderRadius: "999px",
-                    backgroundColor: "#ffffff",
-                    color: "#24496e",
-                    padding: "12px 18px",
-                    fontSize: "14px",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
-                >
-                  Continue to Role Switcher
-                </button>
-              )}
-            </div>
-
-            <button
-              type="button"
-              onClick={handleDonorAccess}
-              style={{
-                ...shellStyles.card,
-                padding: "18px",
-                textAlign: "left",
-                cursor: "pointer",
-                backgroundColor: "#ffffff",
-              }}
-            >
-              <p
-                style={{
-                  margin: 0,
-                  color: "#6a8097",
-                  fontSize: "12px",
-                  fontWeight: 700,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                }}
-              >
-                Donor / NGO Public Access
-              </p>
-              <h2 style={{ margin: "10px 0 0", color: "#17324d", fontSize: "22px" }}>
-                Public Donation View
-              </h2>
-              <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-                Continue directly into the donor-facing route without the staff
-                access step.
-              </p>
-            </button>
-          </div>
-
-          {pageError || authError ? (
-            <section
-              style={{
-                border: "1px solid #efc7ca",
-                borderRadius: "18px",
-                padding: "18px",
-                backgroundColor: "#fff6f7",
-              }}
-            >
-              <p
-                style={{
-                  margin: 0,
-                  color: "#9f4652",
-                  fontSize: "12px",
-                  fontWeight: 700,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                }}
-              >
-                Sign-In Error
-              </p>
-              <p style={{ ...shellStyles.mutedText, marginTop: "10px", color: "#8f4c55" }}>
-                {pageError || authError}
-              </p>
-            </section>
-          ) : null}
-        </section>
-
-        <aside
-          style={{
-            ...shellStyles.card,
-            display: "flex",
-            flexDirection: "column",
-            gap: "16px",
-          }}
-        >
-          <div>
-            <p
-              style={{
-                margin: 0,
-                color: "#60738a",
-                fontSize: "12px",
-                fontWeight: 700,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-              }}
-            >
-              Current App Mode
-            </p>
-            <h2 style={{ margin: "10px 0 0", color: "#17324d", fontSize: "28px" }}>
-              {accessMode}
-            </h2>
-          </div>
-
-          <div
-            style={{
-              borderRadius: "16px",
-              backgroundColor: "#f6faff",
-              border: "1px solid #d7e2ef",
-              padding: "18px",
-            }}
-          >
-            <h3 style={{ margin: 0, color: "#17324d", fontSize: "18px" }}>
-              Future auth hook point
-            </h3>
-            <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-              Authorized users now go through backend verification, while donor
-              access stays public and the development role switcher stays available
-              in Development Mode.
-            </p>
-          </div>
-
-          <div
-            style={{
-              borderRadius: "16px",
-              backgroundColor: "#fdfefe",
-              border: "1px solid #d7e2ef",
-              padding: "18px",
-            }}
-          >
-            <h3 style={{ margin: 0, color: "#17324d", fontSize: "18px" }}>
-              What this mode gives us now
-            </h3>
-            <ul
-              style={{
-                margin: "12px 0 0",
-                paddingLeft: "18px",
-                color: "#60738a",
-                lineHeight: 1.7,
-              }}
-            >
-              <li>Role-based redirects</li>
-              <li>Role-based sidebar navigation</li>
-              <li>Fast demo entry without backend auth changes</li>
-              <li>One route guard pattern we can reuse later</li>
-            </ul>
-          </div>
-        </aside>
+    <div className="distync-access-page">
+      <div className="distync-access-page__backdrop" aria-hidden="true" />
+      <div className="distync-access-page__shell">
+        <StaffAccessPanel
+          googleButtonRef={googleButtonRef}
+          isAuthLoading={isAuthLoading}
+          isGoogleReady={isGoogleReady}
+          onDonationPortalAccess={handleDonorAccess}
+          pageError={combinedError}
+        />
       </div>
     </div>
   );

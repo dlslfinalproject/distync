@@ -1,15 +1,48 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import { FaHandHolding } from "react-icons/fa6";
-import { FiFileText, FiFilter } from "react-icons/fi";
+import { FiPrinter } from "react-icons/fi";
+import { MdQrCodeScanner } from "react-icons/md";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
-import { shellStyles } from "../../components/layout/BarangayLayout";
-import SearchBar from "../../components/shared/SearchBar";
+import {
+  pageSpacingStyles,
+  shellStyles,
+} from "../../components/layout/BarangayLayout";
+import FeedbackToast from "../../components/shared/FeedbackToast";
 import StatusPill from "../../components/shared/StatusPill";
 import StubClaimConfirmModal from "../../components/stubs/StubClaimConfirmModal";
+import StubDetailModal from "../../components/stubs/StubDetailModal";
 import MswdoStubResultsTable from "../../components/stubs/MswdoStubResultsTable";
+import StubQrScanErrorModal from "../../components/stubs/StubQrScanErrorModal";
+import StubPrintSheetModal from "../../components/stubs/StubPrintSheetModal";
+import StubQrScanModal from "../../components/stubs/StubQrScanModal";
+import StubSearchBar from "../../components/stubs/StubSearchBar";
 import StubSummaryCards from "../../components/stubs/StubSummaryCards";
-import { claimStub } from "../../features/stubs/stubService";
+import { useAuth } from "../../context/AuthContext";
+import {
+  claimStub,
+  fetchStubDetails,
+  verifyStub,
+} from "../../features/stubs/stubService";
 import { useMswdoStubDistribution } from "../../features/stubs/useMswdoStubDistribution";
+import db from "../../offline/db.js";
+import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
+import { subscribeToSyncUpdates } from "../../offline/syncService";
+import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
+import { buildMasterlistFilterSectorOptions } from "../../utils/registrationOptions";
+import { STATUS_FILTERS } from "../../features/stubs/stubStatusFilters";
+import {
+  QR_SCAN_ERROR_CODES,
+  createQrScanError,
+  createWrongBarangayQrScanError,
+  createWrongEventQrScanError,
+} from "../../features/stubs/stubQrScanErrors";
+import { readOperationalDisasterEventScope } from "../../features/disaster-events/operationalDisasterEventSelection";
+import { ROLE_CODES } from "../../utils/roleSession";
+
+const DEFAULT_STUB_STATUS = STATUS_FILTERS.ALL;
+const DEFAULT_STUB_SORT_ORDER = "oldest";
+const QR_SCAN_COOLDOWN_MS = 1800;
 
 const filterStyles = {
   field: {
@@ -31,127 +64,6 @@ const filterStyles = {
     letterSpacing: "0.08em",
     textTransform: "uppercase",
   },
-};
-
-const filterPanelStyles = {
-  panel: {
-    position: "fixed",
-    width: "min(380px, calc(100vw - 32px))",
-    backgroundColor: "#ffffff",
-    border: "1px solid #d6e2ef",
-    borderRadius: "18px",
-    boxShadow: "0 18px 36px rgba(31, 64, 95, 0.16)",
-    padding: "18px",
-    zIndex: 1200,
-    display: "flex",
-    flexDirection: "column",
-    gap: "14px",
-    overflowY: "auto",
-    boxSizing: "border-box",
-  },
-  title: {
-    margin: 0,
-    color: "#17324d",
-    fontSize: "16px",
-    fontWeight: 800,
-  },
-  field: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-    marginTop: "14px",
-  },
-  label: {
-    color: "#55718b",
-    fontSize: "12px",
-    fontWeight: 800,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
-  },
-  select: {
-    minHeight: "42px",
-    border: "1px solid #d0ddeb",
-    borderRadius: "12px",
-    padding: "10px 12px",
-    fontSize: "14px",
-    color: "#1f405f",
-    backgroundColor: "#f8fbfe",
-    boxSizing: "border-box",
-  },
-  list: {
-    display: "grid",
-    gap: "10px",
-    overflow: "visible",
-    paddingRight: "4px",
-  },
-  option: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    color: "#1f405f",
-    fontSize: "14px",
-  },
-  actions: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: "10px",
-    marginTop: "18px",
-  },
-};
-
-const FILTER_PANEL_GAP = 12;
-const FILTER_PANEL_VIEWPORT_PADDING = 16;
-const MIN_FILTER_PANEL_HEIGHT = 220;
-
-const getFilterPanelPosition = ({ triggerRect, panelHeight }) => {
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-  const constrainedPanelWidth = Math.min(
-    380,
-    viewportWidth - FILTER_PANEL_VIEWPORT_PADDING * 2,
-  );
-  const safePanelHeight = Math.max(panelHeight || 0, MIN_FILTER_PANEL_HEIGHT);
-  const spaceBelow =
-    viewportHeight - triggerRect.bottom - FILTER_PANEL_VIEWPORT_PADDING;
-  const spaceAbove = triggerRect.top - FILTER_PANEL_VIEWPORT_PADDING;
-  const shouldOpenBelow =
-    spaceBelow >= MIN_FILTER_PANEL_HEIGHT || spaceBelow >= spaceAbove;
-
-  let left = triggerRect.right - constrainedPanelWidth;
-  left = Math.min(
-    Math.max(left, FILTER_PANEL_VIEWPORT_PADDING),
-    viewportWidth - constrainedPanelWidth - FILTER_PANEL_VIEWPORT_PADDING,
-  );
-
-  if (shouldOpenBelow) {
-    const top = Math.max(
-      FILTER_PANEL_VIEWPORT_PADDING,
-      triggerRect.bottom + FILTER_PANEL_GAP,
-    );
-    const availableHeight =
-      viewportHeight - top - FILTER_PANEL_VIEWPORT_PADDING;
-
-    return {
-      top,
-      left,
-      maxHeight: Math.max(availableHeight, 0),
-    };
-  }
-
-  const maxHeight = Math.max(
-    triggerRect.top - FILTER_PANEL_GAP - FILTER_PANEL_VIEWPORT_PADDING,
-    0,
-  );
-  const top = Math.max(
-    FILTER_PANEL_VIEWPORT_PADDING,
-    triggerRect.top - FILTER_PANEL_GAP - Math.min(safePanelHeight, maxHeight),
-  );
-
-  return {
-    top,
-    left,
-    maxHeight,
-  };
 };
 
 const tabButtonStyles = (isActive) => ({
@@ -192,79 +104,120 @@ const formatReliefPeriod = (event) => {
   return start;
 };
 
-const getStatusLabel = (status) => {
-  if (status === "CLAIMED") {
-    return "Claimed";
-  }
-
-  if (status === "ISSUED") {
-    return "Unclaimed";
-  }
-
-  return status || "-";
-};
+const formatDisasterEventTitle = (event) =>
+  String(event?.title || "").trim() || "No disaster event selected";
 
 const stubStatusOptions = [
-  { value: "ISSUED", label: "Unclaimed" },
-  { value: "CLAIMED", label: "Claimed" },
+  { value: STATUS_FILTERS.CLAIMED, label: "Claimed" },
+  { value: STATUS_FILTERS.UNCLAIMED, label: "For Claim" },
 ];
 
-const buildCsvCell = (value) => {
-  return `"${String(value || "").replace(/"/g, '""')}"`;
+const getStubSortTime = (row) => {
+  const timestamp =
+    row.queue_time_in || row.qr_generated_at || row.issued_at || row.created_at || "";
+  const parsedTime = timestamp ? new Date(timestamp).getTime() : 0;
+
+  if (Number.isFinite(parsedTime) && parsedTime > 0) {
+    return parsedTime;
+  }
+
+  return Number(row.stub_sequence_no || row.stub_number || 0);
 };
 
-const downloadCsvFile = (rows, eventCode, barangayName) => {
-  const header = [
-    "Family Head",
-    "Address",
-    "Stub Number",
-    "Sectors",
-    "Status",
-  ];
+const sortStubRows = (rows, sortOrder = DEFAULT_STUB_SORT_ORDER) =>
+  [...rows].sort((left, right) => {
+    if (sortOrder === "az" || sortOrder === "za") {
+      const leftName = String(left.family_head_name || "");
+      const rightName = String(right.family_head_name || "");
+      const comparison = leftName.localeCompare(rightName);
 
-  const csvRows = rows.map((row) => [
-    row.family_head_name,
-    row.address,
-    row.stub_number,
-    row.sectors_text,
-    getStatusLabel(row.status),
-  ]);
+      return sortOrder === "za" ? -comparison : comparison;
+    }
 
-  const csvContent = [header, ...csvRows]
-    .map((cells) => cells.map(buildCsvCell).join(","))
-    .join("\n");
+    const leftTime = getStubSortTime(left);
+    const rightTime = getStubSortTime(right);
 
-  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-  const downloadUrl = window.URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  const safeEventCode = (eventCode || "event").replace(/[^a-z0-9-_]+/gi, "-");
-  const safeBarangayName = (barangayName || "barangay").replace(
-    /[^a-z0-9-_]+/gi,
-    "-",
-  );
+    return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
+  });
 
-  anchor.href = downloadUrl;
-  anchor.download = `stub-distribution-${safeEventCode}-${safeBarangayName}.csv`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  window.URL.revokeObjectURL(downloadUrl);
+const buildStubPrintRoute = ({
+  stubIds = [],
+  eventId = "",
+  barangayId = "",
+  status = "",
+  sortOrder = "",
+}) => {
+  const searchParams = new URLSearchParams();
+
+  if (stubIds.length > 0) {
+    searchParams.set("stubIds", stubIds.join(","));
+  }
+
+  if (eventId) {
+    searchParams.set("eventId", eventId);
+  }
+
+  if (barangayId) {
+    searchParams.set("barangayId", barangayId);
+  }
+
+  if (status) {
+    searchParams.set("status", status);
+  }
+
+  if (sortOrder) {
+    searchParams.set("sort_order", sortOrder);
+  }
+
+  return `/mswdo/print/stubs?${searchParams.toString()}`;
+};
+
+const getStubReferenceNumber = (stubDetails, verification) =>
+  verification?.data?.details?.stubNumber ||
+  stubDetails?.display_stub_no ||
+  stubDetails?.stub_no ||
+  "";
+
+const buildQrScanErrorDetails = (verification, stubDetails) => {
+  return {
+    ...((verification?.data?.details && typeof verification.data.details === "object")
+      ? verification.data.details
+      : {}),
+    stubNumber: getStubReferenceNumber(stubDetails, verification) || undefined,
+    claimedAt:
+      verification?.data?.details?.claimedAt ||
+      stubDetails?.distribution_transaction?.received_at ||
+      stubDetails?.distribution_transaction?.distribution_date ||
+      stubDetails?.claimed_at ||
+      undefined,
+    claimedByName:
+      verification?.data?.details?.claimedByName ||
+      stubDetails?.distribution_transaction?.claimed_by_name ||
+      undefined,
+    reliefPackName:
+      verification?.data?.details?.reliefPackName ||
+      stubDetails?.distribution_transaction?.relief_pack_template_name ||
+      stubDetails?.relief_pack_name ||
+      undefined,
+  };
 };
 
 const StubDistributionPage = () => {
+  const { authenticatedUser } = useAuth();
   const {
     disasterEvents,
     barangays,
+    allBarangays,
     sectors,
     selectedDisasterEventId,
     selectedBarangayId,
     selectedDisasterEvent,
-    selectedBarangay,
     searchTerm,
     displayedRows,
     summaryCards,
     isLoadingFilters,
     isLoadingData,
+    isEventSelectionResolved,
     errorMessage,
     hasSelectedEvent,
     hasSelectedBarangay,
@@ -274,36 +227,92 @@ const StubDistributionPage = () => {
     setSelectedStubStatus,
     setSearchTerm,
     reloadDashboard,
-  } = useMswdoStubDistribution();
+  } = useMswdoStubDistribution({
+    userId: authenticatedUser?.id || "",
+  });
 
-  const [activeTab, setActiveTab] = useState("active");
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState(
+    () =>
+      readOperationalDisasterEventScope({
+        roleCode: ROLE_CODES.MSWDO,
+        userId: authenticatedUser?.id || "",
+      }) || "active",
+  );
   const [claimingStubId, setClaimingStubId] = useState("");
   const [claimErrorMessage, setClaimErrorMessage] = useState("");
   const [pendingClaimStubId, setPendingClaimStubId] = useState("");
+  const [pendingClaimStubDetails, setPendingClaimStubDetails] = useState(null);
+  const [isLoadingPendingClaimStubDetails, setIsLoadingPendingClaimStubDetails] =
+    useState(false);
+  const [selectedStubDetails, setSelectedStubDetails] = useState(null);
+  const [isStubDetailModalOpen, setIsStubDetailModalOpen] = useState(false);
+  const [isLoadingStubDetails, setIsLoadingStubDetails] = useState(false);
+  const [stubDetailsErrorMessage, setStubDetailsErrorMessage] = useState("");
   const [selectedStubIds, setSelectedStubIds] = useState([]);
   const [isBulkClaimConfirmOpen, setIsBulkClaimConfirmOpen] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
+  const [isPrintSheetModalOpen, setIsPrintSheetModalOpen] = useState(false);
+  const [isQrScanModalOpen, setIsQrScanModalOpen] = useState(false);
+  const [isResolvingScannedQr, setIsResolvingScannedQr] = useState(false);
+  const [scanToast, setScanToast] = useState({
+    message: "",
+    type: "info",
+    title: "",
+  });
+  const [scannerHelperMessage, setScannerHelperMessage] = useState("");
+  const [qrScanErrorState, setQrScanErrorState] = useState(null);
+  const [scanCooldownState, setScanCooldownState] = useState({
+    value: "",
+    until: 0,
+  });
   const [filtersByTab, setFiltersByTab] = useState({
     active: {
       sectorIds: [],
-      stubStatus: "",
+      stubStatus: DEFAULT_STUB_STATUS,
+      sortOrder: DEFAULT_STUB_SORT_ORDER,
     },
     ended: {
       sectorIds: [],
-      stubStatus: "",
+      stubStatus: DEFAULT_STUB_STATUS,
+      sortOrder: DEFAULT_STUB_SORT_ORDER,
     },
   });
-  const [filterPanelPosition, setFilterPanelPosition] = useState({
-    top: 0,
-    left: 0,
-    maxHeight: 320,
-  });
-  const filterButtonRef = useRef(null);
-  const filterPanelRef = useRef(null);
+  const syncQueueEntries =
+    useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
 
   const selectedSectorIds = filtersByTab[activeTab]?.sectorIds || [];
-  const selectedStubStatus = filtersByTab[activeTab]?.stubStatus || "";
+  const selectedStubStatus =
+    filtersByTab[activeTab]?.stubStatus ?? DEFAULT_STUB_STATUS;
+  const selectedSortOrder =
+    filtersByTab[activeTab]?.sortOrder ?? DEFAULT_STUB_SORT_ORDER;
+  const displayedRowsWithSyncStatus = useMemo(() => {
+    return sortStubRows(displayedRows, selectedSortOrder).map((row) => {
+      const matchingEntry = findSyncEntry(syncQueueEntries, (entry) => {
+        if (entry.moduleName !== "stubs") {
+          return false;
+        }
+
+        return (
+          entry.entityServerId === row.id ||
+          entry.entityLocalId === row.id ||
+          entry.payload?.stub_id === row.id
+        );
+      });
+
+      return {
+        ...row,
+        sync_status: row.is_local_only
+          ? row.sync_status
+          : buildSyncDescriptor(matchingEntry).status,
+      };
+    });
+  }, [displayedRows, selectedSortOrder, syncQueueEntries]);
+  const selectedClaimRows = useMemo(() => {
+    const selectedStubIdSet = new Set(selectedStubIds);
+
+    return displayedRowsWithSyncStatus.filter((row) =>
+      selectedStubIdSet.has(row.id),
+    );
+  }, [displayedRowsWithSyncStatus, selectedStubIds]);
 
   const scopedDisasterEvents = useMemo(() => {
     const allowedStatuses =
@@ -312,15 +321,22 @@ const StubDistributionPage = () => {
     return disasterEvents.filter((event) => allowedStatuses.includes(event.status));
   }, [activeTab, disasterEvents]);
 
-  const activeEventLabel = selectedDisasterEvent
-    ? `${selectedDisasterEvent.event_code} - ${selectedDisasterEvent.title}`
-    : "No disaster event selected";
+  const activeEventLabel = formatDisasterEventTitle(selectedDisasterEvent);
   const isEndedView = activeTab === "ended";
-  const activeFilterCount =
-    selectedSectorIds.length + (selectedStubStatus ? 1 : 0);
-  const hasActiveFilters = activeFilterCount > 0;
+  const sectorFilterOptions = useMemo(
+    () =>
+      buildMasterlistFilterSectorOptions(sectors).map((sector) => ({
+        ...sector,
+        id: sector.source_sector_id || sector.id,
+      })),
+    [sectors],
+  );
 
   useEffect(() => {
+    if (isLoadingFilters || !isEventSelectionResolved) {
+      return;
+    }
+
     if (
       selectedDisasterEvent?.status === "ACTIVE" &&
       activeTab !== "active"
@@ -334,7 +350,12 @@ const StubDistributionPage = () => {
     ) {
       setActiveTab("ended");
     }
-  }, [activeTab, selectedDisasterEvent?.status]);
+  }, [
+    activeTab,
+    isEventSelectionResolved,
+    isLoadingFilters,
+    selectedDisasterEvent?.status,
+  ]);
 
   useEffect(() => {
     setSelectedSectorIds(selectedSectorIds);
@@ -349,77 +370,31 @@ const StubDistributionPage = () => {
   useEffect(() => {
     setSelectedStubIds([]);
     setPendingClaimStubId("");
+    setPendingClaimStubDetails(null);
     setIsBulkClaimConfirmOpen(false);
     setClaimErrorMessage("");
+    setIsQrScanModalOpen(false);
+    setQrScanErrorState(null);
+    setScannerHelperMessage("");
+    setScanCooldownState({ value: "", until: 0 });
   }, [activeTab, selectedBarangayId, selectedDisasterEventId]);
 
   useEffect(() => {
-    if (!isFilterOpen) {
-      return;
-    }
-
-    updateFilterPanelPosition();
-
-    const handleWindowChange = () => {
-      updateFilterPanelPosition();
-    };
-
-    window.addEventListener("resize", handleWindowChange);
-    window.addEventListener("scroll", handleWindowChange, true);
-
-    return () => {
-      window.removeEventListener("resize", handleWindowChange);
-      window.removeEventListener("scroll", handleWindowChange, true);
-    };
-  }, [activeTab, isFilterOpen, activeFilterCount]);
-
-  useEffect(() => {
-    if (!isFilterOpen) {
-      return;
-    }
-
-    const handleOutsideClick = (event) => {
-      if (
-        filterPanelRef.current?.contains(event.target) ||
-        filterButtonRef.current?.contains(event.target)
-      ) {
-        return;
-      }
-
-      setIsFilterOpen(false);
-    };
-
-    document.addEventListener("mousedown", handleOutsideClick);
-
-    return () => {
-      document.removeEventListener("mousedown", handleOutsideClick);
-    };
-  }, [isFilterOpen]);
-
-  useEffect(() => {
-    setIsFilterOpen(false);
-  }, [activeTab, selectedBarangayId, selectedDisasterEventId]);
-
-  useEffect(() => {
-    if (!isFilterOpen) {
-      return;
-    }
-
-    const animationFrameId = window.requestAnimationFrame(() => {
-      updateFilterPanelPosition();
-    });
-
-    return () => {
-      window.cancelAnimationFrame(animationFrameId);
-    };
-  }, [isFilterOpen, activeFilterCount]);
-
-  useEffect(() => {
-    const visibleStubIds = new Set(displayedRows.map((row) => row.id));
+    const visibleStubIds = new Set(displayedRowsWithSyncStatus.map((row) => row.id));
     setSelectedStubIds((currentValues) =>
       currentValues.filter((stubId) => visibleStubIds.has(stubId)),
     );
-  }, [displayedRows]);
+  }, [displayedRowsWithSyncStatus]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToSyncUpdates(() => {
+      if (typeof navigator !== "undefined" && navigator.onLine) {
+        reloadDashboard();
+      }
+    });
+
+    return () => unsubscribe();
+  }, [reloadDashboard]);
 
   const toggleSectorFilter = (sectorId) => {
     setFiltersByTab((currentFilters) => ({
@@ -438,20 +413,20 @@ const StubDistributionPage = () => {
       ...currentFilters,
       [activeTab]: {
         sectorIds: [],
-        stubStatus: "",
+        stubStatus: DEFAULT_STUB_STATUS,
+        sortOrder: DEFAULT_STUB_SORT_ORDER,
       },
     }));
   };
 
-  const updateFilterPanelPosition = () => {
-    if (!filterButtonRef.current) {
-      return;
-    }
-
-    const triggerRect = filterButtonRef.current.getBoundingClientRect();
-    const panelHeight = filterPanelRef.current?.getBoundingClientRect().height || 0;
-
-    setFilterPanelPosition(getFilterPanelPosition({ triggerRect, panelHeight }));
+  const setSortOrderFilter = (sortOrder) => {
+    setFiltersByTab((currentFilters) => ({
+      ...currentFilters,
+      [activeTab]: {
+        ...currentFilters[activeTab],
+        sortOrder,
+      },
+    }));
   };
 
   const handleEventScopeChange = (nextTab) => {
@@ -491,7 +466,7 @@ const StubDistributionPage = () => {
       return;
     }
 
-    const selectableStubIds = displayedRows
+    const selectableStubIds = displayedRowsWithSyncStatus
       .filter((row) => row.status === "ISSUED")
       .map((row) => row.id);
 
@@ -507,7 +482,14 @@ const StubDistributionPage = () => {
       return;
     }
 
+    if (selectedStubIds.length === 1) {
+      handleOpenClaimConfirmation(selectedStubIds[0]);
+      return;
+    }
+
     setClaimErrorMessage("");
+    setPendingClaimStubId("");
+    setPendingClaimStubDetails(null);
     setIsBulkClaimConfirmOpen(true);
   };
 
@@ -517,8 +499,48 @@ const StubDistributionPage = () => {
     }
 
     setClaimErrorMessage("");
+    setIsBulkClaimConfirmOpen(false);
     setPendingClaimStubId(stubId);
+    setPendingClaimStubDetails(null);
   };
+
+  useEffect(() => {
+    if (!pendingClaimStubId || isBulkClaimConfirmOpen) {
+      setPendingClaimStubDetails(null);
+      setIsLoadingPendingClaimStubDetails(false);
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadPendingClaimStubDetails = async () => {
+      setIsLoadingPendingClaimStubDetails(true);
+
+      try {
+        const stubDetails = await fetchStubDetails(pendingClaimStubId);
+
+        if (isMounted) {
+          setPendingClaimStubDetails(stubDetails);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setClaimErrorMessage(
+            error.message || "Unable to load the selected stub details.",
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingPendingClaimStubDetails(false);
+        }
+      }
+    };
+
+    loadPendingClaimStubDetails();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isBulkClaimConfirmOpen, pendingClaimStubId]);
 
   const handleCancelClaim = () => {
     if (claimingStubId) {
@@ -526,6 +548,7 @@ const StubDistributionPage = () => {
     }
 
     setPendingClaimStubId("");
+    setPendingClaimStubDetails(null);
     setIsBulkClaimConfirmOpen(false);
   };
 
@@ -553,6 +576,7 @@ const StubDistributionPage = () => {
         reloadDashboard();
         setSelectedStubIds([]);
         setIsBulkClaimConfirmOpen(false);
+        setPendingClaimStubDetails(null);
       } catch (error) {
         setClaimErrorMessage(
           error.message || "Unable to mark the selected stubs as claimed.",
@@ -578,6 +602,7 @@ const StubDistributionPage = () => {
       });
       reloadDashboard();
       setPendingClaimStubId("");
+      setPendingClaimStubDetails(null);
     } catch (error) {
       setClaimErrorMessage(error.message || "Unable to mark the stub as claimed.");
     } finally {
@@ -585,32 +610,159 @@ const StubDistributionPage = () => {
     }
   };
 
-  const handleExport = () => {
-    if (!selectedDisasterEventId) {
-      window.alert("Select a disaster event before exporting stub records.");
+  const openStubPrintPage = (printUrl) => {
+    window.open(printUrl, "_blank", "noopener,noreferrer");
+  };
+
+  const handleOpenStubDetails = async (row) => {
+    if (!row?.id) {
       return;
     }
 
-    if (!selectedBarangayId) {
-      window.alert("Select a barangay before exporting stub records.");
-      return;
-    }
-
-    if (!displayedRows.length) {
-      window.alert("No stub records are available to export for the current filters.");
-      return;
-    }
-
-    setIsExporting(true);
+    setIsStubDetailModalOpen(true);
+    setIsLoadingStubDetails(true);
+    setSelectedStubDetails(null);
+    setStubDetailsErrorMessage("");
 
     try {
-      downloadCsvFile(
-        displayedRows,
-        selectedDisasterEvent?.event_code || "event",
-        selectedBarangay?.name || "barangay",
+      const details = await fetchStubDetails(row.id);
+      setSelectedStubDetails(details);
+    } catch (error) {
+      setStubDetailsErrorMessage(
+        error.message || "Unable to load the selected stub details.",
       );
     } finally {
-      setIsExporting(false);
+      setIsLoadingStubDetails(false);
+    }
+  };
+
+  const handleCloseStubDetails = () => {
+    setIsStubDetailModalOpen(false);
+    setSelectedStubDetails(null);
+    setStubDetailsErrorMessage("");
+    setIsLoadingStubDetails(false);
+  };
+
+  const handlePrintStubSheet = ({
+    disasterEventId,
+    barangayId,
+    stubStatus,
+    orderList,
+  }) => {
+    setIsPrintSheetModalOpen(false);
+    openStubPrintPage(
+      buildStubPrintRoute({
+        eventId: disasterEventId,
+        barangayId,
+        status: stubStatus,
+        sortOrder: orderList,
+      }),
+    );
+  };
+
+  const openQrScanError = (error, scannedQrValue) => {
+    setQrScanErrorState({
+      error,
+      scannedQrValue,
+    });
+  };
+
+  const handleCloseQrScanner = () => {
+    setIsQrScanModalOpen(false);
+    setIsResolvingScannedQr(false);
+    setQrScanErrorState(null);
+    setScannerHelperMessage("");
+    setScanCooldownState({
+      value: "",
+      until: 0,
+    });
+  };
+
+  const handleDismissQrScanError = () => {
+    const blockedQrValue = qrScanErrorState?.scannedQrValue || "";
+
+    setQrScanErrorState(null);
+    setScannerHelperMessage("Ready to scan another QR stub.");
+
+    if (!blockedQrValue) {
+      setScanCooldownState({
+        value: "",
+        until: 0,
+      });
+      return;
+    }
+
+    setScanCooldownState({
+      value: blockedQrValue,
+      until: Date.now() + QR_SCAN_COOLDOWN_MS,
+    });
+  };
+
+  const handleScannedQr = async (qrCodeValue) => {
+    if (isEndedView || isResolvingScannedQr) {
+      return;
+    }
+
+    setIsResolvingScannedQr(true);
+    setClaimErrorMessage("");
+    setScannerHelperMessage("");
+
+    try {
+      const verification = await verifyStub({ qrCodeValue });
+      const resolvedStubId = verification?.data?.stub?.id;
+
+      if (!resolvedStubId) {
+        throw createQrScanError({
+          code: QR_SCAN_ERROR_CODES.INVALID_QR_STUB,
+          message: "QR lookup did not return a valid stub record.",
+        });
+      }
+
+      const stubDetails = await fetchStubDetails(resolvedStubId);
+      const stubEventId = stubDetails?.disaster_event?.id || "";
+      const stubBarangayId = stubDetails?.barangay?.id || "";
+
+      if (stubEventId !== selectedDisasterEventId) {
+        throw createWrongEventQrScanError({
+          stubNumber: getStubReferenceNumber(stubDetails, verification) || undefined,
+        });
+      }
+
+      if (stubBarangayId !== selectedBarangayId) {
+        throw createWrongBarangayQrScanError({
+          stubNumber: getStubReferenceNumber(stubDetails, verification) || undefined,
+        });
+      }
+
+      if (!verification?.data?.is_claimable || stubDetails?.status !== "ISSUED") {
+        throw createQrScanError({
+          code:
+            verification?.data?.code ||
+            (stubDetails?.status === "CLAIMED"
+              ? QR_SCAN_ERROR_CODES.STUB_ALREADY_CLAIMED
+              : QR_SCAN_ERROR_CODES.STUB_UNAVAILABLE),
+          message:
+            verification?.data?.reason ||
+            verification?.message ||
+            "This QR stub has already been claimed or is not claimable.",
+          details: buildQrScanErrorDetails(verification, stubDetails),
+        });
+      }
+
+      setPendingClaimStubId(resolvedStubId);
+      setPendingClaimStubDetails(stubDetails);
+      setIsBulkClaimConfirmOpen(false);
+      setSelectedStubIds([]);
+      setIsQrScanModalOpen(false);
+      setScanToast({
+        type: "success",
+        title: "QR Verified",
+        message: "QR stub verified successfully. Please confirm relief distribution.",
+      });
+    } catch (error) {
+      openQrScanError(error, qrCodeValue);
+    } finally {
+      setIsResolvingScannedQr(false);
     }
   };
 
@@ -645,12 +797,7 @@ const StubDistributionPage = () => {
         </div>
 
         <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: "16px",
-            alignItems: "end",
-          }}
+          style={pageSpacingStyles.filterGrid}
         >
           <div>
             <label htmlFor="mswdo-stub-event" style={filterStyles.label}>
@@ -668,7 +815,7 @@ const StubDistributionPage = () => {
               </option>
               {scopedDisasterEvents.map((event) => (
                 <option key={event.id} value={event.id}>
-                  {event.event_code} - {event.title}
+                  {formatDisasterEventTitle(event)}
                 </option>
               ))}
             </select>
@@ -682,10 +829,18 @@ const StubDistributionPage = () => {
               id="mswdo-stub-barangay"
               value={selectedBarangayId}
               onChange={(event) => setSelectedBarangayId(event.target.value)}
-              disabled={isLoadingFilters}
+              disabled={
+                isLoadingFilters ||
+                !selectedDisasterEventId ||
+                barangays.length === 0
+              }
               style={filterStyles.field}
             >
-              <option value="">Select barangay</option>
+              <option value="">
+                {selectedDisasterEventId
+                  ? "Select affected barangay"
+                  : "Select disaster event first"}
+              </option>
               {barangays.map((barangay) => (
                 <option key={barangay.id} value={barangay.id}>
                   {barangay.name}
@@ -752,159 +907,72 @@ const StubDistributionPage = () => {
         <StubSummaryCards cards={summaryCards} />
       ) : null}
 
-      <section
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: "16px",
-          flexWrap: "wrap",
-        }}
-      >
-        <div style={{ flex: 1 }}>
-          <SearchBar
-            value={searchTerm}
-            onChange={setSearchTerm}
-            placeholder="Search family head, address, stub number, or sectors"
-          />
-        </div>
-
-        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-          <div>
-            <button
-              ref={filterButtonRef}
-              type="button"
-              onClick={() => setIsFilterOpen((currentValue) => !currentValue)}
-              style={{
-                ...pageHeaderStyles.secondaryButton,
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-              }}
-            >
-              <FiFilter size={16} />
-              {hasActiveFilters ? `Filter (${activeFilterCount})` : "Filter"}
-            </button>
-
-            {isFilterOpen ? (
-              <div
-                ref={filterPanelRef}
+      <section>
+        <StubSearchBar
+          searchValue={searchTerm}
+          onSearchChange={setSearchTerm}
+          onSearchSubmit={() => {}}
+          sectorOptions={sectorFilterOptions}
+          selectedSectorNames={selectedSectorIds}
+          stubStatusOptions={stubStatusOptions}
+          selectedStubStatus={selectedStubStatus}
+          selectedSortOrder={selectedSortOrder}
+          onToggleSector={toggleSectorFilter}
+          onSelectStubStatus={(stubStatus) =>
+            setFiltersByTab((currentFilters) => ({
+              ...currentFilters,
+              [activeTab]: {
+                ...currentFilters[activeTab],
+                stubStatus,
+              },
+            }))
+          }
+          onSortOrderChange={setSortOrderFilter}
+          onClearFilters={clearFilters}
+          filterScopeKey={`${activeTab}-${selectedDisasterEventId}-${selectedBarangayId}`}
+          actions={
+            <>
+              <button
+                type="button"
+                onClick={() => setIsPrintSheetModalOpen(true)}
+                disabled={!hasSelectedEvent || !hasSelectedBarangay}
                 style={{
-                  ...filterPanelStyles.panel,
-                  top: filterPanelPosition.top,
-                  left: filterPanelPosition.left,
-                  maxHeight: filterPanelPosition.maxHeight,
+                  ...pageHeaderStyles.secondaryButton,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  opacity: !hasSelectedEvent || !hasSelectedBarangay ? 0.7 : 1,
                 }}
               >
-                <h3 style={filterPanelStyles.title}>Filter Stub Records</h3>
-
-                <label style={filterPanelStyles.field}>
-                  <span style={filterPanelStyles.label}>Stub Status</span>
-                  <select
-                    value={selectedStubStatus}
-                    onChange={(event) =>
-                      setFiltersByTab((currentFilters) => ({
-                        ...currentFilters,
-                        [activeTab]: {
-                          ...currentFilters[activeTab],
-                          stubStatus: event.target.value,
-                        },
-                      }))
-                    }
-                    style={filterPanelStyles.select}
-                  >
-                    <option value="">All Stub Statuses</option>
-                    {stubStatusOptions.map((statusOption) => (
-                      <option key={statusOption.value} value={statusOption.value}>
-                        {statusOption.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <div style={filterPanelStyles.field}>
-                  <span style={filterPanelStyles.label}>Sector</span>
-                  <div style={filterPanelStyles.list}>
-                    {sectors.length > 0 ? (
-                      sectors.map((sector) => (
-                      <label key={sector.id} style={filterPanelStyles.option}>
-                        <input
-                          type="checkbox"
-                          checked={selectedSectorIds.includes(sector.id)}
-                          onChange={() => toggleSectorFilter(sector.id)}
-                          style={{ accentColor: "#2f6499" }}
-                        />
-                        <span>{sector.name}</span>
-                      </label>
-                      ))
-                    ) : (
-                      <p style={{ ...shellStyles.mutedText, margin: 0 }}>
-                        No sectors are available.
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div style={filterPanelStyles.actions}>
-                  <button
-                    type="button"
-                    onClick={clearFilters}
-                    style={pageHeaderStyles.secondaryButton}
-                  >
-                    Clear
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsFilterOpen(false)}
-                    style={pageHeaderStyles.primaryButton}
-                  >
-                    Apply
-                  </button>
-                </div>
-              </div>
-            ) : null}
-          </div>
-
-          <button
-            type="button"
-            onClick={handleExport}
-            disabled={
-              !hasSelectedEvent ||
-              !hasSelectedBarangay ||
-              !displayedRows.length ||
-              isExporting
-            }
-            style={{
-              border: "1px solid #c6d8ea",
-              borderRadius: "14px",
-              padding: "12px 18px",
-              backgroundColor: "#f8fbfe",
-              color: "#2a4c6f",
-              fontSize: "14px",
-              fontWeight: 700,
-              cursor:
-                !hasSelectedEvent ||
-                !hasSelectedBarangay ||
-                !displayedRows.length ||
-                isExporting
-                  ? "not-allowed"
-                  : "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              opacity:
-                !hasSelectedEvent ||
-                !hasSelectedBarangay ||
-                !displayedRows.length ||
-                isExporting
-                  ? 0.7
-                  : 1,
-            }}
-          >
-            <FiFileText size={16} />
-            {isExporting ? "Exporting..." : "Export"}
-          </button>
-        </div>
+                <FiPrinter size={16} />
+                Print
+              </button>
+              {!isEndedView ? (
+                <button
+                  type="button"
+                  onClick={() => setIsQrScanModalOpen(true)}
+                  disabled={
+                    !hasSelectedEvent ||
+                    !hasSelectedBarangay ||
+                    isResolvingScannedQr
+                  }
+                  style={{
+                    ...pageHeaderStyles.primaryButton,
+                    opacity:
+                      !hasSelectedEvent ||
+                      !hasSelectedBarangay ||
+                      isResolvingScannedQr
+                        ? 0.7
+                        : 1,
+                  }}
+                >
+                  <MdQrCodeScanner size={18} />
+                  Scan QR
+                </button>
+              ) : null}
+            </>
+          }
+        />
       </section>
 
       {!isEndedView && selectedStubIds.length > 0 ? (
@@ -948,7 +1016,7 @@ const StubDistributionPage = () => {
       ) : null}
 
       <MswdoStubResultsTable
-        rows={displayedRows}
+        rows={displayedRowsWithSyncStatus}
         isLoading={isLoadingData}
         errorMessage={errorMessage}
         hasSelectedEvent={hasSelectedEvent}
@@ -956,6 +1024,7 @@ const StubDistributionPage = () => {
         claimingStubId={claimingStubId}
         claimErrorMessage={claimErrorMessage}
         onClaimStub={handleOpenClaimConfirmation}
+        onViewStub={handleOpenStubDetails}
         isClaimReadOnly={isEndedView}
         selectedStubIds={selectedStubIds}
         onToggleSelect={handleToggleSelect}
@@ -965,9 +1034,56 @@ const StubDistributionPage = () => {
       <StubClaimConfirmModal
         isOpen={Boolean(pendingClaimStubId) || isBulkClaimConfirmOpen}
         isSubmitting={Boolean(claimingStubId)}
+        isLoadingStubDetails={isLoadingPendingClaimStubDetails}
         onCancel={handleCancelClaim}
         onConfirm={handleConfirmClaim}
         selectedCount={isBulkClaimConfirmOpen ? selectedStubIds.length : 1}
+        selectedStubs={selectedClaimRows}
+        stubDetails={pendingClaimStubDetails}
+      />
+
+      <StubDetailModal
+        isOpen={isStubDetailModalOpen}
+        isLoading={isLoadingStubDetails}
+        errorMessage={stubDetailsErrorMessage}
+        stubDetails={selectedStubDetails}
+        onClose={handleCloseStubDetails}
+      />
+
+      <StubPrintSheetModal
+        isOpen={isPrintSheetModalOpen}
+        disasterEvents={scopedDisasterEvents}
+        barangays={allBarangays}
+        selectedDisasterEventId={selectedDisasterEventId}
+        selectedBarangayId={selectedBarangayId}
+        showBarangaySelection
+        onClose={() => setIsPrintSheetModalOpen(false)}
+        onPrint={handlePrintStubSheet}
+      />
+
+      <StubQrScanModal
+        isOpen={isQrScanModalOpen}
+        isProcessing={isResolvingScannedQr}
+        isInteractionBlocked={Boolean(qrScanErrorState)}
+        blockedQrValue={scanCooldownState.value}
+        blockedQrUntil={scanCooldownState.until}
+        helperMessage={scannerHelperMessage}
+        onClose={handleCloseQrScanner}
+        onScan={handleScannedQr}
+      />
+
+      <StubQrScanErrorModal
+        isOpen={Boolean(qrScanErrorState)}
+        error={qrScanErrorState?.error || null}
+        onTryAgain={handleDismissQrScanError}
+        onCloseScanner={handleCloseQrScanner}
+      />
+
+      <FeedbackToast
+        message={scanToast.message}
+        type={scanToast.type}
+        title={scanToast.title}
+        onClose={() => setScanToast({ message: "", type: "info", title: "" })}
       />
     </>
   );

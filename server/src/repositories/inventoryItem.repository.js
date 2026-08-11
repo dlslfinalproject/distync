@@ -1,6 +1,23 @@
 const pool = require("../config/db");
 
+const hasInventoryItemReorderLevelColumn = async () => {
+  const result = await pool.query(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'inventory_items'
+          AND column_name = 'reorder_level'
+      ) AS has_column
+    `,
+  );
+
+  return Boolean(result.rows[0]?.has_column);
+};
+
 const getInventoryItems = async (filters) => {
+  const hasReorderLevelColumn = await hasInventoryItemReorderLevelColumn();
   const values = [];
   const conditions = [];
 
@@ -40,6 +57,7 @@ const getInventoryItems = async (filters) => {
       packaging,
       packaging_count,
       quantity,
+      ${hasReorderLevelColumn ? "reorder_level," : "NULL::integer AS reorder_level,"}
       expiration_date,
       barcode,
       is_perishable,
@@ -55,7 +73,8 @@ const getInventoryItems = async (filters) => {
   return result.rows;
 };
 
-const getInventoryItemById = async (id) => {
+const getInventoryItemById = async (id, dbClient = pool) => {
+  const hasReorderLevelColumn = await hasInventoryItemReorderLevelColumn();
   const query = `
     SELECT
       id,
@@ -67,6 +86,7 @@ const getInventoryItemById = async (id) => {
       packaging,
       packaging_count,
       quantity,
+      ${hasReorderLevelColumn ? "reorder_level," : "NULL::integer AS reorder_level,"}
       expiration_date,
       barcode,
       is_perishable,
@@ -77,7 +97,36 @@ const getInventoryItemById = async (id) => {
     WHERE id = $1
   `;
 
-  const result = await pool.query(query, [id]);
+  const result = await dbClient.query(query, [id]);
+  return result.rows[0] || null;
+};
+
+const getInventoryItemByIdForUpdate = async (id, dbClient = pool) => {
+  const hasReorderLevelColumn = await hasInventoryItemReorderLevelColumn();
+  const query = `
+    SELECT
+      id,
+      item_code,
+      item_name,
+      category,
+      unit_of_measure,
+      unit_of_measure_value,
+      packaging,
+      packaging_count,
+      quantity,
+      ${hasReorderLevelColumn ? "reorder_level," : "NULL::integer AS reorder_level,"}
+      expiration_date,
+      barcode,
+      is_perishable,
+      is_active,
+      created_at,
+      updated_at
+    FROM inventory_items
+    WHERE id = $1
+    FOR UPDATE
+  `;
+
+  const result = await dbClient.query(query, [id]);
   return result.rows[0] || null;
 };
 
@@ -109,7 +158,8 @@ const getInventoryItemByName = async (itemName) => {
   return result.rows[0] || null;
 };
 
-const insertInventoryItem = async (itemData) => {
+const insertInventoryItem = async (itemData, dbClient = pool) => {
+  const hasReorderLevelColumn = await hasInventoryItemReorderLevelColumn();
   const query = `
     INSERT INTO inventory_items (
       item_code,
@@ -120,6 +170,7 @@ const insertInventoryItem = async (itemData) => {
       packaging,
       packaging_count,
       quantity,
+      ${hasReorderLevelColumn ? "reorder_level," : ""}
       expiration_date,
       barcode,
       is_perishable,
@@ -127,7 +178,15 @@ const insertInventoryItem = async (itemData) => {
       created_at,
       updated_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
+    VALUES (
+      $1, $2, $3, $4, $5, $6, $7, $8,
+      ${hasReorderLevelColumn ? "$9," : ""}
+      $${hasReorderLevelColumn ? 10 : 9},
+      $${hasReorderLevelColumn ? 11 : 10},
+      $${hasReorderLevelColumn ? 12 : 11},
+      $${hasReorderLevelColumn ? 13 : 12},
+      NOW(), NOW()
+    )
     RETURNING
       id,
       item_code,
@@ -138,6 +197,7 @@ const insertInventoryItem = async (itemData) => {
       packaging,
       packaging_count,
       quantity,
+      ${hasReorderLevelColumn ? "reorder_level," : "NULL::integer AS reorder_level,"}
       expiration_date,
       barcode,
       is_perishable,
@@ -155,17 +215,19 @@ const insertInventoryItem = async (itemData) => {
     itemData.packaging,
     itemData.packaging_count,
     itemData.quantity,
+    ...(hasReorderLevelColumn ? [itemData.reorder_level] : []),
     itemData.expiration_date,
     itemData.barcode,
     itemData.is_perishable,
     itemData.is_active,
   ];
 
-  const result = await pool.query(query, values);
+  const result = await dbClient.query(query, values);
   return result.rows[0];
 };
 
-const updateInventoryItem = async (id, itemData) => {
+const updateInventoryItem = async (id, itemData, dbClient = pool) => {
+  const hasReorderLevelColumn = await hasInventoryItemReorderLevelColumn();
   const query = `
     UPDATE inventory_items
     SET item_code = $2,
@@ -176,10 +238,11 @@ const updateInventoryItem = async (id, itemData) => {
         packaging = $7,
         packaging_count = $8,
         quantity = $9,
-        expiration_date = $10,
-        barcode = $11,
-        is_perishable = $12,
-        is_active = $13,
+        ${hasReorderLevelColumn ? "reorder_level = $10," : ""}
+        expiration_date = $${hasReorderLevelColumn ? 11 : 10},
+        barcode = $${hasReorderLevelColumn ? 12 : 11},
+        is_perishable = $${hasReorderLevelColumn ? 13 : 12},
+        is_active = $${hasReorderLevelColumn ? 14 : 13},
         updated_at = NOW()
     WHERE id = $1
     RETURNING
@@ -192,6 +255,7 @@ const updateInventoryItem = async (id, itemData) => {
       packaging,
       packaging_count,
       quantity,
+      ${hasReorderLevelColumn ? "reorder_level," : "NULL::integer AS reorder_level,"}
       expiration_date,
       barcode,
       is_perishable,
@@ -210,21 +274,59 @@ const updateInventoryItem = async (id, itemData) => {
     itemData.packaging,
     itemData.packaging_count,
     itemData.quantity,
+    ...(hasReorderLevelColumn ? [itemData.reorder_level] : []),
     itemData.expiration_date,
     itemData.barcode,
     itemData.is_perishable,
     itemData.is_active,
   ];
 
-  const result = await pool.query(query, values);
+  const result = await dbClient.query(query, values);
+  return result.rows[0] || null;
+};
+
+const updateInventoryItemStockSnapshot = async (
+  id,
+  { quantity, packaging_count },
+  dbClient = pool,
+) => {
+  const hasReorderLevelColumn = await hasInventoryItemReorderLevelColumn();
+  const query = `
+    UPDATE inventory_items
+    SET quantity = $2,
+        packaging_count = $3,
+        updated_at = NOW()
+    WHERE id = $1
+    RETURNING
+      id,
+      item_code,
+      item_name,
+      category,
+      unit_of_measure,
+      unit_of_measure_value,
+      packaging,
+      packaging_count,
+      quantity,
+      ${hasReorderLevelColumn ? "reorder_level," : "NULL::integer AS reorder_level,"}
+      expiration_date,
+      barcode,
+      is_perishable,
+      is_active,
+      created_at,
+      updated_at
+  `;
+
+  const result = await dbClient.query(query, [id, quantity, packaging_count]);
   return result.rows[0] || null;
 };
 
 module.exports = {
   getInventoryItems,
   getInventoryItemById,
+  getInventoryItemByIdForUpdate,
   getInventoryItemByCode,
   getInventoryItemByName,
   insertInventoryItem,
   updateInventoryItem,
+  updateInventoryItemStockSnapshot,
 };

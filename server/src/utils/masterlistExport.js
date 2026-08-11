@@ -17,6 +17,35 @@ const formatDateTime = (value) => {
   }).format(new Date(value));
 };
 
+const formatStayTypeLabel = (value) => {
+  if (!value) {
+    return "-";
+  }
+
+  if (value === "EVAC_CENTER") {
+    return "Evacuation Center";
+  }
+
+  if (value === "RELATIVES") {
+    return "Staying with Relatives";
+  }
+
+  if (value === "OTHER_SAFE_PLACE") {
+    return "Other Safe Place";
+  }
+
+  return value;
+};
+
+const shouldUseStayTypeAsArrivalText = (household) => {
+  const stayType = String(household?.current_stay_type || "").toUpperCase();
+
+  return (
+    (stayType === "RELATIVES" || stayType === "OTHER_SAFE_PLACE") &&
+    !household?.latest_attendance?.time_in
+  );
+};
+
 const buildSectorsText = (household) => {
   const householdSectorNames = (household.household_sectors || []).map(
     (sector) => sector.name,
@@ -43,18 +72,19 @@ const getHouseholdLocationLabel = (household) => {
 const mapHouseholdToExportRow = (household) => {
   const departureTimeValue = household.latest_attendance?.time_out || null;
   const locationLabel = getHouseholdLocationLabel(household);
+  const useStayTypeAsArrivalText = shouldUseStayTypeAsArrivalText(household);
 
   return {
     family_head_name: household.family_head_name || "-",
-    address:
-      household.current_address_details ||
-      locationLabel ||
-      "-",
+    address: household.current_address_details || locationLabel || "-",
     members_count: household.members?.length || 0,
     sectors_text: buildSectorsText(household),
-    arrival_time_text: formatDateTime(household.latest_attendance?.time_in),
+    arrival_time_text: useStayTypeAsArrivalText
+      ? formatStayTypeLabel(household.current_stay_type)
+      : formatDateTime(household.latest_attendance?.time_in),
     departure_time_text: formatDateTime(departureTimeValue),
     barangay_name: household.barangay?.name || "",
+    registered_at: household.registered_at || null,
   };
 };
 
@@ -85,15 +115,55 @@ const filterExportRows = (rows, searchTerm) => {
   });
 };
 
-const getExportColumns = () => {
-  return [
+const sortExportRows = (rows, sortOrder = "newest") => {
+  const safeRows = Array.isArray(rows) ? [...rows] : [];
+
+  return safeRows.sort((leftRow, rightRow) => {
+    if (sortOrder === "oldest" || sortOrder === "newest") {
+      const leftTime = new Date(leftRow?.registered_at || 0).getTime();
+      const rightTime = new Date(rightRow?.registered_at || 0).getTime();
+
+      if (leftTime !== rightTime) {
+        return sortOrder === "oldest"
+          ? leftTime - rightTime
+          : rightTime - leftTime;
+      }
+    }
+
+    const leftName = String(leftRow?.family_head_name || "").trim().toUpperCase();
+    const rightName = String(rightRow?.family_head_name || "").trim().toUpperCase();
+
+    if (leftName !== rightName) {
+      if (sortOrder === "za") {
+        return rightName.localeCompare(leftName);
+      }
+
+      return leftName.localeCompare(rightName);
+    }
+
+    const leftTime = new Date(leftRow?.registered_at || 0).getTime();
+    const rightTime = new Date(rightRow?.registered_at || 0).getTime();
+    return rightTime - leftTime;
+  });
+};
+
+const getExportColumns = (includeBarangayColumn = false) => {
+  const columns = [];
+
+  if (includeBarangayColumn) {
+    columns.push({ key: "barangay_name", label: "Barangay" });
+  }
+
+  columns.push(
     { key: "family_head_name", label: "Family Head" },
     { key: "address", label: "Address" },
     { key: "members_count", label: "Members" },
     { key: "sectors_text", label: "Sectors" },
     { key: "arrival_time_text", label: "Arrival Time" },
     { key: "departure_time_text", label: "Departure Time" },
-  ];
+  );
+
+  return columns;
 };
 
 const getExcelExportColumns = (includeBarangayColumn) => {
@@ -299,6 +369,90 @@ const addWorkbookLogo = (workbook, worksheet) => {
   });
 };
 
+const EXCEL_HEADER_FILL = {
+  type: "pattern",
+  pattern: "solid",
+  fgColor: { argb: "FF17324D" },
+};
+
+const EXCEL_HEADER_FONT = {
+  bold: true,
+  color: { argb: "FFFFFFFF" },
+};
+
+const buildExcelReportHeader = ({
+  worksheet,
+  lastColumnIndex,
+  sourceName = "MSWDO",
+  reportTitle = "Evacuee Masterlist Report",
+  metadata = [],
+}) => {
+  const safeLastColumnIndex = Math.max(Number(lastColumnIndex) || 2, 2);
+  const lastColumnLetter = worksheet.getColumn(safeLastColumnIndex).letter;
+
+  for (let rowNumber = 1; rowNumber <= 4; rowNumber += 1) {
+    const row = worksheet.getRow(rowNumber);
+    for (let columnNumber = 1; columnNumber <= safeLastColumnIndex; columnNumber += 1) {
+      row.getCell(columnNumber).fill = EXCEL_HEADER_FILL;
+    }
+  }
+
+  worksheet.mergeCells("A1:A4");
+  worksheet.getCell("A1").alignment = {
+    vertical: "middle",
+    horizontal: "center",
+  };
+
+  const titleCells = [
+    { address: "B1", value: "DISTYNC", size: 20, height: 26 },
+    { address: "B2", value: sourceName, size: 14, height: 22 },
+    {
+      address: "B3",
+      value: "Municipality of Malvar, Batangas",
+      size: 11,
+      height: 20,
+    },
+    { address: "B4", value: reportTitle, size: 13, height: 24 },
+  ];
+
+  titleCells.forEach(({ address, value, size, height }, index) => {
+    const rowNumber = index + 1;
+    worksheet.mergeCells(`B${rowNumber}:${lastColumnLetter}${rowNumber}`);
+    const cell = worksheet.getCell(address);
+    cell.value = value;
+    cell.font = { ...EXCEL_HEADER_FONT, size };
+    cell.fill = EXCEL_HEADER_FILL;
+    cell.alignment = {
+      vertical: "middle",
+      horizontal: "left",
+      wrapText: true,
+    };
+    worksheet.getRow(rowNumber).height = height;
+  });
+
+  let currentRowNumber = 6;
+  metadata.forEach((item) => {
+    const label = Array.isArray(item) ? item[0] : item.label;
+    const value = Array.isArray(item) ? item[1] : item.value;
+
+    worksheet.getCell(`A${currentRowNumber}`).value = label;
+    worksheet.getCell(`A${currentRowNumber}`).font = {
+      bold: true,
+      color: { argb: "FF4F6478" },
+    };
+    worksheet.mergeCells(`B${currentRowNumber}:${lastColumnLetter}${currentRowNumber}`);
+    worksheet.getCell(`B${currentRowNumber}`).value = value ?? "-";
+    worksheet.getCell(`B${currentRowNumber}`).alignment = {
+      vertical: "middle",
+      horizontal: "left",
+      wrapText: true,
+    };
+    currentRowNumber += 1;
+  });
+
+  return currentRowNumber;
+};
+
 const buildExcelHeaderSection = ({
   worksheet,
   lastColumnLetter,
@@ -307,44 +461,9 @@ const buildExcelHeaderSection = ({
   searchTerm,
   generatedAtLabel,
   totalRows,
+  sourceName = "MSWDO",
+  reportTitle = "Evacuee Masterlist Report",
 }) => {
-  worksheet.mergeCells(`B1:${lastColumnLetter}1`);
-  worksheet.getCell("B1").value = "DISTYNC";
-  worksheet.getCell("B1").font = {
-    bold: true,
-    size: 18,
-    color: { argb: "FFFFFFFF" },
-  };
-  worksheet.getCell("B1").fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF17324D" },
-  };
-  worksheet.getCell("B1").alignment = {
-    vertical: "middle",
-    horizontal: "left",
-  };
-
-  worksheet.mergeCells(`B2:${lastColumnLetter}2`);
-  worksheet.getCell("B2").value = "MSWDO Evacuee Masterlist Report";
-  worksheet.getCell("B2").font = {
-    bold: true,
-    size: 14,
-    color: { argb: "FFFFFFFF" },
-  };
-  worksheet.getCell("B2").fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF17324D" },
-  };
-  worksheet.getCell("B2").alignment = {
-    vertical: "middle",
-    horizontal: "left",
-  };
-
-  worksheet.getRow(1).height = 28;
-  worksheet.getRow(2).height = 24;
-
   const contextRows = [
     ["Disaster Event", eventLabel],
     ["Barangay Filter", barangayLabel],
@@ -356,24 +475,13 @@ const buildExcelHeaderSection = ({
     contextRows.splice(2, 0, ["Search Filter", searchTerm.trim()]);
   }
 
-  let currentRowNumber = 4;
-  contextRows.forEach(([label, value]) => {
-    worksheet.getCell(`A${currentRowNumber}`).value = label;
-    worksheet.getCell(`A${currentRowNumber}`).font = {
-      bold: true,
-      color: { argb: "FF4F6478" },
-    };
-    worksheet.mergeCells(`B${currentRowNumber}:${lastColumnLetter}${currentRowNumber}`);
-    worksheet.getCell(`B${currentRowNumber}`).value = value;
-    worksheet.getCell(`B${currentRowNumber}`).alignment = {
-      vertical: "middle",
-      horizontal: "left",
-      wrapText: true,
-    };
-    currentRowNumber += 1;
+  return buildExcelReportHeader({
+    worksheet,
+    lastColumnIndex: worksheet.getColumn(lastColumnLetter).number,
+    sourceName,
+    reportTitle,
+    metadata: contextRows.map(([label, value]) => ({ label, value })),
   });
-
-  return currentRowNumber;
 };
 
 const populateMasterlistSheetRows = ({
@@ -483,6 +591,8 @@ const buildExcelBuffer = async ({
   barangayLabel,
   searchTerm,
   includeBarangayColumn,
+  sourceName = "MSWDO",
+  reportTitle = "Evacuee Masterlist Report",
 }) => {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "DISTYNC";
@@ -538,6 +648,8 @@ const buildExcelBuffer = async ({
     searchTerm,
     generatedAtLabel,
     totalRows: rows.length,
+    sourceName,
+    reportTitle,
   });
 
   currentRowNumber += 1;
@@ -604,7 +716,7 @@ const buildExcelBuffer = async ({
 
   const masterlistLastColumnLetter =
     masterlistWorksheet.getColumn(columns.length).letter;
-  buildExcelHeaderSection({
+  const masterlistHeaderEndRowNumber = buildExcelHeaderSection({
     worksheet: masterlistWorksheet,
     lastColumnLetter: masterlistLastColumnLetter,
     eventLabel,
@@ -612,9 +724,11 @@ const buildExcelBuffer = async ({
     searchTerm,
     generatedAtLabel,
     totalRows: rows.length,
+    sourceName,
+    reportTitle,
   });
 
-  const tableTitleRowNumber = 9;
+  const tableTitleRowNumber = masterlistHeaderEndRowNumber + 1;
   masterlistWorksheet.mergeCells(
     `A${tableTitleRowNumber}:${masterlistLastColumnLetter}${tableTitleRowNumber}`,
   );
@@ -1092,9 +1206,19 @@ const drawHeader = (page, context, layout) => {
     size: 18,
     color: PDF_COLORS.white,
   });
-  page.drawText("MSWDO Evacuee Masterlist Report", layout.marginX + 74, layout.cursorY - 46, {
+  page.drawText(context.sourceName || "MSWDO", layout.marginX + 74, layout.cursorY - 42, {
     font: "F2",
-    size: 16,
+    size: 14,
+    color: PDF_COLORS.white,
+  });
+  page.drawText("Municipality of Malvar, Batangas", layout.marginX + 74, layout.cursorY - 58, {
+    font: "F2",
+    size: 10,
+    color: PDF_COLORS.white,
+  });
+  page.drawText(context.reportTitle || "Evacuee Masterlist Report", layout.marginX + 360, layout.cursorY - 42, {
+    font: "F2",
+    size: 14,
     color: PDF_COLORS.white,
   });
 
@@ -1353,6 +1477,8 @@ const buildPdfBuffer = ({
   barangayLabel,
   searchTerm,
   includeBarangayColumn,
+  sourceName = "MSWDO",
+  reportTitle = "Evacuee Masterlist Report",
 }) => {
   const generatedAtLabel = new Intl.DateTimeFormat("en-PH", {
     month: "short",
@@ -1371,6 +1497,8 @@ const buildPdfBuffer = ({
       eventLabel,
       barangayLabel,
       generatedAtLabel,
+      sourceName,
+      reportTitle,
       logoImageName: PDF_IMAGE_REGISTRY.distyncLogo ? "distyncLogo" : null,
       searchTerm,
       totalRows: rows.length,
@@ -1432,9 +1560,18 @@ const buildExcelFilename = ({ eventCode, barangayName }) => {
   )}_${slugifyFilePart(barangayName, "all-barangays")}_${dateStamp}.xlsx`;
 };
 
-const buildExportTitleLines = ({ eventLabel, barangayLabel, searchTerm }) => {
+const buildExportTitleLines = ({
+  eventLabel,
+  barangayLabel,
+  searchTerm,
+  sourceName = "MSWDO",
+  reportTitle = "Evacuee Masterlist Report",
+}) => {
   const titleLines = [
-    "DISTYNC MSWDO Evacuee Masterlist Report",
+    "DISTYNC",
+    sourceName,
+    "Municipality of Malvar, Batangas",
+    reportTitle,
     `Disaster Event: ${eventLabel}`,
     `Barangay Filter: ${barangayLabel}`,
   ];
@@ -1458,6 +1595,7 @@ const buildExportTitleLines = ({ eventLabel, barangayLabel, searchTerm }) => {
 
 module.exports = {
   addWorkbookLogo,
+  buildExcelReportHeader,
   buildCsvBuffer,
   buildExcelBuffer,
   buildExportColumns: getExportColumns,
@@ -1471,5 +1609,6 @@ module.exports = {
   buildPdfBuffer,
   buildPdfFilename,
   filterExportRows,
+  sortExportRows,
   mapHouseholdToExportRow,
 };

@@ -1,8 +1,10 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
 import { pageHeaderStyles } from "../layout/PageHeader";
+import DuplicateRegistrationSuggestionsSection from "./DuplicateRegistrationSuggestionsSection";
 import { AGE_UNIT_OPTIONS } from "../../utils/ageGroup";
 import {
+  AGE_BASED_MEMBER_SECTOR_CODES,
   RELATIONSHIP_OPTIONS,
   formatMemberSectorLabel,
   getCanonicalMemberSectorCode,
@@ -26,6 +28,12 @@ const fieldStyles = {
     fontSize: "12px",
     fontWeight: 700,
   },
+  errorText: {
+    margin: "6px 0 0",
+    color: "#c53030",
+    fontSize: "12px",
+    lineHeight: 1.4,
+  },
   input: {
     minHeight: "42px",
     border: "1px solid #d0ddeb",
@@ -46,7 +54,7 @@ const fieldStyles = {
   },
 };
 
-const MembersSection = ({ form }) => {
+const MembersSection = ({ form, onViewSuggestedHousehold }) => {
   return (
     <section style={shellStyles.card}>
       <div
@@ -61,6 +69,11 @@ const MembersSection = ({ form }) => {
       >
         <div>
           <h3 style={{ margin: 0, color: "#17324d" }}>Household Members</h3>
+          <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
+            {form.isEditMode
+              ? "Add, update, or remove members here. Removed members are deactivated after you save the household."
+              : "Add members only if the family head is not the only evacuee in the household."}
+          </p>
         </div>
         <button
           type="button"
@@ -89,24 +102,24 @@ const MembersSection = ({ form }) => {
               fontSize: "14px",
             }}
           >
-            No additional members yet. Add one only if the family head is not
-            the only evacuee in the household.
+            {form.isEditMode
+              ? "No additional members are recorded yet. Add one here if the household needs another registered evacuee."
+              : "No additional members yet. Add one only if the family head is not the only evacuee in the household."}
           </div>
         ) : null}
 
         {form.members.map((member, index) => {
-          const ageBasedSectors = form.memberSectorOptions.filter((sector) =>
-            isAgeBasedMemberSectorCode(
-              getCanonicalMemberSectorCode(sector.code),
-            ),
-          );
-
           const nonAgeBasedSectors = form.memberSectorOptions.filter(
             (sector) =>
               !isAgeBasedMemberSectorCode(
                 getCanonicalMemberSectorCode(sector.code),
               ),
           );
+          const memberSuggestionGroups = Array.isArray(form.duplicateSuggestions.groups)
+            ? form.duplicateSuggestions.groups.filter(
+                (group) => group.person_key === `member_${index}`,
+              )
+            : [];
 
           return (
             <div
@@ -166,6 +179,11 @@ const MembersSection = ({ form }) => {
                     }
                     style={fieldStyles.input}
                   />
+                  {form.validationErrors.members[index]?.first_name ? (
+                    <p style={fieldStyles.errorText}>
+                      {form.validationErrors.members[index].first_name}
+                    </p>
+                  ) : null}
                 </label>
 
                 <label style={fieldStyles.field}>
@@ -198,6 +216,11 @@ const MembersSection = ({ form }) => {
                     }
                     style={fieldStyles.input}
                   />
+                  {form.validationErrors.members[index]?.last_name ? (
+                    <p style={fieldStyles.errorText}>
+                      {form.validationErrors.members[index].last_name}
+                    </p>
+                  ) : null}
                 </label>
 
                 <label style={fieldStyles.field}>
@@ -227,8 +250,8 @@ const MembersSection = ({ form }) => {
                 <label style={fieldStyles.field}>
                   <span style={fieldStyles.label}>Age</span>
                   <input
-                    type="number"
-                    min="0"
+                    type="text"
+                    inputMode="numeric"
                     value={member.age_value}
                     onChange={(event) =>
                       form.updateMemberField(
@@ -239,6 +262,11 @@ const MembersSection = ({ form }) => {
                     }
                     style={fieldStyles.input}
                   />
+                  {form.validationErrors.members[index]?.age_value ? (
+                    <p style={fieldStyles.errorText}>
+                      {form.validationErrors.members[index].age_value}
+                    </p>
+                  ) : null}
                 </label>
 
                 <label style={fieldStyles.field}>
@@ -296,6 +324,11 @@ const MembersSection = ({ form }) => {
                       </option>
                     ))}
                   </select>
+                  {form.validationErrors.members[index]?.relationship_option ? (
+                    <p style={fieldStyles.errorText}>
+                      {form.validationErrors.members[index].relationship_option}
+                    </p>
+                  ) : null}
                 </label>
               </div>
 
@@ -315,6 +348,11 @@ const MembersSection = ({ form }) => {
                       }
                       style={fieldStyles.input}
                     />
+                    {form.validationErrors.members[index]?.custom_relationship ? (
+                      <p style={fieldStyles.errorText}>
+                        {form.validationErrors.members[index].custom_relationship}
+                      </p>
+                    ) : null}
                   </label>
                 </div>
               ) : null}
@@ -335,23 +373,20 @@ const MembersSection = ({ form }) => {
                   <div
                     style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}
                   >
-                    {ageBasedSectors.map((sector) => {
-                      const sectorCode = getCanonicalMemberSectorCode(
-                        sector.code,
-                      );
+                    {AGE_BASED_MEMBER_SECTOR_CODES.map((sectorCode) => {
                       const isChecked =
                         sectorCode === member.derived_age_sector_code;
 
                       return (
                         <label
-                          key={sector.id}
+                          key={sectorCode}
                           style={{
                             ...fieldStyles.checkboxLabel,
                             opacity: isChecked ? 1 : 0.8,
                           }}
                         >
                           <input type="checkbox" checked={isChecked} disabled />
-                          {formatMemberSectorLabel(sector)}
+                          {formatMemberSectorLabel(sectorCode)}
                         </label>
                       );
                     })}
@@ -381,6 +416,15 @@ const MembersSection = ({ form }) => {
                     })}
                   </div>
                 </div>
+              </div>
+
+              <div style={{ marginTop: "16px" }}>
+                <DuplicateRegistrationSuggestionsSection
+                  groups={memberSuggestionGroups}
+                  isLoading={form.isLoadingDuplicateSuggestions}
+                  errorMessage={form.duplicateSuggestionsError}
+                  onViewHousehold={onViewSuggestedHousehold}
+                />
               </div>
             </div>
           );

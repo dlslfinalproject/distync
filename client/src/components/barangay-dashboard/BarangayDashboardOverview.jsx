@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { shellStyles } from "../layout/BarangayLayout";
 import StatusCard from "../shared/StatusCard";
 import StatusPill from "../shared/StatusPill";
@@ -66,6 +66,36 @@ const formatCardValue = (value) => {
   return String(value || 0).padStart(2, "0");
 };
 
+const getEventSortValue = (event) => {
+  const sortableDate =
+    event?.ended_at ||
+    event?.end_date ||
+    event?.start_date ||
+    event?.created_at ||
+    null;
+
+  if (!sortableDate) {
+    return 0;
+  }
+
+  const parsedValue = new Date(sortableDate).getTime();
+  return Number.isNaN(parsedValue) ? 0 : parsedValue;
+};
+
+const getEventCodeSortValue = (event) => {
+  const code = String(event?.event_code || "");
+  const match = code.match(/^DE-(\d{4})-(\d{4})$/i);
+
+  if (!match) {
+    return 0;
+  }
+
+  return Number(`${match[1]}${match[2]}`);
+};
+
+const formatDisasterEventTitle = (event) =>
+  String(event?.title || "").trim() || "No disaster event selected";
+
 const BarangayDashboardOverview = ({
   accessMode,
   allowFallback,
@@ -91,6 +121,28 @@ const BarangayDashboardOverview = ({
 }) => {
   const scopeLabel = eventScope === "active" ? "Active" : "Ended";
   const showFallbackOverride = allowFallback && !hasAssignedBarangay;
+  const sortedAvailableEvents = useMemo(() => {
+    return [...(availableEvents || [])].sort((left, right) => {
+      const codeDifference =
+        getEventCodeSortValue(right) - getEventCodeSortValue(left);
+
+      if (codeDifference !== 0) {
+        return codeDifference;
+      }
+
+      const dateDifference = getEventSortValue(right) - getEventSortValue(left);
+
+      if (dateDifference !== 0) {
+        return dateDifference;
+      }
+
+      return String(right?.event_code || "").localeCompare(
+        String(left?.event_code || ""),
+        undefined,
+        { numeric: true, sensitivity: "base" },
+      );
+    });
+  }, [availableEvents]);
 
   let stateMessage = "";
 
@@ -168,9 +220,9 @@ const BarangayDashboardOverview = ({
               <option value="">
                 {`Select ${scopeLabel.toLowerCase()} disaster event`}
               </option>
-              {(availableEvents || []).map((event) => (
+              {sortedAvailableEvents.map((event) => (
                 <option key={event.id} value={event.id}>
-                  {event.event_code} - {event.title}
+                  {formatDisasterEventTitle(event)}
                 </option>
               ))}
             </select>
@@ -239,9 +291,7 @@ const BarangayDashboardOverview = ({
               fontWeight: 800,
             }}
           >
-            {selectedEvent
-              ? `${selectedEvent.event_code} - ${selectedEvent.title}`
-              : "No disaster event selected"}
+            {formatDisasterEventTitle(selectedEvent)}
           </p>
 
           <div style={{ display: "flex", gap: "24px", marginTop: "14px" }}>

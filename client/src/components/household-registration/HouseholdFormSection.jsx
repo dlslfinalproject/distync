@@ -18,6 +18,12 @@ const fieldStyles = {
     fontSize: "13px",
     fontWeight: 700,
   },
+  errorText: {
+    margin: "6px 0 0",
+    color: "#c53030",
+    fontSize: "12px",
+    lineHeight: 1.4,
+  },
   input: {
     minHeight: "44px",
     border: "1px solid #d0ddeb",
@@ -27,6 +33,36 @@ const fieldStyles = {
     color: "#1f405f",
     backgroundColor: "#ffffff",
     boxSizing: "border-box",
+  },
+  disabledInput: {
+    backgroundColor: "#f8fbfe",
+    color: "#60738a",
+    cursor: "not-allowed",
+  },
+  phoneInputGroup: {
+    display: "flex",
+    alignItems: "stretch",
+    width: "100%",
+  },
+  phonePrefix: {
+    minHeight: "44px",
+    minWidth: "124px",
+    border: "1px solid #d0ddeb",
+    borderRight: "none",
+    borderRadius: "14px 0 0 14px",
+    padding: "10px 12px",
+    fontSize: "14px",
+    color: "#1f405f",
+    backgroundColor: "#f8fbfe",
+    boxSizing: "border-box",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: 700,
+  },
+  phoneInput: {
+    borderRadius: "0 14px 14px 0",
+    flex: 1,
   },
   readOnlyBox: {
     minHeight: "44px",
@@ -43,11 +79,15 @@ const fieldStyles = {
   },
 };
 
+const formatDisasterEventTitle = (event) =>
+  String(event?.title || "").trim() || "Selected disaster event";
+
 const HouseholdFormSection = ({ form }) => {
   const selectedEvent = form.activeDisasterEvents.find(
     (eventItem) => eventItem.id === form.selectedDisasterEventId,
   );
   const isNonResident = form.residencyStatus === "NON_RESIDENT";
+  const isPlacementLocked = form.isEditMode;
   const selectedBarangay = form.barangays.find(
     (barangay) => barangay.id === form.selectedBarangayId,
   );
@@ -57,6 +97,17 @@ const HouseholdFormSection = ({ form }) => {
     isNonResident && form.restrictNonResidentToEvacCenter
       ? STAY_TYPE_OPTIONS.filter((option) => option.value === "EVAC_CENTER")
       : STAY_TYPE_OPTIONS;
+  const getInputStyle = (isDisabled = false, extraStyle = null) => ({
+    ...fieldStyles.input,
+    ...(isDisabled ? fieldStyles.disabledInput : {}),
+    ...(extraStyle || {}),
+  });
+  const isResidencyLocked = isPlacementLocked;
+  const isBarangayLocked = form.isBarangayLocked || isPlacementLocked;
+  const isStayTypeLocked =
+    isPlacementLocked || (isNonResident && form.restrictNonResidentToEvacCenter);
+  const isEvacuationCenterLocked =
+    isPlacementLocked || form.household.current_stay_type !== "EVAC_CENTER";
 
   return (
     <section style={shellStyles.card}>
@@ -78,9 +129,16 @@ const HouseholdFormSection = ({ form }) => {
         </p>
         <p style={{ margin: "8px 0 0", color: "#17324d", fontSize: "14px", fontWeight: 700 }}>
           {selectedEvent
-            ? `${selectedEvent.event_code} - ${selectedEvent.title}`
-            : "Select an active disaster event from the masterlist page first."}
+            ? formatDisasterEventTitle(selectedEvent)
+            : form.isOffline
+              ? "Offline mode: please select an active disaster event while online first."
+              : "Select an active disaster event from the masterlist page first."}
         </p>
+        {form.isUsingCachedReferenceData && selectedEvent ? (
+          <p style={{ margin: "8px 0 0", color: "#60738a", fontSize: "12px" }}>
+            Offline mode is using the last cached registration reference data.
+          </p>
+        ) : null}
       </div>
 
       <div style={fieldStyles.grid}>
@@ -89,7 +147,8 @@ const HouseholdFormSection = ({ form }) => {
           <select
             value={form.residencyStatus}
             onChange={(event) => form.setResidencyStatus(event.target.value)}
-            style={fieldStyles.input}
+            disabled={isResidencyLocked}
+            style={getInputStyle(isResidencyLocked)}
           >
             <option value="RESIDENT">Resident</option>
             <option value="NON_RESIDENT">Non-Resident (Outside Malvar)</option>
@@ -100,10 +159,6 @@ const HouseholdFormSection = ({ form }) => {
           <div style={fieldStyles.field}>
             <span style={fieldStyles.label}>Assigned Barangay</span>
             <div style={fieldStyles.readOnlyBox}>{barangayLabel}</div>
-            <span style={{ color: "#60738a", fontSize: "12px" }}>
-              This registration will be assigned automatically to your
-              barangay account.
-            </span>
           </div>
         ) : (
           <label style={fieldStyles.field}>
@@ -111,8 +166,8 @@ const HouseholdFormSection = ({ form }) => {
             <select
               value={form.selectedBarangayId}
               onChange={(event) => form.setSelectedBarangayId(event.target.value)}
-              disabled={form.isBarangayLocked}
-              style={fieldStyles.input}
+              disabled={isBarangayLocked}
+              style={getInputStyle(isBarangayLocked)}
             >
               <option value="">
                 {isNonResident
@@ -125,6 +180,11 @@ const HouseholdFormSection = ({ form }) => {
                 </option>
               ))}
             </select>
+            {form.validationErrors.selectedBarangayId ? (
+              <p style={fieldStyles.errorText}>
+                {form.validationErrors.selectedBarangayId}
+              </p>
+            ) : null}
           </label>
         )}
 
@@ -135,8 +195,8 @@ const HouseholdFormSection = ({ form }) => {
             onChange={(event) =>
               form.updateHouseholdField("current_stay_type", event.target.value)
             }
-            disabled={isNonResident && form.restrictNonResidentToEvacCenter}
-            style={fieldStyles.input}
+            disabled={isStayTypeLocked}
+            style={getInputStyle(isStayTypeLocked)}
           >
             {stayTypeOptions.map((option) => (
               <option key={option.value} value={option.value}>
@@ -147,19 +207,14 @@ const HouseholdFormSection = ({ form }) => {
         </label>
 
         <label style={fieldStyles.field}>
-          <span style={fieldStyles.label}>
-            Evacuation Center
-            {isNonResident && form.restrictNonResidentToEvacCenter
-              ? ""
-              : " (Optional)"}
-          </span>
+          <span style={fieldStyles.label}>Evacuation Center</span>
           <select
-            value={form.household.evacuation_center_id}
+            value={form.effectiveEvacuationCenterId || form.household.evacuation_center_id}
             onChange={(event) =>
               form.updateHouseholdField("evacuation_center_id", event.target.value)
             }
-            disabled={form.household.current_stay_type !== "EVAC_CENTER"}
-            style={fieldStyles.input}
+            disabled={isEvacuationCenterLocked}
+            style={getInputStyle(isEvacuationCenterLocked)}
           >
             <option value="">No evacuation center selected</option>
             {form.evacuationCenters.map((center) => (
@@ -168,6 +223,35 @@ const HouseholdFormSection = ({ form }) => {
               </option>
             ))}
           </select>
+          {form.validationErrors.evacuation_center_id ? (
+            <p style={fieldStyles.errorText}>
+              {form.validationErrors.evacuation_center_id}
+            </p>
+          ) : null}
+        </label>
+
+        <label style={fieldStyles.field}>
+          <span style={fieldStyles.label}>Contact Number</span>
+          <div style={fieldStyles.phoneInputGroup}>
+            <div style={fieldStyles.phonePrefix}>PH +63</div>
+            <input
+              type="text"
+              inputMode="numeric"
+              placeholder="912 345 6789"
+              value={form.formattedContactNumber}
+              onChange={(event) =>
+                form.updateContactNumber(event.target.value)
+              }
+              style={{
+                ...getInputStyle(false, fieldStyles.phoneInput),
+              }}
+            />
+          </div>
+          {form.validationErrors.contact_number ? (
+            <p style={fieldStyles.errorText}>
+              {form.validationErrors.contact_number}
+            </p>
+          ) : null}
         </label>
       </div>
     </section>

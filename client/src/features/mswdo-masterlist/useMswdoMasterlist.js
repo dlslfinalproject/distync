@@ -1,13 +1,27 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ROLE_CODES } from "../../utils/roleSession";
 import {
   fetchActiveDisasterEvents,
   fetchBarangays,
   fetchConsolidatedMasterlist,
   fetchConsolidatedMasterlistDashboard,
   fetchDisasterEvents,
-  fetchMswdoSectors,
 } from "./mswdoMasterlistService";
-import { mapMasterlistRow } from "../masterlist/masterlistService";
+import { fetchSectors } from "../household-registration/householdRegistrationService";
+import {
+  isOperationallyActiveHousehold,
+  mapMasterlistRow,
+  sortMasterlistRows,
+} from "../masterlist/masterlistService";
+import {
+  buildMasterlistFilterSectorOptions,
+  getCanonicalMemberSectorCode,
+} from "../../utils/registrationOptions";
+import {
+  persistOperationalDisasterEventSelection,
+  readOperationalDisasterEventId,
+  resolveOperationalDisasterEventId,
+} from "../disaster-events/operationalDisasterEventSelection";
 
 const emptyMasterlistPayload = {
   disaster_event: null,
@@ -43,15 +57,31 @@ const formatSearchValue = (value) => {
   return value ? String(value).toLowerCase() : "";
 };
 
-const getMappedRows = (households) => {
+const getMappedRows = (
+  households,
+  allHouseholds = households,
+  disasterEventId = "",
+) => {
   return households.map((household) => {
-    const baseRow = mapMasterlistRow(household);
+    const baseRow = mapMasterlistRow(household, allHouseholds, {
+      disasterEventId,
+    });
     const barangayName = household.barangay?.name || "";
     const addressParts = [baseRow.address];
     const sectorIds = [
       ...(household.household_sectors || []).map((sector) => sector.id),
       ...(household.members || []).flatMap((member) =>
         (member.sectors || []).map((sector) => sector.id),
+      ),
+    ].filter(Boolean);
+    const sectorCodes = [
+      ...(household.household_sectors || []).map((sector) =>
+        getCanonicalMemberSectorCode(sector.code),
+      ),
+      ...(household.members || []).flatMap((member) =>
+        (member.sectors || []).map((sector) =>
+          getCanonicalMemberSectorCode(sector.code),
+        ),
       ),
     ].filter(Boolean);
 
@@ -66,19 +96,39 @@ const getMappedRows = (households) => {
       barangay_name: barangayName,
       residency_status: household.residency_status || "RESIDENT",
       sector_ids: [...new Set(sectorIds)],
+      sector_codes: [...new Set(sectorCodes)],
       has_stub_issued: Boolean(household.stub),
     };
   });
 };
 
-const getDisplayedRows = (rows, searchTerm, selectedSectorIds) => {
+const getStatusScopedRows = (households, recordStatus) => {
+  if (recordStatus === "archived") {
+    return households.filter(
+      (household) => !isOperationallyActiveHousehold(household),
+    );
+  }
+
+  if (recordStatus === "all") {
+    return households;
+  }
+
+  return households.filter(isOperationallyActiveHousehold);
+};
+
+const getDisplayedRows = (
+  rows,
+  searchTerm,
+  selectedSectorIds,
+  selectedSortOrder = "newest",
+) => {
   const normalizedSearchTerm = searchTerm.trim().toLowerCase();
 
-  return rows.filter((household) => {
+  const filteredRows = rows.filter((household) => {
     const matchesSectorFilter =
       selectedSectorIds.length === 0 ||
       selectedSectorIds.some((sectorId) =>
-        (household.sector_ids || []).includes(sectorId),
+        (household.sector_codes || []).includes(sectorId),
       );
 
     if (!matchesSectorFilter) {
@@ -102,6 +152,8 @@ const getDisplayedRows = (rows, searchTerm, selectedSectorIds) => {
       formatSearchValue(value).includes(normalizedSearchTerm),
     );
   });
+
+  return sortMasterlistRows(filteredRows, selectedSortOrder);
 };
 
 const getSummaryMetrics = (dashboardPayload) => {
@@ -119,14 +171,22 @@ const getSummaryMetrics = (dashboardPayload) => {
   };
 };
 
-export const useMswdoMasterlist = () => {
+export const useMswdoMasterlist = ({ userId = "" } = {}) => {
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
   const [sectors, setSectors] = useState([]);
-  const [selectedDisasterEventId, setSelectedDisasterEventId] = useState("");
+  const [selectedDisasterEventId, setSelectedDisasterEventIdState] = useState(
+    () =>
+      readOperationalDisasterEventId({
+        roleCode: ROLE_CODES.MSWDO,
+        userId,
+      }) || "",
+  );
   const [selectedBarangayId, setSelectedBarangayId] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedSectorIds, setSelectedSectorIds] = useState([]);
+  const [selectedSortOrder, setSelectedSortOrder] = useState("newest");
+  const [recordStatus, setRecordStatus] = useState("active");
   const [masterlistPayload, setMasterlistPayload] = useState(emptyMasterlistPayload);
   const [dashboardPayload, setDashboardPayload] = useState(emptyDashboardPayload);
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
@@ -135,6 +195,20 @@ export const useMswdoMasterlist = () => {
   const [errorMessage, setErrorMessage] = useState("");
   const [dashboardErrorMessage, setDashboardErrorMessage] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const setSelectedDisasterEventId = useCallback(
+    (nextEventId) => {
+      const nextEvent = disasterEvents.find((event) => event.id === nextEventId);
+
+      setSelectedDisasterEventIdState(nextEventId);
+      persistOperationalDisasterEventSelection({
+        roleCode: ROLE_CODES.MSWDO,
+        userId,
+        eventId: nextEventId,
+        eventScope: nextEvent?.status === "ACTIVE" ? "active" : "ended",
+      });
+    },
+    [disasterEvents, userId],
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -153,7 +227,7 @@ export const useMswdoMasterlist = () => {
           fetchDisasterEvents(),
           fetchActiveDisasterEvents(),
           fetchBarangays(),
-          fetchMswdoSectors(),
+          fetchSectors(),
         ]);
 
         if (!isMounted) {
@@ -163,17 +237,39 @@ export const useMswdoMasterlist = () => {
         const allEvents = Array.isArray(eventsPayload) ? eventsPayload : [];
         const activeEvents = Array.isArray(activePayload) ? activePayload : [];
         const barangayRows = Array.isArray(barangaysPayload) ? barangaysPayload : [];
-        const sectorRows = Array.isArray(sectorsPayload) ? sectorsPayload : [];
+        const sectorSource = Array.isArray(sectorsPayload?.data)
+          ? sectorsPayload.data
+          : Array.isArray(sectorsPayload)
+            ? sectorsPayload
+            : [];
+        const sectorRows = buildMasterlistFilterSectorOptions(sectorSource);
 
         setDisasterEvents(allEvents);
         setBarangays(barangayRows);
         setSectors(sectorRows);
 
-        if (activeEvents.length > 0) {
-          setSelectedDisasterEventId(activeEvents[0].id);
-        } else if (allEvents.length > 0) {
-          setSelectedDisasterEventId(allEvents[0].id);
-        }
+        const storedEventId = readOperationalDisasterEventId({
+          roleCode: ROLE_CODES.MSWDO,
+          userId,
+        });
+        const fallbackEventId = activeEvents[0]?.id || allEvents[0]?.id || "";
+        const nextSelectedEventId = resolveOperationalDisasterEventId({
+          availableEvents: allEvents,
+          preferredEventId: storedEventId,
+          fallbackEventId,
+        });
+
+        setSelectedDisasterEventIdState(nextSelectedEventId);
+        persistOperationalDisasterEventSelection({
+          roleCode: ROLE_CODES.MSWDO,
+          userId,
+          eventId: nextSelectedEventId,
+          eventScope:
+            allEvents.find((event) => event.id === nextSelectedEventId)?.status ===
+            "ACTIVE"
+              ? "active"
+              : "ended",
+        });
       } catch (error) {
         if (isMounted) {
           setErrorMessage(error.message || "Failed to load monitoring filters");
@@ -190,7 +286,7 @@ export const useMswdoMasterlist = () => {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -208,6 +304,7 @@ export const useMswdoMasterlist = () => {
         const payload = await fetchConsolidatedMasterlist({
           disasterEventId: selectedDisasterEventId,
           barangayId: selectedBarangayId || null,
+          recordStatus,
         });
 
         if (isMounted) {
@@ -230,7 +327,7 @@ export const useMswdoMasterlist = () => {
     return () => {
       isMounted = false;
     };
-  }, [reloadKey, selectedBarangayId, selectedDisasterEventId]);
+  }, [recordStatus, reloadKey, selectedBarangayId, selectedDisasterEventId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -273,12 +370,24 @@ export const useMswdoMasterlist = () => {
   }, [reloadKey, selectedBarangayId, selectedDisasterEventId]);
 
   const mappedRows = useMemo(() => {
-    return getMappedRows(masterlistPayload.data || []);
-  }, [masterlistPayload.data]);
+    const allHouseholds = masterlistPayload.data || [];
+    const statusScopedHouseholds = getStatusScopedRows(allHouseholds, recordStatus);
+
+    return getMappedRows(
+      statusScopedHouseholds,
+      allHouseholds,
+      selectedDisasterEventId,
+    );
+  }, [masterlistPayload.data, recordStatus, selectedDisasterEventId]);
 
   const displayedRows = useMemo(() => {
-    return getDisplayedRows(mappedRows, searchTerm, selectedSectorIds);
-  }, [mappedRows, searchTerm, selectedSectorIds]);
+    return getDisplayedRows(
+      mappedRows,
+      searchTerm,
+      selectedSectorIds,
+      selectedSortOrder,
+    );
+  }, [mappedRows, searchTerm, selectedSectorIds, selectedSortOrder]);
 
   const summaryMetrics = useMemo(() => {
     return getSummaryMetrics(dashboardPayload);
@@ -297,8 +406,10 @@ export const useMswdoMasterlist = () => {
     selectedDisasterEventId,
     selectedBarangayId,
     selectedSectorIds,
+    selectedSortOrder,
     selectedDisasterEvent,
     searchTerm,
+    recordStatus,
     displayedRows,
     summaryMetrics,
     isLoadingFilters,
@@ -310,7 +421,9 @@ export const useMswdoMasterlist = () => {
     setSelectedDisasterEventId,
     setSelectedBarangayId,
     setSelectedSectorIds,
+    setSelectedSortOrder,
     setSearchTerm,
+    setRecordStatus,
     reloadMasterlist: () => {
       setReloadKey((currentValue) => currentValue + 1);
     },

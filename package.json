@@ -1,5 +1,15 @@
 {
+  "scripts": {
+    "dev": "concurrently --kill-others-on-fail --names SERVER,CLIENT \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev",
+    "build": "npm --prefix client run build",
+    "build:development": "npm --prefix client run build:development",
+    "build:demo": "npm --prefix client run build:demo",
+    "start": "npm --prefix server run start"
+  },
   "devDependencies": {
+    "concurrently": "^10.0.4",
     "eslint": "^10.1.0",
     "prettier": "^3.8.1"
   },

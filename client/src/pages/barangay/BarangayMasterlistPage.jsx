@@ -1,68 +1,112 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import PageHeader from "../../components/layout/PageHeader";
 import BarangayDashboardOverview from "../../components/barangay-dashboard/BarangayDashboardOverview";
-import { shellStyles } from "../../components/layout/BarangayLayout";
-import { pageHeaderStyles } from "../../components/layout/PageHeader";
+import HouseholdArchiveConfirmModal from "../../components/masterlist/HouseholdArchiveConfirmModal";
+import ActiveCrossEventInformationModal from "../../components/masterlist/ActiveCrossEventInformationModal";
 import MasterlistDepartureConfirmModal from "../../components/masterlist/MasterlistDepartureConfirmModal";
+import HouseholdDetailModal from "../../components/masterlist/HouseholdDetailModal";
+import MasterlistSelectionBar from "../../components/masterlist/MasterlistSelectionBar";
+import MasterlistStatusMessages from "../../components/masterlist/MasterlistStatusMessages";
 import MasterlistTable from "../../components/masterlist/MasterlistTable";
 import MasterlistToolbar from "../../components/masterlist/MasterlistToolbar";
+import FeedbackToast from "../../components/shared/FeedbackToast";
 import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
+import MswdoExportModal from "../../components/mswdo-masterlist/MswdoExportModal";
 import { useAuth } from "../../context/AuthContext";
 import { useBarangayDashboard } from "../../features/barangay-dashboard/useBarangayDashboard";
 import { useHouseholdRegistrationForm } from "../../features/household-registration/useHouseholdRegistrationForm";
 import { useMasterlist } from "../../features/masterlist/masterlistHooks";
-import { departHousehold } from "../../features/masterlist/masterlistService";
-import { fetchMswdoSectors } from "../../features/mswdo-masterlist/mswdoMasterlistService";
-import { MdDoorFront } from "react-icons/md";
-
-const getSectorNames = (sectorsText) => {
-  if (!sectorsText || sectorsText === "-") {
-    return [];
-  }
-
-  return String(sectorsText)
-    .split(",")
-    .map((sectorName) => sectorName.trim())
-    .filter(Boolean);
-};
-
-const getFilteredRows = (rows, searchTerm) => {
-  if (!searchTerm.trim()) return rows;
-  const normalizedSearchTerm = searchTerm.trim().toLowerCase();
-
-  return rows.filter((row) => {
-    const searchableValues = [
-      row.family_head_name,
-      row.address,
-      row.sectors_text,
-      row.attendance_status_text,
-      row.arrival_time_text,
-      row.departure_time_text,
-    ];
-    return searchableValues.some((value) =>
-      String(value).toLowerCase().includes(normalizedSearchTerm),
-    );
-  });
-};
+import {
+  departHousehold,
+  exportBarangayMasterlist,
+  fetchHouseholdDetails,
+  restoreHousehold,
+  MASTERLIST_SORT_OPTIONS,
+  fetchMasterlist,
+} from "../../features/masterlist/masterlistService";
+import {
+  formatEventEndedDateTime,
+  isEndedDisasterEvent,
+} from "../../features/masterlist/barangayMasterlistUi";
+import { useBarangayMasterlistSync } from "../../features/masterlist/useBarangayMasterlistSync";
+import {
+  cacheRegistrationActiveDisasterEvents,
+  cacheRegistrationBarangays,
+  cacheRegistrationEvacuationCentersByBarangay,
+  cacheSelectedDisasterEvent,
+  cacheSelectedDisasterEventId,
+  fetchEvacuationCentersByBarangay,
+} from "../../features/household-registration/householdRegistrationService";
+import { getActiveCrossEventTitles } from "../../features/household-registration/crossEventInformation";
+import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
+import {
+  buildExportSuccessMessage,
+  downloadExportFile,
+  resolveExportErrorMessage,
+} from "../../utils/exportHelpers";
+import db from "../../offline/db.js";
 
 const BarangayMasterlistPage = () => {
   const { authenticatedUser } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedSectorNamesByScope, setSelectedSectorNamesByScope] = useState({
-    active: [],
-    ended: [],
-  });
-  const [sectorOptions, setSectorOptions] = useState([]);
+  const [recordStatus, setRecordStatus] = useState("active");
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [registrationSuccessMessage, setRegistrationSuccessMessage] =
     useState("");
   const [attendanceActionMessage, setAttendanceActionMessage] = useState("");
+  const [activeCrossEventModalTitles, setActiveCrossEventModalTitles] = useState([]);
   const [pendingDepartureHouseholdId, setPendingDepartureHouseholdId] =
+    useState("");
+  const [pendingDepartureHouseholdDetails, setPendingDepartureHouseholdDetails] =
+    useState(null);
+  const [pendingBulkDepartureHouseholds, setPendingBulkDepartureHouseholds] =
+    useState([]);
+  const [isLoadingDepartureHouseholdDetails, setIsLoadingDepartureHouseholdDetails] =
+    useState(false);
+  const [viewingHouseholdId, setViewingHouseholdId] = useState("");
+  const [editingHouseholdId, setEditingHouseholdId] = useState("");
+  const [householdDetails, setHouseholdDetails] = useState(null);
+  const [editingHouseholdDetails, setEditingHouseholdDetails] = useState(null);
+  const [isLoadingHouseholdDetails, setIsLoadingHouseholdDetails] =
+    useState(false);
+  const [isLoadingEditHouseholdDetails, setIsLoadingEditHouseholdDetails] =
+    useState(false);
+  const [householdDetailsErrorMessage, setHouseholdDetailsErrorMessage] =
+    useState("");
+  const [editHouseholdErrorMessage, setEditHouseholdErrorMessage] =
     useState("");
   const [isBulkDepartureConfirmOpen, setIsBulkDepartureConfirmOpen] =
     useState(false);
   const [isRecordingDeparture, setIsRecordingDeparture] = useState(false);
+  const [pendingRestoreHouseholdId, setPendingRestoreHouseholdId] = useState("");
+  const [pendingRestoreHouseholdDetails, setPendingRestoreHouseholdDetails] =
+    useState(null);
+  const [isLoadingRestoreHouseholdDetails, setIsLoadingRestoreHouseholdDetails] =
+    useState(false);
+  const [isRestoringHousehold, setIsRestoringHousehold] = useState(false);
   const [selectedHouseholds, setSelectedHouseholds] = useState([]);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState("");
+  const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
+  const [selectedExportDisasterEventId, setSelectedExportDisasterEventId] =
+    useState("");
+  const [selectedExportRecordStatus, setSelectedExportRecordStatus] =
+    useState("active");
+  const [selectedExportSortOrder, setSelectedExportSortOrder] =
+    useState("newest");
+  const [selectedExportSectorIds, setSelectedExportSectorIds] = useState([]);
+  const [availableExportSectorIds, setAvailableExportSectorIds] = useState([]);
+  const [exportValidationErrors, setExportValidationErrors] = useState({
+    sectors: "",
+    barangays: "",
+  });
+  const [exportFeedback, setExportFeedback] = useState({
+    type: "",
+    message: "",
+  });
+  const syncQueueEntries =
+    useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
 
   const {
     accessMode,
@@ -93,7 +137,17 @@ const BarangayMasterlistPage = () => {
   const { data, isLoading, errorMessage, reloadMasterlist } = useMasterlist({
     disasterEventId: selectedEvent?.id || "",
     barangayId: assignedBarangay?.id || "",
+    recordStatus,
   });
+
+  const isSelectedEventEnded = isEndedDisasterEvent(selectedEvent, eventScope);
+  const selectedEventEndedText = formatEventEndedDateTime(
+    isSelectedEventEnded
+      ? selectedEvent?.ended_at ||
+          selectedEvent?.updated_at ||
+          selectedEvent?.end_date
+      : null,
+  );
 
   const registrationForm = useHouseholdRegistrationForm({
     isOpen: isRegisterModalOpen,
@@ -105,81 +159,261 @@ const BarangayMasterlistPage = () => {
     restrictNonResidentToEvacCenter: true,
     scopeNonResidentEvacuationCentersToBarangay: true,
     registeredBy: authenticatedUser?.id || null,
+    localHouseholdDuplicateCandidates: data.rows,
     onSuccess: (response) => {
       setRegistrationSuccessMessage(
         response?.message || "Household registered successfully",
       );
+      setAttendanceActionMessage("");
+      setActiveCrossEventModalTitles(getActiveCrossEventTitles(response));
       reloadMasterlist();
     },
   });
 
-  const filteredRows = useMemo(() => {
-    const searchedRows = getFilteredRows(data.rows, searchTerm);
-    const selectedSectorNames = selectedSectorNamesByScope[eventScope] || [];
-
-    if (selectedSectorNames.length === 0) {
-      return searchedRows;
-    }
-
-    return searchedRows.filter((row) => {
-      const rowSectorNames = getSectorNames(row.sectors_text);
-
-      return selectedSectorNames.some((sectorName) =>
-        rowSectorNames.includes(sectorName),
+  const editHouseholdForm = useHouseholdRegistrationForm({
+    isOpen: Boolean(editingHouseholdId),
+    mode: "edit",
+    initialHouseholdDetails: editingHouseholdDetails,
+    defaultBarangayId: assignedBarangay?.id || "",
+    defaultBarangayName: assignedBarangay?.name || "",
+    defaultDisasterEventId: selectedEvent?.id || "",
+    lockBarangaySelection: true,
+    hideBarangaySelection: true,
+    restrictNonResidentToEvacCenter: true,
+    scopeNonResidentEvacuationCentersToBarangay: true,
+    registeredBy: authenticatedUser?.id || null,
+    onSuccess: (response) => {
+      setRegistrationSuccessMessage(
+        response?.message || "Household updated successfully",
       );
-    });
-  }, [data.rows, eventScope, searchTerm, selectedSectorNamesByScope]);
+      setAttendanceActionMessage("");
+      setActiveCrossEventModalTitles([]);
+      reloadMasterlist();
+    },
+  });
+
+  const {
+    sectorOptions,
+    selectedSectorIds,
+    selectedSortOrder,
+    filteredRows,
+    toggleSectorFilter,
+    clearSectorFilters,
+    setSelectedSortOrder,
+  } = useBarangayMasterlistSync({
+    rows: data.rows,
+    syncQueueEntries,
+    selectedEvent,
+    assignedBarangay,
+    searchTerm,
+    eventScope,
+    reloadMasterlist,
+  });
+
+  const pendingDepartureRow = filteredRows.find(
+    (row) => row.household_id === pendingDepartureHouseholdId,
+  );
+  const pendingDepartureFamilyHeadName = pendingDepartureHouseholdDetails?.household
+    ? [
+        pendingDepartureHouseholdDetails.household.family_head_first_name,
+        pendingDepartureHouseholdDetails.household.family_head_middle_name,
+        pendingDepartureHouseholdDetails.household.family_head_last_name,
+        pendingDepartureHouseholdDetails.household.family_head_suffix,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : pendingDepartureRow?.family_head_name || "";
+  const pendingDepartureFamilyHeadPhotoUrl =
+    pendingDepartureHouseholdDetails?.household?.family_head_photo_url || "";
+  const pendingRestoreRow = filteredRows.find(
+    (row) => row.household_id === pendingRestoreHouseholdId,
+  );
+  const pendingRestoreFamilyHeadName = pendingRestoreHouseholdDetails?.household
+    ? [
+        pendingRestoreHouseholdDetails.household.family_head_first_name,
+        pendingRestoreHouseholdDetails.household.family_head_middle_name,
+        pendingRestoreHouseholdDetails.household.family_head_last_name,
+        pendingRestoreHouseholdDetails.household.family_head_suffix,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : pendingRestoreRow?.family_head_name || "";
+  const pendingRestoreFamilyHeadPhotoUrl =
+    pendingRestoreHouseholdDetails?.household?.family_head_photo_url || "";
+  const pendingRestoreVariant = pendingRestoreRow?.is_non_admitted_resident
+    ? "admit"
+    : "readmit";
+  const selectedExportBarangayIds = assignedBarangay?.id
+    ? [assignedBarangay.id]
+    : [];
 
   useEffect(() => {
     let isMounted = true;
 
-    const loadSectors = async () => {
+    const loadAvailableExportSectors = async () => {
+      if (
+        !isExportModalOpen ||
+        !selectedExportDisasterEventId ||
+        !assignedBarangay?.id
+      ) {
+        if (isMounted) {
+          setAvailableExportSectorIds([]);
+        }
+        return;
+      }
+
       try {
-        const sectors = await fetchMswdoSectors();
+        const payload = await fetchMasterlist({
+          disasterEventId: selectedExportDisasterEventId,
+          barangayId: assignedBarangay.id,
+          recordStatus: selectedExportRecordStatus,
+        });
 
         if (!isMounted) {
           return;
         }
 
-        setSectorOptions(
-          (Array.isArray(sectors) ? sectors : [])
-            .map((sector) => String(sector.name || "").trim())
-            .filter(Boolean)
-            .sort((left, right) => left.localeCompare(right)),
+        const nextSectorIds = (payload.rows || []).flatMap(
+          (row) => row.sector_codes || [],
         );
+
+        setAvailableExportSectorIds([...new Set(nextSectorIds)]);
       } catch (_error) {
         if (isMounted) {
-          setSectorOptions([]);
+          setAvailableExportSectorIds([]);
         }
       }
     };
 
-    loadSectors();
+    loadAvailableExportSectors();
 
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [
+    assignedBarangay?.id,
+    isExportModalOpen,
+    selectedExportDisasterEventId,
+    selectedExportRecordStatus,
+  ]);
 
-  const selectedSectorNames = selectedSectorNamesByScope[eventScope] || [];
+  useEffect(() => {
+    setSelectedExportSectorIds((currentIds) => {
+      const nextIds = currentIds.filter((sectorId) =>
+        availableExportSectorIds.includes(sectorId),
+      );
 
-  const toggleSectorFilter = (sectorName) => {
-    setSelectedSectorNamesByScope((currentFilters) => ({
-      ...currentFilters,
-      [eventScope]: currentFilters[eventScope].includes(sectorName)
-        ? currentFilters[eventScope].filter((value) => value !== sectorName)
-        : [...currentFilters[eventScope], sectorName],
-    }));
-  };
+      if (isExportModalOpen && nextIds.length === 0) {
+        return availableExportSectorIds;
+      }
 
-  const clearSectorFilters = () => {
-    setSelectedSectorNamesByScope((currentFilters) => ({
-      ...currentFilters,
-      [eventScope]: [],
-    }));
-  };
+      return nextIds;
+    });
+  }, [availableExportSectorIds, isExportModalOpen]);
+
+  useEffect(() => {
+    if (!isExportModalOpen) {
+      setExportValidationErrors({ sectors: "", barangays: "" });
+      return;
+    }
+
+    if (selectedExportSectorIds.length > 0) {
+      setExportValidationErrors((currentErrors) => ({
+        ...currentErrors,
+        sectors: "",
+      }));
+    }
+  }, [isExportModalOpen, selectedExportSectorIds.length]);
+
+  useEffect(() => {
+    const activeEvents = availableEvents.filter(
+      (event) => String(event.status || "").toUpperCase() === "ACTIVE",
+    );
+
+    if (activeEvents.length > 0) {
+      cacheRegistrationActiveDisasterEvents(activeEvents);
+    }
+
+    if (selectedEvent?.id) {
+      cacheSelectedDisasterEvent(selectedEvent);
+      cacheSelectedDisasterEventId(selectedEvent.id);
+    }
+
+    if (assignedBarangay?.id) {
+      cacheRegistrationBarangays([
+        {
+          id: assignedBarangay.id,
+          name: assignedBarangay.name,
+          code: assignedBarangay.code,
+        },
+      ]);
+    }
+  }, [
+    assignedBarangay?.code,
+    assignedBarangay?.id,
+    assignedBarangay?.name,
+    availableEvents,
+    selectedEvent?.id,
+  ]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const prefetchEvacuationCenters = async () => {
+      if (
+        !assignedBarangay?.id ||
+        typeof navigator === "undefined" ||
+        !navigator.onLine
+      ) {
+        return;
+      }
+
+      try {
+        const centers = await fetchEvacuationCentersByBarangay(assignedBarangay.id);
+
+        if (isMounted && Array.isArray(centers) && centers.length > 0) {
+          cacheRegistrationEvacuationCentersByBarangay(
+            assignedBarangay.id,
+            centers,
+          );
+        }
+      } catch (_error) {
+        // Keep this silent. The modal has its own fallback messaging.
+      }
+    };
+
+    prefetchEvacuationCenters();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [assignedBarangay?.id]);
+
+  useEffect(() => {
+    if (isSelectedEventEnded) {
+      setSelectedHouseholds([]);
+      setPendingDepartureHouseholdId("");
+      setPendingDepartureHouseholdDetails(null);
+      setPendingBulkDepartureHouseholds([]);
+      setIsLoadingDepartureHouseholdDetails(false);
+      setIsBulkDepartureConfirmOpen(false);
+    }
+  }, [isSelectedEventEnded, selectedEvent?.id]);
+
+  useEffect(() => {
+    if (eventScope === "ended") {
+      setRecordStatus("all");
+      return;
+    }
+
+    setRecordStatus("active");
+  }, [eventScope]);
 
   const handleToggleSelect = (householdId) => {
+    if (isSelectedEventEnded) {
+      return;
+    }
+
     setSelectedHouseholds((currentValues) =>
       currentValues.includes(householdId)
         ? currentValues.filter((id) => id !== householdId)
@@ -188,6 +422,11 @@ const BarangayMasterlistPage = () => {
   };
 
   const handleSelectAll = () => {
+    if (isSelectedEventEnded) {
+      setSelectedHouseholds([]);
+      return;
+    }
+
     const selectableHouseholdIds = filteredRows
       .filter((row) => !row.departure_time_value && row.can_record_departure)
       .map((row) => row.household_id);
@@ -199,20 +438,100 @@ const BarangayMasterlistPage = () => {
     setSelectedHouseholds(areAllSelected ? [] : selectableHouseholdIds);
   };
 
-  const handleOpenBulkDepartureConfirmation = () => {
-    if (!selectedHouseholds.length || isRecordingDeparture) {
+  const handleOpenBulkDepartureConfirmation = async () => {
+    if (
+      isSelectedEventEnded ||
+      !selectedHouseholds.length ||
+      isRecordingDeparture
+    ) {
       return;
     }
 
+    if (selectedHouseholds.length === 1) {
+      await handleOpenDepartureConfirmation(selectedHouseholds[0]);
+      return;
+    }
+
+    setPendingDepartureHouseholdId("");
+    setPendingDepartureHouseholdDetails(null);
+    setPendingBulkDepartureHouseholds([]);
+    setIsLoadingDepartureHouseholdDetails(true);
     setIsBulkDepartureConfirmOpen(true);
+
+    const selectedRows = filteredRows.filter((row) =>
+      selectedHouseholds.includes(row.household_id),
+    );
+
+    try {
+      const detailResults = await Promise.allSettled(
+        selectedHouseholds.map((householdId) => fetchHouseholdDetails(householdId)),
+      );
+
+      const previewItems = selectedHouseholds.map((householdId, index) => {
+        const detailValue =
+          detailResults[index]?.status === "fulfilled"
+            ? detailResults[index].value
+            : null;
+        const fallbackRow = selectedRows.find((row) => row.household_id === householdId);
+        const detailHousehold = detailValue?.household || null;
+        const familyHeadName = detailHousehold
+          ? [
+              detailHousehold.family_head_first_name,
+              detailHousehold.family_head_middle_name,
+              detailHousehold.family_head_last_name,
+              detailHousehold.family_head_suffix,
+            ]
+              .filter(Boolean)
+              .join(" ")
+          : fallbackRow?.family_head_name || "";
+
+        return {
+          household_id: householdId,
+          family_head_name: familyHeadName,
+          family_head_photo_url: detailHousehold?.family_head_photo_url || "",
+        };
+      });
+
+      setPendingBulkDepartureHouseholds(previewItems);
+    } catch (_error) {
+      setPendingBulkDepartureHouseholds(
+        selectedRows.map((row) => ({
+          household_id: row.household_id,
+          family_head_name: row.family_head_name || "",
+          family_head_photo_url: "",
+        })),
+      );
+    } finally {
+      setIsLoadingDepartureHouseholdDetails(false);
+    }
   };
 
-  const handleOpenDepartureConfirmation = (householdId) => {
-    if (isRecordingDeparture) {
+  const handleOpenRegisterModal = () => {
+    setRegistrationSuccessMessage("");
+    setAttendanceActionMessage("");
+    setActiveCrossEventModalTitles([]);
+    setIsRegisterModalOpen(true);
+  };
+
+  const handleOpenDepartureConfirmation = async (householdId) => {
+    if (isSelectedEventEnded || isRecordingDeparture) {
       return;
     }
 
+    setIsBulkDepartureConfirmOpen(false);
     setPendingDepartureHouseholdId(householdId);
+    setPendingDepartureHouseholdDetails(null);
+    setPendingBulkDepartureHouseholds([]);
+    setIsLoadingDepartureHouseholdDetails(true);
+
+    try {
+      const details = await fetchHouseholdDetails(householdId);
+      setPendingDepartureHouseholdDetails(details);
+    } catch (_error) {
+      setPendingDepartureHouseholdDetails(null);
+    } finally {
+      setIsLoadingDepartureHouseholdDetails(false);
+    }
   };
 
   const handleCancelDeparture = () => {
@@ -221,11 +540,128 @@ const BarangayMasterlistPage = () => {
     }
 
     setPendingDepartureHouseholdId("");
+    setPendingDepartureHouseholdDetails(null);
+    setPendingBulkDepartureHouseholds([]);
+    setIsLoadingDepartureHouseholdDetails(false);
     setIsBulkDepartureConfirmOpen(false);
   };
 
+  const handleOpenHouseholdDetails = async (selection) => {
+    const householdId = selection?.householdId || "";
+    const evacuationLogId = selection?.evacuationLogId || null;
+
+    setViewingHouseholdId(householdId);
+    setIsLoadingHouseholdDetails(true);
+    setHouseholdDetails(null);
+    setHouseholdDetailsErrorMessage("");
+
+    try {
+      const details = await fetchHouseholdDetails(householdId, {
+        evacuationLogId,
+      });
+      setHouseholdDetails(details);
+    } catch (error) {
+      setHouseholdDetailsErrorMessage(
+        error.message || "Failed to load household details.",
+      );
+    } finally {
+      setIsLoadingHouseholdDetails(false);
+    }
+  };
+
+  const handleCloseHouseholdDetails = () => {
+    setViewingHouseholdId("");
+    setHouseholdDetails(null);
+    setHouseholdDetailsErrorMessage("");
+    setIsLoadingHouseholdDetails(false);
+  };
+
+  const handleEditHouseholdFromDetails = async (householdId) => {
+    handleCloseHouseholdDetails();
+    await handleOpenEditHousehold(householdId);
+  };
+
+  const handleOpenEditHousehold = async (householdId) => {
+    setEditHouseholdErrorMessage("");
+    setEditingHouseholdId("");
+    setEditingHouseholdDetails(null);
+    setIsLoadingEditHouseholdDetails(true);
+
+    try {
+      const details = await fetchHouseholdDetails(householdId);
+      setEditingHouseholdDetails(details);
+      setEditingHouseholdId(householdId);
+    } catch (error) {
+      setEditHouseholdErrorMessage(
+        error.message || "Failed to load household details for editing.",
+      );
+    } finally {
+      setIsLoadingEditHouseholdDetails(false);
+    }
+  };
+
+  const handleCloseEditHousehold = () => {
+    setEditingHouseholdId("");
+    setEditingHouseholdDetails(null);
+    setEditHouseholdErrorMessage("");
+    setIsLoadingEditHouseholdDetails(false);
+  };
+
+  const handleOpenRestoreHousehold = async (householdId) => {
+    setPendingRestoreHouseholdId(householdId);
+    setPendingRestoreHouseholdDetails(null);
+    setIsLoadingRestoreHouseholdDetails(true);
+
+    try {
+      const details = await fetchHouseholdDetails(householdId);
+      setPendingRestoreHouseholdDetails(details);
+    } catch (_error) {
+      setPendingRestoreHouseholdDetails(null);
+    } finally {
+      setIsLoadingRestoreHouseholdDetails(false);
+    }
+  };
+
+  const handleCancelRestoreHousehold = () => {
+    if (isRestoringHousehold) {
+      return;
+    }
+
+    setPendingRestoreHouseholdId("");
+    setPendingRestoreHouseholdDetails(null);
+    setIsLoadingRestoreHouseholdDetails(false);
+  };
+
+  const handleConfirmRestoreHousehold = async () => {
+    if (!pendingRestoreHouseholdId || isRestoringHousehold) {
+      return;
+    }
+
+    setIsRestoringHousehold(true);
+
+    try {
+      const response = await restoreHousehold({
+        householdId: pendingRestoreHouseholdId,
+      });
+
+      setRegistrationSuccessMessage(
+        response.message || "Household re-admitted successfully",
+      );
+      setPendingRestoreHouseholdId("");
+      setPendingRestoreHouseholdDetails(null);
+      setIsLoadingRestoreHouseholdDetails(false);
+      reloadMasterlist();
+    } catch (error) {
+      setAttendanceActionMessage(
+        error.message || "Failed to re-admit household",
+      );
+    } finally {
+      setIsRestoringHousehold(false);
+    }
+  };
+
   const handleConfirmDeparture = async () => {
-    if (isRecordingDeparture) {
+    if (isSelectedEventEnded || isRecordingDeparture) {
       return;
     }
 
@@ -241,6 +677,7 @@ const BarangayMasterlistPage = () => {
 
         setAttendanceActionMessage("Selected households marked as departed");
         setSelectedHouseholds([]);
+        setPendingBulkDepartureHouseholds([]);
         setIsBulkDepartureConfirmOpen(false);
         reloadMasterlist();
       } else {
@@ -256,6 +693,9 @@ const BarangayMasterlistPage = () => {
           response.message || "Household departure recorded successfully",
         );
         setPendingDepartureHouseholdId("");
+        setPendingDepartureHouseholdDetails(null);
+        setPendingBulkDepartureHouseholds([]);
+        setIsLoadingDepartureHouseholdDetails(false);
         reloadMasterlist();
       }
     } catch (error) {
@@ -267,9 +707,76 @@ const BarangayMasterlistPage = () => {
     }
   };
 
+  const handleOpenExportModal = () => {
+    setSelectedExportDisasterEventId(selectedEvent?.id || "");
+    setSelectedExportFormat("csv");
+    setSelectedExportRecordStatus(isSelectedEventEnded ? "archived" : recordStatus);
+    setSelectedExportSortOrder(selectedSortOrder);
+    setSelectedExportSectorIds(
+      selectedSectorIds.length ? selectedSectorIds : availableExportSectorIds,
+    );
+    setExportValidationErrors({ sectors: "", barangays: "" });
+    setExportFeedback({ type: "", message: "" });
+    setIsExportModalOpen(true);
+  };
+
+  const handleExport = async (format) => {
+    if (!selectedExportDisasterEventId || !assignedBarangay?.id) {
+      setExportFeedback({
+        type: "error",
+        message: "Select a disaster event before exporting the masterlist.",
+      });
+      return;
+    }
+
+    if (selectedExportSectorIds.length === 0) {
+      setExportValidationErrors({
+        sectors: "Select at least one sector.",
+        barangays: "",
+      });
+      return;
+    }
+
+    setExportingFormat(format);
+    setIsExportModalOpen(false);
+
+    try {
+      const selectedExportSourceSectorIds = selectedExportSectorIds
+        .map((sectorId) =>
+          sectorOptions.find((sector) => sector.id === sectorId)?.source_sector_id,
+        )
+        .filter(Boolean);
+
+      const file = await exportBarangayMasterlist({
+        disasterEventId: selectedExportDisasterEventId,
+        barangayId: assignedBarangay.id,
+        recordStatus: selectedExportRecordStatus,
+        sortOrder: selectedExportSortOrder,
+        sectorIds: selectedExportSourceSectorIds,
+        format,
+      });
+
+      downloadExportFile(file);
+      setExportFeedback({
+        type: "success",
+        message: buildExportSuccessMessage("Barangay masterlist report"),
+      });
+    } catch (error) {
+      setExportFeedback({
+        type: "error",
+        message: resolveExportErrorMessage(
+          error,
+          "Unable to export the masterlist.",
+        ),
+      });
+    } finally {
+      setExportingFormat("");
+    }
+  };
+
   return (
     <>
-      <PageHeader title="EVACUEE MASTERLIST" actions={[]} />
+      <PageHeader title="EVACUEE MASTERLIST MANAGEMENT" actions={[]} />
 
       <BarangayDashboardOverview
         accessMode={accessMode}
@@ -295,72 +802,38 @@ const BarangayMasterlistPage = () => {
         setOverrideBarangayId={setOverrideBarangayId}
       />
 
-      {registrationSuccessMessage ? (
-        <section style={shellStyles.card}>
-          <p style={{ margin: 0, color: "#2f6c47", fontWeight: 700 }}>
-            {registrationSuccessMessage}
-          </p>
-        </section>
-      ) : null}
-
-      {attendanceActionMessage ? (
-        <section style={shellStyles.card}>
-          <p style={{ margin: 0, color: "#24496e", fontWeight: 700 }}>
-            {attendanceActionMessage}
-          </p>
-        </section>
-      ) : null}
+      <MasterlistStatusMessages
+        successMessage={registrationSuccessMessage}
+        infoMessage={attendanceActionMessage}
+        errorMessage={editHouseholdErrorMessage}
+      />
 
       <MasterlistToolbar
         searchValue={searchTerm}
         onSearchChange={setSearchTerm}
-        onOpenRegisterFamily={() => setIsRegisterModalOpen(true)}
+        onOpenRegisterFamily={handleOpenRegisterModal}
         hideRegisterButton={eventScope === "ended" || !hasSelectedEvent}
+        recordStatus={recordStatus}
+        onRecordStatusChange={setRecordStatus}
         sectorOptions={sectorOptions}
-        selectedSectorNames={selectedSectorNames}
+        selectedSectorIds={selectedSectorIds}
+        selectedSortOrder={selectedSortOrder}
+        onSortOrderChange={setSelectedSortOrder}
         onToggleSector={toggleSectorFilter}
         onClearFilters={clearSectorFilters}
         filterScopeKey={eventScope}
+        exportingFormat={exportingFormat}
+        onOpenExport={handleOpenExportModal}
+        disableExportButton={!hasSelectedEvent}
+        hideRecordStatus={isSelectedEventEnded}
       />
 
-      {selectedHouseholds.length > 0 ? (
-        <section style={shellStyles.card}>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: "12px",
-              flexWrap: "wrap",
-            }}
-          >
-            <p style={{ margin: 0, fontWeight: 700, color: "#24496e" }}>
-              {selectedHouseholds.length} selected
-            </p>
-
-            <button
-              type="button"
-              onClick={handleOpenBulkDepartureConfirmation}
-              disabled={isRecordingDeparture}
-              style={{
-                border: "1px solid #c6d8ea",
-                borderRadius: "12px",
-                width: "40px",
-                height: "40px",
-                backgroundColor: "#f7fbfe",
-                color: "#24496e",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                cursor: isRecordingDeparture ? "not-allowed" : "pointer",
-                opacity: isRecordingDeparture ? 0.7 : 1,
-              }}
-              title="Mark Selected as Departed"
-            >
-              <MdDoorFront size={18} />
-            </button>
-          </div>
-        </section>
+      {!isSelectedEventEnded ? (
+        <MasterlistSelectionBar
+          selectedCount={selectedHouseholds.length}
+          isSubmitting={isRecordingDeparture}
+          onConfirmDeparture={handleOpenBulkDepartureConfirmation}
+        />
       ) : null}
 
       <MasterlistTable
@@ -369,9 +842,15 @@ const BarangayMasterlistPage = () => {
         errorMessage={errorMessage}
         hasSelectedEvent={hasSelectedEvent}
         onMarkDeparted={handleOpenDepartureConfirmation}
+        onViewHousehold={handleOpenHouseholdDetails}
+        onEditHousehold={handleOpenEditHousehold}
+        onRestoreHousehold={handleOpenRestoreHousehold}
+        isDepartureReadOnly={isSelectedEventEnded}
+        departureReadOnlyText={selectedEventEndedText}
         selectedHouseholds={selectedHouseholds}
         onToggleSelect={handleToggleSelect}
         onSelectAll={handleSelectAll}
+        showAddressColumn={false}
       />
 
       <RegisterFamilyModal
@@ -380,16 +859,113 @@ const BarangayMasterlistPage = () => {
         form={registrationForm}
       />
 
+      <RegisterFamilyModal
+        isOpen={Boolean(editingHouseholdId)}
+        onClose={handleCloseEditHousehold}
+        form={editHouseholdForm}
+      />
+
       <MasterlistDepartureConfirmModal
         isOpen={
           Boolean(pendingDepartureHouseholdId) || isBulkDepartureConfirmOpen
         }
         isSubmitting={isRecordingDeparture}
+        isLoadingHouseholdDetails={isLoadingDepartureHouseholdDetails}
         onCancel={handleCancelDeparture}
         onConfirm={handleConfirmDeparture}
         selectedCount={
           isBulkDepartureConfirmOpen ? selectedHouseholds.length : 1
         }
+        familyHeadName={pendingDepartureFamilyHeadName}
+        familyHeadPhotoUrl={pendingDepartureFamilyHeadPhotoUrl}
+        selectedHouseholdsPreview={pendingBulkDepartureHouseholds}
+      />
+
+      <HouseholdDetailModal
+        isOpen={Boolean(viewingHouseholdId)}
+        isLoading={isLoadingHouseholdDetails}
+        errorMessage={householdDetailsErrorMessage}
+        householdDetails={householdDetails}
+        onClose={handleCloseHouseholdDetails}
+        onEditHousehold={
+          isSelectedEventEnded ? undefined : handleEditHouseholdFromDetails
+        }
+        showAdministrativeMetadata={false}
+        showDataPrivacyAcknowledgement={true}
+      />
+
+      <HouseholdArchiveConfirmModal
+        isOpen={Boolean(pendingRestoreHouseholdId)}
+        isSubmitting={isRestoringHousehold}
+        isLoadingHouseholdDetails={isLoadingRestoreHouseholdDetails}
+        familyHeadName={pendingRestoreFamilyHeadName}
+        familyHeadPhotoUrl={pendingRestoreFamilyHeadPhotoUrl}
+        onCancel={handleCancelRestoreHousehold}
+        onConfirm={handleConfirmRestoreHousehold}
+        mode="restore"
+        restoreVariant={pendingRestoreVariant}
+      />
+
+      <MswdoExportModal
+        isOpen={isExportModalOpen}
+        title="Evacuee Masterlist Report"
+        isSubmitting={Boolean(exportingFormat)}
+        disasterEvents={availableEvents}
+        barangays={assignedBarangay ? [assignedBarangay] : []}
+        sectors={sectorOptions}
+        selectedDisasterEventId={selectedExportDisasterEventId}
+        selectedBarangayIds={selectedExportBarangayIds}
+        selectedRecordStatus={selectedExportRecordStatus}
+        selectedSortOrder={selectedExportSortOrder}
+        selectedSectorIds={selectedExportSectorIds}
+        availableSectorIds={availableExportSectorIds}
+        availableBarangayIds={selectedExportBarangayIds}
+        selectedFormat={selectedExportFormat}
+        validationErrors={exportValidationErrors}
+        onClose={() => {
+          if (!exportingFormat) {
+            setIsExportModalOpen(false);
+          }
+        }}
+        onSubmit={() => handleExport(selectedExportFormat)}
+        onDisasterEventChange={setSelectedExportDisasterEventId}
+        onBarangayToggle={() => {}}
+        onSelectAllBarangays={() => {}}
+        onClearBarangays={() => {}}
+        onRecordStatusChange={setSelectedExportRecordStatus}
+        onSortOrderChange={setSelectedExportSortOrder}
+        onSectorToggle={(sectorId) => {
+          setSelectedExportSectorIds((currentValues) => {
+            const nextValues = currentValues.includes(sectorId)
+              ? currentValues.filter((id) => id !== sectorId)
+              : [...currentValues, sectorId];
+
+            if (nextValues.length > 0) {
+              setExportValidationErrors((currentErrors) => ({
+                ...currentErrors,
+                sectors: "",
+              }));
+            }
+
+            return nextValues;
+          });
+        }}
+        onClearSectors={() => setSelectedExportSectorIds([])}
+        onFormatChange={setSelectedExportFormat}
+        sortOptions={MASTERLIST_SORT_OPTIONS}
+        hideBarangaySelection
+        hideRecordStatusSelection={isSelectedEventEnded}
+      />
+
+      <FeedbackToast
+        type={exportFeedback.type}
+        message={exportFeedback.message}
+        onClose={() => setExportFeedback({ type: "", message: "" })}
+      />
+
+      <ActiveCrossEventInformationModal
+        eventTitles={activeCrossEventModalTitles}
+        onClose={() => setActiveCrossEventModalTitles([])}
       />
     </>
   );

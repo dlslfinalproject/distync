@@ -1,5 +1,6 @@
 const express = require("express");
 
+const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
 const sectorService = require("../services/sector.service");
 
 const router = express.Router();
@@ -11,7 +12,10 @@ const sendSectorResponse = (res, message, data) => {
   });
 };
 
-router.get("/", async (req, res) => {
+router.get(
+  "/",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
+  async (req, res) => {
   try {
     const sectors = await sectorService.getAllSectors();
 
@@ -22,9 +26,13 @@ router.get("/", async (req, res) => {
       error: error.message,
     });
   }
-});
+  },
+);
 
-router.get("/person", async (req, res) => {
+router.get(
+  "/person",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
+  async (req, res) => {
   try {
     const sectors = await sectorService.getPersonSectors();
 
@@ -39,9 +47,13 @@ router.get("/person", async (req, res) => {
       error: error.message,
     });
   }
-});
+  },
+);
 
-router.get("/household", async (req, res) => {
+router.get(
+  "/household",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
+  async (req, res) => {
   try {
     const sectors = await sectorService.getHouseholdSectors();
 
@@ -56,9 +68,13 @@ router.get("/household", async (req, res) => {
       error: error.message,
     });
   }
-});
+  },
+);
 
-router.get("/barangay", async (req, res) => {
+router.get(
+  "/barangay",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
+  async (req, res) => {
   try {
     const sectors = await sectorService.getBarangayVisibleSectors();
 
@@ -73,9 +89,13 @@ router.get("/barangay", async (req, res) => {
       error: error.message,
     });
   }
-});
+  },
+);
 
-router.get("/mswdo", async (req, res) => {
+router.get(
+  "/mswdo",
+  requireRoles(ROLE_CODES.MSWDO, ROLE_CODES.MAYOR),
+  async (req, res) => {
   try {
     const sectors = await sectorService.getMswdoVisibleSectors();
 
@@ -90,6 +110,7 @@ router.get("/mswdo", async (req, res) => {
       error: error.message,
     });
   }
-});
+  },
+);
 
 module.exports = router;

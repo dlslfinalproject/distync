@@ -9,7 +9,8 @@ const baseUserSelect = `
     middle_name,
     last_name,
     default_barangay_id,
-    is_active
+    is_active,
+    last_login_at
   FROM users
 `;
 
@@ -40,8 +41,16 @@ const updateUserGoogleIdentity = async (
   const query = `
     UPDATE users
     SET google_sub = $2,
-        first_name = COALESCE($3, first_name),
-        last_name = COALESCE($4, last_name),
+        first_name = CASE
+          WHEN COALESCE(NULLIF(BTRIM(first_name), ''), NULL) IS NULL
+            THEN COALESCE($3, first_name)
+          ELSE first_name
+        END,
+        last_name = CASE
+          WHEN COALESCE(NULLIF(BTRIM(last_name), ''), NULL) IS NULL
+            THEN COALESCE($4, last_name)
+          ELSE last_name
+        END,
         updated_at = NOW()
     WHERE id = $1
     RETURNING
@@ -74,7 +83,33 @@ const getRoleByUserId = async (userId) => {
   return result.rows[0] || null;
 };
 
+const getFirstActiveUserByRoleCode = async (roleCode) => {
+  const query = `
+    SELECT
+      u.id,
+      u.google_sub,
+      u.email,
+      u.first_name,
+      u.middle_name,
+      u.last_name,
+      u.default_barangay_id,
+      u.is_active,
+      r.code AS role_code
+    FROM users u
+    INNER JOIN user_roles ur ON ur.user_id = u.id
+    INNER JOIN roles r ON r.id = ur.role_id
+    WHERE r.code = $1
+      AND u.is_active = TRUE
+    ORDER BY ur.assigned_at ASC, u.created_at ASC
+    LIMIT 1
+  `;
+
+  const result = await pool.query(query, [roleCode]);
+  return result.rows[0] || null;
+};
+
 module.exports = {
+  getFirstActiveUserByRoleCode,
   getRoleByUserId,
   getUserByEmail,
   getUserByGoogleSub,

@@ -1,5 +1,6 @@
 const express = require("express");
 
+const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
 const evacuationCenterService = require("../services/evacuationCenter.service");
 const {
   validateBarangayIdParam,
@@ -7,7 +8,10 @@ const {
 
 const router = express.Router();
 
-router.get("/", async (req, res) => {
+router.get(
+  "/",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO),
+  async (req, res) => {
   try {
     const centers = await evacuationCenterService.getEvacuationCenters();
 
@@ -18,9 +22,14 @@ router.get("/", async (req, res) => {
       error: error.message,
     });
   }
-});
+  },
+);
 
-router.get("/barangay/:barangayId", validateBarangayIdParam, async (req, res) => {
+router.get(
+  "/barangay/:barangayId",
+  requireRoles(ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO),
+  validateBarangayIdParam,
+  async (req, res) => {
   try {
     const centers = await evacuationCenterService.getEvacuationCentersByBarangayId(
       req.params.barangayId,
@@ -33,6 +42,7 @@ router.get("/barangay/:barangayId", validateBarangayIdParam, async (req, res) =>
       error: error.message,
     });
   }
-});
+  },
+);
 
 module.exports = router;

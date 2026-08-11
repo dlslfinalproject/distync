@@ -47,6 +47,11 @@ web_modules/
 # TypeScript cache
 *.tsbuildinfo
 
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
 # Optional npm cache directory
 .npm
 
@@ -137,3 +142,7 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Python cache files
+__pycache__/
+*.py[cod]

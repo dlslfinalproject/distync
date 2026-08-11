@@ -1,10 +1,13 @@
 import React from "react";
+import { FiEye } from "react-icons/fi";
 import { shellStyles } from "../layout/BarangayLayout";
+import SyncStatusIcon from "../shared/SyncStatusIcon";
 
 const tableStyles = {
   table: {
     width: "100%",
     borderCollapse: "collapse",
+    minWidth: "860px",
   },
   headerCell: {
     padding: "14px 16px",
@@ -22,6 +25,24 @@ const tableStyles = {
     borderBottom: "1px solid #edf3f8",
     fontSize: "14px",
     verticalAlign: "top",
+    lineHeight: 1.5,
+  },
+  centerCell: {
+    textAlign: "center",
+    verticalAlign: "middle",
+  },
+  actionButton: {
+    border: "1px solid #c6d8ea",
+    borderRadius: "12px",
+    width: "36px",
+    height: "36px",
+    padding: 0,
+    backgroundColor: "#f8fbfe",
+    color: "#2a4c6f",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
   },
 };
 
@@ -39,134 +60,145 @@ const formatDateTime = (value) => {
   });
 };
 
-const getActivityLabel = (row) => {
-  if (
-    row.transaction_type === "OUTFLOW" &&
-    row.reference_type === "DISTRIBUTION"
-  ) {
-    return "DISTRIBUTED";
+const getDirectionStyles = (direction) => {
+  if (direction === "INFLOW") {
+    return {
+      border: "1px solid #bdd8f1",
+      backgroundColor: "#e9f4ff",
+      color: "#145995",
+    };
   }
 
-  return row.transaction_type;
-};
-
-const getActivityBadgeStyles = (activityLabel) => {
-  const paletteByActivity = {
-    DISTRIBUTED: {
-      backgroundColor: "#dbeafe",
-      color: "#1d4ed8",
-    },
-    EXPIRED: {
-      backgroundColor: "#fee2e2",
-      color: "#b91c1c",
-    },
-    RETURN: {
-      backgroundColor: "#dcfce7",
-      color: "#15803d",
-    },
-    ADJUSTMENT: {
-      backgroundColor: "#ede9fe",
-      color: "#6d28d9",
-    },
-  };
+  if (direction === "OUTFLOW") {
+    return {
+      border: "1px solid #c9e8d7",
+      backgroundColor: "#eefaf3",
+      color: "#16733c",
+    };
+  }
 
   return {
-    display: "inline-flex",
-    alignItems: "center",
-    borderRadius: "999px",
-    padding: "4px 10px",
-    fontSize: "12px",
-    fontWeight: 700,
-    ...(paletteByActivity[activityLabel] || {
-      backgroundColor: "#e2e8f0",
-      color: "#334155",
-    }),
+    border: "1px solid #d6e2ef",
+    backgroundColor: "#eef3f8",
+    color: "#4d647c",
   };
 };
 
-const InventoryTransactionsTable = ({ rows, isLoading, errorMessage }) => {
+const InventoryTransactionsTable = ({
+  rows,
+  isLoading,
+  errorMessage,
+  onViewDetails,
+}) => {
   if (isLoading) {
     return (
-      <section style={shellStyles.card}>
-        <h3 style={{ marginTop: 0, color: "#17324d" }}>Inventory Tracking Log</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          Loading inventory tracking records...
+      <div style={{ marginTop: "8px" }}>
+        <p style={{ ...shellStyles.mutedText, marginTop: 0 }}>
+          Loading stock movement records...
         </p>
-      </section>
+      </div>
     );
   }
 
   if (errorMessage) {
     return (
-      <section style={shellStyles.card}>
-        <h3 style={{ marginTop: 0, color: "#17324d" }}>Inventory Tracking Log</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "10px", color: "#a14d58" }}>
+      <div style={{ marginTop: "8px" }}>
+        <p style={{ ...shellStyles.mutedText, marginTop: 0, color: "#a14d58" }}>
           {errorMessage}
         </p>
-      </section>
+      </div>
     );
   }
 
   if (rows.length === 0) {
     return (
-      <section style={shellStyles.card}>
-        <h3 style={{ marginTop: 0, color: "#17324d" }}>Inventory Tracking Log</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          No inventory tracking records were found for the current filters.
+      <div style={{ marginTop: "8px" }}>
+        <p style={{ ...shellStyles.mutedText, marginTop: 0 }}>
+          No matching records found. Try adjusting your search or filters.
         </p>
-      </section>
+      </div>
     );
   }
 
   return (
-    <section style={shellStyles.card}>
-      <div style={{ marginBottom: "18px" }}>
-        <h3 style={{ margin: 0, color: "#17324d" }}>Inventory Tracking Log</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "8px" }}>
-          Item-level movement history for distributed, expired, returned, and
-          adjusted stock.
-        </p>
-      </div>
-
-      <div style={{ overflowX: "auto" }}>
-        <table style={tableStyles.table}>
-          <thead>
-            <tr>
-              <th style={tableStyles.headerCell}>Performed At</th>
-              <th style={tableStyles.headerCell}>Item</th>
-              <th style={tableStyles.headerCell}>Activity</th>
-              <th style={tableStyles.headerCell}>Quantity</th>
-              <th style={tableStyles.headerCell}>Reference Type</th>
-              <th style={tableStyles.headerCell}>Remarks</th>
+    <div style={{ overflowX: "auto" }}>
+      <table style={tableStyles.table}>
+        <thead>
+          <tr>
+            <th style={tableStyles.headerCell}>Item Name</th>
+            <th style={tableStyles.headerCell}>Batch Number</th>
+            <th style={tableStyles.headerCell}>ITR No.</th>
+            <th style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Quantity</th>
+            <th style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Movement</th>
+            <th style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Transaction Type</th>
+            <th style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Date</th>
+            <th style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Performed By</th>
+            <th style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.id}>
+              <td style={tableStyles.bodyCell}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <span>{row.inventory_item?.item_name || "--"}</span>
+                  <SyncStatusIcon status={row.sync_status} />
+                </div>
+              </td>
+              <td style={tableStyles.bodyCell}>{row.batch_no || "--"}</td>
+              <td style={tableStyles.bodyCell}>
+                {row.inventory_transaction_reference_no || "Not applicable"}
+              </td>
+              <td style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
+                {row.quantity ?? 0}
+              </td>
+              <td style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    borderRadius: "999px",
+                    padding: "6px 12px",
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    ...getDirectionStyles(row.transaction_direction),
+                  }}
+                >
+                  {row.transaction_direction || "--"}
+                </span>
+              </td>
+              <td style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
+                {row.transaction_type_label || row.transaction_type || "--"}
+              </td>
+              <td style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
+                <div>{formatDateTime(row.performed_at)}</div>
+              </td>
+              <td style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
+                <div>{row.performed_by_label || "--"}</div>
+              </td>
+              <td style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
+                <button
+                  type="button"
+                  onClick={() => onViewDetails?.(row)}
+                  style={tableStyles.actionButton}
+                  title="View Details"
+                  aria-label="View Details"
+                >
+                  <FiEye size={18} />
+                </button>
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => {
-              const activityLabel = getActivityLabel(row);
-
-              return (
-                <tr key={row.id}>
-                  <td style={tableStyles.bodyCell}>
-                    {formatDateTime(row.performed_at)}
-                  </td>
-                  <td style={tableStyles.bodyCell}>
-                    {row.inventory_item?.item_name || "--"}
-                  </td>
-                  <td style={tableStyles.bodyCell}>
-                    <span style={getActivityBadgeStyles(activityLabel)}>
-                      {activityLabel}
-                    </span>
-                  </td>
-                  <td style={tableStyles.bodyCell}>{row.quantity}</td>
-                  <td style={tableStyles.bodyCell}>{row.reference_type}</td>
-                  <td style={tableStyles.bodyCell}>{row.remarks || "--"}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </section>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 };
 

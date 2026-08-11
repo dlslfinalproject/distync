@@ -1,0 +1,141 @@
+import { donorTypeLabels } from "./donationFormatters";
+
+export const donorTypes = [
+  { value: "INDIVIDUAL", label: donorTypeLabels.INDIVIDUAL },
+  { value: "NGO", label: donorTypeLabels.NGO },
+  {
+    value: "PRIVATE_ORGANIZATION",
+    label: donorTypeLabels.PRIVATE_ORGANIZATION,
+  },
+  {
+    value: "GOVERNMENT_PARTNER",
+    label: donorTypeLabels.GOVERNMENT_PARTNER,
+  },
+  { value: "OTHER", label: donorTypeLabels.OTHER },
+];
+
+export const donationStatuses = [
+  "RECEIVED",
+  "PARTIALLY_DISTRIBUTED",
+  "DISTRIBUTED",
+  "CANCELLED",
+];
+
+export const priorityLevels = ["URGENT", "HIGH", "MEDIUM", "LOW"];
+
+export const overlayStyles = {
+  position: "fixed",
+  inset: 0,
+  backgroundColor: "rgba(21, 40, 63, 0.48)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "24px",
+  zIndex: 1000,
+};
+
+export const modalStyles = {
+  width: "min(980px, 100%)",
+  maxHeight: "90vh",
+  overflowY: "auto",
+  backgroundColor: "#ffffff",
+  borderRadius: "22px",
+  border: "1px solid #d7e2ef",
+  boxShadow: "0 24px 60px rgba(23, 50, 77, 0.18)",
+  padding: "24px",
+  boxSizing: "border-box",
+};
+
+export const inputStyles = {
+  width: "100%",
+  minHeight: "48px",
+  padding: "12px 14px",
+  borderRadius: "14px",
+  border: "1px solid #d2deea",
+  boxSizing: "border-box",
+  fontSize: "14px",
+  color: "#21405f",
+  backgroundColor: "#ffffff",
+};
+
+export const labelStyles = {
+  display: "block",
+  marginBottom: "8px",
+  color: "#4f677f",
+  fontSize: "13px",
+  fontWeight: 700,
+};
+
+export const compactButtonStyles = {
+  border: "1px solid #c6d8ea",
+  borderRadius: "12px",
+  padding: "8px 12px",
+  backgroundColor: "#f8fbfe",
+  color: "#2a4c6f",
+  fontSize: "13px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+export const backButtonStyles = {
+  background: "#0f2a44",
+  border: "none",
+  padding: "10px 16px",
+  borderRadius: "10px",
+  cursor: "pointer",
+  fontWeight: 600,
+  color: "#ffffff",
+  transition: "all 0.2s ease",
+  boxShadow: "0 4px 12px rgba(15, 42, 68, 0.25)",
+};
+
+export const createNeedForm = () => ({
+  disaster_event_id: "",
+  inventory_item_id: "",
+  quantity_needed: 0,
+  priority_level: "MEDIUM",
+  notes: "",
+  is_active: true,
+});
+
+export const createDonationItemForm = () => ({
+  entry_type: "ITEM",
+  item_entry_method: "MANUAL",
+  item_definition_mode: "NEW",
+  inventory_item_id: "",
+  inventory_item_stock_form_id: "",
+  barcode: "",
+  new_item_name: "",
+  new_item_category: "perishable",
+  new_item_tracking_method: "Count-Based",
+  new_item_unit_of_measure: "pc",
+  new_item_unit_of_measure_value: "",
+  new_item_packaging: "pack",
+  batch_number: "",
+  packaging_count: "",
+  units_per_packaging: "",
+  pack_definition_mode: "NEW",
+  relief_pack_template_id: "",
+  new_pack_name: "",
+  pack_item_inventory_item_id: "",
+  pack_item_quantity_required: "1",
+  relief_pack_items: [],
+  relief_pack_quantity: "1",
+  quantity_received: "1",
+  per_family_allocation: "",
+  remarks: "",
+  expiration_date: "",
+  storage_location: "",
+});
+
+export const createDonationForm = () => ({
+  disaster_event_id: "",
+  donor_name: "",
+  donor_type: "INDIVIDUAL",
+  donor_type_other: "",
+  contact_information: "",
+  received_at: "",
+  status: "RECEIVED",
+  remarks: "",
+  items: [],
+});

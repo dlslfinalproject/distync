@@ -1,6 +1,11 @@
 import React from "react";
+import { FiEdit2, FiEye, FiLogIn, FiLogOut } from "react-icons/fi";
 import { shellStyles } from "../layout/BarangayLayout";
-import { MdDoorFront } from "react-icons/md";
+import SyncStatusIcon from "../shared/SyncStatusIcon";
+import EmptyState from "../shared/EmptyState";
+import ErrorState from "../shared/ErrorState";
+import LoadingState from "../shared/LoadingState";
+import TableActionsMenu from "../shared/TableActionsMenu";
 
 const tableStyles = {
   table: {
@@ -27,11 +32,34 @@ const tableStyles = {
     lineHeight: 1.5,
     wordBreak: "break-word",
   },
+  actionHeaderCell: {
+    width: "88px",
+    minWidth: "88px",
+    textAlign: "center",
+  },
+  actionBodyCell: {
+    width: "88px",
+    minWidth: "88px",
+    textAlign: "center",
+    whiteSpace: "nowrap",
+  },
   departureButton: {
     border: "1px solid #c6d8ea",
     borderRadius: "12px",
     width: "40px",
     height: "40px",
+    backgroundColor: "#f7fbfe",
+    color: "#24496e",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+  },
+  directActionButton: {
+    width: "40px",
+    height: "40px",
+    borderRadius: "12px",
+    border: "1px solid #c6d8ea",
     backgroundColor: "#f7fbfe",
     color: "#24496e",
     display: "inline-flex",
@@ -50,6 +78,19 @@ const tableStyles = {
     fontSize: "12px",
     fontWeight: 700,
   },
+  archivedRow: {
+    backgroundColor: "#f8fbfe",
+  },
+  archivedBodyCell: {
+    color: "#5f7690",
+  },
+  archivedMembersBadge: {
+    backgroundColor: "#eef5fb",
+    color: "#6a87a6",
+  },
+  archivedCheckbox: {
+    opacity: 0.65,
+  },
 };
 
 const MasterlistTable = ({
@@ -58,25 +99,33 @@ const MasterlistTable = ({
   errorMessage,
   hasSelectedEvent,
   onMarkDeparted,
+  onViewHousehold,
+  onEditHousehold,
+  onRestoreHousehold,
   isDepartureReadOnly = false,
   departureReadOnlyText = "-",
   selectedHouseholds,
   onToggleSelect,
   onSelectAll,
+  showAddressColumn = true,
 }) => {
   const safeSelectedHouseholds = Array.isArray(selectedHouseholds)
     ? selectedHouseholds
     : [];
   const canUseSelection =
     typeof onToggleSelect === "function" && typeof onSelectAll === "function";
+  const showSelectionColumn = !isDepartureReadOnly;
 
   if (!hasSelectedEvent) {
     return (
       <section style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Registered Family</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          Please select a disaster event to load the masterlist.
-        </p>
+        <div style={{ marginTop: "10px" }}>
+          <EmptyState
+            compact
+            message="Please select a disaster event to load the masterlist."
+          />
+        </div>
       </section>
     );
   }
@@ -85,9 +134,9 @@ const MasterlistTable = ({
     return (
       <section style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Registered Family</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          Loading masterlist data...
-        </p>
+        <div style={{ marginTop: "10px" }}>
+          <LoadingState message="Loading masterlist data..." />
+        </div>
       </section>
     );
   }
@@ -96,15 +145,9 @@ const MasterlistTable = ({
     return (
       <section style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Registered Family</h3>
-        <p
-          style={{
-            ...shellStyles.mutedText,
-            marginTop: "10px",
-            color: "#a14d58",
-          }}
-        >
-          {errorMessage}
-        </p>
+        <div style={{ marginTop: "10px" }}>
+          <ErrorState compact message={errorMessage} />
+        </div>
       </section>
     );
   }
@@ -113,9 +156,12 @@ const MasterlistTable = ({
     return (
       <section style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Registered Family</h3>
-        <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          No registered families were found for the current filters.
-        </p>
+        <div style={{ marginTop: "10px" }}>
+          <EmptyState
+            compact
+            message="No matching records found. Try adjusting your search or filters."
+          />
+        </div>
       </section>
     );
   }
@@ -125,6 +171,79 @@ const MasterlistTable = ({
     : rows.filter(
         (row) => !row.departure_time_value && row.can_record_departure,
       );
+
+  const buildActionItems = (row) => {
+    const viewAction = {
+      key: "view",
+      label: "View Details",
+      icon: <FiEye size={18} />,
+      disabled: typeof onViewHousehold !== "function",
+      onClick: (selectedRow) =>
+        onViewHousehold?.({
+          householdId: selectedRow.household_id,
+          evacuationLogId: selectedRow.evacuation_log_id || null,
+        }),
+    };
+
+    if (isDepartureReadOnly) {
+      return [viewAction];
+    }
+
+    if (row.is_non_admitted_resident) {
+      const nonAdmittedResidentActions = [
+        viewAction,
+        {
+          key: "edit",
+          label: "Edit Household",
+          icon: <FiEdit2 size={18} />,
+          disabled: typeof onEditHousehold !== "function",
+          title: "Edit Household",
+          onClick: (selectedRow) => onEditHousehold?.(selectedRow.household_id),
+        },
+      ];
+
+      if (!row.has_used_admit_action) {
+        nonAdmittedResidentActions.push({
+          key: "admit",
+          label: "Admit Household",
+          icon: <FiLogIn size={18} />,
+          disabled: typeof onRestoreHousehold !== "function",
+          title: "Admit Household",
+          onClick: (selectedRow) =>
+            onRestoreHousehold?.(selectedRow.household_id),
+        });
+      }
+
+      return nonAdmittedResidentActions;
+    }
+
+    if (row.is_operationally_active === false) {
+      return [
+        viewAction,
+        {
+          key: "return",
+          label: "Re-admit Household",
+          icon: <FiLogIn size={18} />,
+          disabled: typeof onRestoreHousehold !== "function",
+          title: "Re-admit Household",
+          onClick: (selectedRow) =>
+            onRestoreHousehold?.(selectedRow.household_id),
+        },
+      ];
+    }
+
+    return [
+      viewAction,
+      {
+        key: "edit",
+        label: "Edit Household",
+        icon: <FiEdit2 size={18} />,
+        disabled: typeof onEditHousehold !== "function",
+        title: "Edit Household",
+        onClick: (selectedRow) => onEditHousehold?.(selectedRow.household_id),
+      },
+    ];
+  };
 
   const areAllSelected =
     selectableRows.length > 0 &&
@@ -142,29 +261,33 @@ const MasterlistTable = ({
         <table style={tableStyles.table}>
           <thead>
             <tr>
-              <th
-                style={{
-                  ...tableStyles.headerCell,
-                  width: "56px",
-                  textAlign: "center",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={areAllSelected}
-                  onChange={onSelectAll}
-                  disabled={!canUseSelection || !selectableRows.length}
-                />
-              </th>
+              {showSelectionColumn ? (
+                <th
+                  style={{
+                    ...tableStyles.headerCell,
+                    width: "56px",
+                    textAlign: "center",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={areAllSelected}
+                    onChange={onSelectAll}
+                    disabled={!canUseSelection || !selectableRows.length}
+                  />
+                </th>
+              ) : null}
               <th style={tableStyles.headerCell}>Family Head</th>
-              <th style={tableStyles.headerCell}>Address</th>
+              {showAddressColumn ? (
+                <th style={tableStyles.headerCell}>Address</th>
+              ) : null}
               <th
                 style={{
                   ...tableStyles.headerCell,
                   textAlign: "center",
                 }}
               >
-                Members
+                Household Size
               </th>
               <th style={tableStyles.headerCell}>Sectors</th>
               <th
@@ -183,49 +306,107 @@ const MasterlistTable = ({
               >
                 Departure Time
               </th>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  ...tableStyles.actionHeaderCell,
+                }}
+              >
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => {
+              const isArchivedRow = row.is_operationally_active === false;
               const isSelectable =
                 !isDepartureReadOnly &&
                 !row.departure_time_value &&
-                row.can_record_departure;
+                row.can_record_departure &&
+                !row.is_local_only;
               const isSelected = safeSelectedHouseholds.includes(
                 row.household_id,
               );
+              const actionItems = buildActionItems(row);
 
               return (
-                <tr key={row.household_id}>
+                <tr
+                  key={row.masterlist_record_id || row.household_id}
+                  style={isArchivedRow ? tableStyles.archivedRow : undefined}
+                >
+                  {showSelectionColumn ? (
+                    <td
+                      style={{
+                        ...tableStyles.bodyCell,
+                        ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
+                        textAlign: "center",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        disabled={!canUseSelection || !isSelectable}
+                        onChange={() => onToggleSelect(row.household_id)}
+                        style={isArchivedRow ? tableStyles.archivedCheckbox : undefined}
+                      />
+                    </td>
+                  ) : null}
                   <td
                     style={{
                       ...tableStyles.bodyCell,
-                      textAlign: "center",
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
                     }}
                   >
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      disabled={!canUseSelection || !isSelectable}
-                      onChange={() => onToggleSelect(row.household_id)}
-                    />
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <span>{row.family_head_name}</span>
+                      <SyncStatusIcon status={row.sync_status} />
+                    </div>
                   </td>
-                  <td style={tableStyles.bodyCell}>{row.family_head_name}</td>
-                  <td style={tableStyles.bodyCell}>{row.address}</td>
+                  {showAddressColumn ? (
+                    <td
+                      style={{
+                        ...tableStyles.bodyCell,
+                        ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
+                      }}
+                    >
+                      {row.address}
+                    </td>
+                  ) : null}
                   <td
                     style={{
                       ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
                       textAlign: "center",
                     }}
                   >
-                    <span style={tableStyles.membersBadge}>
+                    <span
+                      style={{
+                        ...tableStyles.membersBadge,
+                        ...(isArchivedRow ? tableStyles.archivedMembersBadge : {}),
+                      }}
+                    >
                       {row.members_count}
                     </span>
                   </td>
-                  <td style={tableStyles.bodyCell}>{row.sectors_text}</td>
                   <td
                     style={{
                       ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
+                    }}
+                  >
+                    {row.sectors_text}
+                  </td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
                       textAlign: "center",
                     }}
                   >
@@ -234,11 +415,20 @@ const MasterlistTable = ({
                   <td
                     style={{
                       ...tableStyles.bodyCell,
+                      ...(isArchivedRow ? tableStyles.archivedBodyCell : {}),
                       textAlign: "center",
                     }}
                   >
                     {isDepartureReadOnly ? (
-                      departureReadOnlyText || "-"
+                      row.is_non_admitted_resident ? (
+                        "-"
+                      ) : row.departure_time_value
+                        ? row.departure_time_text
+                        : departureReadOnlyText || "-"
+                    ) : row.is_local_only ? (
+                      <span style={{ color: "#60738a", fontSize: "12px", fontWeight: 700 }}>
+                        Waiting for sync
+                      </span>
                     ) : row.departure_time_value ? (
                       row.departure_time_text
                     ) : row.can_record_departure ? (
@@ -248,10 +438,46 @@ const MasterlistTable = ({
                         style={tableStyles.departureButton}
                         title="Mark Departed"
                       >
-                        <MdDoorFront size={18} />
+                        <FiLogOut size={18} />
                       </button>
                     ) : (
                       "-"
+                    )}
+                  </td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      ...tableStyles.actionBodyCell,
+                    }}
+                  >
+                    {isDepartureReadOnly && actionItems.length === 1 ? (
+                      <button
+                        type="button"
+                        onClick={() => actionItems[0].onClick?.(row)}
+                        style={tableStyles.directActionButton}
+                        title={actionItems[0].title || actionItems[0].label}
+                        aria-label={actionItems[0].label}
+                        disabled={actionItems[0].disabled || row.is_local_only}
+                      >
+                        {actionItems[0].icon}
+                      </button>
+                    ) : (
+                      <TableActionsMenu
+                        row={row}
+                        menuId={row.household_id}
+                        buttonTitle={
+                          row.is_local_only ? "Available after sync" : "Actions"
+                        }
+                        buttonAriaLabel="Actions"
+                        disabled={row.is_local_only}
+                        onToggle={(selectedRow) => {
+                          console.log("Selected row:", selectedRow);
+                        }}
+                        dataPrefix="masterlist-action"
+                        menuWidth={actionItems.length > 2 ? 168 : 116}
+                        variant="icon-grid"
+                        items={actionItems}
+                      />
                     )}
                   </td>
                 </tr>

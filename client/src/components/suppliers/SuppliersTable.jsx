@@ -1,6 +1,7 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
 import { pageHeaderStyles } from "../layout/PageHeader";
+import SyncStatusBadge from "../shared/SyncStatusBadge";
 
 const tableStyles = {
   table: {
@@ -67,7 +68,7 @@ const SuppliersTable = ({ rows, isLoading, errorMessage, onEditSupplier }) => {
       <section style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Suppliers</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          No suppliers were found for the current filters.
+          No matching records found. Try adjusting your search or filters.
         </p>
       </section>
     );
@@ -92,6 +93,7 @@ const SuppliersTable = ({ rows, isLoading, errorMessage, onEditSupplier }) => {
               <th style={tableStyles.headerCell}>Contact Number</th>
               <th style={tableStyles.headerCell}>Address</th>
               <th style={tableStyles.headerCell}>Has MOA</th>
+              <th style={tableStyles.headerCell}>Sync</th>
               <th style={tableStyles.headerCell}>Notes</th>
               <th style={tableStyles.headerCell}>Action</th>
             </tr>
@@ -108,12 +110,17 @@ const SuppliersTable = ({ rows, isLoading, errorMessage, onEditSupplier }) => {
                     {row.has_moa ? "Yes" : "No"}
                   </span>
                 </td>
+                <td style={tableStyles.bodyCell}>
+                  <SyncStatusBadge status={row.sync_status} compact />
+                </td>
                 <td style={tableStyles.bodyCell}>{row.notes || "--"}</td>
                 <td style={tableStyles.bodyCell}>
                   <button
                     type="button"
                     onClick={() => onEditSupplier(row.id)}
                     style={pageHeaderStyles.secondaryButton}
+                    disabled={row.is_local_only}
+                    title={row.is_local_only ? "Available after sync" : undefined}
                   >
                     Edit
                   </button>

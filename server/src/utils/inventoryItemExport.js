@@ -2,11 +2,19 @@ const ExcelJS = require("exceljs");
 const reportExport = require("./masterlistExport");
 
 const EXPORT_COLUMNS = [
-  { key: "item_name", label: "Item Name", width: 30 },
-  { key: "category", label: "Category", width: 20 },
-  { key: "quantity", label: "Quantity", width: 42 },
-  { key: "expiration_date", label: "Expiry Date", width: 18 },
-  { key: "status", label: "Status", width: 16 },
+  { key: "item_name", label: "Item Name", width: 28, pdfWidth: 86 },
+  { key: "category", label: "Category", width: 16, pdfWidth: 58 },
+  { key: "tracking_method", label: "Tracking Method", width: 18, pdfWidth: 48 },
+  { key: "barcode", label: "Barcode", width: 22, pdfWidth: 56 },
+  { key: "packaging", label: "Packaging", width: 16, pdfWidth: 40 },
+  { key: "units_per_packaging", label: "Units per Packaging", width: 18, pdfWidth: 52 },
+  { key: "unit_of_measure", label: "Unit of Measure", width: 16, pdfWidth: 46 },
+  { key: "batch_no", label: "Batch Number", width: 22, pdfWidth: 56 },
+  { key: "current_stock", label: "Current Stock", width: 16, pdfWidth: 42 },
+  { key: "reorder_level", label: "Reorder Level", width: 16, pdfWidth: 42 },
+  { key: "expiration_date", label: "Expiration Date", width: 18, pdfWidth: 50 },
+  { key: "source", label: "Source", width: 18, pdfWidth: 44 },
+  { key: "stock_status", label: "Stock Status", width: 18, pdfWidth: 46 },
 ];
 
 const CONTENT_TYPES = {
@@ -17,7 +25,7 @@ const CONTENT_TYPES = {
 
 const formatDate = (value) => {
   if (!value) {
-    return "--";
+    return "Not Applicable";
   }
 
   return new Intl.DateTimeFormat("en-PH", {
@@ -54,9 +62,7 @@ const buildFilename = (format) => {
     pdf: "pdf",
   };
 
-  return `office-mayor-inventory-items-${getDateStamp()}.${
-    extensionMap[format]
-  }`;
+  return `office-mayor-inventory-items-${getDateStamp()}.${extensionMap[format]}`;
 };
 
 const escapeCsvValue = (value) => {
@@ -74,7 +80,31 @@ const escapeCsvValue = (value) => {
 };
 
 const wrapText = (value, maxLength) => {
-  const words = String(value ?? "--").split(/\s+/);
+  const normalizedValue = String(value ?? "--");
+
+  if (normalizedValue === "Non-Perishable") {
+    return [normalizedValue];
+  }
+
+  const normalizeWordChunks = (word) => {
+    const safeWord = String(word || "");
+
+    if (safeWord.length <= maxLength) {
+      return [safeWord];
+    }
+
+    const chunks = [];
+
+    for (let index = 0; index < safeWord.length; index += maxLength) {
+      chunks.push(safeWord.slice(index, index + maxLength));
+    }
+
+    return chunks;
+  };
+
+  const words = normalizedValue
+    .split(/\s+/)
+    .flatMap(normalizeWordChunks);
   const lines = [];
   let currentLine = "";
 
@@ -97,50 +127,65 @@ const wrapText = (value, maxLength) => {
   return lines.length ? lines : ["--"];
 };
 
-const buildTitleLines = ({ filters, totalRows }) => {
-  const searchLabel = filters.search?.trim() || "None";
-  const categoryLabel =
-    filters.is_perishable === true
-      ? "Perishable"
-      : filters.is_perishable === false
-        ? "Non-Perishable"
-        : filters.category || "All";
+const resolveCategoryLabel = (filters = {}) => {
+  if (filters.is_perishable === true) {
+    return "Perishable";
+  }
 
+  if (filters.is_perishable === false) {
+    return "Non-Perishable";
+  }
+
+  return filters.category || "All";
+};
+
+const buildMetadata = ({ filters, totalRows }) => {
   return [
-    "DISTYNC",
-    "Municipality of Malvar Disaster Relief Management System",
-    "Office of the Mayor Inventory Items Report",
-    `Search: ${searchLabel}`,
-    `Category: ${categoryLabel || "All"}`,
-    `Status: ${filters.status || "All"}`,
-    `Generated: ${formatGeneratedAt()}`,
-    `Total Rows: ${totalRows}`,
+    { label: "Category", value: resolveCategoryLabel(filters) },
+    { label: "Stock Status", value: filters.status || "All" },
+    { label: "Search", value: filters.search?.trim() || "None" },
+    { label: "Rows", value: totalRows },
+    { label: "Generated", value: formatGeneratedAt() },
   ];
 };
 
 const buildCsvBuffer = ({ rows, filters }) => {
-  const titleLines = buildTitleLines({
-    filters,
-    totalRows: rows.length,
-  });
+  const metadata = buildMetadata({ filters, totalRows: rows.length });
+  const headerLines = [
+    "DISTYNC",
+    "Office of the Mayor",
+    "Municipality of Malvar, Batangas",
+    "Inventory Items report",
+    ...metadata.map((item) => `${item.label}: ${item.value}`),
+  ];
   const columnLine = EXPORT_COLUMNS.map((column) =>
     escapeCsvValue(column.label),
   ).join(",");
   const dataLines = rows.map((row) =>
     EXPORT_COLUMNS.map((column) => escapeCsvValue(row[column.key])).join(","),
   );
-  const content = [...titleLines, "", columnLine, ...dataLines].join("\r\n");
 
-  return Buffer.from(content, "utf8");
+  return Buffer.from([...headerLines, "", columnLine, ...dataLines].join("\r\n"), "utf8");
+};
+
+const applyCellBorder = (cell) => {
+  cell.border = {
+    top: { style: "thin", color: { argb: "FFD9E3F0" } },
+    left: { style: "thin", color: { argb: "FFD9E3F0" } },
+    bottom: { style: "thin", color: { argb: "FFD9E3F0" } },
+    right: { style: "thin", color: { argb: "FFD9E3F0" } },
+  };
 };
 
 const buildExcelBuffer = async ({ rows, filters }) => {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "DISTYNC";
+  workbook.company = "DISTYNC";
   workbook.created = new Date();
+  workbook.modified = new Date();
 
   const worksheet = workbook.addWorksheet("Inventory Items", {
-    views: [{ state: "frozen", ySplit: 10 }],
+    views: [{ state: "frozen", ySplit: 11 }],
     pageSetup: {
       orientation: "landscape",
       fitToPage: true,
@@ -153,47 +198,70 @@ const buildExcelBuffer = async ({ rows, filters }) => {
     key: column.key,
     width: column.width,
   }));
+
   reportExport.addWorkbookLogo(workbook, worksheet);
 
-  worksheet.mergeCells(1, 2, 1, EXPORT_COLUMNS.length);
-  worksheet.getCell("B1").value = "DISTYNC";
-  worksheet.getCell("B1").font = {
+  const lastColumnIndex = EXPORT_COLUMNS.length;
+
+  [1, 2, 3, 4].forEach((rowNumber) => {
+    worksheet.mergeCells(rowNumber, 1, rowNumber, lastColumnIndex);
+    for (let columnIndex = 1; columnIndex <= lastColumnIndex; columnIndex += 1) {
+      worksheet.getCell(rowNumber, columnIndex).fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FF17324D" },
+      };
+    }
+  });
+
+  worksheet.getCell("A1").value = "DISTYNC";
+  worksheet.getCell("A1").font = {
     bold: true,
     size: 18,
     color: { argb: "FFFFFFFF" },
   };
-  worksheet.getCell("B1").fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF17324D" },
-  };
-  worksheet.getCell("B1").alignment = { horizontal: "left", vertical: "middle" };
-  worksheet.mergeCells(2, 2, 2, EXPORT_COLUMNS.length);
-  worksheet.getCell("B2").value = "Office of the Mayor Inventory Items Report";
-  worksheet.getCell("B2").font = {
+  worksheet.getCell("A1").alignment = { horizontal: "left", vertical: "middle", indent: 7 };
+
+  worksheet.getCell("A2").value = "Office of the Mayor";
+  worksheet.getCell("A2").font = {
     bold: true,
     size: 14,
     color: { argb: "FFFFFFFF" },
   };
-  worksheet.getCell("B2").fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF17324D" },
+  worksheet.getCell("A2").alignment = { horizontal: "left", vertical: "middle", indent: 7 };
+
+  worksheet.getCell("A3").value = "Municipality of Malvar, Batangas";
+  worksheet.getCell("A3").font = {
+    bold: true,
+    size: 12,
+    color: { argb: "FFFFFFFF" },
   };
-  worksheet.getCell("B2").alignment = { horizontal: "left", vertical: "middle" };
+  worksheet.getCell("A3").alignment = { horizontal: "left", vertical: "middle", indent: 7 };
+
+  worksheet.getCell("A4").value = "Inventory Items report";
+  worksheet.getCell("A4").font = {
+    bold: true,
+    size: 12,
+    color: { argb: "FFFFFFFF" },
+  };
+  worksheet.getCell("A4").alignment = { horizontal: "left", vertical: "middle", indent: 7 };
+
   worksheet.getRow(1).height = 28;
   worksheet.getRow(2).height = 24;
+  worksheet.getRow(3).height = 20;
+  worksheet.getRow(4).height = 22;
 
-  buildTitleLines({ filters, totalRows: rows.length })
-    .slice(3)
-    .forEach((line, index) => {
-      const row = worksheet.getRow(index + 4);
-      row.getCell(1).value = line;
-      row.getCell(1).font = { bold: index === 0 };
-    });
+  const metadata = buildMetadata({ filters, totalRows: rows.length });
+  metadata.forEach((item, index) => {
+    const row = worksheet.getRow(index + 6);
+    row.getCell(1).value = item.label;
+    row.getCell(1).font = { bold: true, color: { argb: "FF40617F" } };
+    row.getCell(2).value = item.value;
+  });
 
-  const headerRowNumber = 10;
+  const headerRowNumber = 11;
   const headerRow = worksheet.getRow(headerRowNumber);
+
   EXPORT_COLUMNS.forEach((column, index) => {
     const cell = headerRow.getCell(index + 1);
     cell.value = column.label;
@@ -204,31 +272,32 @@ const buildExcelBuffer = async ({ rows, filters }) => {
       fgColor: { argb: "FF2F6499" },
     };
     cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-    cell.border = {
-      top: { style: "thin" },
-      left: { style: "thin" },
-      bottom: { style: "thin" },
-      right: { style: "thin" },
-    };
+    applyCellBorder(cell);
   });
 
-  rows.forEach((itemRow, index) => {
+  rows.forEach((reportRow, index) => {
     const row = worksheet.getRow(headerRowNumber + 1 + index);
 
     EXPORT_COLUMNS.forEach((column, columnIndex) => {
       const cell = row.getCell(columnIndex + 1);
-      cell.value = itemRow[column.key];
+      cell.value = reportRow[column.key];
       cell.alignment = {
         vertical: "top",
-        horizontal: column.key === "status" ? "center" : "left",
+        horizontal:
+          column.key === "reorder_level" || column.key === "stock_status"
+            ? "center"
+            : "left",
         wrapText: true,
       };
-      cell.border = {
-        top: { style: "thin", color: { argb: "FFD9E3F0" } },
-        left: { style: "thin", color: { argb: "FFD9E3F0" } },
-        bottom: { style: "thin", color: { argb: "FFD9E3F0" } },
-        right: { style: "thin", color: { argb: "FFD9E3F0" } },
-      };
+      applyCellBorder(cell);
+
+      if (index % 2 === 1) {
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFF8FBFE" },
+        };
+      }
     });
   });
 
@@ -244,79 +313,126 @@ const buildExcelBuffer = async ({ rows, filters }) => {
 const buildPdfBuffer = ({ rows, filters }) => {
   const pages = [];
   let page = null;
-  let cursorY = 555;
+  let cursorY = 0;
+
+  const pageWidth = 1191;
+  const pageHeight = 842;
+  const marginX = 24;
+  const contentWidth = 1143;
+  const baseColumnWidths = EXPORT_COLUMNS.map((column) => column.pdfWidth);
+  const totalBaseColumnWidth = baseColumnWidths.reduce((sum, width) => sum + width, 0);
+  const scaleFactor =
+    totalBaseColumnWidth > 0 ? contentWidth / totalBaseColumnWidth : 1;
+  const columnWidths = baseColumnWidths.map((width) => width * scaleFactor);
+  const bodyLineHeight = 10;
+  const headerLineHeight = 9;
 
   const addText = (text, x, y, options = {}) => {
-    page.drawText(text, x, y, {
+    page.drawText(String(text ?? ""), x, y, {
       font: options.bold ? "F2" : "F1",
-      size: options.size || 8,
+      size: options.size || 7.5,
       color: options.color || reportExport.PDF_COLORS.bodyText,
     });
   };
 
-  const finishPage = () => {
-    addText(`Page ${pages.length + 1}`, 760, 24);
-    pages.push(page);
-    cursorY = 555;
+  const drawMetadataLine = (entries, startY) => {
+    const availableWidth = contentWidth;
+    const segmentWidth = availableWidth / entries.length;
+
+    entries.forEach((entry, index) => {
+      addText(`${entry.label}: ${entry.value}`, marginX + segmentWidth * index, startY, {
+        size: 9,
+      });
+    });
   };
 
-  const startPage = () => {
-    const titleLines = buildTitleLines({ filters, totalRows: rows.length });
+  const drawHeader = () => {
+    const metadata = buildMetadata({ filters, totalRows: rows.length });
 
-    page = reportExport.createPdfBuilder({ width: 842, height: 595 });
-    page.fillRect(40, 505, 762, 64, reportExport.PDF_COLORS.navy);
-    page.fillRect(58, 519, 40, 40, reportExport.PDF_COLORS.white);
+    page = reportExport.createPdfBuilder({ width: pageWidth, height: pageHeight });
+    page.fillRect(marginX, 742, contentWidth, 76, reportExport.PDF_COLORS.navy);
+    page.fillRect(42, 758, 40, 40, reportExport.PDF_COLORS.white);
+
     if (reportExport.PDF_IMAGE_REGISTRY.distyncLogo) {
-      page.drawImage("distyncLogo", 60, 521, 36, 36);
+      page.drawImage("distyncLogo", 44, 760, 36, 36);
     }
-    addText("DISTYNC", 112, 545, {
+
+    addText("DISTYNC", 96, 785, {
       bold: true,
       size: 18,
       color: reportExport.PDF_COLORS.white,
     });
-    addText("Office of the Mayor Inventory Items Report", 112, 524, {
+    addText("Office of the Mayor", 96, 767, {
       bold: true,
       size: 14,
       color: reportExport.PDF_COLORS.white,
     });
-    cursorY = 480;
-    titleLines.slice(3, 7).forEach((line) => {
-      addText(line, 40, cursorY, { size: 9 });
-      cursorY -= 12;
+    addText("Municipality of Malvar, Batangas", 96, 752, {
+      bold: true,
+      size: 11,
+      color: reportExport.PDF_COLORS.white,
     });
-    cursorY -= 10;
+    addText("Inventory Items report", pageWidth - 250, 767, {
+      bold: true,
+      size: 12,
+      color: reportExport.PDF_COLORS.white,
+    });
 
-    EXPORT_COLUMNS.forEach((column, index) => {
-      addText(column.label, [40, 190, 285, 560, 670][index], cursorY, {
-        bold: true,
+    cursorY = 712;
+    drawMetadataLine(metadata.slice(0, 3), cursorY);
+    cursorY -= 16;
+    drawMetadataLine(metadata.slice(3), cursorY);
+    cursorY -= 22;
+
+    let headerX = marginX;
+    const wrappedHeaders = EXPORT_COLUMNS.map((column, index) =>
+      wrapText(column.label, Math.max(8, Math.floor(columnWidths[index] / 5.8))),
+    );
+    const headerHeight =
+      Math.max(...wrappedHeaders.map((lines) => lines.length), 1) * headerLineHeight + 4;
+
+    wrappedHeaders.forEach((lines, index) => {
+      lines.forEach((line, lineIndex) => {
+        addText(line, headerX + 3, cursorY - lineIndex * headerLineHeight, {
+          bold: true,
+          size: 7.2,
+        });
       });
+      headerX += columnWidths[index];
     });
-    cursorY -= 14;
+    cursorY -= headerHeight;
   };
 
-  startPage();
+  const finishPage = () => {
+    addText(`Page ${pages.length + 1}`, pageWidth - 52, 20, { size: 8 });
+    pages.push(page);
+    cursorY = pageHeight - 40;
+  };
+
+  drawHeader();
 
   rows.forEach((row) => {
-    const nameLines = wrapText(row.item_name, 24).slice(0, 2);
-    const categoryLines = wrapText(row.category, 16).slice(0, 2);
-    const quantityLines = wrapText(row.quantity, 38).slice(0, 3);
+    const wrappedCells = EXPORT_COLUMNS.map((column, index) =>
+      wrapText(row[column.key], Math.max(8, Math.floor(columnWidths[index] / 5.8))),
+    );
     const rowHeight =
-      Math.max(nameLines.length, categoryLines.length, quantityLines.length, 1) * 11 + 8;
+      Math.max(...wrappedCells.map((lines) => lines.length), 1) * bodyLineHeight + 8;
 
     if (cursorY - rowHeight < 42) {
       finishPage();
-      startPage();
+      drawHeader();
     }
 
-    nameLines.forEach((line, index) => addText(line, 40, cursorY - index * 11));
-    categoryLines.forEach((line, index) =>
-      addText(line, 190, cursorY - index * 11),
-    );
-    quantityLines.forEach((line, index) =>
-      addText(line, 285, cursorY - index * 11),
-    );
-    addText(row.expiration_date, 560, cursorY);
-    addText(row.status, 670, cursorY);
+    let cellX = marginX;
+    wrappedCells.forEach((lines, index) => {
+      lines.forEach((line, lineIndex) => {
+        addText(line, cellX + 3, cursorY - lineIndex * bodyLineHeight, {
+          size: 7.2,
+        });
+      });
+      cellX += columnWidths[index];
+    });
+
     cursorY -= rowHeight;
   });
 

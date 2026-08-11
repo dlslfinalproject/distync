@@ -2,6 +2,7 @@ import React from "react";
 import {
   Bar,
   BarChart,
+  Cell,
   CartesianGrid,
   ResponsiveContainer,
   Tooltip,
@@ -22,13 +23,77 @@ const chartStyles = {
     fontSize: "14px",
     lineHeight: 1.6,
   },
+  header: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: "12px",
+  },
+  total: {
+    margin: 0,
+    color: "#2f6499",
+    fontSize: "13px",
+    fontWeight: 700,
+    whiteSpace: "nowrap",
+  },
 };
 
-const VerticalBarChart = ({ title, description, data, color = "#4f86be" }) => {
+const HIGHLIGHT_COLOR = "#2f6499";
+const BAR_COLORS = [
+  "#1f9d8a",
+  "#f59e0b",
+  "#7c8fd6",
+  "#d977a8",
+  "#14b8a6",
+  "#8b5cf6",
+  "#ef4444",
+  "#22c55e",
+  "#eab308",
+  "#0ea5e9",
+  "#f97316",
+  "#64748b",
+  "#06b6d4",
+  "#84cc16",
+  "#ec4899",
+  "#6366f1",
+  "#10b981",
+  "#f43f5e",
+];
+
+const getHighestValue = (data) => {
+  return Math.max(...data.map((item) => Number(item.value || 0)));
+};
+
+const getFallbackBarColor = (index) => {
+  const hue = (index * 47 + 18) % 360;
+  return `hsl(${hue}, 62%, 46%)`;
+};
+
+const getBarColor = ({ item, index, highestValue, firstHighestIndex }) => {
+  if (Number(item.value || 0) === highestValue && index === firstHighestIndex) {
+    return HIGHLIGHT_COLOR;
+  }
+
+  const paletteIndex = index > firstHighestIndex ? index - 1 : index;
+  return BAR_COLORS[paletteIndex] || getFallbackBarColor(paletteIndex);
+};
+
+const VerticalBarChart = ({ title, description, data }) => {
+  const highestValue = data.length > 0 ? getHighestValue(data) : 0;
+  const firstHighestIndex = data.findIndex(
+    (item) => Number(item.value || 0) === highestValue,
+  );
+  const totalValue = data.reduce((sum, item) => sum + Number(item.value || 0), 0);
+
   return (
     <section style={shellStyles.card}>
-      <h3 style={chartStyles.title}>{title}</h3>
-      <p style={chartStyles.helper}>{description}</p>
+      <div style={chartStyles.header}>
+        <h3 style={chartStyles.title}>{title}</h3>
+        {data.length > 0 ? (
+          <p style={chartStyles.total}>Total: {totalValue}</p>
+        ) : null}
+      </div>
+      {description ? <p style={chartStyles.helper}>{description}</p> : null}
 
       {data.length > 0 ? (
         <div style={{ width: "100%", height: "320px" }}>
@@ -45,7 +110,19 @@ const VerticalBarChart = ({ title, description, data, color = "#4f86be" }) => {
               />
               <YAxis tick={{ fill: "#66809c", fontSize: 12 }} />
               <Tooltip />
-              <Bar dataKey="value" fill={color} radius={[8, 8, 0, 0]} />
+              <Bar dataKey="value" radius={[8, 8, 0, 0]}>
+                {data.map((item, index) => (
+                  <Cell
+                    key={`${item.name}-${index}`}
+                    fill={getBarColor({
+                      item,
+                      index,
+                      highestValue,
+                      firstHighestIndex,
+                    })}
+                  />
+                ))}
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>

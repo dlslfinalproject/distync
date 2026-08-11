@@ -1,4 +1,6 @@
 const authRepository = require("./auth.repository");
+const { isDevelopmentBypassEnabled } = require("../../config/accessMode");
+const { TOKEN_EXPIRY, createAccessToken } = require("./auth.token");
 
 const AUTHORIZED_ROLE_CODES = new Set(["MSWDO", "BARANGAY", "MAYOR"]);
 const GOOGLE_ISSUERS = new Set([
@@ -74,17 +76,52 @@ const verifyGoogleIdToken = async (idToken) => {
 };
 
 const buildSessionPayload = (user, roleCode) => {
+  const accessToken = createAccessToken({
+    userId: user.id,
+    roleCode,
+    email: user.email,
+    defaultBarangayId: user.default_barangay_id,
+  });
+
   return {
+    access_token: accessToken,
+    token_type: "Bearer",
+    expires_in: TOKEN_EXPIRY,
     user: {
       id: user.id,
       email: user.email,
       first_name: user.first_name,
+      middle_name: user.middle_name || null,
       last_name: user.last_name,
       role: roleCode,
       default_barangay_id: user.default_barangay_id,
       is_active: user.is_active,
     },
   };
+};
+
+const resolveAuthorizedRoleForUser = async (user) => {
+  if (!user.is_active) {
+    const error = new Error("This account is not authorized to access DISTYNC.");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  const role = await authRepository.getRoleByUserId(user.id);
+
+  if (!role) {
+    const error = new Error("This account is not authorized to access DISTYNC.");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  if (!AUTHORIZED_ROLE_CODES.has(role.code)) {
+    const error = new Error("This account is not authorized to access DISTYNC.");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  return role.code;
 };
 
 const authenticateWithGoogle = async (idToken) => {
@@ -96,9 +133,7 @@ const authenticateWithGoogle = async (idToken) => {
     const userByEmail = await authRepository.getUserByEmail(verifiedIdentity.email);
 
     if (!userByEmail) {
-      const error = new Error(
-        "This Google account is not yet authorized for DISTYNC.",
-      );
+      const error = new Error("This account is not authorized to access DISTYNC.");
       error.statusCode = 403;
       throw error;
     }
@@ -107,9 +142,7 @@ const authenticateWithGoogle = async (idToken) => {
       userByEmail.google_sub &&
       userByEmail.google_sub !== verifiedIdentity.sub
     ) {
-      const error = new Error(
-        "This Google account does not match the authorized DISTYNC account.",
-      );
+      const error = new Error("This account is not authorized to access DISTYNC.");
       error.statusCode = 403;
       throw error;
     }
@@ -125,31 +158,40 @@ const authenticateWithGoogle = async (idToken) => {
     }
   }
 
-  if (!user.is_active) {
-    const error = new Error("This DISTYNC account is currently inactive.");
-    error.statusCode = 403;
-    throw error;
-  }
+  const roleCode = await resolveAuthorizedRoleForUser(user);
 
-  const role = await authRepository.getRoleByUserId(user.id);
+  return buildSessionPayload(user, roleCode);
+};
 
-  if (!role) {
-    const error = new Error("This DISTYNC account does not have an assigned role.");
-    error.statusCode = 403;
-    throw error;
-  }
-
-  if (!AUTHORIZED_ROLE_CODES.has(role.code)) {
+const authenticateDevelopmentRole = async (roleCode) => {
+  if (!isDevelopmentBypassEnabled()) {
     const error = new Error(
-      "This account is not allowed to use authorized staff access.",
+      "Development authentication bypass is disabled on the server.",
     );
     error.statusCode = 403;
     throw error;
   }
 
-  return buildSessionPayload(user, role.code);
+  if (!AUTHORIZED_ROLE_CODES.has(roleCode)) {
+    const error = new Error("Only staff roles are allowed for development login.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const user = await authRepository.getFirstActiveUserByRoleCode(roleCode);
+
+  if (!user) {
+    const error = new Error(
+      `No active seeded user is available for the ${roleCode} role.`,
+    );
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return buildSessionPayload(user, roleCode);
 };
 
 module.exports = {
+  authenticateDevelopmentRole,
   authenticateWithGoogle,
 };

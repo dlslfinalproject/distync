@@ -1,7 +1,9 @@
 const express = require("express");
 const pool = require("../config/db");
 const authRoutes = require("../modules/auth/auth.routes");
+const notificationRoutes = require("../modules/notifications/notification.routes");
 const disasterEventRoutes = require("./disasterEvent.routes");
+const donationRoutes = require("./donation.routes");
 const inventoryBatchRoutes = require("./inventoryBatch.routes");
 const inventoryTransactionRoutes = require("./inventoryTransaction.routes");
 const distributionTransactionRoutes = require("./distributionTransaction.routes");
@@ -13,6 +15,10 @@ const reliefPackTemplateRoutes = require("./reliefPackTemplate.routes");
 const sectorRoutes = require("./sector.routes");
 const stubRoutes = require("./stub.routes");
 const supplierRoutes = require("./supplier.routes");
+const syncRoutes = require("./sync.routes");
+const systemLogRoutes = require("./systemLog.routes");
+const mswdoReportRoutes = require("./mswdoReport.routes");
+const settingsRoutes = require("./settings.routes");
 
 const router = express.Router();
 
@@ -53,7 +59,9 @@ router.get("/barangays", async (req, res) => {
 });
 
 router.use("/disaster-events", disasterEventRoutes);
+router.use("/donations", donationRoutes);
 router.use("/auth", authRoutes);
+router.use("/notifications", notificationRoutes);
 router.use("/inventory-batches", inventoryBatchRoutes);
 router.use("/inventory-transactions", inventoryTransactionRoutes);
 router.use("/distribution-transactions", distributionTransactionRoutes);
@@ -65,5 +73,9 @@ router.use("/relief-pack-templates", reliefPackTemplateRoutes);
 router.use("/sectors", sectorRoutes);
 router.use("/stubs", stubRoutes);
 router.use("/suppliers", supplierRoutes);
+router.use("/sync", syncRoutes);
+router.use("/system-logs", systemLogRoutes);
+router.use("/mswdo-reports", mswdoReportRoutes);
+router.use("/settings", settingsRoutes);
 
 module.exports = router;

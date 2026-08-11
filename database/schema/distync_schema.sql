@@ -1,746 +1,927 @@
 -- =========================================================
--- DISTYNC INITIAL DATABASE SCHEMA
+-- DISTYNC DATABASE SCHEMA REFERENCE
 -- File: database/schema/distync_schema.sql
 -- Database: PostgreSQL / Supabase Postgres
 -- =========================================================
 
--- Optional but recommended for UUID generation
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
 
 -- =========================================================
 -- 1) REFERENCE / ACCESS CONTROL TABLES
 -- =========================================================
 
-CREATE TABLE roles (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    code VARCHAR(50) NOT NULL UNIQUE,
-    name VARCHAR(100) NOT NULL,
-    description TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+-- NOTE:
+-- The permissions and role_permissions tables are currently retained as
+-- reference/documentation structures and for possible future migration to a
+-- richer policy model.
+-- Live runtime authorization in the current app is still enforced primarily by
+-- role-code checks in the backend (for example BARANGAY, MSWDO, MAYOR), not by
+-- dynamic permission-table lookups.
+
+CREATE TABLE public.roles (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  code character varying NOT NULL UNIQUE,
+  name character varying NOT NULL,
+  description text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT roles_pkey PRIMARY KEY (id)
 );
 
-CREATE TABLE permissions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    code VARCHAR(100) NOT NULL UNIQUE,
-    name VARCHAR(150) NOT NULL,
-    description TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE public.permissions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  code character varying NOT NULL UNIQUE,
+  name character varying NOT NULL,
+  description text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT permissions_pkey PRIMARY KEY (id)
 );
 
-CREATE TABLE role_permissions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    role_id UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-    permission_id UUID NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_role_permissions UNIQUE (role_id, permission_id)
+CREATE TABLE public.role_permissions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  role_id uuid NOT NULL,
+  permission_id uuid NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT role_permissions_pkey PRIMARY KEY (id),
+  CONSTRAINT role_permissions_role_id_fkey FOREIGN KEY (role_id) REFERENCES public.roles(id),
+  CONSTRAINT role_permissions_permission_id_fkey FOREIGN KEY (permission_id) REFERENCES public.permissions(id)
 );
 
-CREATE TABLE barangays (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    code VARCHAR(50) NOT NULL UNIQUE,
-    name VARCHAR(150) NOT NULL UNIQUE,
-    municipality_name VARCHAR(150) NOT NULL DEFAULT 'Malvar',
-    province_name VARCHAR(150) NOT NULL DEFAULT 'Batangas',
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE public.barangays (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  code character varying NOT NULL UNIQUE,
+  name character varying NOT NULL UNIQUE,
+  municipality_name character varying NOT NULL DEFAULT 'Malvar'::character varying,
+  province_name character varying NOT NULL DEFAULT 'Batangas'::character varying,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT barangays_pkey PRIMARY KEY (id)
 );
 
-CREATE TABLE evacuation_centers (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    barangay_id UUID NOT NULL REFERENCES barangays(id) ON DELETE RESTRICT,
-    name VARCHAR(200) NOT NULL,
-    individual_capacity INTEGER CHECK (individual_capacity IS NULL OR individual_capacity >= 0),
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_evacuation_center UNIQUE (barangay_id, name)
+CREATE TABLE public.users (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  google_sub character varying UNIQUE,
+  email character varying NOT NULL UNIQUE,
+  first_name character varying NOT NULL,
+  middle_name character varying,
+  last_name character varying NOT NULL,
+  contact_number character varying,
+  default_barangay_id uuid,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  auth_provider character varying NOT NULL DEFAULT 'GOOGLE'::character varying,
+  last_login_at timestamp with time zone,
+  CONSTRAINT users_pkey PRIMARY KEY (id),
+  CONSTRAINT users_default_barangay_id_fkey FOREIGN KEY (default_barangay_id) REFERENCES public.barangays(id)
 );
 
-CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    google_sub VARCHAR(255) UNIQUE,
-    email VARCHAR(255) NOT NULL UNIQUE,
-    first_name VARCHAR(100) NOT NULL,
-    middle_name VARCHAR(100),
-    last_name VARCHAR(100) NOT NULL,
-    contact_number VARCHAR(30),
-    default_barangay_id UUID REFERENCES barangays(id) ON DELETE SET NULL,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE public.user_roles (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  role_id uuid NOT NULL,
+  assigned_by uuid,
+  assigned_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT user_roles_pkey PRIMARY KEY (id),
+  CONSTRAINT user_roles_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT user_roles_role_id_fkey FOREIGN KEY (role_id) REFERENCES public.roles(id),
+  CONSTRAINT user_roles_assigned_by_fkey FOREIGN KEY (assigned_by) REFERENCES public.users(id)
 );
 
-CREATE TABLE user_roles (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    role_id UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-    assigned_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_user_role UNIQUE (user_id, role_id)
+CREATE TABLE public.user_role_settings (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  role_code character varying NOT NULL,
+  profile_picture_path text,
+  profile_picture_file_name character varying,
+  profile_picture_updated_at timestamp with time zone,
+  notification_rule_preferences_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  last_profile_update_at timestamp with time zone,
+  last_preference_save_at timestamp with time zone NOT NULL DEFAULT now(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT user_role_settings_pkey PRIMARY KEY (id),
+  CONSTRAINT user_role_settings_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT user_role_settings_role_code_fkey FOREIGN KEY (role_code) REFERENCES public.roles(code),
+  CONSTRAINT user_role_settings_user_role_unique UNIQUE (user_id, role_code)
 );
 
-CREATE TABLE devices (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    device_uuid VARCHAR(255) NOT NULL UNIQUE,
-    device_name VARCHAR(150),
-    platform VARCHAR(100),
-    browser VARCHAR(100),
-    last_seen_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE public.devices (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  device_uuid character varying NOT NULL UNIQUE,
+  device_name character varying,
+  platform character varying,
+  browser character varying,
+  last_seen_at timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT devices_pkey PRIMARY KEY (id)
 );
 
 -- =========================================================
--- 2) DISASTER EVENT TABLES
+-- 2) DISASTER EVENT MANAGEMENT
 -- =========================================================
 
-CREATE TABLE disaster_events (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    event_code VARCHAR(100) NOT NULL UNIQUE,
-    title VARCHAR(255) NOT NULL,
-    disaster_type VARCHAR(100) NOT NULL,
-    description TEXT,
-    start_date DATE NOT NULL,
-    end_date DATE,
-    status VARCHAR(30) NOT NULL DEFAULT 'PLANNED',
-    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_disaster_event_status
-        CHECK (status IN ('PLANNED', 'ACTIVE', 'CLOSED', 'ARCHIVED')),
-    CONSTRAINT chk_disaster_event_dates
-        CHECK (end_date IS NULL OR end_date >= start_date)
+CREATE TABLE public.disaster_event_code_counters (
+  event_year integer NOT NULL,
+  last_number integer NOT NULL DEFAULT 0,
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT disaster_event_code_counters_pkey PRIMARY KEY (event_year)
 );
 
-CREATE TABLE disaster_event_barangays (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    disaster_event_id UUID NOT NULL REFERENCES disaster_events(id) ON DELETE CASCADE,
-    barangay_id UUID NOT NULL REFERENCES barangays(id) ON DELETE RESTRICT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_disaster_event_barangay UNIQUE (disaster_event_id, barangay_id)
+CREATE TABLE public.disaster_events (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  event_code character varying NOT NULL UNIQUE,
+  title character varying NOT NULL,
+  disaster_type character varying NOT NULL,
+  description text,
+  start_date date NOT NULL,
+  end_date date,
+  status character varying NOT NULL DEFAULT 'PLANNED'::character varying CHECK (status::text = ANY (ARRAY['PLANNED'::character varying, 'ACTIVE'::character varying, 'CLOSED'::character varying, 'ARCHIVED'::character varying]::text[])),
+  created_by uuid,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  ended_at timestamp with time zone,
+  CONSTRAINT disaster_events_pkey PRIMARY KEY (id),
+  CONSTRAINT disaster_events_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id)
 );
 
-CREATE TABLE disaster_event_code_counters (
-    event_year INTEGER PRIMARY KEY,
-    last_number INTEGER NOT NULL DEFAULT 0,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE public.disaster_event_barangays (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  disaster_event_id uuid NOT NULL,
+  barangay_id uuid NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT disaster_event_barangays_pkey PRIMARY KEY (id),
+  CONSTRAINT disaster_event_barangays_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id),
+  CONSTRAINT disaster_event_barangays_barangay_id_fkey FOREIGN KEY (barangay_id) REFERENCES public.barangays(id)
 );
 
-CREATE OR REPLACE FUNCTION generate_disaster_event_code_safe(p_start_date DATE)
-RETURNS VARCHAR(100)
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    v_event_year INTEGER := EXTRACT(YEAR FROM COALESCE(p_start_date, CURRENT_DATE));
-    v_next_number INTEGER;
+CREATE TABLE public.evacuation_centers (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  barangay_id uuid NOT NULL,
+  name character varying NOT NULL,
+  individual_capacity integer CHECK (individual_capacity IS NULL OR individual_capacity >= 0),
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT evacuation_centers_pkey PRIMARY KEY (id),
+  CONSTRAINT evacuation_centers_barangay_id_fkey FOREIGN KEY (barangay_id) REFERENCES public.barangays(id)
+);
+
+-- =========================================================
+-- 3) HOUSEHOLD & EVACUEE MANAGEMENT
+-- =========================================================
+
+CREATE TABLE public.sectors (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  code character varying NOT NULL UNIQUE,
+  name character varying NOT NULL UNIQUE,
+  description text,
+  sector_group character varying,
+  is_barangay_visible boolean NOT NULL DEFAULT true,
+  is_mswdo_visible boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT sectors_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE public.households (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  disaster_event_id uuid NOT NULL,
+  barangay_id uuid NOT NULL,
+  evacuation_center_id uuid,
+  family_head_first_name character varying NOT NULL,
+  family_head_middle_name character varying,
+  family_head_last_name character varying NOT NULL,
+  family_head_suffix character varying,
+  sex character varying NOT NULL CHECK (sex::text = ANY (ARRAY['MALE'::character varying, 'FEMALE'::character varying]::text[])),
+  birth_date date,
+  contact_number character varying,
+  current_stay_type character varying NOT NULL DEFAULT 'EVAC_CENTER'::character varying CHECK (current_stay_type::text = ANY (ARRAY['EVAC_CENTER'::character varying, 'RELATIVES'::character varying, 'OTHER_SAFE_PLACE'::character varying]::text[])),
+  current_address_details text,
+  household_size integer NOT NULL CHECK (household_size >= 1),
+  is_active boolean NOT NULL DEFAULT true,
+  registered_by uuid,
+  registered_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  family_head_evacuee_id uuid,
+  residency_status text NOT NULL DEFAULT 'RESIDENT'::text CHECK (residency_status = ANY (ARRAY['RESIDENT'::text, 'NON_RESIDENT'::text])),
+  family_head_photo_url text,
+  photo_captured_at timestamp with time zone,
+  photo_captured_by uuid,
+  photo_verification_notes text,
+  CONSTRAINT households_pkey PRIMARY KEY (id),
+  CONSTRAINT households_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id),
+  CONSTRAINT households_barangay_id_fkey FOREIGN KEY (barangay_id) REFERENCES public.barangays(id),
+  CONSTRAINT households_evacuation_center_id_fkey FOREIGN KEY (evacuation_center_id) REFERENCES public.evacuation_centers(id),
+  CONSTRAINT households_registered_by_fkey FOREIGN KEY (registered_by) REFERENCES public.users(id),
+  CONSTRAINT fk_households_family_head_evacuee FOREIGN KEY (family_head_evacuee_id) REFERENCES public.evacuees(id),
+  CONSTRAINT households_photo_captured_by_fkey FOREIGN KEY (photo_captured_by) REFERENCES public.users(id)
+);
+
+CREATE TABLE public.household_privacy_consents (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  household_id uuid NOT NULL,
+  disaster_event_id uuid NOT NULL,
+  consent_status character varying NOT NULL CHECK (consent_status::text = ANY (ARRAY['ACKNOWLEDGED'::character varying, 'DECLINED'::character varying, 'WITHDRAWN'::character varying]::text[])),
+  notice_version character varying NOT NULL,
+  acknowledged_at timestamp with time zone NOT NULL,
+  acknowledged_by_name character varying NOT NULL,
+  representative_relationship character varying,
+  recorded_by uuid NOT NULL,
+  recorded_at timestamp with time zone NOT NULL DEFAULT now(),
+  device_id uuid,
+  is_offline_encoded boolean NOT NULL DEFAULT false,
+  sync_status character varying NOT NULL DEFAULT 'SYNCED'::character varying CHECK (sync_status::text = ANY (ARRAY['PENDING'::character varying, 'SYNCED'::character varying, 'FAILED'::character varying, 'CONFLICT'::character varying]::text[])),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT household_privacy_consents_pkey PRIMARY KEY (id),
+  CONSTRAINT household_privacy_consents_household_id_fkey FOREIGN KEY (household_id) REFERENCES public.households(id),
+  CONSTRAINT household_privacy_consents_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id),
+  CONSTRAINT household_privacy_consents_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES public.users(id),
+  CONSTRAINT household_privacy_consents_device_id_fkey FOREIGN KEY (device_id) REFERENCES public.devices(id)
+);
+
+CREATE TABLE public.evacuees (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  household_id uuid NOT NULL,
+  first_name character varying NOT NULL,
+  middle_name character varying,
+  last_name character varying NOT NULL,
+  suffix character varying,
+  sex character varying NOT NULL CHECK (sex::text = ANY (ARRAY['MALE'::character varying, 'FEMALE'::character varying]::text[])),
+  birth_date date,
+  age integer CHECK (age IS NULL OR age >= 0),
+  civil_status character varying,
+  relationship_to_head character varying NOT NULL,
+  is_family_head boolean NOT NULL DEFAULT false,
+  is_pregnant boolean NOT NULL DEFAULT false,
+  is_lactating boolean NOT NULL DEFAULT false,
+  has_disability boolean NOT NULL DEFAULT false,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  age_value integer CHECK (age_value IS NULL OR age_value >= 0),
+  age_unit character varying CHECK (age_unit IS NULL OR (age_unit::text = ANY (ARRAY['MONTHS'::character varying, 'YEARS'::character varying]::text[]))),
+  CONSTRAINT evacuees_pkey PRIMARY KEY (id),
+  CONSTRAINT evacuees_household_id_fkey FOREIGN KEY (household_id) REFERENCES public.households(id)
+);
+
+CREATE TABLE public.household_sectors (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  household_id uuid NOT NULL,
+  sector_id uuid NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT household_sectors_pkey PRIMARY KEY (id),
+  CONSTRAINT household_sectors_household_id_fkey FOREIGN KEY (household_id) REFERENCES public.households(id),
+  CONSTRAINT household_sectors_sector_id_fkey FOREIGN KEY (sector_id) REFERENCES public.sectors(id)
+);
+
+CREATE TABLE public.evacuee_sectors (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  evacuee_id uuid NOT NULL,
+  sector_id uuid NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT evacuee_sectors_pkey PRIMARY KEY (id),
+  CONSTRAINT evacuee_sectors_evacuee_id_fkey FOREIGN KEY (evacuee_id) REFERENCES public.evacuees(id),
+  CONSTRAINT evacuee_sectors_sector_id_fkey FOREIGN KEY (sector_id) REFERENCES public.sectors(id)
+);
+
+CREATE TABLE public.evacuation_logs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  disaster_event_id uuid NOT NULL,
+  household_id uuid NOT NULL,
+  evacuee_id uuid NOT NULL,
+  evacuation_center_id uuid,
+  time_in timestamp with time zone NOT NULL,
+  time_out timestamp with time zone,
+  status character varying NOT NULL DEFAULT 'PRESENT'::character varying CHECK (status::text = ANY (ARRAY['PRESENT'::character varying, 'LEFT'::character varying, 'TRANSFERRED'::character varying]::text[])),
+  recorded_by uuid,
+  remarks text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT evacuation_logs_pkey PRIMARY KEY (id),
+  CONSTRAINT evacuation_logs_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id),
+  CONSTRAINT evacuation_logs_household_id_fkey FOREIGN KEY (household_id) REFERENCES public.households(id),
+  CONSTRAINT evacuation_logs_evacuee_id_fkey FOREIGN KEY (evacuee_id) REFERENCES public.evacuees(id),
+  CONSTRAINT evacuation_logs_evacuation_center_id_fkey FOREIGN KEY (evacuation_center_id) REFERENCES public.evacuation_centers(id),
+  CONSTRAINT evacuation_logs_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES public.users(id)
+);
+
+-- =========================================================
+-- 4) STUBS & DISTRIBUTION
+-- =========================================================
+
+CREATE TABLE public.stubs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  disaster_event_id uuid NOT NULL,
+  household_id uuid NOT NULL,
+  stub_no character varying NOT NULL UNIQUE,
+  serial_no character varying NOT NULL UNIQUE,
+  status character varying NOT NULL DEFAULT 'ISSUED'::character varying CHECK (status::text = ANY (ARRAY['ISSUED'::character varying, 'CLAIMED'::character varying, 'CANCELLED'::character varying, 'VOID'::character varying]::text[])),
+  issued_by uuid,
+  issued_at timestamp with time zone NOT NULL DEFAULT now(),
+  claimed_at timestamp with time zone,
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  qr_code_value text,
+  qr_generated_at timestamp with time zone,
+  qr_generated_by uuid,
+  qr_status character varying NOT NULL DEFAULT 'ACTIVE'::character varying CHECK (qr_status::text = ANY (ARRAY['ACTIVE'::character varying, 'VOIDED'::character varying, 'REGENERATED'::character varying]::text[])),
+  qr_notes text,
+  CONSTRAINT stubs_pkey PRIMARY KEY (id),
+  CONSTRAINT stubs_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id),
+  CONSTRAINT stubs_household_id_fkey FOREIGN KEY (household_id) REFERENCES public.households(id),
+  CONSTRAINT stubs_issued_by_fkey FOREIGN KEY (issued_by) REFERENCES public.users(id),
+  CONSTRAINT stubs_qr_generated_by_fkey FOREIGN KEY (qr_generated_by) REFERENCES public.users(id)
+);
+
+CREATE TABLE public.distribution_transactions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  disaster_event_id uuid NOT NULL,
+  household_id uuid NOT NULL,
+  stub_id uuid NOT NULL UNIQUE,
+  distribution_date timestamp with time zone NOT NULL DEFAULT now(),
+  distribution_status character varying NOT NULL DEFAULT 'CLAIMED'::character varying CHECK (distribution_status::text = ANY (ARRAY['CLAIMED'::character varying, 'CANCELLED'::character varying, 'REVERSED'::character varying]::text[])),
+  claimed_by_name character varying,
+  verified_by uuid,
+  device_id uuid,
+  is_offline_encoded boolean NOT NULL DEFAULT false,
+  sync_status character varying NOT NULL DEFAULT 'SYNCED'::character varying CHECK (sync_status::text = ANY (ARRAY['PENDING'::character varying, 'SYNCED'::character varying, 'CONFLICT'::character varying, 'FAILED'::character varying]::text[])),
+  remarks text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  receipt_no character varying,
+  receipt_status character varying NOT NULL DEFAULT 'GENERATED'::character varying CHECK (receipt_status::text = ANY (ARRAY['GENERATED'::character varying, 'VOIDED'::character varying, 'REISSUED'::character varying, 'CANCELLED'::character varying]::text[])),
+  received_at timestamp with time zone,
+  qr_reference_value text,
+  qr_scanned_at timestamp with time zone,
+  qr_scanned_by uuid,
+  relief_pack_template_id uuid,
+  CONSTRAINT distribution_transactions_pkey PRIMARY KEY (id),
+  CONSTRAINT distribution_transactions_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id),
+  CONSTRAINT distribution_transactions_household_id_fkey FOREIGN KEY (household_id) REFERENCES public.households(id),
+  CONSTRAINT distribution_transactions_stub_id_fkey FOREIGN KEY (stub_id) REFERENCES public.stubs(id),
+  CONSTRAINT distribution_transactions_verified_by_fkey FOREIGN KEY (verified_by) REFERENCES public.users(id),
+  CONSTRAINT distribution_transactions_device_id_fkey FOREIGN KEY (device_id) REFERENCES public.devices(id),
+  CONSTRAINT distribution_transactions_relief_pack_template_id_fkey FOREIGN KEY (relief_pack_template_id) REFERENCES public.relief_pack_templates(id),
+  CONSTRAINT distribution_transactions_qr_scanned_by_fkey FOREIGN KEY (qr_scanned_by) REFERENCES public.users(id)
+);
+
+CREATE TABLE public.distribution_transaction_items (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  distribution_transaction_id uuid NOT NULL,
+  inventory_batch_id uuid NOT NULL,
+  inventory_item_id uuid NOT NULL,
+  quantity_released integer NOT NULL CHECK (quantity_released > 0),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT distribution_transaction_items_pkey PRIMARY KEY (id),
+  CONSTRAINT distribution_transaction_items_distribution_transaction_id_fkey FOREIGN KEY (distribution_transaction_id) REFERENCES public.distribution_transactions(id),
+  CONSTRAINT distribution_transaction_items_inventory_batch_id_fkey FOREIGN KEY (inventory_batch_id) REFERENCES public.inventory_batches(id),
+  CONSTRAINT distribution_transaction_items_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id)
+);
+
+-- =========================================================
+-- 5) INVENTORY MANAGEMENT
+-- =========================================================
+
+CREATE TABLE public.suppliers (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  name character varying NOT NULL UNIQUE,
+  contact_person character varying,
+  contact_number character varying,
+  address text,
+  has_moa boolean NOT NULL DEFAULT false,
+  notes text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT suppliers_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE public.inventory_items (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  item_code character varying NOT NULL UNIQUE,
+  item_name character varying NOT NULL UNIQUE,
+  category character varying NOT NULL,
+  unit_of_measure character varying NOT NULL,
+  barcode character varying,
+  is_perishable boolean NOT NULL DEFAULT false,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  packaging character varying,
+  quantity integer CHECK (quantity IS NULL OR quantity > 0),
+  packaging_count integer CHECK (packaging_count IS NULL OR packaging_count > 0),
+  unit_of_measure_value numeric CHECK (unit_of_measure_value IS NULL OR unit_of_measure_value > 0::numeric),
+  reorder_level integer CHECK (reorder_level IS NULL OR reorder_level > 0),
+  expiration_date date,
+  CONSTRAINT inventory_items_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE public.inventory_item_stock_forms (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  inventory_item_id uuid NOT NULL,
+  barcode character varying,
+  packaging character varying NOT NULL,
+  units_per_packaging integer NOT NULL CHECK (units_per_packaging > 0),
+  unit_of_measure character varying NOT NULL,
+  unit_of_measure_value numeric CHECK (unit_of_measure_value IS NULL OR unit_of_measure_value > 0::numeric),
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT inventory_item_stock_forms_pkey PRIMARY KEY (id),
+  CONSTRAINT inventory_item_stock_forms_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id),
+  CONSTRAINT inventory_item_stock_forms_barcode_key UNIQUE (barcode),
+  CONSTRAINT inventory_item_stock_forms_unique_packaging UNIQUE (inventory_item_id, packaging, units_per_packaging, unit_of_measure, unit_of_measure_value)
+);
+
+CREATE TABLE public.inventory_batches (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  inventory_item_id uuid NOT NULL,
+  inventory_item_stock_form_id uuid,
+  batch_no character varying NOT NULL,
+  supplier_id uuid,
+  source_type character varying NOT NULL DEFAULT 'LGU'::character varying CHECK (source_type::text = ANY (ARRAY['PURCHASED'::character varying, 'DONATED'::character varying, 'DSWD'::character varying, 'LGU'::character varying, 'OTHER'::character varying]::text[])),
+  quantity_received integer NOT NULL CHECK (quantity_received >= 0),
+  quantity_available integer NOT NULL CHECK (quantity_available >= 0),
+  stock_version integer NOT NULL DEFAULT 0,
+  expiration_date date,
+  received_at timestamp with time zone NOT NULL DEFAULT now(),
+  storage_location character varying,
+  status character varying NOT NULL DEFAULT 'AVAILABLE'::character varying CHECK (status::text = ANY (ARRAY['AVAILABLE'::character varying, 'LOW_STOCK'::character varying, 'EXPIRED'::character varying, 'DEPLETED'::character varying, 'MISSING'::character varying, 'DAMAGED'::character varying]::text[])),
+  created_by uuid,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT inventory_batches_pkey PRIMARY KEY (id),
+  CONSTRAINT inventory_batches_inventory_item_id_batch_no_unique UNIQUE (inventory_item_id, batch_no),
+  CONSTRAINT inventory_batches_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id),
+  CONSTRAINT inventory_batches_inventory_item_stock_form_id_fkey FOREIGN KEY (inventory_item_stock_form_id) REFERENCES public.inventory_item_stock_forms(id),
+  CONSTRAINT inventory_batches_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES public.suppliers(id),
+  CONSTRAINT inventory_batches_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id)
+);
+
+CREATE OR REPLACE FUNCTION public.increment_inventory_batch_stock_version()
+RETURNS trigger AS $$
 BEGIN
-    LOOP
-        UPDATE disaster_event_code_counters
-        SET
-            last_number = last_number + 1,
-            updated_at = NOW()
-        WHERE event_year = v_event_year
-        RETURNING last_number INTO v_next_number;
+  IF
+    NEW.quantity_available IS DISTINCT FROM OLD.quantity_available
+    OR NEW.status IS DISTINCT FROM OLD.status
+    OR NEW.expiration_date IS DISTINCT FROM OLD.expiration_date
+  THEN
+    NEW.stock_version := OLD.stock_version + 1;
+  ELSE
+    NEW.stock_version := OLD.stock_version;
+  END IF;
 
-        IF FOUND THEN
-            EXIT;
-        END IF;
-
-        BEGIN
-            INSERT INTO disaster_event_code_counters (
-                event_year,
-                last_number,
-                updated_at
-            )
-            VALUES (
-                v_event_year,
-                1,
-                NOW()
-            )
-            RETURNING last_number INTO v_next_number;
-
-            EXIT;
-        EXCEPTION
-            WHEN unique_violation THEN
-                NULL;
-        END;
-    END LOOP;
-
-    RETURN FORMAT(
-        'DE-%s-%s',
-        v_event_year,
-        LPAD(v_next_number::TEXT, 4, '0')
-    );
+  RETURN NEW;
 END;
-$$;
+$$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION trg_set_disaster_event_code_safe()
-RETURNS TRIGGER
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    IF NEW.event_code IS NULL OR BTRIM(NEW.event_code) = '' THEN
-        NEW.event_code := generate_disaster_event_code_safe(NEW.start_date);
-    END IF;
-
-    NEW.updated_at := NOW();
-    RETURN NEW;
-END;
-$$;
-
-CREATE TRIGGER before_insert_disaster_event_code_safe
-BEFORE INSERT ON disaster_events
+CREATE TRIGGER inventory_batches_stock_version_before_update
+BEFORE UPDATE
+ON public.inventory_batches
 FOR EACH ROW
-EXECUTE FUNCTION trg_set_disaster_event_code_safe();
+EXECUTE FUNCTION public.increment_inventory_batch_stock_version();
 
--- =========================================================
--- 3) BENEFICIARY / EVACUEE TABLES
--- =========================================================
-
-CREATE TABLE sectors (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    code VARCHAR(50) NOT NULL UNIQUE,
-    name VARCHAR(100) NOT NULL UNIQUE,
-    description TEXT,
-    sector_group VARCHAR(50),
-    is_barangay_visible BOOLEAN NOT NULL DEFAULT TRUE,
-    is_mswdo_visible BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE public.inventory_transactions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  disaster_event_id uuid,
+  inventory_batch_id uuid NOT NULL,
+  transaction_type character varying NOT NULL CHECK (transaction_type::text = ANY (ARRAY['INFLOW'::character varying, 'OUTFLOW'::character varying, 'ADJUSTMENT'::character varying, 'EXPIRED'::character varying, 'MISSING'::character varying, 'DAMAGED'::character varying, 'SPOILED'::character varying, 'STOLEN'::character varying, 'RETURN'::character varying]::text[])),
+  quantity integer NOT NULL CHECK (quantity >= 0),
+  reference_type character varying NOT NULL DEFAULT 'MANUAL'::character varying CHECK (reference_type::text = ANY (ARRAY['MANUAL'::character varying, 'BARCODE_SCAN'::character varying, 'QR_SCAN'::character varying, 'DISTRIBUTION'::character varying, 'DONATION'::character varying, 'PROOF_OF_RECEIPT'::character varying, 'SYNC'::character varying, 'SYSTEM'::character varying]::text[])),
+  reference_id uuid,
+  inventory_transaction_reference_no character varying(15) CHECK (inventory_transaction_reference_no IS NULL OR (inventory_transaction_reference_no::text ~ '^ITR-[0-9]{4}-[0-9]{6}$'::text AND RIGHT(inventory_transaction_reference_no::text, 6) <> '000000'::text)),
+  performed_by uuid,
+  performed_at timestamp with time zone NOT NULL DEFAULT now(),
+  remarks text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT inventory_transactions_pkey PRIMARY KEY (id),
+  CONSTRAINT inventory_transactions_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id),
+  CONSTRAINT inventory_transactions_inventory_batch_id_fkey FOREIGN KEY (inventory_batch_id) REFERENCES public.inventory_batches(id),
+  CONSTRAINT inventory_transactions_performed_by_fkey FOREIGN KEY (performed_by) REFERENCES public.users(id)
 );
 
-CREATE TABLE households (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    disaster_event_id UUID NOT NULL REFERENCES disaster_events(id) ON DELETE RESTRICT,
-    barangay_id UUID NOT NULL REFERENCES barangays(id) ON DELETE RESTRICT,
-    evacuation_center_id UUID REFERENCES evacuation_centers(id) ON DELETE SET NULL,
-    residency_status VARCHAR(30) NOT NULL DEFAULT 'RESIDENT',
+CREATE UNIQUE INDEX inventory_transactions_reference_no_unique
+ON public.inventory_transactions (inventory_transaction_reference_no)
+WHERE inventory_transaction_reference_no IS NOT NULL;
 
-    family_head_first_name VARCHAR(100) NOT NULL,
-    family_head_middle_name VARCHAR(100),
-    family_head_last_name VARCHAR(100) NOT NULL,
-    family_head_suffix VARCHAR(20),
-
-    sex VARCHAR(20) NOT NULL,
-    birth_date DATE,
-    contact_number VARCHAR(30),
-
-    current_stay_type VARCHAR(30) NOT NULL DEFAULT 'EVAC_CENTER',
-    current_address_details TEXT,
-
-    household_size INTEGER NOT NULL CHECK (household_size >= 1),
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-
-    registered_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    CONSTRAINT chk_household_sex
-        CHECK (sex IN ('MALE', 'FEMALE')),
-    CONSTRAINT chk_household_stay_type
-        CHECK (current_stay_type IN ('EVAC_CENTER', 'RELATIVES', 'OTHER_SAFE_PLACE')),
-    CONSTRAINT chk_household_residency_status
-        CHECK (residency_status IN ('RESIDENT', 'NON_RESIDENT'))
+CREATE TABLE public.relief_pack_templates (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  name character varying NOT NULL UNIQUE,
+  description text,
+  based_on_family_size boolean NOT NULL DEFAULT false,
+  based_on_sector boolean NOT NULL DEFAULT false,
+  is_additional_pack boolean NOT NULL DEFAULT false,
+  sector_id uuid,
+  applies_to_all_disasters boolean NOT NULL DEFAULT true,
+  created_by uuid,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT relief_pack_templates_pkey PRIMARY KEY (id),
+  CONSTRAINT relief_pack_templates_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id),
+  CONSTRAINT relief_pack_templates_sector_id_fkey FOREIGN KEY (sector_id) REFERENCES public.sectors(id)
 );
 
-CREATE TABLE evacuees (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE,
-
-    first_name VARCHAR(100) NOT NULL,
-    middle_name VARCHAR(100),
-    last_name VARCHAR(100) NOT NULL,
-    suffix VARCHAR(20),
-
-    sex VARCHAR(20) NOT NULL,
-    birth_date DATE,
-    age INTEGER CHECK (age IS NULL OR age >= 0),
-
-    age_value INTEGER CHECK (age_value IS NULL OR age_value >= 0),
-    age_unit VARCHAR(10),
-
-    civil_status VARCHAR(50),
-    relationship_to_head VARCHAR(100) NOT NULL,
-
-    is_family_head BOOLEAN NOT NULL DEFAULT FALSE,
-    is_pregnant BOOLEAN NOT NULL DEFAULT FALSE,
-    is_lactating BOOLEAN NOT NULL DEFAULT FALSE,
-    has_disability BOOLEAN NOT NULL DEFAULT FALSE,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    CONSTRAINT chk_evacuee_sex
-        CHECK (sex IN ('MALE', 'FEMALE')),
-    CONSTRAINT chk_evacuee_age_unit
-        CHECK (age_unit IS NULL OR age_unit IN ('MONTHS', 'YEARS'))
-
+CREATE TABLE public.relief_pack_template_items (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  template_id uuid NOT NULL,
+  inventory_item_id uuid NOT NULL,
+  quantity_required integer NOT NULL CHECK (quantity_required > 0),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT relief_pack_template_items_pkey PRIMARY KEY (id),
+  CONSTRAINT relief_pack_template_items_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.relief_pack_templates(id),
+  CONSTRAINT relief_pack_template_items_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id)
 );
 
-ALTER TABLE households
-ADD COLUMN family_head_evacuee_id UUID,
-ADD CONSTRAINT fk_households_family_head_evacuee
-    FOREIGN KEY (family_head_evacuee_id)
-    REFERENCES evacuees(id)
-    ON DELETE SET NULL;
-
-CREATE TABLE evacuee_sectors (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    evacuee_id UUID NOT NULL REFERENCES evacuees(id) ON DELETE CASCADE,
-    sector_id UUID NOT NULL REFERENCES sectors(id) ON DELETE RESTRICT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_evacuee_sector UNIQUE (evacuee_id, sector_id)
-);
-
-CREATE TABLE household_sectors (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE,
-    sector_id UUID NOT NULL REFERENCES sectors(id) ON DELETE RESTRICT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_household_sector UNIQUE (household_id, sector_id)
-);
-
-CREATE TABLE stubs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    disaster_event_id UUID NOT NULL REFERENCES disaster_events(id) ON DELETE RESTRICT,
-    household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE,
-    stub_no VARCHAR(100) NOT NULL UNIQUE,
-    serial_no VARCHAR(100) NOT NULL UNIQUE,
-    status VARCHAR(20) NOT NULL DEFAULT 'ISSUED',
-    issued_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    issued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    claimed_at TIMESTAMPTZ,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_stub_status
-        CHECK (status IN ('ISSUED', 'CLAIMED', 'CANCELLED', 'VOID')),
-    CONSTRAINT uq_stub_household_event UNIQUE (disaster_event_id, household_id)
-);
-
-CREATE TABLE stub_code_counters (
-    stub_year INTEGER PRIMARY KEY,
-    last_number INTEGER NOT NULL DEFAULT 0,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE OR REPLACE FUNCTION reserve_next_stub_sequence_safe(p_reference_date DATE DEFAULT CURRENT_DATE)
-RETURNS INTEGER
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    v_stub_year INTEGER := EXTRACT(YEAR FROM COALESCE(p_reference_date, CURRENT_DATE));
-    v_next_number INTEGER;
-BEGIN
-    LOOP
-        UPDATE stub_code_counters
-        SET
-            last_number = last_number + 1,
-            updated_at = NOW()
-        WHERE stub_year = v_stub_year
-        RETURNING last_number INTO v_next_number;
-
-        IF FOUND THEN
-            EXIT;
-        END IF;
-
-        BEGIN
-            INSERT INTO stub_code_counters (
-                stub_year,
-                last_number,
-                updated_at
-            )
-            VALUES (
-                v_stub_year,
-                1,
-                NOW()
-            )
-            RETURNING last_number INTO v_next_number;
-
-            EXIT;
-        EXCEPTION
-            WHEN unique_violation THEN
-                NULL;
-        END;
-    END LOOP;
-
-    RETURN v_next_number;
-END;
-$$;
-
-CREATE OR REPLACE FUNCTION generate_stub_numbers_safe(p_reference_date DATE DEFAULT CURRENT_DATE)
-RETURNS TABLE (
-    stub_no VARCHAR(100),
-    serial_no VARCHAR(100)
-)
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    v_stub_year INTEGER := EXTRACT(YEAR FROM COALESCE(p_reference_date, CURRENT_DATE));
-    v_next_number INTEGER;
-BEGIN
-    v_next_number := reserve_next_stub_sequence_safe(p_reference_date);
-
-    RETURN QUERY
-    SELECT
-        FORMAT('STUB-%s-%s', v_stub_year, LPAD(v_next_number::TEXT, 6, '0'))::VARCHAR(100),
-        FORMAT('SER-%s-%s', v_stub_year, LPAD(v_next_number::TEXT, 6, '0'))::VARCHAR(100);
-END;
-$$;
-
-CREATE TABLE evacuation_logs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    disaster_event_id UUID NOT NULL REFERENCES disaster_events(id) ON DELETE RESTRICT,
-    household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE,
-    evacuee_id UUID NOT NULL REFERENCES evacuees(id) ON DELETE CASCADE,
-    evacuation_center_id UUID REFERENCES evacuation_centers(id) ON DELETE SET NULL,
-
-    time_in TIMESTAMPTZ NOT NULL,
-    time_out TIMESTAMPTZ,
-    status VARCHAR(20) NOT NULL DEFAULT 'PRESENT',
-    recorded_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    remarks TEXT,
-
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    CONSTRAINT chk_evacuation_log_status
-        CHECK (status IN ('PRESENT', 'LEFT', 'TRANSFERRED')),
-    CONSTRAINT chk_evacuation_log_time
-        CHECK (time_out IS NULL OR time_out >= time_in)
+CREATE TABLE public.relief_pack_template_disaster_types (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  template_id uuid NOT NULL,
+  disaster_type character varying NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT relief_pack_template_disaster_types_pkey PRIMARY KEY (id),
+  CONSTRAINT relief_pack_template_disaster_types_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.relief_pack_templates(id) ON DELETE CASCADE,
+  CONSTRAINT relief_pack_template_disaster_types_unique UNIQUE (template_id, disaster_type)
 );
 
 -- =========================================================
--- 4) INVENTORY TABLES
+-- 6) DONATIONS & DONOR MANAGEMENT
 -- =========================================================
 
-CREATE TABLE suppliers (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name VARCHAR(200) NOT NULL UNIQUE,
-    contact_person VARCHAR(150),
-    contact_number VARCHAR(30),
-    address TEXT,
-    has_moa BOOLEAN NOT NULL DEFAULT FALSE,
-    notes TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE public.donations (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  disaster_event_id uuid NOT NULL,
+  donor_name character varying NOT NULL,
+  donor_type character varying NOT NULL DEFAULT 'INDIVIDUAL'::character varying CHECK (donor_type::text = ANY (ARRAY['INDIVIDUAL'::character varying, 'NGO'::character varying, 'PRIVATE_ORGANIZATION'::character varying, 'GOVERNMENT_PARTNER'::character varying, 'OTHER'::character varying]::text[])),
+  donor_type_other character varying,
+  contact_information character varying,
+  received_by uuid,
+  received_at timestamp with time zone NOT NULL DEFAULT now(),
+  status character varying NOT NULL DEFAULT 'RECEIVED'::character varying CHECK (status::text = ANY (ARRAY['RECEIVED'::character varying, 'PARTIALLY_DISTRIBUTED'::character varying, 'DISTRIBUTED'::character varying, 'CANCELLED'::character varying]::text[])),
+  remarks text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT donations_pkey PRIMARY KEY (id),
+  CONSTRAINT donations_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id),
+  CONSTRAINT donations_received_by_fkey FOREIGN KEY (received_by) REFERENCES public.users(id)
 );
 
-CREATE TABLE inventory_items (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    item_code VARCHAR(100) NOT NULL UNIQUE,
-    item_name VARCHAR(200) NOT NULL,
-    category VARCHAR(100) NOT NULL,
-    unit_of_measure VARCHAR(50) NOT NULL,
-    unit_of_measure_value NUMERIC(12,2) CHECK (unit_of_measure_value IS NULL OR unit_of_measure_value > 0),
-    packaging VARCHAR(50),
-    packaging_count INTEGER CHECK (packaging_count IS NULL OR packaging_count > 0),
-    quantity INTEGER CHECK (quantity IS NULL OR quantity > 0),
-    expiration_date DATE,
-    barcode VARCHAR(150),
-    is_perishable BOOLEAN NOT NULL DEFAULT FALSE,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_inventory_item_name UNIQUE (item_name)
+CREATE TABLE public.donation_items (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  donation_id uuid NOT NULL,
+  inventory_item_id uuid NOT NULL,
+  inventory_batch_id uuid,
+  quantity_received integer NOT NULL CHECK (quantity_received > 0),
+  remarks text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT donation_items_pkey PRIMARY KEY (id),
+  CONSTRAINT donation_items_donation_id_fkey FOREIGN KEY (donation_id) REFERENCES public.donations(id),
+  CONSTRAINT donation_items_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id),
+  CONSTRAINT donation_items_inventory_batch_id_fkey FOREIGN KEY (inventory_batch_id) REFERENCES public.inventory_batches(id)
 );
 
-CREATE TABLE inventory_batches (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    inventory_item_id UUID NOT NULL REFERENCES inventory_items(id) ON DELETE RESTRICT,
-    batch_no VARCHAR(100) NOT NULL,
-    supplier_id UUID REFERENCES suppliers(id) ON DELETE SET NULL,
-
-    source_type VARCHAR(30) NOT NULL DEFAULT 'LGU',
-    quantity_received INTEGER NOT NULL CHECK (quantity_received >= 0),
-    quantity_available INTEGER NOT NULL CHECK (quantity_available >= 0),
-    expiration_date DATE,
-    received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    storage_location VARCHAR(200),
-    status VARCHAR(30) NOT NULL DEFAULT 'AVAILABLE',
-
-    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    CONSTRAINT chk_inventory_source_type
-        CHECK (source_type IN ('PURCHASED', 'DONATED', 'DSWD', 'LGU', 'OTHER')),
-    CONSTRAINT chk_inventory_batch_status
-        CHECK (status IN ('AVAILABLE', 'LOW_STOCK', 'EXPIRED', 'DEPLETED', 'MISSING', 'DAMAGED')),
-    CONSTRAINT uq_inventory_batch UNIQUE (inventory_item_id, batch_no)
+CREATE TABLE public.donation_needs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  disaster_event_id uuid NOT NULL,
+  inventory_item_id uuid NOT NULL,
+  quantity_needed integer NOT NULL CHECK (quantity_needed >= 0),
+  priority_level character varying NOT NULL DEFAULT 'MEDIUM'::character varying CHECK (priority_level::text = ANY (ARRAY['LOW'::character varying, 'MEDIUM'::character varying, 'HIGH'::character varying, 'URGENT'::character varying]::text[])),
+  notes text,
+  is_active boolean NOT NULL DEFAULT true,
+  published_by uuid,
+  published_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT donation_needs_pkey PRIMARY KEY (id),
+  CONSTRAINT donation_needs_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id),
+  CONSTRAINT donation_needs_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id),
+  CONSTRAINT donation_needs_published_by_fkey FOREIGN KEY (published_by) REFERENCES public.users(id)
 );
 
-CREATE TABLE inventory_transactions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    disaster_event_id UUID REFERENCES disaster_events(id) ON DELETE SET NULL,
-    inventory_batch_id UUID NOT NULL REFERENCES inventory_batches(id) ON DELETE CASCADE,
-
-    transaction_type VARCHAR(30) NOT NULL,
-    quantity INTEGER NOT NULL CHECK (quantity >= 0),
-    reference_type VARCHAR(30) NOT NULL DEFAULT 'MANUAL',
-    reference_id UUID,
-    performed_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    performed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    remarks TEXT,
-
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    CONSTRAINT chk_inventory_transaction_type
-        CHECK (transaction_type IN ('INFLOW', 'OUTFLOW', 'ADJUSTMENT', 'EXPIRED', 'MISSING', 'DAMAGED', 'RETURN')),
-    CONSTRAINT chk_inventory_reference_type
-        CHECK (reference_type IN ('MANUAL', 'BARCODE_SCAN', 'DISTRIBUTION', 'SYNC', 'SYSTEM'))
-);
-
-CREATE TABLE relief_pack_templates (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name VARCHAR(150) NOT NULL UNIQUE,
-    description TEXT,
-    based_on_family_size BOOLEAN NOT NULL DEFAULT FALSE,
-    based_on_sector BOOLEAN NOT NULL DEFAULT FALSE,
-    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE relief_pack_template_items (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    template_id UUID NOT NULL REFERENCES relief_pack_templates(id) ON DELETE CASCADE,
-    inventory_item_id UUID NOT NULL REFERENCES inventory_items(id) ON DELETE RESTRICT,
-    quantity_required INTEGER NOT NULL CHECK (quantity_required > 0),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_relief_pack_item UNIQUE (template_id, inventory_item_id)
+CREATE TABLE public.default_emergency_donation_needs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  inventory_item_id uuid,
+  item_name character varying NOT NULL,
+  category character varying,
+  unit_of_measure character varying NOT NULL DEFAULT 'items'::character varying,
+  suggested_quantity integer CHECK (suggested_quantity IS NULL OR suggested_quantity >= 0),
+  priority_level character varying NOT NULL DEFAULT 'MEDIUM'::character varying CHECK (priority_level::text = ANY (ARRAY['LOW'::character varying, 'MEDIUM'::character varying, 'HIGH'::character varying, 'URGENT'::character varying]::text[])),
+  notes text,
+  disaster_type character varying,
+  display_order integer NOT NULL DEFAULT 0,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT default_emergency_donation_needs_pkey PRIMARY KEY (id),
+  CONSTRAINT default_emergency_donation_needs_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id)
 );
 
 -- =========================================================
--- 5) DISTRIBUTION TABLES
+-- 7) NOTIFICATIONS
 -- =========================================================
 
-CREATE TABLE distribution_transactions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    disaster_event_id UUID NOT NULL REFERENCES disaster_events(id) ON DELETE RESTRICT,
-    household_id UUID NOT NULL REFERENCES households(id) ON DELETE RESTRICT,
-    stub_id UUID NOT NULL REFERENCES stubs(id) ON DELETE RESTRICT,
-
-    distribution_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    distribution_status VARCHAR(20) NOT NULL DEFAULT 'CLAIMED',
-    claimed_by_name VARCHAR(200),
-    verified_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    device_id UUID REFERENCES devices(id) ON DELETE SET NULL,
-
-    is_offline_encoded BOOLEAN NOT NULL DEFAULT FALSE,
-    sync_status VARCHAR(20) NOT NULL DEFAULT 'SYNCED',
-    remarks TEXT,
-
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    CONSTRAINT chk_distribution_status
-        CHECK (distribution_status IN ('CLAIMED', 'CANCELLED', 'REVERSED')),
-    CONSTRAINT chk_distribution_sync_status
-        CHECK (sync_status IN ('PENDING', 'SYNCED', 'CONFLICT', 'FAILED')),
-    CONSTRAINT uq_distribution_stub UNIQUE (stub_id)
+CREATE TABLE public.notification_rules (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  code character varying NOT NULL UNIQUE,
+  name character varying NOT NULL,
+  trigger_type character varying NOT NULL,
+  target_role_code character varying NOT NULL,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT notification_rules_pkey PRIMARY KEY (id)
 );
 
-CREATE TABLE distribution_transaction_items (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    distribution_transaction_id UUID NOT NULL REFERENCES distribution_transactions(id) ON DELETE CASCADE,
-    inventory_batch_id UUID NOT NULL REFERENCES inventory_batches(id) ON DELETE RESTRICT,
-    inventory_item_id UUID NOT NULL REFERENCES inventory_items(id) ON DELETE RESTRICT,
-    quantity_released INTEGER NOT NULL CHECK (quantity_released > 0),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE public.notification_rule_role_policies (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  rule_code text NOT NULL,
+  role_code text NOT NULL,
+  category_code text NOT NULL,
+  category_label text NOT NULL,
+  priority text NOT NULL CHECK (priority = ANY (ARRAY['CRITICAL'::text, 'WARNING'::text, 'INFORMATIONAL'::text])),
+  in_app_policy text NOT NULL CHECK (in_app_policy = ANY (ARRAY['MANDATORY'::text, 'OPTIONAL'::text, 'NOT_APPLICABLE'::text])),
+  email_policy text NOT NULL CHECK (email_policy = ANY (ARRAY['DEFAULT_ON'::text, 'OPTIONAL'::text, 'UNAVAILABLE'::text])),
+  delivery_mode text NOT NULL CHECK (delivery_mode = ANY (ARRAY['IMMEDIATE'::text, 'HOURLY_SUMMARY'::text, 'DAILY_SUMMARY'::text, 'THRESHOLD'::text, 'SILENT_UI_FEEDBACK'::text])),
+  user_configurability text NOT NULL CHECK (user_configurability = ANY (ARRAY['NONE'::text, 'EMAIL_ONLY'::text, 'ALL_SUPPORTED_CHANNELS'::text])),
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT notification_rule_role_policies_pkey PRIMARY KEY (id),
+  CONSTRAINT notification_rule_role_policies_rule_code_fkey FOREIGN KEY (rule_code) REFERENCES public.notification_rules(code) ON DELETE CASCADE,
+  CONSTRAINT notification_rule_role_policies_role_code_fkey FOREIGN KEY (role_code) REFERENCES public.roles(code) ON DELETE CASCADE,
+  CONSTRAINT notification_rule_role_policies_unique UNIQUE (rule_code, role_code)
+);
+
+CREATE INDEX idx_notification_rule_role_policies_role_code
+  ON public.notification_rule_role_policies(role_code, category_code, rule_code);
+
+CREATE TABLE public.notification_summary_events (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  summary_key text NOT NULL,
+  rule_code text NOT NULL,
+  role_code text NOT NULL,
+  barangay_id uuid,
+  disaster_event_id uuid,
+  reference_scope_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  payload_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  window_started_at timestamp with time zone NOT NULL,
+  window_ends_at timestamp with time zone NOT NULL,
+  ready_at timestamp with time zone NOT NULL,
+  processed_at timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT notification_summary_events_pkey PRIMARY KEY (id),
+  CONSTRAINT notification_summary_events_barangay_id_fkey FOREIGN KEY (barangay_id) REFERENCES public.barangays(id),
+  CONSTRAINT notification_summary_events_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id)
+);
+
+CREATE INDEX idx_notification_summary_events_due
+  ON public.notification_summary_events(processed_at, ready_at, role_code, rule_code);
+
+CREATE INDEX idx_notification_summary_events_summary_key_unique
+  ON public.notification_summary_events(summary_key);
+
+CREATE TABLE public.notification_delivery_states (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  state_key text NOT NULL,
+  rule_code text NOT NULL,
+  role_code text NOT NULL,
+  state_value text NOT NULL,
+  last_notified_at timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT notification_delivery_states_pkey PRIMARY KEY (id),
+  CONSTRAINT notification_delivery_states_unique UNIQUE (state_key)
+);
+
+CREATE TABLE public.notifications (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  disaster_event_id uuid,
+  rule_code text,
+  type character varying NOT NULL CHECK (type::text = ANY (ARRAY['EVENT'::character varying, 'INVENTORY'::character varying, 'EXPIRY'::character varying, 'SYNC'::character varying, 'ANOMALY'::character varying, 'SYSTEM'::character varying, 'SUMMARY'::character varying]::text[])),
+  title character varying NOT NULL,
+  message text NOT NULL,
+  severity character varying NOT NULL DEFAULT 'INFO'::character varying CHECK (severity::text = ANY (ARRAY['INFO'::character varying, 'WARNING'::character varying, 'CRITICAL'::character varying]::text[])),
+  reference_type character varying,
+  reference_id uuid,
+  source_event_key text,
+  metadata_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  generated_at timestamp with time zone NOT NULL DEFAULT now(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT notifications_pkey PRIMARY KEY (id),
+  CONSTRAINT notifications_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id)
+);
+
+CREATE UNIQUE INDEX notifications_source_event_key_unique
+  ON public.notifications(source_event_key)
+  WHERE source_event_key IS NOT NULL;
+
+CREATE TABLE public.notification_recipients (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  notification_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  read_at timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT notification_recipients_pkey PRIMARY KEY (id),
+  CONSTRAINT notification_recipients_unique_delivery UNIQUE (notification_id, user_id),
+  CONSTRAINT notification_recipients_notification_id_fkey FOREIGN KEY (notification_id) REFERENCES public.notifications(id),
+  CONSTRAINT notification_recipients_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+
+CREATE TABLE public.notification_email_deliveries (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  notification_id uuid NOT NULL REFERENCES public.notifications(id) ON DELETE CASCADE,
+  recipient_user_id uuid NOT NULL REFERENCES public.users(id),
+  role_code text NOT NULL REFERENCES public.roles(code),
+  status text NOT NULL CHECK (status IN ('SENDING', 'SENT', 'RETRY_PENDING', 'FAILED', 'SKIPPED')),
+  attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+  last_attempt_at timestamp with time zone,
+  next_retry_at timestamp with time zone,
+  provider_message_id text,
+  last_error_code text,
+  last_error_message_sanitized text,
+  sent_at timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT notification_email_deliveries_pkey PRIMARY KEY (id),
+  CONSTRAINT notification_email_deliveries_unique_delivery UNIQUE (notification_id, recipient_user_id)
+);
+
+CREATE TABLE public.notification_outbox (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  event_type text NOT NULL CHECK (event_type IN ('SYNC_FAILURE', 'SYNC_CONFLICT', 'SYNC_CONFLICT_RESOLVED')),
+  source_type text NOT NULL CHECK (source_type IN ('SYNC_TRANSACTION', 'SYNC_CONFLICT')),
+  source_id uuid NOT NULL,
+  status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'PROCESSED', 'FAILED')),
+  attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+  last_error text,
+  processed_at timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT notification_outbox_pkey PRIMARY KEY (id),
+  CONSTRAINT notification_outbox_source_unique UNIQUE (event_type, source_type, source_id)
+);
+
+CREATE INDEX notification_outbox_pending_idx
+  ON public.notification_outbox(status, created_at)
+  WHERE status IN ('PENDING', 'FAILED', 'PROCESSING');
+
+CREATE INDEX idx_notification_email_deliveries_retry_due
+  ON public.notification_email_deliveries(next_retry_at)
+  WHERE status = 'RETRY_PENDING';
+
+CREATE INDEX idx_notification_email_deliveries_sending_stale
+  ON public.notification_email_deliveries(last_attempt_at)
+  WHERE status = 'SENDING';
+
+-- =========================================================
+-- 8) SYNC & OFFLINE SUPPORT
+-- =========================================================
+
+CREATE TABLE public.sync_transactions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  client_sync_id character varying(80),
+  processing_protocol_version smallint,
+  device_id uuid,
+  user_id uuid,
+  entity_type character varying NOT NULL,
+  entity_local_id character varying,
+  entity_server_id uuid,
+  operation_type character varying NOT NULL CHECK (operation_type::text = ANY (ARRAY['CREATE'::character varying, 'UPDATE'::character varying, 'DELETE'::character varying, 'CLAIM'::character varying, 'TIME_IN'::character varying, 'TIME_OUT'::character varying, 'PHOTO_CAPTURE'::character varying, 'QR_SCAN'::character varying, 'PROOF_RECEIPT'::character varying, 'DONATION_RECEIVE'::character varying, 'DONATION_UPDATE'::character varying, 'INVENTORY_ADJUSTMENT'::character varying]::text[])),
+  payload_json jsonb NOT NULL,
+  client_timestamp timestamp with time zone NOT NULL,
+  server_timestamp timestamp with time zone,
+  sync_status character varying NOT NULL DEFAULT 'PENDING'::character varying CHECK (sync_status::text = ANY (ARRAY['PENDING'::character varying, 'SYNCED'::character varying, 'CONFLICT'::character varying, 'FAILED'::character varying]::text[])),
+  error_message text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT sync_transactions_pkey PRIMARY KEY (id),
+  CONSTRAINT sync_transactions_device_id_fkey FOREIGN KEY (device_id) REFERENCES public.devices(id),
+  CONSTRAINT sync_transactions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+
+CREATE UNIQUE INDEX sync_transactions_client_sync_id_unique
+ON public.sync_transactions (client_sync_id)
+WHERE client_sync_id IS NOT NULL;
+
+CREATE INDEX sync_transactions_pending_protocol_updated_at_idx
+ON public.sync_transactions (sync_status, processing_protocol_version, updated_at)
+WHERE sync_status = 'PENDING';
+
+CREATE TABLE public.inventory_domain_effect_intents (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  inventory_transaction_id uuid NOT NULL,
+  sync_transaction_id uuid,
+  effect_payload_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'PROCESSED', 'FAILED')),
+  attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+  audit_processed_at timestamp with time zone,
+  alerts_processed_at timestamp with time zone,
+  processed_at timestamp with time zone,
+  last_error text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT inventory_domain_effect_intents_pkey PRIMARY KEY (id),
+  CONSTRAINT inventory_domain_effect_intents_inventory_transaction_unique UNIQUE (inventory_transaction_id),
+  CONSTRAINT inventory_domain_effect_intents_inventory_transaction_id_fkey FOREIGN KEY (inventory_transaction_id) REFERENCES public.inventory_transactions(id),
+  CONSTRAINT inventory_domain_effect_intents_sync_transaction_id_fkey FOREIGN KEY (sync_transaction_id) REFERENCES public.sync_transactions(id)
+);
+
+CREATE INDEX inventory_domain_effect_intents_pending_idx
+  ON public.inventory_domain_effect_intents(status, created_at)
+  WHERE status IN ('PENDING', 'FAILED', 'PROCESSING');
+
+CREATE TABLE public.sync_conflicts (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  sync_transaction_id uuid NOT NULL,
+  entity_type character varying NOT NULL,
+  entity_server_id uuid,
+  conflict_type character varying NOT NULL,
+  local_payload_json jsonb NOT NULL,
+  server_payload_json jsonb NOT NULL,
+  resolution_strategy character varying NOT NULL CHECK (resolution_strategy::text = ANY (ARRAY['FIRST_ACCEPTED'::character varying, 'LATEST_TIMESTAMP'::character varying, 'MANUAL_REVIEW'::character varying, 'MERGED'::character varying]::text[])),
+  resolution_action character varying CHECK (resolution_action::text = ANY (ARRAY['MARK_REVIEWED'::character varying, 'KEEP_SERVER'::character varying, 'APPLY_LOCAL'::character varying]::text[])),
+  resolution_reason text,
+  resolved_payload_json jsonb,
+  resolved_by uuid,
+  resolved_at timestamp with time zone,
+  status character varying NOT NULL DEFAULT 'OPEN'::character varying CHECK (status::text = ANY (ARRAY['OPEN'::character varying, 'RESOLVED'::character varying]::text[])),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT sync_conflicts_pkey PRIMARY KEY (id),
+  CONSTRAINT sync_conflicts_sync_transaction_id_fkey FOREIGN KEY (sync_transaction_id) REFERENCES public.sync_transactions(id),
+  CONSTRAINT sync_conflicts_resolved_by_fkey FOREIGN KEY (resolved_by) REFERENCES public.users(id)
 );
 
 -- =========================================================
--- 6) DONATION / PUBLIC INFO TABLES
+-- 9) FORECASTING & ANALYTICS
 -- =========================================================
 
-CREATE TABLE donation_needs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    disaster_event_id UUID NOT NULL REFERENCES disaster_events(id) ON DELETE CASCADE,
-    inventory_item_id UUID NOT NULL REFERENCES inventory_items(id) ON DELETE RESTRICT,
-    quantity_needed INTEGER NOT NULL CHECK (quantity_needed >= 0),
-    priority_level VARCHAR(20) NOT NULL DEFAULT 'MEDIUM',
-    notes TEXT,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    published_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    published_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_donation_priority
-        CHECK (priority_level IN ('LOW', 'MEDIUM', 'HIGH', 'URGENT')),
-    CONSTRAINT uq_donation_need UNIQUE (disaster_event_id, inventory_item_id)
+CREATE TABLE public.forecast_runs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  disaster_event_id uuid NOT NULL,
+  run_type character varying NOT NULL CHECK (run_type::text = ANY (ARRAY['INVENTORY_DEMAND'::character varying, 'STOCK_DEPLETION'::character varying, 'REPLENISHMENT'::character varying]::text[])),
+  run_by uuid,
+  run_at timestamp with time zone NOT NULL DEFAULT now(),
+  model_name character varying NOT NULL,
+  parameters_json jsonb,
+  CONSTRAINT forecast_runs_pkey PRIMARY KEY (id),
+  CONSTRAINT forecast_runs_disaster_event_id_fkey FOREIGN KEY (disaster_event_id) REFERENCES public.disaster_events(id),
+  CONSTRAINT forecast_runs_run_by_fkey FOREIGN KEY (run_by) REFERENCES public.users(id)
+);
+
+CREATE TABLE public.forecast_results (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  forecast_run_id uuid NOT NULL,
+  inventory_item_id uuid NOT NULL,
+  predicted_quantity_needed numeric,
+  predicted_depletion_date date,
+  recommended_reorder_quantity numeric,
+  confidence_notes text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT forecast_results_pkey PRIMARY KEY (id),
+  CONSTRAINT forecast_results_forecast_run_id_fkey FOREIGN KEY (forecast_run_id) REFERENCES public.forecast_runs(id),
+  CONSTRAINT forecast_results_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id)
 );
 
 -- =========================================================
--- 7) NOTIFICATIONS TABLES
+-- 10) LOGGING & AUDIT
 -- =========================================================
 
-CREATE TABLE notification_rules (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    code VARCHAR(100) NOT NULL UNIQUE,
-    name VARCHAR(150) NOT NULL,
-    trigger_type VARCHAR(100) NOT NULL,
-    target_role_code VARCHAR(50) NOT NULL,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE public.audit_logs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid,
+  role_code character varying,
+  device_id uuid,
+  action character varying NOT NULL,
+  entity_type character varying NOT NULL,
+  entity_id uuid,
+  old_values_json jsonb,
+  new_values_json jsonb,
+  ip_address inet,
+  source_event_key text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT audit_logs_pkey PRIMARY KEY (id),
+  CONSTRAINT audit_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT audit_logs_device_id_fkey FOREIGN KEY (device_id) REFERENCES public.devices(id)
 );
 
-CREATE TABLE notifications (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    disaster_event_id UUID REFERENCES disaster_events(id) ON DELETE SET NULL,
-    type VARCHAR(30) NOT NULL,
-    title VARCHAR(200) NOT NULL,
-    message TEXT NOT NULL,
-    severity VARCHAR(20) NOT NULL DEFAULT 'INFO',
-    reference_type VARCHAR(100),
-    reference_id UUID,
-    generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_notification_type
-        CHECK (type IN ('EVENT', 'INVENTORY', 'EXPIRY', 'SYNC', 'ANOMALY', 'SYSTEM')),
-    CONSTRAINT chk_notification_severity
-        CHECK (severity IN ('INFO', 'WARNING', 'CRITICAL'))
+CREATE UNIQUE INDEX audit_logs_source_event_key_unique
+  ON public.audit_logs(source_event_key)
+  WHERE source_event_key IS NOT NULL;
+
+CREATE TABLE public.error_logs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid,
+  device_id uuid,
+  module_name character varying NOT NULL,
+  error_code character varying,
+  error_message text NOT NULL,
+  stack_trace text,
+  severity character varying NOT NULL DEFAULT 'ERROR'::character varying CHECK (severity::text = ANY (ARRAY['INFO'::character varying, 'WARNING'::character varying, 'ERROR'::character varying, 'CRITICAL'::character varying]::text[])),
+  reference_type character varying,
+  reference_id uuid,
+  context_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT error_logs_pkey PRIMARY KEY (id),
+  CONSTRAINT error_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT error_logs_device_id_fkey FOREIGN KEY (device_id) REFERENCES public.devices(id)
 );
-
-CREATE TABLE notification_recipients (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    notification_id UUID NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    read_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_notification_recipient UNIQUE (notification_id, user_id)
-);
-
--- =========================================================
--- 8) OFFLINE SYNC TABLES
--- =========================================================
-
-CREATE TABLE sync_transactions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    device_id UUID REFERENCES devices(id) ON DELETE SET NULL,
-    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-
-    entity_type VARCHAR(100) NOT NULL,
-    entity_local_id VARCHAR(255),
-    entity_server_id UUID,
-    operation_type VARCHAR(30) NOT NULL,
-    payload_json JSONB NOT NULL,
-
-    client_timestamp TIMESTAMPTZ NOT NULL,
-    server_timestamp TIMESTAMPTZ,
-    sync_status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
-    error_message TEXT,
-
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    CONSTRAINT chk_sync_operation_type
-        CHECK (operation_type IN ('CREATE', 'UPDATE', 'DELETE', 'CLAIM', 'TIME_IN', 'TIME_OUT')),
-    CONSTRAINT chk_sync_status
-        CHECK (sync_status IN ('PENDING', 'SYNCED', 'CONFLICT', 'FAILED'))
-);
-
-CREATE TABLE sync_conflicts (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    sync_transaction_id UUID NOT NULL REFERENCES sync_transactions(id) ON DELETE CASCADE,
-    entity_type VARCHAR(100) NOT NULL,
-    entity_server_id UUID,
-    conflict_type VARCHAR(100) NOT NULL,
-
-    local_payload_json JSONB NOT NULL,
-    server_payload_json JSONB NOT NULL,
-    resolution_strategy VARCHAR(30) NOT NULL,
-    resolved_payload_json JSONB,
-
-    resolved_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    resolved_at TIMESTAMPTZ,
-    status VARCHAR(20) NOT NULL DEFAULT 'OPEN',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    CONSTRAINT chk_sync_resolution_strategy
-        CHECK (resolution_strategy IN ('LATEST_TIMESTAMP', 'MANUAL_REVIEW', 'MERGED')),
-    CONSTRAINT chk_sync_conflict_status
-        CHECK (status IN ('OPEN', 'RESOLVED'))
-);
-
--- =========================================================
--- 9) AUDIT / ERROR LOGS
--- =========================================================
-
-CREATE TABLE audit_logs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    role_code VARCHAR(50),
-    device_id UUID REFERENCES devices(id) ON DELETE SET NULL,
-
-    action VARCHAR(100) NOT NULL,
-    entity_type VARCHAR(100) NOT NULL,
-    entity_id UUID,
-    old_values_json JSONB,
-    new_values_json JSONB,
-    ip_address INET,
-
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE error_logs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    device_id UUID REFERENCES devices(id) ON DELETE SET NULL,
-    module_name VARCHAR(100) NOT NULL,
-    error_code VARCHAR(100),
-    error_message TEXT NOT NULL,
-    stack_trace TEXT,
-    severity VARCHAR(20) NOT NULL DEFAULT 'ERROR',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_error_severity
-        CHECK (severity IN ('INFO', 'WARNING', 'ERROR', 'CRITICAL'))
-);
-
--- =========================================================
--- 10) FORECASTING TABLES
--- =========================================================
-
-CREATE TABLE forecast_runs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    disaster_event_id UUID NOT NULL REFERENCES disaster_events(id) ON DELETE CASCADE,
-    run_type VARCHAR(30) NOT NULL,
-    run_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    run_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    model_name VARCHAR(100) NOT NULL,
-    parameters_json JSONB,
-    CONSTRAINT chk_forecast_run_type
-        CHECK (run_type IN ('INVENTORY_DEMAND', 'STOCK_DEPLETION', 'REPLENISHMENT'))
-);
-
-CREATE TABLE forecast_results (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    forecast_run_id UUID NOT NULL REFERENCES forecast_runs(id) ON DELETE CASCADE,
-    inventory_item_id UUID NOT NULL REFERENCES inventory_items(id) ON DELETE RESTRICT,
-    predicted_quantity_needed NUMERIC(12,2),
-    predicted_depletion_date DATE,
-    recommended_reorder_quantity NUMERIC(12,2),
-    confidence_notes TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- =========================================================
--- 11) INDEXES
--- =========================================================
-
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_households_disaster_event_id ON households(disaster_event_id);
-CREATE INDEX idx_households_barangay_id ON households(barangay_id);
-CREATE INDEX idx_evacuees_household_id ON evacuees(household_id);
-CREATE INDEX idx_household_sectors_household_id ON household_sectors(household_id);
-CREATE INDEX idx_stubs_disaster_event_id ON stubs(disaster_event_id);
-CREATE INDEX idx_stubs_household_id ON stubs(household_id);
-CREATE INDEX idx_evacuation_logs_disaster_event_id ON evacuation_logs(disaster_event_id);
-CREATE INDEX idx_evacuation_logs_evacuee_id ON evacuation_logs(evacuee_id);
-CREATE INDEX idx_inventory_batches_inventory_item_id ON inventory_batches(inventory_item_id);
-CREATE INDEX idx_inventory_transactions_batch_id ON inventory_transactions(inventory_batch_id);
-CREATE INDEX idx_distribution_transactions_disaster_event_id ON distribution_transactions(disaster_event_id);
-CREATE INDEX idx_distribution_transactions_household_id ON distribution_transactions(household_id);
-CREATE INDEX idx_notifications_type ON notifications(type);
-CREATE INDEX idx_sync_transactions_status ON sync_transactions(sync_status);
-CREATE INDEX idx_audit_logs_entity_type ON audit_logs(entity_type);
-CREATE INDEX idx_forecast_results_run_id ON forecast_results(forecast_run_id);

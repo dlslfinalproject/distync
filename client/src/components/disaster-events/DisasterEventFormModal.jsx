@@ -2,6 +2,9 @@ import React, { useEffect, useState } from "react";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
 import { FiX, FiCheckSquare, FiSquare } from "react-icons/fi";
+import { formatDisasterEventDateInputValue } from "../../features/disaster-events/disasterEventFormatters";
+import { DISASTER_TYPE_OPTIONS as SHARED_DISASTER_TYPE_OPTIONS } from "../../features/disaster-events/disasterTypeOptions";
+import FormModalShell from "../shared/FormModalShell";
 
 const overlayStyles = {
   position: "fixed",
@@ -46,34 +49,226 @@ const labelStyles = {
   fontWeight: 700,
 };
 
+const errorTextStyles = {
+  margin: "6px 0 0",
+  color: "#c53030",
+  fontSize: "12px",
+  lineHeight: 1.4,
+};
+
+const duplicateErrorModalBodyStyles = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  textAlign: "center",
+  padding: "4px 0 0",
+};
+
+const duplicateErrorIconStyles = {
+  width: "48px",
+  height: "48px",
+  borderRadius: "999px",
+  backgroundColor: "#fee2e2",
+  color: "#c53030",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: "28px",
+  lineHeight: 1,
+  marginBottom: "14px",
+};
+
+const duplicateErrorTitleStyles = {
+  margin: 0,
+  color: "#1f2937",
+  fontSize: "18px",
+  fontWeight: 700,
+};
+
+const duplicateErrorMessageStyles = {
+  margin: "12px 0 0",
+  color: "#6b7280",
+  fontSize: "14px",
+  lineHeight: 1.6,
+  maxWidth: "320px",
+};
+
+const duplicateErrorButtonStyles = {
+  width: "100%",
+  minHeight: "40px",
+  border: "none",
+  borderRadius: "8px",
+  backgroundColor: "#c53030",
+  color: "#ffffff",
+  fontSize: "15px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const lockedInputStyles = {
+  ...inputStyles,
+  backgroundColor: "#eef5fc",
+  color: "#4f6780",
+};
+
 const createDefaultForm = () => ({
   event_name: "",
   disaster_type: "",
+  custom_disaster_type: "",
   start_date: "",
   end_date: "",
   barangay_ids: [],
 });
+
+const createDefaultErrors = () => ({
+  event_name: "",
+  disaster_type: "",
+  custom_disaster_type: "",
+  start_date: "",
+  end_date: "",
+  barangay_ids: "",
+});
+
+
+const DUPLICATE_EVENT_NAME_ERROR_MESSAGE =
+  "An active or planned disaster event with the same name already exists.";
+
+const isDuplicateEventNameError = (message) =>
+  String(message || "").trim().toLowerCase() ===
+  DUPLICATE_EVENT_NAME_ERROR_MESSAGE.toLowerCase();
+
+const mapServerErrorToFieldError = (message) => {
+  const normalizedMessage = String(message || "").trim();
+
+  if (!normalizedMessage) {
+    return { fieldName: "", message: "" };
+  }
+
+  if (/current end_date/i.test(normalizedMessage)) {
+    return {
+      fieldName: "end_date",
+      message: "End date cannot be earlier than the current end date.",
+    };
+  }
+
+  if (/latest recorded household activity/i.test(normalizedMessage)) {
+    return {
+      fieldName: "end_date",
+      message: "End date cannot be earlier than the latest recorded household activity.",
+    };
+  }
+
+  if (/registered records cannot be removed/i.test(normalizedMessage)) {
+    return {
+      fieldName: "barangay_ids",
+      message:
+        "Barangays with registered records cannot be unselected.",
+    };
+  }
+
+  if (/end_date must not be earlier than start_date/i.test(normalizedMessage)) {
+    return {
+      fieldName: "end_date",
+      message: "End date must not be earlier than start date.",
+    };
+  }
+
+  if (/end date/i.test(normalizedMessage) || /end_date/i.test(normalizedMessage)) {
+    return {
+      fieldName: "end_date",
+      message: normalizedMessage,
+    };
+  }
+
+  return { fieldName: "", message: normalizedMessage };
+};
 
 const DisasterEventFormModal = ({
   isOpen,
   barangays,
   isSubmitting,
   errorMessage,
+  initialValues = null,
+  mode = "create",
   onClose,
   onSubmit,
 }) => {
   const [formValues, setFormValues] = useState(createDefaultForm());
-  const [validationMessage, setValidationMessage] = useState("");
+  const [fieldErrors, setFieldErrors] = useState(createDefaultErrors());
+  const [isDuplicateWarningOpen, setIsDuplicateWarningOpen] = useState(false);
+  const isEditMode = mode === "edit";
+  const latestHouseholdActivityDate = formatDisasterEventDateInputValue(
+    initialValues?.latest_household_activity_at || "",
+  );
+  const { fieldName: serverErrorFieldName, message: serverErrorMessage } =
+    mapServerErrorToFieldError(errorMessage);
 
   useEffect(() => {
     if (!isOpen) return;
-    setFormValues(createDefaultForm());
-    setValidationMessage("");
-  }, [isOpen]);
+    setFormValues(
+      initialValues
+        ? (() => {
+            const initialDisasterType = initialValues.disaster_type || "";
+            const usesCustomDisasterType =
+              initialDisasterType &&
+              !SHARED_DISASTER_TYPE_OPTIONS.includes(initialDisasterType);
+
+            return {
+              event_name: initialValues.title || "",
+              disaster_type: usesCustomDisasterType
+                ? "Other"
+                : initialDisasterType,
+              custom_disaster_type: usesCustomDisasterType
+                ? initialDisasterType
+                : "",
+              start_date: formatDisasterEventDateInputValue(
+                initialValues.start_date || "",
+              ),
+              end_date: formatDisasterEventDateInputValue(
+                initialValues.end_date || "",
+              ),
+              barangay_ids: (initialValues.affected_barangays || []).map(
+                (barangay) => barangay.id,
+              ),
+            };
+          })()
+        : createDefaultForm(),
+    );
+    setFieldErrors(createDefaultErrors());
+    setIsDuplicateWarningOpen(false);
+  }, [initialValues, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !serverErrorFieldName || !serverErrorMessage) {
+      return;
+    }
+
+    setFieldErrors((currentErrors) => ({
+      ...currentErrors,
+      [serverErrorFieldName]: serverErrorMessage,
+    }));
+  }, [isOpen, serverErrorFieldName, serverErrorMessage]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    if (isDuplicateEventNameError(errorMessage)) {
+      setIsDuplicateWarningOpen(true);
+    }
+  }, [errorMessage, isOpen]);
 
   if (!isOpen) return null;
 
   const allBarangayIds = barangays.map((barangay) => barangay.id);
+  const lockedBarangayIds = new Set(
+    isEditMode
+      ? (initialValues?.affected_barangays || [])
+          .filter((barangay) => barangay.has_registered_records)
+          .map((barangay) => barangay.id)
+      : [],
+  );
   const areAllBarangaysSelected =
     allBarangayIds.length > 0 &&
     allBarangayIds.every((barangayId) =>
@@ -85,59 +280,111 @@ const DisasterEventFormModal = ({
       ...currentValues,
       [fieldName]: value,
     }));
+
+    setFieldErrors((currentErrors) => ({
+      ...currentErrors,
+      [fieldName]: "",
+      ...(fieldName === "disaster_type" ? { custom_disaster_type: "" } : {}),
+      ...(fieldName === "start_date" ? { end_date: "" } : {}),
+    }));
   };
 
   const handleBarangayToggle = (barangayId, isChecked) => {
+    if (isEditMode && !isChecked && lockedBarangayIds.has(barangayId)) {
+      setFieldErrors((currentErrors) => ({
+        ...currentErrors,
+        barangay_ids: "Barangays with registered records cannot be unselected.",
+      }));
+      return;
+    }
+
     setFormValues((currentValues) => ({
       ...currentValues,
       barangay_ids: isChecked
         ? [...currentValues.barangay_ids, barangayId]
         : currentValues.barangay_ids.filter((id) => id !== barangayId),
     }));
+
+    setFieldErrors((currentErrors) => ({
+      ...currentErrors,
+      barangay_ids: "",
+    }));
   };
 
   const handleToggleAllBarangays = () => {
+    const nextBarangayIds = areAllBarangaysSelected
+      ? allBarangayIds.filter((barangayId) => lockedBarangayIds.has(barangayId))
+      : allBarangayIds;
+
     setFormValues((currentValues) => ({
       ...currentValues,
-      barangay_ids: areAllBarangaysSelected ? [] : allBarangayIds,
+      barangay_ids: nextBarangayIds,
+    }));
+
+    setFieldErrors((currentErrors) => ({
+      ...currentErrors,
+      barangay_ids:
+        areAllBarangaysSelected && lockedBarangayIds.size > 0
+          ? "Barangays with registered records cannot be unselected."
+          : "",
     }));
   };
 
   const handleSubmit = (event) => {
     event.preventDefault();
 
+    const nextErrors = createDefaultErrors();
+
     if (!formValues.event_name.trim()) {
-      setValidationMessage("Event name is required.");
-      return;
+      nextErrors.event_name = "Event name is required.";
     }
 
     if (!formValues.disaster_type.trim()) {
-      setValidationMessage("disaster_type is required.");
-      return;
+      nextErrors.disaster_type = "Disaster type is required.";
     }
 
     if (
       formValues.disaster_type === "Other" &&
       !formValues.custom_disaster_type?.trim()
     ) {
-      setValidationMessage("Please specify the disaster type.");
-      return;
+      nextErrors.custom_disaster_type = "Please specify the disaster type.";
     }
 
     if (!formValues.start_date) {
-      setValidationMessage("start_date is required.");
-      return;
+      nextErrors.start_date = "Start date is required.";
+    }
+
+    if (!formValues.end_date) {
+      nextErrors.end_date = "End date is required.";
+    }
+
+    if (!formValues.barangay_ids.length) {
+      nextErrors.barangay_ids = "Please select at least one affected barangay.";
     }
 
     if (
       formValues.end_date &&
       new Date(formValues.end_date) < new Date(formValues.start_date)
     ) {
-      setValidationMessage("end_date must not be earlier than start_date.");
+      nextErrors.end_date = "End date must not be earlier than start date.";
+    }
+
+    if (
+      isEditMode &&
+      latestHouseholdActivityDate &&
+      formValues.end_date &&
+      formValues.end_date < latestHouseholdActivityDate
+    ) {
+      nextErrors.end_date =
+        "End date cannot be earlier than the latest recorded household activity.";
+    }
+
+    if (Object.values(nextErrors).some(Boolean)) {
+      setFieldErrors(nextErrors);
       return;
     }
 
-    setValidationMessage("");
+    setFieldErrors(createDefaultErrors());
 
     const finalDisasterType =
       formValues.disaster_type === "Other"
@@ -145,10 +392,11 @@ const DisasterEventFormModal = ({
         : formValues.disaster_type.trim();
 
     onSubmit({
+      title: formValues.event_name.trim(),
       event_name: formValues.event_name.trim(),
       disaster_type: finalDisasterType,
       start_date: formValues.start_date,
-      end_date: formValues.end_date || null,
+      end_date: formValues.end_date,
       status: formValues.status,
       created_by: null,
       barangay_ids: formValues.barangay_ids,
@@ -169,7 +417,7 @@ const DisasterEventFormModal = ({
         >
           <div>
             <h3 style={{ margin: 0, color: "#17324d", fontSize: "26px" }}>
-              Create Disaster Event
+              {isEditMode ? "Edit Disaster Event" : "Create Disaster Event"}
             </h3>
           </div>
           <button
@@ -189,6 +437,12 @@ const DisasterEventFormModal = ({
             gap: "18px",
           }}
         >
+          {errorMessage &&
+          !serverErrorFieldName &&
+          !isDuplicateEventNameError(errorMessage) ? (
+            <p style={errorTextStyles}>{serverErrorMessage || errorMessage}</p>
+          ) : null}
+
           {/* SECTION 1 */}
           <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
             <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
@@ -208,42 +462,64 @@ const DisasterEventFormModal = ({
                   type="text"
                   value={formValues.event_name}
                   onChange={(e) => handleChange("event_name", e.target.value)}
-                  style={inputStyles}
+                  style={isEditMode ? lockedInputStyles : inputStyles}
+                  disabled={isEditMode}
                 />
+                {fieldErrors.event_name ? (
+                  <p style={errorTextStyles}>{fieldErrors.event_name}</p>
+                ) : null}
               </div>
 
               <div>
                 <label style={labelStyles}>Disaster Type</label>
-                <select
-                  value={formValues.disaster_type}
-                  onChange={(e) =>
-                    handleChange("disaster_type", e.target.value)
-                  }
-                  style={inputStyles}
-                >
-                  <option value="">Select Disaster Type</option>
-                  <option value="Typhoon">Typhoon</option>
-                  <option value="Flood">Flood</option>
-                  <option value="Earthquake">Earthquake</option>
-                  <option value="Landslide">Landslide</option>
-                  <option value="Volcanic Eruption">Volcanic Eruption</option>
-                  <option value="Storm Surge">Storm Surge</option>
-                  <option value="Drought / El Niño">Drought / El Niño</option>
-                  <option value="Tsunami">Tsunami</option>
-                  <option value="Fire">Fire</option>
-                  <option value="Other">Other</option>
-                </select>
-
-                {formValues.disaster_type === "Other" && (
+                {isEditMode ? (
                   <input
                     type="text"
-                    placeholder="Specify disaster type"
-                    value={formValues.custom_disaster_type || ""}
-                    onChange={(e) =>
-                      handleChange("custom_disaster_type", e.target.value)
+                    value={
+                      formValues.disaster_type === "Other"
+                        ? formValues.custom_disaster_type || ""
+                        : formValues.disaster_type
                     }
-                    style={{ ...inputStyles, marginTop: "10px" }}
+                    style={lockedInputStyles}
+                    disabled
                   />
+                ) : (
+                  <select
+                    value={formValues.disaster_type}
+                    onChange={(e) =>
+                      handleChange("disaster_type", e.target.value)
+                    }
+                    style={inputStyles}
+                  >
+                    <option value="">Select Disaster Type</option>
+                    {SHARED_DISASTER_TYPE_OPTIONS.map((disasterType) => (
+                      <option key={disasterType} value={disasterType}>
+                        {disasterType}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {fieldErrors.disaster_type ? (
+                  <p style={errorTextStyles}>{fieldErrors.disaster_type}</p>
+                ) : null}
+
+                {!isEditMode && formValues.disaster_type === "Other" && (
+                  <>
+                    <input
+                      type="text"
+                      placeholder="Specify disaster type"
+                      value={formValues.custom_disaster_type || ""}
+                      onChange={(e) =>
+                        handleChange("custom_disaster_type", e.target.value)
+                      }
+                      style={{ ...inputStyles, marginTop: "10px" }}
+                    />
+                    {fieldErrors.custom_disaster_type ? (
+                      <p style={errorTextStyles}>
+                        {fieldErrors.custom_disaster_type}
+                      </p>
+                    ) : null}
+                  </>
                 )}
               </div>
             </div>
@@ -268,8 +544,12 @@ const DisasterEventFormModal = ({
                   type="date"
                   value={formValues.start_date}
                   onChange={(e) => handleChange("start_date", e.target.value)}
-                  style={inputStyles}
+                  style={isEditMode ? lockedInputStyles : inputStyles}
+                  disabled={isEditMode}
                 />
+                {fieldErrors.start_date ? (
+                  <p style={errorTextStyles}>{fieldErrors.start_date}</p>
+                ) : null}
               </div>
 
               <div>
@@ -280,6 +560,9 @@ const DisasterEventFormModal = ({
                   onChange={(e) => handleChange("end_date", e.target.value)}
                   style={inputStyles}
                 />
+                {fieldErrors.end_date ? (
+                  <p style={errorTextStyles}>{fieldErrors.end_date}</p>
+                ) : null}
               </div>
             </div>
           </section>
@@ -289,6 +572,11 @@ const DisasterEventFormModal = ({
             <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
               Affected Barangays
             </h3>
+            {fieldErrors.barangay_ids ? (
+              <p style={{ ...errorTextStyles, marginBottom: "12px" }}>
+                {fieldErrors.barangay_ids}
+              </p>
+            ) : null}
 
             <div
               style={{
@@ -335,33 +623,39 @@ const DisasterEventFormModal = ({
                 gap: "12px",
               }}
             >
-              {barangays.map((barangay) => (
-                <label
-                  key={barangay.id}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    border: "1px solid #d4dfeb",
-                    borderRadius: "999px",
-                    padding: "10px 14px",
-                    backgroundColor: "#f8fbfe",
-                    color: "#385a7b",
-                    fontSize: "13px",
-                    fontWeight: 600,
-                    cursor: "pointer",
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={formValues.barangay_ids.includes(barangay.id)}
-                    onChange={(e) =>
-                      handleBarangayToggle(barangay.id, e.target.checked)
-                    }
-                  />
-                  {barangay.name}
-                </label>
-              ))}
+              {barangays.map((barangay) => {
+                const isLockedBarangay = lockedBarangayIds.has(barangay.id);
+
+                return (
+                  <label
+                    key={barangay.id}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      border: "1px solid #d4dfeb",
+                      borderRadius: "999px",
+                      padding: "10px 14px",
+                      backgroundColor: isLockedBarangay ? "#eef5fc" : "#f8fbfe",
+                      color: isLockedBarangay ? "#6a87a6" : "#385a7b",
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      cursor: isLockedBarangay ? "not-allowed" : "pointer",
+                      opacity: isLockedBarangay ? 0.82 : 1,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={formValues.barangay_ids.includes(barangay.id)}
+                      onChange={(e) =>
+                        handleBarangayToggle(barangay.id, e.target.checked)
+                      }
+                      disabled={isLockedBarangay}
+                    />
+                    {barangay.name}
+                  </label>
+                );
+              })}
             </div>
           </section>
 
@@ -389,10 +683,41 @@ const DisasterEventFormModal = ({
                 opacity: isSubmitting ? 0.7 : 1,
               }}
             >
-              {isSubmitting ? "Creating..." : "Create"}
+              {isSubmitting
+                ? isEditMode
+                  ? "Saving..."
+                  : "Creating..."
+                : isEditMode
+                  ? "Save Changes"
+                  : "Create"}
             </button>
           </div>
         </form>
+
+        <FormModalShell
+          isOpen={isDuplicateWarningOpen}
+          maxWidth="420px"
+          bodyStyle={{ marginTop: 0 }}
+          footer={
+            <button
+              type="button"
+              onClick={() => setIsDuplicateWarningOpen(false)}
+              style={duplicateErrorButtonStyles}
+            >
+              OK
+            </button>
+          }
+        >
+          <div style={duplicateErrorModalBodyStyles} role="alert" aria-live="assertive">
+            <div aria-hidden="true" style={duplicateErrorIconStyles}>
+              <FiX />
+            </div>
+            <p style={duplicateErrorTitleStyles}>Duplicate</p>
+            <p style={duplicateErrorMessageStyles}>
+              Active event with this name already exists.
+            </p>
+          </div>
+        </FormModalShell>
       </div>
     </div>
   );

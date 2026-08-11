@@ -1,15 +1,34 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
+import { FiFileText } from "react-icons/fi";
+import { useSearchParams } from "react-router-dom";
 import PageHeader from "../../components/layout/PageHeader";
 import { shellStyles } from "../../components/layout/BarangayLayout";
+import ExportModal from "../../components/shared/ExportModal";
+import FeedbackToast from "../../components/shared/FeedbackToast";
 import SearchBar from "../../components/shared/SearchBar";
 import InventoryBatchFormModal from "../../components/inventory-batches/InventoryBatchFormModal";
+import InventoryBatchDetailModal from "../../components/inventory-batches/InventoryBatchDetailModal";
 import InventoryBatchesTable from "../../components/inventory-batches/InventoryBatchesTable";
 import {
   createInventoryBatch,
+  exportInventoryBatches,
+  fetchInventoryBatchDetail,
   fetchInventoryBatches,
   fetchInventoryItems,
   fetchSuppliers,
 } from "../../features/inventory-batches/inventoryBatchService";
+import db from "../../offline/db.js";
+import { buildSyncDescriptor, findSyncEntry } from "../../offline/syncStatus";
+import { subscribeToSyncUpdates } from "../../offline/syncService";
+import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
+import {
+  buildExportSuccessMessage,
+  COMMON_EXPORT_FORMAT_OPTIONS,
+  downloadExportFile,
+  NO_EXPORT_DATA_MESSAGE,
+  resolveExportErrorMessage,
+} from "../../utils/exportHelpers";
 
 const selectStyles = {
   minHeight: "52px",
@@ -31,7 +50,29 @@ const statusOptions = [
   "DAMAGED",
 ];
 
+const buildQueuedBatch = (entry, inventoryItems, suppliers) => {
+  return {
+    id: entry.entityLocalId || entry.id,
+    batch_no: entry.payload?.batch_no || entry.entityLocalId || "Pending batch",
+    inventory_item_id: entry.payload?.inventory_item_id || "",
+    supplier_id: entry.payload?.supplier_id || "",
+    inventory_item:
+      inventoryItems.find((item) => item.id === entry.payload?.inventory_item_id) ||
+      null,
+    supplier:
+      suppliers.find((supplier) => supplier.id === entry.payload?.supplier_id) || null,
+    source_type: entry.payload?.source_type || "OTHER",
+    quantity_received: entry.payload?.quantity_received || 0,
+    quantity_available: entry.payload?.quantity_available || entry.payload?.quantity_received || 0,
+    expiration_date: entry.payload?.expiration_date || null,
+    status: entry.payload?.status || "AVAILABLE",
+    sync_status: entry.status,
+    is_local_only: true,
+  };
+};
+
 const InventoryBatchesPage = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [filters, setFilters] = useState({
     search: "",
     inventory_item_id: "",
@@ -46,8 +87,28 @@ const InventoryBatchesPage = () => {
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
+  const [detailErrorMessage, setDetailErrorMessage] = useState("");
+  const [selectedBatchDetail, setSelectedBatchDetail] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [modalErrorMessage, setModalErrorMessage] = useState("");
+  const [isExporting, setIsExporting] = useState("");
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
+  const [exportFeedback, setExportFeedback] = useState({
+    type: "",
+    message: "",
+  });
+  const [hasHandledScanRedirect, setHasHandledScanRedirect] = useState(false);
+  const syncQueueEntries =
+    useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
+  const initialInventoryItemId = searchParams.get("inventory_item_id") || "";
+  const shouldOpenCreateFromScan = searchParams.get("open_create") === "1";
+
+  const downloadFile = (file) => {
+    downloadExportFile(file);
+  };
 
   const loadPageData = async (activeFilters = filters) => {
     setIsLoading(true);
@@ -74,8 +135,90 @@ const InventoryBatchesPage = () => {
     loadPageData(filters);
   }, []);
 
+  useEffect(() => {
+    if (
+      !shouldOpenCreateFromScan ||
+      !initialInventoryItemId ||
+      hasHandledScanRedirect ||
+      inventoryItems.length === 0
+    ) {
+      return;
+    }
+
+    const matchedItem = inventoryItems.find(
+      (item) => item.id === initialInventoryItemId,
+    );
+
+    if (!matchedItem) {
+      return;
+    }
+
+    setFilters((currentFilters) => ({
+      ...currentFilters,
+      inventory_item_id: initialInventoryItemId,
+    }));
+    setModalErrorMessage("");
+    setSuccessMessage("");
+    setIsModalOpen(true);
+    setHasHandledScanRedirect(true);
+
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("open_create");
+    nextParams.delete("source");
+    setSearchParams(nextParams, { replace: true });
+  }, [
+    hasHandledScanRedirect,
+    initialInventoryItemId,
+    inventoryItems,
+    searchParams,
+    setSearchParams,
+    shouldOpenCreateFromScan,
+  ]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToSyncUpdates(() => {
+      if (typeof navigator !== "undefined" && navigator.onLine) {
+        loadPageData(filters);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [filters]);
+
   const itemOptions = useMemo(() => inventoryItems, [inventoryItems]);
   const supplierOptions = useMemo(() => suppliers, [suppliers]);
+  const inventoryBatchesWithSyncStatus = useMemo(() => {
+    const syncedRows = inventoryBatches.map((batch) => {
+      const matchingEntry = findSyncEntry(syncQueueEntries, (entry) => {
+        return (
+          entry.moduleName === "mayor-inventory" &&
+          entry.entityType === "INVENTORY_BATCH" &&
+          (entry.entityServerId === batch.id || entry.entityLocalId === batch.id)
+        );
+      });
+
+      return {
+        ...batch,
+        sync_status: buildSyncDescriptor(matchingEntry).status,
+        is_local_only: false,
+      };
+    });
+
+    const optimisticRows = syncQueueEntries
+      .filter((entry) => {
+        return (
+          entry.moduleName === "mayor-inventory" &&
+          entry.actionKey === "INVENTORY_BATCH_CREATE" &&
+          !syncedRows.some(
+            (batch) =>
+              batch.id === entry.entityServerId || batch.id === entry.entityLocalId,
+          )
+        );
+      })
+      .map((entry) => buildQueuedBatch(entry, inventoryItems, suppliers));
+
+    return [...optimisticRows, ...syncedRows];
+  }, [inventoryBatches, inventoryItems, suppliers, syncQueueEntries]);
 
   const handleFilterChange = (fieldName, value) => {
     setFilters((currentFilters) => ({
@@ -112,11 +255,64 @@ const InventoryBatchesPage = () => {
       const response = await createInventoryBatch(payload);
       setSuccessMessage(response.message || "Inventory batch created successfully");
       setIsModalOpen(false);
-      await loadPageData(filters);
+      if (!response?.queued_offline) {
+        await loadPageData(filters);
+      }
     } catch (error) {
       setModalErrorMessage(error.message);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleOpenBatchDetail = async (inventoryBatchId) => {
+    setIsDetailModalOpen(true);
+    setIsDetailLoading(true);
+    setDetailErrorMessage("");
+    setSelectedBatchDetail(null);
+
+    try {
+      const response = await fetchInventoryBatchDetail(inventoryBatchId);
+      setSelectedBatchDetail(response?.data || null);
+    } catch (error) {
+      setDetailErrorMessage(error.message || "Failed to load inventory batch detail.");
+    } finally {
+      setIsDetailLoading(false);
+    }
+  };
+
+  const handleExport = async (format) => {
+    setErrorMessage("");
+    setSuccessMessage("");
+    setIsExportModalOpen(false);
+
+    if (inventoryBatchesWithSyncStatus.length === 0) {
+      setExportFeedback({
+        type: "error",
+        message: NO_EXPORT_DATA_MESSAGE,
+      });
+      return;
+    }
+
+    setIsExporting(format);
+
+    try {
+      const file = await exportInventoryBatches(format, filters);
+      downloadFile(file);
+      setExportFeedback({
+        type: "success",
+        message: buildExportSuccessMessage("Inventory batches report"),
+      });
+    } catch (error) {
+      setExportFeedback({
+        type: "error",
+        message: resolveExportErrorMessage(
+          error,
+          "Failed to export inventory batches.",
+        ),
+      });
+    } finally {
+      setIsExporting("");
     }
   };
 
@@ -217,23 +413,55 @@ const InventoryBatchesPage = () => {
             </select>
           </div>
 
-          <button
-            type="button"
-            onClick={handleApplyFilters}
-            style={{
-              border: "none",
-              borderRadius: "14px",
-              padding: "12px 18px",
-              background: "linear-gradient(135deg, #2f6499 0%, #4c86be 100%)",
-              color: "#ffffff",
-              fontSize: "14px",
-              fontWeight: 700,
-              cursor: "pointer",
-              boxShadow: "0 12px 24px rgba(58, 97, 141, 0.18)",
-            }}
-          >
-            Apply Filters
-          </button>
+          <div style={{ display: "flex", gap: "12px", position: "relative" }}>
+            <button
+              type="button"
+              onClick={handleApplyFilters}
+              style={{
+                border: "none",
+                borderRadius: "14px",
+                padding: "12px 18px",
+                background: "linear-gradient(135deg, #2f6499 0%, #4c86be 100%)",
+                color: "#ffffff",
+                fontSize: "14px",
+                fontWeight: 700,
+                cursor: "pointer",
+                boxShadow: "0 12px 24px rgba(58, 97, 141, 0.18)",
+              }}
+            >
+              Apply Filters
+            </button>
+
+            <div style={{ position: "relative" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedExportFormat("csv");
+                  setExportFeedback({ type: "", message: "" });
+                  setIsExportModalOpen(true);
+                }}
+                disabled={Boolean(isExporting)}
+                style={{
+                  border: "1px solid #c6d8ea",
+                  borderRadius: "14px",
+                  padding: "12px 18px",
+                  backgroundColor: "#f8fbfe",
+                  color: "#2a4c6f",
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  cursor: isExporting ? "not-allowed" : "pointer",
+                  minHeight: "46px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  opacity: isExporting ? 0.7 : 1,
+                }}
+              >
+                <FiFileText size={16} />
+                {isExporting ? `Exporting ${isExporting.toUpperCase()}...` : "Export"}
+              </button>
+            </div>
+          </div>
         </div>
 
         {successMessage ? (
@@ -255,19 +483,60 @@ const InventoryBatchesPage = () => {
       </section>
 
       <InventoryBatchesTable
-        rows={inventoryBatches}
+        rows={inventoryBatchesWithSyncStatus}
         isLoading={isLoading}
         errorMessage={errorMessage}
+        onViewDetails={handleOpenBatchDetail}
       />
 
       <InventoryBatchFormModal
         isOpen={isModalOpen}
         inventoryItems={inventoryItems}
         suppliers={suppliers}
+        initialInventoryItemId={initialInventoryItemId}
         isSubmitting={isSubmitting}
         errorMessage={modalErrorMessage}
         onClose={handleCloseModal}
         onSubmit={handleSubmitModal}
+      />
+
+      <ExportModal
+        isOpen={isExportModalOpen}
+        title="Export Inventory Report"
+        description="Choose the inventory batch report format to generate."
+        reportOptions={[
+          { value: "INVENTORY_BATCHES", label: "Inventory Batches Report" },
+        ]}
+        formatOptions={COMMON_EXPORT_FORMAT_OPTIONS}
+        selectedReportType="INVENTORY_BATCHES"
+        selectedFormat={selectedExportFormat}
+        isSubmitting={Boolean(isExporting)}
+        onReportTypeChange={() => {}}
+        onFormatChange={setSelectedExportFormat}
+        onClose={() => {
+          if (!isExporting) {
+            setIsExportModalOpen(false);
+          }
+        }}
+        onSubmit={() => handleExport(selectedExportFormat)}
+      />
+
+      <FeedbackToast
+        type={exportFeedback.type}
+        message={exportFeedback.message}
+        onClose={() => setExportFeedback({ type: "", message: "" })}
+      />
+
+      <InventoryBatchDetailModal
+        isOpen={isDetailModalOpen}
+        isLoading={isDetailLoading}
+        errorMessage={detailErrorMessage}
+        detail={selectedBatchDetail}
+        onClose={() => {
+          setIsDetailModalOpen(false);
+          setSelectedBatchDetail(null);
+          setDetailErrorMessage("");
+        }}
       />
     </>
   );

@@ -1,37 +1,51 @@
 import React from "react";
 import { FaHandHolding } from "react-icons/fa6";
+import { FiEye } from "react-icons/fi";
 import { shellStyles } from "../layout/BarangayLayout";
+import { formatOrderedSectorText } from "../../utils/sectorDisplay";
+import SyncStatusIcon from "../shared/SyncStatusIcon";
+import QrCodePanel from "./QrCodePanel";
 
 const tableStyles = {
   table: {
     width: "100%",
-    maxWidth: "100%",
     borderCollapse: "collapse",
-    tableLayout: "fixed",
+    minWidth: "980px",
   },
   headerCell: {
-    padding: "14px 12px",
+    padding: "14px 16px",
     textAlign: "left",
     fontSize: "12px",
     letterSpacing: "0.08em",
     textTransform: "uppercase",
     color: "#66809c",
     borderBottom: "1px solid #e0eaf4",
-    whiteSpace: "normal",
-    lineHeight: 1.4,
+    whiteSpace: "nowrap",
   },
   bodyCell: {
-    padding: "16px 12px",
+    padding: "16px",
     color: "#21405f",
     borderBottom: "1px solid #edf3f8",
     fontSize: "14px",
-    verticalAlign: "top",
+    verticalAlign: "middle",
     lineHeight: 1.5,
     whiteSpace: "normal",
     overflowWrap: "anywhere",
     wordBreak: "break-word",
   },
   statusButton: {
+    border: "1px solid #c6d8ea",
+    borderRadius: "12px",
+    width: "40px",
+    height: "40px",
+    backgroundColor: "#f7fbfe",
+    color: "#24496e",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+  },
+  actionButton: {
     border: "1px solid #c6d8ea",
     borderRadius: "12px",
     width: "40px",
@@ -53,6 +67,23 @@ const tableStyles = {
     color: "#356592",
     fontSize: "12px",
     fontWeight: 700,
+  },
+  stubSequenceText: {
+    color: "#17324d",
+    fontSize: "14px",
+    fontWeight: 700,
+  },
+  stubCodeText: {
+    marginTop: "6px",
+    color: "#69839c",
+    fontSize: "12px",
+    lineHeight: 1.4,
+  },
+  familyHeadCell: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    flexWrap: "wrap",
   },
 };
 
@@ -99,7 +130,73 @@ const getStatusChipStyles = (status) => {
   };
 };
 
+const formatDisplayStubNo = (row) => {
+  if (row.display_stub_no) {
+    return row.display_stub_no;
+  }
+
+  const sequenceNo = Number(row.stub_sequence_no || row.stub_number || 0);
+
+  return sequenceNo > 0 ? `STUB#${sequenceNo}` : "-";
+};
+
+const getTemplateFamilySizeCoverage = (template) => {
+  const parsedCoverage = Number.parseInt(String(template?.description || "").trim(), 10);
+  return Number.isInteger(parsedCoverage) && parsedCoverage > 0 ? parsedCoverage : 0;
+};
+
+const getReliefPackQuantityMultiplier = (template, householdSize) => {
+  if (!template?.based_on_family_size) {
+    return 1;
+  }
+
+  const normalizedHouseholdSize = Number.parseInt(String(householdSize || 0), 10);
+  const familySizeCoverage = getTemplateFamilySizeCoverage(template);
+
+  if (
+    !Number.isInteger(normalizedHouseholdSize) ||
+    normalizedHouseholdSize <= 0 ||
+    familySizeCoverage <= 0
+  ) {
+    return 1;
+  }
+
+  return Math.max(1, Math.ceil(normalizedHouseholdSize / familySizeCoverage));
+};
+
+const getPrimaryAssignedReliefPackTemplate = (row) => {
+  const assignedTemplates = Array.isArray(row?.assigned_relief_packs)
+    ? row.assigned_relief_packs
+    : [];
+
+  return (
+    assignedTemplates.find((template) => !template?.is_additional_pack) ||
+    assignedTemplates[0] ||
+    null
+  );
+};
+
+const getReliefPackDisplay = (row) => {
+  const primaryTemplate = getPrimaryAssignedReliefPackTemplate(row);
+  const householdSize = row?.members_count || 0;
+  const packMultiplier = getReliefPackQuantityMultiplier(
+    primaryTemplate,
+    householdSize,
+  );
+  const baseDisplay = row?.relief_pack_name || "--";
+
+  return packMultiplier > 1 ? `${baseDisplay} (${packMultiplier})` : baseDisplay;
+};
+
 const getStatusLabel = (status) => {
+  if (status === "PENDING_SYNC") {
+    return "Pending Sync";
+  }
+
+  if (status === "FAILED_SYNC") {
+    return "Sync Failed";
+  }
+
   if (status === "CLAIMED") {
     return "Claimed";
   }
@@ -124,6 +221,7 @@ const MswdoStubResultsTable = ({
   selectedStubIds,
   onToggleSelect,
   onSelectAll,
+  onViewStub = () => {},
 }) => {
   const safeSelectedStubIds = Array.isArray(selectedStubIds) ? selectedStubIds : [];
 
@@ -182,7 +280,7 @@ const MswdoStubResultsTable = ({
       <section style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Stub Information</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          No stub records were found for the selected disaster event and barangay.
+          No matching records found. Try adjusting your search or filters.
         </p>
       </section>
     );
@@ -190,7 +288,7 @@ const MswdoStubResultsTable = ({
 
   const selectableRows = isClaimReadOnly
     ? []
-    : rows.filter((row) => row.status === "ISSUED");
+    : rows.filter((row) => row.status === "ISSUED" && !row.is_local_only);
 
   const areAllSelected =
     selectableRows.length > 0 &&
@@ -215,7 +313,7 @@ const MswdoStubResultsTable = ({
         </p>
       ) : null}
 
-      <div style={{ width: "100%", minWidth: 0 }}>
+      <div style={{ overflowX: "auto" }}>
         <table style={tableStyles.table}>
           <thead>
             <tr>
@@ -233,38 +331,55 @@ const MswdoStubResultsTable = ({
                   disabled={!selectableRows.length}
                 />
               </th>
-              <th style={{ ...tableStyles.headerCell, width: "18%" }}>
-                Family Head
-              </th>
-              <th style={{ ...tableStyles.headerCell, width: "18%" }}>
-                Address
-              </th>
+              <th style={tableStyles.headerCell}>Family Head</th>
               <th
                 style={{
                   ...tableStyles.headerCell,
-                  width: "14%",
+                  textAlign: "center",
+                }}
+              >
+                Household Size
+              </th>
+              <th style={tableStyles.headerCell}>Sectors</th>
+              <th style={tableStyles.headerCell}>Relief Pack</th>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
                   textAlign: "center",
                 }}
               >
                 Stub Number
               </th>
-              <th style={{ ...tableStyles.headerCell, width: "34%" }}>
-                Sectors
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  textAlign: "center",
+                }}
+              >
+                QR Stub
               </th>
               <th
                 style={{
                   ...tableStyles.headerCell,
-                  width: "14%",
                   textAlign: "center",
                 }}
               >
                 Status
               </th>
+              <th
+                style={{
+                  ...tableStyles.headerCell,
+                  textAlign: "center",
+                }}
+              >
+                Action
+              </th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => {
-              const isSelectable = !isClaimReadOnly && row.status === "ISSUED";
+              const isSelectable =
+                !isClaimReadOnly && row.status === "ISSUED" && !row.is_local_only;
               const isSelected = safeSelectedStubIds.includes(row.id);
 
               return (
@@ -283,17 +398,49 @@ const MswdoStubResultsTable = ({
                       onChange={() => onToggleSelect(row.id)}
                     />
                   </td>
-                  <td style={tableStyles.bodyCell}>{row.family_head_name}</td>
-                  <td style={tableStyles.bodyCell}>{row.address}</td>
+                  <td style={tableStyles.bodyCell}>
+                    <div style={tableStyles.familyHeadCell}>
+                      <span>{row.family_head_name}</span>
+                      <SyncStatusIcon status={row.sync_status} />
+                    </div>
+                  </td>
                   <td
                     style={{
                       ...tableStyles.bodyCell,
                       textAlign: "center",
                     }}
                   >
-                    <span style={tableStyles.stubBadge}>{row.stub_number}</span>
+                    <span style={tableStyles.stubBadge}>{row.members_count || 0}</span>
                   </td>
-                  <td style={tableStyles.bodyCell}>{row.sectors_text}</td>
+                  <td style={tableStyles.bodyCell}>
+                    {formatOrderedSectorText(row.sectors_text)}
+                  </td>
+                  <td style={tableStyles.bodyCell}>
+                    {getReliefPackDisplay(row)}
+                  </td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      textAlign: "center",
+                    }}
+                  >
+                    <div style={tableStyles.stubSequenceText}>
+                      {formatDisplayStubNo(row)}
+                    </div>
+                  </td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      textAlign: "center",
+                    }}
+                  >
+                    <div style={{ width: "112px", margin: "0 auto" }}>
+                      <QrCodePanel
+                        value={row.qr_code_value}
+                        emptyLabel="QR unavailable"
+                      />
+                    </div>
+                  </td>
                   <td
                     style={{
                       ...tableStyles.bodyCell,
@@ -301,7 +448,11 @@ const MswdoStubResultsTable = ({
                       verticalAlign: "middle",
                     }}
                   >
-                    {row.status === "ISSUED" && !isClaimReadOnly ? (
+                    {row.is_local_only ? (
+                      <span style={getStatusChipStyles("PENDING_SYNC")}>
+                        Pending Sync
+                      </span>
+                    ) : row.status === "ISSUED" && !isClaimReadOnly ? (
                       <button
                         type="button"
                         onClick={() => onClaimStub(row.id)}
@@ -320,6 +471,28 @@ const MswdoStubResultsTable = ({
                         {getStatusLabel(row.status)}
                       </span>
                     )}
+                  </td>
+                  <td
+                    style={{
+                      ...tableStyles.bodyCell,
+                      textAlign: "center",
+                      verticalAlign: "middle",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onViewStub(row)}
+                      title={row.is_local_only ? "Available after sync" : "View Details"}
+                      aria-label="View Details"
+                      disabled={row.is_local_only}
+                      style={{
+                        ...tableStyles.actionButton,
+                        cursor: row.is_local_only ? "not-allowed" : "pointer",
+                        opacity: row.is_local_only ? 0.55 : 1,
+                      }}
+                    >
+                      <FiEye size={18} />
+                    </button>
                   </td>
                 </tr>
               );

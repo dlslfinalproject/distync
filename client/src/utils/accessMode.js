@@ -3,16 +3,60 @@ export const ACCESS_MODES = {
   DEMO: "DEMO",
 };
 
+const ACCESS_MODE_ENV_NAME = "VITE_ACCESS_MODE";
 const validAccessModes = Object.values(ACCESS_MODES);
+let configuredAccessMode;
 
-export const getAccessMode = () => {
-  const configuredMode = import.meta.env.VITE_ACCESS_MODE;
+export class AccessModeConfigurationError extends Error {
+  constructor(message = "") {
+    super(message);
+    this.name = "AccessModeConfigurationError";
+  }
+}
 
-  if (validAccessModes.includes(configuredMode)) {
-    return configuredMode;
+export const getAccessModeConfigurationErrorMessage = () => {
+  return `DISTYNC frontend configuration error: ${ACCESS_MODE_ENV_NAME} must be set exactly to DEVELOPMENT or DEMO.`;
+};
+
+export const parseAccessMode = (value) => {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new AccessModeConfigurationError(
+      getAccessModeConfigurationErrorMessage(),
+    );
   }
 
-  return ACCESS_MODES.DEVELOPMENT;
+  const normalizedValue = value.trim();
+
+  if (validAccessModes.includes(normalizedValue)) {
+    return normalizedValue;
+  }
+
+  throw new AccessModeConfigurationError(
+    getAccessModeConfigurationErrorMessage(),
+  );
+};
+
+export const validateAccessMode = (env) => {
+  return parseAccessMode(env?.VITE_ACCESS_MODE);
+};
+
+export const configureAccessMode = (env) => {
+  configuredAccessMode = validateAccessMode(env);
+  return configuredAccessMode;
+};
+
+export const getAccessMode = (env) => {
+  if (env) {
+    return validateAccessMode(env);
+  }
+
+  if (configuredAccessMode) {
+    return configuredAccessMode;
+  }
+
+  throw new AccessModeConfigurationError(
+    getAccessModeConfigurationErrorMessage(),
+  );
 };
 
 export const getEntryRouteForMode = (mode) => {

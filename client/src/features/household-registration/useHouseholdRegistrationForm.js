@@ -1,20 +1,43 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  cacheRegistrationBarangays,
+  cacheRegistrationEvacuationCentersByBarangay,
+  cacheRegistrationSectors,
+  cacheSelectedDisasterEvent,
+  cacheSelectedDisasterEventId,
+  cacheRegistrationActiveDisasterEvents,
   fetchActiveDisasterEvents,
   fetchBarangays,
+  fetchDuplicateRegistrationSuggestions,
   fetchEvacuationCenters,
   fetchEvacuationCentersByBarangay,
   fetchSectors,
+  getCachedRegistrationReferenceData,
   registerHousehold,
+  updateHousehold,
 } from "./householdRegistrationService";
+import {
+  HOUSEHOLD_PRIVACY_CONFIRMATION_ERROR,
+  HOUSEHOLD_PRIVACY_REGISTRATION_ERROR_MESSAGE,
+  buildHouseholdPrivacyAcknowledgment,
+  requiresHouseholdPrivacyPrompt,
+} from "./privacyNotice.mjs";
 import { deriveAgeGroup } from "../../utils/ageGroup";
 import {
   DISPLAY_MEMBER_SECTOR_CODES,
   HOUSEHOLD_CONDITION_CODES,
+  RELATIONSHIP_OPTIONS,
   getCanonicalMemberSectorCode,
+  isAgeBasedMemberSectorCode,
 } from "../../utils/registrationOptions";
+import { sanitizeHouseholdUpdatePayload } from "./householdEditProtection";
+import {
+  POSSIBLE_MATCH_LOOKUP_DEBOUNCE_MS,
+  buildPossibleMatchLookupState,
+} from "./possibleMatchLookupControl";
 
 const createMember = () => ({
+  id: null,
   first_name: "",
   middle_name: "",
   last_name: "",
@@ -42,9 +65,96 @@ const initialFamilyHead = {
 const initialHousehold = {
   current_stay_type: "EVAC_CENTER",
   evacuation_center_id: "",
+  current_address_details: "",
+  contact_number: "",
 };
 
-const trimValue = (value) => String(value || "").trim();
+const createMemberValidationErrors = () => ({
+  first_name: "",
+  last_name: "",
+  age_value: "",
+  relationship_option: "",
+  custom_relationship: "",
+});
+
+const createValidationErrors = () => ({
+  selectedBarangayId: "",
+  evacuation_center_id: "",
+  contact_number: "",
+  family_head_photo_url: "",
+  familyHead: {
+    first_name: "",
+    last_name: "",
+    age_value: "",
+  },
+  members: [],
+});
+
+const MAX_FAMILY_HEAD_PHOTO_FILE_SIZE = 3 * 1024 * 1024;
+
+const trimValue = (value) => String(value ?? "").trim();
+const normalizeComparableText = (value) =>
+  trimValue(value).replace(/\s+/g, " ").toLowerCase();
+const buildComparableFullName = (person) =>
+  [
+    person?.first_name,
+    person?.middle_name,
+    person?.last_name,
+    person?.suffix,
+  ]
+    .map((value) => normalizeComparableText(value))
+    .filter(Boolean)
+    .join("|");
+
+const isWholeNumberString = (value) => /^\d+$/.test(trimValue(value));
+const isValidPhilippineContactNumber = (value) => /^\+639\d{9}$/.test(trimValue(value));
+const normalizePhilippineContactNumberInput = (value) => {
+  const digitsOnly = String(value || "").replace(/\D/g, "");
+
+  if (!digitsOnly) {
+    return "";
+  }
+
+  let localDigits = digitsOnly;
+
+  if (localDigits.startsWith("63")) {
+    localDigits = localDigits.slice(2);
+  }
+
+  if (localDigits.startsWith("0")) {
+    localDigits = localDigits.slice(1);
+  }
+
+  return localDigits.slice(0, 10);
+};
+
+const buildPhilippineContactNumber = (value) => {
+  const localDigits = normalizePhilippineContactNumberInput(value);
+  return localDigits ? `+63${localDigits}` : "";
+};
+
+const getPhilippineContactNumberLocalPart = (value) => {
+  const normalizedValue = trimValue(value);
+
+  if (!normalizedValue) {
+    return "";
+  }
+
+  if (normalizedValue.startsWith("+63")) {
+    return normalizedValue.slice(3, 13);
+  }
+
+  return normalizePhilippineContactNumberInput(normalizedValue);
+};
+
+const formatPhilippineContactNumberLocalPart = (value) => {
+  const localDigits = getPhilippineContactNumberLocalPart(value);
+  const firstGroup = localDigits.slice(0, 3);
+  const secondGroup = localDigits.slice(3, 6);
+  const thirdGroup = localDigits.slice(6, 10);
+
+  return [firstGroup, secondGroup, thirdGroup].filter(Boolean).join(" ");
+};
 
 const normalizeAgeValue = (value) => {
   if (value === "" || value === null || value === undefined) {
@@ -76,6 +186,12 @@ const getFinalRelationship = (member) => {
   return trimValue(member.relationship_option);
 };
 
+const createEmptyDuplicateSuggestions = () => ({
+  total_matches: 0,
+  has_strong_matches: false,
+  groups: [],
+});
+
 const RESIDENCY_STATUS = {
   resident: "RESIDENT",
   nonResident: "NON_RESIDENT",
@@ -83,6 +199,8 @@ const RESIDENCY_STATUS = {
 
 export const useHouseholdRegistrationForm = ({
   isOpen,
+  mode = "create",
+  initialHouseholdDetails = null,
   defaultBarangayId,
   defaultBarangayName = "",
   defaultDisasterEventId,
@@ -91,8 +209,12 @@ export const useHouseholdRegistrationForm = ({
   restrictNonResidentToEvacCenter = false,
   scopeNonResidentEvacuationCentersToBarangay = false,
   registeredBy = null,
+  localHouseholdDuplicateCandidates = [],
   onSuccess,
 }) => {
+  const isEditMode = mode === "edit";
+  const isExistingHousehold = Boolean(initialHouseholdDetails?.household?.id);
+  const isFamilyHeadProtected = isEditMode && isExistingHousehold;
   const [household, setHousehold] = useState(initialHousehold);
   const [residencyStatus, setResidencyStatus] = useState(
     RESIDENCY_STATUS.resident,
@@ -100,6 +222,9 @@ export const useHouseholdRegistrationForm = ({
   const [familyHead, setFamilyHead] = useState(initialFamilyHead);
   const [members, setMembers] = useState([]);
   const [householdSectorIds, setHouseholdSectorIds] = useState([]);
+  const [familyHeadPhotoUrl, setFamilyHeadPhotoUrl] = useState("");
+  const [familyHeadPhotoFileName, setFamilyHeadPhotoFileName] = useState("");
+  const [photoVerificationNotes, setPhotoVerificationNotes] = useState("");
   const [activeDisasterEvents, setActiveDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
   const [selectedDisasterEventId, setSelectedDisasterEventId] = useState(
@@ -113,21 +238,111 @@ export const useHouseholdRegistrationForm = ({
   const [evacuationCenters, setEvacuationCenters] = useState([]);
   const [isLoadingOptions, setIsLoadingOptions] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [errorCode, setErrorCode] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [duplicateSuggestions, setDuplicateSuggestions] = useState(
+    createEmptyDuplicateSuggestions(),
+  );
+  const [isLoadingDuplicateSuggestions, setIsLoadingDuplicateSuggestions] =
+    useState(false);
+  const [duplicateSuggestionsError, setDuplicateSuggestionsError] = useState("");
+  const [validationErrors, setValidationErrors] = useState(createValidationErrors());
+  const [isUsingCachedReferenceData, setIsUsingCachedReferenceData] =
+    useState(false);
+  const duplicateSuggestionRequestSeqRef = useRef(0);
+  const duplicateSuggestionAbortRef = useRef(null);
+  const duplicateSuggestionCacheRef = useRef(new Map());
+  const activeDuplicateSuggestionLookupKeyRef = useRef("");
+
+  const isOffline =
+    typeof navigator !== "undefined" ? !navigator.onLine : false;
+  const latestPrivacyConsent = initialHouseholdDetails?.privacy_consent || null;
+  const requiresPrivacyAcknowledgment = requiresHouseholdPrivacyPrompt({
+    isEditMode,
+    privacyConsent: latestPrivacyConsent,
+  });
+  const selectedDisasterEvent = activeDisasterEvents.find(
+    (eventItem) => eventItem.id === selectedDisasterEventId,
+  );
+  const linkedBarangayIds = Array.isArray(selectedDisasterEvent?.affected_barangays)
+    ? selectedDisasterEvent.affected_barangays
+        .map((barangay) => barangay?.id)
+        .filter(Boolean)
+    : [];
+  const shouldRestrictBarangaysToSelectedEvent =
+    !isEditMode &&
+    !hideBarangaySelection &&
+    linkedBarangayIds.length > 0;
+  const selectableBarangays = shouldRestrictBarangaysToSelectedEvent
+    ? barangays.filter((barangay) => linkedBarangayIds.includes(barangay.id))
+    : barangays;
 
   useEffect(() => {
     setSelectedDisasterEventId(defaultDisasterEventId || "");
   }, [defaultDisasterEventId]);
 
   useEffect(() => {
+    cacheSelectedDisasterEventId(selectedDisasterEventId);
+  }, [selectedDisasterEventId]);
+
+  useEffect(() => {
+    if (selectedDisasterEvent) {
+      cacheSelectedDisasterEvent(selectedDisasterEvent);
+    }
+  }, [selectedDisasterEvent]);
+
+  useEffect(() => {
+    if (isEditMode && initialHouseholdDetails) {
+      return;
+    }
+
     if (
       residencyStatus === RESIDENCY_STATUS.resident ||
       lockBarangaySelection
     ) {
       setSelectedBarangayId(defaultBarangayId || "");
     }
-  }, [defaultBarangayId, lockBarangaySelection, residencyStatus]);
+  }, [
+    defaultBarangayId,
+    initialHouseholdDetails,
+    isEditMode,
+    lockBarangaySelection,
+    residencyStatus,
+  ]);
+
+  useEffect(() => {
+    if (
+      isEditMode ||
+      !isOpen ||
+      hideBarangaySelection ||
+      lockBarangaySelection ||
+      !shouldRestrictBarangaysToSelectedEvent
+    ) {
+      return;
+    }
+
+    const isSelectedBarangayLinked = selectableBarangays.some(
+      (barangay) => barangay.id === selectedBarangayId,
+    );
+
+    if (!isSelectedBarangayLinked) {
+      setSelectedBarangayId(selectableBarangays[0]?.id || "");
+      setHousehold((currentValue) => ({
+        ...currentValue,
+        evacuation_center_id: "",
+      }));
+    }
+  }, [
+    hideBarangaySelection,
+    isEditMode,
+    isOpen,
+    lockBarangaySelection,
+    selectableBarangays,
+    selectedBarangayId,
+    shouldRestrictBarangaysToSelectedEvent,
+  ]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -139,6 +354,7 @@ export const useHouseholdRegistrationForm = ({
     const loadOptions = async () => {
       setIsLoadingOptions(true);
       setErrorMessage("");
+      setIsUsingCachedReferenceData(false);
 
       try {
         const [disasterEventsPayload, sectorsPayload, barangaysPayload] = await Promise.all([
@@ -165,12 +381,15 @@ export const useHouseholdRegistrationForm = ({
 
         setActiveDisasterEvents(disasterEvents);
         setBarangays(availableBarangays);
+        cacheRegistrationActiveDisasterEvents(disasterEvents);
+        cacheRegistrationBarangays(availableBarangays);
 
         if (!defaultDisasterEventId && disasterEvents.length > 0) {
           setSelectedDisasterEventId(disasterEvents[0].id);
         }
 
         if (
+          !isEditMode &&
           residencyStatus === RESIDENCY_STATUS.resident &&
           !defaultBarangayId &&
           !lockBarangaySelection &&
@@ -197,10 +416,106 @@ export const useHouseholdRegistrationForm = ({
             HOUSEHOLD_CONDITION_CODES.includes(sector.code),
           ),
         );
+        cacheRegistrationSectors(sectors);
+        setIsUsingCachedReferenceData(false);
       } catch (error) {
-        if (isMounted) {
-          setErrorMessage(error.message || "Failed to load form options");
+        if (!isMounted) {
+          return;
         }
+
+        const cachedReferenceData = getCachedRegistrationReferenceData();
+        const cachedDisasterEvents = Array.isArray(
+          cachedReferenceData.activeDisasterEvents,
+        )
+          ? cachedReferenceData.activeDisasterEvents
+          : [];
+        const cachedSelectedDisasterEvent =
+          cachedReferenceData.selectedDisasterEvent &&
+          typeof cachedReferenceData.selectedDisasterEvent === "object"
+            ? cachedReferenceData.selectedDisasterEvent
+            : null;
+        const offlineDisasterEvents =
+          cachedSelectedDisasterEvent?.id &&
+          !cachedDisasterEvents.some(
+            (event) => event.id === cachedSelectedDisasterEvent.id,
+          )
+            ? [cachedSelectedDisasterEvent, ...cachedDisasterEvents]
+            : cachedDisasterEvents;
+        const cachedSectors = Array.isArray(cachedReferenceData.sectors?.data)
+          ? cachedReferenceData.sectors.data
+          : [];
+        const cachedBarangays = Array.isArray(cachedReferenceData.barangays)
+          ? cachedReferenceData.barangays.filter(
+              (barangay) => barangay.code !== "NON_RESIDENT_OUTSIDE_MALVAR",
+            )
+          : [];
+
+        const hasCachedBarangayReference =
+          cachedBarangays.length > 0 ||
+          Boolean(defaultBarangayId) ||
+          hideBarangaySelection ||
+          lockBarangaySelection;
+
+        const hasCachedReferences =
+          offlineDisasterEvents.length > 0 &&
+          cachedSectors.length > 0 &&
+          hasCachedBarangayReference;
+
+        if (!hasCachedReferences) {
+          setErrorMessage(
+            isOffline
+              ? "Offline mode: please select an active disaster event while online first."
+              : error.message || "Failed to load form options",
+          );
+          return;
+        }
+
+        setActiveDisasterEvents(offlineDisasterEvents);
+        setBarangays(cachedBarangays);
+
+        if (!defaultDisasterEventId) {
+          if (cachedSelectedDisasterEvent?.id) {
+            console.info("Loaded cached disaster event for offline registration");
+          }
+
+          setSelectedDisasterEventId(
+            cachedSelectedDisasterEvent?.id ||
+              cachedReferenceData.selectedDisasterEventId ||
+              offlineDisasterEvents[0]?.id ||
+              "",
+          );
+        }
+
+        if (
+          !isEditMode &&
+          residencyStatus === RESIDENCY_STATUS.resident &&
+          !defaultBarangayId &&
+          !lockBarangaySelection &&
+          !hideBarangaySelection &&
+          cachedBarangays.length > 0
+        ) {
+          setSelectedBarangayId(cachedBarangays[0].id);
+        }
+
+        const availableMemberSectorsByCanonicalCode = new Map(
+          cachedSectors.map((sector) => [
+            getCanonicalMemberSectorCode(sector.code),
+            sector,
+          ]),
+        );
+
+        setMemberSectorOptions(
+          DISPLAY_MEMBER_SECTOR_CODES.map((sectorCode) =>
+            availableMemberSectorsByCanonicalCode.get(sectorCode),
+          ).filter(Boolean),
+        );
+        setHouseholdSectors(
+          cachedSectors.filter((sector) =>
+            HOUSEHOLD_CONDITION_CODES.includes(sector.code),
+          ),
+        );
+        setIsUsingCachedReferenceData(true);
+        setErrorMessage("");
       } finally {
         if (isMounted) {
           setIsLoadingOptions(false);
@@ -217,10 +532,232 @@ export const useHouseholdRegistrationForm = ({
     defaultBarangayId,
     defaultDisasterEventId,
     hideBarangaySelection,
+    initialHouseholdDetails,
+    isEditMode,
     isOpen,
     lockBarangaySelection,
     residencyStatus,
   ]);
+
+  useEffect(() => {
+    if (!isOpen || !isEditMode || !initialHouseholdDetails) {
+      return;
+    }
+
+    const detailHousehold = initialHouseholdDetails.household || null;
+    const latestAttendance = initialHouseholdDetails.latest_attendance || null;
+    const detailMembers = Array.isArray(initialHouseholdDetails.members)
+      ? initialHouseholdDetails.members
+      : [];
+    const familyHeadMember = detailMembers.find((member) => member.is_family_head);
+    const additionalMembers = detailMembers.filter((member) => !member.is_family_head);
+    const savedEvacuationCenterId = String(
+      detailHousehold?.evacuation_center_id ||
+        latestAttendance?.evacuation_center_id ||
+        "",
+    );
+
+    const deriveRelationshipOption = (relationshipToHead) => {
+      const matchingOption = RELATIONSHIP_OPTIONS.find(
+        (option) => option.value === relationshipToHead,
+      );
+
+      return matchingOption ? matchingOption.value : "OTHERS";
+    };
+
+    setResidencyStatus(detailHousehold?.residency_status || RESIDENCY_STATUS.resident);
+    setSelectedDisasterEventId(detailHousehold?.disaster_event_id || defaultDisasterEventId || "");
+    setSelectedBarangayId(detailHousehold?.barangay_id || defaultBarangayId || "");
+    setHousehold({
+      current_stay_type: detailHousehold?.current_stay_type || "EVAC_CENTER",
+      evacuation_center_id: savedEvacuationCenterId,
+      current_address_details: detailHousehold?.current_address_details || "",
+      contact_number: detailHousehold?.contact_number || "",
+    });
+    setFamilyHead({
+      first_name: detailHousehold?.family_head_first_name || "",
+      middle_name: detailHousehold?.family_head_middle_name || "",
+      last_name: detailHousehold?.family_head_last_name || "",
+      suffix: detailHousehold?.family_head_suffix || "",
+      sex: familyHeadMember?.sex || detailHousehold?.sex || "MALE",
+      age_value:
+        Number.isInteger(familyHeadMember?.age_value)
+          ? familyHeadMember.age_value
+          : "",
+      age_unit: "YEARS",
+      sector_ids: (familyHeadMember?.sectors || [])
+        .filter((sector) => !isAgeBasedMemberSectorCode(sector.code))
+        .map((sector) => sector.id),
+    });
+    setMembers(
+      additionalMembers.map((member) => ({
+        id: member.id,
+        first_name: member.first_name || "",
+        middle_name: member.middle_name || "",
+        last_name: member.last_name || "",
+        suffix: member.suffix || "",
+        sex: member.sex || "MALE",
+        age_value:
+          Number.isInteger(member.age_value) ? member.age_value : "",
+        age_unit: member.age_unit || "YEARS",
+        relationship_option: deriveRelationshipOption(member.relationship_to_head),
+        relationship_to_head: member.relationship_to_head || "",
+        custom_relationship:
+          deriveRelationshipOption(member.relationship_to_head) === "OTHERS"
+            ? member.relationship_to_head || ""
+            : "",
+        sector_ids: (member.sectors || [])
+          .filter((sector) => !isAgeBasedMemberSectorCode(sector.code))
+          .map((sector) => sector.id),
+        derived_age_sector_code: deriveAgeGroup(
+          member.age_value,
+          member.age_unit,
+        ),
+      })),
+    );
+    setHouseholdSectorIds(
+      (initialHouseholdDetails.household_sectors || []).map((sector) => sector.id),
+    );
+    setFamilyHeadPhotoUrl(detailHousehold?.family_head_photo_url || "");
+    setFamilyHeadPhotoFileName(
+      detailHousehold?.family_head_photo_url ? "Registered photo" : "",
+    );
+    setPhotoVerificationNotes(detailHousehold?.photo_verification_notes || "");
+    setErrorMessage("");
+    setSuccessMessage("");
+    setValidationErrors(createValidationErrors());
+  }, [
+    defaultBarangayId,
+    defaultDisasterEventId,
+    initialHouseholdDetails,
+    isEditMode,
+    isOpen,
+  ]);
+
+  const duplicateSuggestionLookupState = useMemo(
+    () =>
+      buildPossibleMatchLookupState({
+        householdId: initialHouseholdDetails?.household?.id || null,
+        disasterEventId: selectedDisasterEventId,
+        barangayId: selectedBarangayId,
+        registeredBy,
+        contactNumber: household.contact_number,
+        familyHead,
+        members,
+        resolveMemberRelationship: getFinalRelationship,
+      }),
+    [
+      familyHead,
+      household.contact_number,
+      initialHouseholdDetails?.household?.id,
+      members,
+      registeredBy,
+      selectedBarangayId,
+      selectedDisasterEventId,
+    ],
+  );
+
+  useEffect(() => {
+    if (!isOpen) {
+      duplicateSuggestionRequestSeqRef.current += 1;
+      activeDuplicateSuggestionLookupKeyRef.current = "";
+      duplicateSuggestionAbortRef.current?.abort();
+      duplicateSuggestionAbortRef.current = null;
+      duplicateSuggestionCacheRef.current.clear();
+      setDuplicateSuggestions(createEmptyDuplicateSuggestions());
+      setIsLoadingDuplicateSuggestions(false);
+      setDuplicateSuggestionsError("");
+      return;
+    }
+
+    if (!duplicateSuggestionLookupState.isEligible) {
+      duplicateSuggestionRequestSeqRef.current += 1;
+      activeDuplicateSuggestionLookupKeyRef.current = "";
+      duplicateSuggestionAbortRef.current?.abort();
+      duplicateSuggestionAbortRef.current = null;
+      setDuplicateSuggestions(createEmptyDuplicateSuggestions());
+      setIsLoadingDuplicateSuggestions(false);
+      setDuplicateSuggestionsError("");
+      return;
+    }
+
+    const { lookupKey, payload } = duplicateSuggestionLookupState;
+    activeDuplicateSuggestionLookupKeyRef.current = lookupKey;
+
+    if (duplicateSuggestionCacheRef.current.has(lookupKey)) {
+      setDuplicateSuggestions(
+        duplicateSuggestionCacheRef.current.get(lookupKey) ||
+          createEmptyDuplicateSuggestions(),
+      );
+      setIsLoadingDuplicateSuggestions(false);
+      setDuplicateSuggestionsError("");
+      return;
+    }
+
+    let isActive = true;
+    const requestSeq = duplicateSuggestionRequestSeqRef.current + 1;
+    duplicateSuggestionRequestSeqRef.current = requestSeq;
+    const timeoutId = window.setTimeout(async () => {
+      duplicateSuggestionAbortRef.current?.abort();
+      const abortController = new AbortController();
+      duplicateSuggestionAbortRef.current = abortController;
+      setIsLoadingDuplicateSuggestions(true);
+      setDuplicateSuggestionsError("");
+
+      try {
+        const suggestions = await fetchDuplicateRegistrationSuggestions(payload, {
+          signal: abortController.signal,
+        });
+
+        if (
+          !isActive ||
+          requestSeq !== duplicateSuggestionRequestSeqRef.current ||
+          lookupKey !== activeDuplicateSuggestionLookupKeyRef.current
+        ) {
+          return;
+        }
+
+        const nextSuggestions = suggestions || createEmptyDuplicateSuggestions();
+        duplicateSuggestionCacheRef.current.set(lookupKey, nextSuggestions);
+        setDuplicateSuggestions(nextSuggestions);
+      } catch (error) {
+        if (
+          error?.name === "AbortError" ||
+          !isActive ||
+          requestSeq !== duplicateSuggestionRequestSeqRef.current ||
+          lookupKey !== activeDuplicateSuggestionLookupKeyRef.current
+        ) {
+          return;
+        }
+
+        setDuplicateSuggestions(createEmptyDuplicateSuggestions());
+        setDuplicateSuggestionsError("");
+      } finally {
+        if (
+          isActive &&
+          requestSeq === duplicateSuggestionRequestSeqRef.current &&
+          lookupKey === activeDuplicateSuggestionLookupKeyRef.current
+        ) {
+          setIsLoadingDuplicateSuggestions(false);
+        }
+      }
+    }, POSSIBLE_MATCH_LOOKUP_DEBOUNCE_MS);
+
+    return () => {
+      isActive = false;
+      window.clearTimeout(timeoutId);
+      duplicateSuggestionAbortRef.current?.abort();
+    };
+  }, [
+    duplicateSuggestionLookupState,
+    isOpen,
+  ]);
+
+  const savedEditEvacuationCenterId = String(
+    initialHouseholdDetails?.household?.evacuation_center_id ||
+      initialHouseholdDetails?.latest_attendance?.evacuation_center_id ||
+      "",
+  );
 
   useEffect(() => {
     if (!isOpen) {
@@ -248,16 +785,65 @@ export const useHouseholdRegistrationForm = ({
         return;
       }
 
-      const centers = needsBarangayScopedCenters
+      let centers = needsBarangayScopedCenters
         ? await fetchEvacuationCentersByBarangay(selectedBarangayId)
         : await fetchEvacuationCenters();
 
+      if ((!Array.isArray(centers) || centers.length === 0) && isOffline) {
+        const cachedReferenceData = getCachedRegistrationReferenceData();
+        centers = needsBarangayScopedCenters
+          ? cachedReferenceData.evacuationCentersByBarangay?.[selectedBarangayId] || []
+          : cachedReferenceData.evacuationCentersAll || [];
+      }
+
       if (isMounted) {
-        setEvacuationCenters(Array.isArray(centers) ? centers : []);
+        const normalizedCenters = Array.isArray(centers) ? centers : [];
+        const preservedEvacuationCenterId =
+          household.evacuation_center_id || savedEditEvacuationCenterId;
+
+        if (normalizedCenters.length > 0 && selectedBarangayId) {
+          cacheRegistrationEvacuationCentersByBarangay(selectedBarangayId, centers);
+        }
+
         setHousehold((currentValue) => ({
           ...currentValue,
-          evacuation_center_id: "",
+          evacuation_center_id:
+            preservedEvacuationCenterId &&
+            (normalizedCenters.some(
+              (center) =>
+                String(center.id ?? "") ===
+                String(preservedEvacuationCenterId ?? ""),
+            ) ||
+              isEditMode)
+              ? preservedEvacuationCenterId
+              : "",
         }));
+
+        setEvacuationCenters(() => {
+          const existingSelectedCenter = normalizedCenters.find(
+            (center) =>
+              String(center.id ?? "") ===
+              String(preservedEvacuationCenterId ?? ""),
+          );
+
+          if (
+            !isEditMode ||
+            !preservedEvacuationCenterId ||
+            existingSelectedCenter
+          ) {
+            return normalizedCenters;
+          }
+
+          return [
+            {
+              id: preservedEvacuationCenterId,
+              name: "Saved evacuation center",
+              barangay_id: selectedBarangayId || null,
+              is_active: false,
+            },
+            ...normalizedCenters,
+          ];
+        });
       }
     };
 
@@ -268,7 +854,11 @@ export const useHouseholdRegistrationForm = ({
     };
   }, [
     isOpen,
+    household.evacuation_center_id,
+    initialHouseholdDetails,
+    isEditMode,
     residencyStatus,
+    savedEditEvacuationCenterId,
     scopeNonResidentEvacuationCentersToBarangay,
     selectedBarangayId,
   ]);
@@ -293,9 +883,37 @@ export const useHouseholdRegistrationForm = ({
     ) {
       setSelectedBarangayId(defaultBarangayId || barangays[0].id);
     }
+
+    setValidationErrors((currentValue) => ({
+      ...currentValue,
+      selectedBarangayId: "",
+      evacuation_center_id: "",
+      contact_number: "",
+    }));
+  };
+
+  const updateSelectedBarangayId = (value) => {
+    setSelectedBarangayId(value);
+    setValidationErrors((currentValue) => ({
+      ...currentValue,
+      selectedBarangayId: "",
+      evacuation_center_id: "",
+    }));
   };
 
   const memberCount = members.length + 1;
+
+  const updateContactNumber = (value) => {
+    setHousehold((currentValue) => ({
+      ...currentValue,
+      contact_number: buildPhilippineContactNumber(value),
+    }));
+
+    setValidationErrors((currentValue) => ({
+      ...currentValue,
+      contact_number: "",
+    }));
+  };
 
   const updateHouseholdField = (fieldName, value) => {
     if (
@@ -311,14 +929,32 @@ export const useHouseholdRegistrationForm = ({
       ...currentValue,
       [fieldName]: value,
     }));
+
+    if (fieldName === "evacuation_center_id") {
+      setValidationErrors((currentValue) => ({
+        ...currentValue,
+        evacuation_center_id: "",
+      }));
+    }
+
+    if (fieldName === "current_stay_type") {
+      setValidationErrors((currentValue) => ({
+        ...currentValue,
+        evacuation_center_id: "",
+      }));
+    }
   };
 
   const updateFamilyHeadField = (fieldName, value) => {
+    if (isFamilyHeadProtected) {
+      return;
+    }
+
     setFamilyHead((currentValue) => {
       if (fieldName === "age_value") {
         return {
           ...currentValue,
-          ...buildAgeDetails(value, "YEARS"),
+          age_value: value,
         };
       }
 
@@ -331,9 +967,23 @@ export const useHouseholdRegistrationForm = ({
         [fieldName]: value,
       };
     });
+
+    if (fieldName === "first_name" || fieldName === "last_name" || fieldName === "age_value") {
+      setValidationErrors((currentValue) => ({
+        ...currentValue,
+        familyHead: {
+          ...currentValue.familyHead,
+          [fieldName]: "",
+        },
+      }));
+    }
   };
 
   const toggleFamilyHeadSector = (sectorId) => {
+    if (isFamilyHeadProtected) {
+      return;
+    }
+
     setFamilyHead((currentValue) => ({
       ...currentValue,
       sector_ids: currentValue.sector_ids.includes(sectorId)
@@ -379,6 +1029,29 @@ export const useHouseholdRegistrationForm = ({
         };
       }),
     );
+
+    if (
+      fieldName === "first_name" ||
+      fieldName === "last_name" ||
+      fieldName === "age_value" ||
+      fieldName === "relationship_option" ||
+      fieldName === "custom_relationship"
+    ) {
+      setValidationErrors((currentValue) => ({
+        ...currentValue,
+        members: currentValue.members.map((memberErrors, memberIndex) =>
+          memberIndex === index
+            ? {
+                ...memberErrors,
+                [fieldName]: "",
+                ...(fieldName === "relationship_option"
+                  ? { custom_relationship: "" }
+                  : {}),
+              }
+            : memberErrors,
+        ),
+      }));
+    }
   };
 
   const toggleMemberSector = (index, sectorId) => {
@@ -410,36 +1083,208 @@ export const useHouseholdRegistrationForm = ({
 
   const addMember = () => {
     setMembers((currentMembers) => [...currentMembers, createMember()]);
+    setValidationErrors((currentValue) => ({
+      ...currentValue,
+      members: [...currentValue.members, createMemberValidationErrors()],
+    }));
   };
 
   const removeMember = (index) => {
     setMembers((currentMembers) =>
       currentMembers.filter((_, memberIndex) => memberIndex !== index),
     );
+    setValidationErrors((currentValue) => ({
+      ...currentValue,
+      members: currentValue.members.filter((_, memberIndex) => memberIndex !== index),
+    }));
+  };
+
+  const setFamilyHeadPhotoFromFile = async (file) => {
+    if (isFamilyHeadProtected) {
+      return;
+    }
+
+    if (!file) {
+      setFamilyHeadPhotoUrl("");
+      setFamilyHeadPhotoFileName("");
+      return;
+    }
+
+    if (!String(file.type || "").startsWith("image/")) {
+      setErrorMessage("Please select a valid image file for the family head photo.");
+      return;
+    }
+
+    if (file.size > MAX_FAMILY_HEAD_PHOTO_FILE_SIZE) {
+      setErrorMessage("Family head photo must be 3 MB or smaller.");
+      return;
+    }
+
+    setIsProcessingPhoto(true);
+    setErrorMessage("");
+
+    try {
+      const encodedPhoto = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+
+        reader.onload = () => {
+          if (typeof reader.result === "string") {
+            resolve(reader.result);
+            return;
+          }
+
+          reject(new Error("Failed to read selected photo."));
+        };
+
+        reader.onerror = () => {
+          reject(new Error("Failed to read selected photo."));
+        };
+
+        reader.readAsDataURL(file);
+      });
+
+      setFamilyHeadPhotoUrl(encodedPhoto);
+      setFamilyHeadPhotoFileName(file.name || "Captured photo");
+      setSuccessMessage("");
+      setValidationErrors((currentValue) => ({
+        ...currentValue,
+        family_head_photo_url: "",
+      }));
+    } catch (error) {
+      setErrorMessage(error.message || "Failed to process family head photo.");
+    } finally {
+      setIsProcessingPhoto(false);
+    }
+  };
+
+  const clearFamilyHeadPhoto = () => {
+    if (isFamilyHeadProtected) {
+      return;
+    }
+
+    setFamilyHeadPhotoUrl("");
+    setFamilyHeadPhotoFileName("");
+  };
+
+  const updatePhotoVerificationNotes = (value) => {
+    if (isFamilyHeadProtected) {
+      return;
+    }
+
+    setPhotoVerificationNotes(value);
+  };
+
+  const normalizedSelectedEvacuationCenterId = String(
+    household.evacuation_center_id ?? "",
+  );
+  const inferredSingleEvacuationCenterId =
+    isEditMode &&
+    household.current_stay_type === "EVAC_CENTER" &&
+    !normalizedSelectedEvacuationCenterId &&
+    evacuationCenters.length === 1
+      ? String(evacuationCenters[0]?.id ?? "")
+      : "";
+  const effectiveEvacuationCenterId =
+    normalizedSelectedEvacuationCenterId || inferredSingleEvacuationCenterId;
+  const hasSelectedEvacuationCenterInOptions = evacuationCenters.some(
+    (center) =>
+      String(center.id ?? "") === effectiveEvacuationCenterId,
+  );
+  const displayedEvacuationCenters =
+    isEditMode &&
+    effectiveEvacuationCenterId &&
+    !hasSelectedEvacuationCenterInOptions
+      ? [
+          {
+            id: effectiveEvacuationCenterId,
+            name: "Saved evacuation center",
+            barangay_id: selectedBarangayId || null,
+            is_active: false,
+          },
+          ...evacuationCenters,
+        ]
+      : evacuationCenters;
+
+  const clearFormMessages = () => {
+    setErrorMessage("");
+    setErrorCode("");
+    setSuccessMessage("");
   };
 
   const resetForm = () => {
+    duplicateSuggestionRequestSeqRef.current += 1;
+    activeDuplicateSuggestionLookupKeyRef.current = "";
+    duplicateSuggestionAbortRef.current?.abort();
+    duplicateSuggestionAbortRef.current = null;
+    duplicateSuggestionCacheRef.current.clear();
     setHousehold(initialHousehold);
     setResidencyStatus(RESIDENCY_STATUS.resident);
     setFamilyHead(initialFamilyHead);
     setMembers([]);
     setHouseholdSectorIds([]);
+    setFamilyHeadPhotoUrl("");
+    setFamilyHeadPhotoFileName("");
+    setPhotoVerificationNotes("");
     setEvacuationCenters([]);
     setSelectedDisasterEventId(defaultDisasterEventId || "");
     setSelectedBarangayId(defaultBarangayId || "");
     setErrorMessage("");
+    setErrorCode("");
     setSuccessMessage("");
+    setDuplicateSuggestions(createEmptyDuplicateSuggestions());
+    setIsLoadingDuplicateSuggestions(false);
+    setDuplicateSuggestionsError("");
+    setValidationErrors(createValidationErrors());
   };
 
   const validateForm = () => {
     if (!selectedDisasterEventId) {
-      return "Please select an active disaster event from the Barangay masterlist page";
+      return isOffline
+        ? "Offline mode: please select an active disaster event while online first."
+        : "Please select an active disaster event from the Barangay masterlist page";
     }
 
+    const needsEvacuationCenterReference =
+      household.current_stay_type === "EVAC_CENTER" ||
+      (residencyStatus === RESIDENCY_STATUS.nonResident &&
+        restrictNonResidentToEvacCenter);
+
+    if (
+      isOffline &&
+      (activeDisasterEvents.length === 0 ||
+        householdSectors.length === 0 ||
+        barangays.length === 0 ||
+        (needsEvacuationCenterReference && evacuationCenters.length === 0))
+    ) {
+      return "Offline mode: please load the registration reference data while online first.";
+    }
+
+    if (isProcessingPhoto) {
+      return "Please wait for the family head photo to finish processing.";
+    }
+
+    const nextValidationErrors = createValidationErrors();
+    nextValidationErrors.members = members.map(() => createMemberValidationErrors());
+
     if (!selectedBarangayId) {
-      return residencyStatus === RESIDENCY_STATUS.nonResident
-        ? "Please select the handling barangay for this non-resident family"
-        : "Please select a barangay";
+      nextValidationErrors.selectedBarangayId =
+        residencyStatus === RESIDENCY_STATUS.nonResident
+          ? "Please select the handling barangay for this non-resident family."
+          : "Please select a barangay.";
+    }
+
+    if (!trimValue(household.contact_number)) {
+      nextValidationErrors.contact_number = "Contact number is required.";
+    } else if (!isValidPhilippineContactNumber(household.contact_number)) {
+      nextValidationErrors.contact_number =
+        "Contact number must start with 9 and contain 10 digits.";
+    }
+
+    if (household.current_stay_type === "EVAC_CENTER") {
+      if (!effectiveEvacuationCenterId) {
+        nextValidationErrors.evacuation_center_id =
+          "Please select an evacuation center.";
+      }
     }
 
     if (
@@ -450,74 +1295,175 @@ export const useHouseholdRegistrationForm = ({
         return "Non-resident families must be registered under Evacuation Center stay.";
       }
 
-      if (!household.evacuation_center_id) {
-        return "Please select an evacuation center under the assigned barangay.";
+      if (!effectiveEvacuationCenterId) {
+        nextValidationErrors.evacuation_center_id =
+          "Please select an evacuation center under the assigned barangay.";
       }
 
       const selectedCenter = evacuationCenters.find(
-        (center) => center.id === household.evacuation_center_id,
+        (center) =>
+          String(center.id ?? "") ===
+          effectiveEvacuationCenterId,
       );
 
       if (
         !selectedCenter ||
         selectedCenter.barangay_id !== selectedBarangayId
       ) {
-        return "Please select a valid evacuation center under the assigned barangay.";
+        nextValidationErrors.evacuation_center_id =
+          "Please select a valid evacuation center under the assigned barangay.";
       }
     }
 
-    if (!trimValue(familyHead.first_name) || !trimValue(familyHead.last_name)) {
-      return "Family head first name and last name are required";
-    }
-
-    const normalizedFamilyHeadAgeValue = normalizeAgeValue(familyHead.age_value);
-
-    if (normalizedFamilyHeadAgeValue === "") {
-      return "Family head age is required";
-    }
-
-    if (familyHead.age_unit !== "YEARS") {
-      return "Family head age must be encoded in years";
-    }
-
-    if (!deriveAgeGroup(normalizedFamilyHeadAgeValue, "YEARS")) {
-      return "Family head age must map to a valid age-based sector";
-    }
-
-    for (const member of members) {
-      if (!trimValue(member.first_name) || !trimValue(member.last_name)) {
-        return "Each additional member needs a first name and last name";
+    if (!isFamilyHeadProtected) {
+      if (!trimValue(familyHead.first_name)) {
+        nextValidationErrors.familyHead.first_name =
+          "Family head first name is required.";
       }
 
+      if (!trimValue(familyHead.last_name)) {
+        nextValidationErrors.familyHead.last_name =
+          "Family head last name is required.";
+      }
+
+      const trimmedFamilyHeadAgeValue = trimValue(familyHead.age_value);
+      const normalizedFamilyHeadAgeValue = normalizeAgeValue(familyHead.age_value);
+
+      if (!trimmedFamilyHeadAgeValue) {
+        nextValidationErrors.familyHead.age_value =
+          "Family head age is required.";
+      } else if (!isWholeNumberString(familyHead.age_value)) {
+        nextValidationErrors.familyHead.age_value =
+          "Family head age must be a whole number.";
+      } else if (normalizedFamilyHeadAgeValue < 1) {
+        nextValidationErrors.familyHead.age_value =
+          "Family head age must be at least 1.";
+      } else if (!deriveAgeGroup(normalizedFamilyHeadAgeValue, "YEARS")) {
+        nextValidationErrors.familyHead.age_value =
+          "Family head age must be a valid age.";
+      }
+    }
+
+    for (const [memberIndex, member] of members.entries()) {
+
+      if (!trimValue(member.first_name)) {
+        nextValidationErrors.members[memberIndex].first_name =
+          "First name is required.";
+      }
+
+      if (!trimValue(member.last_name)) {
+        nextValidationErrors.members[memberIndex].last_name =
+          "Last name is required.";
+      }
+
+      const trimmedMemberAgeValue = trimValue(member.age_value);
       const normalizedAgeValue = normalizeAgeValue(member.age_value);
 
-      if (normalizedAgeValue === "" || !deriveAgeGroup(normalizedAgeValue, member.age_unit)) {
-        return "Each additional member needs a valid age value and age unit";
+      if (!trimmedMemberAgeValue) {
+        nextValidationErrors.members[memberIndex].age_value =
+          "Age is required.";
+      } else if (!isWholeNumberString(member.age_value)) {
+        nextValidationErrors.members[memberIndex].age_value =
+          "Age must be a whole number.";
+      } else if (member.age_unit === "MONTHS") {
+        if (normalizedAgeValue < 0 || normalizedAgeValue > 11) {
+          nextValidationErrors.members[memberIndex].age_value =
+            "Age in months must be from 0 to 11 only.";
+        }
+      } else if (member.age_unit === "YEARS") {
+        if (normalizedAgeValue < 1) {
+          nextValidationErrors.members[memberIndex].age_value =
+            "Age in years must be at least 1.";
+        } else if (!deriveAgeGroup(normalizedAgeValue, member.age_unit)) {
+          nextValidationErrors.members[memberIndex].age_value =
+            "A valid age is required.";
+        }
+      } else {
+        nextValidationErrors.members[memberIndex].age_value =
+          "A valid age is required.";
       }
 
       if (!trimValue(member.relationship_option)) {
-        return "Please choose the relationship to head for each additional member";
+        nextValidationErrors.members[memberIndex].relationship_option =
+          "Please choose the relationship to head.";
       }
 
       if (
         member.relationship_option === "OTHERS" &&
         !trimValue(member.custom_relationship)
       ) {
-        return "Please enter the custom relationship when Others is selected";
+        nextValidationErrors.members[memberIndex].custom_relationship =
+          "Please enter the relationship.";
       }
     }
 
-    return "";
+    const familyHeadComparableFullName = buildComparableFullName(familyHead);
+    const seenMemberFullNames = new Map();
+
+    for (const [memberIndex, member] of members.entries()) {
+      const memberComparableFullName = buildComparableFullName(member);
+
+      if (!memberComparableFullName) {
+        continue;
+      }
+
+      if (memberComparableFullName === familyHeadComparableFullName) {
+        nextValidationErrors.members[memberIndex].first_name =
+          "This member has the exact same full name as the family head.";
+
+        if (!nextValidationErrors.familyHead.first_name) {
+          nextValidationErrors.familyHead.first_name =
+            "The family head cannot share an exact full name with a household member.";
+        }
+      }
+
+      if (seenMemberFullNames.has(memberComparableFullName)) {
+        nextValidationErrors.members[memberIndex].first_name =
+          "This member is an exact duplicate of another household member.";
+
+        const firstDuplicateIndex = seenMemberFullNames.get(memberComparableFullName);
+
+        if (!nextValidationErrors.members[firstDuplicateIndex].first_name) {
+          nextValidationErrors.members[firstDuplicateIndex].first_name =
+            "This member is an exact duplicate of another household member.";
+        }
+      } else {
+        seenMemberFullNames.set(memberComparableFullName, memberIndex);
+      }
+    }
+
+    if (!isFamilyHeadProtected && !familyHeadPhotoUrl) {
+      nextValidationErrors.family_head_photo_url =
+        "Family head photo is required for verification.";
+    }
+
+    const hasFieldValidationErrors =
+      Boolean(nextValidationErrors.selectedBarangayId) ||
+      Boolean(nextValidationErrors.evacuation_center_id) ||
+      Boolean(nextValidationErrors.contact_number) ||
+      Boolean(nextValidationErrors.family_head_photo_url) ||
+      (!isFamilyHeadProtected &&
+        Object.values(nextValidationErrors.familyHead).some(Boolean)) ||
+      nextValidationErrors.members.some((memberErrors) =>
+        Object.values(memberErrors).some(Boolean),
+      );
+
+    return {
+      generalMessage: "",
+      fieldErrors: nextValidationErrors,
+      hasFieldValidationErrors,
+    };
   };
 
-  const buildPayload = () => {
-    return {
+  const buildPayload = (privacyAcknowledgment = null) => {
+    const payload = {
+      household_id: initialHouseholdDetails?.household?.id || null,
       disaster_event_id: selectedDisasterEventId,
       barangay_id: selectedBarangayId,
       residency_status: residencyStatus,
       evacuation_center_id:
         household.current_stay_type === "EVAC_CENTER"
-          ? household.evacuation_center_id || null
+          ? effectiveEvacuationCenterId || null
           : null,
       family_head: {
         first_name: trimValue(familyHead.first_name),
@@ -532,7 +1478,12 @@ export const useHouseholdRegistrationForm = ({
       current_stay_type: household.current_stay_type,
       household_size: memberCount,
       registered_by: registeredBy,
+      contact_number: trimValue(household.contact_number) || null,
+      current_address_details: trimValue(household.current_address_details) || null,
+      family_head_photo_url: familyHeadPhotoUrl || null,
+      photo_verification_notes: trimValue(photoVerificationNotes) || null,
       members: members.map((member) => ({
+        id: member.id || null,
         first_name: trimValue(member.first_name),
         middle_name: trimValue(member.middle_name) || null,
         last_name: trimValue(member.last_name),
@@ -544,28 +1495,85 @@ export const useHouseholdRegistrationForm = ({
         sector_ids: member.sector_ids,
       })),
       household_sector_ids: householdSectorIds,
+      privacy_acknowledgment: privacyAcknowledgment,
     };
+
+    return isFamilyHeadProtected
+      ? sanitizeHouseholdUpdatePayload(payload)
+      : payload;
   };
 
-  const submitRegistration = async () => {
-    const validationMessage = validateForm();
+  const validateSubmissionReadiness = () => {
+    const validationResult = validateForm();
 
-    if (validationMessage) {
+    if (typeof validationResult === "string" && validationResult) {
       setSuccessMessage("");
-      setErrorMessage(validationMessage);
+      setValidationErrors(createValidationErrors());
+      setErrorMessage(validationResult);
+      setErrorCode("");
+      return false;
+    }
+
+    if (validationResult?.hasFieldValidationErrors) {
+      setSuccessMessage("");
+      setValidationErrors(validationResult.fieldErrors);
+      setErrorMessage("");
+      setErrorCode("");
+      return false;
+    }
+
+    setErrorMessage("");
+    setErrorCode("");
+    setSuccessMessage("");
+
+    return true;
+  };
+
+  const createPrivacyAcknowledgment = ({
+    acknowledgedByName = null,
+    representativeRelationship = null,
+  } = {}) => {
+    return buildHouseholdPrivacyAcknowledgment({
+      acknowledgedByName,
+      representativeRelationship,
+      familyHead,
+      isOffline,
+    });
+  };
+
+  const submitRegistration = async (privacyAcknowledgment = null) => {
+    if (!validateSubmissionReadiness()) {
+      return false;
+    }
+
+    if (requiresPrivacyAcknowledgment && !privacyAcknowledgment) {
+      setSuccessMessage("");
+      setErrorMessage(HOUSEHOLD_PRIVACY_CONFIRMATION_ERROR);
+      setErrorCode("");
       return false;
     }
 
     setIsSubmitting(true);
     setErrorMessage("");
+    setErrorCode("");
     setSuccessMessage("");
+    setValidationErrors(createValidationErrors());
 
     try {
-      const payload = buildPayload();
-      const response = await registerHousehold(payload);
+      const payload = buildPayload(
+        requiresPrivacyAcknowledgment ? privacyAcknowledgment : null,
+      );
+      const response = isEditMode
+        ? await updateHousehold(initialHouseholdDetails?.household?.id, payload)
+        : await registerHousehold(payload, {
+            cachedHouseholds: localHouseholdDuplicateCandidates,
+          });
 
       setSuccessMessage(
-        response.message || "Household registered successfully",
+        response.message ||
+          (isEditMode
+            ? "Household updated successfully"
+            : "Household registered successfully"),
       );
 
       if (onSuccess) {
@@ -574,7 +1582,13 @@ export const useHouseholdRegistrationForm = ({
 
       return true;
     } catch (error) {
-      setErrorMessage(error.message || "Failed to register household");
+      setErrorCode(error.code || "");
+      setErrorMessage(
+        error.message ||
+          (requiresPrivacyAcknowledgment
+            ? HOUSEHOLD_PRIVACY_REGISTRATION_ERROR_MESSAGE
+            : "Failed to register household"),
+      );
       return false;
     } finally {
       setIsSubmitting(false);
@@ -590,24 +1604,45 @@ export const useHouseholdRegistrationForm = ({
     memberCount,
     householdSectorIds,
     activeDisasterEvents,
-    barangays,
+    barangays: selectableBarangays,
     assignedBarangayName: defaultBarangayName,
+    isUsingCachedReferenceData,
+    isOffline,
+    isEditMode,
+    isExistingHousehold,
+    isFamilyHeadProtected,
+    latestPrivacyConsent,
+    requiresPrivacyAcknowledgment,
     selectedDisasterEventId,
     setSelectedDisasterEventId,
     isDisasterEventLocked: Boolean(defaultDisasterEventId),
     selectedBarangayId,
-    setSelectedBarangayId,
+    setSelectedBarangayId: updateSelectedBarangayId,
     isBarangayLocked: lockBarangaySelection,
     hideBarangaySelection,
     restrictNonResidentToEvacCenter,
     memberSectorOptions,
     householdSectors,
-    evacuationCenters,
+    evacuationCenters: displayedEvacuationCenters,
+    effectiveEvacuationCenterId,
     isLoadingOptions,
     isSubmitting,
+    duplicateSuggestions,
+    isLoadingDuplicateSuggestions,
+    duplicateSuggestionsError,
     errorMessage,
+    errorCode,
     successMessage,
+    validationErrors,
+    formattedContactNumber: formatPhilippineContactNumberLocalPart(
+      household.contact_number,
+    ),
+    familyHeadPhotoUrl,
+    familyHeadPhotoFileName,
+    photoVerificationNotes,
+    isProcessingPhoto,
     updateHouseholdField,
+    updateContactNumber,
     updateFamilyHeadField,
     toggleFamilyHeadSector,
     updateMemberField,
@@ -615,7 +1650,13 @@ export const useHouseholdRegistrationForm = ({
     toggleHouseholdSector,
     addMember,
     removeMember,
+    setFamilyHeadPhotoFromFile,
+    clearFamilyHeadPhoto,
+    setPhotoVerificationNotes: updatePhotoVerificationNotes,
+    clearFormMessages,
     resetForm,
+    validateSubmissionReadiness,
+    createPrivacyAcknowledgment,
     submitRegistration,
   };
 };

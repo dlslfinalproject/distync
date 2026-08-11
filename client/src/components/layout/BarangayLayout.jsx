@@ -1,8 +1,15 @@
-import React, { useMemo, useState } from "react";
-import { Outlet } from "react-router-dom";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { ROLE_CODES } from "../../utils/roleSession";
 import Sidebar from "./Sidebar";
+import ShellHeader from "./ShellHeader";
+import SyncStatusBanner from "./SyncStatusBanner";
+import { SettingsUnsavedChangesProvider } from "../../pages/settings/SettingsUnsavedChangesContext";
+
+const SIDEBAR_EXPANDED_WIDTH = "280px";
+const SIDEBAR_COLLAPSED_WIDTH = "0px";
+const HEADER_BRAND_WIDTH = "280px";
 
 export const shellStyles = {
   page: {
@@ -62,42 +69,121 @@ export const shellStyles = {
   },
 };
 
+export const pageSpacingStyles = {
+  pageStack: {
+    flex: 1,
+    minWidth: 0,
+    maxWidth: "100%",
+    overflowX: "hidden",
+    display: "flex",
+    flexDirection: "column",
+    gap: "24px",
+  },
+  filterGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: "16px",
+    alignItems: "end",
+  },
+  toolbar: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "16px",
+    flexWrap: "wrap",
+  },
+  actionGroup: {
+    display: "flex",
+    alignItems: "center",
+    gap: "16px",
+    flexWrap: "wrap",
+  },
+  tableHeader: {
+    marginBottom: "16px",
+  },
+};
+
 const BarangayLayout = () => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const lastNonSettingsCollapseStateRef = useRef(false);
+  const location = useLocation();
   const { currentRole } = useAuth();
   const isDonorPortal = currentRole === ROLE_CODES.DONOR;
+  const isSettingsRoute = location.pathname.endsWith("/settings");
   const sidebarWidth = isDonorPortal
     ? "0px"
     : isSidebarCollapsed
-      ? "116px"
-      : "280px";
+      ? SIDEBAR_COLLAPSED_WIDTH
+      : SIDEBAR_EXPANDED_WIDTH;
+
+  useEffect(() => {
+    if (isDonorPortal || isSettingsRoute) {
+      return;
+    }
+
+    lastNonSettingsCollapseStateRef.current = isSidebarCollapsed;
+  }, [isDonorPortal, isSettingsRoute, isSidebarCollapsed]);
+
+  useEffect(() => {
+    if (isDonorPortal) {
+      return;
+    }
+
+    if (isSettingsRoute) {
+      setIsSidebarCollapsed(true);
+      return;
+    }
+
+    setIsSidebarCollapsed(lastNonSettingsCollapseStateRef.current);
+  }, [isDonorPortal, isSettingsRoute]);
 
   const pageStyle = useMemo(
     () => ({
       ...shellStyles.page,
       "--sidebar-width": sidebarWidth,
+      "--header-brand-width": HEADER_BRAND_WIDTH,
       gridTemplateColumns: isDonorPortal
         ? "minmax(0, 1fr)"
         : `var(--sidebar-width) minmax(0, 1fr)`,
+      gridTemplateRows: isDonorPortal ? "1fr" : "auto 1fr",
     }),
     [isDonorPortal, sidebarWidth],
   );
 
-  return (
-    <div className="distync-shell" style={pageStyle}>
-      {!isDonorPortal ? (
-        <Sidebar
-          isCollapsed={isSidebarCollapsed}
-          onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
-        />
-      ) : null}
+  const contentStyle = useMemo(
+    () => ({
+      ...shellStyles.content,
+      maxWidth: isSidebarCollapsed ? "100%" : shellStyles.content.maxWidth,
+      margin: isSidebarCollapsed ? "0" : shellStyles.content.margin,
+    }),
+    [isSidebarCollapsed],
+  );
 
-      <main className="distync-shell__main" style={shellStyles.main}>
-        <div className="distync-shell__content" style={shellStyles.content}>
-          <Outlet />
-        </div>
-      </main>
-    </div>
+  return (
+    <SettingsUnsavedChangesProvider>
+      <div className="distync-shell" style={pageStyle}>
+        {!isDonorPortal ? (
+          <ShellHeader
+            isSidebarCollapsed={isSidebarCollapsed}
+            onToggleSidebarCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
+          />
+        ) : null}
+
+        {!isDonorPortal ? (
+          <Sidebar
+            isCollapsed={isSidebarCollapsed}
+            onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
+          />
+        ) : null}
+
+        <main className="distync-shell__main" style={shellStyles.main}>
+          <div className="distync-shell__content" style={contentStyle}>
+            <SyncStatusBanner />
+            <Outlet />
+          </div>
+        </main>
+      </div>
+    </SettingsUnsavedChangesProvider>
   );
 };
 

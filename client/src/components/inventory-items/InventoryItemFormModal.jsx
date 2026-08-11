@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
 import { FiX } from "react-icons/fi";
@@ -39,6 +39,13 @@ const inputStyles = {
   outline: "none",
 };
 
+const lockedInputStyles = {
+  ...inputStyles,
+  backgroundColor: "#eef5fb",
+  color: "#5f7891",
+  cursor: "not-allowed",
+};
+
 const labelStyles = {
   display: "block",
   marginBottom: "8px",
@@ -58,8 +65,103 @@ const errorBoxStyles = {
   border: "1px solid #ffe4e6",
 };
 
+const fieldErrorTextStyles = {
+  margin: "6px 0 0",
+  color: "#c53030",
+  fontSize: "12px",
+  lineHeight: 1.4,
+};
+
+const matchNoticeStyles = {
+  margin: "10px 0 0",
+  color: "#17324d",
+  fontSize: "13px",
+  fontWeight: 600,
+};
+
+const autocompleteStyles = {
+  wrap: {
+    position: "relative",
+  },
+  list: {
+    position: "absolute",
+    top: "calc(100% + 8px)",
+    left: 0,
+    right: 0,
+    margin: 0,
+    padding: "8px",
+    listStyle: "none",
+    borderRadius: "16px",
+    border: "1px solid #d2deea",
+    backgroundColor: "#ffffff",
+    boxShadow: "0 18px 36px rgba(31, 64, 95, 0.14)",
+    zIndex: 20,
+    display: "grid",
+    gap: "6px",
+    maxHeight: "220px",
+    overflowY: "auto",
+    boxSizing: "border-box",
+  },
+  itemButton: {
+    width: "100%",
+    border: "none",
+    borderRadius: "12px",
+    backgroundColor: "#ffffff",
+    color: "#17324d",
+    textAlign: "left",
+    padding: "10px 12px",
+    fontSize: "14px",
+    cursor: "pointer",
+  },
+  itemMeta: {
+    display: "block",
+    marginTop: "4px",
+    color: "#5f7891",
+    fontSize: "12px",
+    fontWeight: 600,
+  },
+};
+
+const formFooterStyles = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "16px",
+  padding: "18px 20px",
+  borderRadius: "18px",
+  border: "1px solid #d7e2ef",
+  backgroundColor: "#ffffff",
+  boxShadow: "0 16px 34px rgba(23, 50, 77, 0.08)",
+  flexWrap: "wrap",
+};
+
+const footerTotalStyles = {
+  margin: 0,
+  color: "#4f677f",
+  fontSize: "15px",
+};
+
+const footerActionsStyles = {
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: "12px",
+  flexWrap: "wrap",
+};
+
+const editFooterActionsStyles = {
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: "12px",
+  flexWrap: "wrap",
+};
+
 const unitOfMeasureOptions = ["kg", "g", "L", "mL", "pc"];
-const packagingOptions = ["sack", "box", "carton", "case", "pack", "bottle"];
+const packagingOptions = ["piece", "pack", "box", "case", "carton", "sack", "bottle"];
+
+const weightOrVolumeUnits = new Set(["kg", "g", "L", "mL"]);
+
+const getNormalizedInventoryText = (value) =>
+  String(value || "").trim().toLowerCase();
 
 const normalizeCategoryValue = (category) => {
   if (typeof category !== "string") {
@@ -77,6 +179,7 @@ const normalizeCategoryValue = (category) => {
 
 const createDefaultForm = () => ({
   item_name: "",
+  barcode: "",
   quantity: "",
   unit_of_measure: "",
   unit_of_measure_value: "",
@@ -85,48 +188,699 @@ const createDefaultForm = () => ({
   category: "perishable",
   expiration_date: "",
   reorder_level: "",
+  tracking_method: "Count-Based",
 });
+
+const inferTrackingMethod = (unitOfMeasure) => {
+  return weightOrVolumeUnits.has(unitOfMeasure)
+    ? "Weight/Volume-Based"
+    : "Count-Based";
+};
+
+const isWeightOrVolumeBased = (trackingMethod) =>
+  trackingMethod === "Weight/Volume-Based";
+
+const itemHasBarcodeStockForms = (item) => {
+  if (!item) {
+    return false;
+  }
+
+  if (String(item?.barcode || "").trim()) {
+    return true;
+  }
+
+  if (!Array.isArray(item?.stock_forms)) {
+    return false;
+  }
+
+  return item.stock_forms.some((stockForm) =>
+    Boolean(String(stockForm?.barcode || "").trim()),
+  );
+};
+
+const formatPackagingLabel = (packaging) => {
+  if (!packaging) {
+    return "Packaging";
+  }
+
+  return packaging.charAt(0).toUpperCase() + packaging.slice(1);
+};
+
+const buildAutocompleteSuggestions = (items, query, { collapseBarcodeVariants = false } = {}) => {
+  const normalizedQuery = getNormalizedInventoryText(query);
+
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  return items
+    .filter((item) =>
+      getNormalizedInventoryText(item?.item_name).includes(normalizedQuery),
+    )
+    .sort((leftItem, rightItem) =>
+      String(leftItem?.item_name || "").localeCompare(
+        String(rightItem?.item_name || ""),
+        undefined,
+        { sensitivity: "base" },
+      ),
+    )
+    .flatMap((item) => {
+      if (collapseBarcodeVariants || !itemHasBarcodeStockForms(item)) {
+        return [
+          {
+            key: `item-${item.id}`,
+            item,
+            stockForm: null,
+            meta: item.category || "Item",
+          },
+        ];
+      }
+
+      const stockForms = Array.isArray(item?.stock_forms) ? item.stock_forms : [];
+
+      if (stockForms.length === 0) {
+        return [
+          {
+            key: `item-${item.id}`,
+            item,
+            stockForm: null,
+            meta: item.category || "Item",
+          },
+        ];
+      }
+
+      return stockForms.map((stockForm, index) => ({
+        key: `item-${item.id}-stock-form-${stockForm?.id || index}`,
+        item,
+        stockForm,
+        meta: `${item.category || "Item"} (${formatPackagingLabel(
+          stockForm?.packaging || item?.packaging || "piece",
+        )})`,
+      }));
+    })
+    .slice(0, 8);
+};
+
+const formatPackagingExample = (packaging) => {
+  if (!packaging) {
+    return "Enter quantity on hand";
+  }
+
+  if (packaging === "piece") {
+    return "Example: 20 pieces";
+  }
+
+  if (packaging === "box") {
+    return "Example: 20 boxes";
+  }
+
+  return `Example: 20 ${packaging}s`;
+};
+
+const getStockMultiplierValue = (formValues, isPiecePackaging) => {
+  if (isPiecePackaging) {
+    return 1;
+  }
+
+  return parsePositiveNumberOrZero(formValues.quantity);
+};
+
+const parsePositiveNumberOrZero = (value) => {
+  const parsedValue = Number(value);
+
+  if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+    return 0;
+  }
+
+  return parsedValue;
+};
+
+const isBlank = (value) => String(value ?? "").trim() === "";
+
+const isPositiveNumber = (value) => {
+  const parsedValue = Number(value);
+  return Number.isFinite(parsedValue) && parsedValue > 0;
+};
+
+const isValidDateValue = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+const getTodayDateInputValue = () => {
+  const today = new Date();
+  today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+  return today.toISOString().slice(0, 10);
+};
+
+const formatComputedValue = (value) => {
+  if (!Number.isFinite(value)) {
+    return "--";
+  }
+
+  if (Number.isInteger(value)) {
+    return value.toLocaleString();
+  }
+
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+};
 
 const InventoryItemFormModal = ({
   isOpen,
   mode,
+  source = "manual",
   itemData,
+  inventoryItems = [],
+  getCurrentStockForItem = null,
   isSubmitting,
   errorMessage,
   onClose,
   onSubmit,
 }) => {
   const [formValues, setFormValues] = useState(createDefaultForm());
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [selectedExistingItemId, setSelectedExistingItemId] = useState(null);
+  const [selectedExistingStockFormId, setSelectedExistingStockFormId] = useState(null);
+  const [isAutocompleteOpen, setIsAutocompleteOpen] = useState(false);
+  const itemNameInputRef = useRef(null);
+  const barcodeInputRef = useRef(null);
+  const autocompleteRef = useRef(null);
+  const previousMatchedItemKeyRef = useRef("");
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      return;
+    }
 
     if (itemData) {
+      const resolvedUnitOfMeasure = itemData.unit_of_measure || itemData.unit || "";
       setFormValues({
         item_name: itemData.item_name || itemData.name || "",
+        barcode: itemData.barcode || "",
         quantity: itemData.quantity || "",
-        unit_of_measure: itemData.unit_of_measure || itemData.unit || "",
+        unit_of_measure: resolvedUnitOfMeasure,
         unit_of_measure_value: itemData.unit_of_measure_value || "",
         packaging: itemData.packaging || "",
         packaging_count: itemData.packaging_count || "",
         category: normalizeCategoryValue(itemData.category),
-        expiration_date: itemData.expiration_date || itemData.expiryDate || "",
-        reorder_level: itemData.reorder_level || "",
+        expiration_date: itemData.expiration_date ?? itemData.expiryDate ?? "",
+        reorder_level: itemData.reorder_level ?? "",
+        tracking_method:
+          itemData.tracking_method || inferTrackingMethod(resolvedUnitOfMeasure),
       });
     } else {
       setFormValues(createDefaultForm());
     }
+
+    setSelectedExistingItemId(itemData?.id || null);
+    setSelectedExistingStockFormId(itemData?.inventory_item_stock_form_id || null);
+    setIsAutocompleteOpen(false);
+    setFieldErrors({});
   }, [isOpen, itemData]);
 
-  if (!isOpen) return null;
+  const trimmedItemName = formValues.item_name.trim();
+  const eligibleExistingItems = mode === "create" ? inventoryItems : [];
+  const rawTrimmedBarcode = String(formValues.barcode || "").trim();
+  const matchedExistingItem =
+    mode === "create" && selectedExistingItemId
+      ? eligibleExistingItems.find(
+          (item) => String(item?.id) === String(selectedExistingItemId),
+        ) || null
+      : null;
+  const matchedExistingStockForm =
+    matchedExistingItem && selectedExistingStockFormId != null
+      ? (Array.isArray(matchedExistingItem.stock_forms)
+          ? matchedExistingItem.stock_forms.find(
+              (stockForm) =>
+                String(stockForm?.id) === String(selectedExistingStockFormId),
+            )
+          : null) || null
+      : null;
+  const matchedBarcodeValue =
+    matchedExistingStockForm?.barcode || matchedExistingItem?.barcode || "";
+  const matchedItemHasBarcodeStockForms =
+    Boolean(String(matchedBarcodeValue).trim()) ||
+    itemHasBarcodeStockForms(matchedExistingItem);
+  const shouldShowBarcodeField =
+    source === "scan" ||
+    mode === "edit" ||
+    (mode === "create" && Boolean(String(matchedBarcodeValue).trim()));
+  const trimmedBarcode = shouldShowBarcodeField ? formValues.barcode.trim() : "";
+  const autocompleteSuggestions =
+    mode === "create"
+      ? buildAutocompleteSuggestions(eligibleExistingItems, trimmedItemName, {
+          collapseBarcodeVariants:
+            source === "scan" &&
+            Boolean(rawTrimmedBarcode) &&
+            !matchedExistingStockForm,
+        })
+      : [];
 
-  const handleChange = (fieldName, value) => {
-    setFormValues((prev) => ({ ...prev, [fieldName]: value }));
+  const isExactBarcodeStockFormMatch =
+    source === "scan" && Boolean(trimmedBarcode) && Boolean(matchedExistingStockForm);
+  const isNameMatchedRestock = Boolean(matchedExistingItem);
+  const isRestockMode = mode === "create" && Boolean(matchedExistingItem);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    const focusTimer = window.setTimeout(() => {
+      if (shouldShowBarcodeField) {
+        barcodeInputRef.current?.focus();
+        barcodeInputRef.current?.select();
+      }
+    }, 50);
+
+    return () => window.clearTimeout(focusTimer);
+  }, [isOpen, shouldShowBarcodeField]);
+
+  useEffect(() => {
+    if (!isOpen || mode !== "create") {
+      previousMatchedItemKeyRef.current = "";
+      return;
+    }
+
+    const matchedItemKey = `${matchedExistingItem?.id || ""}:${selectedExistingStockFormId || ""}`;
+
+    if (previousMatchedItemKeyRef.current === matchedItemKey) {
+      return;
+    }
+
+    previousMatchedItemKeyRef.current = matchedItemKey;
+
+    if (!matchedExistingItem) {
+      return;
+    }
+
+    const resolvedUnitOfMeasure =
+      matchedExistingItem.unit_of_measure || matchedExistingItem.unit || "";
+    const resolvedTrackingMethod =
+      matchedExistingItem.tracking_method ||
+      inferTrackingMethod(resolvedUnitOfMeasure);
+
+    const selectedStockForm = matchedExistingStockForm;
+
+    setFormValues((prev) => ({
+      ...prev,
+      item_name: matchedExistingItem.item_name || prev.item_name,
+      barcode:
+        source === "scan" && !isExactBarcodeStockFormMatch
+          ? prev.barcode
+          : isExactBarcodeStockFormMatch
+        ? prev.barcode
+        : selectedStockForm?.barcode || matchedExistingItem.barcode || prev.barcode,
+      category: normalizeCategoryValue(matchedExistingItem.category),
+      tracking_method: resolvedTrackingMethod,
+      unit_of_measure:
+        resolvedTrackingMethod === "Count-Based"
+          ? "pc"
+          : resolvedUnitOfMeasure || prev.unit_of_measure,
+      unit_of_measure_value:
+        selectedStockForm?.unit_of_measure_value ||
+        matchedExistingItem.unit_of_measure_value ||
+        prev.unit_of_measure_value,
+      packaging:
+        selectedStockForm?.packaging ||
+        matchedExistingItem.packaging ||
+        prev.packaging,
+      quantity: String(
+        selectedStockForm?.units_per_packaging ||
+          matchedExistingItem.quantity ||
+          ((selectedStockForm?.packaging || matchedExistingItem.packaging) === "piece"
+            ? 1
+            : ""),
+      ),
+      reorder_level:
+        matchedExistingItem.reorder_level != null
+          ? String(matchedExistingItem.reorder_level)
+          : prev.reorder_level,
+      expiration_date: "",
+    }));
+    setFieldErrors({});
+  }, [
+    isExactBarcodeStockFormMatch,
+    isOpen,
+    matchedExistingItem,
+    matchedExistingStockForm,
+    mode,
+    selectedExistingStockFormId,
+  ]);
+
+  useEffect(() => {
+    if (!isOpen || mode !== "create") {
+      return undefined;
+    }
+
+    const handleOutsideClick = (event) => {
+      if (
+        itemNameInputRef.current?.contains(event.target) ||
+        autocompleteRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+
+      setIsAutocompleteOpen(false);
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [isOpen, mode]);
+
+  const handleChange = useCallback((fieldName, value) => {
+    setFieldErrors((prev) => {
+      const fieldsToClear = [fieldName];
+
+      if (fieldName === "category") {
+        fieldsToClear.push("expiration_date");
+      }
+
+      if (fieldName === "tracking_method") {
+        fieldsToClear.push("unit_of_measure", "unit_of_measure_value");
+      }
+
+      if (fieldName === "packaging") {
+        fieldsToClear.push("packaging_count", "quantity");
+      }
+
+      const nextErrors = { ...prev };
+      fieldsToClear.forEach((field) => {
+        delete nextErrors[field];
+      });
+      return nextErrors;
+    });
+
+    setFormValues((prev) => {
+      if (fieldName === "item_name") {
+        return {
+          ...prev,
+          item_name: value,
+        };
+      }
+
+      if (fieldName === "tracking_method") {
+        const nextValues = {
+          ...prev,
+          tracking_method: value,
+        };
+
+        if (value === "Count-Based") {
+          nextValues.unit_of_measure = "pc";
+          nextValues.unit_of_measure_value = "";
+        }
+
+        return nextValues;
+      }
+
+      if (fieldName === "unit_of_measure" && prev.tracking_method === "Count-Based") {
+        return {
+          ...prev,
+          unit_of_measure: "pc",
+        };
+      }
+
+      if (fieldName === "packaging") {
+        return {
+          ...prev,
+          packaging: value,
+          quantity: value === "piece" ? "1" : prev.quantity,
+        };
+      }
+
+      return { ...prev, [fieldName]: value };
+    });
+  }, []);
+
+  const handleItemNameChange = (value) => {
+    if (selectedExistingItemId) {
+      setSelectedExistingItemId(null);
+      setSelectedExistingStockFormId(null);
+      previousMatchedItemKeyRef.current = "";
+    }
+
+    handleChange("item_name", value);
+    setIsAutocompleteOpen(Boolean(value.trim()));
+  };
+
+  const handleSelectExistingItem = (suggestion) => {
+    setSelectedExistingItemId(suggestion.item.id);
+    setSelectedExistingStockFormId(suggestion.stockForm?.id || null);
+    previousMatchedItemKeyRef.current = "";
+    setFormValues((prev) => ({
+      ...prev,
+      item_name: suggestion.item.item_name || prev.item_name,
+    }));
+    setFieldErrors((prev) => {
+      const nextErrors = { ...prev };
+      delete nextErrors.item_name;
+      return nextErrors;
+    });
+    setIsAutocompleteOpen(false);
+  };
+
+  if (!isOpen) {
+    return null;
+  }
+
+  const trackingMethod = formValues.tracking_method || "Count-Based";
+  const isEditMode = mode === "edit";
+  const usesWeightOrVolume = isWeightOrVolumeBased(trackingMethod);
+  const isPerishable = normalizeCategoryValue(formValues.category) === "perishable";
+  const selectedPackagingLabel = formatPackagingLabel(formValues.packaging);
+  const isPiecePackaging = formValues.packaging === "piece";
+  const shouldShowUnitsPerPackagingField = !isPiecePackaging;
+  const unitValueLabel = usesWeightOrVolume
+    ? "Amount per Piece/Container"
+    : "Units per Packaging";
+  const unitValuePlaceholder = usesWeightOrVolume
+    ? `Example: 25 ${formValues.unit_of_measure || "kg"} per piece/container`
+    : "";
+  const quantityFieldLabel = usesWeightOrVolume
+    ? "Items per Package"
+    : `Units per ${selectedPackagingLabel}`;
+  const quantityFieldPlaceholder = usesWeightOrVolume
+    ? `Example: 1 ${formValues.packaging || "package"} contains 1 item`
+    : `Example: 12 pieces per ${formValues.packaging || "package"}`;
+  const quantityOnHandLabel = usesWeightOrVolume
+    ? "Packages Received"
+    : "Quantity on Hand";
+  const quantityOnHandPlaceholder = usesWeightOrVolume
+    ? formatPackagingExample(formValues.packaging).replace(
+        /^Example:\s*/i,
+        "Example: received ",
+      )
+    : formatPackagingExample(formValues.packaging);
+  const computedTotalLabel = usesWeightOrVolume
+    ? "Total Measured Stock"
+    : "Total Added Stock";
+  const packageCountValue = parsePositiveNumberOrZero(formValues.packaging_count);
+  const quantityPerPackageValue = getStockMultiplierValue(
+    formValues,
+    isPiecePackaging,
+  );
+  const computedTotalStock =
+    packageCountValue > 0 && quantityPerPackageValue > 0
+      ? packageCountValue * quantityPerPackageValue
+      : 0;
+  const hasComputedTotalInputs = packageCountValue > 0 && quantityPerPackageValue > 0;
+  const computedTotalUnit =
+    trackingMethod === "Count-Based"
+      ? formValues.unit_of_measure || "pc"
+      : formValues.unit_of_measure || "";
+  const titleText =
+    isEditMode
+      ? "Edit Inventory Item"
+      : isRestockMode
+        ? isExactBarcodeStockFormMatch
+          ? "Add Barcode Stock Form"
+          : "Restock Existing Item"
+        : "Add Item";
+  const stockSectionTitle = isEditMode
+    ? "Item Settings"
+    : isRestockMode
+      ? "Restock Details"
+      : "Stock Details";
+  const matchedItemLabel = matchedExistingItem?.item_name || trimmedItemName;
+  const identityFieldStyles =
+    isRestockMode && !isEditMode ? lockedInputStyles : inputStyles;
+  const barcodeFieldStyles =
+    isEditMode || isExactBarcodeStockFormMatch
+      ? lockedInputStyles
+      : inputStyles;
+  const shouldLockRestockStockFormFields =
+    isEditMode ||
+    isExactBarcodeStockFormMatch ||
+    (isRestockMode && Boolean(matchedExistingStockForm));
+  const packagingFieldStyles =
+    shouldLockRestockStockFormFields
+      ? lockedInputStyles
+      : inputStyles;
+  const quantityFieldStyles =
+    shouldLockRestockStockFormFields
+      ? lockedInputStyles
+      : inputStyles;
+  const reorderLevelFieldStyles = isRestockMode && !isEditMode
+    ? matchedExistingItem?.requires_reorder_level_before_restock
+      ? inputStyles
+      : lockedInputStyles
+    : inputStyles;
+  const isReorderLevelLocked =
+    isRestockMode &&
+    !isEditMode &&
+    !matchedExistingItem?.requires_reorder_level_before_restock;
+  const currentStockValue =
+    matchedExistingItem && typeof getCurrentStockForItem === "function"
+      ? Number(getCurrentStockForItem(matchedExistingItem) || 0)
+      : 0;
+  const currentStockUnit =
+    trackingMethod === "Count-Based"
+      ? matchedExistingItem?.unit_of_measure || formValues.unit_of_measure || "pc"
+      : matchedExistingItem?.unit_of_measure || formValues.unit_of_measure || "";
+  const currentStockDisplay = `${formatComputedValue(currentStockValue)}${
+    currentStockUnit ? ` ${currentStockUnit}` : ""
+  }`;
+  const computedTotalDisplay = `${formatComputedValue(
+    hasComputedTotalInputs ? computedTotalStock : 0,
+  )}${computedTotalUnit ? ` ${computedTotalUnit}` : ""}`;
+
+  const validateFormValues = (values) => {
+    const nextErrors = {};
+    const resolvedTrackingMethod = values.tracking_method || "Count-Based";
+    const resolvedUsesWeightOrVolume =
+      isWeightOrVolumeBased(resolvedTrackingMethod);
+    const resolvedIsPiecePackaging = values.packaging === "piece";
+    const resolvedIsPerishable =
+      normalizeCategoryValue(values.category) === "perishable";
+
+    if (isBlank(values.item_name)) {
+      nextErrors.item_name = "Item name is required.";
+    }
+
+    if (isBlank(values.category)) {
+      nextErrors.category = "Category is required.";
+    }
+
+    if (isBlank(values.tracking_method)) {
+      nextErrors.tracking_method = "Tracking method is required.";
+    }
+
+    if (
+      !isEditMode &&
+      resolvedUsesWeightOrVolume &&
+      isBlank(values.unit_of_measure)
+    ) {
+      nextErrors.unit_of_measure = "Unit of measure is required.";
+    }
+
+    if (!isEditMode) {
+      if (resolvedUsesWeightOrVolume) {
+        if (isBlank(values.unit_of_measure_value)) {
+          nextErrors.unit_of_measure_value =
+            "Amount per piece/container is required.";
+        } else if (!isPositiveNumber(values.unit_of_measure_value)) {
+          nextErrors.unit_of_measure_value =
+            "Amount per piece/container must be greater than 0.";
+        }
+      }
+
+      if (isBlank(values.packaging)) {
+        nextErrors.packaging = "Packaging is required.";
+      }
+
+      if (isBlank(values.packaging_count)) {
+        nextErrors.packaging_count = "Quantity on hand is required.";
+      } else if (!isPositiveNumber(values.packaging_count)) {
+        nextErrors.packaging_count = "Quantity on hand must be greater than 0.";
+      }
+
+      if (!resolvedIsPiecePackaging) {
+        if (isBlank(values.quantity)) {
+          nextErrors.quantity = "Units per packaging is required.";
+        } else if (!isPositiveNumber(values.quantity)) {
+          nextErrors.quantity = "Units per packaging must be greater than 0.";
+        }
+      }
+    }
+
+    if (
+      !isRestockMode ||
+      isEditMode ||
+      matchedExistingItem?.requires_reorder_level_before_restock
+    ) {
+      if (isBlank(values.reorder_level)) {
+        nextErrors.reorder_level = "Reorder level is required.";
+      } else if (!isPositiveNumber(values.reorder_level)) {
+        nextErrors.reorder_level = "Reorder level must be greater than 0.";
+      }
+    }
+
+    if (!isEditMode && resolvedIsPerishable && isBlank(values.expiration_date)) {
+      nextErrors.expiration_date = "Expiration date is required.";
+    } else if (!isEditMode && !isBlank(values.expiration_date)) {
+      if (!isValidDateValue(values.expiration_date)) {
+        nextErrors.expiration_date = "Enter a valid expiration date.";
+      } else if (values.expiration_date < getTodayDateInputValue()) {
+        nextErrors.expiration_date =
+          "Expiration date cannot be earlier than today.";
+      }
+    }
+
+    return nextErrors;
   };
 
   const handleSubmit = (event) => {
     event.preventDefault();
-    onSubmit(formValues);
+
+    const nextFieldErrors = validateFormValues(formValues);
+    setFieldErrors(nextFieldErrors);
+
+    if (Object.keys(nextFieldErrors).length > 0) {
+      return;
+    }
+
+    const normalizedFormValues = {
+      ...formValues,
+      unit_of_measure:
+        formValues.unit_of_measure ||
+        (trackingMethod === "Count-Based" ? "pc" : ""),
+      unit_of_measure_value:
+        formValues.unit_of_measure_value ||
+        (trackingMethod === "Count-Based" ? "1" : ""),
+      quantity:
+        isPiecePackaging ? "1" : formValues.quantity,
+      expiration_date: isEditMode
+        ? null
+        : isBlank(formValues.expiration_date)
+          ? null
+          : formValues.expiration_date,
+      barcode: isBlank(formValues.barcode) ? null : formValues.barcode.trim(),
+      existing_item_id: matchedExistingItem?.id || null,
+      restock_match_type: isExactBarcodeStockFormMatch
+        ? "barcode_stock_form"
+        : isNameMatchedRestock
+          ? "item_name"
+          : null,
+    };
+
+    onSubmit(normalizedFormValues);
+  };
+
+  const handleCancel = () => {
+    if (isRestockMode) {
+      setFormValues(createDefaultForm());
+      setFieldErrors({});
+      setSelectedExistingItemId(null);
+      setSelectedExistingStockFormId(null);
+      setIsAutocompleteOpen(false);
+      previousMatchedItemKeyRef.current = "";
+      return;
+    }
+
+    onClose();
   };
 
   return (
@@ -143,7 +897,7 @@ const InventoryItemFormModal = ({
         >
           <div>
             <h3 style={{ margin: 0, color: "#17324d", fontSize: "26px" }}>
-              {mode === "edit" ? "Edit Inventory Item" : "Add Item"}
+              {titleText}
             </h3>
           </div>
 
@@ -158,13 +912,13 @@ const InventoryItemFormModal = ({
 
         <form
           onSubmit={handleSubmit}
+          noValidate
           style={{
             display: "flex",
             flexDirection: "column",
             gap: "18px",
           }}
         >
-          {/* SECTION 1 */}
           <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
             <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
               Item Information
@@ -177,103 +931,305 @@ const InventoryItemFormModal = ({
                 gap: "18px",
               }}
             >
-              <div style={{ gridColumn: "1 / -1" }}>
+              <div style={{ ...autocompleteStyles.wrap, gridColumn: "1 / -1" }}>
                 <label htmlFor="item_name" style={labelStyles}>
                   Item Name
                 </label>
                 <input
+                  ref={itemNameInputRef}
                   id="item_name"
                   type="text"
                   placeholder="Enter item name"
                   value={formValues.item_name}
-                  onChange={(e) => handleChange("item_name", e.target.value)}
-                  style={inputStyles}
-                  required
+                  onChange={(e) => handleItemNameChange(e.target.value)}
+                  onFocus={() => {
+                    if (!isEditMode && !isRestockMode && autocompleteSuggestions.length > 0) {
+                      setIsAutocompleteOpen(true);
+                    }
+                  }}
+                  style={identityFieldStyles}
+                  disabled={isRestockMode && !isEditMode}
+                  aria-invalid={Boolean(fieldErrors.item_name)}
+                  autoComplete="off"
                 />
+                {fieldErrors.item_name ? (
+                  <p style={fieldErrorTextStyles}>{fieldErrors.item_name}</p>
+                ) : null}
+                {!isEditMode && !isRestockMode && isAutocompleteOpen && autocompleteSuggestions.length > 0 ? (
+                  <ul ref={autocompleteRef} style={autocompleteStyles.list}>
+                    {autocompleteSuggestions.map((suggestion) => (
+                      <li key={suggestion.key}>
+                        <button
+                          type="button"
+                          onClick={() => handleSelectExistingItem(suggestion)}
+                          style={autocompleteStyles.itemButton}
+                        >
+                          <span>{suggestion.item.item_name}</span>
+                          <span style={autocompleteStyles.itemMeta}>
+                            {suggestion.meta}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {isRestockMode ? (
+                  <p style={matchNoticeStyles}>
+                    Existing item found: <strong>{matchedItemLabel}</strong>
+                  </p>
+                ) : null}
               </div>
 
-              <div>
-                <label htmlFor="category" style={labelStyles}>
-                  Category
-                </label>
-                <select
-                  id="category"
-                  value={formValues.category}
-                  onChange={(e) => handleChange("category", e.target.value)}
-                  style={inputStyles}
+              {shouldShowBarcodeField ? (
+                <div
+                  style={{
+                    gridColumn: "1 / -1",
+                    display: "grid",
+                    gridTemplateColumns: isEditMode
+                      ? "repeat(2, minmax(220px, 1fr))"
+                      : "minmax(260px, 2fr) minmax(180px, 1fr)",
+                    gap: "18px",
+                  }}
                 >
-                  <option value="perishable">Perishable</option>
-                  <option value="non-perishable">Non-Perishable</option>
-                </select>
-              </div>
+                  <div>
+                    <label htmlFor="barcode" style={labelStyles}>
+                      Barcode
+                    </label>
+                    <input
+                      ref={barcodeInputRef}
+                      id="barcode"
+                      type="text"
+                      placeholder={
+                        isEditMode && !formValues.barcode.trim()
+                          ? "No barcode assigned"
+                          : "Scan or enter barcode"
+                      }
+                      value={formValues.barcode}
+                      onChange={(e) => handleChange("barcode", e.target.value)}
+                      style={barcodeFieldStyles}
+                      disabled={
+                        isEditMode ||
+                        isExactBarcodeStockFormMatch
+                      }
+                      aria-invalid={Boolean(fieldErrors.barcode)}
+                    />
+                    {fieldErrors.barcode ? (
+                      <p style={fieldErrorTextStyles}>{fieldErrors.barcode}</p>
+                    ) : null}
+                  </div>
 
-              <div>
-                <label htmlFor="unit_of_measure" style={labelStyles}>
-                  Unit of Measure
-                </label>
-                <select
-                  id="unit_of_measure"
-                  value={formValues.unit_of_measure}
-                  onChange={(e) =>
-                    handleChange("unit_of_measure", e.target.value)
-                  }
-                  style={inputStyles}
-                  required
+                  <div>
+                    <label htmlFor="category" style={labelStyles}>
+                      Category
+                    </label>
+                    <select
+                      id="category"
+                      value={formValues.category}
+                      onChange={(e) => handleChange("category", e.target.value)}
+                      style={identityFieldStyles}
+                      disabled={isRestockMode && !isEditMode}
+                      aria-invalid={Boolean(fieldErrors.category)}
+                    >
+                      <option value="perishable">Perishable</option>
+                      <option value="non-perishable">Non-Perishable</option>
+                    </select>
+                    {fieldErrors.category ? (
+                      <p style={fieldErrorTextStyles}>{fieldErrors.category}</p>
+                    ) : null}
+                  </div>
+
+                  <div style={isEditMode ? undefined : { gridColumn: "1 / -1" }}>
+                    <label htmlFor="tracking_method" style={labelStyles}>
+                      Tracking Method
+                    </label>
+                    <select
+                      id="tracking_method"
+                      value={trackingMethod}
+                      onChange={(e) => handleChange("tracking_method", e.target.value)}
+                      style={identityFieldStyles}
+                      disabled={isRestockMode || isEditMode}
+                      aria-invalid={Boolean(fieldErrors.tracking_method)}
+                    >
+                      <option value="Count-Based">Count-Based</option>
+                      <option value="Weight/Volume-Based">Weight/Volume-Based</option>
+                    </select>
+                    {fieldErrors.tracking_method ? (
+                      <p style={fieldErrorTextStyles}>
+                        {fieldErrors.tracking_method}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  {isEditMode ? (
+                    <div>
+                      <label htmlFor="edit_unit_of_measure" style={labelStyles}>
+                        {usesWeightOrVolume ? "Base Unit" : "Unit of Measure"}
+                      </label>
+                      <input
+                        id="edit_unit_of_measure"
+                        type="text"
+                        value={formValues.unit_of_measure || "pc"}
+                        readOnly
+                        style={lockedInputStyles}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div
+                  style={{
+                    gridColumn: "1 / -1",
+                    display: "grid",
+                    gridTemplateColumns: "repeat(2, minmax(180px, 1fr))",
+                    gap: "18px",
+                  }}
                 >
-                  <option value="">Select unit of measure</option>
-                  {unitOfMeasureOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                  <div>
+                    <label htmlFor="category" style={labelStyles}>
+                      Category
+                    </label>
+                    <select
+                      id="category"
+                      value={formValues.category}
+                      onChange={(e) => handleChange("category", e.target.value)}
+                      style={identityFieldStyles}
+                      disabled={isRestockMode && !isEditMode}
+                      aria-invalid={Boolean(fieldErrors.category)}
+                    >
+                      <option value="perishable">Perishable</option>
+                      <option value="non-perishable">Non-Perishable</option>
+                    </select>
+                    {fieldErrors.category ? (
+                      <p style={fieldErrorTextStyles}>{fieldErrors.category}</p>
+                    ) : null}
+                  </div>
 
-              <div>
-                <label htmlFor="unit_of_measure_value" style={labelStyles}>
-                  Number for Unit of Measure
-                </label>
-                <input
-                  id="unit_of_measure_value"
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  placeholder="Example: 5 for 5 kg"
-                  value={formValues.unit_of_measure_value}
-                  onChange={(e) =>
-                    handleChange("unit_of_measure_value", e.target.value)
-                  }
-                  style={inputStyles}
-                  required
-                />
-              </div>
+                  <div>
+                    <label htmlFor="tracking_method" style={labelStyles}>
+                      Tracking Method
+                    </label>
+                    <select
+                      id="tracking_method"
+                      value={trackingMethod}
+                      onChange={(e) => handleChange("tracking_method", e.target.value)}
+                      style={identityFieldStyles}
+                      disabled={isRestockMode || isEditMode}
+                      aria-invalid={Boolean(fieldErrors.tracking_method)}
+                    >
+                      <option value="Count-Based">Count-Based</option>
+                      <option value="Weight/Volume-Based">Weight/Volume-Based</option>
+                    </select>
+                    {fieldErrors.tracking_method ? (
+                      <p style={fieldErrorTextStyles}>
+                        {fieldErrors.tracking_method}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              )}
 
-              <div>
-                <label htmlFor="packaging" style={labelStyles}>
-                  Packaging
-                </label>
-                <select
-                  id="packaging"
-                  value={formValues.packaging}
-                  onChange={(e) => handleChange("packaging", e.target.value)}
-                  style={inputStyles}
-                  required
+              {!isEditMode ? (
+                <div
+                  style={{
+                    gridColumn: "1 / -1",
+                    display: "grid",
+                    gridTemplateColumns: usesWeightOrVolume
+                      ? "repeat(3, minmax(180px, 1fr))"
+                      : "repeat(2, minmax(180px, 1fr))",
+                    gap: "18px",
+                  }}
                 >
-                  <option value="">Select packaging</option>
-                  {packagingOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                  <div>
+                    <label htmlFor="unit_of_measure" style={labelStyles}>
+                      {usesWeightOrVolume ? "Base Unit" : "Unit of Measure"}
+                    </label>
+                    <select
+                      id="unit_of_measure"
+                      value={formValues.unit_of_measure}
+                      onChange={(e) =>
+                        handleChange("unit_of_measure", e.target.value)
+                      }
+                      style={isRestockMode || isEditMode ? lockedInputStyles : inputStyles}
+                      disabled={!usesWeightOrVolume || isRestockMode || isEditMode}
+                      aria-invalid={Boolean(fieldErrors.unit_of_measure)}
+                    >
+                      {usesWeightOrVolume ? (
+                        <>
+                          <option value="">Select base unit</option>
+                          {unitOfMeasureOptions.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </>
+                      ) : (
+                        <option value="pc">pc</option>
+                      )}
+                    </select>
+                    {fieldErrors.unit_of_measure ? (
+                      <p style={fieldErrorTextStyles}>
+                        {fieldErrors.unit_of_measure}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div>
+                    <label htmlFor="packaging" style={labelStyles}>
+                      Packaging
+                    </label>
+                    <select
+                      id="packaging"
+                      value={formValues.packaging}
+                      onChange={(e) => handleChange("packaging", e.target.value)}
+                      style={packagingFieldStyles}
+                      disabled={shouldLockRestockStockFormFields}
+                      aria-invalid={Boolean(fieldErrors.packaging)}
+                    >
+                      <option value="">Select packaging</option>
+                      {packagingOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                    {fieldErrors.packaging ? (
+                      <p style={fieldErrorTextStyles}>{fieldErrors.packaging}</p>
+                    ) : null}
+                  </div>
+                  {usesWeightOrVolume ? (
+                  <div>
+                    <label htmlFor="unit_of_measure_value" style={labelStyles}>
+                      {unitValueLabel}
+                    </label>
+                    <input
+                      id="unit_of_measure_value"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      placeholder={unitValuePlaceholder}
+                      value={formValues.unit_of_measure_value}
+                      onChange={(e) =>
+                        handleChange("unit_of_measure_value", e.target.value)
+                      }
+                      style={isRestockMode || isEditMode ? lockedInputStyles : inputStyles}
+                      disabled={isRestockMode || isEditMode}
+                      aria-invalid={Boolean(fieldErrors.unit_of_measure_value)}
+                    />
+                    {fieldErrors.unit_of_measure_value ? (
+                      <p style={fieldErrorTextStyles}>
+                        {fieldErrors.unit_of_measure_value}
+                      </p>
+                    ) : null}
+                  </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </section>
 
-          {/* SECTION 2 */}
           <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
             <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
-              Stock Details
+              {stockSectionTitle}
             </h3>
 
             <div
@@ -283,39 +1239,67 @@ const InventoryItemFormModal = ({
                 gap: "18px",
               }}
             >
-              <div>
-                <label htmlFor="packaging_count" style={labelStyles}>
-                  Number of Packagings
-                </label>
-                <input
-                  id="packaging_count"
-                  type="number"
-                  min="1"
-                  placeholder="How many sacks, boxes, packs, etc."
-                  value={formValues.packaging_count}
-                  onChange={(e) =>
-                    handleChange("packaging_count", e.target.value)
-                  }
-                  style={inputStyles}
-                  required
-                />
-              </div>
+              {!isEditMode ? (
+                <>
+                  <div>
+                    <label htmlFor="batch_number" style={labelStyles}>
+                      Batch Number
+                    </label>
+                    <input
+                      id="batch_number"
+                      type="text"
+                      value="Auto-generated after saving"
+                      readOnly
+                      style={lockedInputStyles}
+                    />
+                  </div>
 
-              <div>
-                <label htmlFor="quantity" style={labelStyles}>
-                  Quantity per Packaging
-                </label>
-                <input
-                  id="quantity"
-                  type="number"
-                  min="1"
-                  placeholder="How many items per pack, box, case, etc."
-                  value={formValues.quantity}
-                  onChange={(e) => handleChange("quantity", e.target.value)}
-                  style={inputStyles}
-                  required
-                />
-              </div>
+                  <div>
+                    <label htmlFor="packaging_count" style={labelStyles}>
+                      {quantityOnHandLabel}
+                    </label>
+                    <input
+                      id="packaging_count"
+                      type="number"
+                      min="1"
+                      placeholder={quantityOnHandPlaceholder}
+                      value={formValues.packaging_count}
+                      onChange={(e) =>
+                        handleChange("packaging_count", e.target.value)
+                      }
+                      style={inputStyles}
+                      aria-invalid={Boolean(fieldErrors.packaging_count)}
+                    />
+                    {fieldErrors.packaging_count ? (
+                      <p style={fieldErrorTextStyles}>
+                        {fieldErrors.packaging_count}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  {shouldShowUnitsPerPackagingField ? (
+                    <div>
+                      <label htmlFor="quantity" style={labelStyles}>
+                        {quantityFieldLabel}
+                      </label>
+                      <input
+                        id="quantity"
+                        type="number"
+                        min="1"
+                        placeholder={quantityFieldPlaceholder}
+                        value={formValues.quantity}
+                        onChange={(e) => handleChange("quantity", e.target.value)}
+                        style={quantityFieldStyles}
+                        disabled={shouldLockRestockStockFormFields}
+                        aria-invalid={Boolean(fieldErrors.quantity)}
+                      />
+                      {fieldErrors.quantity ? (
+                        <p style={fieldErrorTextStyles}>{fieldErrors.quantity}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
 
               <div>
                 <label htmlFor="reorder_level" style={labelStyles}>
@@ -324,66 +1308,100 @@ const InventoryItemFormModal = ({
                 <input
                   id="reorder_level"
                   type="number"
-                  placeholder="Set alert threshold"
+                  min="1"
+                  placeholder="Set reorder level"
                   value={formValues.reorder_level}
                   onChange={(e) =>
                     handleChange("reorder_level", e.target.value)
                   }
-                  style={inputStyles}
+                  style={reorderLevelFieldStyles}
+                  disabled={isReorderLevelLocked}
+                  aria-invalid={Boolean(fieldErrors.reorder_level)}
                 />
+                {fieldErrors.reorder_level ? (
+                  <p style={fieldErrorTextStyles}>
+                    {fieldErrors.reorder_level}
+                  </p>
+                ) : null}
               </div>
 
-              <div>
-                <label htmlFor="expiration_date" style={labelStyles}>
-                  Expiration Date
-                </label>
-                <input
-                  id="expiration_date"
-                  type="date"
-                  value={formValues.expiration_date}
-                  onChange={(e) =>
-                    handleChange("expiration_date", e.target.value)
-                  }
-                  style={inputStyles}
-                />
-              </div>
+              {!isEditMode ? (
+                <div>
+                  <label htmlFor="expiration_date" style={labelStyles}>
+                    {isPerishable
+                      ? "Expiration Date"
+                      : "Expiration Date (If Applicable)"}
+                  </label>
+                  <input
+                    id="expiration_date"
+                    type="date"
+                    value={formValues.expiration_date}
+                    onChange={(e) =>
+                      handleChange("expiration_date", e.target.value)
+                    }
+                    style={inputStyles}
+                    aria-invalid={Boolean(fieldErrors.expiration_date)}
+                  />
+                  {fieldErrors.expiration_date ? (
+                    <p style={fieldErrorTextStyles}>
+                      {fieldErrors.expiration_date}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {isRestockMode ? (
+                <div>
+                  <label htmlFor="current_stock" style={labelStyles}>
+                    Current Stock
+                  </label>
+                  <input
+                    id="current_stock"
+                    type="text"
+                    value={currentStockDisplay}
+                    readOnly
+                    style={lockedInputStyles}
+                  />
+                </div>
+              ) : null}
             </div>
           </section>
 
           {errorMessage && <div style={errorBoxStyles}>{errorMessage}</div>}
 
-          {/* ACTIONS */}
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "flex-end",
-              gap: "12px",
-              marginTop: "10px",
-              flexWrap: "wrap",
-            }}
-          >
-            <button
-              type="button"
-              onClick={onClose}
-              style={pageHeaderStyles.secondaryButton}
-            >
-              Cancel
-            </button>
+          <div style={isEditMode ? editFooterActionsStyles : formFooterStyles}>
+            {!isEditMode ? (
+              <p style={footerTotalStyles}>
+                {computedTotalLabel}: <strong>{computedTotalDisplay}</strong>
+              </p>
+            ) : null}
 
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              style={{
-                ...pageHeaderStyles.primaryButton,
-                opacity: isSubmitting ? 0.7 : 1,
-              }}
-            >
-              {isSubmitting
-                ? "Processing..."
-                : mode === "edit"
-                ? "Save Changes"
-                : "Add to Inventory"}
-            </button>
+            <div style={footerActionsStyles}>
+              <button
+                type="button"
+                onClick={handleCancel}
+                style={pageHeaderStyles.secondaryButton}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                style={{
+                  ...pageHeaderStyles.primaryButton,
+                  opacity: isSubmitting ? 0.7 : 1,
+                }}
+              >
+                {isSubmitting
+                  ? "Processing..."
+                  : mode === "edit"
+                    ? "Save Changes"
+                    : isRestockMode
+                      ? "Add Restock Entry"
+                      : "Add"}
+              </button>
+            </div>
           </div>
         </form>
       </div>

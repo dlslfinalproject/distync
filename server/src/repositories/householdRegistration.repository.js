@@ -69,6 +69,24 @@ const getEvacuationCenterById = async (id) => {
   return result.rows[0] || null;
 };
 
+const getActiveEvacuationCentersByBarangayId = async (barangayId) => {
+  const query = `
+    SELECT
+      ec.id,
+      ec.barangay_id,
+      ec.name,
+      ec.individual_capacity,
+      ec.is_active
+    FROM evacuation_centers ec
+    WHERE ec.barangay_id = $1
+      AND ec.is_active = TRUE
+    ORDER BY ec.name ASC, ec.created_at ASC
+  `;
+
+  const result = await pool.query(query, [barangayId]);
+  return result.rows;
+};
+
 const getDisasterEventBarangayLink = async (disasterEventId, barangayId) => {
   const query = `
     SELECT
@@ -81,6 +99,20 @@ const getDisasterEventBarangayLink = async (disasterEventId, barangayId) => {
   `;
 
   const result = await pool.query(query, [disasterEventId, barangayId]);
+  return result.rows[0] || null;
+};
+
+const lockHouseholdRegistrationScope = async (disasterEventId, dbClient) => {
+  const query = `
+    SELECT
+      id,
+      status
+    FROM disaster_events
+    WHERE id = $1
+    FOR UPDATE
+  `;
+
+  const result = await dbClient.query(query, [disasterEventId]);
   return result.rows[0] || null;
 };
 
@@ -129,6 +161,26 @@ const getSectorsByCodes = async (sectorCodes) => {
   `;
 
   const result = await pool.query(query, [sectorCodes]);
+  return result.rows;
+};
+
+const getAgeGroupSectors = async () => {
+  const query = `
+    SELECT
+      id,
+      code,
+      name,
+      description,
+      sector_group,
+      is_barangay_visible,
+      is_mswdo_visible,
+      created_at
+    FROM sectors
+    WHERE sector_group = $1
+    ORDER BY name ASC, code ASC
+  `;
+
+  const result = await pool.query(query, ["AGE_GROUP"]);
   return result.rows;
 };
 
@@ -182,11 +234,17 @@ const insertHousehold = async (householdData, dbClient) => {
       household_size,
       is_active,
       registered_by,
+      family_head_photo_url,
+      photo_captured_at,
+      photo_captured_by,
+      photo_verification_notes,
       registered_at,
       updated_at
     )
     VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW()
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+      $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+      COALESCE($21::timestamptz, NOW()), NOW()
     )
     RETURNING
       id,
@@ -206,6 +264,10 @@ const insertHousehold = async (householdData, dbClient) => {
       household_size,
       is_active,
       registered_by,
+      family_head_photo_url,
+      photo_captured_at,
+      photo_captured_by,
+      photo_verification_notes,
       registered_at,
       updated_at,
       family_head_evacuee_id
@@ -222,16 +284,464 @@ const insertHousehold = async (householdData, dbClient) => {
     householdData.family_head.suffix,
     householdData.family_head.sex,
     householdData.family_head.birth_date ?? null,
-    householdData.family_head.contact_number ?? null,
+    householdData.contact_number ?? householdData.family_head.contact_number ?? null,
     householdData.current_stay_type,
     householdData.current_address_details,
     householdData.household_size,
     true,
     householdData.registered_by,
+    householdData.family_head_photo_url || null,
+    householdData.photo_captured_at || null,
+    householdData.photo_captured_by || null,
+    householdData.photo_verification_notes || null,
+    householdData.registered_at || null,
   ];
 
   const result = await dbClient.query(query, values);
   return result.rows[0];
+};
+
+const insertHouseholdPrivacyConsent = async (consentData, dbClient) => {
+  const query = `
+    INSERT INTO household_privacy_consents (
+      household_id,
+      disaster_event_id,
+      consent_status,
+      notice_version,
+      acknowledged_at,
+      acknowledged_by_name,
+      representative_relationship,
+      recorded_by,
+      recorded_at,
+      device_id,
+      is_offline_encoded,
+      sync_status,
+      created_at,
+      updated_at
+    )
+    VALUES (
+      $1, $2, $3, $4, $5, $6, $7, $8,
+      NOW(), $9, $10, $11, NOW(), NOW()
+    )
+    RETURNING
+      id,
+      household_id,
+      disaster_event_id,
+      consent_status,
+      notice_version,
+      acknowledged_at,
+      acknowledged_by_name,
+      representative_relationship,
+      recorded_by,
+      recorded_at,
+      device_id,
+      is_offline_encoded,
+      sync_status,
+      created_at,
+      updated_at
+  `;
+
+  const values = [
+    consentData.household_id,
+    consentData.disaster_event_id,
+    consentData.consent_status,
+    consentData.notice_version,
+    consentData.acknowledged_at,
+    consentData.acknowledged_by_name,
+    consentData.representative_relationship || null,
+    consentData.recorded_by,
+    consentData.device_id || null,
+    consentData.is_offline_encoded === true,
+    consentData.sync_status,
+  ];
+
+  try {
+    const result = await dbClient.query(query, values);
+    return result.rows[0] || null;
+  } catch (error) {
+    if (error?.code !== "23505") {
+      throw error;
+    }
+
+    const existingConsent =
+      await getLatestHouseholdPrivacyConsentByHouseholdId(
+        consentData.household_id,
+        dbClient,
+      );
+
+    if (
+      existingConsent &&
+      existingConsent.notice_version === consentData.notice_version &&
+      existingConsent.consent_status === consentData.consent_status
+    ) {
+      return existingConsent;
+    }
+
+    throw error;
+  }
+};
+
+const findDuplicateHouseholdRegistration = async (
+  { disasterEventId, barangayId, familyHead },
+  dbClient = pool,
+) => {
+  const query = `
+    SELECT
+      id,
+      disaster_event_id,
+      barangay_id,
+      family_head_first_name,
+      family_head_middle_name,
+      family_head_last_name,
+      family_head_suffix,
+      registered_at,
+      updated_at
+    FROM households
+    WHERE disaster_event_id = $1
+      AND barangay_id = $2
+      AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(family_head_first_name, '')), '\\s+', ' ', 'g')) =
+          LOWER(REGEXP_REPLACE(BTRIM(COALESCE($3, '')), '\\s+', ' ', 'g'))
+      AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(family_head_middle_name, '')), '\\s+', ' ', 'g')) =
+          LOWER(REGEXP_REPLACE(BTRIM(COALESCE($4, '')), '\\s+', ' ', 'g'))
+      AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(family_head_last_name, '')), '\\s+', ' ', 'g')) =
+          LOWER(REGEXP_REPLACE(BTRIM(COALESCE($5, '')), '\\s+', ' ', 'g'))
+      AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(family_head_suffix, '')), '\\s+', ' ', 'g')) =
+          LOWER(REGEXP_REPLACE(BTRIM(COALESCE($6, '')), '\\s+', ' ', 'g'))
+    ORDER BY registered_at ASC, id ASC
+    LIMIT 1
+  `;
+
+  const result = await dbClient.query(query, [
+    disasterEventId,
+    barangayId,
+    familyHead.first_name || null,
+    familyHead.middle_name || null,
+    familyHead.last_name || null,
+    familyHead.suffix || null,
+  ]);
+  return result.rows[0] || null;
+};
+
+const findPotentialDuplicatePersonMatches = async (
+  { disasterEventId, householdIdToExclude = null, people = [] },
+  dbClient = pool,
+) => {
+  if (!disasterEventId || !Array.isArray(people) || people.length === 0) {
+    return [];
+  }
+
+  const normalizedPeople = people
+    .filter(
+      (person) =>
+        person &&
+        String(person.first_name || "").trim() &&
+        String(person.last_name || "").trim(),
+    )
+    .map((person) => ({
+      person_key: String(person.person_key || "").trim(),
+      source_role: String(person.source_role || "MEMBER").trim().toUpperCase(),
+      first_name: String(person.first_name || "").trim(),
+      middle_name: String(person.middle_name || "").trim(),
+      last_name: String(person.last_name || "").trim(),
+      suffix: String(person.suffix || "").trim(),
+      sex: person.sex || null,
+      age_value: Number.isInteger(person.age_value) ? person.age_value : null,
+      age_unit: person.age_unit || null,
+      relationship_to_head: person.relationship_to_head || null,
+      contact_number: person.contact_number || null,
+    }))
+    .filter((person) => person.person_key);
+
+  if (normalizedPeople.length === 0) {
+    return [];
+  }
+
+  const valuePlaceholders = [];
+  const values = [];
+
+  normalizedPeople.forEach((person, index) => {
+    const baseOffset = index * 10;
+    valuePlaceholders.push(
+      `($${baseOffset + 1}::text, $${baseOffset + 2}::text, $${baseOffset + 3}::text, $${baseOffset + 4}::text, $${baseOffset + 5}::text, $${baseOffset + 6}::text, $${baseOffset + 7}::text, $${baseOffset + 8}::integer, $${baseOffset + 9}::text, $${baseOffset + 10}::text)`,
+    );
+    values.push(
+      person.person_key,
+      person.source_role,
+      person.first_name,
+      person.middle_name || null,
+      person.last_name,
+      person.suffix || null,
+      person.sex,
+      person.age_value,
+      person.age_unit,
+      person.contact_number || null,
+    );
+  });
+
+  const disasterEventParamIndex = values.length + 1;
+  const householdExcludeParamIndex = values.length + 2;
+
+  values.push(disasterEventId, householdIdToExclude);
+
+  const query = `
+    WITH input_people (
+      person_key,
+      source_role,
+      first_name,
+      middle_name,
+      last_name,
+      suffix,
+      sex,
+      age_value,
+      age_unit,
+      contact_number
+    ) AS (
+      VALUES
+        ${valuePlaceholders.join(",\n        ")}
+    ),
+    family_head_matches AS (
+      SELECT
+        ip.person_key,
+        ip.source_role,
+        'FAMILY_HEAD'::text AS matched_role,
+        h.id AS household_id,
+        h.barangay_id,
+        b.name AS barangay_name,
+        h.family_head_first_name AS household_family_head_first_name,
+        h.family_head_middle_name AS household_family_head_middle_name,
+        h.family_head_last_name AS household_family_head_last_name,
+        h.family_head_suffix AS household_family_head_suffix,
+        h.family_head_first_name AS matched_first_name,
+        h.family_head_middle_name AS matched_middle_name,
+        h.family_head_last_name AS matched_last_name,
+        h.family_head_suffix AS matched_suffix,
+        h.sex AS matched_sex,
+        fh.age_value AS matched_age_value,
+        fh.age_unit AS matched_age_unit,
+        NULL::text AS matched_relationship_to_head,
+        h.contact_number AS matched_contact_number,
+        h.is_active,
+        h.registered_at,
+        h.current_stay_type,
+        h.household_size
+      FROM input_people ip
+      INNER JOIN households h
+        ON h.disaster_event_id = $${disasterEventParamIndex}
+      INNER JOIN barangays b ON b.id = h.barangay_id
+      LEFT JOIN evacuees fh ON fh.id = h.family_head_evacuee_id
+      WHERE ($${householdExcludeParamIndex}::uuid IS NULL OR h.id <> $${householdExcludeParamIndex}::uuid)
+        AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_first_name, '')), '\\s+', ' ', 'g')) =
+            LOWER(REGEXP_REPLACE(BTRIM(COALESCE(ip.first_name, '')), '\\s+', ' ', 'g'))
+        AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_last_name, '')), '\\s+', ' ', 'g')) =
+            LOWER(REGEXP_REPLACE(BTRIM(COALESCE(ip.last_name, '')), '\\s+', ' ', 'g'))
+    ),
+    member_matches AS (
+      SELECT
+        ip.person_key,
+        ip.source_role,
+        'MEMBER'::text AS matched_role,
+        h.id AS household_id,
+        h.barangay_id,
+        b.name AS barangay_name,
+        h.family_head_first_name AS household_family_head_first_name,
+        h.family_head_middle_name AS household_family_head_middle_name,
+        h.family_head_last_name AS household_family_head_last_name,
+        h.family_head_suffix AS household_family_head_suffix,
+        e.first_name AS matched_first_name,
+        e.middle_name AS matched_middle_name,
+        e.last_name AS matched_last_name,
+        e.suffix AS matched_suffix,
+        e.sex AS matched_sex,
+        e.age_value AS matched_age_value,
+        e.age_unit AS matched_age_unit,
+        e.relationship_to_head AS matched_relationship_to_head,
+        h.contact_number AS matched_contact_number,
+        h.is_active,
+        h.registered_at,
+        h.current_stay_type,
+        h.household_size
+      FROM input_people ip
+      INNER JOIN evacuees e
+        ON LOWER(REGEXP_REPLACE(BTRIM(COALESCE(e.first_name, '')), '\\s+', ' ', 'g')) =
+            LOWER(REGEXP_REPLACE(BTRIM(COALESCE(ip.first_name, '')), '\\s+', ' ', 'g'))
+        AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(e.last_name, '')), '\\s+', ' ', 'g')) =
+            LOWER(REGEXP_REPLACE(BTRIM(COALESCE(ip.last_name, '')), '\\s+', ' ', 'g'))
+      INNER JOIN households h
+        ON h.id = e.household_id
+        AND h.disaster_event_id = $${disasterEventParamIndex}
+      INNER JOIN barangays b ON b.id = h.barangay_id
+      WHERE ($${householdExcludeParamIndex}::uuid IS NULL OR h.id <> $${householdExcludeParamIndex}::uuid)
+    )
+    SELECT
+      matched.person_key,
+      matched.source_role,
+      matched.matched_role,
+      matched.household_id,
+      matched.barangay_id,
+      matched.barangay_name,
+      matched.household_family_head_first_name,
+      matched.household_family_head_middle_name,
+      matched.household_family_head_last_name,
+      matched.household_family_head_suffix,
+      matched.matched_first_name,
+      matched.matched_middle_name,
+      matched.matched_last_name,
+      matched.matched_suffix,
+      matched.matched_sex,
+      matched.matched_age_value,
+      matched.matched_age_unit,
+      matched.matched_relationship_to_head,
+      matched.matched_contact_number,
+      matched.is_active,
+      matched.registered_at,
+      matched.current_stay_type,
+      matched.household_size
+    FROM (
+      SELECT * FROM family_head_matches
+      UNION ALL
+      SELECT * FROM member_matches
+    ) AS matched
+    ORDER BY
+      matched.person_key ASC,
+      matched.registered_at DESC,
+      matched.household_id ASC,
+      matched.matched_role ASC
+  `;
+
+  const result = await dbClient.query(query, values);
+  return result.rows;
+};
+
+const findActiveCrossEventFamilyHeadMatches = async (
+  { disasterEventId, familyHead },
+  dbClient = pool,
+) => {
+  if (
+    !disasterEventId ||
+    !familyHead ||
+    !String(familyHead.first_name || "").trim() ||
+    !String(familyHead.last_name || "").trim()
+  ) {
+    return [];
+  }
+
+  const query = `
+    SELECT
+      h.id AS household_id,
+      h.disaster_event_id,
+      de.title AS disaster_event_title,
+      de.status AS disaster_event_status,
+      h.family_head_first_name,
+      h.family_head_middle_name,
+      h.family_head_last_name,
+      h.family_head_suffix,
+      h.sex,
+      fh.age_value,
+      fh.age_unit,
+      h.contact_number,
+      h.registered_at
+    FROM households h
+    INNER JOIN disaster_events de
+      ON de.id = h.disaster_event_id
+      AND de.status = 'ACTIVE'
+    LEFT JOIN evacuees fh ON fh.id = h.family_head_evacuee_id
+    WHERE h.disaster_event_id <> $1
+      AND h.is_active = TRUE
+      AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_first_name, '')), '\\s+', ' ', 'g')) =
+          LOWER(REGEXP_REPLACE(BTRIM(COALESCE($2, '')), '\\s+', ' ', 'g'))
+      AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_last_name, '')), '\\s+', ' ', 'g')) =
+          LOWER(REGEXP_REPLACE(BTRIM(COALESCE($3, '')), '\\s+', ' ', 'g'))
+    ORDER BY de.title ASC, h.registered_at DESC, h.id ASC
+  `;
+
+  const result = await dbClient.query(query, [
+    disasterEventId,
+    familyHead.first_name,
+    familyHead.last_name,
+  ]);
+  return result.rows;
+};
+
+const updateHouseholdRegistrationTimestamp = async (
+  householdId,
+  registeredAt,
+  dbClient = pool,
+) => {
+  const query = `
+    WITH updated_household AS (
+      UPDATE households
+      SET registered_at = LEAST(registered_at, $2::timestamptz),
+          updated_at = NOW()
+      WHERE id = $1
+      RETURNING *
+    ),
+    updated_logs AS (
+      UPDATE evacuation_logs
+      SET time_in = LEAST(time_in, $2::timestamptz),
+          updated_at = NOW()
+      WHERE household_id = $1
+        AND time_in IS NOT NULL
+      RETURNING id
+    )
+    SELECT *
+    FROM updated_household
+  `;
+
+  const result = await dbClient.query(query, [householdId, registeredAt]);
+  return result.rows[0] || null;
+};
+
+const updateHousehold = async (householdId, householdData, dbClient) => {
+  const query = `
+    UPDATE households
+    SET
+      evacuation_center_id = $2,
+      residency_status = $3,
+      contact_number = $4,
+      current_stay_type = $5,
+      current_address_details = $6,
+      household_size = $7,
+      updated_at = NOW()
+    WHERE id = $1
+    RETURNING
+      id,
+      disaster_event_id,
+      barangay_id,
+      evacuation_center_id,
+      residency_status,
+      family_head_first_name,
+      family_head_middle_name,
+      family_head_last_name,
+      family_head_suffix,
+      sex,
+      birth_date,
+      contact_number,
+      current_stay_type,
+      current_address_details,
+      household_size,
+      is_active,
+      registered_by,
+      family_head_photo_url,
+      photo_captured_at,
+      photo_captured_by,
+      photo_verification_notes,
+      registered_at,
+      updated_at,
+      family_head_evacuee_id
+  `;
+
+  const values = [
+    householdId,
+    householdData.evacuation_center_id,
+    householdData.residency_status,
+    householdData.contact_number ?? null,
+    householdData.current_stay_type,
+    householdData.current_address_details ?? null,
+    householdData.household_size,
+  ];
+
+  const result = await dbClient.query(query, values);
+  return result.rows[0] || null;
 };
 
 const insertEvacuee = async (householdId, member, dbClient) => {
@@ -307,6 +817,75 @@ const insertEvacuee = async (householdId, member, dbClient) => {
   return result.rows[0];
 };
 
+const updateEvacuee = async (evacueeId, member, dbClient) => {
+  const query = `
+    UPDATE evacuees
+    SET
+      first_name = $2,
+      middle_name = $3,
+      last_name = $4,
+      suffix = $5,
+      sex = $6,
+      birth_date = $7,
+      age = $8,
+      age_value = $9,
+      age_unit = $10,
+      civil_status = $11,
+      relationship_to_head = $12,
+      is_family_head = $13,
+      is_pregnant = $14,
+      is_lactating = $15,
+      has_disability = $16,
+      is_active = $17,
+      updated_at = NOW()
+    WHERE id = $1
+    RETURNING
+      id,
+      household_id,
+      first_name,
+      middle_name,
+      last_name,
+      suffix,
+      sex,
+      birth_date,
+      age,
+      age_value,
+      age_unit,
+      civil_status,
+      relationship_to_head,
+      is_family_head,
+      is_pregnant,
+      is_lactating,
+      has_disability,
+      is_active,
+      created_at,
+      updated_at
+  `;
+
+  const values = [
+    evacueeId,
+    member.first_name,
+    member.middle_name,
+    member.last_name,
+    member.suffix,
+    member.sex,
+    member.birth_date ?? null,
+    member.age ?? null,
+    member.age_value,
+    member.age_unit,
+    member.civil_status ?? null,
+    member.relationship_to_head,
+    member.is_family_head,
+    member.is_pregnant,
+    member.is_lactating,
+    member.has_disability,
+    member.is_active ?? true,
+  ];
+
+  const result = await dbClient.query(query, values);
+  return result.rows[0] || null;
+};
+
 const updateHouseholdFamilyHeadEvacueeId = async (
   householdId,
   familyHeadEvacueeId,
@@ -349,6 +928,41 @@ const insertEvacueeSectors = async (evacueeId, sectorIds, dbClient) => {
   return insertedRows;
 };
 
+const deleteEvacueeSectorsByEvacueeId = async (evacueeId, dbClient) => {
+  await dbClient.query(
+    `
+      DELETE FROM evacuee_sectors
+      WHERE evacuee_id = $1
+    `,
+    [evacueeId],
+  );
+};
+
+const deleteHouseholdSectorsByHouseholdId = async (householdId, dbClient) => {
+  await dbClient.query(
+    `
+      DELETE FROM household_sectors
+      WHERE household_id = $1
+    `,
+    [householdId],
+  );
+};
+
+const deactivateEvacuee = async (evacueeId, dbClient) => {
+  const result = await dbClient.query(
+    `
+      UPDATE evacuees
+      SET is_active = FALSE,
+          updated_at = NOW()
+      WHERE id = $1
+      RETURNING id
+    `,
+    [evacueeId],
+  );
+
+  return result.rows[0] || null;
+};
+
 const insertHouseholdSectors = async (householdId, sectorIds, dbClient) => {
   const insertedRows = [];
 
@@ -383,10 +997,15 @@ const insertStub = async (stubData, dbClient) => {
       serial_no,
       status,
       issued_by,
+      qr_code_value,
+      qr_generated_at,
+      qr_generated_by,
+      qr_status,
+      qr_notes,
       issued_at,
       updated_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, NOW(), NOW())
     RETURNING
       id,
       disaster_event_id,
@@ -395,6 +1014,11 @@ const insertStub = async (stubData, dbClient) => {
       serial_no,
       status,
       issued_by,
+      qr_code_value,
+      qr_generated_at,
+      qr_generated_by,
+      qr_status,
+      qr_notes,
       issued_at,
       claimed_at,
       updated_at
@@ -407,6 +1031,10 @@ const insertStub = async (stubData, dbClient) => {
     stubData.serial_no,
     stubData.status,
     stubData.issued_by,
+    stubData.qr_code_value,
+    stubData.qr_generated_by,
+    stubData.qr_status,
+    stubData.qr_notes ?? null,
   ];
 
   const result = await dbClient.query(query, values);
@@ -428,7 +1056,10 @@ const insertEvacuationLog = async (logData, dbClient) => {
       created_at,
       updated_at
     )
-    VALUES ($1, $2, $3, $4, NOW(), NULL, $5, $6, $7, NOW(), NOW())
+    VALUES (
+      $1, $2, $3, $4, COALESCE($8::timestamptz, NOW()), NULL,
+      $5, $6, $7, NOW(), NOW()
+    )
     RETURNING
       id,
       disaster_event_id,
@@ -452,6 +1083,7 @@ const insertEvacuationLog = async (logData, dbClient) => {
     logData.status,
     logData.recorded_by,
     logData.remarks,
+    logData.time_in || null,
   ];
 
   const result = await dbClient.query(query, values);
@@ -492,7 +1124,7 @@ const markHouseholdDeparture = async (
   const query = `
     UPDATE evacuation_logs
     SET
-      time_out = NOW(),
+      time_out = GREATEST(COALESCE($3::timestamptz, NOW()), time_in),
       status = 'LEFT',
       remarks = COALESCE($2, remarks),
       updated_at = NOW()
@@ -517,12 +1149,84 @@ const markHouseholdDeparture = async (
   const result = await dbClient.query(query, [
     householdId,
     departureDetails.remarks ?? null,
+    departureDetails.departure_time || null,
   ]);
 
   return result.rows;
 };
 
-const getHouseholdSummaryById = async (id) => {
+const updateHouseholdDepartureTimestamp = async (
+  householdId,
+  departureTimestamp,
+  dbClient = pool,
+) => {
+  const query = `
+    UPDATE evacuation_logs
+    SET time_out = LEAST(time_out, GREATEST($2::timestamptz, time_in)),
+        updated_at = NOW()
+    WHERE household_id = $1
+      AND time_out IS NOT NULL
+      AND $2::timestamptz < time_out
+    RETURNING
+      id,
+      disaster_event_id,
+      household_id,
+      evacuee_id,
+      evacuation_center_id,
+      time_in,
+      time_out,
+      status,
+      recorded_by,
+      remarks,
+      created_at,
+      updated_at
+  `;
+
+  const result = await dbClient.query(query, [householdId, departureTimestamp]);
+  return result.rows;
+};
+
+const markDisasterEventHouseholdDepartures = async (
+  disasterEventId,
+  departureTimestamp,
+  remarks = null,
+  dbClient = pool,
+) => {
+  const query = `
+    UPDATE evacuation_logs
+    SET
+      time_out = GREATEST($2::timestamptz, time_in),
+      status = 'LEFT',
+      remarks = COALESCE($3, remarks),
+      updated_at = NOW()
+    WHERE disaster_event_id = $1
+      AND status = 'PRESENT'
+      AND time_out IS NULL
+    RETURNING
+      id,
+      disaster_event_id,
+      household_id,
+      evacuee_id,
+      evacuation_center_id,
+      time_in,
+      time_out,
+      status,
+      recorded_by,
+      remarks,
+      created_at,
+      updated_at
+  `;
+
+  const result = await dbClient.query(query, [
+    disasterEventId,
+    departureTimestamp,
+    remarks,
+  ]);
+
+  return result.rows;
+};
+
+const getHouseholdSummaryById = async (id, dbClient = pool) => {
   const query = `
     SELECT
       h.id,
@@ -542,24 +1246,80 @@ const getHouseholdSummaryById = async (id) => {
       h.household_size,
       h.is_active,
       h.registered_by,
+      h.family_head_photo_url,
+      h.photo_captured_at,
+      h.photo_captured_by,
+      h.photo_verification_notes,
       h.registered_at,
       h.updated_at,
       h.family_head_evacuee_id,
+      CONCAT_WS(' ', registered_by_user.first_name, registered_by_user.last_name) AS registered_by_name,
       b.code AS barangay_code,
       b.name AS barangay_name,
       de.event_code,
-      de.title AS disaster_event_title
+      de.title AS disaster_event_title,
+      de.status AS disaster_event_status
     FROM households h
     LEFT JOIN barangays b ON b.id = h.barangay_id
+    LEFT JOIN users registered_by_user ON registered_by_user.id = h.registered_by
     INNER JOIN disaster_events de ON de.id = h.disaster_event_id
     WHERE h.id = $1
   `;
 
-  const result = await pool.query(query, [id]);
+  const result = await dbClient.query(query, [id]);
   return result.rows[0] || null;
 };
 
-const getEvacueesByHouseholdId = async (householdId) => {
+const getHouseholdSummaryByIdForUpdate = async (id, dbClient) => {
+  const query = `
+    SELECT
+      h.id,
+      h.disaster_event_id,
+      h.barangay_id,
+      h.evacuation_center_id,
+      h.residency_status,
+      h.family_head_first_name,
+      h.family_head_middle_name,
+      h.family_head_last_name,
+      h.family_head_suffix,
+      h.sex,
+      h.birth_date,
+      h.contact_number,
+      h.current_stay_type,
+      h.current_address_details,
+      h.household_size,
+      h.is_active,
+      h.registered_by,
+      h.family_head_photo_url,
+      h.photo_captured_at,
+      h.photo_captured_by,
+      h.photo_verification_notes,
+      h.registered_at,
+      h.updated_at,
+      h.family_head_evacuee_id,
+      CONCAT_WS(' ', registered_by_user.first_name, registered_by_user.last_name) AS registered_by_name,
+      b.code AS barangay_code,
+      b.name AS barangay_name,
+      de.event_code,
+      de.title AS disaster_event_title,
+      de.status AS disaster_event_status
+    FROM households h
+    LEFT JOIN barangays b ON b.id = h.barangay_id
+    LEFT JOIN users registered_by_user ON registered_by_user.id = h.registered_by
+    INNER JOIN disaster_events de ON de.id = h.disaster_event_id
+    WHERE h.id = $1
+    FOR UPDATE OF h
+  `;
+
+  const result = await dbClient.query(query, [id]);
+  return result.rows[0] || null;
+};
+
+const getEvacueesByHouseholdId = async (
+  householdId,
+  { includeInactive = false, dbClient = pool } = {},
+) => {
+  const activeFilterClause = includeInactive ? "" : "AND is_active = TRUE";
   const query = `
     SELECT
       id,
@@ -584,14 +1344,19 @@ const getEvacueesByHouseholdId = async (householdId) => {
       updated_at
     FROM evacuees
     WHERE household_id = $1
+      ${activeFilterClause}
     ORDER BY created_at ASC, first_name ASC, last_name ASC
   `;
 
-  const result = await pool.query(query, [householdId]);
+  const result = await dbClient.query(query, [householdId]);
   return result.rows;
 };
 
-const getEvacueeSectorAssignmentsByHouseholdId = async (householdId) => {
+const getEvacueeSectorAssignmentsByHouseholdId = async (
+  householdId,
+  { includeInactive = false, dbClient = pool } = {},
+) => {
+  const activeFilterClause = includeInactive ? "" : "AND e.is_active = TRUE";
   const query = `
     SELECT
       es.evacuee_id,
@@ -604,14 +1369,18 @@ const getEvacueeSectorAssignmentsByHouseholdId = async (householdId) => {
     INNER JOIN evacuees e ON e.id = es.evacuee_id
     INNER JOIN sectors s ON s.id = es.sector_id
     WHERE e.household_id = $1
+      ${activeFilterClause}
     ORDER BY e.created_at ASC, s.name ASC
   `;
 
-  const result = await pool.query(query, [householdId]);
+  const result = await dbClient.query(query, [householdId]);
   return result.rows;
 };
 
-const getHouseholdSectorAssignmentsByHouseholdId = async (householdId) => {
+const getHouseholdSectorAssignmentsByHouseholdId = async (
+  householdId,
+  dbClient = pool,
+) => {
   const query = `
     SELECT
       s.id,
@@ -625,11 +1394,44 @@ const getHouseholdSectorAssignmentsByHouseholdId = async (householdId) => {
     ORDER BY s.name ASC
   `;
 
-  const result = await pool.query(query, [householdId]);
+  const result = await dbClient.query(query, [householdId]);
   return result.rows;
 };
 
-const getStubByHouseholdId = async (householdId) => {
+const getLatestHouseholdPrivacyConsentByHouseholdId = async (
+  householdId,
+  dbClient = pool,
+) => {
+  const query = `
+    SELECT
+      hpc.id,
+      hpc.household_id,
+      hpc.disaster_event_id,
+      hpc.consent_status,
+      hpc.notice_version,
+      hpc.acknowledged_at,
+      hpc.acknowledged_by_name,
+      hpc.representative_relationship,
+      hpc.recorded_by,
+      hpc.recorded_at,
+      hpc.device_id,
+      hpc.is_offline_encoded,
+      hpc.sync_status,
+      hpc.created_at,
+      hpc.updated_at,
+      CONCAT_WS(' ', u.first_name, u.last_name) AS recorded_by_name
+    FROM household_privacy_consents hpc
+    LEFT JOIN users u ON u.id = hpc.recorded_by
+    WHERE household_id = $1
+    ORDER BY hpc.acknowledged_at DESC, hpc.recorded_at DESC, hpc.created_at DESC
+    LIMIT 1
+  `;
+
+  const result = await dbClient.query(query, [householdId]);
+  return result.rows[0] || null;
+};
+
+const getStubByHouseholdId = async (householdId, dbClient = pool) => {
   const query = `
     SELECT
       id,
@@ -639,6 +1441,11 @@ const getStubByHouseholdId = async (householdId) => {
       serial_no,
       status,
       issued_by,
+      qr_code_value,
+      qr_generated_at,
+      qr_generated_by,
+      qr_status,
+      qr_notes,
       issued_at,
       claimed_at,
       updated_at
@@ -648,8 +1455,372 @@ const getStubByHouseholdId = async (householdId) => {
     LIMIT 1
   `;
 
-  const result = await pool.query(query, [householdId]);
+  const result = await dbClient.query(query, [householdId]);
   return result.rows[0] || null;
+};
+
+const getLatestAttendanceByHouseholdId = async (householdId, dbClient = pool) => {
+  const query = `
+    SELECT
+      id,
+      disaster_event_id,
+      household_id,
+      evacuee_id,
+      evacuation_center_id,
+      time_in,
+      time_out,
+      status,
+      recorded_by,
+      remarks,
+      created_at,
+      updated_at
+    FROM evacuation_logs
+    WHERE household_id = $1
+    ORDER BY
+      COALESCE(time_out, time_in) DESC,
+      updated_at DESC,
+      created_at DESC
+    LIMIT 1
+  `;
+
+  const result = await dbClient.query(query, [householdId]);
+  return result.rows[0] || null;
+};
+
+const getLatestDistributionTransactionByStubId = async (
+  stubId,
+  dbClient = pool,
+) => {
+  if (!stubId) {
+    return null;
+  }
+
+  const query = `
+    SELECT
+      id,
+      disaster_event_id,
+      household_id,
+      stub_id,
+      distribution_date,
+      distribution_status,
+      claimed_by_name,
+      receipt_no,
+      receipt_status,
+      received_at,
+      qr_reference_value,
+      qr_scanned_at,
+      created_at,
+      updated_at
+    FROM distribution_transactions
+    WHERE stub_id = $1
+    ORDER BY distribution_date DESC, created_at DESC
+    LIMIT 1
+  `;
+
+  const result = await dbClient.query(query, [stubId]);
+  return result.rows[0] || null;
+};
+
+const getEvacuationLogByIdForHousehold = async (
+  householdId,
+  evacuationLogId,
+  dbClient = pool,
+) => {
+  const query = `
+    SELECT
+      id,
+      disaster_event_id,
+      household_id,
+      evacuee_id,
+      evacuation_center_id,
+      time_in,
+      time_out,
+      status,
+      recorded_by,
+      remarks,
+      created_at,
+      updated_at
+    FROM evacuation_logs
+    WHERE household_id = $1
+      AND id = $2
+    LIMIT 1
+  `;
+
+  const result = await dbClient.query(query, [householdId, evacuationLogId]);
+  return result.rows[0] || null;
+};
+
+const updateEvacuationLogCorrection = async (
+  evacuationLogId,
+  correctionData,
+  dbClient = pool,
+) => {
+  const query = `
+    UPDATE evacuation_logs
+    SET
+      evacuation_center_id = $2,
+      status = $3,
+      time_out = CASE
+        WHEN $3 = 'PRESENT' THEN NULL
+        WHEN $3 = 'LEFT' AND time_out IS NULL THEN NOW()
+        ELSE time_out
+      END,
+      remarks = $4,
+      updated_at = NOW()
+    WHERE id = $1
+    RETURNING
+      id,
+      disaster_event_id,
+      household_id,
+      evacuee_id,
+      evacuation_center_id,
+      time_in,
+      time_out,
+      status,
+      recorded_by,
+      remarks,
+      created_at,
+      updated_at
+  `;
+
+  const result = await dbClient.query(query, [
+    evacuationLogId,
+    correctionData.evacuation_center_id,
+    correctionData.status,
+    correctionData.remarks,
+  ]);
+
+  return result.rows[0] || null;
+};
+
+const archiveHousehold = async (householdId, dbClient = pool) => {
+  const query = `
+    UPDATE households
+    SET
+      is_active = FALSE,
+      updated_at = NOW()
+    WHERE id = $1
+    RETURNING
+      id,
+      disaster_event_id,
+      barangay_id,
+      evacuation_center_id,
+      residency_status,
+      family_head_first_name,
+      family_head_middle_name,
+      family_head_last_name,
+      family_head_suffix,
+      sex,
+      birth_date,
+      contact_number,
+      current_stay_type,
+      current_address_details,
+      household_size,
+      is_active,
+      registered_by,
+      family_head_photo_url,
+      photo_captured_at,
+      photo_captured_by,
+      photo_verification_notes,
+      registered_at,
+      updated_at,
+      family_head_evacuee_id
+  `;
+
+  const result = await dbClient.query(query, [householdId]);
+  return result.rows[0] || null;
+};
+
+const archiveHouseholdsByIds = async (householdIds, dbClient = pool) => {
+  if (!Array.isArray(householdIds) || householdIds.length === 0) {
+    return [];
+  }
+
+  const query = `
+    UPDATE households
+    SET
+      is_active = FALSE,
+      updated_at = NOW()
+    WHERE id = ANY($1::uuid[])
+    RETURNING
+      id,
+      disaster_event_id,
+      barangay_id,
+      evacuation_center_id,
+      residency_status,
+      family_head_first_name,
+      family_head_middle_name,
+      family_head_last_name,
+      family_head_suffix,
+      sex,
+      birth_date,
+      contact_number,
+      current_stay_type,
+      current_address_details,
+      household_size,
+      is_active,
+      registered_by,
+      family_head_photo_url,
+      photo_captured_at,
+      photo_captured_by,
+      photo_verification_notes,
+      registered_at,
+      updated_at,
+      family_head_evacuee_id
+  `;
+
+  const result = await dbClient.query(query, [householdIds]);
+  return result.rows;
+};
+
+const deactivateEvacueesByHouseholdId = async (householdId, dbClient = pool) => {
+  const query = `
+    UPDATE evacuees
+    SET
+      is_active = FALSE,
+      updated_at = NOW()
+    WHERE household_id = $1
+      AND is_active = TRUE
+    RETURNING
+      id,
+      household_id,
+      first_name,
+      middle_name,
+      last_name,
+      suffix,
+      sex,
+      birth_date,
+      age,
+      age_value,
+      age_unit,
+      civil_status,
+      relationship_to_head,
+      is_family_head,
+      is_pregnant,
+      is_lactating,
+      has_disability,
+      is_active,
+      created_at,
+      updated_at
+  `;
+
+  const result = await dbClient.query(query, [householdId]);
+  return result.rows;
+};
+
+const deactivateEvacueesByHouseholdIds = async (
+  householdIds,
+  dbClient = pool,
+) => {
+  if (!Array.isArray(householdIds) || householdIds.length === 0) {
+    return [];
+  }
+
+  const query = `
+    UPDATE evacuees
+    SET
+      is_active = FALSE,
+      updated_at = NOW()
+    WHERE household_id = ANY($1::uuid[])
+      AND is_active = TRUE
+    RETURNING
+      id,
+      household_id,
+      first_name,
+      middle_name,
+      last_name,
+      suffix,
+      sex,
+      birth_date,
+      age,
+      age_value,
+      age_unit,
+      civil_status,
+      relationship_to_head,
+      is_family_head,
+      is_pregnant,
+      is_lactating,
+      has_disability,
+      is_active,
+      created_at,
+      updated_at
+  `;
+
+  const result = await dbClient.query(query, [householdIds]);
+  return result.rows;
+};
+
+const restoreHousehold = async (householdId, dbClient = pool) => {
+  const query = `
+    UPDATE households
+    SET
+      is_active = TRUE,
+      updated_at = NOW()
+    WHERE id = $1
+    RETURNING
+      id,
+      disaster_event_id,
+      barangay_id,
+      evacuation_center_id,
+      residency_status,
+      family_head_first_name,
+      family_head_middle_name,
+      family_head_last_name,
+      family_head_suffix,
+      sex,
+      birth_date,
+      contact_number,
+      current_stay_type,
+      current_address_details,
+      household_size,
+      is_active,
+      registered_by,
+      family_head_photo_url,
+      photo_captured_at,
+      photo_captured_by,
+      photo_verification_notes,
+      registered_at,
+      updated_at,
+      family_head_evacuee_id
+  `;
+
+  const result = await dbClient.query(query, [householdId]);
+  return result.rows[0] || null;
+};
+
+const reactivateEvacueesByHouseholdId = async (householdId, dbClient = pool) => {
+  const query = `
+    UPDATE evacuees
+    SET
+      is_active = TRUE,
+      updated_at = NOW()
+    WHERE household_id = $1
+      AND is_active = FALSE
+    RETURNING
+      id,
+      household_id,
+      first_name,
+      middle_name,
+      last_name,
+      suffix,
+      sex,
+      birth_date,
+      age,
+      age_value,
+      age_unit,
+      civil_status,
+      relationship_to_head,
+      is_family_head,
+      is_pregnant,
+      is_lactating,
+      has_disability,
+      is_active,
+      created_at,
+      updated_at
+  `;
+
+  const result = await dbClient.query(query, [householdId]);
+  return result.rows;
 };
 
 module.exports = {
@@ -657,22 +1828,49 @@ module.exports = {
   getBarangayById,
   getUserBarangayScopeById,
   getEvacuationCenterById,
+  getActiveEvacuationCentersByBarangayId,
   getDisasterEventBarangayLink,
+  lockHouseholdRegistrationScope,
   getSectorsByIds,
   getSectorsByCodes,
+  getAgeGroupSectors,
   generateStubNumbers,
   insertHousehold,
+  insertHouseholdPrivacyConsent,
+  findDuplicateHouseholdRegistration,
+  findPotentialDuplicatePersonMatches,
+  findActiveCrossEventFamilyHeadMatches,
+  updateHouseholdRegistrationTimestamp,
+  updateHousehold,
   insertEvacuee,
+  updateEvacuee,
   updateHouseholdFamilyHeadEvacueeId,
   insertEvacueeSectors,
+  deleteEvacueeSectorsByEvacueeId,
   insertHouseholdSectors,
+  deleteHouseholdSectorsByHouseholdId,
+  deactivateEvacuee,
   insertStub,
   insertEvacuationLog,
   getActiveEvacuationLogsByHouseholdId,
   markHouseholdDeparture,
+  updateHouseholdDepartureTimestamp,
+  markDisasterEventHouseholdDepartures,
   getHouseholdSummaryById,
+  getHouseholdSummaryByIdForUpdate,
   getEvacueesByHouseholdId,
   getEvacueeSectorAssignmentsByHouseholdId,
   getHouseholdSectorAssignmentsByHouseholdId,
+  getLatestHouseholdPrivacyConsentByHouseholdId,
   getStubByHouseholdId,
+  getLatestAttendanceByHouseholdId,
+  getLatestDistributionTransactionByStubId,
+  getEvacuationLogByIdForHousehold,
+  updateEvacuationLogCorrection,
+  archiveHousehold,
+  archiveHouseholdsByIds,
+  deactivateEvacueesByHouseholdId,
+  deactivateEvacueesByHouseholdIds,
+  restoreHousehold,
+  reactivateEvacueesByHouseholdId,
 };

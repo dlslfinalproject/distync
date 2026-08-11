@@ -11,7 +11,7 @@ const emptyData = {
   rows: [],
 };
 
-export const useMasterlist = ({ disasterEventId, barangayId }) => {
+export const useMasterlist = ({ disasterEventId, barangayId, recordStatus }) => {
   const [data, setData] = useState(emptyData);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -35,6 +35,7 @@ export const useMasterlist = ({ disasterEventId, barangayId }) => {
         const result = await fetchMasterlist({
           disasterEventId,
           barangayId,
+          recordStatus,
         });
 
         if (isMounted) {
@@ -57,7 +58,7 @@ export const useMasterlist = ({ disasterEventId, barangayId }) => {
     return () => {
       isMounted = false;
     };
-  }, [barangayId, disasterEventId, reloadKey]);
+  }, [barangayId, disasterEventId, recordStatus, reloadKey]);
 
   return {
     data,

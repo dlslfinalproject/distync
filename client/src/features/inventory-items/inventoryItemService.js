@@ -1,3 +1,8 @@
+import {
+  buildOfflineQueuedResponse,
+  performSyncableMutation,
+} from "../../offline/syncService";
+
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
@@ -72,6 +77,14 @@ export const exportInventoryItems = async ({ format, filters = {} }) => {
   const searchParams = new URLSearchParams({ format });
   appendInventoryItemFilters(searchParams, filters);
 
+  if (filters.report_type) {
+    searchParams.set("report_type", filters.report_type);
+  }
+
+  if (filters.near_expiry_days) {
+    searchParams.set("near_expiry_days", filters.near_expiry_days);
+  }
+
   const response = await fetch(
     `${API_BASE_URL}/api/v1/inventory-items/export?${searchParams.toString()}`,
   );
@@ -107,8 +120,96 @@ export const fetchInventoryItemById = async (inventoryItemId) => {
   return handleJsonResponse(response, "Failed to fetch inventory item");
 };
 
+export const fetchInventoryItemDetail = async (inventoryItemId) => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/inventory-items/${inventoryItemId}/detail`,
+  );
+
+  return handleJsonResponse(response, "Failed to fetch inventory item detail");
+};
+
+export const lookupInventoryItemByBarcode = async (barcode) => {
+  const normalizedBarcode = String(barcode || "").replace(/\s+/g, "").trim();
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/inventory-items/lookup/barcode/${encodeURIComponent(normalizedBarcode)}`,
+  );
+
+  return handleJsonResponse(response, "Failed to look up barcode details");
+};
+
 export const createInventoryItem = async (payload) => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/inventory-items`, {
+  return performSyncableMutation({
+    moduleName: "mayor-inventory",
+    actionKey: "INVENTORY_ITEM_CREATE",
+    entityType: "INVENTORY_ITEM",
+    entityLocalId: payload?.item_code || payload?.item_name || null,
+    payload,
+    requiredFields: ["item_name", "category", "unit_of_measure"],
+    request: async () => {
+      const response = await fetch(`${API_BASE_URL}/api/v1/inventory-items`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      return handleJsonResponse(response, "Failed to create inventory item");
+    },
+    buildQueuedResponse: ({ clientSyncId, entityLocalId, clientTimestamp }) =>
+      buildOfflineQueuedResponse({
+        message:
+          "Inventory item saved offline. Pending sync once connection is restored.",
+        data: {
+          id: entityLocalId,
+          updated_at: clientTimestamp,
+        },
+        clientSyncId,
+        entityLocalId,
+        clientTimestamp,
+      }),
+  });
+};
+
+export const updateInventoryItem = async (inventoryItemId, payload) => {
+  return performSyncableMutation({
+    moduleName: "mayor-inventory",
+    actionKey: "INVENTORY_ITEM_UPDATE",
+    entityType: "INVENTORY_ITEM",
+    entityServerId: inventoryItemId,
+    payload,
+    requiredFields: ["item_name", "category", "unit_of_measure"],
+    request: async () => {
+      const response = await fetch(
+        `${API_BASE_URL}/api/v1/inventory-items/${inventoryItemId}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      return handleJsonResponse(response, "Failed to update inventory item");
+    },
+    buildQueuedResponse: ({ clientSyncId, clientTimestamp }) =>
+      buildOfflineQueuedResponse({
+        message:
+          "Inventory item update saved offline. Pending sync once connection is restored.",
+        data: {
+          id: inventoryItemId,
+          updated_at: clientTimestamp,
+        },
+        clientSyncId,
+        entityLocalId: inventoryItemId,
+        clientTimestamp,
+      }),
+  });
+};
+
+export const runInventoryForecast = async (payload) => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/inventory-items/forecast/run`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -116,20 +217,64 @@ export const createInventoryItem = async (payload) => {
     body: JSON.stringify(payload),
   });
 
-  return handleJsonResponse(response, "Failed to create inventory item");
+  return handleJsonResponse(response, "Failed to run inventory forecast");
 };
 
-export const updateInventoryItem = async (inventoryItemId, payload) => {
+export const fetchLatestInventoryForecast = async (disasterEventId) => {
+  const searchParams = new URLSearchParams({
+    disaster_event_id: disasterEventId,
+  });
   const response = await fetch(
-    `${API_BASE_URL}/api/v1/inventory-items/${inventoryItemId}`,
-    {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    },
+    `${API_BASE_URL}/api/v1/inventory-items/forecast/latest?${searchParams.toString()}`,
   );
 
-  return handleJsonResponse(response, "Failed to update inventory item");
+  return handleJsonResponse(response, "Failed to fetch latest inventory forecast");
+};
+
+export const fetchInventoryForecastContext = async (disasterEventId) => {
+  const searchParams = new URLSearchParams({
+    disaster_event_id: disasterEventId,
+  });
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/inventory-items/forecast/context?${searchParams.toString()}`,
+  );
+
+  return handleJsonResponse(response, "Failed to fetch inventory forecast context");
+};
+
+export const fetchForecastHealth = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/inventory-items/forecast/health`);
+
+  return handleJsonResponse(response, "Failed to fetch analytics health");
+};
+
+export const fetchForecastHistory = async ({
+  disasterEventId = null,
+  limit = 10,
+} = {}) => {
+  const searchParams = new URLSearchParams();
+
+  if (disasterEventId) {
+    searchParams.set("disaster_event_id", disasterEventId);
+  }
+
+  if (limit) {
+    searchParams.set("limit", String(limit));
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/inventory-items/forecast/history${
+      searchParams.toString() ? `?${searchParams.toString()}` : ""
+    }`,
+  );
+
+  return handleJsonResponse(response, "Failed to fetch forecast history");
+};
+
+export const fetchForecastRunDetails = async (runId) => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/inventory-items/forecast/history/${runId}`,
+  );
+
+  return handleJsonResponse(response, "Failed to fetch forecast run details");
 };

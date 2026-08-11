@@ -1,5 +1,6 @@
 import React from "react";
 import { shellStyles } from "../layout/BarangayLayout";
+import SyncStatusBadge from "../shared/SyncStatusBadge";
 
 const tableStyles = {
   table: {
@@ -65,7 +66,7 @@ const formatDate = (value) => {
   });
 };
 
-const InventoryBatchesTable = ({ rows, isLoading, errorMessage }) => {
+const InventoryBatchesTable = ({ rows, isLoading, errorMessage, onViewDetails }) => {
   if (isLoading) {
     return (
       <section style={shellStyles.card}>
@@ -93,7 +94,7 @@ const InventoryBatchesTable = ({ rows, isLoading, errorMessage }) => {
       <section style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Inventory Batches</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
-          No inventory batches were found for the current filters.
+          No matching records found. Try adjusting your search or filters.
         </p>
       </section>
     );
@@ -121,6 +122,8 @@ const InventoryBatchesTable = ({ rows, isLoading, errorMessage }) => {
               <th style={tableStyles.headerCell}>Quantity Available</th>
               <th style={tableStyles.headerCell}>Expiration Date</th>
               <th style={tableStyles.headerCell}>Status</th>
+              <th style={tableStyles.headerCell}>Sync</th>
+              <th style={tableStyles.headerCell}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -139,6 +142,28 @@ const InventoryBatchesTable = ({ rows, isLoading, errorMessage }) => {
                 </td>
                 <td style={tableStyles.bodyCell}>
                   <span style={getStatusBadgeStyles(row.status)}>{row.status}</span>
+                </td>
+                <td style={tableStyles.bodyCell}>
+                  <SyncStatusBadge status={row.sync_status} compact />
+                </td>
+                <td style={tableStyles.bodyCell}>
+                  <button
+                    type="button"
+                    onClick={() => onViewDetails?.(row.id)}
+                    style={{
+                      border: "1px solid #c6d8ea",
+                      borderRadius: "10px",
+                      padding: "8px 10px",
+                      backgroundColor: "#f8fbfe",
+                      color: "#2a4c6f",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                    disabled={typeof onViewDetails !== "function"}
+                  >
+                    View Batch Details
+                  </button>
                 </td>
               </tr>
             ))}

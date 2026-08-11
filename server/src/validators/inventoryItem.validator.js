@@ -2,13 +2,31 @@ const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const allowedUnitOfMeasureValues = ["kg", "g", "L", "mL", "pc"];
-const allowedPackagingValues = ["sack", "box", "carton", "case", "pack", "bottle"];
+const allowedPackagingValues = ["piece", "sack", "box", "carton", "case", "pack", "bottle"];
 const categoryValueMap = {
   perishable: "Perishable",
   "non-perishable": "Non-Perishable",
 };
 const allowedExportFormats = ["pdf", "excel", "csv"];
-const allowedStatusFilters = ["All", "Active", "Inactive", "Expiring"];
+const allowedStatusFilters = [
+  "All",
+  "Available",
+  "Low Stock",
+  "Near Expiry",
+  "Expired",
+  "Depleted",
+];
+const allowedConditionReportTypes = [
+  "LOW_STOCK",
+  "NEAR_EXPIRY",
+  "EXPIRED",
+  "INCIDENT_LOSS",
+];
+const allowedForecastModels = [
+  "MOVING_AVERAGE",
+  "EXPONENTIAL_SMOOTHING",
+  "TREND_PROJECTION",
+];
 
 const isValidUuid = (value) => {
   return typeof value === "string" && uuidPattern.test(value);
@@ -116,6 +134,36 @@ const validateInventoryItemId = (req, res, next) => {
   }
 };
 
+const validateInventoryItemBarcodeLookup = (req, res, next) => {
+  try {
+    const { barcode } = req.params;
+    const normalizedBarcode = String(barcode || "").replace(/\s+/g, "").trim();
+
+    if (!normalizedBarcode) {
+      return res.status(400).json({
+        message: "barcode is required",
+      });
+    }
+
+    if (!/^\d{8,18}$/.test(normalizedBarcode)) {
+      return res.status(400).json({
+        message: "barcode must contain 8 to 18 digits",
+      });
+    }
+
+    req.validatedParams = {
+      barcode: normalizedBarcode,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate inventory barcode lookup",
+      error: error.message,
+    });
+  }
+};
+
 const validateGetInventoryItems = (req, res, next) => {
   try {
     const { category, search, is_active, is_perishable } = req.query;
@@ -153,7 +201,16 @@ const validateGetInventoryItems = (req, res, next) => {
 
 const validateExportInventoryItems = (req, res, next) => {
   try {
-    const { format, category, search, is_active, is_perishable, status } =
+    const {
+      format,
+      category,
+      search,
+      is_active,
+      is_perishable,
+      status,
+      report_type,
+      near_expiry_days,
+    } =
       req.query;
     const normalizedFormat = String(format || "").toLowerCase();
     const parsedIsActive = parseOptionalBoolean(is_active);
@@ -183,7 +240,33 @@ const validateExportInventoryItems = (req, res, next) => {
 
     if (!normalizedStatus) {
       return res.status(400).json({
-        message: "status must be one of: All, Active, Inactive, Expiring",
+        message:
+          "status must be one of: All, Available, Low Stock, Near Expiry, Expired, Depleted",
+      });
+    }
+
+    if (
+      report_type !== undefined &&
+      !allowedConditionReportTypes.includes(report_type)
+    ) {
+      return res.status(400).json({
+        message:
+          "report_type must be one of: LOW_STOCK, NEAR_EXPIRY, EXPIRED, INCIDENT_LOSS",
+      });
+    }
+
+    const parsedNearExpiryDays =
+      near_expiry_days === undefined
+        ? 14
+        : Number.parseInt(String(near_expiry_days), 10);
+
+    if (
+      Number.isNaN(parsedNearExpiryDays) ||
+      parsedNearExpiryDays < 1 ||
+      parsedNearExpiryDays > 30
+    ) {
+      return res.status(400).json({
+        message: "near_expiry_days must be an integer between 1 and 30",
       });
     }
 
@@ -194,6 +277,8 @@ const validateExportInventoryItems = (req, res, next) => {
       is_active: parsedIsActive.isProvided ? parsedIsActive.value : null,
       is_perishable: parsedIsPerishable.isProvided ? parsedIsPerishable.value : null,
       status: normalizedStatus,
+      report_type: report_type || null,
+      near_expiry_days: parsedNearExpiryDays,
     };
 
     return next();
@@ -216,10 +301,12 @@ const validateInventoryItemPayload = (req, res, next) => {
       packaging,
       packaging_count,
       quantity,
+      reorder_level,
       expiration_date,
       barcode,
       is_perishable,
       is_active,
+      skip_opening_stock,
     } = req.body;
 
     if (
@@ -291,10 +378,27 @@ const validateInventoryItemPayload = (req, res, next) => {
     }
 
     const parsedExpirationDate = parseOptionalDate(expiration_date);
+    const shouldAllowNullableReorderLevel =
+      req.method === "POST" && skip_opening_stock === true;
+    const isNullableReorderLevelValue =
+      reorder_level === undefined || reorder_level === null;
+    const parsedReorderLevel =
+      shouldAllowNullableReorderLevel && isNullableReorderLevelValue
+        ? null
+        : parsePositiveInteger(reorder_level);
 
     if (parsedExpirationDate === "invalid") {
       return res.status(400).json({
         message: "expiration_date must be a valid date in YYYY-MM-DD format",
+      });
+    }
+
+    if (
+      parsedReorderLevel === null &&
+      !(shouldAllowNullableReorderLevel && isNullableReorderLevelValue)
+    ) {
+      return res.status(400).json({
+        message: "reorder_level is required and must be a positive integer",
       });
     }
 
@@ -319,6 +423,15 @@ const validateInventoryItemPayload = (req, res, next) => {
       });
     }
 
+    if (
+      skip_opening_stock !== undefined &&
+      typeof skip_opening_stock !== "boolean"
+    ) {
+      return res.status(400).json({
+        message: "skip_opening_stock must be a boolean when provided",
+      });
+    }
+
     const normalizedCategory = normalizeCategory(category);
 
     req.validatedBody = {
@@ -333,6 +446,7 @@ const validateInventoryItemPayload = (req, res, next) => {
       packaging: normalizedPackaging,
       packaging_count: parsedPackagingCount,
       quantity: parsedQuantity,
+      reorder_level: parsedReorderLevel,
       expiration_date: parsedExpirationDate,
       barcode:
         typeof barcode === "string" && barcode.trim() ? barcode.trim() : null,
@@ -344,6 +458,7 @@ const validateInventoryItemPayload = (req, res, next) => {
             ? false
             : false),
       is_active: is_active ?? true,
+      skip_opening_stock: skip_opening_stock ?? false,
     };
 
     return next();
@@ -355,9 +470,129 @@ const validateInventoryItemPayload = (req, res, next) => {
   }
 };
 
+const validateForecastRunPayload = (req, res, next) => {
+  try {
+    const { disaster_event_id, model_name, model_type } = req.body;
+    const resolvedModelName = model_name || model_type || "MOVING_AVERAGE";
+
+    if (!isValidUuid(disaster_event_id)) {
+      return res.status(400).json({
+        message: "disaster_event_id must be a valid UUID",
+      });
+    }
+
+    if (!allowedForecastModels.includes(resolvedModelName)) {
+      return res.status(400).json({
+        message:
+          "model_name must be one of: MOVING_AVERAGE, EXPONENTIAL_SMOOTHING, TREND_PROJECTION",
+      });
+    }
+
+    req.validatedBody = {
+      disaster_event_id,
+      model_name: resolvedModelName,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate forecast run payload",
+      error: error.message,
+    });
+  }
+};
+
+const validateForecastLatestQuery = (req, res, next) => {
+  try {
+    const { disaster_event_id } = req.query;
+
+    if (!isValidUuid(disaster_event_id)) {
+      return res.status(400).json({
+        message: "disaster_event_id must be a valid UUID",
+      });
+    }
+
+    req.validatedQuery = {
+      disaster_event_id,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate forecast query",
+      error: error.message,
+    });
+  }
+};
+
+const validateForecastHistoryQuery = (req, res, next) => {
+  try {
+    const { disaster_event_id, limit } = req.query;
+    const parsedLimit =
+      limit === undefined ? 10 : Number.parseInt(String(limit), 10);
+
+    if (
+      disaster_event_id !== undefined &&
+      disaster_event_id !== null &&
+      disaster_event_id !== "" &&
+      !isValidUuid(disaster_event_id)
+    ) {
+      return res.status(400).json({
+        message: "disaster_event_id must be a valid UUID when provided",
+      });
+    }
+
+    if (Number.isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 50) {
+      return res.status(400).json({
+        message: "limit must be an integer between 1 and 50",
+      });
+    }
+
+    req.validatedQuery = {
+      disaster_event_id: disaster_event_id || null,
+      limit: parsedLimit,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate forecast history query",
+      error: error.message,
+    });
+  }
+};
+
+const validateForecastRunIdParam = (req, res, next) => {
+  try {
+    const { runId } = req.params;
+
+    if (!isValidUuid(runId)) {
+      return res.status(400).json({
+        message: "runId must be a valid UUID",
+      });
+    }
+
+    req.validatedParams = {
+      runId,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate forecast run id",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   validateInventoryItemId,
+  validateInventoryItemBarcodeLookup,
   validateExportInventoryItems,
   validateGetInventoryItems,
   validateInventoryItemPayload,
+  validateForecastRunPayload,
+  validateForecastLatestQuery,
+  validateForecastHistoryQuery,
+  validateForecastRunIdParam,
 };

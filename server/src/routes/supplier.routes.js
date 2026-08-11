@@ -1,6 +1,8 @@
 const express = require("express");
 
+const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
 const supplierService = require("../services/supplier.service");
+const { ALLOWED_EXPORT_FORMATS } = require("../utils/mayorReportExport");
 const {
   validateSupplierId,
   validateGetSuppliers,
@@ -9,7 +11,54 @@ const {
 
 const router = express.Router();
 
-router.get("/", validateGetSuppliers, async (req, res) => {
+const resolveExportFormat = (format) => {
+  const normalizedFormat = String(format || "csv").toLowerCase();
+  return ALLOWED_EXPORT_FORMATS.includes(normalizedFormat)
+    ? normalizedFormat
+    : null;
+};
+
+router.get(
+  "/export",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateGetSuppliers,
+  async (req, res) => {
+    try {
+      const exportFormat = resolveExportFormat(req.query.format);
+
+      if (!exportFormat) {
+        return res.status(400).json({
+          message: "format must be one of: csv, excel, pdf",
+        });
+      }
+
+      const file = await supplierService.exportSuppliers(
+        req.validatedQuery,
+        exportFormat,
+      );
+
+      res.setHeader("Content-Type", file.contentType);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${file.filename}"`,
+      );
+
+      return res.status(200).send(file.buffer);
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+
+      return res.status(statusCode).json({
+        message: error.message || "Failed to export suppliers",
+      });
+    }
+  },
+);
+
+router.get(
+  "/",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateGetSuppliers,
+  async (req, res) => {
   try {
     const suppliers = await supplierService.getSuppliers(req.validatedQuery);
 
@@ -21,9 +70,14 @@ router.get("/", validateGetSuppliers, async (req, res) => {
       message: error.message || "Failed to fetch suppliers",
     });
   }
-});
+  },
+);
 
-router.get("/:id", validateSupplierId, async (req, res) => {
+router.get(
+  "/:id",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateSupplierId,
+  async (req, res) => {
   try {
     const supplier = await supplierService.getSupplierById(req.params.id);
 
@@ -41,9 +95,14 @@ router.get("/:id", validateSupplierId, async (req, res) => {
       message: error.message || "Failed to fetch supplier",
     });
   }
-});
+  },
+);
 
-router.post("/", validateSupplierPayload, async (req, res) => {
+router.post(
+  "/",
+  requireRoles(ROLE_CODES.MAYOR),
+  validateSupplierPayload,
+  async (req, res) => {
   try {
     const supplier = await supplierService.createSupplier(req.validatedBody);
 
@@ -58,10 +117,12 @@ router.post("/", validateSupplierPayload, async (req, res) => {
       message: error.message || "Failed to create supplier",
     });
   }
-});
+  },
+);
 
 router.put(
   "/:id",
+  requireRoles(ROLE_CODES.MAYOR),
   validateSupplierId,
   validateSupplierPayload,
   async (req, res) => {
