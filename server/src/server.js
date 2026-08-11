@@ -36,31 +36,38 @@ try {
 }
 
 const PORT = process.env.PORT || 5000;
+const isStartupMaintenanceEnabled =
+  process.env.ENABLE_STARTUP_MAINTENANCE !== "false";
 
 const startServer = async () => {
   try {
     await pool.verifyConnection();
-    try {
-      await disasterEventService.syncOverdueActiveDisasterEvents();
-    } catch (disasterEventSyncError) {
-      console.error(
-        `Automatic disaster event closure sync failed: ${disasterEventSyncError.message}`,
-      );
-    }
-    disasterEventService.startDisasterEventLifecycleMaintenance();
-    try {
-      await notificationService.initializeNotificationInfrastructure();
-    } catch (notificationError) {
-      console.error(
-        `Notification infrastructure failed to initialize: ${notificationError.message}`,
-      );
-    }
-    try {
-      await inventoryTransactionService.initializeInventoryDomainEffectRecovery();
-    } catch (inventoryDomainEffectError) {
-      console.error(
-        `Inventory domain effect recovery failed: ${inventoryDomainEffectError.message}`,
-      );
+
+    if (isStartupMaintenanceEnabled) {
+      try {
+        await disasterEventService.syncOverdueActiveDisasterEvents();
+      } catch (disasterEventSyncError) {
+        console.error(
+          `Automatic disaster event closure sync failed: ${disasterEventSyncError.message}`,
+        );
+      }
+      disasterEventService.startDisasterEventLifecycleMaintenance();
+      try {
+        await notificationService.initializeNotificationInfrastructure();
+      } catch (notificationError) {
+        console.error(
+          `Notification infrastructure failed to initialize: ${notificationError.message}`,
+        );
+      }
+      try {
+        await inventoryTransactionService.initializeInventoryDomainEffectRecovery();
+      } catch (inventoryDomainEffectError) {
+        console.error(
+          `Inventory domain effect recovery failed: ${inventoryDomainEffectError.message}`,
+        );
+      }
+    } else {
+      console.log("Startup maintenance disabled by ENABLE_STARTUP_MAINTENANCE=false.");
     }
 
     app.listen(PORT, () => {
