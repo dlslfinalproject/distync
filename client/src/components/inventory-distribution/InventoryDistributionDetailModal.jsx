@@ -314,6 +314,16 @@ const InfoField = ({ label, value }) => (
   </div>
 );
 
+const formatInfoValue = (value) => {
+  if (value === null || value === undefined) {
+    return "--";
+  }
+
+  const normalizedValue = String(value).trim();
+
+  return normalizedValue || "--";
+};
+
 const getDisasterEventTitle = (stubDetails, row, household) => {
   return (
     stubDetails?.disaster_event?.title ||
@@ -377,6 +387,11 @@ const InventoryDistributionDetailModal = ({
       ? row.sectors_text
       : getSectorNames([...householdSectors, ...memberSectors]);
   const distributionTransaction = stubDetails?.distribution_transaction || null;
+  const authorizedByName =
+    distributionTransaction?.verified_by_name ||
+    row?.authorized_by_name ||
+    row?.verified_by_name ||
+    "";
   const reliefPackTemplates = getReliefPackTemplates({
     row,
     stubDetails,
@@ -549,7 +564,13 @@ const InventoryDistributionDetailModal = ({
                 />
                 <InfoField
                   label="Receipt Number"
-                  value={distributionTransaction?.receipt_no}
+                  value={formatInfoValue(
+                    distributionTransaction?.receipt_no || row?.receipt_no,
+                  )}
+                />
+                <InfoField
+                  label="Authorized By"
+                  value={formatInfoValue(authorizedByName)}
                 />
               </div>
             </div>

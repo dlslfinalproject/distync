@@ -89,6 +89,8 @@ const getBarangayStubDashboardRows = async (disasterEventId, barangayId) => {
       latest_attendance.status AS latest_attendance_status,
       latest_distribution.distribution_date,
       latest_distribution.received_at,
+      latest_distribution.receipt_no,
+      latest_distribution.verified_by_name,
       CASE
         WHEN
           s.status = 'ISSUED'
@@ -156,8 +158,11 @@ const getBarangayStubDashboardRows = async (disasterEventId, barangayId) => {
     LEFT JOIN LATERAL (
       SELECT
         dt.distribution_date,
-        dt.received_at
+        dt.received_at,
+        dt.receipt_no,
+        CONCAT_WS(' ', u.first_name, u.middle_name, u.last_name) AS verified_by_name
       FROM distribution_transactions dt
+      LEFT JOIN users u ON u.id = dt.verified_by
       WHERE dt.stub_id = s.id
         AND dt.distribution_status = 'CLAIMED'
       ORDER BY dt.distribution_date DESC, dt.created_at DESC

@@ -8,6 +8,19 @@ const buildPerformedByLabel = (row) => {
   return row.email || "System";
 };
 
+const buildDistributionPerformedByLabel = (row) => {
+  if (row.distribution_verified_by_first_name || row.distribution_verified_by_last_name) {
+    return [
+      row.distribution_verified_by_first_name,
+      row.distribution_verified_by_last_name,
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  return row.distribution_verified_by_email || buildPerformedByLabel(row);
+};
+
 const buildValueSummary = (payload = {}) => {
   const keys = Object.keys(payload || {});
 
@@ -65,6 +78,131 @@ const INVENTORY_WRITE_OFF_TYPES = new Set([
   "STOLEN",
 ]);
 
+const AUDIT_DETAIL_FIELD_LABELS = {
+  item_code: "Item Code",
+  item_name: "Item Name",
+  category: "Category",
+  unit_of_measure: "Unit",
+  unit_of_measure_value: "Unit Value",
+  packaging: "Packaging",
+  packaging_count: "Packaging Count",
+  quantity: "Quantity",
+  reorder_level: "Reorder Level",
+  expiration_date: "Expiration Date",
+  barcode: "Barcode",
+  is_perishable: "Perishable",
+  is_active: "Status",
+  batch_no: "Batch Number",
+  source_type: "Source",
+  quantity_received: "Quantity Received",
+  quantity_available: "Quantity Available",
+  received_at: "Received Date",
+  storage_location: "Storage Location",
+  transaction_type: "Stock Action",
+  performed_at: "Performed At",
+  remarks: "Remarks",
+  name: "Name",
+  description: "Description",
+  based_on_family_size: "Family Size Rule",
+  based_on_sector: "Sector Rule",
+  is_additional_pack: "Pack Type",
+  applies_to_all_disasters: "Disaster Coverage",
+  disaster_types: "Disaster Types",
+  donor_name: "Donor Name",
+  donor_type: "Donor Type",
+  donor_type_other: "Other Donor Type",
+  contact_information: "Contact Information",
+  status: "Status",
+  item_count: "Number of Items",
+  total_quantity_received: "Total Quantity Received",
+  distribution_status: "Distribution Status",
+  claimed_by_name: "Claimed By",
+  qr_reference_value: "QR Reference",
+  receipt_no: "Receipt Number",
+  receipt_status: "Receipt Status",
+  received_at: "Received At",
+};
+
+const AUDIT_DETAIL_ALLOWED_FIELDS = {
+  INVENTORY_ITEM: [
+    "item_code",
+    "item_name",
+    "category",
+    "unit_of_measure",
+    "unit_of_measure_value",
+    "packaging",
+    "packaging_count",
+    "quantity",
+    "reorder_level",
+    "expiration_date",
+    "barcode",
+    "is_perishable",
+    "is_active",
+  ],
+  INVENTORY_BATCH: [
+    "batch_no",
+    "source_type",
+    "quantity_received",
+    "quantity_available",
+    "expiration_date",
+    "received_at",
+    "storage_location",
+    "status",
+  ],
+  INVENTORY_TRANSACTION: [
+    "transaction_type",
+    "quantity",
+    "performed_at",
+    "remarks",
+  ],
+  RELIEF_PACK_TEMPLATE: [
+    "name",
+    "description",
+    "based_on_family_size",
+    "based_on_sector",
+    "is_additional_pack",
+    "applies_to_all_disasters",
+    "disaster_types",
+    "is_active",
+  ],
+  DONATION: [
+    "donor_name",
+    "donor_type",
+    "donor_type_other",
+    "contact_information",
+    "received_at",
+    "status",
+    "remarks",
+    "item_count",
+    "total_quantity_received",
+  ],
+  DONATION_ITEM: [
+    "donor_name",
+    "item_name",
+    "category",
+    "quantity_received",
+    "batch_no",
+    "expiration_date",
+    "quantity_available",
+    "remarks",
+  ],
+  DISTRIBUTION_TRANSACTION: [
+    "distribution_status",
+    "claimed_by_name",
+    "qr_reference_value",
+    "receipt_no",
+    "receipt_status",
+    "received_at",
+    "remarks",
+  ],
+};
+
+const DATE_DETAIL_FIELDS = new Set([
+  "expiration_date",
+  "received_at",
+  "performed_at",
+]);
+
 const formatInventoryStatusType = (value) => {
   const normalizedValue = String(value || "").trim().toUpperCase();
 
@@ -120,6 +258,223 @@ const formatInventoryDate = (value) => {
     day: "numeric",
     year: "numeric",
   }).format(dateValue);
+};
+
+const formatAuditDateTime = (value) => {
+  if (!value) {
+    return "--";
+  }
+
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return String(value);
+  }
+
+  return new Intl.DateTimeFormat("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(parsedDate);
+};
+
+const formatAuditDate = (value) => {
+  if (!value) {
+    return "--";
+  }
+
+  const parsedDate = new Date(`${String(value).slice(0, 10)}T00:00:00`);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return String(value);
+  }
+
+  return new Intl.DateTimeFormat("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(parsedDate);
+};
+
+const formatAuditStatus = (value) => {
+  const normalizedValue = String(value || "").trim();
+
+  if (!normalizedValue) {
+    return "--";
+  }
+
+  if (normalizedValue.toUpperCase() === "TRUE") {
+    return "Active";
+  }
+
+  if (normalizedValue.toUpperCase() === "FALSE") {
+    return "Inactive";
+  }
+
+  return normalizedValue
+    .split("_")
+    .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+    .join(" ");
+};
+
+const formatAuditValue = (fieldName, value) => {
+  if (value === undefined || value === null || value === "") {
+    return "--";
+  }
+
+  if (fieldName === "is_active") {
+    return value ? "Active" : "Inactive";
+  }
+
+  if (fieldName === "is_perishable") {
+    return value ? "Yes" : "No";
+  }
+
+  if (fieldName === "is_additional_pack") {
+    return value ? "Additional pack" : "Standard pack";
+  }
+
+  if (
+    [
+      "based_on_family_size",
+      "based_on_sector",
+      "applies_to_all_disasters",
+    ].includes(fieldName)
+  ) {
+    return value ? "Yes" : "No";
+  }
+
+  if (DATE_DETAIL_FIELDS.has(fieldName)) {
+    return fieldName === "expiration_date"
+      ? formatAuditDate(value)
+      : formatAuditDateTime(value);
+  }
+
+  if (Array.isArray(value)) {
+    if (!value.length) {
+      return "--";
+    }
+
+    return value
+      .map((entry) => {
+        if (entry && typeof entry === "object") {
+          return entry.item_name || entry.name || null;
+        }
+
+        return entry;
+      })
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  if (typeof value === "boolean") {
+    return value ? "Yes" : "No";
+  }
+
+  if (["status", "source_type", "transaction_type", "distribution_status"].includes(fieldName)) {
+    return formatAuditStatus(value);
+  }
+
+  return String(value);
+};
+
+const buildAuditDetailChanges = (row) => {
+  const oldValues = row.old_values_json || {};
+  const newValues = row.new_values_json || {};
+  const allowedFields = AUDIT_DETAIL_ALLOWED_FIELDS[row.entity_type] || [];
+
+  return allowedFields
+    .filter((fieldName) => {
+      const previousValue = normalizeComparableAuditValue(oldValues[fieldName]);
+      const nextValue = normalizeComparableAuditValue(newValues[fieldName]);
+
+      return previousValue !== nextValue;
+    })
+    .map((fieldName) => ({
+      field: fieldName,
+      label: AUDIT_DETAIL_FIELD_LABELS[fieldName] || fieldName,
+      previous_value: formatAuditValue(fieldName, oldValues[fieldName]),
+      new_value: formatAuditValue(fieldName, newValues[fieldName]),
+    }));
+};
+
+const buildItemChangeKey = (item = {}) =>
+  String(item.inventory_item_id || item.item_name || item.id || "").trim();
+
+const buildAuditDetailItemChanges = (row) => {
+  const oldItems = Array.isArray(row.old_values_json?.items)
+    ? row.old_values_json.items
+    : [];
+  const newItems = Array.isArray(row.new_values_json?.items)
+    ? row.new_values_json.items
+    : [];
+  const itemKeys = Array.from(
+    new Set([
+      ...oldItems.map(buildItemChangeKey),
+      ...newItems.map(buildItemChangeKey),
+    ]),
+  ).filter(Boolean);
+
+  return itemKeys
+    .map((itemKey) => {
+      const previousItem =
+        oldItems.find((item) => buildItemChangeKey(item) === itemKey) || null;
+      const nextItem =
+        newItems.find((item) => buildItemChangeKey(item) === itemKey) || null;
+      const item = nextItem || previousItem || {};
+      const previousQuantity =
+        previousItem?.quantity_required ?? previousItem?.quantity_received;
+      const nextQuantity =
+        nextItem?.quantity_required ?? nextItem?.quantity_received;
+
+      if (
+        normalizeComparableAuditValue(previousItem) ===
+        normalizeComparableAuditValue(nextItem)
+      ) {
+        return null;
+      }
+
+      return {
+        item_name: item.item_name || "Item",
+        previous_quantity:
+          previousQuantity !== undefined && previousQuantity !== null
+            ? String(previousQuantity)
+            : "--",
+        new_quantity:
+          nextQuantity !== undefined && nextQuantity !== null
+            ? String(nextQuantity)
+            : "--",
+        unit_of_measure: item.unit_of_measure || "",
+        remarks: item.remarks || "",
+        change_type: previousItem ? (nextItem ? "Updated" : "Removed") : "Added",
+      };
+    })
+    .filter(Boolean);
+};
+
+const buildDistributionItemDetails = (row) =>
+  getDistributionItems(row).map((item) => ({
+    item_name: item.item_name || "Item",
+    batch_no: item.batch_no || "--",
+    quantity: formatAuditValue("quantity", item.quantity_released),
+    unit_of_measure: item.unit_of_measure || "",
+    source:
+      parseReliefPackRemark(item.donation_remarks) ||
+      item.donor_name ||
+      formatAuditStatus(item.source_type) ||
+      "--",
+  }));
+
+const buildAuditDetail = (row) => {
+  return {
+    changes: buildAuditDetailChanges(row),
+    item_changes: buildAuditDetailItemChanges(row),
+    distributed_items: isDistributionAuditRow(row)
+      ? buildDistributionItemDetails(row)
+      : [],
+  };
 };
 
 const buildInventoryItemEditDetail = (row) => {
@@ -389,6 +744,17 @@ const buildDonationAuditActionLabel = (row) => {
   return null;
 };
 
+const isDistributionAuditRow = (row) => {
+  return (
+    row.entity_type === "DISTRIBUTION_TRANSACTION" &&
+    ["DISTRIBUTION_RECORD", "DISTRIBUTION_QR_CLAIM"].includes(row.action)
+  );
+};
+
+const buildDistributionAuditActionLabel = (row) => {
+  return isDistributionAuditRow(row) ? "Distributed Items" : null;
+};
+
 const buildInventoryRecordLines = (row) => {
   const itemName =
     row.inventory_item_name ||
@@ -506,8 +872,69 @@ const buildDonationRecordLabel = (row) => {
   return buildDonationRecordLines(row).join(" - ");
 };
 
+const getDistributionItems = (row) => {
+  const items = row.distribution_items_json || [];
+
+  if (typeof items === "string") {
+    try {
+      const parsedItems = JSON.parse(items);
+      return Array.isArray(parsedItems) ? parsedItems : [];
+    } catch (_error) {
+      return [];
+    }
+  }
+
+  return Array.isArray(items) ? items : [];
+};
+
+const buildDistributionRecordLines = (row) => {
+  const lines = [];
+  const templateName =
+    row.distribution_relief_pack_template_name ||
+    row.new_values_json?.relief_pack_template_name ||
+    null;
+
+  if (templateName) {
+    lines.push(templateName);
+  }
+
+  const donatedReliefPackNames = new Set();
+  const donatedLooseItemDonorNames = new Set();
+
+  getDistributionItems(row).forEach((item) => {
+    const reliefPackName = parseReliefPackRemark(item?.donation_remarks);
+
+    if (reliefPackName) {
+      donatedReliefPackNames.add(reliefPackName);
+      return;
+    }
+
+    if (String(item?.source_type || "").toUpperCase() !== "DONATED") {
+      return;
+    }
+
+    const donorName = String(item?.donor_name || "").trim();
+    donatedLooseItemDonorNames.add(donorName || "Donor");
+  });
+
+  donatedReliefPackNames.forEach((reliefPackName) => {
+    lines.push(reliefPackName);
+  });
+
+  donatedLooseItemDonorNames.forEach((donorName) => {
+    lines.push(`${donorName} Donation`);
+  });
+
+  return lines.length ? lines : ["Distributed relief goods"];
+};
+
+const buildDistributionRecordLabel = (row) => {
+  return buildDistributionRecordLines(row).join(" - ");
+};
+
 const buildAuditActionLabel = (row) => {
   return (
+    buildDistributionAuditActionLabel(row) ||
     buildDonationAuditActionLabel(row) ||
     buildInventoryAuditActionLabel(row) ||
     buildReliefPackAuditActionLabel(row) ||
@@ -516,6 +943,10 @@ const buildAuditActionLabel = (row) => {
 };
 
 const buildRecordLabel = (row) => {
+  if (isDistributionAuditRow(row)) {
+    return buildDistributionRecordLabel(row);
+  }
+
   if (
     [
       "INVENTORY_ITEM",
@@ -538,6 +969,14 @@ const buildRecordLabel = (row) => {
 };
 
 const isCurrentAuditRow = (row) => {
+  if (isDistributionAuditRow(row)) {
+    return (
+      row.distribution_status ||
+      row.new_values_json?.distribution_status ||
+      ""
+    ) === "CLAIMED";
+  }
+
   if (
     [
       "INVENTORY_ITEM",
@@ -562,13 +1001,16 @@ const isCurrentAuditRow = (row) => {
 const mapAuditLog = (row) => {
   const isReliefPackTemplate = row.entity_type === "RELIEF_PACK_TEMPLATE";
   const isDonation = isDonationAuditRow(row);
+  const isDistribution = isDistributionAuditRow(row);
   const recordLines = isDonation
     ? buildDonationRecordLines(row)
-    : isReliefPackTemplate
-      ? buildReliefPackRecordLines(row)
-      : buildRecordLabel(row)
-        ? buildInventoryRecordLines(row)
-        : [];
+    : isDistribution
+      ? buildDistributionRecordLines(row)
+      : isReliefPackTemplate
+        ? buildReliefPackRecordLines(row)
+        : buildRecordLabel(row)
+          ? buildInventoryRecordLines(row)
+          : [];
 
   return {
     id: row.id,
@@ -585,39 +1027,119 @@ const mapAuditLog = (row) => {
         : buildInventoryAuditActionDetail(row),
     module: isDonation
       ? "Donation"
-      : isReliefPackTemplate
-        ? "Relief Pack"
-        : "Inventory",
-    performed_by: buildPerformedByLabel(row),
+      : isDistribution
+        ? "Distribution"
+        : isReliefPackTemplate
+          ? "Relief Pack"
+          : "Inventory",
+    performed_by: isDistribution
+      ? buildDistributionPerformedByLabel(row)
+      : buildPerformedByLabel(row),
     role_code: row.role_code || null,
     entity_type: row.entity_type,
     entity_id: row.entity_id,
     record_label: recordLines.length ? recordLines.join(" - ") : null,
     record_lines: recordLines,
-    timestamp: row.created_at,
+    timestamp: isDistribution ? row.distribution_date || row.created_at : row.created_at,
     status: "SUCCESS",
     details: {
       changed_fields: buildValueSummary(row.new_values_json),
       previous_fields: buildValueSummary(row.old_values_json),
     },
+    audit_detail: buildAuditDetail(row),
   };
 };
 
-const getSystemLogReview = async ({ limit = 50, type = "all" } = {}) => {
+const getLogPagination = ({ rows, limit, page }) => {
+  const totalRecords = rows.length
+    ? Number(rows[0].total_count ?? rows.length)
+    : 0;
+  const totalPages =
+    Number.isInteger(limit) && limit > 0
+      ? Math.max(1, Math.ceil(totalRecords / limit))
+      : 1;
+
+  return {
+    page,
+    limit,
+    total_records: totalRecords,
+    total_pages: totalPages,
+    has_previous_page: page > 1,
+    has_next_page: page < totalPages,
+    retention_years: 5,
+  };
+};
+
+const getAuditLogSummary = (rows = []) => {
+  if (!rows.length) {
+    return {
+      total_matching_records: 0,
+      inventory_records: 0,
+      relief_pack_records: 0,
+      donation_records: 0,
+      distribution_records: 0,
+    };
+  }
+
+  const [firstRow] = rows;
+
+  return {
+    total_matching_records: Number(firstRow.total_count || 0),
+    inventory_records: Number(firstRow.inventory_count || 0),
+    relief_pack_records: Number(firstRow.relief_pack_count || 0),
+    donation_records: Number(firstRow.donation_count || 0),
+    distribution_records: Number(firstRow.distribution_count || 0),
+  };
+};
+
+const getSystemLogReview = async ({
+  auditAction = "all",
+  dateFrom = "",
+  dateTo = "",
+  limit = 50,
+  module = "all",
+  page = 1,
+  search = "",
+  type = "all",
+} = {}) => {
   const shouldLoadAuditLogs = type === "all" || type === "audit";
   const shouldLoadErrorLogs = type === "all" || type === "error";
 
   const [auditLogs, errorLogs] = await Promise.all([
-    shouldLoadAuditLogs ? systemLogRepository.getAuditLogs({ limit }) : [],
+    shouldLoadAuditLogs
+      ? systemLogRepository.getAuditLogs({
+          auditAction,
+          dateFrom,
+          dateTo,
+          limit,
+          module,
+          page,
+          search,
+        })
+      : [],
     shouldLoadErrorLogs ? systemLogRepository.getErrorLogs({ limit }) : [],
   ]);
 
+  const auditLogRows = auditLogs.filter(isCurrentAuditRow);
+
   return {
     filters: {
+      auditAction,
+      dateFrom,
+      dateTo,
       limit,
+      module,
+      page,
+      search,
       type,
     },
-    audit_logs: auditLogs.filter(isCurrentAuditRow).map(mapAuditLog),
+    pagination: {
+      audit_logs: getLogPagination({ rows: auditLogs, limit, page }),
+    },
+    summary: {
+      audit_logs: getAuditLogSummary(auditLogs),
+    },
+    audit_logs: auditLogRows.map(mapAuditLog),
     error_logs: errorLogs.map((row) => ({
       id: row.id,
       action: row.error_code || "SYSTEM_ERROR",

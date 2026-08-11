@@ -44,6 +44,7 @@ export const matchesInventoryDistributionSearch = (row, searchTerm) => {
     row.family_members_count,
     row.sectors_text,
     row.distribution_status_label,
+    row.authorized_by_name,
     ...getReliefPackSearchValues(row),
   ];
 

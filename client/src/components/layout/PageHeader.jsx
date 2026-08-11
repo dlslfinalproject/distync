@@ -118,6 +118,7 @@ const PageHeader = ({ eyebrow, title, description, actions = [] }) => {
                     : pageHeaderStyles.primaryButton
               }
             >
+              {action.icon || null}
               {action.label}
             </button>
           ))}

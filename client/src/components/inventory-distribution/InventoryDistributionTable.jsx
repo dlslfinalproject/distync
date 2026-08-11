@@ -45,6 +45,9 @@ const tableStyles = {
   statusColumn: {
     width: "130px",
   },
+  authorizedByColumn: {
+    width: "180px",
+  },
   actionColumn: {
     width: "96px",
   },
@@ -296,6 +299,7 @@ const InventoryDistributionTable = ({
                 <col style={tableStyles.sectorsColumn} />
                 <col style={tableStyles.reliefPackColumn} />
                 <col style={tableStyles.statusColumn} />
+                <col style={tableStyles.authorizedByColumn} />
                 <col style={tableStyles.actionColumn} />
               </>
             ) : (
@@ -304,6 +308,7 @@ const InventoryDistributionTable = ({
                 <col style={tableStyles.sectorsColumnWide} />
                 <col style={tableStyles.reliefPackColumnWide} />
                 <col style={tableStyles.statusColumn} />
+                <col style={tableStyles.authorizedByColumn} />
                 <col style={tableStyles.actionColumn} />
               </>
             )}
@@ -324,6 +329,7 @@ const InventoryDistributionTable = ({
               >
                 Status
               </th>
+              <th style={tableStyles.headerCell}>Authorized By</th>
               <th
                 style={{
                   ...tableStyles.headerCell,
@@ -390,6 +396,13 @@ const InventoryDistributionTable = ({
                         {claimedDateTime}
                       </span>
                     ) : null}
+                  </td>
+                  <td style={tableStyles.bodyCell}>
+                    {row.authorized_by_name ? (
+                      row.authorized_by_name
+                    ) : (
+                      <span style={tableStyles.mutedText}>--</span>
+                    )}
                   </td>
                   <td
                     style={{

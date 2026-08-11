@@ -15,6 +15,7 @@ const claimedRow = {
   sector_ids: ["SENIOR_CITIZEN", "PREGNANT_WOMAN"],
   distribution_status: "CLAIMED",
   distribution_status_label: "Claimed",
+  authorized_by_name: "Ana Reyes",
   relief_pack_name: "Family Food Pack",
   relief_pack_templates: [
     {
@@ -48,6 +49,7 @@ test("Inventory Distribution search matches values displayed in the table", () =
   assert.equal(matchesInventoryDistributionSearch(claimedRow, "poblacion"), true);
   assert.equal(matchesInventoryDistributionSearch(claimedRow, "senior"), true);
   assert.equal(matchesInventoryDistributionSearch(claimedRow, "claimed"), true);
+  assert.equal(matchesInventoryDistributionSearch(claimedRow, "ana reyes"), true);
   assert.equal(matchesInventoryDistributionSearch(claimedRow, "rice"), true);
   assert.equal(matchesInventoryDistributionSearch(claimedRow, "hygiene"), true);
   assert.equal(matchesInventoryDistributionSearch(claimedRow, "not present"), false);

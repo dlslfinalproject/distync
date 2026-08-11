@@ -469,6 +469,8 @@ const getBarangayStubDashboard = async (filters) => {
         claimed_at: row.claimed_at || null,
         distribution_date: row.distribution_date || null,
         received_at: row.received_at || null,
+        receipt_no: row.receipt_no || null,
+        verified_by_name: row.verified_by_name || null,
         qr_code_value: row.qr_code_value || null,
         qr_generated_at: row.qr_generated_at || null,
         qr_generated_by: row.qr_generated_by || null,

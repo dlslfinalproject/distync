@@ -23,3 +23,16 @@ test("stub detail distribution transaction query resolves verifier display name 
   assert.match(source, /LEFT JOIN users u ON u\.id = dt\.verified_by/);
   assert.match(source, /WHERE dt\.stub_id = \$1/);
 });
+
+test("barangay stub dashboard rows project verifier display name for inventory distribution table", () => {
+  const source = fs.readFileSync(repositoryPath, "utf8");
+
+  assert.match(source, /const getBarangayStubDashboardRows = async \(disasterEventId, barangayId\) => \{/);
+  assert.match(source, /latest_distribution\.receipt_no,/);
+  assert.match(source, /latest_distribution\.verified_by_name,/);
+  assert.match(
+    source,
+    /CONCAT_WS\(' ', u\.first_name, u\.middle_name, u\.last_name\) AS verified_by_name/,
+  );
+  assert.match(source, /LEFT JOIN users u ON u\.id = dt\.verified_by/);
+});

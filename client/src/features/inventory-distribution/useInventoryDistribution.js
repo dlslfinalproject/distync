@@ -156,6 +156,11 @@ const mapStubDashboardRow = (row, fallbackBarangay = null) => {
       row.received_at ||
       row.claimed_at ||
       "",
+    receipt_no: row.receipt_no || row.distribution_transaction?.receipt_no || "",
+    authorized_by_name:
+      row.verified_by_name ||
+      row.distribution_transaction?.verified_by_name ||
+      "",
     raw_stub_status: row.status || "",
     display_stub_no: row.display_stub_no || "",
     qr_code_value: row.qr_code_value || "",
@@ -223,6 +228,15 @@ const mergeMasterlistDataIntoRows = (rows, masterlistPayload) => {
       stub_id: row.stub_id || household.stub?.id || null,
       display_stub_no: row.display_stub_no || household.stub?.stub_no || "",
       raw_stub_status: row.raw_stub_status || household.stub?.status || "",
+      receipt_no:
+        row.receipt_no ||
+        household.stub?.distribution_transaction?.receipt_no ||
+        "",
+      authorized_by_name:
+        row.authorized_by_name ||
+        row.verified_by_name ||
+        household.stub?.distribution_transaction?.verified_by_name ||
+        "",
       latest_arrival_time:
         row.latest_arrival_time || household.latest_attendance?.time_in || "",
       masterlist_household: household,
@@ -319,6 +333,8 @@ const mapMasterlistDistributionRow = (
             : "For Claim"
           : "--",
     claimed_at: stub?.claimed_at || "",
+    receipt_no: stub?.distribution_transaction?.receipt_no || "",
+    authorized_by_name: stub?.distribution_transaction?.verified_by_name || "",
     raw_stub_status: status,
     display_stub_no: stub?.stub_no || "",
     qr_code_value: "",
