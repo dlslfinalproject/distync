@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useHouseholdRegistrationForm } from "../household-registration/useHouseholdRegistrationForm";
+import { ROLE_CODES } from "../../utils/roleSession";
 import { getActiveCrossEventTitles } from "../household-registration/crossEventInformation";
 import {
   departHousehold,
@@ -26,6 +27,7 @@ import {
 } from "../../utils/exportHelpers";
 import { MASTERLIST_SORT_OPTIONS } from "../masterlist/masterlistService";
 import { getCanonicalMemberSectorCode } from "../../utils/registrationOptions";
+import { readOperationalDisasterEventScope } from "../disaster-events/operationalDisasterEventSelection";
 
 export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   const {
@@ -52,9 +54,17 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setSearchTerm,
     setRecordStatus,
     reloadMasterlist,
-  } = useMswdoMasterlist();
+  } = useMswdoMasterlist({
+    userId: authenticatedUser?.id || "",
+  });
 
-  const [activeTab, setActiveTab] = useState("active");
+  const [activeTab, setActiveTab] = useState(
+    () =>
+      readOperationalDisasterEventScope({
+        roleCode: ROLE_CODES.MSWDO,
+        userId: authenticatedUser?.id || "",
+      }) || "active",
+  );
   const [pendingDepartureHouseholdId, setPendingDepartureHouseholdId] =
     useState(null);
   const [pendingDepartureHouseholdDetails, setPendingDepartureHouseholdDetails] =
@@ -598,6 +608,19 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
       return;
     }
 
+    if (selectedDisasterEvent?.status === "ACTIVE" && activeTab !== "active") {
+      setActiveTab("active");
+      return;
+    }
+
+    if (
+      ["CLOSED", "ARCHIVED"].includes(selectedDisasterEvent?.status) &&
+      activeTab !== "ended"
+    ) {
+      setActiveTab("ended");
+      return;
+    }
+
     if (scopedDisasterEvents.length === 0) {
       if (selectedDisasterEventId) {
         setSelectedDisasterEventId("");
@@ -613,7 +636,9 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     }
   }, [
     isLoadingFilters,
+    activeTab,
     scopedDisasterEvents,
+    selectedDisasterEvent?.status,
     selectedDisasterEventId,
     setSelectedDisasterEventId,
   ]);
@@ -699,16 +724,6 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setIsLoadingDepartureHouseholdDetails(false);
     setIsBulkDepartureConfirmOpen(false);
   }, [activeTab, selectedBarangayId, selectedDisasterEventId]);
-
-  useEffect(() => {
-    if (selectedDisasterEvent?.status === "ACTIVE" && activeTab !== "active") {
-      setActiveTab("active");
-    }
-
-    if (selectedDisasterEvent?.status === "CLOSED" && activeTab !== "ended") {
-      setActiveTab("ended");
-    }
-  }, [activeTab, selectedDisasterEvent?.status]);
 
   useEffect(() => {
     if (!isFilterOpen) {
