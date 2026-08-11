@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
+import ActiveCrossEventInformationModal from "../../components/masterlist/ActiveCrossEventInformationModal";
 import PageHeader from "../../components/layout/PageHeader";
 import HouseholdArchiveConfirmModal from "../../components/masterlist/HouseholdArchiveConfirmModal";
 import HouseholdDetailModal from "../../components/masterlist/HouseholdDetailModal";
@@ -55,6 +56,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     isRegisterModalOpen,
     registrationSuccessMessage,
     attendanceActionMessage,
+    activeCrossEventModalTitles,
     viewingHouseholdId,
     editingHouseholdId,
     isLoadingHouseholdDetails,
@@ -90,6 +92,7 @@ const ConsolidatedEvacueeMasterlist = () => {
     setSelectedExportSortOrder,
     setSelectedExportSectorIds,
     setExportFeedback,
+    setActiveCrossEventModalTitles,
     setIsExportModalOpen,
     setIsFilterOpen,
     handleExportDisasterEventChange,
@@ -410,6 +413,11 @@ const ConsolidatedEvacueeMasterlist = () => {
         type={exportFeedback.type}
         message={exportFeedback.message}
         onClose={() => setExportFeedback({ type: "", message: "" })}
+      />
+
+      <ActiveCrossEventInformationModal
+        eventTitles={activeCrossEventModalTitles}
+        onClose={() => setActiveCrossEventModalTitles([])}
       />
     </>
   );

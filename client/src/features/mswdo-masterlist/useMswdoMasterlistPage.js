@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useHouseholdRegistrationForm } from "../household-registration/useHouseholdRegistrationForm";
-import { buildActiveCrossEventInfoMessage } from "../household-registration/crossEventInformation";
+import { getActiveCrossEventTitles } from "../household-registration/crossEventInformation";
 import {
   departHousehold,
   fetchHouseholdDetails,
@@ -102,6 +102,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   const [registrationSuccessMessage, setRegistrationSuccessMessage] =
     useState("");
   const [attendanceActionMessage, setAttendanceActionMessage] = useState("");
+  const [activeCrossEventModalTitles, setActiveCrossEventModalTitles] = useState([]);
   const [householdDetails, setHouseholdDetails] = useState(null);
   const [viewingHouseholdId, setViewingHouseholdId] = useState("");
   const [editingHouseholdId, setEditingHouseholdId] = useState("");
@@ -210,9 +211,8 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
       setRegistrationSuccessMessage(
         response?.message || "Household registered successfully",
       );
-      setAttendanceActionMessage(
-        buildActiveCrossEventInfoMessage(response, selectedDisasterEvent),
-      );
+      setAttendanceActionMessage("");
+      setActiveCrossEventModalTitles(getActiveCrossEventTitles(response));
       reloadMasterlist();
     },
   });
@@ -234,6 +234,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
         response?.message || "Household updated successfully",
       );
       setAttendanceActionMessage("");
+      setActiveCrossEventModalTitles([]);
       reloadMasterlist();
     },
   });
@@ -731,6 +732,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
 
     setRegistrationSuccessMessage("");
     setAttendanceActionMessage("");
+    setActiveCrossEventModalTitles([]);
     setIsRegisterModalOpen(true);
   };
 
@@ -955,6 +957,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     isRegisterModalOpen,
     registrationSuccessMessage,
     attendanceActionMessage,
+    activeCrossEventModalTitles,
     householdDetails,
     viewingHouseholdId,
     editingHouseholdId,
@@ -995,6 +998,7 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setSelectedExportSortOrder,
     setSelectedExportSectorIds,
     setExportFeedback,
+    setActiveCrossEventModalTitles,
     setIsExportModalOpen,
     setIsFilterOpen,
     setTabSortOrder,
