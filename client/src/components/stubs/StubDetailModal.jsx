@@ -208,6 +208,9 @@ const formatInfoValue = (value) => {
   return normalizedValue ? normalizedValue : "-";
 };
 
+const getDisasterEventTitle = (disasterEvent) =>
+  formatInfoValue(disasterEvent?.title);
+
 const buildSectorsText = (sectors = []) => {
   if (!Array.isArray(sectors) || sectors.length === 0) {
     return "No sector indicated.";
@@ -368,12 +371,7 @@ const StubDetailModal = ({
                 <div>
                   <p style={modalStyles.label}>Disaster Event</p>
                   <p style={modalStyles.value}>
-                    {[
-                      disasterEvent.event_code,
-                      disasterEvent.title,
-                    ]
-                      .filter(Boolean)
-                      .join(" - ") || "-"}
+                    {getDisasterEventTitle(disasterEvent)}
                   </p>
                 </div>
 
