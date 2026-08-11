@@ -1,7 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getAccessMode, ACCESS_MODES } from "../../utils/accessMode";
+import { ROLE_CODES } from "../../utils/roleSession";
 import { fetchBarangays } from "../masterlist/masterlistService";
 import { fetchBarangayDashboard } from "./barangayDashboardService";
+import {
+  persistOperationalDisasterEventSelection,
+  readOperationalDisasterEventId,
+  readOperationalDisasterEventScope,
+} from "../disaster-events/operationalDisasterEventSelection";
 
 const emptyMetrics = {
   total_evacuees_individuals: 0,
@@ -90,8 +96,20 @@ const sortDashboardEvents = (events) => {
 export const useBarangayDashboard = ({ userId }) => {
   const accessMode = getAccessMode();
   const allowFallback = accessMode === ACCESS_MODES.DEVELOPMENT;
-  const [eventScope, setEventScope] = useState("active");
-  const [selectedDisasterEventId, setSelectedDisasterEventId] = useState("");
+  const [eventScope, setEventScopeState] = useState(
+    () =>
+      readOperationalDisasterEventScope({
+        roleCode: ROLE_CODES.BARANGAY,
+        userId,
+      }) || "active",
+  );
+  const [selectedDisasterEventId, setSelectedDisasterEventIdState] = useState(
+    () =>
+      readOperationalDisasterEventId({
+        roleCode: ROLE_CODES.BARANGAY,
+        userId,
+      }) || "",
+  );
   const [overrideBarangayId, setOverrideBarangayId] = useState("");
   const [payload, setPayload] = useState(emptyPayload);
   const [isLoading, setIsLoading] = useState(false);
@@ -99,6 +117,49 @@ export const useBarangayDashboard = ({ userId }) => {
   const [errorCode, setErrorCode] = useState("");
   const [devBarangayOptions, setDevBarangayOptions] = useState([]);
   const hasScopedBarangayContext = Boolean(userId || overrideBarangayId);
+
+  const persistSelection = useCallback(
+    (eventId, scope = eventScope) => {
+      persistOperationalDisasterEventSelection({
+        roleCode: ROLE_CODES.BARANGAY,
+        userId,
+        eventId,
+        eventScope: scope,
+      });
+    },
+    [eventScope, userId],
+  );
+
+  const setEventScope = useCallback(
+    (nextScope) => {
+      setEventScopeState(nextScope);
+      persistSelection(selectedDisasterEventId, nextScope);
+    },
+    [persistSelection, selectedDisasterEventId],
+  );
+
+  const setSelectedDisasterEventId = useCallback(
+    (nextEventId) => {
+      setSelectedDisasterEventIdState(nextEventId);
+      persistSelection(nextEventId);
+    },
+    [persistSelection],
+  );
+
+  useEffect(() => {
+    const storedScope =
+      readOperationalDisasterEventScope({
+        roleCode: ROLE_CODES.BARANGAY,
+        userId,
+      }) || "active";
+    const storedEventId = readOperationalDisasterEventId({
+      roleCode: ROLE_CODES.BARANGAY,
+      userId,
+    });
+
+    setEventScopeState(storedScope);
+    setSelectedDisasterEventIdState(storedEventId);
+  }, [userId]);
 
   useEffect(() => {
     if (!allowFallback) {
@@ -131,7 +192,7 @@ export const useBarangayDashboard = ({ userId }) => {
   useEffect(() => {
     if (!hasScopedBarangayContext) {
       setPayload(emptyPayload);
-      setSelectedDisasterEventId("");
+      setSelectedDisasterEventIdState("");
       setErrorMessage(
         allowFallback
           ? "Select a fallback barangay to continue."
@@ -181,11 +242,23 @@ export const useBarangayDashboard = ({ userId }) => {
         });
         setErrorCode("");
         setErrorMessage("");
-        setSelectedDisasterEventId(nextSelectedEvent?.id || "");
+        setSelectedDisasterEventIdState(nextSelectedEvent?.id || "");
+        persistOperationalDisasterEventSelection({
+          roleCode: ROLE_CODES.BARANGAY,
+          userId,
+          eventId: nextSelectedEvent?.id || "",
+          eventScope,
+        });
       } catch (error) {
         if (isMounted) {
           setPayload(emptyPayload);
-          setSelectedDisasterEventId("");
+          setSelectedDisasterEventIdState("");
+          persistOperationalDisasterEventSelection({
+            roleCode: ROLE_CODES.BARANGAY,
+            userId,
+            eventId: "",
+            eventScope,
+          });
           setErrorMessage(getFriendlyDashboardErrorMessage(error));
           setErrorCode(error.code || "");
         }

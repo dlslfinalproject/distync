@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ROLE_CODES } from "../../utils/roleSession";
 import {
   fetchActiveDisasterEvents,
   fetchBarangays,
@@ -16,6 +17,11 @@ import {
   buildMasterlistFilterSectorOptions,
   getCanonicalMemberSectorCode,
 } from "../../utils/registrationOptions";
+import {
+  persistOperationalDisasterEventSelection,
+  readOperationalDisasterEventId,
+  resolveOperationalDisasterEventId,
+} from "../disaster-events/operationalDisasterEventSelection";
 
 const emptyMasterlistPayload = {
   disaster_event: null,
@@ -165,11 +171,17 @@ const getSummaryMetrics = (dashboardPayload) => {
   };
 };
 
-export const useMswdoMasterlist = () => {
+export const useMswdoMasterlist = ({ userId = "" } = {}) => {
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
   const [sectors, setSectors] = useState([]);
-  const [selectedDisasterEventId, setSelectedDisasterEventId] = useState("");
+  const [selectedDisasterEventId, setSelectedDisasterEventIdState] = useState(
+    () =>
+      readOperationalDisasterEventId({
+        roleCode: ROLE_CODES.MSWDO,
+        userId,
+      }) || "",
+  );
   const [selectedBarangayId, setSelectedBarangayId] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedSectorIds, setSelectedSectorIds] = useState([]);
@@ -183,6 +195,20 @@ export const useMswdoMasterlist = () => {
   const [errorMessage, setErrorMessage] = useState("");
   const [dashboardErrorMessage, setDashboardErrorMessage] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const setSelectedDisasterEventId = useCallback(
+    (nextEventId) => {
+      const nextEvent = disasterEvents.find((event) => event.id === nextEventId);
+
+      setSelectedDisasterEventIdState(nextEventId);
+      persistOperationalDisasterEventSelection({
+        roleCode: ROLE_CODES.MSWDO,
+        userId,
+        eventId: nextEventId,
+        eventScope: nextEvent?.status === "ACTIVE" ? "active" : "ended",
+      });
+    },
+    [disasterEvents, userId],
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -222,11 +248,28 @@ export const useMswdoMasterlist = () => {
         setBarangays(barangayRows);
         setSectors(sectorRows);
 
-        if (activeEvents.length > 0) {
-          setSelectedDisasterEventId(activeEvents[0].id);
-        } else if (allEvents.length > 0) {
-          setSelectedDisasterEventId(allEvents[0].id);
-        }
+        const storedEventId = readOperationalDisasterEventId({
+          roleCode: ROLE_CODES.MSWDO,
+          userId,
+        });
+        const fallbackEventId = activeEvents[0]?.id || allEvents[0]?.id || "";
+        const nextSelectedEventId = resolveOperationalDisasterEventId({
+          availableEvents: allEvents,
+          preferredEventId: storedEventId,
+          fallbackEventId,
+        });
+
+        setSelectedDisasterEventIdState(nextSelectedEventId);
+        persistOperationalDisasterEventSelection({
+          roleCode: ROLE_CODES.MSWDO,
+          userId,
+          eventId: nextSelectedEventId,
+          eventScope:
+            allEvents.find((event) => event.id === nextSelectedEventId)?.status ===
+            "ACTIVE"
+              ? "active"
+              : "ended",
+        });
       } catch (error) {
         if (isMounted) {
           setErrorMessage(error.message || "Failed to load monitoring filters");
@@ -243,7 +286,7 @@ export const useMswdoMasterlist = () => {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     let isMounted = true;

@@ -27,6 +27,7 @@ import {
   clearModeRoleSettingsCaches,
   clearUserRoleSettingsCaches,
 } from "../features/settings/settingsService";
+import { clearUserOperationalDisasterEventSelections } from "../features/disaster-events/operationalDisasterEventSelection";
 
 const AuthContext = createContext(null);
 
@@ -83,6 +84,10 @@ export const AuthProvider = ({ children }) => {
         clearModeCache,
       });
       clearRegistrationReferenceCache();
+      clearUserOperationalDisasterEventSelections({
+        mode,
+        userId,
+      });
       clearGooglePromptState();
       clearAllAccessSessions();
       setAuthError(nextAuthError);
