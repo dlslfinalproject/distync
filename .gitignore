@@ -146,3 +146,9 @@ vite.config.ts.timestamp-*
 # Python cache files
 __pycache__/
 *.py[cod]
+
+# Local/ad-hoc development utilities and fixtures
+/tmp/check-age-sectors.js
+/tmp/profile-picture-fixture-a.png
+/tmp/profile-picture-fixture-b.png
+/tmp/run_sql_file.js
