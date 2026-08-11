@@ -350,7 +350,10 @@ export const registerHousehold = async (payload, options = {}) => {
   }
 };
 
-export const fetchDuplicateRegistrationSuggestions = async (payload) => {
+export const fetchDuplicateRegistrationSuggestions = async (
+  payload,
+  options = {},
+) => {
   const response = await fetch(
     `${API_BASE_URL}/api/v1/households/duplicate-suggestions`,
     {
@@ -359,6 +362,7 @@ export const fetchDuplicateRegistrationSuggestions = async (payload) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),
+      signal: options.signal,
     },
   );
 
