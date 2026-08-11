@@ -1,11 +1,13 @@
 const pool = require("../config/db");
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
-const inventoryBatchRepository = require("../repositories/inventoryBatch.repository");
 const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const mayorReportExport = require("../utils/mayorReportExport");
 const notificationService = require("../modules/notifications/notification.service");
-const { logErrorSafely, normalizeActor, pickDefined } = require("../utils/systemLog");
-const { insertAuditLog } = require("../repositories/systemLog.repository");
+const {
+  logAuditSafely,
+  logErrorSafely,
+  pickDefined,
+} = require("../utils/systemLog");
 const {
   createDuplicateInventoryTransactionReferenceError,
   isValidInventoryTransactionReferenceNo,
@@ -63,14 +65,6 @@ const getNextBatchStatus = (expirationDate, quantityAvailable) => {
   }
 
   return "AVAILABLE";
-};
-
-const buildStatusLogBatchNumber = (itemCode) => {
-  const normalizedItemCode = String(itemCode || "ITEM")
-    .replace(/[^A-Z0-9-]+/gi, "-")
-    .toUpperCase();
-
-  return `${normalizedItemCode}-STATUS-${Date.now()}`;
 };
 
 const buildUpdatedItemStockSnapshot = (inventoryItem, onHandQuantity) => {
@@ -215,31 +209,25 @@ const persistInventoryAudit = async ({
   actor = {},
   fallbackBatch = null,
 }) => {
-  const normalizedActor = normalizeActor(actor);
-
-  await insertAuditLog({
-    user_id: normalizedActor.userId,
-    role_code: normalizedActor.roleCode,
-    device_id: normalizedActor.deviceId,
+  await logAuditSafely({
+    actor,
     action: "INVENTORY_TRANSACTION_CREATE",
-    entity_type: "INVENTORY_TRANSACTION",
-    entity_id: transaction.id,
-    old_values_json: {},
-    new_values_json: summarizeInventoryTransaction(transaction),
-    ip_address: normalizedActor.ipAddress,
-    source_event_key: buildInventoryTransactionAuditSourceKey(transaction.id),
+    entityType: "INVENTORY_TRANSACTION",
+    entityId: transaction.id,
+    oldValues: {},
+    newValues: summarizeInventoryTransaction(transaction),
+    sourceEventKey: buildInventoryTransactionAuditSourceKey(transaction.id),
+    throwOnError: true,
   });
 
   if (fallbackBatch) {
-    await insertAuditLog({
-      user_id: normalizedActor.userId,
-      role_code: normalizedActor.roleCode,
-      device_id: normalizedActor.deviceId,
+    await logAuditSafely({
+      actor,
       action: "INVENTORY_BATCH_CREATE",
-      entity_type: "INVENTORY_BATCH",
-      entity_id: fallbackBatch.id,
-      old_values_json: {},
-      new_values_json: pickDefined(fallbackBatch, [
+      entityType: "INVENTORY_BATCH",
+      entityId: fallbackBatch.id,
+      oldValues: {},
+      newValues: pickDefined(fallbackBatch, [
         "inventory_item_id",
         "batch_no",
         "source_type",
@@ -250,11 +238,11 @@ const persistInventoryAudit = async ({
         "status",
         "created_by",
       ]),
-      ip_address: normalizedActor.ipAddress,
-      source_event_key: buildInventoryBatchAuditSourceKey({
+      sourceEventKey: buildInventoryBatchAuditSourceKey({
         batchId: fallbackBatch.id,
         transactionId: transaction.id,
       }),
+      throwOnError: true,
     });
   }
 };
@@ -457,7 +445,6 @@ const createInventoryTransaction = async (transactionData) => {
 
     let inventoryBatch = null;
     let inventoryItem = null;
-    let createdFallbackBatch = null;
 
     if (normalizedReferenceNo) {
       const existingTransaction =
@@ -509,57 +496,11 @@ const createInventoryTransaction = async (transactionData) => {
         );
       }
     } else if (transactionData.inventory_item_id) {
-      inventoryItem = await inventoryItemRepository.getInventoryItemByIdForUpdate(
-        transactionData.inventory_item_id,
-        client,
+      const error = new Error(
+        "inventory_batch_id is required for manual inventory transactions.",
       );
-
-      if (!inventoryItem) {
-        const error = new Error("Inventory item not found");
-        error.statusCode = 404;
-        throw error;
-      }
-
-      const availableBatches =
-        await inventoryTransactionRepository.getAvailableInventoryBatchesByItemIdForUpdate(
-          transactionData.inventory_item_id,
-          client,
-        );
-
-      if (availableBatches.length > 0) {
-        inventoryBatch = availableBatches[0];
-      } else if (
-        subtractiveTransactionTypes.has(transactionData.transaction_type) &&
-        Number(inventoryItem.quantity || 0) >= Number(transactionData.quantity || 0)
-      ) {
-        createdFallbackBatch = await inventoryBatchRepository.insertInventoryBatch(
-          {
-            inventory_item_id: inventoryItem.id,
-            batch_no: buildStatusLogBatchNumber(inventoryItem.item_code),
-            supplier_id: null,
-            source_type: "OTHER",
-            quantity_received: Number(inventoryItem.quantity || 0),
-            quantity_available: Number(inventoryItem.quantity || 0),
-            expiration_date: inventoryItem.expiration_date || null,
-            storage_location: "Mayor's Office Inventory",
-            status: getNextBatchStatus(
-              inventoryItem.expiration_date,
-              Number(inventoryItem.quantity || 0),
-            ),
-            created_by: transactionData.performed_by || null,
-          },
-          client,
-        );
-
-        inventoryBatch = {
-          ...createdFallbackBatch,
-          inventory_item_id: inventoryItem.id,
-          item_code: inventoryItem.item_code,
-          item_name: inventoryItem.item_name,
-          category: inventoryItem.category,
-          unit_of_measure: inventoryItem.unit_of_measure,
-        };
-      }
+      error.statusCode = 400;
+      throw error;
     }
 
     if (!inventoryBatch) {
@@ -660,7 +601,7 @@ const createInventoryTransaction = async (transactionData) => {
         deviceId: transactionData.auditActor?.deviceId || null,
         ipAddress: transactionData.auditActor?.ipAddress || null,
       },
-      fallbackBatch: createdFallbackBatch,
+      fallbackBatch: null,
     };
     const domainEffectIntent =
       await inventoryTransactionRepository.ensureInventoryDomainEffectIntent(

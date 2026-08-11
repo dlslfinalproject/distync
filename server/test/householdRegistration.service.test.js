@@ -1879,6 +1879,68 @@ test("restoreHousehold blocks a household with an existing open admission", asyn
   }
 });
 
+test("getHouseholdDetails returns the selected evacuation log instead of the latest attendance when requested", async () => {
+  const latestAttendance = {
+    id: "log-latest",
+    household_id: "household-history-1",
+    status: "PRESENT",
+    time_in: "2026-08-09T11:51:00.000Z",
+    time_out: null,
+  };
+  const historicalAttendance = {
+    id: "log-history",
+    household_id: "household-history-1",
+    status: "LEFT",
+    time_in: "2026-08-09T09:43:00.000Z",
+    time_out: "2026-08-09T09:44:00.000Z",
+  };
+  let selectedLogLookup = 0;
+  const harness = loadServiceWithMocks({
+    getHouseholdSummaryById: async () => ({
+      id: "household-history-1",
+      barangay_id: "barangay-1",
+      disaster_event_id: "event-1",
+      disaster_event_status: "ACTIVE",
+      family_head_first_name: "Gerardo",
+      family_head_last_name: "Katigbak",
+      current_stay_type: "EVAC_CENTER",
+      is_active: true,
+    }),
+    getEvacueesByHouseholdId: async () => [],
+    getEvacueeSectorAssignmentsByHouseholdId: async () => [],
+    getHouseholdSectorAssignmentsByHouseholdId: async () => [],
+    getStubByHouseholdId: async () => null,
+    getLatestAttendanceByHouseholdId: async () => latestAttendance,
+    getLatestDistributionTransactionByStubId: async () => null,
+    getLatestHouseholdPrivacyConsentByHouseholdId: async () => null,
+    getEvacuationLogByIdForHousehold: async (householdId, evacuationLogId) => {
+      selectedLogLookup += 1;
+      assert.equal(householdId, "household-history-1");
+      assert.equal(evacuationLogId, "log-history");
+      return historicalAttendance;
+    },
+  });
+
+  try {
+    const result = await harness.service.getHouseholdDetails({
+      householdId: "household-history-1",
+      evacuationLogId: "log-history",
+      requester: {
+        userId: "barangay-user-1",
+        roleCode: "BARANGAY",
+        defaultBarangayId: "barangay-1",
+      },
+    });
+
+    assert.equal(selectedLogLookup, 1);
+    assert.deepEqual(result.latest_attendance, historicalAttendance);
+    assert.notDeepEqual(result.latest_attendance, latestAttendance);
+    assert.equal(result.household.id, "household-history-1");
+  } finally {
+    harness.restore();
+  }
+});
+
 test("updateHouseholdDetails validates members against persisted family head without registration-only variable", async () => {
   const fakeClient = {
     query: async () => ({ rows: [] }),

@@ -235,6 +235,7 @@ export const mapMasterlistRow = (household, households = [], options = {}) => {
       household.masterlist_record_id ||
       household.latest_attendance?.id ||
       household.household_id,
+    evacuation_log_id: household.attendance_log_id || household.latest_attendance?.id || null,
     family_head_name: household.family_head_name || "-",
     address:
       household.current_address_details ||
@@ -485,8 +486,21 @@ export const departHousehold = async ({ householdId, remarks = null }) => {
   });
 };
 
-export const fetchHouseholdDetails = async (householdId) => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/households/${householdId}`);
+export const fetchHouseholdDetails = async (
+  householdId,
+  { evacuationLogId = null } = {},
+) => {
+  const searchParams = new URLSearchParams();
+
+  if (evacuationLogId) {
+    searchParams.set("evacuation_log_id", evacuationLogId);
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/households/${householdId}${
+      searchParams.size ? `?${searchParams.toString()}` : ""
+    }`,
+  );
   const payload = await parseJsonResponse(
     response,
     "Failed to fetch household details",

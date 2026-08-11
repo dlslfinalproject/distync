@@ -198,6 +198,16 @@ const formatContactNumber = (value) => {
   return value;
 };
 
+const formatInfoValue = (value) => {
+  if (value === null || value === undefined) {
+    return "-";
+  }
+
+  const normalizedValue = String(value).trim();
+
+  return normalizedValue ? normalizedValue : "-";
+};
+
 const buildSectorsText = (sectors = []) => {
   if (!Array.isArray(sectors) || sectors.length === 0) {
     return "No sector indicated.";
@@ -493,9 +503,23 @@ const StubDetailModal = ({
                     </p>
                   </div>
 
-                  <div style={modalStyles.stubInfoFullWidth}>
+                  <div>
                     <p style={modalStyles.label}>Relief Pack</p>
                     <p style={modalStyles.value}>{reliefPackName}</p>
+                  </div>
+
+                  <div>
+                    <p style={modalStyles.label}>Receipt Number</p>
+                    <p style={modalStyles.value}>
+                      {formatInfoValue(distributionTransaction?.receipt_no)}
+                    </p>
+                  </div>
+
+                  <div style={modalStyles.stubInfoFullWidth}>
+                    <p style={modalStyles.label}>Authorized By</p>
+                    <p style={modalStyles.value}>
+                      {formatInfoValue(distributionTransaction?.verified_by_name)}
+                    </p>
                   </div>
                 </div>
               </div>

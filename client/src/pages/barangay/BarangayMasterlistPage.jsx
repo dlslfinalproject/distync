@@ -537,14 +537,19 @@ const BarangayMasterlistPage = () => {
     setIsBulkDepartureConfirmOpen(false);
   };
 
-  const handleOpenHouseholdDetails = async (householdId) => {
+  const handleOpenHouseholdDetails = async (selection) => {
+    const householdId = selection?.householdId || "";
+    const evacuationLogId = selection?.evacuationLogId || null;
+
     setViewingHouseholdId(householdId);
     setIsLoadingHouseholdDetails(true);
     setHouseholdDetails(null);
     setHouseholdDetailsErrorMessage("");
 
     try {
-      const details = await fetchHouseholdDetails(householdId);
+      const details = await fetchHouseholdDetails(householdId, {
+        evacuationLogId,
+      });
       setHouseholdDetails(details);
     } catch (error) {
       setHouseholdDetailsErrorMessage(

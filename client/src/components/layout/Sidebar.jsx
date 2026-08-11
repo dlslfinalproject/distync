@@ -194,6 +194,7 @@ const roleMeta = {
       { label: "Inventory Tracking Management", to: "/inventory/transactions" },
       { label: "Inventory Forecasting Management", to: "/inventory/forecasts" },
       { label: "Donation Management", to: "/inventory/donations" },
+      { label: "Audit Trail", to: "/inventory/system-logs" },
     ],
   },
 };

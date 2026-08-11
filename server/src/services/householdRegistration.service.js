@@ -1217,7 +1217,11 @@ const prepareRegistrationContext = async (requestData) => {
   };
 };
 
-const getHouseholdDetails = async ({ householdId, requester }) => {
+const getHouseholdDetails = async ({
+  householdId,
+  evacuationLogId = null,
+  requester,
+}) => {
   const household =
     await householdRegistrationRepository.getHouseholdSummaryById(householdId);
 
@@ -1236,7 +1240,28 @@ const getHouseholdDetails = async ({ householdId, requester }) => {
     throw error;
   }
 
-  return buildRegistrationResponse(householdId);
+  const householdDetails = await buildRegistrationResponse(householdId);
+
+  if (!evacuationLogId) {
+    return householdDetails;
+  }
+
+  const selectedAttendance =
+    await householdRegistrationRepository.getEvacuationLogByIdForHousehold(
+      householdId,
+      evacuationLogId,
+    );
+
+  if (!selectedAttendance) {
+    const error = new Error("Selected evacuation record not found for this household");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return {
+    ...householdDetails,
+    latest_attendance: selectedAttendance,
+  };
 };
 
 const getAuthorizedHouseholdSummaryForUpdate = async ({

@@ -70,6 +70,46 @@ WHERE inventory_item_id IN (
   FROM inventory_items
 );
 
+-- Remove audit rows tied to inventory records before deleting the records.
+DELETE FROM audit_logs
+WHERE (
+  entity_type = 'INVENTORY_ITEM'
+  AND entity_id IN (
+    SELECT id
+    FROM inventory_items
+  )
+)
+OR (
+  entity_type = 'INVENTORY_ITEM_STOCK_FORM'
+  AND entity_id IN (
+    SELECT id
+    FROM inventory_item_stock_forms
+  )
+)
+OR (
+  entity_type = 'INVENTORY_BATCH'
+  AND entity_id IN (
+    SELECT id
+    FROM inventory_batches
+  )
+)
+OR (
+  entity_type = 'INVENTORY_TRANSACTION'
+  AND entity_id IN (
+    SELECT it.id
+    FROM inventory_transactions it
+    INNER JOIN inventory_batches ib ON ib.id = it.inventory_batch_id
+  )
+);
+
+-- Remove durable side-effect intents before deleting their inventory transactions.
+DELETE FROM inventory_domain_effect_intents
+WHERE inventory_transaction_id IN (
+  SELECT it.id
+  FROM inventory_transactions it
+  INNER JOIN inventory_batches ib ON ib.id = it.inventory_batch_id
+);
+
 -- Remove inventory movement history.
 DELETE FROM inventory_transactions
 WHERE inventory_batch_id IN (

@@ -1,11 +1,15 @@
 const validateGetSystemLogReview = (req, res, next) => {
   try {
     const { limit, type } = req.query;
-    const parsedLimit = Number(limit || 50);
+    const isUnlimited = String(limit || "").toLowerCase() === "all";
+    const parsedLimit = isUnlimited ? null : Number(limit || 50);
 
-    if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 200) {
+    if (
+      !isUnlimited &&
+      (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 200)
+    ) {
       return res.status(400).json({
-        message: "limit must be an integer between 1 and 200",
+        message: "limit must be an integer between 1 and 200, or all",
       });
     }
 

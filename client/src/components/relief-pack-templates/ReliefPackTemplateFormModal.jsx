@@ -1122,7 +1122,7 @@ const ReliefPackTemplateFormModal = ({
                               disabled={isViewMode || isDisasterTypeLocked}
                             />
                             {disasterType}
-                            {isDisasterTypeLocked ? " (used)" : ""}
+                            {isDisasterTypeLocked ? " " : ""}
                           </label>
                         );
                       })}

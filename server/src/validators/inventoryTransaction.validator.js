@@ -150,11 +150,12 @@ const validateCreateInventoryTransaction = (req, res, next) => {
     } = req.body;
 
     if (
-      (inventory_batch_id === undefined || inventory_batch_id === null || inventory_batch_id === "") &&
-      (inventory_item_id === undefined || inventory_item_id === null || inventory_item_id === "")
+      inventory_batch_id === undefined ||
+      inventory_batch_id === null ||
+      inventory_batch_id === ""
     ) {
       return res.status(400).json({
-        message: "inventory_batch_id or inventory_item_id is required",
+        message: "inventory_batch_id is required",
       });
     }
 

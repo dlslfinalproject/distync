@@ -299,6 +299,24 @@ const summarizeDonation = (donation) =>
     "total_quantity_received",
   ]);
 
+const buildDonationAuditValues = (donation) => ({
+  ...summarizeDonation(donation),
+  items: [...(Array.isArray(donation?.items) ? donation.items : [])]
+    .map((item) => ({
+      inventory_item_id: item.inventory_item_id,
+      item_name: item.inventory_item?.item_name || item.item_name || null,
+      quantity_received: Number(item.quantity_received || 0),
+      unit_of_measure: item.inventory_item?.unit_of_measure || item.unit_of_measure || null,
+      remarks: item.remarks || null,
+    }))
+    .filter((item) => item.inventory_item_id || item.item_name)
+    .sort((leftItem, rightItem) =>
+      String(leftItem.item_name || "").localeCompare(
+        String(rightItem.item_name || ""),
+      ),
+    ),
+});
+
 const summarizeDonationItem = (donationItem) => ({
   ...pickDefined(donationItem, [
     "donation_id",
@@ -1374,7 +1392,7 @@ const createDonation = async (payload, actor) => {
       entityType: "DONATION",
       entityId: createdDonationRecord.id,
       oldValues: {},
-      newValues: summarizeDonation(createdDonationRecord),
+      newValues: buildDonationAuditValues(createdDonationRecord),
     });
 
     return createdDonationRecord;
@@ -1471,7 +1489,7 @@ const updateDonation = async (id, payload, actor = null) => {
       entityType: "DONATION",
       entityId: id,
       oldValues: previousDonationSummary,
-      newValues: summarizeDonation(updatedDonation),
+      newValues: buildDonationAuditValues(updatedDonation),
     });
 
     if (donorNameChanged) {
@@ -1512,6 +1530,7 @@ const updateDonation = async (id, payload, actor = null) => {
 };
 
 const createDonationItem = async (donationId, payload, performedBy) => {
+  const normalizedActor = normalizeActor(performedBy);
   const client = await pool.connect();
 
   try {
@@ -1544,6 +1563,18 @@ const createDonationItem = async (donationId, payload, performedBy) => {
       pool,
     );
     const mappedDonationItem = mapDonationItem(donationItem);
+
+    await logAuditSafely({
+      actor: normalizedActor,
+      action: "DONATION_ITEM_UPDATE",
+      entityType: "DONATION_ITEM",
+      entityId: createdDonationItemId,
+      oldValues: {},
+      newValues: {
+        donor_name: donation.donor_name,
+        ...summarizeDonationItem(mappedDonationItem),
+      },
+    });
 
     await notificationService.emitSafely(async () => {
       await notificationService.emitDonationStockUpdate({
@@ -1830,6 +1861,7 @@ const updateDonationItem = async (id, payload, performedBy) => {
 };
 
 const deleteDonationItem = async (id, performedBy) => {
+  const normalizedActor = normalizeActor(performedBy);
   const client = await pool.connect();
 
   try {
@@ -1855,6 +1887,15 @@ const deleteDonationItem = async (id, performedBy) => {
       throw error;
     }
 
+    const existingDonationItemRecord = await donationRepository.getDonationItemById(
+      id,
+      client,
+    );
+    const previousDonationItemSummary = {
+      donor_name: donation.donor_name,
+      ...summarizeDonationItem(mapDonationItem(existingDonationItemRecord)),
+    };
+
     const removalSummary = await removeDonationItemWithinTransaction({
       donationItem: existingDonationItem,
       donation,
@@ -1862,6 +1903,15 @@ const deleteDonationItem = async (id, performedBy) => {
       dbClient: client,
     });
     await client.query("COMMIT");
+
+    await logAuditSafely({
+      actor: normalizedActor,
+      action: "DONATION_ITEM_UPDATE",
+      entityType: "DONATION_ITEM",
+      entityId: id,
+      oldValues: previousDonationItemSummary,
+      newValues: {},
+    });
 
     await notificationService.emitSafely(async () => {
       await notificationService.emitDonationStockUpdate({
