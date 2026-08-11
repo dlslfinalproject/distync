@@ -22,9 +22,48 @@ const validateConfiguredAccessMode = (value) => {
   );
 };
 
+const isLoopbackHostname = (hostname) =>
+  hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+
+const validateDemoDeploymentClientConfig = (env) => {
+  const apiBaseUrl = String(env.VITE_API_BASE_URL || "").trim();
+  const googleClientId = String(env.VITE_GOOGLE_CLIENT_ID || "").trim();
+
+  if (!apiBaseUrl) {
+    throw new Error(
+      "DISTYNC frontend configuration error: VITE_API_BASE_URL is required for DEMO builds.",
+    );
+  }
+
+  let parsedApiBaseUrl;
+  try {
+    parsedApiBaseUrl = new URL(apiBaseUrl);
+  } catch (_error) {
+    throw new Error(
+      "DISTYNC frontend configuration error: VITE_API_BASE_URL must be an absolute URL for DEMO builds.",
+    );
+  }
+
+  if (isLoopbackHostname(parsedApiBaseUrl.hostname)) {
+    throw new Error(
+      "DISTYNC frontend configuration error: VITE_API_BASE_URL must not point to localhost for DEMO builds.",
+    );
+  }
+
+  if (!googleClientId) {
+    throw new Error(
+      "DISTYNC frontend configuration error: VITE_GOOGLE_CLIENT_ID is required for DEMO builds.",
+    );
+  }
+};
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const configuredAccessMode = validateConfiguredAccessMode(env.VITE_ACCESS_MODE);
+
+  if (configuredAccessMode === "DEMO") {
+    validateDemoDeploymentClientConfig(env);
+  }
 
   if (process.env.DISTYNC_BUILD_TARGET) {
     validateBuildTargetAccessMode({
