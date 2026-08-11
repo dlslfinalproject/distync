@@ -154,6 +154,7 @@ export const getQrScanBlockingErrorConfig = (error) => {
         message:
           "This relief stub has already been used in a completed distribution and cannot be claimed again.",
         hideDescription: true,
+        showCloseButton: false,
         detailLayout: "cards",
         detailRows: getClaimedStubDetailRows(details),
       };
@@ -174,8 +175,7 @@ export const getQrScanBlockingErrorConfig = (error) => {
         layout: "centeredAlert",
         maxWidth: "500px",
         messageStyle: {
-          maxWidth: "none",
-          whiteSpace: "nowrap",
+          maxWidth: "360px",
         },
         detailRows: [],
       };
@@ -200,9 +200,12 @@ export const getQrScanBlockingErrorConfig = (error) => {
         title: "Wrong Disaster Event",
         message:
           "This stub belongs to a different disaster event. Select the correct event before scanning.",
-        detailRows: details.stubNumber
-          ? [{ label: "Stub Number", value: details.stubNumber }]
-          : [],
+        layout: "centeredAlert",
+        maxWidth: "500px",
+        messageStyle: {
+          maxWidth: "360px",
+        },
+        detailRows: [],
       };
     case QR_SCAN_ERROR_CODES.WRONG_BARANGAY:
       return {
@@ -212,8 +215,7 @@ export const getQrScanBlockingErrorConfig = (error) => {
         layout: "centeredAlert",
         maxWidth: "500px",
         messageStyle: {
-          maxWidth: "none",
-          whiteSpace: "nowrap",
+          maxWidth: "360px",
         },
         detailRows: [],
       };

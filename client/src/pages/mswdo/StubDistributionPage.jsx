@@ -18,6 +18,7 @@ import StubPrintSheetModal from "../../components/stubs/StubPrintSheetModal";
 import StubQrScanModal from "../../components/stubs/StubQrScanModal";
 import StubSearchBar from "../../components/stubs/StubSearchBar";
 import StubSummaryCards from "../../components/stubs/StubSummaryCards";
+import { useAuth } from "../../context/AuthContext";
 import {
   claimStub,
   fetchStubDetails,
@@ -36,6 +37,8 @@ import {
   createWrongBarangayQrScanError,
   createWrongEventQrScanError,
 } from "../../features/stubs/stubQrScanErrors";
+import { readOperationalDisasterEventScope } from "../../features/disaster-events/operationalDisasterEventSelection";
+import { ROLE_CODES } from "../../utils/roleSession";
 
 const DEFAULT_STUB_STATUS = STATUS_FILTERS.ALL;
 const DEFAULT_STUB_SORT_ORDER = "oldest";
@@ -200,6 +203,7 @@ const buildQrScanErrorDetails = (verification, stubDetails) => {
 };
 
 const StubDistributionPage = () => {
+  const { authenticatedUser } = useAuth();
   const {
     disasterEvents,
     barangays,
@@ -213,6 +217,7 @@ const StubDistributionPage = () => {
     summaryCards,
     isLoadingFilters,
     isLoadingData,
+    isEventSelectionResolved,
     errorMessage,
     hasSelectedEvent,
     hasSelectedBarangay,
@@ -222,9 +227,17 @@ const StubDistributionPage = () => {
     setSelectedStubStatus,
     setSearchTerm,
     reloadDashboard,
-  } = useMswdoStubDistribution();
+  } = useMswdoStubDistribution({
+    userId: authenticatedUser?.id || "",
+  });
 
-  const [activeTab, setActiveTab] = useState("active");
+  const [activeTab, setActiveTab] = useState(
+    () =>
+      readOperationalDisasterEventScope({
+        roleCode: ROLE_CODES.MSWDO,
+        userId: authenticatedUser?.id || "",
+      }) || "active",
+  );
   const [claimingStubId, setClaimingStubId] = useState("");
   const [claimErrorMessage, setClaimErrorMessage] = useState("");
   const [pendingClaimStubId, setPendingClaimStubId] = useState("");
@@ -320,6 +333,10 @@ const StubDistributionPage = () => {
   );
 
   useEffect(() => {
+    if (isLoadingFilters || !isEventSelectionResolved) {
+      return;
+    }
+
     if (
       selectedDisasterEvent?.status === "ACTIVE" &&
       activeTab !== "active"
@@ -333,7 +350,12 @@ const StubDistributionPage = () => {
     ) {
       setActiveTab("ended");
     }
-  }, [activeTab, selectedDisasterEvent?.status]);
+  }, [
+    activeTab,
+    isEventSelectionResolved,
+    isLoadingFilters,
+    selectedDisasterEvent?.status,
+  ]);
 
   useEffect(() => {
     setSelectedSectorIds(selectedSectorIds);

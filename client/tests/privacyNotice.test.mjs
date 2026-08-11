@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 import {
   HOUSEHOLD_PRIVACY_ACKNOWLEDGMENT_POINTS,
@@ -111,5 +113,29 @@ test("privacy notice content matches the approved titled sections and acknowledg
   assert.match(
     HOUSEHOLD_PRIVACY_ACKNOWLEDGMENT_POINTS.join(" "),
     /only authorized personnel may access your family's records/i,
+  );
+});
+
+test("privacy consent modal only resets scroll when a new notice session opens", async () => {
+  const modalPath = path.join(
+    process.cwd(),
+    "src",
+    "components",
+    "household-registration",
+    "DataPrivacyConsentModal.jsx",
+  );
+  const modalSource = await fs.readFile(modalPath, "utf8");
+
+  assert.match(
+    modalSource,
+    /if \(scrollableBodyElement\) {\s+scrollableBodyElement\.scrollTop = 0;\s+}/,
+  );
+  assert.match(
+    modalSource,
+    /useEffect\(\(\) => {\s+if \(!isOpen\) {\s+return undefined;\s+}\s+\s+const dialogElement = dialogRef\.current;\s+const scrollableBodyElement = bodyRef\.current;[\s\S]*?}\s*, \[isOpen\]\);/,
+  );
+  assert.doesNotMatch(
+    modalSource,
+    /\}, \[isOpen, isChecked, isSubmitting\]\);/,
   );
 });

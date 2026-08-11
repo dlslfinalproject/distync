@@ -309,7 +309,7 @@ const DataPrivacyConsentModal = ({
     return () => {
       dialogElement?.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isOpen, isChecked, isSubmitting]);
+  }, [isOpen]);
 
   if (!isOpen) {
     return null;

@@ -10,6 +10,18 @@ const inventoryDistributionDetailModalSourcePath = new URL(
   "../src/components/inventory-distribution/InventoryDistributionDetailModal.jsx",
   import.meta.url,
 );
+const barangayStubDistributionPageSourcePath = new URL(
+  "../src/pages/barangay/StubDistributionPage.jsx",
+  import.meta.url,
+);
+const mswdoStubDistributionPageSourcePath = new URL(
+  "../src/pages/mswdo/StubDistributionPage.jsx",
+  import.meta.url,
+);
+const verifyStubPageSourcePath = new URL(
+  "../src/pages/VerifyStubPage.jsx",
+  import.meta.url,
+);
 
 test("stub detail modal shows receipt number and authorized by from the selected stub distribution transaction", async () => {
   const source = await fs.readFile(stubDetailModalSourcePath, "utf8");
@@ -42,4 +54,52 @@ test("stub detail modal keeps safe hyphen fallback for empty distribution transa
   assert.match(source, /const formatInfoValue = \(value\) => \{/);
   assert.match(source, /if \(value === null \|\| value === undefined\) \{\s+return "-";/);
   assert.match(source, /return normalizedValue \? normalizedValue : "-";/);
+});
+
+test("stub detail modal renders disaster event title only without exposing the event code", async () => {
+  const source = await fs.readFile(stubDetailModalSourcePath, "utf8");
+
+  assert.match(
+    source,
+    /const getDisasterEventTitle = \(disasterEvent\) =>\s+formatInfoValue\(disasterEvent\?\.title\);/,
+  );
+  assert.match(source, /<p style=\{modalStyles\.label\}>Disaster Event<\/p>/);
+  assert.match(source, /getDisasterEventTitle\(disasterEvent\)/);
+  assert.doesNotMatch(source, /disasterEvent\.event_code,\s+disasterEvent\.title/);
+  assert.doesNotMatch(source, /\.join\(" - "\) \|\| "-"/);
+});
+
+test("barangay and mswdo relief distribution household views share the corrected stub detail modal", async () => {
+  const barangaySource = await fs.readFile(
+    barangayStubDistributionPageSourcePath,
+    "utf8",
+  );
+  const mswdoSource = await fs.readFile(mswdoStubDistributionPageSourcePath, "utf8");
+
+  assert.match(
+    barangaySource,
+    /import StubDetailModal from "\.\.\/\.\.\/components\/stubs\/StubDetailModal";/,
+  );
+  assert.match(barangaySource, /<StubDetailModal\s+isOpen=\{isStubDetailModalOpen\}/);
+  assert.match(barangaySource, /stubDetails=\{selectedStubDetails\}/);
+  assert.match(barangaySource, /const details = await fetchStubDetails\(row\.id,/);
+
+  assert.match(
+    mswdoSource,
+    /import StubDetailModal from "\.\.\/\.\.\/components\/stubs\/StubDetailModal";/,
+  );
+  assert.match(mswdoSource, /<StubDetailModal\s+isOpen=\{isStubDetailModalOpen\}/);
+  assert.match(mswdoSource, /stubDetails=\{selectedStubDetails\}/);
+  assert.match(mswdoSource, /const details = await fetchStubDetails\(row\.id\);/);
+});
+
+test("qr-supported scanned stub view also renders disaster event title only", async () => {
+  const source = await fs.readFile(verifyStubPageSourcePath, "utf8");
+
+  assert.match(
+    source,
+    /const getDisasterEventTitle = \(disasterEvent\) =>\s+String\(disasterEvent\?\.title \|\| ""\)\.trim\(\) \|\| "--";/,
+  );
+  assert.match(source, /getDisasterEventTitle\(stubDetails\.disaster_event\)/);
+  assert.doesNotMatch(source, /stubDetails\.disaster_event\?\.event_code,\s+stubDetails\.disaster_event\?\.title/);
 });

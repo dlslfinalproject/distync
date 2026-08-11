@@ -275,6 +275,9 @@ const buildSectorText = (stubDetails) => {
   return sectorNames.join(", ");
 };
 
+const getDisasterEventTitle = (disasterEvent) =>
+  String(disasterEvent?.title || "").trim() || "--";
+
 const getTemplateFamilySizeCoverage = (template) => {
   const parsedCoverage = Number.parseInt(String(template?.description || "").trim(), 10);
   return Number.isInteger(parsedCoverage) && parsedCoverage > 0 ? parsedCoverage : 0;
@@ -519,12 +522,7 @@ const VerifyStubPage = () => {
                   <div style={pageStyles.detailRow}>
                     <p style={pageStyles.detailLabel}>Disaster Event</p>
                     <p style={pageStyles.detailValue}>
-                      {[
-                        stubDetails.disaster_event?.event_code,
-                        stubDetails.disaster_event?.title,
-                      ]
-                        .filter(Boolean)
-                        .join(" - ") || "--"}
+                      {getDisasterEventTitle(stubDetails.disaster_event)}
                     </p>
                   </div>
 
