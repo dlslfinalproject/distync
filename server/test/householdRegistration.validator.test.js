@@ -5,6 +5,7 @@ const {
   validateAndNormalizeHouseholdRegistrationPayload,
   validateCreateHouseholdRegistration,
   validateDuplicateRegistrationSuggestions,
+  validateGetHouseholdDetails,
   validateUpdateHouseholdDetails,
 } = require("../src/validators/householdRegistration.validator");
 const {
@@ -17,6 +18,7 @@ const VALID_UUIDS = {
   evacuationCenterId: "33333333-3333-4333-8333-333333333333",
   registeredBy: "44444444-4444-4444-8444-444444444444",
   householdId: "55555555-5555-4555-8555-555555555555",
+  evacuationLogId: "66666666-6666-4666-8666-666666666666",
 };
 
 const buildValidPayload = () => ({
@@ -68,8 +70,11 @@ const buildValidPayload = () => ({
   },
 });
 
-const runMiddleware = async (middleware, { body = {}, params = {} } = {}) => {
-  const req = { body, params };
+const runMiddleware = async (
+  middleware,
+  { body = {}, params = {}, query = {} } = {},
+) => {
+  const req = { body, params, query };
   const result = {
     statusCode: 200,
     jsonPayload: null,
@@ -195,6 +200,24 @@ test("update validation allows ordinary edits without a new privacy acknowledgme
   assert.equal(result.req.validatedBody.family_head, undefined);
   assert.equal(result.req.validatedBody.family_head_photo_url, undefined);
   assert.equal(result.req.validatedBody.household_size, undefined);
+});
+
+test("get household details validation accepts and normalizes an optional evacuation_log_id query", async () => {
+  const result = await runMiddleware(validateGetHouseholdDetails, {
+    params: {
+      householdId: VALID_UUIDS.householdId,
+    },
+    query: {
+      evacuation_log_id: `  ${VALID_UUIDS.evacuationLogId}  `,
+    },
+  });
+
+  assert.equal(result.nextCalled, true);
+  assert.equal(result.req.validatedParams.householdId, VALID_UUIDS.householdId);
+  assert.equal(
+    result.req.validatedQuery.evacuationLogId,
+    VALID_UUIDS.evacuationLogId,
+  );
 });
 
 test("duplicate suggestion validation accepts partial household lookup data", async () => {

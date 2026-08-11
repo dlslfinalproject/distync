@@ -178,6 +178,40 @@ test("INV-M02 inventory effect intent insertion is source unique and retry-claim
   );
 });
 
+test("EE-FIX-04 repository event lookup returns authoritative status using the supplied client", async () => {
+  const queries = [];
+
+  await withStubbedInventoryRepository(
+    {
+      query: async () => {
+        throw new Error("pool should not be used when a dbClient is supplied");
+      },
+      on: () => {},
+    },
+    async ({ getDisasterEventById }) => {
+      const event = await getDisasterEventById("event-1", {
+        query: async (sql, params) => {
+          queries.push({ sql, params });
+          return {
+            rows: [
+              {
+                id: "event-1",
+                event_code: "EVT-2026-001",
+                title: "Flood",
+                status: "CLOSED",
+              },
+            ],
+          };
+        },
+      });
+
+      assert.equal(event.status, "CLOSED");
+      assert.match(queries[0].sql, /SELECT id, event_code, title, status/);
+      assert.deepEqual(queries[0].params, ["event-1"]);
+    },
+  );
+});
+
 test("INV-M02 processor persists canonical audit with offline device and then alerts", async () => {
   const marks = [];
   const auditPayloads = [];
@@ -255,6 +289,258 @@ test("INV-M02 processor persists canonical audit with offline device and then al
       assert.equal(alertPayloads.length, 1);
       assert.equal(alertPayloads[0].transaction.id, "tx-1");
       assert.deepEqual(marks, ["audit:intent-1", "alerts:intent-1", "processed:intent-1"]);
+    },
+  );
+});
+
+const buildInventoryCreateStubs = ({
+  disasterEventStatus = "ACTIVE",
+  existingTransaction = null,
+  batchQuantity = 20,
+  events = [],
+} = {}) => ({
+  [repositoryPath]: {
+    getUserById: async (id) => ({ id, first_name: "Mayor", last_name: "User" }),
+    getInventoryTransactionByReferenceNo: async (referenceNo) => {
+      events.push(`duplicate:${referenceNo}`);
+      return existingTransaction;
+    },
+    getDisasterEventById: async (id, dbClient) => {
+      events.push(`event:${id}:${dbClient?.id || "pool"}`);
+      return disasterEventStatus
+        ? { id, event_code: "EVT-2026-001", title: "Flood", status: disasterEventStatus }
+        : null;
+    },
+    getInventoryBatchByIdForUpdate: async (id) => {
+      events.push(`batch:${id}`);
+      return {
+        id,
+        inventory_item_id: "item-1",
+        batch_no: "BATCH-1",
+        quantity_available: batchQuantity,
+        expiration_date: null,
+        status: "AVAILABLE",
+        item_name: "Rice",
+      };
+    },
+    getAvailableInventoryBatchesByItemIdForUpdate: async () => [],
+    insertInventoryTransaction: async (transactionData) => {
+      events.push(`insert:${transactionData.inventory_transaction_reference_no}`);
+      return {
+        id: "tx-1",
+        ...transactionData,
+        performed_at: "2026-08-10T00:00:00.000Z",
+        created_at: "2026-08-10T00:00:00.000Z",
+      };
+    },
+    updateInventoryBatchQuantityAndStatus: async (id, quantityAvailable, status) => {
+      events.push(`batch-update:${id}:${quantityAvailable}:${status}`);
+      return { id, quantity_available: quantityAvailable, status };
+    },
+    ensureInventoryDomainEffectIntent: async ({ inventoryTransactionId }) => {
+      events.push(`intent:${inventoryTransactionId}`);
+      return { id: "intent-1" };
+    },
+  },
+  [inventoryItemRepositoryPath]: {
+    getInventoryItemByIdForUpdate: async (id) => {
+      events.push(`item:${id}`);
+      return {
+        id,
+        item_code: "RICE",
+        item_name: "Rice",
+        quantity: 20,
+        packaging: "piece",
+        packaging_count: 20,
+      };
+    },
+    updateInventoryItemStockSnapshot: async (id, snapshot) => {
+      events.push(`item-update:${id}:${snapshot.packaging_count}`);
+      return { id, ...snapshot };
+    },
+  },
+  [inventoryBatchRepositoryPath]: {
+    insertInventoryBatch: async () => {
+      throw new Error("fallback batch should not be created");
+    },
+  },
+  [notificationServicePath]: {
+    emitInventoryTransactionAlerts: async () => {
+      throw new Error("external transaction test should defer side effects");
+    },
+  },
+  [systemLogRepositoryPath]: {
+    insertAuditLog: async () => {
+      throw new Error("external transaction test should defer audit side effects");
+    },
+  },
+  [dbPath]: {
+    connect: async () => {
+      throw new Error("external dbClient should be reused");
+    },
+  },
+});
+
+const createInventoryPayload = (overrides = {}) => ({
+  disaster_event_id: "event-1",
+  inventory_batch_id: "batch-1",
+  transaction_type: "OUTFLOW",
+  quantity: 5,
+  reference_type: "MANUAL",
+  reference_id: null,
+  inventoryTransactionReferenceNo: "ITR-2026-000321",
+  performed_by: "user-1",
+  remarks: null,
+  dbClient: {
+    id: "sync-client",
+    query: async () => ({ rows: [{ total_quantity: 15 }] }),
+  },
+  ...overrides,
+});
+
+test("EE-FIX-04 ACTIVE event-specific manual OUTFLOW proceeds with existing validation and stock mutation", async () => {
+  const events = [];
+
+  await withStubbedInventoryService(
+    buildInventoryCreateStubs({ disasterEventStatus: "ACTIVE", events }),
+    async ({ createInventoryTransaction }) => {
+      const result = await createInventoryTransaction(createInventoryPayload());
+
+      assert.equal(result.inventory_transaction_reference_no, "ITR-2026-000321");
+      assert.equal(result.new_quantity_available, 15);
+      assert.deepEqual(events, [
+        "duplicate:ITR-2026-000321",
+        "event:event-1:sync-client",
+        "batch:batch-1",
+        "item:item-1",
+        "insert:ITR-2026-000321",
+        "batch-update:batch-1:15:AVAILABLE",
+        "item-update:item-1:15",
+        "intent:tx-1",
+      ]);
+    },
+  );
+});
+
+test("EE-FIX-04 non-ACTIVE event-specific manual OUTFLOW is rejected before inventory effects", async () => {
+  for (const disasterEventStatus of ["PLANNED", "CLOSED", "ARCHIVED"]) {
+    const events = [];
+
+    await withStubbedInventoryService(
+      buildInventoryCreateStubs({ disasterEventStatus, events }),
+      async ({ createInventoryTransaction }) => {
+        await assert.rejects(
+          () => createInventoryTransaction(createInventoryPayload()),
+          (error) => {
+            assert.equal(error.statusCode, 400);
+            assert.equal(error.code, "DISASTER_EVENT_NOT_ACTIVE");
+            return true;
+          },
+        );
+
+        assert.deepEqual(events, [
+          "duplicate:ITR-2026-000321",
+          "event:event-1:sync-client",
+        ]);
+      },
+    );
+  }
+});
+
+test("EE-FIX-04 general inventory transactions are not blocked by non-ACTIVE event metadata", async () => {
+  for (const transactionType of ["INFLOW", "ADJUSTMENT", "EXPIRED", "MISSING", "DAMAGED", "SPOILED", "STOLEN", "RETURN"]) {
+    const events = [];
+
+    await withStubbedInventoryService(
+      buildInventoryCreateStubs({ disasterEventStatus: "CLOSED", events }),
+      async ({ createInventoryTransaction }) => {
+        const result = await createInventoryTransaction(
+          createInventoryPayload({
+            transaction_type: transactionType,
+            quantity: 1,
+            inventoryTransactionReferenceNo: `ITR-2026-10000${events.length + 1}`,
+          }),
+        );
+
+        assert.equal(result.transaction_type, transactionType);
+        assert.equal(events.some((entry) => entry.startsWith("insert:")), true);
+      },
+    );
+  }
+});
+
+test("EE-FIX-04 general non-event OUTFLOW remains valid and does not require event status", async () => {
+  const events = [];
+
+  await withStubbedInventoryService(
+    buildInventoryCreateStubs({ disasterEventStatus: "CLOSED", events }),
+    async ({ createInventoryTransaction }) => {
+      const result = await createInventoryTransaction(
+        createInventoryPayload({ disaster_event_id: null }),
+      );
+
+      assert.equal(result.transaction_type, "OUTFLOW");
+      assert.equal(events.some((entry) => entry.startsWith("event:")), false);
+      assert.equal(events.some((entry) => entry.startsWith("insert:")), true);
+    },
+  );
+});
+
+test("EE-FIX-04 duplicate ITR remains authoritative before lifecycle rejection for different client IDs", async () => {
+  const events = [];
+
+  await withStubbedInventoryService(
+    buildInventoryCreateStubs({
+      disasterEventStatus: "CLOSED",
+      existingTransaction: {
+        id: "tx-existing",
+        inventory_transaction_reference_no: "ITR-2026-000321",
+        transaction_type: "OUTFLOW",
+      },
+      events,
+    }),
+    async ({ createInventoryTransaction }) => {
+      await assert.rejects(
+        () => createInventoryTransaction(createInventoryPayload()),
+        (error) => {
+          assert.equal(error.code, "DUPLICATE_INVENTORY_TRANSACTION_REFERENCE_NO");
+          assert.equal(error.entityServerId, "tx-existing");
+          return true;
+        },
+      );
+
+      assert.deepEqual(events, ["duplicate:ITR-2026-000321"]);
+    },
+  );
+});
+
+test("EE-FIX-04 invalid ITR and ACTIVE insufficient stock remain protected", async () => {
+  await withStubbedInventoryService(
+    buildInventoryCreateStubs(),
+    async ({ createInventoryTransaction }) => {
+      await assert.rejects(
+        () =>
+          createInventoryTransaction(
+            createInventoryPayload({
+              inventoryTransactionReferenceNo: "ITR-2026-000000",
+            }),
+          ),
+        /Inventory Transaction Reference No\. must use ITR-YYYY-NNNNNN/,
+      );
+    },
+  );
+
+  const events = [];
+  await withStubbedInventoryService(
+    buildInventoryCreateStubs({ batchQuantity: 2, events }),
+    async ({ createInventoryTransaction }) => {
+      await assert.rejects(
+        () => createInventoryTransaction(createInventoryPayload({ quantity: 5 })),
+        /Insufficient quantity_available/,
+      );
+
+      assert.equal(events.some((entry) => entry.startsWith("insert:")), false);
+      assert.equal(events.some((entry) => entry.startsWith("batch-update:")), false);
     },
   );
 });

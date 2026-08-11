@@ -612,6 +612,56 @@ const findPotentialDuplicatePersonMatches = async (
   return result.rows;
 };
 
+const findActiveCrossEventFamilyHeadMatches = async (
+  { disasterEventId, familyHead },
+  dbClient = pool,
+) => {
+  if (
+    !disasterEventId ||
+    !familyHead ||
+    !String(familyHead.first_name || "").trim() ||
+    !String(familyHead.last_name || "").trim()
+  ) {
+    return [];
+  }
+
+  const query = `
+    SELECT
+      h.id AS household_id,
+      h.disaster_event_id,
+      de.title AS disaster_event_title,
+      de.status AS disaster_event_status,
+      h.family_head_first_name,
+      h.family_head_middle_name,
+      h.family_head_last_name,
+      h.family_head_suffix,
+      h.sex,
+      fh.age_value,
+      fh.age_unit,
+      h.contact_number,
+      h.registered_at
+    FROM households h
+    INNER JOIN disaster_events de
+      ON de.id = h.disaster_event_id
+      AND de.status = 'ACTIVE'
+    LEFT JOIN evacuees fh ON fh.id = h.family_head_evacuee_id
+    WHERE h.disaster_event_id <> $1
+      AND h.is_active = TRUE
+      AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_first_name, '')), '\\s+', ' ', 'g')) =
+          LOWER(REGEXP_REPLACE(BTRIM(COALESCE($2, '')), '\\s+', ' ', 'g'))
+      AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(h.family_head_last_name, '')), '\\s+', ' ', 'g')) =
+          LOWER(REGEXP_REPLACE(BTRIM(COALESCE($3, '')), '\\s+', ' ', 'g'))
+    ORDER BY de.title ASC, h.registered_at DESC, h.id ASC
+  `;
+
+  const result = await dbClient.query(query, [
+    disasterEventId,
+    familyHead.first_name,
+    familyHead.last_name,
+  ]);
+  return result.rows;
+};
+
 const updateHouseholdRegistrationTimestamp = async (
   householdId,
   registeredAt,
@@ -1789,6 +1839,7 @@ module.exports = {
   insertHouseholdPrivacyConsent,
   findDuplicateHouseholdRegistration,
   findPotentialDuplicatePersonMatches,
+  findActiveCrossEventFamilyHeadMatches,
   updateHouseholdRegistrationTimestamp,
   updateHousehold,
   insertEvacuee,

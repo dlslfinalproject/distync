@@ -581,6 +581,8 @@ const getLatestDistributionTransactionByStubId = async (stubId) => {
       dt.distribution_date,
       dt.distribution_status,
       dt.claimed_by_name,
+      dt.verified_by,
+      CONCAT_WS(' ', u.first_name, u.middle_name, u.last_name) AS verified_by_name,
       dt.receipt_no,
       dt.receipt_status,
       dt.received_at,
@@ -591,6 +593,7 @@ const getLatestDistributionTransactionByStubId = async (stubId) => {
       dt.created_at,
       dt.updated_at
     FROM distribution_transactions dt
+    LEFT JOIN users u ON u.id = dt.verified_by
     LEFT JOIN relief_pack_templates rpt ON rpt.id = dt.relief_pack_template_id
     WHERE dt.stub_id = $1
     ORDER BY dt.distribution_date DESC, dt.created_at DESC

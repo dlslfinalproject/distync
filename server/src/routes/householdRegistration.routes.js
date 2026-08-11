@@ -2,6 +2,7 @@ const express = require("express");
 
 const { ROLE_CODES, requireRoles } = require("../modules/auth/auth.middleware");
 const householdRegistrationService = require("../services/householdRegistration.service");
+const { logErrorSafely } = require("../utils/systemLog");
 const {
   validateCreateHouseholdRegistration,
   validateDuplicateRegistrationSuggestions,
@@ -14,6 +15,38 @@ const {
 } = require("../validators/householdRegistration.validator");
 
 const router = express.Router();
+
+const DUPLICATE_HOUSEHOLD_REGISTRATION_CODE =
+  "DUPLICATE_HOUSEHOLD_REGISTRATION";
+
+const logHouseholdRegistrationAnomalySource = async ({ req, error }) => {
+  if (error?.code !== DUPLICATE_HOUSEHOLD_REGISTRATION_CODE) {
+    return;
+  }
+
+  await logErrorSafely({
+    actor: req.auth,
+    moduleName: "household-registration",
+    errorCode: error.code,
+    errorMessage:
+      error.message ||
+      "Possible duplicate household registration detected.",
+    severity: "WARNING",
+    error: null,
+    referenceType: error.entityServerId ? "HOUSEHOLD" : null,
+    referenceId: error.entityServerId || null,
+    context: {
+      route: req.originalUrl,
+      action: "DIRECT_DUPLICATE_HOUSEHOLD_REGISTRATION",
+      disaster_event_id: req.validatedBody?.disaster_event_id || null,
+      barangay_id: req.validatedBody?.barangay_id || null,
+      matched_as: error.serverPayload?.matched_as || null,
+      matched_relationship_to_head:
+        error.serverPayload?.matched_relationship_to_head || null,
+      match_confidence: error.serverPayload?.match_confidence || null,
+    },
+  });
+};
 
 router.post(
   "/duplicate-suggestions",
@@ -58,6 +91,7 @@ router.post(
         data: registrationResult,
       });
     } catch (error) {
+      await logHouseholdRegistrationAnomalySource({ req, error });
       const statusCode = error.statusCode || 500;
 
       return res.status(statusCode).json({
@@ -77,6 +111,7 @@ router.get(
       const householdDetails =
         await householdRegistrationService.getHouseholdDetails({
           householdId: req.validatedParams.householdId,
+          evacuationLogId: req.validatedQuery?.evacuationLogId || null,
           requester: req.auth,
         });
 

@@ -140,13 +140,15 @@ test("H01-04 and H01-05 error-log anomalies use a narrow Barangay-only actor fal
     });
 
     assert.match(capturedQuery, /error_barangay_attribution AS/);
-    assert.match(capturedQuery, /el\.module_name IN \('distribution', 'stubs'\)/);
+    assert.match(capturedQuery, /el\.module_name IN \('distribution', 'stubs', 'household-registration'\)/);
+    assert.match(capturedQuery, /LEFT JOIN households h_direct\s+ON el\.reference_type = 'HOUSEHOLD'\s+AND h_direct\.id = el\.reference_id/);
     assert.match(capturedQuery, /LEFT JOIN stubs s_error\s+ON el\.reference_type = 'STUB'\s+AND s_error\.id = el\.reference_id/);
     assert.match(capturedQuery, /LEFT JOIN households h_error\s+ON h_error\.id = s_error\.household_id/);
     assert.match(capturedQuery, /r_barangay\.code = 'BARANGAY'/);
     assert.match(capturedQuery, /r_other\.code IN \('MSWDO', 'MAYOR'\)/);
     assert.match(capturedQuery, /LEFT JOIN error_barangay_attribution eba\s+ON eba\.error_log_id = el\.id/);
     assert.match(capturedQuery, /DUPLICATE_CLAIM_ATTEMPT/);
+    assert.match(capturedQuery, /DUPLICATE_HOUSEHOLD_REGISTRATION/);
     assert.match(capturedQuery, /FAILED_STUB_OR_QR_VERIFICATION/);
   } finally {
     harness.restore();
@@ -220,6 +222,195 @@ test("ANOMSRC-04/05 error-log anomalies use structured codes and stub references
     assert.doesNotMatch(capturedQuery, /ILIKE '%already claimed%'/);
     assert.doesNotMatch(capturedQuery, /ILIKE '%stub not found%'/);
     assert.match(capturedQuery, /LEFT JOIN disaster_events de\s+ON de\.id = eba\.disaster_event_id/);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("MSWDO-ANOM-I01 direct duplicate household errors become attributed anomaly rows", async () => {
+  let capturedQuery = "";
+  let capturedValues = [];
+  const harness = loadRepositoryWithMockPool(async (query, values) => {
+    capturedQuery = query;
+    capturedValues = values;
+    return { rows: [] };
+  });
+
+  try {
+    await harness.repository.getMswdoAnomalyTracking({
+      disasterEventId: "event-1",
+      barangayId: "barangay-a",
+      anomalyType: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+      search: "Duplicate Household",
+      page: 1,
+      pageSize: 25,
+    });
+
+    assert.match(capturedQuery, /duplicate_household_registration AS/);
+    assert.match(capturedQuery, /'DUPLICATE_HOUSEHOLD_REGISTRATION' AS anomaly_type/);
+    assert.match(capturedQuery, /el\.module_name = 'household-registration'/);
+    assert.match(capturedQuery, /el\.error_code = 'DUPLICATE_HOUSEHOLD_REGISTRATION'/);
+    assert.match(capturedQuery, /'ERROR_LOG' AS source_type[\s\S]*el\.id::text AS source_id/);
+    assert.match(capturedQuery, /COALESCE\(h_direct\.disaster_event_id, s_error\.disaster_event_id\) AS disaster_event_id/);
+    assert.match(capturedQuery, /h_direct\.barangay_id/);
+    assert.match(capturedQuery, /SELECT \* FROM duplicate_household_registration/);
+    assert.match(capturedQuery, /anomaly_type = \$3/);
+    assert.match(capturedQuery, /ILIKE \$4/);
+    assert.match(capturedQuery, /barangay_id = \$2/);
+    assert.deepEqual(capturedValues.slice(0, 4), [
+      "event-1",
+      "barangay-a",
+      "DUPLICATE_HOUSEHOLD_REGISTRATION",
+      "%Duplicate Household%",
+    ]);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("MSWDO-ANOM-I07/I10 inventory-distribution mismatch reconciles item aggregates instead of rows", async () => {
+  let capturedQuery = "";
+  const harness = loadRepositoryWithMockPool(async (query) => {
+    capturedQuery = query;
+    return { rows: [] };
+  });
+
+  try {
+    await harness.repository.getMswdoAnomalyTracking({
+      anomalyType: "INVENTORY_DISTRIBUTION_MISMATCH",
+      limit: 20,
+    });
+
+    assert.match(capturedQuery, /reconciliation_expected AS/);
+    assert.match(capturedQuery, /reconciliation_actual AS/);
+    assert.match(capturedQuery, /inventory_distribution_mismatch AS/);
+    assert.match(capturedQuery, /SUM\(dti\.quantity_released\)::integer AS expected_quantity/);
+    assert.match(capturedQuery, /SUM\(it\.quantity\)::integer AS actual_quantity/);
+    assert.match(capturedQuery, /GROUP BY[\s\S]*dt\.id[\s\S]*dti\.inventory_item_id/);
+    assert.match(capturedQuery, /GROUP BY[\s\S]*it\.reference_id[\s\S]*ib\.inventory_item_id/);
+    assert.match(capturedQuery, /FULL OUTER JOIN reconciliation_actual actual/);
+    assert.match(capturedQuery, /COALESCE\(expected\.expected_quantity, 0\) <> COALESCE\(actual\.actual_quantity, 0\)/);
+    assert.match(capturedQuery, /anomaly_type = \$1/);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("MSWDO-ANOM-I08/I12 completed distributions without outflow are detected without nonterminal states", async () => {
+  let capturedQuery = "";
+  const harness = loadRepositoryWithMockPool(async (query) => {
+    capturedQuery = query;
+    return { rows: [] };
+  });
+
+  try {
+    await harness.repository.getMswdoAnomalyTracking({
+      disasterEventId: "event-1",
+      barangayId: "barangay-a",
+      limit: 20,
+    });
+
+    assert.match(capturedQuery, /WHERE dt\.distribution_status = 'CLAIMED'/);
+    assert.match(capturedQuery, /Released distribution item[\s\S]*has no matching distribution-generated inventory outflow/);
+    assert.match(capturedQuery, /dt\.disaster_event_id = \$1/);
+    assert.match(capturedQuery, /h\.barangay_id = \$2/);
+    assert.doesNotMatch(capturedQuery, /dt\.distribution_status IN \('CLAIMED', 'CANCELLED', 'REVERSED'\)/);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("MSWDO-ANOM-I09 orphan distribution outflows use structured references and ignore unrelated outflows", async () => {
+  let capturedQuery = "";
+  const harness = loadRepositoryWithMockPool(async (query) => {
+    capturedQuery = query;
+    return { rows: [] };
+  });
+
+  try {
+    await harness.repository.getMswdoAnomalyTracking({
+      anomalyType: "INVENTORY_DISTRIBUTION_MISMATCH",
+      dateFrom: "2026-08-01",
+      dateTo: "2026-08-10",
+      limit: 20,
+    });
+
+    assert.match(capturedQuery, /reconciliation_orphan_outflows AS/);
+    assert.match(capturedQuery, /it\.transaction_type = 'OUTFLOW'/);
+    assert.match(capturedQuery, /it\.reference_type = 'DISTRIBUTION'/);
+    assert.match(capturedQuery, /it\.reference_id IS NULL[\s\S]*OR dt\.id IS NULL[\s\S]*OR dt\.distribution_status <> 'CLAIMED'/);
+    assert.match(capturedQuery, /references a distribution transaction that does not exist/);
+    assert.match(capturedQuery, /it\.performed_at >= \$1/);
+    assert.match(capturedQuery, /it\.performed_at < \(\$2::date \+ INTERVAL '1 day'\)/);
+    assert.doesNotMatch(capturedQuery, /it\.transaction_type IN \('OUTFLOW', 'DAMAGED', 'SPOILED', 'MISSING', 'STOLEN'\)/);
+    assert.doesNotMatch(capturedQuery, /ILIKE[\s\S]*remarks/);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("MSWDO-ANOM-I11 event reference mismatches are detected only through structured fields", async () => {
+  let capturedQuery = "";
+  const harness = loadRepositoryWithMockPool(async (query) => {
+    capturedQuery = query;
+    return { rows: [] };
+  });
+
+  try {
+    await harness.repository.getMswdoAnomalyTracking({
+      anomalyType: "INVENTORY_DISTRIBUTION_MISMATCH",
+      limit: 20,
+    });
+
+    assert.match(capturedQuery, /BOOL_OR\([\s\S]*it\.disaster_event_id IS DISTINCT FROM dt\.disaster_event_id[\s\S]*\) AS has_event_reference_mismatch/);
+    assert.match(capturedQuery, /actual\.has_event_reference_mismatch/);
+    assert.match(capturedQuery, /carries a different disaster event reference/);
+    assert.doesNotMatch(capturedQuery, /remarks ILIKE/);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("MSWDO-ANOM-I12 false-positive protections keep legitimate inventory transactions outside reconciliation", async () => {
+  let capturedQuery = "";
+  const harness = loadRepositoryWithMockPool(async (query) => {
+    capturedQuery = query;
+    return { rows: [] };
+  });
+
+  try {
+    await harness.repository.getMswdoAnomalyTracking({
+      anomalyType: "INVENTORY_DISTRIBUTION_MISMATCH",
+      limit: 20,
+    });
+
+    assert.match(capturedQuery, /it\.transaction_type = 'OUTFLOW'/);
+    assert.match(capturedQuery, /it\.reference_type = 'DISTRIBUTION'/);
+    assert.doesNotMatch(capturedQuery, /reference_type = 'MANUAL'/);
+    assert.doesNotMatch(capturedQuery, /reference_type = 'DONATION'/);
+    assert.doesNotMatch(capturedQuery, /transaction_type = 'RETURN'[\s\S]*reference_type = 'DISTRIBUTION'/);
+    assert.doesNotMatch(capturedQuery, /quantity_available/);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("MSWDO-ANOM-I14 reconciliation source identity is one row per distribution item mismatch or orphan outflow", async () => {
+  let capturedQuery = "";
+  const harness = loadRepositoryWithMockPool(async (query) => {
+    capturedQuery = query;
+    return { rows: [] };
+  });
+
+  try {
+    await harness.repository.getMswdoAnomalyTracking({
+      anomalyType: "INVENTORY_DISTRIBUTION_MISMATCH",
+      limit: 20,
+    });
+
+    assert.match(capturedQuery, /CONCAT\([\s\S]*COALESCE\(expected\.distribution_transaction_id, actual\.distribution_transaction_id\)::text,[\s\S]*COALESCE\(expected\.inventory_item_id, actual\.inventory_item_id\)::text[\s\S]*\) AS source_id/);
+    assert.match(capturedQuery, /'INVENTORY_DISTRIBUTION_ORPHAN_OUTFLOW' AS source_type[\s\S]*it\.id::text AS source_id/);
+    assert.match(capturedQuery, /SELECT \* FROM reconciliation_item_mismatches[\s\S]*UNION ALL[\s\S]*SELECT \* FROM reconciliation_orphan_outflows/);
   } finally {
     harness.restore();
   }
@@ -513,7 +704,7 @@ test("M05F-08 source semantics stay unchanged while adding internal source ident
     assert.match(itemQuery, /sc\.status = 'OPEN'/);
     assert.match(itemQuery, /el\.error_code = 'STUB_ALREADY_CLAIMED'/);
     assert.match(itemQuery, /el\.error_code IN \(/);
-    assert.equal((itemQuery.match(/UNION ALL/g) || []).length, 4);
+    assert.match(itemQuery, /SELECT \* FROM duplicate_household_registration[\s\S]*UNION ALL[\s\S]*SELECT \* FROM inventory_distribution_mismatch[\s\S]*UNION ALL[\s\S]*SELECT \* FROM failed_stub_verification/);
   } finally {
     harness.restore();
   }

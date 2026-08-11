@@ -37,6 +37,7 @@ import {
   cacheSelectedDisasterEventId,
   fetchEvacuationCentersByBarangay,
 } from "../../features/household-registration/householdRegistrationService";
+import { buildActiveCrossEventInfoMessage } from "../../features/household-registration/crossEventInformation";
 import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
 import {
   buildExportSuccessMessage,
@@ -161,6 +162,9 @@ const BarangayMasterlistPage = () => {
       setRegistrationSuccessMessage(
         response?.message || "Household registered successfully",
       );
+      setAttendanceActionMessage(
+        buildActiveCrossEventInfoMessage(response, selectedEvent),
+      );
       reloadMasterlist();
     },
   });
@@ -181,6 +185,7 @@ const BarangayMasterlistPage = () => {
       setRegistrationSuccessMessage(
         response?.message || "Household updated successfully",
       );
+      setAttendanceActionMessage("");
       reloadMasterlist();
     },
   });
@@ -532,14 +537,19 @@ const BarangayMasterlistPage = () => {
     setIsBulkDepartureConfirmOpen(false);
   };
 
-  const handleOpenHouseholdDetails = async (householdId) => {
+  const handleOpenHouseholdDetails = async (selection) => {
+    const householdId = selection?.householdId || "";
+    const evacuationLogId = selection?.evacuationLogId || null;
+
     setViewingHouseholdId(householdId);
     setIsLoadingHouseholdDetails(true);
     setHouseholdDetails(null);
     setHouseholdDetailsErrorMessage("");
 
     try {
-      const details = await fetchHouseholdDetails(householdId);
+      const details = await fetchHouseholdDetails(householdId, {
+        evacuationLogId,
+      });
       setHouseholdDetails(details);
     } catch (error) {
       setHouseholdDetailsErrorMessage(

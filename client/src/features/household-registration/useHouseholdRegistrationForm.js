@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   cacheRegistrationBarangays,
   cacheRegistrationEvacuationCentersByBarangay,
@@ -31,6 +31,10 @@ import {
   isAgeBasedMemberSectorCode,
 } from "../../utils/registrationOptions";
 import { sanitizeHouseholdUpdatePayload } from "./householdEditProtection";
+import {
+  POSSIBLE_MATCH_LOOKUP_DEBOUNCE_MS,
+  buildPossibleMatchLookupState,
+} from "./possibleMatchLookupControl";
 
 const createMember = () => ({
   id: null,
@@ -247,6 +251,10 @@ export const useHouseholdRegistrationForm = ({
   const [validationErrors, setValidationErrors] = useState(createValidationErrors());
   const [isUsingCachedReferenceData, setIsUsingCachedReferenceData] =
     useState(false);
+  const duplicateSuggestionRequestSeqRef = useRef(0);
+  const duplicateSuggestionAbortRef = useRef(null);
+  const duplicateSuggestionCacheRef = useRef(new Map());
+  const activeDuplicateSuggestionLookupKeyRef = useRef("");
 
   const isOffline =
     typeof navigator !== "undefined" ? !navigator.onLine : false;
@@ -626,110 +634,123 @@ export const useHouseholdRegistrationForm = ({
     isOpen,
   ]);
 
+  const duplicateSuggestionLookupState = useMemo(
+    () =>
+      buildPossibleMatchLookupState({
+        householdId: initialHouseholdDetails?.household?.id || null,
+        disasterEventId: selectedDisasterEventId,
+        barangayId: selectedBarangayId,
+        registeredBy,
+        contactNumber: household.contact_number,
+        familyHead,
+        members,
+        resolveMemberRelationship: getFinalRelationship,
+      }),
+    [
+      familyHead,
+      household.contact_number,
+      initialHouseholdDetails?.household?.id,
+      members,
+      registeredBy,
+      selectedBarangayId,
+      selectedDisasterEventId,
+    ],
+  );
+
   useEffect(() => {
     if (!isOpen) {
+      duplicateSuggestionRequestSeqRef.current += 1;
+      activeDuplicateSuggestionLookupKeyRef.current = "";
+      duplicateSuggestionAbortRef.current?.abort();
+      duplicateSuggestionAbortRef.current = null;
+      duplicateSuggestionCacheRef.current.clear();
       setDuplicateSuggestions(createEmptyDuplicateSuggestions());
       setIsLoadingDuplicateSuggestions(false);
       setDuplicateSuggestionsError("");
       return;
     }
 
-    if (!selectedDisasterEventId || !selectedBarangayId) {
+    if (!duplicateSuggestionLookupState.isEligible) {
+      duplicateSuggestionRequestSeqRef.current += 1;
+      activeDuplicateSuggestionLookupKeyRef.current = "";
+      duplicateSuggestionAbortRef.current?.abort();
+      duplicateSuggestionAbortRef.current = null;
       setDuplicateSuggestions(createEmptyDuplicateSuggestions());
       setIsLoadingDuplicateSuggestions(false);
       setDuplicateSuggestionsError("");
       return;
     }
 
-    const normalizedFamilyHead = {
-      first_name: trimValue(familyHead.first_name),
-      middle_name: trimValue(familyHead.middle_name) || null,
-      last_name: trimValue(familyHead.last_name),
-      suffix: trimValue(familyHead.suffix) || null,
-      sex: familyHead.sex || null,
-      age_value: normalizeAgeValue(familyHead.age_value),
-      age_unit: "YEARS",
-    };
-    const normalizedMembers = members.map((member) => ({
-      first_name: trimValue(member.first_name),
-      middle_name: trimValue(member.middle_name) || null,
-      last_name: trimValue(member.last_name),
-      suffix: trimValue(member.suffix) || null,
-      sex: member.sex || null,
-      age_value: normalizeAgeValue(member.age_value),
-      age_unit: member.age_unit || null,
-      relationship_to_head: getFinalRelationship(member) || null,
-    }));
-    const hasFamilyHeadLookupCandidate =
-      normalizedFamilyHead.first_name && normalizedFamilyHead.last_name;
-    const hasMemberLookupCandidate = normalizedMembers.some(
-      (member) => member.first_name && member.last_name,
-    );
-    const hasLookupCandidate =
-      hasFamilyHeadLookupCandidate || hasMemberLookupCandidate;
+    const { lookupKey, payload } = duplicateSuggestionLookupState;
+    activeDuplicateSuggestionLookupKeyRef.current = lookupKey;
 
-    if (!hasLookupCandidate) {
-      setDuplicateSuggestions(createEmptyDuplicateSuggestions());
+    if (duplicateSuggestionCacheRef.current.has(lookupKey)) {
+      setDuplicateSuggestions(
+        duplicateSuggestionCacheRef.current.get(lookupKey) ||
+          createEmptyDuplicateSuggestions(),
+      );
       setIsLoadingDuplicateSuggestions(false);
       setDuplicateSuggestionsError("");
       return;
     }
 
     let isActive = true;
+    const requestSeq = duplicateSuggestionRequestSeqRef.current + 1;
+    duplicateSuggestionRequestSeqRef.current = requestSeq;
     const timeoutId = window.setTimeout(async () => {
+      duplicateSuggestionAbortRef.current?.abort();
+      const abortController = new AbortController();
+      duplicateSuggestionAbortRef.current = abortController;
       setIsLoadingDuplicateSuggestions(true);
       setDuplicateSuggestionsError("");
 
       try {
-        const suggestions = await fetchDuplicateRegistrationSuggestions({
-          household_id: initialHouseholdDetails?.household?.id || null,
-          disaster_event_id: selectedDisasterEventId,
-          barangay_id: selectedBarangayId,
-          registered_by: registeredBy,
-          contact_number: trimValue(household.contact_number) || null,
-          family_head: normalizedFamilyHead,
-          members: normalizedMembers,
+        const suggestions = await fetchDuplicateRegistrationSuggestions(payload, {
+          signal: abortController.signal,
         });
 
-        if (!isActive) {
+        if (
+          !isActive ||
+          requestSeq !== duplicateSuggestionRequestSeqRef.current ||
+          lookupKey !== activeDuplicateSuggestionLookupKeyRef.current
+        ) {
           return;
         }
 
-        setDuplicateSuggestions(suggestions || createEmptyDuplicateSuggestions());
+        const nextSuggestions = suggestions || createEmptyDuplicateSuggestions();
+        duplicateSuggestionCacheRef.current.set(lookupKey, nextSuggestions);
+        setDuplicateSuggestions(nextSuggestions);
       } catch (error) {
-        if (!isActive) {
+        if (
+          error?.name === "AbortError" ||
+          !isActive ||
+          requestSeq !== duplicateSuggestionRequestSeqRef.current ||
+          lookupKey !== activeDuplicateSuggestionLookupKeyRef.current
+        ) {
           return;
         }
 
         setDuplicateSuggestions(createEmptyDuplicateSuggestions());
-        setDuplicateSuggestionsError(
-          error.message || "Failed to check duplicate registration suggestions.",
-        );
+        setDuplicateSuggestionsError("");
       } finally {
-        if (isActive) {
+        if (
+          isActive &&
+          requestSeq === duplicateSuggestionRequestSeqRef.current &&
+          lookupKey === activeDuplicateSuggestionLookupKeyRef.current
+        ) {
           setIsLoadingDuplicateSuggestions(false);
         }
       }
-    }, hasFamilyHeadLookupCandidate ? 180 : 320);
+    }, POSSIBLE_MATCH_LOOKUP_DEBOUNCE_MS);
 
     return () => {
       isActive = false;
       window.clearTimeout(timeoutId);
+      duplicateSuggestionAbortRef.current?.abort();
     };
   }, [
-    familyHead.age_value,
-    familyHead.first_name,
-    familyHead.last_name,
-    familyHead.middle_name,
-    familyHead.sex,
-    familyHead.suffix,
-    household.contact_number,
-    initialHouseholdDetails?.household?.id,
+    duplicateSuggestionLookupState,
     isOpen,
-    members,
-    registeredBy,
-    selectedBarangayId,
-    selectedDisasterEventId,
   ]);
 
   const savedEditEvacuationCenterId = String(
@@ -1191,6 +1212,11 @@ export const useHouseholdRegistrationForm = ({
   };
 
   const resetForm = () => {
+    duplicateSuggestionRequestSeqRef.current += 1;
+    activeDuplicateSuggestionLookupKeyRef.current = "";
+    duplicateSuggestionAbortRef.current?.abort();
+    duplicateSuggestionAbortRef.current = null;
+    duplicateSuggestionCacheRef.current.clear();
     setHousehold(initialHousehold);
     setResidencyStatus(RESIDENCY_STATUS.resident);
     setFamilyHead(initialFamilyHead);

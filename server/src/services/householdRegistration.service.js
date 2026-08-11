@@ -779,6 +779,69 @@ const buildDuplicateRegistrationSuggestions = async ({
   };
 };
 
+const buildActiveCrossEventInformation = async ({
+  disasterEventId,
+  familyHead,
+  contactNumber = null,
+  dbClient = undefined,
+}) => {
+  let rawMatches = [];
+
+  try {
+    rawMatches =
+      await householdRegistrationRepository.findActiveCrossEventFamilyHeadMatches(
+        {
+          disasterEventId,
+          familyHead,
+        },
+        dbClient,
+      );
+  } catch (_error) {
+    return null;
+  }
+
+  const activeEventsByTitle = new Map();
+
+  for (const match of rawMatches) {
+    const matchedPerson = {
+      first_name: match.family_head_first_name,
+      middle_name: match.family_head_middle_name,
+      last_name: match.family_head_last_name,
+      suffix: match.family_head_suffix,
+      sex: match.sex,
+      age_value: Number.isInteger(match.age_value) ? match.age_value : null,
+      age_unit: match.age_unit,
+    };
+    const classifiedMatch = classifyDuplicateMatch({
+      sourcePerson: familyHead,
+      matchedPerson,
+      sourceRole: "FAMILY_HEAD",
+      matchedRole: "FAMILY_HEAD",
+      sourceContactNumber: contactNumber,
+      matchedContactNumber: match.contact_number || null,
+    });
+
+    if (classifiedMatch.match_confidence !== "HIGH") {
+      continue;
+    }
+
+    const eventTitle = String(match.disaster_event_title || "").trim();
+
+    if (eventTitle) {
+      activeEventsByTitle.set(eventTitle, {
+        disaster_event_title: eventTitle,
+      });
+    }
+  }
+
+  const activeEvents = [...activeEventsByTitle.values()];
+
+  return {
+    has_active_cross_event_match: activeEvents.length > 0,
+    active_disaster_events: activeEvents,
+  };
+};
+
 const buildRegistrationResponse = async (householdId, dbClient = undefined) => {
   const household =
     await householdRegistrationRepository.getHouseholdSummaryById(
@@ -1154,7 +1217,11 @@ const prepareRegistrationContext = async (requestData) => {
   };
 };
 
-const getHouseholdDetails = async ({ householdId, requester }) => {
+const getHouseholdDetails = async ({
+  householdId,
+  evacuationLogId = null,
+  requester,
+}) => {
   const household =
     await householdRegistrationRepository.getHouseholdSummaryById(householdId);
 
@@ -1173,7 +1240,28 @@ const getHouseholdDetails = async ({ householdId, requester }) => {
     throw error;
   }
 
-  return buildRegistrationResponse(householdId);
+  const householdDetails = await buildRegistrationResponse(householdId);
+
+  if (!evacuationLogId) {
+    return householdDetails;
+  }
+
+  const selectedAttendance =
+    await householdRegistrationRepository.getEvacuationLogByIdForHousehold(
+      householdId,
+      evacuationLogId,
+    );
+
+  if (!selectedAttendance) {
+    const error = new Error("Selected evacuation record not found for this household");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return {
+    ...householdDetails,
+    latest_attendance: selectedAttendance,
+  };
 };
 
 const getAuthorizedHouseholdSummaryForUpdate = async ({
@@ -1313,9 +1401,15 @@ const updateHouseholdDetails = async ({
   const normalizedMembers = allowedUpdateData.members.map((member) =>
     buildPersonRecord(member),
   );
+  const normalizedExistingFamilyHead = {
+    first_name: existingHousehold.family_head_first_name,
+    middle_name: existingHousehold.family_head_middle_name,
+    last_name: existingHousehold.family_head_last_name,
+    suffix: existingHousehold.family_head_suffix,
+  };
 
   validateUniqueHouseholdPeople({
-    familyHead: normalizedFamilyHead,
+    familyHead: normalizedExistingFamilyHead,
     members: normalizedMembers,
   });
 
@@ -1325,20 +1419,6 @@ const updateHouseholdDetails = async ({
     current_address_details: allowedUpdateData.current_address_details || null,
     contact_number: allowedUpdateData.contact_number || null,
   };
-  const duplicateSuggestions = await buildDuplicateRegistrationSuggestions({
-    disasterEventId: requestDataWithDerivedAgeGroups.disaster_event_id,
-    householdIdToExclude: householdId,
-    familyHead: requestDataWithDerivedAgeGroups.family_head,
-    members: requestDataWithDerivedAgeGroups.members,
-    contactNumber: requestDataWithDerivedAgeGroups.contact_number || null,
-  });
-  const strongestDuplicateMatch = duplicateSuggestions.groups
-    .flatMap((group) => group.matches)
-    .find((match) => match.match_confidence === "HIGH");
-
-  if (strongestDuplicateMatch) {
-    throw buildDuplicateRegistrationError(strongestDuplicateMatch);
-  }
 
   const householdSectors = await householdRegistrationRepository.getSectorsByIds(
     deduplicateIds(requestDataWithDerivedAgeGroups.household_sector_ids),
@@ -2062,6 +2142,12 @@ const registerHousehold = async (requestData) => {
       createdHousehold.id,
       externalClient || undefined,
     );
+    registrationResponse.active_cross_event_information =
+      await buildActiveCrossEventInformation({
+        disasterEventId: requestDataWithDerivedAgeGroups.disaster_event_id,
+        familyHead: requestDataWithDerivedAgeGroups.family_head,
+        contactNumber: requestDataWithDerivedAgeGroups.contact_number || null,
+      });
     const familyHeadName = [
       registrationResponse.household?.family_head_first_name,
       registrationResponse.household?.family_head_last_name,

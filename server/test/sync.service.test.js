@@ -3321,6 +3321,144 @@ test("ITR duplicate with different client_sync_id becomes resolved FIRST_ACCEPTE
   );
 });
 
+test("EE-FIX-04 INVENTORY_TRANSACTION_CREATE lifecycle failure is FAILED without conflict", async () => {
+  let transactionPayload;
+  let serviceCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        updateSyncTransaction: async (id, payload) => {
+          transactionPayload = payload;
+          return {
+            id,
+            ...payload,
+          };
+        },
+      }),
+      [inventoryTransactionServicePath]: {
+        createInventoryTransaction: async (payload) => {
+          serviceCalls += 1;
+          assert.equal(payload.transaction_type, "OUTFLOW");
+          assert.equal(payload.disaster_event_id, "event-closed");
+          assert.equal(payload.inventoryTransactionReferenceNo, "ITR-2026-000124");
+          const error = new Error(
+            "Inventory outflow cannot be completed because the disaster event is not active.",
+          );
+          error.code = "DISASTER_EVENT_NOT_ACTIVE";
+          error.statusCode = 400;
+          throw error;
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MAYOR",
+        },
+        entries: [
+          {
+            client_sync_id: "itr-closed-unique",
+            action_key: "INVENTORY_TRANSACTION_CREATE",
+            entity_type: "INVENTORY_TRANSACTION",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              disaster_event_id: "event-closed",
+              inventory_batch_id: "11111111-1111-4111-8111-111111111111",
+              transaction_type: "OUTFLOW",
+              quantity: 1,
+              inventoryTransactionReferenceNo: "ITR-2026-000124",
+              client_event_status: "ACTIVE",
+            },
+          },
+        ],
+      });
+
+      assert.equal(serviceCalls, 1);
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(result.conflict, null);
+      assert.match(result.message, /disaster event is not active/);
+      assert.equal(transactionPayload.sync_status, "FAILED");
+      assert.equal(transactionPayload.entity_server_id, null);
+    },
+  );
+});
+
+test("EE-FIX-04 same-ID accepted inventory replay after closure does not rerun service or change ITR", async () => {
+  let serviceCalls = 0;
+  let updateCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        claimSyncTransaction: async () => ({
+          decision: "REPLAY_TERMINAL",
+          transaction: {
+            id: "sync-inventory-replay",
+            client_sync_id: "itr-replay",
+            entity_server_id: "tx-accepted",
+            sync_status: "SYNCED",
+            error_message: null,
+          },
+          conflictRecord: null,
+        }),
+        updateSyncTransaction: async () => {
+          updateCalls += 1;
+          throw new Error("terminal replay must not update sync transaction");
+        },
+      }),
+      [inventoryTransactionServicePath]: {
+        createInventoryTransaction: async () => {
+          serviceCalls += 1;
+          throw new Error("terminal replay must not rerun inventory service");
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MAYOR",
+        },
+        entries: [
+          {
+            client_sync_id: "itr-replay",
+            action_key: "INVENTORY_TRANSACTION_CREATE",
+            entity_type: "INVENTORY_TRANSACTION",
+            entity_server_id: null,
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              disaster_event_id: "event-now-closed",
+              inventory_batch_id: "11111111-1111-4111-8111-111111111111",
+              transaction_type: "OUTFLOW",
+              quantity: 1,
+              inventoryTransactionReferenceNo: "ITR-2026-000125",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+      assert.equal(result.replayed, true);
+      assert.equal(result.data.id, "tx-accepted");
+      assert.equal(serviceCalls, 0);
+      assert.equal(updateCalls, 0);
+    },
+  );
+});
+
 test("INVENTORY_BATCH_CREATE duplicate becomes resolved FIRST_ACCEPTED conflict", async () => {
   let conflictPayload;
   let transactionPayload;

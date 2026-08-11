@@ -170,6 +170,11 @@ const getMswdoAnomalyTracking = async ({
   const effectivePageSize = pageSize || limit || 50;
   const values = [];
   const distributionConditions = ["dt.distribution_status = 'CLAIMED'"];
+  const reconciliationDistributionConditions = ["dt.distribution_status = 'CLAIMED'"];
+  const reconciliationOutflowConditions = [
+    "it.transaction_type = 'OUTFLOW'",
+    "it.reference_type = 'DISTRIBUTION'",
+  ];
   const syncConditions = [];
   const errorConditions = [];
   let disasterEventParamIndex = null;
@@ -179,17 +184,28 @@ const getMswdoAnomalyTracking = async ({
     values.push(disasterEventId);
     disasterEventParamIndex = values.length;
     distributionConditions.push(`dt.disaster_event_id = $${values.length}`);
+    reconciliationDistributionConditions.push(
+      `dt.disaster_event_id = $${values.length}`,
+    );
+    reconciliationOutflowConditions.push(
+      `COALESCE(dt.disaster_event_id, it.disaster_event_id) = $${values.length}`,
+    );
   }
 
   if (barangayId) {
     values.push(barangayId);
     barangayParamIndex = values.length;
     distributionConditions.push(`h.barangay_id = $${values.length}`);
+    reconciliationDistributionConditions.push(`h.barangay_id = $${values.length}`);
   }
 
   if (dateFrom) {
     values.push(dateFrom);
     distributionConditions.push(`dt.distribution_date >= $${values.length}`);
+    reconciliationDistributionConditions.push(
+      `dt.distribution_date >= $${values.length}`,
+    );
+    reconciliationOutflowConditions.push(`it.performed_at >= $${values.length}`);
     syncConditions.push(`st.created_at >= $${values.length}`);
     errorConditions.push(`el.created_at >= $${values.length}`);
   }
@@ -198,6 +214,12 @@ const getMswdoAnomalyTracking = async ({
     values.push(dateTo);
     distributionConditions.push(
       `dt.distribution_date < ($${values.length}::date + INTERVAL '1 day')`,
+    );
+    reconciliationDistributionConditions.push(
+      `dt.distribution_date < ($${values.length}::date + INTERVAL '1 day')`,
+    );
+    reconciliationOutflowConditions.push(
+      `it.performed_at < ($${values.length}::date + INTERVAL '1 day')`,
     );
     syncConditions.push(`st.created_at < ($${values.length}::date + INTERVAL '1 day')`);
     errorConditions.push(`el.created_at < ($${values.length}::date + INTERVAL '1 day')`);
@@ -209,6 +231,9 @@ const getMswdoAnomalyTracking = async ({
   const searchIndex = search ? values.push(`%${search}%`) : null;
 
   const suspiciousDistributionWhere = distributionConditions.join(" AND ");
+  const reconciliationDistributionWhere =
+    reconciliationDistributionConditions.join(" AND ");
+  const reconciliationOutflowWhere = reconciliationOutflowConditions.join(" AND ");
   const syncFailedWhere = [
     "st.sync_status = 'FAILED'",
     ...syncConditions,
@@ -307,6 +332,246 @@ const getMswdoAnomalyTracking = async ({
         h.family_head_last_name,
         h.family_head_suffix
       HAVING COUNT(*) > 1
+    ),
+    reconciliation_expected AS (
+      SELECT
+        dt.id AS distribution_transaction_id,
+        dt.disaster_event_id,
+        dt.household_id,
+        dt.stub_id,
+        dt.distribution_date,
+        dt.created_at AS distribution_created_at,
+        dt.distribution_status,
+        de.event_code,
+        de.title AS disaster_event_title,
+        b.id AS barangay_id,
+        b.name AS barangay_name,
+        CONCAT_WS(
+          ' ',
+          h.family_head_first_name,
+          h.family_head_middle_name,
+          h.family_head_last_name,
+          h.family_head_suffix
+        ) AS family_head_name,
+        dti.inventory_item_id,
+        ii.item_name,
+        ii.unit_of_measure,
+        SUM(dti.quantity_released)::integer AS expected_quantity
+      FROM distribution_transactions dt
+      INNER JOIN distribution_transaction_items dti
+        ON dti.distribution_transaction_id = dt.id
+      INNER JOIN inventory_items ii
+        ON ii.id = dti.inventory_item_id
+      INNER JOIN households h
+        ON h.id = dt.household_id
+      INNER JOIN barangays b
+        ON b.id = h.barangay_id
+      INNER JOIN disaster_events de
+        ON de.id = dt.disaster_event_id
+      WHERE ${reconciliationDistributionWhere}
+      GROUP BY
+        dt.id,
+        dt.disaster_event_id,
+        dt.household_id,
+        dt.stub_id,
+        dt.distribution_date,
+        dt.created_at,
+        dt.distribution_status,
+        de.event_code,
+        de.title,
+        b.id,
+        b.name,
+        h.family_head_first_name,
+        h.family_head_middle_name,
+        h.family_head_last_name,
+        h.family_head_suffix,
+        dti.inventory_item_id,
+        ii.item_name,
+        ii.unit_of_measure
+    ),
+    reconciliation_actual AS (
+      SELECT
+        it.reference_id AS distribution_transaction_id,
+        dt.disaster_event_id,
+        dt.household_id,
+        dt.stub_id,
+        dt.distribution_date,
+        dt.created_at AS distribution_created_at,
+        dt.distribution_status,
+        de.event_code,
+        de.title AS disaster_event_title,
+        b.id AS barangay_id,
+        b.name AS barangay_name,
+        CONCAT_WS(
+          ' ',
+          h.family_head_first_name,
+          h.family_head_middle_name,
+          h.family_head_last_name,
+          h.family_head_suffix
+        ) AS family_head_name,
+        ib.inventory_item_id,
+        MAX(ii.item_name) AS item_name,
+        MAX(ii.unit_of_measure) AS unit_of_measure,
+        SUM(it.quantity)::integer AS actual_quantity,
+        BOOL_OR(
+          dt.id IS NOT NULL
+          AND it.disaster_event_id IS NOT NULL
+          AND it.disaster_event_id IS DISTINCT FROM dt.disaster_event_id
+        ) AS has_event_reference_mismatch,
+        MIN(it.performed_at) AS first_outflow_at,
+        MAX(it.performed_at) AS last_outflow_at
+      FROM inventory_transactions it
+      INNER JOIN inventory_batches ib
+        ON ib.id = it.inventory_batch_id
+      INNER JOIN inventory_items ii
+        ON ii.id = ib.inventory_item_id
+      INNER JOIN distribution_transactions dt
+        ON dt.id = it.reference_id
+        AND dt.distribution_status = 'CLAIMED'
+      INNER JOIN households h
+        ON h.id = dt.household_id
+      INNER JOIN barangays b
+        ON b.id = h.barangay_id
+      INNER JOIN disaster_events de
+        ON de.id = dt.disaster_event_id
+      WHERE ${reconciliationOutflowWhere}
+      GROUP BY
+        it.reference_id,
+        dt.disaster_event_id,
+        dt.household_id,
+        dt.stub_id,
+        dt.distribution_date,
+        dt.created_at,
+        dt.distribution_status,
+        de.event_code,
+        de.title,
+        b.id,
+        b.name,
+        h.family_head_first_name,
+        h.family_head_middle_name,
+        h.family_head_last_name,
+        h.family_head_suffix,
+        ib.inventory_item_id
+    ),
+    reconciliation_item_mismatches AS (
+      SELECT
+        'INVENTORY_DISTRIBUTION_MISMATCH' AS anomaly_type,
+        COALESCE(expected.distribution_transaction_id, actual.distribution_transaction_id)::text AS reference_id,
+        'INVENTORY_DISTRIBUTION_RECONCILIATION' AS source_type,
+        CONCAT(
+          COALESCE(expected.distribution_transaction_id, actual.distribution_transaction_id)::text,
+          ':',
+          COALESCE(expected.inventory_item_id, actual.inventory_item_id)::text
+        ) AS source_id,
+        COALESCE(expected.event_code, actual.event_code) AS event_code,
+        COALESCE(expected.disaster_event_title, actual.disaster_event_title) AS disaster_event_title,
+        COALESCE(expected.barangay_id, actual.barangay_id) AS barangay_id,
+        COALESCE(expected.barangay_name, actual.barangay_name) AS barangay_name,
+        COALESCE(expected.family_head_name, actual.family_head_name) AS family_head_name,
+        CASE
+          WHEN COALESCE(expected.expected_quantity, 0) <= 0
+            THEN CONCAT(
+              'Distribution-generated outflow for ',
+              COALESCE(actual.item_name, 'an inventory item'),
+              ' has no matching released distribution item.'
+            )
+          WHEN COALESCE(actual.actual_quantity, 0) <= 0
+            THEN CONCAT(
+              'Released distribution item ',
+              COALESCE(expected.item_name, 'inventory item'),
+              ' expected ',
+              expected.expected_quantity,
+              ' ',
+              COALESCE(expected.unit_of_measure, 'unit(s)'),
+              ' but has no matching distribution-generated inventory outflow.'
+            )
+          WHEN actual.has_event_reference_mismatch
+            THEN CONCAT(
+              'Distribution-generated inventory outflow for ',
+              COALESCE(expected.item_name, actual.item_name, 'inventory item'),
+              ' points to the distribution but carries a different disaster event reference.'
+            )
+          ELSE CONCAT(
+            'Released distribution item ',
+            COALESCE(expected.item_name, actual.item_name, 'inventory item'),
+            ' expected ',
+            COALESCE(expected.expected_quantity, 0),
+            ' ',
+            COALESCE(expected.unit_of_measure, actual.unit_of_measure, 'unit(s)'),
+            ' but inventory outflow recorded ',
+            COALESCE(actual.actual_quantity, 0),
+            '.'
+          )
+        END AS anomaly_reason,
+        'OPEN' AS status,
+        COALESCE(
+          actual.last_outflow_at,
+          expected.distribution_date,
+          actual.distribution_date,
+          expected.distribution_created_at,
+          actual.distribution_created_at
+        ) AS occurred_at,
+        'Inventory reconciliation review recommended.' AS resolution_status
+      FROM reconciliation_expected expected
+      FULL OUTER JOIN reconciliation_actual actual
+        ON actual.distribution_transaction_id = expected.distribution_transaction_id
+        AND actual.inventory_item_id = expected.inventory_item_id
+      WHERE COALESCE(expected.expected_quantity, 0) <> COALESCE(actual.actual_quantity, 0)
+        OR COALESCE(actual.has_event_reference_mismatch, FALSE) = TRUE
+    ),
+    reconciliation_orphan_outflows AS (
+      SELECT
+        'INVENTORY_DISTRIBUTION_MISMATCH' AS anomaly_type,
+        COALESCE(it.reference_id::text, it.id::text) AS reference_id,
+        'INVENTORY_DISTRIBUTION_ORPHAN_OUTFLOW' AS source_type,
+        it.id::text AS source_id,
+        de.event_code,
+        de.title AS disaster_event_title,
+        b.id AS barangay_id,
+        b.name AS barangay_name,
+        NULLIF(TRIM(CONCAT_WS(
+          ' ',
+          h.family_head_first_name,
+          h.family_head_middle_name,
+          h.family_head_last_name,
+          h.family_head_suffix
+        )), '') AS family_head_name,
+        CASE
+          WHEN it.reference_id IS NULL
+            THEN 'Distribution-generated inventory outflow is missing its distribution reference.'
+          WHEN dt.id IS NULL
+            THEN 'Distribution-generated inventory outflow references a distribution transaction that does not exist.'
+          ELSE CONCAT(
+            'Distribution-generated inventory outflow references a ',
+            COALESCE(dt.distribution_status, 'non-terminal'),
+            ' distribution instead of a claimed distribution.'
+          )
+        END AS anomaly_reason,
+        'OPEN' AS status,
+        it.performed_at AS occurred_at,
+        'Inventory reconciliation review recommended.' AS resolution_status
+      FROM inventory_transactions it
+      INNER JOIN inventory_batches ib
+        ON ib.id = it.inventory_batch_id
+      LEFT JOIN distribution_transactions dt
+        ON dt.id = it.reference_id
+      LEFT JOIN households h
+        ON h.id = dt.household_id
+      LEFT JOIN barangays b
+        ON b.id = h.barangay_id
+      LEFT JOIN disaster_events de
+        ON de.id = COALESCE(dt.disaster_event_id, it.disaster_event_id)
+      WHERE ${reconciliationOutflowWhere}
+        AND (
+          it.reference_id IS NULL
+          OR dt.id IS NULL
+          OR dt.distribution_status <> 'CLAIMED'
+        )
+    ),
+    inventory_distribution_mismatch AS (
+      SELECT * FROM reconciliation_item_mismatches
+      UNION ALL
+      SELECT * FROM reconciliation_orphan_outflows
     ),
     sync_barangay_attribution AS (
       SELECT
@@ -415,8 +680,9 @@ const getMswdoAnomalyTracking = async ({
     error_barangay_attribution AS (
       SELECT
         el.id AS error_log_id,
-        s_error.disaster_event_id,
+        COALESCE(h_direct.disaster_event_id, s_error.disaster_event_id) AS disaster_event_id,
         COALESCE(
+          h_direct.barangay_id,
           h_error.barangay_id,
           CASE
             WHEN el.reference_type IS NULL
@@ -443,20 +709,23 @@ const getMswdoAnomalyTracking = async ({
         ) AS barangay_id,
         NULLIF(TRIM(CONCAT_WS(
           ' ',
-          h_error.family_head_first_name,
-          h_error.family_head_middle_name,
-          h_error.family_head_last_name,
-          h_error.family_head_suffix
+          COALESCE(h_direct.family_head_first_name, h_error.family_head_first_name),
+          COALESCE(h_direct.family_head_middle_name, h_error.family_head_middle_name),
+          COALESCE(h_direct.family_head_last_name, h_error.family_head_last_name),
+          COALESCE(h_direct.family_head_suffix, h_error.family_head_suffix)
         )), '') AS family_head_name
       FROM error_logs el
       LEFT JOIN users u
         ON u.id = el.user_id
+      LEFT JOIN households h_direct
+        ON el.reference_type = 'HOUSEHOLD'
+        AND h_direct.id = el.reference_id
       LEFT JOIN stubs s_error
         ON el.reference_type = 'STUB'
         AND s_error.id = el.reference_id
       LEFT JOIN households h_error
         ON h_error.id = s_error.household_id
-      WHERE el.module_name IN ('distribution', 'stubs')
+      WHERE el.module_name IN ('distribution', 'stubs', 'household-registration')
     ),
     sync_failed AS (
       SELECT
@@ -536,6 +805,33 @@ const getMswdoAnomalyTracking = async ({
         ${disasterEventId ? `AND eba.disaster_event_id = $${disasterEventParamIndex}` : ""}
         ${errorWhere}
     ),
+    duplicate_household_registration AS (
+      SELECT
+        'DUPLICATE_HOUSEHOLD_REGISTRATION' AS anomaly_type,
+        el.id::text AS reference_id,
+        'ERROR_LOG' AS source_type,
+        el.id::text AS source_id,
+        de.event_code,
+        de.title AS disaster_event_title,
+        b.id AS barangay_id,
+        b.name AS barangay_name,
+        eba.family_head_name,
+        el.error_message AS anomaly_reason,
+        el.severity AS status,
+        el.created_at AS occurred_at,
+        'Captured through error logging.' AS resolution_status
+      FROM error_logs el
+      LEFT JOIN error_barangay_attribution eba
+        ON eba.error_log_id = el.id
+      LEFT JOIN barangays b
+        ON b.id = eba.barangay_id
+      LEFT JOIN disaster_events de
+        ON de.id = eba.disaster_event_id
+      WHERE el.module_name = 'household-registration'
+        AND el.error_code = 'DUPLICATE_HOUSEHOLD_REGISTRATION'
+        ${disasterEventId ? `AND eba.disaster_event_id = $${disasterEventParamIndex}` : ""}
+        ${errorWhere}
+    ),
     failed_stub_verification AS (
       SELECT
         'FAILED_STUB_OR_QR_VERIFICATION' AS anomaly_type,
@@ -580,6 +876,10 @@ const getMswdoAnomalyTracking = async ({
       SELECT * FROM sync_conflict
       UNION ALL
       SELECT * FROM duplicate_claim_attempts
+      UNION ALL
+      SELECT * FROM duplicate_household_registration
+      UNION ALL
+      SELECT * FROM inventory_distribution_mismatch
       UNION ALL
       SELECT * FROM failed_stub_verification
     ),

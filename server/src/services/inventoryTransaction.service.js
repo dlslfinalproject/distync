@@ -24,6 +24,19 @@ const subtractiveTransactionTypes = new Set([
   "STOLEN",
 ]);
 
+const isEventSpecificReliefOutflow = (transactionData) =>
+  transactionData.transaction_type === "OUTFLOW" &&
+  Boolean(transactionData.disaster_event_id);
+
+const createDisasterEventNotActiveError = () => {
+  const error = new Error(
+    "Inventory outflow cannot be completed because the disaster event is not active.",
+  );
+  error.statusCode = 400;
+  error.code = "DISASTER_EVENT_NOT_ACTIVE";
+  return error;
+};
+
 const buildFullName = (firstName, lastName) => {
   return [firstName, lastName].filter(Boolean).join(" ");
 };
@@ -411,20 +424,6 @@ const createInventoryTransaction = async (transactionData) => {
     }
   }
 
-  if (transactionData.disaster_event_id) {
-    const disasterEvent = await inventoryTransactionRepository.getDisasterEventById(
-      transactionData.disaster_event_id,
-    );
-
-    if (!disasterEvent) {
-      const error = new Error(
-        "disaster_event_id does not refer to an existing disaster event",
-      );
-      error.statusCode = 400;
-      throw error;
-    }
-  }
-
   if (transactionData.performed_by) {
     const user = await inventoryTransactionRepository.getUserById(
       transactionData.performed_by,
@@ -446,6 +445,42 @@ const createInventoryTransaction = async (transactionData) => {
 
     let inventoryBatch = null;
     let inventoryItem = null;
+
+    if (normalizedReferenceNo) {
+      const existingTransaction =
+        await inventoryTransactionRepository.getInventoryTransactionByReferenceNo(
+          normalizedReferenceNo,
+          client,
+        );
+
+      if (existingTransaction) {
+        throw createDuplicateInventoryTransactionReferenceError(
+          existingTransaction,
+        );
+      }
+    }
+
+    if (transactionData.disaster_event_id) {
+      const disasterEvent = await inventoryTransactionRepository.getDisasterEventById(
+        transactionData.disaster_event_id,
+        client,
+      );
+
+      if (!disasterEvent) {
+        const error = new Error(
+          "disaster_event_id does not refer to an existing disaster event",
+        );
+        error.statusCode = 400;
+        throw error;
+      }
+
+      if (
+        isEventSpecificReliefOutflow(transactionData) &&
+        disasterEvent.status !== "ACTIVE"
+      ) {
+        throw createDisasterEventNotActiveError();
+      }
+    }
 
     if (transactionData.inventory_batch_id) {
       inventoryBatch =
@@ -513,7 +548,7 @@ const createInventoryTransaction = async (transactionData) => {
         );
 
       throw createDuplicateInventoryTransactionReferenceError(
-        summarizeInventoryTransaction(existingTransaction),
+        existingTransaction,
       );
     }
 

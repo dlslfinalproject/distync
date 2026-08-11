@@ -247,14 +247,14 @@ const getDistributableInventoryBatchesByItemIdForUpdate = async (
   return result.rows;
 };
 
-const getDisasterEventById = async (id) => {
+const getDisasterEventById = async (id, dbClient = pool) => {
   const query = `
-    SELECT id, event_code, title
+    SELECT id, event_code, title, status
     FROM disaster_events
     WHERE id = $1
   `;
 
-  const result = await pool.query(query, [id]);
+  const result = await dbClient.query(query, [id]);
   return result.rows[0] || null;
 };
 

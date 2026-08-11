@@ -178,7 +178,11 @@ const MasterlistTable = ({
       label: "View Details",
       icon: <FiEye size={18} />,
       disabled: typeof onViewHousehold !== "function",
-      onClick: (selectedRow) => onViewHousehold?.(selectedRow.household_id),
+      onClick: (selectedRow) =>
+        onViewHousehold?.({
+          householdId: selectedRow.household_id,
+          evacuationLogId: selectedRow.evacuation_log_id || null,
+        }),
     };
 
     if (isDepartureReadOnly) {

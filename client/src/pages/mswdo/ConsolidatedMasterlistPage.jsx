@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from "react";
 import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
 import PageHeader from "../../components/layout/PageHeader";
-import { shellStyles } from "../../components/layout/BarangayLayout";
 import HouseholdArchiveConfirmModal from "../../components/masterlist/HouseholdArchiveConfirmModal";
 import HouseholdDetailModal from "../../components/masterlist/HouseholdDetailModal";
 import MasterlistDepartureConfirmModal from "../../components/masterlist/MasterlistDepartureConfirmModal";
 import MasterlistSelectionBar from "../../components/masterlist/MasterlistSelectionBar";
+import MasterlistStatusMessages from "../../components/masterlist/MasterlistStatusMessages";
 import MasterlistTable from "../../components/masterlist/MasterlistTable";
 import MswdoMasterlistControls from "../../components/mswdo-masterlist/MswdoMasterlistControls";
 import MswdoExportModal from "../../components/mswdo-masterlist/MswdoExportModal";
@@ -211,29 +211,11 @@ const ConsolidatedEvacueeMasterlist = () => {
         />
       ) : null}
 
-      {registrationSuccessMessage ? (
-        <section style={shellStyles.card}>
-          <p style={{ margin: 0, color: "#2f6c47", fontWeight: 700 }}>
-            {registrationSuccessMessage}
-          </p>
-        </section>
-      ) : null}
-
-      {attendanceActionMessage ? (
-        <section style={shellStyles.card}>
-          <p style={{ margin: 0, color: "#24496e", fontWeight: 700 }}>
-            {attendanceActionMessage}
-          </p>
-        </section>
-      ) : null}
-
-      {editHouseholdErrorMessage ? (
-        <section style={shellStyles.card}>
-          <p style={{ margin: 0, color: "#a14d58", fontWeight: 700 }}>
-            {editHouseholdErrorMessage}
-          </p>
-        </section>
-      ) : null}
+      <MasterlistStatusMessages
+        successMessage={registrationSuccessMessage}
+        infoMessage={attendanceActionMessage}
+        errorMessage={editHouseholdErrorMessage}
+      />
 
       {!isEndedView ? (
         <MasterlistSelectionBar
