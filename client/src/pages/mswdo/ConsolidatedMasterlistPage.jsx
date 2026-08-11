@@ -390,6 +390,8 @@ const ConsolidatedEvacueeMasterlist = () => {
         householdDetails={householdDetails}
         onClose={handleCloseHouseholdDetails}
         onEditHousehold={isEndedView ? undefined : handleEditHouseholdFromDetails}
+        showAdministrativeMetadata={false}
+        showDataPrivacyAcknowledgement={true}
       />
 
       <HouseholdArchiveConfirmModal

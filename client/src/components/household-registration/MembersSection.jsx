@@ -240,15 +240,6 @@ const MembersSection = ({ form, onViewSuggestedHousehold }) => {
                 </label>
               </div>
 
-              <div style={{ marginTop: "14px" }}>
-                <DuplicateRegistrationSuggestionsSection
-                  groups={memberSuggestionGroups}
-                  isLoading={form.isLoadingDuplicateSuggestions}
-                  errorMessage={form.duplicateSuggestionsError}
-                  onViewHousehold={onViewSuggestedHousehold}
-                />
-              </div>
-
               <div
                 style={{
                   ...fieldStyles.grid,
@@ -425,6 +416,15 @@ const MembersSection = ({ form, onViewSuggestedHousehold }) => {
                     })}
                   </div>
                 </div>
+              </div>
+
+              <div style={{ marginTop: "16px" }}>
+                <DuplicateRegistrationSuggestionsSection
+                  groups={memberSuggestionGroups}
+                  isLoading={form.isLoadingDuplicateSuggestions}
+                  errorMessage={form.duplicateSuggestionsError}
+                  onViewHousehold={onViewSuggestedHousehold}
+                />
               </div>
             </div>
           );
