@@ -47,6 +47,7 @@ const startServer = async () => {
         `Automatic disaster event closure sync failed: ${disasterEventSyncError.message}`,
       );
     }
+    disasterEventService.startDisasterEventLifecycleMaintenance();
     try {
       await notificationService.initializeNotificationInfrastructure();
     } catch (notificationError) {

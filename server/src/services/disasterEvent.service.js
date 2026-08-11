@@ -25,6 +25,10 @@ const DISASTER_EVENT_TYPE_OPTIONS = [
 ];
 const requiresCompletedEndDate = (status) =>
   status === "CLOSED" || status === "ARCHIVED";
+const DISASTER_EVENT_RECONCILIATION_INTERVAL_MS = 60 * 1000;
+
+let disasterEventLifecycleMaintenanceInterval = null;
+let isDisasterEventLifecycleMaintenanceRunning = false;
 
 const getManilaDateParts = (value = new Date()) => {
   const formatter = new Intl.DateTimeFormat("en-CA", {
@@ -130,46 +134,62 @@ const closeDisasterEventWithTimestamp = async ({
   eventAction = "ended",
 }) => {
   const client = await pool.connect();
+  let didClose = false;
+  let transactionFinished = false;
 
   try {
     await client.query("BEGIN");
 
-    await disasterEventRepository.updateDisasterEventById(
-      disasterEvent.id,
-      {
-        end_date: closureDate,
-        ended_at: closureTimestamp,
-        status: "CLOSED",
-      },
-      client,
-    );
-
-    const updatedLogs =
-      await householdRegistrationRepository.markDisasterEventHouseholdDepartures(
-        disasterEvent.id,
-        closureTimestamp,
-        "Automatic departure recorded during disaster event closure",
+    const closedDisasterEvent =
+      await disasterEventRepository.closeDisasterEventIfActive(
+        {
+          id: disasterEvent.id,
+          endDate: closureDate,
+          endedAt: closureTimestamp,
+        },
         client,
       );
 
-    const affectedHouseholdIds = [...new Set(
-      updatedLogs.map((log) => log.household_id).filter(Boolean),
-    )];
+    if (!closedDisasterEvent) {
+      await client.query("ROLLBACK");
+      transactionFinished = true;
+    } else {
+      didClose = true;
 
-    if (affectedHouseholdIds.length > 0) {
-      await householdRegistrationRepository.archiveHouseholdsByIds(
-        affectedHouseholdIds,
-        client,
-      );
-      await householdRegistrationRepository.deactivateEvacueesByHouseholdIds(
-        affectedHouseholdIds,
-        client,
-      );
+      const updatedLogs =
+        await householdRegistrationRepository.markDisasterEventHouseholdDepartures(
+          disasterEvent.id,
+          closureTimestamp,
+          "Automatic departure recorded during disaster event closure",
+          client,
+        );
+
+      const affectedHouseholdIds = [...new Set(
+        updatedLogs.map((log) => log.household_id).filter(Boolean),
+      )];
+
+      if (affectedHouseholdIds.length > 0) {
+        await householdRegistrationRepository.archiveHouseholdsByIds(
+          affectedHouseholdIds,
+          client,
+        );
+        await householdRegistrationRepository.deactivateEvacueesByHouseholdIds(
+          affectedHouseholdIds,
+          client,
+        );
+      }
+
+      await client.query("COMMIT");
+      transactionFinished = true;
     }
-
-    await client.query("COMMIT");
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (!transactionFinished) {
+      try {
+        await client.query("ROLLBACK");
+      } catch (_rollbackError) {
+        // Preserve the original failure from the closure attempt.
+      }
+    }
     throw error;
   } finally {
     client.release();
@@ -188,26 +208,33 @@ const closeDisasterEventWithTimestamp = async ({
       }
     : null;
 
-  await notificationService.emitSafely(() =>
-    notificationService.emitDisasterEventUpdate({
-      disasterEvent: updatedDisasterEvent,
-      action: eventAction,
-      affectedBarangays: updatedDisasterEvent?.affected_barangays || [],
-    }),
-  );
+  if (didClose) {
+    await notificationService.emitSafely(() =>
+      notificationService.emitDisasterEventUpdate({
+        disasterEvent: updatedDisasterEvent,
+        action: eventAction,
+        affectedBarangays: updatedDisasterEvent?.affected_barangays || [],
+      }),
+    );
+  }
 
-  return updatedDisasterEvent;
+  return {
+    didClose,
+    disasterEvent: updatedDisasterEvent,
+  };
 };
 
 const syncOverdueActiveDisasterEvents = async () => {
   const currentManilaDate = getCurrentManilaDateString();
-  const activeDisasterEvents = await disasterEventRepository.getActiveDisasterEvents();
+  const activeDisasterEvents =
+    await disasterEventRepository.getActiveDisasterEvents();
   const overdueEvents = activeDisasterEvents.filter(
     (event) =>
       event?.status === "ACTIVE" &&
       normalizeDateOnlyString(event?.end_date) &&
       normalizeDateOnlyString(event.end_date) < currentManilaDate,
   );
+  const closedEvents = [];
 
   for (const disasterEvent of overdueEvents) {
     const scheduledClosureTimestamp = buildScheduledClosureTimestamp(
@@ -219,16 +246,78 @@ const syncOverdueActiveDisasterEvents = async () => {
     }
 
     try {
-      await closeDisasterEventWithTimestamp({
+      const closureResult = await closeDisasterEventWithTimestamp({
         disasterEvent,
         closureDate: normalizeDateOnlyString(disasterEvent.end_date),
         closureTimestamp: scheduledClosureTimestamp,
         eventAction: "ended",
       });
+
+      if (closureResult.didClose && closureResult.disasterEvent) {
+        closedEvents.push(closureResult.disasterEvent);
+      }
     } catch (error) {
       throw error;
     }
   }
+
+  return {
+    closedCount: closedEvents.length,
+    closedEvents,
+  };
+};
+
+const runDisasterEventLifecycleMaintenance = async () => {
+  if (isDisasterEventLifecycleMaintenanceRunning) {
+    return { skipped: true, closedCount: 0, closedEvents: [] };
+  }
+
+  isDisasterEventLifecycleMaintenanceRunning = true;
+
+  try {
+    const result = await syncOverdueActiveDisasterEvents();
+
+    if (result.closedCount > 0) {
+      console.log(
+        `Disaster event overdue reconciliation closed ${result.closedCount} event${result.closedCount === 1 ? "" : "s"}.`,
+      );
+    }
+
+    return result;
+  } catch (error) {
+    console.error(
+      `Disaster event overdue reconciliation failed: ${error.message}`,
+    );
+    return { skipped: false, closedCount: 0, closedEvents: [], error };
+  } finally {
+    isDisasterEventLifecycleMaintenanceRunning = false;
+  }
+};
+
+const startDisasterEventLifecycleMaintenance = () => {
+  if (disasterEventLifecycleMaintenanceInterval) {
+    return;
+  }
+
+  disasterEventLifecycleMaintenanceInterval = setInterval(() => {
+    void runDisasterEventLifecycleMaintenance();
+  }, DISASTER_EVENT_RECONCILIATION_INTERVAL_MS);
+
+  if (
+    typeof disasterEventLifecycleMaintenanceInterval?.unref === "function"
+  ) {
+    disasterEventLifecycleMaintenanceInterval.unref();
+  }
+};
+
+const stopDisasterEventLifecycleMaintenance = () => {
+  if (!disasterEventLifecycleMaintenanceInterval) {
+    return;
+  }
+
+  clearInterval(disasterEventLifecycleMaintenanceInterval);
+  disasterEventLifecycleMaintenanceInterval = null;
+  isDisasterEventLifecycleMaintenanceRunning = false;
 };
 
 const groupAffectedBarangaysByEventId = (affectedBarangays) => {
@@ -572,6 +661,26 @@ const updateDisasterEvent = async (id, disasterEventData) => {
     client.release();
   }
 
+  const currentManilaDate = getCurrentManilaDateString();
+  const shouldCloseAfterUpdate =
+    requestedEndDate && requestedEndDate < currentManilaDate;
+
+  if (shouldCloseAfterUpdate) {
+    const scheduledClosureTimestamp =
+      buildScheduledClosureTimestamp(requestedEndDate);
+
+    if (scheduledClosureTimestamp) {
+      const closureResult = await closeDisasterEventWithTimestamp({
+        disasterEvent: { id },
+        closureDate: requestedEndDate,
+        closureTimestamp: scheduledClosureTimestamp,
+        eventAction: "ended",
+      });
+
+      return closureResult.disasterEvent;
+    }
+  }
+
   const updatedDisasterEvent = await getDisasterEventById(id);
 
   await notificationService.emitSafely(() =>
@@ -672,7 +781,7 @@ const endDisasterEvent = async (id) => {
     closureDate: today,
     closureTimestamp: endedAt,
     eventAction: "ended",
-  });
+  }).then((result) => result.disasterEvent);
 };
 
 const isValidAffectedBarangay = (barangay) => {
@@ -941,4 +1050,8 @@ module.exports = {
   getDisasterEventReportSummary,
   exportDisasterEventReportSummary,
   syncOverdueActiveDisasterEvents,
+  runDisasterEventLifecycleMaintenance,
+  startDisasterEventLifecycleMaintenance,
+  stopDisasterEventLifecycleMaintenance,
+  DISASTER_EVENT_RECONCILIATION_INTERVAL_MS,
 };

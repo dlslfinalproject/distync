@@ -701,6 +701,38 @@ const updateDisasterEventById = async (id, updates, dbClient = pool) => {
   return result.rows[0] || null;
 };
 
+const closeDisasterEventIfActive = async (
+  { id, endDate, endedAt },
+  dbClient = pool,
+) => {
+  const query = `
+    UPDATE disaster_events
+    SET
+      end_date = $2,
+      ended_at = $3,
+      status = 'CLOSED',
+      updated_at = NOW()
+    WHERE id = $1
+      AND status = 'ACTIVE'
+    RETURNING
+      id,
+      event_code,
+      title,
+      disaster_type,
+      description,
+      start_date,
+      end_date,
+      ended_at,
+      status,
+      created_by,
+      created_at,
+      updated_at
+  `;
+
+  const result = await dbClient.query(query, [id, endDate, endedAt]);
+  return result.rows[0] || null;
+};
+
 const getDisasterEventReportSummary = async ({
   disasterEventId = null,
   barangayId = null,
@@ -1031,6 +1063,7 @@ module.exports = {
   insertDisasterEventBarangays,
   deleteDisasterEventBarangaysByDisasterEventId,
   updateDisasterEventById,
+  closeDisasterEventIfActive,
   getDisasterEventReportSummary,
   getDisasterEventReportBarangayBreakdown,
 };
