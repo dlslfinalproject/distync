@@ -401,6 +401,7 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
         householdDetails={suggestedHouseholdDetails}
         onClose={handleCloseSuggestedHouseholdDetails}
         showAdministrativeMetadata={false}
+        showDataPrivacyAcknowledgement={false}
       />
 
       <FormModalShell

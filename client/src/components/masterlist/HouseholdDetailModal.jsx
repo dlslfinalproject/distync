@@ -243,6 +243,7 @@ const HouseholdDetailModal = ({
   onClose,
   onEditHousehold,
   showAdministrativeMetadata = true,
+  showDataPrivacyAcknowledgement = false,
 }) => {
   if (!isOpen) {
     return null;
@@ -281,6 +282,20 @@ const HouseholdDetailModal = ({
   );
   const stayTypeLabel = formatStayTypeLabel(household?.current_stay_type);
   const privacyConsent = householdDetails?.privacy_consent || null;
+  const dataPrivacyAcknowledgementItems = [
+    {
+      label: "Privacy Acknowledgement",
+      value: formatPrivacyStatus(privacyConsent),
+    },
+    {
+      label: "Privacy Notice Version",
+      value: privacyConsent?.notice_version || "Not recorded",
+    },
+    {
+      label: "Acknowledged On",
+      value: formatDateTime(privacyConsent?.recorded_at),
+    },
+  ];
   const summaryItems = [
     {
       label: "Disaster Event",
@@ -334,17 +349,11 @@ const HouseholdDetailModal = ({
   if (showAdministrativeMetadata) {
     summaryItems.push(
       {
+        ...dataPrivacyAcknowledgementItems[0],
         label: "Privacy Acknowledgment",
-        value: formatPrivacyStatus(privacyConsent),
       },
-      {
-        label: "Privacy Notice Version",
-        value: privacyConsent?.notice_version || "Not recorded",
-      },
-      {
-        label: "Acknowledged On",
-        value: formatDateTime(privacyConsent?.recorded_at),
-      },
+      dataPrivacyAcknowledgementItems[1],
+      dataPrivacyAcknowledgementItems[2],
       {
         label: "Sync Status",
         value: privacyConsent?.sync_status || "--",
@@ -492,6 +501,22 @@ const HouseholdDetailModal = ({
                 </div>
               )}
             </section>
+
+            {showDataPrivacyAcknowledgement ? (
+              <section style={shellStyles.card}>
+                <h3 style={{ margin: 0, color: "#17324d" }}>
+                  Data Privacy Acknowledgement
+                </h3>
+                <div style={{ ...modalStyles.grid, marginTop: "14px" }}>
+                  {dataPrivacyAcknowledgementItems.map((item) => (
+                    <div key={item.label}>
+                      <p style={modalStyles.label}>{item.label}</p>
+                      <p style={modalStyles.value}>{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
           </div>
         )}
       </div>

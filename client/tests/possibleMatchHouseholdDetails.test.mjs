@@ -33,6 +33,8 @@ const mswdoMasterlistSource = readSource(
 );
 
 const unwantedAdministrativeLabels = [
+  "Data Privacy Acknowledgement",
+  "Privacy Acknowledgement",
   "Privacy Acknowledgment",
   "Privacy Notice Version",
   "Acknowledged On",
@@ -44,6 +46,10 @@ test("PM-HD-01 possible-match household details uses the shared details modal wi
   assert.match(
     registerModalSource,
     /<HouseholdDetailModal[\s\S]*isOpen=\{Boolean\(viewingSuggestedHouseholdId\)\}[\s\S]*householdDetails=\{suggestedHouseholdDetails\}[\s\S]*showAdministrativeMetadata=\{false\}/,
+  );
+  assert.match(
+    registerModalSource,
+    /<HouseholdDetailModal[\s\S]*isOpen=\{Boolean\(viewingSuggestedHouseholdId\)\}[\s\S]*householdDetails=\{suggestedHouseholdDetails\}[\s\S]*showDataPrivacyAcknowledgement=\{false\}/,
   );
 });
 
@@ -130,7 +136,19 @@ test("PM-HD-06 administrative labels remain gated by the shared visibility prop"
     /if \(showAdministrativeMetadata\) \{[\s\S]*summaryItems\.push/,
   );
 
-  unwantedAdministrativeLabels.forEach((label) => {
+  unwantedAdministrativeLabels.slice(2).forEach((label) => {
     assert.match(detailModalSource, new RegExp(label));
+  });
+});
+
+test("PM-HD-07 possible-match household details does not enable the data privacy acknowledgement section", () => {
+  assert.match(detailModalSource, /showDataPrivacyAcknowledgement = false/);
+  assert.match(
+    registerModalSource,
+    /<HouseholdDetailModal[\s\S]*showAdministrativeMetadata=\{false\}[\s\S]*showDataPrivacyAcknowledgement=\{false\}/,
+  );
+
+  unwantedAdministrativeLabels.forEach((label) => {
+    assert.doesNotMatch(registerModalSource, new RegExp(label));
   });
 });
