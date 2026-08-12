@@ -281,9 +281,8 @@ export const useMswdoStubDistribution = ({ userId = "" } = {}) => {
 
       try {
         const dashboardPayload = await fetchBarangayStubDashboard({
-          userId: null,
           disasterEventId: selectedDisasterEventId,
-          overrideBarangayId: selectedBarangayId,
+          barangayId: selectedBarangayId,
         });
 
         if (!isMounted) {

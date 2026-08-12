@@ -45,6 +45,7 @@ const handleJsonResponse = async (response, fallbackMessage) => {
 export const fetchBarangayStubDashboard = async ({
   userId,
   disasterEventId,
+  barangayId,
   overrideBarangayId,
 }) => {
   const searchParams = new URLSearchParams({
@@ -53,6 +54,10 @@ export const fetchBarangayStubDashboard = async ({
 
   if (userId) {
     searchParams.set("user_id", userId);
+  }
+
+  if (barangayId) {
+    searchParams.set("barangay_id", barangayId);
   }
 
   if (overrideBarangayId) {
@@ -125,10 +130,12 @@ export const fetchStubDetails = async (stubId, { currentBarangayId = "" } = {}) 
 export const claimStub = async ({
   stubId,
   userId,
+  barangayId,
   overrideBarangayId,
 }) => {
   const payload = {
     user_id: userId || null,
+    barangay_id: barangayId || null,
     override_barangay_id: overrideBarangayId || null,
   };
 

@@ -72,6 +72,7 @@ router.get(
           ? {
               ...req.validatedQuery,
               user_id: req.auth.userId,
+              barangay_id: null,
               override_barangay_id: null,
               qr_generated_by: req.auth.userId,
             }
@@ -127,6 +128,7 @@ router.post(
         ? {
             ...req.validatedBody,
             user_id: req.auth.userId,
+            barangay_id: null,
             override_barangay_id: null,
             verified_by: req.auth.userId,
             requester: req.auth,

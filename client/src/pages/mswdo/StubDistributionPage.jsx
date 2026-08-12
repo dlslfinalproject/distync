@@ -567,8 +567,7 @@ const StubDistributionPage = () => {
           selectedStubIds.map((stubId) =>
             claimStub({
               stubId,
-              userId: "",
-              overrideBarangayId: selectedBarangayId,
+              barangayId: selectedBarangayId,
             }),
           ),
         );
@@ -597,8 +596,7 @@ const StubDistributionPage = () => {
     try {
       await claimStub({
         stubId: pendingClaimStubId,
-        userId: "",
-        overrideBarangayId: selectedBarangayId,
+        barangayId: selectedBarangayId,
       });
       reloadDashboard();
       setPendingClaimStubId("");
