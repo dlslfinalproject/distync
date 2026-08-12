@@ -93,6 +93,8 @@ const createBaseStubs = ({
   lockedStub = scopedStub,
   claimHandler = null,
   verificationStub = scopedStub,
+  masterlistOverrides = {},
+  stubRepositoryOverrides = {},
 }) => ({
   [masterlistRepositoryPath]: {
     BARANGAY_ROLE_CODE: "BARANGAY",
@@ -104,12 +106,19 @@ const createBaseStubs = ({
       id: baseBarangayId,
       is_active: true,
     }),
+    getBarangayScopedDisasterEventById: async () => ({
+      id: baseStub.disaster_event_id,
+      disaster_type: "TYPHOON",
+    }),
+    ...masterlistOverrides,
   },
   [dbPath]: createFakePool(events),
   [distributionTransactionRepositoryPath]: {
     getStubByIdForUpdate: async () => lockedStub,
   },
-  [reliefPackTemplateRepositoryPath]: {},
+  [reliefPackTemplateRepositoryPath]: {
+    getReliefPackTemplates: async () => [],
+  },
   [stubRepositoryPath]: {
     getScopedStubById: async () => scopedStub,
     getStubByQrCodeValue: async () => verificationStub,
@@ -121,6 +130,16 @@ const createBaseStubs = ({
       receipt_no: "RCPT-2026-000001",
       received_at: "2026-08-08T01:00:00.000Z",
     }),
+    getStubDashboardMetrics: async () => ({
+      total_issued_stubs: 1,
+      claimed_stubs: 0,
+      unclaimed_stubs: 1,
+      beneficiary_families: 1,
+    }),
+    getBarangayStubDashboardRows: async () => [],
+    getHouseholdSectorsByHouseholdIds: async () => [],
+    getMemberSectorsByHouseholdIds: async () => [],
+    ...stubRepositoryOverrides,
   },
   [mswdoReportExportPath]: {},
   [automaticReliefPackClaimServicePath]: {
@@ -134,6 +153,17 @@ const createBaseStubs = ({
     getAssignedReliefPackTemplatesForSectorIds: () => [],
   },
 });
+
+const withNodeEnv = async (nodeEnv, runTest) => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = nodeEnv;
+
+  try {
+    await runTest();
+  } finally {
+    process.env.NODE_ENV = originalNodeEnv;
+  }
+};
 
 test("H05-07 claimBarangayStub emits STUB_ALREADY_CLAIMED only for claimed stubs", async () => {
   await withStubbedStubService(
@@ -386,4 +416,334 @@ test("EE-FIX-03 claimBarangayStub allows ACTIVE event claims to reach domain mut
 
   assert.equal(claimHandlerCalled, true);
   assert.deepEqual(events, ["BEGIN", "COMMIT", "RELEASE"]);
+});
+
+test("DEPLOY-MSWDO-RGD-01 production MSWDO dashboard accepts barangay_id without override", async () => {
+  await withNodeEnv("production", async () => {
+    const selectedBarangayId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const rows = [];
+    const dashboardCalls = [];
+
+    await withStubbedStubService(
+      createBaseStubs({
+        masterlistOverrides: {
+          getBarangayUserScopeById: async () => {
+            throw new Error("MSWDO barangay_id must not require user scope");
+          },
+          getBarangaySummaryById: async (barangayId) => ({
+            id: barangayId,
+            code: "BRGY",
+            name: "Selected Barangay",
+            is_active: true,
+          }),
+          getBarangayScopedDisasterEventById: async (eventId, barangayId) => {
+            dashboardCalls.push({ eventId, barangayId });
+            return {
+              id: eventId,
+              disaster_type: "TYPHOON",
+            };
+          },
+        },
+        stubRepositoryOverrides: {
+          getStubDashboardMetrics: async (eventId, barangayId) => ({
+            eventId,
+            barangayId,
+            total_issued_stubs: 0,
+            claimed_stubs: 0,
+            unclaimed_stubs: 0,
+            beneficiary_families: 0,
+          }),
+          getBarangayStubDashboardRows: async () => rows,
+        },
+      }),
+      async ({ getBarangayStubDashboard }) => {
+        const result = await getBarangayStubDashboard({
+          disaster_event_id: baseStub.disaster_event_id,
+          barangay_id: selectedBarangayId,
+          override_barangay_id: null,
+          user_id: null,
+          qr_generated_by: "mswdo-user",
+        });
+
+        assert.equal(result.assigned_barangay.id, selectedBarangayId);
+        assert.equal(result.assigned_barangay_id, null);
+        assert.equal(result.is_dev_override, false);
+        assert.equal(result.data.length, 0);
+      },
+    );
+
+    assert.deepEqual(dashboardCalls, [
+      {
+        eventId: baseStub.disaster_event_id,
+        barangayId: selectedBarangayId,
+      },
+    ]);
+  });
+});
+
+test("DEPLOY-MSWDO-RGD-01 production override remains rejected", async () => {
+  await withNodeEnv("production", async () => {
+    await withStubbedStubService(
+      createBaseStubs({
+        masterlistOverrides: {
+          getBarangayUserScopeById: async () => null,
+        },
+      }),
+      async ({ getBarangayStubDashboard }) => {
+        await assert.rejects(
+          () =>
+            getBarangayStubDashboard({
+              disaster_event_id: baseStub.disaster_event_id,
+              user_id: null,
+              barangay_id: null,
+              override_barangay_id: baseBarangayId,
+              qr_generated_by: "mswdo-user",
+            }),
+          (error) => {
+            assert.equal(error.code, "BARANGAY_OVERRIDE_NOT_ALLOWED");
+            assert.equal(error.statusCode, 403);
+            return true;
+          },
+        );
+      },
+    );
+  });
+});
+
+test("DEPLOY-MSWDO-RGD-01 production override remains rejected even with barangay_id", async () => {
+  await withNodeEnv("production", async () => {
+    await withStubbedStubService(
+      createBaseStubs({
+        masterlistOverrides: {
+          getBarangayUserScopeById: async () => null,
+        },
+      }),
+      async ({ getBarangayStubDashboard }) => {
+        await assert.rejects(
+          () =>
+            getBarangayStubDashboard({
+              disaster_event_id: baseStub.disaster_event_id,
+              user_id: null,
+              barangay_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+              override_barangay_id: baseBarangayId,
+              qr_generated_by: "mswdo-user",
+            }),
+          (error) => {
+            assert.equal(error.code, "BARANGAY_OVERRIDE_NOT_ALLOWED");
+            assert.equal(error.statusCode, 403);
+            return true;
+          },
+        );
+      },
+    );
+  });
+});
+
+test("DEPLOY-MSWDO-RGD-01 nonexistent barangay_id is rejected before fallback", async () => {
+  await withStubbedStubService(
+    createBaseStubs({
+      masterlistOverrides: {
+        getBarangaySummaryById: async () => null,
+      },
+    }),
+    async ({ getBarangayStubDashboard }) => {
+      await assert.rejects(
+        () =>
+          getBarangayStubDashboard({
+            disaster_event_id: baseStub.disaster_event_id,
+            user_id: null,
+            barangay_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            override_barangay_id: null,
+          }),
+        (error) => {
+          assert.equal(error.code, "INVALID_BARANGAY");
+          assert.equal(error.statusCode, 400);
+          return true;
+        },
+      );
+    },
+  );
+});
+
+test("DEPLOY-MSWDO-RGD-01 event and barangay mismatch preserves NO_STUB_EVENT_DATA", async () => {
+  await withStubbedStubService(
+    createBaseStubs({
+      masterlistOverrides: {
+        getBarangaySummaryById: async (barangayId) => ({
+          id: barangayId,
+          is_active: true,
+        }),
+        getBarangayScopedDisasterEventById: async () => null,
+      },
+    }),
+    async ({ getBarangayStubDashboard }) => {
+      await assert.rejects(
+        () =>
+          getBarangayStubDashboard({
+            disaster_event_id: baseStub.disaster_event_id,
+            user_id: null,
+            barangay_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            override_barangay_id: null,
+          }),
+        (error) => {
+          assert.equal(error.code, "NO_STUB_EVENT_DATA");
+          assert.equal(error.statusCode, 404);
+          return true;
+        },
+      );
+    },
+  );
+});
+
+test("DEPLOY-MSWDO-RGD-01 Barangay user scope takes precedence over crafted barangay_id", async () => {
+  const assignedBarangayId = baseBarangayId;
+  const craftedBarangayId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const seenBarangayIds = [];
+
+  await withStubbedStubService(
+    createBaseStubs({
+      masterlistOverrides: {
+        getBarangaySummaryById: async (barangayId) => {
+          seenBarangayIds.push(barangayId);
+          return {
+            id: barangayId,
+            code: "BRGY",
+            name: "Scoped Barangay",
+            is_active: true,
+          };
+        },
+        getBarangayScopedDisasterEventById: async (_eventId, barangayId) => {
+          assert.equal(barangayId, assignedBarangayId);
+          return {
+            id: baseStub.disaster_event_id,
+            disaster_type: "TYPHOON",
+          };
+        },
+      },
+    }),
+    async ({ getBarangayStubDashboard }) => {
+      const result = await getBarangayStubDashboard({
+        disaster_event_id: baseStub.disaster_event_id,
+        user_id: baseParams.user_id,
+        barangay_id: craftedBarangayId,
+        override_barangay_id: craftedBarangayId,
+      });
+
+      assert.equal(result.assigned_barangay.id, assignedBarangayId);
+      assert.equal(result.assigned_barangay_id, assignedBarangayId);
+    },
+  );
+
+  assert.deepEqual(seenBarangayIds, [assignedBarangayId]);
+});
+
+test("DEPLOY-MSWDO-RGD-01 production MSWDO claim resolves barangay_id and reaches claim logic", async () => {
+  await withNodeEnv("production", async () => {
+    const selectedBarangayId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const events = [];
+    let scopedLookupBarangayId = null;
+    let lockedLookupCalled = false;
+    let claimHandlerCalled = false;
+
+    await withStubbedStubService(
+      createBaseStubs({
+        events,
+        scopedStub: {
+          ...baseStub,
+          status: "ISSUED",
+          barangay_id: selectedBarangayId,
+        },
+        lockedStub: {
+          ...baseStub,
+          status: "ISSUED",
+          barangay_id: selectedBarangayId,
+        },
+        masterlistOverrides: {
+          getBarangaySummaryById: async (barangayId) => ({
+            id: barangayId,
+            is_active: true,
+          }),
+        },
+        stubRepositoryOverrides: {
+          getScopedStubById: async (_stubId, barangayId) => {
+            scopedLookupBarangayId = barangayId;
+            return {
+              ...baseStub,
+              status: "ISSUED",
+              barangay_id: selectedBarangayId,
+            };
+          },
+        },
+        claimHandler: async () => {
+          claimHandlerCalled = true;
+          return {
+            distributionTransaction: {
+              id: "66666666-6666-4666-8666-666666666666",
+              distribution_status: "CLAIMED",
+            },
+            updatedStub: {
+              ...baseStub,
+              id: baseStub.id,
+              status: "CLAIMED",
+              claimed_at: "2026-08-10T01:00:00.000Z",
+              updated_at: "2026-08-10T01:00:00.000Z",
+            },
+            packQuantity: 1,
+            donatedReliefPacks: [],
+            donatedLooseItems: [],
+          };
+        },
+      }),
+      async ({ claimBarangayStub }) => {
+        const result = await claimBarangayStub({
+          id: baseStub.id,
+          user_id: null,
+          barangay_id: selectedBarangayId,
+          override_barangay_id: null,
+          verified_by: "mswdo-user",
+        });
+
+        lockedLookupCalled = true;
+        assert.equal(result.data.status, "CLAIMED");
+        assert.equal(scopedLookupBarangayId, selectedBarangayId);
+      },
+    );
+
+    assert.equal(lockedLookupCalled, true);
+    assert.equal(claimHandlerCalled, true);
+    assert.deepEqual(events, ["BEGIN", "COMMIT", "RELEASE"]);
+  });
+});
+
+test("DEPLOY-MSWDO-RGD-01 cross-barangay claim remains rejected", async () => {
+  const selectedBarangayId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+  await withStubbedStubService(
+    createBaseStubs({
+      scopedStub: null,
+      masterlistOverrides: {
+        getBarangaySummaryById: async (barangayId) => ({
+          id: barangayId,
+          is_active: true,
+        }),
+      },
+    }),
+    async ({ claimBarangayStub }) => {
+      await assert.rejects(
+        () =>
+          claimBarangayStub({
+            id: baseStub.id,
+            user_id: null,
+            barangay_id: selectedBarangayId,
+            override_barangay_id: null,
+            verified_by: "mswdo-user",
+          }),
+        (error) => {
+          assert.equal(error.code, "STUB_NOT_FOUND");
+          assert.equal(error.statusCode, 404);
+          return true;
+        },
+      );
+    },
+  );
 });

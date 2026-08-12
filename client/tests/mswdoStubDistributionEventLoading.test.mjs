@@ -42,7 +42,8 @@ test("MSWDO-LOAD-07 distribution data loading waits for resolved event selection
     source,
     /if \(\s*!isEventSelectionResolved \|\|\s*isLoadingFilters \|\|\s*!selectedDisasterEventId \|\|\s*!selectedBarangayId/s,
   );
-  assert.match(source, /fetchBarangayStubDashboard\(\{\s*userId: null,\s*disasterEventId: selectedDisasterEventId,\s*overrideBarangayId: selectedBarangayId,/s);
+  assert.match(source, /fetchBarangayStubDashboard\(\{\s*disasterEventId: selectedDisasterEventId,\s*barangayId: selectedBarangayId,/s);
+  assert.doesNotMatch(source, /overrideBarangayId: selectedBarangayId/);
 });
 
 test("MSWDO-LOAD-08 stale distribution responses cannot commit after a newer request", async () => {

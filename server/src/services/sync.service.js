@@ -211,10 +211,12 @@ const ACTION_HANDLERS = {
     entityType: "STUB",
     operationType: "CLAIM",
     roles: [ROLE_CODES.BARANGAY, ROLE_CODES.MSWDO],
-    execute: async ({ entityServerId, auth, clientTimestamp, dbClient }) =>
+    execute: async ({ entityServerId, payload, auth, clientTimestamp, dbClient }) =>
       stubService.claimBarangayStub({
         id: entityServerId,
         user_id: auth.roleCode === ROLE_CODES.BARANGAY ? auth.userId : null,
+        barangay_id:
+          auth.roleCode === ROLE_CODES.MSWDO ? payload?.barangay_id || null : null,
         verified_by: auth.userId,
         claimed_at: clientTimestamp,
         override_barangay_id: null,

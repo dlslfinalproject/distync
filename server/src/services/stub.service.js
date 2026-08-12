@@ -292,14 +292,29 @@ const resolveEffectiveBarangay = async (filters) => {
 
   let effectiveBarangay = null;
 
-  if (filters.override_barangay_id) {
-    if (!isOverrideAllowed) {
-      const error = new Error("Barangay override is only available outside production");
-      error.statusCode = 403;
-      error.code = "BARANGAY_OVERRIDE_NOT_ALLOWED";
+  if (filters.override_barangay_id && !isOverrideAllowed) {
+    const error = new Error("Barangay override is only available outside production");
+    error.statusCode = 403;
+    error.code = "BARANGAY_OVERRIDE_NOT_ALLOWED";
+    throw error;
+  }
+
+  if (userScope?.default_barangay_id) {
+    effectiveBarangay = await masterlistRepository.getBarangaySummaryById(
+      userScope.default_barangay_id,
+    );
+  } else if (filters.barangay_id) {
+    effectiveBarangay = await masterlistRepository.getBarangaySummaryById(
+      filters.barangay_id,
+    );
+
+    if (!effectiveBarangay || effectiveBarangay.is_active === false) {
+      const error = new Error("barangay_id is invalid");
+      error.statusCode = 400;
+      error.code = "INVALID_BARANGAY";
       throw error;
     }
-
+  } else if (filters.override_barangay_id) {
     effectiveBarangay = await masterlistRepository.getBarangaySummaryById(
       filters.override_barangay_id,
     );
@@ -310,10 +325,6 @@ const resolveEffectiveBarangay = async (filters) => {
       error.code = "INVALID_OVERRIDE_BARANGAY";
       throw error;
     }
-  } else if (userScope?.default_barangay_id) {
-    effectiveBarangay = await masterlistRepository.getBarangaySummaryById(
-      userScope.default_barangay_id,
-    );
   }
 
   if (!effectiveBarangay) {
@@ -431,6 +442,7 @@ const getBarangayStubDashboard = async (filters) => {
     assigned_barangay_id: userScope?.default_barangay_id || null,
     is_dev_override: Boolean(
       filters.override_barangay_id &&
+      !filters.barangay_id &&
       effectiveBarangay.id === filters.override_barangay_id,
     ),
     disaster_event: scopedDisasterEvent,

@@ -44,7 +44,12 @@ const validateStubSearch = (req, res, next) => {
 
 const validateGetBarangayStubDashboard = (req, res, next) => {
   try {
-    const { user_id, disaster_event_id, override_barangay_id } = req.query;
+    const {
+      user_id,
+      disaster_event_id,
+      barangay_id,
+      override_barangay_id,
+    } = req.query;
 
     const hasUserId =
       user_id !== undefined &&
@@ -64,6 +69,17 @@ const validateGetBarangayStubDashboard = (req, res, next) => {
     }
 
     if (
+      barangay_id !== undefined &&
+      barangay_id !== null &&
+      barangay_id !== "" &&
+      !isValidUuid(barangay_id)
+    ) {
+      return res.status(400).json({
+        message: "barangay_id must be a valid UUID when provided",
+      });
+    }
+
+    if (
       override_barangay_id !== undefined &&
       override_barangay_id !== null &&
       override_barangay_id !== "" &&
@@ -74,7 +90,7 @@ const validateGetBarangayStubDashboard = (req, res, next) => {
       });
     }
 
-    if (!hasUserId && !override_barangay_id) {
+    if (!hasUserId && !barangay_id && !override_barangay_id) {
       return res.status(400).json({
         error: "NO_ASSIGNED_BARANGAY",
         message: "No assigned barangay. Please contact administrator.",
@@ -84,6 +100,7 @@ const validateGetBarangayStubDashboard = (req, res, next) => {
     req.validatedQuery = {
       user_id: hasUserId ? user_id : null,
       disaster_event_id,
+      barangay_id: barangay_id || null,
       override_barangay_id: override_barangay_id || null,
     };
 
@@ -151,7 +168,12 @@ const validateStubVerify = (req, res, next) => {
 const validateClaimBarangayStub = (req, res, next) => {
   try {
     const { id } = req.params;
-    const { user_id, override_barangay_id, donated_loose_items } = req.body;
+    const {
+      user_id,
+      barangay_id,
+      override_barangay_id,
+      donated_loose_items,
+    } = req.body;
 
     const hasUserId =
       user_id !== undefined &&
@@ -171,6 +193,17 @@ const validateClaimBarangayStub = (req, res, next) => {
     }
 
     if (
+      barangay_id !== undefined &&
+      barangay_id !== null &&
+      barangay_id !== "" &&
+      !isValidUuid(barangay_id)
+    ) {
+      return res.status(400).json({
+        message: "barangay_id must be a valid UUID when provided",
+      });
+    }
+
+    if (
       override_barangay_id !== undefined &&
       override_barangay_id !== null &&
       override_barangay_id !== "" &&
@@ -181,7 +214,7 @@ const validateClaimBarangayStub = (req, res, next) => {
       });
     }
 
-    if (!hasUserId && !override_barangay_id) {
+    if (!hasUserId && !barangay_id && !override_barangay_id) {
       return res.status(400).json({
         error: "NO_ASSIGNED_BARANGAY",
         message: "No assigned barangay. Please contact administrator.",
@@ -223,6 +256,7 @@ const validateClaimBarangayStub = (req, res, next) => {
     req.validatedBody = {
       id,
       user_id: hasUserId ? user_id : null,
+      barangay_id: barangay_id || null,
       override_barangay_id: override_barangay_id || null,
       donated_loose_items: normalizedDonatedLooseItems,
     };
