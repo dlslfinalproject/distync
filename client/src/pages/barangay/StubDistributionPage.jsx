@@ -5,6 +5,7 @@ import { MdQrCodeScanner } from "react-icons/md";
 import BarangayDashboardOverview from "../../components/barangay-dashboard/BarangayDashboardOverview";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import FeedbackToast from "../../components/shared/FeedbackToast";
+import FormModalShell from "../../components/shared/FormModalShell";
 import StubClaimConfirmModal from "../../components/stubs/StubClaimConfirmModal";
 import StubDetailModal from "../../components/stubs/StubDetailModal";
 import StubQrScanErrorModal from "../../components/stubs/StubQrScanErrorModal";
@@ -21,6 +22,7 @@ import {
   fetchStubDetails,
   verifyStub,
 } from "../../features/stubs/stubService";
+import { getStubClaimErrorDialog } from "../../features/stubs/stubClaimErrors";
 import { fetchMswdoSectors } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import { buildMasterlistFilterSectorOptions } from "../../utils/registrationOptions";
@@ -203,6 +205,7 @@ const StubDistributionPage = () => {
   const [sectorOptions, setSectorOptions] = useState([]);
   const [claimingStubId, setClaimingStubId] = useState("");
   const [claimErrorMessage, setClaimErrorMessage] = useState("");
+  const [claimErrorDialog, setClaimErrorDialog] = useState(null);
   const [pendingClaimStubId, setPendingClaimStubId] = useState("");
   const [pendingClaimStubDetails, setPendingClaimStubDetails] = useState(null);
   const [isLoadingPendingClaimStubDetails, setIsLoadingPendingClaimStubDetails] =
@@ -558,6 +561,10 @@ const StubDistributionPage = () => {
     setIsBulkClaimConfirmOpen(false);
   };
 
+  const handleDismissClaimErrorDialog = () => {
+    setClaimErrorDialog(null);
+  };
+
   const handleConfirmClaim = async () => {
     if (isSelectedEventEnded || claimingStubId) {
       return;
@@ -581,7 +588,7 @@ const StubDistributionPage = () => {
       setClaimingStubId("bulk");
 
       try {
-        await Promise.all(
+        const claimResults = await Promise.allSettled(
           claimableSelectedStubIds.map((stubId) =>
             claimStub({
               stubId,
@@ -590,14 +597,47 @@ const StubDistributionPage = () => {
             }),
           ),
         );
+        const rejectedClaim = claimResults.find(
+          (result) => result.status === "rejected",
+        );
+
+        if (rejectedClaim) {
+          const fulfilledStubIds = claimResults
+            .map((result, index) =>
+              result.status === "fulfilled" ? claimableSelectedStubIds[index] : "",
+            )
+            .filter(Boolean);
+
+          if (fulfilledStubIds.length > 0) {
+            reloadDashboard();
+            setSelectedStubIds((currentValues) =>
+              currentValues.filter((stubId) => !fulfilledStubIds.includes(stubId)),
+            );
+          }
+
+          setIsBulkClaimConfirmOpen(false);
+          setPendingClaimStubDetails(null);
+          setClaimErrorDialog(
+            getStubClaimErrorDialog(
+              rejectedClaim.reason,
+              "Unable to mark one or more selected stubs as claimed.",
+            ),
+          );
+          return;
+        }
 
         reloadDashboard();
         setSelectedStubIds([]);
         setIsBulkClaimConfirmOpen(false);
         setPendingClaimStubDetails(null);
       } catch (error) {
-        setClaimErrorMessage(
-          error.message || "Unable to mark the selected stubs as claimed.",
+        setIsBulkClaimConfirmOpen(false);
+        setPendingClaimStubDetails(null);
+        setClaimErrorDialog(
+          getStubClaimErrorDialog(
+            error,
+            "Unable to mark the selected stubs as claimed.",
+          ),
         );
       } finally {
         setClaimingStubId("");
@@ -635,9 +675,9 @@ const StubDistributionPage = () => {
       setPendingClaimStubId("");
       setPendingClaimStubDetails(null);
     } catch (error) {
-      setClaimErrorMessage(
-        error.message || "Unable to mark the stub as claimed.",
-      );
+      setPendingClaimStubId("");
+      setPendingClaimStubDetails(null);
+      setClaimErrorDialog(getStubClaimErrorDialog(error));
     } finally {
       setClaimingStubId("");
     }
@@ -1041,6 +1081,35 @@ const StubDistributionPage = () => {
         onTryAgain={handleDismissQrScanError}
         onCloseScanner={handleCloseQrScanner}
       />
+
+      <FormModalShell
+        isOpen={Boolean(claimErrorDialog)}
+        title={claimErrorDialog?.title || "Unable to Process Claim"}
+        maxWidth="420px"
+        zIndex={1700}
+        onClose={handleDismissClaimErrorDialog}
+        footer={
+          <button
+            type="button"
+            onClick={handleDismissClaimErrorDialog}
+            style={pageHeaderStyles.primaryButton}
+          >
+            OK
+          </button>
+        }
+      >
+        <p
+          style={{
+            margin: 0,
+            color: "#5d7188",
+            fontSize: "14px",
+            lineHeight: 1.6,
+            overflowWrap: "anywhere",
+          }}
+        >
+          {claimErrorDialog?.message || "Unable to mark the stub as claimed."}
+        </p>
+      </FormModalShell>
 
       <FeedbackToast
         message={scanToast.message}
