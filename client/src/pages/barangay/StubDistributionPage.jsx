@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { FaHandHolding } from "react-icons/fa6";
-import { FiPrinter } from "react-icons/fi";
+import { FiPrinter, FiX } from "react-icons/fi";
 import { MdQrCodeScanner } from "react-icons/md";
 import BarangayDashboardOverview from "../../components/barangay-dashboard/BarangayDashboardOverview";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
@@ -46,6 +46,56 @@ import {
 const DEFAULT_STUB_STATUS = STATUS_FILTERS.ALL;
 const DEFAULT_STUB_SORT_ORDER = "oldest";
 const QR_SCAN_COOLDOWN_MS = 1800;
+
+const claimErrorModalBodyStyles = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  textAlign: "center",
+  padding: "4px 0 0",
+};
+
+const claimErrorIconStyles = {
+  width: "48px",
+  height: "48px",
+  borderRadius: "999px",
+  backgroundColor: "#fee2e2",
+  color: "#c53030",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: "28px",
+  lineHeight: 1,
+  marginBottom: "14px",
+};
+
+const claimErrorTitleStyles = {
+  margin: 0,
+  color: "#1f2937",
+  fontSize: "18px",
+  fontWeight: 700,
+};
+
+const claimErrorMessageStyles = {
+  margin: "12px 0 0",
+  color: "#6b7280",
+  fontSize: "14px",
+  lineHeight: 1.6,
+  maxWidth: "320px",
+  overflowWrap: "anywhere",
+};
+
+const claimErrorButtonStyles = {
+  width: "100%",
+  minHeight: "40px",
+  border: "none",
+  borderRadius: "8px",
+  backgroundColor: "#c53030",
+  color: "#ffffff",
+  fontSize: "15px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
 
 const getSectorCodes = (sectorsText) => {
   if (!sectorsText || sectorsText === "-") {
@@ -1084,31 +1134,30 @@ const StubDistributionPage = () => {
 
       <FormModalShell
         isOpen={Boolean(claimErrorDialog)}
-        title={claimErrorDialog?.title || "Unable to Process Claim"}
         maxWidth="420px"
         zIndex={1700}
-        onClose={handleDismissClaimErrorDialog}
+        bodyStyle={{ marginTop: 0 }}
         footer={
           <button
             type="button"
             onClick={handleDismissClaimErrorDialog}
-            style={pageHeaderStyles.primaryButton}
+            style={claimErrorButtonStyles}
           >
             OK
           </button>
         }
       >
-        <p
-          style={{
-            margin: 0,
-            color: "#5d7188",
-            fontSize: "14px",
-            lineHeight: 1.6,
-            overflowWrap: "anywhere",
-          }}
-        >
-          {claimErrorDialog?.message || "Unable to mark the stub as claimed."}
-        </p>
+        <div style={claimErrorModalBodyStyles} role="alert" aria-live="assertive">
+          <div aria-hidden="true" style={claimErrorIconStyles}>
+            <FiX />
+          </div>
+          <p style={claimErrorTitleStyles}>
+            {claimErrorDialog?.title || "Unable to Process Claim"}
+          </p>
+          <p style={claimErrorMessageStyles}>
+            {claimErrorDialog?.message || "Unable to mark the stub as claimed."}
+          </p>
+        </div>
       </FormModalShell>
 
       <FeedbackToast
