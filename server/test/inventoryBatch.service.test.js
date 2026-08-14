@@ -118,6 +118,11 @@ const baseStubs = (repositoryOverrides = {}) => ({
   [repositoryPath]: buildRepositoryStub(repositoryOverrides),
   [stockFormRepositoryPath]: {
     getInventoryItemStockFormsByItemId: async () => [],
+    getInventoryItemStockFormById: async (id) => ({
+      id,
+      inventory_item_id: "item-1",
+      is_active: true,
+    }),
     getInventoryItemStockFormByDefinition: async () => null,
     insertInventoryItemStockForm: async () => ({ id: "stock-form-1" }),
   },
@@ -191,6 +196,46 @@ test("INV-M03 repository insert uses non-aborting targeted ON CONFLICT", () => {
     /ON CONFLICT ON CONSTRAINT \$\{INVENTORY_BATCH_IDENTITY_CONSTRAINT\}\s+DO NOTHING\s+RETURNING/i,
   );
   assert.doesNotMatch(repositorySource, /catch\s*\([^)]*\)[\s\S]*23505/i);
+});
+
+test("createInventoryBatch restock path passes created_by through corrected batch repository insert", async () => {
+  let insertedBatchPayload = null;
+
+  await withStubbedInventoryBatchService(
+    baseStubs({
+      getInventoryBatchByItemIdAndBatchNo: async () => null,
+      insertInventoryBatch: async (batchData) => {
+        insertedBatchPayload = batchData;
+
+        return {
+          id: "batch-created",
+          ...batchData,
+        };
+      },
+    }),
+    async ({ createInventoryBatch }) => {
+      const batch = await createInventoryBatch({
+        inventory_item_id: "item-1",
+        inventory_item_stock_form_id: "stock-form-existing",
+        batch_no: "LOT-RESTOCK",
+        source_type: "LGU",
+        quantity_received: 25,
+        expiration_date: "2027-08-14",
+        created_by: "mayor-user-1",
+      });
+
+      assert.equal(batch.id, "batch-created");
+    },
+  );
+
+  assert.equal(insertedBatchPayload.inventory_item_id, "item-1");
+  assert.equal(
+    insertedBatchPayload.inventory_item_stock_form_id,
+    "stock-form-existing",
+  );
+  assert.equal(insertedBatchPayload.quantity_available, 25);
+  assert.equal(insertedBatchPayload.status, "AVAILABLE");
+  assert.equal(insertedBatchPayload.created_by, "mayor-user-1");
 });
 
 test("createInventoryBatch maps friendly precheck duplicate to canonical 409", async () => {
