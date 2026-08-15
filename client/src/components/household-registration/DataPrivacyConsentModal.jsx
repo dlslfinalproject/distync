@@ -41,6 +41,9 @@ const modalStyles = {
     width: "95vw",
     maxHeight: "90vh",
   },
+  compactBackdrop: {
+    padding: "12px",
+  },
   header: {
     padding: "24px 28px 18px",
     borderBottom: "1px solid #dbe5ef",
@@ -174,9 +177,23 @@ const modalStyles = {
     flexShrink: 0,
     boxSizing: "border-box",
   },
+  compactFooter: {
+    padding: "14px 16px 18px",
+    flexDirection: "column",
+    alignItems: "stretch",
+  },
   footerButton: {
     flex: "1 1 180px",
     minWidth: "180px",
+  },
+  compactFooterButton: {
+    width: "100%",
+    minWidth: 0,
+    maxWidth: "100%",
+    flex: "0 0 auto",
+    whiteSpace: "normal",
+    lineHeight: 1.35,
+    overflowWrap: "normal",
   },
   footerSecondaryButtonDesktop: {
     flex: "0 0 220px",
@@ -316,7 +333,12 @@ const DataPrivacyConsentModal = ({
   }
 
   return (
-    <div style={modalStyles.backdrop}>
+    <div
+      style={{
+        ...modalStyles.backdrop,
+        ...(isCompactViewport ? modalStyles.compactBackdrop : null),
+      }}
+    >
       <div
         ref={dialogRef}
         role="dialog"
@@ -413,7 +435,12 @@ const DataPrivacyConsentModal = ({
           </div>
         </div>
 
-        <div style={modalStyles.footer}>
+        <div
+          style={{
+            ...modalStyles.footer,
+            ...(isCompactViewport ? modalStyles.compactFooter : null),
+          }}
+        >
           <button
             type="button"
             onClick={onCancel}
@@ -422,7 +449,7 @@ const DataPrivacyConsentModal = ({
               ...pageHeaderStyles.secondaryButton,
               ...modalStyles.footerButton,
               ...(isCompactViewport
-                ? null
+                ? modalStyles.compactFooterButton
                 : modalStyles.footerSecondaryButtonDesktop),
             }}
           >
@@ -436,7 +463,7 @@ const DataPrivacyConsentModal = ({
               ...pageHeaderStyles.primaryButton,
               ...modalStyles.footerButton,
               ...(isCompactViewport
-                ? null
+                ? modalStyles.compactFooterButton
                 : modalStyles.footerPrimaryButtonDesktop),
               opacity: isConfirmDisabled ? 0.7 : 1,
             }}
