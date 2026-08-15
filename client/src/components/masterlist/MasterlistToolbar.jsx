@@ -246,7 +246,7 @@ const MasterlistToolbar = ({
         flexWrap: "wrap",
       }}
     >
-      <div style={{ flex: 1 }}>
+      <div className="masterlist-toolbar-search" style={{ flex: 1 }}>
         <SearchBar
           value={searchValue}
           onChange={onSearchChange}
@@ -254,7 +254,10 @@ const MasterlistToolbar = ({
         />
       </div>
 
-      <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
+      <div
+        className="masterlist-toolbar-actions"
+        style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}
+      >
         {!hideRecordStatus ? (
           <label
             style={{

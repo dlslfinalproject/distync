@@ -284,6 +284,7 @@ const BarangayDashboardOverview = ({
           }}
         >
           <p
+            className="barangay-dashboard-event-title"
             style={{
               margin: 0,
               color: "#17324d",
@@ -294,7 +295,10 @@ const BarangayDashboardOverview = ({
             {formatDisasterEventTitle(selectedEvent)}
           </p>
 
-          <div style={{ display: "flex", gap: "24px", marginTop: "14px" }}>
+          <div
+            className="barangay-dashboard-event-meta"
+            style={{ display: "flex", gap: "24px", marginTop: "14px" }}
+          >
             <span>Period: {formatReliefPeriod(selectedEvent)}</span>
             <StatusPill status={selectedEvent?.status} />
           </div>

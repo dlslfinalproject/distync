@@ -384,9 +384,9 @@ const HouseholdDetailModal = ({
   }
 
   return (
-    <div style={modalStyles.backdrop}>
-      <div style={modalStyles.modal}>
-        <div style={modalStyles.topBar}>
+    <div className="masterlist-detail-modal-backdrop" style={modalStyles.backdrop}>
+      <div className="masterlist-detail-modal" style={modalStyles.modal}>
+        <div className="masterlist-detail-modal-topbar" style={modalStyles.topBar}>
           <div>
             <h2 style={{ ...pageHeaderStyles.title, fontSize: "30px" }}>
               Household Details

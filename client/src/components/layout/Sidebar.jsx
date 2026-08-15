@@ -1,6 +1,6 @@
 import React from "react";
 import { NavLink } from "react-router-dom";
-import { FiMenu } from "react-icons/fi";
+import { FiMenu, FiX } from "react-icons/fi";
 import { useAuth } from "../../context/AuthContext";
 import { ROLE_CODES } from "../../utils/roleSession";
 import distyncLogo from "../../assets/distync-logo.png";
@@ -93,6 +93,8 @@ export const SidebarBrandStrip = ({
       onClick={onToggleCollapse}
       style={layoutBrandStyles.menuButton}
       title={title || (isCollapsed ? "Expand sidebar" : "Collapse sidebar")}
+      aria-label={title || (isCollapsed ? "Open navigation menu" : "Close navigation menu")}
+      aria-expanded={!isCollapsed}
     >
       <FiMenu size={20} />
     </button>
@@ -199,7 +201,7 @@ const roleMeta = {
   },
 };
 
-const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
+const Sidebar = ({ isCollapsed, onToggleCollapse, onNavigate, onClose }) => {
   const { currentRole } = useAuth();
 
   if (currentRole === ROLE_CODES.DONOR) return null;
@@ -216,11 +218,32 @@ const Sidebar = ({ isCollapsed, onToggleCollapse }) => {
       style={sidebarStyles.wrapper}
     >
       <div className="distync-sidebar__body" style={sidebarStyles.body}>
+        <div className="distync-sidebar__mobile-header">
+          <div className="distync-sidebar__mobile-brand" aria-label="DISTYNC">
+            <img
+              src={distyncLogo}
+              alt="DISTYNC logo"
+              className="distync-sidebar__mobile-logo"
+            />
+            <span className="distync-sidebar__mobile-wordmark">DISTYNC</span>
+          </div>
+
+          <button
+            type="button"
+            className="distync-sidebar__mobile-close"
+            aria-label="Close navigation menu"
+            onClick={onClose}
+          >
+            <FiX size={20} />
+          </button>
+        </div>
+
         <nav className="distync-sidebar__nav" style={sidebarStyles.nav}>
           {activeRoleMeta.navItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
+              onClick={onNavigate}
               style={{ textDecoration: "none" }}
             >
               {({ isActive }) => (

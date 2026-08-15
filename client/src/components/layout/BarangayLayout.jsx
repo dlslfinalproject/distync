@@ -10,6 +10,7 @@ import { SettingsUnsavedChangesProvider } from "../../pages/settings/SettingsUns
 const SIDEBAR_EXPANDED_WIDTH = "280px";
 const SIDEBAR_COLLAPSED_WIDTH = "0px";
 const HEADER_BRAND_WIDTH = "280px";
+const MOBILE_NAV_QUERY = "(max-width: 768px)";
 
 export const shellStyles = {
   page: {
@@ -105,6 +106,7 @@ export const pageSpacingStyles = {
 
 const BarangayLayout = () => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileNavigation, setIsMobileNavigation] = useState(false);
   const lastNonSettingsCollapseStateRef = useRef(false);
   const location = useLocation();
   const { currentRole } = useAuth();
@@ -125,6 +127,24 @@ const BarangayLayout = () => {
   }, [isDonorPortal, isSettingsRoute, isSidebarCollapsed]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const mediaQuery = window.matchMedia(MOBILE_NAV_QUERY);
+    const syncMobileNavigationState = () => {
+      setIsMobileNavigation(mediaQuery.matches);
+    };
+
+    syncMobileNavigationState();
+    mediaQuery.addEventListener("change", syncMobileNavigationState);
+
+    return () => {
+      mediaQuery.removeEventListener("change", syncMobileNavigationState);
+    };
+  }, []);
+
+  useEffect(() => {
     if (isDonorPortal) {
       return;
     }
@@ -136,6 +156,14 @@ const BarangayLayout = () => {
 
     setIsSidebarCollapsed(lastNonSettingsCollapseStateRef.current);
   }, [isDonorPortal, isSettingsRoute]);
+
+  useEffect(() => {
+    if (!isMobileNavigation || isDonorPortal) {
+      return;
+    }
+
+    setIsSidebarCollapsed(true);
+  }, [isDonorPortal, isMobileNavigation, location.pathname]);
 
   const pageStyle = useMemo(
     () => ({
@@ -170,10 +198,26 @@ const BarangayLayout = () => {
         ) : null}
 
         {!isDonorPortal ? (
-          <Sidebar
-            isCollapsed={isSidebarCollapsed}
-            onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
-          />
+          <>
+            <Sidebar
+              isCollapsed={isSidebarCollapsed}
+              onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
+              onClose={() => setIsSidebarCollapsed(true)}
+              onNavigate={() => {
+                if (isMobileNavigation) {
+                  setIsSidebarCollapsed(true);
+                }
+              }}
+            />
+            {isMobileNavigation && !isSidebarCollapsed ? (
+              <button
+                type="button"
+                className="distync-sidebar__scrim"
+                aria-label="Close navigation menu"
+                onClick={() => setIsSidebarCollapsed(true)}
+              />
+            ) : null}
+          </>
         ) : null}
 
         <main className="distync-shell__main" style={shellStyles.main}>

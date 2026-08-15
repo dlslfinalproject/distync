@@ -263,9 +263,9 @@ const RegisterFamilyModal = ({ isOpen, onClose, form }) => {
   return (
     <>
       {flowStep === HOUSEHOLD_REGISTRATION_FLOW_STEPS.REGISTRATION_FORM ? (
-        <div style={modalStyles.backdrop}>
-          <div style={modalStyles.modal}>
-            <div style={modalStyles.topBar}>
+        <div className="household-registration-modal-backdrop" style={modalStyles.backdrop}>
+          <div className="household-registration-modal" style={modalStyles.modal}>
+            <div className="household-registration-modal-topbar" style={modalStyles.topBar}>
               <div>
                 <h2 style={{ ...pageHeaderStyles.title, fontSize: "30px" }}>
                   {form.isEditMode ? "Edit Household" : "Register Family"}
