@@ -152,3 +152,11 @@ __pycache__/
 /tmp/profile-picture-fixture-a.png
 /tmp/profile-picture-fixture-b.png
 /tmp/run_sql_file.js
+
+# Local browser performance smoke artifacts
+.performance-auth/
+performance-results/
+playwright-report/
+test-results/
+*.trace.zip
+*.har

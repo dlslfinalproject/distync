@@ -6,9 +6,12 @@
     "build": "npm --prefix client run build",
     "build:development": "npm --prefix client run build:development",
     "build:demo": "npm --prefix client run build:demo",
-    "start": "npm --prefix server run start"
+    "start": "npm --prefix server run start",
+    "perf:barangay:auth": "node perf/barangay-masterlist/auth.setup.mjs",
+    "perf:barangay:masterlist": "node perf/barangay-masterlist/run.mjs"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "concurrently": "^10.0.4",
     "eslint": "^10.1.0",
     "prettier": "^3.8.1"
