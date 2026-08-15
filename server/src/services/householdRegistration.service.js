@@ -30,6 +30,10 @@ const RESIDENCY_STATUSES = {
   nonResident: "NON_RESIDENT",
 };
 const BARANGAY_ROLE_CODE = "BARANGAY";
+const DUPLICATE_SUGGESTION_VISIBILITY = {
+  authorized: "AUTHORIZED",
+  restrictedExternalBarangay: "RESTRICTED_EXTERNAL_BARANGAY",
+};
 const RESTORE_MODES = {
   RETURN_TO_EVAC_CENTER: "RETURN_TO_EVAC_CENTER",
 };
@@ -204,6 +208,8 @@ const buildDuplicateSuggestionPersonLabel = (person, fallbackLabel) => {
 };
 
 const buildDuplicateSuggestionMatchSummary = (match) => ({
+  visibility: DUPLICATE_SUGGESTION_VISIBILITY.authorized,
+  details_restricted: false,
   household_id: match.household_id,
   barangay_id: match.barangay_id,
   barangay_name: match.barangay_name || null,
@@ -234,6 +240,43 @@ const buildDuplicateSuggestionMatchSummary = (match) => ({
   match_confidence: match.match_confidence,
   match_reasons: match.match_reasons,
 });
+
+const buildRestrictedExternalBarangayDuplicateSuggestion = () => ({
+  visibility: DUPLICATE_SUGGESTION_VISIBILITY.restrictedExternalBarangay,
+  details_restricted: true,
+});
+
+const canViewDuplicateSuggestionMatch = ({ match, requester }) => {
+  if (requester?.roleCode !== BARANGAY_ROLE_CODE) {
+    return true;
+  }
+
+  return Boolean(
+    requester.defaultBarangayId &&
+      match?.barangay_id === requester.defaultBarangayId,
+  );
+};
+
+const buildVisibleDuplicateSuggestionMatches = ({ matches, requester }) => {
+  const authorizedMatches = [];
+  let hasRestrictedExternalBarangayMatch = false;
+
+  for (const match of matches) {
+    if (canViewDuplicateSuggestionMatch({ match, requester })) {
+      authorizedMatches.push(buildDuplicateSuggestionMatchSummary(match));
+      continue;
+    }
+
+    hasRestrictedExternalBarangayMatch = true;
+  }
+
+  return [
+    ...authorizedMatches,
+    ...(hasRestrictedExternalBarangayMatch
+      ? [buildRestrictedExternalBarangayDuplicateSuggestion()]
+      : []),
+  ];
+};
 
 const buildDuplicateRegistrationError = (duplicateMatch) => {
   const error = new Error(
@@ -656,6 +699,7 @@ const buildDuplicateRegistrationSuggestions = async ({
   familyHead,
   members,
   contactNumber = null,
+  requester = null,
   dbClient = undefined,
 }) => {
   const lookupPeople = buildDuplicateLookupPeople({
@@ -737,7 +781,7 @@ const buildDuplicateRegistrationSuggestions = async ({
   }, {});
 
   const groups = lookupPeople.map((person, index) => {
-    const matches = (groupedMatches[person.person_key] || [])
+    const sortedMatches = (groupedMatches[person.person_key] || [])
       .sort((leftMatch, rightMatch) => {
         if (leftMatch.is_strong_match !== rightMatch.is_strong_match) {
           return leftMatch.is_strong_match ? -1 : 1;
@@ -750,8 +794,11 @@ const buildDuplicateRegistrationSuggestions = async ({
         const leftTime = new Date(leftMatch.registered_at || 0).getTime();
         const rightTime = new Date(rightMatch.registered_at || 0).getTime();
         return rightTime - leftTime;
-      })
-      .map(buildDuplicateSuggestionMatchSummary);
+      });
+    const matches = buildVisibleDuplicateSuggestionMatches({
+      matches: sortedMatches,
+      requester,
+    });
 
     return {
       person_key: person.person_key,
@@ -1312,6 +1359,7 @@ const getDuplicateRegistrationSuggestions = async (requestData) => {
     familyHead,
     members,
     contactNumber: requestData.contact_number || null,
+    requester: requestData.requester || null,
   });
 };
 

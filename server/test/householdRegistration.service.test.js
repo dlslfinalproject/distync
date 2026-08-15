@@ -200,6 +200,275 @@ const buildDuplicateMatch = (overrides = {}) => ({
   ...overrides,
 });
 
+const buildDuplicateSuggestionRequest = (overrides = {}) => ({
+  disaster_event_id: "event-1",
+  barangay_id: "barangay-1",
+  registered_by: "barangay-user-1",
+  contact_number: "0917 000 0000",
+  family_head: {
+    first_name: "HOSHI",
+    middle_name: "",
+    last_name: "KWON",
+    suffix: "",
+    sex: "MALE",
+    age_value: 24,
+    age_unit: "YEARS",
+  },
+  members: [],
+  requester: {
+    userId: "barangay-user-1",
+    roleCode: "BARANGAY",
+    defaultBarangayId: "barangay-1",
+  },
+  ...overrides,
+});
+
+const assertNoRestrictedExternalLeak = (match) => {
+  const serializedMatch = JSON.stringify(match);
+
+  [
+    "Santiago",
+    "barangay-santiago",
+    "household-santiago",
+    "evacuee-santiago",
+    "External",
+    "Santiago Head",
+    "09179999999",
+  ].forEach((protectedValue) => {
+    assert.equal(
+      serializedMatch.includes(protectedValue),
+      false,
+      `${protectedValue} leaked in ${serializedMatch}`,
+    );
+  });
+};
+
+test("duplicate suggestions preserve same-barangay Barangay match details", async () => {
+  const harness = loadServiceWithMocks({
+    getUserBarangayScopeById: async () => ({
+      id: "barangay-user-1",
+      role_code: "BARANGAY",
+      default_barangay_id: "barangay-1",
+    }),
+    findPotentialDuplicatePersonMatches: async () => [buildDuplicateMatch()],
+  });
+
+  try {
+    const result = await harness.service.getDuplicateRegistrationSuggestions(
+      buildDuplicateSuggestionRequest(),
+    );
+    const match = result.groups[0].matches[0];
+
+    assert.equal(result.total_matches, 1);
+    assert.equal(match.visibility, "AUTHORIZED");
+    assert.equal(match.details_restricted, false);
+    assert.equal(match.household_id, "household-123");
+    assert.equal(match.barangay_id, "barangay-1");
+    assert.equal(match.barangay_name, "Bagong Pook");
+    assert.equal(match.family_head_name, "HOSHI KWON");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("duplicate suggestions redact cross-barangay Barangay match details", async () => {
+  const harness = loadServiceWithMocks({
+    getUserBarangayScopeById: async () => ({
+      id: "barangay-user-1",
+      role_code: "BARANGAY",
+      default_barangay_id: "barangay-1",
+    }),
+    findPotentialDuplicatePersonMatches: async () => [
+      buildDuplicateMatch({
+        household_id: "household-santiago",
+        barangay_id: "barangay-santiago",
+        barangay_name: "Santiago",
+        household_family_head_first_name: "External",
+        household_family_head_middle_name: "",
+        household_family_head_last_name: "Head",
+        matched_first_name: "External",
+        matched_middle_name: "",
+        matched_last_name: "Head",
+        matched_contact_number: "09179999999",
+      }),
+    ],
+  });
+
+  try {
+    const result = await harness.service.getDuplicateRegistrationSuggestions(
+      buildDuplicateSuggestionRequest(),
+    );
+    const match = result.groups[0].matches[0];
+
+    assert.equal(result.total_matches, 1);
+    assert.equal(match.visibility, "RESTRICTED_EXTERNAL_BARANGAY");
+    assert.equal(match.details_restricted, true);
+    assert.deepEqual(Object.keys(match).sort(), [
+      "details_restricted",
+      "visibility",
+    ]);
+    assertNoRestrictedExternalLeak(match);
+    assertNoRestrictedExternalLeak(result);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("duplicate suggestions keep authorized matches and aggregate external Barangay matches", async () => {
+  const harness = loadServiceWithMocks({
+    getUserBarangayScopeById: async () => ({
+      id: "barangay-user-1",
+      role_code: "BARANGAY",
+      default_barangay_id: "barangay-1",
+    }),
+    findPotentialDuplicatePersonMatches: async () => [
+      buildDuplicateMatch({ household_id: "household-bagong-pook" }),
+      buildDuplicateMatch({
+        household_id: "household-santiago",
+        barangay_id: "barangay-santiago",
+        barangay_name: "Santiago",
+        household_family_head_first_name: "External",
+        household_family_head_last_name: "Head",
+        matched_first_name: "External",
+        matched_last_name: "Head",
+      }),
+    ],
+  });
+
+  try {
+    const result = await harness.service.getDuplicateRegistrationSuggestions(
+      buildDuplicateSuggestionRequest(),
+    );
+    const matches = result.groups[0].matches;
+
+    assert.equal(matches.length, 2);
+    assert.equal(matches[0].visibility, "AUTHORIZED");
+    assert.equal(matches[0].household_id, "household-bagong-pook");
+    assert.equal(matches[1].visibility, "RESTRICTED_EXTERNAL_BARANGAY");
+    assert.equal(JSON.stringify(result).includes("Santiago"), false);
+    assert.equal(JSON.stringify(result).includes("household-santiago"), false);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("duplicate suggestions collapse multiple external Barangay matches into one restricted indication", async () => {
+  const harness = loadServiceWithMocks({
+    getUserBarangayScopeById: async () => ({
+      id: "barangay-user-1",
+      role_code: "BARANGAY",
+      default_barangay_id: "barangay-1",
+    }),
+    findPotentialDuplicatePersonMatches: async () => [
+      buildDuplicateMatch({
+        household_id: "household-santiago",
+        barangay_id: "barangay-santiago",
+        barangay_name: "Santiago",
+        household_family_head_first_name: "External",
+        household_family_head_last_name: "Head",
+      }),
+      buildDuplicateMatch({
+        household_id: "household-san-andres",
+        barangay_id: "barangay-san-andres",
+        barangay_name: "San Andres",
+        household_family_head_first_name: "Another",
+        household_family_head_last_name: "External",
+      }),
+    ],
+  });
+
+  try {
+    const result = await harness.service.getDuplicateRegistrationSuggestions(
+      buildDuplicateSuggestionRequest(),
+    );
+    const serializedResult = JSON.stringify(result);
+
+    assert.equal(result.total_matches, 1);
+    assert.equal(result.groups[0].matches.length, 1);
+    assert.equal(
+      result.groups[0].matches[0].visibility,
+      "RESTRICTED_EXTERNAL_BARANGAY",
+    );
+    assert.equal(serializedResult.includes("Santiago"), false);
+    assert.equal(serializedResult.includes("San Andres"), false);
+    assert.equal(serializedResult.includes("household-san-andres"), false);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("duplicate suggestions preserve MSWDO cross-barangay match details", async () => {
+  const harness = loadServiceWithMocks({
+    getUserBarangayScopeById: async () => ({
+      id: "mswdo-user-1",
+      role_code: "MSWDO",
+      default_barangay_id: null,
+    }),
+    findPotentialDuplicatePersonMatches: async () => [
+      buildDuplicateMatch({
+        household_id: "household-santiago",
+        barangay_id: "barangay-santiago",
+        barangay_name: "Santiago",
+      }),
+    ],
+  });
+
+  try {
+    const result = await harness.service.getDuplicateRegistrationSuggestions(
+      buildDuplicateSuggestionRequest({
+        registered_by: "mswdo-user-1",
+        requester: {
+          userId: "mswdo-user-1",
+          roleCode: "MSWDO",
+          defaultBarangayId: null,
+        },
+      }),
+    );
+    const match = result.groups[0].matches[0];
+
+    assert.equal(match.visibility, "AUTHORIZED");
+    assert.equal(match.details_restricted, false);
+    assert.equal(match.household_id, "household-santiago");
+    assert.equal(match.barangay_name, "Santiago");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("getHouseholdDetails still denies direct cross-barangay Barangay access", async () => {
+  const harness = loadServiceWithMocks({
+    getHouseholdSummaryById: async () => ({
+      id: "household-santiago",
+      barangay_id: "barangay-santiago",
+      disaster_event_id: "event-1",
+      disaster_event_status: "ACTIVE",
+      family_head_first_name: "External",
+      family_head_last_name: "Head",
+      is_active: true,
+    }),
+  });
+
+  try {
+    await assert.rejects(
+      harness.service.getHouseholdDetails({
+        householdId: "household-santiago",
+        requester: {
+          userId: "barangay-user-1",
+          roleCode: "BARANGAY",
+          defaultBarangayId: "barangay-1",
+        },
+      }),
+      (error) => {
+        assert.equal(error.statusCode, 403);
+        assert.match(error.message, /do not have access/i);
+        return true;
+      },
+    );
+  } finally {
+    harness.restore();
+  }
+});
+
 test("registerHousehold blocks exact full-name duplicate matches", async () => {
   const harness = loadServiceWithMocks({
     findPotentialDuplicatePersonMatches: async () => [
