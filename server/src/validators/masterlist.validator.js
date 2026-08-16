@@ -16,9 +16,23 @@ const parseUuidList = (value) => {
     .filter(Boolean);
 };
 
+const parsePositiveInteger = (value, fallback) => {
+  const parsedValue = Number.parseInt(value, 10);
+  return Number.isInteger(parsedValue) && parsedValue > 0 ? parsedValue : fallback;
+};
+
 const validateGetMasterlist = (req, res, next) => {
   try {
-    const { disaster_event_id, barangay_id, record_status } = req.query;
+    const {
+      disaster_event_id,
+      barangay_id,
+      record_status,
+      page,
+      pageSize,
+      search,
+      sector_ids,
+      sort_order,
+    } = req.query;
 
     if (!isValidUuid(disaster_event_id)) {
       return res.status(400).json({
@@ -41,10 +55,57 @@ const validateGetMasterlist = (req, res, next) => {
       });
     }
 
+    const hasPage = page !== undefined;
+    const hasPageSize = pageSize !== undefined;
+    const parsedPage = hasPage ? parsePositiveInteger(page, 1) : null;
+    const parsedPageSize = hasPageSize
+      ? Math.min(parsePositiveInteger(pageSize, 25), 100)
+      : null;
+    const parsedSectorTokens = parseUuidList(sector_ids);
+    const parsedSectorIds = parsedSectorTokens.filter(isValidUuid);
+    const parsedSectorCodes = parsedSectorTokens.filter(
+      (sectorToken) => !isValidUuid(sectorToken),
+    );
+
+    if (hasPage && String(parsedPage) !== String(Number.parseInt(page, 10))) {
+      return res.status(400).json({
+        message: "page must be a positive integer when provided",
+      });
+    }
+
+    if (hasPageSize) {
+      const requestedPageSize = Number.parseInt(pageSize, 10);
+
+      if (
+        !Number.isInteger(requestedPageSize) ||
+        requestedPageSize < 1 ||
+        requestedPageSize > 100
+      ) {
+        return res.status(400).json({
+          message: "pageSize must be an integer between 1 and 100",
+        });
+      }
+    }
+
+    if (
+      sort_order !== undefined &&
+      !["newest", "oldest", "az", "za"].includes(String(sort_order).toLowerCase())
+    ) {
+      return res.status(400).json({
+        message: "sort_order must be newest, oldest, az, or za when provided",
+      });
+    }
+
     req.validatedQuery = {
       disaster_event_id,
       barangay_id: barangay_id || null,
       record_status: String(record_status || "active").toLowerCase(),
+      page: parsedPage,
+      pageSize: parsedPageSize,
+      search: typeof search === "string" ? search.trim() : "",
+      sector_ids: parsedSectorIds,
+      sector_codes: parsedSectorCodes,
+      sort_order: String(sort_order || "newest").toLowerCase(),
     };
 
     return next();

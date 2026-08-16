@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import PageHeader from "../../components/layout/PageHeader";
 import BarangayDashboardOverview from "../../components/barangay-dashboard/BarangayDashboardOverview";
@@ -45,12 +45,26 @@ import {
   downloadExportFile,
   resolveExportErrorMessage,
 } from "../../utils/exportHelpers";
-import db from "../../offline/db.js";
+
+const DEFAULT_MASTERLIST_PAGE_SIZE = 25;
+const MASTERLIST_PAGE_SIZE_OPTIONS = [25, 50, 100];
+const SEARCH_DEBOUNCE_MS = 300;
 
 const BarangayMasterlistPage = () => {
   const { authenticatedUser } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [recordStatus, setRecordStatus] = useState("active");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_MASTERLIST_PAGE_SIZE);
+  const [selectedSectorIdsByScope, setSelectedSectorIdsByScope] = useState({
+    active: [],
+    ended: [],
+  });
+  const [sortOrderByScope, setSortOrderByScope] = useState({
+    active: "newest",
+    ended: "newest",
+  });
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [registrationSuccessMessage, setRegistrationSuccessMessage] =
     useState("");
@@ -135,10 +149,18 @@ const BarangayMasterlistPage = () => {
     userId: authenticatedUser?.id || "",
   });
 
+  const selectedSectorIds = selectedSectorIdsByScope[eventScope] || [];
+  const selectedSortOrder = sortOrderByScope[eventScope] || "newest";
+
   const { data, isLoading, errorMessage, reloadMasterlist } = useMasterlist({
     disasterEventId: selectedEvent?.id || "",
     barangayId: assignedBarangay?.id || "",
     recordStatus,
+    page: currentPage,
+    pageSize,
+    search: debouncedSearchTerm,
+    sectorIds: selectedSectorIds,
+    sortOrder: selectedSortOrder,
   });
 
   const isSelectedEventEnded = isEndedDisasterEvent(selectedEvent, eventScope);
@@ -195,19 +217,12 @@ const BarangayMasterlistPage = () => {
 
   const {
     sectorOptions,
-    selectedSectorIds,
-    selectedSortOrder,
     filteredRows,
-    toggleSectorFilter,
-    clearSectorFilters,
-    setSelectedSortOrder,
   } = useBarangayMasterlistSync({
     rows: data.rows,
     syncQueueEntries,
     selectedEvent,
     assignedBarangay,
-    searchTerm,
-    eventScope,
     reloadMasterlist,
   });
 
@@ -247,6 +262,82 @@ const BarangayMasterlistPage = () => {
   const selectedExportBarangayIds = assignedBarangay?.id
     ? [assignedBarangay.id]
     : [];
+  const masterlistPagination = data.pagination || {
+    page: currentPage,
+    pageSize,
+    totalItems: filteredRows.length,
+    totalPages: filteredRows.length > 0 ? 1 : 0,
+    hasPreviousPage: false,
+    hasNextPage: false,
+  };
+  const masterlistTotalItems = Number(masterlistPagination.totalItems || 0);
+  const masterlistTotalPages = Number(masterlistPagination.totalPages || 0);
+
+  const toggleSectorFilter = (sectorId) => {
+    setSelectedSectorIdsByScope((currentFilters) => ({
+      ...currentFilters,
+      [eventScope]: (currentFilters[eventScope] || []).includes(sectorId)
+        ? (currentFilters[eventScope] || []).filter((value) => value !== sectorId)
+        : [...(currentFilters[eventScope] || []), sectorId],
+    }));
+    setCurrentPage(1);
+  };
+
+  const clearSectorFilters = () => {
+    setSelectedSectorIdsByScope((currentFilters) => ({
+      ...currentFilters,
+      [eventScope]: [],
+    }));
+    setSortOrderByScope((currentValues) => ({
+      ...currentValues,
+      [eventScope]: "newest",
+    }));
+    setCurrentPage(1);
+  };
+
+  const setSelectedSortOrder = (value) => {
+    setSortOrderByScope((currentValues) => ({
+      ...currentValues,
+      [eventScope]: value || "newest",
+    }));
+    setCurrentPage(1);
+  };
+
+  const handleRecordStatusChange = (value) => {
+    setRecordStatus(value);
+    setCurrentPage(1);
+  };
+
+  const handleSearchChange = (value) => {
+    setSearchTerm(value);
+    setCurrentPage(1);
+  };
+
+  const handlePageSizeChange = (value) => {
+    setPageSize(Number(value) || DEFAULT_MASTERLIST_PAGE_SIZE);
+    setCurrentPage(1);
+  };
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [searchTerm]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+    setSelectedHouseholds([]);
+  }, [eventScope, selectedEvent?.id]);
+
+  useEffect(() => {
+    if (masterlistTotalPages > 0 && currentPage > masterlistTotalPages) {
+      setCurrentPage(masterlistTotalPages);
+    }
+  }, [currentPage, masterlistTotalPages]);
 
   useEffect(() => {
     let isMounted = true;
@@ -812,11 +903,11 @@ const BarangayMasterlistPage = () => {
 
       <MasterlistToolbar
         searchValue={searchTerm}
-        onSearchChange={setSearchTerm}
+        onSearchChange={handleSearchChange}
         onOpenRegisterFamily={handleOpenRegisterModal}
         hideRegisterButton={eventScope === "ended" || !hasSelectedEvent}
         recordStatus={recordStatus}
-        onRecordStatusChange={setRecordStatus}
+        onRecordStatusChange={handleRecordStatusChange}
         sectorOptions={sectorOptions}
         selectedSectorIds={selectedSectorIds}
         selectedSortOrder={selectedSortOrder}
@@ -853,6 +944,11 @@ const BarangayMasterlistPage = () => {
         onToggleSelect={handleToggleSelect}
         onSelectAll={handleSelectAll}
         showAddressColumn={false}
+        pagination={masterlistPagination}
+        pageSizeOptions={MASTERLIST_PAGE_SIZE_OPTIONS}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={handlePageSizeChange}
+        totalItems={masterlistTotalItems}
       />
 
       <RegisterFamilyModal

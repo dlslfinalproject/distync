@@ -199,6 +199,80 @@ img {
   width: 100%;
 }
 
+.masterlist-pagination-metadata {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.masterlist-pagination-range {
+  color: #5d7188;
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.masterlist-pagination-size {
+  align-items: center;
+  color: #55718b;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 8px;
+}
+
+.masterlist-pagination-size select {
+  background-color: #ffffff;
+  border: 1px solid #c7d6e5;
+  border-radius: 10px;
+  color: #17324d;
+  font-size: 13px;
+  font-weight: 700;
+  min-height: 36px;
+  padding: 7px 10px;
+}
+
+.masterlist-pagination-navigation {
+  border-top: 1px solid #edf3f8;
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+  padding-top: 12px;
+}
+
+.masterlist-pagination-controls {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+}
+
+.masterlist-pagination-controls span {
+  color: #5d7188;
+  font-size: 13px;
+  font-weight: 700;
+  min-width: 92px;
+  text-align: center;
+}
+
+.masterlist-pagination-controls button {
+  background-color: #f8fbfe;
+  border: 1px solid #c6d8ea;
+  border-radius: 10px;
+  color: #2a4c6f;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+  min-height: 38px;
+  padding: 8px 14px;
+}
+
+.masterlist-pagination-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .distribution-history-page-indicator {
   color: #24496e;
   font-size: 13px;
@@ -652,6 +726,35 @@ img {
 
   .stub-results-pagination-navigation {
     justify-content: center !important;
+  }
+
+  .masterlist-pagination-metadata {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .masterlist-pagination-navigation {
+    justify-content: center;
+  }
+
+  .masterlist-pagination-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .masterlist-pagination-controls span {
+    grid-column: 1 / -1;
+    min-width: 0;
+    order: 1;
+    width: 100%;
+  }
+
+  .masterlist-pagination-controls button {
+    min-width: 0;
+    order: 2;
+    width: 100%;
   }
 
   .stub-detail-modal-topbar {

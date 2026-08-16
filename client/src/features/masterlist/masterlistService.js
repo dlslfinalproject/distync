@@ -211,7 +211,10 @@ export const mapMasterlistRow = (household, households = [], options = {}) => {
       : household.barangay?.name;
   const isOperationallyActive = isOperationallyActiveHousehold(household);
   const isNonAdmittedResident = isNonAdmittedResidentHousehold(household);
-  const admitAlreadyUsed = hasAdmittedSuccessor(household, households);
+  const admitAlreadyUsed =
+    typeof household.has_admitted_successor === "boolean"
+      ? household.has_admitted_successor
+      : hasAdmittedSuccessor(household, households);
   const sectorIds = [
     ...(household.household_sectors || []).map((sector) => sector.id),
     ...(household.members || []).flatMap((member) =>
@@ -317,6 +320,11 @@ export const fetchMasterlist = async ({
   disasterEventId,
   barangayId,
   recordStatus = "active",
+  page,
+  pageSize,
+  search = "",
+  sectorIds = [],
+  sortOrder = "newest",
 }) => {
   if (!disasterEventId) {
     return {
@@ -327,6 +335,7 @@ export const fetchMasterlist = async ({
         withAttendance: 0,
       },
       rows: [],
+      pagination: null,
     };
   }
 
@@ -340,6 +349,26 @@ export const fetchMasterlist = async ({
 
   if (recordStatus) {
     searchParams.set("record_status", recordStatus);
+  }
+
+  if (page) {
+    searchParams.set("page", page);
+  }
+
+  if (pageSize) {
+    searchParams.set("pageSize", pageSize);
+  }
+
+  if (search.trim()) {
+    searchParams.set("search", search.trim());
+  }
+
+  if (Array.isArray(sectorIds) && sectorIds.length > 0) {
+    searchParams.set("sector_ids", sectorIds.join(","));
+  }
+
+  if (sortOrder) {
+    searchParams.set("sort_order", sortOrder);
   }
 
   const response = await fetch(
@@ -370,11 +399,12 @@ export const fetchMasterlist = async ({
   return {
     disasterEvent: payload.disaster_event || null,
     summary: {
-      registeredFamilies: households.length,
+      registeredFamilies: payload.pagination?.totalItems || payload.count || households.length,
       totalMembers,
       withAttendance,
     },
     rows,
+    pagination: payload.pagination || null,
   };
 };
 

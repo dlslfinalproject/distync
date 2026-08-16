@@ -63,14 +63,28 @@ const getMasterlist = async (filters) => {
     }
   }
 
-  const households = await masterlistRepository.getHouseholdsByFilters(
+  const householdResult = await masterlistRepository.getHouseholdsByFilters(
     filters.disaster_event_id,
     filters.barangay_id,
     filters.record_status,
+    {
+      page: filters.page,
+      pageSize: filters.pageSize,
+      search: filters.search,
+      sector_ids: filters.sector_ids,
+      sector_codes: filters.sector_codes,
+      sort_order: filters.sort_order,
+    },
   );
+  const households = Array.isArray(householdResult)
+    ? householdResult
+    : householdResult.rows || [];
+  const pagination = Array.isArray(householdResult)
+    ? null
+    : householdResult.pagination || null;
 
   if (households.length === 0) {
-    return {
+    const emptyResponse = {
       disaster_event: {
         id: disasterEvent.id,
         event_code: disasterEvent.event_code,
@@ -81,9 +95,15 @@ const getMasterlist = async (filters) => {
         barangay_id: filters.barangay_id,
         record_status: filters.record_status || "active",
       },
-      count: 0,
+      count: pagination?.totalItems || 0,
       data: [],
     };
+
+    if (pagination) {
+      emptyResponse.pagination = pagination;
+    }
+
+    return emptyResponse;
   }
 
   const householdIds = [...new Set(households.map((household) => household.household_id))];
@@ -169,6 +189,7 @@ const getMasterlist = async (filters) => {
       current_address_details: household.current_address_details,
       contact_number: household.contact_number,
       is_active: household.is_active,
+      has_admitted_successor: Boolean(household.has_admitted_successor),
       registered_at: attendance?.time_in || household.registered_at,
       household_registered_at: household.registered_at,
       stub: stub
@@ -199,7 +220,7 @@ const getMasterlist = async (filters) => {
     };
   });
 
-  return {
+  const response = {
     disaster_event: {
       id: disasterEvent.id,
       event_code: disasterEvent.event_code,
@@ -209,10 +230,20 @@ const getMasterlist = async (filters) => {
       disaster_event_id: filters.disaster_event_id,
       barangay_id: filters.barangay_id,
       record_status: filters.record_status || "active",
+      search: filters.search || "",
+      sector_ids: filters.sector_ids || [],
+      sector_codes: filters.sector_codes || [],
+      sort_order: filters.sort_order || "newest",
     },
-    count: data.length,
+    count: pagination?.totalItems || data.length,
     data,
   };
+
+  if (pagination) {
+    response.pagination = pagination;
+  }
+
+  return response;
 };
 
 const getMswdoMasterlistDashboard = async (filters) => {

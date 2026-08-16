@@ -1,6 +1,19 @@
 const pool = require("../config/db");
 const BARANGAY_ROLE_CODE = "BARANGAY";
 
+const buildMasterlistPaginationMetadata = ({ page, pageSize, totalItems }) => {
+  const totalPages = totalItems > 0 ? Math.ceil(totalItems / pageSize) : 0;
+
+  return {
+    page,
+    pageSize,
+    totalItems,
+    totalPages,
+    hasPreviousPage: page > 1 && totalPages > 0,
+    hasNextPage: totalPages > 0 && page < totalPages,
+  };
+};
+
 const getDisasterEventSummaryById = async (id) => {
   const query = `
     SELECT
@@ -784,19 +797,31 @@ const getHouseholdsByFilters = async (
   disasterEventId,
   barangayId = null,
   recordStatus = "active",
+  options = {},
 ) => {
   const values = [disasterEventId];
   let barangayFilterClause = "";
   let recordStatusFilterClause = "";
+  let searchFilterClause = "";
+  let sectorFilterClause = "";
+  let sectorCodeFilterClause = "";
+  let paginationClause = "";
+  const isPaginated = Boolean(options.page && options.pageSize);
+  const page = Number(options.page || 1);
+  const pageSize = Number(options.pageSize || 25);
+  const searchTerm = String(options.search || "").trim();
+  const sectorIds = Array.isArray(options.sector_ids) ? options.sector_ids : [];
+  const sectorCodes = Array.isArray(options.sector_codes) ? options.sector_codes : [];
+  const sortOrder = String(options.sort_order || "newest").toLowerCase();
 
   if (barangayId) {
     values.push(barangayId);
-    barangayFilterClause = "AND h.barangay_id = $2";
+    barangayFilterClause = `AND h.barangay_id = $${values.length}`;
   }
 
   if (recordStatus === "active") {
     recordStatusFilterClause = `
-      WHERE (
+      AND (
         records.is_active = TRUE
         AND records.attendance_log_id IS NOT NULL
         AND records.attendance_time_out IS NULL
@@ -805,16 +830,82 @@ const getHouseholdsByFilters = async (
     `;
   } else if (recordStatus === "archived") {
     recordStatusFilterClause = `
-      WHERE (
-        records.attendance_log_id IS NOT NULL
-        AND (
-          records.attendance_time_out IS NOT NULL
-          OR UPPER(COALESCE(records.attendance_status, '')) = 'LEFT'
+      AND (
+        (
+          records.attendance_log_id IS NOT NULL
+          AND (
+            records.attendance_time_out IS NOT NULL
+            OR UPPER(COALESCE(records.attendance_status, '')) = 'LEFT'
+          )
+        ) OR (
+          records.attendance_log_id IS NULL
+          AND records.is_active = FALSE
         )
-      ) OR (
-        records.attendance_log_id IS NULL
-        AND records.is_active = FALSE
       )
+    `;
+  }
+
+  if (searchTerm) {
+    values.push(`%${searchTerm.toLowerCase()}%`);
+    const searchParamIndex = values.length;
+    searchFilterClause = `
+      AND (
+        LOWER(records.family_head_name) LIKE $${searchParamIndex}
+        OR LOWER(COALESCE(records.current_address_details, records.location_label, '')) LIKE $${searchParamIndex}
+        OR LOWER(COALESCE(records.sectors_text, '')) LIKE $${searchParamIndex}
+        OR LOWER(COALESCE(records.attendance_status, '')) LIKE $${searchParamIndex}
+        OR LOWER(COALESCE(records.arrival_time_text, '')) LIKE $${searchParamIndex}
+        OR LOWER(COALESCE(records.departure_time_text, '')) LIKE $${searchParamIndex}
+      )
+    `;
+  }
+
+  if (sectorIds.length > 0) {
+    values.push(sectorIds);
+    sectorFilterClause = `
+      AND records.sector_ids && $${values.length}::uuid[]
+    `;
+  }
+
+  if (sectorCodes.length > 0) {
+    values.push(sectorCodes.map((sectorCode) => String(sectorCode).toUpperCase()));
+    sectorCodeFilterClause = `
+      AND records.sector_codes && $${values.length}::text[]
+    `;
+  }
+
+  const sortExpressionsByOrder = {
+    oldest: `
+      sort_timestamp ASC NULLS LAST,
+      family_head_name ASC,
+      masterlist_record_id ASC
+    `,
+    az: `
+      family_head_name ASC,
+      sort_timestamp DESC NULLS LAST,
+      masterlist_record_id ASC
+    `,
+    za: `
+      family_head_name DESC,
+      sort_timestamp DESC NULLS LAST,
+      masterlist_record_id ASC
+    `,
+    newest: `
+      sort_timestamp DESC NULLS LAST,
+      family_head_name ASC,
+      masterlist_record_id ASC
+    `,
+  };
+  const sortExpression = sortExpressionsByOrder[sortOrder] || sortExpressionsByOrder.newest;
+
+  if (isPaginated) {
+    values.push(pageSize);
+    const limitParamIndex = values.length;
+    values.push((page - 1) * pageSize);
+    const offsetParamIndex = values.length;
+    paginationClause = `
+      LIMIT $${limitParamIndex}
+      OFFSET $${offsetParamIndex}
     `;
   }
 
@@ -844,6 +935,35 @@ const getHouseholdsByFilters = async (
       LEFT JOIN barangays b ON b.id = h.barangay_id
       WHERE h.disaster_event_id = $1
       ${barangayFilterClause}
+    ),
+    sector_aggregates AS (
+      SELECT
+        sector_rows.household_id,
+        ARRAY_AGG(DISTINCT sector_rows.sector_id) FILTER (WHERE sector_rows.sector_id IS NOT NULL) AS sector_ids,
+        ARRAY_AGG(DISTINCT sector_rows.sector_code) FILTER (WHERE sector_rows.sector_code IS NOT NULL) AS sector_codes,
+        STRING_AGG(DISTINCT sector_rows.sector_label, ', ' ORDER BY sector_rows.sector_label) AS sectors_text
+      FROM (
+        SELECT
+          hs.household_id,
+          s.id AS sector_id,
+          UPPER(s.code) AS sector_code,
+          COALESCE(NULLIF(s.name, ''), s.code, '') AS sector_label
+        FROM household_sectors hs
+        INNER JOIN sectors s ON s.id = hs.sector_id
+
+        UNION ALL
+
+        SELECT
+          e.household_id,
+          s.id AS sector_id,
+          UPPER(s.code) AS sector_code,
+          COALESCE(NULLIF(s.name, ''), s.code, '') AS sector_label
+        FROM evacuee_sectors es
+        INNER JOIN evacuees e ON e.id = es.evacuee_id
+        INNER JOIN sectors s ON s.id = es.sector_id
+        WHERE e.is_active = TRUE
+      ) sector_rows
+      GROUP BY sector_rows.household_id
     ),
     family_head_evacuees AS (
       SELECT
@@ -907,51 +1027,140 @@ const getHouseholdsByFilters = async (
         ao.attendance_evacuation_center_id,
         ao.attendance_created_at,
         ao.attendance_updated_at,
-        COALESCE(ao.attendance_log_id::text, hs.household_id::text) AS masterlist_record_id
+        COALESCE(ao.attendance_log_id::text, hs.household_id::text) AS masterlist_record_id,
+        CONCAT_WS(
+          ' ',
+          hs.family_head_first_name,
+          hs.family_head_middle_name,
+          hs.family_head_last_name,
+          hs.family_head_suffix
+        ) AS family_head_name,
+        CASE
+          WHEN hs.residency_status = 'NON_RESIDENT' THEN 'Non-Resident (Outside Malvar)'
+          ELSE hs.barangay_name
+        END AS location_label,
+        COALESCE(sa.sector_ids, ARRAY[]::uuid[]) AS sector_ids,
+        COALESCE(sa.sector_codes, ARRAY[]::text[]) AS sector_codes,
+        COALESCE(sa.sectors_text, '') AS sectors_text,
+        CASE
+          WHEN hs.residency_status = 'RESIDENT'
+            AND hs.is_active = FALSE
+            AND hs.current_stay_type IN ('RELATIVES', 'OTHER_SAFE_PLACE')
+            AND ao.attendance_log_id IS NULL
+          THEN INITCAP(REPLACE(LOWER(hs.current_stay_type), '_', ' '))
+          ELSE TO_CHAR(ao.attendance_time_in AT TIME ZONE 'Asia/Manila', 'Mon FMDD, YYYY, FMHH12:MI AM')
+        END AS arrival_time_text,
+        CASE
+          WHEN hs.residency_status = 'RESIDENT'
+            AND hs.is_active = FALSE
+            AND hs.current_stay_type IN ('RELATIVES', 'OTHER_SAFE_PLACE')
+            AND ao.attendance_log_id IS NULL
+          THEN 'None'
+          ELSE TO_CHAR(ao.attendance_time_out AT TIME ZONE 'Asia/Manila', 'Mon FMDD, YYYY, FMHH12:MI AM')
+        END AS departure_time_text,
+        COALESCE(ao.attendance_time_out, ao.attendance_time_in, hs.registered_at) AS sort_timestamp,
+        EXISTS (
+          SELECT 1
+          FROM households successor
+          WHERE successor.disaster_event_id = hs.disaster_event_id
+            AND successor.barangay_id = hs.barangay_id
+            AND successor.id <> hs.household_id
+            AND successor.current_stay_type = 'EVAC_CENTER'
+            AND successor.registered_at > hs.registered_at
+            AND UPPER(TRIM(CONCAT_WS(
+              ' ',
+              successor.family_head_first_name,
+              successor.family_head_middle_name,
+              successor.family_head_last_name,
+              successor.family_head_suffix
+            ))) = UPPER(TRIM(CONCAT_WS(
+              ' ',
+              hs.family_head_first_name,
+              hs.family_head_middle_name,
+              hs.family_head_last_name,
+              hs.family_head_suffix
+            )))
+        ) AS has_admitted_successor
       FROM household_scope hs
       LEFT JOIN attendance_occurrences ao
         ON ao.household_id = hs.household_id
+      LEFT JOIN sector_aggregates sa
+        ON sa.household_id = hs.household_id
+    ),
+    filtered_records AS (
+      SELECT *
+      FROM records
+      WHERE TRUE
+      ${recordStatusFilterClause}
+      ${searchFilterClause}
+      ${sectorFilterClause}
+      ${sectorCodeFilterClause}
+    ),
+    total_count AS (
+      SELECT COUNT(*)::int AS filtered_total_count
+      FROM filtered_records
+    ),
+    paged_records AS (
+      SELECT *
+      FROM filtered_records
+      ORDER BY
+        ${sortExpression}
+      ${paginationClause}
     )
     SELECT
-      records.household_id,
-      records.disaster_event_id,
-      records.barangay_id,
-      records.residency_status,
-      records.family_head_first_name,
-      records.family_head_middle_name,
-      records.family_head_last_name,
-      records.family_head_suffix,
-      records.household_size,
-      records.current_stay_type,
-      records.current_address_details,
-      records.contact_number,
-      records.is_active,
-      records.registered_at,
-      records.family_head_evacuee_id,
-      records.barangay_code,
-      records.barangay_name,
-      records.municipality_name,
-      records.province_name,
-      records.attendance_log_id,
-      records.attendance_status,
-      records.attendance_time_in,
-      records.attendance_time_out,
-      records.attendance_evacuation_center_id,
-      records.masterlist_record_id
-    FROM records
-    ${recordStatusFilterClause}
+      paged_records.household_id,
+      paged_records.disaster_event_id,
+      paged_records.barangay_id,
+      paged_records.residency_status,
+      paged_records.family_head_first_name,
+      paged_records.family_head_middle_name,
+      paged_records.family_head_last_name,
+      paged_records.family_head_suffix,
+      paged_records.household_size,
+      paged_records.current_stay_type,
+      paged_records.current_address_details,
+      paged_records.contact_number,
+      paged_records.is_active,
+      paged_records.registered_at,
+      paged_records.family_head_evacuee_id,
+      paged_records.barangay_code,
+      paged_records.barangay_name,
+      paged_records.municipality_name,
+      paged_records.province_name,
+      paged_records.attendance_log_id,
+      paged_records.attendance_status,
+      paged_records.attendance_time_in,
+      paged_records.attendance_time_out,
+      paged_records.attendance_evacuation_center_id,
+      paged_records.masterlist_record_id,
+      paged_records.has_admitted_successor,
+      total_count.filtered_total_count
+    FROM paged_records
+    RIGHT JOIN total_count ON TRUE
     ORDER BY
-      COALESCE(
-        records.attendance_time_out,
-        records.attendance_time_in,
-        records.registered_at
-      ) DESC,
-      records.family_head_last_name ASC,
-      records.family_head_first_name ASC
+      ${sortExpression}
   `;
 
   const result = await pool.query(query, values);
-  return result.rows;
+  const totalItems = result.rows[0]?.filtered_total_count !== undefined
+    ? Number(result.rows[0].filtered_total_count)
+    : 0;
+  const rows = result.rows
+    .filter((row) => row.household_id)
+    .map(({ filtered_total_count, ...row }) => row);
+
+  if (!isPaginated) {
+    return rows;
+  }
+
+  return {
+    rows,
+    pagination: buildMasterlistPaginationMetadata({
+      page,
+      pageSize,
+      totalItems,
+    }),
+  };
 };
 
 const getStubsByHouseholdIds = async (householdIds) => {
