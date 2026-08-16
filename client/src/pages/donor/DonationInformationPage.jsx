@@ -2117,14 +2117,14 @@ const TopBar = ({ publicContactConfig }) => {
       opensNewTab: true,
     },
     {
-      label: "Open LGU website",
+      label: "Open Malvar LGU website",
       href: contactConfig.website_url || LGU_CONTACT.websiteUrl,
       Icon: FaGlobeAsia,
       color: COLORS.logoSyncDeep,
       opensNewTab: true,
     },
     {
-      label: "Open Facebook page",
+      label: "Open Malvar LGU Facebook page",
       href: contactConfig.facebook_url || LGU_CONTACT.facebookUrl,
       Icon: FaFacebookF,
       color: COLORS.logoSyncDark,
