@@ -1146,6 +1146,17 @@ const getLatestInventoryForecast = async (disasterEventId) => {
   return mapStoredForecastRun(latestRun, resultRows);
 };
 
+const getLatestInventoryForecastOverall = async () => {
+  const latestRun = await forecastRepository.getLatestForecastRun();
+
+  if (!latestRun) {
+    return null;
+  }
+
+  const resultRows = await forecastRepository.getForecastResultsByRunId(latestRun.id);
+  return mapStoredForecastRun(latestRun, resultRows);
+};
+
 const getInventoryForecastContext = async (disasterEventId) => {
   const disasterEvent = await ensureDisasterEvent(disasterEventId);
   const eventContext = await forecastRepository.getForecastEventContext(
@@ -1252,6 +1263,7 @@ module.exports = {
   LOOKBACK_DAYS,
   runInventoryForecast,
   getLatestInventoryForecast,
+  getLatestInventoryForecastOverall,
   getInventoryForecastContext,
   getAnalyticsServiceHealth,
   getInventoryForecastHistory,

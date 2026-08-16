@@ -80,3 +80,26 @@ test("getForecastEventContext separates total, eligible, claimed, and unclaimed 
   assert.match(sql, /dt\.distribution_status = 'CLAIMED'/);
   assert.deepEqual(values, ["event-2"]);
 });
+
+test("getLatestForecastRun returns the newest forecast without disaster event filtering", async () => {
+  const dbClient = createCapturingDbClient([
+    {
+      id: "forecast-run-1",
+      disaster_event_id: "event-1",
+      run_at: "2026-08-16T08:00:00.000Z",
+    },
+  ]);
+
+  const latestRun = await forecastRepository.getLatestForecastRun(dbClient);
+
+  assert.equal(latestRun.id, "forecast-run-1");
+  assert.equal(dbClient.calls.length, 1);
+
+  const { sql, values } = dbClient.calls[0];
+
+  assert.match(sql, /FROM forecast_runs fr/);
+  assert.match(sql, /INNER JOIN disaster_events de ON de\.id = fr\.disaster_event_id/);
+  assert.match(sql, /ORDER BY fr\.run_at DESC, fr\.id DESC/);
+  assert.doesNotMatch(sql, /WHERE fr\.disaster_event_id = \$1/);
+  assert.equal(values, undefined);
+});

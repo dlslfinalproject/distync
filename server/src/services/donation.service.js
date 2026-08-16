@@ -86,7 +86,7 @@ const neededItemSourceMeta = {
     description:
       "These recommendations are generated from DISTYNC's inventory forecasting using the latest available disaster response and inventory data.",
     notice:
-      "Suggested donation quantities are generated using the system's forecasting module based on disaster impact, affected population, historical relief distribution, and inventory data. These values are recommendations only and may change when a new forecast is generated.",
+      "Forecasted quantities are estimates and may change after new updates.",
   },
   DEFAULT_EMERGENCY: {
     title: "Emergency Donation Needs",
@@ -95,17 +95,10 @@ const neededItemSourceMeta = {
     notice:
       "These items are preparedness recommendations, not forecast quantities. They help donors identify commonly needed relief goods before enough operational data is available for forecasting.",
   },
-  PUBLISHED_NEEDS: {
-    title: "Published Donation Needs",
-    description:
-      "These recommendations are based on manually published donation needs for the active relief operations.",
-    notice:
-      "These items were published by authorized LGU users while forecast recommendations are not available.",
-  },
   EMPTY: {
     title: "Emergency Donation Needs",
     description:
-      "Donation recommendations will appear when preparedness defaults, published needs, or forecast results are available.",
+      "Donation recommendations will appear when preparedness defaults or forecast results are available.",
     notice:
       "No public donation suggestions are available yet for the active relief operations.",
   },
@@ -407,6 +400,7 @@ const mapPublicDonationSummary = (row, index) => ({
   disaster_event_title: row.disaster_event_title || "Disaster event",
   recipient_barangay: row.recipient_barangay_name || "Not specified",
   donation_date: row.received_at,
+  updated_at: row.updated_at,
   status: row.status,
   donation_count: Number(row.donation_count || 0),
   item_count: Number(row.item_count || 0),
@@ -421,6 +415,78 @@ const mapPublicDonationSummary = (row, index) => ({
       }))
     : [],
 });
+
+const getDateOnlyTime = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+};
+
+const getDisasterFallbackTime = (event) => {
+  const updatedTime = new Date(event?.updated_at || 0).getTime();
+  const createdTime = new Date(event?.created_at || 0).getTime();
+
+  return Math.max(
+    Number.isFinite(updatedTime) ? updatedTime : 0,
+    Number.isFinite(createdTime) ? createdTime : 0,
+  );
+};
+
+const isCurrentPublicDisaster = (event, todayTime) => {
+  const startTime = getDateOnlyTime(event?.start_date);
+  const endTime = getDateOnlyTime(event?.end_date);
+
+  return (
+    (startTime === null || startTime <= todayTime) &&
+    (endTime === null || endTime >= todayTime)
+  );
+};
+
+const sortPublicDisastersByRecency = (left, right) => {
+  const leftStartTime = getDateOnlyTime(left.start_date);
+  const rightStartTime = getDateOnlyTime(right.start_date);
+
+  if (leftStartTime !== rightStartTime) {
+    if (leftStartTime === null) {
+      return 1;
+    }
+
+    if (rightStartTime === null) {
+      return -1;
+    }
+
+    return rightStartTime - leftStartTime;
+  }
+
+  return getDisasterFallbackTime(right) - getDisasterFallbackTime(left);
+};
+
+const getVisiblePublicDisasterSummaries = (events) => {
+  const today = new Date();
+  const todayTime = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+  ).getTime();
+  const disasterEvents = [...(events || [])];
+  const currentEvents = disasterEvents
+    .filter((event) => isCurrentPublicDisaster(event, todayTime))
+    .sort(sortPublicDisastersByRecency);
+
+  if (currentEvents.length > 0) {
+    return currentEvents;
+  }
+
+  return disasterEvents.sort(sortPublicDisastersByRecency).slice(0, 3);
+};
 
 const combinePublicForecastSuggestions = (latestForecasts) => {
   const combinedSuggestions = new Map();
@@ -486,7 +552,7 @@ const combinePublicForecastSuggestions = (latestForecasts) => {
   });
 };
 
-const resolvePublicDonationNeedPriority = (priorityLevel) => {
+const resolvePublicDefaultNeedPriority = (priorityLevel) => {
   const normalizedPriorityLevel = String(priorityLevel || "").toUpperCase();
 
   if (normalizedPriorityLevel === "URGENT" || normalizedPriorityLevel === "HIGH") {
@@ -498,81 +564,6 @@ const resolvePublicDonationNeedPriority = (priorityLevel) => {
   }
 
   return "LOW";
-};
-
-const buildPublicDonationNeedSuggestions = (donationNeeds) => {
-  const combinedNeeds = new Map();
-
-  (donationNeeds || []).forEach((need) => {
-    const quantityNeeded = Math.max(0, Number(need.quantity_needed || 0));
-
-    if (quantityNeeded <= 0 || !need.inventory_item?.item_name) {
-      return;
-    }
-
-    const itemKey =
-      need.inventory_item?.id ||
-      `${need.inventory_item.item_name}:${need.inventory_item.unit_of_measure}`;
-    const existingNeed = combinedNeeds.get(itemKey);
-    const priorityLevel = resolvePublicDonationNeedPriority(need.priority_level);
-
-    if (!existingNeed) {
-      combinedNeeds.set(itemKey, {
-        public_key: createPublicKey("published-need-item", itemKey),
-        item_name: need.inventory_item.item_name,
-        category: need.inventory_item.category,
-        unit_of_measure: need.inventory_item.unit_of_measure || "items",
-        suggested_quantity: Math.ceil(quantityNeeded),
-        priority_level: priorityLevel,
-        note:
-          "Published donation need shown while forecast recommendations are not available.",
-        forecasted_at: need.updated_at || need.published_at || null,
-      });
-      return;
-    }
-
-    const existingPriorityRank =
-      priorityRank[existingNeed.priority_level] || priorityRank.LOW;
-    const incomingPriorityRank = priorityRank[priorityLevel] || priorityRank.LOW;
-    const latestUpdatedAt =
-      new Date(need.updated_at || need.published_at || 0).getTime() >
-      new Date(existingNeed.forecasted_at || 0).getTime()
-        ? need.updated_at || need.published_at || null
-        : existingNeed.forecasted_at;
-
-    combinedNeeds.set(itemKey, {
-      ...existingNeed,
-      suggested_quantity:
-        Number(existingNeed.suggested_quantity || 0) + Math.ceil(quantityNeeded),
-      priority_level:
-        incomingPriorityRank < existingPriorityRank
-          ? priorityLevel
-          : existingNeed.priority_level,
-      forecasted_at: latestUpdatedAt,
-    });
-  });
-
-  return Array.from(combinedNeeds.values()).sort((left, right) => {
-    const priorityDifference =
-      (priorityRank[left.priority_level] || priorityRank.LOW) -
-      (priorityRank[right.priority_level] || priorityRank.LOW);
-
-    if (priorityDifference !== 0) {
-      return priorityDifference;
-    }
-
-    const quantityDifference =
-      Number(right.suggested_quantity || 0) -
-      Number(left.suggested_quantity || 0);
-
-    if (quantityDifference !== 0) {
-      return quantityDifference;
-    }
-
-    return String(left.item_name || "").localeCompare(
-      String(right.item_name || ""),
-    );
-  });
 };
 
 const buildDefaultEmergencySuggestions = (defaultNeeds) => {
@@ -587,7 +578,7 @@ const buildDefaultEmergencySuggestions = (defaultNeeds) => {
       need.inventory_item_id ||
       `${need.item_name}:${need.unit_of_measure || "items"}`;
     const existingDefault = combinedDefaults.get(itemKey);
-    const priorityLevel = resolvePublicDonationNeedPriority(need.priority_level);
+    const priorityLevel = resolvePublicDefaultNeedPriority(need.priority_level);
     const suggestedQuantity =
       need.suggested_quantity === null || need.suggested_quantity === undefined
         ? null
@@ -642,7 +633,6 @@ const buildNeededItemsPayload = (sourceType, suggestions) => {
 const resolvePublicNeededItems = ({
   latestForecasts,
   defaultEmergencyNeeds,
-  publicDonationNeeds,
 }) => {
   const forecastSuggestions = combinePublicForecastSuggestions(latestForecasts);
 
@@ -658,13 +648,6 @@ const resolvePublicNeededItems = ({
       "DEFAULT_EMERGENCY",
       defaultEmergencySuggestions,
     );
-  }
-
-  const publishedNeedSuggestions =
-    buildPublicDonationNeedSuggestions(publicDonationNeeds);
-
-  if (publishedNeedSuggestions.length > 0) {
-    return buildNeededItemsPayload("PUBLISHED_NEEDS", publishedNeedSuggestions);
   }
 
   return buildNeededItemsPayload("EMPTY", []);
@@ -2286,10 +2269,13 @@ const deleteDonationRecord = async (id, performedBy) => {
 };
 
 const getPublicDonationPortal = async (disasterEventId = null) => {
-  const activeDisasterSummaries =
+  const publicDisasterSummaries =
     await donationRepository.getPublicDonationDisasterSummaries(disasterEventId);
-  const selectedDisasterEventId = activeDisasterSummaries[0]?.id || null;
-  const activeDisasterEventIds = activeDisasterSummaries.map((event) => event.id);
+  const visibleDisasterSummaries = getVisiblePublicDisasterSummaries(
+    publicDisasterSummaries,
+  );
+  const selectedDisasterEventId = visibleDisasterSummaries[0]?.id || null;
+  const visibleDisasterEventIds = visibleDisasterSummaries.map((event) => event.id);
 
   const [
     summaryTotals,
@@ -2297,26 +2283,24 @@ const getPublicDonationPortal = async (disasterEventId = null) => {
     recentDonationRows,
     latestForecasts,
     defaultEmergencyNeedRows,
-    publicDonationNeedRows,
-  ] = activeDisasterEventIds.length > 0
+  ] = visibleDisasterEventIds.length > 0
     ? await Promise.all([
-        donationRepository.getDonationSummaryTotals(activeDisasterEventIds),
+        donationRepository.getDonationSummaryTotals(visibleDisasterEventIds),
         donationRepository.getDonationItemTransparencySummary(
-          activeDisasterEventIds,
+          visibleDisasterEventIds,
         ),
         donationRepository.getPublicRecentDonationSummaries(
-          activeDisasterEventIds,
+          visibleDisasterEventIds,
           6,
         ),
         Promise.all(
-          activeDisasterEventIds.map((activeDisasterEventId) =>
-            forecastService.getLatestInventoryForecast(activeDisasterEventId),
+          visibleDisasterEventIds.map((visibleDisasterEventId) =>
+            forecastService.getLatestInventoryForecast(visibleDisasterEventId),
           ),
         ),
         donationRepository.getDefaultEmergencyDonationNeeds(
-          activeDisasterSummaries.map((event) => event.disaster_type),
+          visibleDisasterSummaries.map((event) => event.disaster_type),
         ),
-        donationRepository.getPublicDonationNeeds(activeDisasterEventIds),
       ])
     : [
         {
@@ -2330,18 +2314,16 @@ const getPublicDonationPortal = async (disasterEventId = null) => {
         [],
         [],
         [],
-        [],
       ];
 
   const neededItems = resolvePublicNeededItems({
     latestForecasts,
     defaultEmergencyNeeds: defaultEmergencyNeedRows,
-    publicDonationNeeds: publicDonationNeedRows,
   });
 
   return {
     public_contact_config: getPublicContactConfig(),
-    disaster_events: activeDisasterSummaries.map(mapPublicDisasterSummary),
+    disaster_events: visibleDisasterSummaries.map(mapPublicDisasterSummary),
     selected_disaster_event_key: selectedDisasterEventId
       ? createPublicKey("event", selectedDisasterEventId)
       : null,
