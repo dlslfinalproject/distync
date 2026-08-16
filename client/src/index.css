@@ -75,6 +75,26 @@ img {
   min-width: 0;
 }
 
+.disaster-events-tabs,
+.disaster-events-toolbar,
+.disaster-events-toolbar-search,
+.disaster-events-toolbar-actions,
+.disaster-events-list-card,
+.disaster-events-table-scroll,
+.disaster-events-table,
+.disaster-event-modal-heading,
+.disaster-event-form-modal,
+.disaster-event-detail-modal,
+.disaster-event-export-modal,
+.disaster-event-single-export-modal,
+.disaster-event-form-grid,
+.disaster-event-export-grid,
+.disaster-event-chip-grid,
+.disaster-event-detail-grid,
+.disaster-event-detail-barangay-grid {
+  min-width: 0;
+}
+
 .barangay-dashboard-event-title,
 .barangay-dashboard-event-meta,
 .masterlist-detail-modal p,
@@ -90,6 +110,77 @@ img {
 }
 
 .distribution-history-text-cell {
+  overflow-wrap: break-word;
+}
+
+.disaster-events-table-scroll {
+  max-width: 100%;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+.disaster-events-table {
+  table-layout: auto !important;
+}
+
+.disaster-events-text-cell,
+.disaster-events-barangays-cell,
+.disaster-events-status-cell,
+.disaster-event-modal-heading,
+.disaster-event-form-modal p,
+.disaster-event-detail-modal p,
+.disaster-event-export-modal p,
+.disaster-event-single-export-modal p,
+.disaster-event-detail-value,
+.disaster-event-form-chip,
+.disaster-events-barangay-chip {
+  overflow-wrap: anywhere;
+}
+
+.disaster-events-date-cell,
+.disaster-events-actions-cell {
+  white-space: nowrap;
+}
+
+.disaster-events-actions-cell {
+  min-width: 68px;
+}
+
+.disaster-event-form-chip {
+  min-width: 0;
+}
+
+.disaster-event-form-chip input {
+  flex: 0 0 auto;
+}
+
+.disaster-event-modal-actions {
+  flex-wrap: wrap;
+}
+
+.disaster-event-modal-topbar {
+  min-width: 0;
+}
+
+.disaster-event-affected-section .disaster-event-section-actions {
+  margin-bottom: 8px !important;
+}
+
+.disaster-event-affected-section .disaster-event-affected-toggle {
+  min-height: 40px;
+  border-radius: 10px !important;
+  padding: 7px 12px !important;
+}
+
+.disaster-event-affected-section .disaster-event-chip-grid {
+  gap: 7px !important;
+}
+
+.disaster-event-affected-section .disaster-event-form-chip {
+  min-height: 40px;
+  align-items: center !important;
+  border-radius: 12px !important;
+  padding: 7px 12px !important;
   overflow-wrap: break-word;
 }
 
@@ -816,7 +907,123 @@ img {
   }
 }
 
+@media (max-width: 768px) {
+  .disaster-events-toolbar-search,
+  .disaster-events-toolbar-actions {
+    flex: 1 1 100% !important;
+    width: 100%;
+  }
+
+  .disaster-events-toolbar-actions {
+    justify-content: flex-start !important;
+  }
+
+  .disaster-events-tabs {
+    max-width: 100%;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .disaster-events-table {
+    width: max-content !important;
+    min-width: 100%;
+    max-width: none !important;
+  }
+
+  .disaster-event-modal-backdrop {
+    padding: 16px !important;
+  }
+
+  .disaster-event-form-modal,
+  .disaster-event-detail-modal,
+  .disaster-event-export-modal {
+    max-height: calc(100vh - 32px) !important;
+  }
+
+  .disaster-event-form-grid,
+  .disaster-event-export-grid,
+  .disaster-event-chip-grid,
+  .disaster-event-detail-grid,
+  .disaster-event-detail-barangay-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)) !important;
+  }
+}
+
 @media (max-width: 480px) {
+  .disaster-event-modal-backdrop {
+    align-items: stretch !important;
+    padding: 12px !important;
+  }
+
+  .disaster-event-form-modal,
+  .disaster-event-detail-modal,
+  .disaster-event-export-modal,
+  .disaster-event-single-export-modal {
+    max-height: calc(100vh - 24px) !important;
+    border-radius: 18px !important;
+    padding: 16px !important;
+  }
+
+  .disaster-event-modal-topbar {
+    align-items: flex-start !important;
+    flex-wrap: nowrap !important;
+    gap: 12px !important;
+  }
+
+  .disaster-event-modal-topbar h3 {
+    font-size: 22px !important;
+    line-height: 1.18 !important;
+    overflow-wrap: anywhere;
+  }
+
+  .disaster-event-form-grid,
+  .disaster-event-export-grid,
+  .disaster-event-chip-grid,
+  .disaster-event-detail-grid,
+  .disaster-event-detail-barangay-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .disaster-event-section-actions,
+  .disaster-event-modal-actions {
+    justify-content: stretch !important;
+  }
+
+  .disaster-event-section-actions button,
+  .disaster-event-modal-actions button,
+  .disaster-events-toolbar-actions > *,
+  .disaster-events-toolbar-actions button {
+    justify-content: center;
+    min-width: 0;
+    width: 100%;
+    white-space: normal;
+  }
+
+  .disaster-events-toolbar-search,
+  .disaster-events-toolbar-actions {
+    flex: 1 1 100% !important;
+    width: 100%;
+  }
+
+  .disaster-events-tabs {
+    flex-wrap: nowrap !important;
+    gap: 6px !important;
+  }
+
+  .disaster-events-tabs button {
+    flex: 1 1 0;
+    justify-content: center;
+    min-width: 0;
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+    white-space: normal !important;
+  }
+
+  .disaster-events-list-card {
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+  }
+
   .household-registration-modal-backdrop,
   .masterlist-detail-modal-backdrop {
     align-items: stretch !important;

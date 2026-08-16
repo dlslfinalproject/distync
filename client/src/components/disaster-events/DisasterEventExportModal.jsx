@@ -177,9 +177,10 @@ const DisasterEventExportModal = ({
     );
 
   return (
-    <div style={overlayStyles}>
-      <div style={modalStyles}>
+    <div className="disaster-event-modal-backdrop" style={overlayStyles}>
+      <div className="disaster-event-export-modal" style={modalStyles}>
         <div
+          className="disaster-event-modal-topbar"
           style={{
             display: "flex",
             justifyContent: "space-between",
@@ -188,7 +189,7 @@ const DisasterEventExportModal = ({
             marginBottom: "20px",
           }}
         >
-          <div>
+          <div className="disaster-event-modal-heading">
             <h3
               style={{
                 margin: 0,
@@ -222,6 +223,7 @@ const DisasterEventExportModal = ({
             <h3 style={sectionTitleStyles}>Export Details</h3>
 
             <div
+              className="disaster-event-export-grid"
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -278,6 +280,7 @@ const DisasterEventExportModal = ({
             <h3 style={sectionTitleStyles}>Disaster Type</h3>
 
             <div
+              className="disaster-event-section-actions"
               style={{
                 display: "flex",
                 justifyContent: "flex-end",
@@ -304,6 +307,7 @@ const DisasterEventExportModal = ({
             </div>
 
             <div
+              className="disaster-event-chip-grid"
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -316,7 +320,11 @@ const DisasterEventExportModal = ({
 
                 if (!isAvailable) {
                   return (
-                    <label key={disasterType} style={mutedChipStyles}>
+                    <label
+                      className="disaster-event-form-chip"
+                      key={disasterType}
+                      style={mutedChipStyles}
+                    >
                       <input type="checkbox" checked={false} disabled />
                       {disasterType}
                     </label>
@@ -324,7 +332,11 @@ const DisasterEventExportModal = ({
                 }
 
                 return (
-                  <label key={disasterType} style={chipStyles(isSelected)}>
+                  <label
+                    className="disaster-event-form-chip"
+                    key={disasterType}
+                    style={chipStyles(isSelected)}
+                  >
                     <input
                       type="checkbox"
                       checked={isSelected}
@@ -346,6 +358,7 @@ const DisasterEventExportModal = ({
             <h3 style={sectionTitleStyles}>Affected Barangay</h3>
 
             <div
+              className="disaster-event-section-actions"
               style={{
                 display: "flex",
                 justifyContent: "flex-end",
@@ -370,6 +383,7 @@ const DisasterEventExportModal = ({
             </div>
 
             <div
+              className="disaster-event-chip-grid"
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -382,7 +396,11 @@ const DisasterEventExportModal = ({
 
                 if (!isAvailable) {
                   return (
-                    <label key={barangay.id} style={mutedChipStyles}>
+                    <label
+                      className="disaster-event-form-chip"
+                      key={barangay.id}
+                      style={mutedChipStyles}
+                    >
                       <input type="checkbox" checked={false} disabled />
                       {barangay.name}
                     </label>
@@ -390,7 +408,11 @@ const DisasterEventExportModal = ({
                 }
 
                 return (
-                  <label key={barangay.id} style={chipStyles(isSelected)}>
+                  <label
+                    className="disaster-event-form-chip"
+                    key={barangay.id}
+                    style={chipStyles(isSelected)}
+                  >
                     <input
                       type="checkbox"
                       checked={isSelected}
@@ -409,6 +431,7 @@ const DisasterEventExportModal = ({
           </section>
 
           <div
+            className="disaster-event-modal-actions"
             style={{
               display: "flex",
               justifyContent: "flex-end",

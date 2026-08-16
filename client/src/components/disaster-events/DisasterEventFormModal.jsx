@@ -404,9 +404,10 @@ const DisasterEventFormModal = ({
   };
 
   return (
-    <div style={overlayStyles}>
-      <div style={modalStyles}>
+    <div className="disaster-event-modal-backdrop" style={overlayStyles}>
+      <div className="disaster-event-form-modal" style={modalStyles}>
         <div
+          className="disaster-event-modal-topbar"
           style={{
             display: "flex",
             justifyContent: "space-between",
@@ -415,7 +416,7 @@ const DisasterEventFormModal = ({
             marginBottom: "20px",
           }}
         >
-          <div>
+          <div className="disaster-event-modal-heading">
             <h3 style={{ margin: 0, color: "#17324d", fontSize: "26px" }}>
               {isEditMode ? "Edit Disaster Event" : "Create Disaster Event"}
             </h3>
@@ -450,6 +451,7 @@ const DisasterEventFormModal = ({
             </h3>
 
             <div
+              className="disaster-event-form-grid"
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -532,6 +534,7 @@ const DisasterEventFormModal = ({
             </h3>
 
             <div
+              className="disaster-event-form-grid"
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -568,7 +571,10 @@ const DisasterEventFormModal = ({
           </section>
 
           {/* SECTION 3 */}
-          <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
+          <section
+            className="disaster-event-affected-section"
+            style={{ ...shellStyles.card, padding: "18px 20px" }}
+          >
             <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
               Affected Barangays
             </h3>
@@ -579,6 +585,7 @@ const DisasterEventFormModal = ({
             ) : null}
 
             <div
+              className="disaster-event-section-actions"
               style={{
                 display: "flex",
                 justifyContent: "flex-end",
@@ -586,6 +593,7 @@ const DisasterEventFormModal = ({
               }}
             >
               <button
+                className="disaster-event-affected-toggle"
                 type="button"
                 onClick={handleToggleAllBarangays}
                 style={{
@@ -617,6 +625,7 @@ const DisasterEventFormModal = ({
             </div>
 
             <div
+              className="disaster-event-chip-grid"
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -628,6 +637,7 @@ const DisasterEventFormModal = ({
 
                 return (
                   <label
+                    className="disaster-event-form-chip"
                     key={barangay.id}
                     style={{
                       display: "inline-flex",
@@ -661,6 +671,7 @@ const DisasterEventFormModal = ({
 
           {/* ACTIONS */}
           <div
+            className="disaster-event-modal-actions"
             style={{
               display: "flex",
               justifyContent: "flex-end",

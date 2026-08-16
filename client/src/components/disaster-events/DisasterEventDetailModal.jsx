@@ -64,9 +64,10 @@ const DisasterEventDetailModal = ({
   }
 
   return (
-    <div style={overlayStyles}>
-      <div style={modalStyles}>
+    <div className="disaster-event-modal-backdrop" style={overlayStyles}>
+      <div className="disaster-event-detail-modal" style={modalStyles}>
         <div
+          className="disaster-event-modal-topbar"
           style={{
             display: "flex",
             justifyContent: "space-between",
@@ -75,7 +76,7 @@ const DisasterEventDetailModal = ({
             marginBottom: "20px",
           }}
         >
-          <div>
+          <div className="disaster-event-modal-heading">
             <h3 style={{ margin: 0, color: "#17324d", fontSize: "26px" }}>
               Disaster Event Detail
             </h3>
@@ -111,6 +112,7 @@ const DisasterEventDetailModal = ({
         {!isLoading && !errorMessage && eventData ? (
           <>
             <div
+              className="disaster-event-detail-grid"
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -119,27 +121,27 @@ const DisasterEventDetailModal = ({
             >
               <div>
                 <p style={detailLabelStyles}>Title</p>
-                <p style={detailValueStyles}>{eventData.title}</p>
+                <p className="disaster-event-detail-value" style={detailValueStyles}>{eventData.title}</p>
               </div>
               <div>
                 <p style={detailLabelStyles}>Disaster Type</p>
-                <p style={detailValueStyles}>{eventData.disaster_type}</p>
+                <p className="disaster-event-detail-value" style={detailValueStyles}>{eventData.disaster_type}</p>
               </div>
               <div>
                 <p style={detailLabelStyles}>Status</p>
-                <p style={detailValueStyles}>{eventData.status}</p>
+                <p className="disaster-event-detail-value" style={detailValueStyles}>{eventData.status}</p>
               </div>
               <div>
                 <p style={detailLabelStyles}>Start Date</p>
-                <p style={detailValueStyles}>{formatDate(eventData.start_date)}</p>
+                <p className="disaster-event-detail-value" style={detailValueStyles}>{formatDate(eventData.start_date)}</p>
               </div>
               <div>
                 <p style={detailLabelStyles}>End Date</p>
-                <p style={detailValueStyles}>{formatDate(eventData.end_date)}</p>
+                <p className="disaster-event-detail-value" style={detailValueStyles}>{formatDate(eventData.end_date)}</p>
               </div>
               <div style={{ gridColumn: "1 / -1" }}>
                 <p style={detailLabelStyles}>Description</p>
-                <p style={detailValueStyles}>
+                <p className="disaster-event-detail-value" style={detailValueStyles}>
                   {eventData.description || "No description provided."}
                 </p>
               </div>
@@ -148,6 +150,7 @@ const DisasterEventDetailModal = ({
             <div style={{ marginTop: "24px" }}>
               <p style={detailLabelStyles}>Affected Barangays</p>
               <div
+                className="disaster-event-detail-barangay-grid"
                 style={{
                   marginTop: "12px",
                   display: "grid",
@@ -162,6 +165,7 @@ const DisasterEventDetailModal = ({
                 ) : (
                   eventData.affected_barangays.map((barangay) => (
                     <div
+                      className="disaster-event-detail-chip"
                       key={barangay.id}
                       style={{
                         padding: "12px 14px",
