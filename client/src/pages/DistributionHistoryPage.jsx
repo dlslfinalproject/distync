@@ -603,8 +603,9 @@ const DistributionHistoryPage = () => {
         actions={[]}
       />
 
-      <section style={shellStyles.card}>
+      <section className="distribution-history-filter-card" style={shellStyles.card}>
         <div
+          className="distribution-history-filter-grid"
           style={pageSpacingStyles.filterGrid}
         >
           <div>
@@ -717,14 +718,17 @@ const DistributionHistoryPage = () => {
       </section>
 
       <section
+        className="distribution-history-toolbar"
         style={{
           ...pageSpacingStyles.toolbar,
         }}
       >
         <div
+          className="distribution-history-toolbar-search"
           style={{
             position: "relative",
             flex: "1 1 420px",
+            minWidth: 0,
           }}
         >
           <FiSearch
@@ -739,6 +743,7 @@ const DistributionHistoryPage = () => {
           />
           <input
             type="search"
+            aria-label="Search distribution history"
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
             placeholder="Search family head, sectors, or stub number"
@@ -751,6 +756,7 @@ const DistributionHistoryPage = () => {
         </div>
 
         <button
+          className="distribution-history-export-button"
           type="button"
           onClick={() => {
             setSelectedExportFormat("csv");
@@ -788,7 +794,7 @@ const DistributionHistoryPage = () => {
         </button>
       </section>
 
-      <section style={shellStyles.card}>
+      <section className="distribution-history-records-card" style={shellStyles.card}>
         <div style={pageSpacingStyles.tableHeader}>
           <h3 style={{ margin: 0, color: "#17324d" }}>Distribution Records</h3>
         </div>
@@ -800,8 +806,11 @@ const DistributionHistoryPage = () => {
         ) : displayedRows.length === 0 ? (
           <EmptyState message="No matching records found. Try adjusting your search or filters." />
         ) : isSummaryMode ? (
-          <div style={{ overflowX: "auto" }}>
-            <table style={tableStyles.table}>
+          <div
+            className="distribution-history-table-scroll distribution-history-summary-scroll"
+            style={{ overflowX: "auto" }}
+          >
+            <table className="distribution-history-table distribution-history-summary-table" style={tableStyles.table}>
               <thead>
                 <tr>
                   <th style={tableStyles.th}>Disaster Event</th>
@@ -818,7 +827,7 @@ const DistributionHistoryPage = () => {
               <tbody>
                 {visibleSummaryRows.map((row) => (
                   <tr key={row.id}>
-                    <td style={tableStyles.td}>
+                    <td className="distribution-history-text-cell" style={tableStyles.td}>
                       <div>{row.disaster_event_title || "--"}</div>
                     </td>
                     <td style={{ ...tableStyles.td, textAlign: "center", verticalAlign: "middle" }}>
@@ -826,7 +835,7 @@ const DistributionHistoryPage = () => {
                         {getDisasterEventStatusLabel(row.disaster_event_status)}
                       </span>
                     </td>
-                    <td style={tableStyles.td}>
+                    <td className="distribution-history-text-cell" style={tableStyles.td}>
                       <div>{row.barangay_summary}</div>
                       <div style={{ color: "#60738a", fontSize: "12px" }}>
                         Count: {row.barangay_count}
@@ -835,14 +844,14 @@ const DistributionHistoryPage = () => {
                     <td style={{ ...tableStyles.td, textAlign: "center" }}>
                       {row.issued_stubs_count || 0}
                     </td>
-                    <td style={tableStyles.td}>
+                    <td className="distribution-history-text-cell" style={tableStyles.td}>
                       <div>Claimed: {row.claimed_stubs_count || 0}</div>
                       <div style={{ color: "#60738a", fontSize: "12px" }}>
                         Unclaimed: {row.unclaimed_stubs_count || 0}
                       </div>
                     </td>
-                    <td style={tableStyles.td}>{row.relief_pack_summary}</td>
-                    <td style={tableStyles.td}>
+                    <td className="distribution-history-text-cell" style={tableStyles.td}>{row.relief_pack_summary}</td>
+                    <td className="distribution-history-date-cell" style={tableStyles.td}>
                       {formatDateTime(row.latest_distribution_date)}
                     </td>
                   </tr>
@@ -851,8 +860,11 @@ const DistributionHistoryPage = () => {
             </table>
           </div>
         ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table style={tableStyles.table}>
+          <div
+            className="distribution-history-table-scroll distribution-history-detail-scroll"
+            style={{ overflowX: "auto" }}
+          >
+            <table className="distribution-history-table distribution-history-detail-table" style={tableStyles.table}>
               <thead>
                 <tr>
                   <th style={tableStyles.th}>Family Head</th>
@@ -871,11 +883,11 @@ const DistributionHistoryPage = () => {
               <tbody>
                 {visibleHistoryRows.map((row) => (
                   <tr key={row.id}>
-                    <td style={tableStyles.td}>
+                    <td className="distribution-history-text-cell" style={tableStyles.td}>
                       {row.family_head_name || "--"}
                     </td>
                     {!isBarangay ? (
-                      <td style={tableStyles.td}>{row.barangay_name || "--"}</td>
+                      <td className="distribution-history-text-cell" style={tableStyles.td}>{row.barangay_name || "--"}</td>
                     ) : null}
                     <td style={{ ...tableStyles.td, textAlign: "center" }}>
                       <span
@@ -894,13 +906,13 @@ const DistributionHistoryPage = () => {
                         {row.members_count ?? row.household_size ?? 0}
                       </span>
                     </td>
-                    <td style={tableStyles.td}>
+                    <td className="distribution-history-text-cell" style={tableStyles.td}>
                       {formatOrderedSectorText(row.sectors_text)}
                     </td>
-                    <td style={tableStyles.td}>
+                    <td className="distribution-history-identifier-cell" style={tableStyles.td}>
                       {formatDisplayStubNumber(row)}
                     </td>
-                    <td style={tableStyles.td}>
+                    <td className="distribution-history-text-cell" style={tableStyles.td}>
                       <div>
                         {row.relief_pack_template_name ||
                           row.released_items_summary ||
@@ -912,14 +924,15 @@ const DistributionHistoryPage = () => {
                           : ""}
                       </div>
                     </td>
-                    <td style={tableStyles.td}>
+                    <td className="distribution-history-date-cell" style={tableStyles.td}>
                       {formatDateTime(row.distribution_date)}
                     </td>
-                    <td style={tableStyles.td}>{row.verified_by_name || "--"}</td>
+                    <td className="distribution-history-text-cell" style={tableStyles.td}>{row.verified_by_name || "--"}</td>
                     <td style={{ ...tableStyles.td, textAlign: "center" }}>
                       <button
                         type="button"
                         onClick={() => handleViewDetails(row)}
+                        aria-label={`View details for ${formatDisplayStubNumber(row)}`}
                         title="View Details"
                         style={{
                           border: "1px solid #c6d8ea",

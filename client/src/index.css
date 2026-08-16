@@ -63,6 +63,18 @@ img {
   min-width: 0;
 }
 
+.distribution-history-filter-card,
+.distribution-history-filter-grid,
+.distribution-history-toolbar,
+.distribution-history-toolbar-search,
+.distribution-history-records-card,
+.distribution-history-table-scroll,
+.distribution-history-table,
+.distribution-history-summary-table,
+.distribution-history-detail-table {
+  min-width: 0;
+}
+
 .barangay-dashboard-event-title,
 .barangay-dashboard-event-meta,
 .masterlist-detail-modal p,
@@ -75,6 +87,25 @@ img {
 .stub-claim-confirm-modal p,
 .stub-qr-scan-modal p {
   overflow-wrap: anywhere;
+}
+
+.distribution-history-text-cell {
+  overflow-wrap: break-word;
+}
+
+.distribution-history-table-scroll {
+  max-width: 100%;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+.distribution-history-date-cell,
+.distribution-history-identifier-cell {
+  white-space: nowrap;
+}
+
+.distribution-history-export-button {
+  flex-shrink: 0;
 }
 
 .distync-shell {
@@ -482,6 +513,20 @@ img {
     min-width: 920px;
   }
 
+  .distribution-history-toolbar {
+    align-items: stretch !important;
+  }
+
+  .distribution-history-toolbar-search,
+  .distribution-history-export-button {
+    flex: 1 1 100% !important;
+    width: 100%;
+  }
+
+  .distribution-history-toolbar-search input {
+    width: 100%;
+  }
+
   .stub-detail-modal-topbar {
     align-items: flex-start !important;
     flex-wrap: wrap;
@@ -612,6 +657,14 @@ img {
     align-items: flex-start !important;
     flex-direction: column;
     gap: 6px !important;
+  }
+
+  .distribution-history-filter-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .distribution-history-export-button {
+    justify-content: center;
   }
 
   .stub-claim-confirm-family-head {
