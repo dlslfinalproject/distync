@@ -194,6 +194,11 @@ img {
   opacity: 0.55;
 }
 
+.stub-results-pagination-metadata,
+.stub-results-pagination-navigation {
+  width: 100%;
+}
+
 .distribution-history-page-indicator {
   color: #24496e;
   font-size: 13px;
@@ -640,6 +645,15 @@ img {
     flex: 0 1 auto;
   }
 
+  .stub-results-pagination-metadata {
+    align-items: flex-start !important;
+    flex-direction: column;
+  }
+
+  .stub-results-pagination-navigation {
+    justify-content: center !important;
+  }
+
   .stub-detail-modal-topbar {
     align-items: flex-start !important;
     flex-wrap: wrap;
@@ -812,6 +826,24 @@ img {
 
   .distribution-history-page-size select {
     flex: 0 0 78px;
+  }
+
+  .stub-results-pagination-controls {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .stub-results-pagination-controls span {
+    grid-column: 1 / -1;
+    order: 1;
+    text-align: center;
+  }
+
+  .stub-results-pagination-controls button {
+    justify-content: center;
+    order: 2;
+    text-align: center;
   }
 
   .stub-claim-confirm-family-head {

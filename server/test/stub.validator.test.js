@@ -52,6 +52,13 @@ test("DEPLOY-MSWDO-RGD-01 dashboard validator accepts legitimate barangay_id sco
     disaster_event_id: eventId,
     barangay_id: barangayId,
     override_barangay_id: null,
+    page: 1,
+    pageSize: 25,
+    search: "",
+    status: "all",
+    sector_ids: [],
+    sort_order: "oldest",
+    is_paginated: false,
   });
 });
 

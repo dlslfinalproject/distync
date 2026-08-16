@@ -277,6 +277,18 @@ export const getCachedStubSnapshotsForScope = async ({
     .toArray();
 };
 
+export const hasCachedStubSnapshotsForScope = async ({
+  disasterEventId,
+  currentBarangayId,
+}) => {
+  const snapshots = await getCachedStubSnapshotsForScope({
+    disasterEventId,
+    currentBarangayId,
+  });
+
+  return snapshots.length > 0;
+};
+
 export const getCachedStubRowsForScope = async ({
   disasterEventId,
   currentBarangayId,

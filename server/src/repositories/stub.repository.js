@@ -1,6 +1,6 @@
 const pool = require("../config/db");
 
-const stubSequenceSelect = `
+const stubSequenceExpression = `
       (
         SELECT COUNT(*)::int
         FROM stubs sequence_stubs
@@ -17,7 +17,137 @@ const stubSequenceSelect = `
               AND sequence_stubs.id <= s.id
             )
           )
-      ) AS stub_sequence_no`;
+      )`;
+
+const stubSequenceSelect = `${stubSequenceExpression} AS stub_sequence_no`;
+
+const buildBarangayDashboardFilters = ({
+  disasterEventId,
+  barangayId,
+  status = "all",
+  search = "",
+  sectorIds = [],
+} = {}) => {
+  const values = [disasterEventId, barangayId];
+  const conditions = [
+    "s.disaster_event_id = $1",
+    "h.barangay_id = $2",
+    "h.current_stay_type = 'EVAC_CENTER'",
+    "s.status IN ('ISSUED', 'CLAIMED')",
+    `(
+        (
+          h.is_active = TRUE
+          AND latest_attendance.status = 'PRESENT'
+          AND latest_attendance.time_out IS NULL
+        )
+        OR h.is_active = FALSE
+      )`,
+  ];
+
+  if (status === "claimed") {
+    conditions.push("s.status = 'CLAIMED'");
+  } else if (status === "unclaimed") {
+    conditions.push("s.status = 'ISSUED'");
+  }
+
+  if (Array.isArray(sectorIds) && sectorIds.length > 0) {
+    values.push(sectorIds);
+    conditions.push(`(
+      EXISTS (
+        SELECT 1
+        FROM household_sectors dashboard_hs
+        WHERE dashboard_hs.household_id = h.id
+          AND dashboard_hs.sector_id = ANY($${values.length}::uuid[])
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM evacuees dashboard_e
+        INNER JOIN evacuee_sectors dashboard_es
+          ON dashboard_es.evacuee_id = dashboard_e.id
+        WHERE dashboard_e.household_id = h.id
+          AND dashboard_es.sector_id = ANY($${values.length}::uuid[])
+      )
+    )`);
+  }
+
+  const normalizedSearch = String(search || "").trim();
+
+  if (normalizedSearch) {
+    values.push(`%${normalizedSearch}%`);
+    conditions.push(`(
+      CONCAT_WS(
+        ' ',
+        h.family_head_first_name,
+        h.family_head_middle_name,
+        h.family_head_last_name,
+        h.family_head_suffix
+      ) ILIKE $${values.length}
+      OR EXISTS (
+        SELECT 1
+        FROM household_sectors search_hs
+        INNER JOIN sectors search_s ON search_s.id = search_hs.sector_id
+        WHERE search_hs.household_id = h.id
+          AND search_s.name ILIKE $${values.length}
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM evacuees search_e
+        INNER JOIN evacuee_sectors search_es
+          ON search_es.evacuee_id = search_e.id
+        INNER JOIN sectors search_s ON search_s.id = search_es.sector_id
+        WHERE search_e.household_id = h.id
+          AND search_s.name ILIKE $${values.length}
+      )
+      OR CONCAT('STUB#', ${stubSequenceExpression}) ILIKE $${values.length}
+      OR CAST(${stubSequenceExpression} AS TEXT) ILIKE $${values.length}
+    )`);
+  }
+
+  return {
+    values,
+    whereClause: `WHERE ${conditions.join("\n      AND ")}`,
+  };
+};
+
+const getBarangayDashboardOrderBy = (sortOrder = "oldest") => {
+  if (sortOrder === "az" || sortOrder === "za") {
+    const direction = sortOrder === "za" ? "DESC" : "ASC";
+
+    return `
+      ORDER BY
+        CONCAT_WS(
+          ' ',
+          h.family_head_first_name,
+          h.family_head_middle_name,
+          h.family_head_last_name,
+          h.family_head_suffix
+        ) ${direction},
+        s.id ASC`;
+  }
+
+  const direction = sortOrder === "newest" ? "DESC" : "ASC";
+
+  return `
+    ORDER BY
+      COALESCE(latest_attendance.time_in, s.qr_generated_at, s.issued_at) ${direction} NULLS LAST,
+      ${stubSequenceExpression} ${direction},
+      s.id ASC`;
+};
+
+const buildBarangayDashboardLimitClause = ({ values, limit, offset }) => {
+  if (!Number.isInteger(limit) || limit <= 0) {
+    return "";
+  }
+
+  values.push(limit);
+  const limitIndex = values.length;
+  values.push(Number.isInteger(offset) && offset >= 0 ? offset : 0);
+  const offsetIndex = values.length;
+
+  return `
+    LIMIT $${limitIndex}
+    OFFSET $${offsetIndex}`;
+};
 
 const getStubDashboardMetrics = async (disasterEventId, barangayId) => {
   const query = `
@@ -57,7 +187,31 @@ const getStubDashboardMetrics = async (disasterEventId, barangayId) => {
   };
 };
 
-const getBarangayStubDashboardRows = async (disasterEventId, barangayId) => {
+const getBarangayStubDashboardRows = async (
+  disasterEventId,
+  barangayId,
+  options = {},
+) => {
+  const { values, whereClause } = buildBarangayDashboardFilters({
+    disasterEventId,
+    barangayId,
+    status: options.status || "all",
+    search: options.search || "",
+    sectorIds: options.sectorIds || [],
+  });
+  const limitClause = buildBarangayDashboardLimitClause({
+    values,
+    limit: options.limit || null,
+    offset: options.offset || null,
+  });
+  const orderBy = options.sortOrder
+    ? getBarangayDashboardOrderBy(options.sortOrder)
+    : `
+    ORDER BY
+      CASE WHEN h.is_active = FALSE THEN 1 ELSE 0 END ASC,
+      latest_attendance.time_in ASC NULLS LAST,
+      s.issued_at ASC,
+      s.id ASC`;
   const query = `
     SELECT
       s.id,
@@ -168,27 +322,47 @@ const getBarangayStubDashboardRows = async (disasterEventId, barangayId) => {
       ORDER BY dt.distribution_date DESC, dt.created_at DESC
       LIMIT 1
     ) latest_distribution ON TRUE
-    WHERE s.disaster_event_id = $1
-      AND h.barangay_id = $2
-      AND h.current_stay_type = 'EVAC_CENTER'
-      AND s.status IN ('ISSUED', 'CLAIMED')
-      AND (
-        (
-          h.is_active = TRUE
-          AND latest_attendance.status = 'PRESENT'
-          AND latest_attendance.time_out IS NULL
-        )
-        OR h.is_active = FALSE
-      )
-    ORDER BY
-      CASE WHEN h.is_active = FALSE THEN 1 ELSE 0 END ASC,
-      latest_attendance.time_in ASC NULLS LAST,
-      s.issued_at ASC,
-      s.id ASC
+    ${whereClause}
+    ${orderBy}
+    ${limitClause}
   `;
 
-  const result = await pool.query(query, [disasterEventId, barangayId]);
+  const result = await pool.query(query, values);
   return result.rows;
+};
+
+const countBarangayStubDashboardRows = async (
+  disasterEventId,
+  barangayId,
+  options = {},
+) => {
+  const { values, whereClause } = buildBarangayDashboardFilters({
+    disasterEventId,
+    barangayId,
+    status: options.status || "all",
+    search: options.search || "",
+    sectorIds: options.sectorIds || [],
+  });
+  const query = `
+    SELECT COUNT(s.id)::int AS total
+    FROM stubs s
+    INNER JOIN households h ON h.id = s.household_id
+    LEFT JOIN LATERAL (
+      SELECT el.status, el.time_in, el.time_out
+      FROM evacuation_logs el
+      WHERE el.household_id = h.id
+        AND el.disaster_event_id = s.disaster_event_id
+      ORDER BY
+        COALESCE(el.time_out, el.time_in) DESC,
+        el.updated_at DESC,
+        el.created_at DESC
+      LIMIT 1
+    ) latest_attendance ON TRUE
+    ${whereClause}
+  `;
+
+  const result = await pool.query(query, values);
+  return Number(result.rows[0]?.total || 0);
 };
 
 const getStubSearchResults = async (q, disasterEventId = null, barangayId = null) => {
@@ -792,6 +966,7 @@ const getStubClaimHistory = async ({
 module.exports = {
   getStubDashboardMetrics,
   getBarangayStubDashboardRows,
+  countBarangayStubDashboardRows,
   getStubSearchResults,
   getStubById,
   getScopedStubById,

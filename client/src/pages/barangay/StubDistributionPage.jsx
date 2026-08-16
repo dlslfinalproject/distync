@@ -45,6 +45,7 @@ import {
 
 const DEFAULT_STUB_STATUS = STATUS_FILTERS.ALL;
 const DEFAULT_STUB_SORT_ORDER = "oldest";
+const DEFAULT_STUB_PAGE_SIZE = 25;
 const QR_SCAN_COOLDOWN_MS = 1800;
 
 const claimErrorModalBodyStyles = {
@@ -130,34 +131,6 @@ const getFilteredRows = (rows, searchTerm) => {
     );
   });
 };
-
-const getStubSortTime = (row) => {
-  const timestamp =
-    row.queue_time_in || row.qr_generated_at || row.issued_at || row.created_at || "";
-  const parsedTime = timestamp ? new Date(timestamp).getTime() : 0;
-
-  if (Number.isFinite(parsedTime) && parsedTime > 0) {
-    return parsedTime;
-  }
-
-  return Number(row.stub_sequence_no || 0);
-};
-
-const sortStubRows = (rows, sortOrder = DEFAULT_STUB_SORT_ORDER) =>
-  [...rows].sort((left, right) => {
-    if (sortOrder === "az" || sortOrder === "za") {
-      const leftName = String(left.household?.family_head_name || "");
-      const rightName = String(right.household?.family_head_name || "");
-      const comparison = leftName.localeCompare(rightName);
-
-      return sortOrder === "za" ? -comparison : comparison;
-    }
-
-    const leftTime = getStubSortTime(left);
-    const rightTime = getStubSortTime(right);
-
-    return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
-  });
 
 const isEndedDisasterEvent = (event, eventScope) => {
   const status = String(event?.status || "").toUpperCase();
@@ -252,6 +225,8 @@ const StubDistributionPage = () => {
       sortOrder: DEFAULT_STUB_SORT_ORDER,
     },
   });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_STUB_PAGE_SIZE);
   const [sectorOptions, setSectorOptions] = useState([]);
   const [claimingStubId, setClaimingStubId] = useState("");
   const [claimErrorMessage, setClaimErrorMessage] = useState("");
@@ -307,9 +282,16 @@ const StubDistributionPage = () => {
     userId: authenticatedUser?.id || "",
   });
 
+  const currentFilters = filtersByScope[eventScope] || {
+    sectorNames: [],
+    stubStatus: DEFAULT_STUB_STATUS,
+    sortOrder: DEFAULT_STUB_SORT_ORDER,
+  };
+
   const {
     rows: stubRows,
     summaryCards,
+    pagination: stubPagination,
     isLoading: isLoadingStubDashboard,
     errorMessage: stubDashboardErrorMessage,
     hasData: hasStubData,
@@ -321,6 +303,12 @@ const StubDistributionPage = () => {
     allowFallback,
     assignedBarangayId: assignedBarangay?.id || "",
     sectorOptions,
+    page: currentPage,
+    pageSize,
+    search: searchTerm,
+    status: currentFilters.stubStatus,
+    selectedSectorIds: currentFilters.sectorNames,
+    sortOrder: currentFilters.sortOrder || DEFAULT_STUB_SORT_ORDER,
   });
 
 
@@ -358,11 +346,29 @@ const StubDistributionPage = () => {
       );
     });
 
-    return sortStubRows(
-      matchingRows,
-      currentFilters.sortOrder || DEFAULT_STUB_SORT_ORDER,
-    );
+    return matchingRows;
   }, [eventScope, filtersByScope, searchTerm, stubRows]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+    setSelectedStubIds([]);
+  }, [
+    currentFilters.sectorNames,
+    currentFilters.sortOrder,
+    currentFilters.stubStatus,
+    eventScope,
+    pageSize,
+    searchTerm,
+    selectedEvent?.id,
+  ]);
+
+  useEffect(() => {
+    const totalPages = Number(stubPagination?.totalPages || 0);
+
+    if (totalPages > 0 && currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, stubPagination?.totalPages]);
 
   useEffect(() => {
     let isMounted = true;
@@ -406,12 +412,6 @@ const StubDistributionPage = () => {
       setScanCooldownState({ value: "", until: 0 });
     }
   }, [isSelectedEventEnded, selectedEvent?.id]);
-
-  const currentFilters = filtersByScope[eventScope] || {
-    sectorNames: [],
-    stubStatus: DEFAULT_STUB_STATUS,
-    sortOrder: DEFAULT_STUB_SORT_ORDER,
-  };
 
   const stubStatusOptions = [
     { value: STATUS_FILTERS.CLAIMED, label: "Claimed" },
@@ -1084,6 +1084,9 @@ const StubDistributionPage = () => {
         onToggleSelect={handleToggleSelect}
         onSelectAll={handleSelectAll}
         onViewStub={handleOpenStubDetails}
+        pagination={stubPagination}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={setPageSize}
       />
 
       <StubClaimConfirmModal

@@ -257,7 +257,19 @@ test("BRG-SC-07-M01 TEST L dashboard offline fallback merges cached rows without
 
   assert.match(source, /setDashboard\(\{[\s\S]*data: serverRows/);
   assert.match(source, /setPendingLocalRows\(\[\.\.\.pendingRows, \.\.\.cachedRows\]\)/);
-  assert.doesNotMatch(source, /offlineStubCache\.clear|bulkDelete|delete\(/);
+  assert.doesNotMatch(source, /offlineStubCache\.clear|bulkDelete|offlineStubCache\.delete/);
+});
+
+test("BRG-RGD-PAG-006 guarded cache warming avoids routine full dashboard refetches", async () => {
+  const hookSource = await readSource("../src/features/stubs/useStubDashboard.js");
+  const cacheSource = await readSource("../src/features/stubs/stubCache.js");
+
+  assert.match(hookSource, /skipOfflineCache: true/);
+  assert.match(hookSource, /const offlineStubCacheWarmRequests = new Map\(\)/);
+  assert.match(hookSource, /hasCachedStubSnapshotsForScope\(\{/);
+  assert.match(hookSource, /!offlineStubCacheWarmRequests\.has\(warmKey\)/);
+  assert.match(cacheSource, /export const hasCachedStubSnapshotsForScope = async/);
+  assert.match(cacheSource, /getCachedStubSnapshotsForScope\(\{/);
 });
 
 test("BRG-SC-07-M01 TEST M pending duplicate protection blocks another local claim attempt", async () => {

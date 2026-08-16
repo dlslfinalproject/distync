@@ -113,6 +113,24 @@ const formatStubDisplayNo = (sequenceNo) => {
   return normalizedSequence > 0 ? `STUB#${normalizedSequence}` : null;
 };
 
+const buildPaginationMetadata = ({ page, pageSize, totalItems }) => {
+  const safePage = Number.isInteger(page) && page > 0 ? page : 1;
+  const safePageSize =
+    Number.isInteger(pageSize) && pageSize > 0 ? pageSize : 25;
+  const safeTotalItems = Number(totalItems || 0);
+  const totalPages =
+    safeTotalItems > 0 ? Math.ceil(safeTotalItems / safePageSize) : 0;
+
+  return {
+    page: safePage,
+    pageSize: safePageSize,
+    totalItems: safeTotalItems,
+    totalPages,
+    hasPreviousPage: safePage > 1 && totalPages > 0,
+    hasNextPage: totalPages > 0 && safePage < totalPages,
+  };
+};
+
 const buildQrValidationError = ({
   code,
   message,
@@ -363,10 +381,34 @@ const getBarangayStubDashboard = async (filters) => {
     filters.disaster_event_id,
     effectiveBarangay.id,
   );
-  const rows = await stubRepository.getBarangayStubDashboardRows(
-    filters.disaster_event_id,
-    effectiveBarangay.id,
-  );
+  const isPaginated = Boolean(filters.is_paginated);
+  const page = filters.page || 1;
+  const pageSize = filters.pageSize || 25;
+  const offset = (page - 1) * pageSize;
+  const rowOptions = isPaginated
+    ? {
+        status: filters.status || "all",
+        search: filters.search || "",
+        sectorIds: filters.sector_ids || [],
+        sortOrder: filters.sort_order || "oldest",
+        limit: pageSize,
+        offset,
+      }
+    : {};
+  const [rows, totalItems] = await Promise.all([
+    stubRepository.getBarangayStubDashboardRows(
+      filters.disaster_event_id,
+      effectiveBarangay.id,
+      rowOptions,
+    ),
+    isPaginated
+      ? stubRepository.countBarangayStubDashboardRows(
+          filters.disaster_event_id,
+          effectiveBarangay.id,
+          rowOptions,
+        )
+      : Promise.resolve(null),
+  ]);
   const rowsWithQr = await Promise.all(
     rows.map((row) => ensureStubQrMetadata(row, filters.qr_generated_by)),
   );
@@ -433,7 +475,7 @@ const getBarangayStubDashboard = async (filters) => {
     return donatedLooseItemPreviewByQueuePosition.get(normalizedQueuePosition);
   };
 
-  return {
+  const response = {
     assigned_barangay: {
       id: effectiveBarangay.id,
       code: effectiveBarangay.code,
@@ -447,7 +489,7 @@ const getBarangayStubDashboard = async (filters) => {
     ),
     disaster_event: scopedDisasterEvent,
     metrics,
-    count: rows.length,
+    count: isPaginated ? totalItems : rows.length,
     data: await Promise.all(rowsWithQr.map(async (row) => {
       const sectorIds = buildSectorIds(
         row.household_id,
@@ -532,6 +574,16 @@ const getBarangayStubDashboard = async (filters) => {
       };
     })),
   };
+
+  if (isPaginated) {
+    response.pagination = buildPaginationMetadata({
+      page,
+      pageSize,
+      totalItems,
+    });
+  }
+
+  return response;
 };
 
 const claimBarangayStub = async (params) => {
