@@ -38,6 +38,14 @@ img {
 .mswdo-masterlist-event-title,
 .mswdo-masterlist-event-meta,
 .mswdo-masterlist-summary-grid,
+.mswdo-stub-scope-card,
+.mswdo-stub-tabs,
+.mswdo-stub-filter-grid,
+.mswdo-stub-filter-field,
+.mswdo-stub-event-summary-card,
+.mswdo-stub-event-summary,
+.mswdo-stub-event-title,
+.mswdo-stub-event-meta,
 .household-registration-modal,
 .household-registration-modal-topbar,
 .masterlist-detail-modal,
@@ -123,6 +131,8 @@ img {
 .barangay-dashboard-event-meta,
 .mswdo-masterlist-event-title,
 .mswdo-masterlist-event-meta,
+.mswdo-stub-event-title,
+.mswdo-stub-event-meta,
 .masterlist-detail-modal p,
 .household-registration-modal p {
   overflow-wrap: anywhere;
@@ -805,6 +815,27 @@ img {
     gap: 10px 16px !important;
   }
 
+  .mswdo-stub-tabs {
+    flex-wrap: nowrap !important;
+    max-width: 100%;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .mswdo-stub-tabs button {
+    flex: 1 0 max-content;
+    min-height: 44px;
+  }
+
+  .mswdo-stub-filter-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)) !important;
+  }
+
+  .mswdo-stub-event-meta {
+    flex-wrap: wrap;
+    gap: 10px 16px !important;
+  }
+
   .mswdo-masterlist-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
@@ -1243,6 +1274,23 @@ img {
 
   .mswdo-masterlist-filter-grid,
   .mswdo-masterlist-summary-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .mswdo-stub-tabs {
+    gap: 6px !important;
+  }
+
+  .mswdo-stub-tabs button {
+    flex: 1 1 0;
+    justify-content: center;
+    min-width: 0;
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+    white-space: normal !important;
+  }
+
+  .mswdo-stub-filter-grid {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 

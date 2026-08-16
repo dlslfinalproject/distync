@@ -10,7 +10,6 @@ const tableStyles = {
   table: {
     width: "100%",
     borderCollapse: "collapse",
-    minWidth: "980px",
   },
   headerCell: {
     padding: "14px 16px",
@@ -227,7 +226,10 @@ const MswdoStubResultsTable = ({
 
   if (!hasSelectedEvent) {
     return (
-      <section style={shellStyles.card}>
+      <section
+        className="stub-results-card mswdo-stub-results-card"
+        style={shellStyles.card}
+      >
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Stub Information</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
           Please select a disaster event to load the stub information table.
@@ -238,7 +240,10 @@ const MswdoStubResultsTable = ({
 
   if (!hasSelectedBarangay) {
     return (
-      <section style={shellStyles.card}>
+      <section
+        className="stub-results-card mswdo-stub-results-card"
+        style={shellStyles.card}
+      >
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Stub Information</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
           Please select a barangay to view the stub distribution progress.
@@ -249,7 +254,10 @@ const MswdoStubResultsTable = ({
 
   if (isLoading) {
     return (
-      <section style={shellStyles.card}>
+      <section
+        className="stub-results-card mswdo-stub-results-card"
+        style={shellStyles.card}
+      >
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Stub Information</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
           Loading stub information...
@@ -260,7 +268,10 @@ const MswdoStubResultsTable = ({
 
   if (errorMessage) {
     return (
-      <section style={shellStyles.card}>
+      <section
+        className="stub-results-card mswdo-stub-results-card"
+        style={shellStyles.card}
+      >
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Stub Information</h3>
         <p
           style={{
@@ -277,7 +288,10 @@ const MswdoStubResultsTable = ({
 
   if (rows.length === 0) {
     return (
-      <section style={shellStyles.card}>
+      <section
+        className="stub-results-card mswdo-stub-results-card"
+        style={shellStyles.card}
+      >
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Stub Information</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
           No matching records found. Try adjusting your search or filters.
@@ -295,7 +309,10 @@ const MswdoStubResultsTable = ({
     selectableRows.every((row) => safeSelectedStubIds.includes(row.id));
 
   return (
-    <section style={shellStyles.card}>
+    <section
+      className="stub-results-card mswdo-stub-results-card"
+      style={shellStyles.card}
+    >
       <div style={{ marginBottom: "18px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>Stub Information</h3>
       </div>
@@ -313,7 +330,10 @@ const MswdoStubResultsTable = ({
         </p>
       ) : null}
 
-      <div style={{ overflowX: "auto" }}>
+      <div
+        className="stub-results-table-scroll mswdo-stub-results-table-scroll"
+        style={{ overflowX: "auto" }}
+      >
         <table style={tableStyles.table}>
           <thead>
             <tr>
@@ -434,10 +454,14 @@ const MswdoStubResultsTable = ({
                       textAlign: "center",
                     }}
                   >
-                    <div style={{ width: "112px", margin: "0 auto" }}>
+                    <div
+                      className="stub-results-qr-cell"
+                      style={{ width: "112px", margin: "0 auto" }}
+                    >
                       <QrCodePanel
-                        value={row.qr_code_value}
+                        value={row.qr_code_value || ""}
                         emptyLabel="QR unavailable"
+                        showValue={false}
                       />
                     </div>
                   </td>
