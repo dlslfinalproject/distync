@@ -64,6 +64,39 @@ test("Distribution History mobile toolbar controls fill available width without 
   );
 });
 
+test("Distribution History pagination footer is compact and adapts on narrow screens", async () => {
+  const cssSource = await readSource(["index.css"]);
+
+  assert.match(
+    cssSource,
+    /\.distribution-history-records-title-group \{[\s\S]*?justify-content: space-between;[\s\S]*?flex-wrap: wrap;/,
+  );
+  assert.match(
+    cssSource,
+    /\.distribution-history-pagination-navigation \{[\s\S]*?justify-content: flex-end;[\s\S]*?margin-top: 14px;[\s\S]*?padding-top: 12px;[\s\S]*?border-top: 1px solid #edf3f8;/,
+  );
+  assert.match(
+    cssSource,
+    /\.distribution-history-page-size select \{[\s\S]*?width: 78px;[\s\S]*?min-height: 40px;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.distribution-history-records-title-group \{[\s\S]*?align-items: stretch;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 480px\)[\s\S]*?\.distribution-history-pagination-range \{[\s\S]*?order: 2;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 480px\)[\s\S]*?\.distribution-history-page-indicator \{[\s\S]*?order: 1;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 480px\)[\s\S]*?\.distribution-history-pagination-controls button \{[\s\S]*?flex: 1 1 0;[\s\S]*?order: 2;/,
+  );
+});
+
 test("Distribution History detail action is accessible and does not expose raw QR payload", async () => {
   const pageSource = await readSource(["pages", "DistributionHistoryPage.jsx"]);
 

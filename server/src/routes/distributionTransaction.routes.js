@@ -148,16 +148,28 @@ router.get(
   validateGetDistributionHistory,
   async (req, res) => {
     try {
-      const historyRows =
+      const historyResult =
         await distributionTransactionService.getDistributionHistory({
           requester: req.auth,
           filters: req.validatedQuery,
         });
+      const historyRows = Array.isArray(historyResult)
+        ? historyResult
+        : historyResult.data;
+      const pagination = Array.isArray(historyResult)
+        ? null
+        : historyResult.pagination;
 
-      return res.status(200).json({
+      const responseBody = {
         message: "Distribution history fetched successfully",
         data: historyRows,
-      });
+      };
+
+      if (pagination) {
+        responseBody.pagination = pagination;
+      }
+
+      return res.status(200).json(responseBody);
     } catch (error) {
       return res.status(error.statusCode || 500).json({
         message: error.message || "Failed to fetch distribution history",

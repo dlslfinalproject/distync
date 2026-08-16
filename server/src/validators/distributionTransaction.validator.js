@@ -266,10 +266,15 @@ const validateGetDistributionHistory = (req, res, next) => {
       date_to,
       sort_order,
       limit,
+      page,
+      pageSize,
+      search,
+      mode,
     } = req.query;
 
     const allowedDistributionStatuses = ["CLAIMED", "CANCELLED", "REVERSED"];
     const allowedSortOrders = ["newest", "oldest", "az", "za"];
+    const allowedModes = ["detail", "summary"];
 
     if (disaster_event_id && !isValidUuid(disaster_event_id)) {
       return res.status(400).json({
@@ -315,6 +320,40 @@ const validateGetDistributionHistory = (req, res, next) => {
       });
     }
 
+    const hasPage = page !== undefined;
+    const hasPageSize = pageSize !== undefined;
+    const parsedPage = hasPage ? Number.parseInt(page, 10) : 1;
+    const parsedPageSize = hasPageSize ? Number.parseInt(pageSize, 10) : 25;
+
+    if (hasPage && (!Number.isInteger(parsedPage) || parsedPage < 1)) {
+      return res.status(400).json({
+        message: "page must be an integer greater than or equal to 1",
+      });
+    }
+
+    if (
+      hasPageSize &&
+      (!Number.isInteger(parsedPageSize) ||
+        parsedPageSize <= 0 ||
+        parsedPageSize > 100)
+    ) {
+      return res.status(400).json({
+        message: "pageSize must be an integer between 1 and 100",
+      });
+    }
+
+    if (search !== undefined && search !== null && typeof search !== "string") {
+      return res.status(400).json({
+        message: "search must be a string when provided",
+      });
+    }
+
+    if (mode && !allowedModes.includes(mode)) {
+      return res.status(400).json({
+        message: "mode must be one of: detail, summary",
+      });
+    }
+
     req.validatedQuery = {
       disaster_event_id: disaster_event_id || null,
       barangay_id: barangay_id || null,
@@ -323,6 +362,12 @@ const validateGetDistributionHistory = (req, res, next) => {
       date_to: date_to || null,
       sort_order: sort_order || "newest",
       limit: parsedLimit,
+      page: parsedPage,
+      pageSize: parsedPageSize,
+      isPaginated: hasPage || hasPageSize,
+      search:
+        typeof search === "string" && search.trim() ? search.trim() : "",
+      mode: mode || "detail",
     };
 
     return next();
