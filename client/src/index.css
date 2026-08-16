@@ -40,10 +40,40 @@ img {
   min-width: 0;
 }
 
+.stub-distribution-toolbar,
+.stub-distribution-toolbar-search,
+.stub-distribution-toolbar-controls,
+.stub-distribution-toolbar-actions,
+.stub-results-card,
+.stub-results-table-scroll,
+.stub-summary-grid,
+.stub-detail-modal,
+.stub-detail-modal-topbar,
+.stub-detail-modal-grid,
+.stub-detail-modal-visual-grid,
+.stub-detail-modal-stub-grid,
+.stub-claim-confirm-modal,
+.stub-claim-confirm-content,
+.stub-claim-confirm-family-head,
+.stub-claim-confirm-bulk-list,
+.stub-qr-scan-modal,
+.stub-qr-scan-modal-topbar,
+.stub-qr-scan-card,
+.stub-qr-scan-viewport {
+  min-width: 0;
+}
+
 .barangay-dashboard-event-title,
 .barangay-dashboard-event-meta,
 .masterlist-detail-modal p,
 .household-registration-modal p {
+  overflow-wrap: anywhere;
+}
+
+.stub-results-card,
+.stub-detail-modal p,
+.stub-claim-confirm-modal p,
+.stub-qr-scan-modal p {
   overflow-wrap: anywhere;
 }
 
@@ -119,6 +149,90 @@ img {
   margin-top: 0 !important;
   pointer-events: none !important;
   overflow: hidden !important;
+}
+
+.stub-distribution-toolbar-actions {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.stub-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+}
+
+.stub-qr-scan-modal {
+  display: flex;
+  flex-direction: column;
+}
+
+.stub-qr-scan-modal-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start !important;
+  background-color: #ffffff;
+  padding-bottom: 12px;
+}
+
+.stub-qr-scan-modal-heading {
+  min-width: 0;
+}
+
+.stub-qr-scan-card,
+.stub-qr-scan-actions {
+  flex-shrink: 0;
+}
+
+.stub-qr-scan-viewport {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: min(48vh, 390px);
+}
+
+.stub-qr-scan-video {
+  max-height: 100%;
+}
+
+.stub-qr-scan-guide.scan-region-highlight {
+  overflow: hidden;
+}
+
+.stub-qr-scan-guide .scan-region-highlight-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: #e9b213;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.stub-qr-scan-status {
+  border: 1px solid #c6d8ea;
+  border-radius: 12px;
+  min-height: 40px;
+  padding: 0 18px;
+  background-color: #eef5fc;
+  color: #2d5e8f;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: default;
+  user-select: none;
+}
+
+@media (max-width: 1100px) {
+  .stub-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
 }
 
 .donor-portal-layout,
@@ -329,8 +443,87 @@ img {
     width: 100%;
   }
 
+  .stub-distribution-toolbar-search,
+  .stub-distribution-toolbar-controls,
+  .stub-distribution-toolbar-actions {
+    flex: 1 1 100% !important;
+    width: 100%;
+  }
+
   .masterlist-toolbar-search input {
     width: 100%;
+  }
+
+  .stub-distribution-toolbar-search input {
+    width: 100%;
+  }
+
+  .stub-distribution-toolbar {
+    align-items: stretch !important;
+  }
+
+  .stub-distribution-toolbar-controls,
+  .stub-distribution-toolbar-actions {
+    gap: 10px !important;
+  }
+
+  .stub-distribution-toolbar-actions {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .stub-results-table-scroll {
+    max-width: 100%;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .stub-results-table-scroll table {
+    min-width: 920px;
+  }
+
+  .stub-detail-modal-topbar {
+    align-items: flex-start !important;
+    flex-wrap: wrap;
+  }
+
+  .stub-qr-scan-modal-topbar {
+    column-gap: 12px !important;
+    flex-wrap: nowrap !important;
+  }
+
+  .stub-detail-modal-grid,
+  .stub-detail-modal-visual-grid,
+  .stub-detail-modal-stub-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .stub-detail-modal-qr-panel {
+    max-width: min(280px, 100%) !important;
+  }
+
+  .stub-claim-confirm-actions,
+  .stub-qr-scan-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch !important;
+  }
+
+  .stub-claim-confirm-actions button,
+  .stub-qr-scan-actions button {
+    justify-content: center;
+    min-width: 0;
+    width: 100%;
+    white-space: normal;
+  }
+
+  .stub-qr-scan-viewport {
+    max-height: min(44vh, 350px);
+  }
+
+  .stub-qr-scan-video {
+    height: 100% !important;
+    max-height: 100%;
   }
 
   .household-registration-name-grid,
@@ -355,6 +548,13 @@ img {
     padding: 12px !important;
   }
 
+  .stub-detail-modal-backdrop,
+  .stub-claim-confirm-modal-backdrop,
+  .stub-qr-scan-modal-backdrop {
+    align-items: stretch !important;
+    padding: 12px !important;
+  }
+
   .household-registration-modal,
   .masterlist-detail-modal {
     max-height: calc(100vh - 24px) !important;
@@ -362,8 +562,21 @@ img {
     padding: 16px !important;
   }
 
+  .stub-detail-modal,
+  .stub-claim-confirm-modal,
+  .stub-qr-scan-modal {
+    max-height: calc(100vh - 24px) !important;
+    border-radius: 18px !important;
+    padding: 16px !important;
+  }
+
   .household-registration-modal-topbar h2,
   .masterlist-detail-modal-topbar h2 {
+    font-size: 24px !important;
+  }
+
+  .stub-detail-modal-topbar h2,
+  .stub-qr-scan-modal-topbar h2 {
     font-size: 24px !important;
   }
 
@@ -377,8 +590,62 @@ img {
     width: 100%;
   }
 
+  .stub-distribution-toolbar-controls > *,
+  .stub-distribution-toolbar-actions > *,
+  .stub-distribution-toolbar-actions button,
+  .stub-distribution-toolbar-actions label {
+    width: 100%;
+  }
+
   .masterlist-toolbar-actions button,
   .masterlist-toolbar-actions select {
     justify-content: center;
+  }
+
+  .stub-distribution-toolbar-actions button,
+  .stub-distribution-toolbar-controls button,
+  .stub-distribution-toolbar-controls select {
+    justify-content: center;
+  }
+
+  .stub-distribution-status-filter {
+    align-items: flex-start !important;
+    flex-direction: column;
+    gap: 6px !important;
+  }
+
+  .stub-claim-confirm-family-head {
+    align-items: flex-start !important;
+  }
+
+  .stub-claim-confirm-bulk-list > * {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .stub-claim-confirm-actions,
+  .stub-qr-scan-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .stub-summary-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .stub-qr-scan-card {
+    padding: 12px !important;
+  }
+
+  .stub-qr-scan-viewport {
+    aspect-ratio: 1 / 1;
+    max-height: min(42vh, 320px);
+  }
+
+  .stub-qr-scan-video {
+    height: 100% !important;
+    max-height: 100%;
+  }
+
+  .stub-qr-scan-status {
+    width: 100%;
   }
 }

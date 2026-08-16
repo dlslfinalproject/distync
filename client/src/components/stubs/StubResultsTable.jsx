@@ -240,7 +240,7 @@ const StubResultsTable = ({
 
   if (!hasSelectedEvent) {
     return (
-      <section style={shellStyles.card}>
+      <section className="stub-results-card" style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Stub Information</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
           Please select a disaster event to load the stub information table.
@@ -251,7 +251,7 @@ const StubResultsTable = ({
 
   if (isLoading) {
     return (
-      <section style={shellStyles.card}>
+      <section className="stub-results-card" style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Stub Information</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
           Loading stub information...
@@ -262,7 +262,7 @@ const StubResultsTable = ({
 
   if (errorMessage) {
     return (
-      <section style={shellStyles.card}>
+      <section className="stub-results-card" style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Stub Information</h3>
         <p
           style={{
@@ -279,7 +279,7 @@ const StubResultsTable = ({
 
   if (rows.length === 0) {
     return (
-      <section style={shellStyles.card}>
+      <section className="stub-results-card" style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Stub Information</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
           No matching records found. Try adjusting your search or filters.
@@ -303,7 +303,7 @@ const StubResultsTable = ({
     selectableRows.every((row) => safeSelectedStubIds.includes(row.id));
 
   return (
-    <section style={shellStyles.card}>
+    <section className="stub-results-card" style={shellStyles.card}>
       <div style={{ marginBottom: "18px" }}>
         <div>
           <h3 style={{ margin: 0, color: "#17324d" }}>Stub Information</h3>
@@ -323,7 +323,7 @@ const StubResultsTable = ({
         </p>
       ) : null}
 
-      <div style={{ overflowX: "auto" }}>
+      <div className="stub-results-table-scroll" style={{ overflowX: "auto" }}>
         <table style={tableStyles.table}>
           <thead>
             <tr>
@@ -479,10 +479,14 @@ const StubResultsTable = ({
                       textAlign: "center",
                     }}
                   >
-                    <div style={{ width: "112px", margin: "0 auto" }}>
+                    <div
+                      className="stub-results-qr-cell"
+                      style={{ width: "112px", margin: "0 auto" }}
+                    >
                       <QrCodePanel
                         value={row.qr_code_value || ""}
                         emptyLabel="QR unavailable"
+                        showValue={false}
                       />
                     </div>
                   </td>

@@ -338,9 +338,9 @@ const StubDetailModal = ({
   );
 
   return (
-    <div style={modalStyles.backdrop}>
-      <div style={modalStyles.modal}>
-        <div style={modalStyles.topBar}>
+    <div className="stub-detail-modal-backdrop" style={modalStyles.backdrop}>
+      <div className="stub-detail-modal" style={modalStyles.modal}>
+        <div className="stub-detail-modal-topbar" style={modalStyles.topBar}>
           <div>
             <h2 style={{ ...pageHeaderStyles.title, fontSize: "30px" }}>
               Household Details
@@ -365,9 +365,9 @@ const StubDetailModal = ({
             </p>
           </section>
         ) : (
-          <div style={{ display: "grid", gap: "18px" }}>
+          <div className="stub-detail-modal-content" style={{ display: "grid", gap: "18px" }}>
             <section style={modalStyles.section}>
-              <div style={modalStyles.grid}>
+              <div className="stub-detail-modal-grid" style={modalStyles.grid}>
                 <div>
                   <p style={modalStyles.label}>Disaster Event</p>
                   <p style={modalStyles.value}>
@@ -411,7 +411,7 @@ const StubDetailModal = ({
             </section>
 
             <section style={modalStyles.section}>
-              <div style={modalStyles.grid}>
+              <div className="stub-detail-modal-grid" style={modalStyles.grid}>
                 <div>
                   <p style={modalStyles.label}>Family Head Photo</p>
                   <div style={{ marginTop: "12px" }}>
@@ -460,10 +460,16 @@ const StubDetailModal = ({
             </section>
 
             <section style={modalStyles.section}>
-              <div style={modalStyles.visualDetailsGrid}>
+              <div
+                className="stub-detail-modal-visual-grid"
+                style={modalStyles.visualDetailsGrid}
+              >
                 <div>
                   <p style={modalStyles.label}>QR Stub</p>
-                  <div style={{ marginTop: "12px", maxWidth: "280px" }}>
+                  <div
+                    className="stub-detail-modal-qr-panel"
+                    style={{ marginTop: "12px", maxWidth: "280px" }}
+                  >
                     <QrCodePanel
                       value={stubDetails?.qr_code_value || ""}
                       emptyLabel="No QR available"
@@ -472,7 +478,10 @@ const StubDetailModal = ({
                   </div>
                 </div>
 
-                <div style={modalStyles.stubInfoGrid}>
+                <div
+                  className="stub-detail-modal-stub-grid"
+                  style={modalStyles.stubInfoGrid}
+                >
                   <div>
                     <p style={modalStyles.label}>Stub Number</p>
                     <p style={modalStyles.value}>

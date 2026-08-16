@@ -242,6 +242,7 @@ const StubSearchBar = ({
 
   return (
     <section
+      className="stub-distribution-toolbar"
       style={{
         display: "flex",
         justifyContent: "space-between",
@@ -251,7 +252,7 @@ const StubSearchBar = ({
       }}
     >
       {/* Search Input Container */}
-      <div style={{ flex: "1" }}>
+      <div className="stub-distribution-toolbar-search" style={{ flex: "1" }}>
         <SearchBar
           value={searchValue}
           onChange={onSearchChange}
@@ -264,8 +265,12 @@ const StubSearchBar = ({
         />
       </div>
 
-      <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
+      <div
+        className="stub-distribution-toolbar-controls"
+        style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}
+      >
         <label
+          className="stub-distribution-status-filter"
           style={{
             display: "flex",
             alignItems: "center",
@@ -380,7 +385,9 @@ const StubSearchBar = ({
             </div>
           ) : null}
         </div>
-        {actions}
+        {actions ? (
+          <div className="stub-distribution-toolbar-actions">{actions}</div>
+        ) : null}
       </div>
     </section>
   );
