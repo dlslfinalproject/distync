@@ -79,7 +79,7 @@ const StaffAccessPanel = ({
             Public Donation Transparency Portal
           </span>
           <span className="distync-access-page__portal-link-copy">
-            View donation needs and public transparency information.
+            View public donation information and transparency summaries.
           </span>
         </button>
       </section>

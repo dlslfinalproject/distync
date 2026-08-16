@@ -88,3 +88,54 @@ test("runInventoryForecast rejects non-active disaster events before computing d
 
   assert.deepEqual(calls, []);
 });
+
+test("getLatestInventoryForecastOverall maps the newest forecast run without requiring an event id", async () => {
+  await withStubbedForecastService(
+    {
+      [dbPath]: {},
+      [systemLogPath]: {
+        logErrorSafely: async () => {},
+      },
+      [repositoryPath]: {
+        getLatestForecastRun: async () => ({
+          id: "forecast-run-1",
+          disaster_event_id: "event-1",
+          event_code: "DE-001",
+          disaster_event_title: "Flood Response",
+          run_type: "INVENTORY_DEMAND",
+          run_by: "user-1",
+          run_at: "2026-08-16T08:00:00.000Z",
+          model_name: "MOVING_AVERAGE",
+          parameters_json: {},
+        }),
+        getForecastResultsByRunId: async (runId) => {
+          assert.equal(runId, "forecast-run-1");
+          return [
+            {
+              inventory_item_id: "item-1",
+              item_name: "Rice",
+              item_code: "RICE",
+              category: "Food",
+              unit_of_measure: "packs",
+              predicted_quantity_needed: 12,
+              predicted_depletion_date: null,
+              recommended_reorder_quantity: 8,
+              confidence_notes: JSON.stringify({
+                risk_level: "HIGH",
+                shortage_within_seven_days: true,
+              }),
+            },
+          ];
+        },
+      },
+    },
+    async ({ getLatestInventoryForecastOverall }) => {
+      const latestForecast = await getLatestInventoryForecastOverall();
+
+      assert.equal(latestForecast.forecast_run.id, "forecast-run-1");
+      assert.equal(latestForecast.results.length, 1);
+      assert.equal(latestForecast.results[0].item_name, "Rice");
+      assert.equal(latestForecast.results[0].risk_level, "HIGH");
+    },
+  );
+});

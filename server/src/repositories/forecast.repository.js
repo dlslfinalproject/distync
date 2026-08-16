@@ -457,6 +457,29 @@ const getLatestForecastRunByDisasterEvent = async (
   return result.rows[0] || null;
 };
 
+const getLatestForecastRun = async (dbClient = pool) => {
+  const result = await dbClient.query(
+    `
+      SELECT
+        fr.id,
+        fr.disaster_event_id,
+        fr.run_type,
+        fr.run_by,
+        fr.run_at,
+        fr.model_name,
+        fr.parameters_json,
+        de.event_code,
+        de.title AS disaster_event_title
+      FROM forecast_runs fr
+      INNER JOIN disaster_events de ON de.id = fr.disaster_event_id
+      ORDER BY fr.run_at DESC, fr.id DESC
+      LIMIT 1
+    `,
+  );
+
+  return result.rows[0] || null;
+};
+
 const getForecastResultsByRunId = async (forecastRunId, dbClient = pool) => {
   const result = await dbClient.query(
     `
@@ -600,6 +623,7 @@ module.exports = {
   getInventoryUsageTrend,
   insertForecastRun,
   insertForecastResult,
+  getLatestForecastRun,
   getLatestForecastRunByDisasterEvent,
   getForecastResultsByRunId,
   getForecastRunById,
