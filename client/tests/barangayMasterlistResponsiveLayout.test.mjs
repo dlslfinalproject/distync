@@ -147,6 +147,41 @@ test("Household registration grids collapse to one column at mobile widths", asy
   );
 });
 
+test("Household contact number field uses a bounded shared responsive layout", async () => {
+  const [householdFormSource, modalSource, barangayPageSource] =
+    await Promise.all([
+      readSource([
+        "components",
+        "household-registration",
+        "HouseholdFormSection.jsx",
+      ]),
+      readSource([
+        "components",
+        "household-registration",
+        "RegisterFamilyModal.jsx",
+      ]),
+      readSource(["pages", "barangay", "BarangayMasterlistPage.jsx"]),
+    ]);
+
+  assert.match(householdFormSource, /phoneInputGroup: \{[\s\S]*?width: "100%"/);
+  assert.match(householdFormSource, /phoneInputGroup: \{[\s\S]*?maxWidth: "100%"/);
+  assert.match(householdFormSource, /phoneInputGroup: \{[\s\S]*?minWidth: 0/);
+  assert.match(householdFormSource, /phonePrefix: \{[\s\S]*?minWidth: "124px"/);
+  assert.match(householdFormSource, /phonePrefix: \{[\s\S]*?flex: "0 0 auto"/);
+  assert.match(householdFormSource, /phoneInput: \{[\s\S]*?flex: "1 1 auto"/);
+  assert.match(householdFormSource, /phoneInput: \{[\s\S]*?minWidth: 0/);
+  assert.match(householdFormSource, /phoneInput: \{[\s\S]*?width: "100%"/);
+  assert.match(householdFormSource, /<div style=\{fieldStyles\.phonePrefix\}>PH \+63<\/div>/);
+  assert.match(householdFormSource, /type="text"/);
+  assert.match(householdFormSource, /inputMode="numeric"/);
+  assert.match(householdFormSource, /placeholder="912 345 6789"/);
+  assert.match(modalSource, /<HouseholdFormSection form=\{form\} \/>/);
+  assert.match(
+    barangayPageSource,
+    /<RegisterFamilyModal[\s\S]*?form=\{registrationForm\}[\s\S]*?<RegisterFamilyModal[\s\S]*?form=\{editHouseholdForm\}/,
+  );
+});
+
 test("Data privacy notice footer stacks compact actions without shortening the required label", async () => {
   const [modalSource, privacyNoticeSource] = await Promise.all([
     readSource([
