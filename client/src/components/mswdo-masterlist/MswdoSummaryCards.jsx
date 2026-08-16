@@ -44,7 +44,7 @@ const MswdoSummaryCards = ({ summary, selectedBarangayId }) => {
   ];
 
   return (
-    <section style={gridStyles}>
+    <section className="mswdo-masterlist-summary-grid" style={gridStyles}>
       {cards.map((card) => (
         <StatusCard key={card.label} {...card} />
       ))}

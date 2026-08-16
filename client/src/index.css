@@ -28,6 +28,16 @@ img {
 .barangay-dashboard-event-meta,
 .masterlist-toolbar-search,
 .masterlist-toolbar-actions,
+.mswdo-masterlist-toolbar,
+.mswdo-masterlist-scope-card,
+.mswdo-masterlist-tabs,
+.mswdo-masterlist-filter-grid,
+.mswdo-masterlist-filter-field,
+.mswdo-masterlist-event-summary-card,
+.mswdo-masterlist-event-summary,
+.mswdo-masterlist-event-title,
+.mswdo-masterlist-event-meta,
+.mswdo-masterlist-summary-grid,
 .household-registration-modal,
 .household-registration-modal-topbar,
 .masterlist-detail-modal,
@@ -111,6 +121,8 @@ img {
 
 .barangay-dashboard-event-title,
 .barangay-dashboard-event-meta,
+.mswdo-masterlist-event-title,
+.mswdo-masterlist-event-meta,
 .masterlist-detail-modal p,
 .household-registration-modal p {
   overflow-wrap: anywhere;
@@ -772,6 +784,31 @@ img {
     gap: 10px 16px !important;
   }
 
+  .mswdo-masterlist-tabs {
+    flex-wrap: nowrap !important;
+    max-width: 100%;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .mswdo-masterlist-tabs button {
+    flex: 1 0 max-content;
+    min-height: 44px;
+  }
+
+  .mswdo-masterlist-filter-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)) !important;
+  }
+
+  .mswdo-masterlist-event-meta {
+    flex-wrap: wrap;
+    gap: 10px 16px !important;
+  }
+
+  .mswdo-masterlist-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
   .masterlist-toolbar-search,
   .masterlist-toolbar-actions {
     flex: 1 1 100% !important;
@@ -1189,6 +1226,24 @@ img {
 
   .masterlist-toolbar-actions {
     gap: 10px !important;
+  }
+
+  .mswdo-masterlist-tabs {
+    gap: 6px !important;
+  }
+
+  .mswdo-masterlist-tabs button {
+    flex: 1 1 0;
+    justify-content: center;
+    min-width: 0;
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+    white-space: normal !important;
+  }
+
+  .mswdo-masterlist-filter-grid,
+  .mswdo-masterlist-summary-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
   }
 
   .masterlist-toolbar-actions > *,

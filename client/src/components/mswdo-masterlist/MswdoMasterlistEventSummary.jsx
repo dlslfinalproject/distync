@@ -9,8 +9,9 @@ const MswdoMasterlistEventSummary = ({
   reliefPeriodText,
 }) => {
   return (
-    <section style={shellStyles.card}>
+    <section className="mswdo-masterlist-event-summary-card" style={shellStyles.card}>
       <div
+        className="mswdo-masterlist-event-summary"
         style={{
           border: "1px solid #d6e2ef",
           borderRadius: "16px",
@@ -19,6 +20,7 @@ const MswdoMasterlistEventSummary = ({
         }}
       >
         <p
+          className="mswdo-masterlist-event-title"
           style={{
             margin: 0,
             color: "#17324d",
@@ -30,6 +32,7 @@ const MswdoMasterlistEventSummary = ({
         </p>
 
         <div
+          className="mswdo-masterlist-event-meta"
           style={{
             display: "flex",
             gap: "24px",
