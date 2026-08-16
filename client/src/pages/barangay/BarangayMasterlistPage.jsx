@@ -120,6 +120,7 @@ const BarangayMasterlistPage = () => {
     summaryCards,
     devBarangayOptions,
     isLoading: isLoadingDashboard,
+    isContextResolved: isBarangayContextResolved,
     errorMessage: dashboardErrorMessage,
     errorCode: dashboardErrorCode,
     hasData,
@@ -790,6 +791,7 @@ const BarangayMasterlistPage = () => {
         summaryCards={summaryCards}
         devBarangayOptions={devBarangayOptions}
         isLoading={isLoadingDashboard}
+        isContextResolved={isBarangayContextResolved}
         errorMessage={dashboardErrorMessage}
         errorCode={dashboardErrorCode}
         hasSelectedEvent={hasSelectedEvent}

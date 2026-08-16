@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getAccessMode, ACCESS_MODES } from "../../utils/accessMode";
 import { ROLE_CODES } from "../../utils/roleSession";
 import { fetchBarangays } from "../masterlist/masterlistService";
@@ -116,6 +116,9 @@ export const useBarangayDashboard = ({ userId }) => {
   const [errorMessage, setErrorMessage] = useState("");
   const [errorCode, setErrorCode] = useState("");
   const [devBarangayOptions, setDevBarangayOptions] = useState([]);
+  const [isContextResolved, setIsContextResolved] = useState(false);
+  const requestSeqRef = useRef(0);
+  const skipSelectedEventReloadRef = useRef("");
   const hasScopedBarangayContext = Boolean(userId || overrideBarangayId);
 
   const persistSelection = useCallback(
@@ -191,22 +194,46 @@ export const useBarangayDashboard = ({ userId }) => {
 
   useEffect(() => {
     if (!hasScopedBarangayContext) {
+      requestSeqRef.current += 1;
+      skipSelectedEventReloadRef.current = "";
       setPayload(emptyPayload);
       setSelectedDisasterEventIdState("");
-      setErrorMessage(
-        allowFallback
-          ? "Select a fallback barangay to continue."
-          : "No assigned barangay. Please contact administrator.",
-      );
-      setErrorCode("NO_ASSIGNED_BARANGAY");
       setIsLoading(false);
+
+      if (allowFallback) {
+        setIsContextResolved(true);
+        setErrorMessage("Select a fallback barangay to continue.");
+        setErrorCode("NO_ASSIGNED_BARANGAY");
+        return;
+      }
+
+      setIsContextResolved(false);
+      setErrorMessage("");
+      setErrorCode("");
       return;
     }
 
     let isMounted = true;
+    const requestSeq = requestSeqRef.current + 1;
+    requestSeqRef.current = requestSeq;
+
+    if (
+      skipSelectedEventReloadRef.current &&
+      skipSelectedEventReloadRef.current === selectedDisasterEventId
+    ) {
+      skipSelectedEventReloadRef.current = "";
+      return () => {
+        isMounted = false;
+      };
+    }
 
     const loadDashboard = async () => {
       setIsLoading(true);
+      setIsContextResolved(false);
+      setPayload({
+        ...emptyPayload,
+        event_scope: eventScope,
+      });
       setErrorMessage("");
 
       try {
@@ -217,7 +244,7 @@ export const useBarangayDashboard = ({ userId }) => {
           overrideBarangayId: allowFallback ? overrideBarangayId || null : null,
         });
 
-        if (!isMounted) {
+        if (!isMounted || requestSeqRef.current !== requestSeq) {
           return;
         }
 
@@ -242,6 +269,13 @@ export const useBarangayDashboard = ({ userId }) => {
         });
         setErrorCode("");
         setErrorMessage("");
+        setIsContextResolved(true);
+        if (
+          nextSelectedEvent?.id &&
+          nextSelectedEvent.id !== selectedDisasterEventId
+        ) {
+          skipSelectedEventReloadRef.current = nextSelectedEvent.id;
+        }
         setSelectedDisasterEventIdState(nextSelectedEvent?.id || "");
         persistOperationalDisasterEventSelection({
           roleCode: ROLE_CODES.BARANGAY,
@@ -250,7 +284,7 @@ export const useBarangayDashboard = ({ userId }) => {
           eventScope,
         });
       } catch (error) {
-        if (isMounted) {
+        if (isMounted && requestSeqRef.current === requestSeq) {
           setPayload(emptyPayload);
           setSelectedDisasterEventIdState("");
           persistOperationalDisasterEventSelection({
@@ -261,9 +295,10 @@ export const useBarangayDashboard = ({ userId }) => {
           });
           setErrorMessage(getFriendlyDashboardErrorMessage(error));
           setErrorCode(error.code || "");
+          setIsContextResolved(true);
         }
       } finally {
-        if (isMounted) {
+        if (isMounted && requestSeqRef.current === requestSeq) {
           setIsLoading(false);
         }
       }
@@ -324,6 +359,7 @@ export const useBarangayDashboard = ({ userId }) => {
     selectedEvent: payload.selected_event,
     summaryCards,
     isLoading,
+    isContextResolved,
     errorMessage,
     errorCode,
     devBarangayOptions,

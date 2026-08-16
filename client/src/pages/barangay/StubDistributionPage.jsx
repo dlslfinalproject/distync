@@ -292,6 +292,7 @@ const StubDistributionPage = () => {
     selectedEvent,
     devBarangayOptions,
     isLoading,
+    isContextResolved: isBarangayContextResolved,
     errorMessage,
     errorCode,
     hasData,
@@ -940,6 +941,7 @@ const StubDistributionPage = () => {
         selectedEvent={selectedEvent}
         devBarangayOptions={devBarangayOptions}
         isLoading={isLoading || isLoadingStubDashboard}
+        isContextResolved={isBarangayContextResolved}
         errorMessage={errorMessage}
         errorCode={errorCode}
         hasSelectedEvent={hasSelectedEvent}

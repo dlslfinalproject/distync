@@ -11,6 +11,15 @@ const SIDEBAR_EXPANDED_WIDTH = "280px";
 const SIDEBAR_COLLAPSED_WIDTH = "0px";
 const HEADER_BRAND_WIDTH = "280px";
 const MOBILE_NAV_QUERY = "(max-width: 768px)";
+const COMPACT_NAV_QUERY = "(max-width: 1024px)";
+
+const getInitialMediaQueryMatch = (query) => {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return false;
+  }
+
+  return window.matchMedia(query).matches;
+};
 
 export const shellStyles = {
   page: {
@@ -105,8 +114,15 @@ export const pageSpacingStyles = {
 };
 
 const BarangayLayout = () => {
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [isMobileNavigation, setIsMobileNavigation] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() =>
+    getInitialMediaQueryMatch(COMPACT_NAV_QUERY),
+  );
+  const [isMobileNavigation, setIsMobileNavigation] = useState(() =>
+    getInitialMediaQueryMatch(MOBILE_NAV_QUERY),
+  );
+  const [isCompactNavigation, setIsCompactNavigation] = useState(() =>
+    getInitialMediaQueryMatch(COMPACT_NAV_QUERY),
+  );
   const lastNonSettingsCollapseStateRef = useRef(false);
   const location = useLocation();
   const { currentRole } = useAuth();
@@ -131,16 +147,20 @@ const BarangayLayout = () => {
       return undefined;
     }
 
-    const mediaQuery = window.matchMedia(MOBILE_NAV_QUERY);
-    const syncMobileNavigationState = () => {
-      setIsMobileNavigation(mediaQuery.matches);
+    const mobileMediaQuery = window.matchMedia(MOBILE_NAV_QUERY);
+    const compactMediaQuery = window.matchMedia(COMPACT_NAV_QUERY);
+    const syncNavigationState = () => {
+      setIsMobileNavigation(mobileMediaQuery.matches);
+      setIsCompactNavigation(compactMediaQuery.matches);
     };
 
-    syncMobileNavigationState();
-    mediaQuery.addEventListener("change", syncMobileNavigationState);
+    syncNavigationState();
+    mobileMediaQuery.addEventListener("change", syncNavigationState);
+    compactMediaQuery.addEventListener("change", syncNavigationState);
 
     return () => {
-      mediaQuery.removeEventListener("change", syncMobileNavigationState);
+      mobileMediaQuery.removeEventListener("change", syncNavigationState);
+      compactMediaQuery.removeEventListener("change", syncNavigationState);
     };
   }, []);
 
@@ -158,12 +178,12 @@ const BarangayLayout = () => {
   }, [isDonorPortal, isSettingsRoute]);
 
   useEffect(() => {
-    if (!isMobileNavigation || isDonorPortal) {
+    if (!isCompactNavigation || isDonorPortal) {
       return;
     }
 
     setIsSidebarCollapsed(true);
-  }, [isDonorPortal, isMobileNavigation, location.pathname]);
+  }, [isCompactNavigation, isDonorPortal, location.pathname]);
 
   const pageStyle = useMemo(
     () => ({

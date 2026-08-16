@@ -96,6 +96,16 @@ const getEventCodeSortValue = (event) => {
 const formatDisasterEventTitle = (event) =>
   String(event?.title || "").trim() || "No disaster event selected";
 
+const getEventSelectPlaceholder = (eventScope, isContextResolved) => {
+  if (!isContextResolved) {
+    return "Loading event context...";
+  }
+
+  return eventScope === "ended"
+    ? "Select ended disaster event"
+    : "Select active disaster event";
+};
+
 const BarangayDashboardOverview = ({
   accessMode,
   allowFallback,
@@ -108,6 +118,7 @@ const BarangayDashboardOverview = ({
   summaryCards,
   devBarangayOptions,
   isLoading,
+  isContextResolved,
   errorMessage,
   errorCode,
   hasSelectedEvent,
@@ -120,7 +131,19 @@ const BarangayDashboardOverview = ({
   setOverrideBarangayId,
 }) => {
   const scopeLabel = eventScope === "active" ? "Active" : "Ended";
-  const showFallbackOverride = allowFallback && !hasAssignedBarangay;
+  const showFallbackOverride =
+    isContextResolved && allowFallback && !hasAssignedBarangay;
+  const barangayDisplayName = !isContextResolved
+    ? "Resolving barangay..."
+    : assignedBarangay?.name || "No assigned barangay";
+  const eventPlaceholder = getEventSelectPlaceholder(
+    eventScope,
+    isContextResolved,
+  );
+  const eventSelectValue = isContextResolved ? selectedDisasterEventId : "";
+  const eventSummaryTitle = isContextResolved
+    ? formatDisasterEventTitle(selectedEvent)
+    : "Preparing event context...";
   const sortedAvailableEvents = useMemo(() => {
     return [...(availableEvents || [])].sort((left, right) => {
       const codeDifference =
@@ -146,7 +169,9 @@ const BarangayDashboardOverview = ({
 
   let stateMessage = "";
 
-  if (errorCode === "NO_ASSIGNED_BARANGAY") {
+  if (!isContextResolved) {
+    stateMessage = "Preparing barangay and event context...";
+  } else if (errorCode === "NO_ASSIGNED_BARANGAY") {
     stateMessage =
       showFallbackOverride && !overrideBarangayId
         ? "Select a fallback barangay to continue."
@@ -210,16 +235,14 @@ const BarangayDashboardOverview = ({
             </label>
             <select
               id="barangay-dashboard-event"
-              value={selectedDisasterEventId}
+              value={eventSelectValue}
               onChange={(event) =>
                 setSelectedDisasterEventId(event.target.value)
               }
-              disabled={isLoading || !hasEvents}
+              disabled={!isContextResolved || isLoading || !hasEvents}
               style={filterStyles.field}
             >
-              <option value="">
-                {`Select ${scopeLabel.toLowerCase()} disaster event`}
-              </option>
+              <option value="">{eventPlaceholder}</option>
               {sortedAvailableEvents.map((event) => (
                 <option key={event.id} value={event.id}>
                   {formatDisasterEventTitle(event)}
@@ -268,7 +291,7 @@ const BarangayDashboardOverview = ({
                 color: "#17324d",
               }}
             >
-              {assignedBarangay?.name || "No assigned barangay"}
+              {barangayDisplayName}
             </div>
           </div>
         </div>
@@ -292,7 +315,7 @@ const BarangayDashboardOverview = ({
               fontWeight: 800,
             }}
           >
-            {formatDisasterEventTitle(selectedEvent)}
+            {eventSummaryTitle}
           </p>
 
           <div
@@ -304,13 +327,15 @@ const BarangayDashboardOverview = ({
           </div>
         </div>
 
-        {isLoading && (
+        {(isLoading || !isContextResolved) && (
           <p style={{ ...shellStyles.mutedText, marginTop: "16px" }}>
-            Loading barangay dashboard...
+            {!isContextResolved
+              ? "Preparing barangay and event context..."
+              : "Loading barangay dashboard..."}
           </p>
         )}
 
-        {!isLoading && stateMessage && (
+        {isContextResolved && !isLoading && stateMessage && (
           <p style={{ ...shellStyles.mutedText, marginTop: "16px" }}>
             {stateMessage}
           </p>
