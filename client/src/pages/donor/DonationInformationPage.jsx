@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   FiAlertCircle,
   FiAlertTriangle,
   FiBarChart2,
   FiCheckCircle,
+  FiChevronDown,
   FiFacebook,
   FiGlobe,
   FiInfo,
@@ -41,6 +43,7 @@ import { fetchDonationPortalData } from "../../features/donations/donationServic
 import {
   formatDonationDateOnly,
 } from "../../features/donations/donationFormatters";
+import { getAccessMode, getEntryRouteForMode } from "../../utils/accessMode";
 
 const COLORS = {
   cardBg: "#ffffff",
@@ -282,6 +285,10 @@ const styles = {
     alignItems: "center",
     gap: "12px",
     minWidth: 0,
+    color: "inherit",
+    textDecoration: "none",
+    borderRadius: "8px",
+    transition: "opacity 160ms ease, outline-color 160ms ease",
   },
   brandLogo: {
     width: "64px",
@@ -496,6 +503,26 @@ const styles = {
     listStyle: "none",
     flexWrap: "wrap",
   },
+  summaryActionGroup: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "10px",
+    flexWrap: "wrap",
+  },
+  disclosureIndicator: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "30px",
+    height: "30px",
+    borderRadius: "999px",
+    background: "#ffffff",
+    border: `1px solid ${COLORS.border}`,
+    color: COLORS.primaryDark,
+    flexShrink: 0,
+    transition:
+      "transform 180ms ease, background 180ms ease, border-color 180ms ease",
+  },
   collapsibleSectionBody: {
     marginTop: "16px",
   },
@@ -590,7 +617,7 @@ const styles = {
   },
   eventDetailsSummary: {
     display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) auto",
+    gridTemplateColumns: "minmax(0, 1fr) auto auto",
     alignItems: "center",
     gap: "12px",
     padding: "15px 16px",
@@ -1280,59 +1307,26 @@ const styles = {
 };
 
 const portalFooterCss = `
-  .donor-utilization-summary::-webkit-details-marker {
+  .donor-utilization-summary::-webkit-details-marker,
+  .donor-event-details-summary::-webkit-details-marker,
+  .donor-needed-items-summary::-webkit-details-marker {
     display: none;
+  }
+
+  details[open] > summary .donor-portal-disclosure-indicator {
+    transform: rotate(180deg);
+  }
+
+  summary:hover .donor-portal-disclosure-indicator {
+    background: #eef6f1;
+    border-color: #b8cff4;
   }
 
   .donor-portal-anchor-target {
     scroll-margin-top: 140px;
   }
 
-  .donor-portal-hero::before,
-  .donor-portal-hero::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-  }
-
-  .donor-portal-hero::before {
-    background-image:
-      repeating-linear-gradient(
-        115deg,
-        rgba(255, 255, 255, 0.08) 0,
-        rgba(255, 255, 255, 0.08) 1px,
-        transparent 1px,
-        transparent 34px
-      ),
-      linear-gradient(
-        115deg,
-        transparent 0%,
-        rgba(255, 243, 210, 0.1) 42%,
-        transparent 58%
-      );
-    background-size: 220px 220px, 520px 100%;
-    opacity: 0.5;
-    animation: donorPortalHeroBackgroundDrift 22s linear infinite;
-  }
-
-  .donor-portal-hero::after {
-    background:
-      linear-gradient(
-        100deg,
-        transparent 0%,
-        rgba(255, 255, 255, 0.08) 46%,
-        rgba(255, 243, 210, 0.12) 50%,
-        rgba(255, 255, 255, 0.08) 54%,
-        transparent 100%
-      );
-    opacity: 0.4;
-    transform: translateX(-62%);
-    animation: donorPortalHeroSignalSweep 16s ease-in-out infinite;
-  }
-
-  .donor-portal-quick-link.is-hovered-quick-link:hover,
-  .donor-portal-quick-links:hover .donor-portal-quick-link.is-sync-lit {
+  .donor-portal-quick-link.is-hovered-quick-link:hover {
     --quick-link-bg: var(--quick-link-hover-bg);
     --quick-link-border: var(--quick-link-hover-border);
     --quick-link-color: var(--quick-link-hover-color);
@@ -1340,8 +1334,7 @@ const portalFooterCss = `
     transform: translateY(-1px);
   }
 
-  .donor-portal-quick-link.is-hovered-quick-link:hover,
-  .donor-portal-quick-links:hover .donor-portal-quick-link.is-sync-lit {
+  .donor-portal-quick-link.is-hovered-quick-link:hover {
     box-shadow: 0 12px 24px var(--quick-link-hover-shadow);
   }
 
@@ -1422,6 +1415,25 @@ const portalFooterCss = `
     transform-origin: center;
   }
 
+  .donor-portal-status-icon-glyph {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    line-height: 1;
+  }
+
+  .donor-portal-status-icon-glyph svg {
+    display: block;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  .donor-portal-status-icon-glyph.is-resolved svg {
+    animation: donorPortalStatusIconFadeIn 0.42s ease-out both;
+  }
+
   .donor-portal-update-text-label {
     display: inline-flex;
     align-items: center;
@@ -1452,7 +1464,7 @@ const portalFooterCss = `
     transform: translateY(-2px);
   }
 
-  .donor-portal-status-card.is-loading .donor-portal-status-icon,
+  .donor-portal-status-card.is-loading .donor-portal-status-icon-glyph svg,
   .donor-portal-status-loading-icon {
     animation: donorPortalLoadingSpin 0.9s linear infinite;
   }
@@ -1479,28 +1491,6 @@ const portalFooterCss = `
     }
   }
 
-  @keyframes donorPortalHeroBackgroundDrift {
-    from {
-      background-position: 0 0, -260px 0;
-    }
-
-    to {
-      background-position: 220px 220px, 260px 0;
-    }
-  }
-
-  @keyframes donorPortalHeroSignalSweep {
-    0%,
-    18% {
-      transform: translateX(-72%);
-    }
-
-    58%,
-    100% {
-      transform: translateX(72%);
-    }
-  }
-
   @keyframes donorPortalQuickLinkIntro {
     0%,
     100% {
@@ -1518,20 +1508,6 @@ const portalFooterCss = `
       color: var(--quick-link-hover-color);
       box-shadow: 0 12px 24px var(--quick-link-hover-shadow);
       transform: translateY(-3px) scale(1.012);
-    }
-  }
-
-  @keyframes donorPortalQuickLinkHover {
-    0% {
-      transform: translateY(0) scale(1);
-    }
-
-    46% {
-      transform: translateY(-3px) scale(1.012);
-    }
-
-    100% {
-      transform: translateY(-1px) scale(1);
     }
   }
 
@@ -1556,6 +1532,16 @@ const portalFooterCss = `
     to {
       opacity: 1;
       transform: translateY(0);
+    }
+  }
+
+  @keyframes donorPortalStatusIconFadeIn {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
     }
   }
 
@@ -1658,12 +1644,17 @@ const portalFooterCss = `
     transform: translateY(-1px);
   }
 
+  .donor-portal-brand-link:hover {
+    opacity: 0.84;
+  }
+
   .portal-footer-contact-link:hover {
     color: #ffffff;
     transform: translateX(3px);
     text-decoration: underline;
   }
 
+  .donor-portal-brand-link:focus-visible,
   .donor-portal-header-action:focus-visible {
     outline: 3px solid rgba(47, 100, 153, 0.28);
     outline-offset: 3px;
@@ -1711,7 +1702,6 @@ const portalFooterCss = `
     .donor-portal-quick-link,
     .donor-portal-quick-link:hover,
     .donor-portal-quick-link.is-hovered-quick-link,
-    .donor-portal-quick-link.is-sync-lit,
     .donor-portal-card-hover,
     .donor-portal-content-stack,
     .donor-portal-data-resolved,
@@ -1722,16 +1712,12 @@ const portalFooterCss = `
     .donor-portal-status-card,
     .donor-portal-status-card:hover .donor-portal-status-copy,
     .donor-portal-status-card:hover .donor-portal-status-icon-glyph,
-    .donor-portal-status-card.is-loading .donor-portal-status-icon,
+    .donor-portal-status-card.is-loading .donor-portal-status-icon-glyph svg,
+    .donor-portal-status-icon-glyph.is-resolved svg,
     .donor-portal-status-loading-icon,
     .donor-portal-update-meta.is-loading .donor-portal-update-icon,
     .donor-portal-update-meta:hover .donor-portal-update-icon-glyph,
     .donor-portal-update-meta:hover .donor-portal-update-text-label {
-      animation: none;
-    }
-
-    .donor-portal-hero::before,
-    .donor-portal-hero::after {
       animation: none;
     }
 
@@ -2115,6 +2101,7 @@ const TopBar = ({ publicContactConfig }) => {
   const contactConfig = publicContactConfig || DEFAULT_PUBLIC_CONTACT_CONFIG;
   const dropOffConfig =
     contactConfig.drop_off || DEFAULT_PUBLIC_CONTACT_CONFIG.drop_off;
+  const entryRoute = getEntryRouteForMode(getAccessMode());
   const contactLinks = [
     {
       label: `Call ${dropOffConfig.phone || "the donation coordination desk"}`,
@@ -2130,14 +2117,14 @@ const TopBar = ({ publicContactConfig }) => {
       opensNewTab: true,
     },
     {
-      label: "Open LGU website",
+      label: "Open Malvar LGU website",
       href: contactConfig.website_url || LGU_CONTACT.websiteUrl,
       Icon: FaGlobeAsia,
       color: COLORS.logoSyncDeep,
       opensNewTab: true,
     },
     {
-      label: "Open Facebook page",
+      label: "Open Malvar LGU Facebook page",
       href: contactConfig.facebook_url || LGU_CONTACT.facebookUrl,
       Icon: FaFacebookF,
       color: COLORS.logoSyncDark,
@@ -2148,13 +2135,19 @@ const TopBar = ({ publicContactConfig }) => {
   return (
     <div className="donor-portal-header-shell" style={styles.headerShell}>
       <header className="donor-portal-topbar" style={styles.topBar}>
-        <div style={styles.brandWrap}>
+        <Link
+          to={entryRoute}
+          className="donor-portal-brand-link"
+          style={styles.brandWrap}
+          aria-label="Return to DISTYNC login page"
+          title="Return to DISTYNC login page"
+        >
           <img src={distyncLogoCropped} alt="DISTYNC logo" style={styles.brandLogo} />
           <div>
             <p style={styles.brandTitle}>DISTYNC</p>
             <p style={styles.brandSubtitle}>Disaster Relief Management</p>
           </div>
-        </div>
+        </Link>
 
         <div className="donor-portal-topbar-actions" style={styles.topBarActions}>
           {contactLinks.map(({ label, href, Icon, color, opensNewTab }) => (
@@ -2272,13 +2265,15 @@ const HeroSection = ({ activeEvents, lastUpdatedAt, isLoading }) => {
           </div>
           <span
             key={isLoading ? "status-icon-loading" : "status-icon-ready"}
-            className={`donor-portal-status-icon${
-              !isLoading ? " donor-portal-icon-resolved" : ""
-            }`}
+            className="donor-portal-status-icon"
             style={styles.asideIcon}
             aria-hidden="true"
           >
-            <span className="donor-portal-status-icon-glyph">
+            <span
+              className={`donor-portal-status-icon-glyph${
+                !isLoading ? " is-resolved" : ""
+              }`}
+            >
               <StatusIcon size={28} />
             </span>
           </span>
@@ -2289,16 +2284,8 @@ const HeroSection = ({ activeEvents, lastUpdatedAt, isLoading }) => {
 };
 
 const QuickLinksSection = () => {
-  const hoverSequenceTimeoutsRef = useRef([]);
   const introTimeoutRef = useRef(null);
-  const hoverSequenceIdRef = useRef(0);
-  const isHoverSequenceRunningRef = useRef(false);
-  const hoveredQuickLinkIndexRef = useRef(null);
-  const syncLitQuickLinkIndexRef = useRef(null);
   const [hoveredQuickLinkIndex, setHoveredQuickLinkIndex] = useState(null);
-  const [syncLitQuickLinkIndex, setSyncLitQuickLinkIndex] = useState(null);
-  const [hasHoverSequenceReachedTarget, setHasHoverSequenceReachedTarget] =
-    useState(false);
   const [isIntroActive, setIsIntroActive] = useState(true);
   const quickLinks = [
     {
@@ -2349,16 +2336,9 @@ const QuickLinksSection = () => {
 
   useEffect(() => {
     return () => {
-      hoverSequenceTimeoutsRef.current.forEach((timeoutId) => {
-        clearTimeout(timeoutId);
-      });
-
       if (introTimeoutRef.current) {
         clearTimeout(introTimeoutRef.current);
       }
-
-      hoverSequenceIdRef.current += 1;
-      isHoverSequenceRunningRef.current = false;
     };
   }, []);
 
@@ -2369,81 +2349,18 @@ const QuickLinksSection = () => {
     }, quickLinks.length * 140 + 900);
   }, [quickLinks.length]);
 
-  const startHoverSequence = (index) => {
+  const handleQuickLinkPointerEnter = (index) => {
     if (introTimeoutRef.current) {
       clearTimeout(introTimeoutRef.current);
       introTimeoutRef.current = null;
     }
 
-    if (isHoverSequenceRunningRef.current) {
-      hoveredQuickLinkIndexRef.current = index;
-      setHoveredQuickLinkIndex(index);
-      setHasHoverSequenceReachedTarget(
-        syncLitQuickLinkIndexRef.current !== null &&
-          syncLitQuickLinkIndexRef.current >= index,
-      );
-      return;
-    }
-
-    hoverSequenceTimeoutsRef.current.forEach((timeoutId) => {
-      clearTimeout(timeoutId);
-    });
-    hoverSequenceTimeoutsRef.current = [];
-
-    hoverSequenceIdRef.current += 1;
-    const activeSequenceId = hoverSequenceIdRef.current;
-
-    isHoverSequenceRunningRef.current = true;
     setIsIntroActive(false);
-    hoveredQuickLinkIndexRef.current = index;
-    syncLitQuickLinkIndexRef.current = null;
     setHoveredQuickLinkIndex(index);
-    setSyncLitQuickLinkIndex(null);
-    setHasHoverSequenceReachedTarget(false);
-
-    quickLinks.forEach((_, quickLinkIndex) => {
-      const syncTimeoutId = window.setTimeout(() => {
-        if (hoverSequenceIdRef.current !== activeSequenceId) {
-          return;
-        }
-
-        syncLitQuickLinkIndexRef.current = quickLinkIndex;
-        setSyncLitQuickLinkIndex(quickLinkIndex);
-        setHasHoverSequenceReachedTarget(
-          hoveredQuickLinkIndexRef.current !== null &&
-            quickLinkIndex >= hoveredQuickLinkIndexRef.current,
-        );
-      }, quickLinkIndex * 140);
-
-      hoverSequenceTimeoutsRef.current.push(syncTimeoutId);
-    });
-
-    const clearSyncTimeoutId = window.setTimeout(() => {
-      if (hoverSequenceIdRef.current !== activeSequenceId) {
-        return;
-      }
-
-      syncLitQuickLinkIndexRef.current = null;
-      setSyncLitQuickLinkIndex(null);
-      isHoverSequenceRunningRef.current = false;
-    }, quickLinks.length * 140 + 120);
-
-    hoverSequenceTimeoutsRef.current.push(clearSyncTimeoutId);
   };
 
   const clearHoveredQuickLink = () => {
-    hoverSequenceTimeoutsRef.current.forEach((timeoutId) => {
-      clearTimeout(timeoutId);
-    });
-    hoverSequenceTimeoutsRef.current = [];
-    hoverSequenceIdRef.current += 1;
-    isHoverSequenceRunningRef.current = false;
-    hoveredQuickLinkIndexRef.current = null;
-    syncLitQuickLinkIndexRef.current = null;
-
     setHoveredQuickLinkIndex(null);
-    setSyncLitQuickLinkIndex(null);
-    setHasHoverSequenceReachedTarget(false);
   };
 
   return (
@@ -2460,11 +2377,11 @@ const QuickLinksSection = () => {
             className={`donor-portal-quick-link${
               isIntroActive ? " is-intro-quick-link" : ""
             }${
-              hoveredQuickLinkIndex === index && hasHoverSequenceReachedTarget
+              hoveredQuickLinkIndex === index
                 ? " is-hovered-quick-link"
                 : ""
-            }${syncLitQuickLinkIndex === index ? " is-sync-lit" : ""}`}
-            onPointerEnter={() => startHoverSequence(index)}
+            }`}
+            onPointerEnter={() => handleQuickLinkPointerEnter(index)}
             style={{
               ...styles.quickLink,
               "--quick-link-intro-delay": `${index * 140 + 160}ms`,
@@ -2556,6 +2473,13 @@ const ActiveDisastersSection = ({ events, isShowingRecentFallback }) => {
                   <FaMapMarkedAlt size={14} aria-hidden="true" />
                   {formatNumber(barangayCount)} barangay
                   {barangayCount === 1 ? "" : "s"}
+                </span>
+                <span
+                  className="donor-portal-disclosure-indicator"
+                  style={styles.disclosureIndicator}
+                  aria-hidden="true"
+                >
+                  <FiChevronDown size={16} />
                 </span>
               </summary>
 
@@ -2707,7 +2631,10 @@ const NeededItemsSection = ({ neededItems }) => {
                 open={priorityGroup.key === "HIGH"}
                 className="donor-portal-card-hover"
               >
-                <summary style={styles.detailsSummary}>
+                <summary
+                  className="donor-needed-items-summary"
+                  style={styles.detailsSummary}
+                >
                   <span
                     style={{
                       display: "inline-flex",
@@ -2724,16 +2651,25 @@ const NeededItemsSection = ({ neededItems }) => {
                     />
                     {priorityGroup.title}
                   </span>
-                  <span
-                    style={{
-                      ...styles.badge,
-                      background: priorityGroup.background,
-                      border: `1px solid ${priorityGroup.border}`,
-                      color: priorityGroup.iconColor,
-                    }}
-                  >
-                    {displayedItemCount} item
-                    {displayedItemCount === 1 ? "" : "s"}
+                  <span style={styles.summaryActionGroup}>
+                    <span
+                      style={{
+                        ...styles.badge,
+                        background: priorityGroup.background,
+                        border: `1px solid ${priorityGroup.border}`,
+                        color: priorityGroup.iconColor,
+                      }}
+                    >
+                      {displayedItemCount} item
+                      {displayedItemCount === 1 ? "" : "s"}
+                    </span>
+                    <span
+                      className="donor-portal-disclosure-indicator"
+                      style={styles.disclosureIndicator}
+                      aria-hidden="true"
+                    >
+                      <FiChevronDown size={16} />
+                    </span>
                   </span>
                 </summary>
 
@@ -2969,21 +2905,26 @@ const DonationUtilizationSection = ({ transparencySummary }) => {
             <h2 id="utilization-title" style={styles.sectionTitle}>
               Donation Utilization
             </h2>
-            <p style={styles.sectionText}>
-              Remaining reflects available donated inventory after distribution
-              and inventory adjustments.
-            </p>
           </div>
-          <span
-            style={{
-              ...styles.badge,
-              background: COLORS.softBg,
-              border: `1px solid ${COLORS.border}`,
-              color: COLORS.primaryDark,
-            }}
-          >
-            {formatNumber(donatedItemRows.length)} item
-            {donatedItemRows.length === 1 ? "" : "s"}
+          <span style={styles.summaryActionGroup}>
+            <span
+              style={{
+                ...styles.badge,
+                background: COLORS.softBg,
+                border: `1px solid ${COLORS.border}`,
+                color: COLORS.primaryDark,
+              }}
+            >
+              {formatNumber(donatedItemRows.length)} item
+              {donatedItemRows.length === 1 ? "" : "s"}
+            </span>
+            <span
+              className="donor-portal-disclosure-indicator"
+              style={styles.disclosureIndicator}
+              aria-hidden="true"
+            >
+              <FiChevronDown size={16} />
+            </span>
           </span>
         </summary>
 

@@ -129,7 +129,7 @@ const AccessPage = () => {
     clearAuthError();
     setPageError("");
     continueAsDonor();
-    navigate(getDefaultRouteForRole(ROLE_CODES.DONOR), { replace: true });
+    navigate(getDefaultRouteForRole(ROLE_CODES.DONOR));
   };
 
   if (isDevelopmentMode) {
