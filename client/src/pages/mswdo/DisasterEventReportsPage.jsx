@@ -69,6 +69,7 @@ const overlayStyles = {
   justifyContent: "center",
   padding: "24px",
   zIndex: 1500,
+  boxSizing: "border-box",
 };
 
 const modalStyles = {
@@ -118,7 +119,7 @@ const tableStyles = {
   table: {
     width: "100%",
     borderCollapse: "collapse",
-    tableLayout: "fixed",
+    tableLayout: "auto",
   },
   th: {
     padding: "12px 14px",
@@ -138,6 +139,7 @@ const tableStyles = {
     fontSize: "14px",
     verticalAlign: "top",
     lineHeight: 1.5,
+    overflowWrap: "break-word",
   },
 };
 
@@ -494,8 +496,9 @@ const DisasterEventReportsPage = () => {
         actions={[]}
       />
 
-      <section style={shellStyles.card}>
+      <section className="disaster-summary-filter-card" style={shellStyles.card}>
         <div
+          className="disaster-summary-filter-grid"
           style={pageSpacingStyles.filterGrid}
         >
           <div>
@@ -573,8 +576,8 @@ const DisasterEventReportsPage = () => {
         </div>
       </section>
 
-      <div style={toolbarStyles}>
-        <div style={{ flex: 1 }}>
+      <div className="disaster-summary-toolbar" style={toolbarStyles}>
+        <div className="disaster-summary-toolbar-search" style={{ flex: "1 1 320px", minWidth: 0 }}>
           <SearchBar
             value={searchTerm}
             onChange={setSearchTerm}
@@ -582,6 +585,7 @@ const DisasterEventReportsPage = () => {
           />
         </div>
         <button
+          className="disaster-summary-export-button"
           type="button"
           onClick={openExportModal}
           disabled={isExportDisabled}
@@ -592,7 +596,7 @@ const DisasterEventReportsPage = () => {
         </button>
       </div>
 
-      <section style={shellStyles.card}>
+      <section className="disaster-summary-records-card" style={shellStyles.card}>
         <div style={pageSpacingStyles.tableHeader}>
           <h3 style={{ margin: 0, color: "#17324d" }}>Disaster Events Record</h3>
         </div>
@@ -604,14 +608,18 @@ const DisasterEventReportsPage = () => {
         ) : displayedRows.length === 0 ? (
           <EmptyState message="No matching records found. Try adjusting your search or filters." />
         ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table style={tableStyles.table}>
+          <div className="disaster-summary-table-scroll" style={{ overflowX: "auto" }}>
+            <table className="disaster-summary-table" style={tableStyles.table}>
               <thead>
                 <tr>
-                  <th style={{ ...tableStyles.th, ...columnWidthStyles.disasterEvent }}>
+                  <th
+                    className="disaster-summary-text-cell"
+                    style={{ ...tableStyles.th, ...columnWidthStyles.disasterEvent }}
+                  >
                     Disaster Event
                   </th>
                   <th
+                    className="disaster-summary-status-cell"
                     style={{
                       ...tableStyles.th,
                       ...centeredColumnStyles,
@@ -620,10 +628,14 @@ const DisasterEventReportsPage = () => {
                   >
                     Status
                   </th>
-                  <th style={{ ...tableStyles.th, ...columnWidthStyles.affectedBarangays }}>
+                  <th
+                    className="disaster-summary-text-cell"
+                    style={{ ...tableStyles.th, ...columnWidthStyles.affectedBarangays }}
+                  >
                     {isSpecificDisasterEventSelected ? "Barangay" : "Affected Barangays"}
                   </th>
                   <th
+                    className="disaster-summary-number-cell"
                     style={{
                       ...tableStyles.th,
                       ...centeredColumnStyles,
@@ -633,6 +645,7 @@ const DisasterEventReportsPage = () => {
                     {renderStackedHeader("Registered", "Households")}
                   </th>
                   <th
+                    className="disaster-summary-number-cell"
                     style={{
                       ...tableStyles.th,
                       ...centeredColumnStyles,
@@ -642,6 +655,7 @@ const DisasterEventReportsPage = () => {
                     {renderStackedHeader("Distributed", "Aid Count")}
                   </th>
                   <th
+                    className="disaster-summary-number-cell"
                     style={{
                       ...tableStyles.th,
                       ...centeredColumnStyles,
@@ -655,7 +669,10 @@ const DisasterEventReportsPage = () => {
               <tbody>
                 {displayedRows.map((row) => (
                   <tr key={`${row.id}-${row.barangay_id || "summary"}`}>
-                    <td style={{ ...tableStyles.td, ...columnWidthStyles.disasterEvent }}>
+                    <td
+                      className="disaster-summary-text-cell"
+                      style={{ ...tableStyles.td, ...columnWidthStyles.disasterEvent }}
+                    >
                       <div style={{ fontWeight: 700 }}>
                         {formatDisasterEventTitle(row)}
                       </div>
@@ -664,6 +681,7 @@ const DisasterEventReportsPage = () => {
                       </div>
                     </td>
                     <td
+                      className="disaster-summary-status-cell"
                       style={{
                         ...tableStyles.td,
                         ...centeredColumnStyles,
@@ -674,7 +692,10 @@ const DisasterEventReportsPage = () => {
                         {getDisasterEventStatusLabel(row.status)}
                       </span>
                     </td>
-                    <td style={{ ...tableStyles.td, ...columnWidthStyles.affectedBarangays }}>
+                    <td
+                      className="disaster-summary-text-cell"
+                      style={{ ...tableStyles.td, ...columnWidthStyles.affectedBarangays }}
+                    >
                       {isSpecificDisasterEventSelected ? (
                         <div>{row.barangay_name || "--"}</div>
                       ) : (
@@ -687,6 +708,7 @@ const DisasterEventReportsPage = () => {
                       )}
                     </td>
                     <td
+                      className="disaster-summary-number-cell"
                       style={{
                         ...tableStyles.td,
                         ...centeredColumnStyles,
@@ -696,6 +718,7 @@ const DisasterEventReportsPage = () => {
                       {row.registered_households_count || 0}
                     </td>
                     <td
+                      className="disaster-summary-number-cell"
                       style={{
                         ...tableStyles.td,
                         ...centeredColumnStyles,
@@ -705,6 +728,7 @@ const DisasterEventReportsPage = () => {
                       {row.distributed_aid_count || 0}
                     </td>
                     <td
+                      className="disaster-summary-number-cell"
                       style={{
                         ...tableStyles.td,
                         ...centeredColumnStyles,
@@ -724,9 +748,10 @@ const DisasterEventReportsPage = () => {
         )}
       </section>
       {isExportModalOpen ? (
-        <div style={overlayStyles}>
-          <div style={modalStyles}>
+        <div className="disaster-summary-modal-backdrop" style={overlayStyles}>
+          <div className="disaster-summary-export-modal" style={modalStyles}>
             <div
+              className="disaster-summary-modal-topbar"
               style={{
                 display: "flex",
                 justifyContent: "space-between",
@@ -735,7 +760,7 @@ const DisasterEventReportsPage = () => {
                 marginBottom: "20px",
               }}
             >
-              <div>
+              <div className="disaster-summary-modal-heading">
                 <h3
                   style={{
                     margin: 0,
@@ -772,7 +797,7 @@ const DisasterEventReportsPage = () => {
               <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
                 <h3 style={sectionTitleStyles}>Export Details</h3>
 
-                <div style={exportFilterGridStyles}>
+                <div className="disaster-summary-export-grid" style={exportFilterGridStyles}>
                   <div>
                     <label htmlFor="summary-export-event" style={exportLabelStyles}>
                       Disaster Event
@@ -842,6 +867,7 @@ const DisasterEventReportsPage = () => {
               </section>
 
               <div
+                className="disaster-summary-modal-actions"
                 style={{
                   display: "flex",
                   justifyContent: "flex-end",

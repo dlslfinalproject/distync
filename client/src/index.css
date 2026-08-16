@@ -95,6 +95,20 @@ img {
   min-width: 0;
 }
 
+.disaster-summary-filter-card,
+.disaster-summary-filter-grid,
+.disaster-summary-toolbar,
+.disaster-summary-toolbar-search,
+.disaster-summary-records-card,
+.disaster-summary-table-scroll,
+.disaster-summary-table,
+.disaster-summary-export-modal,
+.disaster-summary-modal-topbar,
+.disaster-summary-modal-heading,
+.disaster-summary-export-grid {
+  min-width: 0;
+}
+
 .barangay-dashboard-event-title,
 .barangay-dashboard-event-meta,
 .masterlist-detail-modal p,
@@ -140,6 +154,33 @@ img {
 .disaster-events-date-cell,
 .disaster-events-actions-cell {
   white-space: nowrap;
+}
+
+.disaster-summary-table-scroll {
+  max-width: 100%;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+.disaster-summary-table {
+  table-layout: auto !important;
+}
+
+.disaster-summary-text-cell,
+.disaster-summary-status-cell,
+.disaster-summary-number-cell,
+.disaster-summary-export-modal p,
+.disaster-summary-modal-heading {
+  overflow-wrap: anywhere;
+}
+
+.disaster-summary-number-cell,
+.disaster-summary-status-cell {
+  white-space: nowrap;
+}
+
+.disaster-summary-export-button {
+  flex-shrink: 0;
 }
 
 .disaster-events-actions-cell {
@@ -786,6 +827,38 @@ img {
     width: 100%;
   }
 
+  .disaster-summary-toolbar {
+    align-items: stretch !important;
+  }
+
+  .disaster-summary-toolbar-search,
+  .disaster-summary-export-button {
+    flex: 1 1 100% !important;
+    width: 100%;
+  }
+
+  .disaster-summary-toolbar-search input {
+    width: 100%;
+  }
+
+  .disaster-summary-table {
+    width: max-content !important;
+    min-width: 100%;
+    max-width: none !important;
+  }
+
+  .disaster-summary-modal-backdrop {
+    padding: 16px !important;
+  }
+
+  .disaster-summary-export-modal {
+    max-height: calc(100vh - 32px) !important;
+  }
+
+  .disaster-summary-export-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)) !important;
+  }
+
   .distribution-history-toolbar-search input {
     width: 100%;
   }
@@ -1022,6 +1095,58 @@ img {
   .disaster-events-list-card {
     padding-left: 14px !important;
     padding-right: 14px !important;
+  }
+
+  .disaster-summary-filter-grid,
+  .disaster-summary-export-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .disaster-summary-export-button {
+    justify-content: center;
+    min-width: 0;
+    white-space: normal;
+  }
+
+  .disaster-summary-records-card {
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+  }
+
+  .disaster-summary-modal-backdrop {
+    align-items: stretch !important;
+    padding: 12px !important;
+  }
+
+  .disaster-summary-export-modal {
+    max-height: calc(100vh - 24px) !important;
+    border-radius: 18px !important;
+    padding: 16px !important;
+  }
+
+  .disaster-summary-modal-topbar {
+    align-items: flex-start !important;
+    flex-wrap: nowrap !important;
+    gap: 12px !important;
+  }
+
+  .disaster-summary-modal-topbar h3 {
+    font-size: 22px !important;
+    line-height: 1.18 !important;
+    overflow-wrap: anywhere;
+  }
+
+  .disaster-summary-modal-actions {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr);
+    justify-content: stretch !important;
+  }
+
+  .disaster-summary-modal-actions button {
+    justify-content: center;
+    min-width: 0;
+    width: 100%;
+    white-space: normal;
   }
 
   .household-registration-modal-backdrop,
