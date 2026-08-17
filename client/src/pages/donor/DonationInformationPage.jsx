@@ -2363,6 +2363,18 @@ const QuickLinksSection = () => {
     setHoveredQuickLinkIndex(null);
   };
 
+  const handleQuickLinkClick = (event, href) => {
+    const target = document.querySelector(href);
+
+    if (!target) {
+      return;
+    }
+
+    event.preventDefault();
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.history.pushState(null, "", href);
+  };
+
   return (
     <nav aria-label="Donor portal sections">
       <div
@@ -2381,6 +2393,7 @@ const QuickLinksSection = () => {
                 ? " is-hovered-quick-link"
                 : ""
             }`}
+            onClick={(event) => handleQuickLinkClick(event, link.href)}
             onPointerEnter={() => handleQuickLinkPointerEnter(index)}
             style={{
               ...styles.quickLink,
