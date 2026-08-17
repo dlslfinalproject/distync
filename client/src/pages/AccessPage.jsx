@@ -138,7 +138,6 @@ const AccessPage = () => {
 
   return (
     <div className="distync-access-page">
-      <div className="distync-access-page__backdrop" aria-hidden="true" />
       <div className="distync-access-page__shell">
         <StaffAccessPanel
           googleButtonRef={googleButtonRef}
@@ -148,6 +147,7 @@ const AccessPage = () => {
           pageError={combinedError}
         />
       </div>
+      <div className="distync-access-page__backdrop" aria-hidden="true" />
     </div>
   );
 };
