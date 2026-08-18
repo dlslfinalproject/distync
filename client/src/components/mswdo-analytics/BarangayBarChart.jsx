@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -16,6 +16,9 @@ const chartStyles = {
     margin: 0,
     color: "#17324d",
     fontSize: "18px",
+    lineHeight: 1.3,
+    minWidth: 0,
+    overflowWrap: "anywhere",
   },
   helper: {
     margin: "8px 0 18px",
@@ -28,6 +31,8 @@ const chartStyles = {
     alignItems: "flex-start",
     justifyContent: "space-between",
     gap: "12px",
+    minWidth: 0,
+    flexWrap: "wrap",
   },
   total: {
     margin: 0,
@@ -71,6 +76,35 @@ const chartStyles = {
   },
 };
 
+const getViewportWidth = () => {
+  return typeof window === "undefined" ? 1440 : window.innerWidth;
+};
+
+const useChartViewport = () => {
+  const [viewportWidth, setViewportWidth] = useState(getViewportWidth);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const handleResize = () => {
+      setViewportWidth(window.innerWidth);
+    };
+
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
+
+  return {
+    isNarrow: viewportWidth <= 640,
+    isCompact: viewportWidth <= 900,
+  };
+};
+
 const HIGHLIGHT_COLOR = "#2f6499";
 const BAR_COLORS = [
   "#1f9d8a",
@@ -112,6 +146,7 @@ const getBarColor = ({ item, index, highestValue, firstHighestIndex, dataKey }) 
 };
 
 const BarangayBarChart = ({ title, description, data, dataKey, height = 320 }) => {
+  const { isCompact, isNarrow } = useChartViewport();
   const highestValue = data.length > 0 ? getHighestValue(data, dataKey) : 0;
   const firstHighestIndex = data.findIndex(
     (item) => Number(item[dataKey] || 0) === highestValue,
@@ -119,6 +154,17 @@ const BarangayBarChart = ({ title, description, data, dataKey, height = 320 }) =
   const totalValue = data.reduce(
     (sum, item) => sum + Number(item[dataKey] || 0),
     0,
+  );
+  const yAxisWidth = isNarrow ? 76 : isCompact ? 96 : 120;
+  const chartHeight = isNarrow ? Math.max(height - 40, 300) : height;
+  const tickFormatter = useMemo(
+    () => (value) => {
+      const text = String(value ?? "");
+      const maxLength = isNarrow ? 12 : isCompact ? 16 : 22;
+
+      return text.length > maxLength ? `${text.slice(0, maxLength - 1)}...` : text;
+    },
+    [isCompact, isNarrow],
   );
 
   return (
@@ -132,12 +178,24 @@ const BarangayBarChart = ({ title, description, data, dataKey, height = 320 }) =
       {description ? <p style={chartStyles.helper}>{description}</p> : null}
 
       {data.length > 0 ? (
-        <div style={{ width: "100%", height: `${height}px` }}>
+        <div
+          style={{
+            width: "100%",
+            minWidth: 0,
+            height: `${chartHeight}px`,
+            overflow: "hidden",
+          }}
+        >
           <ResponsiveContainer>
             <BarChart
               data={data}
               layout="vertical"
-              margin={{ top: 10, right: 24, left: 12, bottom: 10 }}
+              margin={{
+                top: 10,
+                right: isNarrow ? 8 : 24,
+                left: isNarrow ? 0 : 12,
+                bottom: 10,
+              }}
             >
               <CartesianGrid stroke="#e4edf6" strokeDasharray="3 3" />
               <XAxis
@@ -147,10 +205,11 @@ const BarangayBarChart = ({ title, description, data, dataKey, height = 320 }) =
               <YAxis
                 type="category"
                 dataKey="name"
-                width={120}
+                width={yAxisWidth}
                 tick={{ fill: "#66809c", fontSize: 12 }}
+                tickFormatter={tickFormatter}
               />
-              <Tooltip />
+              <Tooltip wrapperStyle={{ maxWidth: isNarrow ? 220 : 320 }} />
               <Bar dataKey={dataKey} radius={[0, 8, 8, 0]}>
                 {data.map((item, index) => (
                   <Cell

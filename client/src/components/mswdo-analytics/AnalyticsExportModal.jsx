@@ -12,6 +12,7 @@ const overlayStyles = {
   justifyContent: "center",
   padding: "24px",
   zIndex: 1500,
+  boxSizing: "border-box",
 };
 
 const modalStyles = {
@@ -23,6 +24,7 @@ const modalStyles = {
   boxShadow: "0 24px 54px rgba(31, 64, 95, 0.22)",
   padding: "28px",
   boxSizing: "border-box",
+  minWidth: 0,
 };
 
 const inputStyles = {
@@ -139,6 +141,25 @@ const AnalyticsExportModal = ({
 }) => {
   const [exportDisasterEventId, setExportDisasterEventId] = useState("");
   const [exportBarangayId, setExportBarangayId] = useState("");
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window === "undefined" ? 1440 : window.innerWidth,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const handleResize = () => {
+      setViewportWidth(window.innerWidth);
+    };
+
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -189,6 +210,28 @@ const AnalyticsExportModal = ({
     return null;
   }
 
+  const isNarrow = viewportWidth <= 640;
+  const responsiveOverlayStyles = {
+    ...overlayStyles,
+    alignItems: isNarrow ? "flex-start" : overlayStyles.alignItems,
+    padding: isNarrow ? "12px" : overlayStyles.padding,
+  };
+  const responsiveModalStyles = {
+    ...modalStyles,
+    maxHeight: isNarrow ? "calc(100vh - 24px)" : modalStyles.maxHeight,
+    borderRadius: isNarrow ? "16px" : modalStyles.borderRadius,
+    padding: isNarrow ? "18px" : modalStyles.padding,
+  };
+  const actionRowStyles = {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "12px",
+    flexWrap: "wrap",
+  };
+  const actionButtonStyles = {
+    width: isNarrow ? "100%" : "auto",
+  };
+
   const handleSubmit = (event) => {
     event.preventDefault();
     onSubmit({
@@ -198,8 +241,8 @@ const AnalyticsExportModal = ({
   };
 
   return (
-    <div style={overlayStyles}>
-      <form onSubmit={handleSubmit} style={modalStyles}>
+    <div style={responsiveOverlayStyles}>
+      <form onSubmit={handleSubmit} style={responsiveModalStyles}>
         <div
           style={{
             display: "flex",
@@ -215,6 +258,8 @@ const AnalyticsExportModal = ({
               color: "#17324d",
               fontSize: "26px",
               fontWeight: 800,
+              lineHeight: 1.2,
+              overflowWrap: "anywhere",
             }}
           >
             Evacuee Analytics Report
@@ -244,8 +289,11 @@ const AnalyticsExportModal = ({
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gridTemplateColumns: isNarrow
+                ? "minmax(0, 1fr)"
+                : "repeat(auto-fit, minmax(220px, 1fr))",
               gap: "14px",
+              minWidth: 0,
             }}
           >
             <div>
@@ -295,19 +343,12 @@ const AnalyticsExportModal = ({
           ) : null}
         </section>
 
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "flex-end",
-            gap: "12px",
-            flexWrap: "wrap",
-          }}
-        >
+        <div style={actionRowStyles}>
           <button
             type="button"
             onClick={onClose}
             disabled={isSubmitting}
-            style={pageHeaderStyles.secondaryButton}
+            style={{ ...pageHeaderStyles.secondaryButton, ...actionButtonStyles }}
           >
             Cancel
           </button>
@@ -316,6 +357,7 @@ const AnalyticsExportModal = ({
             disabled={isSubmitting || !exportDisasterEventId}
             style={{
               ...pageHeaderStyles.primaryButton,
+              ...actionButtonStyles,
               opacity: isSubmitting || !exportDisasterEventId ? 0.7 : 1,
               cursor:
                 isSubmitting || !exportDisasterEventId

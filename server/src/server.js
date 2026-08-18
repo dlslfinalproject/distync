@@ -6,6 +6,7 @@ let pool;
 let notificationService;
 let disasterEventService;
 let inventoryTransactionService;
+let httpServer;
 
 try {
   const {
@@ -70,8 +71,16 @@ const startServer = async () => {
       console.log("Startup maintenance disabled by ENABLE_STARTUP_MAINTENANCE=false.");
     }
 
-    app.listen(PORT, () => {
+    httpServer = app.listen(PORT, () => {
       console.log(`DISTYNC server running on port ${PORT}`);
+    });
+
+    httpServer.on("error", (error) => {
+      console.error(`DISTYNC server listener error: ${error.message}`);
+    });
+
+    httpServer.on("close", () => {
+      console.error("DISTYNC server listener closed unexpectedly.");
     });
   } catch (error) {
     const debugInfo = pool.getSafeDatabaseDebugInfo();

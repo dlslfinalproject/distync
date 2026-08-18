@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   Cell,
   Legend,
@@ -28,6 +28,34 @@ const COLORS = [
 ];
 const HIGHEST_VALUE_COLOR = "#2f6499";
 const DEFAULT_EMPTY_MESSAGE = "No matching data available for this view.";
+
+const getViewportWidth = () => {
+  return typeof window === "undefined" ? 1440 : window.innerWidth;
+};
+
+const useChartViewport = () => {
+  const [viewportWidth, setViewportWidth] = useState(getViewportWidth);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const handleResize = () => {
+      setViewportWidth(window.innerWidth);
+    };
+
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
+
+  return {
+    isNarrow: viewportWidth <= 640,
+  };
+};
 
 const emptyStateStyles = {
   wrapper: {
@@ -91,17 +119,19 @@ const getSliceColor = ({
   return palette[index % palette.length];
 };
 
-const renderOrderedLegend = ({ data, getColorForEntry }) => {
+const renderOrderedLegend = ({ data, getColorForEntry, isNarrow }) => {
   return (
     <ul
       style={{
         display: "flex",
         flexWrap: "wrap",
-        justifyContent: "center",
+        justifyContent: isNarrow ? "flex-start" : "center",
         gap: "8px 14px",
         margin: "8px 0 0",
         padding: 0,
         listStyle: "none",
+        maxWidth: "100%",
+        minWidth: 0,
       }}
     >
       {data.map((entry, index) => (
@@ -112,7 +142,11 @@ const renderOrderedLegend = ({ data, getColorForEntry }) => {
             alignItems: "center",
             gap: "6px",
             color: getColorForEntry(entry, index),
-            fontSize: "14px",
+            fontSize: isNarrow ? "13px" : "14px",
+            maxWidth: isNarrow ? "100%" : "45%",
+            minWidth: 0,
+            overflowWrap: "anywhere",
+            lineHeight: 1.35,
           }}
         >
           <span
@@ -141,6 +175,7 @@ const DistributionPieChart = ({
   colorMap,
   innerRadius = 58,
 }) => {
+  const { isNarrow } = useChartViewport();
   const highestValue = data.length > 0 ? getHighestValue(data) : 0;
   const highestValueFirstIndex = data.findIndex(
     (item) => Number(item.value || 0) === highestValue,
@@ -156,10 +191,21 @@ const DistributionPieChart = ({
           colorMap,
         })
       : colorMap?.[entry.name] || colors[index % colors.length];
+  const chartHeight = isNarrow ? 300 : 320;
+  const outerRadius = isNarrow ? 82 : 100;
+  const resolvedInnerRadius = innerRadius === 0 ? 0 : isNarrow ? 46 : innerRadius;
 
   return (
     <section style={shellStyles.card}>
-      <h3 style={{ margin: 0, color: "#17324d", fontSize: "18px" }}>
+      <h3
+        style={{
+          margin: 0,
+          color: "#17324d",
+          fontSize: "18px",
+          lineHeight: 1.3,
+          overflowWrap: "anywhere",
+        }}
+      >
         {title}
       </h3>
       {description ? (
@@ -169,7 +215,14 @@ const DistributionPieChart = ({
       ) : null}
 
       {data.length > 0 ? (
-        <div style={{ width: "100%", height: "320px" }}>
+        <div
+          style={{
+            width: "100%",
+            minWidth: 0,
+            height: `${chartHeight}px`,
+            overflow: "hidden",
+          }}
+        >
           <ResponsiveContainer>
             <PieChart>
               <Pie
@@ -178,9 +231,9 @@ const DistributionPieChart = ({
                 nameKey="name"
                 cx="50%"
                 cy="50%"
-                outerRadius={100}
-                innerRadius={innerRadius}
-                label
+                outerRadius={outerRadius}
+                innerRadius={resolvedInnerRadius}
+                label={!isNarrow}
               >
                 {data.map((entry, index) => (
                   <Cell
@@ -189,10 +242,10 @@ const DistributionPieChart = ({
                   />
                 ))}
               </Pie>
-              <Tooltip />
+              <Tooltip wrapperStyle={{ maxWidth: isNarrow ? 220 : 320 }} />
               <Legend
                 content={() =>
-                  renderOrderedLegend({ data, getColorForEntry })
+                  renderOrderedLegend({ data, getColorForEntry, isNarrow })
                 }
               />
             </PieChart>

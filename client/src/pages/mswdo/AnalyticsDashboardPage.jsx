@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { FiFileText } from "react-icons/fi";
 import PageHeader from "../../components/layout/PageHeader";
 import distyncLogo from "../../assets/distync-logo.png";
@@ -56,17 +56,50 @@ const analyticsGridStyles = {
     display: "grid",
     gridTemplateColumns: "minmax(260px, 0.65fr) minmax(0, 1.35fr)",
     gap: "20px",
+    minWidth: 0,
   },
   barAndDonut: {
     display: "grid",
     gridTemplateColumns: "minmax(0, 1.35fr) minmax(260px, 0.65fr)",
     gap: "20px",
+    minWidth: 0,
   },
   distributionCards: {
     display: "grid",
     gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
     gap: "20px",
+    minWidth: 0,
   },
+};
+
+const getViewportWidth = () => {
+  return typeof window === "undefined" ? 1440 : window.innerWidth;
+};
+
+const useAnalyticsViewport = () => {
+  const [viewportWidth, setViewportWidth] = useState(getViewportWidth);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const handleResize = () => {
+      setViewportWidth(window.innerWidth);
+    };
+
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
+
+  return {
+    viewportWidth,
+    isNarrow: viewportWidth <= 640,
+    isTablet: viewportWidth <= 1024,
+  };
 };
 
 const formatDateTime = (value) => {
@@ -408,6 +441,7 @@ const AnalyticsDashboardPage = () => {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportErrorMessage, setExportErrorMessage] = useState("");
+  const { isNarrow, isTablet } = useAnalyticsViewport();
   const {
     disasterEvents,
     barangays,
@@ -434,8 +468,61 @@ const AnalyticsDashboardPage = () => {
     setSelectedBarangayId,
   } = useMswdoAnalytics();
   const evacuationCenterChartHeight = Math.max(
-    380,
-    evacuationCenterDistribution.length * 54 + 110,
+    isNarrow ? 340 : 380,
+    evacuationCenterDistribution.length * (isNarrow ? 46 : 54) + 110,
+  );
+  const filterGridStyle = useMemo(
+    () => ({
+      display: "grid",
+      gridTemplateColumns: isNarrow
+        ? "minmax(0, 1fr)"
+        : "repeat(auto-fit, minmax(220px, 1fr))",
+      gap: isNarrow ? "14px" : "16px",
+      alignItems: "end",
+      minWidth: 0,
+    }),
+    [isNarrow],
+  );
+  const exportActionRowStyle = useMemo(
+    () => ({
+      ...filterStyles.exportActionRow,
+      justifyContent: isNarrow ? "stretch" : filterStyles.exportActionRow.justifyContent,
+      marginTop: isNarrow ? "-4px" : filterStyles.exportActionRow.marginTop,
+    }),
+    [isNarrow],
+  );
+  const exportButtonStyle = useMemo(
+    () => ({
+      ...filterStyles.exportButton,
+      width: isNarrow ? "100%" : "auto",
+      cursor:
+        !hasSelectedEvent || isLoadingFilters || isLoadingDashboard
+          ? "not-allowed"
+          : "pointer",
+      opacity:
+        !hasSelectedEvent || isLoadingFilters || isLoadingDashboard ? 0.7 : 1,
+    }),
+    [hasSelectedEvent, isLoadingDashboard, isLoadingFilters, isNarrow],
+  );
+  const mixedChartGridStyle = useMemo(
+    () => ({
+      ...analyticsGridStyles.donutAndBar,
+      gridTemplateColumns: isTablet
+        ? "minmax(0, 1fr)"
+        : analyticsGridStyles.donutAndBar.gridTemplateColumns,
+      gap: isNarrow ? "16px" : analyticsGridStyles.donutAndBar.gap,
+    }),
+    [isNarrow, isTablet],
+  );
+  const distributionGridStyle = useMemo(
+    () => ({
+      ...analyticsGridStyles.distributionCards,
+      gridTemplateColumns: isTablet
+        ? "minmax(0, 1fr)"
+        : analyticsGridStyles.distributionCards.gridTemplateColumns,
+      gap: isNarrow ? "16px" : analyticsGridStyles.distributionCards.gap,
+    }),
+    [isNarrow, isTablet],
   );
 
   const handleOpenExportModal = () => {
@@ -510,14 +597,7 @@ const AnalyticsDashboardPage = () => {
       <PageHeader title="EVACUEE ANALYTICS DASHBOARD" />
 
       <section style={shellStyles.card}>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: "16px",
-            alignItems: "end",
-          }}
-        >
+        <div style={filterGridStyle}>
           <div>
             <label htmlFor="analytics-disaster-event" style={filterStyles.label}>
               Disaster Event
@@ -560,20 +640,12 @@ const AnalyticsDashboardPage = () => {
         </div>
       </section>
 
-      <div style={filterStyles.exportActionRow}>
+      <div style={exportActionRowStyle}>
         <button
           type="button"
           onClick={handleOpenExportModal}
           disabled={!hasSelectedEvent || isLoadingFilters || isLoadingDashboard}
-          style={{
-            ...filterStyles.exportButton,
-            cursor:
-              !hasSelectedEvent || isLoadingFilters || isLoadingDashboard
-                ? "not-allowed"
-                : "pointer",
-            opacity:
-              !hasSelectedEvent || isLoadingFilters || isLoadingDashboard ? 0.7 : 1,
-          }}
+          style={exportButtonStyle}
         >
           <FiFileText size={16} />
           Export
@@ -618,7 +690,7 @@ const AnalyticsDashboardPage = () => {
 
       {hasSelectedEvent && !isLoadingDashboard && !errorMessage && hasData ? (
         <>
-          <div style={analyticsGridStyles.donutAndBar}>
+          <div style={mixedChartGridStyle}>
             <DistributionPieChart
               title="Barangays Covered"
               data={barangayCoverageDistribution}
@@ -632,7 +704,7 @@ const AnalyticsDashboardPage = () => {
             />
           </div>
 
-          <div style={analyticsGridStyles.donutAndBar}>
+          <div style={mixedChartGridStyle}>
             <AverageHouseholdSizeChart
               value={summaryMetrics.averageHouseholdSize}
             />
@@ -643,7 +715,7 @@ const AnalyticsDashboardPage = () => {
             />
           </div>
 
-          <div style={analyticsGridStyles.distributionCards}>
+          <div style={distributionGridStyle}>
             <DistributionPieChart
               title="Sex Distribution"
               data={sexDistribution}
@@ -671,7 +743,7 @@ const AnalyticsDashboardPage = () => {
             />
           </div>
 
-          <div style={analyticsGridStyles.distributionCards}>
+          <div style={distributionGridStyle}>
             <DistributionPieChart
               title="Stay Type Distribution"
               data={stayTypeDistribution}
