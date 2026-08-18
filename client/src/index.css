@@ -93,7 +93,35 @@ body {
 }
 
 .mayor-relief-pack-template-table {
-  min-width: 1040px !important;
+  table-layout: auto !important;
+  min-width: 920px !important;
+}
+
+.mayor-relief-pack-template-rule-cell {
+  min-width: 130px;
+}
+
+.mayor-relief-pack-template-applies-cell {
+  min-width: 140px;
+}
+
+.mayor-relief-pack-template-available-cell {
+  min-width: 88px;
+  white-space: nowrap;
+}
+
+.mayor-relief-pack-template-actions-cell {
+  min-width: 76px;
+  white-space: nowrap;
+}
+
+.mayor-relief-pack-template-rule-chip,
+.mayor-relief-pack-template-applies-chip {
+  box-sizing: border-box;
+  display: inline-flex;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .mayor-relief-pack-detail-table {
@@ -116,6 +144,52 @@ body {
 .mayor-relief-pack-template-name,
 .mayor-relief-pack-template-item-name {
   line-height: 1.35;
+}
+
+.mayor-audit-trail-page,
+.mayor-audit-trail-filter-card,
+.mayor-audit-trail-summary-grid,
+.mayor-audit-trail-toolbar,
+.mayor-audit-trail-search-wrap,
+.mayor-audit-trail-controls-wrap,
+.mayor-audit-trail-action-group,
+.mayor-audit-trail-records-card,
+.mayor-audit-trail-records-toolbar,
+.mayor-audit-trail-table,
+.mayor-audit-trail-detail-section {
+  min-width: 0;
+}
+
+.mayor-audit-trail-filter-card,
+.mayor-audit-trail-summary-grid,
+.mayor-audit-trail-toolbar,
+.mayor-audit-trail-records-toolbar,
+.mayor-audit-trail-paginator {
+  max-width: 100%;
+}
+
+.mayor-audit-trail-table-scroll,
+.mayor-audit-trail-detail-table-scroll {
+  max-width: 100%;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+.mayor-audit-trail-table {
+  table-layout: auto !important;
+  min-width: 860px !important;
+}
+
+.mayor-audit-trail-detail-table {
+  table-layout: auto !important;
+  min-width: 640px !important;
+}
+
+.mayor-audit-trail-table td,
+.mayor-audit-trail-detail-section p,
+.mayor-audit-trail-detail-table td {
+  overflow-wrap: anywhere;
 }
 
 .inventory-item-detail-table {
@@ -346,7 +420,7 @@ body {
   }
 
   .mayor-relief-pack-template-table {
-    min-width: 960px !important;
+    min-width: 920px !important;
   }
 
   .mayor-relief-pack-form-modal-backdrop,
@@ -515,7 +589,7 @@ body {
   }
 
   .mayor-relief-pack-template-table {
-    min-width: 900px !important;
+    min-width: 860px !important;
   }
 
   .mayor-relief-pack-detail-table {
@@ -1936,5 +2010,85 @@ img {
 
   .stub-qr-scan-status {
     width: 100%;
+  }
+}
+
+@media (max-width: 1024px) {
+  .mayor-audit-trail-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .mayor-audit-trail-records-toolbar {
+    align-items: flex-start !important;
+    flex-wrap: wrap !important;
+    gap: 12px !important;
+  }
+
+  .mayor-audit-trail-paginator {
+    justify-content: flex-start !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .mayor-audit-trail-filter-card {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    padding: 16px !important;
+  }
+
+  .mayor-audit-trail-toolbar,
+  .mayor-audit-trail-controls-wrap,
+  .mayor-audit-trail-action-group {
+    align-items: stretch !important;
+    flex: 1 1 100% !important;
+    justify-content: flex-start !important;
+    width: 100%;
+  }
+
+  .mayor-audit-trail-search-wrap {
+    flex: 1 1 100% !important;
+    width: 100%;
+  }
+
+  .mayor-audit-trail-action-group button {
+    justify-content: center;
+    width: 100%;
+  }
+
+  .mayor-audit-trail-table {
+    min-width: 820px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .mayor-audit-trail-filter-card,
+  .mayor-audit-trail-summary-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .mayor-audit-trail-records-card {
+    padding: 16px !important;
+  }
+
+  .mayor-audit-trail-records-toolbar > div,
+  .mayor-audit-trail-paginator,
+  .mayor-audit-trail-paginator button {
+    width: 100%;
+  }
+
+  .mayor-audit-trail-paginator {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mayor-audit-trail-paginator button {
+    justify-content: center;
+  }
+
+  .mayor-audit-trail-table {
+    min-width: 780px !important;
+  }
+
+  .mayor-audit-trail-detail-table {
+    min-width: 620px !important;
   }
 }

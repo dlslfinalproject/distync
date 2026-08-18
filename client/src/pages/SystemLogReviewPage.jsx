@@ -68,7 +68,8 @@ const tableStyles = {
   table: {
     width: "100%",
     borderCollapse: "collapse",
-    tableLayout: "fixed",
+    tableLayout: "auto",
+    minWidth: "860px",
   },
   th: {
     padding: "12px 14px",
@@ -95,13 +96,14 @@ const tableStyles = {
     width: "92px",
   },
   recordColumn: {
-    width: "32%",
+    minWidth: "220px",
   },
   performedByColumn: {
-    width: "150px",
+    width: "160px",
   },
   dateColumn: {
     width: "138px",
+    whiteSpace: "nowrap",
   },
   viewColumn: {
     width: "100px",
@@ -143,11 +145,11 @@ const filterStyles = {
     justifyContent: "space-between",
     alignItems: "center",
     gap: "16px",
-    flexWrap: "nowrap",
+    flexWrap: "wrap",
     width: "100%",
   },
   searchWrap: {
-    flex: 1,
+    flex: "1 1 360px",
     minWidth: 0,
   },
   controlsWrap: {
@@ -155,7 +157,7 @@ const filterStyles = {
     alignItems: "center",
     gap: "16px",
     flex: "0 0 auto",
-    flexWrap: "nowrap",
+    flexWrap: "wrap",
   },
   actionGroup: {
     display: "flex",
@@ -193,10 +195,9 @@ const filterStyles = {
   card: {
     ...shellStyles.card,
     display: "grid",
-    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
     gap: "16px",
     alignItems: "end",
-    overflowX: "auto",
   },
   stackedFieldGroup: {
     display: "grid",
@@ -205,7 +206,7 @@ const filterStyles = {
   },
   cardField: {
     width: "100%",
-    minWidth: "180px",
+    minWidth: 0,
     padding: "12px 14px",
     borderRadius: "12px",
     border: "1px solid #cfddeb",
@@ -231,7 +232,6 @@ const auditSummaryStyles = {
     display: "grid",
     gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
     gap: "16px",
-    overflowX: "auto",
   },
 };
 
@@ -269,10 +269,13 @@ const detailModalStyles = {
   tableWrap: {
     overflowX: "auto",
     marginTop: "14px",
+    maxWidth: "100%",
+    WebkitOverflowScrolling: "touch",
   },
   table: {
     width: "100%",
     borderCollapse: "collapse",
+    tableLayout: "auto",
     minWidth: "640px",
   },
   th: {
@@ -412,7 +415,7 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
       panelStyle={detailModalStyles.shellPanel}
     >
       <div style={{ display: "grid", gap: "20px" }}>
-        <section style={detailModalStyles.sectionCard}>
+        <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>
           <h3 style={{ margin: 0, color: "#17324d" }}>Audit Summary</h3>
           <div style={{ ...detailModalStyles.grid, marginTop: "16px" }}>
             <InfoField label="Audit Action" value={formatActionLabel(entry)} />
@@ -422,7 +425,7 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
           </div>
         </section>
 
-        <section style={detailModalStyles.sectionCard}>
+        <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>
           <h3 style={{ margin: 0, color: "#17324d" }}>Record Information</h3>
           <div style={{ ...detailModalStyles.grid, marginTop: "16px" }}>
             {recordLines.map((line, index) => (
@@ -438,15 +441,15 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
           </div>
         </section>
 
-        <section style={detailModalStyles.sectionCard}>
+        <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>
           <h3 style={{ margin: 0, color: "#17324d" }}>{getChangeHeading(entry)}</h3>
           {changes.length === 0 ? (
             <p style={detailModalStyles.emptyText}>
               No field-level changes are available for this audit record.
             </p>
           ) : (
-            <div style={detailModalStyles.tableWrap}>
-              <table style={detailModalStyles.table}>
+            <div className="mayor-audit-trail-detail-table-scroll" style={detailModalStyles.tableWrap}>
+              <table className="mayor-audit-trail-detail-table" style={detailModalStyles.table}>
                 <thead>
                   <tr>
                     <th style={detailModalStyles.th}>Field</th>
@@ -487,10 +490,10 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
         </section>
 
         {itemChanges.length > 0 ? (
-          <section style={detailModalStyles.sectionCard}>
+          <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>
             <h3 style={{ margin: 0, color: "#17324d" }}>Item Breakdown</h3>
-            <div style={detailModalStyles.tableWrap}>
-              <table style={detailModalStyles.table}>
+            <div className="mayor-audit-trail-detail-table-scroll" style={detailModalStyles.tableWrap}>
+              <table className="mayor-audit-trail-detail-table" style={detailModalStyles.table}>
                 <thead>
                   <tr>
                     <th style={detailModalStyles.th}>Item</th>
@@ -539,10 +542,10 @@ const AuditRecordDetailModal = ({ entry, onClose }) => {
         ) : null}
 
         {distributedItems.length > 0 ? (
-          <section style={detailModalStyles.sectionCard}>
+          <section className="mayor-audit-trail-detail-section" style={detailModalStyles.sectionCard}>
             <h3 style={{ margin: 0, color: "#17324d" }}>Items Released</h3>
-            <div style={detailModalStyles.tableWrap}>
-              <table style={detailModalStyles.table}>
+            <div className="mayor-audit-trail-detail-table-scroll" style={detailModalStyles.tableWrap}>
+              <table className="mayor-audit-trail-detail-table" style={detailModalStyles.table}>
                 <thead>
                   <tr>
                     <th style={detailModalStyles.th}>Item</th>
@@ -712,10 +715,10 @@ const SystemLogReviewPage = () => {
   }, [auditLogs]);
 
   return (
-    <div style={pageSpacingStyles.pageStack}>
+    <div className="mayor-audit-trail-page" style={pageSpacingStyles.pageStack}>
       <PageHeader title="AUDIT TRAIL" />
 
-      <section style={filterStyles.card}>
+      <section className="mayor-audit-trail-filter-card" style={filterStyles.card}>
         <label style={filterStyles.stackedFieldGroup}>
           <span style={filterStyles.cardLabel}>Module</span>
           <select
@@ -769,7 +772,7 @@ const SystemLogReviewPage = () => {
         </label>
       </section>
 
-      <section style={auditSummaryStyles.overviewSection}>
+      <section className="mayor-audit-trail-summary-grid" style={auditSummaryStyles.overviewSection}>
         <StatusCard
           label="Matching Records"
           value={auditSummary.total_matching_records}
@@ -792,8 +795,8 @@ const SystemLogReviewPage = () => {
         />
       </section>
 
-      <div style={filterStyles.toolbar}>
-        <div style={filterStyles.searchWrap}>
+      <div className="mayor-audit-trail-toolbar" style={filterStyles.toolbar}>
+        <div className="mayor-audit-trail-search-wrap" style={filterStyles.searchWrap}>
           <SearchBar
             value={searchTerm}
             onChange={handleSearchChange}
@@ -801,8 +804,8 @@ const SystemLogReviewPage = () => {
           />
         </div>
 
-        <div style={filterStyles.controlsWrap}>
-          <div style={filterStyles.actionGroup}>
+        <div className="mayor-audit-trail-controls-wrap" style={filterStyles.controlsWrap}>
+          <div className="mayor-audit-trail-action-group" style={filterStyles.actionGroup}>
             <button
               type="button"
               onClick={() =>
@@ -833,8 +836,8 @@ const SystemLogReviewPage = () => {
         </section>
       ) : null}
 
-      <section style={shellStyles.card}>
-        <div style={pageSpacingStyles.toolbar}>
+      <section className="mayor-audit-trail-records-card" style={shellStyles.card}>
+        <div className="mayor-audit-trail-records-toolbar" style={pageSpacingStyles.toolbar}>
           <div>
             <h3 style={{ margin: 0, color: "#17324d" }}>Activity Records</h3>
             <p style={{ ...shellStyles.mutedText, marginTop: "6px" }}>
@@ -843,7 +846,7 @@ const SystemLogReviewPage = () => {
             </p>
           </div>
 
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+          <div className="mayor-audit-trail-paginator" style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
             <button
               type="button"
               onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
@@ -872,8 +875,8 @@ const SystemLogReviewPage = () => {
         ) : filteredAuditLogs.length === 0 ? (
           <EmptyState message="No matching audit records found. Try adjusting the search or filters." />
         ) : (
-          <div style={{ marginTop: "18px", overflowX: "auto" }}>
-            <table style={tableStyles.table}>
+          <div className="mayor-audit-trail-table-scroll" style={{ marginTop: "18px", overflowX: "auto" }}>
+            <table className="mayor-audit-trail-table" style={tableStyles.table}>
               <thead>
                 <tr>
                   <th style={{ ...tableStyles.th, ...tableStyles.actionColumn }}>Audit Action</th>
@@ -888,7 +891,7 @@ const SystemLogReviewPage = () => {
                 {filteredAuditLogs.map((entry) => {
                   return (
                     <tr key={entry.id}>
-                      <td style={{ ...tableStyles.td, ...tableStyles.actionColumn }}>
+                      <td style={{ ...tableStyles.td, ...tableStyles.actionColumn, ...tableStyles.wrapCell }}>
                         <div style={tableStyles.strong}>
                           {formatActionLabel(entry)}
                         </div>
@@ -898,7 +901,7 @@ const SystemLogReviewPage = () => {
                           </div>
                         ) : null}
                       </td>
-                      <td style={{ ...tableStyles.td, ...tableStyles.moduleColumn }}>{entry.module}</td>
+                      <td style={{ ...tableStyles.td, ...tableStyles.moduleColumn, ...tableStyles.wrapCell }}>{entry.module}</td>
                       <td style={{ ...tableStyles.td, ...tableStyles.recordColumn, ...tableStyles.wrapCell }}>
                         {getRecordLines(entry).map((line, index) => (
                           <div
@@ -909,7 +912,7 @@ const SystemLogReviewPage = () => {
                           </div>
                         ))}
                       </td>
-                      <td style={{ ...tableStyles.td, ...tableStyles.performedByColumn }}>
+                      <td style={{ ...tableStyles.td, ...tableStyles.performedByColumn, ...tableStyles.wrapCell }}>
                         <div style={tableStyles.strong}>{entry.performed_by}</div>
                       </td>
                       <td style={{ ...tableStyles.td, ...tableStyles.dateColumn, ...tableStyles.centeredColumn }}>

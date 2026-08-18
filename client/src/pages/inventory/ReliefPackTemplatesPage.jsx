@@ -608,13 +608,14 @@ const tableStyles = {
     width: "12%",
   },
   ruleCell: {
-    width: "16%",
+    width: "130px",
   },
   applicabilityCell: {
-    width: "14%",
+    width: "140px",
   },
   availableCell: {
-    width: "7%",
+    width: "88px",
+    whiteSpace: "nowrap",
   },
 };
 
@@ -2783,6 +2784,7 @@ const ReliefPackTemplatesPage = () => {
                         Qty / Item
                       </th>
                       <th
+                        className="mayor-relief-pack-template-rule-cell"
                         style={{
                           ...tableStyles.headerCell,
                           ...tableStyles.ruleCell,
@@ -2791,6 +2793,7 @@ const ReliefPackTemplatesPage = () => {
                         Rule
                       </th>
                       <th
+                        className="mayor-relief-pack-template-applies-cell"
                         style={{
                           ...tableStyles.headerCell,
                           ...tableStyles.applicabilityCell,
@@ -2799,6 +2802,7 @@ const ReliefPackTemplatesPage = () => {
                         Applies To
                       </th>
                       <th
+                        className="mayor-relief-pack-template-available-cell"
                         style={{
                           ...tableStyles.headerCell,
                           ...tableStyles.availableCell,
@@ -2807,6 +2811,7 @@ const ReliefPackTemplatesPage = () => {
                         Available
                       </th>
                       <th
+                        className="mayor-relief-pack-template-actions-cell"
                         style={{
                           ...tableStyles.headerCell,
                           ...tableStyles.actionCell,
@@ -2903,6 +2908,7 @@ const ReliefPackTemplatesPage = () => {
                           )}
                         </td>
                         <td
+                          className="mayor-relief-pack-template-rule-cell"
                           style={{
                             ...tableStyles.bodyCell,
                             ...tableStyles.ruleCell,
@@ -2911,6 +2917,7 @@ const ReliefPackTemplatesPage = () => {
                           <div style={tableStyles.pillWrap}>
                             {getTemplateRuleLabels(template, sectorOptions).map((label) => (
                               <span
+                                className="mayor-relief-pack-template-rule-chip"
                                 key={`${template.id}-rule-${label}`}
                                 style={tableStyles.infoPill}
                               >
@@ -2920,6 +2927,7 @@ const ReliefPackTemplatesPage = () => {
                           </div>
                         </td>
                         <td
+                          className="mayor-relief-pack-template-applies-cell"
                           style={{
                             ...tableStyles.bodyCell,
                             ...tableStyles.applicabilityCell,
@@ -2929,6 +2937,7 @@ const ReliefPackTemplatesPage = () => {
                             {getTemplateDisasterApplicabilityLabels(template).map(
                               (label) => (
                                 <span
+                                  className="mayor-relief-pack-template-applies-chip"
                                   key={`${template.id}-${label}`}
                                   style={tableStyles.infoPill}
                                 >
@@ -2939,6 +2948,7 @@ const ReliefPackTemplatesPage = () => {
                           </div>
                         </td>
                         <td
+                          className="mayor-relief-pack-template-available-cell"
                           style={{
                             ...tableStyles.bodyCell,
                             ...tableStyles.availableCell,
@@ -2947,6 +2957,7 @@ const ReliefPackTemplatesPage = () => {
                           {template.metrics.packsWeCanCreate.toLocaleString()}
                         </td>
                         <td
+                          className="mayor-relief-pack-template-actions-cell"
                           style={{
                             ...tableStyles.bodyCell,
                             ...tableStyles.actionCell,
