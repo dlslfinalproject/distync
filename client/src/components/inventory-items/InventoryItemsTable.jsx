@@ -7,13 +7,16 @@ import StatusPill from "../shared/StatusPill";
 const styles = {
   tableWrap: {
     marginTop: "0",
-    overflowX: "hidden",
+    overflowX: "auto",
+    maxWidth: "100%",
+    WebkitOverflowScrolling: "touch",
   },
   table: {
     width: "100%",
     borderCollapse: "collapse",
     background: "transparent",
     tableLayout: "fixed",
+    minWidth: "760px",
   },
   th: {
     textAlign: "center",
@@ -125,8 +128,8 @@ const InventoryItemsTable = ({
   onLogStatus,
 }) => {
   return (
-    <div style={styles.tableWrap}>
-      <table style={styles.table}>
+    <div className="inventory-items-table-scroll" style={styles.tableWrap}>
+      <table className="inventory-items-table" style={styles.table}>
         <thead>
           <tr>
             {tableHeaders.map((header) => (

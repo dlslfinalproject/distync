@@ -156,9 +156,10 @@ const InventoryBatchExpiryModal = ({
   };
 
   return (
-    <div style={overlayStyles}>
-      <div style={modalStyles}>
+    <div className="inventory-batch-expiry-modal-backdrop" style={overlayStyles}>
+      <div className="inventory-batch-expiry-modal" style={modalStyles}>
         <div
+          className="inventory-batch-expiry-modal-topbar"
           style={{
             display: "flex",
             justifyContent: "space-between",
@@ -185,8 +186,9 @@ const InventoryBatchExpiryModal = ({
           onSubmit={handleSubmit}
           style={{ display: "flex", flexDirection: "column", gap: "18px" }}
         >
-          <section style={sectionCardStyles}>
+          <section className="inventory-batch-expiry-section" style={sectionCardStyles}>
             <div
+              className="inventory-batch-expiry-grid"
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(2, minmax(180px, 1fr))",
@@ -234,6 +236,7 @@ const InventoryBatchExpiryModal = ({
           {errorMessage ? <div style={errorBoxStyles}>{errorMessage}</div> : null}
 
           <div
+            className="inventory-batch-expiry-actions"
             style={{
               display: "flex",
               justifyContent: "flex-end",

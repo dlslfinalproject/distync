@@ -343,9 +343,10 @@ const InventoryItemStatusLogModal = ({
   };
 
   return (
-    <div style={overlayStyles}>
-      <div style={modalStyles}>
+    <div className="inventory-item-status-modal-backdrop" style={overlayStyles}>
+      <div className="inventory-item-status-modal" style={modalStyles}>
         <div
+          className="inventory-item-status-modal-topbar"
           style={{
             display: "flex",
             justifyContent: "space-between",
@@ -371,9 +372,10 @@ const InventoryItemStatusLogModal = ({
 
         <form onSubmit={handleSubmit}>
           <div style={{ display: "grid", gap: "18px" }}>
-            <section style={sectionCardStyles}>
+            <section className="inventory-item-status-section" style={sectionCardStyles}>
               <h4 style={sectionTitleStyles}>Item Information</h4>
               <div
+                className="inventory-item-status-grid inventory-item-status-info-grid"
                 style={{
                   display: "grid",
                   gridTemplateColumns: "minmax(280px, 1.8fr) repeat(3, minmax(140px, 1fr))",
@@ -409,9 +411,10 @@ const InventoryItemStatusLogModal = ({
               </div>
             </section>
 
-            <section style={sectionCardStyles}>
+            <section className="inventory-item-status-section" style={sectionCardStyles}>
               <h4 style={sectionTitleStyles}>Batch Information</h4>
               <div
+                className="inventory-item-status-grid"
                 style={{
                   display: "grid",
                   gridTemplateColumns: "repeat(3, minmax(180px, 1fr))",
@@ -506,9 +509,10 @@ const InventoryItemStatusLogModal = ({
               </div>
             </section>
 
-            <section style={sectionCardStyles}>
+            <section className="inventory-item-status-section" style={sectionCardStyles}>
               <h4 style={sectionTitleStyles}>Log Status Details</h4>
               <div
+                className="inventory-item-status-grid"
                 style={{
                   display: "grid",
                   gridTemplateColumns: "repeat(3, minmax(180px, 1fr))",
@@ -642,6 +646,7 @@ const InventoryItemStatusLogModal = ({
           ) : null}
 
           <div
+            className="inventory-item-status-actions"
             style={{
               display: "flex",
               justifyContent: "flex-end",

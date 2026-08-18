@@ -401,9 +401,9 @@ const InventoryItemScanModal = ({
   };
 
   return (
-    <div style={scanModalOverlayStyle}>
-      <div style={scanModalStyle}>
-        <div style={styles.scanModalHeader}>
+    <div className="inventory-item-scan-modal-backdrop" style={scanModalOverlayStyle}>
+      <div className="inventory-item-scan-modal" style={scanModalStyle}>
+        <div className="inventory-item-scan-modal-topbar" style={styles.scanModalHeader}>
           <div>
             <h3 style={styles.scanModalTitle}>Scan Item</h3>
           </div>
@@ -425,10 +425,11 @@ const InventoryItemScanModal = ({
           }}
         >
 
-          <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
+          <section className="inventory-item-scan-section" style={{ ...shellStyles.card, padding: "18px 20px" }}>
             <h3 style={styles.scanModalSectionTitle}>Barcode Details</h3>
 
             <div
+              className="inventory-item-scan-grid"
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -487,10 +488,11 @@ const InventoryItemScanModal = ({
 
           {hasMatchedItem && (
             <>
-              <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
+              <section className="inventory-item-scan-section" style={{ ...shellStyles.card, padding: "18px 20px" }}>
                 <h3 style={styles.scanModalSectionTitle}>Item Information</h3>
 
                 <div
+                  className="inventory-item-scan-grid inventory-item-scan-info-grid"
                   style={{
                     display: "grid",
                     gridTemplateColumns: "repeat(3, minmax(180px, 1fr))",
@@ -563,10 +565,11 @@ const InventoryItemScanModal = ({
                 </div>
               </section>
 
-              <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
+              <section className="inventory-item-scan-section" style={{ ...shellStyles.card, padding: "18px 20px" }}>
                 <h3 style={styles.scanModalSectionTitle}>Stock Details</h3>
 
                 <div
+                  className="inventory-item-scan-grid"
                   style={{
                     display: "grid",
                     gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -695,7 +698,7 @@ const InventoryItemScanModal = ({
           )}
 
           {hasMatchedItem ? (
-            <div style={styles.totalStockCard}>
+            <div className="inventory-item-scan-total-card" style={styles.totalStockCard}>
               <p style={styles.totalStockLabel}>
                 Total Added Stock:{" "}
                 <strong>
@@ -703,7 +706,7 @@ const InventoryItemScanModal = ({
                 </strong>
               </p>
 
-              <div style={styles.footerActions}>
+              <div className="inventory-item-scan-actions" style={styles.footerActions}>
                 <button
                   type="button"
                   onClick={onClose}
@@ -726,7 +729,7 @@ const InventoryItemScanModal = ({
               </div>
             </div>
           ) : (
-            <div style={styles.scanModalFooter}>
+            <div className="inventory-item-scan-actions" style={styles.scanModalFooter}>
               <button
                 type="button"
                 onClick={onClose}

@@ -1351,13 +1351,14 @@ const InventoryItemsPage = () => {
 
   return (
     <div
-      style={{ flex: 1, minWidth: 0, maxWidth: "100%", overflowX: "hidden" }}
+      className="inventory-items-page"
+      style={{ flex: 1, minWidth: 0, maxWidth: "100%" }}
     >
       <PageHeader
         title="INVENTORY ITEMS MANAGEMENT"
       />
 
-      <div style={inventoryPageStyles.pageTopActions}>
+      <div className="inventory-items-page-top-actions" style={inventoryPageStyles.pageTopActions}>
         <InventoryPageActions
           exportingFormat={exportingFormat}
           onOpenScanModal={handleOpenScanModal}
@@ -1367,11 +1368,11 @@ const InventoryItemsPage = () => {
         />
       </div>
 
-      <div style={inventoryPageStyles.overviewSection}>
+      <div className="inventory-items-overview-section" style={inventoryPageStyles.overviewSection}>
         <InventoryOverviewCards summaryCards={summaryCards} />
       </div>
 
-      <div style={inventoryPageStyles.managementToolbar}>
+      <div className="inventory-items-management-toolbar" style={inventoryPageStyles.managementToolbar}>
         <InventoryFilters
           filters={filters}
           onFilterChange={handleFilterChange}
@@ -1386,7 +1387,7 @@ const InventoryItemsPage = () => {
         />
       </div>
 
-      <section style={shellStyles.card}>
+      <section className="inventory-items-records-card" style={shellStyles.card}>
         <h3 style={inventoryPageStyles.sectionTitle}>
           {getInventorySectionTitle()}
         </h3>

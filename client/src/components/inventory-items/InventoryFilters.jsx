@@ -287,8 +287,8 @@ const InventoryFilters = ({ filters, onFilterChange }) => {
   };
 
   return (
-    <div style={styles.controlsGroup}>
-      <div style={styles.searchWrap}>
+    <div className="inventory-items-filter-controls" style={styles.controlsGroup}>
+      <div className="inventory-items-search-wrap" style={styles.searchWrap}>
         <SearchBar
           value={filters.search}
           onChange={(value) => onFilterChange("search", value)}
@@ -296,7 +296,7 @@ const InventoryFilters = ({ filters, onFilterChange }) => {
         />
       </div>
 
-      <div style={styles.inlineSelectWrap}>
+      <div className="inventory-items-category-filter" style={styles.inlineSelectWrap}>
         <label
           htmlFor="inventory-category-filter"
           style={styles.inlineSelectLabel}
@@ -317,7 +317,7 @@ const InventoryFilters = ({ filters, onFilterChange }) => {
         </select>
       </div>
 
-      <div>
+      <div className="inventory-items-filter-button-wrap">
         <button
           ref={filterButtonRef}
           type="button"

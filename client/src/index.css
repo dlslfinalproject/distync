@@ -9,6 +9,258 @@ body {
   color: #1b2b40;
 }
 
+.inventory-items-page,
+.inventory-items-page *,
+.inventory-item-form-modal,
+.inventory-item-form-modal *,
+.inventory-item-scan-modal,
+.inventory-item-scan-modal *,
+.inventory-item-detail-modal,
+.inventory-item-detail-modal *,
+.inventory-item-status-modal,
+.inventory-item-status-modal *,
+.inventory-export-modal,
+.inventory-export-modal *,
+.inventory-batch-expiry-modal,
+.inventory-batch-expiry-modal * {
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.inventory-items-summary-grid {
+  min-width: 0;
+}
+
+.inventory-items-filter-controls,
+.inventory-items-actions-row,
+.inventory-items-management-toolbar {
+  min-width: 0;
+}
+
+.inventory-items-table-scroll,
+.inventory-item-detail-table-scroll {
+  max-width: 100%;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+.inventory-items-table {
+  min-width: 760px;
+}
+
+.inventory-items-table td,
+.inventory-items-table th,
+.inventory-item-detail-table td,
+.inventory-item-detail-table th {
+  overflow-wrap: anywhere;
+}
+
+.inventory-item-detail-table {
+  min-width: 760px;
+}
+
+.inventory-item-detail-section p,
+.inventory-item-status-section input,
+.inventory-item-scan-section input,
+.inventory-item-form-section input,
+.inventory-item-form-section select,
+.inventory-item-form-section textarea {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1100px) {
+  .inventory-items-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+
+  .inventory-item-detail-info-grid,
+  .inventory-item-status-info-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .inventory-items-page-top-actions .inventory-items-actions-row,
+  .inventory-items-management-toolbar,
+  .inventory-items-filter-controls {
+    align-items: stretch !important;
+  }
+
+  .inventory-items-management-toolbar {
+    gap: 14px !important;
+  }
+
+  .inventory-items-filter-controls,
+  .inventory-items-search-wrap,
+  .inventory-items-category-filter,
+  .inventory-items-filter-button-wrap,
+  .inventory-items-actions-row {
+    flex: 1 1 100% !important;
+    width: 100%;
+  }
+
+  .inventory-items-category-filter {
+    justify-content: space-between;
+  }
+
+  .inventory-items-category-filter select,
+  .inventory-items-filter-button-wrap button,
+  .inventory-items-actions-row button {
+    width: 100%;
+    justify-content: center;
+    min-width: 0;
+    white-space: normal;
+  }
+
+  .inventory-items-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .inventory-items-records-card {
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+  }
+
+  .inventory-item-form-modal-backdrop,
+  .inventory-item-scan-modal-backdrop,
+  .inventory-item-detail-modal-backdrop,
+  .inventory-item-status-modal-backdrop,
+  .inventory-export-modal-backdrop,
+  .inventory-batch-expiry-modal-backdrop {
+    align-items: stretch !important;
+    padding: 12px !important;
+  }
+
+  .inventory-item-form-modal,
+  .inventory-item-scan-modal,
+  .inventory-item-detail-modal,
+  .inventory-item-status-modal,
+  .inventory-export-modal,
+  .inventory-batch-expiry-modal {
+    width: 100% !important;
+    max-height: calc(100vh - 24px) !important;
+    border-radius: 18px !important;
+    padding: 16px !important;
+  }
+
+  .inventory-item-form-modal-topbar,
+  .inventory-item-scan-modal-topbar,
+  .inventory-item-detail-modal > div:first-child,
+  .inventory-item-status-modal-topbar,
+  .inventory-export-modal-topbar,
+  .inventory-batch-expiry-modal-topbar {
+    align-items: flex-start !important;
+    flex-wrap: nowrap !important;
+    gap: 12px !important;
+  }
+
+  .inventory-item-form-modal-topbar h3,
+  .inventory-item-scan-modal-topbar h3,
+  .inventory-item-detail-modal h3,
+  .inventory-item-status-modal-topbar h3,
+  .inventory-export-modal-topbar h3,
+  .inventory-batch-expiry-modal-topbar h3 {
+    font-size: 22px !important;
+    line-height: 1.18 !important;
+    overflow-wrap: anywhere;
+  }
+
+  .inventory-item-form-section,
+  .inventory-item-scan-section,
+  .inventory-item-detail-section,
+  .inventory-item-status-section,
+  .inventory-export-section,
+  .inventory-batch-expiry-section {
+    padding: 16px !important;
+  }
+
+  .inventory-item-form-grid,
+  .inventory-item-form-identity-grid,
+  .inventory-item-form-stock-grid,
+  .inventory-item-scan-grid,
+  .inventory-item-scan-info-grid,
+  .inventory-item-detail-info-grid,
+  .inventory-item-detail-stock-form-grid,
+  .inventory-item-status-grid,
+  .inventory-export-grid,
+  .inventory-batch-expiry-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .inventory-item-form-footer,
+  .inventory-item-scan-total-card {
+    align-items: stretch !important;
+  }
+
+  .inventory-item-form-footer-actions,
+  .inventory-item-scan-actions,
+  .inventory-item-status-actions,
+  .inventory-export-actions,
+  .inventory-batch-expiry-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .inventory-item-form-footer-actions button,
+  .inventory-item-scan-actions button,
+  .inventory-item-status-actions button,
+  .inventory-export-actions button,
+  .inventory-batch-expiry-actions button {
+    width: 100%;
+    justify-content: center;
+    min-width: 0;
+    white-space: normal;
+  }
+}
+
+@media (max-width: 480px) {
+  .inventory-items-summary-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .inventory-items-page-top-actions .inventory-items-actions-row {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inventory-items-table {
+    min-width: 700px;
+  }
+
+  .inventory-item-detail-table {
+    min-width: 680px;
+  }
+
+  .inventory-item-form-modal,
+  .inventory-item-scan-modal,
+  .inventory-item-detail-modal,
+  .inventory-item-status-modal,
+  .inventory-export-modal,
+  .inventory-batch-expiry-modal {
+    padding: 14px !important;
+    border-radius: 16px !important;
+  }
+
+  .inventory-item-form-section,
+  .inventory-item-scan-section,
+  .inventory-item-detail-section,
+  .inventory-item-status-section,
+  .inventory-export-section,
+  .inventory-batch-expiry-section {
+    padding: 14px !important;
+  }
+
+  .inventory-item-form-footer-actions,
+  .inventory-item-scan-actions,
+  .inventory-item-status-actions,
+  .inventory-export-actions,
+  .inventory-batch-expiry-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 * {
   box-sizing: border-box;
 }

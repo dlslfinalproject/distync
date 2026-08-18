@@ -293,6 +293,8 @@ const InventoryItemDetailModal = ({
       closeMode="icon"
       titleStyle={{ fontSize: "30px", fontWeight: 700 }}
       panelStyle={modalStyles.shellPanel}
+      overlayClassName="inventory-item-detail-modal-backdrop"
+      panelClassName="inventory-item-detail-modal"
     >
       {isLoading ? (
         <LoadingState message="Loading item details..." />
@@ -302,10 +304,13 @@ const InventoryItemDetailModal = ({
         <EmptyState compact message="Item details are unavailable." />
       ) : (
         <div style={{ display: "grid", gap: "20px" }}>
-          <section style={modalStyles.sectionCard}>
+          <section className="inventory-item-detail-section" style={modalStyles.sectionCard}>
             <h3 style={{ margin: 0, color: "#17324d" }}>Item Information</h3>
 
-            <div style={{ ...modalStyles.itemInfoGrid, marginTop: "16px" }}>
+            <div
+              className="inventory-item-detail-info-grid"
+              style={{ ...modalStyles.itemInfoGrid, marginTop: "16px" }}
+            >
               <div style={{ minWidth: 0 }}>
                 <p style={modalStyles.label}>Item Name</p>
                 <p style={modalStyles.value}>{item.item_name || "--"}</p>
@@ -329,7 +334,7 @@ const InventoryItemDetailModal = ({
             </div>
           </section>
 
-          <section style={modalStyles.sectionCard}>
+          <section className="inventory-item-detail-section" style={modalStyles.sectionCard}>
             <h3 style={{ margin: 0, color: "#17324d" }}>
               Stock Forms / Barcode / Packaging Forms
             </h3>
@@ -342,7 +347,7 @@ const InventoryItemDetailModal = ({
               <div style={{ ...modalStyles.list, marginTop: "16px" }}>
                 {stockForms.map((stockForm) => (
                   <div key={getStockFormKey(stockForm)} style={modalStyles.listItem}>
-                    <div style={modalStyles.grid}>
+                    <div className="inventory-item-detail-stock-form-grid" style={modalStyles.grid}>
                       <div>
                         <p style={modalStyles.label}>Barcode</p>
                         <p style={modalStyles.value}>{stockForm.barcode || "--"}</p>
@@ -370,7 +375,7 @@ const InventoryItemDetailModal = ({
             )}
           </section>
 
-          <section style={modalStyles.sectionCard}>
+          <section className="inventory-item-detail-section" style={modalStyles.sectionCard}>
             <h3 style={{ margin: 0, color: "#17324d" }}>Batch Information</h3>
 
             {batches.length === 0 ? (
@@ -378,8 +383,8 @@ const InventoryItemDetailModal = ({
                 No batches are recorded yet.
               </p>
             ) : (
-              <div style={modalStyles.tableWrap}>
-                <table style={modalStyles.table}>
+              <div className="inventory-item-detail-table-scroll" style={modalStyles.tableWrap}>
+                <table className="inventory-item-detail-table" style={modalStyles.table}>
                   <thead>
                     <tr>
                       <th style={modalStyles.th}>Batch Number</th>

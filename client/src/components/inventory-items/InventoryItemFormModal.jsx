@@ -884,9 +884,10 @@ const InventoryItemFormModal = ({
   };
 
   return (
-    <div style={overlayStyles}>
-      <div style={modalStyles}>
+    <div className="inventory-item-form-modal-backdrop" style={overlayStyles}>
+      <div className="inventory-item-form-modal" style={modalStyles}>
         <div
+          className="inventory-item-form-modal-topbar"
           style={{
             display: "flex",
             justifyContent: "space-between",
@@ -919,12 +920,13 @@ const InventoryItemFormModal = ({
             gap: "18px",
           }}
         >
-          <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
+          <section className="inventory-item-form-section" style={{ ...shellStyles.card, padding: "18px 20px" }}>
             <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
               Item Information
             </h3>
 
             <div
+              className="inventory-item-form-grid"
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -982,6 +984,7 @@ const InventoryItemFormModal = ({
 
               {shouldShowBarcodeField ? (
                 <div
+                  className="inventory-item-form-grid inventory-item-form-identity-grid"
                   style={{
                     gridColumn: "1 / -1",
                     display: "grid",
@@ -1077,6 +1080,7 @@ const InventoryItemFormModal = ({
                 </div>
               ) : (
                 <div
+                  className="inventory-item-form-grid inventory-item-form-identity-grid"
                   style={{
                     gridColumn: "1 / -1",
                     display: "grid",
@@ -1130,6 +1134,7 @@ const InventoryItemFormModal = ({
 
               {!isEditMode ? (
                 <div
+                  className="inventory-item-form-grid inventory-item-form-stock-grid"
                   style={{
                     gridColumn: "1 / -1",
                     display: "grid",
@@ -1227,12 +1232,13 @@ const InventoryItemFormModal = ({
             </div>
           </section>
 
-          <section style={{ ...shellStyles.card, padding: "18px 20px" }}>
+          <section className="inventory-item-form-section" style={{ ...shellStyles.card, padding: "18px 20px" }}>
             <h3 style={{ margin: "0 0 12px", color: "#17324d" }}>
               {stockSectionTitle}
             </h3>
 
             <div
+              className="inventory-item-form-grid"
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -1369,14 +1375,17 @@ const InventoryItemFormModal = ({
 
           {errorMessage && <div style={errorBoxStyles}>{errorMessage}</div>}
 
-          <div style={isEditMode ? editFooterActionsStyles : formFooterStyles}>
+          <div
+            className="inventory-item-form-footer"
+            style={isEditMode ? editFooterActionsStyles : formFooterStyles}
+          >
             {!isEditMode ? (
               <p style={footerTotalStyles}>
                 {computedTotalLabel}: <strong>{computedTotalDisplay}</strong>
               </p>
             ) : null}
 
-            <div style={footerActionsStyles}>
+            <div className="inventory-item-form-footer-actions" style={footerActionsStyles}>
               <button
                 type="button"
                 onClick={handleCancel}

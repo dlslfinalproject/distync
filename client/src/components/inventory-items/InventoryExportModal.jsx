@@ -85,9 +85,10 @@ const InventoryExportModal = ({
   }
 
   return (
-    <div style={overlayStyles}>
-      <form onSubmit={onSubmit} style={modalStyles}>
+    <div className="inventory-export-modal-backdrop" style={overlayStyles}>
+      <form className="inventory-export-modal" onSubmit={onSubmit} style={modalStyles}>
         <div
+          className="inventory-export-modal-topbar"
           style={{
             display: "flex",
             justifyContent: "space-between",
@@ -117,7 +118,7 @@ const InventoryExportModal = ({
           </button>
         </div>
 
-        <section style={{ ...shellStyles.card, marginBottom: "18px" }}>
+        <section className="inventory-export-section" style={{ ...shellStyles.card, marginBottom: "18px" }}>
           <h4
             style={{
               margin: "0 0 14px",
@@ -129,6 +130,7 @@ const InventoryExportModal = ({
             Export Details
           </h4>
           <div
+            className="inventory-export-grid"
             style={{
               display: "grid",
               gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
@@ -195,6 +197,7 @@ const InventoryExportModal = ({
         </section>
 
         <div
+          className="inventory-export-actions"
           style={{
             display: "flex",
             justifyContent: "flex-end",
