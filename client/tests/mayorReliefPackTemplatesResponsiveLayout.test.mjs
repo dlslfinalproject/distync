@@ -58,11 +58,28 @@ test("Mayor relief pack template table and detail tables keep overflow local", a
   assert.match(pageSource, />\s*Applies To\s*</);
   assert.match(pageSource, />\s*Available\s*</);
   assert.match(pageSource, />\s*Actions\s*</);
+  assert.match(pageSource, /className="mayor-relief-pack-template-rule-cell"/);
+  assert.match(pageSource, /className="mayor-relief-pack-template-applies-cell"/);
+  assert.match(pageSource, /className="mayor-relief-pack-template-available-cell"/);
+  assert.match(pageSource, /className="mayor-relief-pack-template-actions-cell"/);
+  assert.match(pageSource, /className="mayor-relief-pack-template-rule-chip"/);
+  assert.match(pageSource, /className="mayor-relief-pack-template-applies-chip"/);
   assert.match(
     cssSource,
     /\.mayor-relief-pack-template-table-scroll,[\s\S]*?\.mayor-relief-pack-detail-table-scroll \{[\s\S]*?overflow-x: auto !important;[\s\S]*?-webkit-overflow-scrolling: touch;/,
   );
-  assert.match(cssSource, /\.mayor-relief-pack-template-table \{[\s\S]*?min-width: 1040px !important;/);
+  assert.match(
+    cssSource,
+    /\.mayor-relief-pack-template-table \{[\s\S]*?table-layout: auto !important;[\s\S]*?min-width: 920px !important;/,
+  );
+  assert.match(cssSource, /\.mayor-relief-pack-template-rule-cell \{[\s\S]*?min-width: 130px;/);
+  assert.match(cssSource, /\.mayor-relief-pack-template-applies-cell \{[\s\S]*?min-width: 140px;/);
+  assert.match(cssSource, /\.mayor-relief-pack-template-available-cell \{[\s\S]*?min-width: 88px;[\s\S]*?white-space: nowrap;/);
+  assert.match(cssSource, /\.mayor-relief-pack-template-actions-cell \{[\s\S]*?min-width: 76px;[\s\S]*?white-space: nowrap;/);
+  assert.match(
+    cssSource,
+    /\.mayor-relief-pack-template-rule-chip,[\s\S]*?\.mayor-relief-pack-template-applies-chip \{[\s\S]*?max-width: 100%;[\s\S]*?white-space: normal;/,
+  );
   assert.doesNotMatch(pageSource, /pagination=\{/);
 });
 
