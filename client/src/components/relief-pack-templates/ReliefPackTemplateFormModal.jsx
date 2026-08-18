@@ -19,12 +19,14 @@ const overlayStyles = {
   justifyContent: "center",
   padding: "24px",
   zIndex: 1000,
+  boxSizing: "border-box",
 };
 
 const modalStyles = {
   width: "min(980px, 100%)",
   maxHeight: "90vh",
   overflowY: "auto",
+  overflowX: "hidden",
   backgroundColor: "#eef5fb",
   borderRadius: "22px",
   border: "1px solid #d7e2ef",
@@ -121,6 +123,7 @@ const itemPreviewTitleStyles = {
   color: "#17324d",
   fontSize: "18px",
   fontWeight: 700,
+  overflowWrap: "anywhere",
 };
 
 const itemRowStyles = {
@@ -133,6 +136,7 @@ const itemRowStyles = {
   border: "1px solid #d4dfeb",
   backgroundColor: "#ffffff",
   marginBottom: "10px",
+  minWidth: 0,
 };
 
 const itemRowContentStyles = {
@@ -146,6 +150,7 @@ const itemRowTitleStyles = {
   fontSize: "14px",
   fontWeight: 800,
   lineHeight: 1.35,
+  overflowWrap: "anywhere",
 };
 
 const itemRowQuantityStyles = {
@@ -786,9 +791,10 @@ const ReliefPackTemplateFormModal = ({
   };
 
   return (
-    <div style={overlayStyles}>
-      <div style={modalStyles}>
+    <div className="mayor-relief-pack-form-modal-backdrop" style={overlayStyles}>
+      <div className="mayor-relief-pack-form-modal" style={modalStyles}>
         <div
+          className="mayor-relief-pack-form-modal-topbar"
           style={{
             display: "flex",
             justifyContent: "space-between",
@@ -830,7 +836,10 @@ const ReliefPackTemplateFormModal = ({
               gap: "18px",
             }}
           >
-            <section style={sectionStyles}>
+            <section
+              className="mayor-relief-pack-form-section"
+              style={sectionStyles}
+            >
               <h3 style={sectionTitleStyles}>
                 Pack Information
               </h3>
@@ -844,6 +853,7 @@ const ReliefPackTemplateFormModal = ({
               ) : null}
 
               <div
+                className="mayor-relief-pack-form-grid"
                 style={{
                   display: "grid",
                   gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -874,6 +884,7 @@ const ReliefPackTemplateFormModal = ({
                 </div>
 
                 <div
+                  className="mayor-relief-pack-form-pack-type-grid"
                   style={{
                     gridColumn: "1 / -1",
                     display: "grid",
@@ -977,6 +988,7 @@ const ReliefPackTemplateFormModal = ({
                     )}
 
                     <div
+                      className="mayor-relief-pack-chip-grid"
                       style={{
                         display: "grid",
                         gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -1079,6 +1091,7 @@ const ReliefPackTemplateFormModal = ({
                     )}
 
                     <div
+                      className="mayor-relief-pack-chip-grid"
                       style={{
                         display: "grid",
                         gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -1134,6 +1147,7 @@ const ReliefPackTemplateFormModal = ({
                 ) : null}
 
                 <div
+                  className="mayor-relief-pack-item-entry-grid"
                   style={{
                     gridColumn: "1 / -1",
                     display: "grid",
@@ -1233,8 +1247,14 @@ const ReliefPackTemplateFormModal = ({
               </div>
             </section>
 
-            <section style={sectionStyles}>
-              <div style={itemPreviewWrapStyles}>
+            <section
+              className="mayor-relief-pack-form-section"
+              style={sectionStyles}
+            >
+              <div
+                className="mayor-relief-pack-item-preview"
+                style={itemPreviewWrapStyles}
+              >
                 <h4 style={itemPreviewTitleStyles}>
                   {formValues.packName.trim() || "New Relief Pack"}
                 </h4>
@@ -1251,16 +1271,28 @@ const ReliefPackTemplateFormModal = ({
                 ) : (
                   <div>
                     {packItems.map((packItem) => (
-                      <div key={packItem.id} style={itemRowStyles}>
+                      <div
+                        key={packItem.id}
+                        className="mayor-relief-pack-composition-row"
+                        style={itemRowStyles}
+                      >
                         <div style={itemRowContentStyles}>
-                          <span style={itemRowTitleStyles}>{packItem.item}</span>
+                          <span
+                            className="mayor-relief-pack-composition-item-name"
+                            style={itemRowTitleStyles}
+                          >
+                            {packItem.item}
+                          </span>
                           <span style={itemRowQuantityStyles}>
                             {packItem.quantity} per relief pack
                           </span>
                         </div>
 
                         {areItemFieldsLocked ? null : (
-                          <div style={itemActionGroupStyles}>
+                          <div
+                            className="mayor-relief-pack-composition-actions"
+                            style={itemActionGroupStyles}
+                          >
                             <button
                               type="button"
                               onClick={() => handleEditPackItem(packItem)}
@@ -1293,6 +1325,7 @@ const ReliefPackTemplateFormModal = ({
             ) : null}
 
             <div
+              className="mayor-relief-pack-form-footer-actions"
               style={{
                 display: "flex",
                 justifyContent: "flex-end",
@@ -1334,8 +1367,14 @@ const ReliefPackTemplateFormModal = ({
       </div>
 
       {pendingRemovalItem ? (
-        <div style={confirmModalStyles.overlay}>
-          <div style={confirmModalStyles.modal}>
+        <div
+          className="mayor-relief-pack-confirm-modal-backdrop"
+          style={confirmModalStyles.overlay}
+        >
+          <div
+            className="mayor-relief-pack-confirm-modal"
+            style={confirmModalStyles.modal}
+          >
             <h3 style={confirmModalStyles.title}>Confirm Removal</h3>
 
             <p style={confirmModalStyles.message}>

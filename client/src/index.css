@@ -56,6 +56,68 @@ body {
   overflow-wrap: anywhere;
 }
 
+.mayor-relief-pack-templates-page,
+.mayor-relief-pack-templates-page *,
+.mayor-relief-pack-form-modal,
+.mayor-relief-pack-form-modal *,
+.mayor-relief-pack-detail-modal,
+.mayor-relief-pack-detail-modal *,
+.mayor-relief-pack-confirm-modal,
+.mayor-relief-pack-confirm-modal * {
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.mayor-relief-pack-toolbar,
+.mayor-relief-pack-toolbar-controls,
+.mayor-relief-pack-search-wrap,
+.mayor-relief-pack-action-group,
+.mayor-relief-pack-card-grid,
+.mayor-relief-pack-customization-card,
+.mayor-relief-pack-template-table,
+.mayor-relief-pack-detail-grid,
+.mayor-relief-pack-form-grid,
+.mayor-relief-pack-form-pack-type-grid,
+.mayor-relief-pack-item-entry-grid,
+.mayor-relief-pack-chip-grid,
+.mayor-relief-pack-item-preview {
+  min-width: 0;
+}
+
+.mayor-relief-pack-template-table-scroll,
+.mayor-relief-pack-detail-table-scroll {
+  max-width: 100%;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+.mayor-relief-pack-template-table {
+  min-width: 1040px !important;
+}
+
+.mayor-relief-pack-detail-table {
+  min-width: 720px;
+}
+
+.mayor-relief-pack-card-title,
+.mayor-relief-pack-long-text,
+.mayor-relief-pack-template-name,
+.mayor-relief-pack-template-item-name,
+.mayor-relief-pack-detail-modal p,
+.mayor-relief-pack-detail-table td,
+.mayor-relief-pack-form-modal p,
+.mayor-relief-pack-form-modal h3,
+.mayor-relief-pack-form-modal h4,
+.mayor-relief-pack-composition-item-name {
+  overflow-wrap: anywhere;
+}
+
+.mayor-relief-pack-template-name,
+.mayor-relief-pack-template-item-name {
+  line-height: 1.35;
+}
+
 .inventory-item-detail-table {
   min-width: 760px;
 }
@@ -77,6 +139,24 @@ body {
   .inventory-item-detail-info-grid,
   .inventory-item-status-info-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .mayor-relief-pack-card-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .mayor-relief-pack-toolbar {
+    align-items: stretch !important;
+    flex-wrap: wrap !important;
+  }
+
+  .mayor-relief-pack-toolbar-controls {
+    flex: 1 1 100% !important;
+  }
+
+  .mayor-relief-pack-action-group {
+    flex: 1 1 100% !important;
+    justify-content: flex-start !important;
   }
 }
 
@@ -213,6 +293,120 @@ body {
     min-width: 0;
     white-space: normal;
   }
+
+  .mayor-relief-pack-scope-grid,
+  .mayor-relief-pack-detail-grid,
+  .mayor-relief-pack-form-grid,
+  .mayor-relief-pack-form-pack-type-grid,
+  .mayor-relief-pack-item-entry-grid,
+  .mayor-relief-pack-chip-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .mayor-relief-pack-toolbar,
+  .mayor-relief-pack-toolbar-controls,
+  .mayor-relief-pack-action-group {
+    align-items: stretch !important;
+  }
+
+  .mayor-relief-pack-search-wrap,
+  .mayor-relief-pack-type-filter,
+  .mayor-relief-pack-filter-button-wrap,
+  .mayor-relief-pack-action-group {
+    flex: 1 1 100% !important;
+    width: 100%;
+  }
+
+  .mayor-relief-pack-type-filter {
+    align-items: stretch !important;
+    flex-direction: column;
+    gap: 6px !important;
+  }
+
+  .mayor-relief-pack-type-filter select,
+  .mayor-relief-pack-filter-button-wrap button,
+  .mayor-relief-pack-action-group button {
+    width: 100%;
+    justify-content: center;
+    min-width: 0;
+    white-space: normal;
+  }
+
+  .mayor-relief-pack-tabs {
+    flex-wrap: nowrap !important;
+    max-width: 100%;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .mayor-relief-pack-results-card,
+  .mayor-relief-pack-customization-card {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+
+  .mayor-relief-pack-template-table {
+    min-width: 960px !important;
+  }
+
+  .mayor-relief-pack-form-modal-backdrop,
+  .mayor-relief-pack-confirm-modal-backdrop {
+    align-items: stretch !important;
+    padding: 12px !important;
+  }
+
+  .mayor-relief-pack-form-modal,
+  .mayor-relief-pack-confirm-modal {
+    width: 100% !important;
+    max-height: calc(100vh - 24px) !important;
+    border-radius: 18px !important;
+    padding: 16px !important;
+  }
+
+  .mayor-relief-pack-form-modal-topbar {
+    align-items: flex-start !important;
+    flex-wrap: nowrap !important;
+    gap: 12px !important;
+  }
+
+  .mayor-relief-pack-form-modal-topbar h3 {
+    font-size: 22px !important;
+    line-height: 1.18 !important;
+  }
+
+  .mayor-relief-pack-form-section,
+  .mayor-relief-pack-item-preview {
+    padding: 16px !important;
+  }
+
+  .mayor-relief-pack-composition-row {
+    align-items: stretch !important;
+    flex-direction: column;
+    gap: 12px !important;
+  }
+
+  .mayor-relief-pack-composition-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .mayor-relief-pack-composition-actions button {
+    width: 100%;
+  }
+
+  .mayor-relief-pack-form-footer-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .mayor-relief-pack-form-footer-actions button {
+    width: 100%;
+    justify-content: center;
+    min-width: 0;
+    white-space: normal;
+  }
 }
 
 @media (max-width: 480px) {
@@ -305,6 +499,31 @@ body {
   .inventory-item-status-actions,
   .inventory-export-actions,
   .inventory-batch-expiry-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mayor-relief-pack-results-card,
+  .mayor-relief-pack-customization-card,
+  .mayor-relief-pack-form-section,
+  .mayor-relief-pack-item-preview {
+    padding: 14px !important;
+  }
+
+  .mayor-relief-pack-card-title {
+    font-size: 17px !important;
+    line-height: 1.25 !important;
+  }
+
+  .mayor-relief-pack-template-table {
+    min-width: 900px !important;
+  }
+
+  .mayor-relief-pack-detail-table {
+    min-width: 680px;
+  }
+
+  .mayor-relief-pack-form-footer-actions,
+  .mayor-relief-pack-composition-actions {
     grid-template-columns: minmax(0, 1fr);
   }
 }
