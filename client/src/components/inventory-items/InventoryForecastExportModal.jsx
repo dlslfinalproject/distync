@@ -10,19 +10,21 @@ const overlayStyles = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  padding: "24px",
+  padding: "clamp(12px, 4vw, 24px)",
   zIndex: 1500,
+  boxSizing: "border-box",
 };
 
 const modalStyles = {
   width: "min(640px, 100%)",
-  maxHeight: "90vh",
+  maxHeight: "min(90vh, 720px)",
   overflowY: "auto",
   backgroundColor: "#ffffff",
-  borderRadius: "24px",
+  borderRadius: "18px",
   boxShadow: "0 24px 54px rgba(31, 64, 95, 0.22)",
-  padding: "28px",
+  padding: "clamp(18px, 4vw, 28px)",
   boxSizing: "border-box",
+  minWidth: 0,
 };
 
 const inputStyles = {
@@ -35,6 +37,8 @@ const inputStyles = {
   fontSize: "14px",
   color: "#17324d",
   backgroundColor: "#f8fbfe",
+  minWidth: 0,
+  textOverflow: "ellipsis",
 };
 
 const labelStyles = {
@@ -65,6 +69,7 @@ const closeButtonStyles = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
+  flex: "0 0 auto",
 };
 
 const getEventSortValue = (event) => {
@@ -146,14 +151,18 @@ const InventoryForecastExportModal = ({
             alignItems: "flex-start",
             gap: "16px",
             marginBottom: "20px",
+            flexWrap: "wrap",
           }}
         >
           <h3
             style={{
               margin: 0,
               color: "#17324d",
-              fontSize: "26px",
+              fontSize: "clamp(21px, 5vw, 26px)",
               fontWeight: 800,
+              lineHeight: 1.15,
+              overflowWrap: "anywhere",
+              minWidth: 0,
             }}
           >
             Inventory Forecasting Report
@@ -210,13 +219,18 @@ const InventoryForecastExportModal = ({
             justifyContent: "flex-end",
             gap: "12px",
             flexWrap: "wrap",
+            alignItems: "stretch",
           }}
         >
           <button
             type="button"
             onClick={onClose}
             disabled={isSubmitting}
-            style={pageHeaderStyles.secondaryButton}
+            style={{
+              ...pageHeaderStyles.secondaryButton,
+              maxWidth: "100%",
+              whiteSpace: "normal",
+            }}
           >
             Cancel
           </button>
@@ -225,6 +239,8 @@ const InventoryForecastExportModal = ({
             disabled={isSubmitting || !exportDisasterEventId}
             style={{
               ...pageHeaderStyles.primaryButton,
+              maxWidth: "100%",
+              whiteSpace: "normal",
               opacity: isSubmitting || !exportDisasterEventId ? 0.7 : 1,
               cursor:
                 isSubmitting || !exportDisasterEventId

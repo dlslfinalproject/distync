@@ -26,9 +26,12 @@ const panelStyles = {
   page: {
     display: "grid",
     gap: "24px",
+    minWidth: 0,
   },
   card: {
     ...shellStyles.card,
+    minWidth: 0,
+    boxSizing: "border-box",
   },
   softCard: {
     borderRadius: "12px",
@@ -38,9 +41,10 @@ const panelStyles = {
   },
   controlGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))",
     gap: "16px",
     alignItems: "end",
+    minWidth: 0,
   },
   filterLabel: {
     display: "block",
@@ -60,12 +64,15 @@ const panelStyles = {
     color: "#1f3b57",
     fontSize: "14px",
     boxSizing: "border-box",
+    minWidth: 0,
+    textOverflow: "ellipsis",
   },
   forecastActionRow: {
     display: "flex",
     justifyContent: "flex-end",
     gap: "12px",
     flexWrap: "wrap",
+    minWidth: 0,
   },
   section: {
     display: "grid",
@@ -100,13 +107,15 @@ const panelStyles = {
   executiveGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 320px), 1fr))",
-    gap: "24px",
+    gap: "clamp(16px, 2vw, 24px)",
     alignItems: "stretch",
+    minWidth: 0,
   },
   executiveCard: {
     ...shellStyles.card,
     display: "grid",
     gap: "14px",
+    minWidth: 0,
   },
   insightCard: {
     borderRadius: "10px",
@@ -115,6 +124,7 @@ const panelStyles = {
     padding: "16px",
     minHeight: "116px",
     boxSizing: "border-box",
+    minWidth: 0,
   },
   modelCardContent: {
     display: "flex",
@@ -163,9 +173,11 @@ const panelStyles = {
   insightValue: {
     margin: 0,
     color: "#17324d",
-    fontSize: "40px",
+    fontSize: "clamp(28px, 4vw, 40px)",
     lineHeight: 1.05,
     fontWeight: 800,
+    maxWidth: "100%",
+    overflowWrap: "anywhere",
   },
   interpretationBanner: {
     borderRadius: "10px",
@@ -176,6 +188,7 @@ const panelStyles = {
     fontSize: "15px",
     fontWeight: 700,
     lineHeight: 1.45,
+    overflowWrap: "anywhere",
   },
   readinessList: {
     display: "grid",
@@ -188,6 +201,7 @@ const panelStyles = {
     fontSize: "14px",
     fontWeight: 700,
     lineHeight: 1.45,
+    overflowWrap: "anywhere",
   },
   label: {
     display: "block",
@@ -206,6 +220,7 @@ const panelStyles = {
     gridTemplateColumns: "repeat(auto-fit, minmax(135px, 1fr))",
     gap: "10px",
     marginTop: "12px",
+    minWidth: 0,
   },
   inputSummaryPill: {
     borderRadius: "10px",
@@ -225,11 +240,13 @@ const panelStyles = {
     fontSize: "22px",
     fontWeight: 800,
     lineHeight: 1.1,
+    overflowWrap: "anywhere",
   },
   statGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 150px), 1fr))",
     gap: "12px",
+    minWidth: 0,
   },
   statCard: {
     borderRadius: "12px",
@@ -237,6 +254,8 @@ const panelStyles = {
     backgroundColor: "#f8fbfe",
     border: "1px solid #d7e2ef",
     boxShadow: "0 8px 18px rgba(58, 97, 141, 0.05)",
+    minWidth: 0,
+    boxSizing: "border-box",
   },
   statButton: {
     width: "100%",
@@ -249,12 +268,14 @@ const panelStyles = {
     flexDirection: "column",
     justifyContent: "center",
     gap: "12px",
+    minWidth: 0,
   },
   statValueRow: {
     display: "flex",
     alignItems: "center",
     gap: "12px",
     minWidth: 0,
+    flexWrap: "wrap",
   },
   statIconWrap: {
     width: "38px",
@@ -287,11 +308,13 @@ const panelStyles = {
     gridTemplateColumns: "1fr",
     gap: "24px",
     alignItems: "start",
+    minWidth: 0,
   },
   chartGrid: {
     display: "grid",
     gridTemplateColumns: "1fr",
     gap: "24px",
+    minWidth: 0,
   },
   chartShell: {
     ...shellStyles.card,
@@ -299,11 +322,14 @@ const panelStyles = {
     display: "flex",
     flexDirection: "column",
     gap: "14px",
+    minWidth: 0,
+    overflow: "hidden",
   },
   tableWrap: {
     overflowX: "auto",
     maxWidth: "100%",
     width: "100%",
+    boxSizing: "border-box",
   },
   table: {
     width: "100%",
@@ -384,10 +410,13 @@ const panelStyles = {
     padding: "12px 14px",
     textAlign: "left",
     cursor: "pointer",
+    minWidth: 0,
+    overflowWrap: "anywhere",
   },
   detailsBox: {
     ...shellStyles.card,
     overflow: "hidden",
+    minWidth: 0,
   },
   detailsSummary: {
     cursor: "pointer",
@@ -613,7 +642,17 @@ const getStockBalanceColor = (remainingStock, currentStock) => {
 
 const ChartHeader = ({ title, subtitle }) => (
   <div style={{ display: "grid", gap: subtitle ? "4px" : 0 }}>
-    <h4 style={{ margin: 0, color: "#17324d", fontSize: "18px" }}>{title}</h4>
+    <h4
+      style={{
+        margin: 0,
+        color: "#17324d",
+        fontSize: "18px",
+        lineHeight: 1.25,
+        overflowWrap: "anywhere",
+      }}
+    >
+      {title}
+    </h4>
     {subtitle ? (
       <p style={{ ...panelStyles.emptyState, fontSize: "12px" }}>
         {subtitle}
@@ -727,11 +766,19 @@ const LineChart = ({ rows = [] }) => {
     : 0;
 
   return (
-    <div style={{ display: "grid", gap: "12px" }}>
+    <div style={{ display: "grid", gap: "12px", minWidth: 0 }}>
       <svg
         viewBox={`0 0 ${width} ${height}`}
-        style={{ width: "100%", height: "auto", minHeight: "280px" }}
+        style={{
+          width: "100%",
+          height: "auto",
+          minHeight: "clamp(220px, 46vw, 280px)",
+          maxWidth: "100%",
+          display: "block",
+        }}
         onMouseLeave={() => setActivePointIndex(null)}
+        role="img"
+        aria-label="Inventory usage trend chart"
       >
         {yTicks.map((tick) => (
           <g key={tick.value}>
@@ -918,7 +965,7 @@ const BarChart = ({ rows = [], valueKey, labelKey, color }) => {
   const maxValue = Math.max(...chartRows.map((row) => Number(row[valueKey] || 0)), 1);
 
   return (
-    <div style={{ display: "grid", gap: "14px" }}>
+    <div style={{ display: "grid", gap: "14px", minWidth: 0 }}>
       {chartRows.map((row, index) => {
         const value = Number(row[valueKey] || 0);
         const widthPercent = `${Math.max((value / maxValue) * 100, value > 0 ? 8 : 0)}%`;
@@ -929,15 +976,34 @@ const BarChart = ({ rows = [], valueKey, labelKey, color }) => {
               style={{
                 display: "flex",
                 justifyContent: "space-between",
+                alignItems: "flex-start",
                 gap: "12px",
                 marginBottom: "6px",
                 fontSize: "13px",
+                flexWrap: "wrap",
+                minWidth: 0,
               }}
             >
-              <strong style={{ color: "#17324d" }}>
+              <strong
+                style={{
+                  color: "#17324d",
+                  minWidth: 0,
+                  overflowWrap: "anywhere",
+                  flex: "1 1 180px",
+                }}
+              >
                 {index + 1}. {row[labelKey]}
               </strong>
-              <span style={{ color: "#17324d", fontWeight: 800 }}>
+              <span
+                style={{
+                  color: "#17324d",
+                  fontWeight: 800,
+                  minWidth: 0,
+                  overflowWrap: "anywhere",
+                  textAlign: "right",
+                  flex: "0 1 auto",
+                }}
+              >
                 {formatForecastQuantity(value, row.unit_of_measure, {
                   forceWhole: true,
                   roundUp: true,
@@ -991,7 +1057,7 @@ const StockLevelChart = ({ rows = [] }) => {
     .slice(0, 6);
 
   return (
-    <div style={{ display: "grid", gap: "14px" }}>
+    <div style={{ display: "grid", gap: "14px", minWidth: 0 }}>
       {chartRows.map((row) => {
         const currentStock = Number(row.current_available_stock || 0);
         const remainingStock = Number(row.projected_remaining_stock || 0);
@@ -1006,13 +1072,33 @@ const StockLevelChart = ({ rows = [] }) => {
               style={{
                 display: "flex",
                 justifyContent: "space-between",
+                alignItems: "flex-start",
                 gap: "12px",
                 marginBottom: "8px",
                 fontSize: "13px",
+                flexWrap: "wrap",
+                minWidth: 0,
               }}
             >
-              <strong style={{ color: "#17324d" }}>{row.item_name}</strong>
-              <span style={{ color: "#5d7188" }}>
+              <strong
+                style={{
+                  color: "#17324d",
+                  minWidth: 0,
+                  overflowWrap: "anywhere",
+                  flex: "1 1 180px",
+                }}
+              >
+                {row.item_name}
+              </strong>
+              <span
+                style={{
+                  color: "#5d7188",
+                  minWidth: 0,
+                  overflowWrap: "anywhere",
+                  textAlign: "right",
+                  flex: "0 1 auto",
+                }}
+              >
                 {formatForecastQuantity(currentStock, row.unit_of_measure, {
                   forceWhole: true,
                 })} now |{" "}
@@ -1280,6 +1366,13 @@ const ForecastingPanel = ({
     target.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  const actionButtonBaseStyles = {
+    maxWidth: "100%",
+    minWidth: "min(100%, 150px)",
+    whiteSpace: "normal",
+    textAlign: "center",
+  };
+
   return (
     <div style={panelStyles.page}>
       <section style={shellStyles.card}>
@@ -1339,6 +1432,7 @@ const ForecastingPanel = ({
           disabled={isRunningForecast || !selectedForecastEventId}
           style={{
             ...pageHeaderStyles.primaryButton,
+            ...actionButtonBaseStyles,
             cursor:
               isRunningForecast || !selectedForecastEventId
                 ? "not-allowed"
@@ -1356,6 +1450,7 @@ const ForecastingPanel = ({
           disabled={!selectedForecastEventId || isForecastLoading || isRunningForecast}
           style={{
             ...pageHeaderStyles.secondaryButton,
+            ...actionButtonBaseStyles,
             cursor:
               !selectedForecastEventId || isForecastLoading || isRunningForecast
                 ? "not-allowed"
@@ -1380,6 +1475,7 @@ const ForecastingPanel = ({
             color: "#1f6b46",
             fontSize: "14px",
             fontWeight: 700,
+            overflowWrap: "anywhere",
           }}
         >
           {forecastSuccessMessage}
@@ -1395,6 +1491,7 @@ const ForecastingPanel = ({
             color: "#a14538",
             fontSize: "14px",
             fontWeight: 700,
+            overflowWrap: "anywhere",
           }}
         >
           {forecastErrorMessage}
@@ -1596,7 +1693,7 @@ const ForecastingPanel = ({
                             width: panelStyles.stockActionColumnWidths.item,
                           }}
                         >
-                          <strong style={{ color: "#17324d" }}>{row.item_name}</strong>
+                          <strong style={panelStyles.itemNameCell}>{row.item_name}</strong>
                         </td>
                         <td
                           style={{
@@ -1696,7 +1793,7 @@ const ForecastingPanel = ({
                     {donorNeedRows.map((row) => (
                       <tr key={row.inventory_item_id}>
                         <td style={{ ...panelStyles.td, ...panelStyles.leftCell }}>
-                          <strong style={{ color: "#17324d" }}>{row.item_name}</strong>
+                          <strong style={panelStyles.itemNameCell}>{row.item_name}</strong>
                         </td>
                         <td style={panelStyles.td}>
                           <strong style={{ color: "#17324d" }}>
@@ -1969,7 +2066,13 @@ const ForecastingPanel = ({
                     flexWrap: "wrap",
                   }}
                 >
-                  <strong style={{ color: "#17324d" }}>
+                  <strong
+                    style={{
+                      color: "#17324d",
+                      minWidth: 0,
+                      overflowWrap: "anywhere",
+                    }}
+                  >
                     {run.disaster_event?.title || "Selected disaster event"}
                   </strong>
                   <span style={{ color: "#5d7188", fontSize: "12px" }}>
