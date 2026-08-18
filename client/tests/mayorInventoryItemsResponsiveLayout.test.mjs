@@ -34,6 +34,14 @@ test("Mayor inventory items page exposes responsive hooks for toolbar, summary, 
     cssSource,
     /@media \(max-width: 480px\)[\s\S]*?\.inventory-items-summary-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/,
   );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 480px\)[\s\S]*?\.inventory-items-summary-grid > div \{[\s\S]*?height: auto !important;[\s\S]*?padding: 12px 14px !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 480px\)[\s\S]*?\.inventory-items-summary-grid > div > p:first-child \{[\s\S]*?min-height: 0 !important;/,
+  );
 });
 
 test("Mayor inventory item table keeps overflow local without hiding columns", async () => {
@@ -44,6 +52,10 @@ test("Mayor inventory item table keeps overflow local without hiding columns", a
 
   assert.match(tableSource, /className="inventory-items-table-scroll"/);
   assert.match(tableSource, /className="inventory-items-table"/);
+  assert.match(tableSource, /className="inventory-items-table-header-cell"/);
+  assert.match(tableSource, /className="inventory-items-table-cell inventory-items-item-cell"/);
+  assert.match(tableSource, /className="inventory-items-item-name-text"/);
+  assert.match(tableSource, /title=\{itemName\}/);
   assert.match(tableSource, /overflowX:\s*"auto"/);
   assert.doesNotMatch(tableSource, /overflowX:\s*"hidden"/);
   assert.match(tableSource, /"Item Name"[\s\S]*?"Category"[\s\S]*?"Total Stock"[\s\S]*?"Stock Forms"[\s\S]*?"Reorder Level"[\s\S]*?"Stock Status"[\s\S]*?"Actions"/);
@@ -52,6 +64,33 @@ test("Mayor inventory item table keeps overflow local without hiding columns", a
     /\.inventory-items-table-scroll,[\s\S]*?\.inventory-item-detail-table-scroll \{[\s\S]*?overflow-x: auto !important;/,
   );
   assert.doesNotMatch(tableSource, /pagination=\{/);
+  assert.match(
+    cssSource,
+    /@media \(max-width: 480px\)[\s\S]*?\.inventory-items-table-cell \{[\s\S]*?line-height: 1\.35 !important;[\s\S]*?padding: 10px 8px !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 480px\)[\s\S]*?\.inventory-items-item-name-text \{[\s\S]*?-webkit-line-clamp: 2;[\s\S]*?white-space: normal !important;/,
+  );
+});
+
+test("Mayor inventory category filter stacks vertically on narrow phones", async () => {
+  const [filtersSource, cssSource] = await Promise.all([
+    readSource(["components", "inventory-items", "InventoryFilters.jsx"]),
+    readSource(["index.css"]),
+  ]);
+
+  assert.match(filtersSource, /className="inventory-items-category-filter"/);
+  assert.match(filtersSource, /htmlFor="inventory-category-filter"/);
+  assert.match(filtersSource, /id="inventory-category-filter"/);
+  assert.match(
+    cssSource,
+    /@media \(max-width: 480px\)[\s\S]*?\.inventory-items-category-filter \{[\s\S]*?align-items: stretch !important;[\s\S]*?flex-direction: column;[\s\S]*?gap: 6px !important;[\s\S]*?justify-content: flex-start !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 480px\)[\s\S]*?\.inventory-items-category-filter select \{[\s\S]*?max-width: 100%;[\s\S]*?min-width: 0 !important;/,
+  );
 });
 
 test("Mayor inventory forms and modals expose mobile-safe hooks while preserving payload semantics", async () => {

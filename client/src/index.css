@@ -218,6 +218,33 @@ body {
 @media (max-width: 480px) {
   .inventory-items-summary-grid {
     grid-template-columns: minmax(0, 1fr) !important;
+    gap: 12px !important;
+  }
+
+  .inventory-items-summary-grid > div {
+    height: auto !important;
+    padding: 12px 14px !important;
+  }
+
+  .inventory-items-summary-grid > div > p:first-child {
+    line-height: 1.2 !important;
+    min-height: 0 !important;
+  }
+
+  .inventory-items-summary-grid > div > p:nth-child(2) {
+    margin-top: 6px !important;
+  }
+
+  .inventory-items-category-filter {
+    align-items: stretch !important;
+    flex-direction: column;
+    gap: 6px !important;
+    justify-content: flex-start !important;
+  }
+
+  .inventory-items-category-filter select {
+    max-width: 100%;
+    min-width: 0 !important;
   }
 
   .inventory-items-page-top-actions .inventory-items-actions-row {
@@ -227,6 +254,27 @@ body {
 
   .inventory-items-table {
     min-width: 700px;
+  }
+
+  .inventory-items-table-header-cell {
+    padding: 10px 8px !important;
+  }
+
+  .inventory-items-table-cell {
+    line-height: 1.35 !important;
+    padding: 10px 8px !important;
+  }
+
+  .inventory-items-item-name-text {
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    display: -webkit-box !important;
+    line-height: 1.35;
+    overflow: hidden !important;
+    overflow-wrap: anywhere;
+    text-overflow: clip !important;
+    white-space: normal !important;
+    word-break: normal;
   }
 
   .inventory-item-detail-table {
