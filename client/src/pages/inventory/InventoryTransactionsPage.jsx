@@ -63,7 +63,6 @@ const pageStackStyles = {
   flex: 1,
   minWidth: 0,
   maxWidth: "100%",
-  overflowX: "hidden",
 };
 
 const overviewSectionStyles = {
@@ -1229,11 +1228,17 @@ const InventoryTransactionsPage = () => {
   }, [activeToolbarFilterCount, isFilterOpen, updateFilterPanelPosition]);
 
   return (
-    <div style={pageStackStyles}>
+    <div className="inventory-tracking-page" style={pageStackStyles}>
       <PageHeader title="INVENTORY TRACKING MANAGEMENT" />
 
-      <section style={{ ...shellStyles.card, marginTop: "18px" }}>
-          <div style={transactionFilterGridStyles}>
+      <section
+        className="inventory-tracking-filter-card"
+        style={{ ...shellStyles.card, marginTop: "18px" }}
+      >
+          <div
+            className="inventory-tracking-filter-grid"
+            style={transactionFilterGridStyles}
+          >
             <div>
               <label htmlFor="tracking-item-filter" style={labelStyles}>
                 Item
@@ -1353,8 +1358,11 @@ const InventoryTransactionsPage = () => {
           </div>
       </section>
 
-      <section style={overviewSectionStyles}>
-        <div style={summaryGridStyles}>
+      <section
+        className="inventory-tracking-overview"
+        style={overviewSectionStyles}
+      >
+        <div className="inventory-tracking-summary-grid" style={summaryGridStyles}>
         <SummaryCard
           label="Total Inflow"
           value={summaryMetrics.totalInflow}
@@ -1388,8 +1396,8 @@ const InventoryTransactionsPage = () => {
         </div>
       </section>
 
-      <section style={toolbarStyles}>
-          <div style={searchWrapStyles}>
+      <section className="inventory-tracking-toolbar" style={toolbarStyles}>
+          <div className="inventory-tracking-search-wrap" style={searchWrapStyles}>
             <SearchBar
               value={toolbarState.search}
               onChange={(value) => handleToolbarChange("search", value)}
@@ -1397,7 +1405,7 @@ const InventoryTransactionsPage = () => {
             />
           </div>
 
-          <div style={inlineSelectWrapStyles}>
+          <div className="inventory-tracking-movement-filter" style={inlineSelectWrapStyles}>
             <label
               htmlFor="tracking-movement-filter"
               style={inlineSelectLabelStyles}
@@ -1420,7 +1428,7 @@ const InventoryTransactionsPage = () => {
             </select>
           </div>
 
-          <div>
+          <div className="inventory-tracking-filter-button-wrap">
             <button
               ref={filterButtonRef}
               type="button"
@@ -1503,6 +1511,7 @@ const InventoryTransactionsPage = () => {
           </div>
 
           <button
+            className="inventory-tracking-export-button"
             type="button"
             onClick={() => {
               setSelectedExportFormat("csv");
@@ -1524,7 +1533,7 @@ const InventoryTransactionsPage = () => {
           </button>
       </section>
 
-      <section style={shellStyles.card}>
+      <section className="inventory-tracking-records-card" style={shellStyles.card}>
         <div style={{ marginBottom: "18px" }}>
           <h3 style={sectionTitleStyles}>Inventory Transactions</h3>
         </div>

@@ -279,6 +279,56 @@ body {
   table-layout: auto !important;
 }
 
+.inventory-tracking-page,
+.inventory-tracking-page *,
+.inventory-tracking-detail-modal,
+.inventory-tracking-detail-modal * {
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.inventory-tracking-filter-card,
+.inventory-tracking-filter-grid,
+.inventory-tracking-overview,
+.inventory-tracking-summary-grid,
+.inventory-tracking-toolbar,
+.inventory-tracking-search-wrap,
+.inventory-tracking-movement-filter,
+.inventory-tracking-filter-button-wrap,
+.inventory-tracking-records-card,
+.inventory-tracking-table,
+.inventory-tracking-detail-stack,
+.inventory-tracking-detail-section,
+.inventory-tracking-detail-grid {
+  min-width: 0;
+}
+
+.inventory-tracking-toolbar {
+  max-width: 100%;
+}
+
+.inventory-tracking-table-scroll {
+  max-width: 100%;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+.inventory-tracking-table {
+  min-width: 860px !important;
+}
+
+.inventory-tracking-text-cell,
+.inventory-tracking-detail-modal p,
+.inventory-tracking-detail-modal h3 {
+  overflow-wrap: anywhere;
+}
+
+.inventory-tracking-action-button {
+  min-width: 36px;
+  flex: 0 0 auto;
+}
+
 .inventory-item-detail-table {
   min-width: 760px;
 }
@@ -330,6 +380,10 @@ body {
   }
 
   .inventory-distribution-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .inventory-tracking-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
 }
@@ -697,6 +751,71 @@ body {
     justify-content: center;
     white-space: normal;
   }
+
+  .inventory-tracking-filter-grid,
+  .inventory-tracking-detail-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .inventory-tracking-toolbar {
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+
+  .inventory-tracking-search-wrap,
+  .inventory-tracking-movement-filter,
+  .inventory-tracking-filter-button-wrap,
+  .inventory-tracking-export-button {
+    flex: 1 1 100% !important;
+    width: 100%;
+  }
+
+  .inventory-tracking-movement-filter {
+    justify-content: space-between;
+  }
+
+  .inventory-tracking-movement-filter select,
+  .inventory-tracking-filter-button-wrap button,
+  .inventory-tracking-export-button {
+    min-width: 0;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .inventory-tracking-records-card {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+
+  .inventory-tracking-detail-modal-backdrop {
+    align-items: stretch !important;
+    padding: 12px !important;
+  }
+
+  .inventory-tracking-detail-modal {
+    width: 100% !important;
+    max-height: calc(100vh - 24px) !important;
+    border-radius: 18px !important;
+    padding: 16px !important;
+  }
+
+  .inventory-tracking-detail-modal > div:first-child {
+    align-items: flex-start !important;
+    flex-wrap: nowrap !important;
+    gap: 12px !important;
+  }
+
+  .inventory-tracking-detail-modal h3 {
+    line-height: 1.2 !important;
+  }
+
+  .inventory-tracking-detail-modal > div:first-child h3 {
+    font-size: 24px !important;
+  }
+
+  .inventory-tracking-detail-section {
+    padding: 16px !important;
+  }
 }
 
 @media (max-width: 480px) {
@@ -887,6 +1006,71 @@ body {
 
   .inventory-distribution-export-actions {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inventory-tracking-summary-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 12px !important;
+  }
+
+  .inventory-tracking-summary-grid > article {
+    padding: 12px 14px !important;
+  }
+
+  .inventory-tracking-summary-grid > article > p:first-child {
+    line-height: 1.2 !important;
+  }
+
+  .inventory-tracking-summary-grid > article > p:nth-child(2) {
+    font-size: 28px !important;
+    margin-top: 8px !important;
+  }
+
+  .inventory-tracking-filter-card,
+  .inventory-tracking-records-card,
+  .inventory-tracking-detail-section {
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+  }
+
+  .inventory-tracking-movement-filter {
+    align-items: stretch !important;
+    flex-direction: column;
+    gap: 6px !important;
+    justify-content: flex-start !important;
+  }
+
+  .inventory-tracking-movement-filter select {
+    max-width: 100%;
+    min-width: 0 !important;
+  }
+
+  .inventory-tracking-table {
+    min-width: 780px !important;
+  }
+
+  .inventory-tracking-table-header-cell {
+    padding: 10px 8px !important;
+  }
+
+  .inventory-tracking-table-cell {
+    line-height: 1.35 !important;
+    padding: 10px 8px !important;
+  }
+
+  .inventory-tracking-action-button {
+    min-width: 34px;
+    width: 34px !important;
+    height: 34px !important;
+  }
+
+  .inventory-tracking-detail-modal {
+    padding: 14px !important;
+    border-radius: 16px !important;
+  }
+
+  .inventory-tracking-detail-modal > div:first-child h3 {
+    font-size: 22px !important;
   }
 }
 
