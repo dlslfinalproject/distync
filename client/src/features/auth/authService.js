@@ -94,9 +94,10 @@ export const renderGoogleSignInButton = async ({
   window.google.accounts.id.renderButton(element, {
     theme: "outline",
     size: "large",
-    shape: "pill",
+    shape: "rectangular",
     text: "signin_with",
-    width: 280,
+    width: 360,
+    logo_alignment: "center",
   });
 };
 
