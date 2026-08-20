@@ -23,10 +23,31 @@ test("Mayor donation management page exposes scoped responsive hooks", async () 
   assert.match(filtersSource, /className="mayor-donation-management-search-wrap"/);
   assert.match(filtersSource, /className="mayor-donation-management-toolbar-controls"/);
   assert.match(filtersSource, /className="mayor-donation-management-type-filter"/);
+  assert.match(filtersSource, /className="mayor-donation-management-filter-button-wrap"/);
+  assert.match(filtersSource, /className="mayor-donation-management-action-group"/);
+  assert.match(filtersSource, /row:\s*\{[\s\S]*?flexWrap:\s*"wrap"/);
+  assert.match(filtersSource, /controlsWrap:\s*\{[\s\S]*?flexWrap:\s*"wrap"/);
+  assert.match(filtersSource, /actionGroup:\s*\{[\s\S]*?flexWrap:\s*"wrap"/);
   assert.match(tabsSource, /className="mayor-donation-management-tabs"/);
   assert.match(
     cssSource,
     /\.mayor-donation-management-page,[\s\S]*?\.mayor-donation-management-page \*,[\s\S]*?\.mayor-donation-management-export-modal \* \{[\s\S]*?min-width: 0;/,
+  );
+  assert.doesNotMatch(
+    cssSource,
+    /\.mayor-donation-management-page \{[^}]*overflow-x:\s*hidden;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 1100px\)[\s\S]*?\.mayor-donation-management-toolbar \{[\s\S]*?flex-wrap: wrap !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 1100px\)[\s\S]*?\.mayor-donation-management-toolbar-controls \{[\s\S]*?flex: 1 1 100% !important;[\s\S]*?flex-wrap: wrap !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 1100px\)[\s\S]*?\.mayor-donation-management-action-group \{[\s\S]*?flex-wrap: wrap !important;/,
   );
   assert.match(
     cssSource,
@@ -34,7 +55,15 @@ test("Mayor donation management page exposes scoped responsive hooks", async () 
   );
   assert.match(
     cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.mayor-donation-management-type-filter select,[\s\S]*?\.mayor-donation-management-filter-button-wrap button,[\s\S]*?\.mayor-donation-management-action-group button \{[\s\S]*?width: 100%;[\s\S]*?white-space: normal;/,
+  );
+  assert.match(
+    cssSource,
     /@media \(max-width: 480px\)[\s\S]*?\.mayor-donation-management-summary-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 480px\)[\s\S]*?\.mayor-donation-management-action-group \{[\s\S]*?display: grid !important;[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/,
   );
 });
 
