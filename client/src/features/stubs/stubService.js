@@ -45,7 +45,15 @@ const handleJsonResponse = async (response, fallbackMessage) => {
 export const fetchBarangayStubDashboard = async ({
   userId,
   disasterEventId,
+  barangayId,
   overrideBarangayId,
+  page,
+  pageSize,
+  search,
+  status,
+  sectorIds,
+  sortOrder,
+  skipOfflineCache = false,
 }) => {
   const searchParams = new URLSearchParams({
     disaster_event_id: disasterEventId,
@@ -55,8 +63,36 @@ export const fetchBarangayStubDashboard = async ({
     searchParams.set("user_id", userId);
   }
 
+  if (barangayId) {
+    searchParams.set("barangay_id", barangayId);
+  }
+
   if (overrideBarangayId) {
     searchParams.set("override_barangay_id", overrideBarangayId);
+  }
+
+  if (page) {
+    searchParams.set("page", page);
+  }
+
+  if (pageSize) {
+    searchParams.set("pageSize", pageSize);
+  }
+
+  if (typeof search === "string" && search.trim()) {
+    searchParams.set("search", search.trim());
+  }
+
+  if (status) {
+    searchParams.set("status", status);
+  }
+
+  if (Array.isArray(sectorIds) && sectorIds.length > 0) {
+    searchParams.set("sector_ids", sectorIds.join(","));
+  }
+
+  if (sortOrder) {
+    searchParams.set("sort_order", sortOrder);
   }
 
   const response = await fetch(
@@ -68,7 +104,9 @@ export const fetchBarangayStubDashboard = async ({
     "Failed to fetch stub dashboard",
   );
 
-  await upsertOfflineStubSnapshots(responseData?.data || []);
+  if (!skipOfflineCache) {
+    await upsertOfflineStubSnapshots(responseData?.data || []);
+  }
 
   return responseData;
 };
@@ -125,10 +163,12 @@ export const fetchStubDetails = async (stubId, { currentBarangayId = "" } = {}) 
 export const claimStub = async ({
   stubId,
   userId,
+  barangayId,
   overrideBarangayId,
 }) => {
   const payload = {
     user_id: userId || null,
+    barangay_id: barangayId || null,
     override_barangay_id: overrideBarangayId || null,
   };
 

@@ -10,6 +10,16 @@ import { SettingsUnsavedChangesProvider } from "../../pages/settings/SettingsUns
 const SIDEBAR_EXPANDED_WIDTH = "280px";
 const SIDEBAR_COLLAPSED_WIDTH = "0px";
 const HEADER_BRAND_WIDTH = "280px";
+const MOBILE_NAV_QUERY = "(max-width: 768px)";
+const COMPACT_NAV_QUERY = "(max-width: 1024px)";
+
+const getInitialMediaQueryMatch = (query) => {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return false;
+  }
+
+  return window.matchMedia(query).matches;
+};
 
 export const shellStyles = {
   page: {
@@ -104,7 +114,15 @@ export const pageSpacingStyles = {
 };
 
 const BarangayLayout = () => {
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() =>
+    getInitialMediaQueryMatch(COMPACT_NAV_QUERY),
+  );
+  const [isMobileNavigation, setIsMobileNavigation] = useState(() =>
+    getInitialMediaQueryMatch(MOBILE_NAV_QUERY),
+  );
+  const [isCompactNavigation, setIsCompactNavigation] = useState(() =>
+    getInitialMediaQueryMatch(COMPACT_NAV_QUERY),
+  );
   const lastNonSettingsCollapseStateRef = useRef(false);
   const location = useLocation();
   const { currentRole } = useAuth();
@@ -125,6 +143,28 @@ const BarangayLayout = () => {
   }, [isDonorPortal, isSettingsRoute, isSidebarCollapsed]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const mobileMediaQuery = window.matchMedia(MOBILE_NAV_QUERY);
+    const compactMediaQuery = window.matchMedia(COMPACT_NAV_QUERY);
+    const syncNavigationState = () => {
+      setIsMobileNavigation(mobileMediaQuery.matches);
+      setIsCompactNavigation(compactMediaQuery.matches);
+    };
+
+    syncNavigationState();
+    mobileMediaQuery.addEventListener("change", syncNavigationState);
+    compactMediaQuery.addEventListener("change", syncNavigationState);
+
+    return () => {
+      mobileMediaQuery.removeEventListener("change", syncNavigationState);
+      compactMediaQuery.removeEventListener("change", syncNavigationState);
+    };
+  }, []);
+
+  useEffect(() => {
     if (isDonorPortal) {
       return;
     }
@@ -136,6 +176,14 @@ const BarangayLayout = () => {
 
     setIsSidebarCollapsed(lastNonSettingsCollapseStateRef.current);
   }, [isDonorPortal, isSettingsRoute]);
+
+  useEffect(() => {
+    if (!isCompactNavigation || isDonorPortal) {
+      return;
+    }
+
+    setIsSidebarCollapsed(true);
+  }, [isCompactNavigation, isDonorPortal, location.pathname]);
 
   const pageStyle = useMemo(
     () => ({
@@ -170,10 +218,26 @@ const BarangayLayout = () => {
         ) : null}
 
         {!isDonorPortal ? (
-          <Sidebar
-            isCollapsed={isSidebarCollapsed}
-            onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
-          />
+          <>
+            <Sidebar
+              isCollapsed={isSidebarCollapsed}
+              onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
+              onClose={() => setIsSidebarCollapsed(true)}
+              onNavigate={() => {
+                if (isMobileNavigation) {
+                  setIsSidebarCollapsed(true);
+                }
+              }}
+            />
+            {isMobileNavigation && !isSidebarCollapsed ? (
+              <button
+                type="button"
+                className="distync-sidebar__scrim"
+                aria-label="Close navigation menu"
+                onClick={() => setIsSidebarCollapsed(true)}
+              />
+            ) : null}
+          </>
         ) : null}
 
         <main className="distync-shell__main" style={shellStyles.main}>

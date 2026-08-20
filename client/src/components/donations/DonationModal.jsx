@@ -738,9 +738,13 @@ const DonationModal = ({
   }
 
   return (
-    <div style={overlayStyles}>
-      <div style={{ ...modalStyles, backgroundColor: "#eef5fb" }}>
+    <div className="mayor-donation-management-form-modal-backdrop" style={overlayStyles}>
+      <div
+        className="mayor-donation-management-form-modal"
+        style={{ ...modalStyles, backgroundColor: "#eef5fb" }}
+      >
         <div
+          className="mayor-donation-management-form-modal-topbar"
           style={{
             display: "flex",
             justifyContent: "space-between",
@@ -783,10 +787,16 @@ const DonationModal = ({
             gap: "20px",
           }}
         >
-          <section style={sectionStyles}>
+          <section
+            className="mayor-donation-management-form-section"
+            style={sectionStyles}
+          >
             <h3 style={sectionTitleStyles}>Donation Information</h3>
 
-            <div style={fieldGridStyles}>
+            <div
+              className="mayor-donation-management-form-grid"
+              style={fieldGridStyles}
+            >
               <div style={autocompleteStyles.wrap}>
                 <label htmlFor="donor_name" style={labelStyles}>
                   Donor Name
@@ -945,14 +955,21 @@ const DonationModal = ({
             </div>
           </section>
 
-          <section style={sectionStyles}>
-            <div style={sectionHeaderRowStyles}>
+          <section
+            className="mayor-donation-management-form-section"
+            style={sectionStyles}
+          >
+            <div
+              className="mayor-donation-management-form-section-header"
+              style={sectionHeaderRowStyles}
+            >
               <h3 style={{ ...sectionTitleStyles, margin: 0 }}>Donation Items</h3>
             </div>
 
             {showDonationItemBuilder ? (
               <>
                 <div
+                  className="mayor-donation-management-form-grid"
                   style={{
                     display: "grid",
                     gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -1393,6 +1410,7 @@ const DonationModal = ({
 
                 {!isAddingReliefPack ? (
                   <div
+                    className="mayor-donation-management-form-actions"
                     style={{
                       display: "flex",
                       justifyContent: "flex-end",
@@ -1480,6 +1498,7 @@ const DonationModal = ({
                         return (
                           <div key={packItemKey} style={summaryCardStyles}>
                             <div
+                              className="mayor-donation-management-form-grid"
                               style={{
                                 display: "grid",
                                 gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -1613,6 +1632,7 @@ const DonationModal = ({
                     )}
 
                     <div
+                      className="mayor-donation-management-form-actions"
                       style={{
                         display: "flex",
                         justifyContent: "flex-end",
@@ -1643,6 +1663,7 @@ const DonationModal = ({
                 ) : (
                   <>
                   <div
+                  className="mayor-donation-management-form-grid"
                   style={{
                     display: "grid",
                     gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -1965,6 +1986,7 @@ const DonationModal = ({
                 </div>
 
                 <div
+                  className="mayor-donation-management-form-actions"
                   style={{
                     display: "flex",
                     justifyContent: "flex-end",
@@ -2074,6 +2096,7 @@ const DonationModal = ({
                         </div>
 
                         <div
+                          className="mayor-donation-management-form-actions"
                           style={{
                             display: "flex",
                             justifyContent: "flex-end",
@@ -2101,6 +2124,7 @@ const DonationModal = ({
 
             {donationItemGroups.length > 0 ? (
               <div
+                className="mayor-donation-management-item-summary-list"
                 style={{
                   marginTop: "18px",
                   display: "grid",
@@ -2252,6 +2276,7 @@ const DonationModal = ({
           ) : null}
 
           <div
+            className="mayor-donation-management-form-actions"
             style={{
               display: "flex",
               justifyContent: "flex-end",

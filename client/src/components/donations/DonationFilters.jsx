@@ -387,9 +387,13 @@ const DonationFilters = ({
           }}
         >
           <div
+            className="mayor-donation-management-toolbar"
             style={toolbarStyles.row}
           >
-            <div style={toolbarStyles.searchWrap}>
+            <div
+              className="mayor-donation-management-search-wrap"
+              style={toolbarStyles.searchWrap}
+            >
               <SearchBar
                 value={donationSearch}
                 onChange={onDonationSearchChange}
@@ -397,9 +401,13 @@ const DonationFilters = ({
               />
             </div>
 
-            <div style={toolbarStyles.controlsWrap}>
+            <div
+              className="mayor-donation-management-toolbar-controls"
+              style={toolbarStyles.controlsWrap}
+            >
               <label
                 htmlFor="donation-type-filter"
+                className="mayor-donation-management-type-filter"
                 style={toolbarStyles.inlineSelectWrap}
               >
                 <span style={toolbarStyles.inlineSelectLabel}>Type</span>
@@ -415,7 +423,7 @@ const DonationFilters = ({
                 </select>
               </label>
 
-              <div>
+              <div className="mayor-donation-management-filter-button-wrap">
                 <button
                   ref={filterButtonRef}
                   type="button"
@@ -434,6 +442,7 @@ const DonationFilters = ({
                 {isFilterOpen ? (
                   <div
                     ref={filterPanelRef}
+                    className="mayor-donation-management-filter-panel"
                     style={{
                       ...toolbarStyles.filterPanel,
                       top: filterPanelPosition.top,
@@ -492,7 +501,10 @@ const DonationFilters = ({
                 ) : null}
               </div>
 
-              <div style={toolbarStyles.actionGroup}>
+              <div
+                className="mayor-donation-management-action-group"
+                style={toolbarStyles.actionGroup}
+              >
                 {canManageDonations ? (
                   <button
                     type="button"
@@ -553,8 +565,11 @@ const DonationFilters = ({
             gap: "16px",
           }}
         >
-          <div style={toolbarStyles.row}>
-            <div style={toolbarStyles.searchWrap}>
+          <div className="mayor-donation-management-toolbar" style={toolbarStyles.row}>
+            <div
+              className="mayor-donation-management-search-wrap"
+              style={toolbarStyles.searchWrap}
+            >
               <SearchBar
                 value={transparencySearch}
                 onChange={onTransparencySearchChange}
@@ -562,8 +577,11 @@ const DonationFilters = ({
               />
             </div>
 
-            <div style={toolbarStyles.controlsWrap}>
-              <div>
+            <div
+              className="mayor-donation-management-toolbar-controls"
+              style={toolbarStyles.controlsWrap}
+            >
+              <div className="mayor-donation-management-filter-button-wrap">
                 <button
                   ref={filterButtonRef}
                   type="button"
@@ -582,6 +600,7 @@ const DonationFilters = ({
                 {isFilterOpen ? (
                   <div
                     ref={filterPanelRef}
+                    className="mayor-donation-management-filter-panel"
                     style={{
                       ...toolbarStyles.filterPanel,
                       top: filterPanelPosition.top,
@@ -644,7 +663,10 @@ const DonationFilters = ({
                 ) : null}
               </div>
 
-              <div style={toolbarStyles.actionGroup}>
+              <div
+                className="mayor-donation-management-action-group"
+                style={toolbarStyles.actionGroup}
+              >
                 {canManageDonations ? (
                   <button
                     type="button"

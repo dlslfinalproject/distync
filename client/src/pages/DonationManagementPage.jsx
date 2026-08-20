@@ -981,11 +981,17 @@ const DonationManagementPage = () => {
   const pageMeta = getDonationPageMeta(canManageDonations);
 
   return (
-    <>
+    <div className="mayor-donation-management-page">
       <PageHeader title={pageMeta.title} description={pageMeta.description} />
 
-      <section style={donationEventSummaryStyles.selectorCard}>
-        <div style={donationEventSummaryStyles.selectorGrid}>
+      <section
+        className="mayor-donation-management-event-card"
+        style={donationEventSummaryStyles.selectorCard}
+      >
+        <div
+          className="mayor-donation-management-event-grid"
+          style={donationEventSummaryStyles.selectorGrid}
+        >
           <div>
             <label
               htmlFor="donation-management-page-disaster-event"
@@ -1015,7 +1021,10 @@ const DonationManagementPage = () => {
       </section>
 
       {activeTab === "donations" ? (
-        <section style={donationEventSummaryStyles.overviewSection}>
+        <section
+          className="mayor-donation-management-summary-grid"
+          style={donationEventSummaryStyles.overviewSection}
+        >
           {donationSummaryCards.map((card) => (
             <StatusCard
               key={card.label}
@@ -1027,7 +1036,10 @@ const DonationManagementPage = () => {
       ) : null}
 
       {activeTab === "transparency" ? (
-        <section style={donationEventSummaryStyles.overviewSection}>
+        <section
+          className="mayor-donation-management-summary-grid"
+          style={donationEventSummaryStyles.overviewSection}
+        >
           {transparencySummaryCards.map((card) => (
             <StatusCard
               key={card.label}
@@ -1073,7 +1085,7 @@ const DonationManagementPage = () => {
         showTransparencyActions
       />
 
-      <section style={shellStyles.card}>
+      <section className="mayor-donation-management-tabs-card" style={shellStyles.card}>
         <DonationPageTabs
           availableTabs={availableTabs}
           activeTab={activeTab}
@@ -1140,12 +1152,19 @@ const DonationManagementPage = () => {
       ) : null}
 
       {reassignModal.isOpen ? (
-        <div style={exportFilterStyles.overlay}>
+        <div
+          className="mayor-donation-management-export-modal-backdrop"
+          style={exportFilterStyles.overlay}
+        >
           <form
             onSubmit={submitReassignLeftoverStock}
+            className="mayor-donation-management-export-modal"
             style={exportFilterStyles.modal}
           >
-            <div style={exportFilterStyles.header}>
+            <div
+              className="mayor-donation-management-export-modal-topbar"
+              style={exportFilterStyles.header}
+            >
               <div>
                 <h3 style={exportFilterStyles.title}>Reassign Leftover Stock</h3>
                 <p style={{ ...shellStyles.mutedText, margin: "8px 0 0" }}>
@@ -1166,7 +1185,10 @@ const DonationManagementPage = () => {
 
             <section style={exportFilterStyles.detailsCard}>
               <h4 style={exportFilterStyles.detailsTitle}>Source Donation</h4>
-              <div style={exportFilterStyles.secondRow}>
+              <div
+                className="mayor-donation-management-export-grid"
+                style={exportFilterStyles.secondRow}
+              >
                 <div>
                   <p style={exportFilterStyles.label}>Donor</p>
                   <p style={{ margin: "6px 0 0", color: "#17324d" }}>
@@ -1200,7 +1222,10 @@ const DonationManagementPage = () => {
                   {reassignModal.errorMessage}
                 </p>
               ) : null}
-              <div style={exportFilterStyles.firstRow}>
+              <div
+                className="mayor-donation-management-export-grid"
+                style={exportFilterStyles.firstRow}
+              >
                 <div style={exportFilterStyles.field}>
                   <label
                     htmlFor="reassign-leftover-item"
@@ -1266,7 +1291,10 @@ const DonationManagementPage = () => {
                 </div>
               </div>
 
-              <div style={exportFilterStyles.secondRow}>
+              <div
+                className="mayor-donation-management-export-grid"
+                style={exportFilterStyles.secondRow}
+              >
                 <div style={exportFilterStyles.field}>
                   <label
                     htmlFor="reassign-quantity"
@@ -1326,7 +1354,10 @@ const DonationManagementPage = () => {
               </div>
             </section>
 
-            <div style={exportFilterStyles.actions}>
+            <div
+              className="mayor-donation-management-export-actions"
+              style={exportFilterStyles.actions}
+            >
               <button
                 type="button"
                 onClick={closeReassignLeftoverStockModal}
@@ -1348,15 +1379,22 @@ const DonationManagementPage = () => {
       ) : null}
 
       {isDonationExportModalOpen ? (
-        <div style={exportFilterStyles.overlay}>
+        <div
+          className="mayor-donation-management-export-modal-backdrop"
+          style={exportFilterStyles.overlay}
+        >
           <form
             onSubmit={(event) => {
               event.preventDefault();
               handleExportDonations(selectedDonationExportFormat);
             }}
+            className="mayor-donation-management-export-modal"
             style={exportFilterStyles.modal}
           >
-            <div style={exportFilterStyles.header}>
+            <div
+              className="mayor-donation-management-export-modal-topbar"
+              style={exportFilterStyles.header}
+            >
               <h3 style={exportFilterStyles.title}>Received Donations Report</h3>
               <button
                 type="button"
@@ -1375,7 +1413,10 @@ const DonationManagementPage = () => {
 
             <section style={exportFilterStyles.detailsCard}>
               <h4 style={exportFilterStyles.detailsTitle}>Export Details</h4>
-              <div style={exportFilterStyles.firstRow}>
+              <div
+                className="mayor-donation-management-export-grid"
+                style={exportFilterStyles.firstRow}
+              >
                 <div style={exportFilterStyles.field}>
                   <label
                     htmlFor="received-donations-export-event"
@@ -1432,7 +1473,10 @@ const DonationManagementPage = () => {
                 </div>
               </div>
 
-              <div style={exportFilterStyles.secondRow}>
+              <div
+                className="mayor-donation-management-export-grid"
+                style={exportFilterStyles.secondRow}
+              >
                 <div style={exportFilterStyles.field}>
                   <label
                     htmlFor="received-donations-export-donor-type"
@@ -1513,7 +1557,10 @@ const DonationManagementPage = () => {
               </div>
             </section>
 
-            <div style={exportFilterStyles.actions}>
+            <div
+              className="mayor-donation-management-export-actions"
+              style={exportFilterStyles.actions}
+            >
               <button
                 type="button"
                 onClick={() => setIsDonationExportModalOpen(false)}
@@ -1539,15 +1586,22 @@ const DonationManagementPage = () => {
       ) : null}
 
       {isTransparencyExportModalOpen ? (
-        <div style={exportFilterStyles.overlay}>
+        <div
+          className="mayor-donation-management-export-modal-backdrop"
+          style={exportFilterStyles.overlay}
+        >
           <form
             onSubmit={(event) => {
               event.preventDefault();
               handleExportTransparency(selectedTransparencyExportFormat);
             }}
+            className="mayor-donation-management-export-modal"
             style={exportFilterStyles.modal}
           >
-            <div style={exportFilterStyles.header}>
+            <div
+              className="mayor-donation-management-export-modal-topbar"
+              style={exportFilterStyles.header}
+            >
               <h3 style={exportFilterStyles.title}>
                 Donation Item Transparency Report
               </h3>
@@ -1568,7 +1622,10 @@ const DonationManagementPage = () => {
 
             <section style={exportFilterStyles.detailsCard}>
               <h4 style={exportFilterStyles.detailsTitle}>Export Details</h4>
-              <div style={exportFilterStyles.secondRow}>
+              <div
+                className="mayor-donation-management-export-grid"
+                style={exportFilterStyles.secondRow}
+              >
                 <div style={exportFilterStyles.field}>
                   <label
                     htmlFor="transparency-export-event"
@@ -1650,7 +1707,10 @@ const DonationManagementPage = () => {
               </div>
             </section>
 
-            <div style={exportFilterStyles.actions}>
+            <div
+              className="mayor-donation-management-export-actions"
+              style={exportFilterStyles.actions}
+            >
               <button
                 type="button"
                 onClick={() => setIsTransparencyExportModalOpen(false)}
@@ -1702,7 +1762,7 @@ const DonationManagementPage = () => {
         detail={selectedDonationDetail}
         onClose={closeDonationDetailModal}
       />
-    </>
+    </div>
   );
 };
 

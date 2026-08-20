@@ -257,7 +257,19 @@ test("BRG-SC-07-M01 TEST L dashboard offline fallback merges cached rows without
 
   assert.match(source, /setDashboard\(\{[\s\S]*data: serverRows/);
   assert.match(source, /setPendingLocalRows\(\[\.\.\.pendingRows, \.\.\.cachedRows\]\)/);
-  assert.doesNotMatch(source, /offlineStubCache\.clear|bulkDelete|delete\(/);
+  assert.doesNotMatch(source, /offlineStubCache\.clear|bulkDelete|offlineStubCache\.delete/);
+});
+
+test("BRG-RGD-PAG-006 guarded cache warming avoids routine full dashboard refetches", async () => {
+  const hookSource = await readSource("../src/features/stubs/useStubDashboard.js");
+  const cacheSource = await readSource("../src/features/stubs/stubCache.js");
+
+  assert.match(hookSource, /skipOfflineCache: true/);
+  assert.match(hookSource, /const offlineStubCacheWarmRequests = new Map\(\)/);
+  assert.match(hookSource, /hasCachedStubSnapshotsForScope\(\{/);
+  assert.match(hookSource, /!offlineStubCacheWarmRequests\.has\(warmKey\)/);
+  assert.match(cacheSource, /export const hasCachedStubSnapshotsForScope = async/);
+  assert.match(cacheSource, /getCachedStubSnapshotsForScope\(\{/);
 });
 
 test("BRG-SC-07-M01 TEST M pending duplicate protection blocks another local claim attempt", async () => {
@@ -374,12 +386,17 @@ test("BRG-SC-08-L01 TEST E offline unavailable copy is privacy-safe across conte
   );
 });
 
-test("BRG-SC-07-M01 TEST P existing STUB_CLAIM payload contract is unchanged", async () => {
+test("DEPLOY-MSWDO-RGD-01 STUB_CLAIM payload carries barangay_id separately from development override", async () => {
   const source = await readSource("../src/features/stubs/stubService.js");
+  const mswdoPageSource = await readSource("../src/pages/mswdo/StubDistributionPage.jsx");
+  const barangayPageSource = await readSource("../src/pages/barangay/StubDistributionPage.jsx");
 
-  assert.match(source, /payload = \{\s*user_id: userId \|\| null,\s*override_barangay_id: overrideBarangayId \|\| null,\s*\}/);
+  assert.match(source, /payload = \{\s*user_id: userId \|\| null,\s*barangay_id: barangayId \|\| null,\s*override_barangay_id: overrideBarangayId \|\| null,\s*\}/);
   assert.match(source, /entityType:\s*"STUB"/);
   assert.match(source, /entityServerId: stubId/);
+  assert.match(mswdoPageSource, /claimStub\(\{\s*stubId,\s*barangayId: selectedBarangayId,/s);
+  assert.doesNotMatch(mswdoPageSource, /overrideBarangayId: selectedBarangayId/);
+  assert.match(barangayPageSource, /overrideBarangayId: allowFallback \? overrideBarangayId : ""/);
 });
 
 test("BRG-SC-07-M01 TEST Q no new sync action or server endpoint is introduced", async () => {

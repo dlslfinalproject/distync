@@ -4,6 +4,7 @@ import { getPendingLocalStubRows } from "./stubOfflineRows";
 import {
   canUseOfflineStubCacheFallback,
   getCachedStubRowsForScope,
+  hasCachedStubSnapshotsForScope,
 } from "./stubCache";
 
 const emptyMetrics = {
@@ -21,7 +22,25 @@ const emptyDashboard = {
   metrics: emptyMetrics,
   count: 0,
   data: [],
+  pagination: null,
 };
+
+const createDefaultPagination = (page = 1, pageSize = 25) => ({
+  page,
+  pageSize,
+  totalItems: 0,
+  totalPages: 0,
+  hasPreviousPage: false,
+  hasNextPage: false,
+});
+
+const offlineStubCacheWarmRequests = new Map();
+
+const buildOfflineStubCacheWarmKey = ({
+  userId,
+  disasterEventId,
+  barangayId,
+}) => [userId, disasterEventId, barangayId].filter(Boolean).join("|");
 
 const getFriendlyStubDashboardErrorMessage = (error) => {
   if (error?.code === "NO_ASSIGNED_BARANGAY") {
@@ -50,6 +69,12 @@ export const useStubDashboard = ({
   allowFallback,
   assignedBarangayId,
   sectorOptions = [],
+  page = 1,
+  pageSize = 25,
+  search = "",
+  status = "all",
+  selectedSectorIds = [],
+  sortOrder = "oldest",
 }) => {
   const [dashboard, setDashboard] = useState(emptyDashboard);
   const [pendingLocalRows, setPendingLocalRows] = useState([]);
@@ -78,6 +103,13 @@ export const useStubDashboard = ({
           userId: userId || null,
           disasterEventId,
           overrideBarangayId: allowFallback ? overrideBarangayId || null : null,
+          page,
+          pageSize,
+          search,
+          status,
+          sectorIds: selectedSectorIds,
+          sortOrder,
+          skipOfflineCache: true,
         });
 
         if (isMounted) {
@@ -104,8 +136,53 @@ export const useStubDashboard = ({
             metrics: response.metrics || emptyMetrics,
             count: response.count || 0,
             data: serverRows,
+            pagination:
+              response.pagination || createDefaultPagination(page, pageSize),
           });
           setPendingLocalRows(localRows);
+        }
+
+        const scopedBarangayId =
+          response.assigned_barangay?.id ||
+          response.assigned_barangay_id ||
+          overrideBarangayId ||
+          assignedBarangayId ||
+          null;
+        const warmKey = buildOfflineStubCacheWarmKey({
+          userId: userId || "anonymous",
+          disasterEventId,
+          barangayId: scopedBarangayId,
+        });
+
+        if (
+          scopedBarangayId &&
+          warmKey &&
+          !offlineStubCacheWarmRequests.has(warmKey)
+        ) {
+          const warmRequest = (async () => {
+            const hasCachedRows = await hasCachedStubSnapshotsForScope({
+              disasterEventId,
+              currentBarangayId: scopedBarangayId,
+            });
+
+            if (hasCachedRows) {
+              return null;
+            }
+
+            await fetchBarangayStubDashboard({
+              userId: userId || null,
+              disasterEventId,
+              overrideBarangayId: allowFallback
+                ? overrideBarangayId || null
+                : null,
+            });
+            return null;
+          })().catch(() => {
+            offlineStubCacheWarmRequests.delete(warmKey);
+            return null;
+          });
+
+          offlineStubCacheWarmRequests.set(warmKey, warmRequest);
         }
       } catch (error) {
         if (isMounted) {
@@ -147,8 +224,14 @@ export const useStubDashboard = ({
     assignedBarangayId,
     disasterEventId,
     overrideBarangayId,
+    page,
+    pageSize,
     reloadKey,
     sectorOptions,
+    search,
+    selectedSectorIds,
+    sortOrder,
+    status,
     userId,
   ]);
 
@@ -195,6 +278,7 @@ export const useStubDashboard = ({
   return {
     rows: [...pendingLocalRows, ...dashboard.data],
     summaryCards,
+    pagination: dashboard.pagination || createDefaultPagination(page, pageSize),
     isLoading,
     errorMessage,
     hasData: dashboard.data.length > 0,

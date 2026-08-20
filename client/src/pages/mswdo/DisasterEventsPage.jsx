@@ -761,6 +761,7 @@ const DisasterEventsPage = () => {
 
       <section style={{ ...shellStyles.card, boxSizing: "border-box" }}>
         <div
+          className="disaster-events-tabs"
           style={{
             display: "flex",
             borderBottom: "1px solid #d6e2ef",
@@ -794,19 +795,24 @@ const DisasterEventsPage = () => {
       </section>
 
       <div
+        className="disaster-events-toolbar"
         style={pageSpacingStyles.toolbar}
       >
-        <div style={{ flex: 1 }}>
+        <div className="disaster-events-toolbar-search" style={{ flex: 1, minWidth: 0 }}>
           <SearchBar
             value={searchValue}
             onChange={setSearchValue}
-            placeholder="Search disaster events name, type, or affected barangays"
+            placeholder="Search events, type, or barangay"
           />
         </div>
 
-        <div style={pageSpacingStyles.actionGroup}>
+        <div
+          className="disaster-events-toolbar-actions"
+          style={pageSpacingStyles.actionGroup}
+        >
           <div style={{ position: "relative" }}>
             <button
+              className="disaster-events-filter-button"
               ref={filterButtonRef}
               type="button"
               onClick={() => setIsFilterOpen((currentValue) => !currentValue)}
@@ -914,6 +920,7 @@ const DisasterEventsPage = () => {
           </div>
 
           <button
+            className="disaster-events-create-button"
             onClick={openCreateModal}
             style={{
               display: "inline-flex",
@@ -935,6 +942,7 @@ const DisasterEventsPage = () => {
           </button>
 
           <button
+            className="disaster-events-export-button"
             type="button"
             onClick={() => {
               setSelectedExportFormat("csv");
@@ -976,6 +984,7 @@ const DisasterEventsPage = () => {
       </div>
 
       <section
+        className="disaster-events-list-card"
         style={{
           ...shellStyles.card,
           marginTop: "0",
@@ -983,7 +992,7 @@ const DisasterEventsPage = () => {
           overflow: "visible",
         }}
       >
-        <div style={{ width: "100%" }}>
+        <div style={{ width: "100%", minWidth: 0 }}>
           <DisasterEventsTable
             rows={filteredEvents}
             isLoading={isLoading}

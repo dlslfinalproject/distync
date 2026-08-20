@@ -567,8 +567,7 @@ const StubDistributionPage = () => {
           selectedStubIds.map((stubId) =>
             claimStub({
               stubId,
-              userId: "",
-              overrideBarangayId: selectedBarangayId,
+              barangayId: selectedBarangayId,
             }),
           ),
         );
@@ -597,8 +596,7 @@ const StubDistributionPage = () => {
     try {
       await claimStub({
         stubId: pendingClaimStubId,
-        userId: "",
-        overrideBarangayId: selectedBarangayId,
+        barangayId: selectedBarangayId,
       });
       reloadDashboard();
       setPendingClaimStubId("");
@@ -770,8 +768,9 @@ const StubDistributionPage = () => {
     <>
       <PageHeader title="RELIEF GOODS DISTRIBUTION" actions={[]} />
 
-      <section style={shellStyles.card}>
+      <section className="mswdo-stub-scope-card" style={shellStyles.card}>
         <div
+          className="mswdo-stub-tabs"
           style={{
             display: "flex",
             borderBottom: "1px solid #d6e2ef",
@@ -797,9 +796,10 @@ const StubDistributionPage = () => {
         </div>
 
         <div
+          className="mswdo-stub-filter-grid"
           style={pageSpacingStyles.filterGrid}
         >
-          <div>
+          <div className="mswdo-stub-filter-field">
             <label htmlFor="mswdo-stub-event" style={filterStyles.label}>
               {activeTab === "active" ? "Active" : "Ended"} Disaster Event
             </label>
@@ -821,7 +821,7 @@ const StubDistributionPage = () => {
             </select>
           </div>
 
-          <div>
+          <div className="mswdo-stub-filter-field">
             <label htmlFor="mswdo-stub-barangay" style={filterStyles.label}>
               Barangay
             </label>
@@ -851,8 +851,9 @@ const StubDistributionPage = () => {
         </div>
       </section>
 
-      <section style={shellStyles.card}>
+      <section className="mswdo-stub-event-summary-card" style={shellStyles.card}>
         <div
+          className="mswdo-stub-event-summary"
           style={{
             border: "1px solid #d6e2ef",
             borderRadius: "16px",
@@ -861,6 +862,7 @@ const StubDistributionPage = () => {
           }}
         >
           <p
+            className="mswdo-stub-event-title"
             style={{
               margin: 0,
               color: "#17324d",
@@ -872,6 +874,7 @@ const StubDistributionPage = () => {
           </p>
 
           <div
+            className="mswdo-stub-event-meta"
             style={{
               display: "flex",
               gap: "24px",

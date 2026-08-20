@@ -160,6 +160,7 @@ const MembersSection = ({ form, onViewSuggestedHousehold }) => {
               </div>
 
               <div
+                className="household-registration-member-name-grid"
                 style={{
                   ...fieldStyles.grid,
                   gridTemplateColumns: "repeat(4, 1fr)",
@@ -241,6 +242,7 @@ const MembersSection = ({ form, onViewSuggestedHousehold }) => {
               </div>
 
               <div
+                className="household-registration-member-detail-grid"
                 style={{
                   ...fieldStyles.grid,
                   marginTop: "14px",

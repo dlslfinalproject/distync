@@ -4,7 +4,7 @@ import StatusCard from "../shared/StatusCard";
 
 const StubSummaryCards = ({ cards }) => {
   return (
-    <section style={shellStyles.statGrid}>
+    <section className="stub-summary-grid" style={shellStyles.statGrid}>
       {cards.map((card) => (
         <StatusCard key={card.label} {...card} />
       ))}

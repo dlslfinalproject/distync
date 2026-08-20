@@ -44,6 +44,14 @@ const sectionStyles = {
     display: "grid",
     gap: "8px",
   },
+  restrictedCard: {
+    border: "1px solid #f0d49b",
+    borderRadius: "16px",
+    backgroundColor: "#fff9ed",
+    padding: "12px 14px",
+    display: "grid",
+    gap: "6px",
+  },
   topRow: {
     display: "grid",
     gridTemplateColumns: "minmax(0, 1fr) auto",
@@ -93,6 +101,9 @@ const sectionStyles = {
     justifySelf: "end",
   },
 };
+
+const RESTRICTED_EXTERNAL_BARANGAY_VISIBILITY =
+  "RESTRICTED_EXTERNAL_BARANGAY";
 
 const formatDateTime = (value) => {
   if (!value) {
@@ -146,11 +157,19 @@ const normalizeGroupMatches = (matches) => {
   const safeMatches = Array.isArray(matches) ? matches : [];
   const householdIdsWithFamilyHeadMatch = new Set(
     safeMatches
-      .filter((match) => match.matched_as === "FAMILY_HEAD")
+      .filter(
+        (match) =>
+          !match.details_restricted &&
+          match.matched_as === "FAMILY_HEAD",
+      )
       .map((match) => match.household_id),
   );
 
   return safeMatches.filter((match) => {
+    if (match.details_restricted) {
+      return true;
+    }
+
     if (match.matched_as === "FAMILY_HEAD") {
       return true;
     }
@@ -213,67 +232,85 @@ const DuplicateRegistrationSuggestionsSection = ({
                 <div key={group.person_key} style={sectionStyles.groupCard}>
                   <div style={sectionStyles.suggestionList}>
                     {visibleMatches.map((match) => (
-                      <div
-                        key={`${group.person_key}-${match.household_id}-${match.matched_as}`}
-                        style={sectionStyles.suggestionCard}
-                      >
-                        <div style={sectionStyles.topRow}>
-                          <div>
-                            <p style={sectionStyles.suggestionTitle}>
-                              {match.family_head_name || "Unnamed household"}
-                            </p>
-                            <p style={sectionStyles.suggestionMeta}>
-                              {match.barangay_name || "Unknown barangay"} | Registered{" "}
-                              {formatDateTime(match.registered_at)}
-                            </p>
+                      match.details_restricted ||
+                      match.visibility === RESTRICTED_EXTERNAL_BARANGAY_VISIBILITY ? (
+                        <div
+                          key={`${group.person_key}-restricted-external-barangay`}
+                          style={sectionStyles.restrictedCard}
+                          role="status"
+                        >
+                          <p style={sectionStyles.suggestionTitle}>
+                            Possible match found outside your barangay
+                          </p>
+                          <p style={sectionStyles.compactMeta}>
+                            A possible matching record exists outside your authorized
+                            barangay. Its details are restricted. Review the information
+                            you entered before continuing.
+                          </p>
+                        </div>
+                      ) : (
+                        <div
+                          key={`${group.person_key}-${match.household_id}-${match.matched_as}`}
+                          style={sectionStyles.suggestionCard}
+                        >
+                          <div style={sectionStyles.topRow}>
+                            <div>
+                              <p style={sectionStyles.suggestionTitle}>
+                                {match.family_head_name || "Unnamed household"}
+                              </p>
+                              <p style={sectionStyles.suggestionMeta}>
+                                {match.barangay_name || "Unknown barangay"} | Registered{" "}
+                                {formatDateTime(match.registered_at)}
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => onViewHousehold?.(match.household_id)}
+                              style={sectionStyles.button}
+                            >
+                              View Household Details
+                            </button>
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={() => onViewHousehold?.(match.household_id)}
-                            style={sectionStyles.button}
-                          >
-                            View Household Details
-                          </button>
-                        </div>
+                          <div style={sectionStyles.badgeRow}>
+                            <span
+                              style={{
+                                ...sectionStyles.badge,
+                                ...buildConfidenceStyles(match.match_confidence),
+                              }}
+                            >
+                              {match.match_confidence === "HIGH"
+                                ? "Strong duplicate match"
+                                : "Possible same name match"}
+                            </span>
+                            <span
+                              style={{
+                                ...sectionStyles.badge,
+                                backgroundColor: match.is_active
+                                  ? "#ecf9f1"
+                                  : "#eef2f6",
+                                color: match.is_active ? "#2d7a51" : "#5f7386",
+                                border: match.is_active
+                                  ? "1px solid #cde8d8"
+                                  : "1px solid #d7dfe7",
+                              }}
+                            >
+                              {match.is_active ? "Active record" : "Archived record"}
+                            </span>
+                          </div>
 
-                        <div style={sectionStyles.badgeRow}>
-                          <span
-                            style={{
-                              ...sectionStyles.badge,
-                              ...buildConfidenceStyles(match.match_confidence),
-                            }}
-                          >
-                            {match.match_confidence === "HIGH"
-                              ? "Strong duplicate match"
-                              : "Possible same name match"}
-                          </span>
-                          <span
-                            style={{
-                              ...sectionStyles.badge,
-                              backgroundColor: match.is_active
-                                ? "#ecf9f1"
-                                : "#eef2f6",
-                              color: match.is_active ? "#2d7a51" : "#5f7386",
-                              border: match.is_active
-                                ? "1px solid #cde8d8"
-                                : "1px solid #d7dfe7",
-                            }}
-                          >
-                            {match.is_active ? "Active record" : "Archived record"}
-                          </span>
+                          <p style={sectionStyles.compactMeta}>
+                            {formatMatchedRole(
+                              match.matched_as,
+                              match.matched_relationship_to_head,
+                            )}
+                            {match.match_reasons?.length
+                              ? ` | ${match.match_reasons.join(", ")}`
+                              : ""}
+                          </p>
                         </div>
-
-                        <p style={sectionStyles.compactMeta}>
-                          {formatMatchedRole(
-                            match.matched_as,
-                            match.matched_relationship_to_head,
-                          )}
-                          {match.match_reasons?.length
-                            ? ` | ${match.match_reasons.join(", ")}`
-                            : ""}
-                        </p>
-                      </div>
+                      )
                     ))}
                   </div>
                 </div>

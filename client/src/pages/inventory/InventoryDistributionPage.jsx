@@ -147,7 +147,6 @@ const layoutStyles = {
     flex: 1,
     minWidth: 0,
     maxWidth: "100%",
-    overflowX: "hidden",
     display: "flex",
     flexDirection: "column",
     gap: "24px",
@@ -695,7 +694,7 @@ const InventoryDistributionPage = () => {
 
   if (!hasActiveEvents && !isLoadingFilters) {
     return (
-      <div style={layoutStyles.page}>
+      <div className="inventory-distribution-page" style={layoutStyles.page}>
         <PageHeader title="INVENTORY DISTRIBUTION MANAGEMENT" />
 
         <section style={shellStyles.card}>
@@ -708,12 +707,13 @@ const InventoryDistributionPage = () => {
   }
 
   return (
-    <div style={layoutStyles.page}>
+    <div className="inventory-distribution-page" style={layoutStyles.page}>
       <PageHeader title="INVENTORY DISTRIBUTION MANAGEMENT" />
 
       <div style={layoutStyles.stack}>
-        <section style={shellStyles.card}>
+        <section className="inventory-distribution-scope-card" style={shellStyles.card}>
           <div
+            className="inventory-distribution-tabs"
             style={{
               display: "flex",
               borderBottom: "1px solid #d6e2ef",
@@ -739,6 +739,7 @@ const InventoryDistributionPage = () => {
           </div>
 
           <div
+            className="inventory-distribution-filter-grid"
             style={{
               display: "grid",
               gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -746,7 +747,7 @@ const InventoryDistributionPage = () => {
               alignItems: "end",
             }}
           >
-            <div>
+            <div className="inventory-distribution-filter-field">
               <label
                 htmlFor="inventory-distribution-event"
                 style={filterStyles.label}
@@ -780,7 +781,7 @@ const InventoryDistributionPage = () => {
               </div>
             </div>
 
-            <div>
+            <div className="inventory-distribution-filter-field">
               <label
                 htmlFor="inventory-distribution-barangay"
                 style={filterStyles.label}
@@ -811,13 +812,13 @@ const InventoryDistributionPage = () => {
         </section>
 
         {selectedDisasterEvent ? (
-          <section style={layoutStyles.eventCard}>
-            <div style={layoutStyles.eventInfoPanel}>
-              <p style={layoutStyles.eventTitle}>
+          <section className="inventory-distribution-event-card" style={layoutStyles.eventCard}>
+            <div className="inventory-distribution-event-panel" style={layoutStyles.eventInfoPanel}>
+              <p className="inventory-distribution-event-title" style={layoutStyles.eventTitle}>
                 {formatDisasterEventTitle(selectedDisasterEvent)}
               </p>
 
-              <div style={layoutStyles.eventInfoRow}>
+              <div className="inventory-distribution-event-meta" style={layoutStyles.eventInfoRow}>
                 <span>Period: {formatReliefPeriod(selectedDisasterEvent)}</span>
                 <StatusPill status={selectedDisasterEvent.status} />
               </div>
@@ -832,15 +833,18 @@ const InventoryDistributionPage = () => {
         ) : null}
 
         {selectedDisasterEvent ? (
-          <section style={shellStyles.statGrid}>
+          <section className="inventory-distribution-summary-grid" style={shellStyles.statGrid}>
             {summaryCards.map((card) => (
               <StatusCard key={card.label} {...card} />
             ))}
           </section>
         ) : null}
 
-        <section style={pageSpacingStyles.toolbar}>
-          <div style={{ flex: "1 1 320px" }}>
+        <section className="inventory-distribution-toolbar" style={pageSpacingStyles.toolbar}>
+          <div
+            className="inventory-distribution-search-wrap"
+            style={{ flex: "1 1 320px" }}
+          >
             <SearchBar
               value={searchTerm}
               onChange={setSearchTerm}
@@ -849,6 +853,7 @@ const InventoryDistributionPage = () => {
           </div>
 
           <div
+            className="inventory-distribution-toolbar-controls"
             style={{
               display: "flex",
               gap: "16px",
@@ -857,6 +862,7 @@ const InventoryDistributionPage = () => {
             }}
           >
             <label
+              className="inventory-distribution-status-filter"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -888,7 +894,10 @@ const InventoryDistributionPage = () => {
               </select>
             </label>
 
-            <div style={{ position: "relative" }}>
+            <div
+              className="inventory-distribution-filter-button-wrap"
+              style={{ position: "relative" }}
+            >
               <button
                 ref={filterButtonRef}
                 type="button"
@@ -910,6 +919,7 @@ const InventoryDistributionPage = () => {
 
               {isFilterOpen ? (
                 <div
+                  className="inventory-distribution-filter-panel"
                   ref={filterPanelRef}
                   style={{
                     ...filterPanelStyles.panel,
@@ -987,6 +997,7 @@ const InventoryDistributionPage = () => {
             </div>
 
             <button
+              className="inventory-distribution-export-button"
               type="button"
               onClick={handleOpenExportModal}
               disabled={!selectedDisasterEventId || isExporting}
@@ -1026,6 +1037,11 @@ const InventoryDistributionPage = () => {
 
         <MswdoExportModal
           isOpen={isExportModalOpen}
+          overlayClassName="inventory-distribution-export-modal-backdrop"
+          modalClassName="inventory-distribution-export-modal"
+          gridClassName="inventory-distribution-export-grid"
+          chipGridClassName="inventory-distribution-export-chip-grid"
+          actionsClassName="inventory-distribution-export-actions"
           title="Inventory Distribution Report"
           isSubmitting={isExporting}
           disasterEvents={disasterEvents}

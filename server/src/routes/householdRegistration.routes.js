@@ -58,6 +58,7 @@ router.post(
         await householdRegistrationService.getDuplicateRegistrationSuggestions({
           ...req.validatedBody,
           registered_by: req.auth.userId,
+          requester: req.auth,
         });
 
       return res.status(200).json({

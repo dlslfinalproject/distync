@@ -27,7 +27,8 @@ test("stub detail distribution transaction query resolves verifier display name 
 test("barangay stub dashboard rows project verifier display name for inventory distribution table", () => {
   const source = fs.readFileSync(repositoryPath, "utf8");
 
-  assert.match(source, /const getBarangayStubDashboardRows = async \(disasterEventId, barangayId\) => \{/);
+  assert.match(source, /const getBarangayStubDashboardRows = async \(/);
+  assert.match(source, /options = \{\}/);
   assert.match(source, /latest_distribution\.receipt_no,/);
   assert.match(source, /latest_distribution\.verified_by_name,/);
   assert.match(

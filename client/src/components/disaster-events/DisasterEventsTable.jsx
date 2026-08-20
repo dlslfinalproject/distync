@@ -13,7 +13,7 @@ const tableStyles = {
     width: "100%",
     maxWidth: "100%",
     borderCollapse: "collapse",
-    tableLayout: "fixed",
+    tableLayout: "auto",
   },
   headerCell: {
     padding: "14px 12px",
@@ -36,7 +36,7 @@ const tableStyles = {
     lineHeight: 1.5,
     whiteSpace: "normal",
     overflowWrap: "anywhere",
-    wordBreak: "break-word",
+    wordBreak: "normal",
   },
   dropdownButton: {
     border: "1px solid #c6d8ea",
@@ -129,8 +129,8 @@ const DisasterEventsTable = ({
         <h3 style={{ margin: 0, color: "#17324d" }}>Disaster Events</h3>
       </div>
 
-      <div style={{ width: "100%", minWidth: 0 }}>
-        <table style={tableStyles.table}>
+      <div className="disaster-events-table-scroll" style={{ width: "100%", minWidth: 0 }}>
+        <table className="disaster-events-table" style={tableStyles.table}>
           <thead>
             <tr>
               <th
@@ -217,6 +217,7 @@ const DisasterEventsTable = ({
                   }}
                 >
                   <td
+                    className="disaster-events-text-cell"
                     style={{
                       ...tableStyles.bodyCell,
                       ...(isEndedRow ? tableStyles.endedBodyCell : {}),
@@ -227,6 +228,7 @@ const DisasterEventsTable = ({
                   </td>
 
                   <td
+                    className="disaster-events-text-cell"
                     style={{
                       ...tableStyles.bodyCell,
                       ...(isEndedRow ? tableStyles.endedBodyCell : {}),
@@ -237,6 +239,7 @@ const DisasterEventsTable = ({
                   </td>
 
                   <td
+                    className="disaster-events-barangays-cell"
                     style={{
                       ...tableStyles.bodyCell,
                       ...(isEndedRow ? tableStyles.endedBodyCell : {}),
@@ -255,6 +258,7 @@ const DisasterEventsTable = ({
                         {affectedBarangayDisplayItems.map((brgy, index) => (
                           <span
                             key={brgy.id || brgy.name || brgy || index}
+                            className="disaster-events-barangay-chip"
                             style={{
                               ...tableStyles.affectedBarangayChip,
                               ...(isEndedRow
@@ -272,6 +276,7 @@ const DisasterEventsTable = ({
                   </td>
 
                   <td
+                    className="disaster-events-date-cell"
                     style={{
                       ...tableStyles.bodyCell,
                       ...(isEndedRow ? tableStyles.endedBodyCell : {}),
@@ -281,6 +286,7 @@ const DisasterEventsTable = ({
                   </td>
 
                   <td
+                    className="disaster-events-date-cell"
                     style={{
                       ...tableStyles.bodyCell,
                       ...(isEndedRow ? tableStyles.endedBodyCell : {}),
@@ -290,6 +296,7 @@ const DisasterEventsTable = ({
                   </td>
 
                   <td
+                    className="disaster-events-status-cell"
                     style={{
                       ...tableStyles.bodyCell,
                       ...(isEndedRow ? tableStyles.endedBodyCell : {}),
@@ -300,6 +307,7 @@ const DisasterEventsTable = ({
                   </td>
 
                   <td
+                    className="disaster-events-actions-cell"
                     style={{
                       ...tableStyles.bodyCell,
                       ...(isEndedRow ? tableStyles.endedBodyCell : {}),
@@ -320,6 +328,7 @@ const DisasterEventsTable = ({
                       />
                     ) : (
                       <button
+                        className="disaster-events-ended-export-button"
                         type="button"
                         onClick={() => onExportEvent?.(row)}
                         style={tableStyles.dropdownButton}

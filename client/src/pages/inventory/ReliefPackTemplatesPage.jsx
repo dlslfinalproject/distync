@@ -196,6 +196,8 @@ const reliefPackPageStyles = {
     gap: "8px",
     flexWrap: "wrap",
     overflowX: "auto",
+    maxWidth: "100%",
+    WebkitOverflowScrolling: "touch",
   },
   reliefPackSection: {
     ...shellStyles.card,
@@ -213,6 +215,7 @@ const reliefPackPageStyles = {
     ...shellStyles.card,
     padding: "20px",
     boxShadow: "0 8px 20px rgba(47, 100, 153, 0.10)",
+    overflow: "hidden",
   },
   reliefPackCardHeader: {
     display: "flex",
@@ -316,6 +319,7 @@ const reliefPackPageStyles = {
     justifyContent: "space-between",
     gap: "16px",
     flexWrap: "nowrap",
+    minWidth: 0,
   },
   customizationSearchWrap: {
     flex: 1,
@@ -334,6 +338,7 @@ const reliefPackPageStyles = {
     alignItems: "center",
     gap: "8px",
     flex: "0 0 auto",
+    minWidth: 0,
   },
   inlineSelectLabel: {
     color: "#17324d",
@@ -430,6 +435,7 @@ const reliefPackPageStyles = {
     justifyContent: "flex-end",
     gap: "12px",
     flex: "0 0 auto",
+    minWidth: 0,
   },
   createReliefPackIconWrap: {
     position: "relative",
@@ -454,6 +460,12 @@ const reliefPackPageStyles = {
     padding: "24px",
     boxSizing: "border-box",
     overflow: "visible",
+  },
+  customizationTableScroll: {
+    overflowX: "auto",
+    maxWidth: "100%",
+    WebkitOverflowScrolling: "touch",
+    overscrollBehaviorX: "contain",
   },
 };
 
@@ -596,13 +608,14 @@ const tableStyles = {
     width: "12%",
   },
   ruleCell: {
-    width: "16%",
+    width: "130px",
   },
   applicabilityCell: {
-    width: "14%",
+    width: "140px",
   },
   availableCell: {
-    width: "7%",
+    width: "88px",
+    whiteSpace: "nowrap",
   },
 };
 
@@ -1441,18 +1454,26 @@ const ReliefPackTemplateDetailModal = ({
       closeMode="icon"
       titleStyle={{ fontSize: "30px", fontWeight: 700 }}
       panelStyle={reliefPackDetailModalStyles.shellPanel}
+      panelClassName="mayor-relief-pack-detail-modal"
     >
       {!template ? (
-        <section style={reliefPackDetailModalStyles.sectionCard}>
+        <section
+          className="mayor-relief-pack-detail-section"
+          style={reliefPackDetailModalStyles.sectionCard}
+        >
           <p style={{ ...shellStyles.mutedText, margin: 0 }}>
             Relief pack details are unavailable.
           </p>
         </section>
       ) : (
         <div style={{ display: "grid", gap: "20px" }}>
-          <section style={reliefPackDetailModalStyles.sectionCard}>
+          <section
+            className="mayor-relief-pack-detail-section"
+            style={reliefPackDetailModalStyles.sectionCard}
+          >
             <h3 style={{ margin: 0, color: "#17324d" }}>Pack Information</h3>
             <div
+              className="mayor-relief-pack-detail-grid"
               style={{
                 ...reliefPackDetailModalStyles.summaryGrid,
                 marginTop: "16px",
@@ -1488,11 +1509,15 @@ const ReliefPackTemplateDetailModal = ({
           </section>
 
           {isCustomizationView ? (
-            <section style={reliefPackDetailModalStyles.sectionCard}>
+            <section
+              className="mayor-relief-pack-detail-section"
+              style={reliefPackDetailModalStyles.sectionCard}
+            >
               <h3 style={{ margin: 0, color: "#17324d" }}>
                 Rules & Applicability
               </h3>
               <div
+                className="mayor-relief-pack-detail-grid"
                 style={{
                   ...reliefPackDetailModalStyles.summaryGrid,
                   marginTop: "16px",
@@ -1532,7 +1557,10 @@ const ReliefPackTemplateDetailModal = ({
             </section>
           ) : null}
 
-          <section style={reliefPackDetailModalStyles.sectionCard}>
+          <section
+            className="mayor-relief-pack-detail-section"
+            style={reliefPackDetailModalStyles.sectionCard}
+          >
             <h3 style={{ margin: 0, color: "#17324d" }}>Items Included</h3>
 
             {items.length === 0 ? (
@@ -1540,8 +1568,14 @@ const ReliefPackTemplateDetailModal = ({
                 No items are recorded in this relief pack.
               </p>
             ) : (
-              <div style={reliefPackDetailModalStyles.tableWrap}>
-                <table style={reliefPackDetailModalStyles.table}>
+              <div
+                className="mayor-relief-pack-detail-table-scroll"
+                style={reliefPackDetailModalStyles.tableWrap}
+              >
+                <table
+                  className="mayor-relief-pack-detail-table"
+                  style={reliefPackDetailModalStyles.table}
+                >
                   <thead>
                     <tr>
                       <th style={reliefPackDetailModalStyles.th}>Item</th>
@@ -1611,7 +1645,10 @@ const ReliefPackTemplateDetailModal = ({
           </section>
 
           {isCustomizationView ? null : (
-            <section style={reliefPackDetailModalStyles.sectionCard}>
+            <section
+              className="mayor-relief-pack-detail-section"
+              style={reliefPackDetailModalStyles.sectionCard}
+            >
             <h3 style={{ margin: 0, color: "#17324d" }}>
               Packs Needed per Barangay
             </h3>
@@ -1625,8 +1662,14 @@ const ReliefPackTemplateDetailModal = ({
                 No active event demand found.
               </p>
             ) : (
-              <div style={reliefPackDetailModalStyles.tableWrap}>
-                <table style={reliefPackDetailModalStyles.table}>
+              <div
+                className="mayor-relief-pack-detail-table-scroll"
+                style={reliefPackDetailModalStyles.tableWrap}
+              >
+                <table
+                  className="mayor-relief-pack-detail-table"
+                  style={reliefPackDetailModalStyles.table}
+                >
                   <thead>
                     <tr>
                       <th style={reliefPackDetailModalStyles.th}>
@@ -2282,12 +2325,18 @@ const ReliefPackTemplatesPage = () => {
   };
 
   return (
-    <div style={reliefPackPageStyles.pageStack}>
+    <div className="mayor-relief-pack-templates-page" style={reliefPackPageStyles.pageStack}>
       <PageHeader title="RELIEF PACK TEMPLATES MANAGEMENT" actions={[]} />
 
       {activeTab === "relief-packs" ? (
-        <section style={{ ...shellStyles.card, boxSizing: "border-box" }}>
-          <div style={pageSpacingStyles.filterGrid}>
+        <section
+          className="mayor-relief-pack-scope-card"
+          style={{ ...shellStyles.card, boxSizing: "border-box" }}
+        >
+          <div
+            className="mayor-relief-pack-scope-grid"
+            style={pageSpacingStyles.filterGrid}
+          >
             <div>
               <label
                 htmlFor="relief-pack-management-event"
@@ -2347,9 +2396,18 @@ const ReliefPackTemplatesPage = () => {
         </section>
       ) : null}
 
-      <div style={reliefPackPageStyles.customizationToolbar}>
-        <div style={reliefPackPageStyles.toolbarControlsGroup}>
-          <div style={reliefPackPageStyles.customizationSearchWrap}>
+      <div
+        className="mayor-relief-pack-toolbar"
+        style={reliefPackPageStyles.customizationToolbar}
+      >
+        <div
+          className="mayor-relief-pack-toolbar-controls"
+          style={reliefPackPageStyles.toolbarControlsGroup}
+        >
+          <div
+            className="mayor-relief-pack-search-wrap"
+            style={reliefPackPageStyles.customizationSearchWrap}
+          >
             <SearchBar
               value={filters.search}
               onChange={(value) => handleFilterChange("search", value)}
@@ -2361,7 +2419,10 @@ const ReliefPackTemplatesPage = () => {
             />
           </div>
 
-          <div style={reliefPackPageStyles.inlineSelectWrap}>
+          <div
+            className="mayor-relief-pack-type-filter"
+            style={reliefPackPageStyles.inlineSelectWrap}
+          >
             <label
               htmlFor="relief-pack-type-filter"
               style={reliefPackPageStyles.inlineSelectLabel}
@@ -2384,7 +2445,7 @@ const ReliefPackTemplatesPage = () => {
             </select>
           </div>
 
-          <div>
+          <div className="mayor-relief-pack-filter-button-wrap">
             <button
               ref={filterButtonRef}
               type="button"
@@ -2491,7 +2552,10 @@ const ReliefPackTemplatesPage = () => {
           </div>
         </div>
 
-        <div style={reliefPackPageStyles.customizationActionGroup}>
+        <div
+          className="mayor-relief-pack-action-group"
+          style={reliefPackPageStyles.customizationActionGroup}
+        >
           <button
             type="button"
             style={pageHeaderStyles.primaryButton}
@@ -2508,8 +2572,8 @@ const ReliefPackTemplatesPage = () => {
         </div>
       </div>
 
-      <section style={reliefPackPageStyles.tabCard}>
-        <div style={reliefPackPageStyles.tabList}>
+      <section className="mayor-relief-pack-tabs-card" style={reliefPackPageStyles.tabCard}>
+        <div className="mayor-relief-pack-tabs" style={reliefPackPageStyles.tabList}>
           <button
             type="button"
             style={getTabStyle(activeTab === "relief-packs")}
@@ -2528,13 +2592,19 @@ const ReliefPackTemplatesPage = () => {
       </section>
 
       {activeTab === "relief-packs" ? (
-        <section style={reliefPackPageStyles.reliefPackSection}>
+        <section
+          className="mayor-relief-pack-results-card"
+          style={reliefPackPageStyles.reliefPackSection}
+        >
           {isLoading ? (
             <p style={helperTextStyle}>Loading relief packs...</p>
           ) : filteredTemplateCards.length === 0 ? (
             <p style={helperTextStyle}>No active relief packs are available yet.</p>
           ) : (
-            <div style={reliefPackPageStyles.reliefPackGrid}>
+            <div
+              className="mayor-relief-pack-card-grid"
+              style={reliefPackPageStyles.reliefPackGrid}
+            >
               {filteredTemplateCards.map((template) => {
                 const shortageItems = template.metrics.shortageItems;
                 const packTypeStatus = template.is_additional_pack
@@ -2550,7 +2620,9 @@ const ReliefPackTemplatesPage = () => {
                     style={reliefPackPageStyles.reliefPackCard}
                   >
                     <div style={reliefPackPageStyles.reliefPackCardHeader}>
-                      <h2 style={cardTitleStyle}>{template.name.toUpperCase()}</h2>
+                      <h2 className="mayor-relief-pack-card-title" style={cardTitleStyle}>
+                        {template.name.toUpperCase()}
+                      </h2>
                       <div style={reliefPackPageStyles.reliefPackCardActions}>
                         <StatusPill
                           status={packTypeStatus}
@@ -2630,7 +2702,10 @@ const ReliefPackTemplatesPage = () => {
                               key={`${template.id}-${item.inventory_item_id}`}
                               style={reliefPackPageStyles.shortageRow}
                             >
-                              <span style={reliefPackPageStyles.shortageItemName}>
+                              <span
+                                className="mayor-relief-pack-long-text"
+                                style={reliefPackPageStyles.shortageItemName}
+                              >
                                 {item.item_name}
                               </span>
                               <span style={reliefPackPageStyles.shortageQuantity}>
@@ -2649,7 +2724,10 @@ const ReliefPackTemplatesPage = () => {
         </section>
       ) : (
         <>
-          <section style={reliefPackPageStyles.customizationTableSection}>
+          <section
+            className="mayor-relief-pack-customization-card"
+            style={reliefPackPageStyles.customizationTableSection}
+          >
             <div style={{ marginBottom: "18px" }}>
               <h3 style={{ margin: 0, color: "#17324d" }}>
                 Relief Pack Templates
@@ -2661,8 +2739,14 @@ const ReliefPackTemplatesPage = () => {
             ) : filteredTemplateCards.length === 0 ? (
               <p style={helperTextStyle}>No active relief packs are available yet.</p>
             ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table style={tableStyles.table}>
+              <div
+                className="mayor-relief-pack-template-table-scroll"
+                style={reliefPackPageStyles.customizationTableScroll}
+              >
+                <table
+                  className="mayor-relief-pack-template-table"
+                  style={tableStyles.table}
+                >
                   <thead>
                     <tr>
                       <th
@@ -2700,6 +2784,7 @@ const ReliefPackTemplatesPage = () => {
                         Qty / Item
                       </th>
                       <th
+                        className="mayor-relief-pack-template-rule-cell"
                         style={{
                           ...tableStyles.headerCell,
                           ...tableStyles.ruleCell,
@@ -2708,6 +2793,7 @@ const ReliefPackTemplatesPage = () => {
                         Rule
                       </th>
                       <th
+                        className="mayor-relief-pack-template-applies-cell"
                         style={{
                           ...tableStyles.headerCell,
                           ...tableStyles.applicabilityCell,
@@ -2716,6 +2802,7 @@ const ReliefPackTemplatesPage = () => {
                         Applies To
                       </th>
                       <th
+                        className="mayor-relief-pack-template-available-cell"
                         style={{
                           ...tableStyles.headerCell,
                           ...tableStyles.availableCell,
@@ -2724,6 +2811,7 @@ const ReliefPackTemplatesPage = () => {
                         Available
                       </th>
                       <th
+                        className="mayor-relief-pack-template-actions-cell"
                         style={{
                           ...tableStyles.headerCell,
                           ...tableStyles.actionCell,
@@ -2748,7 +2836,9 @@ const ReliefPackTemplatesPage = () => {
                             ...tableStyles.nameCell,
                           }}
                         >
-                          <div>{template.name}</div>
+                          <div className="mayor-relief-pack-template-name">
+                            {template.name}
+                          </div>
                           {templateAccess.isDonatedTemplate ? (
                             <span style={tableStyles.helperText}>Donated relief pack</span>
                           ) : null}
@@ -2778,7 +2868,10 @@ const ReliefPackTemplatesPage = () => {
                                   key={item.id || `${template.id}-${item.inventory_item_id}`}
                                   style={tableStyles.itemRow}
                                 >
-                                  <span style={tableStyles.itemName}>
+                                  <span
+                                    className="mayor-relief-pack-template-item-name"
+                                    style={tableStyles.itemName}
+                                  >
                                     {item.inventory_item?.item_name || "--"}
                                   </span>
                                 </div>
@@ -2815,6 +2908,7 @@ const ReliefPackTemplatesPage = () => {
                           )}
                         </td>
                         <td
+                          className="mayor-relief-pack-template-rule-cell"
                           style={{
                             ...tableStyles.bodyCell,
                             ...tableStyles.ruleCell,
@@ -2823,6 +2917,7 @@ const ReliefPackTemplatesPage = () => {
                           <div style={tableStyles.pillWrap}>
                             {getTemplateRuleLabels(template, sectorOptions).map((label) => (
                               <span
+                                className="mayor-relief-pack-template-rule-chip"
                                 key={`${template.id}-rule-${label}`}
                                 style={tableStyles.infoPill}
                               >
@@ -2832,6 +2927,7 @@ const ReliefPackTemplatesPage = () => {
                           </div>
                         </td>
                         <td
+                          className="mayor-relief-pack-template-applies-cell"
                           style={{
                             ...tableStyles.bodyCell,
                             ...tableStyles.applicabilityCell,
@@ -2841,6 +2937,7 @@ const ReliefPackTemplatesPage = () => {
                             {getTemplateDisasterApplicabilityLabels(template).map(
                               (label) => (
                                 <span
+                                  className="mayor-relief-pack-template-applies-chip"
                                   key={`${template.id}-${label}`}
                                   style={tableStyles.infoPill}
                                 >
@@ -2851,6 +2948,7 @@ const ReliefPackTemplatesPage = () => {
                           </div>
                         </td>
                         <td
+                          className="mayor-relief-pack-template-available-cell"
                           style={{
                             ...tableStyles.bodyCell,
                             ...tableStyles.availableCell,
@@ -2859,6 +2957,7 @@ const ReliefPackTemplatesPage = () => {
                           {template.metrics.packsWeCanCreate.toLocaleString()}
                         </td>
                         <td
+                          className="mayor-relief-pack-template-actions-cell"
                           style={{
                             ...tableStyles.bodyCell,
                             ...tableStyles.actionCell,

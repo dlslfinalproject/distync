@@ -281,6 +281,8 @@ const DonationDetailModal = ({
       onClose={onClose}
       maxWidth="980px"
       closeMode="icon"
+      overlayClassName="mayor-donation-management-detail-modal-backdrop"
+      panelClassName="mayor-donation-management-detail-modal"
       titleStyle={{ fontSize: "30px", fontWeight: 700 }}
       panelStyle={modalStyles.shellPanel}
     >
@@ -292,10 +294,16 @@ const DonationDetailModal = ({
         <EmptyState compact message="Donation detail is unavailable." />
       ) : (
         <div style={{ display: "grid", gap: "20px" }}>
-          <section style={modalStyles.sectionCard}>
+          <section
+            className="mayor-donation-management-detail-section"
+            style={modalStyles.sectionCard}
+          >
             <h3 style={{ margin: 0, color: "#17324d" }}>Donation Information</h3>
 
-            <div style={{ ...modalStyles.infoGrid, marginTop: "16px" }}>
+            <div
+              className="mayor-donation-management-detail-grid"
+              style={{ ...modalStyles.infoGrid, marginTop: "16px" }}
+            >
               <div>
                 <p style={modalStyles.label}>Donor Name</p>
                 <p style={modalStyles.value}>{donation.donor_name || "--"}</p>
@@ -320,10 +328,16 @@ const DonationDetailModal = ({
             </div>
           </section>
 
-          <section style={modalStyles.sectionCard}>
+          <section
+            className="mayor-donation-management-detail-section"
+            style={modalStyles.sectionCard}
+          >
             <h3 style={{ margin: 0, color: "#17324d" }}>Donation Summary</h3>
 
-            <div style={{ ...modalStyles.infoGrid, marginTop: "16px" }}>
+            <div
+              className="mayor-donation-management-detail-grid"
+              style={{ ...modalStyles.infoGrid, marginTop: "16px" }}
+            >
               <div>
                 <p style={modalStyles.label}>Donation Type</p>
                 <p style={modalStyles.value}>{donationPresentation.donationType}</p>
@@ -340,13 +354,19 @@ const DonationDetailModal = ({
           </section>
 
           {donationPresentation.reliefPacks.length > 0 ? (
-            <section style={modalStyles.sectionCard}>
+            <section
+              className="mayor-donation-management-detail-section"
+              style={modalStyles.sectionCard}
+            >
               <h3 style={{ margin: 0, color: "#17324d" }}>Relief Pack Details</h3>
 
               <div style={{ ...modalStyles.list, marginTop: "16px" }}>
                 {donationPresentation.reliefPacks.map((packGroup, index) => (
                   <div key={`${packGroup.name}-${index}`}>
-                    <div style={modalStyles.infoGrid}>
+                    <div
+                      className="mayor-donation-management-detail-grid"
+                      style={modalStyles.infoGrid}
+                    >
                       <div>
                         <p style={modalStyles.label}>Relief Pack Name</p>
                         <p style={modalStyles.value}>{packGroup.name}</p>
@@ -357,8 +377,14 @@ const DonationDetailModal = ({
                       </div>
                     </div>
 
-                    <div style={modalStyles.tableWrap}>
-                      <table style={modalStyles.table}>
+                    <div
+                      className="mayor-donation-management-detail-table-scroll"
+                      style={modalStyles.tableWrap}
+                    >
+                      <table
+                        className="mayor-donation-management-detail-table"
+                        style={modalStyles.table}
+                      >
                         <thead>
                           <tr>
                             <th style={modalStyles.th}>Item Name</th>
@@ -396,7 +422,10 @@ const DonationDetailModal = ({
             </section>
           ) : null}
 
-          <section style={modalStyles.sectionCard}>
+          <section
+            className="mayor-donation-management-detail-section"
+            style={modalStyles.sectionCard}
+          >
             <h3 style={{ margin: 0, color: "#17324d" }}>Items Received</h3>
 
             {itemsReceivedRows.length === 0 ? (
@@ -404,8 +433,14 @@ const DonationDetailModal = ({
                 No donation items were recorded.
               </p>
             ) : (
-              <div style={modalStyles.tableWrap}>
-                <table style={modalStyles.table}>
+              <div
+                className="mayor-donation-management-detail-table-scroll"
+                style={modalStyles.tableWrap}
+              >
+                <table
+                  className="mayor-donation-management-detail-table"
+                  style={modalStyles.table}
+                >
                   <thead>
                     <tr>
                       <th style={modalStyles.th}>Item Name</th>

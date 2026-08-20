@@ -16,7 +16,7 @@ const InventoryPageActions = ({
   showExport = true,
 }) => {
   return (
-    <div style={inventoryPageStyles.topActionsRow}>
+    <div className="inventory-items-actions-row" style={inventoryPageStyles.topActionsRow}>
       {showScanAndAdd && (
         <>
           <button type="button" style={primaryTopBtn} onClick={onOpenScanModal}>

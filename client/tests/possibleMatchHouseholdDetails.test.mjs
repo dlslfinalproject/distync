@@ -76,6 +76,49 @@ test("PM-HD-02 family-head and member possible matches open the same suggested-h
   );
 });
 
+test("PM-HD-08 restricted external Barangay matches render generic notice only", () => {
+  assert.match(
+    suggestionsSource,
+    /RESTRICTED_EXTERNAL_BARANGAY/,
+  );
+  assert.match(
+    suggestionsSource,
+    /Possible match found outside your barangay/,
+  );
+  assert.match(
+    suggestionsSource,
+    /A possible matching record exists outside your authorized\s+barangay\. Its details are restricted\. Review the information\s+you entered before continuing\./,
+  );
+  assert.match(
+    suggestionsSource,
+    /match\.details_restricted \|\|[\s\S]*match\.visibility === RESTRICTED_EXTERNAL_BARANGAY_VISIBILITY[\s\S]*Possible match found outside your barangay/,
+  );
+});
+
+test("PM-HD-09 restricted external Barangay matches do not receive household navigation", () => {
+  assert.match(
+    suggestionsSource,
+    /match\.details_restricted[\s\S]*\? \([\s\S]*Possible match found outside your barangay[\s\S]*\) : \([\s\S]*onClick=\{\(\) => onViewHousehold\?\.\(match\.household_id\)\}/,
+  );
+  const restrictedBranch = suggestionsSource.slice(
+    suggestionsSource.indexOf("restricted-external-barangay"),
+    suggestionsSource.indexOf(") : (", suggestionsSource.indexOf("restricted-external-barangay")),
+  );
+
+  assert.doesNotMatch(restrictedBranch, /onViewHousehold|household_id|View Household Details/);
+});
+
+test("PM-HD-10 add-member possible matches use the restricted-aware shared section", () => {
+  assert.match(
+    membersSource,
+    /form\.members\.map\(\(member, index\) => \{[\s\S]*<DuplicateRegistrationSuggestionsSection[\s\S]*groups=\{memberSuggestionGroups\}[\s\S]*onViewHousehold=\{onViewSuggestedHousehold\}/,
+  );
+  assert.match(
+    suggestionsSource,
+    /if \(match\.details_restricted\) \{[\s\S]*return true;/,
+  );
+});
+
 test("PM-HD-03 Barangay and MSWDO registration flows share RegisterFamilyModal possible-match details", () => {
   assert.match(
     barangayMasterlistSource,

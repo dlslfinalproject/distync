@@ -1,0 +1,106 @@
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import path from "node:path";
+import test from "node:test";
+
+const sourcePath = (...segments) => path.join(process.cwd(), "src", ...segments);
+
+const readSource = (relativePath) =>
+  fs.readFile(sourcePath(...relativePath), "utf8");
+
+test("Distribution History exposes scoped responsive hooks for filters, toolbar, and tables", async () => {
+  const [pageSource, cssSource] = await Promise.all([
+    readSource(["pages", "DistributionHistoryPage.jsx"]),
+    readSource(["index.css"]),
+  ]);
+
+  assert.match(pageSource, /className="distribution-history-filter-card"/);
+  assert.match(pageSource, /className="distribution-history-filter-grid"/);
+  assert.match(pageSource, /className="distribution-history-toolbar"/);
+  assert.match(pageSource, /className="distribution-history-toolbar-search"/);
+  assert.match(pageSource, /className="distribution-history-export-button"/);
+  assert.match(pageSource, /aria-label="Search distribution history"/);
+  assert.match(pageSource, /className="distribution-history-table-scroll distribution-history-summary-scroll"/);
+  assert.match(pageSource, /className="distribution-history-table distribution-history-summary-table"/);
+  assert.match(pageSource, /className="distribution-history-table-scroll distribution-history-detail-scroll"/);
+  assert.match(pageSource, /className="distribution-history-table distribution-history-detail-table"/);
+  assert.match(
+    cssSource,
+    /\.distribution-history-filter-card,[\s\S]*?\.distribution-history-detail-table \{[\s\S]*?min-width: 0;/,
+  );
+});
+
+test("Distribution History table overflow is contained and keeps readable table geometry", async () => {
+  const cssSource = await readSource(["index.css"]);
+
+  assert.match(
+    cssSource,
+    /\.distribution-history-table-scroll \{[\s\S]*?max-width: 100%;[\s\S]*?overflow-x: auto !important;[\s\S]*?-webkit-overflow-scrolling: touch;/,
+  );
+  assert.doesNotMatch(cssSource, /\.distribution-history-table\s*\{[\s\S]*?table-layout:\s*fixed/);
+  assert.doesNotMatch(cssSource, /\.distribution-history-summary-table\s*\{[\s\S]*?min-width:\s*(?:940|980)px/);
+  assert.doesNotMatch(cssSource, /\.distribution-history-detail-table\s*\{[\s\S]*?min-width:\s*(?:1060|1120)px/);
+  assert.match(
+    cssSource,
+    /\.distribution-history-text-cell \{[\s\S]*?overflow-wrap: break-word;/,
+  );
+  assert.doesNotMatch(cssSource, /word-break:\s*break-all/);
+});
+
+test("Distribution History mobile toolbar controls fill available width without page overflow", async () => {
+  const cssSource = await readSource(["index.css"]);
+
+  assert.match(
+    cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.distribution-history-toolbar-search,[\s\S]*?\.distribution-history-export-button \{[\s\S]*?flex: 1 1 100% !important;[\s\S]*?width: 100%;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 480px\)[\s\S]*?\.distribution-history-filter-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 480px\)[\s\S]*?\.distribution-history-export-button \{[\s\S]*?justify-content: center;/,
+  );
+});
+
+test("Distribution History pagination footer is compact and adapts on narrow screens", async () => {
+  const cssSource = await readSource(["index.css"]);
+
+  assert.match(
+    cssSource,
+    /\.distribution-history-records-title-group \{[\s\S]*?justify-content: space-between;[\s\S]*?flex-wrap: wrap;/,
+  );
+  assert.match(
+    cssSource,
+    /\.distribution-history-pagination-navigation \{[\s\S]*?justify-content: flex-end;[\s\S]*?margin-top: 14px;[\s\S]*?padding-top: 12px;[\s\S]*?border-top: 1px solid #edf3f8;/,
+  );
+  assert.match(
+    cssSource,
+    /\.distribution-history-page-size select \{[\s\S]*?width: 78px;[\s\S]*?min-height: 40px;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 768px\)[\s\S]*?\.distribution-history-records-title-group \{[\s\S]*?align-items: stretch;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 480px\)[\s\S]*?\.distribution-history-pagination-range \{[\s\S]*?order: 2;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 480px\)[\s\S]*?\.distribution-history-page-indicator \{[\s\S]*?order: 1;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 480px\)[\s\S]*?\.distribution-history-pagination-controls button \{[\s\S]*?flex: 1 1 0;[\s\S]*?order: 2;/,
+  );
+});
+
+test("Distribution History detail action is accessible and does not expose raw QR payload", async () => {
+  const pageSource = await readSource(["pages", "DistributionHistoryPage.jsx"]);
+
+  assert.match(pageSource, /aria-label=\{`View details for \$\{formatDisplayStubNumber\(row\)\}`\}/);
+  assert.match(pageSource, /formatDisplayStubNumber\(row\)/);
+  assert.doesNotMatch(pageSource, /row\.qr_code_value/);
+});

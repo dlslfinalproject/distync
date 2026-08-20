@@ -1,38 +1,67 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   FiAlertCircle,
-  FiArrowLeft,
+  FiAlertTriangle,
   FiBarChart2,
   FiCheckCircle,
+  FiChevronDown,
+  FiFacebook,
   FiGlobe,
-  FiHome,
   FiInfo,
   FiMail,
   FiMapPin,
   FiPackage,
   FiPhone,
-  FiShoppingBag,
+  FiRefreshCw,
   FiTrendingUp,
-  FiUsers,
 } from "react-icons/fi";
-import { FaFacebookF } from "react-icons/fa";
+import {
+  FaBoxOpen,
+  FaCheckCircle as FaCheckCircleSolid,
+  FaEnvelope,
+  FaFacebookF,
+  FaGlobeAsia,
+  FaHome as FaHomeSolid,
+  FaMapMarkedAlt,
+  FaPhoneAlt,
+  FaShoppingBag,
+  FaUsers as FaUsersSolid,
+} from "react-icons/fa";
+import {
+  GiClothes,
+  GiFirstAidKit,
+  GiOpenedFoodCan,
+  GiRolledCloth,
+  GiToolbox,
+  GiWaterBottle,
+} from "react-icons/gi";
 import LoadingState from "../../components/shared/LoadingState";
 import distyncLogo from "../../assets/distync-logo.png";
+import distyncLogoCropped from "../../assets/distync-logo-cropped.png";
 import { fetchDonationPortalData } from "../../features/donations/donationService";
 import {
   formatDonationDateOnly,
 } from "../../features/donations/donationFormatters";
+import { getAccessMode, getEntryRouteForMode } from "../../utils/accessMode";
 
 const COLORS = {
   cardBg: "#ffffff",
-  pageBg: "#edf4fb",
-  softBg: "#eef5fb",
-  border: "#d6e2ef",
+  pageBg: "#f3f7fb",
+  softBg: "#eef6f1",
+  border: "#d8e2ea",
   text: "#17324d",
-  subtext: "#60738a",
+  subtext: "#5d6f7f",
   primary: "#2f6499",
   primaryDark: "#244f78",
+  logoBlue: "#4c86be",
+  logoLightBlue: "#b8cff4",
+  logoSyncLight: "#b8cff4",
+  logoSyncMid: "#7896ca",
+  logoSyncDeep: "#4b628f",
+  logoSyncDark: "#24344f",
+  logoGold: "#f2b84b",
+  logoGoldSoft: "#fff3d2",
   danger: "#c94b4b",
   dangerSoft: "#fdecec",
   warning: "#b87516",
@@ -43,6 +72,9 @@ const COLORS = {
 };
 
 const PUBLIC_PORTAL_REFRESH_INTERVAL_MS = 60000;
+const PUBLIC_PORTAL_INITIAL_LOADING_MIN_MS = 1450;
+const HIDE_TRANSPARENCY_DATA_FOR_DESIGN_PREVIEW = false;
+const HIDE_UTILIZATION_DATA_FOR_DESIGN_PREVIEW = false;
 
 const LGU_CONTACT = {
   systemName: "DISTYNC",
@@ -117,22 +149,124 @@ const PRIORITY_GROUPS = [
   },
 ];
 
+const DEFAULT_HIGH_PRIORITY_DONATION_GROUPS = [
+  {
+    title: "Ready-To-Eat-Foods",
+    Icon: GiOpenedFoodCan,
+    helper: "Easy-to-serve food items for immediate relief support.",
+    items: [
+      "Canned Goods",
+      "Ready-to-Heat Foods",
+      "Noodles or Cup Noodles",
+      "Bread, Biscuits, and Snacks",
+      "Rice",
+    ],
+  },
+  {
+    title: "Beverage and Drinking Supplies",
+    Icon: GiWaterBottle,
+    helper: "Safe beverage and drinking water supplies for families in evacuation or response areas.",
+    items: [
+      "Bottled Water",
+      "Coffee Sachets",
+      "Powdered Drinks",
+      "Milk, Chocolate, and Cereal Drinks",
+      "Nutritional Drinks or Ionized Beverages",
+    ],
+  },
+  {
+    title: "Health and Hygiene Kits",
+    Icon: GiFirstAidKit,
+    helper: "Basic health and sanitation supplies for affected households.",
+    items: [
+      "First Aid Supplies",
+      "Essential Medicines",
+      "Soap and Toothpaste",
+      "Sanitary Pads",
+      "Baby Care Items",
+    ],
+  },
+];
+
+const DEFAULT_MEDIUM_PRIORITY_DONATION_GROUPS = [
+  {
+    title: "Sleeping Mats/Blankets",
+    Icon: GiRolledCloth,
+    helper: "Comfort and rest supplies for families staying in evacuation areas.",
+    items: [
+      "Sleeping Mats",
+      "Blankets",
+      "Pillows",
+      "Bedsheets",
+      "Towels",
+    ],
+  },
+  {
+    title: "Clothing",
+    Icon: GiClothes,
+    helper: "Clean wearable items for displaced or affected families.",
+    items: [
+      "Adult Clothing",
+      "Children's Clothing",
+      "Undergarments",
+      "Socks",
+      "Raincoats or Jackets",
+    ],
+  },
+];
+
+const DEFAULT_LOW_PRIORITY_DONATION_GROUPS = [
+  {
+    title: "General Support Items",
+    Icon: GiToolbox,
+    helper: "Useful non-urgent supplies that can support relief operations and family recovery.",
+    items: [
+      "Flashlights",
+      "Batteries",
+      "Reusable Containers",
+      "School Supplies",
+      "Cleaning Supplies",
+    ],
+  },
+];
+
+const DEFAULT_DONATION_GROUPS_BY_PRIORITY = {
+  HIGH: DEFAULT_HIGH_PRIORITY_DONATION_GROUPS,
+  MEDIUM: DEFAULT_MEDIUM_PRIORITY_DONATION_GROUPS,
+  LOW: DEFAULT_LOW_PRIORITY_DONATION_GROUPS,
+};
+
 const styles = {
   page: {
     width: "100%",
     minWidth: 0,
-    background: "transparent",
-    padding: "24px",
+    minHeight: "100vh",
+    background:
+      "linear-gradient(180deg, #f7fafc 0%, #eef5fb 46%, #e7f0f7 100%)",
+    padding: 0,
     boxSizing: "border-box",
     fontFamily: "Poppins, Inter, Segoe UI, sans-serif",
     color: COLORS.text,
+    overflowX: "clip",
+  },
+  headerShell: {
+    position: "sticky",
+    top: 0,
+    zIndex: 100,
+    width: "100%",
+    margin: "0 0 22px",
+    background: "rgba(255, 255, 255, 0.96)",
+    borderBottom: `1px solid ${COLORS.border}`,
+    boxShadow: "0 8px 22px rgba(23, 50, 77, 0.08)",
+    backdropFilter: "blur(10px)",
   },
   pageInner: {
     display: "grid",
-    gap: "18px",
+    gap: "16px",
     width: "100%",
     maxWidth: "1180px",
     margin: "0 auto",
+    padding: "0 24px",
     minWidth: 0,
   },
   topBar: {
@@ -140,11 +274,10 @@ const styles = {
     justifyContent: "space-between",
     alignItems: "center",
     gap: "14px",
-    background: "#cfd9ee",
-    border: "1px solid #c5d3e5",
-    borderRadius: "16px",
-    padding: "16px 18px",
-    boxShadow: "0 10px 24px rgba(23, 50, 77, 0.06)",
+    width: "100%",
+    maxWidth: "1180px",
+    margin: "0 auto",
+    padding: "18px 24px",
     flexWrap: "wrap",
   },
   brandWrap: {
@@ -152,90 +285,109 @@ const styles = {
     alignItems: "center",
     gap: "12px",
     minWidth: 0,
+    color: "inherit",
+    textDecoration: "none",
+    borderRadius: "8px",
+    transition: "opacity 160ms ease, outline-color 160ms ease",
   },
   brandLogo: {
-    width: "48px",
-    height: "48px",
+    width: "64px",
+    height: "64px",
     objectFit: "contain",
     flexShrink: 0,
   },
   brandTitle: {
     margin: 0,
-    fontSize: "24px",
+    fontSize: "23px",
     fontWeight: 800,
-    color: "#344567",
+    color: COLORS.text,
     lineHeight: 1,
   },
   brandSubtitle: {
     margin: "5px 0 0",
     fontSize: "13px",
-    color: "#415674",
+    color: COLORS.subtext,
     fontWeight: 600,
   },
-  portalLabel: {
-    margin: 0,
-    fontSize: "15px",
-    fontWeight: 700,
-    color: "#415674",
+  topBarActions: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: "10px",
+    flexWrap: "wrap",
   },
-  backButton: {
+  headerContactIconLink: {
     display: "inline-flex",
     alignItems: "center",
-    gap: "8px",
-    width: "fit-content",
-    border: "1px solid #c6d8ea",
-    borderRadius: "12px",
-    padding: "10px 15px",
-    backgroundColor: "#f8fbfe",
-    color: "#2a4c6f",
-    fontSize: "14px",
-    fontWeight: 700,
-    cursor: "pointer",
-    minHeight: "42px",
+    justifyContent: "center",
+    width: "38px",
+    height: "38px",
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "999px",
+    background: "#ffffff",
+    color: "var(--header-contact-color, #244f78)",
+    textDecoration: "none",
+    flexShrink: 0,
+    boxShadow: "0 8px 18px rgba(23, 50, 77, 0.07)",
+    transition:
+      "background 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease",
   },
   section: {
     background: COLORS.cardBg,
     border: `1px solid ${COLORS.border}`,
-    borderRadius: "16px",
+    borderRadius: "8px",
     padding: "22px",
-    boxShadow: "0 10px 24px rgba(23, 50, 77, 0.05)",
+    boxShadow: "0 10px 24px rgba(23, 50, 77, 0.045)",
     minWidth: 0,
   },
   hero: {
+    display: "flex",
+    alignItems: "center",
     background:
-      "linear-gradient(135deg, rgba(255,255,255,0.96) 0%, rgba(238,245,251,0.98) 100%)",
-    border: `1px solid ${COLORS.border}`,
-    borderRadius: "16px",
-    padding: "24px",
-    boxShadow: "0 10px 30px rgba(23, 50, 77, 0.06)",
+      "linear-gradient(135deg, #17324d 0%, #244f78 48%, #2f6499 100%)",
+    border: "1px solid rgba(23, 50, 77, 0.16)",
+    borderRadius: "8px",
+    minHeight: "clamp(420px, calc(100vh - 330px), 660px)",
+    padding: "56px 56px",
+    boxShadow: "0 18px 36px rgba(23, 50, 77, 0.16)",
+    position: "relative",
+    overflow: "hidden",
   },
   heroGrid: {
     display: "grid",
-    gridTemplateColumns: "minmax(0, 1.45fr) minmax(260px, 0.55fr)",
-    gap: "20px",
-    alignItems: "center",
+    gridTemplateColumns: "minmax(0, 1fr) minmax(300px, 360px)",
+    gap: "46px",
+    width: "100%",
+    alignItems: "stretch",
+  },
+  heroContent: {
+    position: "relative",
+    zIndex: 1,
+    maxWidth: "820px",
+    alignSelf: "center",
   },
   eyebrow: {
     margin: 0,
     fontSize: "12px",
     fontWeight: 800,
-    letterSpacing: "0.08em",
+    letterSpacing: "0.07em",
     textTransform: "uppercase",
-    color: COLORS.primary,
+    color: COLORS.logoGoldSoft,
   },
   title: {
-    margin: "8px 0",
-    fontSize: "34px",
-    lineHeight: 1.12,
+    margin: "12px 0 14px",
+    fontSize: "46px",
+    lineHeight: 1.08,
     fontWeight: 800,
-    color: COLORS.text,
+    color: "#ffffff",
+    maxWidth: "760px",
   },
   subtitle: {
     margin: 0,
-    fontSize: "15px",
-    color: COLORS.subtext,
+    fontSize: "17px",
+    color: "#dce9f3",
     lineHeight: 1.7,
-    maxWidth: "760px",
+    maxWidth: "780px",
   },
   notice: {
     display: "flex",
@@ -243,35 +395,96 @@ const styles = {
     gap: "10px",
     marginTop: "16px",
     padding: "13px 14px",
-    borderRadius: "12px",
-    background: COLORS.warningSoft,
+    borderRadius: "8px",
+    background: "rgba(255, 243, 210, 0.96)",
     color: COLORS.text,
-    border: "1px solid #edd5a5",
+    border: `1px solid ${COLORS.logoGold}`,
     fontSize: "13px",
     lineHeight: 1.6,
   },
   heroAside: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "18px",
+    justifySelf: "end",
+    alignSelf: "center",
+    width: "100%",
+    maxWidth: "360px",
+    minHeight: "178px",
+    padding: "28px",
+    borderRadius: "8px",
+    background: "rgba(255, 255, 255, 0.96)",
+    border: `1px solid ${COLORS.logoLightBlue}`,
+    boxShadow: "0 14px 26px rgba(10, 29, 45, 0.16)",
+    position: "relative",
+    zIndex: 1,
+    transition:
+      "transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease",
+  },
+  asideHeader: {
     display: "grid",
-    gap: "10px",
-    padding: "16px",
-    borderRadius: "14px",
-    background: "rgba(255, 255, 255, 0.72)",
-    border: `1px solid ${COLORS.border}`,
+    gap: "18px",
+    minWidth: 0,
+    flex: 1,
+    transformOrigin: "left center",
+  },
+  asideIcon: {
+    width: "68px",
+    height: "68px",
+    borderRadius: "8px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: COLORS.logoGoldSoft,
+    border: `1px solid ${COLORS.logoGold}`,
+    color: COLORS.primaryDark,
+    flexShrink: 0,
+    transition: "transform 180ms ease",
   },
   asideLabel: {
     margin: 0,
     color: COLORS.subtext,
-    fontSize: "12px",
+    fontSize: "13px",
     fontWeight: 800,
     letterSpacing: "0.06em",
     textTransform: "uppercase",
+    lineHeight: 1.35,
   },
   asideValue: {
     margin: 0,
-    fontSize: "32px",
+    fontSize: "56px",
     lineHeight: 1,
     fontWeight: 800,
     color: COLORS.primaryDark,
+  },
+  asideLoadingValue: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "10px",
+    fontSize: "22px",
+    lineHeight: 1.2,
+    whiteSpace: "nowrap",
+  },
+  updateBadge: {
+    display: "flex",
+    alignItems: "center",
+    gap: "7px",
+    width: "fit-content",
+    margin: "24px 0 0",
+    color: "#dce9f3",
+    fontSize: "13px",
+    fontWeight: 600,
+    whiteSpace: "nowrap",
+    position: "relative",
+    zIndex: 1,
+  },
+  updateIcon: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: COLORS.logoGoldSoft,
+    flexShrink: 0,
   },
   sectionHeader: {
     display: "flex",
@@ -280,6 +493,38 @@ const styles = {
     gap: "12px",
     marginBottom: "16px",
     flexWrap: "wrap",
+  },
+  collapsibleSectionSummary: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "12px",
+    cursor: "pointer",
+    listStyle: "none",
+    flexWrap: "wrap",
+  },
+  summaryActionGroup: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "10px",
+    flexWrap: "wrap",
+  },
+  disclosureIndicator: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "30px",
+    height: "30px",
+    borderRadius: "999px",
+    background: "#ffffff",
+    border: `1px solid ${COLORS.border}`,
+    color: COLORS.primaryDark,
+    flexShrink: 0,
+    transition:
+      "transform 180ms ease, background 180ms ease, border-color 180ms ease",
+  },
+  collapsibleSectionBody: {
+    marginTop: "16px",
   },
   sectionTitle: {
     margin: 0,
@@ -300,13 +545,55 @@ const styles = {
     gap: "7px",
     padding: "8px 11px",
     borderRadius: "999px",
-    fontSize: "12px",
+    fontSize: "13px",
     fontWeight: 800,
     whiteSpace: "nowrap",
   },
+  quickLinkGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gap: "10px",
+  },
+  quickLink: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "10px",
+    minHeight: "54px",
+    padding: "12px 14px",
+    borderRadius: "8px",
+    background: "var(--quick-link-bg, #ffffff)",
+    border: `1px solid var(--quick-link-border, ${COLORS.border})`,
+    color: `var(--quick-link-color, ${COLORS.text})`,
+    textDecoration: "none",
+    fontSize: "13px",
+    fontWeight: 800,
+    boxShadow: "0 8px 18px rgba(23, 50, 77, 0.045)",
+    transition:
+      "background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease, color 180ms ease, transform 180ms ease",
+  },
+  quickLinkLogoFrame: {
+    width: "24px",
+    height: "24px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    flexShrink: 0,
+  },
+  quickLinkLogo: {
+    width: "28px",
+    height: "28px",
+    objectFit: "contain",
+  },
+  contentStack: {
+    display: "grid",
+    gap: "16px",
+    minWidth: 0,
+  },
   eventCardsGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+    gridTemplateColumns: "1fr",
     gap: "14px",
     alignItems: "start",
   },
@@ -315,9 +602,32 @@ const styles = {
     gap: "12px",
     background: COLORS.neutralSoft,
     border: `1px solid ${COLORS.border}`,
-    borderRadius: "14px",
+    borderRadius: "8px",
     padding: "16px",
     minWidth: 0,
+  },
+  eventDetails: {
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "8px",
+    overflow: "hidden",
+    background: COLORS.neutralSoft,
+    minWidth: 0,
+    transition:
+      "border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease",
+  },
+  eventDetailsSummary: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) auto auto",
+    alignItems: "center",
+    gap: "12px",
+    padding: "15px 16px",
+    cursor: "pointer",
+    listStyle: "none",
+  },
+  eventDetailsBody: {
+    display: "grid",
+    gap: "12px",
+    padding: "0 16px 16px",
   },
   eventCardHeader: {
     display: "flex",
@@ -353,31 +663,48 @@ const styles = {
     gap: "8px",
   },
   eventStat: {
-    background: "#ffffff",
-    border: `1px solid ${COLORS.border}`,
-    borderRadius: "10px",
-    padding: "10px",
-    minWidth: 0,
-  },
-  eventStatTop: {
     display: "flex",
     alignItems: "center",
-    gap: "6px",
-    color: COLORS.primary,
+    justifyContent: "space-between",
+    gap: "14px",
+    background: "#ffffff",
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "8px",
+    padding: "18px",
+    minWidth: 0,
   },
   eventStatValue: {
-    margin: "6px 0 0",
-    color: COLORS.text,
-    fontSize: "18px",
+    margin: "12px 0 0",
+    color: COLORS.primaryDark,
+    fontSize: "38px",
     lineHeight: 1,
     fontWeight: 800,
   },
   eventStatLabel: {
-    margin: "4px 0 0",
+    margin: "8px 0 0",
     color: COLORS.subtext,
-    fontSize: "11px",
+    fontSize: "12px",
     lineHeight: 1.35,
     fontWeight: 600,
+  },
+  eventStatIcon: {
+    width: "70px",
+    height: "70px",
+    borderRadius: "8px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "#eaf5f4",
+    border: "1px solid #d7ebe8",
+    color: COLORS.primaryDark,
+    flexShrink: 0,
+    position: "relative",
+    overflow: "hidden",
+  },
+  eventStatIconMain: {
+    position: "relative",
+    zIndex: 1,
+    color: COLORS.primaryDark,
   },
   label: {
     margin: 0,
@@ -387,21 +714,90 @@ const styles = {
     textTransform: "uppercase",
     letterSpacing: "0.04em",
   },
+  eventBarangayBadge: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "7px",
+    padding: "8px 11px",
+    borderRadius: "999px",
+    background: "#eaf5f4",
+    border: "1px solid #d7ebe8",
+    color: COLORS.primaryDark,
+    fontSize: "13px",
+    lineHeight: 1,
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  },
   barangayList: {
     display: "flex",
     flexWrap: "wrap",
-    gap: "7px",
-    marginTop: "8px",
+    gap: "8px",
+    marginTop: "10px",
+  },
+  barangayPanel: {
+    background: "#ffffff",
+    border: "1px solid #d7ebe8",
+    borderLeft: `4px solid ${COLORS.primary}`,
+    borderRadius: "8px",
+    padding: "14px",
+  },
+  barangayHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "12px",
+    flexWrap: "wrap",
+  },
+  barangayTitleGroup: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "10px",
+    minWidth: 0,
+  },
+  barangayTitleIcon: {
+    width: "34px",
+    height: "34px",
+    borderRadius: "8px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "#eaf5f4",
+    border: "1px solid #d7ebe8",
+    color: COLORS.primaryDark,
+    flexShrink: 0,
+  },
+  barangayCount: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "6px",
+    borderRadius: "999px",
+    padding: "6px 10px",
+    background: "#eaf5f4",
+    border: "1px solid #d7ebe8",
+    color: COLORS.primaryDark,
+    fontWeight: 800,
+  },
+  barangayCountValue: {
+    fontSize: "15px",
+    lineHeight: 1,
+  },
+  barangayCountLabel: {
+    fontSize: "11px",
+    lineHeight: 1,
+    color: COLORS.subtext,
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
   },
   barangayChip: {
     display: "inline-flex",
     alignItems: "center",
-    borderRadius: "999px",
-    padding: "6px 9px",
-    background: COLORS.softBg,
-    border: `1px solid ${COLORS.border}`,
+    borderRadius: "8px",
+    padding: "7px 10px",
+    background: "#f7fbfb",
+    border: "1px solid #d7ebe8",
     color: COLORS.text,
     fontSize: "12px",
+    lineHeight: 1.2,
     fontWeight: 700,
   },
   summaryGrid: {
@@ -410,12 +806,15 @@ const styles = {
     gap: "14px",
   },
   summaryCard: {
-    background: COLORS.softBg,
+    background: "#ffffff",
     border: `1px solid ${COLORS.border}`,
-    borderRadius: "14px",
+    borderRadius: "8px",
     padding: "18px",
     minWidth: 0,
     position: "relative",
+    boxShadow: "0 8px 18px rgba(23, 50, 77, 0.04)",
+    transition:
+      "border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease",
   },
   summaryTop: {
     display: "block",
@@ -427,9 +826,8 @@ const styles = {
     right: "28px",
     width: "40px",
     height: "40px",
-    borderRadius: "12px",
-    background: "#ffffff",
-    border: `1px solid ${COLORS.border}`,
+    borderRadius: "8px",
+    background: COLORS.softBg,
     color: COLORS.primaryDark,
     display: "inline-flex",
     alignItems: "center",
@@ -449,9 +847,11 @@ const styles = {
   },
   details: {
     border: `1px solid ${COLORS.border}`,
-    borderRadius: "14px",
+    borderRadius: "8px",
     overflow: "hidden",
     background: "#fff",
+    transition:
+      "border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease",
   },
   detailsSummary: {
     display: "flex",
@@ -469,11 +869,37 @@ const styles = {
     padding: "0 16px 16px",
   },
   itemCard: {
-    borderRadius: "12px",
+    borderRadius: "8px",
     padding: "14px",
     border: `1px solid ${COLORS.border}`,
     background: COLORS.neutralSoft,
     minWidth: 0,
+  },
+  forecastTableWrap: {
+    overflowX: "auto",
+    border: `1px solid ${COLORS.border}`,
+    borderRadius: "8px",
+    margin: "0 16px 16px",
+  },
+  forecastTable: {
+    width: "100%",
+    minWidth: "360px",
+    borderCollapse: "collapse",
+  },
+  forecastTh: {
+    background: "#e6f0fb",
+    color: COLORS.primaryDark,
+  },
+  forecastItemCell: {
+    fontWeight: 800,
+  },
+  defaultNeedCard: {
+    borderRadius: "8px",
+    padding: "16px",
+    border: `1px solid ${COLORS.border}`,
+    background: "#ffffff",
+    minWidth: 0,
+    boxShadow: "0 8px 18px rgba(23, 50, 77, 0.04)",
   },
   itemTitle: {
     margin: 0,
@@ -481,6 +907,22 @@ const styles = {
     fontSize: "16px",
     lineHeight: 1.35,
     fontWeight: 800,
+  },
+  defaultNeedTitleRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "9px",
+  },
+  defaultNeedTitleIcon: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "30px",
+    height: "30px",
+    borderRadius: "8px",
+    background: COLORS.softBg,
+    color: COLORS.primaryDark,
+    flexShrink: 0,
   },
   itemQuantity: {
     margin: "10px 0 0",
@@ -495,6 +937,29 @@ const styles = {
     fontSize: "13px",
     lineHeight: 1.5,
   },
+  defaultNeedList: {
+    display: "grid",
+    gap: "8px",
+    margin: "14px 0 0",
+    padding: 0,
+    listStyle: "none",
+  },
+  defaultNeedListItem: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    color: COLORS.text,
+    fontSize: "13px",
+    lineHeight: 1.45,
+    fontWeight: 600,
+  },
+  defaultNeedBullet: {
+    width: "6px",
+    height: "6px",
+    borderRadius: "999px",
+    background: COLORS.primary,
+    flexShrink: 0,
+  },
   donationList: {
     display: "grid",
     gap: "12px",
@@ -505,9 +970,11 @@ const styles = {
   donationCard: {
     background: COLORS.neutralSoft,
     border: `1px solid ${COLORS.border}`,
-    borderRadius: "12px",
+    borderRadius: "8px",
     padding: "14px",
     minWidth: 0,
+    transition:
+      "border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease",
   },
   donationTop: {
     display: "flex",
@@ -526,8 +993,8 @@ const styles = {
   donationIcon: {
     width: "42px",
     height: "42px",
-    borderRadius: "12px",
-    background: COLORS.softBg,
+    borderRadius: "8px",
+    background: "#ffffff",
     border: `1px solid ${COLORS.border}`,
     color: COLORS.primaryDark,
     display: "inline-flex",
@@ -538,7 +1005,7 @@ const styles = {
   donationIconCompact: {
     width: "34px",
     height: "34px",
-    borderRadius: "11px",
+    borderRadius: "8px",
   },
   donationBody: {
     minWidth: 0,
@@ -571,7 +1038,7 @@ const styles = {
   tableWrap: {
     overflowX: "auto",
     border: `1px solid ${COLORS.border}`,
-    borderRadius: "12px",
+    borderRadius: "8px",
     marginTop: "14px",
   },
   table: {
@@ -607,14 +1074,14 @@ const styles = {
     padding: "16px",
     background: COLORS.neutralSoft,
     border: `1px solid ${COLORS.border}`,
-    borderRadius: "12px",
+    borderRadius: "8px",
     color: COLORS.subtext,
     fontSize: "14px",
     lineHeight: 1.6,
   },
   footer: {
-    width: "calc(100% + 48px)",
-    margin: "24px -24px -24px",
+    width: "100%",
+    margin: "24px 0 0",
     background:
       "linear-gradient(135deg, #17324d 0%, #244f78 58%, #2f6499 100%)",
     padding: 0,
@@ -625,50 +1092,78 @@ const styles = {
     width: "100%",
     maxWidth: "1180px",
     margin: "0 auto",
-    padding: "32px 28px 24px",
+    padding: "24px 28px 20px",
     boxSizing: "border-box",
   },
   footerGrid: {
     display: "grid",
-    gridTemplateColumns:
-      "minmax(210px, 0.82fr) minmax(520px, 1.55fr) minmax(250px, 0.9fr)",
-    columnGap: "42px",
-    rowGap: "24px",
-    alignItems: "start",
+    gridTemplateColumns: "minmax(0, 1fr) minmax(260px, 0.34fr)",
+    columnGap: "38px",
+    rowGap: "20px",
+    alignItems: "center",
   },
   footerColumn: {
+    minWidth: 0,
+  },
+  footerPrimaryColumn: {
+    display: "grid",
+    gap: "14px",
     minWidth: 0,
   },
   footerBrand: {
     display: "flex",
     alignItems: "center",
-    gap: "9px",
+    gap: "16px",
     minWidth: 0,
   },
-  footerLogo: {
-    width: "36px",
-    height: "36px",
-    objectFit: "contain",
+  footerLogoFrame: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "96px",
+    height: "96px",
+    borderRadius: "8px",
+    background: COLORS.logoGoldSoft,
+    border: `1px solid ${COLORS.logoGold}`,
+    boxShadow: "0 10px 22px rgba(9, 26, 44, 0.18)",
     flexShrink: 0,
+    overflow: "hidden",
+  },
+  footerLogo: {
+    width: "92px",
+    height: "92px",
+    objectFit: "contain",
+    transform: "translateX(3px)",
+  },
+  footerBrandCopy: {
+    minWidth: 0,
   },
   footerColumnTitle: {
-    margin: "0 0 10px",
+    margin: "0 0 7px",
     color: "#ffffff",
-    fontSize: "15px",
+    fontSize: "14px",
     lineHeight: 1.3,
     fontWeight: 800,
   },
   footerTitleText: {
     margin: 0,
     color: "#ffffff",
-    fontSize: "17px",
+    fontSize: "21px",
     lineHeight: 1,
     fontWeight: 800,
   },
+  footerSystemLine: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: "8px",
+    flexWrap: "wrap",
+    margin: 0,
+  },
   footerSubtitleText: {
-    margin: "3px 0 0",
+    display: "inline",
+    margin: 0,
     color: "#d8e6f4",
-    fontSize: "12px",
+    fontSize: "13px",
     lineHeight: 1.4,
     fontWeight: 400,
   },
@@ -677,8 +1172,11 @@ const styles = {
     color: "#d8e6f4",
     fontSize: "13px",
     lineHeight: 1.5,
-    maxWidth: "235px",
     overflowWrap: "anywhere",
+  },
+  footerCoordinationSection: {
+    paddingTop: "14px",
+    borderTop: "1px solid rgba(255, 255, 255, 0.14)",
   },
   footerCoordinationBlock: {
     display: "grid",
@@ -686,9 +1184,9 @@ const styles = {
   },
   footerCoordinationPair: {
     display: "grid",
-    gridTemplateColumns: "minmax(220px, 0.95fr) minmax(260px, 1.05fr)",
-    columnGap: "28px",
-    rowGap: "14px",
+    gridTemplateColumns: "max-content max-content minmax(0, 300px)",
+    columnGap: "48px",
+    rowGap: "12px",
     alignItems: "start",
   },
   footerDetailGroup: {
@@ -700,7 +1198,7 @@ const styles = {
     color: "#ffffff",
     fontSize: "12px",
     lineHeight: 1.3,
-    fontWeight: 600,
+    fontWeight: 800,
   },
   footerDetailValue: {
     margin: 0,
@@ -710,50 +1208,15 @@ const styles = {
     fontWeight: 400,
     overflowWrap: "anywhere",
   },
-  footerAction: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "8px",
-    width: "fit-content",
-    minHeight: "36px",
-    border: "none",
-    borderRadius: "10px",
-    marginTop: "8px",
-    padding: "8px 15px",
-    background: "#ffffff",
-    color: COLORS.primaryDark,
-    textDecoration: "none",
-    fontSize: "13px",
-    fontWeight: 700,
-    cursor: "pointer",
-    boxShadow: "0 8px 16px rgba(0, 0, 0, 0.16)",
-    transition: "background 160ms ease, transform 160ms ease",
-  },
-  footerActionDisabled: {
-    background: "rgba(255, 255, 255, 0.12)",
-    color: "#ffffff",
-    border: "1px solid rgba(255, 255, 255, 0.32)",
-    boxShadow: "none",
-    cursor: "not-allowed",
-  },
-  footerLink: {
-    display: "inline-flex",
-    width: "fit-content",
-    minHeight: "23px",
-    alignItems: "center",
-    color: "#eaf3fb",
-    fontSize: "13px",
-    lineHeight: 1.4,
-    fontWeight: 400,
-    textDecoration: "none",
-    cursor: "pointer",
-    transition: "color 160ms ease, transform 160ms ease",
-  },
   footerCompactContact: {
     display: "grid",
-    gap: "8px",
-    marginTop: "10px",
+    gap: "9px",
+    marginTop: "9px",
+  },
+  footerContactColumn: {
+    alignSelf: "center",
+    paddingLeft: "26px",
+    borderLeft: "1px solid rgba(255, 255, 255, 0.16)",
   },
   footerContactRow: {
     display: "grid",
@@ -785,34 +1248,43 @@ const styles = {
     minWidth: 0,
     overflowWrap: "anywhere",
   },
+  footerDirectionsLink: {
+    marginTop: "3px",
+    paddingTop: "11px",
+    borderTop: "1px solid rgba(255, 255, 255, 0.14)",
+    color: COLORS.logoGoldSoft,
+    fontWeight: 700,
+  },
+  footerTaglineBand: {
+    borderTop: "1px solid rgba(255, 255, 255, 0.14)",
+    background: "rgba(9, 26, 44, 0.18)",
+  },
+  footerTaglineInner: {
+    width: "100%",
+    maxWidth: "1180px",
+    margin: "0 auto",
+    padding: "13px 28px",
+    boxSizing: "border-box",
+  },
+  footerTaglineText: {
+    margin: 0,
+    color: COLORS.logoGoldSoft,
+    fontSize: "15px",
+    lineHeight: 1.5,
+    fontWeight: 600,
+    textAlign: "center",
+    overflowWrap: "anywhere",
+  },
+  footerTaglineEmphasis: {
+    fontStyle: "italic",
+  },
   footerBottom: {
     background: "rgba(9, 26, 44, 0.5)",
     borderTop: "1px solid rgba(255, 255, 255, 0.16)",
   },
-  footerQuickLinksBand: {
-    borderTop: "1px solid rgba(255, 255, 255, 0.16)",
-    background: "rgba(9, 26, 44, 0.18)",
-  },
-  footerQuickLinksInner: {
-    width: "100%",
-    maxWidth: "1180px",
-    margin: "0 auto",
-    padding: "14px 28px",
-    boxSizing: "border-box",
-  },
-  footerHorizontalLinks: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "10px 52px",
-    flexWrap: "wrap",
-    margin: 0,
-    padding: 0,
-    listStyle: "none",
-  },
   footerBottomInner: {
     display: "flex",
-    justifyContent: "space-between",
+    justifyContent: "center",
     flexWrap: "wrap",
     gap: "12px",
     alignItems: "center",
@@ -824,55 +1296,501 @@ const styles = {
   },
   footerBottomText: {
     margin: 0,
+    width: "100%",
     color: "#d8e6f4",
     fontSize: "12px",
     lineHeight: 1.5,
     fontWeight: 400,
+    textAlign: "center",
     overflowWrap: "anywhere",
   },
 };
 
 const portalFooterCss = `
-  .portal-footer-link:hover {
+  .donor-utilization-summary::-webkit-details-marker,
+  .donor-event-details-summary::-webkit-details-marker,
+  .donor-needed-items-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  details[open] > summary .donor-portal-disclosure-indicator {
+    transform: rotate(180deg);
+  }
+
+  summary:hover .donor-portal-disclosure-indicator {
+    background: #eef6f1;
+    border-color: #b8cff4;
+  }
+
+  .donor-portal-anchor-target {
+    scroll-margin-top: 140px;
+  }
+
+  .donor-portal-quick-link.is-hovered-quick-link:hover {
+    --quick-link-bg: var(--quick-link-hover-bg);
+    --quick-link-border: var(--quick-link-hover-border);
+    --quick-link-color: var(--quick-link-hover-color);
+    text-shadow: 0 1px 1px var(--quick-link-hover-text-shadow);
+    transform: translateY(-1px);
+  }
+
+  .donor-portal-quick-link.is-hovered-quick-link:hover {
+    box-shadow: 0 12px 24px var(--quick-link-hover-shadow);
+  }
+
+  .donor-portal-hero-eyebrow,
+  .donor-portal-hero-title,
+  .donor-portal-hero-subtitle,
+  .donor-portal-update-meta {
+    animation: donorPortalHeroCopyIn 0.68s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
+  .donor-portal-hero-eyebrow {
+    animation-delay: 0.08s;
+  }
+
+  .donor-portal-hero-title {
+    animation-delay: 0.18s;
+  }
+
+  .donor-portal-hero-subtitle {
+    animation-delay: 0.28s;
+  }
+
+  .donor-portal-update-meta {
+    animation-delay: 0.38s;
+  }
+
+  .donor-portal-quick-link.is-intro-quick-link {
+    animation: donorPortalQuickLinkIntro 0.74s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+    animation-delay: var(--quick-link-intro-delay);
+  }
+
+  .donor-portal-quick-link svg {
+    color: currentColor;
+    flex-shrink: 0;
+    transition: color 180ms ease, transform 180ms ease;
+  }
+
+  .donor-portal-content-stack {
+    animation: donorPortalContentFadeIn 1.15s cubic-bezier(0.2, 0.8, 0.2, 1) 0.75s both;
+  }
+
+  .donor-portal-data-resolved {
+    animation: donorPortalDataResolve 0.98s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
+  .donor-portal-icon-resolved {
+    animation: donorPortalResolveSpin 1.35s linear both;
+  }
+
+  .donor-portal-quick-link:focus-visible {
+    outline: 3px solid rgba(47, 100, 153, 0.26);
+    outline-offset: 3px;
+  }
+
+  .donor-portal-update-meta.is-loading .donor-portal-update-icon {
+    animation: donorPortalLoadingSpin 0.9s linear infinite;
+  }
+
+  .donor-portal-update-meta:hover .donor-portal-update-icon-glyph {
+    animation: donorPortalSyncSpin 0.72s ease-in-out;
+  }
+
+  .donor-portal-update-meta:hover .donor-portal-update-text-label {
+    animation: donorPortalUpdateTextLift 0.72s ease-in-out;
+  }
+
+  .donor-portal-update-icon,
+  .donor-portal-update-text {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .donor-portal-update-icon-glyph {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    transform-origin: center;
+  }
+
+  .donor-portal-status-icon-glyph {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    line-height: 1;
+  }
+
+  .donor-portal-status-icon-glyph svg {
+    display: block;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  .donor-portal-status-icon-glyph.is-resolved svg {
+    animation: donorPortalStatusIconFadeIn 0.42s ease-out both;
+  }
+
+  .donor-portal-update-text-label {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .donor-portal-status-card {
+    animation: donorPortalStatusSettle 0.74s cubic-bezier(0.2, 0.8, 0.2, 1) 0.28s both;
+  }
+
+  .donor-portal-status-card:hover {
+    border-color: #f2b84b;
+    box-shadow: 0 18px 30px rgba(10, 29, 45, 0.2);
+    transform: translateY(-2px);
+  }
+
+  .donor-portal-status-card:hover .donor-portal-status-copy {
+    animation: donorPortalStatusCopyLift 0.58s ease-in-out;
+  }
+
+  .donor-portal-status-card:hover .donor-portal-status-icon-glyph {
+    animation: donorPortalStatusShake 0.52s ease-in-out;
+  }
+
+  .donor-portal-card-hover:hover,
+  .donor-portal-card-hover:focus-within {
+    border-color: #b8cff4;
+    box-shadow: 0 12px 24px rgba(23, 50, 77, 0.08);
+    transform: translateY(-2px);
+  }
+
+  .donor-portal-status-card.is-loading .donor-portal-status-icon-glyph svg,
+  .donor-portal-status-loading-icon {
+    animation: donorPortalLoadingSpin 0.9s linear infinite;
+  }
+
+  @keyframes donorPortalSyncSpin {
+    from {
+      transform: rotate(0deg);
+    }
+
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes donorPortalHeroCopyIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes donorPortalQuickLinkIntro {
+    0%,
+    100% {
+      background: #ffffff;
+      border-color: #d8e2ea;
+      color: #17324d;
+      box-shadow: 0 8px 18px rgba(23, 50, 77, 0.045);
+      transform: translateY(0) scale(1);
+    }
+
+    36%,
+    68% {
+      background: var(--quick-link-hover-bg);
+      border-color: var(--quick-link-hover-border);
+      color: var(--quick-link-hover-color);
+      box-shadow: 0 12px 24px var(--quick-link-hover-shadow);
+      transform: translateY(-3px) scale(1.012);
+    }
+  }
+
+  @keyframes donorPortalContentFadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(16px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes donorPortalDataResolve {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes donorPortalStatusIconFadeIn {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes donorPortalResolveSpin {
+    0% {
+      opacity: 0.78;
+      transform: rotate(-180deg) scale(0.96);
+    }
+
+    84% {
+      opacity: 1;
+      transform: rotate(0deg) scale(1);
+    }
+
+    100% {
+      opacity: 1;
+      transform: rotate(0deg) scale(1);
+    }
+  }
+
+  @keyframes donorPortalUpdateTextLift {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+
+    42% {
+      transform: translateY(-2px);
+    }
+
+    68% {
+      transform: translateY(1px);
+    }
+  }
+
+  @keyframes donorPortalStatusSettle {
+    0% {
+      opacity: 0;
+      transform: translateY(10px) scale(0.98);
+    }
+
+    58% {
+      opacity: 1;
+      transform: translateY(-2px) scale(1.01);
+    }
+
+    100% {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @keyframes donorPortalStatusCopyLift {
+    0%,
+    100% {
+      transform: translateY(0) scale(1);
+    }
+
+    28% {
+      transform: translateY(-2px) scale(1.01);
+    }
+
+    58% {
+      transform: translateY(1px) scale(1);
+    }
+  }
+
+  @keyframes donorPortalStatusShake {
+    0%,
+    100% {
+      transform: translateX(0) rotate(0deg);
+    }
+
+    22% {
+      transform: translateX(-1px) rotate(-5deg);
+    }
+
+    46% {
+      transform: translateX(2px) rotate(4deg);
+    }
+
+    70% {
+      transform: translateX(-1px) rotate(-2deg);
+    }
+  }
+
+  @keyframes donorPortalLoadingSpin {
+    from {
+      transform: rotate(0deg);
+    }
+
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .donor-portal-header-action:hover {
+    background: #fff3d2;
+    border-color: #f2b84b;
+    transform: translateY(-1px);
+  }
+
+  .donor-portal-brand-link:hover {
+    opacity: 0.84;
+  }
+
+  .portal-footer-contact-link:hover {
     color: #ffffff;
     transform: translateX(3px);
     text-decoration: underline;
   }
 
-  .portal-footer-contact-link:hover {
-    color: #ffffff;
-    transform: translateX(2px);
-    text-decoration: underline;
+  .donor-portal-brand-link:focus-visible,
+  .donor-portal-header-action:focus-visible {
+    outline: 3px solid rgba(47, 100, 153, 0.28);
+    outline-offset: 3px;
   }
 
-  .portal-footer-action:hover:not(:disabled) {
-    background: #eaf3fb;
-    transform: translateY(-1px);
-  }
-
-  .portal-footer-link:focus-visible,
-  .portal-footer-contact-link:focus-visible,
-  .portal-footer-action:focus-visible {
+  .portal-footer-contact-link:focus-visible {
     outline: 3px solid rgba(255, 255, 255, 0.42);
     outline-offset: 3px;
   }
 
   @media (max-width: 1180px) {
-    .portal-footer-grid {
+    .donor-portal-hero {
+      padding: 42px 34px !important;
+    }
+
+    .donor-portal-hero-title {
+      font-size: 40px !important;
+    }
+
+    .donor-portal-quick-links {
       grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+
+    .portal-footer-grid {
+      grid-template-columns: 1fr !important;
       column-gap: 24px !important;
     }
 
+    .portal-footer-contact {
+      padding-left: 0 !important;
+      border-left: none !important;
+      padding-top: 16px !important;
+      border-top: 1px solid rgba(255, 255, 255, 0.14) !important;
+    }
+
     .portal-footer-coordination-pair {
-      grid-template-columns: 1fr !important;
-      gap: 13px !important;
+      grid-template-columns: max-content max-content minmax(0, 300px) !important;
+      column-gap: 48px !important;
+      row-gap: 13px !important;
     }
 
   }
 
+  @media (prefers-reduced-motion: reduce) {
+    .donor-portal-quick-link,
+    .donor-portal-quick-link:hover,
+    .donor-portal-quick-link.is-hovered-quick-link,
+    .donor-portal-card-hover,
+    .donor-portal-content-stack,
+    .donor-portal-data-resolved,
+    .donor-portal-icon-resolved,
+    .donor-portal-hero-eyebrow,
+    .donor-portal-hero-title,
+    .donor-portal-hero-subtitle,
+    .donor-portal-status-card,
+    .donor-portal-status-card:hover .donor-portal-status-copy,
+    .donor-portal-status-card:hover .donor-portal-status-icon-glyph,
+    .donor-portal-status-card.is-loading .donor-portal-status-icon-glyph svg,
+    .donor-portal-status-icon-glyph.is-resolved svg,
+    .donor-portal-status-loading-icon,
+    .donor-portal-update-meta.is-loading .donor-portal-update-icon,
+    .donor-portal-update-meta:hover .donor-portal-update-icon-glyph,
+    .donor-portal-update-meta:hover .donor-portal-update-text-label {
+      animation: none;
+    }
+
+    .donor-portal-card-hover,
+    .donor-portal-card-hover:hover,
+    .donor-portal-card-hover:focus-within {
+      transition: none;
+      transform: none;
+    }
+  }
+
   @media (max-width: 640px) {
+    .donor-portal-page {
+      padding: 0 !important;
+    }
+
+    .donor-portal-page-inner {
+      padding-left: 14px !important;
+      padding-right: 14px !important;
+    }
+
+    .donor-portal-header-shell {
+      margin-bottom: 16px !important;
+    }
+
+    .donor-portal-anchor-target {
+      scroll-margin-top: 170px;
+    }
+
+    .donor-portal-topbar {
+      align-items: flex-start !important;
+      padding: 14px !important;
+    }
+
+    .donor-portal-topbar-actions {
+      width: 100% !important;
+      justify-content: space-between !important;
+    }
+
+    .portal-footer-brand {
+      align-items: flex-start !important;
+      flex-direction: column !important;
+    }
+
+    .donor-portal-hero {
+      min-height: auto !important;
+      padding: 22px !important;
+    }
+
+    .donor-portal-hero-title {
+      font-size: 30px !important;
+    }
+
+    .donor-portal-update-meta {
+      width: 100% !important;
+      margin-left: 0 !important;
+      white-space: normal !important;
+    }
+
+    .donor-portal-quick-links {
+      grid-template-columns: 1fr !important;
+    }
+
     .donor-event-stats-grid {
       grid-template-columns: 1fr !important;
+    }
+
+    .donor-event-details-summary {
+      grid-template-columns: 1fr !important;
+    }
+
+    .donor-event-barangay-badge {
+      width: fit-content !important;
     }
 
     .recent-donation-grid {
@@ -886,6 +1804,10 @@ const portalFooterCss = `
       grid-template-columns: 1fr !important;
     }
 
+  }
+
+  details[open] .donor-event-barangay-badge {
+    display: none !important;
   }
 `;
 
@@ -975,45 +1897,75 @@ const getEventFallbackTime = (event) => {
   );
 };
 
-const getRecentActiveEvents = (events) => {
+const isActiveDisasterStatus = (status) => {
+  const normalizedStatus = String(status || "").toUpperCase();
+
+  return normalizedStatus === "ACTIVE" || normalizedStatus === "ONGOING";
+};
+
+const isCurrentActiveDisasterEvent = (event, todayTime) => {
+  const startTime = getDateOnlyTime(event?.start_date);
+  const endTime = getDateOnlyTime(event?.end_date);
+
+  return (
+    isActiveDisasterStatus(event?.status) &&
+    (startTime === null || startTime <= todayTime) &&
+    (endTime === null || endTime >= todayTime)
+  );
+};
+
+const sortDisasterEventsByRecency = (left, right) => {
+  const leftStartTime = getDateOnlyTime(left.start_date);
+  const rightStartTime = getDateOnlyTime(right.start_date);
+
+  if (leftStartTime !== rightStartTime) {
+    if (leftStartTime === null) {
+      return 1;
+    }
+
+    if (rightStartTime === null) {
+      return -1;
+    }
+
+    return rightStartTime - leftStartTime;
+  }
+
+  return getEventFallbackTime(right) - getEventFallbackTime(left);
+};
+
+const getActiveDisasterEventsForPortal = (events) => {
   const today = new Date();
   const todayTime = new Date(
     today.getFullYear(),
     today.getMonth(),
     today.getDate(),
   ).getTime();
+  const disasterEvents = [...(events || [])];
+  const currentActiveEvents = disasterEvents
+    .filter((event) => isCurrentActiveDisasterEvent(event, todayTime))
+    .sort(sortDisasterEventsByRecency);
 
-  return [...(events || [])]
-    .filter((event) => {
-      const status = String(event?.status || "").toUpperCase();
-      const startTime = getDateOnlyTime(event?.start_date);
-      const endTime = getDateOnlyTime(event?.end_date);
+  if (currentActiveEvents.length > 0) {
+    return {
+      events: currentActiveEvents,
+      isShowingRecentFallback: false,
+    };
+  }
 
-      return (
-        (status === "ACTIVE" || status === "ONGOING") &&
-        (startTime === null || startTime <= todayTime) &&
-        (endTime === null || endTime >= todayTime)
-      );
-    })
-    .sort((left, right) => {
-      const leftStartTime = getDateOnlyTime(left.start_date);
-      const rightStartTime = getDateOnlyTime(right.start_date);
+  return {
+    events: disasterEvents
+      .filter((event) => {
+        const startTime = getDateOnlyTime(event?.start_date);
 
-      if (leftStartTime !== rightStartTime) {
-        if (leftStartTime === null) {
-          return 1;
-        }
-
-        if (rightStartTime === null) {
-          return -1;
-        }
-
-        return rightStartTime - leftStartTime;
-      }
-
-      return getEventFallbackTime(right) - getEventFallbackTime(left);
-    })
-    .slice(0, 3);
+        return (
+          isActiveDisasterStatus(event?.status) &&
+          (startTime === null || startTime <= todayTime)
+        );
+      })
+      .sort(sortDisasterEventsByRecency)
+      .slice(0, 3),
+    isShowingRecentFallback: true,
+  };
 };
 
 const getPriorityMeta = (priorityLevel) =>
@@ -1097,13 +2049,27 @@ const groupSuggestionsByPriority = (suggestions) =>
     return groups;
   }, {});
 
+const NEEDED_ITEMS_COPY_OVERRIDES = {
+  "Suggested donation quantities are generated using the system's forecasting module based on disaster impact, affected population, historical relief distribution, and inventory data. These values are recommendations only and may change when a new forecast is generated.":
+    "Forecasted quantities are estimates and may change after new updates.",
+  "Displayed forecasted quantities are recommendations only and may change as disaster conditions, affected population, distribution activity, and inventory levels are updated.":
+    "Forecasted quantities are estimates and may change after new updates.",
+  "These recommendations are based on the municipality's standard disaster preparedness guidelines while operational data is still being collected.":
+    "Based on Malvar's standard disaster preparedness guidelines.",
+  "These items are preparedness recommendations, not forecast quantities. They help donors identify commonly needed relief goods before enough operational data is available for forecasting.":
+    "Preparedness guide only; actual needs may change as operations update.",
+};
+
+const normalizeNeededItemsCopy = (text) =>
+  NEEDED_ITEMS_COPY_OVERRIDES[text] || text;
+
 const DEFAULT_NEEDED_ITEMS_META = {
   source_type: "EMPTY",
   title: "Emergency Donation Needs",
   description:
-    "Donation recommendations will appear when preparedness defaults, published needs, or forecast results are available.",
+    "Common relief goods recommended for emergency preparedness.",
   notice:
-    "No public donation suggestions are available yet for the active relief operations.",
+    "Actual needs may change as relief operations update.",
   suggestions: [],
 };
 
@@ -1112,8 +2078,12 @@ const normalizeNeededItemsPayload = (payload) => {
     return {
       source_type: payload.source_type || DEFAULT_NEEDED_ITEMS_META.source_type,
       title: payload.title || DEFAULT_NEEDED_ITEMS_META.title,
-      description: payload.description || DEFAULT_NEEDED_ITEMS_META.description,
-      notice: payload.notice || DEFAULT_NEEDED_ITEMS_META.notice,
+      description: normalizeNeededItemsCopy(
+        payload.description || DEFAULT_NEEDED_ITEMS_META.description,
+      ),
+      notice: normalizeNeededItemsCopy(
+        payload.notice || DEFAULT_NEEDED_ITEMS_META.notice,
+      ),
       suggestions: Array.isArray(payload.suggestions) ? payload.suggestions : [],
     };
   }
@@ -1121,75 +2091,191 @@ const normalizeNeededItemsPayload = (payload) => {
   return DEFAULT_NEEDED_ITEMS_META;
 };
 
-const TopBar = () => (
-  <header style={styles.topBar}>
-    <div style={styles.brandWrap}>
-      <img src={distyncLogo} alt="DISTYNC logo" style={styles.brandLogo} />
-      <div>
-        <p style={styles.brandTitle}>DISTYNC</p>
-        <p style={styles.brandSubtitle}>Disaster Relief Management</p>
-      </div>
-    </div>
+const getGmailComposeUrl = (email) =>
+  email ? `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}` : "";
 
-    <p style={styles.portalLabel}>Donor & NGO Public Portal</p>
-  </header>
-);
+const getPhoneHref = (phone) =>
+  phone ? `tel:${phone.replace(/[^\d+]/g, "")}` : "";
 
-const HeroSection = ({ activeEvents, lastUpdatedAt }) => {
-  const activeEventCount = (activeEvents || []).length;
-  const hasActiveEvents = activeEventCount > 0;
+const TopBar = ({ publicContactConfig }) => {
+  const contactConfig = publicContactConfig || DEFAULT_PUBLIC_CONTACT_CONFIG;
+  const dropOffConfig =
+    contactConfig.drop_off || DEFAULT_PUBLIC_CONTACT_CONFIG.drop_off;
+  const entryRoute = getEntryRouteForMode(getAccessMode());
+  const contactLinks = [
+    {
+      label: `Call ${dropOffConfig.phone || "the donation coordination desk"}`,
+      href: getPhoneHref(dropOffConfig.phone),
+      Icon: FaPhoneAlt,
+      color: COLORS.logoSyncLight,
+    },
+    {
+      label: `Email ${dropOffConfig.email || "the donation coordination desk"}`,
+      href: getGmailComposeUrl(dropOffConfig.email),
+      Icon: FaEnvelope,
+      color: COLORS.logoSyncMid,
+      opensNewTab: true,
+    },
+    {
+      label: "Open Malvar LGU website",
+      href: contactConfig.website_url || LGU_CONTACT.websiteUrl,
+      Icon: FaGlobeAsia,
+      color: COLORS.logoSyncDeep,
+      opensNewTab: true,
+    },
+    {
+      label: "Open Malvar LGU Facebook page",
+      href: contactConfig.facebook_url || LGU_CONTACT.facebookUrl,
+      Icon: FaFacebookF,
+      color: COLORS.logoSyncDark,
+      opensNewTab: true,
+    },
+  ].filter((link) => link.href);
 
   return (
-    <section style={styles.hero} aria-labelledby="donor-hero-title">
+    <div className="donor-portal-header-shell" style={styles.headerShell}>
+      <header className="donor-portal-topbar" style={styles.topBar}>
+        <Link
+          to={entryRoute}
+          className="donor-portal-brand-link"
+          style={styles.brandWrap}
+          aria-label="Return to DISTYNC login page"
+          title="Return to DISTYNC login page"
+        >
+          <img src={distyncLogoCropped} alt="DISTYNC logo" style={styles.brandLogo} />
+          <div>
+            <p style={styles.brandTitle}>DISTYNC</p>
+            <p style={styles.brandSubtitle}>Disaster Relief Management</p>
+          </div>
+        </Link>
+
+        <div className="donor-portal-topbar-actions" style={styles.topBarActions}>
+          {contactLinks.map(({ label, href, Icon, color, opensNewTab }) => (
+            <a
+              key={label}
+              href={href}
+              className="donor-portal-header-action"
+              style={{
+                ...styles.headerContactIconLink,
+                "--header-contact-color": color,
+              }}
+              aria-label={label}
+              title={label}
+              target={opensNewTab ? "_blank" : undefined}
+              rel={opensNewTab ? "noopener noreferrer" : undefined}
+            >
+              <Icon size={17} aria-hidden="true" />
+            </a>
+          ))}
+        </div>
+      </header>
+    </div>
+  );
+};
+
+const HeroSection = ({ activeEvents, lastUpdatedAt, isLoading }) => {
+  const activeEventCount = (activeEvents || []).length;
+  const hasActiveEvents = activeEventCount > 0;
+  const updateLabel =
+    isLoading && !lastUpdatedAt
+      ? "Checking latest data..."
+      : `Latest data update: ${formatUpdatedAt(lastUpdatedAt)}`;
+  const statusValue = isLoading
+    ? (
+        <span style={styles.asideLoadingValue}>
+          <FiRefreshCw
+            className="donor-portal-status-loading-icon"
+            size={20}
+            aria-hidden="true"
+          />
+          Updating
+        </span>
+      )
+    : hasActiveEvents
+      ? formatNumber(activeEventCount)
+      : "Monitoring";
+  const StatusIcon = isLoading ? FiRefreshCw : FiAlertTriangle;
+
+  return (
+    <section
+      className="donor-portal-hero"
+      style={styles.hero}
+      aria-labelledby="donor-hero-title"
+    >
       <div style={styles.heroGrid} className="donor-portal-layout">
-        <div>
-          <p style={styles.eyebrow}>Public In-Kind Donation Information</p>
-          <h1 id="donor-hero-title" style={styles.title}>
+        <div style={styles.heroContent}>
+          <p className="donor-portal-hero-eyebrow" style={styles.eyebrow}>
+            Public In-Kind Donation Information
+          </p>
+          <h1
+            id="donor-hero-title"
+            className="donor-portal-hero-title"
+            style={styles.title}
+          >
             Support Malvar Disaster Relief Operations
           </h1>
-          <p style={styles.subtitle}>
-            Donors and NGOs can use this page to identify current in-kind
-            donation needs, review the active relief operation, and coordinate
-            support with official municipal contact channels.
+          <p className="donor-portal-hero-subtitle" style={styles.subtitle}>
+            View current needs, active operations, and official drop-off details.
           </p>
-          <div style={styles.notice} role="note">
-            <FiInfo size={18} color={COLORS.warning} aria-hidden="true" />
-            <span>
-              Displayed forecasted quantities are recommendations only and may
-              change as disaster conditions, affected population, distribution
-              activity, and inventory levels are updated.
+          <p
+            className={`donor-portal-update-meta${isLoading ? " is-loading" : ""}`}
+            style={styles.updateBadge}
+            title="Latest data update"
+          >
+            <span
+              key={isLoading ? "update-icon-loading" : "update-icon-ready"}
+              className={`donor-portal-update-icon${
+                !isLoading ? " donor-portal-icon-resolved" : ""
+              }`}
+              style={styles.updateIcon}
+              aria-hidden="true"
+            >
+              <span className="donor-portal-update-icon-glyph">
+                <FiRefreshCw size={15} />
+              </span>
             </span>
-          </div>
+            <span
+              key={isLoading ? "checking-latest-data" : "latest-data-ready"}
+              className={`donor-portal-update-text${
+                !isLoading ? " donor-portal-data-resolved" : ""
+              }`}
+            >
+              <span className="donor-portal-update-text-label">
+                {updateLabel}
+              </span>
+            </span>
+          </p>
         </div>
 
-        <aside style={styles.heroAside} aria-label="Current portal status">
-          <p style={styles.asideLabel}>Current Relief Operations</p>
-          <p style={styles.asideValue}>
-            {hasActiveEvents ? formatNumber(activeEventCount) : "Monitoring"}
-          </p>
-          <p style={styles.sectionText}>
-            {hasActiveEvents
-              ? `${activeEventCount} active relief operation${
-                  activeEventCount === 1 ? "" : "s"
-                } currently shown.`
-              : "There is currently no active disaster relief operation."}
-          </p>
+        <aside
+          className={`donor-portal-status-card${isLoading ? " is-loading" : ""}`}
+          style={styles.heroAside}
+          aria-label={isLoading ? "Current portal status loading" : "Current portal status"}
+          aria-busy={isLoading ? "true" : undefined}
+        >
+          <div className="donor-portal-status-copy" style={styles.asideHeader}>
+            <p style={styles.asideLabel}>Current Relief Operations</p>
+            <p
+              key={isLoading ? "status-loading" : "status-ready"}
+              className={!isLoading ? "donor-portal-data-resolved" : undefined}
+              style={styles.asideValue}
+            >
+              {statusValue}
+            </p>
+          </div>
           <span
-            style={{
-              ...styles.badge,
-              width: "fit-content",
-              background: hasActiveEvents
-                ? COLORS.dangerSoft
-                : COLORS.successSoft,
-              color: hasActiveEvents ? COLORS.danger : COLORS.success,
-            }}
+            key={isLoading ? "status-icon-loading" : "status-icon-ready"}
+            className="donor-portal-status-icon"
+            style={styles.asideIcon}
+            aria-hidden="true"
           >
-            {hasActiveEvents ? (
-              <FiAlertCircle size={15} />
-            ) : (
-              <FiCheckCircle size={15} />
-            )}
-            Updated {formatUpdatedAt(lastUpdatedAt)}
+            <span
+              className={`donor-portal-status-icon-glyph${
+                !isLoading ? " is-resolved" : ""
+              }`}
+            >
+              <StatusIcon size={28} />
+            </span>
           </span>
         </aside>
       </div>
@@ -1197,12 +2283,151 @@ const HeroSection = ({ activeEvents, lastUpdatedAt }) => {
   );
 };
 
-const ActiveDisastersSection = ({ events }) => {
+const QuickLinksSection = () => {
+  const introTimeoutRef = useRef(null);
+  const [hoveredQuickLinkIndex, setHoveredQuickLinkIndex] = useState(null);
+  const [isIntroActive, setIsIntroActive] = useState(true);
+  const quickLinks = [
+    {
+      href: "#needed-items-title",
+      label: "Needed Items",
+      icon: <FiPackage size={18} aria-hidden="true" />,
+      hoverBg: "#cfe0ff",
+      hoverBorder: "#a8c4f4",
+      hoverColor: "#17324d",
+      hoverShadow: "rgba(76, 134, 190, 0.16)",
+      hoverTextShadow: "rgba(255, 255, 255, 0.45)",
+    },
+    {
+      href: "#active-event-title",
+      label: "Active Operations",
+      icon: <FiAlertCircle size={18} aria-hidden="true" />,
+      hoverBg: "#b9d3f5",
+      hoverBorder: "#8fb5e5",
+      hoverColor: "#17324d",
+      hoverShadow: "rgba(76, 112, 160, 0.18)",
+      hoverTextShadow: "rgba(255, 255, 255, 0.36)",
+    },
+    {
+      href: "#transparency-title",
+      label: "Transparency",
+      icon: <FiBarChart2 size={18} aria-hidden="true" />,
+      hoverBg: "#a9c3e8",
+      hoverBorder: "#7fa3d2",
+      hoverColor: "#17324d",
+      hoverShadow: "rgba(57, 82, 120, 0.2)",
+      hoverTextShadow: "rgba(255, 255, 255, 0.3)",
+    },
+    {
+      href: "#footer-about-title",
+      label: "About DISTYNC",
+      icon: (
+        <span style={styles.quickLinkLogoFrame} aria-hidden="true">
+          <img src={distyncLogoCropped} alt="" style={styles.quickLinkLogo} />
+        </span>
+      ),
+      hoverBg: "#8fa7ca",
+      hoverBorder: "#6f89b0",
+      hoverColor: "#ffffff",
+      hoverShadow: "rgba(34, 48, 72, 0.22)",
+      hoverTextShadow: "rgba(20, 35, 55, 0.24)",
+    },
+  ];
+
+  useEffect(() => {
+    return () => {
+      if (introTimeoutRef.current) {
+        clearTimeout(introTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    introTimeoutRef.current = window.setTimeout(() => {
+      setIsIntroActive(false);
+      introTimeoutRef.current = null;
+    }, quickLinks.length * 140 + 900);
+  }, [quickLinks.length]);
+
+  const handleQuickLinkPointerEnter = (index) => {
+    if (introTimeoutRef.current) {
+      clearTimeout(introTimeoutRef.current);
+      introTimeoutRef.current = null;
+    }
+
+    setIsIntroActive(false);
+    setHoveredQuickLinkIndex(index);
+  };
+
+  const clearHoveredQuickLink = () => {
+    setHoveredQuickLinkIndex(null);
+  };
+
+  const handleQuickLinkClick = (event, href) => {
+    const target = document.querySelector(href);
+
+    if (!target) {
+      return;
+    }
+
+    event.preventDefault();
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.history.pushState(null, "", href);
+  };
+
+  return (
+    <nav aria-label="Donor portal sections">
+      <div
+        className="donor-portal-quick-links"
+        onPointerLeave={clearHoveredQuickLink}
+        style={styles.quickLinkGrid}
+      >
+        {quickLinks.map((link, index) => (
+          <a
+            key={link.href}
+            href={link.href}
+            className={`donor-portal-quick-link${
+              isIntroActive ? " is-intro-quick-link" : ""
+            }${
+              hoveredQuickLinkIndex === index
+                ? " is-hovered-quick-link"
+                : ""
+            }`}
+            onClick={(event) => handleQuickLinkClick(event, link.href)}
+            onPointerEnter={() => handleQuickLinkPointerEnter(index)}
+            style={{
+              ...styles.quickLink,
+              "--quick-link-intro-delay": `${index * 140 + 160}ms`,
+              "--quick-link-hover-bg": link.hoverBg,
+              "--quick-link-hover-border": link.hoverBorder,
+              "--quick-link-hover-color": link.hoverColor,
+              "--quick-link-hover-shadow": link.hoverShadow,
+              "--quick-link-hover-text-shadow": link.hoverTextShadow,
+            }}
+          >
+            <span>{link.label}</span>
+            {link.icon}
+          </a>
+        ))}
+      </div>
+    </nav>
+  );
+};
+
+const ActiveDisastersSection = ({ events, isShowingRecentFallback }) => {
+  const sectionTitle = isShowingRecentFallback
+    ? "Recent Active Disaster Relief Operations"
+    : "Active Disaster Relief Operations";
+
   if (!events.length) {
     return (
       <section style={styles.section} aria-labelledby="active-event-title">
-        <h2 id="active-event-title" style={styles.sectionTitle}>
-          Recent Active Disaster Relief Operations
+        <h2
+          id="active-event-title"
+          className="donor-portal-anchor-target"
+          style={styles.sectionTitle}
+        >
+          {sectionTitle}
         </h2>
         <div style={{ ...styles.emptyState, marginTop: "14px" }}>
           <FiCheckCircle size={20} color={COLORS.success} aria-hidden="true" />
@@ -1216,27 +2441,35 @@ const ActiveDisastersSection = ({ events }) => {
     <section style={styles.section} aria-labelledby="active-event-title">
       <div style={styles.sectionHeader}>
         <div>
-          <h2 id="active-event-title" style={styles.sectionTitle}>
-            Recent Active Disaster Relief Operations
+          <h2
+            id="active-event-title"
+            className="donor-portal-anchor-target"
+            style={styles.sectionTitle}
+          >
+            {sectionTitle}
           </h2>
-          <p style={styles.sectionText}>
-            Public information for up to three current active relief operations.
-          </p>
         </div>
       </div>
 
       <div style={styles.eventCardsGrid}>
-        {events.map((event) => {
+        {events.map((event, eventIndex) => {
           const barangays = Array.isArray(event.affected_barangays)
             ? event.affected_barangays
             : [];
+          const barangayCount =
+            barangays.length || Number(event.affected_barangays_count || 0);
 
           return (
-            <article
+            <details
               key={event.public_key || event.event_code || event.title}
-              style={styles.eventCard}
+              style={styles.eventDetails}
+              open={events.length === 1}
+              className="donor-portal-card-hover"
             >
-              <div style={styles.eventCardHeader}>
+              <summary
+                className="donor-event-details-summary"
+                style={styles.eventDetailsSummary}
+              >
                 <div>
                   <h3 style={styles.eventCardTitle}>
                     {event.title || "Active disaster relief operation"}
@@ -1247,83 +2480,103 @@ const ActiveDisastersSection = ({ events }) => {
                   </p>
                 </div>
                 <span
-                  style={{
-                    ...styles.badge,
-                    padding: "6px 9px",
-                    background: COLORS.dangerSoft,
-                    color: COLORS.danger,
-                  }}
+                  className="donor-event-barangay-badge"
+                  style={styles.eventBarangayBadge}
                 >
-                  {formatStatusLabel(event.status)}
+                  <FaMapMarkedAlt size={14} aria-hidden="true" />
+                  {formatNumber(barangayCount)} barangay
+                  {barangayCount === 1 ? "" : "s"}
                 </span>
-              </div>
+                <span
+                  className="donor-portal-disclosure-indicator"
+                  style={styles.disclosureIndicator}
+                  aria-hidden="true"
+                >
+                  <FiChevronDown size={16} />
+                </span>
+              </summary>
 
-              <p style={styles.eventDescription}>
-                {event.description ||
-                  "No public description has been recorded yet."}
-              </p>
+              <div style={styles.eventDetailsBody}>
+                <div
+                  className="donor-event-stats-grid"
+                  style={styles.eventStatsGrid}
+                >
+                  <div style={styles.eventStat}>
+                    <div>
+                      <span style={styles.label}>Areas</span>
+                      <p style={styles.eventStatValue}>
+                        {formatNumber(event.affected_barangays_count)}
+                      </p>
+                      <p style={styles.eventStatLabel}>Barangays</p>
+                    </div>
+                    <span style={styles.eventStatIcon} aria-hidden="true">
+                      <FaMapMarkedAlt size={30} style={styles.eventStatIconMain} />
+                    </span>
+                  </div>
+                  <div style={styles.eventStat}>
+                    <div>
+                      <span style={styles.label}>Families</span>
+                      <p style={styles.eventStatValue}>
+                        {formatNumber(event.registered_households_count)}
+                      </p>
+                      <p style={styles.eventStatLabel}>Households</p>
+                    </div>
+                    <span style={styles.eventStatIcon} aria-hidden="true">
+                      <FaHomeSolid size={30} style={styles.eventStatIconMain} />
+                    </span>
+                  </div>
+                  <div style={styles.eventStat}>
+                    <div>
+                      <span style={styles.label}>Individuals</span>
+                      <p style={styles.eventStatValue}>
+                        {formatNumber(event.affected_individuals_count)}
+                      </p>
+                      <p style={styles.eventStatLabel}>People</p>
+                    </div>
+                    <span style={styles.eventStatIcon} aria-hidden="true">
+                      <FaUsersSolid size={30} style={styles.eventStatIconMain} />
+                    </span>
+                  </div>
+                </div>
 
-              <div
-                className="donor-event-stats-grid"
-                style={styles.eventStatsGrid}
-              >
-                <div style={styles.eventStat}>
-                  <div style={styles.eventStatTop}>
-                    <FiMapPin size={14} aria-hidden="true" />
-                    <span style={styles.label}>Areas</span>
-                  </div>
-                  <p style={styles.eventStatValue}>
-                    {formatNumber(event.affected_barangays_count)}
-                  </p>
-                  <p style={styles.eventStatLabel}>Barangays</p>
-                </div>
-                <div style={styles.eventStat}>
-                  <div style={styles.eventStatTop}>
-                    <FiHome size={14} aria-hidden="true" />
-                    <span style={styles.label}>Families</span>
-                  </div>
-                  <p style={styles.eventStatValue}>
-                    {formatNumber(event.registered_households_count)}
-                  </p>
-                  <p style={styles.eventStatLabel}>Households</p>
-                </div>
-                <div style={styles.eventStat}>
-                  <div style={styles.eventStatTop}>
-                    <FiUsers size={14} aria-hidden="true" />
-                    <span style={styles.label}>Individuals</span>
-                  </div>
-                  <p style={styles.eventStatValue}>
-                    {formatNumber(event.affected_individuals_count)}
-                  </p>
-                  <p style={styles.eventStatLabel}>People</p>
-                </div>
-              </div>
-
-              <div>
-                <p style={styles.label}>Affected Barangays</p>
-                {barangays.length === 0 ? (
-                  <p style={{ ...styles.sectionText, marginTop: "8px" }}>
-                    No affected barangay is recorded for this operation.
-                  </p>
-                ) : (
-                  <div style={styles.barangayList}>
-                    {barangays.slice(0, 6).map((barangay) => (
-                      <span
-                        key={barangay.public_key || barangay.name}
-                        style={styles.barangayChip}
-                      >
-                        {barangay.name}
+                <div style={styles.barangayPanel}>
+                  <div style={styles.barangayHeader}>
+                    <div style={styles.barangayTitleGroup}>
+                      <span style={styles.barangayTitleIcon} aria-hidden="true">
+                        <FaMapMarkedAlt size={17} />
                       </span>
-                    ))}
-                    {barangays.length > 6 ? (
-                      <span style={styles.barangayChip}>
-                        +{barangays.length - 6} more
+                      <p style={styles.label}>Affected Barangays</p>
+                    </div>
+                    {barangays.length > 0 ? (
+                      <span style={styles.barangayCount}>
+                        <span style={styles.barangayCountValue}>
+                          {formatNumber(barangays.length)}
+                        </span>
+                        <span style={styles.barangayCountLabel}>
+                          barangay{barangays.length === 1 ? "" : "s"}
+                        </span>
                       </span>
                     ) : null}
                   </div>
-                )}
+                  {barangays.length === 0 ? (
+                    <p style={{ ...styles.sectionText, marginTop: "8px" }}>
+                      No affected barangay is recorded for this operation.
+                    </p>
+                  ) : (
+                    <div style={styles.barangayList}>
+                      {barangays.map((barangay) => (
+                        <span
+                          key={barangay.public_key || barangay.name}
+                          style={styles.barangayChip}
+                        >
+                          {barangay.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            </article>
+            </details>
           );
         })}
       </div>
@@ -1337,14 +2590,20 @@ const NeededItemsSection = ({ neededItems }) => {
     () => groupSuggestionsByPriority(suggestions),
     [suggestions],
   );
-  const hasSuggestions = suggestions.length > 0;
   const isForecastSource = neededItems?.source_type === "FORECAST";
+  const isDefaultEmergencySource =
+    neededItems?.source_type === "DEFAULT_EMERGENCY";
+  const hasSuggestions = suggestions.length > 0 || isDefaultEmergencySource;
 
   return (
     <section style={styles.section} aria-labelledby="needed-items-title">
       <div style={styles.sectionHeader}>
         <div>
-          <h2 id="needed-items-title" style={styles.sectionTitle}>
+          <h2
+            id="needed-items-title"
+            className="donor-portal-anchor-target"
+            style={styles.sectionTitle}
+          >
             {neededItems?.title || DEFAULT_NEEDED_ITEMS_META.title}
           </h2>
           <p style={styles.sectionText}>
@@ -1359,15 +2618,6 @@ const NeededItemsSection = ({ neededItems }) => {
           {neededItems?.notice || DEFAULT_NEEDED_ITEMS_META.notice}
         </span>
       </div>
-      {isForecastSource ? (
-        <p style={{ ...styles.sectionText, marginBottom: "14px" }}>
-          Priority is based on the same forecast risk level used by the Office of
-          the Mayor: critical or high-risk items appear as High Priority, medium
-          risk appears as Medium Priority, and lower-risk forecast needs appear
-          as Low Priority.
-        </p>
-      ) : null}
-
       {!hasSuggestions ? (
         <div style={styles.emptyState}>
           <FiInfo size={20} color={COLORS.primary} aria-hidden="true" />
@@ -1379,14 +2629,25 @@ const NeededItemsSection = ({ neededItems }) => {
         <div style={styles.priorityStack}>
           {PRIORITY_GROUPS.map((priorityGroup) => {
             const items = groupedSuggestions[priorityGroup.key] || [];
+            const defaultPriorityItems =
+              isDefaultEmergencySource || (isForecastSource && items.length === 0)
+              ? DEFAULT_DONATION_GROUPS_BY_PRIORITY[priorityGroup.key]
+              : null;
+            const displayedItemCount = defaultPriorityItems
+              ? defaultPriorityItems.length
+              : items.length;
 
             return (
               <details
                 key={priorityGroup.key}
                 style={styles.details}
-                open={priorityGroup.key !== "LOW"}
+                open={priorityGroup.key === "HIGH"}
+                className="donor-portal-card-hover"
               >
-                <summary style={styles.detailsSummary}>
+                <summary
+                  className="donor-needed-items-summary"
+                  style={styles.detailsSummary}
+                >
                   <span
                     style={{
                       display: "inline-flex",
@@ -1403,19 +2664,62 @@ const NeededItemsSection = ({ neededItems }) => {
                     />
                     {priorityGroup.title}
                   </span>
-                  <span
-                    style={{
-                      ...styles.badge,
-                      background: priorityGroup.background,
-                      border: `1px solid ${priorityGroup.border}`,
-                      color: priorityGroup.iconColor,
-                    }}
-                  >
-                    {items.length} item{items.length === 1 ? "" : "s"}
+                  <span style={styles.summaryActionGroup}>
+                    <span
+                      style={{
+                        ...styles.badge,
+                        background: priorityGroup.background,
+                        border: `1px solid ${priorityGroup.border}`,
+                        color: priorityGroup.iconColor,
+                      }}
+                    >
+                      {displayedItemCount} item
+                      {displayedItemCount === 1 ? "" : "s"}
+                    </span>
+                    <span
+                      className="donor-portal-disclosure-indicator"
+                      style={styles.disclosureIndicator}
+                      aria-hidden="true"
+                    >
+                      <FiChevronDown size={16} />
+                    </span>
                   </span>
                 </summary>
 
-                {items.length === 0 ? (
+                {defaultPriorityItems ? (
+                  <div style={styles.itemGrid}>
+                    {defaultPriorityItems.map((group) => (
+                      <article key={group.title} style={styles.defaultNeedCard}>
+                        <div style={styles.defaultNeedTitleRow}>
+                          {group.Icon ? (
+                            <span
+                              style={styles.defaultNeedTitleIcon}
+                              aria-hidden="true"
+                            >
+                              <group.Icon size={18} />
+                            </span>
+                          ) : null}
+                          <h3 style={styles.itemTitle}>{group.title}</h3>
+                        </div>
+                        <p style={styles.itemNote}>{group.helper}</p>
+                        <ul style={styles.defaultNeedList}>
+                          {group.items.map((itemName) => (
+                            <li
+                              key={itemName}
+                              style={styles.defaultNeedListItem}
+                            >
+                              <span
+                                style={styles.defaultNeedBullet}
+                                aria-hidden="true"
+                              />
+                              <span>{itemName}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </article>
+                    ))}
+                  </div>
+                ) : items.length === 0 ? (
                   <div style={{ padding: "0 16px 16px" }}>
                     <p style={styles.sectionText}>
                       No {priorityGroup.title.toLowerCase()} suggestions are
@@ -1423,51 +2727,48 @@ const NeededItemsSection = ({ neededItems }) => {
                     </p>
                   </div>
                 ) : (
-                  <div style={styles.itemGrid}>
-                    {items.map((item) => {
-                      const priorityMeta = getPriorityMeta(item.priority_level);
-                      const quantityValue = Number(item.suggested_quantity);
-                      const hasQuantity =
-                        Number.isFinite(quantityValue) && quantityValue > 0;
-
-                      return (
-                        <article
-                          key={item.public_key || item.item_name}
-                          style={{
-                            ...styles.itemCard,
-                            borderColor: priorityMeta.border,
-                            background: priorityMeta.background,
-                          }}
-                        >
-                          <span
+                  <div style={styles.forecastTableWrap}>
+                    <table style={styles.forecastTable}>
+                      <thead>
+                        <tr>
+                          <th style={{ ...styles.th, ...styles.forecastTh }}>
+                            Item
+                          </th>
+                          <th
                             style={{
-                              ...styles.badge,
-                              background: "#fff",
-                              color: priorityMeta.iconColor,
-                              padding: "5px 9px",
+                              ...styles.th,
+                              ...styles.numericCell,
+                              ...styles.forecastTh,
                             }}
                           >
-                            {priorityMeta.badge}
-                          </span>
-                          <h3 style={{ ...styles.itemTitle, marginTop: "12px" }}>
-                            {item.item_name || "Donation item"}
-                          </h3>
-                          <p style={styles.itemQuantity}>
-                            {hasQuantity
-                              ? formatNumber(quantityValue)
-                              : "Preparedness Recommendation"}
-                          </p>
-                          <p style={styles.itemNote}>
-                            {hasQuantity
-                              ? `${item.unit_of_measure || "items"} suggested`
-                              : item.unit_of_measure || "Preparedness item"}
-                          </p>
-                          {item.note ? (
-                            <p style={styles.itemNote}>{item.note}</p>
-                          ) : null}
-                        </article>
-                      );
-                    })}
+                            Needed Quantity
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {items.map((item) => {
+                          const quantityValue = Number(item.suggested_quantity);
+                          const hasQuantity =
+                            Number.isFinite(quantityValue) && quantityValue > 0;
+                          const quantityLabel = hasQuantity
+                            ? `${formatNumber(quantityValue)} ${
+                                item.unit_of_measure || "items"
+                              }`
+                            : item.unit_of_measure || "Needed item";
+
+                          return (
+                            <tr key={item.public_key || item.item_name}>
+                              <td style={{ ...styles.td, ...styles.forecastItemCell }}>
+                                {item.item_name || "Donation item"}
+                              </td>
+                              <td style={{ ...styles.td, ...styles.numericCell }}>
+                                {quantityLabel}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </details>
@@ -1480,45 +2781,59 @@ const NeededItemsSection = ({ neededItems }) => {
 };
 
 const TransparencySection = ({ recentDonations, transparencySummary }) => {
+  const displayedRecentDonations = HIDE_TRANSPARENCY_DATA_FOR_DESIGN_PREVIEW
+    ? []
+    : recentDonations || [];
+  const displayedTransparencySummary = HIDE_TRANSPARENCY_DATA_FOR_DESIGN_PREVIEW
+    ? {
+        total_donations_received: 0,
+        total_quantity_received: 0,
+      }
+    : transparencySummary || {};
+
   return (
     <section style={styles.section} aria-labelledby="transparency-title">
       <div style={styles.sectionHeader}>
         <div>
-          <h2 id="transparency-title" style={styles.sectionTitle}>
-            Recent Donation Transparency
+          <h2
+            id="transparency-title"
+            className="donor-portal-anchor-target"
+            style={styles.sectionTitle}
+          >
+            Donation Transparency
           </h2>
         </div>
       </div>
 
       <div style={styles.summaryGrid}>
-        <div style={styles.summaryCard}>
+        <div className="donor-portal-card-hover" style={styles.summaryCard}>
           <div style={styles.summaryTop}>
             <p style={styles.label}>Recorded Donations</p>
             <span style={styles.summaryIcon} aria-hidden="true">
-              <FiCheckCircle size={20} />
+              <FaCheckCircleSolid size={18} />
             </span>
           </div>
           <p style={styles.summaryValue}>
-            {formatNumber(transparencySummary?.total_donations_received)}
+            {formatNumber(displayedTransparencySummary.total_donations_received)}
           </p>
         </div>
-        <div style={styles.summaryCard}>
+        <div className="donor-portal-card-hover" style={styles.summaryCard}>
           <div style={styles.summaryTop}>
             <p style={styles.label}>Items Received</p>
             <span style={styles.summaryIcon} aria-hidden="true">
-              <FiPackage size={20} />
+              <FaBoxOpen size={18} />
             </span>
           </div>
           <p style={styles.summaryValue}>
-            {formatNumber(transparencySummary?.total_quantity_received)}
+            {formatNumber(displayedTransparencySummary.total_quantity_received)}
           </p>
         </div>
       </div>
 
       <h3 style={{ ...styles.sectionTitle, fontSize: "18px", marginTop: "18px" }}>
-        Recent Recorded Donations
+        Donation Records
       </h3>
-      {(recentDonations || []).length === 0 ? (
+      {displayedRecentDonations.length === 0 ? (
         <div style={{ ...styles.emptyState, marginTop: "12px" }}>
           <FiInfo size={20} color={COLORS.primary} aria-hidden="true" />
           <span>No public donation records are available yet.</span>
@@ -1528,17 +2843,18 @@ const TransparencySection = ({ recentDonations, transparencySummary }) => {
           className="recent-donation-grid"
           style={{
             ...styles.donationList,
-            ...getRecentDonationGridStyle(recentDonations.length),
+            ...getRecentDonationGridStyle(displayedRecentDonations.length),
             marginTop: "12px",
           }}
         >
-          {recentDonations.map((donation, index) => {
+          {displayedRecentDonations.map((donation, index) => {
             const donationTypeIcons = getDonationTypeIcons(donation);
             const hasStackedIcons = donationTypeIcons.length > 1;
 
             return (
               <article
                 key={donation.public_key || `${donation.donation_date}-${index}`}
+                className="donor-portal-card-hover"
                 style={styles.donationCard}
               >
                 <div style={styles.donationTop}>
@@ -1554,9 +2870,9 @@ const TransparencySection = ({ recentDonations, transparencySummary }) => {
                         }}
                       >
                         {iconType === "relief" ? (
-                          <FiShoppingBag size={hasStackedIcons ? 17 : 20} />
+                          <FaShoppingBag size={hasStackedIcons ? 16 : 18} />
                         ) : (
-                          <FiPackage size={hasStackedIcons ? 17 : 20} />
+                          <FaBoxOpen size={hasStackedIcons ? 16 : 18} />
                         )}
                       </span>
                     ))}
@@ -1587,62 +2903,111 @@ const TransparencySection = ({ recentDonations, transparencySummary }) => {
 };
 
 const DonationUtilizationSection = ({ transparencySummary }) => {
-  const donatedItemRows = transparencySummary?.received_vs_distributed || [];
+  const donatedItemRows = HIDE_UTILIZATION_DATA_FOR_DESIGN_PREVIEW
+    ? []
+    : transparencySummary?.received_vs_distributed || [];
 
   return (
     <section style={styles.section} aria-labelledby="utilization-title">
-      <div style={styles.sectionHeader}>
-        <div>
-          <h2 id="utilization-title" style={styles.sectionTitle}>
-            Donation Utilization
-          </h2>
-          <p style={styles.sectionText}>
-            Remaining reflects available donated inventory after distribution
-            and inventory adjustments.
-          </p>
-        </div>
-      </div>
+      <details open>
+        <summary
+          className="donor-utilization-summary"
+          style={styles.collapsibleSectionSummary}
+        >
+          <div>
+            <h2 id="utilization-title" style={styles.sectionTitle}>
+              Donation Utilization
+            </h2>
+          </div>
+          <span style={styles.summaryActionGroup}>
+            <span
+              style={{
+                ...styles.badge,
+                background: COLORS.softBg,
+                border: `1px solid ${COLORS.border}`,
+                color: COLORS.primaryDark,
+              }}
+            >
+              {formatNumber(donatedItemRows.length)} item
+              {donatedItemRows.length === 1 ? "" : "s"}
+            </span>
+            <span
+              className="donor-portal-disclosure-indicator"
+              style={styles.disclosureIndicator}
+              aria-hidden="true"
+            >
+              <FiChevronDown size={16} />
+            </span>
+          </span>
+        </summary>
 
-      {donatedItemRows.length === 0 ? (
-        <div style={styles.emptyState}>
-          <FiBarChart2 size={20} color={COLORS.primary} aria-hidden="true" />
-          <span>No donated inventory summary is available yet.</span>
+        <div style={styles.collapsibleSectionBody}>
+          {donatedItemRows.length === 0 ? (
+            <div style={styles.emptyState}>
+              <FiBarChart2 size={20} color={COLORS.primary} aria-hidden="true" />
+              <span>No donated inventory summary is available yet.</span>
+            </div>
+          ) : (
+            <div style={styles.tableWrap}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={{ ...styles.th, ...styles.forecastTh }}>Item</th>
+                    <th
+                      style={{
+                        ...styles.th,
+                        ...styles.numericCell,
+                        ...styles.forecastTh,
+                      }}
+                    >
+                      Received
+                    </th>
+                    <th
+                      style={{
+                        ...styles.th,
+                        ...styles.numericCell,
+                        ...styles.forecastTh,
+                      }}
+                    >
+                      Distributed
+                    </th>
+                    <th
+                      style={{
+                        ...styles.th,
+                        ...styles.numericCell,
+                        ...styles.forecastTh,
+                      }}
+                    >
+                      Available
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {donatedItemRows.map((row) => (
+                    <tr key={row.public_key || row.item_name}>
+                      <td style={{ ...styles.td, ...styles.forecastItemCell }}>
+                        {row.item_name || "--"}
+                      </td>
+                      <td style={{ ...styles.td, ...styles.numericCell }}>
+                        {formatNumber(row.quantity_received)}{" "}
+                        {row.unit_of_measure || "items"}
+                      </td>
+                      <td style={{ ...styles.td, ...styles.numericCell }}>
+                        {formatNumber(row.quantity_distributed)}{" "}
+                        {row.unit_of_measure || "items"}
+                      </td>
+                      <td style={{ ...styles.td, ...styles.numericCell }}>
+                        {formatNumber(row.quantity_remaining)}{" "}
+                        {row.unit_of_measure || "items"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
-      ) : (
-        <div style={styles.tableWrap}>
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Item</th>
-                <th style={{ ...styles.th, ...styles.numericCell }}>Received</th>
-                <th style={{ ...styles.th, ...styles.numericCell }}>
-                  Distributed
-                </th>
-                <th style={{ ...styles.th, ...styles.numericCell }}>Available</th>
-              </tr>
-            </thead>
-            <tbody>
-              {donatedItemRows.map((row) => (
-                <tr key={row.public_key || row.item_name}>
-                  <td style={styles.td}>{row.item_name || "--"}</td>
-                  <td style={{ ...styles.td, ...styles.numericCell }}>
-                    {formatNumber(row.quantity_received)}{" "}
-                    {row.unit_of_measure || "items"}
-                  </td>
-                  <td style={{ ...styles.td, ...styles.numericCell }}>
-                    {formatNumber(row.quantity_distributed)}{" "}
-                    {row.unit_of_measure || "items"}
-                  </td>
-                  <td style={{ ...styles.td, ...styles.numericCell }}>
-                    {formatNumber(row.quantity_remaining)}{" "}
-                    {row.unit_of_measure || "items"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      </details>
     </section>
   );
 };
@@ -1654,7 +3019,6 @@ const PortalFooter = ({ publicContactConfig }) => {
     contactConfig.drop_off || DEFAULT_PUBLIC_CONTACT_CONFIG.drop_off;
   const footerInfo = {
     systemName: contactConfig.system_name || LGU_CONTACT.systemName,
-    systemSubtitle: "Disaster Relief Management System",
     municipality: contactConfig.municipality || LGU_CONTACT.municipality,
     buildingName: dropOffConfig.location_name,
     addressLines: Array.isArray(dropOffConfig.address_lines)
@@ -1674,55 +3038,47 @@ const PortalFooter = ({ publicContactConfig }) => {
     facebookLabel: contactConfig.facebook_label || LGU_CONTACT.facebookLabel,
     facebookUrl: contactConfig.facebook_url || LGU_CONTACT.facebookUrl,
   };
-  const footerLinks = [
-    { label: "Active Disaster", href: "#active-event-title" },
-    { label: "Needed Items", href: "#needed-items-title" },
-    { label: "Donation Transparency", href: "#transparency-title" },
-    { label: "Donation Utilization", href: "#utilization-title" },
-    { label: "Drop-off Location", href: "#drop-off-title" },
-  ];
+  const phoneHref = getPhoneHref(footerInfo.phone);
+  const emailHref = getGmailComposeUrl(footerInfo.email);
 
   return (
     <footer style={styles.footer}>
-      <style>{portalFooterCss}</style>
       <div style={styles.footerInner}>
         <div className="portal-footer-grid" style={styles.footerGrid}>
-          <section aria-labelledby="footer-about-title" style={styles.footerColumn}>
-            <h2 id="footer-about-title" style={styles.footerColumnTitle}>
-              About DISTYNC
-            </h2>
-            <div style={styles.footerBrand}>
-              <img src={distyncLogo} alt="DISTYNC logo" style={styles.footerLogo} />
-              <div>
-                <p style={styles.footerTitleText}>
-                  {footerInfo.systemName}
-                </p>
-                <p style={styles.footerSubtitleText}>
-                  {footerInfo.systemSubtitle}
-                </p>
+          <div style={styles.footerPrimaryColumn}>
+            <section aria-labelledby="footer-about-title" style={styles.footerColumn}>
+              <div className="portal-footer-brand" style={styles.footerBrand}>
+                <span style={styles.footerLogoFrame}>
+                  <img src={distyncLogoCropped} alt="DISTYNC logo" style={styles.footerLogo} />
+                </span>
+                <div style={styles.footerBrandCopy}>
+                  <h2
+                    id="footer-about-title"
+                    className="donor-portal-anchor-target"
+                    style={styles.footerColumnTitle}
+                  >
+                    ABOUT
+                  </h2>
+                  <p style={styles.footerSystemLine}>
+                    <span style={styles.footerTitleText}>
+                      {footerInfo.systemName}
+                    </span>
+                  </p>
+                  <p style={styles.footerText}>
+                    A web-based disaster relief management system that integrates evacuee monitoring, relief distribution, inventory management, and data analytics to support coordinated and transparent disaster response.
+                  </p>
+                </div>
               </div>
-            </div>
-            <p style={styles.footerText}>
-              Public in-kind donation portal supporting transparent and coordinated
-              disaster relief operations in Malvar, Batangas.
-            </p>
-          </section>
+            </section>
 
-          <section
-            aria-labelledby="footer-donation-coordination-title"
-            style={styles.footerColumn}
-          >
-            <h2
-              id="footer-donation-coordination-title"
-              style={styles.footerColumnTitle}
+            <section
+              aria-label="Donation coordination details"
+              style={{ ...styles.footerColumn, ...styles.footerCoordinationSection }}
             >
-              Donation Coordination
-            </h2>
-            <div
-              className="portal-footer-coordination-pair"
-              style={styles.footerCoordinationPair}
-            >
-              <div style={styles.footerCoordinationBlock}>
+              <div
+                className="portal-footer-coordination-pair"
+                style={styles.footerCoordinationPair}
+              >
                 <div style={styles.footerDetailGroup}>
                   <p style={styles.footerDetailLabel}>Receiving Office</p>
                   <p style={styles.footerDetailValue}>
@@ -1745,49 +3101,27 @@ const PortalFooter = ({ publicContactConfig }) => {
                     ))}
                   </p>
                 </div>
+                <div style={styles.footerDetailGroup}>
+                  <p id="drop-off-title" style={styles.footerDetailLabel}>
+                    Drop-off Location
+                  </p>
+                  <p style={styles.footerDetailValue}>
+                    {[footerInfo.buildingName, footerInfo.addressLines[0]]
+                      .filter(Boolean)
+                      .join(", ")}
+                    <br />
+                    {footerInfo.addressLines.slice(1).join(", ")}
+                  </p>
+                </div>
               </div>
-              <div style={styles.footerDetailGroup}>
-                <p id="drop-off-title" style={styles.footerDetailLabel}>
-                  Drop-off Location
-                </p>
-                <p style={styles.footerDetailValue}>
-                  {footerInfo.buildingName}
-                  <br />
-                  {footerInfo.addressLines.map((line) => (
-                    <React.Fragment key={line}>
-                      {line}
-                      <br />
-                    </React.Fragment>
-                  ))}
-                </p>
-                {footerInfo.mapsUrl ? (
-                  <a
-                    href={footerInfo.mapsUrl}
-                    className="portal-footer-action"
-                    style={styles.footerAction}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <FiMapPin size={15} aria-hidden="true" />
-                    Get Directions
-                  </a>
-                ) : (
-                  <button
-                    type="button"
-                    className="portal-footer-action"
-                    style={{ ...styles.footerAction, ...styles.footerActionDisabled }}
-                    disabled
-                    aria-disabled="true"
-                  >
-                    <FiMapPin size={15} aria-hidden="true" />
-                    Directions unavailable
-                  </button>
-                )}
-              </div>
-            </div>
-          </section>
+            </section>
+          </div>
 
-          <section aria-labelledby="footer-contact-title" style={styles.footerColumn}>
+          <section
+            aria-labelledby="footer-contact-title"
+            className="portal-footer-contact"
+            style={{ ...styles.footerColumn, ...styles.footerContactColumn }}
+          >
             <h2 id="footer-contact-title" style={styles.footerColumnTitle}>
               Contact Information
             </h2>
@@ -1795,14 +3129,38 @@ const PortalFooter = ({ publicContactConfig }) => {
               aria-label="Contact information"
               style={styles.footerCompactContact}
             >
-              <div style={styles.footerContactRow}>
-                <FiPhone size={14} aria-hidden="true" />
-                <span style={styles.footerContactText}>{footerInfo.phone}</span>
-              </div>
-              <div style={styles.footerContactRow}>
-                <FiMail size={14} aria-hidden="true" />
-                <span style={styles.footerContactText}>{footerInfo.email}</span>
-              </div>
+              {phoneHref ? (
+                <a
+                  href={phoneHref}
+                  className="portal-footer-contact-link"
+                  style={styles.footerContactLink}
+                >
+                  <FiPhone size={14} aria-hidden="true" />
+                  <span style={styles.footerContactText}>{footerInfo.phone}</span>
+                </a>
+              ) : (
+                <div style={styles.footerContactRow}>
+                  <FiPhone size={14} aria-hidden="true" />
+                  <span style={styles.footerContactText}>{footerInfo.phone}</span>
+                </div>
+              )}
+              {emailHref ? (
+                <a
+                  href={emailHref}
+                  className="portal-footer-contact-link"
+                  style={styles.footerContactLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <FiMail size={14} aria-hidden="true" />
+                  <span style={styles.footerContactText}>{footerInfo.email}</span>
+                </a>
+              ) : (
+                <div style={styles.footerContactRow}>
+                  <FiMail size={14} aria-hidden="true" />
+                  <span style={styles.footerContactText}>{footerInfo.email}</span>
+                </div>
+              )}
               {footerInfo.websiteUrl ? (
                 <a
                   href={footerInfo.websiteUrl}
@@ -1825,10 +3183,25 @@ const PortalFooter = ({ publicContactConfig }) => {
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  <FaFacebookF size={14} aria-hidden="true" />
+                  <FiFacebook size={14} aria-hidden="true" />
                   <span style={styles.footerContactText}>
                     {footerInfo.facebookLabel}
                   </span>
+                </a>
+              ) : null}
+              {footerInfo.mapsUrl ? (
+                <a
+                  href={footerInfo.mapsUrl}
+                  className="portal-footer-contact-link"
+                  style={{
+                    ...styles.footerContactLink,
+                    ...styles.footerDirectionsLink,
+                  }}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <FiMapPin size={14} aria-hidden="true" />
+                  <span style={styles.footerContactText}>Get Directions</span>
                 </a>
               ) : null}
             </div>
@@ -1837,31 +3210,21 @@ const PortalFooter = ({ publicContactConfig }) => {
         </div>
       </div>
 
-      <nav
-        aria-label="Footer quick links"
-        style={styles.footerQuickLinksBand}
-      >
-        <div style={styles.footerQuickLinksInner}>
-          <ul style={styles.footerHorizontalLinks}>
-            {footerLinks.map((link) => (
-              <li key={link.href}>
-                <a
-                  href={link.href}
-                  className="portal-footer-link"
-                  style={styles.footerLink}
-                >
-                  {link.label}
-                </a>
-              </li>
-            ))}
-          </ul>
+      <div style={styles.footerTaglineBand}>
+        <div style={styles.footerTaglineInner}>
+          <p style={styles.footerTaglineText}>
+            DISTYNC: A Disaster Relief Management System -{" "}
+            <span style={styles.footerTaglineEmphasis}>
+              Where Relief Stays in Sync and Service Stays Distinct
+            </span>
+          </p>
         </div>
-      </nav>
+      </div>
 
       <div className="portal-footer-bottom" style={styles.footerBottom}>
         <div className="portal-footer-bottom-inner" style={styles.footerBottomInner}>
           <p style={styles.footerBottomText}>
-            © {currentYear} DISTYNC - {footerInfo.municipality}
+            &copy; {currentYear} DISTYNC - {footerInfo.municipality}. Developed by Quadcore Girls.
           </p>
         </div>
       </div>
@@ -1870,22 +3233,36 @@ const PortalFooter = ({ publicContactConfig }) => {
 };
 
 const DonationInformationPage = () => {
-  const navigate = useNavigate();
   const [pageState, setPageState] = useState({
     isLoading: true,
     errorMessage: "",
     activeDisasters: [],
+    isShowingRecentActiveDisasters: false,
     neededItems: DEFAULT_NEEDED_ITEMS_META,
     recentDonations: [],
     transparencySummary: {},
     publicContactConfig: DEFAULT_PUBLIC_CONTACT_CONFIG,
-    lastUpdatedAt: new Date().toISOString(),
+    lastUpdatedAt: null,
   });
 
   useEffect(() => {
     let isMounted = true;
+    const waitForInitialLoadingCue = (startedAt) => {
+      const elapsedMs = Date.now() - startedAt;
+      const remainingMs = PUBLIC_PORTAL_INITIAL_LOADING_MIN_MS - elapsedMs;
+
+      if (remainingMs <= 0) {
+        return Promise.resolve();
+      }
+
+      return new Promise((resolve) => {
+        window.setTimeout(resolve, remainingMs);
+      });
+    };
 
     const loadDonationOverview = async ({ showLoading = false } = {}) => {
+      const loadStartedAt = Date.now();
+
       if (showLoading) {
         setPageState((currentState) => ({
           ...currentState,
@@ -1904,7 +3281,9 @@ const DonationInformationPage = () => {
         const disasterEvents = Array.isArray(publicPortalData?.disaster_events)
           ? publicPortalData.disaster_events
           : [];
-        const recentActiveDisasters = getRecentActiveEvents(disasterEvents);
+        const activeDisasterDisplay =
+          getActiveDisasterEventsForPortal(disasterEvents);
+        const activeDisasters = activeDisasterDisplay.events;
         const forecastSuggestions = Array.isArray(
           publicPortalData?.forecast_suggestions,
         )
@@ -1932,23 +3311,35 @@ const DonationInformationPage = () => {
         const publicContactConfig =
           publicPortalData?.public_contact_config &&
           typeof publicPortalData.public_contact_config === "object"
-            ? publicPortalData.public_contact_config
-            : DEFAULT_PUBLIC_CONTACT_CONFIG;
+          ? publicPortalData.public_contact_config
+          : DEFAULT_PUBLIC_CONTACT_CONFIG;
+
+        if (showLoading) {
+          await waitForInitialLoadingCue(loadStartedAt);
+        }
+
+        if (!isMounted) {
+          return;
+        }
 
         setPageState({
           isLoading: false,
           errorMessage: "",
-          activeDisasters: recentActiveDisasters,
+          activeDisasters,
+          isShowingRecentActiveDisasters:
+            activeDisasterDisplay.isShowingRecentFallback,
           neededItems,
           recentDonations,
           transparencySummary,
           publicContactConfig,
           lastUpdatedAt: getLatestTimestamp([
-            ...recentActiveDisasters.map(
+            ...activeDisasters.map(
               (event) => event.updated_at || event.created_at,
             ),
             ...neededItems.suggestions.map((item) => item.forecasted_at),
-            ...recentDonations.map((donation) => donation.donation_date),
+            ...recentDonations.map(
+              (donation) => donation.updated_at || donation.donation_date,
+            ),
           ]),
         });
       } catch (error) {
@@ -1957,15 +3348,22 @@ const DonationInformationPage = () => {
         }
 
         if (showLoading) {
+          await waitForInitialLoadingCue(loadStartedAt);
+
+          if (!isMounted) {
+            return;
+          }
+
           setPageState({
             isLoading: false,
             errorMessage: error.message || "Failed to load donation information.",
             activeDisasters: [],
+            isShowingRecentActiveDisasters: false,
             neededItems: DEFAULT_NEEDED_ITEMS_META,
             recentDonations: [],
             transparencySummary: {},
             publicContactConfig: DEFAULT_PUBLIC_CONTACT_CONFIG,
-            lastUpdatedAt: new Date().toISOString(),
+            lastUpdatedAt: null,
           });
           return;
         }
@@ -2002,6 +3400,7 @@ const DonationInformationPage = () => {
     isLoading,
     errorMessage,
     activeDisasters,
+    isShowingRecentActiveDisasters,
     neededItems,
     recentDonations,
     transparencySummary,
@@ -2010,19 +3409,16 @@ const DonationInformationPage = () => {
   } = pageState;
 
   return (
-    <main style={styles.page}>
-      <div style={styles.pageInner}>
-        <button
-          type="button"
-          onClick={() => navigate("/access")}
-          style={styles.backButton}
-        >
-          <FiArrowLeft size={16} aria-hidden="true" />
-          Back
-        </button>
-
-        <TopBar />
-        <HeroSection activeEvents={activeDisasters} lastUpdatedAt={lastUpdatedAt} />
+    <main className="donor-portal-page" style={styles.page}>
+      <style>{portalFooterCss}</style>
+      <TopBar publicContactConfig={publicContactConfig} />
+      <div className="donor-portal-page-inner" style={styles.pageInner}>
+        <HeroSection
+          activeEvents={activeDisasters}
+          lastUpdatedAt={lastUpdatedAt}
+          isLoading={isLoading}
+        />
+        <QuickLinksSection />
 
         {isLoading ? (
           <section style={styles.section} aria-live="polite">
@@ -2040,9 +3436,12 @@ const DonationInformationPage = () => {
         ) : null}
 
         {!isLoading && !errorMessage ? (
-          <>
+          <div className="donor-portal-content-stack" style={styles.contentStack}>
             <NeededItemsSection neededItems={neededItems} />
-            <ActiveDisastersSection events={activeDisasters} />
+            <ActiveDisastersSection
+              events={activeDisasters}
+              isShowingRecentFallback={isShowingRecentActiveDisasters}
+            />
             <TransparencySection
               recentDonations={recentDonations}
               transparencySummary={transparencySummary}
@@ -2050,7 +3449,7 @@ const DonationInformationPage = () => {
             <DonationUtilizationSection
               transparencySummary={transparencySummary}
             />
-          </>
+          </div>
         ) : null}
 
       </div>

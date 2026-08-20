@@ -24,6 +24,12 @@ const ANALYTICS_TIMEOUT_MS = Number.parseInt(
   10,
 );
 
+if (process.env.NODE_ENV === "production" && !process.env.ANALYTICS_SERVICE_URL) {
+  throw new Error(
+    "ANALYTICS_SERVICE_URL is required in production so forecasting does not target localhost.",
+  );
+}
+
 const normalizeAnalyticsServiceUrl = (value) => {
   const normalizedValue = String(value || "").trim().replace(/\/+$/, "");
 
@@ -1146,6 +1152,17 @@ const getLatestInventoryForecast = async (disasterEventId) => {
   return mapStoredForecastRun(latestRun, resultRows);
 };
 
+const getLatestInventoryForecastOverall = async () => {
+  const latestRun = await forecastRepository.getLatestForecastRun();
+
+  if (!latestRun) {
+    return null;
+  }
+
+  const resultRows = await forecastRepository.getForecastResultsByRunId(latestRun.id);
+  return mapStoredForecastRun(latestRun, resultRows);
+};
+
 const getInventoryForecastContext = async (disasterEventId) => {
   const disasterEvent = await ensureDisasterEvent(disasterEventId);
   const eventContext = await forecastRepository.getForecastEventContext(
@@ -1252,6 +1269,7 @@ module.exports = {
   LOOKBACK_DAYS,
   runInventoryForecast,
   getLatestInventoryForecast,
+  getLatestInventoryForecastOverall,
   getInventoryForecastContext,
   getAnalyticsServiceHealth,
   getInventoryForecastHistory,

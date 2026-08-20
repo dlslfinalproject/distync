@@ -118,12 +118,14 @@ const InventoryTransactionDetailModal = ({ isOpen, row, onClose }) => {
       closeMode="icon"
       titleStyle={{ fontSize: "30px", fontWeight: 700 }}
       panelStyle={styles.shellPanel}
+      overlayClassName="inventory-tracking-detail-modal-backdrop"
+      panelClassName="inventory-tracking-detail-modal"
     >
-      <div style={{ display: "grid", gap: "20px" }}>
-        <section style={styles.sectionCard}>
+      <div className="inventory-tracking-detail-stack" style={{ display: "grid", gap: "20px" }}>
+        <section className="inventory-tracking-detail-section" style={styles.sectionCard}>
           <h3 style={{ margin: 0, color: "#17324d" }}>Item Information</h3>
 
-          <div style={{ ...styles.grid, marginTop: "16px" }}>
+          <div className="inventory-tracking-detail-grid" style={{ ...styles.grid, marginTop: "16px" }}>
             {itemInformation.map(([label, value]) => (
               <div key={label}>
                 <p style={styles.label}>{label}</p>
@@ -133,10 +135,10 @@ const InventoryTransactionDetailModal = ({ isOpen, row, onClose }) => {
           </div>
         </section>
 
-        <section style={styles.sectionCard}>
+        <section className="inventory-tracking-detail-section" style={styles.sectionCard}>
           <h3 style={{ margin: 0, color: "#17324d" }}>Transaction Information</h3>
 
-          <div style={{ ...styles.grid, marginTop: "16px" }}>
+          <div className="inventory-tracking-detail-grid" style={{ ...styles.grid, marginTop: "16px" }}>
             {transactionInformation.map(([label, value]) => (
               <div key={label}>
                 <p style={styles.label}>{label}</p>
@@ -146,10 +148,10 @@ const InventoryTransactionDetailModal = ({ isOpen, row, onClose }) => {
           </div>
         </section>
 
-        <section style={styles.sectionCard}>
+        <section className="inventory-tracking-detail-section" style={styles.sectionCard}>
           <h3 style={{ margin: 0, color: "#17324d" }}>Additional Information</h3>
 
-          <div style={{ ...styles.grid, marginTop: "16px" }}>
+          <div className="inventory-tracking-detail-grid" style={{ ...styles.grid, marginTop: "16px" }}>
             {additionalInformation.map(([label, value]) => (
               <div key={label}>
                 <p style={styles.label}>{label}</p>

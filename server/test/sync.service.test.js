@@ -2659,6 +2659,63 @@ test("EE-FIX-03 same-ID STUB_CLAIM terminal replay bypasses lifecycle handler", 
   );
 });
 
+test("DEPLOY-MSWDO-RGD-01 MSWDO STUB_CLAIM sync forwards barangay_id without override", async () => {
+  let capturedClaimParams = null;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub(),
+      [stubServicePath]: {
+        claimBarangayStub: async (params) => {
+          capturedClaimParams = params;
+          return {
+            data: {
+              id: params.id,
+              status: "CLAIMED",
+            },
+          };
+        },
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: {
+          ...baseAuth,
+          roleCode: "MSWDO",
+          defaultBarangayId: null,
+        },
+        entries: [
+          {
+            client_sync_id: "deploy-mswdo-rgd-01-stub-claim",
+            action_key: "STUB_CLAIM",
+            entity_type: "STUB",
+            entity_server_id: "22222222-2222-4222-8222-222222222222",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: {
+              barangay_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            },
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "SYNCED");
+    },
+  );
+
+  assert.equal(capturedClaimParams.user_id, null);
+  assert.equal(
+    capturedClaimParams.barangay_id,
+    "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+  );
+  assert.equal(capturedClaimParams.override_barangay_id, null);
+  assert.equal(capturedClaimParams.verified_by, baseAuth.userId);
+});
+
 test("BRG-SC-10-H01 Test A keeps same-stub STUB_CLAIM processing in received order despite inverted client_timestamp", async () => {
   const callOrder = [];
   let conflictPayload;

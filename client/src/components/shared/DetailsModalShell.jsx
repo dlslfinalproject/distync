@@ -34,14 +34,17 @@ const DetailsModalShell = ({
   titleStyle = null,
   closeMode = "button",
   panelStyle = null,
+  overlayClassName,
+  panelClassName,
 }) => {
   if (!isOpen) {
     return null;
   }
 
   return (
-    <div style={overlayStyles}>
+    <div className={overlayClassName} style={overlayStyles}>
       <div
+        className={panelClassName}
         style={{
           ...modalStyles,
           maxWidth,

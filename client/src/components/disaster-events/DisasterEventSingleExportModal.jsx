@@ -90,9 +90,10 @@ const DisasterEventSingleExportModal = ({
   }
 
   return (
-    <div style={overlayStyles}>
-      <div style={modalStyles}>
+    <div className="disaster-event-modal-backdrop" style={overlayStyles}>
+      <div className="disaster-event-single-export-modal" style={modalStyles}>
         <div
+          className="disaster-event-modal-topbar"
           style={{
             display: "flex",
             justifyContent: "space-between",
@@ -101,7 +102,7 @@ const DisasterEventSingleExportModal = ({
             marginBottom: "18px",
           }}
         >
-          <div>
+          <div className="disaster-event-modal-heading">
             <h3 style={titleStyles}>Disaster Event Report</h3>
             <p style={messageStyles}>
               Generate a report for {getEventLabel(eventData)}?
@@ -133,6 +134,7 @@ const DisasterEventSingleExportModal = ({
         </section>
 
         <div
+          className="disaster-event-modal-actions"
           style={{
             display: "flex",
             justifyContent: "flex-end",

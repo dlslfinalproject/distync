@@ -7,13 +7,16 @@ import StatusPill from "../shared/StatusPill";
 const styles = {
   tableWrap: {
     marginTop: "0",
-    overflowX: "hidden",
+    overflowX: "auto",
+    maxWidth: "100%",
+    WebkitOverflowScrolling: "touch",
   },
   table: {
     width: "100%",
     borderCollapse: "collapse",
     background: "transparent",
     tableLayout: "fixed",
+    minWidth: "760px",
   },
   th: {
     textAlign: "center",
@@ -125,13 +128,14 @@ const InventoryItemsTable = ({
   onLogStatus,
 }) => {
   return (
-    <div style={styles.tableWrap}>
-      <table style={styles.table}>
+    <div className="inventory-items-table-scroll" style={styles.tableWrap}>
+      <table className="inventory-items-table" style={styles.table}>
         <thead>
           <tr>
             {tableHeaders.map((header) => (
               <th
                 key={header}
+                className="inventory-items-table-header-cell"
                 style={{
                   ...styles.th,
                   ...(header === "Item Name" ? styles.leftCell : null),
@@ -148,13 +152,18 @@ const InventoryItemsTable = ({
         <tbody>
           {isLoading ? (
             <tr>
-              <td colSpan="7" style={styles.emptyStateCell}>
+              <td
+                className="inventory-items-empty-state-cell"
+                colSpan="7"
+                style={styles.emptyStateCell}
+              >
                 Loading inventory items...
               </td>
             </tr>
           ) : errorMessage ? (
             <tr>
               <td
+                className="inventory-items-empty-state-cell"
                 colSpan="7"
                 style={{ ...styles.emptyStateCell, color: "#b91c1c" }}
               >
@@ -163,7 +172,11 @@ const InventoryItemsTable = ({
             </tr>
           ) : rows.length === 0 ? (
             <tr>
-              <td colSpan="7" style={styles.emptyStateCell}>
+              <td
+                className="inventory-items-empty-state-cell"
+                colSpan="7"
+                style={styles.emptyStateCell}
+              >
                 No inventory items found
               </td>
             </tr>
@@ -183,19 +196,37 @@ const InventoryItemsTable = ({
                 "Unnamed Item";
 
               return (
-                <tr key={item.id || index}>
-                  <td style={{ ...styles.td, ...styles.leftCell }}>
+                <tr className="inventory-items-table-row" key={item.id || index}>
+                  <td
+                    className="inventory-items-table-cell inventory-items-item-cell"
+                    style={{ ...styles.td, ...styles.leftCell }}
+                  >
                     <div style={styles.itemCellContent}>
-                      <div style={styles.itemNameText}>{itemName}</div>
+                      <div
+                        className="inventory-items-item-name-text"
+                        style={styles.itemNameText}
+                        title={itemName}
+                      >
+                        {itemName}
+                      </div>
                     </div>
                   </td>
-                  <td style={{ ...styles.td, ...styles.centerCell }}>
+                  <td
+                    className="inventory-items-table-cell"
+                    style={{ ...styles.td, ...styles.centerCell }}
+                  >
                     {item.category || "--"}
                   </td>
-                  <td style={{ ...styles.td, ...styles.centerCell }}>
+                  <td
+                    className="inventory-items-table-cell"
+                    style={{ ...styles.td, ...styles.centerCell }}
+                  >
                     {formatNumericValue(Number(item.total_stock_on_hand || 0))}
                   </td>
-                  <td style={{ ...styles.td, ...styles.centerCell }}>
+                  <td
+                    className="inventory-items-table-cell"
+                    style={{ ...styles.td, ...styles.centerCell }}
+                  >
                     <div style={styles.pillWrap}>
                       {stockForms.length === 0 ? (
                         <span style={styles.infoPill}>--</span>
@@ -208,10 +239,16 @@ const InventoryItemsTable = ({
                       )}
                     </div>
                   </td>
-                  <td style={{ ...styles.td, ...styles.centerCell }}>
+                  <td
+                    className="inventory-items-table-cell"
+                    style={{ ...styles.td, ...styles.centerCell }}
+                  >
                     {item.reorder_level_display ?? item.reorder_level ?? "--"}
                   </td>
-                  <td style={{ ...styles.td, ...styles.centerCell }}>
+                  <td
+                    className="inventory-items-table-cell"
+                    style={{ ...styles.td, ...styles.centerCell }}
+                  >
                     <div style={styles.pillWrap}>
                       {stockStatuses.map((stockStatus) => {
                         return (
@@ -225,7 +262,10 @@ const InventoryItemsTable = ({
                       })}
                     </div>
                   </td>
-                  <td style={{ ...styles.td, ...styles.actionCell }}>
+                  <td
+                    className="inventory-items-table-cell inventory-items-action-cell"
+                    style={{ ...styles.td, ...styles.actionCell }}
+                  >
                     <TableActionsMenu
                       row={item}
                       menuId={item.id || `inventory-item-${index}`}

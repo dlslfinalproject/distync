@@ -26,14 +26,14 @@ const shellHeaderStyles = {
 const ShellHeader = ({ isSidebarCollapsed, onToggleSidebarCollapse }) => {
   return (
     <div className="distync-shell__topbar" style={shellHeaderStyles.wrapper}>
-      <div style={shellHeaderStyles.brandArea}>
+      <div className="distync-shell__brand-area" style={shellHeaderStyles.brandArea}>
         <SidebarBrandStrip
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={onToggleSidebarCollapse}
         />
       </div>
 
-      <div style={shellHeaderStyles.actionsArea}>
+      <div className="distync-shell__actions-area" style={shellHeaderStyles.actionsArea}>
         <HeaderNotifications />
       </div>
     </div>

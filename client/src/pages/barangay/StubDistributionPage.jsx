@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { FaHandHolding } from "react-icons/fa6";
-import { FiPrinter } from "react-icons/fi";
+import { FiPrinter, FiX } from "react-icons/fi";
 import { MdQrCodeScanner } from "react-icons/md";
 import BarangayDashboardOverview from "../../components/barangay-dashboard/BarangayDashboardOverview";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import FeedbackToast from "../../components/shared/FeedbackToast";
+import FormModalShell from "../../components/shared/FormModalShell";
 import StubClaimConfirmModal from "../../components/stubs/StubClaimConfirmModal";
 import StubDetailModal from "../../components/stubs/StubDetailModal";
 import StubQrScanErrorModal from "../../components/stubs/StubQrScanErrorModal";
@@ -21,6 +22,7 @@ import {
   fetchStubDetails,
   verifyStub,
 } from "../../features/stubs/stubService";
+import { getStubClaimErrorDialog } from "../../features/stubs/stubClaimErrors";
 import { fetchMswdoSectors } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import { buildMasterlistFilterSectorOptions } from "../../utils/registrationOptions";
@@ -43,7 +45,58 @@ import {
 
 const DEFAULT_STUB_STATUS = STATUS_FILTERS.ALL;
 const DEFAULT_STUB_SORT_ORDER = "oldest";
+const DEFAULT_STUB_PAGE_SIZE = 25;
 const QR_SCAN_COOLDOWN_MS = 1800;
+
+const claimErrorModalBodyStyles = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  textAlign: "center",
+  padding: "4px 0 0",
+};
+
+const claimErrorIconStyles = {
+  width: "48px",
+  height: "48px",
+  borderRadius: "999px",
+  backgroundColor: "#fee2e2",
+  color: "#c53030",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: "28px",
+  lineHeight: 1,
+  marginBottom: "14px",
+};
+
+const claimErrorTitleStyles = {
+  margin: 0,
+  color: "#1f2937",
+  fontSize: "18px",
+  fontWeight: 700,
+};
+
+const claimErrorMessageStyles = {
+  margin: "12px 0 0",
+  color: "#6b7280",
+  fontSize: "14px",
+  lineHeight: 1.6,
+  maxWidth: "320px",
+  overflowWrap: "anywhere",
+};
+
+const claimErrorButtonStyles = {
+  width: "100%",
+  minHeight: "40px",
+  border: "none",
+  borderRadius: "8px",
+  backgroundColor: "#c53030",
+  color: "#ffffff",
+  fontSize: "15px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
 
 const getSectorCodes = (sectorsText) => {
   if (!sectorsText || sectorsText === "-") {
@@ -78,34 +131,6 @@ const getFilteredRows = (rows, searchTerm) => {
     );
   });
 };
-
-const getStubSortTime = (row) => {
-  const timestamp =
-    row.queue_time_in || row.qr_generated_at || row.issued_at || row.created_at || "";
-  const parsedTime = timestamp ? new Date(timestamp).getTime() : 0;
-
-  if (Number.isFinite(parsedTime) && parsedTime > 0) {
-    return parsedTime;
-  }
-
-  return Number(row.stub_sequence_no || 0);
-};
-
-const sortStubRows = (rows, sortOrder = DEFAULT_STUB_SORT_ORDER) =>
-  [...rows].sort((left, right) => {
-    if (sortOrder === "az" || sortOrder === "za") {
-      const leftName = String(left.household?.family_head_name || "");
-      const rightName = String(right.household?.family_head_name || "");
-      const comparison = leftName.localeCompare(rightName);
-
-      return sortOrder === "za" ? -comparison : comparison;
-    }
-
-    const leftTime = getStubSortTime(left);
-    const rightTime = getStubSortTime(right);
-
-    return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
-  });
 
 const isEndedDisasterEvent = (event, eventScope) => {
   const status = String(event?.status || "").toUpperCase();
@@ -200,9 +225,12 @@ const StubDistributionPage = () => {
       sortOrder: DEFAULT_STUB_SORT_ORDER,
     },
   });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_STUB_PAGE_SIZE);
   const [sectorOptions, setSectorOptions] = useState([]);
   const [claimingStubId, setClaimingStubId] = useState("");
   const [claimErrorMessage, setClaimErrorMessage] = useState("");
+  const [claimErrorDialog, setClaimErrorDialog] = useState(null);
   const [pendingClaimStubId, setPendingClaimStubId] = useState("");
   const [pendingClaimStubDetails, setPendingClaimStubDetails] = useState(null);
   const [isLoadingPendingClaimStubDetails, setIsLoadingPendingClaimStubDetails] =
@@ -239,6 +267,7 @@ const StubDistributionPage = () => {
     selectedEvent,
     devBarangayOptions,
     isLoading,
+    isContextResolved: isBarangayContextResolved,
     errorMessage,
     errorCode,
     hasData,
@@ -253,9 +282,16 @@ const StubDistributionPage = () => {
     userId: authenticatedUser?.id || "",
   });
 
+  const currentFilters = filtersByScope[eventScope] || {
+    sectorNames: [],
+    stubStatus: DEFAULT_STUB_STATUS,
+    sortOrder: DEFAULT_STUB_SORT_ORDER,
+  };
+
   const {
     rows: stubRows,
     summaryCards,
+    pagination: stubPagination,
     isLoading: isLoadingStubDashboard,
     errorMessage: stubDashboardErrorMessage,
     hasData: hasStubData,
@@ -267,6 +303,12 @@ const StubDistributionPage = () => {
     allowFallback,
     assignedBarangayId: assignedBarangay?.id || "",
     sectorOptions,
+    page: currentPage,
+    pageSize,
+    search: searchTerm,
+    status: currentFilters.stubStatus,
+    selectedSectorIds: currentFilters.sectorNames,
+    sortOrder: currentFilters.sortOrder || DEFAULT_STUB_SORT_ORDER,
   });
 
 
@@ -304,11 +346,29 @@ const StubDistributionPage = () => {
       );
     });
 
-    return sortStubRows(
-      matchingRows,
-      currentFilters.sortOrder || DEFAULT_STUB_SORT_ORDER,
-    );
+    return matchingRows;
   }, [eventScope, filtersByScope, searchTerm, stubRows]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+    setSelectedStubIds([]);
+  }, [
+    currentFilters.sectorNames,
+    currentFilters.sortOrder,
+    currentFilters.stubStatus,
+    eventScope,
+    pageSize,
+    searchTerm,
+    selectedEvent?.id,
+  ]);
+
+  useEffect(() => {
+    const totalPages = Number(stubPagination?.totalPages || 0);
+
+    if (totalPages > 0 && currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, stubPagination?.totalPages]);
 
   useEffect(() => {
     let isMounted = true;
@@ -352,12 +412,6 @@ const StubDistributionPage = () => {
       setScanCooldownState({ value: "", until: 0 });
     }
   }, [isSelectedEventEnded, selectedEvent?.id]);
-
-  const currentFilters = filtersByScope[eventScope] || {
-    sectorNames: [],
-    stubStatus: DEFAULT_STUB_STATUS,
-    sortOrder: DEFAULT_STUB_SORT_ORDER,
-  };
 
   const stubStatusOptions = [
     { value: STATUS_FILTERS.CLAIMED, label: "Claimed" },
@@ -558,6 +612,10 @@ const StubDistributionPage = () => {
     setIsBulkClaimConfirmOpen(false);
   };
 
+  const handleDismissClaimErrorDialog = () => {
+    setClaimErrorDialog(null);
+  };
+
   const handleConfirmClaim = async () => {
     if (isSelectedEventEnded || claimingStubId) {
       return;
@@ -581,7 +639,7 @@ const StubDistributionPage = () => {
       setClaimingStubId("bulk");
 
       try {
-        await Promise.all(
+        const claimResults = await Promise.allSettled(
           claimableSelectedStubIds.map((stubId) =>
             claimStub({
               stubId,
@@ -590,14 +648,47 @@ const StubDistributionPage = () => {
             }),
           ),
         );
+        const rejectedClaim = claimResults.find(
+          (result) => result.status === "rejected",
+        );
+
+        if (rejectedClaim) {
+          const fulfilledStubIds = claimResults
+            .map((result, index) =>
+              result.status === "fulfilled" ? claimableSelectedStubIds[index] : "",
+            )
+            .filter(Boolean);
+
+          if (fulfilledStubIds.length > 0) {
+            reloadDashboard();
+            setSelectedStubIds((currentValues) =>
+              currentValues.filter((stubId) => !fulfilledStubIds.includes(stubId)),
+            );
+          }
+
+          setIsBulkClaimConfirmOpen(false);
+          setPendingClaimStubDetails(null);
+          setClaimErrorDialog(
+            getStubClaimErrorDialog(
+              rejectedClaim.reason,
+              "Unable to mark one or more selected stubs as claimed.",
+            ),
+          );
+          return;
+        }
 
         reloadDashboard();
         setSelectedStubIds([]);
         setIsBulkClaimConfirmOpen(false);
         setPendingClaimStubDetails(null);
       } catch (error) {
-        setClaimErrorMessage(
-          error.message || "Unable to mark the selected stubs as claimed.",
+        setIsBulkClaimConfirmOpen(false);
+        setPendingClaimStubDetails(null);
+        setClaimErrorDialog(
+          getStubClaimErrorDialog(
+            error,
+            "Unable to mark the selected stubs as claimed.",
+          ),
         );
       } finally {
         setClaimingStubId("");
@@ -635,9 +726,9 @@ const StubDistributionPage = () => {
       setPendingClaimStubId("");
       setPendingClaimStubDetails(null);
     } catch (error) {
-      setClaimErrorMessage(
-        error.message || "Unable to mark the stub as claimed.",
-      );
+      setPendingClaimStubId("");
+      setPendingClaimStubDetails(null);
+      setClaimErrorDialog(getStubClaimErrorDialog(error));
     } finally {
       setClaimingStubId("");
     }
@@ -850,6 +941,7 @@ const StubDistributionPage = () => {
         selectedEvent={selectedEvent}
         devBarangayOptions={devBarangayOptions}
         isLoading={isLoading || isLoadingStubDashboard}
+        isContextResolved={isBarangayContextResolved}
         errorMessage={errorMessage}
         errorCode={errorCode}
         hasSelectedEvent={hasSelectedEvent}
@@ -992,6 +1084,9 @@ const StubDistributionPage = () => {
         onToggleSelect={handleToggleSelect}
         onSelectAll={handleSelectAll}
         onViewStub={handleOpenStubDetails}
+        pagination={stubPagination}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={setPageSize}
       />
 
       <StubClaimConfirmModal
@@ -1041,6 +1136,34 @@ const StubDistributionPage = () => {
         onTryAgain={handleDismissQrScanError}
         onCloseScanner={handleCloseQrScanner}
       />
+
+      <FormModalShell
+        isOpen={Boolean(claimErrorDialog)}
+        maxWidth="420px"
+        zIndex={1700}
+        bodyStyle={{ marginTop: 0 }}
+        footer={
+          <button
+            type="button"
+            onClick={handleDismissClaimErrorDialog}
+            style={claimErrorButtonStyles}
+          >
+            OK
+          </button>
+        }
+      >
+        <div style={claimErrorModalBodyStyles} role="alert" aria-live="assertive">
+          <div aria-hidden="true" style={claimErrorIconStyles}>
+            <FiX />
+          </div>
+          <p style={claimErrorTitleStyles}>
+            {claimErrorDialog?.title || "Unable to Process Claim"}
+          </p>
+          <p style={claimErrorMessageStyles}>
+            {claimErrorDialog?.message || "Unable to mark the stub as claimed."}
+          </p>
+        </div>
+      </FormModalShell>
 
       <FeedbackToast
         message={scanToast.message}

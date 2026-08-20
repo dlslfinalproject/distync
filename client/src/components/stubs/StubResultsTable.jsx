@@ -93,6 +93,73 @@ const tableStyles = {
   archivedCheckbox: {
     opacity: 0.65,
   },
+  paginationMetadata: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    gap: "12px",
+    flexWrap: "wrap",
+    marginTop: "8px",
+  },
+  paginationRange: {
+    margin: 0,
+    color: "#5d7188",
+    fontSize: "13px",
+    fontWeight: 700,
+  },
+  pageSizeControl: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "8px",
+    color: "#17324d",
+    fontSize: "13px",
+    fontWeight: 700,
+  },
+  pageSizeSelect: {
+    minHeight: "36px",
+    border: "1px solid #c7d6e5",
+    borderRadius: "8px",
+    backgroundColor: "#ffffff",
+    color: "#17324d",
+    padding: "6px 10px",
+    fontSize: "13px",
+    fontWeight: 700,
+  },
+  paginationNavigation: {
+    display: "flex",
+    justifyContent: "flex-end",
+    marginTop: "14px",
+    paddingTop: "12px",
+    borderTop: "1px solid #edf3f8",
+  },
+  paginationControls: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: "10px",
+    flexWrap: "wrap",
+  },
+  paginationButton: {
+    border: "1px solid #c6d8ea",
+    borderRadius: "8px",
+    minHeight: "38px",
+    padding: "8px 14px",
+    backgroundColor: "#f7fbfe",
+    color: "#24496e",
+    fontSize: "13px",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  paginationButtonDisabled: {
+    opacity: 0.55,
+    cursor: "not-allowed",
+  },
+  pageText: {
+    color: "#17324d",
+    fontSize: "13px",
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  },
 };
 
 const getStatusChipStyles = (status, isActionable = false) => {
@@ -220,6 +287,26 @@ const isArchivedHouseholdRow = (row) => row?.household?.is_active === false;
 const isRowBlockedByClaimSync = (row) =>
   row?.is_claim_pending || row?.sync_status === "PENDING" || row?.sync_status === "CONFLICT";
 
+const getPaginationState = (pagination) => {
+  const totalItems = Number(pagination?.totalItems || 0);
+  const totalPages = Number(pagination?.totalPages || 0);
+  const currentPage = Number(pagination?.page || 1);
+  const pageSize = Number(pagination?.pageSize || 25);
+  const firstVisibleItem = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const lastVisibleItem =
+    totalItems === 0 ? 0 : Math.min(currentPage * pageSize, totalItems);
+
+  return {
+    totalItems,
+    totalPages,
+    currentPage,
+    pageSize,
+    firstVisibleItem,
+    lastVisibleItem,
+    hasMultiplePages: totalPages > 1,
+  };
+};
+
 const StubResultsTable = ({
   rows,
   isLoading,
@@ -233,6 +320,9 @@ const StubResultsTable = ({
   onToggleSelect,
   onSelectAll,
   onViewStub = () => {},
+  pagination = null,
+  onPageChange = () => {},
+  onPageSizeChange = () => {},
 }) => {
   const safeSelectedStubIds = Array.isArray(selectedStubIds)
     ? selectedStubIds
@@ -240,7 +330,7 @@ const StubResultsTable = ({
 
   if (!hasSelectedEvent) {
     return (
-      <section style={shellStyles.card}>
+      <section className="stub-results-card" style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Stub Information</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
           Please select a disaster event to load the stub information table.
@@ -251,7 +341,7 @@ const StubResultsTable = ({
 
   if (isLoading) {
     return (
-      <section style={shellStyles.card}>
+      <section className="stub-results-card" style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Stub Information</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
           Loading stub information...
@@ -262,7 +352,7 @@ const StubResultsTable = ({
 
   if (errorMessage) {
     return (
-      <section style={shellStyles.card}>
+      <section className="stub-results-card" style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Stub Information</h3>
         <p
           style={{
@@ -279,7 +369,7 @@ const StubResultsTable = ({
 
   if (rows.length === 0) {
     return (
-      <section style={shellStyles.card}>
+      <section className="stub-results-card" style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Stub Information</h3>
         <p style={{ ...shellStyles.mutedText, marginTop: "10px" }}>
           No matching records found. Try adjusting your search or filters.
@@ -301,13 +391,52 @@ const StubResultsTable = ({
   const areAllSelected =
     selectableRows.length > 0 &&
     selectableRows.every((row) => safeSelectedStubIds.includes(row.id));
+  const {
+    totalItems,
+    totalPages,
+    currentPage,
+    pageSize,
+    firstVisibleItem,
+    lastVisibleItem,
+    hasMultiplePages,
+  } = getPaginationState(pagination);
+  const pageSizeOptions = [25, 50, 100];
+  const paginationButtonStyles = (disabled) => ({
+    ...tableStyles.paginationButton,
+    ...(disabled ? tableStyles.paginationButtonDisabled : {}),
+  });
 
   return (
-    <section style={shellStyles.card}>
+    <section className="stub-results-card" style={shellStyles.card}>
       <div style={{ marginBottom: "18px" }}>
         <div>
           <h3 style={{ margin: 0, color: "#17324d" }}>Stub Information</h3>
         </div>
+        {totalItems > 0 ? (
+          <div className="stub-results-pagination-metadata" style={tableStyles.paginationMetadata}>
+            <p className="stub-results-pagination-range" style={tableStyles.paginationRange} aria-live="polite">
+              Showing {firstVisibleItem}-{lastVisibleItem} of {totalItems}
+            </p>
+            {hasMultiplePages ? (
+              <label style={tableStyles.pageSizeControl}>
+                <span>Rows per page</span>
+                <select
+                  value={pageSize}
+                  onChange={(event) =>
+                    onPageSizeChange(Number.parseInt(event.target.value, 10))
+                  }
+                  style={tableStyles.pageSizeSelect}
+                >
+                  {pageSizeOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       {claimErrorMessage ? (
@@ -323,7 +452,7 @@ const StubResultsTable = ({
         </p>
       ) : null}
 
-      <div style={{ overflowX: "auto" }}>
+      <div className="stub-results-table-scroll" style={{ overflowX: "auto" }}>
         <table style={tableStyles.table}>
           <thead>
             <tr>
@@ -479,10 +608,14 @@ const StubResultsTable = ({
                       textAlign: "center",
                     }}
                   >
-                    <div style={{ width: "112px", margin: "0 auto" }}>
+                    <div
+                      className="stub-results-qr-cell"
+                      style={{ width: "112px", margin: "0 auto" }}
+                    >
                       <QrCodePanel
                         value={row.qr_code_value || ""}
                         emptyLabel="QR unavailable"
+                        showValue={false}
                       />
                     </div>
                   </td>
@@ -564,6 +697,37 @@ const StubResultsTable = ({
           </tbody>
         </table>
       </div>
+      {hasMultiplePages ? (
+        <nav
+          className="stub-results-pagination-navigation"
+          style={tableStyles.paginationNavigation}
+          aria-label="Relief goods distribution pagination"
+        >
+          <div className="stub-results-pagination-controls" style={tableStyles.paginationControls}>
+            <button
+              type="button"
+              onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+              disabled={!pagination?.hasPreviousPage || isLoading}
+              aria-label="Go to previous relief distribution page"
+              style={paginationButtonStyles(!pagination?.hasPreviousPage || isLoading)}
+            >
+              Previous
+            </button>
+            <span style={tableStyles.pageText}>
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => onPageChange(currentPage + 1)}
+              disabled={!pagination?.hasNextPage || isLoading}
+              aria-label="Go to next relief distribution page"
+              style={paginationButtonStyles(!pagination?.hasNextPage || isLoading)}
+            >
+              Next
+            </button>
+          </div>
+        </nav>
+      ) : null}
     </section>
   );
 };

@@ -9,9 +9,19 @@ const emptyData = {
     withAttendance: 0,
   },
   rows: [],
+  pagination: null,
 };
 
-export const useMasterlist = ({ disasterEventId, barangayId, recordStatus }) => {
+export const useMasterlist = ({
+  disasterEventId,
+  barangayId,
+  recordStatus,
+  page,
+  pageSize,
+  search,
+  sectorIds,
+  sortOrder,
+}) => {
   const [data, setData] = useState(emptyData);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -36,6 +46,11 @@ export const useMasterlist = ({ disasterEventId, barangayId, recordStatus }) => 
           disasterEventId,
           barangayId,
           recordStatus,
+          page,
+          pageSize,
+          search,
+          sectorIds,
+          sortOrder,
         });
 
         if (isMounted) {
@@ -58,7 +73,17 @@ export const useMasterlist = ({ disasterEventId, barangayId, recordStatus }) => 
     return () => {
       isMounted = false;
     };
-  }, [barangayId, disasterEventId, recordStatus, reloadKey]);
+  }, [
+    barangayId,
+    disasterEventId,
+    page,
+    pageSize,
+    recordStatus,
+    reloadKey,
+    search,
+    sectorIds,
+    sortOrder,
+  ]);
 
   return {
     data,

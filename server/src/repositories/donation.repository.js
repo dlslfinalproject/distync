@@ -767,38 +767,6 @@ const insertInventoryTransaction = async (payload, dbClient) => {
   return result.rows[0];
 };
 
-const getPublicDonationNeeds = async (disasterEventId, dbClient = pool) => {
-  const values = [];
-  const conditions = ["dn.is_active = TRUE"];
-  const disasterEventIds = normalizeDisasterEventFilter(disasterEventId);
-
-  if (disasterEventIds.length > 0) {
-    values.push(disasterEventIds);
-    conditions.push(`dn.disaster_event_id = ANY($${values.length}::uuid[])`);
-  } else {
-    conditions.push(`de.status = 'ACTIVE'`);
-  }
-
-  const result = await dbClient.query(
-    `
-      ${donationNeedSelect}
-      WHERE ${conditions.join(" AND ")}
-      ORDER BY
-        de.start_date DESC,
-        CASE dn.priority_level
-          WHEN 'URGENT' THEN 1
-          WHEN 'HIGH' THEN 2
-          WHEN 'MEDIUM' THEN 3
-          ELSE 4
-        END,
-        ii.item_name ASC
-    `,
-    values,
-  );
-
-  return result.rows;
-};
-
 const getDefaultEmergencyDonationNeeds = async (
   disasterTypes = [],
   dbClient = pool,
@@ -857,8 +825,6 @@ const getPublicDonationDisasterSummaries = async (
   const values = [];
   const conditions = [
     `UPPER(de.status) IN ('ACTIVE', 'ONGOING')`,
-    `(de.start_date IS NULL OR de.start_date <= CURRENT_DATE)`,
-    `(de.end_date IS NULL OR de.end_date >= CURRENT_DATE)`,
   ];
 
   if (disasterEventId) {
@@ -878,14 +844,15 @@ const getPublicDonationDisasterSummaries = async (
         de.end_date,
         de.status,
         de.created_at,
-        de.updated_at,
+        GREATEST(
+          COALESCE(de.updated_at, de.created_at),
+          COALESCE(activity_summary.latest_activity_at, de.created_at)
+        ) AS updated_at,
         COALESCE(affected_barangays.affected_barangays, '[]'::json) AS affected_barangays,
         COALESCE(barangay_summary.affected_barangays_count, 0)::int AS affected_barangays_count,
         COALESCE(household_summary.registered_households_count, 0)::int AS registered_households_count,
         COALESCE(eligible_household_summary.eligible_unclaimed_households_count, 0)::int AS eligible_unclaimed_households_count,
-        COALESCE(individual_summary.affected_individuals_count, 0)::int AS affected_individuals_count,
-        COALESCE(need_summary.published_need_count, 0)::int AS published_need_count,
-        COALESCE(need_summary.published_needed_quantity, 0)::int AS published_needed_quantity
+        COALESCE(individual_summary.affected_individuals_count, 0)::int AS affected_individuals_count
       FROM disaster_events de
       LEFT JOIN LATERAL (
         SELECT COALESCE(
@@ -918,6 +885,7 @@ const getPublicDonationDisasterSummaries = async (
           COUNT(DISTINCT h.id)::int AS registered_households_count
         FROM households h
         WHERE h.disaster_event_id = de.id
+          AND h.current_stay_type = 'EVAC_CENTER'
           AND h.is_active = TRUE
       ) household_summary ON TRUE
       LEFT JOIN LATERAL (
@@ -947,26 +915,64 @@ const getPublicDonationDisasterSummaries = async (
         FROM households h
         INNER JOIN evacuees e ON e.household_id = h.id
         WHERE h.disaster_event_id = de.id
+          AND h.current_stay_type = 'EVAC_CENTER'
           AND h.is_active = TRUE
           AND e.is_active = TRUE
       ) individual_summary ON TRUE
       LEFT JOIN LATERAL (
-        SELECT
-          COUNT(*)::int AS published_need_count,
-          COALESCE(SUM(dn.quantity_needed), 0)::int AS published_needed_quantity
-        FROM donation_needs dn
-        WHERE dn.disaster_event_id = de.id
-          AND dn.is_active = TRUE
-      ) need_summary ON TRUE
+        SELECT MAX(activity_at) AS latest_activity_at
+        FROM (
+          SELECT deb.created_at AS activity_at
+          FROM disaster_event_barangays deb
+          WHERE deb.disaster_event_id = de.id
+
+          UNION ALL
+
+          SELECT h.registered_at AS activity_at
+          FROM households h
+          WHERE h.disaster_event_id = de.id
+
+          UNION ALL
+
+          SELECT h.updated_at AS activity_at
+          FROM households h
+          WHERE h.disaster_event_id = de.id
+
+          UNION ALL
+
+          SELECT e.updated_at AS activity_at
+          FROM households h
+          INNER JOIN evacuees e ON e.household_id = h.id
+          WHERE h.disaster_event_id = de.id
+
+          UNION ALL
+
+          SELECT el.updated_at AS activity_at
+          FROM evacuation_logs el
+          WHERE el.disaster_event_id = de.id
+
+          UNION ALL
+
+          SELECT s.updated_at AS activity_at
+          FROM stubs s
+          WHERE s.disaster_event_id = de.id
+
+          UNION ALL
+
+          SELECT dt.updated_at AS activity_at
+          FROM distribution_transactions dt
+          WHERE dt.disaster_event_id = de.id
+        ) activities
+      ) activity_summary ON TRUE
       WHERE ${conditions.join(" AND ")}
       ORDER BY
         de.start_date DESC NULLS LAST,
         GREATEST(
           COALESCE(de.updated_at, de.created_at),
+          COALESCE(activity_summary.latest_activity_at, de.created_at),
           de.created_at
         ) DESC,
         de.created_at DESC
-      LIMIT 3
     `,
     values,
   );
@@ -1045,6 +1051,7 @@ const getPublicRecentDonationSummaries = async (
           de.title AS disaster_event_title,
           MAX(d.received_at) AS latest_received_at,
           MAX(d.created_at) AS latest_created_at,
+          MAX(d.updated_at) AS latest_updated_at,
           COUNT(DISTINCT d.id)::int AS donation_count,
           CASE
             WHEN BOOL_OR(d.status = 'DISTRIBUTED') THEN 'DISTRIBUTED'
@@ -1070,6 +1077,7 @@ const getPublicRecentDonationSummaries = async (
         donor_groups.disaster_event_id,
         donor_groups.disaster_event_title,
         donor_groups.latest_received_at AS received_at,
+        donor_groups.latest_updated_at AS updated_at,
         donor_groups.status,
         donor_groups.donation_count,
         COALESCE(item_summary.total_quantity_received, 0)::int AS total_quantity_received,
@@ -1541,7 +1549,6 @@ module.exports = {
   updateInventoryBatchStock,
   insertInventoryTransaction,
   getPublicDonationDisasterSummaries,
-  getPublicDonationNeeds,
   getDefaultEmergencyDonationNeeds,
   getPublicForecastSuggestions,
   getPublicRecentDonationSummaries,

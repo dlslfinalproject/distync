@@ -272,6 +272,24 @@ const sortDistributionHistorySummaryRows = (rows, sortOrder = "newest") => {
   });
 };
 
+const buildPaginationMetadata = ({ page, pageSize, totalItems }) => {
+  const safePage = Number.isInteger(page) && page > 0 ? page : 1;
+  const safePageSize =
+    Number.isInteger(pageSize) && pageSize > 0 ? pageSize : 25;
+  const safeTotalItems = Number(totalItems || 0);
+  const totalPages =
+    safeTotalItems > 0 ? Math.ceil(safeTotalItems / safePageSize) : 0;
+
+  return {
+    page: safePage,
+    pageSize: safePageSize,
+    totalItems: safeTotalItems,
+    totalPages,
+    hasPreviousPage: safeTotalItems > 0 && safePage > 1,
+    hasNextPage: totalPages > 0 && safePage < totalPages,
+  };
+};
+
 const attachAffectedBarangaysToEvents = async (events) => {
   if (!Array.isArray(events) || events.length === 0) {
     return [];
@@ -2169,28 +2187,87 @@ const getDistributionHistory = async ({ requester, filters }) => {
     throw error;
   }
 
-  const rows = await distributionTransactionRepository.getDistributionHistory({
-    barangayId: isBarangay
-      ? requesterBarangayId
-      : filters.barangay_id || null,
+  const scopedBarangayId = isBarangay
+    ? requesterBarangayId
+    : filters.barangay_id || null;
+  const isSummaryMode = filters.mode === "summary" && !filters.disaster_event_id;
+  const isPaginated = Boolean(filters.isPaginated);
+  const page = filters.page || 1;
+  const pageSize = filters.pageSize || 25;
+  const offset = (page - 1) * pageSize;
+  const commonFilters = {
+    barangayId: scopedBarangayId,
     disasterEventId: filters.disaster_event_id || null,
     status: filters.status || null,
     dateFrom: filters.date_from || null,
     dateTo: filters.date_to || null,
-    limit: filters.limit || 100,
-  });
+    search: filters.search || "",
+    sortOrder: filters.sort_order || "newest",
+  };
+
+  if (isSummaryMode) {
+    const [summaryRows, totalItems] = await Promise.all([
+      distributionTransactionRepository.getDistributionHistorySummaryRows({
+        barangayId: scopedBarangayId,
+        status: filters.status || null,
+        dateFrom: filters.date_from || null,
+        dateTo: filters.date_to || null,
+        search: filters.search || "",
+        sortOrder: filters.sort_order || "newest",
+        limit: pageSize,
+        offset,
+      }),
+      distributionTransactionRepository.countDistributionHistorySummaryRows({
+        barangayId: scopedBarangayId,
+        status: filters.status || null,
+        dateFrom: filters.date_from || null,
+        dateTo: filters.date_to || null,
+        search: filters.search || "",
+      }),
+    ]);
+
+    return {
+      data: summaryRows.map((row) => ({
+        ...row,
+        id: row.disaster_event_id,
+      })),
+      pagination: buildPaginationMetadata({ page, pageSize, totalItems }),
+    };
+  }
+
+  const rowQuery = {
+    ...commonFilters,
+    limit: isPaginated ? pageSize : filters.limit || 100,
+    offset: isPaginated ? offset : null,
+  };
+
+  const [rows, totalItems] = await Promise.all([
+    distributionTransactionRepository.getDistributionHistory(rowQuery),
+    isPaginated
+      ? distributionTransactionRepository.countDistributionHistory(commonFilters)
+      : Promise.resolve(null),
+  ]);
 
   const rowsWithSectors = await attachHistorySectors(rows);
   const rowsWithStubCounts = await attachDistributionHistoryStubCounts({
     rows: rowsWithSectors,
-    requester,
+    requester: isBarangay
+      ? {
+          ...requester,
+          defaultBarangayId: requesterBarangayId,
+        }
+      : requester,
     filters,
   });
 
-  return sortDistributionHistoryRows(
-    rowsWithStubCounts,
-    filters.sort_order || "newest",
-  );
+  if (isPaginated) {
+    return {
+      data: rowsWithStubCounts,
+      pagination: buildPaginationMetadata({ page, pageSize, totalItems }),
+    };
+  }
+
+  return rowsWithStubCounts;
 };
 
 const exportDistributionHistory = async ({ requester, filters }) => {
@@ -2203,16 +2280,37 @@ const exportDistributionHistory = async ({ requester, filters }) => {
     throw error;
   }
 
-  const rows = await getDistributionHistory({
-    requester,
-    filters: {
-      ...filters,
-      limit: 1000,
-    },
+  const roleCode = requester?.roleCode;
+  const isBarangay = roleCode === BARANGAY_ROLE_CODE;
+  const requesterBarangayId = isBarangay
+    ? await resolveRequesterBarangayId(requester)
+    : null;
+
+  if (isBarangay && !requesterBarangayId) {
+    const error = new Error(
+      "Barangay distribution history export requires an account with an assigned barangay.",
+    );
+    error.statusCode = 403;
+    throw error;
+  }
+
+  const scopedBarangayId = isBarangay
+    ? requesterBarangayId
+    : filters.barangay_id || null;
+
+  const rows = await distributionTransactionRepository.getDistributionHistoryExportRows({
+    barangayId: scopedBarangayId,
+    disasterEventId: filters.disaster_event_id || null,
+    status: filters.status || null,
+    dateFrom: filters.date_from || null,
+    dateTo: filters.date_to || null,
+    search: filters.search || "",
+    sortOrder: filters.sort_order || "newest",
   });
 
+  const rowsWithSectors = await attachHistorySectors(rows);
   const isSummaryExport = !filters.disaster_event_id;
-  const sortedRows = sortDistributionHistoryRows(rows, filters.sort_order || "newest");
+  const sortedRows = rowsWithSectors;
   const sourceName = buildReportSourceName(requester, sortedRows);
   const selectedDisasterEventLabel =
     filters.disaster_event_id && sortedRows[0]
@@ -2222,21 +2320,16 @@ const exportDistributionHistory = async ({ requester, filters }) => {
       : "All";
 
   if (isSummaryExport) {
-    const disasterEvents = await getDistributionHistorySummaryEvents({
-      requester,
-      filters,
-    });
-    const summaryRows = sortDistributionHistorySummaryRows(
-      buildDistributionHistorySummaryRows({
-        rows: sortedRows,
-        disasterEvents,
-        selectedBarangayId:
-          requester?.roleCode === BARANGAY_ROLE_CODE
-            ? requester.defaultBarangayId || null
-            : filters.barangay_id || null,
-      }),
-      filters.sort_order || "newest",
-    );
+    const summaryRows =
+      await distributionTransactionRepository.getDistributionHistorySummaryRows({
+        barangayId: scopedBarangayId,
+        status: filters.status || null,
+        dateFrom: filters.date_from || null,
+        dateTo: filters.date_to || null,
+        search: filters.search || "",
+        sortOrder: filters.sort_order || "newest",
+        limit: null,
+      });
 
     return mswdoReportExport.buildExportFile({
       filePrefix:

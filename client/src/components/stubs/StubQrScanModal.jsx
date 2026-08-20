@@ -9,6 +9,83 @@ import { extractStubQrValue } from "../../utils/stubQr";
 
 QrScanner.WORKER_PATH = qrScannerWorkerPath;
 
+const SCAN_REGION_RATIO = 0.86;
+const SCAN_REGION_CANVAS_SIZE = 480;
+
+const getVisibleSourceRect = (video, videoWidth, videoHeight) => {
+  const renderedWidth = video.offsetWidth || video.clientWidth || videoWidth;
+  const renderedHeight = video.offsetHeight || video.clientHeight || videoHeight;
+
+  if (!videoWidth || !videoHeight || !renderedWidth || !renderedHeight) {
+    return {
+      x: 0,
+      y: 0,
+      width: videoWidth,
+      height: videoHeight,
+    };
+  }
+
+  const objectFit = window.getComputedStyle(video).objectFit;
+
+  if (objectFit !== "cover") {
+    return {
+      x: 0,
+      y: 0,
+      width: videoWidth,
+      height: videoHeight,
+    };
+  }
+
+  const sourceAspectRatio = videoWidth / videoHeight;
+  const renderedAspectRatio = renderedWidth / renderedHeight;
+
+  if (sourceAspectRatio > renderedAspectRatio) {
+    const visibleWidth = Math.round(videoHeight * renderedAspectRatio);
+
+    return {
+      x: Math.round((videoWidth - visibleWidth) / 2),
+      y: 0,
+      width: visibleWidth,
+      height: videoHeight,
+    };
+  }
+
+  const visibleHeight = Math.round(videoWidth / renderedAspectRatio);
+
+  return {
+    x: 0,
+    y: Math.round((videoHeight - visibleHeight) / 2),
+    width: videoWidth,
+    height: visibleHeight,
+  };
+};
+
+const calculateGenerousScanRegion = (video) => {
+  const videoWidth = video.videoWidth || video.offsetWidth || 0;
+  const videoHeight = video.videoHeight || video.offsetHeight || 0;
+  const visibleSourceRect = getVisibleSourceRect(video, videoWidth, videoHeight);
+  const scanSize = Math.round(
+    SCAN_REGION_RATIO *
+      Math.min(
+        visibleSourceRect.width || videoWidth,
+        visibleSourceRect.height || videoHeight,
+      ),
+  );
+
+  return {
+    x: Math.round(
+      visibleSourceRect.x + (visibleSourceRect.width - scanSize) / 2,
+    ),
+    y: Math.round(
+      visibleSourceRect.y + (visibleSourceRect.height - scanSize) / 2,
+    ),
+    width: scanSize,
+    height: scanSize,
+    downScaledWidth: SCAN_REGION_CANVAS_SIZE,
+    downScaledHeight: SCAN_REGION_CANVAS_SIZE,
+  };
+};
+
 const modalStyles = {
   overlay: {
     position: "fixed",
@@ -56,9 +133,16 @@ const modalStyles = {
     backgroundColor: "#f8fbfe",
     padding: "16px",
   },
+  scannerViewport: {
+    position: "relative",
+    overflow: "hidden",
+    borderRadius: "16px",
+    backgroundColor: "#10243a",
+  },
   video: {
     width: "100%",
-    minHeight: "320px",
+    height: "100%",
+    display: "block",
     borderRadius: "16px",
     backgroundColor: "#10243a",
     objectFit: "cover",
@@ -95,6 +179,7 @@ const StubQrScanModal = ({
   onScan,
 }) => {
   const videoRef = useRef(null);
+  const overlayRef = useRef(null);
   const scannerRef = useRef(null);
   const lastScannedValueRef = useRef("");
   const blockedScanRef = useRef({
@@ -136,6 +221,8 @@ const StubQrScanModal = ({
       {
         returnDetailedScanResult: true,
         preferredCamera: "environment",
+        calculateScanRegion: calculateGenerousScanRegion,
+        overlay: overlayRef.current,
         highlightScanRegion: true,
         highlightCodeOutline: true,
       },
@@ -182,10 +269,10 @@ const StubQrScanModal = ({
   }
 
   return (
-    <div style={modalStyles.overlay}>
-      <div style={modalStyles.modal}>
-        <div style={modalStyles.topBar}>
-          <div>
+    <div className="stub-qr-scan-modal-backdrop" style={modalStyles.overlay}>
+      <div className="stub-qr-scan-modal" style={modalStyles.modal}>
+        <div className="stub-qr-scan-modal-topbar" style={modalStyles.topBar}>
+          <div className="stub-qr-scan-modal-heading">
             <h2 style={{ ...pageHeaderStyles.title, fontSize: "30px" }}>
               Scan QR Stub
             </h2>
@@ -204,8 +291,32 @@ const StubQrScanModal = ({
           </button>
         </div>
 
-        <section style={modalStyles.scannerCard}>
-          <video ref={videoRef} style={modalStyles.video} muted playsInline />
+        <section className="stub-qr-scan-card" style={modalStyles.scannerCard}>
+          <div
+            className="stub-qr-scan-viewport"
+            style={modalStyles.scannerViewport}
+          >
+            <video
+              ref={videoRef}
+              className="stub-qr-scan-video"
+              style={modalStyles.video}
+              muted
+              playsInline
+            />
+            <div
+              ref={overlayRef}
+              className="stub-qr-scan-guide"
+              aria-hidden="true"
+            >
+              <svg
+                className="scan-region-highlight-svg"
+                viewBox="0 0 238 238"
+                preserveAspectRatio="none"
+              >
+                <path d="M31 2H10a8 8 0 0 0-8 8v21M207 2h21a8 8 0 0 1 8 8v21m0 176v21a8 8 0 0 1-8 8h-21m-176 0H10a8 8 0 0 1-8-8v-21" />
+              </svg>
+            </div>
+          </div>
           {isProcessing ? (
             <p style={modalStyles.message}>Verifying scanned QR stub...</p>
           ) : scannerMessage ? (
@@ -219,7 +330,7 @@ const StubQrScanModal = ({
           )}
         </section>
 
-        <div style={modalStyles.actions}>
+        <div className="stub-qr-scan-actions" style={modalStyles.actions}>
           <button
             type="button"
             onClick={handleClose}
@@ -227,18 +338,14 @@ const StubQrScanModal = ({
           >
             Cancel
           </button>
-          <button
-            type="button"
-            disabled
-            style={{
-              ...pageHeaderStyles.primaryButton,
-              opacity: 0.8,
-              cursor: "default",
-            }}
+          <div
+            className="stub-qr-scan-status"
+            role="status"
+            aria-live="polite"
           >
             <MdQrCodeScanner size={18} />
             Waiting for QR
-          </button>
+          </div>
         </div>
       </div>
     </div>

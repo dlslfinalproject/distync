@@ -336,7 +336,7 @@ const FamilyHeadSection = ({ form, onViewSuggestedHousehold }) => {
         ) : null}
       </div>
 
-      <div style={fieldStyles.nameGrid}>
+      <div className="household-registration-name-grid" style={fieldStyles.nameGrid}>
         <label style={fieldStyles.field}>
           <span style={fieldStyles.label}>First Name</span>
           <input
@@ -412,7 +412,7 @@ const FamilyHeadSection = ({ form, onViewSuggestedHousehold }) => {
         </label>
       </div>
 
-      <div style={fieldStyles.detailGrid}>
+      <div className="household-registration-detail-grid" style={fieldStyles.detailGrid}>
         <label style={fieldStyles.field}>
           <span style={fieldStyles.label}>Age</span>
           <input
@@ -529,6 +529,7 @@ const FamilyHeadSection = ({ form, onViewSuggestedHousehold }) => {
         </div>
 
         <div
+          className="household-registration-photo-grid"
           style={{
             display: "grid",
             gridTemplateColumns: "minmax(220px, 240px) minmax(240px, 1fr)",

@@ -288,9 +288,8 @@ const PrintStubsPage = () => {
           }
 
           const dashboardPayload = await fetchBarangayStubDashboard({
-            userId: null,
             disasterEventId: eventId,
-            overrideBarangayId: barangayId,
+            barangayId,
           });
 
           const dashboardRows = Array.isArray(dashboardPayload?.data)

@@ -443,13 +443,16 @@ const StubClaimConfirmModal = ({
     donatedReliefPackNames.length > 0 || canPickDonatedLooseItems;
 
   return (
-    <div style={modalStyles.overlay}>
-      <div style={modalStyles.modal}>
+    <div className="stub-claim-confirm-modal-backdrop" style={modalStyles.overlay}>
+      <div className="stub-claim-confirm-modal" style={modalStyles.modal}>
         <h3 style={modalStyles.title}>Confirm Relief Distribution</h3>
         <p style={modalStyles.message}>{message}</p>
 
         {selectedCount === 1 ? (
-          <div style={modalStyles.photoSection}>
+          <div
+            className="stub-claim-confirm-content"
+            style={modalStyles.photoSection}
+          >
             <div style={modalStyles.infoCard}>
               <p style={modalStyles.label}>Stub Number</p>
               <p style={modalStyles.value}>
@@ -511,7 +514,10 @@ const StubClaimConfirmModal = ({
               ) : null}
             </div>
 
-            <div style={modalStyles.familyHeadCard}>
+            <div
+              className="stub-claim-confirm-family-head"
+              style={modalStyles.familyHeadCard}
+            >
               {isLoadingStubDetails ? (
                 <div style={modalStyles.photoPlaceholder}>Loading photo...</div>
               ) : stubDetails?.household?.family_head_photo_url ? (
@@ -559,7 +565,7 @@ const StubClaimConfirmModal = ({
             </div>
           </div>
         ) : (
-          <div style={modalStyles.bulkList}>
+          <div className="stub-claim-confirm-bulk-list" style={modalStyles.bulkList}>
             {selectedStubSummaries.length > 0 ? (
               selectedStubSummaries.map((stub, index) => (
                 <div key={stub.id || `${stub.stubNumber}-${index}`} style={modalStyles.bulkItem}>
@@ -601,7 +607,7 @@ const StubClaimConfirmModal = ({
           </div>
         )}
 
-        <div style={modalStyles.actions}>
+        <div className="stub-claim-confirm-actions" style={modalStyles.actions}>
           <button
             type="button"
             onClick={onCancel}

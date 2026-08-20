@@ -50,8 +50,9 @@ const MswdoMasterlistScopeSection = ({
   onBarangayChange,
 }) => {
   return (
-    <section style={shellStyles.card}>
+    <section className="mswdo-masterlist-scope-card" style={shellStyles.card}>
       <div
+        className="mswdo-masterlist-tabs"
         style={{
           display: "flex",
           borderBottom: "1px solid #d6e2ef",
@@ -77,6 +78,7 @@ const MswdoMasterlistScopeSection = ({
       </div>
 
       <div
+        className="mswdo-masterlist-filter-grid"
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -84,7 +86,7 @@ const MswdoMasterlistScopeSection = ({
           alignItems: "end",
         }}
       >
-        <div>
+        <div className="mswdo-masterlist-filter-field">
           <label htmlFor="mswdo-masterlist-event" style={filterStyles.label}>
             {activeTab === "active" ? "Active" : "Ended"} Disaster Event
           </label>
@@ -108,7 +110,7 @@ const MswdoMasterlistScopeSection = ({
           </select>
         </div>
 
-        <div>
+        <div className="mswdo-masterlist-filter-field">
           <label htmlFor="mswdo-masterlist-barangay" style={filterStyles.label}>
             Barangay
           </label>

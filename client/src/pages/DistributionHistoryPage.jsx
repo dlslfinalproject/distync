@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import PageHeader from "../components/layout/PageHeader";
 import {
   pageSpacingStyles,
@@ -138,176 +138,16 @@ const ORDER_LIST_OPTIONS = [
   { value: "za", label: "Sort Z-A" },
 ];
 
-const getRowTime = (row) => {
-  const parsedTime = new Date(row?.distribution_date || 0).getTime();
-  return Number.isNaN(parsedTime) ? 0 : parsedTime;
-};
+const PAGE_SIZE_OPTIONS = [25, 50, 100];
 
-const getSummaryRowTime = (row) => {
-  const parsedTime = new Date(row?.latest_distribution_date || 0).getTime();
-  return Number.isNaN(parsedTime) ? 0 : parsedTime;
-};
-
-const sortDistributionHistoryRows = (rows, sortOrder = "newest") => {
-  return [...rows].sort((leftRow, rightRow) => {
-    if (sortOrder === "az" || sortOrder === "za") {
-      const comparison = String(leftRow.family_head_name || "").localeCompare(
-        String(rightRow.family_head_name || ""),
-        undefined,
-        { sensitivity: "base" },
-      );
-
-      return sortOrder === "za" ? -comparison : comparison;
-    }
-
-    const leftTime = getRowTime(leftRow);
-    const rightTime = getRowTime(rightRow);
-
-    return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
-  });
-};
-
-const buildDistributionSummaryRows = ({
-  rows,
-  disasterEvents,
-  selectedBarangayId = "",
-}) => {
-  const summaryByEventId = new Map();
-
-  (Array.isArray(disasterEvents) ? disasterEvents : []).forEach((event) => {
-    const affectedBarangays = Array.isArray(event?.affected_barangays)
-      ? event.affected_barangays
-      : [];
-    const affectedBarangayIds = affectedBarangays
-      .map((barangay) => barangay?.id || barangay?.barangay_id || "")
-      .filter(Boolean);
-
-    if (
-      selectedBarangayId &&
-      affectedBarangayIds.length > 0 &&
-      !affectedBarangayIds.includes(selectedBarangayId)
-    ) {
-      return;
-    }
-
-    const barangayNames = selectedBarangayId
-      ? affectedBarangays
-          .filter(
-            (barangay) =>
-              (barangay?.id || barangay?.barangay_id || "") === selectedBarangayId,
-          )
-          .map((barangay) => barangay?.name)
-          .filter(Boolean)
-      : affectedBarangays.map((barangay) => barangay?.name).filter(Boolean);
-
-    summaryByEventId.set(event.id, {
-      id: event.id,
-      event_code: event.event_code || "",
-      disaster_event_title: event.title || "--",
-      disaster_event_status: event.status || "",
-      start_date: event.start_date || null,
-      barangayNames: new Set(barangayNames),
-      reliefPacks: new Set(),
-      issuedStubsCount: 0,
-      claimedStubsCount: 0,
-      unclaimedStubsCount: 0,
-      latest_distribution_date: null,
-    });
-  });
-
-  rows.forEach((row) => {
-    const eventId = row.disaster_event_id || "unknown-event";
-    const existingSummary = summaryByEventId.get(eventId) || {
-      id: eventId,
-      event_code: row.event_code || "",
-      disaster_event_title: row.disaster_event_title || "--",
-      disaster_event_status: row.disaster_event_status || "",
-      start_date: row.start_date || null,
-      barangayNames: new Set(),
-      reliefPacks: new Set(),
-      issuedStubsCount: Number(row.issued_stubs_count || 0),
-      claimedStubsCount: Number(row.claimed_stubs_count || 0),
-      unclaimedStubsCount: Number(row.unclaimed_stubs_count || 0),
-      latest_distribution_date: null,
-    };
-
-    if (row.barangay_name) {
-      existingSummary.barangayNames.add(row.barangay_name);
-    }
-
-    const reliefPack = row.relief_pack_template_name || row.released_items_summary;
-
-    if (reliefPack) {
-      existingSummary.reliefPacks.add(reliefPack);
-    }
-
-    existingSummary.issuedStubsCount = Number(
-      row.issued_stubs_count || existingSummary.issuedStubsCount || 0,
-    );
-    existingSummary.claimedStubsCount = Number(
-      row.claimed_stubs_count || existingSummary.claimedStubsCount || 0,
-    );
-    existingSummary.unclaimedStubsCount = Number(
-      row.unclaimed_stubs_count || existingSummary.unclaimedStubsCount || 0,
-    );
-
-    const currentLatestTime = getSummaryRowTime(existingSummary);
-    const rowTime = getRowTime(row);
-
-    if (rowTime > currentLatestTime) {
-      existingSummary.latest_distribution_date = row.distribution_date;
-    }
-
-    summaryByEventId.set(eventId, existingSummary);
-  });
-
-  return Array.from(summaryByEventId.values()).map((summary) => ({
-    id: summary.id,
-    event_code: summary.event_code,
-    disaster_event_title: summary.disaster_event_title,
-    disaster_event_status: summary.disaster_event_status,
-    start_date: summary.start_date,
-    barangay_summary: Array.from(summary.barangayNames).sort().join(", ") || "--",
-    barangay_count: summary.barangayNames.size,
-    issued_stubs_count: summary.issuedStubsCount,
-    claimed_stubs_count: summary.claimedStubsCount,
-    unclaimed_stubs_count: summary.unclaimedStubsCount,
-    relief_pack_summary: Array.from(summary.reliefPacks).sort().join(", ") || "--",
-    latest_distribution_date: summary.latest_distribution_date,
-  }));
-};
-
-const sortDistributionSummaryRows = (rows, sortOrder = "newest") => {
-  return [...rows].sort((leftRow, rightRow) => {
-    if (sortOrder === "az" || sortOrder === "za") {
-      const comparison = String(leftRow.disaster_event_title || "").localeCompare(
-        String(rightRow.disaster_event_title || ""),
-        undefined,
-        { sensitivity: "base" },
-      );
-
-      return sortOrder === "za" ? -comparison : comparison;
-    }
-
-    const leftTime = getSummaryRowTime(leftRow);
-    const rightTime = getSummaryRowTime(rightRow);
-
-    if (leftTime !== rightTime) {
-      return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
-    }
-
-    const leftStartTime = new Date(leftRow?.start_date || 0).getTime();
-    const rightStartTime = new Date(rightRow?.start_date || 0).getTime();
-
-    if (leftStartTime !== rightStartTime) {
-      return sortOrder === "oldest"
-        ? leftStartTime - rightStartTime
-        : rightStartTime - leftStartTime;
-    }
-
-    return 0;
-  });
-};
+const createDefaultPagination = () => ({
+  page: 1,
+  pageSize: 25,
+  totalItems: 0,
+  totalPages: 0,
+  hasPreviousPage: false,
+  hasNextPage: false,
+});
 
 const getAffectedBarangayIds = (event) => {
   if (!Array.isArray(event?.affected_barangays)) {
@@ -325,6 +165,120 @@ const getAffectedBarangayIds = (event) => {
     .filter(Boolean);
 };
 
+const getHistoryPaginationState = (pagination) => {
+  const totalItems = Number(pagination?.totalItems || 0);
+  const totalPages = Number(pagination?.totalPages || 0);
+  const currentPage = Number(pagination?.page || 1);
+  const pageSize = Number(pagination?.pageSize || 25);
+  const firstVisibleItem = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const lastVisibleItem = Math.min(currentPage * pageSize, totalItems);
+
+  return {
+    totalItems,
+    totalPages,
+    currentPage,
+    pageSize,
+    firstVisibleItem,
+    lastVisibleItem,
+    hasResults: totalItems > 0,
+    hasMultiplePages: totalPages > 1,
+  };
+};
+
+const HistoryPaginationMetadata = ({
+  pagination,
+  isLoading,
+  onPageSizeChange,
+}) => {
+  const {
+    hasResults,
+    hasMultiplePages,
+    pageSize,
+    firstVisibleItem,
+    lastVisibleItem,
+    totalItems,
+  } = getHistoryPaginationState(pagination);
+
+  if (!hasResults) {
+    return null;
+  }
+
+  return (
+    <div className="distribution-history-pagination-metadata">
+      <div className="distribution-history-pagination-range" aria-live="polite">
+        Showing {firstVisibleItem}-{lastVisibleItem} of {totalItems}
+      </div>
+
+      {hasMultiplePages ? (
+        <label
+          className="distribution-history-page-size"
+          htmlFor="distribution-history-page-size"
+        >
+          <span>Rows per page</span>
+          <select
+            id="distribution-history-page-size"
+            value={pageSize}
+            onChange={(event) => onPageSizeChange(Number(event.target.value))}
+            disabled={isLoading}
+          >
+            {PAGE_SIZE_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+    </div>
+  );
+};
+
+const HistoryPaginationNavigation = ({
+  pagination,
+  isLoading,
+  onPageChange,
+}) => {
+  const { hasMultiplePages, currentPage, totalPages } =
+    getHistoryPaginationState(pagination);
+
+  if (!hasMultiplePages) {
+    return null;
+  }
+
+  return (
+    <nav
+      className="distribution-history-pagination-navigation"
+      aria-label="Distribution history pagination"
+    >
+      <div className="distribution-history-pagination-controls">
+        <button
+          type="button"
+          className="distribution-history-pagination-button"
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={!pagination?.hasPreviousPage || isLoading}
+          aria-label="Go to previous distribution history page"
+        >
+          Previous
+        </button>
+
+        <span className="distribution-history-page-indicator">
+          Page {currentPage} of {totalPages}
+        </span>
+
+        <button
+          type="button"
+          className="distribution-history-pagination-button"
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={!pagination?.hasNextPage || isLoading}
+          aria-label="Go to next distribution history page"
+        >
+          Next
+        </button>
+      </div>
+    </nav>
+  );
+};
+
 const DistributionHistoryPage = () => {
   const { currentRole } = useAuth();
   const isBarangay = currentRole === ROLE_CODES.BARANGAY;
@@ -332,6 +286,9 @@ const DistributionHistoryPage = () => {
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
   const [historyRows, setHistoryRows] = useState([]);
+  const [historyPagination, setHistoryPagination] = useState(
+    createDefaultPagination,
+  );
   const [filters, setFilters] = useState({
     disaster_event_id: "",
     barangay_id: "",
@@ -349,6 +306,7 @@ const DistributionHistoryPage = () => {
     barangay_id: "",
     date_from: "",
     date_to: "",
+    search: "",
     sort_order: "newest",
   });
   const [exportingFormat, setExportingFormat] = useState("");
@@ -362,6 +320,31 @@ const DistributionHistoryPage = () => {
   const [selectedStubDetails, setSelectedStubDetails] = useState(null);
   const [isLoadingStubDetails, setIsLoadingStubDetails] = useState(false);
   const [stubDetailsErrorMessage, setStubDetailsErrorMessage] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const historyRequestIdRef = useRef(0);
+
+  const isSummaryMode = !filters.disaster_event_id;
+
+  const updateFilters = (updater) => {
+    setPage(1);
+    setFilters(updater);
+  };
+
+  const handleSearchChange = (value) => {
+    setPage(1);
+    setSearchTerm(value);
+  };
+
+  const handleSortOrderChange = (value) => {
+    setPage(1);
+    setSortOrder(value);
+  };
+
+  const handlePageSizeChange = (value) => {
+    setPage(1);
+    setPageSize(value);
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -403,6 +386,8 @@ const DistributionHistoryPage = () => {
 
   useEffect(() => {
     let isMounted = true;
+    const requestId = historyRequestIdRef.current + 1;
+    historyRequestIdRef.current = requestId;
 
     const loadHistory = async () => {
       setIsLoadingHistory(true);
@@ -411,22 +396,27 @@ const DistributionHistoryPage = () => {
       try {
         const response = await fetchDistributionHistory({
           ...filters,
+          mode: isSummaryMode ? "summary" : "detail",
+          search: searchTerm.trim(),
           sort_order: sortOrder,
-          limit: filters.disaster_event_id ? 500 : 1000,
+          page,
+          pageSize,
         });
 
-        if (!isMounted) {
+        if (!isMounted || historyRequestIdRef.current !== requestId) {
           return;
         }
 
         setHistoryRows(Array.isArray(response.data) ? response.data : []);
+        setHistoryPagination(response.pagination || createDefaultPagination());
       } catch (error) {
-        if (isMounted) {
+        if (isMounted && historyRequestIdRef.current === requestId) {
           setHistoryRows([]);
+          setHistoryPagination(createDefaultPagination());
           setErrorMessage(error.message || "Failed to load distribution history.");
         }
       } finally {
-        if (isMounted) {
+        if (isMounted && historyRequestIdRef.current === requestId) {
           setIsLoadingHistory(false);
         }
       }
@@ -437,7 +427,7 @@ const DistributionHistoryPage = () => {
     return () => {
       isMounted = false;
     };
-  }, [filters, sortOrder]);
+  }, [filters, isSummaryMode, page, pageSize, searchTerm, sortOrder]);
 
   const selectedDisasterEvent = useMemo(
     () =>
@@ -496,7 +486,7 @@ const DistributionHistoryPage = () => {
     );
 
     if (!isSelectedBarangayAffected) {
-      setFilters((currentValue) => ({
+      updateFilters((currentValue) => ({
         ...currentValue,
         barangay_id: "",
       }));
@@ -525,52 +515,7 @@ const DistributionHistoryPage = () => {
     selectedExportDisasterEvent,
   ]);
 
-  const visibleHistoryRows = useMemo(() => {
-    const normalizedSearchTerm = searchTerm.trim().toLowerCase();
-
-    const filteredRows = normalizedSearchTerm
-      ? historyRows.filter((row) => {
-          const searchableValues = [
-            row.family_head_name,
-            row.barangay_name,
-            row.sectors_text,
-            row.stub_no,
-            formatDisplayStubNumber(row),
-            row.serial_no,
-            row.disaster_event_title,
-            row.event_code,
-            row.relief_pack_template_name,
-            row.released_items_summary,
-            row.verified_by_name,
-          ];
-
-          return searchableValues.some((value) =>
-            String(value || "")
-              .toLowerCase()
-              .includes(normalizedSearchTerm),
-          );
-        })
-      : historyRows;
-
-    return sortDistributionHistoryRows(filteredRows, sortOrder);
-  }, [historyRows, searchTerm, sortOrder]);
-
-  const isSummaryMode = !filters.disaster_event_id;
-
-  const visibleSummaryRows = useMemo(
-    () =>
-      sortDistributionSummaryRows(
-        buildDistributionSummaryRows({
-          rows: visibleHistoryRows,
-          disasterEvents,
-          selectedBarangayId: filters.barangay_id,
-        }),
-        sortOrder,
-      ),
-    [visibleHistoryRows, disasterEvents, filters.barangay_id, sortOrder],
-  );
-
-  const displayedRows = isSummaryMode ? visibleSummaryRows : visibleHistoryRows;
+  const displayedRows = historyRows;
 
   const handleViewDetails = async (row) => {
     setIsStubDetailModalOpen(true);
@@ -603,8 +548,9 @@ const DistributionHistoryPage = () => {
         actions={[]}
       />
 
-      <section style={shellStyles.card}>
+      <section className="distribution-history-filter-card" style={shellStyles.card}>
         <div
+          className="distribution-history-filter-grid"
           style={pageSpacingStyles.filterGrid}
         >
           <div>
@@ -615,7 +561,7 @@ const DistributionHistoryPage = () => {
               id="distribution-history-event"
               value={filters.disaster_event_id}
               onChange={(event) =>
-                setFilters((currentValue) => ({
+                updateFilters((currentValue) => ({
                   ...currentValue,
                   disaster_event_id: event.target.value,
                   barangay_id: "",
@@ -642,7 +588,7 @@ const DistributionHistoryPage = () => {
                 id="distribution-history-barangay"
                 value={filters.barangay_id}
                 onChange={(event) =>
-                  setFilters((currentValue) => ({
+                  updateFilters((currentValue) => ({
                     ...currentValue,
                     barangay_id: event.target.value,
                   }))
@@ -669,7 +615,7 @@ const DistributionHistoryPage = () => {
               type="date"
               value={filters.date_from}
               onChange={(event) =>
-                setFilters((currentValue) => ({
+                updateFilters((currentValue) => ({
                   ...currentValue,
                   date_from: event.target.value,
                 }))
@@ -687,7 +633,7 @@ const DistributionHistoryPage = () => {
               type="date"
               value={filters.date_to}
               onChange={(event) =>
-                setFilters((currentValue) => ({
+                updateFilters((currentValue) => ({
                   ...currentValue,
                   date_to: event.target.value,
                 }))
@@ -703,7 +649,7 @@ const DistributionHistoryPage = () => {
             <select
               id="distribution-history-order-list"
               value={sortOrder}
-              onChange={(event) => setSortOrder(event.target.value)}
+              onChange={(event) => handleSortOrderChange(event.target.value)}
               style={inputStyles}
             >
               {ORDER_LIST_OPTIONS.map((option) => (
@@ -717,14 +663,17 @@ const DistributionHistoryPage = () => {
       </section>
 
       <section
+        className="distribution-history-toolbar"
         style={{
           ...pageSpacingStyles.toolbar,
         }}
       >
         <div
+          className="distribution-history-toolbar-search"
           style={{
             position: "relative",
             flex: "1 1 420px",
+            minWidth: 0,
           }}
         >
           <FiSearch
@@ -739,8 +688,9 @@ const DistributionHistoryPage = () => {
           />
           <input
             type="search"
+            aria-label="Search distribution history"
             value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
+            onChange={(event) => handleSearchChange(event.target.value)}
             placeholder="Search family head, sectors, or stub number"
             style={{
               ...inputStyles,
@@ -751,6 +701,7 @@ const DistributionHistoryPage = () => {
         </div>
 
         <button
+          className="distribution-history-export-button"
           type="button"
           onClick={() => {
             setSelectedExportFormat("csv");
@@ -759,6 +710,7 @@ const DistributionHistoryPage = () => {
               barangay_id: isBarangay ? "" : filters.barangay_id,
               date_from: filters.date_from,
               date_to: filters.date_to,
+              search: searchTerm.trim(),
               sort_order: sortOrder,
             });
             setExportFeedback({ type: "", message: "" });
@@ -788,9 +740,19 @@ const DistributionHistoryPage = () => {
         </button>
       </section>
 
-      <section style={shellStyles.card}>
-        <div style={pageSpacingStyles.tableHeader}>
-          <h3 style={{ margin: 0, color: "#17324d" }}>Distribution Records</h3>
+      <section className="distribution-history-records-card" style={shellStyles.card}>
+        <div
+          className="distribution-history-records-header"
+          style={pageSpacingStyles.tableHeader}
+        >
+          <div className="distribution-history-records-title-group">
+            <h3 style={{ margin: 0, color: "#17324d" }}>Distribution Records</h3>
+            <HistoryPaginationMetadata
+              pagination={historyPagination}
+              isLoading={isLoadingHistory}
+              onPageSizeChange={handlePageSizeChange}
+            />
+          </div>
         </div>
 
         {errorMessage ? <ErrorState message={errorMessage} style={{ marginBottom: "16px" }} /> : null}
@@ -800,8 +762,11 @@ const DistributionHistoryPage = () => {
         ) : displayedRows.length === 0 ? (
           <EmptyState message="No matching records found. Try adjusting your search or filters." />
         ) : isSummaryMode ? (
-          <div style={{ overflowX: "auto" }}>
-            <table style={tableStyles.table}>
+          <div
+            className="distribution-history-table-scroll distribution-history-summary-scroll"
+            style={{ overflowX: "auto" }}
+          >
+            <table className="distribution-history-table distribution-history-summary-table" style={tableStyles.table}>
               <thead>
                 <tr>
                   <th style={tableStyles.th}>Disaster Event</th>
@@ -816,9 +781,9 @@ const DistributionHistoryPage = () => {
                 </tr>
               </thead>
               <tbody>
-                {visibleSummaryRows.map((row) => (
+                {historyRows.map((row) => (
                   <tr key={row.id}>
-                    <td style={tableStyles.td}>
+                    <td className="distribution-history-text-cell" style={tableStyles.td}>
                       <div>{row.disaster_event_title || "--"}</div>
                     </td>
                     <td style={{ ...tableStyles.td, textAlign: "center", verticalAlign: "middle" }}>
@@ -826,7 +791,7 @@ const DistributionHistoryPage = () => {
                         {getDisasterEventStatusLabel(row.disaster_event_status)}
                       </span>
                     </td>
-                    <td style={tableStyles.td}>
+                    <td className="distribution-history-text-cell" style={tableStyles.td}>
                       <div>{row.barangay_summary}</div>
                       <div style={{ color: "#60738a", fontSize: "12px" }}>
                         Count: {row.barangay_count}
@@ -835,14 +800,14 @@ const DistributionHistoryPage = () => {
                     <td style={{ ...tableStyles.td, textAlign: "center" }}>
                       {row.issued_stubs_count || 0}
                     </td>
-                    <td style={tableStyles.td}>
+                    <td className="distribution-history-text-cell" style={tableStyles.td}>
                       <div>Claimed: {row.claimed_stubs_count || 0}</div>
                       <div style={{ color: "#60738a", fontSize: "12px" }}>
                         Unclaimed: {row.unclaimed_stubs_count || 0}
                       </div>
                     </td>
-                    <td style={tableStyles.td}>{row.relief_pack_summary}</td>
-                    <td style={tableStyles.td}>
+                    <td className="distribution-history-text-cell" style={tableStyles.td}>{row.relief_pack_summary}</td>
+                    <td className="distribution-history-date-cell" style={tableStyles.td}>
                       {formatDateTime(row.latest_distribution_date)}
                     </td>
                   </tr>
@@ -851,8 +816,11 @@ const DistributionHistoryPage = () => {
             </table>
           </div>
         ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table style={tableStyles.table}>
+          <div
+            className="distribution-history-table-scroll distribution-history-detail-scroll"
+            style={{ overflowX: "auto" }}
+          >
+            <table className="distribution-history-table distribution-history-detail-table" style={tableStyles.table}>
               <thead>
                 <tr>
                   <th style={tableStyles.th}>Family Head</th>
@@ -869,13 +837,13 @@ const DistributionHistoryPage = () => {
                 </tr>
               </thead>
               <tbody>
-                {visibleHistoryRows.map((row) => (
+                {historyRows.map((row) => (
                   <tr key={row.id}>
-                    <td style={tableStyles.td}>
+                    <td className="distribution-history-text-cell" style={tableStyles.td}>
                       {row.family_head_name || "--"}
                     </td>
                     {!isBarangay ? (
-                      <td style={tableStyles.td}>{row.barangay_name || "--"}</td>
+                      <td className="distribution-history-text-cell" style={tableStyles.td}>{row.barangay_name || "--"}</td>
                     ) : null}
                     <td style={{ ...tableStyles.td, textAlign: "center" }}>
                       <span
@@ -894,13 +862,13 @@ const DistributionHistoryPage = () => {
                         {row.members_count ?? row.household_size ?? 0}
                       </span>
                     </td>
-                    <td style={tableStyles.td}>
+                    <td className="distribution-history-text-cell" style={tableStyles.td}>
                       {formatOrderedSectorText(row.sectors_text)}
                     </td>
-                    <td style={tableStyles.td}>
+                    <td className="distribution-history-identifier-cell" style={tableStyles.td}>
                       {formatDisplayStubNumber(row)}
                     </td>
-                    <td style={tableStyles.td}>
+                    <td className="distribution-history-text-cell" style={tableStyles.td}>
                       <div>
                         {row.relief_pack_template_name ||
                           row.released_items_summary ||
@@ -912,14 +880,15 @@ const DistributionHistoryPage = () => {
                           : ""}
                       </div>
                     </td>
-                    <td style={tableStyles.td}>
+                    <td className="distribution-history-date-cell" style={tableStyles.td}>
                       {formatDateTime(row.distribution_date)}
                     </td>
-                    <td style={tableStyles.td}>{row.verified_by_name || "--"}</td>
+                    <td className="distribution-history-text-cell" style={tableStyles.td}>{row.verified_by_name || "--"}</td>
                     <td style={{ ...tableStyles.td, textAlign: "center" }}>
                       <button
                         type="button"
                         onClick={() => handleViewDetails(row)}
+                        aria-label={`View details for ${formatDisplayStubNumber(row)}`}
                         title="View Details"
                         style={{
                           border: "1px solid #c6d8ea",
@@ -943,6 +912,12 @@ const DistributionHistoryPage = () => {
             </table>
           </div>
         )}
+
+        <HistoryPaginationNavigation
+          pagination={historyPagination}
+          isLoading={isLoadingHistory}
+          onPageChange={setPage}
+        />
       </section>
 
       <ExportModal
@@ -973,6 +948,7 @@ const DistributionHistoryPage = () => {
               status: "CLAIMED",
               date_from: exportFilters.date_from,
               date_to: exportFilters.date_to,
+              search: exportFilters.search,
               sort_order: exportFilters.sort_order,
               format: selectedExportFormat,
             });

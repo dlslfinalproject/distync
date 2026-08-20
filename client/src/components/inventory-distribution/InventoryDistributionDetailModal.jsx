@@ -95,6 +95,7 @@ const styles = {
   },
   tableWrap: {
     overflowX: "auto",
+    maxWidth: "100%",
     marginTop: "12px",
   },
   table: {
@@ -414,6 +415,8 @@ const InventoryDistributionDetailModal = ({
       closeMode="icon"
       titleStyle={{ fontSize: "30px", fontWeight: 700 }}
       panelStyle={styles.shellPanel}
+      overlayClassName="inventory-distribution-detail-modal-backdrop"
+      panelClassName="inventory-distribution-detail-modal"
     >
       {isLoading ? (
         <LoadingState message="Loading distribution details..." />
@@ -422,10 +425,16 @@ const InventoryDistributionDetailModal = ({
       ) : !row ? (
         <EmptyState compact message="Distribution detail is unavailable." />
       ) : (
-        <div style={{ display: "grid", gap: "20px" }}>
-          <section style={styles.sectionCard}>
+        <div className="inventory-distribution-detail-stack" style={{ display: "grid", gap: "20px" }}>
+          <section
+            className="inventory-distribution-detail-section"
+            style={styles.sectionCard}
+          >
             <h3 style={{ margin: 0, color: "#17324d" }}>Household Information</h3>
-            <div style={{ ...styles.grid, marginTop: "16px" }}>
+            <div
+              className="inventory-distribution-detail-grid"
+              style={{ ...styles.grid, marginTop: "16px" }}
+            >
               <InfoField
                 label="Disaster Event"
                 value={getDisasterEventTitle(stubDetails, row, household)}
@@ -457,8 +466,14 @@ const InventoryDistributionDetailModal = ({
             </div>
           </section>
 
-          <section style={styles.sectionCard}>
-            <div style={styles.visualGrid}>
+          <section
+            className="inventory-distribution-detail-section"
+            style={styles.sectionCard}
+          >
+            <div
+              className="inventory-distribution-detail-visual-grid"
+              style={styles.visualGrid}
+            >
               <div>
                 <p style={styles.label}>Family Head Photo</p>
                 <div style={{ marginTop: "12px" }}>
@@ -501,7 +516,10 @@ const InventoryDistributionDetailModal = ({
             </div>
           </section>
 
-          <section style={styles.sectionCard}>
+          <section
+            className="inventory-distribution-detail-section"
+            style={styles.sectionCard}
+          >
             <h3 style={{ margin: 0, color: "#17324d" }}>Family Members</h3>
             {members.length === 0 ? (
               <p style={{ ...shellStyles.mutedText, marginTop: "12px" }}>
@@ -530,17 +548,29 @@ const InventoryDistributionDetailModal = ({
             )}
           </section>
 
-          <section style={styles.sectionCard}>
+          <section
+            className="inventory-distribution-detail-section"
+            style={styles.sectionCard}
+          >
             <h3 style={{ margin: 0, color: "#17324d" }}>QR Stub</h3>
-            <div style={{ ...styles.qrVisualGrid, marginTop: "16px" }}>
-              <div style={{ maxWidth: "280px" }}>
+            <div
+              className="inventory-distribution-detail-qr-grid"
+              style={{ ...styles.qrVisualGrid, marginTop: "16px" }}
+            >
+              <div
+                className="inventory-distribution-detail-qr-panel"
+                style={{ maxWidth: "280px" }}
+              >
                 <QrCodePanel
                   value={stubDetails?.qr_code_value || row?.qr_code_value || ""}
                   emptyLabel="No QR available"
                   valueStyle={{ overflowWrap: "anywhere" }}
                 />
               </div>
-              <div style={styles.qrInfoGrid}>
+              <div
+                className="inventory-distribution-detail-qr-info-grid"
+                style={styles.qrInfoGrid}
+              >
                 <InfoField
                   label="Stub Number"
                   value={getDisplayStubNumber(stubDetails, row)}
@@ -576,7 +606,10 @@ const InventoryDistributionDetailModal = ({
             </div>
           </section>
 
-          <section style={styles.sectionCard}>
+          <section
+            className="inventory-distribution-detail-section"
+            style={styles.sectionCard}
+          >
             <h3 style={{ margin: 0, color: "#17324d" }}>Relief Packs / Items Received</h3>
 
             {reliefPackTemplates.length === 0 &&
@@ -598,8 +631,14 @@ const InventoryDistributionDetailModal = ({
                         : "Standard relief pack"}
                     </p>
                     {Array.isArray(template.items) && template.items.length > 0 ? (
-                      <div style={styles.tableWrap}>
-                        <table style={styles.table}>
+                      <div
+                        className="inventory-distribution-detail-table-scroll"
+                        style={styles.tableWrap}
+                      >
+                        <table
+                          className="inventory-distribution-detail-table"
+                          style={styles.table}
+                        >
                           <thead>
                             <tr>
                               <th style={styles.th}>Item Name</th>
@@ -645,8 +684,14 @@ const InventoryDistributionDetailModal = ({
                       Donor: {pack.donor_name || "--"}
                     </p>
                     {Array.isArray(pack.items) && pack.items.length > 0 ? (
-                      <div style={styles.tableWrap}>
-                        <table style={styles.table}>
+                      <div
+                        className="inventory-distribution-detail-table-scroll"
+                        style={styles.tableWrap}
+                      >
+                        <table
+                          className="inventory-distribution-detail-table"
+                          style={styles.table}
+                        >
                           <thead>
                             <tr>
                               <th style={styles.th}>Item Name</th>
@@ -683,8 +728,14 @@ const InventoryDistributionDetailModal = ({
                     <p style={{ margin: 0, color: "#17324d", fontWeight: 800 }}>
                       Donated Loose Items
                     </p>
-                    <div style={styles.tableWrap}>
-                      <table style={styles.table}>
+                    <div
+                      className="inventory-distribution-detail-table-scroll"
+                      style={styles.tableWrap}
+                    >
+                      <table
+                        className="inventory-distribution-detail-table"
+                        style={styles.table}
+                      >
                         <thead>
                           <tr>
                             <th style={styles.th}>Item Name</th>

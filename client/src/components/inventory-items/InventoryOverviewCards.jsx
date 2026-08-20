@@ -10,7 +10,7 @@ const inventoryOverviewGridStyles = {
 
 const InventoryOverviewCards = ({ summaryCards }) => {
   return (
-    <section style={inventoryOverviewGridStyles}>
+    <section className="inventory-items-summary-grid" style={inventoryOverviewGridStyles}>
       {summaryCards.map((card) => (
         <StatusCard key={card.label} {...card} />
       ))}

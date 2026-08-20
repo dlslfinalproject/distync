@@ -817,14 +817,43 @@ const updateStubStatus = async (stubId, status, dbClient) => {
   return result.rows[0] || null;
 };
 
-const getDistributionHistory = async ({
+const DISTRIBUTION_HISTORY_SORTS = {
+  newest: {
+    detail: "distribution_date DESC, created_at DESC, id DESC",
+    summary:
+      "latest_distribution_date DESC NULLS LAST, start_date DESC NULLS LAST, disaster_event_id DESC",
+  },
+  oldest: {
+    detail: "distribution_date ASC, created_at ASC, id ASC",
+    summary:
+      "latest_distribution_date ASC NULLS LAST, start_date ASC NULLS LAST, disaster_event_id ASC",
+  },
+  az: {
+    detail:
+      "family_head_name ASC NULLS LAST, distribution_date DESC, created_at DESC, id DESC",
+    summary:
+      "disaster_event_title ASC NULLS LAST, latest_distribution_date DESC NULLS LAST, disaster_event_id ASC",
+  },
+  za: {
+    detail:
+      "family_head_name DESC NULLS LAST, distribution_date DESC, created_at DESC, id DESC",
+    summary:
+      "disaster_event_title DESC NULLS LAST, latest_distribution_date DESC NULLS LAST, disaster_event_id DESC",
+  },
+};
+
+const getDistributionHistoryOrderBy = (sortOrder = "newest", mode = "detail") =>
+  DISTRIBUTION_HISTORY_SORTS[sortOrder]?.[mode] ||
+  DISTRIBUTION_HISTORY_SORTS.newest[mode];
+
+const buildDistributionHistoryFilters = ({
   barangayId = null,
   disasterEventId = null,
   status = null,
   dateFrom = null,
   dateTo = null,
-  limit = 100,
-}) => {
+  search = "",
+} = {}) => {
   const values = [];
   const conditions = [];
 
@@ -853,83 +882,210 @@ const getDistributionHistory = async ({
     conditions.push(`dt.distribution_date < ($${values.length}::date + INTERVAL '1 day')`);
   }
 
-  values.push(limit);
+  const normalizedSearch = String(search || "").trim();
+
+  if (normalizedSearch) {
+    values.push(`%${normalizedSearch}%`);
+    const searchParam = `$${values.length}`;
+    conditions.push(`(
+      CONCAT_WS(' ', h.family_head_first_name, h.family_head_middle_name, h.family_head_last_name, h.family_head_suffix) ILIKE ${searchParam}
+      OR b.name ILIKE ${searchParam}
+      OR s.stub_no ILIKE ${searchParam}
+      OR s.serial_no ILIKE ${searchParam}
+      OR CONCAT_WS(' ', u.first_name, u.middle_name, u.last_name) ILIKE ${searchParam}
+      OR CONCAT(
+        'STUB#',
+        (
+          SELECT COUNT(*)::int
+          FROM stubs sequence_stubs
+          INNER JOIN households sequence_households
+            ON sequence_households.id = sequence_stubs.household_id
+          WHERE sequence_stubs.disaster_event_id = s.disaster_event_id
+            AND sequence_households.barangay_id IS NOT DISTINCT FROM h.barangay_id
+            AND sequence_households.current_stay_type = 'EVAC_CENTER'
+            AND sequence_stubs.status IN ('ISSUED', 'CLAIMED')
+            AND (
+              sequence_stubs.issued_at < s.issued_at
+              OR (
+                sequence_stubs.issued_at = s.issued_at
+                AND sequence_stubs.id <= s.id
+              )
+            )
+        )
+      ) ILIKE ${searchParam}
+      OR de.title ILIKE ${searchParam}
+      OR de.event_code ILIKE ${searchParam}
+      OR rpt.name ILIKE ${searchParam}
+      OR EXISTS (
+        SELECT 1
+        FROM distribution_transaction_items dti_search
+        INNER JOIN inventory_items ii_search
+          ON ii_search.id = dti_search.inventory_item_id
+        WHERE dti_search.distribution_transaction_id = dt.id
+          AND ii_search.item_name ILIKE ${searchParam}
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM household_sectors hs_search
+        INNER JOIN sectors household_sector_search
+          ON household_sector_search.id = hs_search.sector_id
+        WHERE hs_search.household_id = h.id
+          AND (
+            household_sector_search.name ILIKE ${searchParam}
+            OR household_sector_search.code ILIKE ${searchParam}
+          )
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM evacuees e_search
+        INNER JOIN evacuee_sectors es_search
+          ON es_search.evacuee_id = e_search.id
+        INNER JOIN sectors member_sector_search
+          ON member_sector_search.id = es_search.sector_id
+        WHERE e_search.household_id = h.id
+          AND e_search.is_active = TRUE
+          AND (
+            member_sector_search.name ILIKE ${searchParam}
+            OR member_sector_search.code ILIKE ${searchParam}
+          )
+      )
+    )`);
+  }
 
   const whereClause =
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
+  return {
+    values,
+    whereClause,
+  };
+};
+
+const buildDistributionHistoryLimitClause = ({ values, limit, offset }) => {
+  if (!Number.isInteger(limit)) {
+    return "";
+  }
+
+  values.push(limit);
+  const limitParam = `$${values.length}`;
+
+  if (!Number.isInteger(offset)) {
+    return `LIMIT ${limitParam}`;
+  }
+
+  values.push(offset);
+  return `LIMIT ${limitParam} OFFSET $${values.length}`;
+};
+
+const selectDistributionHistoryRows = async ({
+  barangayId = null,
+  disasterEventId = null,
+  status = null,
+  dateFrom = null,
+  dateTo = null,
+  search = "",
+  sortOrder = "newest",
+  limit = 100,
+  offset = null,
+}) => {
+  const { values, whereClause } = buildDistributionHistoryFilters({
+    barangayId,
+    disasterEventId,
+    status,
+    dateFrom,
+    dateTo,
+    search,
+  });
+  const limitClause = buildDistributionHistoryLimitClause({
+    values,
+    limit,
+    offset,
+  });
+  const orderBy = getDistributionHistoryOrderBy(sortOrder, "detail");
+
   const query = `
+    WITH history_base AS (
+      SELECT
+        dt.id,
+        dt.disaster_event_id,
+        dt.household_id,
+        dt.stub_id,
+        dt.distribution_date,
+        dt.distribution_status,
+        dt.claimed_by_name,
+        dt.verified_by,
+        dt.qr_reference_value,
+        dt.receipt_no,
+        dt.receipt_status,
+        dt.received_at,
+        dt.relief_pack_template_id,
+        dt.remarks,
+        dt.sync_status,
+        dt.created_at,
+        dt.updated_at,
+        de.event_code,
+        de.title AS disaster_event_title,
+        de.status AS disaster_event_status,
+        de.start_date,
+        b.id AS barangay_id,
+        b.name AS barangay_name,
+        s.stub_no,
+        s.serial_no,
+        h.household_size,
+        CONCAT_WS(
+          ' ',
+          h.family_head_first_name,
+          h.family_head_middle_name,
+          h.family_head_last_name,
+          h.family_head_suffix
+        ) AS family_head_name,
+        CONCAT_WS(
+          ' ',
+          u.first_name,
+          u.middle_name,
+          u.last_name
+        ) AS verified_by_name,
+        rpt.name AS relief_pack_template_name
+      FROM distribution_transactions dt
+      INNER JOIN households h ON h.id = dt.household_id
+      INNER JOIN barangays b ON b.id = h.barangay_id
+      INNER JOIN disaster_events de ON de.id = dt.disaster_event_id
+      INNER JOIN stubs s ON s.id = dt.stub_id
+      LEFT JOIN users u ON u.id = dt.verified_by
+      LEFT JOIN relief_pack_templates rpt ON rpt.id = dt.relief_pack_template_id
+      ${whereClause}
+    )
     SELECT
-      dt.id,
-      dt.disaster_event_id,
-      dt.household_id,
-      dt.stub_id,
-      dt.distribution_date,
-      dt.distribution_status,
-      dt.claimed_by_name,
-      dt.verified_by,
-      dt.qr_reference_value,
-      dt.receipt_no,
-      dt.receipt_status,
-      dt.received_at,
-      dt.relief_pack_template_id,
-      dt.remarks,
-      dt.sync_status,
-      dt.created_at,
-      dt.updated_at,
-      de.event_code,
-      de.title AS disaster_event_title,
-      de.status AS disaster_event_status,
-      b.id AS barangay_id,
-      b.name AS barangay_name,
-      s.stub_no,
-      s.serial_no,
+      history_base.*,
       (
         SELECT COUNT(*)::int
         FROM stubs sequence_stubs
         INNER JOIN households sequence_households
           ON sequence_households.id = sequence_stubs.household_id
-        WHERE sequence_stubs.disaster_event_id = s.disaster_event_id
-          AND sequence_households.barangay_id IS NOT DISTINCT FROM h.barangay_id
+        WHERE sequence_stubs.disaster_event_id = history_base.disaster_event_id
+          AND sequence_households.barangay_id IS NOT DISTINCT FROM history_base.barangay_id
           AND sequence_households.current_stay_type = 'EVAC_CENTER'
           AND sequence_stubs.status IN ('ISSUED', 'CLAIMED')
           AND (
-            sequence_stubs.issued_at < s.issued_at
+            sequence_stubs.issued_at < (
+              SELECT current_stub.issued_at FROM stubs current_stub WHERE current_stub.id = history_base.stub_id
+            )
             OR (
-              sequence_stubs.issued_at = s.issued_at
-              AND sequence_stubs.id <= s.id
+              sequence_stubs.issued_at = (
+                SELECT current_stub.issued_at FROM stubs current_stub WHERE current_stub.id = history_base.stub_id
+              )
+              AND sequence_stubs.id <= history_base.stub_id
             )
           )
       ) AS stub_sequence_no,
-      h.household_size,
       (
         SELECT COUNT(*)::int
         FROM evacuees e
-        WHERE e.household_id = h.id
+        WHERE e.household_id = history_base.household_id
       ) AS members_count,
-      CONCAT_WS(
-        ' ',
-        h.family_head_first_name,
-        h.family_head_middle_name,
-        h.family_head_last_name,
-        h.family_head_suffix
-      ) AS family_head_name,
-      CONCAT_WS(
-        ' ',
-        u.first_name,
-        u.middle_name,
-        u.last_name
-      ) AS verified_by_name,
-      rpt.name AS relief_pack_template_name,
       COALESCE(item_summary.total_quantity_released, 0) AS total_quantity_released,
       COALESCE(item_summary.released_items_summary, '') AS released_items_summary
-    FROM distribution_transactions dt
-    INNER JOIN households h ON h.id = dt.household_id
-    INNER JOIN barangays b ON b.id = h.barangay_id
-    INNER JOIN disaster_events de ON de.id = dt.disaster_event_id
-    INNER JOIN stubs s ON s.id = dt.stub_id
-    LEFT JOIN users u ON u.id = dt.verified_by
-    LEFT JOIN relief_pack_templates rpt ON rpt.id = dt.relief_pack_template_id
+    FROM history_base
     LEFT JOIN LATERAL (
       SELECT
         SUM(dti.quantity_released)::integer AS total_quantity_released,
@@ -941,15 +1097,314 @@ const getDistributionHistory = async ({
       FROM distribution_transaction_items dti
       INNER JOIN inventory_items ii ON ii.id = dti.inventory_item_id
       INNER JOIN inventory_batches ib ON ib.id = dti.inventory_batch_id
-      WHERE dti.distribution_transaction_id = dt.id
+      WHERE dti.distribution_transaction_id = history_base.id
     ) item_summary ON TRUE
-    ${whereClause}
-    ORDER BY dt.distribution_date DESC, dt.created_at DESC
-    LIMIT $${values.length}
+    ORDER BY ${orderBy}
+    ${limitClause}
   `;
 
   const result = await pool.query(query, values);
   return result.rows;
+};
+
+const countDistributionHistory = async ({
+  barangayId = null,
+  disasterEventId = null,
+  status = null,
+  dateFrom = null,
+  dateTo = null,
+  search = "",
+}) => {
+  const { values, whereClause } = buildDistributionHistoryFilters({
+    barangayId,
+    disasterEventId,
+    status,
+    dateFrom,
+    dateTo,
+    search,
+  });
+
+  const query = `
+    SELECT COUNT(DISTINCT dt.id)::int AS total_items
+    FROM distribution_transactions dt
+    INNER JOIN households h ON h.id = dt.household_id
+    INNER JOIN barangays b ON b.id = h.barangay_id
+    INNER JOIN disaster_events de ON de.id = dt.disaster_event_id
+    INNER JOIN stubs s ON s.id = dt.stub_id
+    LEFT JOIN users u ON u.id = dt.verified_by
+    LEFT JOIN relief_pack_templates rpt ON rpt.id = dt.relief_pack_template_id
+    ${whereClause}
+  `;
+
+  const result = await pool.query(query, values);
+  return Number(result.rows[0]?.total_items || 0);
+};
+
+const buildSummarySearchClause = ({ values, search = "" }) => {
+  const normalizedSearch = String(search || "").trim();
+
+  if (!normalizedSearch) {
+    return "";
+  }
+
+  values.push(`%${normalizedSearch}%`);
+  const searchParam = `$${values.length}`;
+
+  return `AND EXISTS (
+      SELECT 1
+      FROM distribution_transactions dt_search
+      INNER JOIN households h_search ON h_search.id = dt_search.household_id
+      INNER JOIN barangays b_search ON b_search.id = h_search.barangay_id
+      INNER JOIN stubs s_search ON s_search.id = dt_search.stub_id
+      LEFT JOIN users u_search ON u_search.id = dt_search.verified_by
+      LEFT JOIN relief_pack_templates rpt_search
+        ON rpt_search.id = dt_search.relief_pack_template_id
+      WHERE dt_search.disaster_event_id = de.id
+        AND ($1::uuid IS NULL OR h_search.barangay_id = $1::uuid)
+        AND ($2::text IS NULL OR dt_search.distribution_status = $2::text)
+        AND ($3::timestamptz IS NULL OR dt_search.distribution_date >= $3::timestamptz)
+        AND ($4::date IS NULL OR dt_search.distribution_date < ($4::date + INTERVAL '1 day'))
+        AND (
+          CONCAT_WS(
+            ' ',
+            h_search.family_head_first_name,
+            h_search.family_head_middle_name,
+            h_search.family_head_last_name,
+            h_search.family_head_suffix
+          ) ILIKE ${searchParam}
+          OR b_search.name ILIKE ${searchParam}
+          OR s_search.stub_no ILIKE ${searchParam}
+          OR s_search.serial_no ILIKE ${searchParam}
+          OR CONCAT_WS(
+            ' ',
+            u_search.first_name,
+            u_search.middle_name,
+            u_search.last_name
+          ) ILIKE ${searchParam}
+          OR CONCAT(
+            'STUB#',
+            (
+              SELECT COUNT(*)::int
+              FROM stubs sequence_stubs
+              INNER JOIN households sequence_households
+                ON sequence_households.id = sequence_stubs.household_id
+              WHERE sequence_stubs.disaster_event_id = s_search.disaster_event_id
+                AND sequence_households.barangay_id IS NOT DISTINCT FROM h_search.barangay_id
+                AND sequence_households.current_stay_type = 'EVAC_CENTER'
+                AND sequence_stubs.status IN ('ISSUED', 'CLAIMED')
+                AND (
+                  sequence_stubs.issued_at < s_search.issued_at
+                  OR (
+                    sequence_stubs.issued_at = s_search.issued_at
+                    AND sequence_stubs.id <= s_search.id
+                  )
+                )
+            )
+          ) ILIKE ${searchParam}
+          OR rpt_search.name ILIKE ${searchParam}
+          OR EXISTS (
+            SELECT 1
+            FROM distribution_transaction_items dti_search
+            INNER JOIN inventory_items ii_search
+              ON ii_search.id = dti_search.inventory_item_id
+            WHERE dti_search.distribution_transaction_id = dt_search.id
+              AND ii_search.item_name ILIKE ${searchParam}
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM household_sectors hs_search
+            INNER JOIN sectors household_sector_search
+              ON household_sector_search.id = hs_search.sector_id
+            WHERE hs_search.household_id = h_search.id
+              AND (
+                household_sector_search.name ILIKE ${searchParam}
+                OR household_sector_search.code ILIKE ${searchParam}
+              )
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM evacuees e_search
+            INNER JOIN evacuee_sectors es_search
+              ON es_search.evacuee_id = e_search.id
+            INNER JOIN sectors member_sector_search
+              ON member_sector_search.id = es_search.sector_id
+            WHERE e_search.household_id = h_search.id
+              AND e_search.is_active = TRUE
+              AND (
+                member_sector_search.name ILIKE ${searchParam}
+                OR member_sector_search.code ILIKE ${searchParam}
+              )
+          )
+        )
+    )`;
+};
+
+const buildDistributionHistorySummaryQuery = ({
+  barangayId = null,
+  status = null,
+  dateFrom = null,
+  dateTo = null,
+  search = "",
+  sortOrder = "newest",
+  limit = 25,
+  offset = null,
+  countOnly = false,
+}) => {
+  const values = [
+    barangayId || null,
+    status || null,
+    dateFrom || null,
+    dateTo || null,
+    ["ACTIVE", "CLOSED", "ARCHIVED"],
+  ];
+  const searchClause = buildSummarySearchClause({ values, search });
+  const limitClause = countOnly
+    ? ""
+    : buildDistributionHistoryLimitClause({ values, limit, offset });
+  const orderBy = getDistributionHistoryOrderBy(sortOrder, "summary");
+
+  const summaryCte = `
+    WITH summary_rows AS (
+      SELECT
+        de.id AS disaster_event_id,
+        de.event_code,
+        de.title AS disaster_event_title,
+        de.status AS disaster_event_status,
+        de.start_date,
+        COALESCE(barangay_summary.barangay_summary, '--') AS barangay_summary,
+        COALESCE(barangay_summary.barangay_count, 0)::int AS barangay_count,
+        COALESCE(stub_summary.issued_stubs_count, 0)::int AS issued_stubs_count,
+        COALESCE(stub_summary.claimed_stubs_count, 0)::int AS claimed_stubs_count,
+        COALESCE(stub_summary.unclaimed_stubs_count, 0)::int AS unclaimed_stubs_count,
+        COALESCE(relief_summary.relief_pack_summary, '--') AS relief_pack_summary,
+        distribution_summary.latest_distribution_date
+      FROM disaster_events de
+      LEFT JOIN LATERAL (
+        SELECT
+          STRING_AGG(DISTINCT b.name, ', ' ORDER BY b.name) AS barangay_summary,
+          COUNT(DISTINCT b.id)::int AS barangay_count
+        FROM disaster_event_barangays deb
+        INNER JOIN barangays b ON b.id = deb.barangay_id
+        WHERE deb.disaster_event_id = de.id
+          AND ($1::uuid IS NULL OR deb.barangay_id = $1::uuid)
+      ) barangay_summary ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(*) FILTER (WHERE s.status = 'CLAIMED')::int AS claimed_stubs_count,
+          COUNT(*) FILTER (WHERE s.status = 'ISSUED')::int AS unclaimed_stubs_count,
+          COUNT(*) FILTER (WHERE s.status IN ('ISSUED', 'CLAIMED'))::int AS issued_stubs_count
+        FROM stubs s
+        INNER JOIN households h ON h.id = s.household_id
+        WHERE s.disaster_event_id = de.id
+          AND ($1::uuid IS NULL OR h.barangay_id = $1::uuid)
+      ) stub_summary ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT MAX(dt.distribution_date) AS latest_distribution_date
+        FROM distribution_transactions dt
+        INNER JOIN households h ON h.id = dt.household_id
+        WHERE dt.disaster_event_id = de.id
+          AND ($1::uuid IS NULL OR h.barangay_id = $1::uuid)
+          AND ($2::text IS NULL OR dt.distribution_status = $2::text)
+          AND ($3::timestamptz IS NULL OR dt.distribution_date >= $3::timestamptz)
+          AND ($4::date IS NULL OR dt.distribution_date < ($4::date + INTERVAL '1 day'))
+      ) distribution_summary ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT STRING_AGG(DISTINCT relief_name, ', ' ORDER BY relief_name) AS relief_pack_summary
+        FROM (
+          SELECT COALESCE(rpt.name, item_summary.released_items_summary) AS relief_name
+          FROM distribution_transactions dt
+          INNER JOIN households h ON h.id = dt.household_id
+          LEFT JOIN relief_pack_templates rpt ON rpt.id = dt.relief_pack_template_id
+          LEFT JOIN LATERAL (
+            SELECT STRING_AGG(
+              CONCAT(ii.item_name, ' x', dti.quantity_released),
+              ', '
+              ORDER BY ib.received_at ASC, ib.created_at ASC, ii.item_name ASC
+            ) AS released_items_summary
+            FROM distribution_transaction_items dti
+            INNER JOIN inventory_items ii ON ii.id = dti.inventory_item_id
+            INNER JOIN inventory_batches ib ON ib.id = dti.inventory_batch_id
+            WHERE dti.distribution_transaction_id = dt.id
+          ) item_summary ON TRUE
+          WHERE dt.disaster_event_id = de.id
+            AND ($1::uuid IS NULL OR h.barangay_id = $1::uuid)
+            AND ($2::text IS NULL OR dt.distribution_status = $2::text)
+            AND ($3::timestamptz IS NULL OR dt.distribution_date >= $3::timestamptz)
+            AND ($4::date IS NULL OR dt.distribution_date < ($4::date + INTERVAL '1 day'))
+        ) relief_names
+        WHERE relief_name IS NOT NULL AND relief_name <> ''
+      ) relief_summary ON TRUE
+      WHERE de.status = ANY($5::text[])
+        AND EXISTS (
+          SELECT 1
+          FROM disaster_event_barangays deb_scope
+          WHERE deb_scope.disaster_event_id = de.id
+            AND ($1::uuid IS NULL OR deb_scope.barangay_id = $1::uuid)
+        )
+        ${searchClause}
+    )
+  `;
+
+  if (countOnly) {
+    return {
+      query: `
+        ${summaryCte}
+        SELECT COUNT(*)::int AS total_items
+        FROM summary_rows
+      `,
+      values,
+    };
+  }
+
+  return {
+    query: `
+      ${summaryCte}
+      SELECT *
+      FROM summary_rows
+      ORDER BY ${orderBy}
+      ${limitClause}
+    `,
+    values,
+  };
+};
+
+const getDistributionHistorySummaryRows = async (options = {}) => {
+  const { query, values } = buildDistributionHistorySummaryQuery(options);
+  const result = await pool.query(query, values);
+  return result.rows;
+};
+
+const countDistributionHistorySummaryRows = async (options = {}) => {
+  const { query, values } = buildDistributionHistorySummaryQuery({
+    ...options,
+    countOnly: true,
+  });
+  const result = await pool.query(query, values);
+  return Number(result.rows[0]?.total_items || 0);
+};
+
+const getDistributionHistory = async ({
+  barangayId = null,
+  disasterEventId = null,
+  status = null,
+  dateFrom = null,
+  dateTo = null,
+  search = "",
+  sortOrder = "newest",
+  limit = 100,
+  offset = null,
+}) => {
+  return selectDistributionHistoryRows({
+    barangayId,
+    disasterEventId,
+    status,
+    dateFrom,
+    dateTo,
+    search,
+    sortOrder,
+    limit,
+    offset,
+  });
 };
 
 const getDistributionHistoryStubSummaryByEventIds = async ({
@@ -991,6 +1446,8 @@ const getDistributionHistoryExportRows = async ({
   status = null,
   dateFrom = null,
   dateTo = null,
+  search = "",
+  sortOrder = "newest",
 }) => {
   return getDistributionHistory({
     barangayId,
@@ -998,7 +1455,9 @@ const getDistributionHistoryExportRows = async ({
     status,
     dateFrom,
     dateTo,
-    limit: 1000,
+    search,
+    sortOrder,
+    limit: null,
   });
 };
 
@@ -1197,6 +1656,9 @@ module.exports = {
   updateDistributionTransactionStatus,
   updateStubStatus,
   getDistributionHistory,
+  countDistributionHistory,
+  getDistributionHistorySummaryRows,
+  countDistributionHistorySummaryRows,
   getDistributionHistoryStubSummaryByEventIds,
   getDistributionHistoryExportRows,
   getInventoryDistributionDetailByStubId,

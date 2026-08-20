@@ -12,6 +12,7 @@ const fieldStyles = {
     display: "flex",
     flexDirection: "column",
     gap: "8px",
+    minWidth: 0,
   },
   label: {
     color: "#55718b",
@@ -43,10 +44,14 @@ const fieldStyles = {
     display: "flex",
     alignItems: "stretch",
     width: "100%",
+    maxWidth: "100%",
+    minWidth: 0,
+    boxSizing: "border-box",
   },
   phonePrefix: {
     minHeight: "44px",
     minWidth: "124px",
+    flex: "0 0 auto",
     border: "1px solid #d0ddeb",
     borderRight: "none",
     borderRadius: "14px 0 0 14px",
@@ -62,7 +67,9 @@ const fieldStyles = {
   },
   phoneInput: {
     borderRadius: "0 14px 14px 0",
-    flex: 1,
+    flex: "1 1 auto",
+    minWidth: 0,
+    width: "100%",
   },
   readOnlyBox: {
     minHeight: "44px",

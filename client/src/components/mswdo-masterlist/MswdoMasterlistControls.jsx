@@ -106,6 +106,7 @@ const MswdoMasterlistControls = ({
 }) => {
   return (
     <div
+      className="mswdo-masterlist-toolbar"
       style={{
         display: "flex",
         justifyContent: "space-between",
@@ -115,7 +116,7 @@ const MswdoMasterlistControls = ({
         flexWrap: "wrap",
       }}
     >
-      <div style={{ flex: 1 }}>
+      <div className="masterlist-toolbar-search" style={{ flex: 1 }}>
         <SearchBar
           value={searchTerm}
           onChange={onSearchChange}
@@ -123,7 +124,10 @@ const MswdoMasterlistControls = ({
         />
       </div>
 
-      <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+      <div
+        className="masterlist-toolbar-actions"
+        style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}
+      >
         {!hideRecordStatus ? (
           <label
             style={{

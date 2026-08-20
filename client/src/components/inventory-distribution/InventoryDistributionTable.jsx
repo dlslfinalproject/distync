@@ -12,14 +12,12 @@ const tableStyles = {
     tableLayout: "fixed",
   },
   tableWithAddress: {
-    minWidth: "1120px",
-    width: "max-content",
-    maxWidth: "100%",
+    minWidth: "1040px",
+    maxWidth: "none",
   },
   tableWithoutAddress: {
-    minWidth: "760px",
-    width: "max-content",
-    maxWidth: "100%",
+    minWidth: "880px",
+    maxWidth: "none",
   },
   familyHeadColumn: {
     width: "220px",
@@ -68,7 +66,8 @@ const tableStyles = {
     fontSize: "14px",
     verticalAlign: "top",
     lineHeight: 1.5,
-    wordBreak: "break-word",
+    overflowWrap: "break-word",
+    wordBreak: "normal",
   },
   centeredCell: {
     textAlign: "center",
@@ -228,7 +227,7 @@ const InventoryDistributionTable = ({
 }) => {
   if (!hasSelectedEvent) {
     return (
-      <section style={shellStyles.card}>
+      <section className="inventory-distribution-records-card" style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Inventory Distribution</h3>
         <div style={{ marginTop: "10px" }}>
           <EmptyState
@@ -242,7 +241,7 @@ const InventoryDistributionTable = ({
 
   if (isLoading) {
     return (
-      <section style={shellStyles.card}>
+      <section className="inventory-distribution-records-card" style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Inventory Distribution</h3>
         <div style={{ marginTop: "10px" }}>
           <LoadingState message="Loading distribution records..." />
@@ -253,7 +252,7 @@ const InventoryDistributionTable = ({
 
   if (errorMessage) {
     return (
-      <section style={shellStyles.card}>
+      <section className="inventory-distribution-records-card" style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Inventory Distribution</h3>
         <div style={{ marginTop: "10px" }}>
           <ErrorState compact message={errorMessage} />
@@ -264,7 +263,7 @@ const InventoryDistributionTable = ({
 
   if (rows.length === 0) {
     return (
-      <section style={shellStyles.card}>
+      <section className="inventory-distribution-records-card" style={shellStyles.card}>
         <h3 style={{ marginTop: 0, color: "#17324d" }}>Inventory Distribution</h3>
         <div style={{ marginTop: "10px" }}>
           <EmptyState
@@ -277,13 +276,17 @@ const InventoryDistributionTable = ({
   }
 
   return (
-    <section style={shellStyles.card}>
+    <section className="inventory-distribution-records-card" style={shellStyles.card}>
       <div style={{ marginBottom: "18px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>Family Distribution Records</h3>
       </div>
 
-      <div style={{ overflowX: "auto" }}>
+      <div
+        className="inventory-distribution-table-scroll"
+        style={{ overflowX: "auto" }}
+      >
         <table
+          className="inventory-distribution-table"
           style={{
             ...tableStyles.table,
             ...(showBarangayColumn
@@ -315,13 +318,34 @@ const InventoryDistributionTable = ({
           </colgroup>
           <thead>
             <tr>
-              <th style={tableStyles.headerCell}>Family Head</th>
-              {showBarangayColumn ? (
-                <th style={tableStyles.headerCell}>Address</th>
-              ) : null}
-              <th style={tableStyles.headerCell}>Sectors</th>
-              <th style={tableStyles.headerCell}>Relief Pack</th>
               <th
+                className="inventory-distribution-header-cell"
+                style={tableStyles.headerCell}
+              >
+                Family Head
+              </th>
+              {showBarangayColumn ? (
+                <th
+                  className="inventory-distribution-header-cell"
+                  style={tableStyles.headerCell}
+                >
+                  Address
+                </th>
+              ) : null}
+              <th
+                className="inventory-distribution-header-cell"
+                style={tableStyles.headerCell}
+              >
+                Sectors
+              </th>
+              <th
+                className="inventory-distribution-header-cell"
+                style={tableStyles.headerCell}
+              >
+                Relief Pack
+              </th>
+              <th
+                className="inventory-distribution-header-cell inventory-distribution-status-cell"
                 style={{
                   ...tableStyles.headerCell,
                   ...tableStyles.centeredCell,
@@ -329,8 +353,14 @@ const InventoryDistributionTable = ({
               >
                 Status
               </th>
-              <th style={tableStyles.headerCell}>Authorized By</th>
               <th
+                className="inventory-distribution-header-cell"
+                style={tableStyles.headerCell}
+              >
+                Authorized By
+              </th>
+              <th
+                className="inventory-distribution-header-cell inventory-distribution-actions-cell"
                 style={{
                   ...tableStyles.headerCell,
                   ...tableStyles.centeredCell,
@@ -353,29 +383,45 @@ const InventoryDistributionTable = ({
 
               return (
                 <tr key={row.household_id}>
-                  <td style={tableStyles.bodyCell}>
+                  <td
+                    className="inventory-distribution-table-cell inventory-distribution-text-cell"
+                    style={tableStyles.bodyCell}
+                  >
                     <div style={{ fontWeight: 700 }}>{row.family_head_name}</div>
                   </td>
                   {showBarangayColumn ? (
-                    <td style={tableStyles.bodyCell}>
+                    <td
+                      className="inventory-distribution-table-cell inventory-distribution-text-cell"
+                      style={tableStyles.bodyCell}
+                    >
                       {row.address || row.barangay_name || "-"}
                     </td>
                   ) : null}
-                  <td style={tableStyles.bodyCell}>
+                  <td
+                    className="inventory-distribution-table-cell inventory-distribution-text-cell"
+                    style={tableStyles.bodyCell}
+                  >
                     {row.sectors_text && row.sectors_text !== "-" ? (
                       row.sectors_text
                     ) : (
                       <span style={tableStyles.mutedText}>No sector tags</span>
                     )}
                   </td>
-                  <td style={tableStyles.bodyCell}>{renderReliefPackItems(row)}</td>
                   <td
+                    className="inventory-distribution-table-cell inventory-distribution-text-cell"
+                    style={tableStyles.bodyCell}
+                  >
+                    {renderReliefPackItems(row)}
+                  </td>
+                  <td
+                    className="inventory-distribution-table-cell inventory-distribution-status-cell"
                     style={{
                       ...tableStyles.bodyCell,
                       ...tableStyles.centeredCell,
                     }}
                   >
                     <span
+                      className="inventory-distribution-status-badge"
                       style={{
                         display: "inline-flex",
                         alignItems: "center",
@@ -397,7 +443,10 @@ const InventoryDistributionTable = ({
                       </span>
                     ) : null}
                   </td>
-                  <td style={tableStyles.bodyCell}>
+                  <td
+                    className="inventory-distribution-table-cell inventory-distribution-text-cell"
+                    style={tableStyles.bodyCell}
+                  >
                     {row.authorized_by_name ? (
                       row.authorized_by_name
                     ) : (
@@ -405,12 +454,14 @@ const InventoryDistributionTable = ({
                     )}
                   </td>
                   <td
+                    className="inventory-distribution-table-cell inventory-distribution-actions-cell"
                     style={{
                       ...tableStyles.bodyCell,
                       ...tableStyles.centeredCell,
                     }}
                   >
                     <button
+                      className="inventory-distribution-action-button"
                       type="button"
                       onClick={() => onViewDetails?.(row)}
                       style={tableStyles.actionButton}
