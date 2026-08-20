@@ -2841,3 +2841,104 @@ img {
     min-width: 620px !important;
   }
 }
+
+.notification-card-main {
+  max-width: min(720px, 100%);
+}
+
+.notification-message {
+  max-width: 68ch;
+}
+
+@media (max-width: 768px) {
+  .notifications-page {
+    gap: 16px !important;
+  }
+
+  .notifications-filter-card,
+  .notifications-list-card {
+    padding: 14px !important;
+  }
+
+  .notifications-filter-toolbar {
+    align-items: flex-start !important;
+  }
+
+  .notifications-filter-tabs {
+    flex: 1 1 100%;
+  }
+
+  .notifications-unread-count {
+    white-space: normal !important;
+  }
+
+  .notification-card {
+    gap: 10px !important;
+    padding: 14px !important;
+  }
+
+  .notification-card-main {
+    flex: 1 1 calc(100% - 24px) !important;
+    max-width: none !important;
+  }
+
+  .notification-message {
+    max-width: none !important;
+  }
+
+  .notification-action-row {
+    flex: 1 1 100% !important;
+    justify-content: stretch !important;
+    margin-left: 21px !important;
+    width: calc(100% - 21px);
+  }
+
+  .notification-primary-action {
+    flex: 1 1 auto;
+    justify-content: center;
+    min-width: 0;
+    white-space: normal !important;
+    width: 100%;
+  }
+
+  .notifications-filter-footer {
+    align-items: center;
+  }
+}
+
+@media (max-width: 430px) {
+  .notifications-filter-card {
+    padding: 12px !important;
+  }
+
+  .notifications-list-card {
+    padding: 10px !important;
+  }
+
+  .notifications-feed {
+    gap: 10px !important;
+  }
+
+  .notifications-filter-tabs > button {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .notifications-unread-count {
+    flex: 1 1 100%;
+    text-align: center;
+  }
+
+  .notification-card {
+    padding: 12px !important;
+  }
+
+  .notifications-filter-footer {
+    display: grid !important;
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  }
+
+  .notifications-filter-footer button:last-child {
+    width: 100%;
+  }
+}

@@ -11,8 +11,8 @@ import {
 } from "../../features/notifications/notificationService";
 import { getNotificationDeepLink } from "../../features/notifications/notificationRouting";
 import {
-  getNotificationPreview,
   getRelativeNotificationTime,
+  toNotificationViewModel,
 } from "../../features/notifications/notificationPresentation";
 
 const headerNotificationStyles = {
@@ -407,6 +407,7 @@ const HeaderNotifications = () => {
               ) : (
                 <div style={{ display: "grid", gap: "10px" }}>
                   {recentNotifications.map((notification) => {
+                    const view = toNotificationViewModel(notification);
                     return (
                       <button
                         key={notification.id}
@@ -427,7 +428,7 @@ const HeaderNotifications = () => {
                         }}
                       >
                         <div style={{ display: "flex", gap: "8px", alignItems: "start" }}>
-                        {!notification.read_at ? <span aria-hidden="true" style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#2878bf", marginTop: "5px", flexShrink: 0 }} /> : null}
+                        {view.unread ? <span aria-hidden="true" style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#2878bf", marginTop: "5px", flexShrink: 0 }} /> : null}
                         <div
                           style={{
                             fontSize: "12px",
@@ -437,7 +438,7 @@ const HeaderNotifications = () => {
                             overflowWrap: "anywhere",
                           }}
                         >
-                          {notification.title}
+                          {view.title}
                         </div>
                         </div>
                         <div
@@ -448,10 +449,10 @@ const HeaderNotifications = () => {
                             overflowWrap: "anywhere",
                           }}
                         >
-                          {getNotificationPreview(notification)}
+                          {view.preview}
                         </div>
                         <div style={{ fontSize: "11px", color: "#6b8298" }}>
-                          {getRelativeNotificationTime(notification.generated_at)}
+                          {view.relativeTimeLabel || getRelativeNotificationTime(notification.generated_at)}
                         </div>
                       </button>
                     );
