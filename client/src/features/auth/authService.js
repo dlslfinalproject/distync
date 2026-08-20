@@ -90,13 +90,14 @@ export const renderGoogleSignInButton = async ({
   }
 
   element.innerHTML = "";
+  const buttonWidth = Math.floor(element.getBoundingClientRect().width || 360);
 
   window.google.accounts.id.renderButton(element, {
     theme: "outline",
     size: "large",
     shape: "rectangular",
     text: "signin_with",
-    width: 360,
+    width: Math.min(360, Math.max(200, buttonWidth)),
     logo_alignment: "center",
   });
 };

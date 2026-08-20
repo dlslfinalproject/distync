@@ -1786,11 +1786,66 @@ const portalFooterCss = `
     }
 
     .donor-event-details-summary {
-      grid-template-columns: 1fr !important;
+      grid-template-columns: minmax(0, 1fr) 34px !important;
+      align-items: center !important;
     }
 
-    .donor-event-barangay-badge {
+    .donor-event-details-summary > div {
+      grid-column: 1;
+      min-width: 0 !important;
+    }
+
+    .donor-event-details-summary .donor-event-barangay-badge {
+      grid-column: 1;
       width: fit-content !important;
+      max-width: 100% !important;
+      white-space: normal !important;
+    }
+
+    .donor-event-details-summary .donor-portal-disclosure-indicator {
+      grid-column: 2;
+      grid-row: 1 / span 2;
+      justify-self: end;
+      align-self: center;
+    }
+
+    .donor-needed-items-summary {
+      display: grid !important;
+      grid-template-columns: minmax(0, 1fr) auto !important;
+      align-items: center !important;
+      column-gap: 12px !important;
+    }
+
+    .donor-needed-items-summary > span:first-child {
+      min-width: 0 !important;
+      overflow-wrap: anywhere !important;
+    }
+
+    .donor-needed-items-summary > span:last-child {
+      flex-wrap: nowrap !important;
+      justify-content: flex-end !important;
+      min-width: max-content !important;
+    }
+
+    .donor-needed-items-summary .donor-portal-disclosure-indicator {
+      flex: 0 0 30px;
+    }
+
+    .donor-utilization-summary {
+      display: grid !important;
+      grid-template-columns: minmax(0, 1fr) auto !important;
+      align-items: center !important;
+      column-gap: 12px !important;
+    }
+
+    .donor-utilization-summary > div {
+      min-width: 0 !important;
+    }
+
+    .donor-utilization-summary > span {
+      flex-wrap: nowrap !important;
+      justify-content: flex-end !important;
+      min-width: max-content !important;
     }
 
     .recent-donation-grid {
