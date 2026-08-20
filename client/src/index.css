@@ -348,7 +348,6 @@ body {
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  overflow-x: hidden;
 }
 
 .mayor-donation-management-event-card,
@@ -466,12 +465,23 @@ body {
 
   .mayor-donation-management-toolbar {
     align-items: stretch !important;
+    flex-wrap: wrap !important;
     gap: 12px !important;
+  }
+
+  .mayor-donation-management-search-wrap {
+    flex: 1 1 320px !important;
   }
 
   .mayor-donation-management-toolbar-controls {
     flex: 1 1 100% !important;
     justify-content: flex-start !important;
+    flex-wrap: wrap !important;
+  }
+
+  .mayor-donation-management-action-group {
+    margin-left: auto;
+    flex-wrap: wrap !important;
   }
 
   .mayor-donation-management-summary-grid {
@@ -645,6 +655,7 @@ body {
   .mayor-donation-management-action-group {
     align-items: stretch !important;
     gap: 10px !important;
+    flex-wrap: wrap !important;
   }
 
   .mayor-donation-management-type-filter {
@@ -1082,6 +1093,13 @@ body {
     flex-direction: column;
     gap: 6px !important;
     justify-content: flex-start !important;
+  }
+
+  .mayor-donation-management-action-group {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr);
+    margin-left: 0;
+    width: 100%;
   }
 
   .mayor-donation-management-type-filter select {

@@ -95,7 +95,7 @@ const toolbarStyles = {
     justifyContent: "space-between",
     alignItems: "center",
     gap: "16px",
-    flexWrap: "nowrap",
+    flexWrap: "wrap",
     width: "100%",
   },
   searchWrap: {
@@ -130,14 +130,14 @@ const toolbarStyles = {
   controlsWrap: {
     display: "flex",
     gap: "16px",
-    flexWrap: "nowrap",
+    flexWrap: "wrap",
     alignItems: "center",
     flex: "0 0 auto",
   },
   actionGroup: {
     display: "flex",
     gap: "12px",
-    flexWrap: "nowrap",
+    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "flex-end",
     flex: "0 0 auto",
