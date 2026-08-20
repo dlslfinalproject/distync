@@ -329,6 +329,83 @@ body {
   flex: 0 0 auto;
 }
 
+.mayor-donation-management-page,
+.mayor-donation-management-page *,
+.mayor-donation-management-form-modal,
+.mayor-donation-management-form-modal *,
+.mayor-donation-management-detail-modal,
+.mayor-donation-management-detail-modal *,
+.mayor-donation-management-export-modal,
+.mayor-donation-management-export-modal * {
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.mayor-donation-management-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.mayor-donation-management-event-card,
+.mayor-donation-management-event-grid,
+.mayor-donation-management-summary-grid,
+.mayor-donation-management-tabs-card,
+.mayor-donation-management-toolbar,
+.mayor-donation-management-search-wrap,
+.mayor-donation-management-toolbar-controls,
+.mayor-donation-management-type-filter,
+.mayor-donation-management-filter-button-wrap,
+.mayor-donation-management-action-group,
+.mayor-donation-management-records-card,
+.mayor-donation-management-table,
+.mayor-donation-management-form-grid,
+.mayor-donation-management-detail-grid,
+.mayor-donation-management-export-grid {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.mayor-donation-management-tabs,
+.mayor-donation-management-toolbar,
+.mayor-donation-management-toolbar-controls {
+  max-width: 100%;
+}
+
+.mayor-donation-management-table-scroll,
+.mayor-donation-management-detail-table-scroll {
+  max-width: 100%;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+.mayor-donation-management-table {
+  table-layout: auto !important;
+  max-width: none !important;
+}
+
+.mayor-donation-management-detail-table {
+  min-width: 760px !important;
+}
+
+.mayor-donation-management-table td,
+.mayor-donation-management-table th,
+.mayor-donation-management-detail-table td,
+.mayor-donation-management-detail-modal p,
+.mayor-donation-management-detail-modal h3,
+.mayor-donation-management-form-modal p,
+.mayor-donation-management-form-modal h3,
+.mayor-donation-management-form-modal h4,
+.mayor-donation-management-export-modal h3,
+.mayor-donation-management-export-modal label {
+  overflow-wrap: anywhere;
+}
+
 .inventory-item-detail-table {
   min-width: 760px;
 }
@@ -384,6 +461,20 @@ body {
   }
 
   .inventory-tracking-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .mayor-donation-management-toolbar {
+    align-items: stretch !important;
+    gap: 12px !important;
+  }
+
+  .mayor-donation-management-toolbar-controls {
+    flex: 1 1 100% !important;
+    justify-content: flex-start !important;
+  }
+
+  .mayor-donation-management-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
 }
@@ -519,6 +610,119 @@ body {
     width: 100%;
     justify-content: center;
     min-width: 0;
+    white-space: normal;
+  }
+
+  .mayor-donation-management-event-grid,
+  .mayor-donation-management-form-grid,
+  .mayor-donation-management-detail-grid,
+  .mayor-donation-management-export-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .mayor-donation-management-tabs {
+    flex-wrap: nowrap !important;
+    max-width: 100%;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .mayor-donation-management-tabs button {
+    flex: 1 0 max-content;
+    min-height: 44px;
+  }
+
+  .mayor-donation-management-search-wrap,
+  .mayor-donation-management-toolbar-controls,
+  .mayor-donation-management-type-filter,
+  .mayor-donation-management-filter-button-wrap,
+  .mayor-donation-management-action-group {
+    flex: 1 1 100% !important;
+    width: 100%;
+  }
+
+  .mayor-donation-management-toolbar-controls,
+  .mayor-donation-management-action-group {
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+
+  .mayor-donation-management-type-filter {
+    justify-content: space-between;
+  }
+
+  .mayor-donation-management-type-filter select,
+  .mayor-donation-management-filter-button-wrap button,
+  .mayor-donation-management-action-group button {
+    min-width: 0;
+    width: 100%;
+    justify-content: center;
+    white-space: normal;
+  }
+
+  .mayor-donation-management-filter-panel {
+    width: calc(100vw - 32px) !important;
+  }
+
+  .mayor-donation-management-records-card {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+
+  .mayor-donation-management-table {
+    min-width: 900px !important;
+  }
+
+  .mayor-donation-management-form-modal-backdrop,
+  .mayor-donation-management-detail-modal-backdrop,
+  .mayor-donation-management-export-modal-backdrop {
+    align-items: stretch !important;
+    padding: 12px !important;
+  }
+
+  .mayor-donation-management-form-modal,
+  .mayor-donation-management-detail-modal,
+  .mayor-donation-management-export-modal {
+    width: 100% !important;
+    max-height: calc(100vh - 24px) !important;
+    border-radius: 18px !important;
+    padding: 16px !important;
+  }
+
+  .mayor-donation-management-form-modal-topbar,
+  .mayor-donation-management-detail-modal > div:first-child,
+  .mayor-donation-management-export-modal-topbar {
+    align-items: flex-start !important;
+    flex-wrap: nowrap !important;
+    gap: 12px !important;
+  }
+
+  .mayor-donation-management-form-modal-topbar h3,
+  .mayor-donation-management-detail-modal > div:first-child h3,
+  .mayor-donation-management-export-modal-topbar h3 {
+    font-size: 22px !important;
+    line-height: 1.18 !important;
+    overflow-wrap: anywhere;
+  }
+
+  .mayor-donation-management-form-section,
+  .mayor-donation-management-detail-section {
+    padding: 16px !important;
+  }
+
+  .mayor-donation-management-form-actions,
+  .mayor-donation-management-export-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: stretch !important;
+    width: 100%;
+  }
+
+  .mayor-donation-management-form-actions button,
+  .mayor-donation-management-export-actions button {
+    min-width: 0;
+    width: 100%;
+    justify-content: center;
     white-space: normal;
   }
 
@@ -852,6 +1056,61 @@ body {
 
   .inventory-items-page-top-actions .inventory-items-actions-row {
     display: grid !important;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mayor-donation-management-summary-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 12px !important;
+  }
+
+  .mayor-donation-management-tabs {
+    gap: 6px !important;
+  }
+
+  .mayor-donation-management-tabs button {
+    flex: 1 1 0;
+    justify-content: center;
+    min-width: 0;
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+    white-space: normal !important;
+  }
+
+  .mayor-donation-management-type-filter {
+    align-items: stretch !important;
+    flex-direction: column;
+    gap: 6px !important;
+    justify-content: flex-start !important;
+  }
+
+  .mayor-donation-management-type-filter select {
+    max-width: 100%;
+    min-width: 0 !important;
+  }
+
+  .mayor-donation-management-records-card,
+  .mayor-donation-management-form-section,
+  .mayor-donation-management-detail-section {
+    padding: 14px !important;
+  }
+
+  .mayor-donation-management-table {
+    min-width: 780px !important;
+  }
+
+  .mayor-donation-management-detail-table {
+    min-width: 680px !important;
+  }
+
+  .mayor-donation-management-form-modal,
+  .mayor-donation-management-detail-modal,
+  .mayor-donation-management-export-modal {
+    padding: 14px !important;
+  }
+
+  .mayor-donation-management-form-actions,
+  .mayor-donation-management-export-actions {
     grid-template-columns: minmax(0, 1fr);
   }
 

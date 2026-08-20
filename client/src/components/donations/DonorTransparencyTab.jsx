@@ -66,7 +66,7 @@ const DonorTransparencyTab = ({
     [];
 
   return (
-    <section style={shellStyles.card}>
+    <section className="mayor-donation-management-records-card" style={shellStyles.card}>
         <div
           style={{
             marginBottom: "20px",
@@ -84,8 +84,8 @@ const DonorTransparencyTab = ({
             No donated inventory summaries are available yet.
           </p>
         ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table style={tableStyles.table}>
+          <div className="mayor-donation-management-table-scroll" style={{ overflowX: "auto" }}>
+            <table className="mayor-donation-management-table" style={tableStyles.table}>
               <thead>
                 <tr>
                   <th style={tableStyles.headerCell}>Donor Name</th>
