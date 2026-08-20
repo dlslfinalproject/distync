@@ -134,7 +134,7 @@ const DonationsTab = ({
       ];
 
   return (
-    <section style={shellStyles.card}>
+    <section className="mayor-donation-management-records-card" style={shellStyles.card}>
       <div style={{ marginBottom: "16px" }}>
         <h3 style={{ margin: 0, color: "#17324d" }}>Received Donations</h3>
       </div>
@@ -146,8 +146,8 @@ const DonationsTab = ({
           No matching records found. Try adjusting your search or filters.
         </p>
       ) : (
-        <div style={{ overflowX: "auto" }}>
-          <table style={tableStyles.table}>
+        <div className="mayor-donation-management-table-scroll" style={{ overflowX: "auto" }}>
+          <table className="mayor-donation-management-table" style={tableStyles.table}>
             <thead>
               <tr>
                 {headerLabels.map((label) => (

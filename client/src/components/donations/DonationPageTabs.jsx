@@ -3,6 +3,7 @@ import React from "react";
 const DonationPageTabs = ({ availableTabs, activeTab, onTabChange }) => {
   return (
     <div
+      className="mayor-donation-management-tabs"
       style={{
         borderBottom: "1px solid #d6e2ef",
         display: "flex",
