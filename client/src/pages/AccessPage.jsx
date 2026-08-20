@@ -7,6 +7,7 @@ import {
   ROLE_CODES,
   getDefaultRouteForRole,
 } from "../utils/roleSession";
+import AccessBrandPanel from "../components/access/AccessBrandPanel";
 import StaffAccessPanel from "../components/access/StaffAccessPanel";
 import "../components/access/accessPage.css";
 
@@ -147,7 +148,7 @@ const AccessPage = () => {
           pageError={combinedError}
         />
       </div>
-      <div className="distync-access-page__backdrop" aria-hidden="true" />
+      <AccessBrandPanel />
     </div>
   );
 };

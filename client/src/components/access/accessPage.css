@@ -13,8 +13,8 @@
   min-height: 100vh;
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 32px;
+  justify-content: flex-start;
+  padding: 0;
   box-sizing: border-box;
   position: relative;
   overflow: hidden;
@@ -28,54 +28,79 @@
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
-  background: linear-gradient(135deg, #17324d 0%, #244f78 48%, #2f6499 100%);
+  background:
+    radial-gradient(circle at 78% 28%, rgba(242, 184, 75, 0.2), transparent 28%),
+    linear-gradient(135deg, #10283f 0%, #17324d 42%, #2f6499 100%);
 }
 
 .distync-access-page__shell {
-  width: min(520px, 100%);
+  width: min(480px, 100%);
   min-width: 0;
-  max-height: 100%;
+  height: 100%;
   display: flex;
   align-items: stretch;
-  justify-content: center;
+  justify-content: flex-start;
   padding: 0;
   position: relative;
   z-index: 1;
 }
 
 .distync-access-page__panel {
-  border: 1px solid rgba(184, 207, 244, 0.55);
-  border-radius: 28px;
+  border: none;
+  border-radius: 0;
   background: #f7fafc;
-  box-shadow: 0 22px 48px rgba(10, 30, 48, 0.26);
+  box-shadow: 12px 0 36px rgba(10, 30, 48, 0.18);
   position: relative;
   overflow: hidden;
 }
 
 .distync-access-page__auth-panel {
   width: 100%;
-  padding: 42px;
+  min-height: 100%;
+  padding: 20px 42px 42px;
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  justify-content: center;
+}
+
+.distync-access-page__auth-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.distync-access-page__auth-content {
+  width: 100%;
+  margin-left: 0;
 }
 
 .distync-access-page__card-brand {
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-left: 0;
+  min-width: 0;
+}
+
+.distync-access-page__card-heading {
+  display: flex;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: 12px;
   min-width: 0;
 }
 
 .distync-access-page__card-logo {
-  width: 92px;
-  height: 92px;
+  width: 66px;
+  height: 66px;
+  margin-left: 0;
+  margin-right: 0;
   object-fit: contain;
   flex-shrink: 0;
 }
 
-.distync-access-page__brand-copy {
+.distync-access-page__card-copy {
   min-width: 0;
 }
 
@@ -89,27 +114,58 @@
 }
 
 .distync-access-page__card-subtitle {
-  margin: 8px 0 0;
-  color: #5d6f7f;
-  font-size: 18px;
-  font-weight: 600;
+  margin: 6px 0 0;
+  color: #40566c;
+  font-size: 16px;
+  font-weight: 700;
   line-height: 1.25;
 }
 
-.distync-access-page__tagline {
-  margin: -18px 0 0;
-  color: #f2b84b;
-  font-size: 15px;
+.distync-access-page__card-tagline {
+  margin: 0;
+  color: #b9841e;
+  font-size: 13px;
   font-style: italic;
   font-weight: 700;
-  line-height: 1.5;
+  line-height: 1.35;
   text-align: center;
+}
+
+.distync-access-page__brand-panel {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+}
+
+.distync-access-page__brand-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(247, 250, 252, 0.16) 0%, rgba(47, 100, 153, 0.18) 24%, rgba(23, 50, 77, 0.34) 100%),
+    linear-gradient(24deg, rgba(16, 40, 63, 0.66) 0%, rgba(23, 50, 77, 0.38) 30%, rgba(47, 100, 153, 0.1) 62%);
+  pointer-events: none;
+}
+
+.distync-access-page__brand-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  object-position: center;
 }
 
 .distync-access-page__welcome {
   display: grid;
   gap: 8px;
-  text-align: center;
+  width: calc(100% - 34px);
+  margin-left: 34px;
+  text-align: left;
 }
 
 .distync-access-page__welcome-title {
@@ -149,8 +205,7 @@
   font-size: 14px;
   line-height: 1.75;
   max-width: 100%;
-  justify-self: center;
-  text-align: center;
+  text-align: left;
   white-space: nowrap;
 }
 
@@ -311,12 +366,14 @@
 .distync-access-page__google-access {
   display: grid;
   gap: 10px;
-  margin: auto 0;
+  margin: 18px 0 0;
 }
 
 .distync-access-page__sign-in-controls {
   display: grid;
   gap: 8px;
+  width: calc(100% - 34px);
+  margin-left: 34px;
   margin-top: 12px;
 }
 
@@ -343,7 +400,9 @@
   display: flex;
   justify-content: center;
   min-height: 44px;
-  padding-top: 4px;
+  padding-top: 0;
+  width: 100%;
+  margin: 30px 0 0;
 }
 
 .distync-access-page__support-text {
@@ -356,32 +415,48 @@
 
 .distync-access-page__public-access {
   display: grid;
-  gap: 12px;
+  gap: 18px;
   margin-top: 0;
-  padding-top: 24px;
-  border-top: 1px solid var(--access-color-border);
+  padding-top: 0;
 }
 
-.distync-access-page__public-access-label {
+.distync-access-page__public-copy {
+  display: grid;
+  gap: 8px;
+  width: calc(100% - 34px);
+  margin-left: 34px;
+  text-align: left;
+}
+
+.distync-access-page__public-title {
   margin: 0;
   color: #17324d;
-  font-size: 13px;
-  font-weight: 800;
-  letter-spacing: 0;
-  text-transform: uppercase;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.distync-access-page__public-description {
+  margin: 0;
+  color: #5d6f7f;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.6;
 }
 
 .distync-access-page__portal-link {
-  width: min(460px, 100%);
+  width: 360px;
   border: 1px solid #dadce0;
-  border-radius: 999px;
+  border-radius: 4px;
   background: #ffffff;
   color: #17324d;
-  min-height: 52px;
-  padding: 10px 54px;
-  position: relative;
+  min-height: 44px;
+  padding: 9px 18px;
   justify-self: center;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
   cursor: pointer;
   transition: border-color 120ms ease, background-color 120ms ease, transform 120ms ease;
 }
@@ -396,17 +471,13 @@
 
 .distync-access-page__portal-link-title {
   display: block;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
 }
 
 .distync-access-page__portal-icon {
-  width: 26px;
-  height: 26px;
-  position: absolute;
-  left: 24px;
-  top: 50%;
-  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -430,20 +501,45 @@
 
 @media (max-width: 980px) {
   .distync-access-page {
-    padding: 24px;
     overflow-y: auto;
   }
 }
 
 @media (max-width: 640px) {
+  .distync-access-page {
+    min-height: 100vh;
+    height: auto;
+    flex-direction: column-reverse;
+  }
+
+  .distync-access-page__shell {
+    width: 100%;
+    height: auto;
+  }
+
   .distync-access-page__auth-panel {
+    min-height: auto;
     padding: 28px;
     gap: 28px;
   }
 
+  .distync-access-page__brand-panel {
+    width: 100%;
+    min-height: 220px;
+    height: 220px;
+    box-sizing: border-box;
+  }
+
+  .distync-access-page__welcome,
+  .distync-access-page__sign-in-controls,
+  .distync-access-page__public-copy {
+    margin-left: 0;
+    width: 100%;
+  }
+
   .distync-access-page__card-logo {
-    width: 76px;
-    height: 76px;
+    width: 54px;
+    height: 54px;
   }
 
   .distync-access-page__card-system {
@@ -451,16 +547,23 @@
   }
 
   .distync-access-page__card-subtitle {
-    font-size: 15px;
+    font-size: 13px;
   }
 
-  .distync-access-page__tagline {
-    margin-top: -14px;
-    font-size: 14px;
+  .distync-access-page__card-tagline {
+    font-size: 11px;
   }
 
   .distync-access-page__welcome-title {
     font-size: 23px;
+  }
+
+  .distync-access-page__public-title {
+    font-size: 23px;
+  }
+
+  .distync-access-page__portal-link {
+    width: 100%;
   }
 
   .distync-access-page__auth-description {
