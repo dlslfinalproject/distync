@@ -403,6 +403,12 @@
   padding-top: 0;
   width: 100%;
   margin: 30px 0 0;
+  overflow: hidden;
+}
+
+.distync-access-page__google-button > div,
+.distync-access-page__google-button iframe {
+  max-width: 100% !important;
 }
 
 .distync-access-page__support-text {
@@ -446,6 +452,8 @@
 
 .distync-access-page__portal-link {
   width: 360px;
+  max-width: 100%;
+  box-sizing: border-box;
   border: 1px solid #dadce0;
   border-radius: 4px;
   background: #ffffff;
