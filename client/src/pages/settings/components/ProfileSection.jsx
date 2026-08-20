@@ -120,6 +120,14 @@ const ProfileSection = ({
     minWidth: 0,
   };
 
+  const profileInformationGridStyles = {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))",
+    gap: "24px",
+    alignItems: "start",
+    minWidth: 0,
+  };
+
   const readOnlyContentStackStyles = {
     display: "grid",
     gap: "6px",
@@ -219,7 +227,7 @@ const ProfileSection = ({
     <section
       style={{
         ...shellStyles.card,
-        padding: "32px",
+        padding: "clamp(20px, 4vw, 32px)",
       }}
     >
       <div style={{ display: "grid", gap: "8px", marginBottom: "20px" }}>
@@ -239,14 +247,7 @@ const ProfileSection = ({
             <h4 style={{ margin: 0, color: "#17324d" }}>Profile Information</h4>
           </div>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(220px, 260px) minmax(0, 1fr)",
-              gap: "24px",
-              alignItems: "start",
-            }}
-          >
+          <div style={profileInformationGridStyles}>
             <div
               style={{
                 display: "grid",
