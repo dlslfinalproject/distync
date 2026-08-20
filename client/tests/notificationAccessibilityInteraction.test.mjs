@@ -12,7 +12,7 @@ test("Notification detail drawer uses the shared accessible modal pattern", asyn
   assert.match(page, /closeButtonLabel="Close notification details"/);
   assert.match(page, /finalFocusRef=\{detailTriggerRef\.current\?\.isConnected \? detailTriggerRef : fallbackFocusRef\}/);
   assert.match(page, /overflowWrap: "anywhere"/);
-  assert.match(page, /<time dateTime=\{notification\.generated_at\}>/);
+  assert.match(page, /<time dateTime=\{view\.generatedAt\}>/);
   assert.match(modal, /role="dialog"/);
   assert.match(modal, /aria-modal="true"/);
   assert.match(modal, /event\.key === "Escape"/);
