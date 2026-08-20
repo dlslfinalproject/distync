@@ -1,6 +1,12 @@
 const pool = require("../config/db");
 
+let hasInventoryItemReorderLevelColumnCache = null;
+
 const hasInventoryItemReorderLevelColumn = async () => {
+  if (hasInventoryItemReorderLevelColumnCache !== null) {
+    return hasInventoryItemReorderLevelColumnCache;
+  }
+
   const result = await pool.query(
     `
       SELECT EXISTS (
@@ -13,7 +19,8 @@ const hasInventoryItemReorderLevelColumn = async () => {
     `,
   );
 
-  return Boolean(result.rows[0]?.has_column);
+  hasInventoryItemReorderLevelColumnCache = Boolean(result.rows[0]?.has_column);
+  return hasInventoryItemReorderLevelColumnCache;
 };
 
 const getInventoryItems = async (filters) => {
@@ -128,6 +135,39 @@ const getInventoryItemByIdForUpdate = async (id, dbClient = pool) => {
 
   const result = await dbClient.query(query, [id]);
   return result.rows[0] || null;
+};
+
+const getInventoryItemsByIdsForUpdate = async (ids, dbClient = pool) => {
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return [];
+  }
+
+  const hasReorderLevelColumn = await hasInventoryItemReorderLevelColumn();
+  const query = `
+    SELECT
+      id,
+      item_code,
+      item_name,
+      category,
+      unit_of_measure,
+      unit_of_measure_value,
+      packaging,
+      packaging_count,
+      quantity,
+      ${hasReorderLevelColumn ? "reorder_level," : "NULL::integer AS reorder_level,"}
+      expiration_date,
+      barcode,
+      is_perishable,
+      is_active,
+      created_at,
+      updated_at
+    FROM inventory_items
+    WHERE id = ANY($1::uuid[])
+    FOR UPDATE
+  `;
+
+  const result = await dbClient.query(query, [ids]);
+  return result.rows;
 };
 
 const getInventoryItemByCode = async (itemCode) => {
@@ -353,6 +393,7 @@ module.exports = {
   getInventoryItems,
   getInventoryItemById,
   getInventoryItemByIdForUpdate,
+  getInventoryItemsByIdsForUpdate,
   getInventoryItemByBarcode,
   getInventoryItemByCode,
   getInventoryItemByName,

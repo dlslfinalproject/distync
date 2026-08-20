@@ -247,6 +247,55 @@ const getDistributableInventoryBatchesByItemIdForUpdate = async (
   return result.rows;
 };
 
+const getDistributableInventoryBatchesByItemIdsForUpdate = async (
+  inventoryItemIds,
+  dbClient,
+) => {
+  if (!Array.isArray(inventoryItemIds) || inventoryItemIds.length === 0) {
+    return [];
+  }
+
+  const query = `
+    SELECT
+      ib.id,
+      ib.inventory_item_id,
+      ib.batch_no,
+      ib.quantity_received,
+      ib.quantity_available,
+      ib.stock_version,
+      ib.expiration_date,
+      ib.status,
+      ii.item_code,
+      ii.item_name,
+      ii.category,
+      ii.unit_of_measure
+    FROM inventory_batches ib
+    INNER JOIN inventory_items ii ON ii.id = ib.inventory_item_id
+    WHERE ib.inventory_item_id = ANY($1::uuid[])
+      AND COALESCE(ib.quantity_available, 0) > 0
+      AND ib.status IN ('AVAILABLE', 'LOW_STOCK')
+      AND NOT EXISTS (
+        SELECT 1
+        FROM donation_items relief_pack_donation_items
+        WHERE relief_pack_donation_items.inventory_batch_id = ib.id
+          AND COALESCE(relief_pack_donation_items.remarks, '') ILIKE 'Relief Pack:%'
+      )
+      AND (
+        ib.expiration_date IS NULL
+        OR ib.expiration_date > (CURRENT_DATE + INTERVAL '30 days')
+      )
+    ORDER BY
+      ib.inventory_item_id ASC,
+      ib.received_at ASC NULLS LAST,
+      ib.created_at ASC,
+      ib.batch_no ASC
+    FOR UPDATE OF ib
+  `;
+
+  const result = await dbClient.query(query, [inventoryItemIds]);
+  return result.rows;
+};
+
 const getDisasterEventById = async (id, dbClient = pool) => {
   const query = `
     SELECT id, event_code, title, status
@@ -495,6 +544,7 @@ module.exports = {
   getInventoryBatchByIdForUpdate,
   getAvailableInventoryBatchesByItemIdForUpdate,
   getDistributableInventoryBatchesByItemIdForUpdate,
+  getDistributableInventoryBatchesByItemIdsForUpdate,
   getDisasterEventById,
   getUserById,
   insertInventoryTransaction,

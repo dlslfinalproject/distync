@@ -570,6 +570,23 @@ const buildAutomaticClaimAllocations = async (
     }
   }
 
+  const availableBatchesByInventoryItemId = new Map();
+  const availableBatches =
+    await inventoryTransactionRepository.getDistributableInventoryBatchesByItemIdsForUpdate(
+      [...requiredItemsByInventoryItemId.keys()],
+      client,
+    );
+
+  for (const batch of availableBatches) {
+    const inventoryItemId = batch.inventory_item_id;
+
+    if (!availableBatchesByInventoryItemId.has(inventoryItemId)) {
+      availableBatchesByInventoryItemId.set(inventoryItemId, []);
+    }
+
+    availableBatchesByInventoryItemId.get(inventoryItemId).push(batch);
+  }
+
   for (const requiredItem of requiredItemsByInventoryItemId.values()) {
     const requiredQuantity =
       Number(requiredItem.requiredQuantity || 0);
@@ -579,10 +596,7 @@ const buildAutomaticClaimAllocations = async (
     }
 
     const availableBatches =
-      await inventoryTransactionRepository.getDistributableInventoryBatchesByItemIdForUpdate(
-        requiredItem.inventory_item_id,
-        client,
-      );
+      availableBatchesByInventoryItemId.get(requiredItem.inventory_item_id) || [];
 
     const eligibleBatches = availableBatches.filter((batch) => {
       if (Number(batch.quantity_available || 0) <= 0) {
@@ -642,31 +656,45 @@ const buildAutomaticClaimAllocations = async (
 };
 
 const syncTouchedInventoryItems = async (inventoryItemIds, client) => {
-  for (const inventoryItemId of inventoryItemIds) {
-    const inventoryItem =
-      await inventoryItemRepository.getInventoryItemByIdForUpdate(
-        inventoryItemId,
-        client,
-      );
+  const uniqueInventoryItemIds = [...new Set(inventoryItemIds || [])].filter(Boolean);
 
+  if (uniqueInventoryItemIds.length === 0) {
+    return;
+  }
+
+  const inventoryItems =
+    await inventoryItemRepository.getInventoryItemsByIdsForUpdate(
+      uniqueInventoryItemIds,
+      client,
+    );
+  const recomputedQuantityResult = await client.query(
+    `
+      SELECT
+        inventory_item_id,
+        COALESCE(SUM(quantity_available), 0)::integer AS total_quantity
+      FROM inventory_batches
+      WHERE inventory_item_id = ANY($1::uuid[])
+      GROUP BY inventory_item_id
+    `,
+    [uniqueInventoryItemIds],
+  );
+  const quantityByInventoryItemId = new Map(
+    recomputedQuantityResult.rows.map((row) => [
+      row.inventory_item_id,
+      Number(row.total_quantity || 0),
+    ]),
+  );
+
+  for (const inventoryItem of inventoryItems) {
     if (!inventoryItem) {
       continue;
     }
 
-    const recomputedQuantityResult = await client.query(
-      `
-        SELECT COALESCE(SUM(quantity_available), 0)::integer AS total_quantity
-        FROM inventory_batches
-        WHERE inventory_item_id = $1
-      `,
-      [inventoryItemId],
-    );
-    const nextItemQuantity = Number(
-      recomputedQuantityResult.rows[0]?.total_quantity || 0,
-    );
+    const nextItemQuantity =
+      quantityByInventoryItemId.get(inventoryItem.id) || 0;
 
     await inventoryItemRepository.updateInventoryItemStockSnapshot(
-      inventoryItemId,
+      inventoryItem.id,
       buildUpdatedItemStockSnapshot(inventoryItem, nextItemQuantity),
       client,
     );
