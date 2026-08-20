@@ -1779,7 +1779,7 @@ img {
 .distync-shell {
   display: grid;
   grid-template-columns: var(--sidebar-width, 280px) minmax(0, 1fr);
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto minmax(0, auto);
   min-height: 100vh;
   width: 100%;
   min-width: 0;
@@ -1790,13 +1790,21 @@ img {
 .distync-shell__topbar {
   grid-column: 1 / -1;
   min-width: 0;
+  transition: grid-template-columns 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.distync-shell__topbar[data-sidebar-collapsed="true"] .distync-shell__brand-area {
+  border-right-color: transparent !important;
+  box-shadow: none !important;
 }
 
 .distync-shell__main {
   width: 100%;
   min-width: 0;
+  min-height: 0;
   max-width: 100%;
-  overflow-x: hidden;
+  overflow: visible;
+  overflow-y: visible;
   transition:
     padding 260ms cubic-bezier(0.22, 1, 0.36, 1),
     min-width 260ms cubic-bezier(0.22, 1, 0.36, 1);
@@ -1817,6 +1825,7 @@ img {
   width: var(--sidebar-width, 280px);
   min-width: var(--sidebar-width, 280px);
   max-width: var(--sidebar-width, 280px);
+  min-height: 0;
   will-change: width, min-width, max-width;
   overflow: hidden;
   transition:
@@ -1829,6 +1838,17 @@ img {
   transform: translateZ(0);
 }
 
+.distync-sidebar__nav-item:hover {
+  background-color: #eaf3fb !important;
+  border-color: #c7d7e8 !important;
+}
+
+.distync-sidebar a:focus-visible .distync-sidebar__nav-item,
+.distync-sidebar__mobile-close:focus-visible {
+  outline: 3px solid rgba(40, 120, 191, 0.32);
+  outline-offset: 2px;
+}
+
 .distync-sidebar__body {
   min-width: 0;
 }
@@ -1839,15 +1859,6 @@ img {
 
 .distync-sidebar__mobile-header {
   display: none;
-}
-
-.distync-sidebar[data-collapsed="true"] .distync-sidebar__nav,
-.distync-sidebar[data-collapsed="true"] .distync-sidebar__role-actions {
-  max-height: 0 !important;
-  opacity: 0 !important;
-  margin-top: 0 !important;
-  pointer-events: none !important;
-  overflow: hidden !important;
 }
 
 .stub-distribution-toolbar-actions {
@@ -1956,7 +1967,7 @@ img {
 @media (max-width: 1024px) {
   .distync-shell {
     grid-template-columns: 1fr;
-    grid-template-rows: auto auto 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
   }
 
   .distync-shell__main {
@@ -1964,63 +1975,7 @@ img {
   }
 
   .distync-sidebar {
-    width: 100% !important;
-    min-width: 100% !important;
-    max-width: 100% !important;
-    height: auto !important;
-    max-height: 100vh;
-    position: sticky !important;
-    top: 0;
-    z-index: 50;
-    border-right: none !important;
-    border-bottom: none !important;
-    box-shadow: none !important;
-    background: transparent !important;
-    transition:
-      max-height 260ms cubic-bezier(0.22, 1, 0.36, 1),
-      padding 260ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
-
-  .distync-sidebar[data-collapsed="true"] .distync-sidebar__nav,
-  .distync-sidebar[data-collapsed="true"] .distync-sidebar__role-actions {
-    max-height: 0 !important;
-    opacity: 0 !important;
-    margin-top: 0 !important;
-    pointer-events: none !important;
-    overflow: hidden !important;
-  }
-
-  .distync-sidebar[data-collapsed="false"] .distync-sidebar__nav {
-    max-height: none;
-    opacity: 1;
-  }
-}
-
-@media (max-width: 768px) {
-  .distync-shell {
-    grid-template-columns: minmax(0, 1fr) !important;
-    grid-template-rows: auto 1fr !important;
-  }
-
-  .distync-shell__topbar {
-    grid-template-columns: minmax(0, 1fr) auto !important;
-    align-items: center !important;
-  }
-
-  .distync-shell__brand-area {
-    padding: 14px 14px 0 !important;
-  }
-
-  .distync-shell__actions-area {
-    padding: 14px 14px 0 0 !important;
-  }
-
-  .distync-layout__brand-strip {
-    width: 100% !important;
-    max-width: 100% !important;
-  }
-
-  .distync-sidebar {
+    display: flex !important;
     position: fixed !important;
     top: 0 !important;
     left: 0 !important;
@@ -2029,10 +1984,11 @@ img {
     width: min(320px, calc(100vw - 32px)) !important;
     min-width: 0 !important;
     max-width: calc(100vw - 32px) !important;
-    height: 100vh !important;
-    max-height: 100vh !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
     padding: 14px !important;
     background: #edf4fb !important;
+    border-right: 1px solid #ccdceb !important;
     box-shadow: 18px 0 42px rgba(23, 50, 77, 0.24) !important;
     transform: translateX(-105%) !important;
     opacity: 0 !important;
@@ -2051,6 +2007,7 @@ img {
   .distync-sidebar__body {
     height: 100%;
     overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   .distync-sidebar__mobile-header {
@@ -2112,7 +2069,6 @@ img {
     max-height: none !important;
     opacity: 1 !important;
     pointer-events: auto !important;
-    overflow: visible !important;
   }
 
   .distync-sidebar__scrim {
@@ -2124,6 +2080,31 @@ img {
     padding: 0;
     background: rgba(23, 50, 77, 0.42);
     cursor: pointer;
+  }
+}
+
+@media (max-width: 768px) {
+  .distync-shell {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: auto 1fr !important;
+  }
+
+  .distync-shell__topbar {
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    align-items: center !important;
+  }
+
+  .distync-shell__brand-area {
+    padding: 14px 14px 0 !important;
+  }
+
+  .distync-shell__actions-area {
+    padding: 14px 14px 0 0 !important;
+  }
+
+  .distync-layout__brand-strip {
+    width: 100% !important;
+    max-width: 100% !important;
   }
 
   .distync-shell__main {
