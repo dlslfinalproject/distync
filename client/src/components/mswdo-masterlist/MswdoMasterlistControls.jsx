@@ -4,6 +4,7 @@ import PageHeader, { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
 import SearchBar from "../shared/SearchBar";
 import { MASTERLIST_SORT_OPTIONS } from "../../features/masterlist/masterlistService";
+import ResponsiveFilterPopover from "../shared/ResponsiveFilterPopover";
 
 const filterPanelStyles = {
   panel: {
@@ -84,15 +85,14 @@ const MswdoMasterlistControls = ({
   onSearchChange,
   recordStatus,
   onRecordStatusChange,
-  filterButtonRef,
-  filterPanelRef,
   isFilterOpen,
-  filterPanelPosition,
   hasActiveSectorFilters,
   hasNonDefaultSort,
   selectedSectorIds,
   selectedSortOrder = "newest",
   sectors,
+  filterScopeKey = selectedDisasterEventId,
+  onFilterOpenChange,
   onToggleFilterOpen,
   onToggleSectorFilter,
   onSortOrderChange,
@@ -161,33 +161,39 @@ const MswdoMasterlistControls = ({
         ) : null}
 
         <div>
-          <button
-            ref={filterButtonRef}
-            type="button"
-            onClick={onToggleFilterOpen}
-            style={{
-              ...pageHeaderStyles.secondaryButton,
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-            }}
-          >
-            <FiFilter size={16} />
-            {hasActiveSectorFilters || hasNonDefaultSort
-              ? `Filter (${selectedSectorIds.length + (hasNonDefaultSort ? 1 : 0)})`
-              : "Filter"}
-          </button>
+          <ResponsiveFilterPopover
+            isOpen={isFilterOpen}
+            onOpenChange={(nextOpen) => {
+              if (onFilterOpenChange) {
+                onFilterOpenChange(nextOpen);
+                return;
+              }
 
-          {isFilterOpen ? (
-            <div
-              ref={filterPanelRef}
-              style={{
-                ...filterPanelStyles.panel,
-                top: filterPanelPosition.top,
-                left: filterPanelPosition.left,
-                maxHeight: filterPanelPosition.maxHeight,
-              }}
-            >
+              if (nextOpen !== isFilterOpen) {
+                onToggleFilterOpen?.();
+              }
+            }}
+            title="Filter Records"
+            scopeKey={filterScopeKey}
+            trigger={({ ref, ...triggerProps }) => (
+              <button
+                ref={ref}
+                type="button"
+                style={{
+                  ...pageHeaderStyles.secondaryButton,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                }}
+                {...triggerProps}
+              >
+                <FiFilter size={16} />
+                {hasActiveSectorFilters || hasNonDefaultSort
+                  ? `Filter (${selectedSectorIds.length + (hasNonDefaultSort ? 1 : 0)})`
+                  : "Filter"}
+              </button>
+            )}
+          >
               <h3 style={filterPanelStyles.title}>Filter Records</h3>
               <label style={filterPanelStyles.field}>
                 <span style={filterPanelStyles.label}>Order List</span>
@@ -234,8 +240,7 @@ const MswdoMasterlistControls = ({
                   Clear
                 </button>
               </div>
-            </div>
-          ) : null}
+          </ResponsiveFilterPopover>
         </div>
 
         {canRegisterFamily ? (

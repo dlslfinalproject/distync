@@ -1,13 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useState } from "react";
 import { FiFileText, FiFilter, FiPackage, FiPlus } from "react-icons/fi";
 import SearchBar from "../shared/SearchBar";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { inputStyles } from "../../features/donations/donationUi";
 import { donorTypeLabels } from "../../features/donations/donationFormatters";
-
-const FILTER_PANEL_GAP = 12;
-const FILTER_PANEL_VIEWPORT_PADDING = 16;
-const MIN_FILTER_PANEL_HEIGHT = 220;
+import ResponsiveFilterPopover from "../shared/ResponsiveFilterPopover";
 
 const donorTypeFilterOptions = [
   "INDIVIDUAL",
@@ -37,57 +34,6 @@ const transparencyMovementFilterOptions = [
   { value: "has_remaining", label: "Has Remaining Balance" },
   { value: "no_remaining", label: "No Remaining Balance" },
 ];
-
-const getFilterPanelPosition = ({ triggerRect, panelHeight }) => {
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-  const constrainedPanelWidth = Math.min(
-    360,
-    viewportWidth - FILTER_PANEL_VIEWPORT_PADDING * 2,
-  );
-  const safePanelHeight = Math.max(panelHeight || 0, MIN_FILTER_PANEL_HEIGHT);
-  const spaceBelow =
-    viewportHeight - triggerRect.bottom - FILTER_PANEL_VIEWPORT_PADDING;
-  const spaceAbove = triggerRect.top - FILTER_PANEL_VIEWPORT_PADDING;
-  const shouldOpenBelow =
-    spaceBelow >= MIN_FILTER_PANEL_HEIGHT || spaceBelow >= spaceAbove;
-
-  let left = triggerRect.right - constrainedPanelWidth;
-  left = Math.min(
-    Math.max(left, FILTER_PANEL_VIEWPORT_PADDING),
-    viewportWidth - constrainedPanelWidth - FILTER_PANEL_VIEWPORT_PADDING,
-  );
-
-  if (shouldOpenBelow) {
-    const top = Math.max(
-      FILTER_PANEL_VIEWPORT_PADDING,
-      triggerRect.bottom + FILTER_PANEL_GAP,
-    );
-    const availableHeight =
-      viewportHeight - top - FILTER_PANEL_VIEWPORT_PADDING;
-
-    return {
-      top,
-      left,
-      maxHeight: Math.max(availableHeight, 0),
-    };
-  }
-
-  const maxHeight = Math.max(
-    triggerRect.top - FILTER_PANEL_GAP - FILTER_PANEL_VIEWPORT_PADDING,
-    0,
-  );
-  const top = Math.max(
-    FILTER_PANEL_VIEWPORT_PADDING,
-    triggerRect.top - FILTER_PANEL_GAP - Math.min(safePanelHeight, maxHeight),
-  );
-
-  return {
-    top,
-    left,
-    maxHeight,
-  };
-};
 
 const toolbarStyles = {
   row: {
@@ -240,13 +186,6 @@ const DonationFilters = ({
   showTransparencyActions = true,
 }) => {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [filterPanelPosition, setFilterPanelPosition] = useState({
-    top: 0,
-    left: 0,
-    maxHeight: 320,
-  });
-  const filterButtonRef = useRef(null);
-  const filterPanelRef = useRef(null);
   const selectedDonorTypes = Array.isArray(donationToolbarFilters?.donorTypes)
     ? donationToolbarFilters.donorTypes
     : [];
@@ -267,50 +206,6 @@ const DonationFilters = ({
     activeTab === "transparency"
       ? transparencyActiveFilterCount
       : donationActiveFilterCount;
-
-  const updateFilterPanelPosition = useCallback(() => {
-    if (!filterButtonRef.current) {
-      return;
-    }
-
-    const triggerRect = filterButtonRef.current.getBoundingClientRect();
-    const panelHeight =
-      filterPanelRef.current?.getBoundingClientRect().height || 0;
-
-    setFilterPanelPosition(
-      getFilterPanelPosition({ triggerRect, panelHeight }),
-    );
-  }, []);
-
-  useEffect(() => {
-    if (!isFilterOpen) {
-      return undefined;
-    }
-
-    updateFilterPanelPosition();
-
-    const handleResize = () => updateFilterPanelPosition();
-    const handleOutsideClick = (event) => {
-      if (
-        filterPanelRef.current?.contains(event.target) ||
-        filterButtonRef.current?.contains(event.target)
-      ) {
-        return;
-      }
-
-      setIsFilterOpen(false);
-    };
-
-    window.addEventListener("resize", handleResize);
-    window.addEventListener("scroll", handleResize, true);
-    document.addEventListener("mousedown", handleOutsideClick);
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      window.removeEventListener("scroll", handleResize, true);
-      document.removeEventListener("mousedown", handleOutsideClick);
-    };
-  }, [isFilterOpen, updateFilterPanelPosition]);
 
   const handleToggleDonorType = (donorType) => {
     const nextDonorTypes = selectedDonorTypes.includes(donorType)
@@ -424,32 +319,29 @@ const DonationFilters = ({
               </label>
 
               <div className="mayor-donation-management-filter-button-wrap">
-                <button
-                  ref={filterButtonRef}
-                  type="button"
-                  onClick={() => setIsFilterOpen((currentValue) => !currentValue)}
-                  style={{
-                    ...pageHeaderStyles.secondaryButton,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                  }}
+                <ResponsiveFilterPopover
+                  isOpen={isFilterOpen}
+                  onOpenChange={setIsFilterOpen}
+                  title="Filter Records"
+                  panelClassName="mayor-donation-management-filter-panel"
+                  scopeKey={activeTab}
+                  trigger={({ ref, ...triggerProps }) => (
+                    <button
+                      ref={ref}
+                      type="button"
+                      style={{
+                        ...pageHeaderStyles.secondaryButton,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                      }}
+                      {...triggerProps}
+                    >
+                      <FiFilter size={16} />
+                      {activeFilterCount > 0 ? `Filter (${activeFilterCount})` : "Filter"}
+                    </button>
+                  )}
                 >
-                  <FiFilter size={16} />
-                  {activeFilterCount > 0 ? `Filter (${activeFilterCount})` : "Filter"}
-                </button>
-
-                {isFilterOpen ? (
-                  <div
-                    ref={filterPanelRef}
-                    className="mayor-donation-management-filter-panel"
-                    style={{
-                      ...toolbarStyles.filterPanel,
-                      top: filterPanelPosition.top,
-                      left: filterPanelPosition.left,
-                      maxHeight: filterPanelPosition.maxHeight,
-                    }}
-                  >
                     <h3 style={toolbarStyles.filterTitle}>Filter Records</h3>
 
                     <label style={toolbarStyles.filterField}>
@@ -497,8 +389,7 @@ const DonationFilters = ({
                         Clear
                       </button>
                     </div>
-                  </div>
-                ) : null}
+                </ResponsiveFilterPopover>
               </div>
 
               <div
@@ -582,32 +473,29 @@ const DonationFilters = ({
               style={toolbarStyles.controlsWrap}
             >
               <div className="mayor-donation-management-filter-button-wrap">
-                <button
-                  ref={filterButtonRef}
-                  type="button"
-                  onClick={() => setIsFilterOpen((currentValue) => !currentValue)}
-                  style={{
-                    ...pageHeaderStyles.secondaryButton,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                  }}
+                <ResponsiveFilterPopover
+                  isOpen={isFilterOpen}
+                  onOpenChange={setIsFilterOpen}
+                  title="Filter Records"
+                  panelClassName="mayor-donation-management-filter-panel"
+                  scopeKey={activeTab}
+                  trigger={({ ref, ...triggerProps }) => (
+                    <button
+                      ref={ref}
+                      type="button"
+                      style={{
+                        ...pageHeaderStyles.secondaryButton,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                      }}
+                      {...triggerProps}
+                    >
+                      <FiFilter size={16} />
+                      {activeFilterCount > 0 ? `Filter (${activeFilterCount})` : "Filter"}
+                    </button>
+                  )}
                 >
-                  <FiFilter size={16} />
-                  {activeFilterCount > 0 ? `Filter (${activeFilterCount})` : "Filter"}
-                </button>
-
-                {isFilterOpen ? (
-                  <div
-                    ref={filterPanelRef}
-                    className="mayor-donation-management-filter-panel"
-                    style={{
-                      ...toolbarStyles.filterPanel,
-                      top: filterPanelPosition.top,
-                      left: filterPanelPosition.left,
-                      maxHeight: filterPanelPosition.maxHeight,
-                    }}
-                  >
                     <h3 style={toolbarStyles.filterTitle}>Filter Records</h3>
 
                     <label style={toolbarStyles.filterField}>
@@ -659,8 +547,7 @@ const DonationFilters = ({
                         Clear
                       </button>
                     </div>
-                  </div>
-                ) : null}
+                </ResponsiveFilterPopover>
               </div>
 
               <div

@@ -7,6 +7,7 @@ import ErrorState from "../../components/shared/ErrorState";
 import FormModalShell from "../../components/shared/FormModalShell";
 import LoadingState from "../../components/shared/LoadingState";
 import StatusCard from "../../components/shared/StatusCard";
+import ResponsiveFilterPopover from "../../components/shared/ResponsiveFilterPopover";
 import {
   fetchAllDisasterEvents,
   fetchBarangayDisasterEventOptions,
@@ -68,21 +69,6 @@ const searchInputStyles = {
 };
 
 const filterPopoverStyles = {
-  wrapper: {
-    position: "relative",
-  },
-  popover: {
-    position: "absolute",
-    top: "calc(100% + 12px)",
-    right: 0,
-    width: "320px",
-    padding: "20px",
-    borderRadius: "18px",
-    border: "1px solid #d6e2ee",
-    backgroundColor: "#ffffff",
-    boxShadow: "0 18px 36px rgba(31, 62, 92, 0.16)",
-    zIndex: 20,
-  },
   title: {
     margin: "0 0 16px",
     color: "#17324d",
@@ -1041,23 +1027,28 @@ const AnomalyTrackingPage = ({
             </select>
           </div>
 
-          <div style={filterPopoverStyles.wrapper}>
-            <button
-              type="button"
-              onClick={() => setIsFilterOpen((currentValue) => !currentValue)}
-              style={{
-                ...pageHeaderStyles.secondaryButton,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "10px",
-              }}
+          <div>
+            <ResponsiveFilterPopover
+              isOpen={isFilterOpen}
+              onOpenChange={setIsFilterOpen}
+              title="Filter Records"
+              trigger={({ ref, ...triggerProps }) => (
+                <button
+                  ref={ref}
+                  type="button"
+                  style={{
+                    ...pageHeaderStyles.secondaryButton,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "10px",
+                  }}
+                  {...triggerProps}
+                >
+                  <FiFilter size={18} />
+                  Filter
+                </button>
+              )}
             >
-              <FiFilter size={18} />
-              Filter
-            </button>
-
-            {isFilterOpen ? (
-              <div style={filterPopoverStyles.popover}>
                 <h3 style={filterPopoverStyles.title}>Filter Records</h3>
                 <label htmlFor="anomaly-order" style={labelStyles}>
                   Order List
@@ -1079,8 +1070,7 @@ const AnomalyTrackingPage = ({
                     </option>
                   ))}
                 </select>
-              </div>
-            ) : null}
+            </ResponsiveFilterPopover>
           </div>
         </div>
       </div>
