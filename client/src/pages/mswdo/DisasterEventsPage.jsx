@@ -11,6 +11,7 @@ import DisasterEventSingleExportModal from "../../components/disaster-events/Dis
 import DisasterEventsTable from "../../components/disaster-events/DisasterEventsTable";
 import { useDisasterEvents } from "../../features/disaster-events/useDisasterEvents";
 import FeedbackToast from "../../components/shared/FeedbackToast";
+import ResponsiveFilterPopover from "../../components/shared/ResponsiveFilterPopover";
 import SearchBar from "../../components/shared/SearchBar";
 import { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { FiFileText, FiFilter } from "react-icons/fi";
@@ -106,9 +107,6 @@ const filterPanelStyles = {
   },
 };
 
-const FILTER_PANEL_GAP = 12;
-const FILTER_PANEL_VIEWPORT_PADDING = 16;
-const MIN_FILTER_PANEL_HEIGHT = 220;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -155,57 +153,6 @@ const sortDisasterEventRows = (rows, sortOrder = "newest") => {
     ).getTime();
     return rightTime - leftTime;
   });
-};
-
-const getFilterPanelPosition = ({ triggerRect, panelHeight }) => {
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-  const constrainedPanelWidth = Math.min(
-    360,
-    viewportWidth - FILTER_PANEL_VIEWPORT_PADDING * 2,
-  );
-  const safePanelHeight = Math.max(panelHeight || 0, MIN_FILTER_PANEL_HEIGHT);
-  const spaceBelow =
-    viewportHeight - triggerRect.bottom - FILTER_PANEL_VIEWPORT_PADDING;
-  const spaceAbove = triggerRect.top - FILTER_PANEL_VIEWPORT_PADDING;
-  const shouldOpenBelow =
-    spaceBelow >= MIN_FILTER_PANEL_HEIGHT || spaceBelow >= spaceAbove;
-
-  let left = triggerRect.right - constrainedPanelWidth;
-  left = Math.min(
-    Math.max(left, FILTER_PANEL_VIEWPORT_PADDING),
-    viewportWidth - constrainedPanelWidth - FILTER_PANEL_VIEWPORT_PADDING,
-  );
-
-  if (shouldOpenBelow) {
-    const top = Math.max(
-      FILTER_PANEL_VIEWPORT_PADDING,
-      triggerRect.bottom + FILTER_PANEL_GAP,
-    );
-    const availableHeight =
-      viewportHeight - top - FILTER_PANEL_VIEWPORT_PADDING;
-
-    return {
-      top,
-      left,
-      maxHeight: Math.max(availableHeight, 0),
-    };
-  }
-
-  const maxHeight = Math.max(
-    triggerRect.top - FILTER_PANEL_GAP - FILTER_PANEL_VIEWPORT_PADDING,
-    0,
-  );
-  const top = Math.max(
-    FILTER_PANEL_VIEWPORT_PADDING,
-    triggerRect.top - FILTER_PANEL_GAP - Math.min(safePanelHeight, maxHeight),
-  );
-
-  return {
-    top,
-    left,
-    maxHeight,
-  };
 };
 
 const DisasterEventsPage = () => {
@@ -278,13 +225,6 @@ const DisasterEventsPage = () => {
       affectedBarangayIds: [],
     },
   });
-  const [filterPanelPosition, setFilterPanelPosition] = useState({
-    top: 0,
-    left: 0,
-    maxHeight: 320,
-  });
-  const filterButtonRef = useRef(null);
-  const filterPanelRef = useRef(null);
   const currentTabFilters = filtersByTab[selectedFilter] || filtersByTab.all;
   const selectedSortOrder = currentTabFilters.sortOrder || "newest";
   const selectedDisasterTypes = currentTabFilters.disasterTypes || [];
@@ -665,77 +605,9 @@ const DisasterEventsPage = () => {
     });
   };
 
-  const updateFilterPanelPosition = () => {
-    if (!filterButtonRef.current) {
-      return;
-    }
-
-    const triggerRect = filterButtonRef.current.getBoundingClientRect();
-    const panelHeight = filterPanelRef.current?.getBoundingClientRect().height || 0;
-
-    setFilterPanelPosition(getFilterPanelPosition({ triggerRect, panelHeight }));
-  };
-
-  useEffect(() => {
-    if (!isFilterOpen) {
-      return;
-    }
-
-    updateFilterPanelPosition();
-
-    const handleWindowChange = () => {
-      updateFilterPanelPosition();
-    };
-
-    window.addEventListener("resize", handleWindowChange);
-    window.addEventListener("scroll", handleWindowChange, true);
-
-    return () => {
-      window.removeEventListener("resize", handleWindowChange);
-      window.removeEventListener("scroll", handleWindowChange, true);
-    };
-  }, [isFilterOpen, selectedFilter, activeFilterCount]);
-
-  useEffect(() => {
-    if (!isFilterOpen) {
-      return;
-    }
-
-    const handleOutsideClick = (event) => {
-      if (
-        filterPanelRef.current?.contains(event.target) ||
-        filterButtonRef.current?.contains(event.target)
-      ) {
-        return;
-      }
-
-      setIsFilterOpen(false);
-    };
-
-    document.addEventListener("mousedown", handleOutsideClick);
-
-    return () => {
-      document.removeEventListener("mousedown", handleOutsideClick);
-    };
-  }, [isFilterOpen]);
-
   useEffect(() => {
     setIsFilterOpen(false);
   }, [selectedFilter]);
-
-  useEffect(() => {
-    if (!isFilterOpen) {
-      return;
-    }
-
-    const animationFrameId = window.requestAnimationFrame(() => {
-      updateFilterPanelPosition();
-    });
-
-    return () => {
-      window.cancelAnimationFrame(animationFrameId);
-    };
-  }, [isFilterOpen, activeFilterCount]);
 
   const getTabStyle = (filterKey) => ({
     padding: "12px 24px",
@@ -810,33 +682,31 @@ const DisasterEventsPage = () => {
           className="disaster-events-toolbar-actions"
           style={pageSpacingStyles.actionGroup}
         >
-          <div style={{ position: "relative" }}>
-            <button
-              className="disaster-events-filter-button"
-              ref={filterButtonRef}
-              type="button"
-              onClick={() => setIsFilterOpen((currentValue) => !currentValue)}
-              style={{
-                ...pageHeaderStyles.secondaryButton,
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-              }}
+          <div>
+            <ResponsiveFilterPopover
+              isOpen={isFilterOpen}
+              onOpenChange={setIsFilterOpen}
+              title="Filter Disaster Events"
+              panelClassName="disaster-events-filter-panel"
+              scopeKey={selectedFilter}
+              trigger={({ ref, ...triggerProps }) => (
+                <button
+                  className="disaster-events-filter-button"
+                  ref={ref}
+                  type="button"
+                  style={{
+                    ...pageHeaderStyles.secondaryButton,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                  {...triggerProps}
+                >
+                  <FiFilter size={16} />
+                  {hasActiveFilters ? `Filter (${activeFilterCount})` : "Filter"}
+                </button>
+              )}
             >
-              <FiFilter size={16} />
-              {hasActiveFilters ? `Filter (${activeFilterCount})` : "Filter"}
-            </button>
-
-            {isFilterOpen ? (
-              <div
-                ref={filterPanelRef}
-                style={{
-                  ...filterPanelStyles.panel,
-                  top: filterPanelPosition.top,
-                  left: filterPanelPosition.left,
-                  maxHeight: filterPanelPosition.maxHeight,
-                }}
-              >
                 <h3 style={filterPanelStyles.title}>Filter Disaster Events</h3>
 
                 <label style={filterPanelStyles.field}>
@@ -915,8 +785,7 @@ const DisasterEventsPage = () => {
                     Clear
                   </button>
                 </div>
-              </div>
-            ) : null}
+            </ResponsiveFilterPopover>
           </div>
 
           <button

@@ -54,3 +54,25 @@ test("MSWDO masterlist exposes Barangay-parity responsive hooks for target-speci
     /@media \(max-width: 480px\)[\s\S]*?\.mswdo-masterlist-summary-grid \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) !important;/,
   );
 });
+
+test("FLT-RWD-001: MSWDO masterlist filter uses controlled open-state lifecycle", async () => {
+  const [controlsSource, pageSource, hookSource] = await Promise.all([
+    readSource(["components", "mswdo-masterlist", "MswdoMasterlistControls.jsx"]),
+    readSource(["pages", "mswdo", "ConsolidatedMasterlistPage.jsx"]),
+    readSource(["features", "mswdo-masterlist", "useMswdoMasterlistPage.js"]),
+  ]);
+
+  assert.match(controlsSource, /onFilterOpenChange/);
+  assert.match(controlsSource, /onFilterOpenChange\(nextOpen\)/);
+  assert.match(controlsSource, /scopeKey=\{filterScopeKey\}/);
+  assert.match(pageSource, /onFilterOpenChange=\{setIsFilterOpen\}/);
+  assert.match(pageSource, /filterScopeKey=\{`\$\{activeTab\}-/);
+  assert.match(
+    hookSource,
+    /useEffect\(\(\) => \{\s*setIsFilterOpen\(false\);\s*}\s*, \[activeTab, selectedBarangayId, selectedDisasterEventId\]\)/,
+  );
+  assert.doesNotMatch(
+    pageSource,
+    /onToggleFilterOpen=\{\(\) =>\s*setIsFilterOpen\(\(currentValue\) => !currentValue\)/,
+  );
+});

@@ -7,6 +7,7 @@ import SyncStatusBadge from "../components/shared/SyncStatusBadge";
 import FeedbackToast from "../components/shared/FeedbackToast";
 import SyncConflictDetailModal from "../components/shared/SyncConflictDetailModal";
 import StatusCard from "../components/shared/StatusCard";
+import ResponsiveFilterPopover from "../components/shared/ResponsiveFilterPopover";
 import db, { LOCAL_SYNC_STATUS } from "../offline/db.js";
 import {
   retryFailedSyncEntries,
@@ -91,19 +92,6 @@ const fieldStyles = {
 const toolbarButtonStyles = {
   ...pageHeaderStyles.secondaryButton,
   boxShadow: "0 16px 30px rgba(31, 64, 96, 0.08)",
-};
-
-const filterPopoverStyles = {
-  position: "absolute",
-  right: 0,
-  top: "calc(100% + 12px)",
-  width: "min(340px, calc(100vw - 48px))",
-  padding: "20px",
-  border: "1px solid #d6e3f1",
-  borderRadius: "20px",
-  backgroundColor: "#ffffff",
-  boxShadow: "0 22px 44px rgba(31, 64, 95, 0.18)",
-  zIndex: 20,
 };
 
 const syncTabButtonStyles = (isActive) => ({
@@ -611,18 +599,24 @@ const SyncManagementPage = () => {
           />
         </div>
 
-        <div style={{ position: "relative" }}>
-          <button
-            type="button"
-            onClick={() => setIsFilterOpen((isOpen) => !isOpen)}
-            style={toolbarButtonStyles}
+        <div>
+          <ResponsiveFilterPopover
+            isOpen={isFilterOpen}
+            onOpenChange={setIsFilterOpen}
+            title="Filter Records"
+            scopeKey={activeSyncTab}
+            trigger={({ ref, ...triggerProps }) => (
+              <button
+                ref={ref}
+                type="button"
+                style={toolbarButtonStyles}
+                {...triggerProps}
+              >
+                <FiFilter size={18} />
+                Filter
+              </button>
+            )}
           >
-            <FiFilter size={18} />
-            Filter
-          </button>
-
-          {isFilterOpen ? (
-            <div style={filterPopoverStyles}>
               <h3 style={{ margin: "0 0 16px", color: "#17324d" }}>
                 Filter Records
               </h3>
@@ -640,8 +634,7 @@ const SyncManagementPage = () => {
                   ))}
                 </select>
               </label>
-            </div>
-          ) : null}
+          </ResponsiveFilterPopover>
         </div>
 
         <button

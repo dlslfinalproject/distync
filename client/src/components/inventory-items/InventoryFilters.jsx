@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useState } from "react";
 import { FiFilter } from "react-icons/fi";
 import SearchBar from "../shared/SearchBar";
 import { pageHeaderStyles } from "../layout/PageHeader";
+import ResponsiveFilterPopover from "../shared/ResponsiveFilterPopover";
 
 const COLORS = {
   primary: "#17324d",
@@ -23,61 +24,6 @@ const sortOptions = [
   { value: "az", label: "A-Z" },
   { value: "za", label: "Z-A" },
 ];
-
-const FILTER_PANEL_GAP = 12;
-const FILTER_PANEL_VIEWPORT_PADDING = 16;
-const MIN_FILTER_PANEL_HEIGHT = 220;
-
-const getFilterPanelPosition = ({ triggerRect, panelHeight }) => {
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-  const constrainedPanelWidth = Math.min(
-    360,
-    viewportWidth - FILTER_PANEL_VIEWPORT_PADDING * 2,
-  );
-  const safePanelHeight = Math.max(panelHeight || 0, MIN_FILTER_PANEL_HEIGHT);
-  const spaceBelow =
-    viewportHeight - triggerRect.bottom - FILTER_PANEL_VIEWPORT_PADDING;
-  const spaceAbove = triggerRect.top - FILTER_PANEL_VIEWPORT_PADDING;
-  const shouldOpenBelow =
-    spaceBelow >= MIN_FILTER_PANEL_HEIGHT || spaceBelow >= spaceAbove;
-
-  let left = triggerRect.right - constrainedPanelWidth;
-  left = Math.min(
-    Math.max(left, FILTER_PANEL_VIEWPORT_PADDING),
-    viewportWidth - constrainedPanelWidth - FILTER_PANEL_VIEWPORT_PADDING,
-  );
-
-  if (shouldOpenBelow) {
-    const top = Math.max(
-      FILTER_PANEL_VIEWPORT_PADDING,
-      triggerRect.bottom + FILTER_PANEL_GAP,
-    );
-    const availableHeight =
-      viewportHeight - top - FILTER_PANEL_VIEWPORT_PADDING;
-
-    return {
-      top,
-      left,
-      maxHeight: Math.max(availableHeight, 0),
-    };
-  }
-
-  const maxHeight = Math.max(
-    triggerRect.top - FILTER_PANEL_GAP - FILTER_PANEL_VIEWPORT_PADDING,
-    0,
-  );
-  const top = Math.max(
-    FILTER_PANEL_VIEWPORT_PADDING,
-    triggerRect.top - FILTER_PANEL_GAP - Math.min(safePanelHeight, maxHeight),
-  );
-
-  return {
-    top,
-    left,
-    maxHeight,
-  };
-};
 
 const styles = {
   controlsGroup: {
@@ -191,87 +137,9 @@ const styles = {
 
 const InventoryFilters = ({ filters, onFilterChange }) => {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [filterPanelPosition, setFilterPanelPosition] = useState({
-    top: 0,
-    left: 0,
-    maxHeight: 320,
-  });
-  const filterButtonRef = useRef(null);
-  const filterPanelRef = useRef(null);
   const selectedStatuses = Array.isArray(filters.status) ? filters.status : [];
   const selectedSortOrder = filters.sortOrder || "newest";
   const activeFilterCount = selectedStatuses.length + (selectedSortOrder !== "newest" ? 1 : 0);
-
-  const updateFilterPanelPosition = useCallback(() => {
-    if (!filterButtonRef.current) {
-      return;
-    }
-
-    const triggerRect = filterButtonRef.current.getBoundingClientRect();
-    const panelHeight =
-      filterPanelRef.current?.getBoundingClientRect().height || 0;
-
-    setFilterPanelPosition(
-      getFilterPanelPosition({ triggerRect, panelHeight }),
-    );
-  }, []);
-
-  useEffect(() => {
-    if (!isFilterOpen) {
-      return;
-    }
-
-    updateFilterPanelPosition();
-
-    const handleWindowChange = () => {
-      updateFilterPanelPosition();
-    };
-
-    window.addEventListener("resize", handleWindowChange);
-    window.addEventListener("scroll", handleWindowChange, true);
-
-    return () => {
-      window.removeEventListener("resize", handleWindowChange);
-      window.removeEventListener("scroll", handleWindowChange, true);
-    };
-  }, [activeFilterCount, isFilterOpen, updateFilterPanelPosition]);
-
-  useEffect(() => {
-    if (!isFilterOpen) {
-      return;
-    }
-
-    const handleOutsideClick = (event) => {
-      if (
-        filterPanelRef.current?.contains(event.target) ||
-        filterButtonRef.current?.contains(event.target)
-      ) {
-        return;
-      }
-
-      setIsFilterOpen(false);
-    };
-
-    document.addEventListener("mousedown", handleOutsideClick);
-
-    return () => {
-      document.removeEventListener("mousedown", handleOutsideClick);
-    };
-  }, [isFilterOpen]);
-
-  useEffect(() => {
-    if (!isFilterOpen) {
-      return;
-    }
-
-    const animationFrameId = window.requestAnimationFrame(() => {
-      updateFilterPanelPosition();
-    });
-
-    return () => {
-      window.cancelAnimationFrame(animationFrameId);
-    };
-  }, [activeFilterCount, isFilterOpen, updateFilterPanelPosition]);
 
   const handleToggleStatus = (status) => {
     const nextStatuses = selectedStatuses.includes(status)
@@ -318,31 +186,27 @@ const InventoryFilters = ({ filters, onFilterChange }) => {
       </div>
 
       <div className="inventory-items-filter-button-wrap">
-        <button
-          ref={filterButtonRef}
-          type="button"
-          onClick={() => setIsFilterOpen((currentValue) => !currentValue)}
-          style={{
-            ...pageHeaderStyles.secondaryButton,
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-          }}
+        <ResponsiveFilterPopover
+          isOpen={isFilterOpen}
+          onOpenChange={setIsFilterOpen}
+          title="Filter Records"
+          trigger={({ ref, ...triggerProps }) => (
+            <button
+              ref={ref}
+              type="button"
+              style={{
+                ...pageHeaderStyles.secondaryButton,
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+              }}
+              {...triggerProps}
+            >
+              <FiFilter size={16} />
+              {activeFilterCount > 0 ? `Filter (${activeFilterCount})` : "Filter"}
+            </button>
+          )}
         >
-          <FiFilter size={16} />
-          {activeFilterCount > 0 ? `Filter (${activeFilterCount})` : "Filter"}
-        </button>
-
-        {isFilterOpen ? (
-          <div
-            ref={filterPanelRef}
-            style={{
-              ...styles.filterPanel,
-              top: filterPanelPosition.top,
-              left: filterPanelPosition.left,
-              maxHeight: filterPanelPosition.maxHeight,
-            }}
-          >
             <h3 style={styles.filterTitle}>Filter Records</h3>
 
             <label style={styles.filterField}>
@@ -387,8 +251,7 @@ const InventoryFilters = ({ filters, onFilterChange }) => {
                 Clear
               </button>
             </div>
-          </div>
-        ) : null}
+        </ResponsiveFilterPopover>
       </div>
     </div>
   );

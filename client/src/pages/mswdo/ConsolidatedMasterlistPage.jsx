@@ -42,7 +42,6 @@ const ConsolidatedEvacueeMasterlist = () => {
     pendingBulkDepartureHouseholds,
     isLoadingDepartureHouseholdDetails,
     isFilterOpen,
-    filterPanelPosition,
     isExportModalOpen,
     exportingFormat,
     selectedExportFormat,
@@ -67,8 +66,6 @@ const ConsolidatedEvacueeMasterlist = () => {
     isLoadingRestoreHouseholdDetails,
     isRestoringHousehold,
     exportFeedback,
-    filterButtonRef,
-    filterPanelRef,
     selectedSectorIds,
     selectedSortOrder,
     activeEventLabel,
@@ -233,18 +230,16 @@ const ConsolidatedEvacueeMasterlist = () => {
         onSearchChange={setSearchTerm}
         recordStatus={selectedRecordStatus}
         onRecordStatusChange={handleRecordStatusChange}
-        filterButtonRef={filterButtonRef}
-        filterPanelRef={filterPanelRef}
         isFilterOpen={isFilterOpen}
-        filterPanelPosition={filterPanelPosition}
         hasActiveSectorFilters={hasActiveSectorFilters}
         hasNonDefaultSort={hasNonDefaultSort}
         selectedSectorIds={selectedSectorIds}
         selectedSortOrder={selectedSortOrder}
         sectors={sectors}
-        onToggleFilterOpen={() =>
-          setIsFilterOpen((currentValue) => !currentValue)
-        }
+        filterScopeKey={`${activeTab}-${selectedBarangayId || "all"}-${
+          selectedDisasterEventId || "none"
+        }`}
+        onFilterOpenChange={setIsFilterOpen}
         onToggleSectorFilter={toggleSectorFilter}
         onSortOrderChange={setTabSortOrder}
         onClearSectorFilters={clearSectorFilters}

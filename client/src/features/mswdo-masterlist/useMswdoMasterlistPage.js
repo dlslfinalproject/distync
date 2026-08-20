@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useHouseholdRegistrationForm } from "../household-registration/useHouseholdRegistrationForm";
 import { ROLE_CODES } from "../../utils/roleSession";
 import { getActiveCrossEventTitles } from "../household-registration/crossEventInformation";
@@ -16,7 +16,6 @@ import {
 import {
   formatReliefPeriod,
   getEndedEventDateTimeText,
-  getFilterPanelPosition,
   getScopedDisasterEvents,
 } from "./mswdoMasterlistUi";
 import { useMswdoMasterlist } from "./useMswdoMasterlist";
@@ -90,11 +89,6 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     active: "active",
     ended: "all",
   });
-  const [filterPanelPosition, setFilterPanelPosition] = useState({
-    top: 0,
-    left: 0,
-    maxHeight: 320,
-  });
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState("");
   const [selectedExportFormat, setSelectedExportFormat] = useState("csv");
@@ -136,9 +130,6 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     type: "",
     message: "",
   });
-  const filterButtonRef = useRef(null);
-  const filterPanelRef = useRef(null);
-
   const selectedSectorIds = sectorFiltersByTab[activeTab] || [];
   const selectedSortOrderByTab = sortOrderByTab[activeTab] || "newest";
   const selectedRecordStatus = recordStatusByTab[activeTab] || "active";
@@ -403,17 +394,6 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     }));
   };
 
-  const updateFilterPanelPosition = () => {
-    if (!filterButtonRef.current) {
-      return;
-    }
-
-    const triggerRect = filterButtonRef.current.getBoundingClientRect();
-    const panelHeight = filterPanelRef.current?.getBoundingClientRect().height || 0;
-
-    setFilterPanelPosition(getFilterPanelPosition({ triggerRect, panelHeight }));
-  };
-
   const handleToggleSelect = (householdId) => {
     setSelectedHouseholds((currentValues) =>
       currentValues.includes(householdId)
@@ -670,49 +650,6 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
   }, [selectedRecordStatus, setRecordStatus]);
 
   useEffect(() => {
-    if (!isFilterOpen) {
-      return;
-    }
-
-    updateFilterPanelPosition();
-
-    const handleWindowChange = () => {
-      updateFilterPanelPosition();
-    };
-
-    window.addEventListener("resize", handleWindowChange);
-    window.addEventListener("scroll", handleWindowChange, true);
-
-    return () => {
-      window.removeEventListener("resize", handleWindowChange);
-      window.removeEventListener("scroll", handleWindowChange, true);
-    };
-  }, [activeTab, isFilterOpen, selectedSectorIds.length]);
-
-  useEffect(() => {
-    if (!isFilterOpen) {
-      return;
-    }
-
-    const handleOutsideClick = (event) => {
-      if (
-        filterPanelRef.current?.contains(event.target) ||
-        filterButtonRef.current?.contains(event.target)
-      ) {
-        return;
-      }
-
-      setIsFilterOpen(false);
-    };
-
-    document.addEventListener("mousedown", handleOutsideClick);
-
-    return () => {
-      document.removeEventListener("mousedown", handleOutsideClick);
-    };
-  }, [isFilterOpen]);
-
-  useEffect(() => {
     setIsFilterOpen(false);
   }, [activeTab, selectedBarangayId, selectedDisasterEventId]);
 
@@ -724,20 +661,6 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     setIsLoadingDepartureHouseholdDetails(false);
     setIsBulkDepartureConfirmOpen(false);
   }, [activeTab, selectedBarangayId, selectedDisasterEventId]);
-
-  useEffect(() => {
-    if (!isFilterOpen) {
-      return;
-    }
-
-    const animationFrameId = window.requestAnimationFrame(() => {
-      updateFilterPanelPosition();
-    });
-
-    return () => {
-      window.cancelAnimationFrame(animationFrameId);
-    };
-  }, [isFilterOpen, selectedSectorIds.length]);
 
   const handleOpenRegisterModal = () => {
     if (!selectedDisasterEventId) {
@@ -958,7 +881,6 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     isRecordingDeparture,
     selectedHouseholds,
     isFilterOpen,
-    filterPanelPosition,
     isExportModalOpen,
     exportingFormat,
     selectedExportFormat,
@@ -984,8 +906,6 @@ export const useMswdoMasterlistPage = ({ authenticatedUser }) => {
     isLoadingRestoreHouseholdDetails,
     isRestoringHousehold,
     exportFeedback,
-    filterButtonRef,
-    filterPanelRef,
     selectedSectorIds,
     selectedSortOrder: selectedSortOrderByTab,
     selectedRecordStatus,
