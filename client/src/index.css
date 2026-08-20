@@ -192,6 +192,93 @@ body {
   overflow-wrap: anywhere;
 }
 
+.inventory-distribution-page,
+.inventory-distribution-page *,
+.inventory-distribution-detail-modal,
+.inventory-distribution-detail-modal *,
+.inventory-distribution-export-modal,
+.inventory-distribution-export-modal * {
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.inventory-distribution-scope-card,
+.inventory-distribution-filter-grid,
+.inventory-distribution-filter-field,
+.inventory-distribution-event-card,
+.inventory-distribution-event-panel,
+.inventory-distribution-summary-grid,
+.inventory-distribution-toolbar,
+.inventory-distribution-search-wrap,
+.inventory-distribution-toolbar-controls,
+.inventory-distribution-filter-button-wrap,
+.inventory-distribution-records-card,
+.inventory-distribution-table,
+.inventory-distribution-detail-stack,
+.inventory-distribution-detail-section,
+.inventory-distribution-detail-grid,
+.inventory-distribution-detail-visual-grid,
+.inventory-distribution-detail-qr-grid,
+.inventory-distribution-detail-qr-info-grid,
+.inventory-distribution-export-grid,
+.inventory-distribution-export-chip-grid {
+  min-width: 0;
+}
+
+.inventory-distribution-tabs,
+.inventory-distribution-toolbar,
+.inventory-distribution-toolbar-controls,
+.inventory-distribution-event-meta {
+  max-width: 100%;
+}
+
+.inventory-distribution-table-scroll,
+.inventory-distribution-detail-table-scroll {
+  max-width: 100%;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+.inventory-distribution-table {
+  table-layout: fixed !important;
+  max-width: none !important;
+}
+
+.inventory-distribution-text-cell,
+.inventory-distribution-event-title,
+.inventory-distribution-detail-modal p,
+.inventory-distribution-detail-modal h3,
+.inventory-distribution-detail-table td,
+.inventory-distribution-export-modal h3,
+.inventory-distribution-export-modal label {
+  overflow-wrap: anywhere;
+}
+
+.inventory-distribution-status-cell,
+.inventory-distribution-actions-cell {
+  white-space: nowrap;
+}
+
+.inventory-distribution-status-badge {
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
+}
+
+.inventory-distribution-action-button {
+  min-width: 36px;
+  flex: 0 0 auto;
+}
+
+.inventory-distribution-detail-qr-panel {
+  width: 100%;
+}
+
+.inventory-distribution-detail-table {
+  table-layout: auto !important;
+}
+
 .inventory-item-detail-table {
   min-width: 760px;
 }
@@ -231,6 +318,19 @@ body {
   .mayor-relief-pack-action-group {
     flex: 1 1 100% !important;
     justify-content: flex-start !important;
+  }
+
+  .inventory-distribution-toolbar {
+    align-items: stretch !important;
+  }
+
+  .inventory-distribution-toolbar-controls {
+    flex: 1 1 100% !important;
+    justify-content: flex-start !important;
+  }
+
+  .inventory-distribution-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
 }
 
@@ -481,6 +581,122 @@ body {
     min-width: 0;
     white-space: normal;
   }
+
+  .inventory-distribution-filter-grid,
+  .inventory-distribution-detail-grid,
+  .inventory-distribution-detail-visual-grid,
+  .inventory-distribution-detail-qr-grid,
+  .inventory-distribution-detail-qr-info-grid,
+  .inventory-distribution-export-grid,
+  .inventory-distribution-export-chip-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .inventory-distribution-tabs {
+    flex-wrap: nowrap !important;
+    max-width: 100%;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .inventory-distribution-tabs button {
+    flex: 1 0 max-content;
+    min-height: 44px;
+  }
+
+  .inventory-distribution-event-meta {
+    flex-wrap: wrap;
+    gap: 10px 16px !important;
+  }
+
+  .inventory-distribution-search-wrap,
+  .inventory-distribution-toolbar-controls,
+  .inventory-distribution-status-filter,
+  .inventory-distribution-filter-button-wrap,
+  .inventory-distribution-export-button {
+    flex: 1 1 100% !important;
+    width: 100%;
+  }
+
+  .inventory-distribution-toolbar-controls {
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+
+  .inventory-distribution-status-filter {
+    justify-content: space-between;
+  }
+
+  .inventory-distribution-status-filter select,
+  .inventory-distribution-filter-button-wrap button,
+  .inventory-distribution-export-button {
+    min-width: 0;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .inventory-distribution-filter-panel {
+    width: calc(100vw - 32px) !important;
+  }
+
+  .inventory-distribution-records-card {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+
+  .inventory-distribution-table {
+    min-width: 820px !important;
+  }
+
+  .inventory-distribution-detail-modal-backdrop,
+  .inventory-distribution-export-modal-backdrop {
+    align-items: stretch !important;
+    padding: 12px !important;
+  }
+
+  .inventory-distribution-detail-modal,
+  .inventory-distribution-export-modal {
+    width: 100% !important;
+    max-height: calc(100vh - 24px) !important;
+    border-radius: 18px !important;
+    padding: 16px !important;
+  }
+
+  .inventory-distribution-detail-modal > div:first-child {
+    align-items: flex-start !important;
+    flex-wrap: nowrap !important;
+    gap: 12px !important;
+  }
+
+  .inventory-distribution-detail-modal h3,
+  .inventory-distribution-export-modal h3 {
+    line-height: 1.2 !important;
+  }
+
+  .inventory-distribution-detail-modal > div:first-child h3 {
+    font-size: 24px !important;
+  }
+
+  .inventory-distribution-detail-section {
+    padding: 16px !important;
+  }
+
+  .inventory-distribution-detail-qr-panel {
+    max-width: min(280px, 100%) !important;
+  }
+
+  .inventory-distribution-export-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: stretch !important;
+  }
+
+  .inventory-distribution-export-actions button {
+    width: 100%;
+    min-width: 0;
+    justify-content: center;
+    white-space: normal;
+  }
 }
 
 @media (max-width: 480px) {
@@ -598,6 +814,78 @@ body {
 
   .mayor-relief-pack-form-footer-actions,
   .mayor-relief-pack-composition-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inventory-distribution-summary-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 12px !important;
+  }
+
+  .inventory-distribution-summary-grid > div {
+    height: auto !important;
+    padding: 12px 14px !important;
+  }
+
+  .inventory-distribution-status-filter {
+    align-items: stretch !important;
+    flex-direction: column;
+    gap: 6px !important;
+    justify-content: flex-start !important;
+  }
+
+  .inventory-distribution-tabs {
+    gap: 6px !important;
+  }
+
+  .inventory-distribution-tabs button {
+    flex: 1 1 0;
+    justify-content: center;
+    min-width: 0;
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+    white-space: normal !important;
+  }
+
+  .inventory-distribution-records-card,
+  .inventory-distribution-detail-section {
+    padding: 14px !important;
+  }
+
+  .inventory-distribution-table {
+    min-width: 760px !important;
+  }
+
+  .inventory-distribution-header-cell {
+    padding: 10px 8px !important;
+  }
+
+  .inventory-distribution-table-cell {
+    line-height: 1.35 !important;
+    padding: 10px 8px !important;
+  }
+
+  .inventory-distribution-action-button {
+    min-width: 40px !important;
+    width: 40px !important;
+    height: 40px !important;
+  }
+
+  .inventory-distribution-detail-modal,
+  .inventory-distribution-export-modal {
+    padding: 14px !important;
+    border-radius: 16px !important;
+  }
+
+  .inventory-distribution-detail-modal > div:first-child h3 {
+    font-size: 22px !important;
+  }
+
+  .inventory-distribution-detail-table {
+    min-width: 620px !important;
+  }
+
+  .inventory-distribution-export-actions {
     grid-template-columns: minmax(0, 1fr);
   }
 }

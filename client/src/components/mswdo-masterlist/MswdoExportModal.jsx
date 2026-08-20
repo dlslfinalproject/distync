@@ -200,6 +200,11 @@ const MswdoExportModal = ({
     { value: "archived", label: "Archived" },
     { value: "all", label: "All" },
   ],
+  overlayClassName,
+  modalClassName,
+  gridClassName,
+  chipGridClassName,
+  actionsClassName,
   hideBarangaySelection = false,
   hideRecordStatusSelection = false,
   validationErrors = {},
@@ -230,8 +235,8 @@ const MswdoExportModal = ({
     );
 
   return (
-    <div style={overlayStyles}>
-      <div style={modalStyles}>
+    <div className={overlayClassName} style={overlayStyles}>
+      <div className={modalClassName} style={modalStyles}>
         <div
           style={{
             display: "flex",
@@ -275,6 +280,7 @@ const MswdoExportModal = ({
             <h3 style={sectionTitleStyles}>Export Details</h3>
 
             <div
+              className={gridClassName}
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -380,6 +386,7 @@ const MswdoExportModal = ({
             </div>
 
             <div
+              className={chipGridClassName}
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -448,6 +455,7 @@ const MswdoExportModal = ({
               </div>
 
               <div
+                className={chipGridClassName}
                 style={{
                   display: "grid",
                   gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -487,6 +495,7 @@ const MswdoExportModal = ({
           ) : null}
 
           <div
+            className={actionsClassName}
             style={{
               display: "flex",
               justifyContent: "flex-end",
