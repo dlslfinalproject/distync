@@ -121,25 +121,25 @@ const InventoryTransactionsTable = ({
   }
 
   return (
-    <div style={{ overflowX: "auto" }}>
-      <table style={tableStyles.table}>
+    <div className="inventory-tracking-table-scroll" style={{ overflowX: "auto" }}>
+      <table className="inventory-tracking-table" style={tableStyles.table}>
         <thead>
           <tr>
-            <th style={tableStyles.headerCell}>Item Name</th>
-            <th style={tableStyles.headerCell}>Batch Number</th>
-            <th style={tableStyles.headerCell}>ITR No.</th>
-            <th style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Quantity</th>
-            <th style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Movement</th>
-            <th style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Transaction Type</th>
-            <th style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Date</th>
-            <th style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Performed By</th>
-            <th style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Action</th>
+            <th className="inventory-tracking-table-header-cell" style={tableStyles.headerCell}>Item Name</th>
+            <th className="inventory-tracking-table-header-cell" style={tableStyles.headerCell}>Batch Number</th>
+            <th className="inventory-tracking-table-header-cell" style={tableStyles.headerCell}>ITR No.</th>
+            <th className="inventory-tracking-table-header-cell" style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Quantity</th>
+            <th className="inventory-tracking-table-header-cell" style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Movement</th>
+            <th className="inventory-tracking-table-header-cell" style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Transaction Type</th>
+            <th className="inventory-tracking-table-header-cell" style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Date</th>
+            <th className="inventory-tracking-table-header-cell" style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Performed By</th>
+            <th className="inventory-tracking-table-header-cell" style={{ ...tableStyles.headerCell, ...tableStyles.centerCell }}>Action</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
             <tr key={row.id}>
-              <td style={tableStyles.bodyCell}>
+              <td className="inventory-tracking-table-cell inventory-tracking-text-cell" style={tableStyles.bodyCell}>
                 <div
                   style={{
                     display: "flex",
@@ -152,14 +152,14 @@ const InventoryTransactionsTable = ({
                   <SyncStatusIcon status={row.sync_status} />
                 </div>
               </td>
-              <td style={tableStyles.bodyCell}>{row.batch_no || "--"}</td>
-              <td style={tableStyles.bodyCell}>
+              <td className="inventory-tracking-table-cell inventory-tracking-text-cell" style={tableStyles.bodyCell}>{row.batch_no || "--"}</td>
+              <td className="inventory-tracking-table-cell inventory-tracking-text-cell" style={tableStyles.bodyCell}>
                 {row.inventory_transaction_reference_no || "Not applicable"}
               </td>
-              <td style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
+              <td className="inventory-tracking-table-cell" style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
                 {row.quantity ?? 0}
               </td>
-              <td style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
+              <td className="inventory-tracking-table-cell" style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
                 <span
                   style={{
                     display: "inline-flex",
@@ -174,17 +174,18 @@ const InventoryTransactionsTable = ({
                   {row.transaction_direction || "--"}
                 </span>
               </td>
-              <td style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
+              <td className="inventory-tracking-table-cell inventory-tracking-text-cell" style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
                 {row.transaction_type_label || row.transaction_type || "--"}
               </td>
-              <td style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
+              <td className="inventory-tracking-table-cell" style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
                 <div>{formatDateTime(row.performed_at)}</div>
               </td>
-              <td style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
+              <td className="inventory-tracking-table-cell inventory-tracking-text-cell" style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
                 <div>{row.performed_by_label || "--"}</div>
               </td>
-              <td style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
+              <td className="inventory-tracking-table-cell inventory-tracking-actions-cell" style={{ ...tableStyles.bodyCell, ...tableStyles.centerCell }}>
                 <button
+                  className="inventory-tracking-action-button"
                   type="button"
                   onClick={() => onViewDetails?.(row)}
                   style={tableStyles.actionButton}
