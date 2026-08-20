@@ -3224,7 +3224,7 @@ const PortalFooter = ({ publicContactConfig }) => {
       <div className="portal-footer-bottom" style={styles.footerBottom}>
         <div className="portal-footer-bottom-inner" style={styles.footerBottomInner}>
           <p style={styles.footerBottomText}>
-            &copy; {currentYear} DISTYNC - {footerInfo.municipality}. Developed by Quadcore Girls.
+            &copy; {currentYear} DISTYNC - {footerInfo.municipality}. Developed by QuadCore Girls.
           </p>
         </div>
       </div>
