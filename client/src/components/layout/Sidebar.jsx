@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import { NavLink } from "react-router-dom";
 import { FiMenu, FiX } from "react-icons/fi";
 import { useAuth } from "../../context/AuthContext";
@@ -80,6 +80,8 @@ export const SidebarBrandStrip = ({
   isCollapsed,
   style,
   title,
+  navigationId,
+  buttonRef,
 }) => (
   <div
     className="distync-layout__brand-strip"
@@ -90,11 +92,13 @@ export const SidebarBrandStrip = ({
   >
     <button
       type="button"
+      ref={buttonRef}
       onClick={onToggleCollapse}
       style={layoutBrandStyles.menuButton}
       title={title || (isCollapsed ? "Expand sidebar" : "Collapse sidebar")}
       aria-label={title || (isCollapsed ? "Open navigation menu" : "Close navigation menu")}
       aria-expanded={!isCollapsed}
+      aria-controls={navigationId}
     >
       <FiMenu size={20} />
     </button>
@@ -110,30 +114,30 @@ export const SidebarBrandStrip = ({
 
 const getSidebarStyles = (isCollapsed) => ({
   wrapper: {
-    height: isCollapsed ? "0" : "100vh",
-    maxHeight: isCollapsed ? "0" : "100vh",
+    height: "calc(100dvh - var(--shell-header-height, 68px))",
+    maxHeight: "calc(100dvh - var(--shell-header-height, 68px))",
     padding: isCollapsed ? "0" : "14px 14px 18px",
     boxSizing: "border-box",
-    backgroundColor: "transparent",
-    borderRight: "none",
+    backgroundColor: isCollapsed ? "transparent" : "#f4f8fc",
+    borderRight: isCollapsed ? "0 solid transparent" : "1px solid #ccdceb",
     display: "flex",
     flexDirection: "column",
     flexShrink: 0,
+    alignSelf: "stretch",
     position: "sticky",
-    top: 0,
-    alignSelf: "flex-start",
+    top: "var(--shell-header-height, 68px)",
     overflow: "hidden",
     zIndex: 20,
     opacity: isCollapsed ? 0 : 1,
     pointerEvents: isCollapsed ? "none" : "auto",
-    transform: isCollapsed ? "translateX(-18px)" : "translateX(0)",
+    boxShadow: isCollapsed ? "none" : "8px 0 24px rgba(72, 95, 122, 0.08)",
     transition:
-      "height 260ms cubic-bezier(0.22, 1, 0.36, 1), max-height 260ms cubic-bezier(0.22, 1, 0.36, 1), padding 260ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease, transform 260ms cubic-bezier(0.22, 1, 0.36, 1)",
+      "padding 220ms cubic-bezier(0.22, 1, 0.36, 1), opacity 160ms ease, box-shadow 220ms ease",
   },
   body: {
     display: "flex",
     flexDirection: "column",
-    gap: "14px",
+    gap: "12px",
     flex: "1 1 auto",
     minHeight: 0,
     maxHeight: "100%",
@@ -145,17 +149,19 @@ const getSidebarStyles = (isCollapsed) => ({
     gap: "8px",
     flex: "1 1 auto",
     minHeight: 0,
-    overflow: "visible",
-    paddingRight: 0,
+    overflowY: "auto",
+    overflowX: "hidden",
+    overscrollBehavior: "contain",
+    padding: "2px 2px 8px",
   },
   navTitle: {
     display: "block",
     fontSize: "13px",
     fontWeight: 700,
-    whiteSpace: "nowrap",
-    overflow: "visible",
-    textOverflow: "clip",
-    maxWidth: "none",
+    lineHeight: 1.35,
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
+    minWidth: 0,
   },
   accountArea: {
     marginTop: "auto",
@@ -201,8 +207,65 @@ const roleMeta = {
   },
 };
 
-const Sidebar = ({ isCollapsed, onToggleCollapse, onNavigate, onClose }) => {
+const Sidebar = ({
+  isCollapsed,
+  isMobileNavigation,
+  navigationId,
+  onNavigate,
+  onClose,
+}) => {
   const { currentRole } = useAuth();
+  const sidebarRef = useRef(null);
+  const navRef = useRef(null);
+
+  const containDesktopSidebarWheel = useCallback((event) => {
+    if (isMobileNavigation || isCollapsed || event.deltaY === 0) {
+      return;
+    }
+
+    const scrollRegion = navRef.current;
+    if (!scrollRegion) {
+      return;
+    }
+
+    const canScroll = scrollRegion.scrollHeight > scrollRegion.clientHeight + 1;
+
+    if (!canScroll) {
+      event.preventDefault();
+      return;
+    }
+
+    const isScrollingDown = event.deltaY > 0;
+    const isAtTop = scrollRegion.scrollTop <= 0;
+    const isAtBottom =
+      scrollRegion.scrollTop + scrollRegion.clientHeight >=
+      scrollRegion.scrollHeight - 1;
+
+    if ((isScrollingDown && isAtBottom) || (!isScrollingDown && isAtTop)) {
+      event.preventDefault();
+      return;
+    }
+
+    if (!scrollRegion.contains(event.target)) {
+      scrollRegion.scrollTop += event.deltaY;
+      event.preventDefault();
+    }
+  }, [isCollapsed, isMobileNavigation]);
+
+  useEffect(() => {
+    const sidebarElement = sidebarRef.current;
+    if (!sidebarElement) {
+      return undefined;
+    }
+
+    sidebarElement.addEventListener("wheel", containDesktopSidebarWheel, {
+      passive: false,
+    });
+
+    return () => {
+      sidebarElement.removeEventListener("wheel", containDesktopSidebarWheel);
+    };
+  }, [containDesktopSidebarWheel]);
 
   if (currentRole === ROLE_CODES.DONOR) return null;
 
@@ -213,9 +276,12 @@ const Sidebar = ({ isCollapsed, onToggleCollapse, onNavigate, onClose }) => {
 
   return (
     <aside
+      id={navigationId}
+      ref={sidebarRef}
       className="distync-sidebar"
       data-collapsed={isCollapsed ? "true" : "false"}
       style={sidebarStyles.wrapper}
+      aria-label="Primary navigation"
     >
       <div className="distync-sidebar__body" style={sidebarStyles.body}>
         <div className="distync-sidebar__mobile-header">
@@ -238,13 +304,13 @@ const Sidebar = ({ isCollapsed, onToggleCollapse, onNavigate, onClose }) => {
           </button>
         </div>
 
-        <nav className="distync-sidebar__nav" style={sidebarStyles.nav}>
+        <nav className="distync-sidebar__nav" style={sidebarStyles.nav} ref={navRef}>
           {activeRoleMeta.navItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               onClick={onNavigate}
-              style={{ textDecoration: "none" }}
+              style={{ textDecoration: "none", display: "block" }}
             >
               {({ isActive }) => (
                 <div
@@ -252,14 +318,14 @@ const Sidebar = ({ isCollapsed, onToggleCollapse, onNavigate, onClose }) => {
                   style={{
                     backgroundColor: isActive
                       ? "#e1eef9"
-                      : "rgba(255, 255, 255, 0.82)",
+                      : "transparent",
                     color: isActive ? "#1f4f7d" : "#26435f",
-                    border: `1px solid ${isActive ? "#b8d0e7" : "#dce7f3"}`,
-                    borderRadius: "14px",
-                    padding: "12px",
+                    border: `1px solid ${isActive ? "#b8d0e7" : "transparent"}`,
+                    borderRadius: "10px",
+                    padding: "10px 12px",
                     boxShadow: isActive
-                      ? "0 10px 24px rgba(66, 108, 154, 0.12)"
-                      : "0 4px 12px rgba(72, 95, 122, 0.04)",
+                      ? "0 8px 18px rgba(66, 108, 154, 0.10)"
+                      : "none",
                     transition:
                       "background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease",
                     marginBottom: 0,

@@ -9,9 +9,11 @@ import { SettingsUnsavedChangesProvider } from "../../pages/settings/SettingsUns
 
 const SIDEBAR_EXPANDED_WIDTH = "280px";
 const SIDEBAR_COLLAPSED_WIDTH = "0px";
-const HEADER_BRAND_WIDTH = "280px";
-const MOBILE_NAV_QUERY = "(max-width: 768px)";
+const HEADER_BRAND_COLLAPSED_WIDTH = "122px";
+const SHELL_HEADER_HEIGHT = "68px";
+const MOBILE_NAV_QUERY = "(max-width: 1024px)";
 const COMPACT_NAV_QUERY = "(max-width: 1024px)";
+const SIDEBAR_NAVIGATION_ID = "distync-sidebar-navigation";
 
 const getInitialMediaQueryMatch = (query) => {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -36,7 +38,6 @@ export const shellStyles = {
     boxSizing: "border-box",
     width: "100%",
     minWidth: 0,
-    overflowX: "hidden",
     display: "flex",
     flexDirection: "column",
   },
@@ -128,11 +129,20 @@ const BarangayLayout = () => {
   const { currentRole } = useAuth();
   const isDonorPortal = currentRole === ROLE_CODES.DONOR;
   const isSettingsRoute = location.pathname.endsWith("/settings");
+  const isSidebarOpen = !isSidebarCollapsed;
+  const sidebarToggleRef = useRef(null);
   const sidebarWidth = isDonorPortal
     ? "0px"
     : isSidebarCollapsed
       ? SIDEBAR_COLLAPSED_WIDTH
       : SIDEBAR_EXPANDED_WIDTH;
+  const headerBrandWidth = isDonorPortal
+    ? "0px"
+    : isMobileNavigation
+      ? "1fr"
+      : isSidebarCollapsed
+        ? HEADER_BRAND_COLLAPSED_WIDTH
+        : SIDEBAR_EXPANDED_WIDTH;
 
   useEffect(() => {
     if (isDonorPortal || isSettingsRoute) {
@@ -185,26 +195,44 @@ const BarangayLayout = () => {
     setIsSidebarCollapsed(true);
   }, [isCompactNavigation, isDonorPortal, location.pathname]);
 
+  useEffect(() => {
+    if (!isMobileNavigation || isDonorPortal) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setIsSidebarCollapsed(true);
+        sidebarToggleRef.current?.focus();
+      }
+    };
+
+    if (isSidebarOpen) {
+      const previousOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      window.addEventListener("keydown", handleKeyDown);
+
+      return () => {
+        document.body.style.overflow = previousOverflow;
+        window.removeEventListener("keydown", handleKeyDown);
+      };
+    }
+
+    return undefined;
+  }, [isDonorPortal, isMobileNavigation, isSidebarOpen]);
+
   const pageStyle = useMemo(
     () => ({
       ...shellStyles.page,
       "--sidebar-width": sidebarWidth,
-      "--header-brand-width": HEADER_BRAND_WIDTH,
+      "--header-brand-width": headerBrandWidth,
+      "--shell-header-height": SHELL_HEADER_HEIGHT,
       gridTemplateColumns: isDonorPortal
         ? "minmax(0, 1fr)"
         : `var(--sidebar-width) minmax(0, 1fr)`,
-      gridTemplateRows: isDonorPortal ? "1fr" : "auto 1fr",
+      gridTemplateRows: isDonorPortal ? "1fr" : "auto minmax(0, 1fr)",
     }),
-    [isDonorPortal, sidebarWidth],
-  );
-
-  const contentStyle = useMemo(
-    () => ({
-      ...shellStyles.content,
-      maxWidth: isSidebarCollapsed ? "100%" : shellStyles.content.maxWidth,
-      margin: isSidebarCollapsed ? "0" : shellStyles.content.margin,
-    }),
-    [isSidebarCollapsed],
+    [headerBrandWidth, isDonorPortal, sidebarWidth],
   );
 
   return (
@@ -213,6 +241,9 @@ const BarangayLayout = () => {
         {!isDonorPortal ? (
           <ShellHeader
             isSidebarCollapsed={isSidebarCollapsed}
+            isMobileNavigation={isMobileNavigation}
+            navigationId={SIDEBAR_NAVIGATION_ID}
+            toggleRef={sidebarToggleRef}
             onToggleSidebarCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
           />
         ) : null}
@@ -221,11 +252,19 @@ const BarangayLayout = () => {
           <>
             <Sidebar
               isCollapsed={isSidebarCollapsed}
+              isMobileNavigation={isMobileNavigation}
+              navigationId={SIDEBAR_NAVIGATION_ID}
               onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
-              onClose={() => setIsSidebarCollapsed(true)}
+              onClose={() => {
+                setIsSidebarCollapsed(true);
+                if (isMobileNavigation) {
+                  sidebarToggleRef.current?.focus();
+                }
+              }}
               onNavigate={() => {
                 if (isMobileNavigation) {
                   setIsSidebarCollapsed(true);
+                  sidebarToggleRef.current?.focus();
                 }
               }}
             />
@@ -234,14 +273,17 @@ const BarangayLayout = () => {
                 type="button"
                 className="distync-sidebar__scrim"
                 aria-label="Close navigation menu"
-                onClick={() => setIsSidebarCollapsed(true)}
+                onClick={() => {
+                  setIsSidebarCollapsed(true);
+                  sidebarToggleRef.current?.focus();
+                }}
               />
             ) : null}
           </>
         ) : null}
 
         <main className="distync-shell__main" style={shellStyles.main}>
-          <div className="distync-shell__content" style={contentStyle}>
+          <div className="distync-shell__content" style={shellStyles.content}>
             <SyncStatusBanner />
             <Outlet />
           </div>

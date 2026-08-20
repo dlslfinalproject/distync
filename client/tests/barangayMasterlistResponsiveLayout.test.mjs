@@ -43,27 +43,42 @@ test("Shared shell releases page width through a mobile navigation drawer", asyn
       readSource(["index.css"]),
     ]);
 
-  assert.match(layoutSource, /MOBILE_NAV_QUERY = "\[?\(max-width: 768px\)/);
+  assert.match(layoutSource, /MOBILE_NAV_QUERY = "\[?\(max-width: 1024px\)/);
   assert.match(layoutSource, /window\.matchMedia\(MOBILE_NAV_QUERY\)/);
   assert.match(layoutSource, /className="distync-sidebar__scrim"/);
-  assert.match(layoutSource, /onClose=\{\(\) => setIsSidebarCollapsed\(true\)\}/);
+  assert.match(layoutSource, /onClose=\{\(\) => \{[\s\S]*?setIsSidebarCollapsed\(true\);[\s\S]*?sidebarToggleRef\.current\?\.focus\(\);/);
   assert.match(layoutSource, /onNavigate=\{\(\) => \{[\s\S]*?setIsSidebarCollapsed\(true\)/);
   assert.match(sidebarSource, /aria-label=\{title \|\| \(isCollapsed \? "Open navigation menu" : "Close navigation menu"\)\}/);
   assert.match(sidebarSource, /onClick=\{onNavigate\}/);
   assert.match(headerSource, /className="distync-shell__brand-area"/);
   assert.match(headerSource, /className="distync-shell__actions-area"/);
+  assert.match(headerSource, /data-sidebar-collapsed=\{isSidebarCollapsed \? "true" : "false"\}/);
+  assert.match(headerSource, /gridTemplateColumns: "var\(--header-brand-width, 280px\) minmax\(0, 1fr\)"/);
+  assert.match(headerSource, /backgroundColor: "#f4f8fc"/);
+  assert.match(headerSource, /borderRight: "1px solid #ccdceb"/);
   assert.match(
     cssSource,
-    /@media \(max-width: 768px\)[\s\S]*?\.distync-sidebar \{[\s\S]*?position: fixed !important;/,
+    /@media \(max-width: 1024px\)[\s\S]*?\.distync-sidebar \{[\s\S]*?position: fixed !important;/,
   );
   assert.match(
     cssSource,
-    /@media \(max-width: 768px\)[\s\S]*?\.distync-sidebar\[data-collapsed="false"\] \{[\s\S]*?transform: translateX\(0\) !important;/,
+    /@media \(max-width: 1024px\)[\s\S]*?\.distync-sidebar\[data-collapsed="false"\] \{[\s\S]*?transform: translateX\(0\) !important;/,
   );
   assert.match(
     cssSource,
-    /@media \(max-width: 768px\)[\s\S]*?\.distync-sidebar__scrim \{[\s\S]*?position: fixed;/,
+    /@media \(max-width: 1024px\)[\s\S]*?\.distync-sidebar__scrim \{[\s\S]*?position: fixed;/,
   );
+  assert.doesNotMatch(cssSource, /\.distync-shell \{[\s\S]*?height: 100dvh;/);
+  assert.match(cssSource, /\.distync-shell__main \{[^}]*overflow: visible;/);
+  assert.match(cssSource, /\.distync-shell__main \{[^}]*overflow-y: visible;/);
+  assert.doesNotMatch(cssSource, /\.distync-shell__main \{[^}]*overflow-x: hidden;/);
+  assert.doesNotMatch(cssSource, /\.distync-shell__main \{[^}]*overflow-y: auto;/);
+  assert.match(cssSource, /\.distync-sidebar__body \{[\s\S]*?overscroll-behavior: contain;/);
+  assert.match(sidebarSource, /const containDesktopSidebarWheel = useCallback\(\(event\) => \{/);
+  assert.match(sidebarSource, /event\.preventDefault\(\);/);
+  assert.match(sidebarSource, /scrollRegion\.scrollTop \+= event\.deltaY;/);
+  assert.match(sidebarSource, /addEventListener\("wheel", containDesktopSidebarWheel, \{\s*passive: false,/);
+  assert.match(sidebarSource, /top: "var\(--shell-header-height, 68px\)"/);
 });
 
 test("Mobile drawer adds compact DISTYNC branding with an explicit close button", async () => {
@@ -83,22 +98,22 @@ test("Mobile drawer adds compact DISTYNC branding with an explicit close button"
   assert.match(sidebarSource, /className="distync-sidebar__mobile-close"/);
   assert.match(sidebarSource, /aria-label="Close navigation menu"/);
   assert.match(sidebarSource, /onClick=\{onClose\}/);
-  assert.match(layoutSource, /onClose=\{\(\) => setIsSidebarCollapsed\(true\)\}/);
+  assert.match(layoutSource, /onClose=\{\(\) => \{[\s\S]*?setIsSidebarCollapsed\(true\);[\s\S]*?sidebarToggleRef\.current\?\.focus\(\);/);
   assert.match(
     cssSource,
     /\.distync-sidebar__mobile-header \{[\s\S]*?display: none;/,
   );
   assert.match(
     cssSource,
-    /@media \(max-width: 768px\)[\s\S]*?\.distync-sidebar__mobile-header \{[\s\S]*?display: flex;/,
+    /@media \(max-width: 1024px\)[\s\S]*?\.distync-sidebar__mobile-header \{[\s\S]*?display: flex;/,
   );
   assert.match(
     cssSource,
-    /@media \(max-width: 768px\)[\s\S]*?\.distync-sidebar__mobile-logo \{[\s\S]*?width: 36px;[\s\S]*?height: 36px;/,
+    /@media \(max-width: 1024px\)[\s\S]*?\.distync-sidebar__mobile-logo \{[\s\S]*?width: 36px;[\s\S]*?height: 36px;/,
   );
   assert.match(
     cssSource,
-    /@media \(max-width: 768px\)[\s\S]*?\.distync-sidebar__mobile-close:hover,[\s\S]*?\.distync-sidebar__mobile-close:focus-visible \{/,
+    /@media \(max-width: 1024px\)[\s\S]*?\.distync-sidebar__mobile-close:hover,[\s\S]*?\.distync-sidebar__mobile-close:focus-visible \{/,
   );
 });
 
