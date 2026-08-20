@@ -158,6 +158,35 @@ const getInventoryItemByName = async (itemName) => {
   return result.rows[0] || null;
 };
 
+const getInventoryItemByBarcode = async (barcode, dbClient = pool) => {
+  const hasReorderLevelColumn = await hasInventoryItemReorderLevelColumn();
+  const query = `
+    SELECT
+      id,
+      item_code,
+      item_name,
+      category,
+      unit_of_measure,
+      unit_of_measure_value,
+      packaging,
+      packaging_count,
+      quantity,
+      ${hasReorderLevelColumn ? "reorder_level," : "NULL::integer AS reorder_level,"}
+      expiration_date,
+      barcode,
+      is_perishable,
+      is_active,
+      created_at,
+      updated_at
+    FROM inventory_items
+    WHERE barcode = $1
+    LIMIT 1
+  `;
+
+  const result = await dbClient.query(query, [barcode]);
+  return result.rows[0] || null;
+};
+
 const insertInventoryItem = async (itemData, dbClient = pool) => {
   const hasReorderLevelColumn = await hasInventoryItemReorderLevelColumn();
   const query = `
@@ -324,6 +353,7 @@ module.exports = {
   getInventoryItems,
   getInventoryItemById,
   getInventoryItemByIdForUpdate,
+  getInventoryItemByBarcode,
   getInventoryItemByCode,
   getInventoryItemByName,
   insertInventoryItem,

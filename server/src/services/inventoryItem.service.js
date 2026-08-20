@@ -384,7 +384,74 @@ const getInventoryItems = async (filters) => {
   );
 };
 
+const buildLocalBarcodeLookupResult = (barcode, item, stockForm = null) => ({
+  found: true,
+  barcode,
+  source: "LOCAL_INVENTORY",
+  item: {
+    id: item.id,
+    item_code: item.item_code,
+    item_name: item.item_name,
+    category: item.category,
+    unit_of_measure: item.unit_of_measure,
+    unit_of_measure_value: item.unit_of_measure_value,
+    packaging: stockForm?.packaging || item.packaging,
+    packaging_count: item.packaging_count,
+    quantity: item.quantity,
+    reorder_level: item.reorder_level ?? null,
+    expiration_date: item.expiration_date,
+    barcode: stockForm?.barcode || item.barcode || barcode,
+    is_perishable: item.is_perishable,
+    is_active: item.is_active,
+    stock_form: stockForm
+      ? {
+          id: stockForm.id,
+          barcode: stockForm.barcode,
+          packaging: stockForm.packaging,
+          units_per_packaging: stockForm.units_per_packaging,
+          unit_of_measure: stockForm.unit_of_measure,
+          unit_of_measure_value: stockForm.unit_of_measure_value,
+          is_active: stockForm.is_active,
+        }
+      : null,
+  },
+});
+
+const getLocalInventoryItemByBarcode = async (barcode) => {
+  const itemByBarcode =
+    await inventoryItemRepository.getInventoryItemByBarcode(barcode);
+
+  if (itemByBarcode) {
+    return buildLocalBarcodeLookupResult(barcode, itemByBarcode);
+  }
+
+  const stockForm =
+    await inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode(
+      barcode,
+    );
+
+  if (!stockForm) {
+    return null;
+  }
+
+  const item = await inventoryItemRepository.getInventoryItemById(
+    stockForm.inventory_item_id,
+  );
+
+  if (!item) {
+    return null;
+  }
+
+  return buildLocalBarcodeLookupResult(barcode, item, stockForm);
+};
+
 const lookupInventoryItemByBarcode = async (barcode) => {
+  const localInventoryItem = await getLocalInventoryItemByBarcode(barcode);
+
+  if (localInventoryItem) {
+    return localInventoryItem;
+  }
+
   const response = await fetch(
     `${OPEN_FOOD_FACTS_API_BASE_URL}/api/v3/product/${encodeURIComponent(barcode)}.json`,
     {
@@ -397,9 +464,13 @@ const lookupInventoryItemByBarcode = async (barcode) => {
   );
 
   if (!response.ok) {
-    const error = new Error("Failed to fetch barcode details from online catalog");
-    error.statusCode = 502;
-    throw error;
+    return {
+      found: false,
+      barcode,
+      source: "OPEN_FOOD_FACTS",
+      item: null,
+      message: "Barcode was not found locally and online catalog lookup failed.",
+    };
   }
 
   const payload = await response.json().catch(() => null);
