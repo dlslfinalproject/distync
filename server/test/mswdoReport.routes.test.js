@@ -87,6 +87,7 @@ const withStubbedMswdoReportRoute = async (
             status_category: req.query.status_category || null,
             search: req.query.search || null,
             order: req.query.order || "newest",
+            role_scope: req.query.role_scope || null,
           };
           next();
         },
@@ -150,6 +151,7 @@ test("H01-10 Barangay route ignores query barangay_id override and uses authenti
         assert.equal(response.status, 200);
         assert.deepEqual(payload.data, []);
         assert.equal(capturedFilters.barangay_id, "barangay-a");
+        assert.equal(capturedFilters.role_scope, "BARANGAY");
         assert.equal(capturedFilters.limit, 12);
       } finally {
         await closeServer(server);
@@ -229,6 +231,7 @@ test("H01-10 Barangay route falls back to the server-stored assigned barangay", 
 
         assert.equal(response.status, 200);
         assert.equal(capturedFilters.barangay_id, "barangay-from-user-record");
+        assert.equal(capturedFilters.role_scope, "BARANGAY");
       } finally {
         await closeServer(server);
       }
@@ -259,6 +262,7 @@ test("H01-11 MSWDO route preserves explicit consolidated barangay filtering", as
 
         assert.equal(response.status, 200);
         assert.equal(capturedFilters.barangay_id, "barangay-b");
+        assert.equal(capturedFilters.role_scope, "MSWDO");
       } finally {
         await closeServer(server);
       }

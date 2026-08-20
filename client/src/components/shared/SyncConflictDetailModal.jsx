@@ -1,6 +1,10 @@
 import React from "react";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import SyncStatusBadge from "./SyncStatusBadge";
+import {
+  formatSyncTechnicalLabel,
+  getResolutionStrategyLabel,
+} from "../../features/sync/syncManagementHelpers";
 
 const modalStyles = {
   overlay: {
@@ -107,8 +111,8 @@ const formatSummary = (value) => {
 
 const ACTION_LABELS = {
   MARK_REVIEWED: "Mark Reviewed",
-  KEEP_SERVER: "Keep Server",
-  APPLY_LOCAL: "Apply Local",
+  KEEP_SERVER: "Keep Server Record",
+  APPLY_LOCAL: "Apply Local Record",
 };
 
 const SyncConflictDetailModal = ({
@@ -137,17 +141,17 @@ const SyncConflictDetailModal = ({
       <div style={modalStyles.modal}>
         <h3 style={modalStyles.title}>Sync Conflict Detail</h3>
         <p style={modalStyles.message}>
-          Review the recorded local and server values before taking an
-          authorized resolution action.
+          Review what happened during synchronization and confirm which record
+          DISTYNC kept or still needs an authorized reviewer to check.
         </p>
 
         <div style={modalStyles.grid}>
           <div style={modalStyles.card}>
-            <div style={modalStyles.label}>Module / Table</div>
+            <div style={modalStyles.label}>Affected Sync Record</div>
             <div style={modalStyles.value}>
-              {conflict.entity_type || "--"}
+              {formatSyncTechnicalLabel(conflict.entity_type)}
               {"\n"}
-              Operation: {conflict.operation_type || "--"}
+              Operation: {formatSyncTechnicalLabel(conflict.operation_type)}
             </div>
           </div>
 
@@ -168,9 +172,9 @@ const SyncConflictDetailModal = ({
             <div style={modalStyles.label}>Winning Side</div>
             <div style={modalStyles.value}>
               {conflict.resolved_payload_json?.winner === "LOCAL"
-                ? "Local version"
+                ? "Local device record"
                 : conflict.resolved_payload_json?.winner === "SERVER"
-                  ? "Server version"
+                  ? "Central server record"
                   : "--"}
             </div>
           </div>
@@ -192,7 +196,7 @@ const SyncConflictDetailModal = ({
           <div style={modalStyles.card}>
             <div style={modalStyles.label}>Resolution Strategy</div>
             <div style={modalStyles.value}>
-              {conflict.resolution_strategy || "--"}
+              {getResolutionStrategyLabel(conflict.resolution_strategy)}
             </div>
           </div>
 

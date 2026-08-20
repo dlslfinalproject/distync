@@ -54,6 +54,9 @@ const ACTION_LABELS = {
   INVENTORY_TRANSACTION_CREATE: "Inventory Movement",
 };
 
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export const formatSyncDateTime = (value) => {
   if (!value) {
     return "--";
@@ -129,6 +132,9 @@ const toTitleCase = (value) =>
     .toLowerCase()
     .replace(/_/g, " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+export const formatSyncTechnicalLabel = (value) =>
+  toTitleCase(value || "Sync Record");
 
 const getPayloadContainer = (record = {}) => {
   const payload = record.payload_json || record.payload || record.local_payload_json || record;
@@ -257,11 +263,21 @@ export const getSyncRecordDetails = (record = {}) => {
     payload.item_name,
     payload.title,
     payload.name,
-    record.entity_server_id,
-    record.entityServerId,
-    record.entity_local_id,
-    record.entityLocalId,
+    uuidPattern.test(String(record.entity_server_id || record.entityServerId || ""))
+      ? ""
+      : record.entity_server_id || record.entityServerId,
+    uuidPattern.test(String(record.entity_local_id || record.entityLocalId || ""))
+      ? ""
+      : record.entity_local_id || record.entityLocalId,
   );
+  const fallbackSubject =
+    record.status === LOCAL_SYNC_STATUS.PENDING
+      ? "Queued offline action"
+      : record.sync_status === LOCAL_SYNC_STATUS.FAILED || record.status === LOCAL_SYNC_STATUS.FAILED
+        ? "Failed sync action"
+        : record.sync_status === LOCAL_SYNC_STATUS.CONFLICT || record.status === LOCAL_SYNC_STATUS.CONFLICT
+          ? "Conflicting sync action"
+          : "Sync record";
 
   return {
     actionLabel: ACTION_LABELS[actionKey] || toTitleCase(actionKey || "Sync Action"),
@@ -276,15 +292,14 @@ export const getSyncRecordDetails = (record = {}) => {
         record.error_message ||
         payload.remarks ||
         payload.status ||
-        record.entity_server_id ||
-        record.entityServerId ||
-        record.entity_local_id ||
-        record.entityLocalId,
+        (record.entity_server_id || record.entityServerId || record.entity_local_id || record.entityLocalId
+          ? "Technical reference available in the sync record."
+          : ""),
     ),
     recordType,
     status: record.status || record.sync_status || record.resolution_status || "--",
     stubNumber: asDisplayValue(stubNumber),
-    subject: asDisplayValue(subject),
+    subject: asDisplayValue(subject || fallbackSubject),
   };
 };
 
@@ -394,7 +409,7 @@ export const buildConflictPayloadSummary = (payload) => {
 
 export const getConflictReasonLabel = (conflict) => {
   if (conflict?.conflict_type === "UPDATED_AT_MISMATCH") {
-    return "Latest timestamp conflict between offline and saved records.";
+    return "The offline record and the central server record were both changed before synchronization completed.";
   }
 
   if (conflict?.conflict_type === "DUPLICATE_CLAIM") {
@@ -402,6 +417,22 @@ export const getConflictReasonLabel = (conflict) => {
   }
 
   return toTitleCase(conflict?.conflict_type || "--");
+};
+
+export const getResolutionStrategyLabel = (strategy) => {
+  if (strategy === "FIRST_ACCEPTED") {
+    return "First valid server acceptance kept";
+  }
+
+  if (strategy === "LATEST_TIMESTAMP") {
+    return "Timestamp comparison applied";
+  }
+
+  if (strategy === "MANUAL_REVIEW") {
+    return "Manual review required";
+  }
+
+  return toTitleCase(strategy || "--");
 };
 
 export const getResolutionStatusLabel = (conflict) => {

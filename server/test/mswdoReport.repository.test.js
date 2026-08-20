@@ -126,6 +126,31 @@ test("H01-02 and H01-03 sync anomalies resolve barangay through typed server ent
   }
 });
 
+test("BRG-ANOM-SYNC-01 Barangay anomaly tracking excludes plain sync failures", async () => {
+  const { capturedQueries } = await captureAnomalyRepositoryCall({
+    barangayId: "barangay-a",
+    roleScope: "BARANGAY",
+    page: 1,
+    pageSize: 10,
+  });
+
+  const itemQuery = capturedQueries[1];
+
+  assert.match(itemQuery, /sync_failed AS/);
+  assert.match(itemQuery, /SELECT \* FROM sync_conflict/);
+  assert.doesNotMatch(itemQuery, /UNION ALL SELECT \* FROM sync_failed/);
+});
+
+test("MSWDO anomaly tracking keeps plain sync failures for consolidated review", async () => {
+  const { capturedQueries } = await captureAnomalyRepositoryCall({
+    roleScope: "MSWDO",
+    page: 1,
+    pageSize: 10,
+  });
+
+  assert.match(capturedQueries[1], /UNION ALL SELECT \* FROM sync_failed/);
+});
+
 test("H01-04 and H01-05 error-log anomalies use a narrow Barangay-only actor fallback", async () => {
   let capturedQuery = "";
   const harness = loadRepositoryWithMockPool(async (query) => {
@@ -454,6 +479,7 @@ test("M05 server pagination counts filtered anomalies before applying limit and 
     assert.match(capturedQueries[0], /FROM filtered_anomalies/);
     assert.doesNotMatch(capturedQueries[0], /LIMIT/);
     assert.match(capturedQueries[1], /ORDER BY[\s\S]*occurred_at DESC NULLS LAST[\s\S]*anomaly_type ASC[\s\S]*reference_id ASC NULLS LAST[\s\S]*source_type ASC[\s\S]*source_id ASC/);
+    assert.match(capturedQueries[1], /source_type,\s+source_id,/);
     assert.match(capturedQueries[1], /LIMIT \$6\s+OFFSET \$7/);
     assert.match(capturedQueries[1], /anomaly_rows AS/);
     assert.match(capturedQueries[1], /filtered_anomalies AS/);

@@ -9,6 +9,7 @@ const getAnomalyTracking = async (filters) => {
     anomalyType: filters.anomalyType || filters.anomaly_type || null,
     search: filters.search || null,
     order: filters.order || "newest",
+    roleScope: filters.roleScope || filters.role_scope || null,
     dateFrom: filters.dateFrom || filters.date_from || null,
     dateTo: filters.dateTo || filters.date_to || null,
     limit: filters.limit || 100,

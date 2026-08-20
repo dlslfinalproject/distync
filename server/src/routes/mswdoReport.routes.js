@@ -37,8 +37,12 @@ router.get(
           ? {
               ...req.validatedQuery,
               barangay_id: assignedBarangayId,
+              role_scope: ROLE_CODES.BARANGAY,
             }
-          : req.validatedQuery;
+          : {
+              ...req.validatedQuery,
+              role_scope: req.auth.roleCode,
+            };
 
       const report = await mswdoReportService.getAnomalyTracking(
         protectedQuery,

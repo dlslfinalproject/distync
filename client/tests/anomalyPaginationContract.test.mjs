@@ -10,6 +10,10 @@ const serviceSourcePath = new URL(
   "../src/features/mswdo-reports/mswdoReportService.js",
   import.meta.url,
 );
+const presentationSourcePath = new URL(
+  "../src/features/mswdo-reports/anomalyPresentation.js",
+  import.meta.url,
+);
 
 test("M05 anomaly page requests bounded server pages instead of the old 500-row fetch", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
@@ -26,21 +30,24 @@ test("M05 anomaly page requests bounded server pages instead of the old 500-row 
 
 test("MSWDO-ANOM-I01 anomaly page exposes duplicate household registration label and filter id", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
+  const presentationSource = await fs.readFile(presentationSourcePath, "utf8");
 
   assert.match(
-    source,
-    /value:\s*"DUPLICATE_HOUSEHOLD_REGISTRATION",\s*label:\s*"Duplicate Household Registration"/,
+    presentationSource,
+    /DUPLICATE_HOUSEHOLD_REGISTRATION:[\s\S]*label:\s*"Duplicate Household Registration"/,
   );
+  assert.match(source, /availableAnomalyTypes/);
   assert.match(source, /formatAnomalyType\(row\.anomaly_type\)/);
   assert.doesNotMatch(source, />\{row\.anomaly_type\}</);
 });
 
 test("MSWDO-ANOM-I13 anomaly page exposes inventory-distribution mismatch label and filter id", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
+  const presentationSource = await fs.readFile(presentationSourcePath, "utf8");
 
   assert.match(
-    source,
-    /value:\s*"INVENTORY_DISTRIBUTION_MISMATCH",\s*label:\s*"Inventory-Distribution Mismatch"/,
+    presentationSource,
+    /INVENTORY_DISTRIBUTION_MISMATCH:[\s\S]*label:\s*"Inventory-Distribution Mismatch"/,
   );
   assert.match(source, /formatAnomalyType\(row\.anomaly_type\)/);
 });
@@ -68,7 +75,8 @@ test("M05F-09 anomaly page shows empty state without Page 0 of 0", async () => {
 
   assert.match(source, /const shouldShowPaginationControls = totalItems > 0/);
   assert.match(source, /totalItems === 0[\s\S]*\? "No anomalies found"/);
-  assert.match(source, /<EmptyState message="No matching records found\. Try adjusting your search or filters\." \/>/);
+  assert.match(source, /hasActiveFilters[\s\S]*"No anomalies found for the current filters\."/);
+  assert.match(source, /"No unusual or inconsistent records currently require review\."/);
   assert.doesNotMatch(source, /Page \{totalPages === 0 \? 0 : pagination\.page\} of \{totalPages\}/);
   assert.match(
     source,
@@ -99,4 +107,16 @@ test("M05 anomaly service uses URLSearchParams for explicit query values", async
 
   assert.match(source, /new URLSearchParams\(\)/);
   assert.match(source, /Object\.entries\(filters\)/);
+});
+
+test("Barangay anomaly filters hide plain sync failures and keep source identity technical", async () => {
+  const source = await fs.readFile(pageSourcePath, "utf8");
+  const presentationSource = await fs.readFile(presentationSourcePath, "utf8");
+
+  assert.match(presentationSource, /getAnomalyTypesForScope/);
+  assert.match(presentationSource, /type\.value !== "SYNC_FAILED"/);
+  assert.match(source, /getAnomalyTypesForScope\(scope\)/);
+  assert.match(source, /row\.source_type/);
+  assert.match(source, /row\.source_id/);
+  assert.match(source, /Source ID:/);
 });

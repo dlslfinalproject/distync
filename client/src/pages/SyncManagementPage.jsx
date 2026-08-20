@@ -18,6 +18,7 @@ import {
   auditSyncRetryRequest,
   fetchSyncConflictDetail,
   fetchSyncHistory,
+  fetchSyncStatusSummary,
   resolveSyncConflict,
 } from "../features/sync/syncHistoryService";
 import {
@@ -27,6 +28,7 @@ import {
   formatSyncDateTime,
   getConflictReasonLabel,
   getResolutionStatusLabel,
+  getResolutionStrategyLabel,
   getSyncRecordDetails,
   getWinningSide,
   isSafeRetryableQueueEntry,
@@ -42,12 +44,25 @@ const RECORD_TYPE_OPTIONS = [
   { value: "INVENTORY", label: "Inventory" },
 ];
 
-const STATUS_OPTIONS = [
+const QUEUE_STATUS_OPTIONS = [
   { value: "ALL", label: "All" },
   { value: LOCAL_SYNC_STATUS.PENDING, label: "Pending" },
   { value: LOCAL_SYNC_STATUS.SYNCED, label: "Synced" },
   { value: LOCAL_SYNC_STATUS.FAILED, label: "Failed" },
   { value: LOCAL_SYNC_STATUS.CONFLICT, label: "Conflict" },
+];
+
+const TRANSACTION_STATUS_OPTIONS = [
+  { value: "ALL", label: "All" },
+  { value: LOCAL_SYNC_STATUS.PENDING, label: "Pending" },
+  { value: LOCAL_SYNC_STATUS.SYNCED, label: "Synced" },
+  { value: LOCAL_SYNC_STATUS.FAILED, label: "Failed" },
+  { value: LOCAL_SYNC_STATUS.CONFLICT, label: "Conflict" },
+];
+
+const CONFLICT_STATUS_OPTIONS = [
+  { value: "ALL", label: "All" },
+  { value: LOCAL_SYNC_STATUS.CONFLICT, label: "Open" },
   { value: "RESOLVED", label: "Resolved" },
 ];
 
@@ -65,6 +80,9 @@ const SYNC_SECTION_TABS = [
 ];
 
 const EMPTY_MESSAGE = "No matching records found. Try adjusting your search or filters.";
+const EMPTY_QUEUE_MESSAGE = "No offline actions are waiting to sync on this device.";
+const EMPTY_HISTORY_MESSAGE = "No synchronization history is available yet.";
+const EMPTY_CONFLICT_MESSAGE = "No synchronization conflicts require review.";
 
 const fieldStyles = {
   label: {
@@ -224,6 +242,11 @@ const SyncManagementPage = () => {
     transactions: [],
     conflicts: [],
   });
+  const [syncStatusSummary, setSyncStatusSummary] = useState({
+    conflictCount: 0,
+    lastSuccessfulSyncAt: null,
+    backendReachable: true,
+  });
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [isRetrying, setIsRetrying] = useState(false);
@@ -252,6 +275,17 @@ const SyncManagementPage = () => {
     [];
 
   const isOnline = typeof navigator === "undefined" ? true : navigator.onLine;
+  const statusOptions = useMemo(() => {
+    if (activeSyncTab === "CONFLICTS") {
+      return CONFLICT_STATUS_OPTIONS;
+    }
+
+    if (activeSyncTab === "AUDIT") {
+      return TRANSACTION_STATUS_OPTIONS;
+    }
+
+    return QUEUE_STATUS_OPTIONS;
+  }, [activeSyncTab]);
 
   const failedQueueEntries = useMemo(
     () =>
@@ -282,8 +316,15 @@ const SyncManagementPage = () => {
         (entry) => entry.status === LOCAL_SYNC_STATUS.PENDING,
       ).length,
       synced: syncedTransactions.length,
+      lastSuccessfulSyncAt: syncStatusSummary.lastSuccessfulSyncAt,
     };
-  }, [failedQueueEntries.length, syncHistory.conflicts, syncHistory.transactions, syncQueueEntries]);
+  }, [
+    failedQueueEntries.length,
+    syncHistory.conflicts,
+    syncHistory.transactions,
+    syncQueueEntries,
+    syncStatusSummary.lastSuccessfulSyncAt,
+  ]);
 
   const filteredQueueEntries = useMemo(
     () => applySyncFilters(syncQueueEntries, filters, (entry) => entry.status),
@@ -312,11 +353,19 @@ const SyncManagementPage = () => {
 
     try {
       const response = await fetchSyncHistory({ limit: 100 });
+      const summaryResponse = await fetchSyncStatusSummary();
       setSyncHistory({
         transactions: Array.isArray(response.transactions)
           ? response.transactions
           : [],
         conflicts: Array.isArray(response.conflicts) ? response.conflicts : [],
+      });
+      setSyncStatusSummary({
+        conflictCount: Number.isFinite(summaryResponse.conflictCount)
+          ? summaryResponse.conflictCount
+          : 0,
+        lastSuccessfulSyncAt: summaryResponse.lastSuccessfulSyncAt || null,
+        backendReachable: summaryResponse.backendReachable !== false,
       });
     } catch (error) {
       setErrorMessage(error.message || "Failed to load sync history.");
@@ -328,6 +377,14 @@ const SyncManagementPage = () => {
   useEffect(() => {
     loadSyncHistory();
   }, []);
+
+  useEffect(() => {
+    const validStatuses = statusOptions.map((option) => option.value);
+
+    if (!validStatuses.includes(filters.status)) {
+      updateFilter("status", "ALL");
+    }
+  }, [activeSyncTab, filters.status, statusOptions]);
 
   useEffect(() => {
     const unsubscribe = subscribeToSyncUpdates(() => {
@@ -497,6 +554,12 @@ const SyncManagementPage = () => {
   return (
     <>
       <PageHeader title="SYNC CENTER" />
+      <p style={{ ...shellStyles.mutedText, marginTop: "-10px" }}>
+        Monitor offline actions from this device and confirm whether they have
+        been synchronized with the central DISTYNC database. Review pending,
+        failed, and conflicting synchronization records and retry eligible failed
+        actions when needed.
+      </p>
 
       <section style={shellStyles.card}>
         <div
@@ -522,13 +585,15 @@ const SyncManagementPage = () => {
           </label>
 
           <label>
-            <span style={fieldStyles.label}>Sync Status</span>
+            <span style={fieldStyles.label}>
+              {activeSyncTab === "CONFLICTS" ? "Conflict Status" : "Sync Status"}
+            </span>
             <select
               value={filters.status}
               onChange={(event) => updateFilter("status", event.target.value)}
               style={fieldStyles.input}
             >
-              {STATUS_OPTIONS.map((option) => (
+              {statusOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
@@ -559,10 +624,14 @@ const SyncManagementPage = () => {
       </section>
 
       <section style={shellStyles.statGrid}>
+        <StatusCard label="Connection" value={isOnline ? "Online" : "Offline"} />
         <StatusCard label="Pending Queue" value={summary.pending} />
-        <StatusCard label="Synced Records" value={summary.synced} />
         <StatusCard label="Failed Sync" value={summary.failed} />
         <StatusCard label="Needs Review" value={summary.conflicts} />
+        <StatusCard
+          label="Last Successful Sync"
+          value={formatSyncDateTime(summary.lastSuccessfulSyncAt)}
+        />
       </section>
 
       <div
@@ -680,10 +749,15 @@ const SyncManagementPage = () => {
 
       {activeSyncTab === "QUEUE" ? (
       <section style={shellStyles.card}>
-        <h3 style={{ margin: "0 0 16px", color: "#17324d" }}>Offline Queue</h3>
+        <h3 style={{ margin: "0 0 8px", color: "#17324d" }}>Offline Queue</h3>
+        <p style={{ ...shellStyles.mutedText, margin: "0 0 16px" }}>
+          Local device actions waiting to be sent or retried from this browser.
+        </p>
 
         {filteredQueueEntries.length === 0 ? (
-          <p style={shellStyles.mutedText}>{EMPTY_MESSAGE}</p>
+          <p style={shellStyles.mutedText}>
+            {syncQueueEntries.length === 0 ? EMPTY_QUEUE_MESSAGE : EMPTY_MESSAGE}
+          </p>
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={tableStyles.table}>
@@ -713,7 +787,15 @@ const SyncManagementPage = () => {
                       <td style={tableStyles.td}>
                         {formatSyncDateTime(entry.clientTimestamp || entry.createdAt)}
                       </td>
-                      <td style={tableStyles.td}>{details.notes}</td>
+                      <td style={{ ...tableStyles.td, minWidth: "220px" }}>
+                        {details.notes}
+                        {!isSafeRetryableQueueEntry(entry) ? (
+                          <div style={detailTextStyles}>
+                            Retry is unavailable for this entry because it is not
+                            a failed, supported offline action.
+                          </div>
+                        ) : null}
+                      </td>
                       <td style={tableStyles.td}>
                         <button
                           type="button"
@@ -748,7 +830,10 @@ const SyncManagementPage = () => {
 
       {activeSyncTab === "AUDIT" ? (
       <section style={shellStyles.card}>
-        <h3 style={{ margin: "0 0 16px", color: "#17324d" }}>Sync Audit Trail</h3>
+        <h3 style={{ margin: "0 0 8px", color: "#17324d" }}>Server Sync History</h3>
+        <p style={{ ...shellStyles.mutedText, margin: "0 0 16px" }}>
+          Central server records for synchronization attempts associated with your account.
+        </p>
 
         {isLoadingHistory ? (
           <p style={shellStyles.mutedText}>Loading sync history...</p>
@@ -757,7 +842,9 @@ const SyncManagementPage = () => {
             {errorMessage}
           </p>
         ) : filteredTransactions.length === 0 ? (
-          <p style={shellStyles.mutedText}>{EMPTY_MESSAGE}</p>
+          <p style={shellStyles.mutedText}>
+            {syncHistory.transactions.length === 0 ? EMPTY_HISTORY_MESSAGE : EMPTY_MESSAGE}
+          </p>
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={tableStyles.table}>
@@ -806,12 +893,18 @@ const SyncManagementPage = () => {
 
       {activeSyncTab === "CONFLICTS" ? (
       <section style={shellStyles.card}>
-        <h3 style={{ margin: "0 0 16px", color: "#17324d" }}>Conflict Review</h3>
+        <h3 style={{ margin: "0 0 8px", color: "#17324d" }}>Conflict Review</h3>
+        <p style={{ ...shellStyles.mutedText, margin: "0 0 16px" }}>
+          Server-recorded conflicts from synchronization attempts. Open conflicts
+          may need review; resolved conflicts show the recorded outcome.
+        </p>
 
         {isLoadingHistory ? (
           <p style={shellStyles.mutedText}>Loading conflicts...</p>
         ) : filteredConflicts.length === 0 ? (
-          <p style={shellStyles.mutedText}>{EMPTY_MESSAGE}</p>
+          <p style={shellStyles.mutedText}>
+            {syncHistory.conflicts.length === 0 ? EMPTY_CONFLICT_MESSAGE : EMPTY_MESSAGE}
+          </p>
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={tableStyles.table}>
@@ -839,7 +932,8 @@ const SyncManagementPage = () => {
                       <td style={tableStyles.td}>
                         {getConflictReasonLabel(conflict)}
                         <div style={detailTextStyles}>
-                          {conflict.error_message || conflict.resolution_strategy || "--"}
+                          {conflict.error_message ||
+                            getResolutionStrategyLabel(conflict.resolution_strategy)}
                         </div>
                       </td>
                       <td style={tableStyles.td}>

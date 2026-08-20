@@ -13,6 +13,15 @@ import {
   fetchBarangayDisasterEventOptions,
   fetchBarangays,
 } from "../../features/disaster-events/disasterEventService";
+import {
+  formatAnomalyType,
+  getAnomalyActionRequired,
+  getAnomalyActionSummary,
+  getAnomalyExplanation,
+  getAnomalyOwner,
+  getAnomalyTypesForScope,
+  getAnomalyPresentation,
+} from "../../features/mswdo-reports/anomalyPresentation";
 import { fetchMswdoAnomalies } from "../../features/mswdo-reports/mswdoReportService";
 
 const inputStyles = {
@@ -77,22 +86,11 @@ const filterPopoverStyles = {
   },
 };
 
-const anomalyTypes = [
-  { value: "all", label: "All anomaly types" },
-  { value: "SUSPICIOUS_DISTRIBUTION_ACTIVITY", label: "Suspicious Distribution Activity" },
-  { value: "SYNC_FAILED", label: "Failed Sync" },
-  { value: "SYNC_CONFLICT", label: "Sync Conflict" },
-  { value: "DUPLICATE_CLAIM_ATTEMPT", label: "Duplicate Claim Attempt" },
-  { value: "DUPLICATE_HOUSEHOLD_REGISTRATION", label: "Duplicate Household Registration" },
-  { value: "INVENTORY_DISTRIBUTION_MISMATCH", label: "Inventory-Distribution Mismatch" },
-  { value: "FAILED_STUB_OR_QR_VERIFICATION", label: "Failed Stub or QR Verification" },
-];
-
 const statusFilters = [
   { value: "all", label: "All" },
-  { value: "open", label: "Open" },
-  { value: "resolved", label: "Resolved" },
-  { value: "failed", label: "Failed" },
+  { value: "open", label: "Needs Review" },
+  { value: "resolved", label: "No Action Required / Referred" },
+  { value: "failed", label: "Sync Retry Needed" },
 ];
 
 const orderOptions = [
@@ -289,18 +287,6 @@ const isBarangayInEventScope = (barangay, scope) => {
   );
 };
 
-const formatAnomalyType = (value) => {
-  const match = anomalyTypes.find((type) => type.value === value);
-  if (match) {
-    return match.label;
-  }
-
-  return String(value || "--")
-    .toLowerCase()
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-};
-
 const getStatusCategory = (row) => {
   const status = String(row?.status || "").toUpperCase();
   const resolution = String(row?.resolution_status || "").toUpperCase();
@@ -320,14 +306,14 @@ const getStatusLabel = (row) => {
   const category = getStatusCategory(row);
 
   if (category === "open") {
-    return "Open";
+    return getAnomalyPresentation(row?.anomaly_type).statusHint || "Needs Review";
   }
 
   if (category === "failed") {
-    return "Failed";
+    return "Sync Retry Needed";
   }
 
-  return "Resolved";
+  return "No Action Required / Referred";
 };
 
 const StatusPill = ({ row }) => {
@@ -362,10 +348,13 @@ const modalPanelStyles = {
   borderRadius: "20px",
 };
 
-const AnomalyDetailModal = ({ anomaly, onClose, finalFocusRef }) => {
+const AnomalyDetailModal = ({ anomaly, onClose, finalFocusRef, isBarangayScope }) => {
   if (!anomaly) {
     return null;
   }
+
+  const presentation = getAnomalyPresentation(anomaly.anomaly_type);
+  const isSyncAnomaly = anomaly.anomaly_type === "SYNC_CONFLICT" || anomaly.anomaly_type === "SYNC_FAILED";
 
   return (
     <FormModalShell
@@ -386,6 +375,15 @@ const AnomalyDetailModal = ({ anomaly, onClose, finalFocusRef }) => {
         </div>
       }
     >
+      <div style={{ ...modalStyles.card, marginBottom: "16px" }}>
+        <div style={labelStyles}>Issue</div>
+        <div style={modalStyles.value}>
+          <strong>{presentation.label}</strong>
+          {"\n"}
+          {presentation.explanation}
+        </div>
+      </div>
+
       <div style={modalStyles.grid}>
         <div style={modalStyles.card}>
           <div style={labelStyles}>Anomaly Type</div>
@@ -420,13 +418,39 @@ const AnomalyDetailModal = ({ anomaly, onClose, finalFocusRef }) => {
         </div>
 
         <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
-          <div style={labelStyles}>Reason</div>
-          <div style={modalStyles.value}>{anomaly.anomaly_reason || "--"}</div>
+          <div style={labelStyles}>Why It Was Flagged</div>
+          <div style={modalStyles.value}>{getAnomalyExplanation(anomaly)}</div>
         </div>
 
         <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
-          <div style={labelStyles}>Resolution Notes</div>
-          <div style={modalStyles.value}>{anomaly.resolution_status || "--"}</div>
+          <div style={labelStyles}>What You Need To Do</div>
+          <div style={modalStyles.value}>
+            Barangay action required: {getAnomalyActionRequired(anomaly)}
+            {"\n"}
+            Recommended next step: {getAnomalyActionSummary(anomaly)}
+            {"\n"}
+            Responsible office: {getAnomalyOwner(anomaly)}
+          </div>
+        </div>
+
+        {isSyncAnomaly && isBarangayScope ? (
+          <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
+            <div style={labelStyles}>Related Information</div>
+            <div style={modalStyles.value}>
+              This item is primarily handled in Sync Center. Review the local queue,
+              server history, and conflict details there before taking operational action.
+            </div>
+          </div>
+        ) : null}
+
+        <div style={{ ...modalStyles.card, gridColumn: "1 / -1" }}>
+          <div style={labelStyles}>Technical Reference</div>
+          <div style={modalStyles.value}>
+            Current state: {anomaly.resolution_status || anomaly.status || "--"}
+            {anomaly.reference_id ? `\nReference: ${anomaly.reference_id}` : ""}
+            {anomaly.source_type ? `\nSource: ${anomaly.source_type}` : ""}
+            {anomaly.source_id ? `\nSource ID: ${anomaly.source_id}` : ""}
+          </div>
         </div>
       </div>
     </FormModalShell>
@@ -441,6 +465,10 @@ const AnomalyTrackingPage = ({
   scopeErrorMessage = "",
 }) => {
   const isBarangayScope = scope === "barangay";
+  const availableAnomalyTypes = useMemo(
+    () => getAnomalyTypesForScope(scope),
+    [scope],
+  );
   const [disasterEvents, setDisasterEvents] = useState([]);
   const [barangays, setBarangays] = useState([]);
   const [rows, setRows] = useState([]);
@@ -761,6 +789,15 @@ const AnomalyTrackingPage = ({
     );
   }, [rows]);
 
+  const hasActiveFilters = Boolean(
+    filters.disaster_event_id ||
+      (filters.barangay_id && !isBarangayScope) ||
+      filters.date_from ||
+      filters.date_to ||
+      viewState.search.trim() ||
+      viewState.anomaly_type !== "all" ||
+      viewState.status !== "all",
+  );
   const totalItems = pagination.totalItems || 0;
   const totalPages = pagination.totalPages || 0;
   const firstVisibleItem = totalItems === 0 ? 0 : (pagination.page - 1) * pagination.pageSize + 1;
@@ -830,7 +867,15 @@ const AnomalyTrackingPage = ({
 
   return (
     <div style={pageSpacingStyles.pageStack}>
-      <PageHeader title="ANOMALY TRACKING MANAGEMENT" actions={[]} />
+      <PageHeader
+        title={isBarangayScope ? "Anomaly Tracking" : "Anomaly Tracking Management"}
+        description={
+          isBarangayScope
+            ? "Review unusual or inconsistent records detected in your Barangay's disaster-relief operations. Some issues may require your verification, while others may be referred to MSWDO or the Office of the Mayor."
+            : "Monitor operational records that may need review across disaster-relief workflows."
+        }
+        actions={[]}
+      />
 
       <section style={shellStyles.card}>
         <div style={pageSpacingStyles.filterGrid}>
@@ -904,7 +949,7 @@ const AnomalyTrackingPage = ({
               }
               style={inputStyles}
             >
-              {anomalyTypes.map((type) => (
+              {availableAnomalyTypes.map((type) => (
                 <option key={type.value} value={type.value}>
                   {type.label}
                 </option>
@@ -951,10 +996,10 @@ const AnomalyTrackingPage = ({
       </section>
 
       <div style={shellStyles.statGrid}>
-        <StatusCard label="Total Anomalies" value={totalItems} />
-        <StatusCard label="Open on Page" value={summary.open} />
-        <StatusCard label="Failed on Page" value={summary.failed} />
-        <StatusCard label="Resolved on Page" value={summary.resolved} />
+        <StatusCard label="Total Detected" value={totalItems} />
+        <StatusCard label="Needs Review on Page" value={summary.open} />
+        <StatusCard label="Sync Retry Needed on Page" value={summary.failed} />
+        <StatusCard label="No Action / Referred on Page" value={summary.resolved} />
       </div>
 
       <div style={pageSpacingStyles.toolbar}>
@@ -1096,7 +1141,13 @@ const AnomalyTrackingPage = ({
         {isLoadingRows ? (
           <LoadingState message="Loading anomaly tracking..." />
         ) : rows.length === 0 ? (
-          <EmptyState message="No matching records found. Try adjusting your search or filters." />
+          <EmptyState
+            message={
+              hasActiveFilters
+                ? "No anomalies found for the current filters."
+                : "No unusual or inconsistent records currently require review."
+            }
+          />
         ) : (
           <>
             <div style={{ overflowX: "auto" }}>
@@ -1107,7 +1158,9 @@ const AnomalyTrackingPage = ({
                     <th style={tableStyles.th}>Disaster Event</th>
                     <th style={tableStyles.th}>Barangay</th>
                     <th style={tableStyles.th}>Household / Stub</th>
-                    <th style={tableStyles.th}>Reason</th>
+                    <th style={tableStyles.th}>Why Flagged</th>
+                    <th style={tableStyles.th}>Action Required</th>
+                    <th style={tableStyles.th}>Responsible Office</th>
                     <th style={tableStyles.th}>Status</th>
                     <th style={tableStyles.th}>Detected At</th>
                     <th style={{ ...tableStyles.th, textAlign: "center" }}>Action</th>
@@ -1117,8 +1170,8 @@ const AnomalyTrackingPage = ({
                   {rows.map((row, rowIndex) => (
                     <tr
                       key={`${row.anomaly_type}-${row.reference_id || "no-reference"}-${
-                        row.occurred_at || "no-date"
-                      }-${rowIndex}`}
+                        row.source_type || "no-source"
+                      }-${row.source_id || row.occurred_at || rowIndex}`}
                     >
                       <td style={tableStyles.td}>
                         <span
@@ -1137,7 +1190,14 @@ const AnomalyTrackingPage = ({
                       <td style={tableStyles.td}>{row.barangay_name || "--"}</td>
                       <td style={tableStyles.td}>{row.family_head_name || "--"}</td>
                       <td style={{ ...tableStyles.td, minWidth: "260px" }}>
-                        {row.anomaly_reason || "--"}
+                        {getAnomalyExplanation(row)}
+                      </td>
+                      <td style={{ ...tableStyles.td, minWidth: "220px" }}>
+                        {getAnomalyActionSummary(row)}
+                      </td>
+                      <td style={tableStyles.td}>{getAnomalyOwner(row)}</td>
+                      <td style={tableStyles.td}>
+                        {getAnomalyActionRequired(row)}
                       </td>
                       <td style={tableStyles.td}>
                         <StatusPill row={row} />
@@ -1180,6 +1240,7 @@ const AnomalyTrackingPage = ({
         anomaly={selectedAnomaly}
         onClose={closeAnomalyDetails}
         finalFocusRef={anomalyDetailsFinalFocusRef}
+        isBarangayScope={isBarangayScope}
       />
     </div>
   );

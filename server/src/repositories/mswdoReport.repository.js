@@ -161,6 +161,7 @@ const getMswdoAnomalyTracking = async ({
   anomalyType = null,
   search = null,
   order = "newest",
+  roleScope = null,
   dateFrom = null,
   dateTo = null,
   limit = null,
@@ -168,6 +169,7 @@ const getMswdoAnomalyTracking = async ({
   pageSize = null,
 }) => {
   const effectivePageSize = pageSize || limit || 50;
+  const isBarangayScope = roleScope === "BARANGAY";
   const values = [];
   const distributionConditions = ["dt.distribution_status = 'CLAIMED'"];
   const reconciliationDistributionConditions = ["dt.distribution_status = 'CLAIMED'"];
@@ -871,8 +873,6 @@ const getMswdoAnomalyTracking = async ({
     anomaly_rows AS (
       SELECT * FROM suspicious_distribution
       UNION ALL
-      SELECT * FROM sync_failed
-      UNION ALL
       SELECT * FROM sync_conflict
       UNION ALL
       SELECT * FROM duplicate_claim_attempts
@@ -882,6 +882,7 @@ const getMswdoAnomalyTracking = async ({
       SELECT * FROM inventory_distribution_mismatch
       UNION ALL
       SELECT * FROM failed_stub_verification
+      ${isBarangayScope ? "" : "UNION ALL SELECT * FROM sync_failed"}
     ),
     filtered_anomalies AS (
       SELECT *
@@ -911,6 +912,8 @@ const getMswdoAnomalyTracking = async ({
       SELECT
         anomaly_type,
         reference_id,
+        source_type,
+        source_id,
         event_code,
         disaster_event_title,
         barangay_id,
