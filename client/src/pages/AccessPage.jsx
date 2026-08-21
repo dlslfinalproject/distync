@@ -81,9 +81,13 @@ const AccessPage = () => {
 
   useEffect(() => {
     let isMounted = true;
+    let renderFrame = 0;
+    let lastRenderedWidth = 0;
 
     const setupGoogleButton = async () => {
-      if (isDevelopmentMode || !googleButtonRef.current) {
+      const buttonElement = googleButtonRef.current;
+
+      if (isDevelopmentMode || !buttonElement) {
         return;
       }
 
@@ -92,9 +96,19 @@ const AccessPage = () => {
         return;
       }
 
+      const nextRenderedWidth = Math.floor(
+        buttonElement.clientWidth || buttonElement.getBoundingClientRect().width,
+      );
+
+      if (nextRenderedWidth && nextRenderedWidth === lastRenderedWidth) {
+        return;
+      }
+
+      lastRenderedWidth = nextRenderedWidth;
+
       try {
         await renderGoogleSignInButton({
-          element: googleButtonRef.current,
+          element: buttonElement,
           clientId: googleClientId,
           onCredential: (credential) => {
             if (isMounted) {
@@ -113,10 +127,32 @@ const AccessPage = () => {
       }
     };
 
+    const queueGoogleButtonSetup = () => {
+      window.cancelAnimationFrame(renderFrame);
+      renderFrame = window.requestAnimationFrame(() => {
+        void setupGoogleButton();
+      });
+    };
+
     void setupGoogleButton();
+
+    const buttonElement = googleButtonRef.current;
+    const resizeObserver =
+      !isDevelopmentMode && buttonElement && "ResizeObserver" in window
+        ? new ResizeObserver(queueGoogleButtonSetup)
+        : null;
+
+    if (resizeObserver && buttonElement) {
+      resizeObserver.observe(buttonElement);
+    }
+
+    window.addEventListener("resize", queueGoogleButtonSetup);
 
     return () => {
       isMounted = false;
+      window.cancelAnimationFrame(renderFrame);
+      window.removeEventListener("resize", queueGoogleButtonSetup);
+      resizeObserver?.disconnect();
     };
   }, [googleClientId, handleGoogleCredential, isDevelopmentMode]);
 
