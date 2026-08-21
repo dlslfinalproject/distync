@@ -6,6 +6,13 @@ let googleScriptPromise;
 let initializedGoogleClientId = null;
 let currentCredentialHandler = null;
 
+const waitForButtonLayout = () =>
+  new Promise((resolve) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(resolve);
+    });
+  });
+
 const handleJsonResponse = async (response, fallbackMessage) => {
   const payload = await response.json();
 
@@ -90,16 +97,23 @@ export const renderGoogleSignInButton = async ({
   }
 
   element.innerHTML = "";
-  const buttonWidth = Math.floor(element.getBoundingClientRect().width || 360);
+  await waitForButtonLayout();
+
+  const buttonWidth = Math.floor(
+    element.clientWidth || element.getBoundingClientRect().width || 360,
+  );
+  const renderedButtonWidth = Math.min(360, Math.max(200, buttonWidth));
 
   window.google.accounts.id.renderButton(element, {
     theme: "outline",
     size: "large",
     shape: "rectangular",
     text: "signin_with",
-    width: Math.min(360, Math.max(200, buttonWidth)),
+    width: renderedButtonWidth,
     logo_alignment: "center",
   });
+
+  element.style.setProperty("--google-button-rendered-width", `${renderedButtonWidth}px`);
 };
 
 export const authenticateWithGoogleIdToken = async (idToken) => {

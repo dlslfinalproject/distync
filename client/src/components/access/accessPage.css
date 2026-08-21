@@ -397,18 +397,23 @@
 }
 
 .distync-access-page__google-button {
-  display: flex;
-  justify-content: center;
+  display: grid;
+  justify-items: center;
   min-height: 44px;
   padding-top: 0;
-  width: 100%;
-  margin: 30px 0 0;
-  overflow: hidden;
+  width: min(360px, 100%);
+  max-width: 100%;
+  margin: 30px auto 0;
+  overflow: visible;
 }
 
-.distync-access-page__google-button > div,
+.distync-access-page__google-button > div {
+  max-width: 100%;
+}
+
 .distync-access-page__google-button iframe {
-  max-width: 100% !important;
+  display: block !important;
+  max-width: min(100%, var(--google-button-rendered-width, 360px)) !important;
 }
 
 .distync-access-page__support-text {
@@ -571,6 +576,10 @@
   }
 
   .distync-access-page__portal-link {
+    width: 100%;
+  }
+
+  .distync-access-page__google-button {
     width: 100%;
   }
 
