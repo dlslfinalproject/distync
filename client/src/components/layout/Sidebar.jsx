@@ -163,6 +163,16 @@ const getSidebarStyles = (isCollapsed) => ({
     overflowWrap: "anywhere",
     minWidth: 0,
   },
+  navSectionLabel: {
+    display: "block",
+    margin: "4px 12px -2px",
+    color: "#7f90a3",
+    fontSize: "11px",
+    fontWeight: 700,
+    lineHeight: 1.2,
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+  },
   accountArea: {
     marginTop: "auto",
     display: "flex",
@@ -178,8 +188,9 @@ const roleMeta = {
       { label: "Evacuee Masterlist Management", to: "/barangay/masterlist" },
       { label: "Relief Goods Distribution", to: "/barangay/stub-distribution" },
       { label: "Distribution History", to: "/barangay/distribution-history" },
-      { label: "Anomaly Tracking", to: "/barangay/anomalies" },
-      { label: "Sync Center", to: "/barangay/sync" },
+      { type: "section", label: "Monitoring" },
+      { label: "Sync Center", to: "/barangay/sync", isSectionChild: true },
+      { label: "Anomaly Tracking", to: "/barangay/anomalies", isSectionChild: true },
     ],
   },
   [ROLE_CODES.MSWDO]: {
@@ -305,43 +316,65 @@ const Sidebar = ({
         </div>
 
         <nav className="distync-sidebar__nav" style={sidebarStyles.nav} ref={navRef}>
-          {activeRoleMeta.navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              onClick={onNavigate}
-              style={{ textDecoration: "none", display: "block" }}
-            >
-              {({ isActive }) => (
+          {activeRoleMeta.navItems.map((item) => {
+            if (item.type === "section") {
+              return (
                 <div
-                  className="distync-sidebar__nav-item"
+                  key={`section-${item.label}`}
+                  className="distync-sidebar__nav-section-label"
                   style={{
-                    backgroundColor: isActive
-                      ? "#e1eef9"
-                      : "transparent",
-                    color: isActive ? "#1f4f7d" : "#26435f",
-                    border: `1px solid ${isActive ? "#b8d0e7" : "transparent"}`,
-                    borderRadius: "10px",
-                    padding: "10px 12px",
-                    boxShadow: isActive
-                      ? "0 8px 18px rgba(66, 108, 154, 0.10)"
-                      : "none",
-                    transition:
-                      "background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease",
-                    marginBottom: 0,
-                    minHeight: "44px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "flex-start",
-                    overflow: "visible",
-                    backdropFilter: "blur(8px)",
+                    ...sidebarStyles.navSectionLabel,
+                    display: isCollapsed ? "none" : sidebarStyles.navSectionLabel.display,
                   }}
+                  aria-hidden={isCollapsed ? "true" : undefined}
                 >
-                  <span style={sidebarStyles.navTitle}>{item.label}</span>
+                  {item.label}
                 </div>
-              )}
-            </NavLink>
-          ))}
+              );
+            }
+
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                onClick={onNavigate}
+                style={{
+                  textDecoration: "none",
+                  display: "block",
+                  marginLeft: item.isSectionChild && !isCollapsed ? "8px" : 0,
+                }}
+              >
+                {({ isActive }) => (
+                  <div
+                    className="distync-sidebar__nav-item"
+                    style={{
+                      backgroundColor: isActive
+                        ? "#e1eef9"
+                        : "transparent",
+                      color: isActive ? "#1f4f7d" : "#26435f",
+                      border: `1px solid ${isActive ? "#b8d0e7" : "transparent"}`,
+                      borderRadius: "10px",
+                      padding: "10px 12px",
+                      boxShadow: isActive
+                        ? "0 8px 18px rgba(66, 108, 154, 0.10)"
+                        : "none",
+                      transition:
+                        "background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease",
+                      marginBottom: 0,
+                      minHeight: "44px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "flex-start",
+                      overflow: "visible",
+                      backdropFilter: "blur(8px)",
+                    }}
+                  >
+                    <span style={sidebarStyles.navTitle}>{item.label}</span>
+                  </div>
+                )}
+              </NavLink>
+            );
+          })}
         </nav>
 
         <div className="distync-sidebar__account-area" style={sidebarStyles.accountArea}>

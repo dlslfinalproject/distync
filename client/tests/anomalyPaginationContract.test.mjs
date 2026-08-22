@@ -266,11 +266,37 @@ test("Barangay anomaly page removes summary cards, sync banner, and extra row re
   const sidebarSource = await fs.readFile(sidebarSourcePath, "utf8");
   const layoutSource = await fs.readFile(barangayLayoutSourcePath, "utf8");
 
-  assert.match(sidebarSource, /\{ label: "Anomaly Tracking", to: "\/barangay\/anomalies" \}/);
+  assert.match(sidebarSource, /\{ label: "Anomaly Tracking", to: "\/barangay\/anomalies"(?:, isSectionChild: true)? \}/);
   assert.match(sidebarSource, /\{ label: "Anomaly Tracking Management", to: "\/mswdo\/anomalies" \}/);
   assert.match(layoutSource, /isBarangayAnomalyRoute/);
   assert.match(layoutSource, /!isBarangayAnomalyRoute \? <SyncStatusBanner \/> : null/);
   assert.match(source, /!\isBarangayScope \? \([\s\S]*<StatusCard label="Total Detected"/);
   assert.match(source, /overflowX: "auto", width: "100%", minWidth: 0/);
   assert.doesNotMatch(source, /FiCheckCircle|FiEdit3/);
+});
+
+test("Barangay sidebar groups sync and anomaly navigation under Monitoring only", async () => {
+  const sidebarSource = await fs.readFile(sidebarSourcePath, "utf8");
+
+  const barangayNavBlock =
+    sidebarSource.match(/\[ROLE_CODES\.BARANGAY\]: \{[\s\S]*?navItems: \[([\s\S]*?)\],/)?.[1] || "";
+  const mswdoNavBlock =
+    sidebarSource.match(/\[ROLE_CODES\.MSWDO\]: \{[\s\S]*?navItems: \[([\s\S]*?)\],/)?.[1] || "";
+  const mayorNavBlock =
+    sidebarSource.match(/\[ROLE_CODES\.MAYOR\]: \{[\s\S]*?navItems: \[([\s\S]*?)\],/)?.[1] || "";
+  const monitoringIndex = barangayNavBlock.indexOf('{ type: "section", label: "Monitoring" }');
+  const syncIndex = barangayNavBlock.indexOf('{ label: "Sync Center", to: "/barangay/sync", isSectionChild: true }');
+  const anomalyIndex = barangayNavBlock.indexOf('{ label: "Anomaly Tracking", to: "/barangay/anomalies", isSectionChild: true }');
+
+  assert.notEqual(monitoringIndex, -1);
+  assert.notEqual(syncIndex, -1);
+  assert.notEqual(anomalyIndex, -1);
+  assert.ok(monitoringIndex < syncIndex);
+  assert.ok(syncIndex < anomalyIndex);
+  assert.match(sidebarSource, /item\.type === "section"[\s\S]*className="distync-sidebar__nav-section-label"/);
+  assert.match(sidebarSource, /display: isCollapsed \? "none" : sidebarStyles\.navSectionLabel\.display/);
+  assert.match(sidebarSource, /marginLeft: item\.isSectionChild && !isCollapsed \? "8px" : 0/);
+  assert.doesNotMatch(sidebarSource, /\/barangay\/monitoring/);
+  assert.doesNotMatch(mswdoNavBlock, /type: "section", label: "Monitoring"/);
+  assert.doesNotMatch(mayorNavBlock, /type: "section", label: "Monitoring"/);
 });
