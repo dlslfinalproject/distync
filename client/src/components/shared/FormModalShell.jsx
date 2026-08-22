@@ -91,6 +91,7 @@ const FormModalShell = ({
   headerStyle,
   titleStyle,
   bodyStyle,
+  footerStyle,
   closeButtonStyle,
   closeButtonLabel = "Close modal",
 }) => {
@@ -249,7 +250,7 @@ const FormModalShell = ({
           <p style={descriptionStyles}>{description}</p>
         ) : null}
         <div style={{ ...bodyStyles, ...(bodyStyle || {}) }}>{children}</div>
-        {footer ? <div style={footerStyles}>{footer}</div> : null}
+        {footer ? <div style={{ ...footerStyles, ...(footerStyle || {}) }}>{footer}</div> : null}
       </div>
     </div>
   );

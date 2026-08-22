@@ -129,6 +129,7 @@ const BarangayLayout = () => {
   const { currentRole } = useAuth();
   const isDonorPortal = currentRole === ROLE_CODES.DONOR;
   const isSettingsRoute = location.pathname.endsWith("/settings");
+  const isBarangayAnomalyRoute = location.pathname.startsWith("/barangay/anomalies");
   const isSidebarOpen = !isSidebarCollapsed;
   const sidebarToggleRef = useRef(null);
   const sidebarWidth = isDonorPortal
@@ -284,7 +285,7 @@ const BarangayLayout = () => {
 
         <main className="distync-shell__main" style={shellStyles.main}>
           <div className="distync-shell__content" style={shellStyles.content}>
-            <SyncStatusBanner />
+            {!isBarangayAnomalyRoute ? <SyncStatusBanner /> : null}
             <Outlet />
           </div>
         </main>

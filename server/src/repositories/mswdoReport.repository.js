@@ -1,5 +1,40 @@
 const pool = require("../config/db");
 
+const MANUAL_REVIEW_ANOMALY_TYPES = [
+  "SUSPICIOUS_DISTRIBUTION_ACTIVITY",
+  "DUPLICATE_HOUSEHOLD_REGISTRATION",
+  "INVENTORY_DISTRIBUTION_MISMATCH",
+  "FAILED_STUB_OR_QR_VERIFICATION",
+];
+
+const getAnomalyReviewStateExpression = ({
+  anomalyAlias = "",
+  reviewAlias = "",
+} = {}) => {
+  const anomalyPrefix = anomalyAlias ? `${anomalyAlias}.` : "";
+  const reviewPrefix = reviewAlias ? `${reviewAlias}.` : "";
+
+  return `
+  CASE
+    WHEN ${anomalyPrefix}anomaly_type = 'DUPLICATE_CLAIM_ATTEMPT'
+      THEN 'system_handled'
+    WHEN ${anomalyPrefix}anomaly_type = 'SYNC_CONFLICT'
+      THEN 'sync_center'
+    WHEN ${reviewPrefix}review_status = 'REFERRED'
+      THEN 'referred'
+    WHEN ${reviewPrefix}review_status IN ('REVIEWED_VALID', 'ISSUE_CONFIRMED')
+      THEN 'reviewed'
+    WHEN ${anomalyPrefix}anomaly_type IN (${MANUAL_REVIEW_ANOMALY_TYPES.map((type) => `'${type}'`).join(", ")})
+      THEN 'needs_review'
+    ELSE 'system_handled'
+  END
+`;
+};
+
+const getManualReviewAllowedExpression = (anomalyAlias = "") => `
+  ${anomalyAlias ? `${anomalyAlias}.` : ""}anomaly_type IN (${MANUAL_REVIEW_ANOMALY_TYPES.map((type) => `'${type}'`).join(", ")})
+`;
+
 const getAnomalyOrderByClause = (order) => {
   const stableTieBreaker = `
       source_type ASC,
@@ -161,9 +196,12 @@ const getMswdoAnomalyTracking = async ({
   anomalyType = null,
   search = null,
   order = "newest",
+  reviewState = null,
   roleScope = null,
   dateFrom = null,
   dateTo = null,
+  sourceType = null,
+  sourceId = null,
   limit = null,
   page = 1,
   pageSize = null,
@@ -231,6 +269,9 @@ const getMswdoAnomalyTracking = async ({
   const anomalyTypeIndex = anomalyType ? values.push(anomalyType) : null;
   const statusCategoryIndex = statusCategory ? values.push(statusCategory) : null;
   const searchIndex = search ? values.push(`%${search}%`) : null;
+  const reviewStateIndex = reviewState ? values.push(reviewState) : null;
+  const sourceTypeIndex = sourceType ? values.push(sourceType) : null;
+  const sourceIdIndex = sourceId ? values.push(sourceId) : null;
 
   const suspiciousDistributionWhere = distributionConditions.join(" AND ");
   const reconciliationDistributionWhere =
@@ -245,23 +286,32 @@ const getMswdoAnomalyTracking = async ({
     ...syncConditions,
   ].join(" AND ");
   const errorWhere = errorConditions.length > 0 ? `AND ${errorConditions.join(" AND ")}` : "";
+  const barangayVerificationNoiseExclusion = isBarangayScope
+    ? `
+        AND NOT (
+          el.error_code IN ('INVALID_QR_STUB', 'STUB_NOT_FOUND')
+          AND el.reference_id IS NULL
+          AND eba.family_head_name IS NULL
+        )
+      `
+    : "";
   const finalConditions = [];
 
   if (statusIndex) {
-    finalConditions.push(`status = $${statusIndex}`);
+    finalConditions.push(`anomaly_rows.status = $${statusIndex}`);
   }
 
   if (anomalyTypeIndex) {
-    finalConditions.push(`anomaly_type = $${anomalyTypeIndex}`);
+    finalConditions.push(`anomaly_rows.anomaly_type = $${anomalyTypeIndex}`);
   }
 
   if (statusCategoryIndex) {
     finalConditions.push(`
       CASE
-        WHEN UPPER(COALESCE(status, '')) IN ('FAILED', 'ERROR') THEN 'failed'
-        WHEN UPPER(COALESCE(status, '')) = 'OPEN'
-          OR UPPER(COALESCE(resolution_status, '')) LIKE '%PENDING%'
-          OR UPPER(COALESCE(resolution_status, '')) LIKE '%RECOMMENDED%'
+        WHEN UPPER(COALESCE(anomaly_rows.status, '')) IN ('FAILED', 'ERROR') THEN 'failed'
+        WHEN UPPER(COALESCE(anomaly_rows.status, '')) = 'OPEN'
+          OR UPPER(COALESCE(anomaly_rows.resolution_status, '')) LIKE '%PENDING%'
+          OR UPPER(COALESCE(anomaly_rows.resolution_status, '')) LIKE '%RECOMMENDED%'
         THEN 'open'
         ELSE 'resolved'
       END = $${statusCategoryIndex}
@@ -271,20 +321,32 @@ const getMswdoAnomalyTracking = async ({
   if (searchIndex) {
     finalConditions.push(`
       (
-        anomaly_type ILIKE $${searchIndex}
-        OR COALESCE(event_code, '') ILIKE $${searchIndex}
-        OR COALESCE(disaster_event_title, '') ILIKE $${searchIndex}
-        OR COALESCE(barangay_name, '') ILIKE $${searchIndex}
-        OR COALESCE(family_head_name, '') ILIKE $${searchIndex}
-        OR COALESCE(anomaly_reason, '') ILIKE $${searchIndex}
-        OR COALESCE(status, '') ILIKE $${searchIndex}
-        OR COALESCE(resolution_status, '') ILIKE $${searchIndex}
+        anomaly_rows.anomaly_type ILIKE $${searchIndex}
+        OR COALESCE(anomaly_rows.event_code, '') ILIKE $${searchIndex}
+        OR COALESCE(anomaly_rows.disaster_event_title, '') ILIKE $${searchIndex}
+        OR COALESCE(anomaly_rows.barangay_name, '') ILIKE $${searchIndex}
+        OR COALESCE(anomaly_rows.family_head_name, '') ILIKE $${searchIndex}
+        OR COALESCE(anomaly_rows.anomaly_reason, '') ILIKE $${searchIndex}
+        OR COALESCE(anomaly_rows.status, '') ILIKE $${searchIndex}
+        OR COALESCE(anomaly_rows.resolution_status, '') ILIKE $${searchIndex}
       )
     `);
   }
 
+  if (reviewStateIndex) {
+    finalConditions.push(`${getAnomalyReviewStateExpression({ anomalyAlias: "anomaly_rows", reviewAlias: "ar" })} = $${reviewStateIndex}`);
+  }
+
+  if (sourceTypeIndex) {
+    finalConditions.push(`anomaly_rows.source_type = $${sourceTypeIndex}`);
+  }
+
+  if (sourceIdIndex) {
+    finalConditions.push(`anomaly_rows.source_id = $${sourceIdIndex}`);
+  }
+
   if (barangayId) {
-    finalConditions.push(`barangay_id = $${barangayParamIndex}`);
+    finalConditions.push(`anomaly_rows.barangay_id = $${barangayParamIndex}`);
   }
 
   const finalWhere = finalConditions.length
@@ -298,6 +360,7 @@ const getMswdoAnomalyTracking = async ({
         CONCAT(dt.household_id::text, ':', dt.disaster_event_id::text) AS reference_id,
         'SUSPICIOUS_DISTRIBUTION_ACTIVITY' AS source_type,
         CONCAT(dt.household_id::text, ':', dt.disaster_event_id::text) AS source_id,
+        dt.disaster_event_id AS disaster_event_id,
         de.event_code,
         de.title AS disaster_event_title,
         b.id AS barangay_id,
@@ -465,6 +528,7 @@ const getMswdoAnomalyTracking = async ({
           ':',
           COALESCE(expected.inventory_item_id, actual.inventory_item_id)::text
         ) AS source_id,
+        COALESCE(expected.disaster_event_id, actual.disaster_event_id) AS disaster_event_id,
         COALESCE(expected.event_code, actual.event_code) AS event_code,
         COALESCE(expected.disaster_event_title, actual.disaster_event_title) AS disaster_event_title,
         COALESCE(expected.barangay_id, actual.barangay_id) AS barangay_id,
@@ -527,6 +591,7 @@ const getMswdoAnomalyTracking = async ({
         COALESCE(it.reference_id::text, it.id::text) AS reference_id,
         'INVENTORY_DISTRIBUTION_ORPHAN_OUTFLOW' AS source_type,
         it.id::text AS source_id,
+        de.id AS disaster_event_id,
         de.event_code,
         de.title AS disaster_event_title,
         b.id AS barangay_id,
@@ -679,10 +744,59 @@ const getMswdoAnomalyTracking = async ({
       LEFT JOIN households h_distribution
         ON h_distribution.id = dt_distribution.household_id
     ),
+    error_context AS (
+      SELECT
+        el.*,
+        CASE
+          WHEN (el.context_json->>'disaster_event_id') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+          THEN (el.context_json->>'disaster_event_id')::uuid
+          ELSE NULL
+        END AS context_disaster_event_id
+      FROM error_logs el
+      WHERE el.module_name IN ('distribution', 'stubs', 'household-registration')
+    ),
     error_barangay_attribution AS (
       SELECT
         el.id AS error_log_id,
-        COALESCE(h_direct.disaster_event_id, s_error.disaster_event_id) AS disaster_event_id,
+        COALESCE(
+          h_direct.disaster_event_id,
+          s_error.disaster_event_id,
+          CASE
+            WHEN el.context_disaster_event_id IS NOT NULL
+              AND EXISTS (
+                SELECT 1
+                FROM disaster_event_barangays deb_context
+                WHERE deb_context.disaster_event_id = el.context_disaster_event_id
+                  AND deb_context.barangay_id = COALESCE(
+                    h_direct.barangay_id,
+                    h_error.barangay_id,
+                    CASE
+                      WHEN u.default_barangay_id IS NOT NULL
+                        AND EXISTS (
+                          SELECT 1
+                          FROM user_roles ur_barangay
+                          INNER JOIN roles r_barangay
+                            ON r_barangay.id = ur_barangay.role_id
+                          WHERE ur_barangay.user_id = u.id
+                            AND r_barangay.code = 'BARANGAY'
+                        )
+                        AND NOT EXISTS (
+                          SELECT 1
+                          FROM user_roles ur_other
+                          INNER JOIN roles r_other
+                            ON r_other.id = ur_other.role_id
+                          WHERE ur_other.user_id = u.id
+                            AND r_other.code IN ('MSWDO', 'MAYOR')
+                        )
+                      THEN u.default_barangay_id
+                      ELSE NULL
+                    END
+                  )
+              )
+            THEN el.context_disaster_event_id
+            ELSE NULL
+          END
+        ) AS disaster_event_id,
         COALESCE(
           h_direct.barangay_id,
           h_error.barangay_id,
@@ -716,7 +830,7 @@ const getMswdoAnomalyTracking = async ({
           COALESCE(h_direct.family_head_last_name, h_error.family_head_last_name),
           COALESCE(h_direct.family_head_suffix, h_error.family_head_suffix)
         )), '') AS family_head_name
-      FROM error_logs el
+      FROM error_context el
       LEFT JOIN users u
         ON u.id = el.user_id
       LEFT JOIN households h_direct
@@ -727,7 +841,6 @@ const getMswdoAnomalyTracking = async ({
         AND s_error.id = el.reference_id
       LEFT JOIN households h_error
         ON h_error.id = s_error.household_id
-      WHERE el.module_name IN ('distribution', 'stubs', 'household-registration')
     ),
     sync_failed AS (
       SELECT
@@ -735,6 +848,7 @@ const getMswdoAnomalyTracking = async ({
         st.id::text AS reference_id,
         'SYNC_TRANSACTION' AS source_type,
         st.id::text AS source_id,
+        de.id AS disaster_event_id,
         de.event_code,
         de.title AS disaster_event_title,
         b.id AS barangay_id,
@@ -760,6 +874,7 @@ const getMswdoAnomalyTracking = async ({
         sc.id::text AS reference_id,
         'SYNC_CONFLICT' AS source_type,
         sc.id::text AS source_id,
+        de.id AS disaster_event_id,
         de.event_code,
         de.title AS disaster_event_title,
         b.id AS barangay_id,
@@ -786,6 +901,7 @@ const getMswdoAnomalyTracking = async ({
         el.id::text AS reference_id,
         'ERROR_LOG' AS source_type,
         el.id::text AS source_id,
+        de.id AS disaster_event_id,
         de.event_code,
         de.title AS disaster_event_title,
         b.id AS barangay_id,
@@ -813,6 +929,7 @@ const getMswdoAnomalyTracking = async ({
         el.id::text AS reference_id,
         'ERROR_LOG' AS source_type,
         el.id::text AS source_id,
+        de.id AS disaster_event_id,
         de.event_code,
         de.title AS disaster_event_title,
         b.id AS barangay_id,
@@ -840,6 +957,7 @@ const getMswdoAnomalyTracking = async ({
         el.id::text AS reference_id,
         'ERROR_LOG' AS source_type,
         el.id::text AS source_id,
+        de.id AS disaster_event_id,
         de.event_code,
         de.title AS disaster_event_title,
         b.id AS barangay_id,
@@ -868,6 +986,7 @@ const getMswdoAnomalyTracking = async ({
           'STUB_UNAVAILABLE'
         )
         ${disasterEventId ? `AND eba.disaster_event_id = $${disasterEventParamIndex}` : ""}
+        ${barangayVerificationNoiseExclusion}
         ${errorWhere}
     ),
     anomaly_rows AS (
@@ -885,8 +1004,31 @@ const getMswdoAnomalyTracking = async ({
       ${isBarangayScope ? "" : "UNION ALL SELECT * FROM sync_failed"}
     ),
     filtered_anomalies AS (
-      SELECT *
+      SELECT
+        anomaly_rows.*,
+        ar.id AS review_id,
+        ar.review_status,
+        ar.resolution_reason,
+        ar.reviewed_by,
+        ar.reviewed_at,
+        ar.created_at AS review_created_at,
+        ar.updated_at AS review_updated_at,
+        NULLIF(TRIM(CONCAT_WS(
+          ' ',
+          reviewer.first_name,
+          reviewer.middle_name,
+          reviewer.last_name
+        )), '') AS reviewer_name,
+        ${getAnomalyReviewStateExpression({ anomalyAlias: "anomaly_rows", reviewAlias: "ar" })} AS review_state,
+        ${getManualReviewAllowedExpression("anomaly_rows")} AS manual_review_allowed
       FROM anomaly_rows
+      LEFT JOIN anomaly_reviews ar
+        ON ar.source_type = anomaly_rows.source_type
+        AND ar.source_id = anomaly_rows.source_id
+        AND ar.anomaly_type = anomaly_rows.anomaly_type
+        AND ar.barangay_id = anomaly_rows.barangay_id
+      LEFT JOIN users reviewer
+        ON reviewer.id = ar.reviewed_by
       ${finalWhere}
     )
   `;
@@ -914,6 +1056,7 @@ const getMswdoAnomalyTracking = async ({
         reference_id,
         source_type,
         source_id,
+        disaster_event_id,
         event_code,
         disaster_event_title,
         barangay_id,
@@ -922,7 +1065,17 @@ const getMswdoAnomalyTracking = async ({
         anomaly_reason,
         status,
         occurred_at,
-        resolution_status
+        resolution_status,
+        review_id,
+        review_status,
+        resolution_reason,
+        reviewed_by,
+        reviewed_at,
+        review_created_at,
+        review_updated_at,
+        reviewer_name,
+        review_state,
+        manual_review_allowed
       FROM filtered_anomalies
       ORDER BY ${getAnomalyOrderByClause(order)}
       LIMIT $${limitIndex}
@@ -944,7 +1097,79 @@ const getMswdoAnomalyTracking = async ({
   };
 };
 
+const findAnomalyBySourceIdentity = async ({
+  barangayId,
+  anomalyType,
+  sourceType,
+  sourceId,
+  roleScope = "BARANGAY",
+}) => {
+  const result = await getMswdoAnomalyTracking({
+    barangayId,
+    anomalyType,
+    sourceType,
+    sourceId,
+    roleScope,
+    page: 1,
+    pageSize: 1,
+  });
+
+  return result.items[0] || null;
+};
+
+const upsertAnomalyReview = async ({
+  sourceType,
+  sourceId,
+  anomalyType,
+  barangayId,
+  disasterEventId = null,
+  reviewStatus,
+  resolutionReason,
+  reviewedBy,
+}) => {
+  const query = `
+    INSERT INTO anomaly_reviews (
+      source_type,
+      source_id,
+      anomaly_type,
+      barangay_id,
+      disaster_event_id,
+      review_status,
+      resolution_reason,
+      reviewed_by,
+      reviewed_at,
+      created_at,
+      updated_at
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW(), NOW())
+    ON CONFLICT (source_type, source_id, anomaly_type, barangay_id)
+    DO UPDATE SET
+      disaster_event_id = EXCLUDED.disaster_event_id,
+      review_status = EXCLUDED.review_status,
+      resolution_reason = EXCLUDED.resolution_reason,
+      reviewed_by = EXCLUDED.reviewed_by,
+      reviewed_at = NOW(),
+      updated_at = NOW()
+    RETURNING *
+  `;
+
+  const result = await pool.query(query, [
+    sourceType,
+    sourceId,
+    anomalyType,
+    barangayId,
+    disasterEventId,
+    reviewStatus,
+    resolutionReason,
+    reviewedBy,
+  ]);
+
+  return result.rows[0];
+};
+
 module.exports = {
   getDisasterEventReportSummary,
   getMswdoAnomalyTracking,
+  findAnomalyBySourceIdentity,
+  upsertAnomalyReview,
 };
