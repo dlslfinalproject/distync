@@ -470,8 +470,13 @@ export const exportBarangayMasterlist = async ({
   };
 };
 
-export const departHousehold = async ({ householdId, remarks = null }) => {
+export const departHousehold = async ({
+  householdId,
+  remarks = null,
+  disasterEventId = null,
+}) => {
   const payload = {
+    ...(disasterEventId ? { disaster_event_id: disasterEventId } : {}),
     remarks,
     recorded_by: null,
   };

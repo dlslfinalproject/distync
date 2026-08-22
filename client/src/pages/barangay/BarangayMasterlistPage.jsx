@@ -229,6 +229,10 @@ const BarangayMasterlistPage = () => {
   const pendingDepartureRow = filteredRows.find(
     (row) => row.household_id === pendingDepartureHouseholdId,
   );
+  const getDepartureDisasterEventId = (householdId) => {
+    const row = filteredRows.find((candidate) => candidate.household_id === householdId);
+    return row?.disaster_event?.id || row?.disaster_event_id || "";
+  };
   const pendingDepartureFamilyHeadName = pendingDepartureHouseholdDetails?.household
     ? [
         pendingDepartureHouseholdDetails.household.family_head_first_name,
@@ -763,7 +767,10 @@ const BarangayMasterlistPage = () => {
       if (isBulkDepartureConfirmOpen && selectedHouseholds.length > 0) {
         await Promise.all(
           selectedHouseholds.map((householdId) =>
-            departHousehold({ householdId }),
+            departHousehold({
+              householdId,
+              disasterEventId: getDepartureDisasterEventId(householdId),
+            }),
           ),
         );
 
@@ -779,6 +786,12 @@ const BarangayMasterlistPage = () => {
 
         const response = await departHousehold({
           householdId: pendingDepartureHouseholdId,
+          disasterEventId:
+            pendingDepartureHouseholdDetails?.household?.disaster_event_id ||
+            pendingDepartureHouseholdDetails?.household?.disaster_event?.id ||
+            pendingDepartureRow?.disaster_event?.id ||
+            pendingDepartureRow?.disaster_event_id ||
+            "",
         });
 
         setAttendanceActionMessage(

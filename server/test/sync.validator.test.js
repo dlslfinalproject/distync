@@ -1,7 +1,10 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { validateProcessSyncEntries } = require("../src/validators/sync.validator");
+const {
+  validateGetSyncHistory,
+  validateProcessSyncEntries,
+} = require("../src/validators/sync.validator");
 
 const createResponse = () => {
   const response = {
@@ -79,4 +82,44 @@ test("validateProcessSyncEntries rejects malformed client sync ids", () => {
   assert.equal(nextCalled, false);
   assert.equal(res.statusCode, 400);
   assert.match(res.payload.message, /client_sync_id must be 80 characters/i);
+});
+
+test("validateGetSyncHistory accepts allow-listed sync and conflict statuses", () => {
+  const req = {
+    query: {
+      sync_status: "failed",
+      conflict_status: "resolved",
+      limit: "100",
+    },
+  };
+  const res = createResponse();
+  let nextCalled = false;
+
+  validateGetSyncHistory(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(req.validatedQuery.sync_status, "FAILED");
+  assert.equal(req.validatedQuery.conflict_status, "RESOLVED");
+  assert.equal(req.validatedQuery.limit, 100);
+});
+
+test("validateGetSyncHistory rejects unsupported filter statuses", () => {
+  for (const query of [
+    { sync_status: "RESOLVED" },
+    { conflict_status: "FAILED" },
+  ]) {
+    const req = { query };
+    const res = createResponse();
+    let nextCalled = false;
+
+    validateGetSyncHistory(req, res, () => {
+      nextCalled = true;
+    });
+
+    assert.equal(nextCalled, false);
+    assert.equal(res.statusCode, 400);
+    assert.match(res.payload.message, /must be one of/i);
+  }
 });

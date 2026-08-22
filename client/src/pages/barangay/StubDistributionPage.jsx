@@ -645,6 +645,7 @@ const StubDistributionPage = () => {
               stubId,
               userId: authenticatedUser?.id || "",
               overrideBarangayId: allowFallback ? overrideBarangayId : "",
+              disasterEventId: row?.disaster_event?.id || row?.disaster_event_id || "",
             }),
           ),
         );
@@ -721,6 +722,11 @@ const StubDistributionPage = () => {
         stubId: pendingClaimStubId,
         userId: authenticatedUser?.id || "",
         overrideBarangayId: allowFallback ? overrideBarangayId : "",
+        disasterEventId:
+          pendingClaimStubDetails?.disaster_event?.id ||
+          pendingClaimRow?.disaster_event?.id ||
+          pendingClaimRow?.disaster_event_id ||
+          "",
       });
       reloadDashboard();
       setPendingClaimStubId("");

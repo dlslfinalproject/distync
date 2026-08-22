@@ -4590,6 +4590,137 @@ test("BRG-SC-04B non-Mayor history excludes peer review workload", async () => {
   );
 });
 
+test("BRG-SC-EVENT-01 getSyncHistory enriches event IDs with scoped titles in one batch", async () => {
+  let eventLookupCalls = 0;
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncTransactionsByUser: async ({ userId }) => {
+          assert.equal(userId, "barangay-b");
+          return [
+            {
+              id: "sync-event-1",
+              payload_json: {
+                action_key: "HOUSEHOLD_REGISTER",
+                payload: {
+                  disaster_event_id: "11111111-1111-4111-8111-111111111111",
+                },
+              },
+            },
+            {
+              id: "sync-event-2",
+              payload_json: {
+                action_key: "DISTRIBUTION_CREATE",
+                payload: {
+                  disaster_event_id: "11111111-1111-4111-8111-111111111111",
+                },
+              },
+            },
+          ];
+        },
+        getSyncConflictsByUser: async () => [],
+        getDisasterEventTitlesByIds: async ({
+          eventIds,
+          roleCode,
+          defaultBarangayId,
+        }) => {
+          eventLookupCalls += 1;
+          assert.deepEqual(eventIds, [
+            "11111111-1111-4111-8111-111111111111",
+            "11111111-1111-4111-8111-111111111111",
+          ]);
+          assert.equal(roleCode, "BARANGAY");
+          assert.equal(defaultBarangayId, "barangay-1");
+          return {
+            "11111111-1111-4111-8111-111111111111": "Typhoon Response Maymay",
+          };
+        },
+      },
+    },
+    async ({ getSyncHistory }) => {
+      const history = await getSyncHistory({
+        auth: {
+          userId: "barangay-b",
+          roleCode: "BARANGAY",
+          defaultBarangayId: "barangay-1",
+        },
+        syncStatus: null,
+        conflictStatus: null,
+        limit: 50,
+      });
+
+      assert.equal(eventLookupCalls, 1);
+      assert.equal(
+        history.transactions[0].sync_history_disaster_event_title,
+        "Typhoon Response Maymay",
+      );
+      assert.equal(
+        history.transactions[1].sync_history_disaster_event_title,
+        "Typhoon Response Maymay",
+      );
+    },
+  );
+});
+
+test("BRG-SC-EVENT-02 unresolved or deleted event IDs do not fail or expose title fields", async () => {
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: {
+        getSyncTransactionsByUser: async () => [
+          {
+            id: "sync-missing-event",
+            payload_json: {
+              action_key: "HOUSEHOLD_REGISTER",
+              payload: {
+                disaster_event_id: "22222222-2222-4222-8222-222222222222",
+              },
+            },
+          },
+          {
+            id: "sync-legacy-no-event",
+            payload_json: {
+              action_key: "HOUSEHOLD_DEPART",
+              payload: {
+                remarks: "Legacy row",
+              },
+            },
+          },
+        ],
+        getSyncConflictsByUser: async () => [],
+        getDisasterEventTitlesByIds: async () => ({}),
+      },
+    },
+    async ({ getSyncHistory }) => {
+      const history = await getSyncHistory({
+        auth: {
+          userId: "barangay-b",
+          roleCode: "BARANGAY",
+          defaultBarangayId: "barangay-1",
+        },
+        syncStatus: null,
+        conflictStatus: null,
+        limit: 50,
+      });
+
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(
+          history.transactions[0],
+          "sync_history_disaster_event_title",
+        ),
+        false,
+      );
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(
+          history.transactions[1],
+          "sync_history_disaster_event_title",
+        ),
+        false,
+      );
+    },
+  );
+});
+
 test("BRG-SC-04B peer Mayor Needs Review count includes eligible conflict once", async () => {
   await withStubbedSyncService(
     {

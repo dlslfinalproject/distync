@@ -564,12 +564,17 @@ const StubDistributionPage = () => {
 
       try {
         await Promise.all(
-          selectedStubIds.map((stubId) =>
-            claimStub({
+          selectedStubIds.map((stubId) => {
+            const row =
+              filteredRows.find((candidate) => candidate.id === stubId) ||
+              stubRows.find((candidate) => candidate.id === stubId);
+
+            return claimStub({
               stubId,
               barangayId: selectedBarangayId,
-            }),
-          ),
+              disasterEventId: row?.disaster_event?.id || row?.disaster_event_id || "",
+            });
+          }),
         );
 
         reloadDashboard();
@@ -597,6 +602,11 @@ const StubDistributionPage = () => {
       await claimStub({
         stubId: pendingClaimStubId,
         barangayId: selectedBarangayId,
+        disasterEventId:
+          pendingClaimStubDetails?.disaster_event?.id ||
+          stubRows.find((row) => row.id === pendingClaimStubId)?.disaster_event?.id ||
+          stubRows.find((row) => row.id === pendingClaimStubId)?.disaster_event_id ||
+          "",
       });
       reloadDashboard();
       setPendingClaimStubId("");

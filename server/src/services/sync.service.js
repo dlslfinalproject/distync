@@ -47,6 +47,8 @@ const subtractiveInventoryTransactionTypes = new Set([
   "SPOILED",
   "STOLEN",
 ]);
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const createConflictPersistenceError = (message) => {
   const error = new Error(message);
@@ -326,6 +328,77 @@ const SUPPORTED_SYNC_ACTION_KEY_SET = new Set(SUPPORTED_SYNC_ACTION_KEYS);
 
 const isSupportedSyncAction = (actionKey) =>
   SUPPORTED_SYNC_ACTION_KEY_SET.has(actionKey);
+
+const normalizeUuid = (value) => {
+  const text = String(value || "").trim();
+  return uuidPattern.test(text) ? text : null;
+};
+
+const getFirstValidUuid = (...values) =>
+  values.map(normalizeUuid).find(Boolean) || null;
+
+const getSyncHistoryDisasterEventId = (transaction = {}) => {
+  const payloadJson = transaction.payload_json || {};
+  const payload = payloadJson.payload || transaction.payload || {};
+
+  return getFirstValidUuid(
+    transaction.disaster_event_id,
+    transaction.sync_history_disaster_event_id,
+    payloadJson.disaster_event_id,
+    payloadJson.disasterEventId,
+    payloadJson.disaster_event?.id,
+    payloadJson.disasterEvent?.id,
+    payload.disaster_event_id,
+    payload.disasterEventId,
+    payload.disaster_event?.id,
+    payload.disasterEvent?.id,
+    payload.household?.disaster_event_id,
+    payload.household?.disaster_event?.id,
+    payload.distribution?.disaster_event_id,
+    payload.distribution?.disaster_event?.id,
+    payload.stub?.disaster_event_id,
+    payload.stub?.disaster_event?.id,
+  );
+};
+
+const enrichSyncTransactionsWithDisasterEventTitles = async ({
+  transactions,
+  auth,
+}) => {
+  const transactionsWithEventIds = transactions.map((transaction) => ({
+    transaction,
+    disasterEventId: getSyncHistoryDisasterEventId(transaction),
+  }));
+  const eventIds = transactionsWithEventIds
+    .map((entry) => entry.disasterEventId)
+    .filter(Boolean);
+
+  if (
+    eventIds.length === 0 ||
+    typeof syncRepository.getDisasterEventTitlesByIds !== "function"
+  ) {
+    return transactions;
+  }
+
+  const titleLookup = await syncRepository.getDisasterEventTitlesByIds({
+    eventIds,
+    roleCode: auth.roleCode,
+    defaultBarangayId: auth.defaultBarangayId || null,
+  });
+
+  return transactionsWithEventIds.map(({ transaction, disasterEventId }) => {
+    const disasterEventTitle = disasterEventId ? titleLookup[disasterEventId] : null;
+
+    if (!disasterEventTitle) {
+      return transaction;
+    }
+
+    return {
+      ...transaction,
+      sync_history_disaster_event_title: disasterEventTitle,
+    };
+  });
+};
 
 const ensureActionAccess = (actionConfig, auth) => {
   if (!actionConfig.roles.includes(auth.roleCode)) {
@@ -1184,7 +1257,7 @@ const getSyncHistory = async ({ auth, syncStatus, conflictStatus, limit }) => {
         })
       : Promise.resolve([]);
 
-  const [transactions, ownedConflicts, reviewableConflicts] = await Promise.all([
+  const [rawTransactions, ownedConflicts, reviewableConflicts] = await Promise.all([
     syncRepository.getSyncTransactionsByUser({
       userId: auth.userId,
       syncStatus,
@@ -1197,6 +1270,10 @@ const getSyncHistory = async ({ auth, syncStatus, conflictStatus, limit }) => {
     }),
     reviewablePromise,
   ]);
+  const transactions = await enrichSyncTransactionsWithDisasterEventTitles({
+    transactions: rawTransactions,
+    auth,
+  });
 
   const conflicts = sortConflictsByCreatedAtDesc(
     [...mergeConflictsById(ownedConflicts, reviewableConflicts).values()],

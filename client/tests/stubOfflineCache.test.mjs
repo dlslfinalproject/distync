@@ -391,7 +391,10 @@ test("DEPLOY-MSWDO-RGD-01 STUB_CLAIM payload carries barangay_id separately from
   const mswdoPageSource = await readSource("../src/pages/mswdo/StubDistributionPage.jsx");
   const barangayPageSource = await readSource("../src/pages/barangay/StubDistributionPage.jsx");
 
-  assert.match(source, /payload = \{\s*user_id: userId \|\| null,\s*barangay_id: barangayId \|\| null,\s*override_barangay_id: overrideBarangayId \|\| null,\s*\}/);
+  assert.match(
+    source,
+    /payload = \{\s*user_id: userId \|\| null,\s*barangay_id: barangayId \|\| null,\s*override_barangay_id: overrideBarangayId \|\| null,\s*\.\.\.\(disasterEventId \? \{ disaster_event_id: disasterEventId \} : \{\}\),\s*\}/,
+  );
   assert.match(source, /entityType:\s*"STUB"/);
   assert.match(source, /entityServerId: stubId/);
   assert.match(mswdoPageSource, /claimStub\(\{\s*stubId,\s*barangayId: selectedBarangayId,/s);

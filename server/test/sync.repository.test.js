@@ -47,6 +47,17 @@ const withStubbedPool = async (poolStub, runTest) => {
   }
 };
 
+test("sync history event-title lookup keeps Barangay enrichment scoped", () => {
+  const source = fs.readFileSync(repositoryPath, "utf8");
+
+  assert.match(source, /const getDisasterEventTitlesByIds = async/);
+  assert.match(source, /de\.id = ANY\(\$1::uuid\[\]\)/);
+  assert.match(source, /String\(roleCode \|\| ""\)\.toUpperCase\(\) === "BARANGAY"/);
+  assert.match(source, /FROM disaster_event_barangays deb/);
+  assert.match(source, /deb\.disaster_event_id = de\.id/);
+  assert.match(source, /deb\.barangay_id = \$\$\{values\.length\}/);
+});
+
 test("recordConflictAndUpdateSyncTransaction inserts conflict and updates sync status in one transaction", async () => {
   const statements = [];
   const fakeClient = {

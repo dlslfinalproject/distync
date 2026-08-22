@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { FiFilter, FiRefreshCw, FiSearch } from "react-icons/fi";
+import { FiEye, FiFilter, FiRefreshCw, FiSearch } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../components/layout/PageHeader";
 import { shellStyles } from "../components/layout/BarangayLayout";
 import SyncStatusBadge from "../components/shared/SyncStatusBadge";
@@ -22,15 +22,13 @@ import {
   resolveSyncConflict,
 } from "../features/sync/syncHistoryService";
 import {
-  buildConflictPayloadSummary,
-  buildPayloadSummary,
   buildSyncSearchText,
   formatSyncDateTime,
+  formatSyncHistoryDateTime,
   getConflictReasonLabel,
   getResolutionStatusLabel,
-  getResolutionStrategyLabel,
+  getSyncHistoryNotes,
   getSyncRecordDetails,
-  getWinningSide,
   isSafeRetryableQueueEntry,
   matchesRecordTypeFilter,
   matchesSyncFilter,
@@ -75,7 +73,7 @@ const ORDER_OPTIONS = [
 
 const SYNC_SECTION_TABS = [
   { value: "QUEUE", label: "Offline Queue" },
-  { value: "AUDIT", label: "Sync Audit Trail" },
+  { value: "AUDIT", label: "Sync History" },
   { value: "CONFLICTS", label: "Conflict Review" },
 ];
 
@@ -83,6 +81,16 @@ const EMPTY_MESSAGE = "No matching records found. Try adjusting your search or f
 const EMPTY_QUEUE_MESSAGE = "No offline actions are waiting to sync on this device.";
 const EMPTY_HISTORY_MESSAGE = "No synchronization history is available yet.";
 const EMPTY_CONFLICT_MESSAGE = "No synchronization conflicts require review.";
+const SYNC_TABPANEL_IDS = {
+  QUEUE: "sync-center-offline-queue-panel",
+  AUDIT: "sync-center-history-panel",
+  CONFLICTS: "sync-center-conflict-review-panel",
+};
+const SYNC_TAB_IDS = {
+  QUEUE: "sync-center-offline-queue-tab",
+  AUDIT: "sync-center-history-tab",
+  CONFLICTS: "sync-center-conflict-review-tab",
+};
 
 const fieldStyles = {
   label: {
@@ -154,6 +162,28 @@ const detailTextStyles = {
   fontSize: "12px",
   lineHeight: 1.5,
   marginTop: "4px",
+};
+
+const srOnlyStyles = {
+  border: 0,
+  clip: "rect(0, 0, 0, 0)",
+  height: "1px",
+  margin: "-1px",
+  overflow: "hidden",
+  padding: 0,
+  position: "absolute",
+  whiteSpace: "nowrap",
+  width: "1px",
+};
+
+const syncHistoryTableStyles = {
+  ...tableStyles.table,
+  minWidth: "1080px",
+};
+
+const conflictReviewTableStyles = {
+  ...tableStyles.table,
+  minWidth: "820px",
 };
 
 const getRecordDateValue = (record = {}) =>
@@ -532,7 +562,7 @@ const SyncManagementPage = () => {
     }
   };
 
-  const renderRecordCells = (record) => {
+  const renderRecordCells = (record, { includeBarangay = true } = {}) => {
     const details = getSyncRecordDetails(record);
 
     return (
@@ -541,11 +571,11 @@ const SyncManagementPage = () => {
         <td style={tableStyles.td}>{details.actionLabel}</td>
         <td style={tableStyles.td}>
           <div>{details.subject}</div>
-          <div style={detailTextStyles}>
-            {details.stubNumber !== "--" ? details.stubNumber : details.familyHeadName}
-          </div>
+          {details.secondaryLabel ? (
+            <div style={detailTextStyles}>{details.secondaryLabel}</div>
+          ) : null}
         </td>
-        <td style={tableStyles.td}>{details.barangay}</td>
+        {includeBarangay ? <td style={tableStyles.td}>{details.barangay}</td> : null}
         <td style={tableStyles.td}>{details.disasterEvent}</td>
       </>
     );
@@ -554,12 +584,6 @@ const SyncManagementPage = () => {
   return (
     <>
       <PageHeader title="SYNC CENTER" />
-      <p style={{ ...shellStyles.mutedText, marginTop: "-10px" }}>
-        Monitor offline actions from this device and confirm whether they have
-        been synchronized with the central DISTYNC database. Review pending,
-        failed, and conflicting synchronization records and retry eligible failed
-        actions when needed.
-      </p>
 
       <section style={shellStyles.card}>
         <div
@@ -658,7 +682,7 @@ const SyncManagementPage = () => {
             type="search"
             value={filters.search}
             onChange={(event) => updateFilter("search", event.target.value)}
-            placeholder="Search family head, stub number, barangay, action, or event"
+            placeholder="Search record type, affected record, stub number, action, status, event, sector, relief pack, or notes"
             style={{
               ...fieldStyles.input,
               paddingLeft: "44px",
@@ -726,6 +750,8 @@ const SyncManagementPage = () => {
 
       <section style={{ ...shellStyles.card, padding: "22px 36px 0" }}>
         <div
+          role="tablist"
+          aria-label="Sync Center sections"
           style={{
             borderBottom: "1px solid #d6e2ef",
             display: "flex",
@@ -737,6 +763,10 @@ const SyncManagementPage = () => {
           {SYNC_SECTION_TABS.map((tab) => (
             <button
               key={tab.value}
+              id={SYNC_TAB_IDS[tab.value]}
+              role="tab"
+              aria-selected={activeSyncTab === tab.value}
+              aria-controls={SYNC_TABPANEL_IDS[tab.value]}
               type="button"
               onClick={() => setActiveSyncTab(tab.value)}
               style={syncTabButtonStyles(activeSyncTab === tab.value)}
@@ -748,11 +778,13 @@ const SyncManagementPage = () => {
       </section>
 
       {activeSyncTab === "QUEUE" ? (
-      <section style={shellStyles.card}>
-        <h3 style={{ margin: "0 0 8px", color: "#17324d" }}>Offline Queue</h3>
-        <p style={{ ...shellStyles.mutedText, margin: "0 0 16px" }}>
-          Local device actions waiting to be sent or retried from this browser.
-        </p>
+      <section
+        id={SYNC_TABPANEL_IDS.QUEUE}
+        role="tabpanel"
+        aria-labelledby={SYNC_TAB_IDS.QUEUE}
+        style={shellStyles.card}
+      >
+        <h2 style={srOnlyStyles}>Offline Queue</h2>
 
         {filteredQueueEntries.length === 0 ? (
           <p style={shellStyles.mutedText}>
@@ -829,11 +861,13 @@ const SyncManagementPage = () => {
       ) : null}
 
       {activeSyncTab === "AUDIT" ? (
-      <section style={shellStyles.card}>
-        <h3 style={{ margin: "0 0 8px", color: "#17324d" }}>Server Sync History</h3>
-        <p style={{ ...shellStyles.mutedText, margin: "0 0 16px" }}>
-          Central server records for synchronization attempts associated with your account.
-        </p>
+      <section
+        id={SYNC_TABPANEL_IDS.AUDIT}
+        role="tabpanel"
+        aria-labelledby={SYNC_TAB_IDS.AUDIT}
+        style={shellStyles.card}
+      >
+        <h2 style={srOnlyStyles}>Sync History</h2>
 
         {isLoadingHistory ? (
           <p style={shellStyles.mutedText}>Loading sync history...</p>
@@ -847,43 +881,51 @@ const SyncManagementPage = () => {
           </p>
         ) : (
           <div style={{ overflowX: "auto" }}>
-            <table style={tableStyles.table}>
+            <table style={syncHistoryTableStyles}>
               <thead>
                 <tr>
                   <th style={tableStyles.th}>Record Type</th>
                   <th style={tableStyles.th}>Action</th>
-                  <th style={tableStyles.th}>Family / Stub</th>
-                  <th style={tableStyles.th}>Barangay</th>
+                  <th style={tableStyles.th}>Affected Record</th>
                   <th style={tableStyles.th}>Disaster Event</th>
                   <th style={tableStyles.th}>Status</th>
                   <th style={tableStyles.th}>Queued At</th>
-                  <th style={tableStyles.th}>Synced At</th>
+                  <th style={tableStyles.th}>Processed At</th>
                   <th style={tableStyles.th}>Notes</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredTransactions.map((transaction) => (
-                  <tr key={transaction.id}>
-                    {renderRecordCells(transaction)}
-                    <td style={tableStyles.td}>
-                      <SyncStatusBadge status={transaction.sync_status} />
-                    </td>
-                    <td style={tableStyles.td}>
-                      {formatSyncDateTime(
-                        transaction.client_timestamp || transaction.created_at,
-                      )}
-                    </td>
-                    <td style={tableStyles.td}>
-                      {formatSyncDateTime(transaction.server_timestamp)}
-                    </td>
-                    <td style={tableStyles.td}>
-                      <div>{buildPayloadSummary(transaction.payload_json?.payload)}</div>
-                      <div style={detailTextStyles}>
-                        {transaction.error_message || "--"}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {filteredTransactions.map((transaction) => {
+                  const notes = getSyncHistoryNotes(transaction);
+
+                  return (
+                    <tr key={transaction.id}>
+                      {renderRecordCells(transaction, { includeBarangay: false })}
+                      <td style={tableStyles.td}>
+                        <SyncStatusBadge status={transaction.sync_status} />
+                      </td>
+                      <td style={tableStyles.td}>
+                        {formatSyncDateTime(
+                          transaction.client_timestamp || transaction.created_at,
+                        )}
+                      </td>
+                      <td style={tableStyles.td}>
+                        {formatSyncHistoryDateTime(transaction.server_timestamp)}
+                      </td>
+                      <td style={tableStyles.td}>
+                        {notes.map((note, index) =>
+                          index === 0 ? (
+                            <div key={note}>{note}</div>
+                          ) : (
+                            <div key={note} style={detailTextStyles}>
+                              {note}
+                            </div>
+                          ),
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -892,12 +934,13 @@ const SyncManagementPage = () => {
       ) : null}
 
       {activeSyncTab === "CONFLICTS" ? (
-      <section style={shellStyles.card}>
-        <h3 style={{ margin: "0 0 8px", color: "#17324d" }}>Conflict Review</h3>
-        <p style={{ ...shellStyles.mutedText, margin: "0 0 16px" }}>
-          Server-recorded conflicts from synchronization attempts. Open conflicts
-          may need review; resolved conflicts show the recorded outcome.
-        </p>
+      <section
+        id={SYNC_TABPANEL_IDS.CONFLICTS}
+        role="tabpanel"
+        aria-labelledby={SYNC_TAB_IDS.CONFLICTS}
+        style={shellStyles.card}
+      >
+        <h2 style={srOnlyStyles}>Conflict Review</h2>
 
         {isLoadingHistory ? (
           <p style={shellStyles.mutedText}>Loading conflicts...</p>
@@ -907,15 +950,12 @@ const SyncManagementPage = () => {
           </p>
         ) : (
           <div style={{ overflowX: "auto" }}>
-            <table style={tableStyles.table}>
+            <table style={conflictReviewTableStyles}>
               <thead>
                 <tr>
                   <th style={tableStyles.th}>Record Type</th>
-                  <th style={tableStyles.th}>Family / Stub</th>
-                  <th style={tableStyles.th}>Reason</th>
-                  <th style={tableStyles.th}>Local Record</th>
-                  <th style={tableStyles.th}>Server Record</th>
-                  <th style={tableStyles.th}>Decision</th>
+                  <th style={tableStyles.th}>Affected Record</th>
+                  <th style={tableStyles.th}>Conflict Reason</th>
                   <th style={tableStyles.th}>Status</th>
                   <th style={tableStyles.th}>Resolved At</th>
                   <th style={tableStyles.th}>Action</th>
@@ -929,37 +969,31 @@ const SyncManagementPage = () => {
                     <tr key={conflict.id}>
                       <td style={tableStyles.td}>{details.recordType}</td>
                       <td style={tableStyles.td}>{details.subject}</td>
+                      <td style={tableStyles.td}>{getConflictReasonLabel(conflict)}</td>
                       <td style={tableStyles.td}>
-                        {getConflictReasonLabel(conflict)}
-                        <div style={detailTextStyles}>
-                          {conflict.error_message ||
-                            getResolutionStrategyLabel(conflict.resolution_strategy)}
-                        </div>
+                        <SyncStatusBadge
+                          status={conflict.status === "RESOLVED" ? "RESOLVED" : "OPEN"}
+                        />
                       </td>
                       <td style={tableStyles.td}>
-                        {buildConflictPayloadSummary(conflict.local_payload_json)}
-                      </td>
-                      <td style={tableStyles.td}>
-                        {buildConflictPayloadSummary(conflict.server_payload_json)}
-                      </td>
-                      <td style={tableStyles.td}>{getWinningSide(conflict)}</td>
-                      <td style={tableStyles.td}>
-                        <SyncStatusBadge status={getConflictFilterStatus(conflict)} />
-                        <div style={detailTextStyles}>
-                          {getResolutionStatusLabel(conflict)}
-                        </div>
-                      </td>
-                      <td style={tableStyles.td}>
-                        {formatSyncDateTime(conflict.resolved_at)}
+                        {formatSyncHistoryDateTime(conflict.resolved_at)}
                       </td>
                       <td style={tableStyles.td}>
                         <button
                           type="button"
                           onClick={() => handleOpenConflictDetail(conflict.id)}
                           disabled={isLoadingConflictDetail}
-                          style={pageHeaderStyles.secondaryButton}
+                          aria-label="View synchronization details"
+                          title="View synchronization details"
+                          style={{
+                            ...pageHeaderStyles.secondaryButton,
+                            minWidth: "44px",
+                            minHeight: "44px",
+                            justifyContent: "center",
+                            padding: "10px 12px",
+                          }}
                         >
-                          View Details
+                          <FiEye size={18} aria-hidden="true" focusable="false" />
                         </button>
                       </td>
                     </tr>

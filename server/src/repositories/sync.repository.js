@@ -362,6 +362,50 @@ const getSyncTransactionsByUser = async ({ userId, syncStatus = null, limit = 50
   return result.rows;
 };
 
+const getDisasterEventTitlesByIds = async ({
+  eventIds = [],
+  roleCode = null,
+  defaultBarangayId = null,
+}) => {
+  const uniqueEventIds = [...new Set((Array.isArray(eventIds) ? eventIds : []).filter(Boolean))];
+
+  if (uniqueEventIds.length === 0) {
+    return {};
+  }
+
+  const values = [uniqueEventIds];
+  const conditions = ["de.id = ANY($1::uuid[])"];
+
+  if (String(roleCode || "").toUpperCase() === "BARANGAY") {
+    if (!defaultBarangayId) {
+      return {};
+    }
+
+    values.push(defaultBarangayId);
+    conditions.push(`
+      EXISTS (
+        SELECT 1
+        FROM disaster_event_barangays deb
+        WHERE deb.disaster_event_id = de.id
+          AND deb.barangay_id = $${values.length}
+      )
+    `);
+  }
+
+  const query = `
+    SELECT de.id, de.title
+    FROM disaster_events de
+    WHERE ${conditions.join(" AND ")}
+  `;
+
+  const result = await pool.query(query, values);
+
+  return result.rows.reduce((lookup, row) => {
+    lookup[row.id] = row.title;
+    return lookup;
+  }, {});
+};
+
 const getSyncConflictsByUser = async ({ userId, status = null, limit = 50 }) => {
   const values = [userId];
   const conditions = ["st.user_id = $1"];
@@ -714,6 +758,7 @@ module.exports = {
   recordConflictAndUpdateSyncTransaction,
   recordSyncFailureAndNotificationIntent,
   getSyncTransactionsByUser,
+  getDisasterEventTitlesByIds,
   getSyncConflictsByUser,
   getReviewableManualInventoryConflicts,
   getSyncConflictByIdForUser,

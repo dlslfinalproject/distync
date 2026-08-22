@@ -15,6 +15,10 @@ export const SYNC_STATUS_LABELS = {
 };
 
 export const getNormalizedSyncStatus = (status) => {
+  if (status === "OPEN") {
+    return "OPEN";
+  }
+
   if (status === "RESOLVED") {
     return "RESOLVED";
   }
@@ -27,6 +31,10 @@ export const getNormalizedSyncStatus = (status) => {
 };
 
 export const getSyncLabel = (status) => {
+  if (status === "OPEN") {
+    return "Open";
+  }
+
   if (status === "RESOLVED") {
     return "Resolved";
   }
@@ -95,6 +103,14 @@ export const formatCompactSyncChipLabel = (count, type) => {
 };
 
 export const getSyncBadgePalette = (status) => {
+  if (status === "OPEN") {
+    return {
+      backgroundColor: "#fef3c7",
+      color: "#92400e",
+      borderColor: "#fde68a",
+    };
+  }
+
   if (status === "RESOLVED") {
     return {
       backgroundColor: "#eef6ff",

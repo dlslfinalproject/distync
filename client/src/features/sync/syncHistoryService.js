@@ -53,7 +53,12 @@ export const resolveSyncConflict = async (conflictId, { action, reason }) => {
 
 export const fetchSyncStatusSummary = async () => {
   const response = await fetch(`${API_BASE_URL}/api/v1/sync/status-summary`);
-  return handleJsonResponse(response, "Failed to load sync status summary");
+  const payload = await handleJsonResponse(
+    response,
+    "Failed to load sync status summary",
+  );
+
+  return payload?.data || {};
 };
 
 export const auditSyncRetryRequest = async (entries = []) => {

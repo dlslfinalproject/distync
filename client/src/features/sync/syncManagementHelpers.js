@@ -54,6 +54,68 @@ const ACTION_LABELS = {
   INVENTORY_TRANSACTION_CREATE: "Inventory Movement",
 };
 
+const ACTION_SUBJECT_FALLBACKS = {
+  HOUSEHOLD_REGISTER: "Household registration",
+  HOUSEHOLD_UPDATE: "Household update",
+  HOUSEHOLD_DEPART: "Evacuee departure record",
+  STUB_CLAIM: "Relief distribution claim",
+  DISTRIBUTION_QR_CLAIM: "QR relief claim",
+  DISTRIBUTION_CREATE: "Relief distribution record",
+  DONATION_CREATE: "Donation record",
+  DONATION_UPDATE: "Donation update",
+  DONATION_ITEM_CREATE: "Donation item record",
+  DONATION_ITEM_UPDATE: "Donation item update",
+  DISASTER_EVENT_CREATE: "Disaster event record",
+  DISASTER_EVENT_UPDATE: "Disaster event update",
+  DISASTER_EVENT_EXTEND: "Disaster event extension",
+  DISASTER_EVENT_END: "Disaster event closure",
+  INVENTORY_ITEM_CREATE: "Inventory item record",
+  INVENTORY_ITEM_UPDATE: "Inventory item update",
+  INVENTORY_TRANSACTION_CREATE: "Inventory movement record",
+};
+
+const getStoredActionKey = (record = {}) =>
+  normalizeKey(
+    record.actionKey ||
+      record.action_key ||
+      record.payload_json?.action_key ||
+      record.payload_json?.payload?.action_key ||
+      record.payload?.action_key ||
+      record.local_payload_json?.action_key,
+  );
+
+const getOperationType = (record = {}) =>
+  normalizeKey(record.operation_type || record.operationType);
+
+const getActionSubjectFallback = ({ record = {}, actionKey, entityType, recordType }) => {
+  const storedActionKey = getStoredActionKey(record);
+  const operationType = getOperationType(record);
+
+  if (ACTION_SUBJECT_FALLBACKS[storedActionKey]) {
+    return ACTION_SUBJECT_FALLBACKS[storedActionKey];
+  }
+
+  if (ACTION_SUBJECT_FALLBACKS[actionKey]) {
+    return ACTION_SUBJECT_FALLBACKS[actionKey];
+  }
+
+  if (entityType === "HOUSEHOLD" && operationType === "TIME_OUT") {
+    return "Evacuee departure record";
+  }
+
+  if (["STUB", "DISTRIBUTION_TRANSACTION"].includes(entityType) && operationType === "CLAIM") {
+    return "Relief distribution claim";
+  }
+
+  if (entityType === "HOUSEHOLD" && operationType === "CREATE") {
+    return "Household registration";
+  }
+
+  return `${recordType} sync record`;
+};
+
+export const SYNC_MISSING_VALUE = "Not available";
+
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -75,6 +137,11 @@ export const formatSyncDateTime = (value) => {
     hour: "numeric",
     minute: "2-digit",
   });
+};
+
+export const formatSyncHistoryDateTime = (value) => {
+  const formattedValue = formatSyncDateTime(value);
+  return formattedValue === "--" ? SYNC_MISSING_VALUE : formattedValue;
 };
 
 export const matchesSyncFilter = (status, filterKey) => {
@@ -100,26 +167,32 @@ export const isSafeRetryableQueueEntry = (entry = {}) =>
   isSafeRetryableStatus(entry.status) &&
   !isUnsupportedOfflineActionKey(entry.actionKey);
 
-export const getWinningSide = (conflict) => {
-  const winner = conflict?.resolved_payload_json?.winner;
+const normalizeDisplayText = (value) =>
+  String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
 
-  if (winner === "LOCAL") {
-    return "Local";
-  }
+const isUuidLikeValue = (value) => uuidPattern.test(String(value || "").trim());
 
-  if (winner === "SERVER") {
-    return "Server";
-  }
+const isMeaningfulDisplayValue = (value) => {
+  const normalized = normalizeDisplayText(value);
 
-  return "--";
+  return (
+    Boolean(normalized) &&
+    normalized !== "--" &&
+    normalized !== "not available" &&
+    normalized !== "n/a" &&
+    !isUuidLikeValue(normalized)
+  );
 };
 
 const asDisplayValue = (value) => {
-  if (value === undefined || value === null || value === "") {
-    return "--";
+  if (!isMeaningfulDisplayValue(value)) {
+    return SYNC_MISSING_VALUE;
   }
 
-  return String(value);
+  return String(value).trim();
 };
 
 const normalizeKey = (value) =>
@@ -132,9 +205,6 @@ const toTitleCase = (value) =>
     .toLowerCase()
     .replace(/_/g, " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
-
-export const formatSyncTechnicalLabel = (value) =>
-  toTitleCase(value || "Sync Record");
 
 const getPayloadContainer = (record = {}) => {
   const payload = record.payload_json || record.payload || record.local_payload_json || record;
@@ -152,6 +222,7 @@ const getActionKey = (record = {}) =>
       record.action_key ||
       record.operation_type ||
       record.payload_json?.action_key ||
+      record.payload_json?.payload?.action_key ||
       record.payload?.action_key ||
       record.local_payload_json?.action_key,
   );
@@ -163,6 +234,7 @@ const getEntityType = (record = {}) =>
       record.moduleName ||
       record.module_name ||
       record.payload_json?.entity_type ||
+      record.payload_json?.payload?.entity_type ||
       record.payload?.entity_type,
   );
 
@@ -192,6 +264,17 @@ const getFamilyHeadName = (payload = {}) =>
     payload.familyHead?.name,
     getPersonName(payload.family_head),
     getPersonName(payload.familyHead),
+  );
+
+const getAffectedPersonName = (payload = {}) =>
+  getFirstValue(
+    getFamilyHeadName(payload),
+    payload.claimed_by_name,
+    payload.claimedByName,
+    payload.recipient_name,
+    payload.recipientName,
+    payload.household?.family_head_name,
+    payload.household?.familyHeadName,
   );
 
 const getRecordTypeLabel = (record = {}, payload = {}) => {
@@ -231,9 +314,14 @@ export const getSyncRecordDetails = (record = {}) => {
   const entityType = getEntityType(record);
   const recordType = getRecordTypeLabel(record, payload);
   const familyHeadName = getFamilyHeadName(payload);
+  const affectedPersonName = getAffectedPersonName(payload);
   const stubNumber = getFirstValue(
+    payload.display_stub_no,
     payload.display_stub_number,
+    payload.stub_no,
     payload.stub_number,
+    payload.receipt_no,
+    payload.receipt_number,
     payload.stub?.display_stub_number,
     payload.stub?.stub_number,
     payload.distribution?.display_stub_number,
@@ -242,23 +330,33 @@ export const getSyncRecordDetails = (record = {}) => {
   const barangay = getFirstValue(
     payload.barangay_name,
     payload.barangay,
+    payload.barangay?.name,
     payload.assigned_barangay_name,
     payload.assigned_barangay,
     payload.household?.barangay_name,
+    payload.household?.barangay?.name,
     payload.household?.assigned_barangay_name,
     payload.distribution?.barangay_name,
+    payload.distribution?.barangay?.name,
   );
   const disasterEvent = getFirstValue(
+    record.sync_history_disaster_event_title,
+    record.disaster_event_title,
     payload.disaster_event_title,
     payload.disaster_event_name,
     payload.event_title,
     payload.event_name,
     payload.disaster_event?.title,
     payload.disaster_event?.name,
+    payload.disasterEvent?.title,
+    payload.disasterEvent?.name,
     payload.household?.disaster_event_title,
+    payload.household?.disaster_event?.title,
+    payload.distribution?.disaster_event_title,
+    payload.distribution?.disaster_event?.title,
   );
   const subject = getFirstValue(
-    familyHeadName,
+    affectedPersonName,
     stubNumber,
     payload.item_name,
     payload.title,
@@ -270,14 +368,25 @@ export const getSyncRecordDetails = (record = {}) => {
       ? ""
       : record.entity_local_id || record.entityLocalId,
   );
-  const fallbackSubject =
-    record.status === LOCAL_SYNC_STATUS.PENDING
-      ? "Queued offline action"
-      : record.sync_status === LOCAL_SYNC_STATUS.FAILED || record.status === LOCAL_SYNC_STATUS.FAILED
-        ? "Failed sync action"
-        : record.sync_status === LOCAL_SYNC_STATUS.CONFLICT || record.status === LOCAL_SYNC_STATUS.CONFLICT
-          ? "Conflicting sync action"
-          : "Sync record";
+  const fallbackSubject = getActionSubjectFallback({
+    record,
+    actionKey,
+    entityType,
+    recordType,
+  });
+  const primarySubject = asDisplayValue(subject || fallbackSubject);
+  const secondaryCandidates = [
+    stubNumber ? `Stub No. ${stubNumber}` : "",
+    familyHeadName && normalizeDisplayText(familyHeadName) !== normalizeDisplayText(primarySubject)
+      ? familyHeadName
+      : "",
+  ];
+  const secondaryLabel =
+    secondaryCandidates.find(
+      (candidate) =>
+        isMeaningfulDisplayValue(candidate) &&
+        normalizeDisplayText(candidate) !== normalizeDisplayText(primarySubject),
+    ) || "";
 
   return {
     actionLabel: ACTION_LABELS[actionKey] || toTitleCase(actionKey || "Sync Action"),
@@ -297,10 +406,74 @@ export const getSyncRecordDetails = (record = {}) => {
           : ""),
     ),
     recordType,
-    status: record.status || record.sync_status || record.resolution_status || "--",
+    secondaryLabel,
+    status: record.status || record.sync_status || record.resolution_status || SYNC_MISSING_VALUE,
     stubNumber: asDisplayValue(stubNumber),
-    subject: asDisplayValue(subject || fallbackSubject),
+    subject: primarySubject,
   };
+};
+
+const collectUniqueDisplayValues = (values = []) => {
+  const seen = new Set();
+  const output = [];
+
+  values.forEach((value) => {
+    if (!isMeaningfulDisplayValue(value)) {
+      return;
+    }
+
+    const text = String(value).trim();
+    const key = normalizeDisplayText(text);
+
+    if (seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    output.push(text);
+  });
+
+  return output;
+};
+
+export const getSyncHistoryNotes = (record = {}) => {
+  const payload = getPayloadContainer(record);
+  const details = getSyncRecordDetails(record);
+  const excludedValues = [
+    details.subject,
+    details.secondaryLabel,
+    details.familyHeadName,
+    details.stubNumber,
+    details.barangay,
+    details.disasterEvent,
+    details.recordType,
+    details.actionLabel,
+  ].map(normalizeDisplayText);
+
+  const candidateNotes = [
+    getUnsupportedOfflineActionMessage(getActionKey(record)),
+    record.lastError,
+    record.serverMessage,
+    record.error_message,
+    payload.remarks,
+    payload.status &&
+    normalizeDisplayText(payload.status) !== normalizeDisplayText(record.sync_status)
+      ? `Record status: ${payload.status}`
+      : "",
+    payload.quantity_needed || payload.quantity_received
+      ? `Quantity: ${payload.quantity_needed || payload.quantity_received}`
+      : "",
+    payload.item_name ? `Item: ${payload.item_name}` : "",
+    Array.isArray(payload.items) && payload.items.length > 0
+      ? `${payload.items.length} item(s)`
+      : "",
+  ];
+
+  const notes = collectUniqueDisplayValues(candidateNotes).filter(
+    (note) => !excludedValues.includes(normalizeDisplayText(note.replace(/^Family Head:\s*/i, ""))),
+  );
+
+  return notes.length > 0 ? notes : [SYNC_MISSING_VALUE];
 };
 
 export const buildSyncSearchText = (record = {}) => {
@@ -313,7 +486,6 @@ export const buildSyncSearchText = (record = {}) => {
     details.subject,
     details.familyHeadName,
     details.stubNumber,
-    details.barangay,
     details.disasterEvent,
     details.status,
     details.notes,
@@ -392,47 +564,44 @@ export const buildPayloadSummary = (payload) => {
     .join(" | ");
 };
 
-export const buildConflictPayloadSummary = (payload) => {
-  if (!payload || typeof payload !== "object") {
-    return "--";
-  }
-
-  if (payload.payload && typeof payload.payload === "object") {
-    return buildPayloadSummary({
-      action_key: payload.action_key,
-      ...payload.payload,
-    });
-  }
-
-  return buildPayloadSummary(payload);
-};
-
 export const getConflictReasonLabel = (conflict) => {
   if (conflict?.conflict_type === "UPDATED_AT_MISMATCH") {
-    return "The offline record and the central server record were both changed before synchronization completed.";
+    return "Record Changed in Two Places";
   }
 
   if (conflict?.conflict_type === "DUPLICATE_CLAIM") {
-    return "Possible duplicate relief claim for the same stub.";
+    return "Duplicate Relief Claim";
+  }
+
+  if (conflict?.conflict_type === "DUPLICATE_HOUSEHOLD_REGISTRATION") {
+    return "Duplicate Household Registration";
   }
 
   return toTitleCase(conflict?.conflict_type || "--");
 };
 
-export const getResolutionStrategyLabel = (strategy) => {
-  if (strategy === "FIRST_ACCEPTED") {
-    return "First valid server acceptance kept";
+export const getConflictExplanation = (conflict) => {
+  if (conflict?.error_message && !isUuidLikeValue(conflict.error_message)) {
+    return conflict.error_message;
   }
 
-  if (strategy === "LATEST_TIMESTAMP") {
-    return "Timestamp comparison applied";
+  if (conflict?.conflict_type === "DUPLICATE_HOUSEHOLD_REGISTRATION") {
+    return "A household with matching information was already recorded for this disaster event.";
   }
 
-  if (strategy === "MANUAL_REVIEW") {
-    return "Manual review required";
+  if (conflict?.conflict_type === "DUPLICATE_CLAIM") {
+    return "A relief claim for the same stub was already recorded in DISTYNC.";
   }
 
-  return toTitleCase(strategy || "--");
+  if (conflict?.conflict_type === "UPDATED_AT_MISMATCH") {
+    return "This device and DISTYNC both had changes for the same record before synchronization completed.";
+  }
+
+  if (conflict?.conflict_type === "INVENTORY_STOCK_STATE_DRIFT") {
+    return "The available stock in DISTYNC changed before this offline inventory action could be synchronized.";
+  }
+
+  return "DISTYNC found a conflict while synchronizing this record.";
 };
 
 export const getResolutionStatusLabel = (conflict) => {
@@ -441,8 +610,152 @@ export const getResolutionStatusLabel = (conflict) => {
   }
 
   if (conflict?.status === "OPEN") {
-    return "For Review";
+    return "Open";
   }
 
   return toTitleCase(conflict?.status || "--");
+};
+
+const getConflictWinner = (conflict = {}) =>
+  normalizeKey(conflict.resolved_payload_json?.winner);
+
+export const getConflictResolutionSummary = (conflict = {}) => {
+  const isResolved = conflict.status === "RESOLVED";
+  const winner = getConflictWinner(conflict);
+  const strategy = normalizeKey(conflict.resolution_strategy);
+  const action = normalizeKey(conflict.resolution_action);
+  const canResolve = Array.isArray(conflict.availableResolutionActions) &&
+    conflict.availableResolutionActions.length > 0;
+
+  if (!isResolved) {
+    return {
+      result: canResolve ? "Review still needed" : "Waiting for authorized review",
+      whatHappened: canResolve
+        ? "Review the record comparison, then choose an available action when you are ready."
+        : "This conflict is open. Only an authorized reviewer can close it.",
+    };
+  }
+
+  if (winner === "SERVER" || strategy === "FIRST_ACCEPTED" || action === "KEEP_SERVER") {
+    return {
+      result: "Saved DISTYNC record kept",
+      whatHappened:
+        "DISTYNC kept the first valid saved record to prevent duplicate or conflicting data.",
+    };
+  }
+
+  if (winner === "LOCAL" || action === "APPLY_LOCAL") {
+    return {
+      result: "This device record applied",
+      whatHappened:
+        "The synchronized record from this device was accepted after review.",
+    };
+  }
+
+  if (action === "MARK_REVIEWED") {
+    return {
+      result: "Conflict reviewed",
+      whatHappened:
+        "An authorized reviewer checked the conflict and closed it without changing the saved DISTYNC record.",
+    };
+  }
+
+  if (strategy === "LATEST_TIMESTAMP") {
+    return {
+      result: "Latest valid record kept",
+      whatHappened:
+        "DISTYNC compared the record times and kept the latest valid information.",
+    };
+  }
+
+  return {
+    result: "Conflict resolved",
+    whatHappened:
+      "DISTYNC completed the conflict review and kept the authorized saved result.",
+  };
+};
+
+const getComparisonPayload = (payload = {}) => {
+  if (payload?.payload && typeof payload.payload === "object") {
+    return {
+      action_key: payload.action_key,
+      ...payload.payload,
+    };
+  }
+
+  return payload && typeof payload === "object" ? payload : {};
+};
+
+const pickComparisonValue = (payload = {}, keys = []) => {
+  for (const key of keys) {
+    const value = key.split(".").reduce((current, segment) => current?.[segment], payload);
+
+    if (isMeaningfulDisplayValue(value)) {
+      return String(value).trim();
+    }
+  }
+
+  return "";
+};
+
+const getPayloadComparisonDetails = (payload = {}) => {
+  const normalizedPayload = getComparisonPayload(payload);
+  const details = getSyncRecordDetails({ payload: normalizedPayload });
+
+  return {
+    familyHead: details.familyHeadName,
+    stubNumber: details.stubNumber,
+    barangay: details.barangay,
+    disasterEvent: details.disasterEvent,
+    status: asDisplayValue(normalizedPayload.status),
+    remarks: asDisplayValue(normalizedPayload.remarks),
+    item: asDisplayValue(normalizedPayload.item_name),
+    quantity: asDisplayValue(
+      normalizedPayload.quantity ||
+        normalizedPayload.quantity_needed ||
+        normalizedPayload.quantity_received,
+    ),
+    batchNo: asDisplayValue(normalizedPayload.batch_no),
+    donorName: asDisplayValue(normalizedPayload.donor_name),
+    updatedAt: formatSyncHistoryDateTime(normalizedPayload.updated_at),
+    receiptNo: asDisplayValue(
+      pickComparisonValue(normalizedPayload, [
+        "receipt_no",
+        "receipt_number",
+        "distribution.receipt_no",
+        "distribution.receipt_number",
+      ]),
+    ),
+  };
+};
+
+export const getConflictComparisonRows = (conflict = {}) => {
+  const localDetails = getPayloadComparisonDetails(conflict.local_payload_json);
+  const serverDetails = getPayloadComparisonDetails(conflict.server_payload_json);
+  const fields = [
+    ["Family Head", "familyHead"],
+    ["Stub No.", "stubNumber"],
+    ["Receipt No.", "receiptNo"],
+    ["Barangay", "barangay"],
+    ["Disaster Event", "disasterEvent"],
+    ["Status", "status"],
+    ["Remarks", "remarks"],
+    ["Item", "item"],
+    ["Quantity", "quantity"],
+    ["Batch No.", "batchNo"],
+    ["Donor", "donorName"],
+    ["Last Updated", "updatedAt"],
+  ];
+
+  return fields
+    .map(([label, key]) => ({
+      label,
+      localValue: localDetails[key],
+      serverValue: serverDetails[key],
+    }))
+    .filter(
+      (row) =>
+        row.localValue !== SYNC_MISSING_VALUE ||
+        row.serverValue !== SYNC_MISSING_VALUE,
+    );
 };

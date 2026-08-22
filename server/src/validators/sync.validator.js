@@ -21,6 +21,15 @@ const isValidDateString = (value) => {
   return !Number.isNaN(new Date(value).getTime());
 };
 
+const ALLOWED_SYNC_HISTORY_STATUSES = new Set([
+  "PENDING",
+  "SYNCED",
+  "FAILED",
+  "CONFLICT",
+]);
+
+const ALLOWED_CONFLICT_HISTORY_STATUSES = new Set(["OPEN", "RESOLVED"]);
+
 const validateProcessSyncEntries = (req, res, next) => {
   try {
     const { entries } = req.body || {};
@@ -150,15 +159,36 @@ const validateGetSyncHistory = (req, res, next) => {
       });
     }
 
+    const normalizedSyncStatus =
+      typeof sync_status === "string" && sync_status.trim()
+        ? sync_status.trim().toUpperCase()
+        : null;
+    const normalizedConflictStatus =
+      typeof conflict_status === "string" && conflict_status.trim()
+        ? conflict_status.trim().toUpperCase()
+        : null;
+
+    if (
+      normalizedSyncStatus &&
+      !ALLOWED_SYNC_HISTORY_STATUSES.has(normalizedSyncStatus)
+    ) {
+      return res.status(400).json({
+        message: "sync_status must be one of: PENDING, SYNCED, FAILED, CONFLICT",
+      });
+    }
+
+    if (
+      normalizedConflictStatus &&
+      !ALLOWED_CONFLICT_HISTORY_STATUSES.has(normalizedConflictStatus)
+    ) {
+      return res.status(400).json({
+        message: "conflict_status must be one of: OPEN, RESOLVED",
+      });
+    }
+
     req.validatedQuery = {
-      sync_status:
-        typeof sync_status === "string" && sync_status.trim()
-          ? sync_status.trim().toUpperCase()
-          : null,
-      conflict_status:
-        typeof conflict_status === "string" && conflict_status.trim()
-          ? conflict_status.trim().toUpperCase()
-          : null,
+      sync_status: normalizedSyncStatus,
+      conflict_status: normalizedConflictStatus,
       limit: parsedLimit,
     };
 

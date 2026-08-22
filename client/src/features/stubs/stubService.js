@@ -165,11 +165,13 @@ export const claimStub = async ({
   userId,
   barangayId,
   overrideBarangayId,
+  disasterEventId,
 }) => {
   const payload = {
     user_id: userId || null,
     barangay_id: barangayId || null,
     override_barangay_id: overrideBarangayId || null,
+    ...(disasterEventId ? { disaster_event_id: disasterEventId } : {}),
   };
 
   return performSyncableMutation({
