@@ -58,6 +58,7 @@ const withStubbedMswdoReportRoute = async (
       loaded: true,
       exports: {
         getAnomalyTracking: serviceImpl,
+        upsertBarangayAnomalyReview: serviceImpl,
       },
     };
     require.cache[settingsRepositoryPath] = {
@@ -88,6 +89,23 @@ const withStubbedMswdoReportRoute = async (
             search: req.query.search || null,
             order: req.query.order || "newest",
             role_scope: req.query.role_scope || null,
+          };
+          next();
+        },
+        validateAnomalyReviewPayload: (req, _res, next) => {
+          const {
+            source_type,
+            source_id,
+            anomaly_type,
+            review_status,
+            resolution_reason,
+          } = req.body || {};
+          req.validatedBody = {
+            source_type,
+            source_id,
+            anomaly_type,
+            review_status,
+            resolution_reason,
           };
           next();
         },
@@ -263,6 +281,99 @@ test("H01-11 MSWDO route preserves explicit consolidated barangay filtering", as
         assert.equal(response.status, 200);
         assert.equal(capturedFilters.barangay_id, "barangay-b");
         assert.equal(capturedFilters.role_scope, "MSWDO");
+      } finally {
+        await closeServer(server);
+      }
+    },
+  );
+});
+
+test("Barangay review route uses authenticated assignment instead of client barangay_id", async () => {
+  let capturedPayload = null;
+
+  await withStubbedMswdoReportRoute(
+    {
+      roleCode: "BARANGAY",
+      defaultBarangayId: "barangay-a",
+      serviceImpl: async (request) => {
+        capturedPayload = request;
+        return {
+          id: "review-1",
+          review_status: request.payload.review_status,
+        };
+      },
+    },
+    async (router) => {
+      const server = await listen(router);
+
+      try {
+        const port = server.address().port;
+        const response = await fetch(
+          `http://127.0.0.1:${port}/api/v1/mswdo-reports/anomalies/reviews`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              barangay_id: "barangay-b",
+              source_type: "ERROR_LOG",
+              source_id: "error-1",
+              anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+              review_status: "REFERRED",
+              resolution_reason: "Forward to MSWDO.",
+            }),
+          },
+        );
+        const payload = await response.json();
+
+        assert.equal(response.status, 200);
+        assert.equal(payload.data.review_status, "REFERRED");
+        assert.equal(capturedPayload.barangayId, "barangay-a");
+        assert.equal(capturedPayload.payload.barangay_id, undefined);
+      } finally {
+        await closeServer(server);
+      }
+    },
+  );
+});
+
+test("Barangay review route returns structured stale anomaly code", async () => {
+  await withStubbedMswdoReportRoute(
+    {
+      roleCode: "BARANGAY",
+      defaultBarangayId: "barangay-a",
+      serviceImpl: async () => {
+        const error = new Error(
+          "This anomaly is no longer available for review. Its underlying record may have changed or it may no longer require Barangay review.",
+        );
+        error.statusCode = 404;
+        error.code = "ANOMALY_REVIEW_UNAVAILABLE";
+        throw error;
+      },
+    },
+    async (router) => {
+      const server = await listen(router);
+
+      try {
+        const port = server.address().port;
+        const response = await fetch(
+          `http://127.0.0.1:${port}/api/v1/mswdo-reports/anomalies/reviews`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              source_type: "ERROR_LOG",
+              source_id: "stale-error-log",
+              anomaly_type: "FAILED_STUB_OR_QR_VERIFICATION",
+              review_status: "ISSUE_CONFIRMED",
+              resolution_reason: "Reviewed from an old modal.",
+            }),
+          },
+        );
+        const payload = await response.json();
+
+        assert.equal(response.status, 404);
+        assert.equal(payload.code, "ANOMALY_REVIEW_UNAVAILABLE");
+        assert.match(payload.message, /no longer available for review/);
       } finally {
         await closeServer(server);
       }

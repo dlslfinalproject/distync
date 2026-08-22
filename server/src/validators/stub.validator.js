@@ -196,7 +196,7 @@ const validateStubId = (req, res, next) => {
 
 const validateStubVerify = (req, res, next) => {
   try {
-    const { stub_no, serial_no, qr_code_value } = req.body;
+    const { stub_no, serial_no, qr_code_value, disaster_event_id } = req.body;
 
     if (
       (stub_no === undefined || stub_no === null || stub_no === "") &&
@@ -208,6 +208,12 @@ const validateStubVerify = (req, res, next) => {
       });
     }
 
+    if (disaster_event_id && !isValidUuid(disaster_event_id)) {
+      return res.status(400).json({
+        message: "disaster_event_id must be a valid UUID when provided",
+      });
+    }
+
     req.validatedBody = {
       stub_no: typeof stub_no === "string" && stub_no.trim() ? stub_no.trim() : null,
       serial_no:
@@ -215,6 +221,10 @@ const validateStubVerify = (req, res, next) => {
       qr_code_value:
         typeof qr_code_value === "string" && qr_code_value.trim()
           ? qr_code_value.trim()
+          : null,
+      disaster_event_id:
+        typeof disaster_event_id === "string" && disaster_event_id.trim()
+          ? disaster_event_id.trim()
           : null,
     };
 

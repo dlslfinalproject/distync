@@ -18,7 +18,31 @@ const allowedAnomalyTypes = new Set([
   "FAILED_STUB_OR_QR_VERIFICATION",
 ]);
 const allowedStatusCategories = new Set(["open", "resolved", "failed"]);
+const allowedReviewStates = new Set([
+  "needs_review",
+  "reviewed",
+  "referred",
+  "system_handled",
+  "sync_center",
+]);
+const allowedReviewStatuses = new Set([
+  "REVIEWED_VALID",
+  "ISSUE_CONFIRMED",
+  "REFERRED",
+]);
 const allowedSortOrders = new Set(["newest", "oldest", "az", "za"]);
+const allowedManualReviewAnomalyTypes = new Set([
+  "SUSPICIOUS_DISTRIBUTION_ACTIVITY",
+  "DUPLICATE_HOUSEHOLD_REGISTRATION",
+  "INVENTORY_DISTRIBUTION_MISMATCH",
+  "FAILED_STUB_OR_QR_VERIFICATION",
+]);
+const allowedManualReviewSourceTypes = new Set([
+  "SUSPICIOUS_DISTRIBUTION_ACTIVITY",
+  "ERROR_LOG",
+  "INVENTORY_DISTRIBUTION_RECONCILIATION",
+  "INVENTORY_DISTRIBUTION_ORPHAN_OUTFLOW",
+]);
 
 const parsePositiveInteger = (value, fallback) => {
   if (value === undefined || value === null || value === "") {
@@ -42,6 +66,7 @@ const validateMswdoReportFilters = (req, res, next) => {
       anomaly_type,
       search,
       order,
+      review_state,
       page,
       pageSize,
       date_from,
@@ -135,6 +160,18 @@ const validateMswdoReportFilters = (req, res, next) => {
       });
     }
 
+    const normalizedReviewState =
+      typeof review_state === "string" && review_state.trim()
+        ? review_state.trim().toLowerCase()
+        : null;
+
+    if (normalizedReviewState && !allowedReviewStates.has(normalizedReviewState)) {
+      return res.status(400).json({
+        message:
+          "review_state must be one of: needs_review, reviewed, referred, system_handled, sync_center",
+      });
+    }
+
     req.validatedQuery = {
       disaster_event_id: disaster_event_id || null,
       barangay_id: barangay_id || null,
@@ -143,6 +180,7 @@ const validateMswdoReportFilters = (req, res, next) => {
       anomaly_type: normalizedAnomalyType,
       search: typeof search === "string" && search.trim() ? search.trim() : null,
       order: normalizedOrder,
+      review_state: normalizedReviewState,
       date_from: date_from || null,
       date_to: date_to || null,
       limit: parsedLimit,
@@ -154,6 +192,87 @@ const validateMswdoReportFilters = (req, res, next) => {
   } catch (error) {
     return res.status(500).json({
       message: "Failed to validate MSWDO report request",
+      error: error.message,
+    });
+  }
+};
+
+const validateAnomalyReviewPayload = (req, res, next) => {
+  try {
+    const {
+      source_type,
+      source_id,
+      anomaly_type,
+      review_status,
+      resolution_reason,
+    } = req.body || {};
+
+    const normalizedSourceType =
+      typeof source_type === "string" && source_type.trim()
+        ? source_type.trim()
+        : "";
+    const normalizedSourceId =
+      typeof source_id === "string" && source_id.trim() ? source_id.trim() : "";
+    const normalizedAnomalyType =
+      typeof anomaly_type === "string" && anomaly_type.trim()
+        ? anomaly_type.trim()
+        : "";
+    const normalizedReviewStatus =
+      typeof review_status === "string" && review_status.trim()
+        ? review_status.trim()
+        : "";
+    const normalizedReason =
+      typeof resolution_reason === "string" ? resolution_reason.trim() : "";
+
+    if (!allowedManualReviewSourceTypes.has(normalizedSourceType)) {
+      return res.status(400).json({
+        message: "source_type is not reviewable through Barangay anomaly review",
+      });
+    }
+
+    if (!normalizedSourceId || normalizedSourceId.length > 300) {
+      return res.status(400).json({
+        message: "source_id is required and must be 300 characters or fewer",
+      });
+    }
+
+    if (!allowedManualReviewAnomalyTypes.has(normalizedAnomalyType)) {
+      return res.status(400).json({
+        message: "anomaly_type is not eligible for manual Barangay review",
+      });
+    }
+
+    if (!allowedReviewStatuses.has(normalizedReviewStatus)) {
+      return res.status(400).json({
+        message:
+          "review_status must be one of: REVIEWED_VALID, ISSUE_CONFIRMED, REFERRED",
+      });
+    }
+
+    if (!normalizedReason) {
+      return res.status(400).json({
+        message: "resolution_reason is required",
+      });
+    }
+
+    if (normalizedReason.length > 2000) {
+      return res.status(400).json({
+        message: "resolution_reason must be 2000 characters or fewer",
+      });
+    }
+
+    req.validatedBody = {
+      source_type: normalizedSourceType,
+      source_id: normalizedSourceId,
+      anomaly_type: normalizedAnomalyType,
+      review_status: normalizedReviewStatus,
+      resolution_reason: normalizedReason,
+    };
+
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to validate anomaly review request",
       error: error.message,
     });
   }
@@ -178,5 +297,6 @@ const validateMswdoExportFormat = (req, res, next) => {
 
 module.exports = {
   validateMswdoReportFilters,
+  validateAnomalyReviewPayload,
   validateMswdoExportFormat,
 };

@@ -178,7 +178,7 @@ const roleMeta = {
       { label: "Evacuee Masterlist Management", to: "/barangay/masterlist" },
       { label: "Relief Goods Distribution", to: "/barangay/stub-distribution" },
       { label: "Distribution History", to: "/barangay/distribution-history" },
-      { label: "Anomaly Tracking Management", to: "/barangay/anomalies" },
+      { label: "Anomaly Tracking", to: "/barangay/anomalies" },
       { label: "Sync Center", to: "/barangay/sync" },
     ],
   },

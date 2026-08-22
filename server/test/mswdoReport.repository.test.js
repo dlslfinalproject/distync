@@ -169,6 +169,9 @@ test("H01-04 and H01-05 error-log anomalies use a narrow Barangay-only actor fal
     assert.match(capturedQuery, /LEFT JOIN households h_direct\s+ON el\.reference_type = 'HOUSEHOLD'\s+AND h_direct\.id = el\.reference_id/);
     assert.match(capturedQuery, /LEFT JOIN stubs s_error\s+ON el\.reference_type = 'STUB'\s+AND s_error\.id = el\.reference_id/);
     assert.match(capturedQuery, /LEFT JOIN households h_error\s+ON h_error\.id = s_error\.household_id/);
+    assert.match(capturedQuery, /error_context AS/);
+    assert.match(capturedQuery, /context_json->>'disaster_event_id'/);
+    assert.match(capturedQuery, /disaster_event_barangays deb_context/);
     assert.match(capturedQuery, /r_barangay\.code = 'BARANGAY'/);
     assert.match(capturedQuery, /r_other\.code IN \('MSWDO', 'MAYOR'\)/);
     assert.match(capturedQuery, /LEFT JOIN error_barangay_attribution eba\s+ON eba\.error_log_id = el\.id/);
@@ -196,7 +199,7 @@ test("H01-06 through H01-14 Barangay scoping uses barangay_id and event-scoped u
       limit: 100,
     });
 
-    assert.match(capturedQuery, /WHERE barangay_id = \$2/);
+    assert.match(capturedQuery, /WHERE anomaly_rows\.barangay_id = \$2/);
     assert.doesNotMatch(capturedQuery, /barangay_name IS NOT NULL/);
     assert.match(capturedQuery, /AND sba\.disaster_event_id = \$1/);
     assert.match(capturedQuery, /AND eba\.disaster_event_id = \$1/);
@@ -239,11 +242,13 @@ test("ANOMSRC-04/05 error-log anomalies use structured codes and stub references
     await harness.repository.getMswdoAnomalyTracking({
       disasterEventId: "event-1",
       barangayId: "barangay-a",
+      roleScope: "BARANGAY",
       limit: 20,
     });
 
     assert.match(capturedQuery, /el\.error_code = 'STUB_ALREADY_CLAIMED'/);
     assert.match(capturedQuery, /el\.error_code IN \([\s\S]*'INVALID_QR_STUB'[\s\S]*'STUB_NOT_FOUND'[\s\S]*'QR_REFERENCE_MISMATCH'[\s\S]*'QR_INACTIVE'[\s\S]*'STUB_NOT_CLAIMABLE'[\s\S]*'STUB_CANCELLED'[\s\S]*'STUB_VOID'[\s\S]*'STUB_UNAVAILABLE'[\s\S]*\)/);
+    assert.match(capturedQuery, /AND NOT \([\s\S]*el\.error_code IN \('INVALID_QR_STUB', 'STUB_NOT_FOUND'\)[\s\S]*el\.reference_id IS NULL[\s\S]*eba\.family_head_name IS NULL[\s\S]*\)/);
     assert.doesNotMatch(capturedQuery, /ILIKE '%already claimed%'/);
     assert.doesNotMatch(capturedQuery, /ILIKE '%stub not found%'/);
     assert.match(capturedQuery, /LEFT JOIN disaster_events de\s+ON de\.id = eba\.disaster_event_id/);
@@ -276,7 +281,7 @@ test("MSWDO-ANOM-I01 direct duplicate household errors become attributed anomaly
     assert.match(capturedQuery, /el\.module_name = 'household-registration'/);
     assert.match(capturedQuery, /el\.error_code = 'DUPLICATE_HOUSEHOLD_REGISTRATION'/);
     assert.match(capturedQuery, /'ERROR_LOG' AS source_type[\s\S]*el\.id::text AS source_id/);
-    assert.match(capturedQuery, /COALESCE\(h_direct\.disaster_event_id, s_error\.disaster_event_id\) AS disaster_event_id/);
+    assert.match(capturedQuery, /COALESCE\([\s\S]*h_direct\.disaster_event_id,[\s\S]*s_error\.disaster_event_id,[\s\S]*el\.context_disaster_event_id[\s\S]*\) AS disaster_event_id/);
     assert.match(capturedQuery, /h_direct\.barangay_id/);
     assert.match(capturedQuery, /SELECT \* FROM duplicate_household_registration/);
     assert.match(capturedQuery, /anomaly_type = \$3/);
@@ -911,8 +916,100 @@ test("M05NULL-10 Barangay authorization scope is unchanged by oldest null placem
     pageSize: 10,
   });
 
-  assert.match(capturedQueries[1], /WHERE barangay_id = \$2/);
+  assert.match(capturedQueries[1], /WHERE anomaly_rows\.barangay_id = \$2/);
   assert.match(capturedQueries[1], /AND sba\.disaster_event_id = \$1/);
   assert.match(capturedQueries[1], /AND eba\.disaster_event_id = \$1/);
   assert.deepEqual(capturedValues[1], ["event-1", "barangay-a", 10, 0]);
+});
+
+test("Barangay anomaly review metadata is joined without duplicating derived anomalies", async () => {
+  const { capturedQueries } = await captureAnomalyRepositoryCall({
+    barangayId: "barangay-a",
+    roleScope: "BARANGAY",
+    reviewState: "needs_review",
+    page: 1,
+    pageSize: 10,
+  });
+
+  const countQuery = capturedQueries[0];
+  const itemQuery = capturedQueries[1];
+
+  assert.match(itemQuery, /LEFT JOIN anomaly_reviews ar/);
+  assert.match(itemQuery, /ar\.source_type = anomaly_rows\.source_type/);
+  assert.match(itemQuery, /ar\.source_id = anomaly_rows\.source_id/);
+  assert.match(itemQuery, /ar\.anomaly_type = anomaly_rows\.anomaly_type/);
+  assert.match(itemQuery, /ar\.barangay_id = anomaly_rows\.barangay_id/);
+  assert.match(itemQuery, /review_state/);
+  assert.match(itemQuery, /manual_review_allowed/);
+  assert.match(countQuery, /anomaly_rows\.barangay_id = \$1/);
+  assert.match(countQuery, /END\s+= \$2/);
+  assert.doesNotMatch(itemQuery, /UNION ALL SELECT \* FROM sync_failed/);
+});
+
+test("Barangay anomaly source lookup filters by stable polymorphic identity", async () => {
+  const { capturedQueries, capturedValues } = await captureAnomalyRepositoryCall({
+    barangayId: "barangay-a",
+    anomalyType: "INVENTORY_DISTRIBUTION_MISMATCH",
+    sourceType: "INVENTORY_DISTRIBUTION_RECONCILIATION",
+    sourceId: "distribution-1:item-1",
+    roleScope: "BARANGAY",
+    page: 1,
+    pageSize: 1,
+  });
+
+  assert.match(capturedQueries[1], /anomaly_rows\.source_type = \$3/);
+  assert.match(capturedQueries[1], /anomaly_rows\.source_id = \$4/);
+  assert.deepEqual(capturedValues[1].slice(0, 4), [
+    "barangay-a",
+    "INVENTORY_DISTRIBUTION_MISMATCH",
+    "INVENTORY_DISTRIBUTION_RECONCILIATION",
+    "distribution-1:item-1",
+  ]);
+});
+
+test("Barangay anomaly review upsert updates existing current review identity", async () => {
+  let capturedQuery = "";
+  let capturedValues = [];
+  const harness = loadRepositoryWithMockPool(async (query, values) => {
+    capturedQuery = query;
+    capturedValues = values;
+    return {
+      rows: [
+        {
+          id: "review-1",
+          review_status: values[5],
+          resolution_reason: values[6],
+        },
+      ],
+    };
+  });
+
+  try {
+    const result = await harness.repository.upsertAnomalyReview({
+      sourceType: "ERROR_LOG",
+      sourceId: "error-1",
+      anomalyType: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+      barangayId: "barangay-a",
+      disasterEventId: "event-1",
+      reviewStatus: "REFERRED",
+      resolutionReason: "Requires MSWDO verification.",
+      reviewedBy: "user-1",
+    });
+
+    assert.match(capturedQuery, /ON CONFLICT \(source_type, source_id, anomaly_type, barangay_id\)/);
+    assert.match(capturedQuery, /reviewed_at = NOW\(\)/);
+    assert.deepEqual(capturedValues, [
+      "ERROR_LOG",
+      "error-1",
+      "DUPLICATE_HOUSEHOLD_REGISTRATION",
+      "barangay-a",
+      "event-1",
+      "REFERRED",
+      "Requires MSWDO verification.",
+      "user-1",
+    ]);
+    assert.equal(result.review_status, "REFERRED");
+  } finally {
+    harness.restore();
+  }
 });

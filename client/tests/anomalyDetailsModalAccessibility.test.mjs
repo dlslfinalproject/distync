@@ -89,12 +89,18 @@ test("A11Y-14 through A11Y-18 anomaly details modal preserves page state, API co
 });
 
 test("A11Y-19 through A11Y-24 anomaly details modal has responsive sizing and long-text wrapping safeguards", async () => {
-  const pageSource = await fs.readFile(pageSourcePath, "utf8");
+  const [pageSource, modalShellSource] = await Promise.all([
+    fs.readFile(pageSourcePath, "utf8"),
+    fs.readFile(modalShellSourcePath, "utf8"),
+  ]);
 
   assert.match(pageSource, /gridTemplateColumns: "repeat\(auto-fit, minmax\(min\(220px, 100%\), 1fr\)\)"/);
   assert.match(pageSource, /wordBreak: "break-word"/);
   assert.match(pageSource, /maxHeight: "calc\(100vh - 32px\)"/);
-  assert.match(pageSource, /overflowY: "auto"/);
+  assert.match(pageSource, /overflowY: "hidden"/);
+  assert.match(pageSource, /const modalBodyStyles = \{[\s\S]*overflowY: "auto"/);
+  assert.match(pageSource, /footerStyle=\{modalFooterStyles\}/);
+  assert.match(modalShellSource, /footerStyle/);
   assert.match(pageSource, /overflowX: "hidden"/);
   assert.match(pageSource, /maxWidth="min\(760px, 100vw\)"/);
   assert.match(pageSource, /overlayStyle=\{\{ padding: "16px" \}\}/);

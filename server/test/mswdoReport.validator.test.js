@@ -1,7 +1,10 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { validateMswdoReportFilters } = require("../src/validators/mswdoReport.validator");
+const {
+  validateAnomalyReviewPayload,
+  validateMswdoReportFilters,
+} = require("../src/validators/mswdoReport.validator");
 
 const runValidator = (query) =>
   new Promise((resolve) => {
@@ -19,6 +22,25 @@ const runValidator = (query) =>
 
     validateMswdoReportFilters(req, res, () => {
       resolve({ statusCode: 200, validatedQuery: req.validatedQuery });
+    });
+  });
+
+const runReviewValidator = (body) =>
+  new Promise((resolve) => {
+    const req = { body };
+    const res = {
+      statusCode: 200,
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      json(payload) {
+        resolve({ statusCode: this.statusCode, payload });
+      },
+    };
+
+    validateAnomalyReviewPayload(req, res, () => {
+      resolve({ statusCode: 200, validatedBody: req.validatedBody });
     });
   });
 
@@ -109,4 +131,41 @@ test("M05NULL-11 validator keeps the server-owned anomaly sort allowlist unchang
 
   assert.equal(nullsFirst.statusCode, 400);
   assert.equal(nullsLast.statusCode, 400);
+});
+
+test("Barangay anomaly review validator accepts only persisted manual outcomes", async () => {
+  const valid = await runReviewValidator({
+    source_type: "ERROR_LOG",
+    source_id: "error-1",
+    anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+    review_status: "ISSUE_CONFIRMED",
+    resolution_reason: "Two records describe the same household.",
+  });
+  const invalidStatus = await runReviewValidator({
+    source_type: "ERROR_LOG",
+    source_id: "error-1",
+    anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+    review_status: "NEEDS_REVIEW",
+    resolution_reason: "Still checking.",
+  });
+  const whitespaceReason = await runReviewValidator({
+    source_type: "ERROR_LOG",
+    source_id: "error-1",
+    anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+    review_status: "REFERRED",
+    resolution_reason: "   ",
+  });
+  const syncConflict = await runReviewValidator({
+    source_type: "SYNC_CONFLICT",
+    source_id: "conflict-1",
+    anomaly_type: "SYNC_CONFLICT",
+    review_status: "REVIEWED_VALID",
+    resolution_reason: "Resolved here.",
+  });
+
+  assert.equal(valid.statusCode, 200);
+  assert.equal(valid.validatedBody.review_status, "ISSUE_CONFIRMED");
+  assert.equal(invalidStatus.statusCode, 400);
+  assert.equal(whitespaceReason.statusCode, 400);
+  assert.equal(syncConflict.statusCode, 400);
 });

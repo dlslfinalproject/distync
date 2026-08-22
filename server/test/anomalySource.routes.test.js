@@ -307,6 +307,7 @@ test("ANOMSRC-07 direct stub verification failure writes one structured source",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               qr_code_value: "DISTYNC-STUB|event|household|stub|STUB-001",
+              disaster_event_id: "33333333-3333-4333-8333-333333333333",
             }),
           },
         );
@@ -328,6 +329,10 @@ test("ANOMSRC-07 direct stub verification failure writes one structured source",
   assert.equal(
     loggedErrors[0].context.action,
     "DIRECT_STUB_OR_QR_VERIFICATION_FAILURE",
+  );
+  assert.equal(
+    loggedErrors[0].context.disaster_event_id,
+    "33333333-3333-4333-8333-333333333333",
   );
 });
 

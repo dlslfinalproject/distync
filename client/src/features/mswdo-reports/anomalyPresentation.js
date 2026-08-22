@@ -24,20 +24,19 @@ const ANOMALY_PRESENTATION = {
     explanation:
       "An offline action conflicted with a central server record and may need review in Sync Center.",
     actionRequired: "Use Sync Center",
-    nextStep:
-      "Review the conflict in Sync Center. Only verify it here when it created an operational data concern.",
-    owner: "Barangay / Authorized reviewer",
-    statusHint: "Needs Review",
+    nextStep: "View in Sync Center. Sync Center owns conflict resolution.",
+    owner: "Sync Center",
+    statusHint: "Review in Sync Center",
   },
   DUPLICATE_CLAIM_ATTEMPT: {
     label: "Possible Duplicate Relief Claim",
     explanation:
-      "A stub or QR claim appears to have already been recorded for the affected household or transaction.",
-    actionRequired: "Yes",
+      "DISTYNC prevented a second claim because the stub had already been claimed.",
+    actionRequired: "No",
     nextStep:
-      "Check the household's relief claim history before confirming another release.",
+      "Check the claim history if more context is needed. No separate anomaly review is required.",
     owner: "Barangay",
-    statusHint: "Needs Review",
+    statusHint: "Automatically Handled",
   },
   DUPLICATE_HOUSEHOLD_REGISTRATION: {
     label: "Duplicate Household Registration",
@@ -69,6 +68,49 @@ const ANOMALY_PRESENTATION = {
     owner: "Barangay / MSWDO",
     statusHint: "Needs Review",
   },
+};
+
+export const reviewOutcomeOptions = [
+  {
+    value: "REVIEWED_VALID",
+    label: "Valid / No Issue",
+    description:
+      "The unusual condition is legitimate or does not require corrective action.",
+  },
+  {
+    value: "ISSUE_CONFIRMED",
+    label: "Issue Confirmed",
+    description: "The underlying operational issue is genuine.",
+  },
+  {
+    value: "REFERRED",
+    label: "Referred",
+    description:
+      "Barangay verification is complete and the remaining issue belongs to another authorized office.",
+  },
+];
+
+const reviewOutcomeLabels = Object.fromEntries(
+  reviewOutcomeOptions.map((option) => [option.value, option.label]),
+);
+
+export const formatReviewOutcome = (value) =>
+  reviewOutcomeLabels[value] || "Needs Review";
+
+export const getAnomalyReviewStateLabel = (row) => {
+  if (row?.review_status) {
+    return formatReviewOutcome(row.review_status);
+  }
+
+  if (row?.review_state === "system_handled") {
+    return "Automatically Handled";
+  }
+
+  if (row?.review_state === "sync_center") {
+    return "Review in Sync Center";
+  }
+
+  return getAnomalyPresentation(row?.anomaly_type).statusHint || "Needs Review";
 };
 
 const toTitleCase = (value) =>

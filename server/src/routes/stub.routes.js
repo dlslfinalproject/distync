@@ -52,6 +52,7 @@ const logStubAnomalySource = async ({
     context: {
       route: req.originalUrl,
       action,
+      disaster_event_id: req.validatedBody?.disaster_event_id || null,
       has_qr_reference: Boolean(req.validatedBody?.qr_code_value),
       has_stub_identifier: Boolean(
         req.validatedBody?.stub_no || req.validatedBody?.serial_no,
