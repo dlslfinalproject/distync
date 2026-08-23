@@ -4,6 +4,10 @@ import {
   getAuthenticatedUser,
   getCurrentRole,
 } from "../utils/roleSession.js";
+import {
+  isValidInventoryTransactionReferenceNo,
+  normalizeInventoryTransactionReferenceNo,
+} from "../features/inventory-transactions/inventoryTransactionReference.js";
 
 const terminalStatuses = new Set([
   LOCAL_SYNC_STATUS.SYNCED,
@@ -27,6 +31,26 @@ const getIsoNow = () => new Date().toISOString();
 
 export const isUnsupportedOfflineActionKey = (actionKey) =>
   unsupportedOfflineActionKeys.has(String(actionKey || "").trim().toUpperCase());
+
+export const isLegacyInventoryTransactionEntry = (entry = {}) => {
+  if (
+    entry.moduleName !== "mayor-inventory" ||
+    entry.actionKey !== "INVENTORY_TRANSACTION_CREATE"
+  ) {
+    return false;
+  }
+
+  const referenceNo = normalizeInventoryTransactionReferenceNo(
+    entry.payload?.inventoryTransactionReferenceNo ||
+      entry.payload?.inventory_transaction_reference_no,
+  );
+
+  return !isValidInventoryTransactionReferenceNo(referenceNo);
+};
+
+export const isNonRetryableSyncEntry = (entry = {}) =>
+  isUnsupportedOfflineActionKey(entry.actionKey) ||
+  isLegacyInventoryTransactionEntry(entry);
 
 export const getUnsupportedOfflineActionMessage = (actionKey) => {
   if (isUnsupportedOfflineActionKey(actionKey)) {
@@ -111,7 +135,7 @@ export const getRetryableSyncEntries = async () => {
     .filter(
       (entry) =>
         isSyncEntryVisibleForContext(entry) &&
-        !isUnsupportedOfflineActionKey(entry.actionKey) &&
+        !isNonRetryableSyncEntry(entry) &&
         (entry.status === LOCAL_SYNC_STATUS.PENDING ||
           entry.status === LOCAL_SYNC_STATUS.FAILED),
     )
@@ -126,7 +150,7 @@ export const getFailedSyncEntries = async (entryIds = []) => {
     .filter(
       (entry) =>
         isSyncEntryVisibleForContext(entry) &&
-        !isUnsupportedOfflineActionKey(entry.actionKey) &&
+        !isNonRetryableSyncEntry(entry) &&
         entry.status === LOCAL_SYNC_STATUS.FAILED &&
         (requestedIds.length === 0 || requestedIds.includes(entry.id)),
     )

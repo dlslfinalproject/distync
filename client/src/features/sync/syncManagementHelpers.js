@@ -2,7 +2,12 @@ import { LOCAL_SYNC_STATUS } from "../../offline/db.js";
 import {
   getUnsupportedOfflineActionMessage,
   isUnsupportedOfflineActionKey,
+  isNonRetryableSyncEntry,
 } from "../../offline/syncQueue.js";
+import {
+  getSafeSyncErrorMessage,
+  SYNC_PRESENTATION_MESSAGES,
+} from "../../offline/syncStatus.js";
 
 export const SYNC_FILTERS = [
   { key: "ALL", label: "All" },
@@ -52,6 +57,18 @@ const ACTION_LABELS = {
   INVENTORY_ITEM_CREATE: "Add Inventory Item",
   INVENTORY_ITEM_UPDATE: "Edit Inventory Item",
   INVENTORY_TRANSACTION_CREATE: "Inventory Movement",
+};
+
+const OPERATION_LABELS = {
+  HOUSEHOLD_REGISTER: "Create",
+  HOUSEHOLD_UPDATE: "Update",
+  HOUSEHOLD_DEPART: "Time Out",
+  STUB_CLAIM: "Claim",
+  DISTRIBUTION_QR_CLAIM: "Claim",
+  DISTRIBUTION_CREATE: "Create",
+  INVENTORY_ITEM_CREATE: "Create",
+  INVENTORY_ITEM_UPDATE: "Update",
+  INVENTORY_TRANSACTION_CREATE: "Create",
 };
 
 const ACTION_SUBJECT_FALLBACKS = {
@@ -114,6 +131,28 @@ const getActionSubjectFallback = ({ record = {}, actionKey, entityType, recordTy
   return `${recordType} sync record`;
 };
 
+const getOperationLabel = (record = {}, actionKey = "") => {
+  const operationType = getOperationType(record);
+
+  if (OPERATION_LABELS[actionKey]) {
+    return OPERATION_LABELS[actionKey];
+  }
+
+  if (operationType === "TIME_OUT") {
+    return "Time Out";
+  }
+
+  if (operationType === "QR_SCAN" || operationType === "CLAIM") {
+    return "Claim";
+  }
+
+  if (operationType === "CREATE" || operationType === "UPDATE") {
+    return toTitleCase(operationType);
+  }
+
+  return toTitleCase(operationType || "Sync");
+};
+
 export const SYNC_MISSING_VALUE = "Not available";
 
 const uuidPattern =
@@ -165,7 +204,7 @@ export const isSafeRetryableStatus = (status) =>
 
 export const isSafeRetryableQueueEntry = (entry = {}) =>
   isSafeRetryableStatus(entry.status) &&
-  !isUnsupportedOfflineActionKey(entry.actionKey);
+  !isNonRetryableSyncEntry(entry);
 
 const normalizeDisplayText = (value) =>
   String(value || "")
@@ -310,6 +349,7 @@ const getRecordTypeLabel = (record = {}, payload = {}) => {
 
 export const getSyncRecordDetails = (record = {}) => {
   const payload = getPayloadContainer(record);
+  const payloadJson = record.payload_json || record.local_payload_json || {};
   const actionKey = getActionKey(record);
   const entityType = getEntityType(record);
   const recordType = getRecordTypeLabel(record, payload);
@@ -342,6 +382,13 @@ export const getSyncRecordDetails = (record = {}) => {
   const disasterEvent = getFirstValue(
     record.sync_history_disaster_event_title,
     record.disaster_event_title,
+    record.disasterEventTitle,
+    record.event_title,
+    record.eventTitle,
+    payloadJson.disaster_event_title,
+    payloadJson.disasterEventTitle,
+    payloadJson.event_title,
+    payloadJson.eventTitle,
     payload.disaster_event_title,
     payload.disaster_event_name,
     payload.event_title,
@@ -396,21 +443,46 @@ export const getSyncRecordDetails = (record = {}) => {
     familyHeadName: asDisplayValue(familyHeadName),
     notes: asDisplayValue(
       getUnsupportedOfflineActionMessage(actionKey) ||
-        record.lastError ||
-        record.serverMessage ||
-        record.error_message ||
+        getSafeSyncErrorMessage(record, "") ||
         payload.remarks ||
-        payload.status ||
-        (record.entity_server_id || record.entityServerId || record.entity_local_id || record.entityLocalId
-          ? "Technical reference available in the sync record."
-          : ""),
+        "",
     ),
+    operation: getOperationLabel(record, actionKey),
     recordType,
     secondaryLabel,
     status: record.status || record.sync_status || record.resolution_status || SYNC_MISSING_VALUE,
     stubNumber: asDisplayValue(stubNumber),
     subject: primarySubject,
   };
+};
+
+export const getSyncQueueNotes = (record = {}) => {
+  const actionKey = getActionKey(record);
+  const status = String(record.status || record.sync_status || "").toUpperCase();
+
+  if (isNonRetryableSyncEntry(record) || isUnsupportedOfflineActionKey(actionKey)) {
+    return (
+      getUnsupportedOfflineActionMessage(actionKey) ||
+      SYNC_PRESENTATION_MESSAGES.UNSUPPORTED
+    );
+  }
+
+  if (status === LOCAL_SYNC_STATUS.PENDING) {
+    return "Waiting for a connection to DISTYNC.";
+  }
+
+  if (status === LOCAL_SYNC_STATUS.CONFLICT) {
+    return SYNC_PRESENTATION_MESSAGES.CONFLICT;
+  }
+
+  if (status === LOCAL_SYNC_STATUS.FAILED) {
+    return (
+      getSafeSyncErrorMessage(record, SYNC_PRESENTATION_MESSAGES.SERVER) ||
+      SYNC_PRESENTATION_MESSAGES.SERVER
+    );
+  }
+
+  return getSafeSyncErrorMessage(record, "") || "Waiting for synchronization.";
 };
 
 const collectUniqueDisplayValues = (values = []) => {
@@ -452,9 +524,7 @@ export const getSyncHistoryNotes = (record = {}) => {
 
   const candidateNotes = [
     getUnsupportedOfflineActionMessage(getActionKey(record)),
-    record.lastError,
-    record.serverMessage,
-    record.error_message,
+    getSafeSyncErrorMessage(record, ""),
     payload.remarks,
     payload.status &&
     normalizeDisplayText(payload.status) !== normalizeDisplayText(record.sync_status)

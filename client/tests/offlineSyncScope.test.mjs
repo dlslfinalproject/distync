@@ -66,6 +66,7 @@ test("H03C-07 legacy Donation and Disaster Event queue entries are visible but n
   }
 
   assert.match(source, /getVisibleSyncQueueEntries[\s\S]*isSyncEntryVisibleForContext/);
-  assert.match(source, /getRetryableSyncEntries[\s\S]*!isUnsupportedOfflineActionKey\(entry\.actionKey\)/);
-  assert.match(source, /getFailedSyncEntries[\s\S]*!isUnsupportedOfflineActionKey\(entry\.actionKey\)/);
+  assert.match(source, /export const isNonRetryableSyncEntry/);
+  assert.match(source, /getRetryableSyncEntries[\s\S]*!isNonRetryableSyncEntry\(entry\)/);
+  assert.match(source, /getFailedSyncEntries[\s\S]*!isNonRetryableSyncEntry\(entry\)/);
 });
