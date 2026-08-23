@@ -609,6 +609,91 @@ test("H03F-13/H03F-14 failed retry reuses the same row and updates it under lock
   assert.deepEqual(updateIds, ["sync-failed-same-row"]);
 });
 
+test("OQ-ERR-02 duplicate client_sync_id rolls back claim savepoint before retry lookup", async () => {
+  const statements = [];
+  let transactionAborted = false;
+  const payload = {
+    client_sync_id: "oq-duplicate-client-sync",
+    user_id: "user-1",
+    device_id: "device-1",
+    entity_type: "HOUSEHOLD",
+    entity_local_id: "local-1",
+    operation_type: "CREATE",
+    payload_json: {},
+    client_timestamp: "2026-08-08T01:00:00.000Z",
+    sync_status: "PENDING",
+  };
+
+  await withStubbedPool(
+    { on: () => {} },
+    async ({ claimSyncTransaction }) => {
+      const claim = await claimSyncTransaction(payload, {
+        query: async (query, values) => {
+          statements.push(query);
+
+          if (/INSERT INTO sync_transactions/i.test(query)) {
+            transactionAborted = true;
+            const error = new Error("duplicate client sync id");
+            error.code = "23505";
+            error.constraint = "sync_transactions_client_sync_id_unique";
+            throw error;
+          }
+
+          if (transactionAborted && !String(query).startsWith("ROLLBACK TO SAVEPOINT")) {
+            throw new Error("current transaction is aborted");
+          }
+
+          if (String(query).startsWith("ROLLBACK TO SAVEPOINT")) {
+            transactionAborted = false;
+            return { rows: [] };
+          }
+
+          if (/FOR UPDATE/i.test(query)) {
+            return {
+              rows: [
+                {
+                  id: "sync-failed-row",
+                  ...payload,
+                  sync_status: "FAILED",
+                  processing_protocol_version: 2,
+                },
+              ],
+            };
+          }
+
+          if (/UPDATE sync_transactions/i.test(query)) {
+            return {
+              rows: [
+                {
+                  id: values[0],
+                  sync_status: "PENDING",
+                  processing_protocol_version: 2,
+                },
+              ],
+            };
+          }
+
+          return { rows: [] };
+        },
+      });
+
+      assert.equal(claim.decision, "CLAIMED_RETRY");
+      assert.equal(claim.transaction.id, "sync-failed-row");
+    },
+  );
+
+  assert.match(
+    statements.find((statement) => /SAVEPOINT sync_claim_insert/.test(statement)),
+    /^SAVEPOINT sync_claim_insert$/,
+  );
+  assert.match(
+    statements.find((statement) => /ROLLBACK TO SAVEPOINT sync_claim_insert/.test(statement)),
+    /^ROLLBACK TO SAVEPOINT sync_claim_insert$/,
+  );
+  assert.ok(statements.some((statement) => /FOR UPDATE/.test(statement)));
+  assert.doesNotMatch(statements.join("\n"), /current transaction is aborted/);
+});
+
 test("H03F-15 withSyncProcessingTransaction rolls back and releases on SQL error", async () => {
   const statements = [];
   const fakeClient = {

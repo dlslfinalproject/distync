@@ -2239,6 +2239,104 @@ test("H03F-05 rolls back local-newer conflict when conflict persistence fails af
   );
 });
 
+test("OQ-ERR-01 rolls back to the savepoint before recording the first sync failure", async () => {
+  const statements = [];
+  let transactionAborted = false;
+  let failureMessage = null;
+  const rootError = new Error(
+    "duplicate key value violates unique constraint household_identity_unique",
+  );
+
+  await withStubbedSyncService(
+    {
+      [syncRepositoryPath]: createBaseSyncRepositoryStub({
+        withSyncProcessingTransaction: async (callback) => {
+          const dbClient = {
+            query: async (query) => {
+              statements.push(query);
+
+              if (query === "INSERT household") {
+                transactionAborted = true;
+                throw rootError;
+              }
+
+              if (transactionAborted && !String(query).startsWith("ROLLBACK TO SAVEPOINT")) {
+                throw new Error("current transaction is aborted");
+              }
+
+              if (String(query).startsWith("ROLLBACK TO SAVEPOINT")) {
+                transactionAborted = false;
+              }
+
+              return { rows: [] };
+            },
+          };
+
+          const result = await callback(dbClient);
+          statements.push("COMMIT");
+          return result;
+        },
+        recordSyncFailureAndNotificationIntent: async ({
+          syncTransactionId,
+          transactionPayload,
+          dbClient,
+        }) => {
+          await dbClient.query("UPDATE sync failure");
+          failureMessage = transactionPayload.error_message;
+          return {
+            syncTransaction: {
+              id: syncTransactionId,
+              sync_status: "FAILED",
+              ...transactionPayload,
+            },
+            notificationOutboxEvent: null,
+          };
+        },
+      }),
+      [householdRegistrationServicePath]: {
+        registerHousehold: async ({ dbClient }) => dbClient.query("INSERT household"),
+      },
+      [notificationServicePath]: {
+        processNotificationOutboxEventById: async () => {},
+      },
+      [systemLogPath]: {
+        logAuditSafely: async () => {},
+        logErrorSafely: async () => {},
+        pickDefined: () => ({}),
+      },
+    },
+    async ({ processSyncEntries }) => {
+      const [result] = await processSyncEntries({
+        auth: baseAuth,
+        entries: [
+          {
+            client_sync_id: "oq-root-error-01",
+            action_key: "HOUSEHOLD_REGISTER",
+            entity_type: "HOUSEHOLD",
+            entity_local_id: "oq-root-error-local",
+            client_timestamp: "2026-08-08T01:00:00.000Z",
+            payload: buildValidHouseholdRegisterSyncPayload(),
+          },
+        ],
+      });
+
+      assert.equal(result.sync_status, "FAILED");
+      assert.equal(failureMessage, rootError.message);
+      assert.match(
+        statements.find((statement) => /SAVEPOINT sync_business_action/.test(statement)),
+        /^SAVEPOINT sync_business_action$/,
+      );
+      assert.match(
+        statements.find((statement) => /ROLLBACK TO SAVEPOINT sync_business_action/.test(statement)),
+        /^ROLLBACK TO SAVEPOINT sync_business_action$/,
+      );
+      assert.equal(statements.at(-1), "COMMIT");
+      assert.doesNotMatch(statements.join("\n"), /current transaction is aborted/);
+      assert.doesNotMatch(result.message, /current transaction is aborted/);
+    },
+  );
+});
+
 test("H03F-06 response-loss replay returns stored terminal result without handler rerun", async () => {
   let handlerCalls = 0;
 

@@ -1,4 +1,93 @@
-import { LOCAL_SYNC_STATUS } from "./db";
+import { LOCAL_SYNC_STATUS } from "./db.js";
+
+export const SYNC_PRESENTATION_MESSAGES = Object.freeze({
+  NETWORK: "Could not connect to DISTYNC. Reconnect and try again.",
+  SERVER: "Synchronization could not be completed. Try again.",
+  VALIDATION:
+    "Some information could not be synchronized. Review the related record while online.",
+  CONFLICT:
+    "A synchronization conflict was detected. Review it in Conflict Review.",
+  UNSUPPORTED:
+    "This offline action cannot be retried here. Complete it from the related module while online.",
+  OFFLINE: "You are currently offline. Reconnect before retrying.",
+});
+
+const NETWORK_ERROR_PATTERNS = [
+  "failed to fetch",
+  "networkerror",
+  "network error",
+  "load failed",
+  "econnrefused",
+  "enotfound",
+  "timeout",
+  "timed out",
+];
+
+const TECHNICAL_ERROR_PATTERNS = [
+  "current transaction is aborted",
+  "sqlstate",
+  "postgres",
+  "database",
+  "relation ",
+  "column ",
+  "constraint",
+  "syntax error",
+  "stack trace",
+  "axios",
+];
+
+const getRawSyncErrorText = (source = {}) =>
+  String(
+    source?.message ||
+      source?.lastError ||
+      source?.serverMessage ||
+      source?.error_message ||
+      "",
+  ).trim();
+
+export const getSafeSyncErrorMessage = (source = {}, fallback = "") => {
+  const rawMessage = getRawSyncErrorText(source);
+  const normalizedMessage = rawMessage.toLowerCase();
+  const code = String(
+    source?.code || source?.errorCode || source?.error_code || "",
+  ).toUpperCase();
+  const statusCode = Number(
+    source?.statusCode || source?.httpStatus || source?.status_code || 0,
+  );
+  const syncStatus = String(source?.sync_status || source?.status || "").toUpperCase();
+
+  if (syncStatus === LOCAL_SYNC_STATUS.CONFLICT || code.includes("CONFLICT")) {
+    return SYNC_PRESENTATION_MESSAGES.CONFLICT;
+  }
+
+  if (
+    code.includes("NOT_SUPPORTED") ||
+    code.includes("LEGACY") ||
+    source?.isRetryable === false
+  ) {
+    return SYNC_PRESENTATION_MESSAGES.UNSUPPORTED;
+  }
+
+  if (NETWORK_ERROR_PATTERNS.some((pattern) => normalizedMessage.includes(pattern))) {
+    return SYNC_PRESENTATION_MESSAGES.NETWORK;
+  }
+
+  if (
+    TECHNICAL_ERROR_PATTERNS.some((pattern) => normalizedMessage.includes(pattern)) ||
+    statusCode >= 500
+  ) {
+    return SYNC_PRESENTATION_MESSAGES.SERVER;
+  }
+
+  if (
+    statusCode === 400 ||
+    code.includes("VALIDATION")
+  ) {
+    return SYNC_PRESENTATION_MESSAGES.VALIDATION;
+  }
+
+  return rawMessage || fallback;
+};
 
 const STATUS_PRIORITY = {
   [LOCAL_SYNC_STATUS.CONFLICT]: 4,

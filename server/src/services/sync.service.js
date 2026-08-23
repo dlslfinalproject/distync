@@ -886,8 +886,15 @@ const processSingleSyncEntry = async (entry, auth) => {
 
     const syncTransaction = claim.transaction;
     let businessEffectApplied = false;
+    const syncBusinessSavepoint = "sync_business_action";
+    const canUseSyncBusinessSavepoint =
+      dbClient && typeof dbClient.query === "function";
 
     try {
+      if (canUseSyncBusinessSavepoint) {
+        await dbClient.query(`SAVEPOINT ${syncBusinessSavepoint}`);
+      }
+
       const conflictState = await maybeResolveTimestampConflict({
         entry,
         auth,
@@ -1036,6 +1043,21 @@ const processSingleSyncEntry = async (entry, auth) => {
       conflict: conflictRecord,
     };
     } catch (error) {
+      if (!businessEffectApplied && canUseSyncBusinessSavepoint) {
+        try {
+          await dbClient.query(`ROLLBACK TO SAVEPOINT ${syncBusinessSavepoint}`);
+        } catch (rollbackError) {
+          await logErrorSafely({
+            actor: auth,
+            moduleName: "sync",
+            errorCode: "SYNC_SAVEPOINT_ROLLBACK_FAILED",
+            errorMessage:
+              "The sync action failed and its savepoint could not be restored.",
+            error: rollbackError,
+          });
+        }
+      }
+
       if (businessEffectApplied || error.rollbackSyncTransaction) {
         await logErrorSafely({
           actor: auth,
@@ -1117,6 +1139,21 @@ const processSingleSyncEntry = async (entry, auth) => {
           errorMessage: `Failed to record duplicate conflict for ${entry.action_key}`,
           error: conflictError,
         });
+
+        if (canUseSyncBusinessSavepoint) {
+          try {
+            await dbClient.query(`ROLLBACK TO SAVEPOINT ${syncBusinessSavepoint}`);
+          } catch (rollbackError) {
+            await logErrorSafely({
+              actor: auth,
+              moduleName: "sync",
+              errorCode: "SYNC_CONFLICT_SAVEPOINT_ROLLBACK_FAILED",
+              errorMessage:
+                "The duplicate sync conflict could not restore its transaction savepoint.",
+              error: rollbackError,
+            });
+          }
+        }
 
         const failureMessage =
           "Sync conflict could not be recorded safely. Please retry synchronization.";

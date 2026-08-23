@@ -28,11 +28,16 @@ import {
   getConflictReasonLabel,
   getResolutionStatusLabel,
   getSyncHistoryNotes,
+  getSyncQueueNotes,
   getSyncRecordDetails,
   isSafeRetryableQueueEntry,
   matchesRecordTypeFilter,
   matchesSyncFilter,
 } from "../features/sync/syncManagementHelpers";
+import {
+  getSafeSyncErrorMessage,
+  SYNC_PRESENTATION_MESSAGES,
+} from "../offline/syncStatus.js";
 
 const RECORD_TYPE_OPTIONS = [
   { value: "ALL", label: "All Records" },
@@ -186,6 +191,11 @@ const conflictReviewTableStyles = {
   minWidth: "820px",
 };
 
+const offlineQueueTableStyles = {
+  ...tableStyles.table,
+  minWidth: "980px",
+};
+
 const getRecordDateValue = (record = {}) =>
   record.clientTimestamp ||
   record.client_timestamp ||
@@ -304,7 +314,9 @@ const SyncManagementPage = () => {
     useLiveQuery(() => getVisibleSyncQueueEntriesByUpdatedAt(), [], []) ||
     [];
 
-  const isOnline = typeof navigator === "undefined" ? true : navigator.onLine;
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator === "undefined" ? true : navigator.onLine,
+  );
   const statusOptions = useMemo(() => {
     if (activeSyncTab === "CONFLICTS") {
       return CONFLICT_STATUS_OPTIONS;
@@ -398,7 +410,9 @@ const SyncManagementPage = () => {
         backendReachable: summaryResponse.backendReachable !== false,
       });
     } catch (error) {
-      setErrorMessage(error.message || "Failed to load sync history.");
+      setErrorMessage(
+        getSafeSyncErrorMessage(error, "Failed to load sync history."),
+      );
     } finally {
       setIsLoadingHistory(false);
     }
@@ -406,6 +420,24 @@ const SyncManagementPage = () => {
 
   useEffect(() => {
     loadSyncHistory();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const updateConnectivity = () => {
+      setIsOnline(navigator.onLine);
+    };
+
+    window.addEventListener("online", updateConnectivity);
+    window.addEventListener("offline", updateConnectivity);
+
+    return () => {
+      window.removeEventListener("online", updateConnectivity);
+      window.removeEventListener("offline", updateConnectivity);
+    };
   }, []);
 
   useEffect(() => {
@@ -460,18 +492,80 @@ const SyncManagementPage = () => {
         // Retry should still proceed even if review logging is temporarily unavailable.
       }
 
-      await retryFailedSyncEntries(retryTargets.map((entry) => entry.id));
+      const result = await retryFailedSyncEntries(
+        retryTargets.map((entry) => entry.id),
+      );
       await loadSyncHistory();
-      setFeedback({
-        type: "success",
-        title: "Retry Requested",
-        message: "Failed sync entries were retried safely.",
-      });
+
+      const syncedCount = result?.syncedIds?.length || 0;
+      const failedCount = result?.failedIds?.length || 0;
+      const conflictCount = result?.conflictIds?.length || 0;
+      const pendingCount = result?.pendingIds?.length || 0;
+
+      if (result?.outcome === "SUCCESS") {
+        setFeedback({
+          type: "success",
+          title: "Synchronization complete",
+          message:
+            syncedCount === 1
+              ? "The queued action synchronized successfully."
+              : `${syncedCount} queued actions synchronized successfully.`,
+        });
+      } else if (result?.outcome === "PARTIAL") {
+        setFeedback({
+          type: "warning",
+          title: "Some actions still need attention",
+          message: `${syncedCount} synchronized, ${failedCount} failed, and ${conflictCount} sent to Conflict Review${pendingCount ? `; ${pendingCount} still processing` : ""}. Failed actions remain in the queue.`,
+        });
+      } else if (result?.outcome === "CONFLICT") {
+        setFeedback({
+          type: "warning",
+          title: "Conflict review needed",
+          message: SYNC_PRESENTATION_MESSAGES.CONFLICT,
+        });
+      } else if (result?.outcome === "OFFLINE") {
+        setFeedback({
+          type: "warning",
+          title: "Still offline",
+          message: SYNC_PRESENTATION_MESSAGES.OFFLINE,
+        });
+      } else if (result?.outcome === "IN_FLIGHT") {
+        setFeedback({
+          type: "info",
+          title: "Synchronization already in progress",
+          message: "Wait for the current synchronization to finish before trying again.",
+        });
+      } else if (result?.outcome === "PENDING") {
+        setFeedback({
+          type: "info",
+          title: "Synchronization still processing",
+          message: "DISTYNC is still processing this action. Check the queue again shortly.",
+        });
+      } else if (result?.outcome === "NON_RETRYABLE") {
+        setFeedback({
+          type: "warning",
+          title: "Action needs another step",
+          message: SYNC_PRESENTATION_MESSAGES.UNSUPPORTED,
+        });
+      } else {
+        setFeedback({
+          type: "error",
+          title: "Synchronization did not complete",
+          message:
+            result?.outcome === "NETWORK_FAILURE"
+              ? SYNC_PRESENTATION_MESSAGES.NETWORK
+              : "Synchronization could not be completed. The action remains in the queue.",
+        });
+      }
     } catch (error) {
       setFeedback({
         type: "error",
-        title: "Retry Error",
-        message: error.message || "Failed to retry the selected sync entries.",
+        title: "Synchronization did not complete",
+        message:
+          getSafeSyncErrorMessage(
+            error,
+            "Synchronization could not be completed. The action remains in the queue.",
+          ),
       });
     } finally {
       setIsRetrying(false);
@@ -499,7 +593,10 @@ const SyncManagementPage = () => {
       setFeedback({
         type: "error",
         title: "Conflict Detail Error",
-        message: error.message || "Failed to load sync conflict detail.",
+        message: getSafeSyncErrorMessage(
+          error,
+          "Failed to load sync conflict detail.",
+        ),
       });
     } finally {
       setIsLoadingConflictDetail(false);
@@ -552,9 +649,10 @@ const SyncManagementPage = () => {
       setFeedback({
         type: "error",
         title: "Resolution Error",
-        message:
-          error.message ||
+        message: getSafeSyncErrorMessage(
+          error,
           "The conflict could not be resolved. Refresh and review the latest state.",
+        ),
       });
       await loadSyncHistory();
     } finally {
@@ -562,13 +660,18 @@ const SyncManagementPage = () => {
     }
   };
 
-  const renderRecordCells = (record, { includeBarangay = true } = {}) => {
+  const renderRecordCells = (
+    record,
+    { includeBarangay = true, includeOperation = false } = {},
+  ) => {
     const details = getSyncRecordDetails(record);
 
     return (
       <>
         <td style={tableStyles.td}>{details.recordType}</td>
-        <td style={tableStyles.td}>{details.actionLabel}</td>
+        <td style={tableStyles.td}>
+          {includeOperation ? details.operation : details.actionLabel}
+        </td>
         <td style={tableStyles.td}>
           <div>{details.subject}</div>
           {details.secondaryLabel ? (
@@ -792,13 +895,12 @@ const SyncManagementPage = () => {
           </p>
         ) : (
           <div style={{ overflowX: "auto" }}>
-            <table style={tableStyles.table}>
+            <table style={offlineQueueTableStyles}>
               <thead>
                 <tr>
                   <th style={tableStyles.th}>Record Type</th>
-                  <th style={tableStyles.th}>Action</th>
-                  <th style={tableStyles.th}>Family / Stub</th>
-                  <th style={tableStyles.th}>Barangay</th>
+                  <th style={tableStyles.th}>Operation</th>
+                  <th style={tableStyles.th}>Affected Record</th>
                   <th style={tableStyles.th}>Disaster Event</th>
                   <th style={tableStyles.th}>Status</th>
                   <th style={tableStyles.th}>Queued At</th>
@@ -809,46 +911,57 @@ const SyncManagementPage = () => {
               <tbody>
                 {filteredQueueEntries.map((entry) => {
                   const details = getSyncRecordDetails(entry);
+                  const canRetry = isSafeRetryableQueueEntry(entry);
 
                   return (
                     <tr key={entry.id}>
-                      {renderRecordCells(entry)}
+                      {renderRecordCells(entry, {
+                        includeBarangay: false,
+                        includeOperation: true,
+                      })}
                       <td style={tableStyles.td}>
                         <SyncStatusBadge status={entry.status} />
                       </td>
                       <td style={tableStyles.td}>
                         {formatSyncDateTime(entry.clientTimestamp || entry.createdAt)}
                       </td>
-                      <td style={{ ...tableStyles.td, minWidth: "220px" }}>
-                        {details.notes}
-                        {!isSafeRetryableQueueEntry(entry) ? (
-                          <div style={detailTextStyles}>
-                            Retry is unavailable for this entry because it is not
-                            a failed, supported offline action.
-                          </div>
-                        ) : null}
+                      <td
+                        style={{
+                          ...tableStyles.td,
+                          minWidth: "260px",
+                          maxWidth: "420px",
+                          overflowWrap: "break-word",
+                        }}
+                      >
+                        {getSyncQueueNotes(entry)}
                       </td>
                       <td style={tableStyles.td}>
-                        <button
-                          type="button"
-                          onClick={() => handleRetrySync([entry.id])}
-                          disabled={
-                            !isOnline ||
-                            !isSafeRetryableQueueEntry(entry) ||
-                            isRetrying
-                          }
-                          style={{
-                            ...pageHeaderStyles.secondaryButton,
-                            opacity:
-                              !isOnline ||
-                              !isSafeRetryableQueueEntry(entry) ||
-                              isRetrying
-                                ? 0.7
-                                : 1,
-                          }}
-                        >
-                          Retry
-                        </button>
+                        {canRetry ? (
+                          <button
+                            type="button"
+                            onClick={() => handleRetrySync([entry.id])}
+                            disabled={!isOnline || isRetrying}
+                            aria-label={`Retry synchronization for ${details.subject}`}
+                            aria-busy={isRetrying}
+                            title="Retry synchronization"
+                            style={{
+                              ...pageHeaderStyles.secondaryButton,
+                              minWidth: "44px",
+                              minHeight: "44px",
+                              justifyContent: "center",
+                              padding: "10px 12px",
+                              opacity: !isOnline || isRetrying ? 0.7 : 1,
+                            }}
+                          >
+                            <FiRefreshCw
+                              size={18}
+                              aria-hidden="true"
+                              focusable="false"
+                            />
+                          </button>
+                        ) : (
+                          <span aria-label="No action available">—</span>
+                        )}
                       </td>
                     </tr>
                   );

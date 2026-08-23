@@ -126,11 +126,12 @@ test("BRG-SC-P05 transaction and conflict status filters are not mixed", async (
   assert.match(source, /activeSyncTab === "CONFLICTS" \? "Conflict Status" : "Sync Status"/);
 });
 
-test("BRG-SC-P06 non-retryable queue entries explain unavailable retry", async () => {
+test("BRG-SC-P06 non-retryable queue entries do not offer a retry action", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
 
-  assert.match(source, /!isSafeRetryableQueueEntry\(entry\)[\s\S]*Retry is unavailable for this entry/);
-  assert.match(source, /disabled=\{[\s\S]*!isSafeRetryableQueueEntry\(entry\)/);
+  assert.match(source, /const canRetry = isSafeRetryableQueueEntry\(entry\)/);
+  assert.match(source, /<span aria-label="No action available">—<\/span>/);
+  assert.match(source, /disabled=\{!isOnline \|\| isRetrying\}/);
 });
 
 test("BRG-SC-P07 raw UUIDs are not primary record labels", async () => {
@@ -138,7 +139,7 @@ test("BRG-SC-P07 raw UUIDs are not primary record labels", async () => {
 
   assert.match(helperSource, /uuidPattern\.test/);
   assert.match(helperSource, /fallbackSubject/);
-  assert.match(helperSource, /Technical reference available in the sync record\./);
+  assert.doesNotMatch(helperSource, /Technical reference available in the sync record\./);
 });
 
 test("BRG-SC-P08 server history table uses affected record and processed timestamp semantics", async () => {
@@ -339,6 +340,82 @@ test("BRG-SC-P14 Barangay search no longer advertises or indexes Barangay", asyn
     }),
     /barangay hidden search/,
   );
+});
+
+test("BRG-OQ-P01 Offline Queue uses the final eight operational columns", async () => {
+  const source = await fs.readFile(pageSourcePath, "utf8");
+  const queueSection = source.match(
+    /activeSyncTab === "QUEUE" \? \([\s\S]*?\{activeSyncTab === "AUDIT"/,
+  )?.[0] || "";
+
+  assert.match(
+    queueSection,
+    /Record Type[\s\S]*Operation[\s\S]*Affected Record[\s\S]*Disaster Event[\s\S]*Status[\s\S]*Queued At[\s\S]*Notes[\s\S]*Action/,
+  );
+  assert.doesNotMatch(queueSection, /<th[^>]*>Barangay<\/th>|Family \/ Stub/);
+  assert.match(queueSection, /offlineQueueTableStyles/);
+});
+
+test("BRG-OQ-P02 Offline Queue uses operation-aware affected record details", async () => {
+  const { getSyncRecordDetails } = await import(helperModulePath.href);
+  const details = getSyncRecordDetails({
+    status: "FAILED",
+    entity_type: "HOUSEHOLD",
+    operation_type: "TIME_OUT",
+    entity_server_id: "11111111-1111-4111-8111-111111111111",
+    payload: {
+      disaster_event_title: "Typhoon Falcon",
+    },
+  });
+
+  assert.equal(details.operation, "Time Out");
+  assert.equal(details.subject, "Evacuee departure record");
+  assert.equal(details.disasterEvent, "Typhoon Falcon");
+  assert.doesNotMatch(details.subject, /11111111/);
+});
+
+test("BRG-OQ-P03 Offline Queue Notes map technical failures to actionable language", async () => {
+  const { getSyncQueueNotes } = await import(helperModulePath.href);
+
+  assert.equal(
+    getSyncQueueNotes({
+      status: "FAILED",
+      lastError: "current transaction is aborted, commands ignored until end of transaction block",
+    }),
+    "Synchronization could not be completed. Try again.",
+  );
+  assert.equal(
+    getSyncQueueNotes({ status: "FAILED", lastError: "Failed to fetch" }),
+    "Could not connect to DISTYNC. Reconnect and try again.",
+  );
+  assert.equal(
+    getSyncQueueNotes({ status: "CONFLICT" }),
+    "A synchronization conflict was detected. Review it in Conflict Review.",
+  );
+  assert.equal(
+    getSyncQueueNotes({ status: "PENDING" }),
+    "Waiting for a connection to DISTYNC.",
+  );
+});
+
+test("BRG-OQ-P04 Offline Queue row action is an accessible icon with actual-outcome feedback", async () => {
+  const source = await fs.readFile(pageSourcePath, "utf8");
+  const serviceSource = await fs.readFile(
+    new URL("../src/offline/syncService.js", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /aria-label=\{`Retry synchronization for \$\{details\.subject\}`\}/);
+  assert.match(source, /title="Retry synchronization"/);
+  assert.match(source, /window\.addEventListener\("online", updateConnectivity\)/);
+  assert.match(source, /window\.addEventListener\("offline", updateConnectivity\)/);
+  assert.match(source, /minWidth: "44px"/);
+  assert.match(source, /aria-busy=\{isRetrying\}/);
+  assert.doesNotMatch(source, /Retry is unavailable for this entry/);
+  assert.doesNotMatch(source, /Failed sync entries were retried safely/);
+  assert.match(serviceSource, /:\s*"SUCCESS";/);
+  assert.match(serviceSource, /outcome: "OFFLINE"/);
+  assert.match(serviceSource, /outcome: isNetworkFailure\(error\) \? "NETWORK_FAILURE"/);
 });
 
 test("BRG-SC-CONFLICT-P01 Conflict Review table uses the final six operational columns", async () => {

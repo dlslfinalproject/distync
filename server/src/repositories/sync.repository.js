@@ -191,8 +191,13 @@ const claimExistingSyncTransaction = async ({ payload, dbClient }) => {
 
 const claimSyncTransaction = async (payload, dbClient = null) => {
   if (dbClient) {
+    const claimInsertSavepoint = "sync_claim_insert";
+
+    await dbClient.query(`SAVEPOINT ${claimInsertSavepoint}`);
+
     try {
       const inserted = await insertSyncTransaction(payload, dbClient);
+      await dbClient.query(`RELEASE SAVEPOINT ${claimInsertSavepoint}`);
 
       return {
         decision: "CLAIMED_NEW",
@@ -203,6 +208,13 @@ const claimSyncTransaction = async (payload, dbClient = null) => {
         error.code !== "23505" ||
         error.constraint !== "sync_transactions_client_sync_id_unique"
       ) {
+        throw error;
+      }
+
+      try {
+        await dbClient.query(`ROLLBACK TO SAVEPOINT ${claimInsertSavepoint}`);
+      } catch (rollbackError) {
+        error.rollbackError = rollbackError;
         throw error;
       }
     }

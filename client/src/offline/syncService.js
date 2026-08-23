@@ -1,21 +1,32 @@
 import { LOCAL_SYNC_STATUS } from "./db.js";
 import {
+  getSafeSyncErrorMessage,
+  SYNC_PRESENTATION_MESSAGES,
+} from "./syncStatus.js";
+import {
   clearSyncedEntries,
   getFailedSyncEntries,
   getRetryableSyncEntries,
+  isLegacyInventoryTransactionEntry,
   queueSyncEntry,
   updateSyncEntryStatus,
 } from "./syncQueue.js";
 import { reconcileOfflineStubCacheForSyncResult } from "../features/stubs/stubCache.js";
-import {
-  isValidInventoryTransactionReferenceNo,
-  normalizeInventoryTransactionReferenceNo,
-} from "../features/inventory-transactions/inventoryTransactionReference.js";
 
 const API_BASE_URL =
   import.meta.env?.VITE_API_BASE_URL || "http://localhost:5000";
 
-const NETWORK_ERROR_MESSAGES = ["Failed to fetch", "NetworkError", "Load failed"];
+const NETWORK_ERROR_MESSAGES = [
+  "failed to fetch",
+  "fetch failed",
+  "networkerror",
+  "network error",
+  "load failed",
+  "econnrefused",
+  "enotfound",
+  "timeout",
+  "timed out",
+];
 const SYNC_ENDPOINT = `${API_BASE_URL}/api/v1/sync/process`;
 const syncListeners = new Set();
 let isInitialized = false;
@@ -32,7 +43,7 @@ const generateLocalId = () => {
 };
 
 const isNetworkFailure = (error) => {
-  const message = String(error?.message || "");
+  const message = String(error?.message || "").toLowerCase();
   return NETWORK_ERROR_MESSAGES.some((fragment) => message.includes(fragment));
 };
 
@@ -58,22 +69,6 @@ const notifySyncListeners = () => {
       // Listener failures should not block sync state changes.
     }
   });
-};
-
-const isLegacyInventoryTransactionEntry = (entry) => {
-  if (
-    entry?.moduleName !== "mayor-inventory" ||
-    entry?.actionKey !== "INVENTORY_TRANSACTION_CREATE"
-  ) {
-    return false;
-  }
-
-  const referenceNo = normalizeInventoryTransactionReferenceNo(
-    entry.payload?.inventoryTransactionReferenceNo ||
-      entry.payload?.inventory_transaction_reference_no,
-  );
-
-  return !isValidInventoryTransactionReferenceNo(referenceNo);
 };
 
 const emitSyncFeedbackEvent = (detail) => {
@@ -102,12 +97,39 @@ export const retryFailedSyncEntries = async (entryIds = []) => {
 };
 
 const flushSelectedSyncEntries = async (queuedEntries = []) => {
-  if (isSyncInFlight || typeof navigator === "undefined" || !navigator.onLine) {
-    return;
+  const requestedIds = queuedEntries.map((entry) => entry.id).filter(Boolean);
+
+  if (isSyncInFlight) {
+    return {
+      outcome: "IN_FLIGHT",
+      attemptedIds: requestedIds,
+      syncedIds: [],
+      failedIds: [],
+      conflictIds: [],
+      pendingIds: [],
+    };
+  }
+
+  if (typeof navigator === "undefined" || !navigator.onLine) {
+    return {
+      outcome: "OFFLINE",
+      attemptedIds: requestedIds,
+      syncedIds: [],
+      failedIds: [],
+      conflictIds: [],
+      pendingIds: [],
+    };
   }
 
   if (queuedEntries.length === 0) {
-    return;
+    return {
+      outcome: "NO_ENTRIES",
+      attemptedIds: [],
+      syncedIds: [],
+      failedIds: [],
+      conflictIds: [],
+      pendingIds: [],
+    };
   }
 
   const legacyInventoryEntries = queuedEntries.filter(
@@ -130,14 +152,26 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
   if (entriesToSync.length === 0) {
     emitSyncFeedbackEvent({
       type: "failed",
-      message:
-        "Legacy pre-ITR inventory transactions require reconciliation before syncing.",
+      message: SYNC_PRESENTATION_MESSAGES.UNSUPPORTED,
     });
-    return;
+    return {
+      outcome: "NON_RETRYABLE",
+      attemptedIds: requestedIds,
+      syncedIds: [],
+      failedIds: legacyInventoryEntries.map((entry) => entry.id),
+      conflictIds: [],
+      pendingIds: [],
+    };
   }
 
   isSyncInFlight = true;
   notifySyncListeners();
+
+  const attemptedIds = entriesToSync.map((entry) => entry.id);
+  const syncedIds = [];
+  const failedIds = legacyInventoryEntries.map((entry) => entry.id);
+  const conflictIds = [];
+  const pendingIds = [];
 
   try {
     const response = await fetch(SYNC_ENDPOINT, {
@@ -163,21 +197,48 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
     const payload = await response.json().catch(() => null);
 
     if (!response.ok) {
-      throw new Error(payload?.message || "Failed to process pending sync entries.");
+      const error = new Error(
+        payload?.message || "Failed to process pending sync entries.",
+      );
+      error.statusCode = response.status;
+      error.code = payload?.code || payload?.error_code || null;
+      throw error;
     }
 
     const syncResults = Array.isArray(payload?.data) ? payload.data : [];
 
-    for (const result of syncResults) {
-      const sourceEntry = entriesToSync.find(
-        (entry) => entry.id === result.client_sync_id,
+    for (const entry of entriesToSync) {
+      const result = syncResults.find(
+        (candidate) => candidate.client_sync_id === entry.id,
       );
-      const resultStatus = result.sync_status || LOCAL_SYNC_STATUS.FAILED;
+      const resultStatus = result?.sync_status || LOCAL_SYNC_STATUS.FAILED;
       const isTerminalResult =
         resultStatus === LOCAL_SYNC_STATUS.SYNCED ||
         resultStatus === LOCAL_SYNC_STATUS.CONFLICT;
 
-      await updateSyncEntryStatus(result.client_sync_id, {
+      if (!result) {
+        failedIds.push(entry.id);
+        await updateSyncEntryStatus(entry.id, {
+          status: LOCAL_SYNC_STATUS.FAILED,
+          lastError:
+            "DISTYNC did not return a final result for this action. Try again.",
+          serverMessage:
+            "DISTYNC did not return a final result for this action. Try again.",
+        });
+        continue;
+      }
+
+      if (resultStatus === LOCAL_SYNC_STATUS.SYNCED) {
+        syncedIds.push(entry.id);
+      } else if (resultStatus === LOCAL_SYNC_STATUS.CONFLICT) {
+        conflictIds.push(entry.id);
+      } else if (resultStatus === LOCAL_SYNC_STATUS.PENDING) {
+        pendingIds.push(entry.id);
+      } else {
+        failedIds.push(entry.id);
+      }
+
+      await updateSyncEntryStatus(entry.id, {
         status: resultStatus,
         syncTransactionId: result.sync_transaction_id || null,
         entityServerId:
@@ -189,23 +250,32 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
         syncedAt: isTerminalResult ? getIsoNow() : null,
         lastError:
           resultStatus === LOCAL_SYNC_STATUS.FAILED
-            ? result.message || "Sync failed."
+            ? result.message || SYNC_PRESENTATION_MESSAGES.SERVER
             : null,
         serverMessage: result.message || null,
+        lastErrorCode: result.error_code || null,
+        lastErrorStatusCode: result.status_code || null,
         conflict: result.conflict || null,
       });
 
-      await reconcileOfflineStubCacheForSyncResult(sourceEntry, result);
+      await reconcileOfflineStubCacheForSyncResult(entry, result);
     }
 
     await clearSyncedEntries();
 
-    const failedCount = syncResults.filter(
-      (result) => result.sync_status === LOCAL_SYNC_STATUS.FAILED,
-    ).length;
-    const conflictCount = syncResults.filter(
-      (result) => result.sync_status === LOCAL_SYNC_STATUS.CONFLICT,
-    ).length;
+    const failedCount = failedIds.length;
+    const conflictCount = conflictIds.length;
+    const pendingCount = pendingIds.length;
+    const outcome =
+      failedCount > 0 && (syncedIds.length > 0 || conflictCount > 0)
+        ? "PARTIAL"
+        : failedCount > 0
+          ? "FAILED"
+          : conflictCount > 0
+            ? "CONFLICT"
+            : pendingCount > 0
+              ? "PENDING"
+              : "SUCCESS";
 
     emitSyncFeedbackEvent({
       type:
@@ -216,23 +286,55 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
             : "success",
       message:
         failedCount > 0
-          ? "Some offline changes could not be synced."
+          ? "Some offline changes could not be synchronized."
           : conflictCount > 0
-            ? "Conflicts were detected during sync."
-            : "Offline changes synced successfully.",
+            ? SYNC_PRESENTATION_MESSAGES.CONFLICT
+            : "Offline changes synchronized successfully.",
     });
+
+    return {
+      outcome,
+      attemptedIds,
+      syncedIds,
+      failedIds,
+      conflictIds,
+      pendingIds,
+    };
   } catch (error) {
     for (const entry of entriesToSync) {
+      if (syncedIds.includes(entry.id) || conflictIds.includes(entry.id)) {
+        continue;
+      }
+
+      if (!failedIds.includes(entry.id)) {
+        failedIds.push(entry.id);
+      }
+
       await updateSyncEntryStatus(entry.id, {
         status: LOCAL_SYNC_STATUS.FAILED,
         lastError: error.message || "Sync failed.",
+        serverMessage: error.message || "Sync failed.",
+        lastErrorCode: error.code || null,
+        lastErrorStatusCode: error.statusCode || null,
       });
     }
 
     emitSyncFeedbackEvent({
       type: "failed",
-      message: error.message || "Failed to sync offline changes.",
+      message: getSafeSyncErrorMessage(
+        error,
+        SYNC_PRESENTATION_MESSAGES.SERVER,
+      ),
     });
+
+    return {
+      outcome: isNetworkFailure(error) ? "NETWORK_FAILURE" : "FAILED",
+      attemptedIds,
+      syncedIds,
+      failedIds,
+      conflictIds,
+      pendingIds,
+    };
   } finally {
     isSyncInFlight = false;
     notifySyncListeners();
