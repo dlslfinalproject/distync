@@ -13,6 +13,7 @@ const shellHeaderStyles = {
     position: "sticky",
     top: 0,
     zIndex: 90,
+    backgroundColor: "#f4f8fc",
   },
   brandArea: {
     padding: "10px 14px",
@@ -20,9 +21,7 @@ const shellHeaderStyles = {
     display: "flex",
     alignItems: "center",
     backgroundColor: "#f4f8fc",
-    borderRight: "1px solid #ccdceb",
     borderBottom: "1px solid #ccdceb",
-    boxShadow: "8px 0 24px rgba(72, 95, 122, 0.08)",
     overflow: "hidden",
     transition:
       "padding 260ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 220ms ease",
@@ -33,8 +32,7 @@ const shellHeaderStyles = {
     display: "flex",
     justifyContent: "flex-end",
     alignItems: "center",
-    background:
-      "linear-gradient(180deg, #edf4fb 0%, rgba(237, 244, 251, 0.94) 100%)",
+    backgroundColor: "#f4f8fc",
     borderBottom: "1px solid rgba(204, 220, 235, 0.72)",
   },
 };

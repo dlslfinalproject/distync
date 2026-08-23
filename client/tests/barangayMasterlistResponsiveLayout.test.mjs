@@ -55,7 +55,7 @@ test("Shared shell releases page width through a mobile navigation drawer", asyn
   assert.match(headerSource, /data-sidebar-collapsed=\{isSidebarCollapsed \? "true" : "false"\}/);
   assert.match(headerSource, /gridTemplateColumns: "var\(--header-brand-width, 280px\) minmax\(0, 1fr\)"/);
   assert.match(headerSource, /backgroundColor: "#f4f8fc"/);
-  assert.match(headerSource, /borderRight: "1px solid #ccdceb"/);
+  assert.doesNotMatch(headerSource, /borderRight: "1px solid #ccdceb"/);
   assert.match(
     cssSource,
     /@media \(max-width: 1024px\)[\s\S]*?\.distync-sidebar \{[\s\S]*?position: fixed !important;/,

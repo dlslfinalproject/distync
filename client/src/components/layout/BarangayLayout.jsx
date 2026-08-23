@@ -9,7 +9,7 @@ import { SettingsUnsavedChangesProvider } from "../../pages/settings/SettingsUns
 
 const SIDEBAR_EXPANDED_WIDTH = "280px";
 const SIDEBAR_COLLAPSED_WIDTH = "0px";
-const HEADER_BRAND_COLLAPSED_WIDTH = "122px";
+const HEADER_BRAND_COLLAPSED_WIDTH = "280px";
 const SHELL_HEADER_HEIGHT = "68px";
 const MOBILE_NAV_QUERY = "(max-width: 1024px)";
 const COMPACT_NAV_QUERY = "(max-width: 1024px)";
