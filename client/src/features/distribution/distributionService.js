@@ -10,7 +10,10 @@ const handleJsonResponse = async (response, fallbackMessage) => {
   const responseData = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(responseData?.message || fallbackMessage);
+    const error = new Error(responseData?.message || fallbackMessage);
+    error.statusCode = response.status;
+    error.code = responseData?.code || `HTTP_${response.status}`;
+    throw error;
   }
 
   return responseData;
@@ -227,13 +230,20 @@ export const updateDistributionLifecycle = async ({
   );
 };
 
-export const recordDistributionTransaction = async (payload) => {
+export const recordDistributionTransaction = async (
+  payload,
+  { barangayId = null, disasterEventTitle = "" } = {},
+) => {
   return performSyncableMutation({
     moduleName: "distribution",
     actionKey: "DISTRIBUTION_CREATE",
     entityType: "DISTRIBUTION_TRANSACTION",
     entityLocalId: payload?.stub_id || null,
+    barangayId,
     payload,
+    queueDisplayContext: disasterEventTitle
+      ? { disaster_event_title: disasterEventTitle }
+      : null,
     requiredFields: [
       "disaster_event_id",
       "household_id",

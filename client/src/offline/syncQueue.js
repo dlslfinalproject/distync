@@ -9,6 +9,10 @@ import {
   normalizeInventoryTransactionReferenceNo,
 } from "../features/inventory-transactions/inventoryTransactionReference.js";
 import { isSyncIdempotencyMismatch } from "./syncStatus.js";
+import {
+  SYNC_ERROR_CODES,
+  SYNC_PRESENTATION_MESSAGES,
+} from "./syncStatus.js";
 
 const unsupportedOfflineActionKeys = new Set([
   "DONATION_NEED_CREATE",
@@ -24,6 +28,19 @@ const unsupportedOfflineActionKeys = new Set([
 ]);
 
 const getIsoNow = () => new Date().toISOString();
+const SYNC_PROCESSING_LEASE_MS = 60 * 1000;
+
+const normalizeScopeValue = (value) => String(value || "").trim();
+
+const getQueueBarangayId = ({ payload = {}, barangayId = null, user = null } = {}) =>
+  normalizeScopeValue(
+    barangayId ||
+      payload?.barangay_id ||
+      payload?.override_barangay_id ||
+      payload?.barangay?.id ||
+      user?.default_barangay_id ||
+      "",
+  ) || null;
 
 export const isUnsupportedOfflineActionKey = (actionKey) =>
   unsupportedOfflineActionKeys.has(String(actionKey || "").trim().toUpperCase());
@@ -44,9 +61,33 @@ export const isLegacyInventoryTransactionEntry = (entry = {}) => {
   return !isValidInventoryTransactionReferenceNo(referenceNo);
 };
 
+export const isMalformedSyncEntry = (entry = {}) => {
+  if (!entry || typeof entry !== "object") {
+    return true;
+  }
+
+  const hasQueueIdentity =
+    entry.id || entry.actionKey || entry.entityType || entry.clientTimestamp || entry.payload;
+
+  if (!hasQueueIdentity) {
+    return false;
+  }
+
+  return Boolean(
+    !normalizeScopeValue(entry.id) ||
+      !normalizeScopeValue(entry.actionKey) ||
+      !normalizeScopeValue(entry.entityType) ||
+      !normalizeScopeValue(entry.clientTimestamp) ||
+      !entry.payload ||
+      typeof entry.payload !== "object" ||
+      Array.isArray(entry.payload),
+  );
+};
+
 export const isNonRetryableSyncEntry = (entry = {}) =>
   isUnsupportedOfflineActionKey(entry.actionKey) ||
   isLegacyInventoryTransactionEntry(entry) ||
+  isMalformedSyncEntry(entry) ||
   isSyncIdempotencyMismatch(entry);
 
 export const getUnsupportedOfflineActionMessage = (actionKey) => {
@@ -58,19 +99,30 @@ export const getUnsupportedOfflineActionMessage = (actionKey) => {
 };
 
 export const getSyncQueueActorContext = () => {
+  const authenticatedUser = getAuthenticatedUser();
+
   return {
     accessMode: getAccessMode(),
-    userId: getAuthenticatedUser()?.id || null,
+    userId: authenticatedUser?.id || null,
     roleCode: getCurrentRole() || null,
+    barangayId: authenticatedUser?.default_barangay_id || null,
   };
 };
 
-export const buildStoredSyncEntry = (entry, actorContext = getSyncQueueActorContext()) => {
+export const buildStoredSyncEntry = (
+  entry,
+  actorContext = getSyncQueueActorContext(),
+) => {
   return {
     ...entry,
     accessMode: actorContext.accessMode,
     userId: actorContext.userId,
     roleCode: actorContext.roleCode,
+    barangayId: getQueueBarangayId({
+      payload: entry?.payload,
+      barangayId: entry?.barangayId || actorContext.barangayId,
+      user: actorContext.user || null,
+    }),
   };
 };
 
@@ -82,15 +134,19 @@ export const isSyncEntryVisibleForContext = (
     return false;
   }
 
-  if (entry.userId && entry.userId !== actorContext.userId) {
+  if (!entry.userId || !actorContext.userId || entry.userId !== actorContext.userId) {
     return false;
   }
 
-  if (entry.roleCode && actorContext.roleCode && entry.roleCode !== actorContext.roleCode) {
+  if (!entry.roleCode || !actorContext.roleCode || entry.roleCode !== actorContext.roleCode) {
     return false;
   }
 
-  if (entry.roleCode && !actorContext.roleCode) {
+  if (
+    entry.barangayId &&
+    actorContext.roleCode === "BARANGAY" &&
+    (!actorContext.barangayId || entry.barangayId !== actorContext.barangayId)
+  ) {
     return false;
   }
 
@@ -165,26 +221,104 @@ export const queueSyncEntry = async (entry) => {
   // queueGroupKey remains stored for grouping/filtering, but is not an
   // idempotency boundary.
 
-  await db.syncQueue.put({
-    ...storedEntry,
-    status: LOCAL_SYNC_STATUS.PENDING,
-    lastError: null,
-    syncedAt: null,
-    createdAt: now,
-    updatedAt: now,
-  });
+  try {
+    await db.syncQueue.put({
+      ...storedEntry,
+      status: LOCAL_SYNC_STATUS.PENDING,
+      lastError: null,
+      lastErrorCode: null,
+      syncedAt: null,
+      processingOwner: null,
+      processingUntil: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+  } catch (error) {
+    const storageError = new Error(SYNC_PRESENTATION_MESSAGES.LOCAL_STORAGE);
+    storageError.code = SYNC_ERROR_CODES.LOCAL_STORAGE_FAILURE;
+    storageError.cause = error;
+    throw storageError;
+  }
 
   emitSyncQueueUpdated();
   return entry.id;
 };
 
 export const updateSyncEntryStatus = async (entryId, updates) => {
-  await db.syncQueue.update(entryId, {
-    ...updates,
-    updatedAt: getIsoNow(),
-  });
+  try {
+    await db.syncQueue.update(entryId, {
+      ...updates,
+      updatedAt: getIsoNow(),
+    });
+  } catch (error) {
+    const storageError = new Error(SYNC_PRESENTATION_MESSAGES.LOCAL_STORAGE);
+    storageError.code = SYNC_ERROR_CODES.LOCAL_STORAGE_FAILURE;
+    storageError.cause = error;
+    throw storageError;
+  }
 
   emitSyncQueueUpdated();
+};
+
+export const claimSyncEntries = async (
+  entries = [],
+  processingOwner,
+  now = Date.now(),
+) => {
+  const requestedIds = entries.map((entry) => entry?.id).filter(Boolean);
+  const claimedEntries = [];
+
+  if (!processingOwner || requestedIds.length === 0) {
+    return claimedEntries;
+  }
+
+  try {
+    await db.transaction("rw", db.syncQueue, async () => {
+      for (const entryId of requestedIds) {
+        const currentEntry = await db.syncQueue.get(entryId);
+
+        if (
+          !currentEntry ||
+          !isSyncEntryVisibleForContext(currentEntry) ||
+          isNonRetryableSyncEntry(currentEntry) ||
+          ![LOCAL_SYNC_STATUS.PENDING, LOCAL_SYNC_STATUS.FAILED].includes(
+            currentEntry.status,
+          )
+        ) {
+          continue;
+        }
+
+        const processingUntil = new Date(currentEntry.processingUntil || 0).getTime();
+        const hasActiveClaim =
+          currentEntry.processingOwner &&
+          currentEntry.processingOwner !== processingOwner &&
+          Number.isFinite(processingUntil) &&
+          processingUntil > now;
+
+        if (hasActiveClaim) {
+          continue;
+        }
+
+        await db.syncQueue.update(entryId, {
+          processingOwner,
+          processingUntil: new Date(now + SYNC_PROCESSING_LEASE_MS).toISOString(),
+          updatedAt: getIsoNow(),
+        });
+        claimedEntries.push({
+          ...currentEntry,
+          processingOwner,
+          processingUntil: new Date(now + SYNC_PROCESSING_LEASE_MS).toISOString(),
+        });
+      }
+    });
+  } catch (error) {
+    const storageError = new Error(SYNC_PRESENTATION_MESSAGES.LOCAL_STORAGE);
+    storageError.code = SYNC_ERROR_CODES.LOCAL_STORAGE_FAILURE;
+    storageError.cause = error;
+    throw storageError;
+  }
+
+  return claimedEntries;
 };
 
 export const clearSyncedEntries = async () => {
@@ -197,6 +331,13 @@ export const clearSyncedEntries = async () => {
     )
     .toArray();
 
-  await db.syncQueue.bulkDelete(syncedEntries.map((entry) => entry.id));
+  try {
+    await db.syncQueue.bulkDelete(syncedEntries.map((entry) => entry.id));
+  } catch (error) {
+    const storageError = new Error(SYNC_PRESENTATION_MESSAGES.LOCAL_STORAGE);
+    storageError.code = SYNC_ERROR_CODES.LOCAL_STORAGE_FAILURE;
+    storageError.cause = error;
+    throw storageError;
+  }
   emitSyncQueueUpdated();
 };

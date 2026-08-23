@@ -88,6 +88,13 @@ export default defineConfig(({ mode }) => {
           background_color: "#edf4fb",
           display: "standalone",
           start_url: "/",
+          icons: [
+            {
+              src: "/assets/distync-logo-cropped.png",
+              sizes: "363x363",
+              type: "image/png",
+            },
+          ],
         },
         workbox: {
           cacheId: getModePrecacheCacheId(configuredAccessMode),
@@ -146,5 +153,15 @@ export default defineConfig(({ mode }) => {
         },
       }),
     ],
+    build: {
+      rollupOptions: {
+        output: {
+          assetFileNames: (assetInfo) =>
+            assetInfo.name === "distync-logo-cropped.png"
+              ? "assets/distync-logo-cropped.png"
+              : "assets/[name]-[hash][extname]",
+        },
+      },
+    },
   };
 });

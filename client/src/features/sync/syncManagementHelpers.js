@@ -2,6 +2,7 @@ import { LOCAL_SYNC_STATUS } from "../../offline/db.js";
 import {
   getUnsupportedOfflineActionMessage,
   isUnsupportedOfflineActionKey,
+  isMalformedSyncEntry,
   isNonRetryableSyncEntry,
 } from "../../offline/syncQueue.js";
 import {
@@ -465,6 +466,10 @@ export const getSyncQueueNotes = (record = {}) => {
 
   if (isSyncIdempotencyMismatch(record)) {
     return SYNC_PRESENTATION_MESSAGES.IDEMPOTENCY_MISMATCH;
+  }
+
+  if (isMalformedSyncEntry(record)) {
+    return SYNC_PRESENTATION_MESSAGES.MALFORMED_ENTRY;
   }
 
   if (isNonRetryableSyncEntry(record) || isUnsupportedOfflineActionKey(actionKey)) {

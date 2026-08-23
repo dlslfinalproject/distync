@@ -8,6 +8,7 @@ import {
   clearSyncedEntries,
   getFailedSyncEntries,
   getRetryableSyncEntries,
+  claimSyncEntries,
   isLegacyInventoryTransactionEntry,
   queueSyncEntry,
   updateSyncEntryStatus,
@@ -45,7 +46,12 @@ const generateLocalId = () => {
 
 const isNetworkFailure = (error) => {
   const message = String(error?.message || "").toLowerCase();
-  return NETWORK_ERROR_MESSAGES.some((fragment) => message.includes(fragment));
+  const statusCode = Number(error?.statusCode || error?.status || 0);
+  const transientStatus = [408, 425, 429, 500, 502, 503, 504].includes(statusCode);
+
+  return (
+    transientStatus || NETWORK_ERROR_MESSAGES.some((fragment) => message.includes(fragment))
+  );
 };
 
 const validateRequiredFields = (payload, requiredFields = []) => {
@@ -79,6 +85,21 @@ const emitSyncFeedbackEvent = (detail) => {
         detail,
       }),
     );
+  }
+};
+
+const persistOfflineMutation = async (entry) => {
+  try {
+    return await queueSyncEntry(entry);
+  } catch (error) {
+    emitSyncFeedbackEvent({
+      type: "failed",
+      message: getSafeSyncErrorMessage(
+        error,
+        SYNC_PRESENTATION_MESSAGES.LOCAL_STORAGE,
+      ),
+    });
+    throw error;
   }
 };
 
@@ -133,50 +154,70 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
     };
   }
 
-  const legacyInventoryEntries = queuedEntries.filter(
-    isLegacyInventoryTransactionEntry,
-  );
-  const entriesToSync = queuedEntries.filter(
-    (entry) => !isLegacyInventoryTransactionEntry(entry),
-  );
-
-  for (const entry of legacyInventoryEntries) {
-    await updateSyncEntryStatus(entry.id, {
-      status: LOCAL_SYNC_STATUS.FAILED,
-      lastError:
-        "Legacy pre-ITR inventory transaction. Keep this entry for reconciliation, assign a real official ITR to the written transaction, then re-enter it under the new process.",
-      serverMessage:
-        "Legacy pre-ITR inventory transaction requires reconciliation and re-entry with an official ITR.",
-    });
-  }
-
-  if (entriesToSync.length === 0) {
-    emitSyncFeedbackEvent({
-      type: "failed",
-      message: SYNC_PRESENTATION_MESSAGES.UNSUPPORTED,
-    });
-    return {
-      outcome: "NON_RETRYABLE",
-      attemptedIds: requestedIds,
-      syncedIds: [],
-      failedIds: legacyInventoryEntries.map((entry) => entry.id),
-      nonRetryableIds: legacyInventoryEntries.map((entry) => entry.id),
-      conflictIds: [],
-      pendingIds: [],
-    };
-  }
-
   isSyncInFlight = true;
   notifySyncListeners();
 
-  const attemptedIds = entriesToSync.map((entry) => entry.id);
+  const processingOwner = generateLocalId();
+  let legacyInventoryEntries = [];
+  let entriesToSync = [];
+  const attemptedIds = [];
   const syncedIds = [];
-  const failedIds = legacyInventoryEntries.map((entry) => entry.id);
-  const nonRetryableIds = [...failedIds];
+  const failedIds = [];
+  const nonRetryableIds = [];
   const conflictIds = [];
   const pendingIds = [];
 
   try {
+    const claimedEntries = await claimSyncEntries(queuedEntries, processingOwner);
+
+    if (claimedEntries.length === 0) {
+      return {
+        outcome: "IN_FLIGHT",
+        attemptedIds: requestedIds,
+        syncedIds: [],
+        failedIds: [],
+        conflictIds: [],
+        pendingIds: [],
+      };
+    }
+
+    legacyInventoryEntries = claimedEntries.filter(isLegacyInventoryTransactionEntry);
+    entriesToSync = claimedEntries.filter(
+      (entry) => !isLegacyInventoryTransactionEntry(entry),
+    );
+    attemptedIds.push(...entriesToSync.map((entry) => entry.id));
+
+    for (const entry of legacyInventoryEntries) {
+      failedIds.push(entry.id);
+      nonRetryableIds.push(entry.id);
+      await updateSyncEntryStatus(entry.id, {
+        status: LOCAL_SYNC_STATUS.FAILED,
+        lastError:
+          "Legacy pre-ITR inventory transaction. Keep this entry for reconciliation, assign a real official ITR to the written transaction, then re-enter it under the new process.",
+        serverMessage:
+          "Legacy pre-ITR inventory transaction requires reconciliation and re-entry with an official ITR.",
+        lastErrorCode: "LEGACY_OFFLINE_ENTRY",
+        processingOwner: null,
+        processingUntil: null,
+      });
+    }
+
+    if (entriesToSync.length === 0) {
+      emitSyncFeedbackEvent({
+        type: "failed",
+        message: SYNC_PRESENTATION_MESSAGES.UNSUPPORTED,
+      });
+      return {
+        outcome: "NON_RETRYABLE",
+        attemptedIds: requestedIds,
+        syncedIds: [],
+        failedIds,
+        nonRetryableIds,
+        conflictIds: [],
+        pendingIds: [],
+      };
+    }
+
     const response = await fetch(SYNC_ENDPOINT, {
       method: "POST",
       headers: {
@@ -227,6 +268,9 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
             "DISTYNC did not return a final result for this action. Try again.",
           serverMessage:
             "DISTYNC did not return a final result for this action. Try again.",
+          lastErrorCode: "MISSING_SYNC_RESULT",
+          processingOwner: null,
+          processingUntil: null,
         });
         continue;
       }
@@ -239,6 +283,10 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
         pendingIds.push(entry.id);
       } else {
         failedIds.push(entry.id);
+      }
+
+      if (isSyncIdempotencyMismatch(result)) {
+        nonRetryableIds.push(entry.id);
       }
 
       await updateSyncEntryStatus(entry.id, {
@@ -259,6 +307,8 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
         lastErrorCode: result.error_code || null,
         lastErrorStatusCode: result.status_code || null,
         conflict: result.conflict || null,
+        processingOwner: null,
+        processingUntil: null,
       });
 
       await reconcileOfflineStubCacheForSyncResult(entry, result);
@@ -317,13 +367,20 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
         nonRetryableIds.push(entry.id);
       }
 
-      await updateSyncEntryStatus(entry.id, {
-        status: LOCAL_SYNC_STATUS.FAILED,
-        lastError: getSafeSyncErrorMessage(error, "Sync failed."),
-        serverMessage: getSafeSyncErrorMessage(error, "Sync failed."),
-        lastErrorCode: error.code || null,
-        lastErrorStatusCode: error.statusCode || null,
-      });
+      try {
+        await updateSyncEntryStatus(entry.id, {
+          status: LOCAL_SYNC_STATUS.FAILED,
+          lastError: getSafeSyncErrorMessage(error, "Sync failed."),
+          serverMessage: getSafeSyncErrorMessage(error, "Sync failed."),
+          lastErrorCode: error.code || null,
+          lastErrorStatusCode: error.statusCode || null,
+          processingOwner: null,
+          processingUntil: null,
+        });
+      } catch (_storageError) {
+        // Keep the original sync failure visible; the lease expires safely if
+        // local storage is temporarily unavailable during failure recording.
+      }
     }
 
     emitSyncFeedbackEvent({
@@ -387,6 +444,7 @@ export const performSyncableMutation = async ({
   entityServerId = null,
   entityLocalId = null,
   payload,
+  barangayId = null,
   requiredFields = [],
   request,
   allowOffline = true,
@@ -404,7 +462,7 @@ export const performSyncableMutation = async ({
   const queueGroupKey = `${actionKey}:${entityServerId || effectiveEntityLocalId}`;
 
   if (typeof navigator !== "undefined" && !navigator.onLine && allowOffline) {
-    await queueSyncEntry({
+    await persistOfflineMutation({
       id: clientSyncId,
       queueGroupKey,
       moduleName,
@@ -412,6 +470,7 @@ export const performSyncableMutation = async ({
       entityType,
       entityLocalId: effectiveEntityLocalId,
       entityServerId,
+      barangayId,
       clientTimestamp,
       clientUpdatedAt,
       payload,
@@ -437,7 +496,7 @@ export const performSyncableMutation = async ({
       throw error;
     }
 
-    await queueSyncEntry({
+    await persistOfflineMutation({
       id: clientSyncId,
       queueGroupKey,
       moduleName,
@@ -445,6 +504,7 @@ export const performSyncableMutation = async ({
       entityType,
       entityLocalId: effectiveEntityLocalId,
       entityServerId,
+      barangayId,
       clientTimestamp,
       clientUpdatedAt,
       payload,
