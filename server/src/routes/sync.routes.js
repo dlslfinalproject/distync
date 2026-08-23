@@ -50,9 +50,15 @@ router.post(
         data: results,
       });
     } catch (error) {
-      return res.status(error.statusCode || 500).json({
+      const responseBody = {
         message: error.message || "Failed to process sync entries",
-      });
+      };
+
+      if (error.code) {
+        responseBody.code = error.code;
+      }
+
+      return res.status(error.statusCode || 500).json(responseBody);
     }
   },
 );

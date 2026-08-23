@@ -3,6 +3,8 @@ import { LOCAL_SYNC_STATUS } from "./db.js";
 export const SYNC_PRESENTATION_MESSAGES = Object.freeze({
   NETWORK: "Could not connect to DISTYNC. Reconnect and try again.",
   SERVER: "Synchronization could not be completed. Try again.",
+  IDEMPOTENCY_MISMATCH:
+    "This action cannot be retried because its synchronization information no longer matches the original request. Review the related record while online.",
   VALIDATION:
     "Some information could not be synchronized. Review the related record while online.",
   CONFLICT:
@@ -10,6 +12,10 @@ export const SYNC_PRESENTATION_MESSAGES = Object.freeze({
   UNSUPPORTED:
     "This offline action cannot be retried here. Complete it from the related module while online.",
   OFFLINE: "You are currently offline. Reconnect before retrying.",
+});
+
+export const SYNC_ERROR_CODES = Object.freeze({
+  IDEMPOTENCY_MISMATCH: "IDEMPOTENCY_KEY_REUSE_MISMATCH",
 });
 
 const NETWORK_ERROR_PATTERNS = [
@@ -45,16 +51,50 @@ const getRawSyncErrorText = (source = {}) =>
       "",
   ).trim();
 
+export const isSyncIdempotencyMismatch = (source = {}) => {
+  const code = String(
+    source?.code ||
+      source?.errorCode ||
+      source?.error_code ||
+      source?.lastErrorCode ||
+      "",
+  ).toUpperCase();
+
+  if (code === SYNC_ERROR_CODES.IDEMPOTENCY_MISMATCH) {
+    return true;
+  }
+
+  // Older responses did not include a code. Keep this narrow fallback only so
+  // an already-persisted legacy queue row is not offered an endless retry.
+  const rawMessage = getRawSyncErrorText(source).toLowerCase();
+  return (
+    rawMessage.includes("client_sync_id") &&
+    rawMessage.includes("different sync request")
+  );
+};
+
 export const getSafeSyncErrorMessage = (source = {}, fallback = "") => {
   const rawMessage = getRawSyncErrorText(source);
   const normalizedMessage = rawMessage.toLowerCase();
   const code = String(
-    source?.code || source?.errorCode || source?.error_code || "",
+    source?.code ||
+      source?.errorCode ||
+      source?.error_code ||
+      source?.lastErrorCode ||
+      "",
   ).toUpperCase();
   const statusCode = Number(
-    source?.statusCode || source?.httpStatus || source?.status_code || 0,
+    source?.statusCode ||
+      source?.httpStatus ||
+      source?.status_code ||
+      source?.lastErrorStatusCode ||
+      0,
   );
   const syncStatus = String(source?.sync_status || source?.status || "").toUpperCase();
+
+  if (isSyncIdempotencyMismatch(source)) {
+    return SYNC_PRESENTATION_MESSAGES.IDEMPOTENCY_MISMATCH;
+  }
 
   if (syncStatus === LOCAL_SYNC_STATUS.CONFLICT || code.includes("CONFLICT")) {
     return SYNC_PRESENTATION_MESSAGES.CONFLICT;
@@ -169,6 +209,26 @@ export const formatSyncStatusCount = (count, type) => {
   }
 
   return "";
+};
+
+export const getSyncStatusSummaryMessage = ({
+  pending = 0,
+  failed = 0,
+  conflicts = 0,
+} = {}) => {
+  if (failed > 0) {
+    return "Synchronization needs attention.";
+  }
+
+  if (pending > 0) {
+    return "Synchronization is still processing.";
+  }
+
+  if (conflicts > 0) {
+    return "Some changes need review.";
+  }
+
+  return "All changes synced";
 };
 
 export const formatCompactSyncChipLabel = (count, type) => {

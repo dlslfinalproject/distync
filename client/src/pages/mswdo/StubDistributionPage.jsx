@@ -573,6 +573,8 @@ const StubDistributionPage = () => {
               stubId,
               barangayId: selectedBarangayId,
               disasterEventId: row?.disaster_event?.id || row?.disaster_event_id || "",
+              disasterEventTitle:
+                row?.disaster_event?.title || row?.disaster_event?.name || "",
             });
           }),
         );
@@ -606,6 +608,12 @@ const StubDistributionPage = () => {
           pendingClaimStubDetails?.disaster_event?.id ||
           stubRows.find((row) => row.id === pendingClaimStubId)?.disaster_event?.id ||
           stubRows.find((row) => row.id === pendingClaimStubId)?.disaster_event_id ||
+          "",
+        disasterEventTitle:
+          pendingClaimStubDetails?.disaster_event?.title ||
+          pendingClaimStubDetails?.disaster_event?.name ||
+          stubRows.find((row) => row.id === pendingClaimStubId)?.disaster_event?.title ||
+          stubRows.find((row) => row.id === pendingClaimStubId)?.disaster_event?.name ||
           "",
       });
       reloadDashboard();

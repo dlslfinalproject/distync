@@ -545,6 +545,74 @@ test("H03F-10/H03F-11/H03F-12 protocol-v2 schema, insert, and terminal replay id
   assert.equal(terminalReplay.transaction.processing_protocol_version, 2);
 });
 
+test("SYNC-IDEMP-SERVER-01 same ID replays only the same canonical logical request", async () => {
+  const basePayload = {
+    client_sync_id: "sync-idempotency-boundary",
+    user_id: "user-1",
+    device_id: "device-1",
+    entity_type: "STUB",
+    entity_local_id: "stub-local-1",
+    entity_server_id: "stub-server-1",
+    operation_type: "CLAIM",
+    payload_json: {
+      action_key: "STUB_CLAIM",
+      payload: {
+        disaster_event_id: "event-1",
+        barangay_id: "barangay-1",
+      },
+    },
+    client_timestamp: "2026-08-08T01:00:00.000Z",
+    sync_status: "PENDING",
+  };
+  const existingRow = {
+    id: "sync-idempotency-row",
+    ...basePayload,
+    sync_status: "SYNCED",
+    is_stale_pending: false,
+    processing_protocol_version: 2,
+  };
+
+  const createClient = () => ({
+    query: async (query) => {
+      if (/INSERT INTO sync_transactions/i.test(query)) {
+        const error = new Error("duplicate client_sync_id");
+        error.code = "23505";
+        error.constraint = "sync_transactions_client_sync_id_unique";
+        throw error;
+      }
+
+      if (/SELECT \*,/i.test(query) && /FOR UPDATE/i.test(query)) {
+        return { rows: [existingRow] };
+      }
+
+      return { rows: [] };
+    },
+  });
+
+  await withStubbedPool(
+    { on: () => {} },
+    async ({ claimSyncTransaction }) => {
+      const replay = await claimSyncTransaction(basePayload, createClient());
+      assert.equal(replay.decision, "REPLAY_TERMINAL");
+
+      const mismatch = await claimSyncTransaction(
+        {
+          ...basePayload,
+          payload_json: {
+            ...basePayload.payload_json,
+            payload: {
+              ...basePayload.payload_json.payload,
+              quantity: 2,
+            },
+          },
+        },
+        createClient(),
+      );
+      assert.equal(mismatch.decision, "REUSE_MISMATCH");
+    },
+  );
+});
+
 test("H03F-13/H03F-14 failed retry reuses the same row and updates it under lock", async () => {
   const updateIds = [];
   const payload = {

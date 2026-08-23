@@ -166,6 +166,7 @@ export const claimStub = async ({
   barangayId,
   overrideBarangayId,
   disasterEventId,
+  disasterEventTitle,
 }) => {
   const payload = {
     user_id: userId || null,
@@ -180,6 +181,9 @@ export const claimStub = async ({
     entityType: "STUB",
     entityServerId: stubId,
     payload,
+    queueDisplayContext: disasterEventTitle
+      ? { disaster_event_title: disasterEventTitle }
+      : null,
     request: async () => {
       const response = await fetch(`${API_BASE_URL}/api/v1/stubs/${stubId}/claim`, {
         method: "POST",
