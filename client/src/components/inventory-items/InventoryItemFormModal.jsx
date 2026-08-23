@@ -707,8 +707,12 @@ const InventoryItemFormModal = ({
   const matchedItemLabel = matchedExistingItem?.item_name || trimmedItemName;
   const identityFieldStyles =
     isRestockMode && !isEditMode ? lockedInputStyles : inputStyles;
+  const isBarcodeLocked =
+    isEditMode ||
+    isExactBarcodeStockFormMatch ||
+    (isRestockMode && Boolean(String(matchedBarcodeValue).trim()));
   const barcodeFieldStyles =
-    isEditMode || isExactBarcodeStockFormMatch
+    isBarcodeLocked
       ? lockedInputStyles
       : inputStyles;
   const shouldLockRestockStockFormFields =
@@ -1010,10 +1014,7 @@ const InventoryItemFormModal = ({
                       value={formValues.barcode}
                       onChange={(e) => handleChange("barcode", e.target.value)}
                       style={barcodeFieldStyles}
-                      disabled={
-                        isEditMode ||
-                        isExactBarcodeStockFormMatch
-                      }
+                      disabled={isBarcodeLocked}
                       aria-invalid={Boolean(fieldErrors.barcode)}
                     />
                     {fieldErrors.barcode ? (
