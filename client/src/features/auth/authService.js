@@ -1,3 +1,5 @@
+import { measureGoogleButtonWidth } from "./googleButtonSizing";
+
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
@@ -61,9 +63,10 @@ export const renderGoogleSignInButton = async ({
   element,
   clientId,
   onCredential,
+  isActive = () => true,
 }) => {
   if (!element) {
-    return;
+    return 0;
   }
 
   if (!clientId) {
@@ -74,6 +77,10 @@ export const renderGoogleSignInButton = async ({
 
   if (!window.google?.accounts?.id) {
     throw new Error("Google Identity Services is unavailable");
+  }
+
+  if (!isActive()) {
+    return 0;
   }
 
   currentCredentialHandler = onCredential;
@@ -99,10 +106,15 @@ export const renderGoogleSignInButton = async ({
   element.innerHTML = "";
   await waitForButtonLayout();
 
-  const buttonWidth = Math.floor(
-    element.clientWidth || element.getBoundingClientRect().width || 360,
-  );
-  const renderedButtonWidth = Math.min(400, Math.max(200, buttonWidth));
+  if (!isActive()) {
+    return 0;
+  }
+
+  const renderedButtonWidth = measureGoogleButtonWidth(element);
+
+  if (!renderedButtonWidth) {
+    return 0;
+  }
 
   window.google.accounts.id.renderButton(element, {
     theme: "outline",
@@ -113,7 +125,7 @@ export const renderGoogleSignInButton = async ({
     logo_alignment: "center",
   });
 
-  element.style.setProperty("--google-button-rendered-width", `${renderedButtonWidth}px`);
+  return renderedButtonWidth;
 };
 
 export const authenticateWithGoogleIdToken = async (idToken) => {

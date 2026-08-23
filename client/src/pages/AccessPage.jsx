@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { renderGoogleSignInButton } from "../features/auth/authService";
+import { measureGoogleButtonWidth } from "../features/auth/googleButtonSizing";
 import { ACCESS_MODES, getAccessMode } from "../utils/accessMode";
 import {
   ROLE_CODES,
@@ -82,9 +83,11 @@ const AccessPage = () => {
   useEffect(() => {
     let isMounted = true;
     let renderFrame = 0;
+    let renderRequestId = 0;
+    let isRendering = false;
     let lastRenderedWidth = 0;
 
-    const setupGoogleButton = async () => {
+    const setupGoogleButton = async (requestId) => {
       const buttonElement = googleButtonRef.current;
 
       if (isDevelopmentMode || !buttonElement) {
@@ -96,20 +99,30 @@ const AccessPage = () => {
         return;
       }
 
-      const nextRenderedWidth = Math.floor(
-        buttonElement.clientWidth || buttonElement.getBoundingClientRect().width,
-      );
+      const nextRenderedWidth = measureGoogleButtonWidth(buttonElement);
 
-      if (nextRenderedWidth && nextRenderedWidth === lastRenderedWidth) {
+      if (!nextRenderedWidth) {
+        lastRenderedWidth = 0;
         return;
       }
 
-      lastRenderedWidth = nextRenderedWidth;
+      if (isRendering) {
+        return;
+      }
+
+      if (nextRenderedWidth === lastRenderedWidth && buttonElement.childElementCount > 0) {
+        return;
+      }
+
+      isRendering = true;
+      let renderedButtonWidth = 0;
+      let renderSucceeded = false;
 
       try {
-        await renderGoogleSignInButton({
+        renderedButtonWidth = await renderGoogleSignInButton({
           element: buttonElement,
           clientId: googleClientId,
+          isActive: () => isMounted && requestId === renderRequestId,
           onCredential: (credential) => {
             if (isMounted) {
               void handleGoogleCredential(credential);
@@ -117,24 +130,45 @@ const AccessPage = () => {
           },
         });
 
-        if (isMounted) {
-          setIsGoogleReady(true);
+        if (isMounted && requestId === renderRequestId) {
+          lastRenderedWidth = renderedButtonWidth;
+          renderSucceeded = renderedButtonWidth > 0;
+          setIsGoogleReady(renderSucceeded);
         }
       } catch (_error) {
-        if (isMounted) {
+        if (isMounted && requestId === renderRequestId) {
+          lastRenderedWidth = 0;
           setIsGoogleReady(false);
+        }
+      } finally {
+        isRendering = false;
+
+        if (!isMounted) {
+          return;
+        }
+
+        const currentRenderedWidth = measureGoogleButtonWidth(googleButtonRef.current);
+        const hasNewerRequest = requestId !== renderRequestId;
+        const needsFollowUpRender =
+          renderSucceeded &&
+          currentRenderedWidth > 0 &&
+          currentRenderedWidth !== lastRenderedWidth;
+
+        if (hasNewerRequest || needsFollowUpRender) {
+          queueGoogleButtonSetup();
         }
       }
     };
 
     const queueGoogleButtonSetup = () => {
       window.cancelAnimationFrame(renderFrame);
+      const requestId = ++renderRequestId;
       renderFrame = window.requestAnimationFrame(() => {
-        void setupGoogleButton();
+        void setupGoogleButton(requestId);
       });
     };
 
-    void setupGoogleButton();
+    queueGoogleButtonSetup();
 
     const buttonElement = googleButtonRef.current;
     const resizeObserver =
@@ -147,11 +181,14 @@ const AccessPage = () => {
     }
 
     window.addEventListener("resize", queueGoogleButtonSetup);
+    window.addEventListener("orientationchange", queueGoogleButtonSetup);
 
     return () => {
       isMounted = false;
+      renderRequestId += 1;
       window.cancelAnimationFrame(renderFrame);
       window.removeEventListener("resize", queueGoogleButtonSetup);
+      window.removeEventListener("orientationchange", queueGoogleButtonSetup);
       resizeObserver?.disconnect();
     };
   }, [googleClientId, handleGoogleCredential, isDevelopmentMode]);
