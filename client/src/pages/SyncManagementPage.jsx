@@ -36,6 +36,8 @@ import {
 } from "../features/sync/syncManagementHelpers";
 import {
   getSafeSyncErrorMessage,
+  getSyncStatusSummaryMessage,
+  isSyncIdempotencyMismatch,
   SYNC_PRESENTATION_MESSAGES,
 } from "../offline/syncStatus.js";
 
@@ -336,6 +338,13 @@ const SyncManagementPage = () => {
       ),
     [syncQueueEntries],
   );
+  const failedQueueCount = useMemo(
+    () =>
+      syncQueueEntries.filter(
+        (entry) => entry.status === LOCAL_SYNC_STATUS.FAILED,
+      ).length,
+    [syncQueueEntries],
+  );
 
   const summary = useMemo(() => {
     const unresolvedConflicts = syncHistory.conflicts.filter(
@@ -353,7 +362,7 @@ const SyncManagementPage = () => {
         syncQueueEntries.filter(
           (entry) => entry.status === LOCAL_SYNC_STATUS.CONFLICT,
         ).length + unresolvedConflicts.length,
-      failed: failedQueueEntries.length + failedTransactions.length,
+      failed: failedQueueCount + failedTransactions.length,
       pending: syncQueueEntries.filter(
         (entry) => entry.status === LOCAL_SYNC_STATUS.PENDING,
       ).length,
@@ -362,6 +371,7 @@ const SyncManagementPage = () => {
     };
   }, [
     failedQueueEntries.length,
+    failedQueueCount,
     syncHistory.conflicts,
     syncHistory.transactions,
     syncQueueEntries,
@@ -544,8 +554,8 @@ const SyncManagementPage = () => {
       } else if (result?.outcome === "NON_RETRYABLE") {
         setFeedback({
           type: "warning",
-          title: "Action needs another step",
-          message: SYNC_PRESENTATION_MESSAGES.UNSUPPORTED,
+          title: "Synchronization cannot be retried",
+          message: SYNC_PRESENTATION_MESSAGES.IDEMPOTENCY_MISMATCH,
         });
       } else {
         setFeedback({
@@ -558,9 +568,12 @@ const SyncManagementPage = () => {
         });
       }
     } catch (error) {
+      const isIdempotencyMismatch = isSyncIdempotencyMismatch(error);
       setFeedback({
-        type: "error",
-        title: "Synchronization did not complete",
+        type: isIdempotencyMismatch ? "warning" : "error",
+        title: isIdempotencyMismatch
+          ? "Synchronization cannot be retried"
+          : "Synchronization did not complete",
         message:
           getSafeSyncErrorMessage(
             error,
@@ -760,6 +773,19 @@ const SyncManagementPage = () => {
           value={formatSyncDateTime(summary.lastSuccessfulSyncAt)}
         />
       </section>
+
+      <p
+        role="status"
+        aria-live="polite"
+        style={{
+          color: summary.failed || summary.pending ? "#8a3d33" : "#2d7a4f",
+          fontSize: "14px",
+          fontWeight: 700,
+          margin: "-10px 0 18px",
+        }}
+      >
+        {getSyncStatusSummaryMessage(summary)}
+      </p>
 
       <div
         style={{

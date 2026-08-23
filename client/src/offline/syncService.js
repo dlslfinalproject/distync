@@ -1,6 +1,7 @@
 import { LOCAL_SYNC_STATUS } from "./db.js";
 import {
   getSafeSyncErrorMessage,
+  isSyncIdempotencyMismatch,
   SYNC_PRESENTATION_MESSAGES,
 } from "./syncStatus.js";
 import {
@@ -159,6 +160,7 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
       attemptedIds: requestedIds,
       syncedIds: [],
       failedIds: legacyInventoryEntries.map((entry) => entry.id),
+      nonRetryableIds: legacyInventoryEntries.map((entry) => entry.id),
       conflictIds: [],
       pendingIds: [],
     };
@@ -170,6 +172,7 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
   const attemptedIds = entriesToSync.map((entry) => entry.id);
   const syncedIds = [];
   const failedIds = legacyInventoryEntries.map((entry) => entry.id);
+  const nonRetryableIds = [...failedIds];
   const conflictIds = [];
   const pendingIds = [];
 
@@ -310,10 +313,14 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
         failedIds.push(entry.id);
       }
 
+      if (isSyncIdempotencyMismatch(error)) {
+        nonRetryableIds.push(entry.id);
+      }
+
       await updateSyncEntryStatus(entry.id, {
         status: LOCAL_SYNC_STATUS.FAILED,
-        lastError: error.message || "Sync failed.",
-        serverMessage: error.message || "Sync failed.",
+        lastError: getSafeSyncErrorMessage(error, "Sync failed."),
+        serverMessage: getSafeSyncErrorMessage(error, "Sync failed."),
         lastErrorCode: error.code || null,
         lastErrorStatusCode: error.statusCode || null,
       });
@@ -327,13 +334,25 @@ const flushSelectedSyncEntries = async (queuedEntries = []) => {
       ),
     });
 
-    return {
-      outcome: isNetworkFailure(error) ? "NETWORK_FAILURE" : "FAILED",
+    const failureResult = {
       attemptedIds,
       syncedIds,
       failedIds,
+      nonRetryableIds,
       conflictIds,
       pendingIds,
+    };
+
+    if (isSyncIdempotencyMismatch(error)) {
+      return {
+        ...failureResult,
+        outcome: "NON_RETRYABLE",
+      };
+    }
+
+    return {
+      ...failureResult,
+      outcome: isNetworkFailure(error) ? "NETWORK_FAILURE" : "FAILED",
     };
   } finally {
     isSyncInFlight = false;
@@ -372,6 +391,7 @@ export const performSyncableMutation = async ({
   request,
   allowOffline = true,
   buildQueuedResponse,
+  queueDisplayContext = null,
 }) => {
   validateRequiredFields(payload, requiredFields);
   // Delete/deactivate operations require online connection to avoid unsafe
@@ -395,6 +415,7 @@ export const performSyncableMutation = async ({
       clientTimestamp,
       clientUpdatedAt,
       payload,
+      queueDisplayContext,
     });
 
     emitSyncFeedbackEvent({
@@ -427,6 +448,7 @@ export const performSyncableMutation = async ({
       clientTimestamp,
       clientUpdatedAt,
       payload,
+      queueDisplayContext,
     });
 
     emitSyncFeedbackEvent({

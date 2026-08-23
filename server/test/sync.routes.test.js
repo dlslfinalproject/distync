@@ -125,3 +125,70 @@ test("sync status summary route returns a read-only status payload for authorize
     },
   );
 });
+
+test("SYNC-IDEMP-API-01 exposes the existing mismatch code additively on HTTP 409", async () => {
+  await withStubbedSyncRoute(
+    {
+      authMiddlewareStub: {
+        ROLE_CODES: {
+          BARANGAY: "BARANGAY",
+          MSWDO: "MSWDO",
+          MAYOR: "MAYOR",
+        },
+        requireRoles: () => (req, _res, next) => {
+          req.auth = { userId: "user-1", roleCode: "BARANGAY" };
+          next();
+        },
+      },
+      syncServiceStub: {
+        processSyncEntries: async () => {
+          const error = new Error(
+            "client_sync_id was already used for a different sync request",
+          );
+          error.statusCode = 409;
+          error.code = "IDEMPOTENCY_KEY_REUSE_MISMATCH";
+          throw error;
+        },
+      },
+      validatorStub: {
+        validateAuditSyncRetryRequest: (_req, _res, next) => next(),
+        validateGetSyncHistory: (_req, _res, next) => next(),
+        validateGetSyncConflictDetail: (_req, _res, next) => next(),
+        validateResolveSyncConflict: (_req, _res, next) => next(),
+        validateProcessSyncEntries: (req, _res, next) => {
+          req.validatedBody = { entries: req.body.entries };
+          next();
+        },
+      },
+    },
+    async (router) => {
+      const app = express();
+      app.use(express.json());
+      app.use("/api/v1/sync", router);
+
+      const server = await new Promise((resolve) => {
+        const instance = app.listen(0, () => resolve(instance));
+      });
+
+      try {
+        const port = server.address().port;
+        const response = await fetch(`http://127.0.0.1:${port}/api/v1/sync/process`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ entries: [{ client_sync_id: "sync-1" }] }),
+        });
+        const payload = await response.json();
+
+        assert.equal(response.status, 409);
+        assert.equal(payload.code, "IDEMPOTENCY_KEY_REUSE_MISMATCH");
+        assert.match(payload.message, /client_sync_id was already used/i);
+        assert.equal(payload.fingerprint, undefined);
+        assert.equal(payload.original_request, undefined);
+      } finally {
+        await new Promise((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        });
+      }
+    },
+  );
+});

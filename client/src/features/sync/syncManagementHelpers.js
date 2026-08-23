@@ -6,6 +6,7 @@ import {
 } from "../../offline/syncQueue.js";
 import {
   getSafeSyncErrorMessage,
+  isSyncIdempotencyMismatch,
   SYNC_PRESENTATION_MESSAGES,
 } from "../../offline/syncStatus.js";
 
@@ -380,6 +381,8 @@ export const getSyncRecordDetails = (record = {}) => {
     payload.distribution?.barangay?.name,
   );
   const disasterEvent = getFirstValue(
+    record.queueDisplayContext?.disaster_event_title,
+    record.queueDisplayContext?.disasterEventTitle,
     record.sync_history_disaster_event_title,
     record.disaster_event_title,
     record.disasterEventTitle,
@@ -459,6 +462,10 @@ export const getSyncRecordDetails = (record = {}) => {
 export const getSyncQueueNotes = (record = {}) => {
   const actionKey = getActionKey(record);
   const status = String(record.status || record.sync_status || "").toUpperCase();
+
+  if (isSyncIdempotencyMismatch(record)) {
+    return SYNC_PRESENTATION_MESSAGES.IDEMPOTENCY_MISMATCH;
+  }
 
   if (isNonRetryableSyncEntry(record) || isUnsupportedOfflineActionKey(actionKey)) {
     return (

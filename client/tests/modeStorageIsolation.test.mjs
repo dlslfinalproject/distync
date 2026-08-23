@@ -228,14 +228,15 @@ test("new sync queue records include mode metadata and remain hidden across mode
   );
 });
 
-test("sync queue preserves the original client sync id when updating an unsynced grouped entry", async () => {
+test("sync queue never reuses an earlier client sync id for a grouped entry", async () => {
   const source = await fs.readFile(
     new URL("../src/offline/syncQueue.js", import.meta.url),
     "utf8",
   );
 
-  assert.match(source, /id:\s*existingEntry\.id/);
-  assert.match(source, /clientTimestamp:\s*existingEntry\.clientTimestamp/);
+  assert.doesNotMatch(source, /where\("queueGroupKey"\)/);
+  assert.match(source, /Each locally created mutation already has its own client_sync_id/);
+  assert.match(source, /await db\.syncQueue\.put/);
 });
 
 test("sync service does not mark in-progress replay responses as synced locally", async () => {

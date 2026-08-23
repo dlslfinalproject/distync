@@ -646,6 +646,8 @@ const StubDistributionPage = () => {
               userId: authenticatedUser?.id || "",
               overrideBarangayId: allowFallback ? overrideBarangayId : "",
               disasterEventId: row?.disaster_event?.id || row?.disaster_event_id || "",
+              disasterEventTitle:
+                row?.disaster_event?.title || row?.disaster_event?.name || "",
             }),
           ),
         );
@@ -726,6 +728,12 @@ const StubDistributionPage = () => {
           pendingClaimStubDetails?.disaster_event?.id ||
           pendingClaimRow?.disaster_event?.id ||
           pendingClaimRow?.disaster_event_id ||
+          "",
+        disasterEventTitle:
+          pendingClaimStubDetails?.disaster_event?.title ||
+          pendingClaimStubDetails?.disaster_event?.name ||
+          pendingClaimRow?.disaster_event?.title ||
+          pendingClaimRow?.disaster_event?.name ||
           "",
       });
       reloadDashboard();

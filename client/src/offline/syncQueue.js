@@ -8,11 +8,7 @@ import {
   isValidInventoryTransactionReferenceNo,
   normalizeInventoryTransactionReferenceNo,
 } from "../features/inventory-transactions/inventoryTransactionReference.js";
-
-const terminalStatuses = new Set([
-  LOCAL_SYNC_STATUS.SYNCED,
-  LOCAL_SYNC_STATUS.CONFLICT,
-]);
+import { isSyncIdempotencyMismatch } from "./syncStatus.js";
 
 const unsupportedOfflineActionKeys = new Set([
   "DONATION_NEED_CREATE",
@@ -50,7 +46,8 @@ export const isLegacyInventoryTransactionEntry = (entry = {}) => {
 
 export const isNonRetryableSyncEntry = (entry = {}) =>
   isUnsupportedOfflineActionKey(entry.actionKey) ||
-  isLegacyInventoryTransactionEntry(entry);
+  isLegacyInventoryTransactionEntry(entry) ||
+  isSyncIdempotencyMismatch(entry);
 
 export const getUnsupportedOfflineActionMessage = (actionKey) => {
   if (isUnsupportedOfflineActionKey(actionKey)) {
@@ -161,32 +158,12 @@ export const queueSyncEntry = async (entry) => {
   const now = getIsoNow();
   const actorContext = getSyncQueueActorContext();
   const storedEntry = buildStoredSyncEntry(entry, actorContext);
-  const existingEntry = entry.queueGroupKey
-    ? await db.syncQueue
-        .where("queueGroupKey")
-        .equals(entry.queueGroupKey)
-        .and(
-          (row) =>
-            !terminalStatuses.has(row.status) &&
-            isSyncEntryVisibleForContext(row, actorContext),
-        )
-        .first()
-    : null;
 
-  if (existingEntry) {
-    await db.syncQueue.update(existingEntry.id, {
-      ...storedEntry,
-      id: existingEntry.id,
-      clientTimestamp: existingEntry.clientTimestamp || storedEntry.clientTimestamp,
-      status: LOCAL_SYNC_STATUS.PENDING,
-      lastError: null,
-      syncedAt: null,
-      updatedAt: now,
-    });
-
-    emitSyncQueueUpdated();
-    return existingEntry.id;
-  }
+  // Each locally created mutation already has its own client_sync_id. Never
+  // replace an earlier queue row under the same ID: that ID may already be
+  // known by the server even when the browser still shows the row as failed.
+  // queueGroupKey remains stored for grouping/filtering, but is not an
+  // idempotency boundary.
 
   await db.syncQueue.put({
     ...storedEntry,
