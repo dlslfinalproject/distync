@@ -474,6 +474,8 @@ export const departHousehold = async ({
   householdId,
   remarks = null,
   disasterEventId = null,
+  barangayId = null,
+  disasterEventTitle = "",
 }) => {
   const payload = {
     ...(disasterEventId ? { disaster_event_id: disasterEventId } : {}),
@@ -486,7 +488,11 @@ export const departHousehold = async ({
     actionKey: "HOUSEHOLD_DEPART",
     entityType: "HOUSEHOLD",
     entityServerId: householdId,
+    barangayId,
     payload,
+    queueDisplayContext: disasterEventTitle
+      ? { disaster_event_title: disasterEventTitle }
+      : null,
     request: async () => {
       const response = await fetch(
         `${API_BASE_URL}/api/v1/households/${householdId}/depart`,

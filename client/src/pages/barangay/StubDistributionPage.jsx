@@ -643,16 +643,18 @@ const StubDistributionPage = () => {
 
       try {
         const claimResults = await Promise.allSettled(
-          claimableSelectedStubIds.map((stubId) =>
-            claimStub({
+          claimableSelectedStubIds.map((stubId) => {
+            const row = stubRows.find((candidate) => candidate.id === stubId);
+
+            return claimStub({
               stubId,
               userId: authenticatedUser?.id || "",
               overrideBarangayId: allowFallback ? overrideBarangayId : "",
               disasterEventId: row?.disaster_event?.id || row?.disaster_event_id || "",
               disasterEventTitle:
                 row?.disaster_event?.title || row?.disaster_event?.name || "",
-            }),
-          ),
+            });
+          }),
         );
         const rejectedClaim = claimResults.find(
           (result) => result.status === "rejected",

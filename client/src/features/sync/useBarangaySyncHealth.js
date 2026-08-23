@@ -30,7 +30,27 @@ export const useBarangaySyncHealth = ({
   );
   const [statusSummary, setStatusSummary] = useState(null);
   const [statusError, setStatusError] = useState(false);
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator === "undefined" ? true : navigator.onLine,
+  );
   const refreshPromiseRef = useRef(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   const queueEntries = Array.isArray(syncEntries)
     ? syncEntries
@@ -111,6 +131,10 @@ export const useBarangaySyncHealth = ({
       }),
     [counts, isQueueLoading, statusError, statusSummary],
   );
+  const presentationWithConnectivity = useMemo(
+    () => ({ ...presentation, isOnline }),
+    [isOnline, presentation],
+  );
 
   return {
     queueEntries,
@@ -118,7 +142,8 @@ export const useBarangaySyncHealth = ({
     lastSuccessfulSyncAt: statusSummary?.lastSuccessfulSyncAt || null,
     isLoading: isQueueLoading || (statusSummary === null && !statusError),
     hasError: statusError,
-    presentation,
+    isOnline,
+    presentation: presentationWithConnectivity,
     refreshStatusSummary,
   };
 };

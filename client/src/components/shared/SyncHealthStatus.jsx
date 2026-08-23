@@ -66,13 +66,24 @@ const getAccentColor = (state) => {
 
 const SyncHealthStatus = ({
   health,
+  isOnline = true,
   variant = "full",
   syncCenterPath = "/barangay/sync",
 }) => {
-  const presentation = health ||
+  const basePresentation = health ||
     getSyncHealthPresentation({ isLoading: true });
+  const isOffline = isOnline === false || basePresentation.isOnline === false;
+  const presentation = isOffline
+    ? {
+        ...basePresentation,
+        state: "PENDING",
+        needsAttention: true,
+        message:
+          "You're offline. Supported actions will be saved on this device and synchronized when connection returns.",
+      }
+    : basePresentation;
 
-  if (variant === "compact" && !presentation.needsAttention) {
+  if (variant === "compact" && !isOffline && !presentation.needsAttention) {
     return null;
   }
 

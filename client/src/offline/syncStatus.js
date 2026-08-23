@@ -3,6 +3,10 @@ import { LOCAL_SYNC_STATUS } from "./db.js";
 export const SYNC_PRESENTATION_MESSAGES = Object.freeze({
   NETWORK: "Could not connect to DISTYNC. Reconnect and try again.",
   SERVER: "Synchronization could not be completed. Try again.",
+  LOCAL_STORAGE:
+    "This change could not be saved on this device. Check browser storage permissions or free space, then try again.",
+  MALFORMED_ENTRY:
+    "This offline action is incomplete and cannot be retried. Review the related record while online.",
   IDEMPOTENCY_MISMATCH:
     "This action cannot be retried because its synchronization information no longer matches the original request. Review the related record while online.",
   VALIDATION:
@@ -16,6 +20,8 @@ export const SYNC_PRESENTATION_MESSAGES = Object.freeze({
 
 export const SYNC_ERROR_CODES = Object.freeze({
   IDEMPOTENCY_MISMATCH: "IDEMPOTENCY_KEY_REUSE_MISMATCH",
+  LOCAL_STORAGE_FAILURE: "OFFLINE_STORAGE_FAILURE",
+  MALFORMED_ENTRY: "MALFORMED_OFFLINE_ENTRY",
 });
 
 const NETWORK_ERROR_PATTERNS = [
@@ -106,6 +112,14 @@ export const getSafeSyncErrorMessage = (source = {}, fallback = "") => {
     source?.isRetryable === false
   ) {
     return SYNC_PRESENTATION_MESSAGES.UNSUPPORTED;
+  }
+
+  if (code === SYNC_ERROR_CODES.LOCAL_STORAGE_FAILURE) {
+    return SYNC_PRESENTATION_MESSAGES.LOCAL_STORAGE;
+  }
+
+  if (code === SYNC_ERROR_CODES.MALFORMED_ENTRY) {
+    return SYNC_PRESENTATION_MESSAGES.MALFORMED_ENTRY;
   }
 
   if (NETWORK_ERROR_PATTERNS.some((pattern) => normalizedMessage.includes(pattern))) {

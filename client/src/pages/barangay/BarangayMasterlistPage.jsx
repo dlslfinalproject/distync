@@ -770,6 +770,8 @@ const BarangayMasterlistPage = () => {
             departHousehold({
               householdId,
               disasterEventId: getDepartureDisasterEventId(householdId),
+              barangayId: assignedBarangay?.id || null,
+              disasterEventTitle: selectedEvent?.title || selectedEvent?.name || "",
             }),
           ),
         );
@@ -791,6 +793,14 @@ const BarangayMasterlistPage = () => {
             pendingDepartureHouseholdDetails?.household?.disaster_event?.id ||
             pendingDepartureRow?.disaster_event?.id ||
             pendingDepartureRow?.disaster_event_id ||
+            "",
+          barangayId: assignedBarangay?.id || pendingDepartureRow?.barangay?.id || null,
+          disasterEventTitle:
+            pendingDepartureHouseholdDetails?.household?.disaster_event?.title ||
+            pendingDepartureRow?.disaster_event?.title ||
+            pendingDepartureRow?.disaster_event?.name ||
+            selectedEvent?.title ||
+            selectedEvent?.name ||
             "",
         });
 

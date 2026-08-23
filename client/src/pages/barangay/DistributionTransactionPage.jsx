@@ -5,6 +5,7 @@ import qrScannerWorkerPath from "qr-scanner/qr-scanner-worker.min.js?url";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import StubSummaryCard from "../../components/distribution/StubSummaryCard";
 import DistributionForm from "../../components/distribution/DistributionForm";
+import SyncHealthStatus from "../../components/shared/SyncHealthStatus";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import { fetchStubDetails, verifyStub } from "../../features/stubs/stubService";
 import { extractStubQrValue } from "../../utils/stubQr";
@@ -21,6 +22,7 @@ import {
   markDistributionTargetAsServerVerified,
   markDistributionTargetAsUnverified,
 } from "../../features/distribution/distributionTargetProvenance";
+import { useBarangaySyncHealth } from "../../features/sync/useBarangaySyncHealth";
 
 QrScanner.WORKER_PATH = qrScannerWorkerPath;
 
@@ -218,6 +220,7 @@ const DistributionTransactionPage = () => {
   const [isResolvingQrLookup, setIsResolvingQrLookup] = useState(false);
   const [isQrScannerOpen, setIsQrScannerOpen] = useState(false);
   const [qrScannerMessage, setQrScannerMessage] = useState("");
+  const { presentation: syncHealth } = useBarangaySyncHealth();
 
   const canUseQrScanner =
     typeof navigator !== "undefined" &&
@@ -572,23 +575,34 @@ const DistributionTransactionPage = () => {
 
     try {
       const response = await recordDistributionTransaction({
-        disaster_event_id: stubContext.disaster_event_id,
-        household_id: stubContext.household_id,
-        stub_id: stubContext.stub_id,
-        claimed_by_name: claimedByName.trim(),
-        verified_by: null,
-        device_id: null,
-        is_offline_encoded: false,
-        sync_status: "SYNCED",
-        qr_reference_value: stubContext.qr_code_value || qrLookupValue.trim() || null,
-        relief_pack_template_id: selectedTemplateId || null,
-        remarks: remarks.trim() || null,
-        items: releasedItems.map((row) => ({
-          inventory_item_id: row.inventory_item_id,
-          inventory_batch_id: usesTemplateFifo ? null : row.inventory_batch_id,
-          quantity_released: row.quantity_released,
-        })),
-      });
+          disaster_event_id: stubContext.disaster_event_id,
+          household_id: stubContext.household_id,
+          stub_id: stubContext.stub_id,
+          claimed_by_name: claimedByName.trim(),
+          verified_by: null,
+          device_id: null,
+          is_offline_encoded: false,
+          sync_status: "SYNCED",
+          qr_reference_value:
+            stubContext.qr_code_value || qrLookupValue.trim() || null,
+          relief_pack_template_id: selectedTemplateId || null,
+          remarks: remarks.trim() || null,
+          items: releasedItems.map((row) => ({
+            inventory_item_id: row.inventory_item_id,
+            inventory_batch_id: usesTemplateFifo ? null : row.inventory_batch_id,
+            quantity_released: row.quantity_released,
+          })),
+        },
+        {
+          barangayId:
+            stubContext.barangay_id || stubContext.barangay?.id || null,
+          disasterEventTitle:
+            stubContext.disaster_event_title ||
+            stubContext.disaster_event?.title ||
+            stubContext.disaster_event?.name ||
+            "",
+        },
+      );
 
       setSuccessMessage(
         response.message
@@ -627,6 +641,8 @@ const DistributionTransactionPage = () => {
           },
         ]}
       />
+
+      <SyncHealthStatus health={syncHealth} variant="compact" />
 
       <section style={shellStyles.card}>
         <div
