@@ -4,9 +4,9 @@ import { FiEye, FiFilter, FiRefreshCw, FiSearch } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../components/layout/PageHeader";
 import { shellStyles } from "../components/layout/BarangayLayout";
 import SyncStatusBadge from "../components/shared/SyncStatusBadge";
+import SyncHealthStatus from "../components/shared/SyncHealthStatus";
 import FeedbackToast from "../components/shared/FeedbackToast";
 import SyncConflictDetailModal from "../components/shared/SyncConflictDetailModal";
-import StatusCard from "../components/shared/StatusCard";
 import ResponsiveFilterPopover from "../components/shared/ResponsiveFilterPopover";
 import db, { LOCAL_SYNC_STATUS } from "../offline/db.js";
 import {
@@ -36,7 +36,7 @@ import {
 } from "../features/sync/syncManagementHelpers";
 import {
   getSafeSyncErrorMessage,
-  getSyncStatusSummaryMessage,
+  getSyncHealthPresentation,
   isSyncIdempotencyMismatch,
   SYNC_PRESENTATION_MESSAGES,
 } from "../offline/syncStatus.js";
@@ -285,7 +285,7 @@ const SyncManagementPage = () => {
     conflicts: [],
   });
   const [syncStatusSummary, setSyncStatusSummary] = useState({
-    conflictCount: 0,
+    conflictCount: null,
     lastSuccessfulSyncAt: null,
     backendReachable: true,
   });
@@ -347,36 +347,43 @@ const SyncManagementPage = () => {
   );
 
   const summary = useMemo(() => {
-    const unresolvedConflicts = syncHistory.conflicts.filter(
-      (conflict) => conflict.status !== "RESOLVED",
-    );
-    const failedTransactions = syncHistory.transactions.filter(
-      (transaction) => transaction.sync_status === LOCAL_SYNC_STATUS.FAILED,
-    );
-    const syncedTransactions = syncHistory.transactions.filter(
-      (transaction) => transaction.sync_status === LOCAL_SYNC_STATUS.SYNCED,
-    );
+    const localConflictCount = syncQueueEntries.filter(
+      (entry) => entry.status === LOCAL_SYNC_STATUS.CONFLICT,
+    ).length;
+    const serverConflictCount = Number.isFinite(syncStatusSummary.conflictCount)
+      ? syncStatusSummary.conflictCount
+      : 0;
 
     return {
-      conflicts:
-        syncQueueEntries.filter(
-          (entry) => entry.status === LOCAL_SYNC_STATUS.CONFLICT,
-        ).length + unresolvedConflicts.length,
-      failed: failedQueueCount + failedTransactions.length,
+      conflicts: Math.max(localConflictCount, serverConflictCount),
+      failed: failedQueueCount,
       pending: syncQueueEntries.filter(
         (entry) => entry.status === LOCAL_SYNC_STATUS.PENDING,
       ).length,
-      synced: syncedTransactions.length,
       lastSuccessfulSyncAt: syncStatusSummary.lastSuccessfulSyncAt,
     };
   }, [
-    failedQueueEntries.length,
     failedQueueCount,
-    syncHistory.conflicts,
-    syncHistory.transactions,
     syncQueueEntries,
+    syncStatusSummary.conflictCount,
     syncStatusSummary.lastSuccessfulSyncAt,
   ]);
+
+  const syncHealth = useMemo(
+    () => ({
+      ...getSyncHealthPresentation({
+        ...summary,
+        isLoading: isLoadingHistory,
+        hasError:
+          Boolean(errorMessage) &&
+          summary.pending === 0 &&
+          summary.failed === 0 &&
+          summary.conflicts === 0,
+      }),
+      lastSuccessfulSyncAt: summary.lastSuccessfulSyncAt,
+    }),
+    [errorMessage, isLoadingHistory, summary],
+  );
 
   const filteredQueueEntries = useMemo(
     () => applySyncFilters(syncQueueEntries, filters, (entry) => entry.status),
@@ -701,6 +708,8 @@ const SyncManagementPage = () => {
     <>
       <PageHeader title="SYNC CENTER" />
 
+      <SyncHealthStatus health={syncHealth} />
+
       <section style={shellStyles.card}>
         <div
           style={{
@@ -762,30 +771,6 @@ const SyncManagementPage = () => {
           </label>
         </div>
       </section>
-
-      <section style={shellStyles.statGrid}>
-        <StatusCard label="Connection" value={isOnline ? "Online" : "Offline"} />
-        <StatusCard label="Pending Queue" value={summary.pending} />
-        <StatusCard label="Failed Sync" value={summary.failed} />
-        <StatusCard label="Needs Review" value={summary.conflicts} />
-        <StatusCard
-          label="Last Successful Sync"
-          value={formatSyncDateTime(summary.lastSuccessfulSyncAt)}
-        />
-      </section>
-
-      <p
-        role="status"
-        aria-live="polite"
-        style={{
-          color: summary.failed || summary.pending ? "#8a3d33" : "#2d7a4f",
-          fontSize: "14px",
-          fontWeight: 700,
-          margin: "-10px 0 18px",
-        }}
-      >
-        {getSyncStatusSummaryMessage(summary)}
-      </p>
 
       <div
         style={{

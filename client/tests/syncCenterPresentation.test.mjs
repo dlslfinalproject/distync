@@ -11,6 +11,10 @@ const serviceSourcePath = new URL(
   "../src/features/sync/syncHistoryService.js",
   import.meta.url,
 );
+const syncHealthComponentSourcePath = new URL(
+  "../src/components/shared/SyncHealthStatus.jsx",
+  import.meta.url,
+);
 const conflictModalSourcePath = new URL(
   "../src/components/shared/SyncConflictDetailModal.jsx",
   import.meta.url,
@@ -52,11 +56,13 @@ test("BRG-SC-P01 Sync Center omits the introductory description", async () => {
 test("BRG-SC-P02 Sync Center renders last successful sync from status-summary", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
   const serviceSource = await fs.readFile(serviceSourcePath, "utf8");
+  const componentSource = await fs.readFile(syncHealthComponentSourcePath, "utf8");
 
   assert.match(source, /fetchSyncStatusSummary/);
   assert.match(source, /lastSuccessfulSyncAt:\s*summaryResponse\.lastSuccessfulSyncAt/);
-  assert.match(source, /label="Last Successful Sync"/);
-  assert.match(source, /value=\{formatSyncDateTime\(summary\.lastSuccessfulSyncAt\)\}/);
+  assert.match(source, /<SyncHealthStatus health=\{syncHealth\} \/>/);
+  assert.match(componentSource, /Last successful sync:/);
+  assert.match(componentSource, /formatSyncDateTime\(presentation\.lastSuccessfulSyncAt\)/);
   assert.match(serviceSource, /return payload\?\.data \|\| \{\}/);
 });
 
@@ -309,10 +315,11 @@ test("BRG-SC-P12 barangay and event missing values are clean and timestamps do n
 
 test("BRG-SC-P13 table scroll and prior Sync Center fixes remain present", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
+  const componentSource = await fs.readFile(syncHealthComponentSourcePath, "utf8");
 
   assert.match(source, /<div style=\{\{ overflowX: "auto" \}\}>[\s\S]*syncHistoryTableStyles/);
   assert.match(source, /aria-label="View synchronization details"/);
-  assert.match(source, /label="Last Successful Sync"/);
+  assert.match(componentSource, /Last successful sync:/);
 });
 
 test("BRG-SC-P14 Barangay search no longer advertises or indexes Barangay", async () => {

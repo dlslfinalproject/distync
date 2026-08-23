@@ -216,19 +216,117 @@ export const getSyncStatusSummaryMessage = ({
   failed = 0,
   conflicts = 0,
 } = {}) => {
-  if (failed > 0) {
-    return "Synchronization needs attention.";
+  return getSyncHealthPresentation({ pending, failed, conflicts }).message;
+};
+
+export const SYNC_HEALTH_STATES = Object.freeze({
+  HEALTHY: "HEALTHY",
+  PENDING: "PENDING",
+  FAILED: "FAILED",
+  CONFLICT: "CONFLICT",
+  ATTENTION: "ATTENTION",
+  LOADING: "LOADING",
+  UNAVAILABLE: "UNAVAILABLE",
+});
+
+const normalizeSyncHealthCount = (count) => {
+  const normalizedCount = Number(count);
+  return Number.isFinite(normalizedCount) && normalizedCount > 0
+    ? Math.floor(normalizedCount)
+    : 0;
+};
+
+const buildSyncHealthBadges = ({ pending, failed, conflicts, isHealthy }) => {
+  if (isHealthy) {
+    return [{ type: "healthy", label: "All changes synced" }];
   }
 
-  if (pending > 0) {
-    return "Synchronization is still processing.";
+  const badges = [];
+
+  if (failed > 0) {
+    badges.push({
+      type: "failed",
+      label: `${failed} ${failed === 1 ? "failed" : "failed"}`,
+    });
   }
 
   if (conflicts > 0) {
-    return "Some changes need review.";
+    badges.push({
+      type: "conflict",
+      label: `${conflicts} ${conflicts === 1 ? "conflict" : "conflicts"}`,
+    });
   }
 
-  return "All changes synced";
+  if (pending > 0) {
+    badges.push({
+      type: "pending",
+      label: `${pending} pending`,
+    });
+  }
+
+  return badges;
+};
+
+export const getSyncHealthPresentation = ({
+  pending = 0,
+  failed = 0,
+  conflicts = 0,
+  isLoading = false,
+  hasError = false,
+  lastSuccessfulSyncAt = null,
+} = {}) => {
+  const pendingCount = normalizeSyncHealthCount(pending);
+  const failedCount = normalizeSyncHealthCount(failed);
+  const conflictCount = normalizeSyncHealthCount(conflicts);
+  const outstandingStateCount = [pendingCount, failedCount, conflictCount].filter(
+    (count) => count > 0,
+  ).length;
+  const isHealthy =
+    !isLoading &&
+    !hasError &&
+    pendingCount === 0 &&
+    failedCount === 0 &&
+    conflictCount === 0;
+
+  let state = SYNC_HEALTH_STATES.HEALTHY;
+  let message = "All changes are synchronized.";
+
+  if (isLoading) {
+    state = SYNC_HEALTH_STATES.LOADING;
+    message = "Checking synchronization status.";
+  } else if (hasError) {
+    state = SYNC_HEALTH_STATES.UNAVAILABLE;
+    message = "Synchronization status is currently unavailable.";
+  } else if (outstandingStateCount > 1) {
+    state = SYNC_HEALTH_STATES.ATTENTION;
+    message = "Some changes are waiting or need attention.";
+  } else if (failedCount > 0) {
+    state = SYNC_HEALTH_STATES.FAILED;
+    message = "Synchronization needs attention.";
+  } else if (conflictCount > 0) {
+    state = SYNC_HEALTH_STATES.CONFLICT;
+    message = "A synchronization conflict needs review.";
+  } else if (pendingCount > 0) {
+    state = SYNC_HEALTH_STATES.PENDING;
+    message = "Synchronization is still processing.";
+  }
+
+  return {
+    state,
+    message,
+    badges: buildSyncHealthBadges({
+      pending: pendingCount,
+      failed: failedCount,
+      conflicts: conflictCount,
+      isHealthy,
+    }),
+    needsAttention: !isLoading && !isHealthy,
+    isHealthy,
+    pendingCount,
+    failedCount,
+    conflictCount,
+    lastSuccessfulSyncAt,
+  };
 };
 
 export const formatCompactSyncChipLabel = (count, type) => {
