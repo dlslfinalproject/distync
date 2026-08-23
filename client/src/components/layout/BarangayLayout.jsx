@@ -5,6 +5,7 @@ import { ROLE_CODES } from "../../utils/roleSession";
 import Sidebar from "./Sidebar";
 import ShellHeader from "./ShellHeader";
 import SyncStatusBanner from "./SyncStatusBanner";
+import { initializeSyncService } from "../../offline/syncService";
 import { SettingsUnsavedChangesProvider } from "../../pages/settings/SettingsUnsavedChangesContext";
 
 const SIDEBAR_EXPANDED_WIDTH = "280px";
@@ -128,6 +129,7 @@ const BarangayLayout = () => {
   const location = useLocation();
   const { currentRole } = useAuth();
   const isDonorPortal = currentRole === ROLE_CODES.DONOR;
+  const isBarangayPortal = currentRole === ROLE_CODES.BARANGAY;
   const isSettingsRoute = location.pathname.endsWith("/settings");
   const isBarangayAnomalyRoute = location.pathname.startsWith("/barangay/anomalies");
   const isSidebarOpen = !isSidebarCollapsed;
@@ -144,6 +146,10 @@ const BarangayLayout = () => {
       : isSidebarCollapsed
         ? HEADER_BRAND_COLLAPSED_WIDTH
         : SIDEBAR_EXPANDED_WIDTH;
+
+  useEffect(() => {
+    initializeSyncService();
+  }, []);
 
   useEffect(() => {
     if (isDonorPortal || isSettingsRoute) {
@@ -285,7 +291,9 @@ const BarangayLayout = () => {
 
         <main className="distync-shell__main" style={shellStyles.main}>
           <div className="distync-shell__content" style={shellStyles.content}>
-            {!isBarangayAnomalyRoute ? <SyncStatusBanner /> : null}
+            {!isBarangayPortal ? (
+              !isBarangayAnomalyRoute ? <SyncStatusBanner /> : null
+            ) : null}
             <Outlet />
           </div>
         </main>

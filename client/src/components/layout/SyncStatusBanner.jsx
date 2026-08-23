@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useLocation } from "react-router-dom";
 import db, { LOCAL_SYNC_STATUS } from "../../offline/db.js";
-import { formatCompactSyncChipLabel } from "../../offline/syncStatus";
+import { getSyncHealthPresentation } from "../../offline/syncStatus";
 import {
   flushPendingSyncEntries,
   initializeSyncService,
@@ -92,50 +92,25 @@ const SyncStatusBanner = () => {
     [syncEntries],
   );
 
+  const healthPresentation = useMemo(
+    () =>
+      getSyncHealthPresentation({
+        pending: counts[LOCAL_SYNC_STATUS.PENDING],
+        failed: counts[LOCAL_SYNC_STATUS.FAILED],
+        conflicts: counts[LOCAL_SYNC_STATUS.CONFLICT],
+      }),
+    [counts],
+  );
+
   const statusChips = useMemo(() => {
-    const chips = [];
-
-    if (counts[LOCAL_SYNC_STATUS.PENDING] === 0) {
-      chips.push({
-        key: LOCAL_SYNC_STATUS.SYNCED,
-        label: formatCompactSyncChipLabel(0, "synced"),
-        palette: badgeStylesByStatus[LOCAL_SYNC_STATUS.SYNCED],
-      });
-    } else {
-      chips.push({
-        key: LOCAL_SYNC_STATUS.PENDING,
-        label: formatCompactSyncChipLabel(
-          counts[LOCAL_SYNC_STATUS.PENDING],
-          "pending",
-        ),
-        palette: badgeStylesByStatus[LOCAL_SYNC_STATUS.PENDING],
-      });
-    }
-
-    if (counts[LOCAL_SYNC_STATUS.FAILED] > 0) {
-      chips.push({
-        key: LOCAL_SYNC_STATUS.FAILED,
-        label: formatCompactSyncChipLabel(
-          counts[LOCAL_SYNC_STATUS.FAILED],
-          "failed",
-        ),
-        palette: badgeStylesByStatus[LOCAL_SYNC_STATUS.FAILED],
-      });
-    }
-
-    if (counts[LOCAL_SYNC_STATUS.CONFLICT] > 0) {
-      chips.push({
-        key: LOCAL_SYNC_STATUS.CONFLICT,
-        label: formatCompactSyncChipLabel(
-          counts[LOCAL_SYNC_STATUS.CONFLICT],
-          "conflict",
-        ),
-        palette: badgeStylesByStatus[LOCAL_SYNC_STATUS.CONFLICT],
-      });
-    }
-
-    return chips;
-  }, [counts]);
+    return healthPresentation.badges.map((badge) => ({
+      ...badge,
+      key: badge.type,
+      palette: badgeStylesByStatus[
+        badge.type === "healthy" ? LOCAL_SYNC_STATUS.SYNCED : badge.type.toUpperCase()
+      ],
+    }));
+  }, [healthPresentation.badges]);
 
   useEffect(() => {
     initializeSyncService();
@@ -186,10 +161,10 @@ const SyncStatusBanner = () => {
             {isOnline ? "Sync Status" : "Offline Mode Active"}
           </p>
           <p style={mutedTextStyle}>
-            {!isOnline
+              {!isOnline
               ? "You can keep encoding create and update actions. DISTYNC will queue them locally and sync them once the connection returns."
               : feedbackMessage ||
-                "Queued changes are monitored here. Conflicts use latest updated_at timestamp resolution by default."}
+                healthPresentation.message}
           </p>
         </div>
 

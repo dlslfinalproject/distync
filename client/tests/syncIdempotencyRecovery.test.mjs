@@ -84,7 +84,7 @@ test("SYNC-IDEMP-CLIENT-03 event titles are display context and status copy is o
   });
 
   assert.equal(details.disasterEvent, "Typhoon Mayon Response");
-  assert.match(pageSource, /getSyncStatusSummaryMessage\(summary\)/);
+  assert.match(pageSource, /getSyncHealthPresentation\(/);
   assert.match(pageSource, /title: "Synchronization cannot be retried"/);
   assert.doesNotMatch(
     pageSource.match(/<p[\s\S]*?role="status"[\s\S]*?<\/p>/)?.[0] || "",

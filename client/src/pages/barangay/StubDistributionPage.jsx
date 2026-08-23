@@ -6,6 +6,7 @@ import BarangayDashboardOverview from "../../components/barangay-dashboard/Baran
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import FeedbackToast from "../../components/shared/FeedbackToast";
 import FormModalShell from "../../components/shared/FormModalShell";
+import SyncHealthStatus from "../../components/shared/SyncHealthStatus";
 import StubClaimConfirmModal from "../../components/stubs/StubClaimConfirmModal";
 import StubDetailModal from "../../components/stubs/StubDetailModal";
 import StubQrScanErrorModal from "../../components/stubs/StubQrScanErrorModal";
@@ -23,6 +24,7 @@ import {
   verifyStub,
 } from "../../features/stubs/stubService";
 import { getStubClaimErrorDialog } from "../../features/stubs/stubClaimErrors";
+import { useBarangaySyncHealth } from "../../features/sync/useBarangaySyncHealth";
 import { fetchMswdoSectors } from "../../features/mswdo-masterlist/mswdoMasterlistService";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import { buildMasterlistFilterSectorOptions } from "../../utils/registrationOptions";
@@ -212,6 +214,7 @@ const buildQrScanErrorDetails = (verification, stubDetails) => {
 
 const StubDistributionPage = () => {
   const { authenticatedUser } = useAuth();
+  const { presentation: syncHealth } = useBarangaySyncHealth();
   const [searchTerm, setSearchTerm] = useState("");
   const [filtersByScope, setFiltersByScope] = useState({
     active: {
@@ -943,6 +946,8 @@ const StubDistributionPage = () => {
   return (
     <>
       <PageHeader title="RELIEF GOODS DISTRIBUTION" />
+
+      <SyncHealthStatus health={syncHealth} variant="compact" />
 
       <BarangayDashboardOverview
         accessMode={accessMode}
