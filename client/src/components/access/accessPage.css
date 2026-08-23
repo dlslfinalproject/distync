@@ -401,19 +401,22 @@
   justify-items: center;
   min-height: 44px;
   padding-top: 0;
-  width: min(360px, 100%);
+  width: min(400px, 100%);
   max-width: 100%;
+  box-sizing: border-box;
   margin: 30px auto 0;
   overflow: visible;
 }
 
 .distync-access-page__google-button > div {
+  width: 100% !important;
   max-width: 100%;
 }
 
 .distync-access-page__google-button iframe {
   display: block !important;
-  max-width: min(100%, var(--google-button-rendered-width, 360px)) !important;
+  width: 100% !important;
+  max-width: 100% !important;
 }
 
 .distync-access-page__support-text {

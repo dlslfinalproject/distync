@@ -102,7 +102,7 @@ export const renderGoogleSignInButton = async ({
   const buttonWidth = Math.floor(
     element.clientWidth || element.getBoundingClientRect().width || 360,
   );
-  const renderedButtonWidth = Math.min(360, Math.max(200, buttonWidth));
+  const renderedButtonWidth = Math.min(400, Math.max(200, buttonWidth));
 
   window.google.accounts.id.renderButton(element, {
     theme: "outline",
