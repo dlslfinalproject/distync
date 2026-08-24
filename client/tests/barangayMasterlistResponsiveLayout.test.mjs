@@ -81,6 +81,30 @@ test("Shared shell releases page width through a mobile navigation drawer", asyn
   assert.match(sidebarSource, /top: "var\(--shell-header-height, 68px\)"/);
 });
 
+test("Shared shell switches its inline grid to one track with the fixed navigation drawer", async () => {
+  const [layoutSource, cssSource] = await Promise.all([
+    readSource(["components", "layout", "BarangayLayout.jsx"]),
+    readSource(["index.css"]),
+  ]);
+
+  assert.match(
+    layoutSource,
+    /gridTemplateColumns: isDonorPortal \|\| isMobileNavigation\s*\n\s*\? "minmax\(0, 1fr\)"/,
+  );
+  assert.match(
+    layoutSource,
+    /\[headerBrandWidth, isDonorPortal, isMobileNavigation, sidebarWidth\]/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 1024px\)[\s\S]*?\.distync-shell \{[\s\S]*?grid-template-columns: 1fr;/,
+  );
+  assert.match(
+    cssSource,
+    /@media \(max-width: 1024px\)[\s\S]*?\.distync-sidebar \{[\s\S]*?position: fixed !important;/,
+  );
+});
+
 test("Mobile drawer adds compact DISTYNC branding with an explicit close button", async () => {
   const [layoutSource, sidebarSource, cssSource] = await Promise.all([
     readSource(["components", "layout", "BarangayLayout.jsx"]),

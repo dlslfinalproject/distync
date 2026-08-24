@@ -234,12 +234,12 @@ const BarangayLayout = () => {
       "--sidebar-width": sidebarWidth,
       "--header-brand-width": headerBrandWidth,
       "--shell-header-height": SHELL_HEADER_HEIGHT,
-      gridTemplateColumns: isDonorPortal
+      gridTemplateColumns: isDonorPortal || isMobileNavigation
         ? "minmax(0, 1fr)"
         : `var(--sidebar-width) minmax(0, 1fr)`,
       gridTemplateRows: isDonorPortal ? "1fr" : "auto minmax(0, 1fr)",
     }),
-    [headerBrandWidth, isDonorPortal, sidebarWidth],
+    [headerBrandWidth, isDonorPortal, isMobileNavigation, sidebarWidth],
   );
 
   return (
