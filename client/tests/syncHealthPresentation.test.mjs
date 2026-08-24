@@ -23,6 +23,10 @@ const distributionPagePath = new URL(
   "../src/pages/barangay/StubDistributionPage.jsx",
   import.meta.url,
 );
+const distributionTransactionPagePath = new URL(
+  "../src/pages/barangay/DistributionTransactionPage.jsx",
+  import.meta.url,
+);
 const historyPagePath = new URL(
   "../src/pages/DistributionHistoryPage.jsx",
   import.meta.url,
@@ -104,21 +108,24 @@ test("SYNC-HEALTH-P06 loading and unavailable states never claim all synced", as
   assert.notEqual(unavailable.message, "All changes are synchronized.");
 });
 
-test("SYNC-HEALTH-P07 full and compact presentation contracts are scoped to the right pages", async () => {
-  const [component, banner, syncCenter, masterlist, distribution, history, layout] =
+test("SYNC-HEALTH-P07 Sync Center owns the full status card", async () => {
+  const [component, banner, syncCenter, masterlist, distribution, transaction, history, layout] =
     await Promise.all([
       fs.readFile(syncStatusComponentPath, "utf8"),
       fs.readFile(syncStatusBannerPath, "utf8"),
       fs.readFile(syncCenterPagePath, "utf8"),
       fs.readFile(masterlistPagePath, "utf8"),
       fs.readFile(distributionPagePath, "utf8"),
+      fs.readFile(distributionTransactionPagePath, "utf8"),
       fs.readFile(historyPagePath, "utf8"),
       fs.readFile(layoutPath, "utf8"),
     ]);
 
   assert.match(syncCenter, /<SyncHealthStatus health=\{syncHealth\} \/>/);
-  assert.match(masterlist, /<SyncHealthStatus health=\{syncHealth\} variant="compact" \/>/);
-  assert.match(distribution, /<SyncHealthStatus health=\{syncHealth\} variant="compact" \/>/);
+  assert.doesNotMatch(masterlist, /SyncHealthStatus|useBarangaySyncHealth/);
+  assert.doesNotMatch(distribution, /SyncHealthStatus|useBarangaySyncHealth/);
+  assert.doesNotMatch(transaction, /SyncHealthStatus|useBarangaySyncHealth/);
+  assert.match(masterlist, /useLiveQuery\(\(\) => getVisibleSyncQueueEntries\(\), \[\], \[\]\)/);
   assert.doesNotMatch(history, /SyncHealthStatus|useBarangaySyncHealth/);
   assert.match(layout, /isBarangayPortal/);
   assert.match(layout, /!isBarangayPortal/);
