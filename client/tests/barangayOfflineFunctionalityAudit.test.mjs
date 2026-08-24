@@ -44,11 +44,12 @@ test("BRG-OFFLINE-AUDIT-RECOVERY transient HTTP failures remain eligible for ide
   assert.match(source, /processingOwner:\s*null/);
 });
 
-test("BRG-OFFLINE-AUDIT-UX supported Barangay pages distinguish offline state from healthy online state", async () => {
-  const [healthHook, healthComponent, masterlist, relief, distribution] =
+test("BRG-OFFLINE-AUDIT-UX operational pages leave sync monitoring in Sync Center", async () => {
+  const [healthHook, healthComponent, syncCenter, masterlist, relief, distribution] =
     await Promise.all([
       readSource("../src/features/sync/useBarangaySyncHealth.js"),
       readSource("../src/components/shared/SyncHealthStatus.jsx"),
+      readSource("../src/pages/SyncManagementPage.jsx"),
       readSource("../src/pages/barangay/BarangayMasterlistPage.jsx"),
       readSource("../src/pages/barangay/StubDistributionPage.jsx"),
       readSource("../src/pages/barangay/DistributionTransactionPage.jsx"),
@@ -57,9 +58,11 @@ test("BRG-OFFLINE-AUDIT-UX supported Barangay pages distinguish offline state fr
   assert.match(healthHook, /window\.addEventListener\("offline"/);
   assert.match(healthComponent, /Supported actions will be saved on this device/);
   assert.match(healthComponent, /basePresentation\.isOnline === false/);
-  assert.match(masterlist, /<SyncHealthStatus health=\{syncHealth\} variant="compact" \/>/);
-  assert.match(relief, /<SyncHealthStatus health=\{syncHealth\} variant="compact" \/>/);
-  assert.match(distribution, /<SyncHealthStatus health=\{syncHealth\} variant="compact" \/>/);
+  assert.match(syncCenter, /<SyncHealthStatus health=\{syncHealth\} \/>/);
+  assert.doesNotMatch(masterlist, /SyncHealthStatus|useBarangaySyncHealth/);
+  assert.doesNotMatch(relief, /SyncHealthStatus|useBarangaySyncHealth/);
+  assert.doesNotMatch(distribution, /SyncHealthStatus|useBarangaySyncHealth/);
+  assert.match(masterlist, /syncQueueEntries/);
 });
 
 test("BRG-OFFLINE-AUDIT-CLAIM bulk claim resolves each selected row before queueing", async () => {

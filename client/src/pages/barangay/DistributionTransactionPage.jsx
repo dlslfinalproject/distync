@@ -5,7 +5,6 @@ import qrScannerWorkerPath from "qr-scanner/qr-scanner-worker.min.js?url";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import StubSummaryCard from "../../components/distribution/StubSummaryCard";
 import DistributionForm from "../../components/distribution/DistributionForm";
-import SyncHealthStatus from "../../components/shared/SyncHealthStatus";
 import { shellStyles } from "../../components/layout/BarangayLayout";
 import { fetchStubDetails, verifyStub } from "../../features/stubs/stubService";
 import { extractStubQrValue } from "../../utils/stubQr";
@@ -22,7 +21,6 @@ import {
   markDistributionTargetAsServerVerified,
   markDistributionTargetAsUnverified,
 } from "../../features/distribution/distributionTargetProvenance";
-import { useBarangaySyncHealth } from "../../features/sync/useBarangaySyncHealth";
 
 QrScanner.WORKER_PATH = qrScannerWorkerPath;
 
@@ -220,8 +218,6 @@ const DistributionTransactionPage = () => {
   const [isResolvingQrLookup, setIsResolvingQrLookup] = useState(false);
   const [isQrScannerOpen, setIsQrScannerOpen] = useState(false);
   const [qrScannerMessage, setQrScannerMessage] = useState("");
-  const { presentation: syncHealth } = useBarangaySyncHealth();
-
   const canUseQrScanner =
     typeof navigator !== "undefined" &&
     Boolean(navigator.mediaDevices?.getUserMedia) &&
@@ -641,8 +637,6 @@ const DistributionTransactionPage = () => {
           },
         ]}
       />
-
-      <SyncHealthStatus health={syncHealth} variant="compact" />
 
       <section style={shellStyles.card}>
         <div

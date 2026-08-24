@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import PageHeader from "../../components/layout/PageHeader";
 import BarangayDashboardOverview from "../../components/barangay-dashboard/BarangayDashboardOverview";
 import HouseholdArchiveConfirmModal from "../../components/masterlist/HouseholdArchiveConfirmModal";
@@ -10,7 +11,6 @@ import MasterlistStatusMessages from "../../components/masterlist/MasterlistStat
 import MasterlistTable from "../../components/masterlist/MasterlistTable";
 import MasterlistToolbar from "../../components/masterlist/MasterlistToolbar";
 import FeedbackToast from "../../components/shared/FeedbackToast";
-import SyncHealthStatus from "../../components/shared/SyncHealthStatus";
 import RegisterFamilyModal from "../../components/household-registration/RegisterFamilyModal";
 import MswdoExportModal from "../../components/mswdo-masterlist/MswdoExportModal";
 import { useAuth } from "../../context/AuthContext";
@@ -30,7 +30,6 @@ import {
   isEndedDisasterEvent,
 } from "../../features/masterlist/barangayMasterlistUi";
 import { useBarangayMasterlistSync } from "../../features/masterlist/useBarangayMasterlistSync";
-import { useBarangaySyncHealth } from "../../features/sync/useBarangaySyncHealth";
 import {
   cacheRegistrationActiveDisasterEvents,
   cacheRegistrationBarangays,
@@ -40,6 +39,7 @@ import {
   fetchEvacuationCentersByBarangay,
 } from "../../features/household-registration/householdRegistrationService";
 import { getActiveCrossEventTitles } from "../../features/household-registration/crossEventInformation";
+import { getVisibleSyncQueueEntries } from "../../offline/syncQueue";
 import {
   buildExportSuccessMessage,
   downloadExportFile,
@@ -119,8 +119,8 @@ const BarangayMasterlistPage = () => {
     type: "",
     message: "",
   });
-  const { queueEntries: syncQueueEntries, presentation: syncHealth } =
-    useBarangaySyncHealth();
+  const syncQueueEntries =
+    useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
 
   const {
     accessMode,
@@ -892,8 +892,6 @@ const BarangayMasterlistPage = () => {
   return (
     <>
       <PageHeader title="EVACUEE MASTERLIST MANAGEMENT" actions={[]} />
-
-      <SyncHealthStatus health={syncHealth} variant="compact" />
 
       <BarangayDashboardOverview
         accessMode={accessMode}
