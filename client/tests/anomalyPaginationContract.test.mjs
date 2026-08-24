@@ -269,7 +269,8 @@ test("Barangay anomaly page removes summary cards, sync banner, and extra row re
   assert.match(sidebarSource, /\{ label: "Anomaly Tracking", to: "\/barangay\/anomalies"(?:, isSectionChild: true)? \}/);
   assert.match(sidebarSource, /\{ label: "Anomaly Tracking Management", to: "\/mswdo\/anomalies" \}/);
   assert.match(layoutSource, /isBarangayAnomalyRoute/);
-  assert.match(layoutSource, /!isBarangayAnomalyRoute \? <SyncStatusBanner \/> : null/);
+  assert.match(layoutSource, /shouldShowSyncStatusBanner/);
+  assert.match(layoutSource, /\{shouldShowSyncStatusBanner \? <SyncStatusBanner \/> : null\}/);
   assert.match(source, /!\isBarangayScope \? \([\s\S]*<StatusCard label="Total Detected"/);
   assert.match(source, /overflowX: "auto", width: "100%", minWidth: 0/);
   assert.doesNotMatch(source, /FiCheckCircle|FiEdit3/);

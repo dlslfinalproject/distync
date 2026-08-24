@@ -44,12 +44,14 @@ test("BRG-OFFLINE-AUDIT-RECOVERY transient HTTP failures remain eligible for ide
   assert.match(source, /processingOwner:\s*null/);
 });
 
-test("BRG-OFFLINE-AUDIT-UX operational pages leave sync monitoring in Sync Center", async () => {
-  const [healthHook, healthComponent, syncCenter, masterlist, relief, distribution] =
+test("BRG-OFFLINE-AUDIT-UX Barangay pages expose shared offline status without duplicate cards", async () => {
+  const [healthHook, healthComponent, syncCenter, layout, banner, masterlist, relief, distribution] =
     await Promise.all([
       readSource("../src/features/sync/useBarangaySyncHealth.js"),
       readSource("../src/components/shared/SyncHealthStatus.jsx"),
       readSource("../src/pages/SyncManagementPage.jsx"),
+      readSource("../src/components/layout/BarangayLayout.jsx"),
+      readSource("../src/components/layout/SyncStatusBanner.jsx"),
       readSource("../src/pages/barangay/BarangayMasterlistPage.jsx"),
       readSource("../src/pages/barangay/StubDistributionPage.jsx"),
       readSource("../src/pages/barangay/DistributionTransactionPage.jsx"),
@@ -58,7 +60,13 @@ test("BRG-OFFLINE-AUDIT-UX operational pages leave sync monitoring in Sync Cente
   assert.match(healthHook, /window\.addEventListener\("offline"/);
   assert.match(healthComponent, /Supported actions will be saved on this device/);
   assert.match(healthComponent, /basePresentation\.isOnline === false/);
+  assert.match(healthComponent, /type: "offline", label: "Offline"/);
   assert.match(syncCenter, /<SyncHealthStatus health=\{syncHealth\} \/>/);
+  assert.match(syncCenter, /isOnline,/);
+  assert.match(layout, /shouldShowSyncStatusBanner/);
+  assert.match(layout, /isSyncCenterRoute/);
+  assert.match(banner, /LOCAL_SYNC_STATUS\.FAILED/);
+  assert.match(banner, /isNonRetryableSyncEntry\(entry\)/);
   assert.doesNotMatch(masterlist, /SyncHealthStatus|useBarangaySyncHealth/);
   assert.doesNotMatch(relief, /SyncHealthStatus|useBarangaySyncHealth/);
   assert.doesNotMatch(distribution, /SyncHealthStatus|useBarangaySyncHealth/);

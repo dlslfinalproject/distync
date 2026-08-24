@@ -4,6 +4,11 @@ import { formatSyncDateTime } from "../../features/sync/syncManagementHelpers.js
 import { getSyncHealthPresentation } from "../../offline/syncStatus.js";
 
 const badgePalette = {
+  offline: {
+    backgroundColor: "#e0f2fe",
+    borderColor: "#bae6fd",
+    color: "#075985",
+  },
   healthy: {
     backgroundColor: "#e6f5ec",
     borderColor: "#ccebd9",
@@ -78,6 +83,10 @@ const SyncHealthStatus = ({
         ...basePresentation,
         state: "PENDING",
         needsAttention: true,
+        badges: [
+          { type: "offline", label: "Offline" },
+          ...basePresentation.badges.filter((badge) => badge.type !== "healthy"),
+        ],
         message:
           "You're offline. Supported actions will be saved on this device and synchronized when connection returns.",
       }
