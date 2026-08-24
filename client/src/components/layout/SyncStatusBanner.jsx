@@ -10,6 +10,7 @@ import {
 } from "../../offline/syncService";
 import {
   getVisibleSyncQueueEntries,
+  isNonRetryableSyncEntry,
   isUnsupportedOfflineActionKey,
 } from "../../offline/syncQueue";
 
@@ -82,12 +83,15 @@ const SyncStatusBanner = () => {
     );
   }, [syncEntries]);
 
-  const retryablePendingCount = useMemo(
+  const retryableQueueCount = useMemo(
     () =>
       syncEntries.filter(
         (entry) =>
-          entry.status === LOCAL_SYNC_STATUS.PENDING &&
-          !isUnsupportedOfflineActionKey(entry.actionKey),
+          [LOCAL_SYNC_STATUS.PENDING, LOCAL_SYNC_STATUS.FAILED].includes(
+            entry.status,
+          ) &&
+          !isUnsupportedOfflineActionKey(entry.actionKey) &&
+          !isNonRetryableSyncEntry(entry),
       ).length,
     [syncEntries],
   );
@@ -161,14 +165,14 @@ const SyncStatusBanner = () => {
             {isOnline ? "Sync Status" : "Offline Mode Active"}
           </p>
           <p style={mutedTextStyle}>
-              {!isOnline
-              ? "You can keep encoding create and update actions. DISTYNC will queue them locally and sync them once the connection returns."
+            {!isOnline
+              ? "You can continue supported actions. DISTYNC will save them on this device and sync them when the connection returns."
               : feedbackMessage ||
                 healthPresentation.message}
           </p>
         </div>
 
-        {isOnline && retryablePendingCount > 0 ? (
+        {isOnline && retryableQueueCount > 0 ? (
           <button
             type="button"
             onClick={() => void flushPendingSyncEntries()}

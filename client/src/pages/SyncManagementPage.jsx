@@ -380,9 +380,10 @@ const SyncManagementPage = () => {
           summary.failed === 0 &&
           summary.conflicts === 0,
       }),
+      isOnline,
       lastSuccessfulSyncAt: summary.lastSuccessfulSyncAt,
     }),
-    [errorMessage, isLoadingHistory, summary],
+    [errorMessage, isLoadingHistory, isOnline, summary],
   );
 
   const filteredQueueEntries = useMemo(

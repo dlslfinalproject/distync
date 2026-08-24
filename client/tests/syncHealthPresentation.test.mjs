@@ -108,6 +108,21 @@ test("SYNC-HEALTH-P06 loading and unavailable states never claim all synced", as
   assert.notEqual(unavailable.message, "All changes are synchronized.");
 });
 
+test("SYNC-HEALTH-P06B offline status does not retain a healthy badge", async () => {
+  const component = await fs.readFile(syncStatusComponentPath, "utf8");
+
+  assert.match(component, /type: "offline", label: "Offline"/);
+  assert.match(component, /badge\.type !== "healthy"/);
+  assert.match(component, /basePresentation\.isOnline === false/);
+});
+
+test("SYNC-HEALTH-P06C Sync Center passes browser connectivity into its status", async () => {
+  const syncCenter = await fs.readFile(syncCenterPagePath, "utf8");
+
+  assert.match(syncCenter, /isOnline,\n\s+lastSuccessfulSyncAt/);
+  assert.match(syncCenter, /isLoadingHistory, isOnline, summary/);
+});
+
 test("SYNC-HEALTH-P07 Sync Center owns the full status card", async () => {
   const [component, banner, syncCenter, masterlist, distribution, transaction, history, layout] =
     await Promise.all([
@@ -128,8 +143,9 @@ test("SYNC-HEALTH-P07 Sync Center owns the full status card", async () => {
   assert.match(masterlist, /useLiveQuery\(\(\) => getVisibleSyncQueueEntries\(\), \[\], \[\]\)/);
   assert.doesNotMatch(history, /SyncHealthStatus|useBarangaySyncHealth/);
   assert.match(layout, /isBarangayPortal/);
-  assert.match(layout, /!isBarangayPortal/);
-  assert.match(layout, /!isBarangayAnomalyRoute \? <SyncStatusBanner \/> : null/);
+  assert.match(layout, /isSyncCenterRoute/);
+  assert.match(layout, /shouldShowSyncStatusBanner/);
+  assert.match(layout, /\{shouldShowSyncStatusBanner \? <SyncStatusBanner \/> : null\}/);
   assert.doesNotMatch(component, /updated_at|latest timestamp|client_sync_id|PostgreSQL/i);
   assert.doesNotMatch(banner, /updated_at|latest timestamp|client_sync_id|PostgreSQL/i);
 });
