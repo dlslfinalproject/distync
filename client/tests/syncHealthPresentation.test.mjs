@@ -119,7 +119,7 @@ test("SYNC-HEALTH-P06B offline status does not retain a healthy badge", async ()
 test("SYNC-HEALTH-P06C Sync Center passes browser connectivity into its status", async () => {
   const syncCenter = await fs.readFile(syncCenterPagePath, "utf8");
 
-  assert.match(syncCenter, /isOnline,\n\s+lastSuccessfulSyncAt/);
+  assert.match(syncCenter, /isOnline,\r?\n\s+lastSuccessfulSyncAt/);
   assert.match(syncCenter, /isLoadingHistory, isOnline, summary/);
 });
 
@@ -143,7 +143,7 @@ test("SYNC-HEALTH-P07 Sync Center owns the full status card", async () => {
   assert.match(masterlist, /useLiveQuery\(\(\) => getVisibleSyncQueueEntries\(\), \[\], \[\]\)/);
   assert.doesNotMatch(history, /SyncHealthStatus|useBarangaySyncHealth/);
   assert.match(layout, /isBarangayPortal/);
-  assert.match(layout, /isSyncCenterRoute/);
+  assert.match(layout, /shouldShowSyncStatusBanner = !isBarangayPortal && !isBarangayAnomalyRoute/);
   assert.match(layout, /shouldShowSyncStatusBanner/);
   assert.match(layout, /\{shouldShowSyncStatusBanner \? <SyncStatusBanner \/> : null\}/);
   assert.doesNotMatch(component, /updated_at|latest timestamp|client_sync_id|PostgreSQL/i);
