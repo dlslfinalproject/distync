@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FiAlertTriangle, FiEye, FiFilter, FiSearch } from "react-icons/fi";
+import { FiFilter, FiSearch } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { pageSpacingStyles, shellStyles } from "../../components/layout/BarangayLayout";
 import EmptyState from "../../components/shared/EmptyState";
@@ -83,16 +83,17 @@ const tableStyles = {
   },
 };
 
-const barangayAnomalyTableMinWidth = "1040px";
+const barangayAnomalyTableMinWidth = "1240px";
 const mswdoAnomalyTableMinWidth = "1160px";
 
 const barangayAnomalyColumnStyles = {
-  anomaly: { width: "18%", minWidth: "190px" },
-  affectedRecord: { width: "17%", minWidth: "170px" },
-  whyFlagged: { width: "31%", minWidth: "320px" },
-  reviewStatus: { width: "14%", minWidth: "150px" },
-  detectedAt: { width: "13%", minWidth: "150px" },
-  action: { width: "7%", minWidth: "88px", textAlign: "center", whiteSpace: "nowrap" },
+  anomalyType: { width: "18%", minWidth: "190px" },
+  affectedRecord: { width: "16%", minWidth: "170px" },
+  disasterEvent: { width: "16%", minWidth: "180px" },
+  whyFlagged: { width: "25%", minWidth: "300px" },
+  reviewStatus: { width: "13%", minWidth: "150px" },
+  detectedAt: { width: "10%", minWidth: "150px" },
+  action: { width: "10%", minWidth: "136px", textAlign: "center", whiteSpace: "nowrap" },
 };
 
 const mswdoAnomalyColumnStyles = {
@@ -106,17 +107,18 @@ const mswdoAnomalyColumnStyles = {
   action: { width: "6%", minWidth: "88px", textAlign: "center", whiteSpace: "nowrap" },
 };
 
-const viewButtonStyles = {
-  width: "46px",
-  height: "46px",
-  borderRadius: "14px",
-  border: "1px solid #c6d8ea",
-  backgroundColor: "#f8fbfe",
-  color: "#24496e",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  cursor: "pointer",
+const reviewButtonStyles = {
+  ...pageHeaderStyles.primaryButton,
+  minHeight: "42px",
+  padding: "10px 14px",
+  borderRadius: "12px",
+};
+
+const nonReviewActionStyles = {
+  color: "#5f7892",
+  fontSize: "13px",
+  fontWeight: 700,
+  lineHeight: 1.4,
 };
 
 const searchInputStyles = {
@@ -316,7 +318,18 @@ const formatDateTime = (value) => {
   });
 };
 
-const formatEventLabel = (row) => row?.title || row?.disaster_event_title || "Not available";
+const formatNullableValue = (value, fallback = "Not available") => {
+  const normalizedValue = String(value || "").trim();
+
+  return normalizedValue || fallback;
+};
+
+const formatEventLabel = (row) =>
+  formatNullableValue(
+    row?.disaster_event_title ||
+      row?.disaster_event?.title ||
+      row?.disasterEvent?.title,
+  );
 
 const formatAffectedRecord = (row, isBarangayScope = true) => {
   const familyHeadName = String(row?.family_head_name || "").trim();
@@ -354,12 +367,6 @@ const formatAffectedRecord = (row, isBarangayScope = true) => {
 
 const formatBarangayLabel = (row) =>
   formatNullableValue(row?.barangay_name, "Not attributed");
-
-const formatNullableValue = (value, fallback = "Not available") => {
-  const normalizedValue = String(value || "").trim();
-
-  return normalizedValue || fallback;
-};
 
 const normalizeBarangayName = (value) => String(value || "").trim().toLowerCase();
 
@@ -493,6 +500,24 @@ const getStatusLabel = (row, scope = "barangay") => {
   }
 
   return getStatusCategory(row) === "failed" ? "Sync Retry Needed" : "Needs Review";
+};
+
+const isManualReviewableAnomaly = (row) => row?.manual_review_allowed === true;
+
+const getAnomalyRowActionLabel = (row) => {
+  if (isManualReviewableAnomaly(row)) {
+    return "Review";
+  }
+
+  if (
+    row?.review_state === "sync_center" ||
+    row?.anomaly_type === "SYNC_CONFLICT" ||
+    row?.anomaly_type === "SYNC_FAILED"
+  ) {
+    return "Sync Center";
+  }
+
+  return "No review needed";
 };
 
 const StatusPill = ({ row, scope = "barangay" }) => {
@@ -830,7 +855,7 @@ const AnomalyDetailModal = ({
       footer={modalFooter}
     >
       <div style={{ ...modalStyles.card, marginBottom: "16px" }}>
-        <div style={labelStyles}>Anomaly</div>
+        <div style={labelStyles}>Anomaly Type</div>
         <div
           style={{
             display: "flex",
@@ -1801,8 +1826,9 @@ const AnomalyTrackingPage = ({
                 <thead>
                   {isBarangayScope ? (
                     <tr>
-                      <th style={{ ...tableStyles.th, ...barangayAnomalyColumnStyles.anomaly }}>Anomaly</th>
+                      <th style={{ ...tableStyles.th, ...barangayAnomalyColumnStyles.anomalyType }}>Anomaly Type</th>
                       <th style={{ ...tableStyles.th, ...barangayAnomalyColumnStyles.affectedRecord }}>Affected Record</th>
+                      <th style={{ ...tableStyles.th, ...barangayAnomalyColumnStyles.disasterEvent }}>Disaster Event</th>
                       <th style={{ ...tableStyles.th, ...barangayAnomalyColumnStyles.whyFlagged }}>Why Flagged</th>
                       <th style={{ ...tableStyles.th, ...barangayAnomalyColumnStyles.reviewStatus }}>Review Status</th>
                       <th style={{ ...tableStyles.th, ...barangayAnomalyColumnStyles.detectedAt }}>Detected At</th>
@@ -1830,21 +1856,16 @@ const AnomalyTrackingPage = ({
                     >
                       {isBarangayScope ? (
                         <>
-                          <td style={{ ...tableStyles.td, ...barangayAnomalyColumnStyles.anomaly }}>
-                            <span
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "flex-start",
-                                gap: "8px",
-                                fontWeight: 700,
-                              }}
-                            >
-                              <FiAlertTriangle size={16} color="#9a6400" style={{ flexShrink: 0, marginTop: "2px" }} />
+                          <td style={{ ...tableStyles.td, ...barangayAnomalyColumnStyles.anomalyType }}>
+                            <span style={{ fontWeight: 700 }}>
                               {formatAnomalyType(row.anomaly_type, presentationScope)}
                             </span>
                           </td>
                           <td style={{ ...tableStyles.td, ...barangayAnomalyColumnStyles.affectedRecord }}>
                             {formatAffectedRecord(row, true)}
+                          </td>
+                          <td style={{ ...tableStyles.td, ...barangayAnomalyColumnStyles.disasterEvent }}>
+                            {formatEventLabel(row)}
                           </td>
                           <td style={{ ...tableStyles.td, ...barangayAnomalyColumnStyles.whyFlagged }}>
                             {getAnomalyExplanation(row, presentationScope)}
@@ -1862,15 +1883,7 @@ const AnomalyTrackingPage = ({
                             <SeverityPill row={row} />
                           </td>
                           <td style={{ ...tableStyles.td, ...mswdoAnomalyColumnStyles.anomalyType }}>
-                            <span
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "flex-start",
-                                gap: "8px",
-                                fontWeight: 700,
-                              }}
-                            >
-                              <FiAlertTriangle size={16} color="#9a6400" style={{ flexShrink: 0, marginTop: "2px" }} />
+                            <span style={{ fontWeight: 700 }}>
                               {formatAnomalyType(row.anomaly_type, presentationScope)}
                             </span>
                           </td>
@@ -1899,17 +1912,21 @@ const AnomalyTrackingPage = ({
                             : mswdoAnomalyColumnStyles.action),
                         }}
                       >
-                        <div style={{ display: "inline-flex", gap: "8px" }}>
+                        {isManualReviewableAnomaly(row) ? (
                           <button
                             type="button"
                             onClick={(event) => openAnomalyDetails(row, event)}
-                            aria-label={`View details for ${formatAnomalyType(row.anomaly_type, presentationScope)}`}
-                            title={`View details for ${formatAnomalyType(row.anomaly_type, presentationScope)}`}
-                            style={viewButtonStyles}
+                            aria-label={`Review anomaly details for ${formatAnomalyType(row.anomaly_type, presentationScope)}`}
+                            title={`Review anomaly details for ${formatAnomalyType(row.anomaly_type, presentationScope)}`}
+                            style={reviewButtonStyles}
                           >
-                            <FiEye size={18} />
+                            Review
                           </button>
-                        </div>
+                        ) : (
+                          <span style={nonReviewActionStyles}>
+                            {getAnomalyRowActionLabel(row)}
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}
