@@ -112,6 +112,102 @@ test("Barangay anomaly review revalidates derived anomaly before persisting", as
   }
 });
 
+test("MSWDO anomaly review revalidates in consolidated scope and persists the anomaly Barangay", async () => {
+  let lookupFilters = null;
+  let upsertPayload = null;
+  const { service, restore } = loadService({
+    repository: {
+      findAnomalyBySourceIdentity: async (filters) => {
+        lookupFilters = filters;
+        return {
+          source_type: "ERROR_LOG",
+          source_id: "error-2",
+          anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+          barangay_id: "barangay-b",
+          disaster_event_id: "event-1",
+          manual_review_allowed: true,
+        };
+      },
+      upsertAnomalyReview: async (payload) => {
+        upsertPayload = payload;
+        return {
+          id: "review-2",
+          barangay_id: payload.barangayId,
+          review_status: payload.reviewStatus,
+        };
+      },
+    },
+  });
+
+  try {
+    const review = await service.upsertAnomalyReview({
+      auth: { userId: "mswdo-user", roleCode: "MSWDO" },
+      payload: {
+        source_type: "ERROR_LOG",
+        source_id: "error-2",
+        anomaly_type: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+        review_status: "ISSUE_CONFIRMED",
+        resolution_reason: "Validated with the affected Barangay.",
+      },
+    });
+
+    assert.deepEqual(lookupFilters, {
+      barangayId: null,
+      anomalyType: "DUPLICATE_HOUSEHOLD_REGISTRATION",
+      sourceType: "ERROR_LOG",
+      sourceId: "error-2",
+      roleScope: "MSWDO",
+    });
+    assert.equal(upsertPayload.barangayId, "barangay-b");
+    assert.equal(upsertPayload.reviewedBy, "mswdo-user");
+    assert.equal(review.review_status, "ISSUE_CONFIRMED");
+  } finally {
+    restore();
+  }
+});
+
+test("MSWDO anomaly review refuses an operational row without Barangay attribution", async () => {
+  let upsertCalled = false;
+  const { service, restore } = loadService({
+    repository: {
+      findAnomalyBySourceIdentity: async () => ({
+        anomaly_type: "INVENTORY_DISTRIBUTION_MISMATCH",
+        barangay_id: null,
+        manual_review_allowed: false,
+      }),
+      upsertAnomalyReview: async () => {
+        upsertCalled = true;
+        return {};
+      },
+    },
+  });
+
+  try {
+    await assert.rejects(
+      async () =>
+        service.upsertAnomalyReview({
+          auth: { userId: "mswdo-user", roleCode: "MSWDO" },
+          payload: {
+            source_type: "INVENTORY_DISTRIBUTION_ORPHAN_OUTFLOW",
+            source_id: "outflow-1",
+            anomaly_type: "INVENTORY_DISTRIBUTION_MISMATCH",
+            review_status: "REFERRED",
+            resolution_reason: "Barangay attribution is still being established.",
+          },
+        }),
+      (error) => {
+        assert.equal(error.statusCode, 409);
+        assert.equal(error.code, "ANOMALY_REVIEW_BARANGAY_REQUIRED");
+        assert.match(error.message, /Barangay must be identified/);
+        return true;
+      },
+    );
+    assert.equal(upsertCalled, false);
+  } finally {
+    restore();
+  }
+});
+
 test("Barangay anomaly review refuses disappeared or sync-center-owned anomalies", async () => {
   const missingHarness = loadService({
     repository: {

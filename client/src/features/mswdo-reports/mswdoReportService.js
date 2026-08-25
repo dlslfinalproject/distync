@@ -35,7 +35,7 @@ export const fetchMswdoAnomalies = async (filters = {}) => {
   return handleJsonResponse(response, "Failed to fetch MSWDO anomalies");
 };
 
-export const saveBarangayAnomalyReview = async (payload) => {
+export const saveAnomalyReview = async (payload) => {
   const response = await fetch(
     `${API_BASE_URL}/api/v1/mswdo-reports/anomalies/reviews`,
     {
@@ -47,5 +47,7 @@ export const saveBarangayAnomalyReview = async (payload) => {
     },
   );
 
-  return handleJsonResponse(response, "Failed to save Barangay anomaly review");
+  return handleJsonResponse(response, "Failed to save anomaly review");
 };
+
+export const saveBarangayAnomalyReview = saveAnomalyReview;
