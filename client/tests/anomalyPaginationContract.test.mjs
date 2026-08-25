@@ -44,8 +44,12 @@ test("MSWDO-ANOM-I01 anomaly page exposes duplicate household registration label
     presentationSource,
     /DUPLICATE_HOUSEHOLD_REGISTRATION:[\s\S]*label:\s*"Duplicate Household Registration"/,
   );
+  assert.match(
+    presentationSource,
+    /MSWDO_ANOMALY_PRESENTATION_OVERRIDES[\s\S]*DUPLICATE_HOUSEHOLD_REGISTRATION:[\s\S]*label:\s*"Duplicate Household Record"/,
+  );
   assert.match(source, /availableAnomalyTypes/);
-  assert.match(source, /formatAnomalyType\(row\.anomaly_type\)/);
+  assert.match(source, /formatAnomalyType\(row\.anomaly_type, presentationScope\)/);
   assert.doesNotMatch(source, />\{row\.anomaly_type\}</);
 });
 
@@ -57,7 +61,55 @@ test("MSWDO-ANOM-I13 anomaly page exposes inventory-distribution mismatch label 
     presentationSource,
     /INVENTORY_DISTRIBUTION_MISMATCH:[\s\S]*label:\s*"Inventory-Distribution Mismatch"/,
   );
-  assert.match(source, /formatAnomalyType\(row\.anomaly_type\)/);
+  assert.match(source, /formatAnomalyType\(row\.anomaly_type, presentationScope\)/);
+});
+
+test("MSWDO consolidated table uses the required operational columns in order", async () => {
+  const source = await fs.readFile(pageSourcePath, "utf8");
+  const tableHeadStart = source.indexOf("<thead>");
+  const mswdoHeaderStart = source.indexOf(") : (", tableHeadStart);
+  const mswdoHeaderEnd = source.indexOf(")}", mswdoHeaderStart);
+  const mswdoHeaderBlock = source.slice(mswdoHeaderStart, mswdoHeaderEnd);
+
+  assert.notEqual(tableHeadStart, -1);
+  assert.notEqual(mswdoHeaderStart, -1);
+  assert.match(
+    mswdoHeaderBlock,
+    /Severity[\s\S]*Anomaly Type[\s\S]*Barangay[\s\S]*Affected Record[\s\S]*Disaster Event[\s\S]*Status[\s\S]*Created Date[\s\S]*Action/,
+  );
+  assert.doesNotMatch(
+    mswdoHeaderBlock,
+    /Why Flagged|Action Required|Responsible Office|Household \/ Stub|Detected At/,
+  );
+  assert.match(source, /<SeverityPill row=\{row\} \/>/);
+  assert.match(source, /formatBarangayLabel\(row\)/);
+  assert.match(source, /formatAffectedRecord\(row, false\)/);
+});
+
+test("MSWDO filters and search expose municipal operational fields", async () => {
+  const source = await fs.readFile(pageSourcePath, "utf8");
+
+  assert.match(source, /<label htmlFor="anomaly-barangay"[\s\S]*Barangay/);
+  assert.match(source, /<option value="">All Barangays<\/option>/);
+  assert.match(source, /barangay_id: isBarangayScope[\s\S]*: filters\.barangay_id/);
+  assert.match(
+    source,
+    /Search anomaly type, Barangay, affected record, event, status, or notes/,
+  );
+  assert.match(source, /const mswdoStatusFilters = \[/);
+});
+
+test("MSWDO details support result recording without technical identifiers or sync actions", async () => {
+  const source = await fs.readFile(pageSourcePath, "utf8");
+  const presentationSource = await fs.readFile(presentationSourcePath, "utf8");
+
+  assert.match(source, /mswdoReviewOutcomeOptions/);
+  assert.match(source, /saveAnomalyReview/);
+  assert.match(source, /Record Result/);
+  assert.match(source, /Resolution Note/);
+  assert.match(source, /!reviewHasChanges/);
+  assert.match(presentationSource, /Synchronization Conflict Detected/);
+  assert.doesNotMatch(source, /Technical Reference|Source ID:|Retry Sync|Force Sync|Manual Sync/);
 });
 
 test("M05 anomaly page resets pagination when result filters change", async () => {
@@ -125,7 +177,7 @@ test("Barangay anomaly filters hide plain sync failures and hide technical sourc
   assert.match(presentationSource, /type\.value !== "SYNC_FAILED"/);
   assert.match(source, /getAnomalyTypesForScope\(scope\)/);
   assert.match(source, /!isBarangayScope \? \(/);
-  assert.match(source, /Source ID:/);
+  assert.doesNotMatch(source, /Technical Reference|Source ID:/);
   assert.match(source, /Anomaly[\s\S]*Affected Record[\s\S]*Why Flagged[\s\S]*Review Status[\s\S]*Detected At[\s\S]*Action/);
   assert.doesNotMatch(source, /Barangay action required:/);
 });
@@ -135,7 +187,7 @@ test("Barangay anomaly page exposes review workflow without resolving sync confl
   const serviceSource = await fs.readFile(serviceSourcePath, "utf8");
   const presentationSource = await fs.readFile(presentationSourcePath, "utf8");
 
-  assert.match(source, /saveBarangayAnomalyReview/);
+  assert.match(source, /saveAnomalyReview/);
   assert.match(source, /manual_review_allowed === true/);
   assert.match(source, /Review Note/);
   assert.match(source, /Review in Sync Center/);
@@ -177,8 +229,8 @@ test("Barangay review form keeps save visible and prevents duplicate submissions
   assert.match(source, /if \(isSubmittingReview\) \{[\s\S]*return;[\s\S]*\}/);
   assert.match(source, /disabled=\{isSaveDisabled\}/);
   assert.match(source, /aria-busy=\{isSubmittingReview\}/);
-  assert.match(source, /form="barangay-anomaly-review-form"/);
-  assert.match(source, /try \{[\s\S]*setIsSubmittingReview\(true\);[\s\S]*await saveBarangayAnomalyReview[\s\S]*\} catch \(error\) \{[\s\S]*\} finally \{[\s\S]*setIsSubmittingReview\(false\);[\s\S]*\}/);
+  assert.match(source, /form="anomaly-review-form"/);
+  assert.match(source, /try \{[\s\S]*setIsSubmittingReview\(true\);[\s\S]*await saveAnomalyReview[\s\S]*\} catch \(error\) \{[\s\S]*\} finally \{[\s\S]*setIsSubmittingReview\(false\);[\s\S]*\}/);
   assert.match(source, /rows=\{3\}/);
   assert.match(source, /minHeight: "86px"/);
   assert.match(source, /footerStyle=\{modalFooterStyles\}/);
@@ -192,7 +244,7 @@ test("Barangay review stale response is specific and refreshes authoritative ano
 
   assert.match(serviceSource, /error\.statusCode = response\.status/);
   assert.match(serviceSource, /error\.code = payload\?\.code \|\| null/);
-  assert.match(source, /STALE_REVIEW_MESSAGE/);
+  assert.match(source, /BARANGAY_STALE_REVIEW_MESSAGE/);
   assert.match(source, /ANOMALY_REVIEW_UNAVAILABLE/);
   assert.match(source, /ANOMALY_REVIEW_NOT_ALLOWED/);
   assert.match(source, /setIsReviewUnavailable\(true\)/);
@@ -218,14 +270,16 @@ test("Barangay anomaly list uses one horizontally scrollable table representatio
   const source = await fs.readFile(pageSourcePath, "utf8");
 
   assert.match(source, /const barangayAnomalyTableMinWidth = "1040px"/);
+  assert.match(source, /const mswdoAnomalyTableMinWidth = "1160px"/);
   assert.match(source, /overflowX: "auto", width: "100%", minWidth: 0/);
-  assert.match(source, /minWidth: isBarangayScope \? barangayAnomalyTableMinWidth : undefined/);
+  assert.match(source, /minWidth: isBarangayScope[\s\S]*\? barangayAnomalyTableMinWidth[\s\S]*: mswdoAnomalyTableMinWidth/);
   assert.match(source, /Anomaly[\s\S]*Affected Record[\s\S]*Why Flagged[\s\S]*Review Status[\s\S]*Detected At[\s\S]*Action/);
   assert.match(source, /barangayAnomalyColumnStyles\.whyFlagged/);
   assert.doesNotMatch(source, /barangayListLayout|viewportWidth|getInitialViewportWidth/);
   assert.doesNotMatch(source, /anomalyCardStyles|compactRecordStyles|<article/);
   assert.doesNotMatch(source, /Anomaly \/ Record/);
-  const barangayHeaderStart = source.indexOf("{isBarangayScope ? (");
+  const tableHeadStart = source.indexOf("<thead>");
+  const barangayHeaderStart = source.indexOf("{isBarangayScope ? (", tableHeadStart);
   const mswdoHeaderStart = source.indexOf(") : (", barangayHeaderStart);
   const barangayHeaderBlock = source.slice(barangayHeaderStart, mswdoHeaderStart);
 
@@ -246,17 +300,17 @@ test("Barangay anomaly details separates metadata fields instead of flowing para
 
   assert.match(source, /const DetailField = \(\{ label, children \}\) =>/);
   assert.match(source, /<strong style=\{\{ \.\.\.modalStyles\.value, fontSize: "16px" \}\}>\{presentation\.label\}<\/strong>/);
-  assert.match(source, /<StatusPill row=\{displayedAnomaly\} \/>/);
+  assert.match(source, /<StatusPill row=\{displayedAnomaly\} scope=\{presentationScope\} \/>/);
   assert.doesNotMatch(source, /<div style=\{labelStyles\}>Status<\/div>/);
   assert.match(source, /<DetailField label="Disaster Event">[\s\S]*\{formatEventLabel\(displayedAnomaly\)\}/);
-  assert.match(source, /<DetailField label="Affected Record">[\s\S]*\{formatAffectedRecord\(displayedAnomaly\)\}/);
+  assert.match(source, /<DetailField label="Affected Record">[\s\S]*\{formatAffectedRecord\(displayedAnomaly, isBarangayScope\)\}/);
   assert.match(source, /<DetailField label="Detected At">[\s\S]*\{formatDateTime\(displayedAnomaly\.occurred_at\)\}/);
-  assert.match(source, /<DetailField label="Recommendation">[\s\S]*\{getAnomalyActionSummary\(displayedAnomaly\)\}/);
-  assert.match(source, /<DetailField label="Responsible Office">[\s\S]*\{getAnomalyOwner\(displayedAnomaly\)\}/);
-  assert.match(source, /<DetailField label="Outcome">[\s\S]*\{formatReviewOutcome\(displayedAnomaly\.review_status\)\}/);
+  assert.match(source, /<DetailField label="Recommendation">[\s\S]*\{getAnomalyActionSummary\(displayedAnomaly, presentationScope\)\}/);
+  assert.match(source, /<DetailField label="Responsible Office">[\s\S]*\{getAnomalyOwner\(displayedAnomaly, presentationScope\)\}/);
+  assert.match(source, /<DetailField label="Outcome">[\s\S]*formatReviewOutcome\([\s\S]*displayedAnomaly\.review_status,[\s\S]*presentationScope/);
   assert.match(source, /<DetailField label="Reviewed By">[\s\S]*\{displayedAnomaly\.reviewer_name \|\| "Not available"\}/);
   assert.match(source, /<DetailField label="Reviewed At">[\s\S]*\{formatDateTime\(displayedAnomaly\.reviewed_at\)\}/);
-  assert.match(source, /<DetailField label="Review Note">[\s\S]*\{displayedAnomaly\.resolution_reason \|\| "Not available"\}/);
+  assert.match(source, /<DetailField label=\{isBarangayScope \? "Review Note" : "Resolution Note"\}>[\s\S]*\{displayedAnomaly\.resolution_reason \|\| "Not available"\}/);
   assert.doesNotMatch(source, /Disaster Event:|Affected Record:|Detected:|Responsible office:|Outcome:|Reviewed by:|Reviewed at:|Review Note:/);
   assert.doesNotMatch(source, /displayedAnomaly\.reviewer_name \|\| displayedAnomaly\.reviewed_by/);
 });

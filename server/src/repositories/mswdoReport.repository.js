@@ -18,7 +18,7 @@ const getAnomalyReviewStateExpression = ({
   CASE
     WHEN ${anomalyPrefix}anomaly_type = 'DUPLICATE_CLAIM_ATTEMPT'
       THEN 'system_handled'
-    WHEN ${anomalyPrefix}anomaly_type = 'SYNC_CONFLICT'
+    WHEN ${anomalyPrefix}anomaly_type IN ('SYNC_CONFLICT', 'SYNC_FAILED')
       THEN 'sync_center'
     WHEN ${reviewPrefix}review_status = 'REFERRED'
       THEN 'referred'
@@ -33,7 +33,56 @@ const getAnomalyReviewStateExpression = ({
 
 const getManualReviewAllowedExpression = (anomalyAlias = "") => `
   ${anomalyAlias ? `${anomalyAlias}.` : ""}anomaly_type IN (${MANUAL_REVIEW_ANOMALY_TYPES.map((type) => `'${type}'`).join(", ")})
+  AND ${anomalyAlias ? `${anomalyAlias}.` : ""}barangay_id IS NOT NULL
 `;
+
+const getOperationalAnomalySearchExpression = (anomalyAlias = "") => {
+  const prefix = anomalyAlias ? `${anomalyAlias}.` : "";
+
+  return `
+    CASE ${prefix}anomaly_type
+      WHEN 'SUSPICIOUS_DISTRIBUTION_ACTIVITY'
+        THEN CONCAT('Distribution Record Issue ', COALESCE(${prefix}anomaly_reason, ''))
+      WHEN 'SYNC_FAILED'
+        THEN 'Synchronization Issue Detected Sync Center Review'
+      WHEN 'SYNC_CONFLICT'
+        THEN 'Synchronization Conflict Detected Sync Center Review'
+      WHEN 'DUPLICATE_CLAIM_ATTEMPT'
+        THEN 'Duplicate Claim Attempt Dismissed Automatically Handled'
+      WHEN 'DUPLICATE_HOUSEHOLD_REGISTRATION'
+        THEN 'Duplicate Household Record Open Needs Review'
+      WHEN 'INVENTORY_DISTRIBUTION_MISMATCH'
+        THEN CONCAT('Inventory-Distribution Mismatch ', COALESCE(${prefix}anomaly_reason, ''))
+      WHEN 'FAILED_STUB_OR_QR_VERIFICATION'
+        THEN 'Stub or QR Verification Issue Open Needs Review'
+      ELSE REPLACE(COALESCE(${prefix}anomaly_type, ''), '_', ' ')
+    END
+  `;
+};
+
+const getOperationalReviewSearchExpression = ({
+  anomalyAlias = "",
+  reviewAlias = "",
+} = {}) => {
+  const anomalyPrefix = anomalyAlias ? `${anomalyAlias}.` : "";
+  const reviewPrefix = reviewAlias ? `${reviewAlias}.` : "";
+
+  return `
+    CASE
+      WHEN ${reviewPrefix}review_status = 'REVIEWED_VALID'
+        THEN 'Dismissed No Issue Reviewed Valid'
+      WHEN ${reviewPrefix}review_status = 'ISSUE_CONFIRMED'
+        THEN 'Issue Confirmed Reviewed Resolved'
+      WHEN ${reviewPrefix}review_status = 'REFERRED'
+        THEN 'Referred for Resolution'
+      WHEN ${anomalyPrefix}anomaly_type = 'DUPLICATE_CLAIM_ATTEMPT'
+        THEN 'Dismissed Automatically Handled'
+      WHEN ${anomalyPrefix}anomaly_type IN ('SYNC_CONFLICT', 'SYNC_FAILED')
+        THEN 'Sync Center Review Synchronization Issue'
+      ELSE 'Open Needs Review'
+    END
+  `;
+};
 
 const getAnomalyOrderByClause = (order) => {
   const stableTieBreaker = `
@@ -322,13 +371,15 @@ const getMswdoAnomalyTracking = async ({
     finalConditions.push(`
       (
         anomaly_rows.anomaly_type ILIKE $${searchIndex}
+        OR REPLACE(anomaly_rows.anomaly_type, '_', ' ') ILIKE $${searchIndex}
+        OR ${getOperationalAnomalySearchExpression("anomaly_rows")} ILIKE $${searchIndex}
         OR COALESCE(anomaly_rows.event_code, '') ILIKE $${searchIndex}
         OR COALESCE(anomaly_rows.disaster_event_title, '') ILIKE $${searchIndex}
         OR COALESCE(anomaly_rows.barangay_name, '') ILIKE $${searchIndex}
         OR COALESCE(anomaly_rows.family_head_name, '') ILIKE $${searchIndex}
-        OR COALESCE(anomaly_rows.anomaly_reason, '') ILIKE $${searchIndex}
         OR COALESCE(anomaly_rows.status, '') ILIKE $${searchIndex}
-        OR COALESCE(anomaly_rows.resolution_status, '') ILIKE $${searchIndex}
+        OR COALESCE(ar.resolution_reason, '') ILIKE $${searchIndex}
+        OR ${getOperationalReviewSearchExpression({ anomalyAlias: "anomaly_rows", reviewAlias: "ar" })} ILIKE $${searchIndex}
       )
     `);
   }

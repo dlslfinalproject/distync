@@ -149,6 +149,49 @@ test("MSWDO anomaly tracking keeps plain sync failures for consolidated review",
   });
 
   assert.match(capturedQueries[1], /UNION ALL SELECT \* FROM sync_failed/);
+  assert.match(
+    capturedQueries[1],
+    /anomaly_type IN \('SYNC_CONFLICT', 'SYNC_FAILED'\)[\s\S]*THEN 'sync_center'/,
+  );
+});
+
+test("MSWDO operational search covers labels, affected context, statuses, and review notes", async () => {
+  const { capturedQueries } = await captureAnomalyRepositoryCall({
+    roleScope: "MSWDO",
+    search: "validated",
+    page: 1,
+    pageSize: 10,
+  });
+
+  const itemQuery = capturedQueries[1];
+
+  assert.match(itemQuery, /REPLACE\(anomaly_rows\.anomaly_type, '_', ' '\) ILIKE \$1/);
+  assert.match(itemQuery, /Synchronization Conflict Detected Sync Center Review/);
+  assert.match(itemQuery, /Duplicate Household Record Open Needs Review/);
+  assert.match(itemQuery, /COALESCE\(anomaly_rows\.barangay_name, ''\) ILIKE \$1/);
+  assert.match(itemQuery, /COALESCE\(anomaly_rows\.family_head_name, ''\) ILIKE \$1/);
+  assert.match(itemQuery, /COALESCE\(ar\.resolution_reason, ''\) ILIKE \$1/);
+  assert.match(itemQuery, /Referred for Resolution/);
+  assert.doesNotMatch(
+    itemQuery,
+    /OR COALESCE\(anomaly_rows\.anomaly_reason, ''\) ILIKE/,
+  );
+});
+
+test("manual review availability requires an attributed Barangay without narrowing MSWDO scope", async () => {
+  const { capturedQueries } = await captureAnomalyRepositoryCall({
+    roleScope: "MSWDO",
+    page: 1,
+    pageSize: 10,
+  });
+
+  const itemQuery = capturedQueries[1];
+
+  assert.match(
+    itemQuery,
+    /anomaly_rows\.anomaly_type IN \([\s\S]*\)[\s\S]*AND anomaly_rows\.barangay_id IS NOT NULL[\s\S]*AS manual_review_allowed/,
+  );
+  assert.doesNotMatch(itemQuery, /WHERE anomaly_rows\.barangay_id = \$/);
 });
 
 test("H01-04 and H01-05 error-log anomalies use a narrow Barangay-only actor fallback", async () => {
