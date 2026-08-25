@@ -178,7 +178,7 @@ test("Barangay anomaly filters hide plain sync failures and hide technical sourc
   assert.match(source, /getAnomalyTypesForScope\(scope\)/);
   assert.match(source, /!isBarangayScope \? \(/);
   assert.doesNotMatch(source, /Technical Reference|Source ID:/);
-  assert.match(source, /Anomaly[\s\S]*Affected Record[\s\S]*Why Flagged[\s\S]*Review Status[\s\S]*Detected At[\s\S]*Action/);
+  assert.match(source, /Anomaly Type[\s\S]*Affected Record[\s\S]*Disaster Event[\s\S]*Why Flagged[\s\S]*Review Status[\s\S]*Detected At[\s\S]*Action/);
   assert.doesNotMatch(source, /Barangay action required:/);
 });
 
@@ -269,11 +269,11 @@ test("Barangay existing review opens read-only before explicit edit", async () =
 test("Barangay anomaly list uses one horizontally scrollable table representation", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
 
-  assert.match(source, /const barangayAnomalyTableMinWidth = "1040px"/);
+  assert.match(source, /const barangayAnomalyTableMinWidth = "1240px"/);
   assert.match(source, /const mswdoAnomalyTableMinWidth = "1160px"/);
   assert.match(source, /overflowX: "auto", width: "100%", minWidth: 0/);
   assert.match(source, /minWidth: isBarangayScope[\s\S]*\? barangayAnomalyTableMinWidth[\s\S]*: mswdoAnomalyTableMinWidth/);
-  assert.match(source, /Anomaly[\s\S]*Affected Record[\s\S]*Why Flagged[\s\S]*Review Status[\s\S]*Detected At[\s\S]*Action/);
+  assert.match(source, /Anomaly Type[\s\S]*Affected Record[\s\S]*Disaster Event[\s\S]*Why Flagged[\s\S]*Review Status[\s\S]*Detected At[\s\S]*Action/);
   assert.match(source, /barangayAnomalyColumnStyles\.whyFlagged/);
   assert.doesNotMatch(source, /barangayListLayout|viewportWidth|getInitialViewportWidth/);
   assert.doesNotMatch(source, /anomalyCardStyles|compactRecordStyles|<article/);
@@ -287,7 +287,7 @@ test("Barangay anomaly list uses one horizontally scrollable table representatio
   assert.notEqual(mswdoHeaderStart, -1);
   assert.doesNotMatch(
     barangayHeaderBlock,
-    />Barangay<\/th>|>Disaster Event<\/th>|>Responsible Office<\/th>|>Action Required<\/th>|>Technical Reference<\/th>/,
+    />Barangay<\/th>|>Responsible Office<\/th>|>Action Required<\/th>|>Technical Reference<\/th>/,
   );
   assert.doesNotMatch(source, /wordBreak: "break-all"/);
   assert.match(source, /overflowWrap: "normal"/);
@@ -299,6 +299,7 @@ test("Barangay anomaly details separates metadata fields instead of flowing para
   const source = await fs.readFile(pageSourcePath, "utf8");
 
   assert.match(source, /const DetailField = \(\{ label, children \}\) =>/);
+  assert.match(source, /<div style=\{labelStyles\}>Anomaly Type<\/div>/);
   assert.match(source, /<strong style=\{\{ \.\.\.modalStyles\.value, fontSize: "16px" \}\}>\{presentation\.label\}<\/strong>/);
   assert.match(source, /<StatusPill row=\{displayedAnomaly\} scope=\{presentationScope\} \/>/);
   assert.doesNotMatch(source, /<div style=\{labelStyles\}>Status<\/div>/);
@@ -315,7 +316,7 @@ test("Barangay anomaly details separates metadata fields instead of flowing para
   assert.doesNotMatch(source, /displayedAnomaly\.reviewer_name \|\| displayedAnomaly\.reviewed_by/);
 });
 
-test("Barangay anomaly page removes summary cards, sync banner, and extra row review action", async () => {
+test("Barangay anomaly page keeps review actions scoped and sync recovery in Sync Center", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
   const sidebarSource = await fs.readFile(sidebarSourcePath, "utf8");
   const layoutSource = await fs.readFile(barangayLayoutSourcePath, "utf8");
@@ -327,6 +328,12 @@ test("Barangay anomaly page removes summary cards, sync banner, and extra row re
   assert.match(layoutSource, /\{shouldShowSyncStatusBanner \? <SyncStatusBanner \/> : null\}/);
   assert.match(source, /!\isBarangayScope \? \([\s\S]*<StatusCard label="Total Detected"/);
   assert.match(source, /overflowX: "auto", width: "100%", minWidth: 0/);
+  assert.match(source, /const isManualReviewableAnomaly = \(row\) => row\?\.manual_review_allowed === true/);
+  assert.match(source, /isManualReviewableAnomaly\(row\) \? \([\s\S]*>\s*Review\s*<\/button>/);
+  assert.match(source, /getAnomalyRowActionLabel\(row\)/);
+  assert.match(source, /return "Sync Center"/);
+  assert.match(source, /return "No review needed"/);
+  assert.doesNotMatch(source, /FiAlertTriangle|FiEye|View details/);
   assert.doesNotMatch(source, /FiCheckCircle|FiEdit3/);
 });
 

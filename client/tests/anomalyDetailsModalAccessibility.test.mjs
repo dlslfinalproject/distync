@@ -46,7 +46,7 @@ test("A11Y-04 through A11Y-13 anomaly details modal wires focus trap, Escape, cl
   assert.match(pageSource, /fallbackElement\?\.isConnected && typeof fallbackElement\.focus === "function"/);
   assert.match(pageSource, /finalFocusRef=\{anomalyDetailsFinalFocusRef\}/);
   assert.match(pageSource, /tabIndex=\{-1\}[\s\S]*Anomaly Records/);
-  assert.match(pageSource, /aria-label=\{`View details for \$\{formatAnomalyType\(row\.anomaly_type, presentationScope\)\}`\}/);
+  assert.match(pageSource, /aria-label=\{`Review anomaly details for \$\{formatAnomalyType\(row\.anomaly_type, presentationScope\)\}`\}/);
   assert.match(modalShellSource, /fallbackFocusTarget[\s\S]*initialFocusRef\?\.current[\s\S]*querySelector/);
   assert.ok(modalShellSource.includes("fallbackFocusTarget?.focus?.();"));
   assert.match(modalShellSource, /event\.key === "Escape"/);
