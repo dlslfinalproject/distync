@@ -252,14 +252,19 @@ test("Barangay review stale response is specific and refreshes authoritative ano
   assert.match(source, /onReviewStale=\{async \(\) => \{[\s\S]*setReloadToken/);
 });
 
-test("Barangay existing review opens read-only before explicit edit", async () => {
+test("Barangay existing review opens read-only while MSWDO retains explicit result editing", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
 
   assert.match(source, /const \[isEditingReview, setIsEditingReview\] = useState\(false\)/);
   assert.match(source, /const hasSavedReview = Boolean\(displayedAnomaly\.review_status\)/);
-  assert.match(source, /const shouldShowReviewForm = canRecordReview && \(!hasSavedReview \|\| isEditingReview\)/);
+  assert.match(
+    source,
+    /const shouldShowReviewForm =\s*canRecordReview && \(!hasSavedReview \|\| \(!isBarangayScope && isEditingReview\)\)/,
+  );
   assert.match(source, /Review Result/);
-  assert.match(source, /Edit Review/);
+  assert.match(source, /!isBarangayScope && canRecordReview && hasSavedReview/);
+  assert.match(source, /Edit Result/);
+  assert.doesNotMatch(source, /Edit Review/);
   assert.match(source, /Save Changes/);
   assert.match(source, /const reviewHasChanges =/);
   assert.match(source, /hasSavedReview && isEditingReview && !reviewHasChanges/);
@@ -333,7 +338,7 @@ test("Barangay anomaly page keeps review actions scoped and sync recovery in Syn
   assert.match(source, /getAnomalyRowActionLabel\(row\)/);
   assert.match(source, /return "Sync Center"/);
   assert.match(source, /return "No review needed"/);
-  assert.doesNotMatch(source, /FiAlertTriangle|FiEye|View details/);
+  assert.doesNotMatch(source, /FiAlertTriangle|View details/);
   assert.doesNotMatch(source, /FiCheckCircle|FiEdit3/);
 });
 
