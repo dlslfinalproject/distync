@@ -63,8 +63,7 @@ test("BRG-OFFLINE-AUDIT-UX Barangay pages expose shared offline status without d
   assert.match(healthComponent, /type: "offline", label: "Offline"/);
   assert.match(syncCenter, /<SyncHealthStatus health=\{syncHealth\} \/>/);
   assert.match(syncCenter, /isOnline,/);
-  assert.match(layout, /shouldShowSyncStatusBanner/);
-  assert.match(layout, /isSyncCenterRoute/);
+  assert.match(layout, /shouldShowSyncStatusBanner = !isBarangayPortal && !isBarangayAnomalyRoute/);
   assert.match(banner, /LOCAL_SYNC_STATUS\.FAILED/);
   assert.match(banner, /isNonRetryableSyncEntry\(entry\)/);
   assert.doesNotMatch(masterlist, /SyncHealthStatus|useBarangaySyncHealth/);

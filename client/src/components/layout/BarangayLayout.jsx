@@ -131,11 +131,8 @@ const BarangayLayout = () => {
   const isDonorPortal = currentRole === ROLE_CODES.DONOR;
   const isBarangayPortal = currentRole === ROLE_CODES.BARANGAY;
   const isSettingsRoute = location.pathname.endsWith("/settings");
-  const isSyncCenterRoute = location.pathname.endsWith("/sync");
   const isBarangayAnomalyRoute = location.pathname.startsWith("/barangay/anomalies");
-  const shouldShowSyncStatusBanner = isBarangayPortal
-    ? !isSyncCenterRoute && !isBarangayAnomalyRoute
-    : !isBarangayAnomalyRoute;
+  const shouldShowSyncStatusBanner = !isBarangayPortal && !isBarangayAnomalyRoute;
   const isSidebarOpen = !isSidebarCollapsed;
   const sidebarToggleRef = useRef(null);
   const sidebarWidth = isDonorPortal
