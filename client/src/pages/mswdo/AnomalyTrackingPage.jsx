@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FiFilter, FiSearch } from "react-icons/fi";
+import { FiEye, FiFilter, FiSearch } from "react-icons/fi";
 import PageHeader, { pageHeaderStyles } from "../../components/layout/PageHeader";
 import { pageSpacingStyles, shellStyles } from "../../components/layout/BarangayLayout";
 import EmptyState from "../../components/shared/EmptyState";
@@ -114,6 +114,20 @@ const reviewButtonStyles = {
   borderRadius: "12px",
 };
 
+const viewButtonStyles = {
+  minWidth: "42px",
+  minHeight: "42px",
+  padding: "10px",
+  border: "1px solid #cfddeb",
+  borderRadius: "12px",
+  backgroundColor: "#f8fbfe",
+  color: "#2f5f8f",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  cursor: "pointer",
+};
+
 const nonReviewActionStyles = {
   color: "#5f7892",
   fontSize: "13px",
@@ -138,9 +152,9 @@ const filterPopoverStyles = {
 
 const statusFilters = [
   { value: "all", label: "All review statuses" },
-  { value: "needs_review", label: "Needs Review" },
-  { value: "reviewed", label: "Reviewed" },
-  { value: "referred", label: "Referred" },
+  { value: "needs_review", label: "Pending Review" },
+  { value: "reviewed", label: "Resolved" },
+  { value: "referred", label: "Resolved" },
   { value: "system_handled", label: "Automatically Handled" },
   { value: "sync_center", label: "Review in Sync Center" },
 ];
@@ -466,6 +480,10 @@ const isBarangayInEventScope = (barangay, scope) => {
 const getStatusCategory = (row) => {
   const reviewState = String(row?.review_state || "").toLowerCase();
 
+  if (row?.review_status) {
+    return "resolved";
+  }
+
   if (reviewState === "reviewed" || reviewState === "referred" || reviewState === "system_handled") {
     return "resolved";
   }
@@ -488,7 +506,25 @@ const getStatusCategory = (row) => {
   return "resolved";
 };
 
+const isManualReviewableAnomaly = (row) => row?.manual_review_allowed === true;
+
 const getStatusLabel = (row, scope = "barangay") => {
+  if (scope === "barangay") {
+    if (isManualReviewableAnomaly(row)) {
+      return row?.review_status ? "Resolved" : "Pending Review";
+    }
+
+    if (
+      row?.review_state === "sync_center" ||
+      row?.anomaly_type === "SYNC_CONFLICT" ||
+      row?.anomaly_type === "SYNC_FAILED"
+    ) {
+      return "Sync Center";
+    }
+
+    return "Automatically Handled";
+  }
+
   const reviewLabel = getAnomalyReviewStateLabel(row, scope);
 
   if (reviewLabel) {
@@ -501,8 +537,6 @@ const getStatusLabel = (row, scope = "barangay") => {
 
   return getStatusCategory(row) === "failed" ? "Sync Retry Needed" : "Needs Review";
 };
-
-const isManualReviewableAnomaly = (row) => row?.manual_review_allowed === true;
 
 const getAnomalyRowActionLabel = (row) => {
   if (isManualReviewableAnomaly(row)) {
@@ -667,7 +701,8 @@ const AnomalyDetailModal = ({
     !isBarangayScope &&
     displayedAnomaly.review_state === "needs_review" &&
     !displayedAnomaly.barangay_id;
-  const shouldShowReviewForm = canRecordReview && (!hasSavedReview || isEditingReview);
+  const shouldShowReviewForm =
+    canRecordReview && (!hasSavedReview || (!isBarangayScope && isEditingReview));
   const originalReviewStatus = hasSavedReview ? displayedAnomaly.review_status || "" : "";
   const originalReviewNote = hasSavedReview
     ? getNormalizedReviewNote(displayedAnomaly.resolution_reason)
@@ -824,13 +859,13 @@ const AnomalyDetailModal = ({
               : "Save Result"}
       </button>
     </>
-  ) : canRecordReview && hasSavedReview ? (
+  ) : !isBarangayScope && canRecordReview && hasSavedReview ? (
     <>
       <button type="button" onClick={onClose} style={pageHeaderStyles.secondaryButton}>
         Close
       </button>
       <button type="button" onClick={startEditingReview} style={pageHeaderStyles.primaryButton}>
-        {isBarangayScope ? "Edit Review" : "Edit Result"}
+        Edit Result
       </button>
     </>
   ) : (
@@ -842,7 +877,7 @@ const AnomalyDetailModal = ({
   return (
     <FormModalShell
       isOpen
-      title="Anomaly Details"
+      title={isBarangayScope && !hasSavedReview ? "Review Anomaly" : "Anomaly Details"}
       onClose={onClose}
       closeButtonLabel="Close anomaly details"
       closeOnBackdrop={false}
@@ -999,9 +1034,7 @@ const AnomalyDetailModal = ({
             >
               <legend style={labelStyles}>
                 {hasSavedReview
-                  ? isBarangayScope
-                    ? "Edit Review"
-                    : "Edit Review Result"
+                  ? "Edit Result"
                   : isBarangayScope
                     ? "Record Review"
                     : "Record Result"}
@@ -1912,12 +1945,22 @@ const AnomalyTrackingPage = ({
                             : mswdoAnomalyColumnStyles.action),
                         }}
                       >
-                        {isManualReviewableAnomaly(row) ? (
+                        {isBarangayScope && isManualReviewableAnomaly(row) && row.review_status ? (
                           <button
                             type="button"
                             onClick={(event) => openAnomalyDetails(row, event)}
-                            aria-label={`Review anomaly details for ${formatAnomalyType(row.anomaly_type, presentationScope)}`}
-                            title={`Review anomaly details for ${formatAnomalyType(row.anomaly_type, presentationScope)}`}
+                            aria-label="View anomaly details"
+                            title="View anomaly details"
+                            style={viewButtonStyles}
+                          >
+                            <FiEye size={18} aria-hidden="true" />
+                          </button>
+                        ) : isManualReviewableAnomaly(row) ? (
+                          <button
+                            type="button"
+                            onClick={(event) => openAnomalyDetails(row, event)}
+                            aria-label="Review anomaly"
+                            title="Review anomaly"
                             style={reviewButtonStyles}
                           >
                             Review
