@@ -70,6 +70,26 @@ const ANOMALY_PRESENTATION = {
   },
 };
 
+const DEFAULT_WHY_FLAGGED =
+  "This record was flagged because its information does not match the expected operational data.";
+
+const WHY_FLAGGED_BY_ANOMALY_TYPE = Object.freeze({
+  SUSPICIOUS_DISTRIBUTION_ACTIVITY:
+    "A later relief distribution claim created a possible duplicate for this household and disaster event.",
+  SYNC_FAILED:
+    "A synchronized operational update could not be recorded successfully.",
+  SYNC_CONFLICT:
+    "Conflicting synchronized updates were detected for this record.",
+  DUPLICATE_CLAIM_ATTEMPT:
+    "A relief claim was attempted after another claim already existed for this household and disaster event.",
+  DUPLICATE_HOUSEHOLD_REGISTRATION:
+    "The submitted household information conflicts with an existing household registration.",
+  INVENTORY_DISTRIBUTION_MISMATCH:
+    "The distribution record does not match the related inventory movement.",
+  FAILED_STUB_OR_QR_VERIFICATION:
+    "The stub or QR verification could not be matched to an eligible relief record.",
+});
+
 const MSWDO_ANOMALY_PRESENTATION_OVERRIDES = {
   SUSPICIOUS_DISTRIBUTION_ACTIVITY: {
     label: "Distribution Record Issue",
@@ -79,7 +99,6 @@ const MSWDO_ANOMALY_PRESENTATION_OVERRIDES = {
       "Review the affected household, distribution, and stub records, then coordinate validation with the Barangay.",
     owner: "MSWDO / Barangay",
     statusHint: "Open",
-    severity: "High",
   },
   SYNC_FAILED: {
     label: "Synchronization Issue Detected",
@@ -90,7 +109,6 @@ const MSWDO_ANOMALY_PRESENTATION_OVERRIDES = {
       "Monitor the issue here and use Sync Center for synchronization operations or recovery.",
     owner: "Sync Center",
     statusHint: "Sync Center Review",
-    severity: "Medium",
   },
   SYNC_CONFLICT: {
     label: "Synchronization Conflict Detected",
@@ -101,7 +119,6 @@ const MSWDO_ANOMALY_PRESENTATION_OVERRIDES = {
       "Monitor the conflict here and use Sync Center for conflict review or recovery.",
     owner: "Sync Center",
     statusHint: "Sync Center Review",
-    severity: "Medium",
   },
   DUPLICATE_CLAIM_ATTEMPT: {
     label: "Duplicate Claim Attempt",
@@ -111,7 +128,6 @@ const MSWDO_ANOMALY_PRESENTATION_OVERRIDES = {
       "Review the claim history only if additional operational context is needed.",
     owner: "MSWDO / Barangay",
     statusHint: "Dismissed / Automatically Handled",
-    severity: "Low",
   },
   DUPLICATE_HOUSEHOLD_REGISTRATION: {
     label: "Duplicate Household Record",
@@ -121,14 +137,12 @@ const MSWDO_ANOMALY_PRESENTATION_OVERRIDES = {
       "Compare the affected household records and coordinate identity validation with the Barangay.",
     owner: "MSWDO / Barangay",
     statusHint: "Open",
-    severity: "High",
   },
   INVENTORY_DISTRIBUTION_MISMATCH: {
     nextStep:
       "Validate the affected distribution and coordinate inventory reconciliation with the responsible municipal office.",
     owner: "MSWDO / Office of the Mayor",
     statusHint: "Open",
-    severity: "High",
   },
   FAILED_STUB_OR_QR_VERIFICATION: {
     label: "Stub or QR Verification Issue",
@@ -138,17 +152,8 @@ const MSWDO_ANOMALY_PRESENTATION_OVERRIDES = {
       "Review the affected household, stub, and disaster event information with the Barangay.",
     owner: "MSWDO / Barangay",
     statusHint: "Open",
-    severity: "Medium",
   },
 };
-
-const MSWDO_CURATED_EXPLANATION_TYPES = new Set([
-  "SYNC_FAILED",
-  "SYNC_CONFLICT",
-  "DUPLICATE_CLAIM_ATTEMPT",
-  "DUPLICATE_HOUSEHOLD_REGISTRATION",
-  "FAILED_STUB_OR_QR_VERIFICATION",
-]);
 
 export const reviewOutcomeOptions = [
   {
@@ -240,15 +245,15 @@ export const getAnomalyPresentation = (type, scope = "barangay") => {
     statusHint: "Needs Review",
   };
 
-  if (scope !== "mswdo") {
-    return basePresentation;
-  }
-
   return {
     ...basePresentation,
-    severity: "Medium",
-    statusHint: "Open",
-    ...(MSWDO_ANOMALY_PRESENTATION_OVERRIDES[type] || {}),
+    whyFlagged: WHY_FLAGGED_BY_ANOMALY_TYPE[type] || DEFAULT_WHY_FLAGGED,
+    ...(scope === "mswdo"
+      ? {
+          statusHint: "Open",
+          ...(MSWDO_ANOMALY_PRESENTATION_OVERRIDES[type] || {}),
+        }
+      : {}),
   };
 };
 
@@ -285,18 +290,22 @@ export const getAnomalyOwner = (row, scope = "barangay") =>
 export const getAnomalyActionRequired = (row, scope = "barangay") =>
   getAnomalyPresentation(row?.anomaly_type, scope).actionRequired;
 
-export const getAnomalySeverity = (row) =>
-  getAnomalyPresentation(row?.anomaly_type, "mswdo").severity || "Medium";
-
 export const getAnomalyExplanation = (row, scope = "barangay") => {
   const presentation = getAnomalyPresentation(row?.anomaly_type, scope);
+  const normalizedWhyFlagged = String(row?.why_flagged || "").trim();
+  const normalizedReason = String(row?.anomaly_reason || "").trim();
+  const unsafeTechnicalPattern =
+    /(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|\b(?:uuid|payload|stack\s*trace|sql|constraint|database|device[_ ]?id|entity[_ ]?(?:local|server)[_ ]?id|sync[_ ]?(?:transaction|conflict)[_ ]?id)\b|\b(?:id|code|error)\s*[=:])/i;
 
-  if (
-    scope === "mswdo" &&
-    MSWDO_CURATED_EXPLANATION_TYPES.has(row?.anomaly_type)
-  ) {
-    return presentation.explanation;
+  if (scope === "mswdo") {
+    return unsafeTechnicalPattern.test(normalizedWhyFlagged)
+      ? presentation.whyFlagged
+      : normalizedWhyFlagged || presentation.whyFlagged;
   }
 
-  return row?.anomaly_reason || presentation.explanation;
+  if (normalizedReason && !unsafeTechnicalPattern.test(normalizedReason)) {
+    return normalizedReason;
+  }
+
+  return presentation.explanation || DEFAULT_WHY_FLAGGED;
 };

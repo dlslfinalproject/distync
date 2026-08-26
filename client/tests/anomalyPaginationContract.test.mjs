@@ -75,13 +75,13 @@ test("MSWDO consolidated table uses the required operational columns in order", 
   assert.notEqual(mswdoHeaderStart, -1);
   assert.match(
     mswdoHeaderBlock,
-    /Severity[\s\S]*Anomaly Type[\s\S]*Barangay[\s\S]*Affected Record[\s\S]*Disaster Event[\s\S]*Status[\s\S]*Created Date[\s\S]*Action/,
+    /Anomaly Type[\s\S]*Barangay[\s\S]*Affected Record[\s\S]*Disaster Event[\s\S]*Why Flagged[\s\S]*Review Status[\s\S]*Detected At[\s\S]*Action/,
   );
   assert.doesNotMatch(
     mswdoHeaderBlock,
-    /Why Flagged|Action Required|Responsible Office|Household \/ Stub|Detected At/,
+    /Severity|>Status<|Created Date|Action Required|Responsible Office|Household \/ Stub/,
   );
-  assert.match(source, /<SeverityPill row=\{row\} \/>/);
+  assert.doesNotMatch(source, /SeverityPill|getAnomalySeverity/);
   assert.match(source, /formatBarangayLabel\(row\)/);
   assert.match(source, /formatAffectedRecord\(row, false\)/);
 });
@@ -94,7 +94,7 @@ test("MSWDO filters and search expose municipal operational fields", async () =>
   assert.match(source, /barangay_id: isBarangayScope[\s\S]*: filters\.barangay_id/);
   assert.match(
     source,
-    /Search anomaly type, Barangay, affected record, event, status, or notes/,
+    /Search anomaly type, Barangay, affected record, event, reason, review status, or notes/,
   );
   assert.match(source, /const mswdoStatusFilters = \[/);
 });
@@ -105,8 +105,9 @@ test("MSWDO details support result recording without technical identifiers or sy
 
   assert.match(source, /mswdoReviewOutcomeOptions/);
   assert.match(source, /saveAnomalyReview/);
-  assert.match(source, /Record Result/);
-  assert.match(source, /Resolution Note/);
+  assert.match(source, /Record Review/);
+  assert.match(source, /Review Note \*/);
+  assert.match(source, /Review Status/);
   assert.match(source, /!reviewHasChanges/);
   assert.match(presentationSource, /Synchronization Conflict Detected/);
   assert.doesNotMatch(source, /Technical Reference|Source ID:|Retry Sync|Force Sync|Manual Sync/);
@@ -270,7 +271,7 @@ test("Barangay anomaly list uses one horizontally scrollable table representatio
   const source = await fs.readFile(pageSourcePath, "utf8");
 
   assert.match(source, /const barangayAnomalyTableMinWidth = "1040px"/);
-  assert.match(source, /const mswdoAnomalyTableMinWidth = "1160px"/);
+  assert.match(source, /const mswdoAnomalyTableMinWidth = "1320px"/);
   assert.match(source, /overflowX: "auto", width: "100%", minWidth: 0/);
   assert.match(source, /minWidth: isBarangayScope[\s\S]*\? barangayAnomalyTableMinWidth[\s\S]*: mswdoAnomalyTableMinWidth/);
   assert.match(source, /Anomaly[\s\S]*Affected Record[\s\S]*Why Flagged[\s\S]*Review Status[\s\S]*Detected At[\s\S]*Action/);
@@ -304,13 +305,13 @@ test("Barangay anomaly details separates metadata fields instead of flowing para
   assert.doesNotMatch(source, /<div style=\{labelStyles\}>Status<\/div>/);
   assert.match(source, /<DetailField label="Disaster Event">[\s\S]*\{formatEventLabel\(displayedAnomaly\)\}/);
   assert.match(source, /<DetailField label="Affected Record">[\s\S]*\{formatAffectedRecord\(displayedAnomaly, isBarangayScope\)\}/);
-  assert.match(source, /<DetailField label="Detected At">[\s\S]*\{formatDateTime\(displayedAnomaly\.occurred_at\)\}/);
+  assert.match(source, /<DetailField label="Detected At">[\s\S]*\{formatDateTime\(displayedAnomaly\.detected_at\)\}/);
   assert.match(source, /<DetailField label="Recommendation">[\s\S]*\{getAnomalyActionSummary\(displayedAnomaly, presentationScope\)\}/);
   assert.match(source, /<DetailField label="Responsible Office">[\s\S]*\{getAnomalyOwner\(displayedAnomaly, presentationScope\)\}/);
   assert.match(source, /<DetailField label="Outcome">[\s\S]*formatReviewOutcome\([\s\S]*displayedAnomaly\.review_status,[\s\S]*presentationScope/);
   assert.match(source, /<DetailField label="Reviewed By">[\s\S]*\{displayedAnomaly\.reviewer_name \|\| "Not available"\}/);
   assert.match(source, /<DetailField label="Reviewed At">[\s\S]*\{formatDateTime\(displayedAnomaly\.reviewed_at\)\}/);
-  assert.match(source, /<DetailField label=\{isBarangayScope \? "Review Note" : "Resolution Note"\}>[\s\S]*\{displayedAnomaly\.resolution_reason \|\| "Not available"\}/);
+  assert.match(source, /<DetailField label=\{isBarangayScope \? "Review Note" : "Review Notes"\}>[\s\S]*\{displayedAnomaly\.resolution_reason \|\| "Not available"\}/);
   assert.doesNotMatch(source, /Disaster Event:|Affected Record:|Detected:|Responsible office:|Outcome:|Reviewed by:|Reviewed at:|Review Note:/);
   assert.doesNotMatch(source, /displayedAnomaly\.reviewer_name \|\| displayedAnomaly\.reviewed_by/);
 });
@@ -321,7 +322,7 @@ test("Barangay anomaly page removes summary cards, sync banner, and extra row re
   const layoutSource = await fs.readFile(barangayLayoutSourcePath, "utf8");
 
   assert.match(sidebarSource, /\{ label: "Anomaly Tracking", to: "\/barangay\/anomalies"(?:, isSectionChild: true)? \}/);
-  assert.match(sidebarSource, /\{ label: "Anomaly Tracking Management", to: "\/mswdo\/anomalies" \}/);
+  assert.match(sidebarSource, /\{ label: "Anomaly Tracking", to: "\/mswdo\/anomalies" \}/);
   assert.match(layoutSource, /isBarangayAnomalyRoute/);
   assert.match(layoutSource, /shouldShowSyncStatusBanner/);
   assert.match(layoutSource, /\{shouldShowSyncStatusBanner \? <SyncStatusBanner \/> : null\}/);
