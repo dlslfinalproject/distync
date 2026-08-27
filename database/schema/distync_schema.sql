@@ -430,9 +430,17 @@ CREATE TABLE public.inventory_item_stock_forms (
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT inventory_item_stock_forms_pkey PRIMARY KEY (id),
   CONSTRAINT inventory_item_stock_forms_inventory_item_id_fkey FOREIGN KEY (inventory_item_id) REFERENCES public.inventory_items(id),
-  CONSTRAINT inventory_item_stock_forms_barcode_key UNIQUE (barcode),
-  CONSTRAINT inventory_item_stock_forms_unique_packaging UNIQUE (inventory_item_id, packaging, units_per_packaging, unit_of_measure, unit_of_measure_value)
+  CONSTRAINT inventory_item_stock_forms_barcode_key UNIQUE (barcode)
 );
+
+CREATE UNIQUE INDEX inventory_item_stock_forms_unique_definition
+  ON public.inventory_item_stock_forms (
+    inventory_item_id,
+    packaging,
+    units_per_packaging,
+    unit_of_measure,
+    COALESCE(unit_of_measure_value, '-1'::numeric)
+  );
 
 CREATE TABLE public.inventory_batches (
   id uuid NOT NULL DEFAULT gen_random_uuid(),

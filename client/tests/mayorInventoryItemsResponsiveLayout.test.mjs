@@ -94,8 +94,18 @@ test("Mayor inventory category filter stacks vertically on narrow phones", async
 });
 
 test("Mayor inventory forms and modals expose mobile-safe hooks while preserving payload semantics", async () => {
-  const [formSource, scanSource, detailSource, statusSource, exportSource, expirySource, cssSource] =
+  const [
+    pageSource,
+    formSource,
+    scanSource,
+    detailSource,
+    statusSource,
+    exportSource,
+    expirySource,
+    cssSource,
+  ] =
     await Promise.all([
+      readSource(["pages", "inventory", "InventoryItemsPage.jsx"]),
       readSource(["components", "inventory-items", "InventoryItemFormModal.jsx"]),
       readSource(["components", "inventory-items", "InventoryItemScanModal.jsx"]),
       readSource(["components", "inventory-items", "InventoryItemDetailModal.jsx"]),
@@ -108,9 +118,27 @@ test("Mayor inventory forms and modals expose mobile-safe hooks while preserving
   assert.match(formSource, /className="inventory-item-form-modal-backdrop"/);
   assert.match(formSource, /className="inventory-item-form-grid/);
   assert.match(formSource, /existing_item_id: matchedExistingItem\?\.id \|\| null/);
-  assert.match(formSource, /restock_match_type: isExactBarcodeStockFormMatch/);
+  assert.doesNotMatch(formSource, /restock_match_type/);
+  assert.match(formSource, /hasUnselectedDuplicateName/);
+  assert.match(formSource, /This item already exists/);
+  assert.match(formSource, /getUnitsPerPackagingForDisplay/);
+  assert.match(formSource, /formatPackagingUnit/);
+  assert.match(formSource, /\$\{unitsPerPackaging\}/);
+  assert.doesNotMatch(pageSource, /Existing item found:/);
+  assert.match(formSource, /const scannedBarcode =/);
+  assert.match(formSource, /const getEffectiveBarcode =/);
+  assert.match(formSource, /barcode: isBlank\(effectiveBarcode\)/);
+  assert.match(formSource, /findMatchingStockFormByDefinition/);
+  assert.match(formSource, /The scanned barcode will be assigned to this packaging/);
+  assert.match(formSource, /This barcode is already linked to this packaging/);
+  assert.doesNotMatch(
+    formSource,
+    /assignBarcodeToExistingStockForm|assign_barcode_to_existing_stock_form/,
+  );
   assert.match(scanSource, /className="inventory-item-scan-modal-backdrop"/);
   assert.match(scanSource, /className="inventory-item-scan-grid/);
+  assert.match(scanSource, /Restock Existing Item/);
+  assert.doesNotMatch(scanSource, /Existing item found:/);
   assert.doesNotMatch(scanSource, /getUserMedia|Html5Qrcode|BrowserMultiFormatReader|QrScanner/);
   assert.match(detailSource, /panelClassName="inventory-item-detail-modal"/);
   assert.match(detailSource, /className="inventory-item-detail-table-scroll"/);

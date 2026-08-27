@@ -19,7 +19,6 @@ import {
   fetchInventoryItemDetail,
   exportInventoryItems,
   fetchInventoryItems,
-  lookupInventoryItemByBarcode,
   updateInventoryItem,
 } from "../../features/inventory-items/inventoryItemService";
 import {
@@ -40,6 +39,7 @@ import {
 import {
   getTotalItemQuantityValue,
 } from "../../features/inventory-items/inventoryItemFormatting";
+import { normalizeInventoryBarcode } from "../../features/inventory-items/inventoryBarcode";
 import { useAuth } from "../../context/AuthContext";
 import {
   buildInventoryItemFilters,
@@ -165,9 +165,6 @@ const getPositiveIntegerValue = (value) => {
   return parsedValue;
 };
 
-const normalizeBarcodeInput = (value) =>
-  String(value || "").replace(/\s+/g, "").trim().toLowerCase();
-
 const getNormalizedInventoryText = (value) =>
   String(value || "").trim().toLowerCase();
 
@@ -272,33 +269,7 @@ const getInventoryBatchSourceType = (item) => {
 
   return INVENTORY_BATCH_SOURCE_TYPES.includes(normalizedSourceType)
     ? normalizedSourceType
-    : "OTHER";
-};
-
-const normalizeDateForApi = (value) => {
-  if (!value) {
-    return null;
-  }
-
-  if (typeof value === "string") {
-    const trimmedValue = value.trim();
-
-    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedValue)) {
-      return trimmedValue;
-    }
-
-    if (trimmedValue.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(trimmedValue)) {
-      return trimmedValue.slice(0, 10);
-    }
-  }
-
-  const parsedDate = new Date(value);
-
-  if (Number.isNaN(parsedDate.getTime())) {
-    return null;
-  }
-
-  return parsedDate.toISOString().slice(0, 10);
+    : "LGU";
 };
 
 const isDonationOnlyOriginItem = (item, relatedBatches = []) => {
@@ -327,22 +298,6 @@ const getReorderLevelDisplayValue = (item, relatedBatches = []) => {
     ? DONATION_PENDING_REORDER_LABEL
     : "--";
 };
-
-const buildInventoryItemUpdatePayload = (item, overrides = {}) => ({
-  item_name: item?.item_name || "",
-  category: item?.category || "",
-  unit_of_measure: item?.unit_of_measure || "pc",
-  unit_of_measure_value: item?.unit_of_measure_value || 1,
-  packaging: item?.packaging || "piece",
-  packaging_count: item?.packaging_count || 1,
-  quantity: item?.quantity || 1,
-  reorder_level: item?.reorder_level ?? null,
-  expiration_date: normalizeDateForApi(item?.expiration_date),
-  barcode: item?.barcode || null,
-  is_perishable: item?.is_perishable ?? isPerishableItem(item),
-  is_active: item?.is_active ?? true,
-  ...overrides,
-});
 
 const buildScannedInventoryBatchNumber = (item, relatedBatches = []) => {
   const identifier =
@@ -498,10 +453,7 @@ const InventoryItemsPage = () => {
   });
   const syncQueueEntries =
     useLiveQuery(() => getVisibleSyncQueueEntries(), [], []) || [];
-  const loadInventoryData = async (
-    activeFilters = filters,
-    options = {},
-  ) => {
+  const loadInventoryData = async (options = {}) => {
     const { showLoading = true, clearError = true } = options;
 
     if (showLoading) {
@@ -515,12 +467,7 @@ const InventoryItemsPage = () => {
     try {
       const [itemResponse, batchResponse, transactionResponse] =
         await Promise.all([
-          fetchInventoryItems(
-            buildInventoryItemFilters({
-              ...activeFilters,
-              search: "",
-            }),
-          ),
+          fetchInventoryItems({ search: "" }),
           fetchInventoryBatches(),
           fetchInventoryTransactions(),
         ]);
@@ -540,13 +487,13 @@ const InventoryItemsPage = () => {
   };
 
   useEffect(() => {
-    loadInventoryData(filters);
+    loadInventoryData();
   }, [filters]);
 
   useEffect(() => {
     const unsubscribe = subscribeToSyncUpdates(() => {
       if (typeof navigator !== "undefined" && navigator.onLine) {
-        loadInventoryData(filters);
+        loadInventoryData();
       }
     });
 
@@ -555,7 +502,7 @@ const InventoryItemsPage = () => {
 
   useEffect(() => {
     const refreshInventoryMonitor = () => {
-      void loadInventoryData(filters, {
+      void loadInventoryData({
         showLoading: false,
         clearError: false,
       });
@@ -678,37 +625,47 @@ const InventoryItemsPage = () => {
     ],
     [inventoryAnalytics],
   );
-  const matchedScannedStockForm = useMemo(() => {
-    const scannedBarcode = normalizeBarcodeInput(scanForm.barcodeNumber);
+  const matchedScannedBarcodeMatch = useMemo(() => {
+    const scannedBarcode = normalizeInventoryBarcode(scanForm.barcodeNumber);
 
     if (!scannedBarcode) {
       return null;
     }
 
     for (const item of inventoryItemsForInventoryManagement) {
-      const matchedStockForm = getItemStockForms(item).find((stockForm) => {
-        return normalizeBarcodeInput(stockForm?.barcode) === scannedBarcode;
+      if (item?.is_active === false) {
+        continue;
+      }
+
+      const stockForms = getItemStockForms(item);
+      const matchedStockForm = stockForms.find((stockForm) => {
+        return (
+          stockForm?.is_active !== false &&
+          normalizeInventoryBarcode(stockForm?.barcode) === scannedBarcode
+        );
       });
 
       if (matchedStockForm) {
-        return matchedStockForm;
+        return { item, stockForm: matchedStockForm };
+      }
+
+      if (normalizeInventoryBarcode(item?.barcode) === scannedBarcode) {
+        const activeStockForms = stockForms.filter(
+          (stockForm) => stockForm?.is_active !== false,
+        );
+
+        return {
+          item,
+          stockForm: activeStockForms[0] || null,
+        };
       }
     }
 
     return null;
   }, [inventoryItemsForInventoryManagement, scanForm.barcodeNumber]);
 
-  const matchedScannedItem = useMemo(() => {
-    if (!matchedScannedStockForm?.inventory_item_id) {
-      return null;
-    }
-
-    return (
-      inventoryItemsForInventoryManagement.find((item) => {
-        return String(item?.id) === String(matchedScannedStockForm.inventory_item_id);
-      }) || null
-    );
-  }, [inventoryItemsForInventoryManagement, matchedScannedStockForm]);
+  const matchedScannedStockForm = matchedScannedBarcodeMatch?.stockForm || null;
+  const matchedScannedItem = matchedScannedBarcodeMatch?.item || null;
 
   const matchedScannedItemTrackingStats = useMemo(() => {
     if (!matchedScannedItem?.id) {
@@ -908,22 +865,16 @@ const InventoryItemsPage = () => {
       const matchedExistingItem =
         payload?.existing_item_id
           ? inventoryItemsForInventoryManagement.find((item) => {
-              return String(item?.id) === String(payload.existing_item_id);
+              return (
+                item?.is_active !== false &&
+                String(item?.id) === String(payload.existing_item_id)
+              );
             }) || null
           : null;
 
       if (modalMode === "edit" && createModalItemData?.id) {
         response = await updateInventoryItem(createModalItemData.id, payload);
       } else if (matchedExistingItem) {
-        if (matchedExistingItem.requires_reorder_level_before_restock) {
-          await updateInventoryItem(
-            matchedExistingItem.id,
-            buildInventoryItemUpdatePayload(matchedExistingItem, {
-              reorder_level: Number(payload.reorder_level),
-            }),
-          );
-        }
-
         const relatedBatches = inventoryBatches.filter(
           (batch) =>
             String(batch?.inventory_item_id) === String(matchedExistingItem.id),
@@ -931,8 +882,18 @@ const InventoryItemsPage = () => {
         const packageCount = getPositiveIntegerValue(payload?.packaging_count);
         const unitsPerPackage = getUnitsPerPackageValue(payload);
         const quantityReceived = packageCount * unitsPerPackage;
-        const matchingStockForm = getItemStockForms(matchedExistingItem).find(
-          (stockForm) => {
+        const activeStockForms = getItemStockForms(matchedExistingItem).filter(
+          (stockForm) => stockForm?.is_active !== false,
+        );
+        const matchingStockForm =
+          activeStockForms.find((stockForm) => {
+            return (
+              payload?.inventory_item_stock_form_id &&
+              String(stockForm?.id) ===
+                String(payload.inventory_item_stock_form_id)
+            );
+          }) ||
+          activeStockForms.find((stockForm) => {
             return (
               getNormalizedInventoryText(stockForm?.barcode) ===
                 getNormalizedInventoryText(payload?.barcode) &&
@@ -944,8 +905,7 @@ const InventoryItemsPage = () => {
               Number(stockForm?.unit_of_measure_value || 0) ===
                 Number(payload?.unit_of_measure_value || 0)
             );
-          },
-        );
+          });
 
         response = await createInventoryBatch({
           inventory_item_id: matchedExistingItem.id,
@@ -962,6 +922,10 @@ const InventoryItemsPage = () => {
           ),
           source_type: getInventoryBatchSourceType(matchedExistingItem),
           quantity_received: quantityReceived,
+          inventory_item_reorder_level:
+            matchedExistingItem.requires_reorder_level_before_restock
+              ? Number(payload.reorder_level)
+              : undefined,
           expiration_date: isPerishableItem(matchedExistingItem)
             ? payload?.expiration_date || null
             : null,
@@ -979,7 +943,7 @@ const InventoryItemsPage = () => {
     } catch (error) {
       if (error.message === "item_name already exists") {
         setModalErrorMessage(
-          `Existing item found: ${payload?.item_name || "This inventory item"}. Please continue as a restock entry.`,
+          "This item already exists. Select its packaging to restock it.",
         );
       } else {
         setModalErrorMessage(error.message);
@@ -1075,7 +1039,7 @@ const InventoryItemsPage = () => {
   };
 
   const handleSubmitScanModal = async () => {
-    const trimmedBarcode = normalizeBarcodeInput(scanForm.barcodeNumber);
+    const trimmedBarcode = normalizeInventoryBarcode(scanForm.barcodeNumber);
 
     if (!trimmedBarcode || isSubmittingScanRestock) {
       return;
@@ -1106,21 +1070,13 @@ const InventoryItemsPage = () => {
       }
 
       const quantityReceived =
-        packageCount * getUnitsPerPackageValue(matchedScannedItem);
+        packageCount *
+        getUnitsPerPackageValue(matchedScannedStockForm || matchedScannedItem);
 
       setIsSubmittingScanRestock(true);
       setScanErrorMessage("");
 
       try {
-        if (matchedScannedItem.requires_reorder_level_before_restock) {
-          await updateInventoryItem(
-            matchedScannedItem.id,
-            buildInventoryItemUpdatePayload(matchedScannedItem, {
-              reorder_level: reorderLevel,
-            }),
-          );
-        }
-
         const response = await createInventoryBatch({
           inventory_item_id: matchedScannedItem.id,
           inventory_item_stock_form_id: matchedScannedStockForm?.id || null,
@@ -1132,6 +1088,10 @@ const InventoryItemsPage = () => {
             ),
           source_type: getInventoryBatchSourceType(matchedScannedItem),
           quantity_received: quantityReceived,
+          inventory_item_reorder_level:
+            matchedScannedItem.requires_reorder_level_before_restock
+              ? reorderLevel
+              : undefined,
           expiration_date: scanForm.expirationDate || null,
         });
 
@@ -1154,29 +1114,10 @@ const InventoryItemsPage = () => {
     setModalErrorMessage("");
     setModalMode("create");
     setCreateModalSource("scan");
-    setCreateModalItemData(null);
-
-    void (async () => {
-      try {
-        const lookupResponse = await lookupInventoryItemByBarcode(trimmedBarcode);
-        const suggestedItem = lookupResponse?.data?.item || null;
-
-        setCreateModalItemData({
-          barcode: trimmedBarcode,
-          item_name: suggestedItem?.item_name || "",
-          category:
-            String(suggestedItem?.category || "").toLowerCase() === "perishable"
-              ? "perishable"
-              : "non-perishable",
-        });
-      } catch (_error) {
-        setCreateModalItemData({
-          barcode: trimmedBarcode,
-        });
-      } finally {
-        setIsModalOpen(true);
-      }
-    })();
+    setCreateModalItemData({
+      barcode: trimmedBarcode,
+    });
+    setIsModalOpen(true);
   };
 
   const handleExport = async (format, extraFilters = {}) => {
@@ -1438,7 +1379,6 @@ const InventoryItemsPage = () => {
         scanForm={scanForm}
         matchedItem={matchedScannedItem}
         matchedStockForm={matchedScannedStockForm}
-        matchedItemName={matchedScannedItem?.item_name || ""}
         currentStock={matchedScannedItemCurrentStock}
         generatedBatchNumber={matchedScannedItemBatchNumber}
         errorMessage={scanErrorMessage}

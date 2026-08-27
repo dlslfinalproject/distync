@@ -277,7 +277,7 @@ const InventoryItemsTable = ({
                       items={[
                         {
                           key: "view",
-                          label: "View Details",
+                          label: "View Item Details",
                           icon: <FiEye size={18} />,
                           disabled: typeof onViewDetails !== "function",
                           onClick: (selectedRow) =>
@@ -288,7 +288,7 @@ const InventoryItemsTable = ({
                           label: "Edit Item",
                           icon: <FiEdit2 size={18} />,
                           disabled: typeof onEditItem !== "function",
-                          title: "Edit Item",
+                          title: "Edit Item Details",
                           onClick: (selectedRow) => onEditItem?.(selectedRow),
                         },
                         {

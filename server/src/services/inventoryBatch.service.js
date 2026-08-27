@@ -1,4 +1,6 @@
+const pool = require("../config/db");
 const inventoryBatchRepository = require("../repositories/inventoryBatch.repository");
+const inventoryItemRepository = require("../repositories/inventoryItem.repository");
 const inventoryItemStockFormRepository = require("../repositories/inventoryItemStockForm.repository");
 const inventoryTransactionRepository = require("../repositories/inventoryTransaction.repository");
 const systemLogRepository = require("../repositories/systemLog.repository");
@@ -9,6 +11,10 @@ const { createInventoryStateBasis } = require("../utils/inventoryStateBasis");
 const {
   createDuplicateInventoryBatchError,
 } = require("../utils/inventoryBatchIdentity");
+const {
+  isValidInventoryBarcode,
+  normalizeInventoryBarcode,
+} = require("../utils/inventoryBarcode");
 
 const buildFullName = (firstName, lastName) =>
   [firstName, lastName].filter(Boolean).join(" ").trim();
@@ -190,12 +196,120 @@ const normalizeStockFormDefinition = (batchData, inventoryItem) => {
 
   return {
     inventory_item_id: inventoryItem.id,
-    barcode: batchData.stock_form_barcode || null,
+    barcode: normalizeInventoryBarcode(batchData.stock_form_barcode) || null,
     packaging,
     units_per_packaging: unitsPerPackaging,
     unit_of_measure: unitOfMeasure,
     unit_of_measure_value: unitOfMeasureValue,
     is_active: true,
+  };
+};
+
+const areStockFormDefinitionsEqual = (stockForm, stockFormDefinition) => {
+  const normalizeNullableNumber = (value) => {
+    if (value === null || value === undefined || value === "") {
+      return null;
+    }
+
+    const parsedValue = Number(value);
+    return Number.isFinite(parsedValue) ? parsedValue : null;
+  };
+
+  return (
+    String(stockForm?.packaging || "").trim().toLowerCase() ===
+      String(stockFormDefinition?.packaging || "").trim().toLowerCase() &&
+    Number(stockForm?.units_per_packaging || 0) ===
+      Number(stockFormDefinition?.units_per_packaging || 0) &&
+    String(stockForm?.unit_of_measure || "").trim().toLowerCase() ===
+      String(stockFormDefinition?.unit_of_measure || "").trim().toLowerCase() &&
+    normalizeNullableNumber(stockForm?.unit_of_measure_value) ===
+      normalizeNullableNumber(stockFormDefinition?.unit_of_measure_value)
+  );
+};
+
+const hasStockFormDefinitionInput = (batchData) =>
+  [
+    batchData?.stock_form_packaging,
+    batchData?.stock_form_units_per_packaging,
+    batchData?.stock_form_unit_of_measure,
+    batchData?.stock_form_unit_of_measure_value,
+  ].some((value) => value !== undefined && value !== null && value !== "");
+
+const validateBarcodeAssignmentTarget = async ({
+  batchData,
+  inventoryItem,
+  stockForm,
+  dbClient,
+}) => {
+  const barcode = normalizeInventoryBarcode(batchData.stock_form_barcode);
+
+  if (!barcode) {
+    const error = new Error(
+      "A barcode is required when assigning a barcode to existing packaging",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (String(stockForm.barcode || "").trim()) {
+    const error = new Error(
+      "This packaging already has a barcode and cannot be reassigned",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (
+    typeof inventoryItemRepository.getInventoryItemByBarcode === "function"
+  ) {
+    const itemBarcodeOwner =
+      await inventoryItemRepository.getInventoryItemByBarcode(
+        barcode,
+        dbClient || undefined,
+      );
+
+    if (
+      itemBarcodeOwner &&
+      String(itemBarcodeOwner.id) !== String(inventoryItem.id)
+    ) {
+      const error = new Error("This barcode is already assigned to another item");
+      error.statusCode = 409;
+      throw error;
+    }
+  }
+
+  const barcodeOwner =
+    await inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode(
+      barcode,
+      dbClient || undefined,
+    );
+
+  if (barcodeOwner && String(barcodeOwner.id) !== String(stockForm.id)) {
+    const error = new Error("This barcode is already assigned to another packaging");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const stockFormDefinition = normalizeStockFormDefinition(
+    batchData,
+    inventoryItem,
+  );
+
+  if (
+    hasStockFormDefinitionInput(batchData) &&
+    (!stockFormDefinition || !areStockFormDefinitionsEqual(stockForm, stockFormDefinition))
+  ) {
+    const error = new Error(
+      "The selected packaging does not match the existing stock form",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return {
+    ...stockForm,
+    barcode,
+    is_active: stockForm.is_active ?? true,
   };
 };
 
@@ -278,7 +392,43 @@ const getInventoryBatchDetail = async (id) => {
   };
 };
 
-const createInventoryBatch = async (batchData) => {
+const emitInventoryBatchCreatedSideEffects = async (mappedBatch, batchData) => {
+  await notificationService.emitSafely(() =>
+    notificationService.emitBatchAlerts({
+      batch: mappedBatch,
+    }),
+  );
+
+  await logAuditSafely({
+    actor: {
+      userId: batchData.created_by,
+      roleCode: "MAYOR",
+    },
+    action: "INVENTORY_BATCH_CREATE",
+    entityType: "INVENTORY_BATCH",
+    entityId: mappedBatch.id,
+    oldValues: {},
+    newValues: summarizeInventoryBatch(mappedBatch),
+  });
+
+  if (batchData.inventory_item_reorder_level !== undefined) {
+    await logAuditSafely({
+      actor: {
+        userId: batchData.created_by,
+        roleCode: "MAYOR",
+      },
+      action: "INVENTORY_ITEM_REORDER_LEVEL_UPDATE",
+      entityType: "INVENTORY_ITEM",
+      entityId: batchData.inventory_item_id,
+      oldValues: {},
+      newValues: {
+        reorder_level: batchData.inventory_item_reorder_level,
+      },
+    });
+  }
+};
+
+const createInventoryBatchWithoutTransaction = async (batchData) => {
   const dbClient = batchData.dbClient || null;
   const inventoryItem = await inventoryBatchRepository.getInventoryItemById(
     batchData.inventory_item_id,
@@ -287,6 +437,51 @@ const createInventoryBatch = async (batchData) => {
 
   if (!inventoryItem) {
     const error = new Error("inventory_item_id does not refer to an existing inventory item");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const normalizedStockFormBarcode = normalizeInventoryBarcode(
+    batchData.stock_form_barcode,
+  );
+
+  if (
+    normalizedStockFormBarcode &&
+    !isValidInventoryBarcode(normalizedStockFormBarcode)
+  ) {
+    const error = new Error("stock_form_barcode must contain 8 to 18 digits");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (
+    normalizedStockFormBarcode &&
+    typeof inventoryItemRepository.getInventoryItemByBarcode === "function"
+  ) {
+    const itemBarcodeOwner =
+      await inventoryItemRepository.getInventoryItemByBarcode(
+        normalizedStockFormBarcode,
+        dbClient || undefined,
+      );
+
+    if (
+      itemBarcodeOwner &&
+      String(itemBarcodeOwner.id) !== String(inventoryItem.id)
+    ) {
+      const error = new Error("This barcode is already assigned to another item");
+      error.statusCode = 409;
+      throw error;
+    }
+  }
+
+  if (
+    batchData.inventory_item_reorder_level !== undefined &&
+    (!Number.isInteger(batchData.inventory_item_reorder_level) ||
+      batchData.inventory_item_reorder_level <= 0)
+  ) {
+    const error = new Error(
+      "inventory_item_reorder_level must be a positive integer when provided",
+    );
     error.statusCode = 400;
     throw error;
   }
@@ -305,6 +500,7 @@ const createInventoryBatch = async (batchData) => {
   }
 
   let resolvedStockFormId = batchData.inventory_item_stock_form_id || null;
+  let barcodeAssignmentTarget = null;
 
   if (resolvedStockFormId) {
     const stockForm =
@@ -328,27 +524,151 @@ const createInventoryBatch = async (batchData) => {
       error.statusCode = 400;
       throw error;
     }
-  } else {
-    const stockForms =
-      await inventoryItemStockFormRepository.getInventoryItemStockFormsByItemId(
-        batchData.inventory_item_id,
-        dbClient || undefined,
-      );
+
+    if (stockForm.is_active === false) {
+      const error = new Error("The selected packaging is inactive");
+      error.statusCode = 400;
+      throw error;
+    }
 
     const stockFormDefinition = normalizeStockFormDefinition(
       batchData,
       inventoryItem,
     );
 
-    if (stockFormDefinition) {
-      const matchedStockForm =
-        await inventoryItemStockFormRepository.getInventoryItemStockFormByDefinition(
-          stockFormDefinition,
+    if (
+      hasStockFormDefinitionInput(batchData) &&
+      (!stockFormDefinition || !areStockFormDefinitionsEqual(stockForm, stockFormDefinition))
+    ) {
+      const error = new Error(
+        "The selected packaging does not match the submitted packaging details",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const existingStockFormBarcode = normalizeInventoryBarcode(stockForm.barcode);
+
+    if (normalizedStockFormBarcode) {
+      if (
+        existingStockFormBarcode &&
+        existingStockFormBarcode !== normalizedStockFormBarcode
+      ) {
+        const error = new Error(
+          "This packaging already has a different barcode. Choose different packaging details.",
+        );
+        error.statusCode = 409;
+        throw error;
+      }
+
+      if (!existingStockFormBarcode) {
+        barcodeAssignmentTarget = await validateBarcodeAssignmentTarget({
+          batchData,
+          inventoryItem,
+          stockForm,
+          dbClient,
+        });
+      }
+    }
+  } else {
+    const stockForms =
+      await inventoryItemStockFormRepository.getInventoryItemStockFormsByItemId(
+        batchData.inventory_item_id,
+        dbClient || undefined,
+      );
+    const activeStockForms = stockForms.filter(
+      (stockForm) => stockForm?.is_active !== false,
+    );
+
+    const stockFormDefinition = normalizeStockFormDefinition(
+      batchData,
+      inventoryItem,
+    );
+
+    if (!stockFormDefinition && normalizedStockFormBarcode) {
+      const error = new Error(
+        "Packaging details are required when adding a barcode",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const hasBarcodeStockForm =
+      Boolean(String(inventoryItem.barcode || "").trim()) ||
+      activeStockForms.some((stockForm) =>
+        Boolean(String(stockForm?.barcode || "").trim()),
+      );
+
+    if (
+      stockFormDefinition &&
+      hasBarcodeStockForm &&
+      !String(stockFormDefinition.barcode || "").trim()
+    ) {
+      const error = new Error(
+        "barcode is required when adding a new packaging to a barcode-managed item",
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const matchingStockForm = stockFormDefinition
+      ? activeStockForms.find((stockForm) =>
+          areStockFormDefinitionsEqual(stockForm, stockFormDefinition),
+        ) || null
+      : null;
+
+    if (
+      stockFormDefinition?.barcode &&
+      typeof inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode ===
+        "function"
+    ) {
+      const barcodeOwner =
+        await inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode(
+          stockFormDefinition.barcode,
           dbClient || undefined,
         );
 
-      if (matchedStockForm) {
-        resolvedStockFormId = matchedStockForm.id;
+      if (
+        barcodeOwner &&
+        (barcodeOwner.is_active === false ||
+          String(barcodeOwner.inventory_item_id) !== String(inventoryItem.id) ||
+          !areStockFormDefinitionsEqual(barcodeOwner, stockFormDefinition))
+      ) {
+        const error = new Error(
+          "This barcode is already assigned to another packaging",
+        );
+        error.statusCode = 409;
+        throw error;
+      }
+    }
+
+    if (stockFormDefinition) {
+      if (matchingStockForm) {
+        const existingStockFormBarcode = normalizeInventoryBarcode(
+          matchingStockForm.barcode,
+        );
+
+        if (
+          existingStockFormBarcode &&
+          existingStockFormBarcode !== stockFormDefinition.barcode
+        ) {
+          const error = new Error(
+            "This packaging already has a different barcode. Choose different packaging details.",
+          );
+          error.statusCode = 409;
+          throw error;
+        }
+
+        resolvedStockFormId = matchingStockForm.id;
+
+        if (stockFormDefinition.barcode && !existingStockFormBarcode) {
+          barcodeAssignmentTarget = await validateBarcodeAssignmentTarget({
+            batchData,
+            inventoryItem,
+            stockForm: matchingStockForm,
+            dbClient,
+          });
+        }
       } else {
         const createdStockForm =
           await inventoryItemStockFormRepository.insertInventoryItemStockForm(
@@ -357,9 +677,9 @@ const createInventoryBatch = async (batchData) => {
           );
         resolvedStockFormId = createdStockForm.id;
       }
-    } else if (stockForms.length === 1) {
-      resolvedStockFormId = stockForms[0].id;
-    } else if (stockForms.length > 1) {
+    } else if (activeStockForms.length === 1) {
+      resolvedStockFormId = activeStockForms[0].id;
+    } else if (activeStockForms.length > 1) {
       const error = new Error(
         "inventory_item_stock_form_id is required when the item has multiple stock forms",
       );
@@ -377,6 +697,36 @@ const createInventoryBatch = async (batchData) => {
 
   if (existingBatch) {
     throw createDuplicateInventoryBatchError(existingBatch);
+  }
+
+  if (batchData.inventory_item_reorder_level !== undefined) {
+    const updatedItem =
+      await inventoryItemRepository.updateInventoryItemReorderLevel(
+        batchData.inventory_item_id,
+        batchData.inventory_item_reorder_level,
+        dbClient || undefined,
+      );
+
+    if (!updatedItem) {
+      const error = new Error("The inventory item could not be updated");
+      error.statusCode = 404;
+      throw error;
+    }
+  }
+
+  if (barcodeAssignmentTarget) {
+    const updatedStockForm =
+      await inventoryItemStockFormRepository.updateInventoryItemStockForm(
+        barcodeAssignmentTarget.id,
+        barcodeAssignmentTarget,
+        dbClient || undefined,
+      );
+
+    if (!updatedStockForm) {
+      const error = new Error("The selected stock form could not be updated");
+      error.statusCode = 404;
+      throw error;
+    }
   }
 
   const createdBatch = await inventoryBatchRepository.insertInventoryBatch({
@@ -405,25 +755,45 @@ const createInventoryBatch = async (batchData) => {
   const mappedBatch = mapInventoryBatch(fullBatch);
 
   if (!dbClient) {
-    await notificationService.emitSafely(() =>
-      notificationService.emitBatchAlerts({
-        batch: mappedBatch,
-      }),
-    );
-
-    await logAuditSafely({
-      actor: {
-        userId: batchData.created_by,
-        roleCode: "MAYOR",
-      },
-      action: "INVENTORY_BATCH_CREATE",
-      entityType: "INVENTORY_BATCH",
-      entityId: mappedBatch.id,
-      oldValues: {},
-      newValues: summarizeInventoryBatch(mappedBatch),
-    });
+    await emitInventoryBatchCreatedSideEffects(mappedBatch, batchData);
   }
 
+  return mappedBatch;
+};
+
+const createInventoryBatch = async (batchData) => {
+  const requiresTransaction =
+    !batchData.dbClient &&
+    (Boolean(normalizeInventoryBarcode(batchData.stock_form_barcode)) ||
+      hasStockFormDefinitionInput(batchData) ||
+      batchData.inventory_item_reorder_level !== undefined);
+
+  if (!requiresTransaction) {
+    return createInventoryBatchWithoutTransaction(batchData);
+  }
+
+  const client = await pool.connect();
+  let transactionStarted = false;
+  let mappedBatch;
+
+  try {
+    await client.query("BEGIN");
+    transactionStarted = true;
+    mappedBatch = await createInventoryBatchWithoutTransaction({
+      ...batchData,
+      dbClient: client,
+    });
+    await client.query("COMMIT");
+  } catch (error) {
+    if (transactionStarted) {
+      await client.query("ROLLBACK");
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  await emitInventoryBatchCreatedSideEffects(mappedBatch, batchData);
   return mappedBatch;
 };
 

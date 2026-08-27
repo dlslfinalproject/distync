@@ -354,6 +354,45 @@ const updateInventoryItem = async (id, itemData, dbClient = pool) => {
   return result.rows[0] || null;
 };
 
+const updateInventoryItemReorderLevel = async (
+  id,
+  reorderLevel,
+  dbClient = pool,
+) => {
+  const hasReorderLevelColumn = await hasInventoryItemReorderLevelColumn();
+
+  if (!hasReorderLevelColumn) {
+    return getInventoryItemById(id, dbClient);
+  }
+
+  const query = `
+    UPDATE inventory_items
+    SET reorder_level = $2,
+        updated_at = NOW()
+    WHERE id = $1
+    RETURNING
+      id,
+      item_code,
+      item_name,
+      category,
+      unit_of_measure,
+      unit_of_measure_value,
+      packaging,
+      packaging_count,
+      quantity,
+      reorder_level,
+      expiration_date,
+      barcode,
+      is_perishable,
+      is_active,
+      created_at,
+      updated_at
+  `;
+
+  const result = await dbClient.query(query, [id, reorderLevel]);
+  return result.rows[0] || null;
+};
+
 const updateInventoryItemStockSnapshot = async (
   id,
   { quantity, packaging_count },
@@ -399,5 +438,6 @@ module.exports = {
   getInventoryItemByName,
   insertInventoryItem,
   updateInventoryItem,
+  updateInventoryItemReorderLevel,
   updateInventoryItemStockSnapshot,
 };

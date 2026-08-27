@@ -1,5 +1,9 @@
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const {
+  isValidInventoryBarcode,
+  normalizeInventoryBarcode,
+} = require("../utils/inventoryBarcode");
 
 const allowedUnitOfMeasureValues = ["kg", "g", "L", "mL", "pc"];
 const allowedPackagingValues = ["piece", "sack", "box", "carton", "case", "pack", "bottle"];
@@ -137,7 +141,7 @@ const validateInventoryItemId = (req, res, next) => {
 const validateInventoryItemBarcodeLookup = (req, res, next) => {
   try {
     const { barcode } = req.params;
-    const normalizedBarcode = String(barcode || "").replace(/\s+/g, "").trim();
+    const normalizedBarcode = normalizeInventoryBarcode(barcode);
 
     if (!normalizedBarcode) {
       return res.status(400).json({
@@ -145,7 +149,7 @@ const validateInventoryItemBarcodeLookup = (req, res, next) => {
       });
     }
 
-    if (!/^\d{8,18}$/.test(normalizedBarcode)) {
+    if (!isValidInventoryBarcode(normalizedBarcode)) {
       return res.status(400).json({
         message: "barcode must contain 8 to 18 digits",
       });
@@ -408,6 +412,14 @@ const validateInventoryItemPayload = (req, res, next) => {
       });
     }
 
+    const normalizedBarcode = normalizeInventoryBarcode(barcode);
+
+    if (normalizedBarcode && !isValidInventoryBarcode(normalizedBarcode)) {
+      return res.status(400).json({
+        message: "barcode must contain 8 to 18 digits",
+      });
+    }
+
     if (
       is_perishable !== undefined &&
       typeof is_perishable !== "boolean"
@@ -449,7 +461,7 @@ const validateInventoryItemPayload = (req, res, next) => {
       reorder_level: parsedReorderLevel,
       expiration_date: parsedExpirationDate,
       barcode:
-        typeof barcode === "string" && barcode.trim() ? barcode.trim() : null,
+        normalizedBarcode || null,
       is_perishable:
         is_perishable ??
         (normalizedCategory === "Perishable"

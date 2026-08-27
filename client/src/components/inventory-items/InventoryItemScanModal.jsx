@@ -2,6 +2,10 @@ import React, { useEffect, useRef, useState } from "react";
 import { FiX } from "react-icons/fi";
 import { pageHeaderStyles } from "../layout/PageHeader";
 import { shellStyles } from "../layout/BarangayLayout";
+import {
+  isValidInventoryBarcode,
+  normalizeInventoryBarcode,
+} from "../../features/inventory-items/inventoryBarcode";
 
 const COLORS = {
   muted: "#6b8298",
@@ -150,10 +154,6 @@ const styles = {
   },
 };
 
-const normalizeBarcodeInput = (value) => {
-  return String(value || "").replace(/\s+/g, "").trim();
-};
-
 const formatLabel = (value) => {
   const normalizedValue = String(value || "")
     .replace(/_/g, " ")
@@ -282,7 +282,6 @@ const InventoryItemScanModal = ({
   scanForm,
   matchedItem,
   matchedStockForm,
-  matchedItemName,
   currentStock = 0,
   generatedBatchNumber = "",
   errorMessage = "",
@@ -317,7 +316,7 @@ const InventoryItemScanModal = ({
     return null;
   }
 
-  const trimmedBarcode = normalizeBarcodeInput(scanForm.barcodeNumber);
+  const trimmedBarcode = normalizeInventoryBarcode(scanForm.barcodeNumber);
   const hasMatchedItem = Boolean(matchedItem?.id);
   const isPerishable = isPerishableInventoryItem(matchedItem);
   const unitLabel = getItemUnitLabel(matchedItem, matchedStockForm);
@@ -355,6 +354,8 @@ const InventoryItemScanModal = ({
 
     if (isBlank(trimmedBarcode)) {
       nextErrors.barcodeNumber = "Barcode number is required.";
+    } else if (!isValidInventoryBarcode(trimmedBarcode)) {
+      nextErrors.barcodeNumber = "Barcode must contain 8 to 18 digits.";
     }
 
     if (hasMatchedItem) {
@@ -405,7 +406,9 @@ const InventoryItemScanModal = ({
       <div className="inventory-item-scan-modal" style={scanModalStyle}>
         <div className="inventory-item-scan-modal-topbar" style={styles.scanModalHeader}>
           <div>
-            <h3 style={styles.scanModalTitle}>Scan Item</h3>
+            <h3 style={styles.scanModalTitle}>
+              {hasMatchedItem ? "Restock Existing Item" : "Scan Item"}
+            </h3>
           </div>
 
           <button
@@ -425,66 +428,62 @@ const InventoryItemScanModal = ({
           }}
         >
 
-          <section className="inventory-item-scan-section" style={{ ...shellStyles.card, padding: "18px 20px" }}>
-            <h3 style={styles.scanModalSectionTitle}>Barcode Details</h3>
+          {!hasMatchedItem ? (
+            <section className="inventory-item-scan-section" style={{ ...shellStyles.card, padding: "18px 20px" }}>
+              <h3 style={styles.scanModalSectionTitle}>Barcode Details</h3>
 
-            <div
-              className="inventory-item-scan-grid"
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: "18px",
-              }}
-            >
-              <div style={{ gridColumn: "1 / -1" }}>
-                <label style={scanModalLabelStyle}>Barcode Number</label>
-                <input
-                  ref={barcodeInputRef}
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  autoCapitalize="off"
-                  spellCheck={false}
-                  value={scanForm.barcodeNumber}
-                  onChange={(event) =>
-                    handleInputChange(
-                      "barcodeNumber",
-                      normalizeBarcodeInput(event.target.value),
-                    )
-                  }
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      handleSubmit();
+              <div
+                className="inventory-item-scan-grid"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: "18px",
+                }}
+              >
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label style={scanModalLabelStyle}>Barcode Number</label>
+                  <input
+                    ref={barcodeInputRef}
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    value={scanForm.barcodeNumber}
+                    onChange={(event) =>
+                      handleInputChange(
+                        "barcodeNumber",
+                        normalizeInventoryBarcode(event.target.value),
+                      )
                     }
-                  }}
-                  style={scanModalInputStyle}
-                  placeholder="Scan or enter barcode"
-                  aria-invalid={Boolean(fieldErrors.barcodeNumber)}
-                />
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        handleSubmit();
+                      }
+                    }}
+                    style={scanModalInputStyle}
+                    placeholder="Scan or enter barcode"
+                    aria-invalid={Boolean(fieldErrors.barcodeNumber)}
+                  />
 
-                {fieldErrors.barcodeNumber && (
-                  <p style={styles.errorText}>{fieldErrors.barcodeNumber}</p>
-                )}
+                  {fieldErrors.barcodeNumber && (
+                    <p style={styles.errorText}>{fieldErrors.barcodeNumber}</p>
+                  )}
 
-                {matchedItemName && (
-                  <p style={styles.feedbackText}>
-                    Existing item found: <strong>{matchedItemName}</strong>
-                  </p>
-                )}
+                  {trimmedBarcode && (
+                    <p style={{ ...styles.feedbackText, color: COLORS.muted }}>
+                      New barcode for your inventory. Continue to enter the item details.
+                    </p>
+                  )}
 
-                {!matchedItemName && trimmedBarcode && (
-                  <p style={{ ...styles.feedbackText, color: COLORS.muted }}>
-                    No matching item yet. Continue to register this barcode.
-                  </p>
-                )}
-
-                {!fieldErrors.barcodeNumber && !hasMatchedItem && errorMessage && (
-                  <p style={styles.errorText}>{errorMessage}</p>
-                )}
+                  {!fieldErrors.barcodeNumber && errorMessage && (
+                    <p style={styles.errorText}>{errorMessage}</p>
+                  )}
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
+          ) : null}
 
           {hasMatchedItem && (
             <>

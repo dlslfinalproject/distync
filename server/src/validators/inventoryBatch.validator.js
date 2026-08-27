@@ -2,6 +2,10 @@ const allowedSourceTypes = ["PURCHASED", "DONATED", "DSWD", "LGU", "OTHER"];
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const {
+  isValidInventoryBarcode,
+  normalizeInventoryBarcode,
+} = require("../utils/inventoryBarcode");
 
 const isValidUuid = (value) => {
   return typeof value === "string" && uuidPattern.test(value);
@@ -123,6 +127,7 @@ const validateCreateInventoryBatch = (req, res, next) => {
       supplier_id,
       source_type,
       quantity_received,
+      inventory_item_reorder_level,
       expiration_date,
       storage_location,
       created_by,
@@ -151,6 +156,19 @@ const validateCreateInventoryBatch = (req, res, next) => {
     ) {
       return res.status(400).json({
         message: "stock_form_barcode must be a string or null",
+      });
+    }
+
+    const normalizedStockFormBarcode = normalizeInventoryBarcode(
+      stock_form_barcode,
+    );
+
+    if (
+      normalizedStockFormBarcode &&
+      !isValidInventoryBarcode(normalizedStockFormBarcode)
+    ) {
+      return res.status(400).json({
+        message: "stock_form_barcode must contain 8 to 18 digits",
       });
     }
 
@@ -223,6 +241,17 @@ const validateCreateInventoryBatch = (req, res, next) => {
     }
 
     if (
+      inventory_item_reorder_level !== undefined &&
+      (!Number.isInteger(inventory_item_reorder_level) ||
+        inventory_item_reorder_level <= 0)
+    ) {
+      return res.status(400).json({
+        message:
+          "inventory_item_reorder_level must be a positive integer when provided",
+      });
+    }
+
+    if (
       expiration_date !== undefined &&
       expiration_date !== null &&
       !isValidDateString(expiration_date)
@@ -252,9 +281,7 @@ const validateCreateInventoryBatch = (req, res, next) => {
       inventory_item_id,
       inventory_item_stock_form_id: inventory_item_stock_form_id ?? null,
       stock_form_barcode:
-        typeof stock_form_barcode === "string" && stock_form_barcode.trim()
-          ? stock_form_barcode.trim()
-          : null,
+        normalizedStockFormBarcode || null,
       stock_form_packaging:
         typeof stock_form_packaging === "string" && stock_form_packaging.trim()
           ? stock_form_packaging.trim()
@@ -271,6 +298,8 @@ const validateCreateInventoryBatch = (req, res, next) => {
       supplier_id: supplier_id ?? null,
       source_type,
       quantity_received,
+      inventory_item_reorder_level:
+        inventory_item_reorder_level ?? undefined,
       expiration_date: expiration_date ?? null,
       storage_location: storage_location ?? null,
       created_by: created_by ?? null,

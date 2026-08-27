@@ -9,6 +9,10 @@ const inventoryItemExport = require("../utils/inventoryItemExport");
 const { createInventoryStateBasis } = require("../utils/inventoryStateBasis");
 const mayorReportExport = require("../utils/mayorReportExport");
 const { logAuditSafely, pickDefined } = require("../utils/systemLog");
+const {
+  isValidInventoryBarcode,
+  normalizeInventoryBarcode,
+} = require("../utils/inventoryBarcode");
 
 const OPEN_FOOD_FACTS_API_BASE_URL =
   process.env.OPEN_FOOD_FACTS_API_BASE_URL ||
@@ -62,6 +66,91 @@ const ensureUniqueFields = async (itemData, currentItemId = null) => {
     error.statusCode = 409;
     throw error;
   }
+
+  const normalizedBarcode = normalizeInventoryBarcode(itemData.barcode);
+
+  if (!normalizedBarcode) {
+    return;
+  }
+
+  if (typeof inventoryItemRepository.getInventoryItemByBarcode === "function") {
+    const existingItemByBarcode =
+      await inventoryItemRepository.getInventoryItemByBarcode(normalizedBarcode);
+
+    if (
+      existingItemByBarcode &&
+      String(existingItemByBarcode.id) !== String(currentItemId)
+    ) {
+      const error = new Error("barcode already exists");
+      error.statusCode = 409;
+      throw error;
+    }
+  }
+
+  if (
+    typeof inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode ===
+    "function"
+  ) {
+    const existingStockForm =
+      await inventoryItemStockFormRepository.getInventoryItemStockFormByBarcode(
+        normalizedBarcode,
+      );
+
+    if (
+      existingStockForm &&
+      String(existingStockForm.inventory_item_id) !== String(currentItemId)
+    ) {
+      const error = new Error("barcode already exists");
+      error.statusCode = 409;
+      throw error;
+    }
+  }
+};
+
+const normalizeAndValidateItemBarcode = (barcode) => {
+  const normalizedBarcode = normalizeInventoryBarcode(barcode);
+
+  if (normalizedBarcode && !isValidInventoryBarcode(normalizedBarcode)) {
+    const error = new Error("barcode must contain 8 to 18 digits");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return normalizedBarcode || null;
+};
+
+const inferCategoryFromLookup = (lookupPayload) => {
+  const categoryText = [
+    lookupPayload?.categories,
+    Array.isArray(lookupPayload?.categories_tags)
+      ? lookupPayload.categories_tags.join(" ")
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (
+    categoryText.includes("fresh") ||
+    categoryText.includes("meat") ||
+    categoryText.includes("fish") ||
+    categoryText.includes("vegetable") ||
+    categoryText.includes("fruit") ||
+    categoryText.includes("dairy")
+  ) {
+    return "Perishable";
+  }
+
+  return "Non-Perishable";
+};
+
+const buildLookupDisplayName = (lookupPayload) => {
+  const nameParts = [
+    lookupPayload?.product_name,
+    lookupPayload?.brands,
+  ].filter(Boolean);
+
+  return nameParts.join(" - ") || lookupPayload?.generic_name || null;
 };
 
 const summarizeInventoryItem = (item) =>
@@ -167,40 +256,6 @@ const buildStockFormPayloadFromItem = (item, itemData = item) => ({
   unit_of_measure_value: itemData.unit_of_measure_value || null,
   is_active: itemData.is_active ?? item.is_active ?? true,
 });
-
-const inferCategoryFromLookup = (lookupPayload) => {
-  const categoryText = [
-    lookupPayload?.categories,
-    Array.isArray(lookupPayload?.categories_tags)
-      ? lookupPayload.categories_tags.join(" ")
-      : "",
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  if (
-    categoryText.includes("fresh") ||
-    categoryText.includes("meat") ||
-    categoryText.includes("fish") ||
-    categoryText.includes("vegetable") ||
-    categoryText.includes("fruit") ||
-    categoryText.includes("dairy")
-  ) {
-    return "Perishable";
-  }
-
-  return "Non-Perishable";
-};
-
-const buildLookupDisplayName = (lookupPayload) => {
-  const nameParts = [
-    lookupPayload?.product_name,
-    lookupPayload?.brands,
-  ].filter(Boolean);
-
-  return nameParts.join(" - ") || lookupPayload?.generic_name || null;
-};
 
 const buildInventoryTrackingMap = (inventoryItems, inventoryBatches, inventoryTransactions) => {
   const trackingMap = new Map();
@@ -421,7 +476,7 @@ const getLocalInventoryItemByBarcode = async (barcode) => {
   const itemByBarcode =
     await inventoryItemRepository.getInventoryItemByBarcode(barcode);
 
-  if (itemByBarcode) {
+  if (itemByBarcode && itemByBarcode.is_active !== false) {
     return buildLocalBarcodeLookupResult(barcode, itemByBarcode);
   }
 
@@ -430,7 +485,7 @@ const getLocalInventoryItemByBarcode = async (barcode) => {
       barcode,
     );
 
-  if (!stockForm) {
+  if (!stockForm || stockForm.is_active === false) {
     return null;
   }
 
@@ -438,7 +493,7 @@ const getLocalInventoryItemByBarcode = async (barcode) => {
     stockForm.inventory_item_id,
   );
 
-  if (!item) {
+  if (!item || item.is_active === false) {
     return null;
   }
 
@@ -452,6 +507,7 @@ const lookupInventoryItemByBarcode = async (barcode) => {
     return localInventoryItem;
   }
 
+  // Keep external enrichment for the Donations form; Scan Item uses local matching directly.
   const response = await fetch(
     `${OPEN_FOOD_FACTS_API_BASE_URL}/api/v3/product/${encodeURIComponent(barcode)}.json`,
     {
@@ -873,6 +929,7 @@ const getInventoryItemDetail = async (id) => {
 const createInventoryItem = async (itemData, actor = null, options = {}) => {
   const inventoryItemToCreate = {
     ...itemData,
+    barcode: normalizeAndValidateItemBarcode(itemData.barcode),
     item_code: itemData.item_code || await generateInventoryItemCode(itemData.item_name),
   };
 
@@ -1023,6 +1080,7 @@ const updateInventoryItem = async (id, itemData, actor = null, options = {}) => 
 
   const inventoryItemToUpdate = {
     ...itemData,
+    barcode: normalizeAndValidateItemBarcode(itemData.barcode),
     item_code: itemData.item_code || existingItem.item_code,
   };
 
