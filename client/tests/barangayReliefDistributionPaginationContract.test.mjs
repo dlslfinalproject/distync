@@ -30,10 +30,9 @@ test("Relief Distribution guards full-scope offline cache warming", async () => 
   const serviceSource = await readSource("src/features/stubs/stubService.js");
 
   assert.match(hookSource, /pagination:\s*response\.pagination/);
-  assert.match(hookSource, /skipOfflineCache: true/);
   assert.match(hookSource, /offlineStubCacheWarmRequests/);
-  assert.match(hookSource, /hasCachedStubSnapshotsForScope/);
   assert.match(hookSource, /!offlineStubCacheWarmRequests\.has\(warmKey\)/);
+  assert.match(hookSource, /await warmRequest/);
   assert.match(serviceSource, /if \(!skipOfflineCache\) \{\s*await upsertOfflineStubSnapshots/s);
   assert.match(hookSource, /setPendingLocalRows\(\[\.\.\.pendingRows, \.\.\.cachedRows\]\)/);
   assert.doesNotMatch(hookSource, /offlineStubCache\.clear|bulkDelete|offlineStubCache\.delete/);

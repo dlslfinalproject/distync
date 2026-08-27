@@ -4,7 +4,6 @@ import { getPendingLocalStubRows } from "./stubOfflineRows";
 import {
   canUseOfflineStubCacheFallback,
   getCachedStubRowsForScope,
-  hasCachedStubSnapshotsForScope,
 } from "./stubCache";
 
 const emptyMetrics = {
@@ -109,7 +108,6 @@ export const useStubDashboard = ({
           status,
           sectorIds: selectedSectorIds,
           sortOrder,
-          skipOfflineCache: true,
         });
 
         if (isMounted) {
@@ -160,15 +158,8 @@ export const useStubDashboard = ({
           !offlineStubCacheWarmRequests.has(warmKey)
         ) {
           const warmRequest = (async () => {
-            const hasCachedRows = await hasCachedStubSnapshotsForScope({
-              disasterEventId,
-              currentBarangayId: scopedBarangayId,
-            });
-
-            if (hasCachedRows) {
-              return null;
-            }
-
+            // Cache the complete scoped dataset so QR scans are not limited
+            // to the currently visible page.
             await fetchBarangayStubDashboard({
               userId: userId || null,
               disasterEventId,
@@ -183,6 +174,7 @@ export const useStubDashboard = ({
           });
 
           offlineStubCacheWarmRequests.set(warmKey, warmRequest);
+          await warmRequest;
         }
       } catch (error) {
         if (isMounted) {
