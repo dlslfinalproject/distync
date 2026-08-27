@@ -275,7 +275,7 @@ test("Barangay review stale response is specific and refreshes authoritative ano
   assert.match(source, /onReviewStale=\{async \(\) => \{[\s\S]*setReloadToken/);
 });
 
-test("Barangay existing review opens read-only while MSWDO retains explicit result editing", async () => {
+test("reviewed MSWDO details remain read-only while Barangay retains explicit edit", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
 
   assert.match(source, /const \[isEditingReview, setIsEditingReview\] = useState\(false\)/);
@@ -283,10 +283,8 @@ test("Barangay existing review opens read-only while MSWDO retains explicit resu
   assert.match(source, /const shouldShowReviewForm =\s+canRecordReview && \(!hasSavedReview \|\| \(isBarangayScope && isEditingReview\)\)/);
   assert.match(source, /const canEditSavedReview =\s+isBarangayScope && canRecordReview && hasSavedReview/);
   assert.match(source, /Review Result/);
-  assert.match(source, /!isBarangayScope && canRecordReview && hasSavedReview/);
-  assert.match(source, /Edit Result/);
-  assert.doesNotMatch(source, /Edit Review/);
-  assert.match(source, /Save Changes/);
+  assert.doesNotMatch(source, /!isBarangayScope && canRecordReview && hasSavedReview/);
+  assert.match(source, /Edit Review/);
   assert.match(source, /const reviewHasChanges =/);
   assert.match(source, /hasSavedReview && isEditingReview && !reviewHasChanges/);
   assert.match(source, /setIsEditingReview\(false\)/);
@@ -431,6 +429,18 @@ test("Barangay anomaly page removes summary cards, sync banner, and extra row re
   assert.match(source, /return "No review needed"/);
   assert.doesNotMatch(source, /FiAlertTriangle|View details/);
   assert.doesNotMatch(source, /FiCheckCircle|FiEdit3/);
+});
+
+test("resolved anomaly rows use the eye details action for both scopes", async () => {
+  const source = await fs.readFile(pageSourcePath, "utf8");
+  const actionBlock = source.match(
+    /\{isManualReviewableAnomaly\(row\) && row\.review_status \? \([\s\S]*?\) : isManualReviewableAnomaly\(row\) \? \(/,
+  )?.[0] || "";
+
+  assert.match(actionBlock, /<FiEye size=\{18\} aria-hidden="true" \/>/);
+  assert.match(actionBlock, /aria-label="View anomaly details"/);
+  assert.match(source, /aria-label="Review anomaly"/);
+  assert.doesNotMatch(actionBlock, /isBarangayScope &&/);
 });
 
 test("Barangay sidebar groups sync and anomaly navigation under Monitoring only", async () => {
