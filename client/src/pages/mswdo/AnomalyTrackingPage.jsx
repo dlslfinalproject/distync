@@ -6,7 +6,6 @@ import EmptyState from "../../components/shared/EmptyState";
 import ErrorState from "../../components/shared/ErrorState";
 import FormModalShell from "../../components/shared/FormModalShell";
 import LoadingState from "../../components/shared/LoadingState";
-import StatusCard from "../../components/shared/StatusCard";
 import ResponsiveFilterPopover from "../../components/shared/ResponsiveFilterPopover";
 import {
   fetchAllDisasterEvents,
@@ -1365,36 +1364,6 @@ const AnomalyTrackingPage = ({
     viewState,
   ]);
 
-  const summary = useMemo(() => {
-    return rows.reduce(
-      (currentSummary, row) => {
-        currentSummary.total += 1;
-
-        const category = getStatusCategory(row);
-
-        if (category === "open") {
-          currentSummary.open += 1;
-        }
-
-        if (category === "failed") {
-          currentSummary.failed += 1;
-        }
-
-        if (category === "resolved") {
-          currentSummary.resolved += 1;
-        }
-
-        return currentSummary;
-      },
-      {
-        total: 0,
-        open: 0,
-        failed: 0,
-        resolved: 0,
-      },
-    );
-  }, [rows]);
-
   const hasActiveFilters = Boolean(
     filters.disaster_event_id ||
       (filters.barangay_id && !isBarangayScope) ||
@@ -1595,15 +1564,6 @@ const AnomalyTrackingPage = ({
           </div>
         </div>
       </section>
-
-      {!isBarangayScope ? (
-        <div style={shellStyles.statGrid}>
-          <StatusCard label="Total Detected" value={totalItems} />
-          <StatusCard label="Open on Page" value={summary.open} />
-          <StatusCard label="Sync Center Items on Page" value={summary.failed} />
-          <StatusCard label="Resolved on Page" value={summary.resolved} />
-        </div>
-      ) : null}
 
       <div style={pageSpacingStyles.toolbar}>
         <div style={{ position: "relative", flex: "1 1 420px", minWidth: "260px" }}>

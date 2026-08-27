@@ -428,7 +428,7 @@ test("MSWDO review-status presentation does not derive lifecycle status from out
   assert.match(presentationSource, /export const getAnomalyReviewStatusLabel/);
 });
 
-test("Barangay anomaly page removes summary cards, sync banner, and extra row review action", async () => {
+test("anomaly tracking removes summary cards, sync banner, and extra row review action", async () => {
   const source = await fs.readFile(pageSourcePath, "utf8");
   const sidebarSource = await fs.readFile(sidebarSourcePath, "utf8");
   const layoutSource = await fs.readFile(barangayLayoutSourcePath, "utf8");
@@ -438,7 +438,7 @@ test("Barangay anomaly page removes summary cards, sync banner, and extra row re
   assert.match(layoutSource, /isBarangayAnomalyRoute/);
   assert.match(layoutSource, /shouldShowSyncStatusBanner/);
   assert.match(layoutSource, /\{shouldShowSyncStatusBanner \? <SyncStatusBanner \/> : null\}/);
-  assert.match(source, /!\isBarangayScope \? \([\s\S]*<StatusCard label="Total Detected"/);
+  assert.doesNotMatch(source, /<StatusCard\b|shellStyles\.statGrid|Total Detected|Open on Page|Sync Center Items on Page|Resolved on Page/);
   assert.match(source, /overflowX: "auto", width: "100%", minWidth: 0/);
   assert.match(source, /const isManualReviewableAnomaly = \(row\) => row\?\.manual_review_allowed === true/);
   assert.match(source, /isManualReviewableAnomaly\(row\) \? \([\s\S]*>\s*Review\s*<\/button>/);
