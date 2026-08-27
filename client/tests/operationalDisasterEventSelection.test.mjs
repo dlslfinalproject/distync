@@ -7,6 +7,7 @@ import {
   clearUserOperationalDisasterEventSelections,
   getOperationalDisasterEventStoragePrefix,
   persistOperationalDisasterEventSelection,
+  readOperationalDisasterEventContext,
   readOperationalDisasterEventId,
   readOperationalDisasterEventScope,
   resolveOperationalDisasterEventId,
@@ -119,6 +120,51 @@ test("operational disaster event selection falls back only when stored event is 
       fallbackEventId: "event-a",
     }),
     "event-a",
+  );
+});
+
+test("operational disaster event context is persisted for offline restoration", () => {
+  createWindow();
+
+  persistOperationalDisasterEventSelection({
+    roleCode: ROLE_CODES.BARANGAY,
+    userId: "user-1",
+    eventId: "event-a",
+    eventScope: "active",
+    event: {
+      id: "event-a",
+      title: "Typhoon Relief",
+      event_code: "DE-2026-0001",
+      status: "ACTIVE",
+      start_date: "2026-08-01",
+      private_field: "must not be persisted",
+    },
+    mode: ACCESS_MODES.DEVELOPMENT,
+  });
+
+  assert.deepEqual(
+    readOperationalDisasterEventContext({
+      roleCode: ROLE_CODES.BARANGAY,
+      userId: "user-1",
+      eventScope: "active",
+      mode: ACCESS_MODES.DEVELOPMENT,
+    }),
+    {
+      id: "event-a",
+      title: "Typhoon Relief",
+      event_code: "DE-2026-0001",
+      status: "ACTIVE",
+      start_date: "2026-08-01",
+    },
+  );
+  assert.equal(
+    readOperationalDisasterEventContext({
+      roleCode: ROLE_CODES.BARANGAY,
+      userId: "user-1",
+      eventScope: "ended",
+      mode: ACCESS_MODES.DEVELOPMENT,
+    }),
+    null,
   );
 });
 

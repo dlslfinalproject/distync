@@ -108,6 +108,36 @@ test("DEPLOY-MSWDO-RGD-01 claim validator accepts legitimate barangay_id scope",
   });
 });
 
+test("DEPLOY-BRG-RGD-OFFLINE-QR claim validator preserves the requested disaster event", async () => {
+  const result = await runMiddleware(validateClaimBarangayStub, {
+    params: { id: stubId },
+    body: {
+      barangay_id: barangayId,
+      disaster_event_id: eventId,
+    },
+  });
+
+  assert.equal(result.calledNext, true);
+  assert.equal(result.req.validatedBody.disaster_event_id, eventId);
+});
+
+test("DEPLOY-BRG-RGD-OFFLINE-QR claim validator rejects malformed disaster_event_id", async () => {
+  const result = await runMiddleware(validateClaimBarangayStub, {
+    params: { id: stubId },
+    body: {
+      barangay_id: barangayId,
+      disaster_event_id: "not-a-uuid",
+    },
+  });
+
+  assert.equal(result.calledNext, false);
+  assert.equal(result.statusCode, 400);
+  assert.match(
+    result.payload.message,
+    /disaster_event_id must be a valid UUID when provided/,
+  );
+});
+
 test("DEPLOY-MSWDO-RGD-01 claim validator rejects malformed barangay_id", async () => {
   const result = await runMiddleware(validateClaimBarangayStub, {
     params: { id: stubId },

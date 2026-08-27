@@ -18,6 +18,17 @@ import { sanitizeHouseholdUpdatePayload } from "./householdEditProtection.js";
 const API_BASE_URL =
   import.meta.env?.VITE_API_BASE_URL || "http://localhost:5000";
 
+const RE_ADMISSION_ERROR_MESSAGES = {
+  RE_ADMISSION_SOURCE_NOT_FOUND:
+    "The archived household could not be found. Refresh the masterlist and try again.",
+  RE_ADMISSION_SOURCE_NOT_ARCHIVED:
+    "This household is no longer archived. Refresh the masterlist to view the current occurrence.",
+  RE_ADMISSION_SOURCE_CONTEXT_MISMATCH:
+    "The archived household no longer matches the selected disaster event or barangay. Refresh the masterlist and try again.",
+  HOUSEHOLD_ALREADY_ADMITTED:
+    "This household has already been re-admitted. Refresh the masterlist to view the current active record.",
+};
+
 const REGISTRATION_CACHE_KEYS = {
   activeDisasterEvents: "active-disaster-events",
   sectors: "sectors",
@@ -69,6 +80,11 @@ const parseJsonResponse = async (response) => {
     error.statusCode = response.status;
     error.code = payload.code || payload.error || "";
     error.serverPayload = payload.data || null;
+
+    if (RE_ADMISSION_ERROR_MESSAGES[error.code]) {
+      error.message = RE_ADMISSION_ERROR_MESSAGES[error.code];
+    }
+
     throw error;
   }
 

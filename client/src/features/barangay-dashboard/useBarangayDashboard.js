@@ -6,6 +6,7 @@ import { fetchBarangayDashboard } from "./barangayDashboardService";
 import {
   persistOperationalDisasterEventSelection,
   readOperationalDisasterEventId,
+  readOperationalDisasterEventContext,
   readOperationalDisasterEventScope,
 } from "../disaster-events/operationalDisasterEventSelection";
 
@@ -93,7 +94,21 @@ const sortDashboardEvents = (events) => {
   });
 };
 
-export const useBarangayDashboard = ({ userId }) => {
+const canRestoreOfflineContext = (error) => {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    return true;
+  }
+
+  if (error?.statusCode) {
+    return false;
+  }
+
+  return /Failed to fetch|NetworkError|Load failed/i.test(
+    String(error?.message || ""),
+  );
+};
+
+export const useBarangayDashboard = ({ userId, fallbackBarangayId = "" }) => {
   const accessMode = getAccessMode();
   const allowFallback = accessMode === ACCESS_MODES.DEVELOPMENT;
   const [eventScope, setEventScopeState] = useState(
@@ -119,6 +134,11 @@ export const useBarangayDashboard = ({ userId }) => {
   const [isContextResolved, setIsContextResolved] = useState(false);
   const requestSeqRef = useRef(0);
   const skipSelectedEventReloadRef = useRef("");
+  const lastResolvedContextRef = useRef({
+    assignedBarangay: null,
+    assignedBarangayId: null,
+    isDevOverride: false,
+  });
   const hasScopedBarangayContext = Boolean(userId || overrideBarangayId);
 
   const persistSelection = useCallback(
@@ -277,22 +297,65 @@ export const useBarangayDashboard = ({ userId }) => {
           skipSelectedEventReloadRef.current = nextSelectedEvent.id;
         }
         setSelectedDisasterEventIdState(nextSelectedEvent?.id || "");
+        lastResolvedContextRef.current = {
+          assignedBarangay: response.assigned_barangay || null,
+          assignedBarangayId:
+            response.assigned_barangay_id ||
+            response.assigned_barangay?.id ||
+            null,
+          isDevOverride: Boolean(response.is_dev_override),
+        };
         persistOperationalDisasterEventSelection({
           roleCode: ROLE_CODES.BARANGAY,
           userId,
           eventId: nextSelectedEvent?.id || "",
           eventScope,
+          event: nextSelectedEvent,
         });
       } catch (error) {
         if (isMounted && requestSeqRef.current === requestSeq) {
-          setPayload(emptyPayload);
-          setSelectedDisasterEventIdState("");
-          persistOperationalDisasterEventSelection({
-            roleCode: ROLE_CODES.BARANGAY,
-            userId,
-            eventId: "",
-            eventScope,
-          });
+          if (canRestoreOfflineContext(error)) {
+            const storedEvent = readOperationalDisasterEventContext({
+              roleCode: ROLE_CODES.BARANGAY,
+              userId,
+              eventScope,
+            });
+            const retainedEventId =
+              selectedDisasterEventId || storedEvent?.id || "";
+            const retainedEvent = storedEvent ||
+              (retainedEventId ? { id: retainedEventId } : null);
+            const previousContext = lastResolvedContextRef.current;
+            const retainedBarangayId =
+              previousContext.assignedBarangayId ||
+              previousContext.assignedBarangay?.id ||
+              overrideBarangayId ||
+              fallbackBarangayId ||
+              null;
+
+            setPayload({
+              ...emptyPayload,
+              assigned_barangay:
+                previousContext.assignedBarangay ||
+                (retainedBarangayId ? { id: retainedBarangayId } : null),
+              assigned_barangay_id: retainedBarangayId,
+              event_scope: eventScope,
+              available_events: retainedEvent ? [retainedEvent] : [],
+              selected_event: retainedEvent,
+              is_dev_override:
+                previousContext.isDevOverride ||
+                Boolean(overrideBarangayId),
+            });
+            setSelectedDisasterEventIdState(retainedEvent?.id || "");
+          } else {
+            setPayload(emptyPayload);
+            setSelectedDisasterEventIdState("");
+            persistOperationalDisasterEventSelection({
+              roleCode: ROLE_CODES.BARANGAY,
+              userId,
+              eventId: "",
+              eventScope,
+            });
+          }
           setErrorMessage(getFriendlyDashboardErrorMessage(error));
           setErrorCode(error.code || "");
           setIsContextResolved(true);
@@ -314,6 +377,7 @@ export const useBarangayDashboard = ({ userId }) => {
     eventScope,
     hasScopedBarangayContext,
     overrideBarangayId,
+    fallbackBarangayId,
     selectedDisasterEventId,
     userId,
   ]);

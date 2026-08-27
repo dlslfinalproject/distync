@@ -204,6 +204,45 @@ test("H05-08 claimBarangayStub keeps cancelled stubs as non-conflict validation 
   );
 });
 
+test("DEPLOY-BRG-RGD-OFFLINE-QR claimBarangayStub rejects a cached stub from another disaster event before claiming", async () => {
+  const events = [];
+  let claimHandlerCalled = false;
+
+  await withStubbedStubService(
+    createBaseStubs({
+      events,
+      scopedStub: {
+        ...baseStub,
+        status: "ISSUED",
+      },
+      claimHandler: async () => {
+        claimHandlerCalled = true;
+      },
+    }),
+    async ({ claimBarangayStub }) => {
+      await assert.rejects(
+        () =>
+          claimBarangayStub({
+            ...baseParams,
+            disaster_event_id: "55555555-5555-4555-8555-555555555555",
+          }),
+        (error) => {
+          assert.equal(error.code, "WRONG_EVENT");
+          assert.equal(error.statusCode, 400);
+          assert.equal(
+            error.message,
+            "This stub belongs to a different disaster event. Select the correct event before scanning.",
+          );
+          return true;
+        },
+      );
+    },
+  );
+
+  assert.equal(claimHandlerCalled, false);
+  assert.deepEqual(events, []);
+});
+
 test("H05-09 claimBarangayStub blocks archived households before any claim processing", async () => {
   await withStubbedStubService(
     createBaseStubs({

@@ -258,6 +258,7 @@ const ACTION_HANDLERS = {
           auth.roleCode === ROLE_CODES.MSWDO ? payload?.barangay_id || null : null,
         verified_by: auth.userId,
         claimed_at: clientTimestamp,
+        disaster_event_id: payload?.disaster_event_id || null,
         override_barangay_id: null,
         dbClient,
       }),
